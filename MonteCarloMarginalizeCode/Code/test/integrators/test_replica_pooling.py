@@ -20,7 +20,10 @@ def _load_driver_helpers():
     src = open(os.path.normpath(path)).read()
     mod = types.ModuleType("drv")
     mod.numpy = numpy
-    for fn in ("_rvs_len", "_pool_replica_rvs", "_lnZ_of_rvs", "_kish_neff_of_rvs"):
+    # ln_weights_from_rvs first: the others now delegate to it (one canonical definition of the
+    # importance weight, see the driver docstring).
+    for fn in ("_rvs_lnL_convention", "ln_weights_from_rvs", "_rvs_len", "_pool_replica_rvs",
+               "_lnZ_of_rvs", "_kish_neff_of_rvs"):
         m = re.search(r"^def %s\(.*?(?=\n\ndef |\n\nclass )" % fn, src, re.S | re.M)
         assert m, "helper %s not found in the driver" % fn
         exec(compile(m.group(0), "<drv>", "exec"), mod.__dict__)
@@ -221,6 +224,127 @@ def test_cached_weights_follow_a_flat_fairdraw_block():
     pooled = DRV._pool_replica_rvs([fd, fd], _S(), rep_lnZ=[0.0, 0.0], already_resampled=True)
     assert numpy.ptp(pooled['log_weights']) < 1e-9, \
         "fairdraw block's cached log_weights are not constant: exporters would double-weight it"
+
+
+#
+# RAW-FIELD ('integrand'/'joint_prior'/'joint_s_prior') RECORDS UNDER THE LOG CONVENTION.
+#
+# mcsamplerEnsemble writes no log_* columns at all, and under return_lnI its 'integrand' holds lnL.
+# Pooling REWRITES joint_s_prior to force a block's weights, and the equation to solve is
+# convention-dependent -- so this path has to be tested in its own right.
+#
+
+
+def _replica_raw(rng, n, lnZ, spread):
+    """A GMM-style record: raw columns only, 'integrand' holding lnL (many rows negative)."""
+    lnL = rng.normal(0, spread, size=n)
+    lnL = lnL - numpy.log(numpy.mean(numpy.exp(lnL))) + lnZ
+    return dict(integrand=lnL, joint_prior=numpy.ones(n), joint_s_prior=numpy.ones(n),
+                x=rng.normal(size=n))
+
+
+def _lw_raw(rec, use_lnL):
+    return DRV.ln_weights_from_rvs(rec, use_lnL=use_lnL)
+
+
+def test_raw_flat_block_keeps_a_positive_proposal_density_under_the_log_convention():
+    """The reconstruction is  js = ig*jp/exp(target)  for a LINEAR integrand.
+
+    Applied to an lnL record it yields js < 0 for every row with lnL < 0 -- a negative proposal
+    density -- and the block weights are not constant, which is the whole purpose of a flat block.
+    The log-convention equation is  js = exp(lnL + log(jp) - target).
+    """
+    rng = numpy.random.RandomState(31)
+    fd = _replica_raw(rng, 4000, 0.0, 1.2)
+    assert numpy.any(numpy.asarray(fd['integrand']) < 0), "test record has no lnL < 0 rows"
+
+    pooled = DRV._pool_replica_rvs([fd, fd], _S(), rep_lnZ=[0.0, 0.0],
+                                   already_resampled=True, use_lnL=True)
+    js = numpy.asarray(pooled['joint_s_prior'], dtype=float)
+    assert numpy.all(js > 0), "pooling produced a NON-POSITIVE sampling prior on {} rows".format(
+        int(numpy.sum(js <= 0)))
+    lw = _lw_raw(pooled, use_lnL=True)
+    assert numpy.all(numpy.isfinite(lw))
+    assert numpy.ptp(lw) < 1e-9, "fairdraw block did not get equal within-block weights"
+    assert abs(DRV._lnZ_of_rvs(pooled, use_lnL=True) - 0.0) < 1e-9
+
+    # the un-fixed reading is the hazard this pins: negative densities and a non-flat block
+    wrong = DRV._pool_replica_rvs([fd, fd], _S(), rep_lnZ=[0.0, 0.0],
+                                  already_resampled=True, use_lnL=False)
+    js_wrong = numpy.asarray(wrong['joint_s_prior'], dtype=float)
+    assert numpy.any(js_wrong <= 0), (
+        "expected the linear reconstruction to produce a non-positive density on an lnL record; "
+        "this test no longer demonstrates the hazard")
+    assert numpy.ptp(_lw_raw(wrong, use_lnL=True)[numpy.isfinite(_lw_raw(wrong, use_lnL=True))]) > 1.0
+
+
+def test_raw_pooling_reproduces_the_combined_evidence_under_the_log_convention():
+    rng = numpy.random.RandomState(32)
+    reps = [_replica_raw(rng, 4000, 0.0, 1.1), _replica_raw(rng, 3000, 0.2, 1.1),
+            _replica_raw(rng, 5000, -0.1, 0.9)]
+    Zk = [numpy.mean(numpy.exp(_lw_raw(r, use_lnL=True))) for r in reps]
+    target = numpy.log(numpy.mean(Zk))
+    pooled = DRV._pool_replica_rvs(reps, _S(), use_lnL=True)
+    got = DRV._lnZ_of_rvs(pooled, use_lnL=True)
+    assert abs(got - target) < 1e-9, "raw pooled lnZ {} != combination {}".format(got, target)
+    assert len(pooled['x']) == 12000
+
+
+def test_raw_pooling_applies_the_reported_lnZ_renormalization():
+    """The raw branch used to rescale joint_s_prior by a hardcoded K*n_k, which is only the
+    FALLBACK value of `scale`.  So whenever a reported per-replica lnZ was available it skipped the
+    renormalization the log branch applied, and a pruned/thresholded replica was mis-weighted."""
+    rng = numpy.random.RandomState(33)
+    raw_a = _replica_raw(rng, 4000, 0.0, 1.0)
+    raw_b = _replica_raw(rng, 4000, 0.3, 1.0)
+    lnZ = [0.0, 0.3]
+    lw_b = _lw_raw(raw_b, use_lnL=True)
+    keep = numpy.argsort(lw_b)[len(lw_b) // 2:]
+    pruned_b = {k: numpy.asarray(v)[keep] for k, v in raw_b.items()}
+
+    target = numpy.log(numpy.mean(numpy.exp(numpy.array(lnZ))))
+    pooled = DRV._pool_replica_rvs([raw_a, pruned_b], _S(), rep_lnZ=lnZ, use_lnL=True)
+    got = DRV._lnZ_of_rvs(pooled, use_lnL=True)
+    assert abs(got - target) < 1e-9, (
+        "raw pooled lnZ {} != reported combination {} for a pruned replica".format(got, target))
+
+    naive = DRV._lnZ_of_rvs(DRV._pool_replica_rvs([raw_a, pruned_b], _S(), use_lnL=True),
+                            use_lnL=True)
+    assert abs(naive - target) > 0.05, (
+        "expected the un-renormalized rescale to mis-weight a pruned replica; it did not, so this "
+        "test no longer demonstrates the hazard")
+
+
+def test_raw_cached_weights_are_rebuilt_in_the_right_convention():
+    """The .dgrid and calibration exporters PREFER a cached 'log_weights'.  Rebuilding it with the
+    linear formula on an lnL record hands them log(lnL)-flattened weights -- the original bug, now
+    re-entered through the back door of the pooled record."""
+    rng = numpy.random.RandomState(34)
+    a = _replica_raw(rng, 3000, 0.0, 1.1)
+    b = _replica_raw(rng, 3000, 0.4, 1.1)
+    for r in (a, b):
+        r['log_weights'] = _lw_raw(r, use_lnL=True)
+    pooled = DRV._pool_replica_rvs([a, b], _S(), rep_lnZ=[0.0, 0.4], use_lnL=True)
+    assert numpy.allclose(pooled['log_weights'], _lw_raw(pooled, use_lnL=True)), \
+        "cached log_weights disagree with the pooled components the estimate used"
+    assert numpy.all(numpy.isfinite(pooled['log_weights'])), \
+        "rebuilt cache dropped the lnL <= 0 rows"
+
+
+def test_raw_linear_records_are_unaffected():
+    """The P2 guard, at the pooling level: a record that really does store linear L must pool
+    exactly as before."""
+    rng = numpy.random.RandomState(35)
+    reps = []
+    for lnZ in (0.0, 0.25):
+        lnL = rng.normal(0, 1.0, size=3000)
+        lnL = lnL - numpy.log(numpy.mean(numpy.exp(lnL))) + lnZ
+        reps.append(dict(integrand=numpy.exp(lnL), joint_prior=numpy.ones(3000),
+                         joint_s_prior=numpy.ones(3000), x=rng.normal(size=3000)))
+    target = numpy.log(numpy.mean([numpy.mean(numpy.exp(_lw_raw(r, use_lnL=False))) for r in reps]))
+    pooled = DRV._pool_replica_rvs(reps, _S())              # default: linear, as before
+    got = DRV._lnZ_of_rvs(pooled)
+    assert abs(got - target) < 1e-9, "linear pooling changed: {} vs {}".format(got, target)
 
 
 if __name__ == "__main__":

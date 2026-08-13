@@ -72,6 +72,10 @@ if 'PROFILE' not in os.environ:
 
 
 from RIFT.integrators.statutils import  update,finalize, init_log,update_log,finalize_log
+# For make_warm_seed_reserve only -- ONE builder for the retained-sample record, shared with
+# the AV sampler so an L0 rescue gets the identical thing whichever sampler ran.  Not circular:
+# mcsamplerAdaptiveVolume names this module only in comments.
+import RIFT.integrators.mcsamplerAdaptiveVolume as mcsamplerAdaptiveVolume
 
 #from multiprocessing import Pool
 
@@ -1325,6 +1329,11 @@ class MCSampler(object):
         if 'integrand' in self._rvs:
           # remove conflict
           del self._rvs['integrand']
+        # Same reasoning for the warm-seed reserve: a pass that raises part-way would
+        # otherwise leave the PREVIOUS point's retained samples here, and an L0 rescue would
+        # then seed this point's live volume from a different point's peak.  Drop it on
+        # entry, so "present" always means "this pass wrote it".
+        self._warm_seed_reserve = None
         while (eff_samp < neff and self.ntotal < nmax): #  and (not bConvergenceTests):
             
 
@@ -1823,12 +1832,39 @@ class MCSampler(object):
         # self._pdf_norm.update(temppdfnormdict)
         # self.prior_pdf.update(temppriordict)
 
+        # WARM-SEED RESERVE, taken HERE -- before the pruning and the fair draw below.
+        #
+        # The portfolio drives its members through draw_simplified(), never through their
+        # integrate_log(), so NO MEMBER EVER BUILDS ONE: this is the only place the
+        # aggregate retained set exists.  Without it an L0 rescue on a portfolio falls back
+        # to reading _rvs, which by then has been pruned and then fair-drawn to ~1.5*n_eff
+        # rows sampled WITH REPLACEMENT -- exactly the starvation the reserve exists to end,
+        # and the failure is quiet rather than loud: a tiny subset that happens to come back
+        # full rank passes the rank guard, skips puffing, and seeds another sliver with a
+        # healthy-looking n_eff.  Measured on the extrinsic-collapse demo at rho_net 146.8
+        # before this existed: portfolio rescues seeded from 3 and 5 rows, and the puff width
+        # fell back to the fixed prior fraction because that few rows cannot define a 6-D
+        # covariance.
+        if (not save_no_samples) and ("log_integrand" in self._rvs):
+            try:
+                self._warm_seed_reserve = mcsamplerAdaptiveVolume.make_warm_seed_reserve(
+                    numpy.vstack([numpy.asarray(identity_convert(self._rvs[p]), dtype=float).ravel()
+                                  for p in self.params_ordered]).T,
+                    self._rvs["log_integrand"], self.params_ordered,
+                    n_max=getattr(self, 'n_warm_seed_reserve', 20000),
+                    log_joint_prior=self._rvs["log_joint_prior"],
+                    log_joint_s_prior=self._rvs["log_joint_s_prior"])
+            except Exception as _e_res:
+                # Provenance for a rescue, never a reason to lose a completed integral.
+                self._warm_seed_reserve = None
+                print("  [portfolio] warm-seed reserve not kept (", _e_res, ")")
+
         # Clean out the _rvs arrays for 'irrelevant' points
         #   - find and remove samples with  lnL less than maxlnL - deltalnL (latter user-specified)
         #   - create the cumulative weights
         #   - find and remove samples which contribute too little to the cumulative weights
         if (not save_no_samples) and ( "log_integrand" in self._rvs):
-            self._rvs["sample_n"] = self.identity_convert_togpu(numpy.arange(len(self._rvs["log_integrand"])))  # create 'iteration number'        
+            self._rvs["sample_n"] = self.identity_convert_togpu(numpy.arange(len(self._rvs["log_integrand"])))  # create 'iteration number'
             # Step 1: Cut out any sample with lnL belw threshold
             if deltalnL < 1e10: # not infinity, so we are truncating the sample list
               indx_list = [k for k, value in enumerate( (self._rvs["log_integrand"] > maxlnL - deltalnL)) if value] # threshold number 1
@@ -1875,18 +1911,38 @@ class MCSampler(object):
         if bFairdraw and not(n_extr is None):
            n_extr = int(numpy.min([n_extr,1.5*identity_convert(eff_samp),1.5*neff]))
            print(" Fairdraw size : ", n_extr)
-           ln_wt = self.xpy.array(self._rvs["log_integrand"] + self._rvs["log_joint_prior"] - self._rvs["log_joint_s_prior"] ,dtype=float)
-           ln_wt = identity_convert(ln_wt)  # send to CPU
+           # Host-convert each operand BEFORE the arithmetic.  self.xpy is numpy throughout
+           # integrate_log (forced above: the portfolio aggregates on the host), while a
+           # device-native integrand can leave these keys cupy-typed -- and numpy.array() on a
+           # cupy array raises the same TypeError as the draw below, one line earlier.
+           ln_wt = self.xpy.asarray(identity_convert(self._rvs["log_integrand"])
+                                    + identity_convert(self._rvs["log_joint_prior"])
+                                    - identity_convert(self._rvs["log_joint_s_prior"]), dtype=float)
            ln_wt += - special.logsumexp(ln_wt)
-           wt = xpy.exp(identity_convert_togpu(ln_wt))
+           # Build the weights on the SAMPLER's backend (self.xpy), which is what draws below.
+           # The module-global `identity_convert_togpu` is cupy.asarray independently of self.xpy,
+           # so this line sent ln_wt to the DEVICE; numpy.exp then dispatched through cupy's
+           # __array_ufunc__ and handed back a cupy array, which numpy.random.choice refuses with
+           # "Implicit conversion to a NumPy array is not allowed".  That aborted the entire ILE
+           # run (analyze_event -> sampler.integrate) on every GPU host, so --sampler-method
+           # portfolio could not be used at all there.  Same defect, same fix, as the fair-draw
+           # block in mcsamplerAdaptiveVolume.
+           wt = self.xpy.exp(self.xpy.asarray(ln_wt))
            if n_extr < len(self._rvs["log_integrand"]):
                indx_list = self.xpy.random.choice(self.xpy.arange(len(wt)), size=n_extr,replace=True,p=wt) # fair draw
                # FIXME: See previous FIXME
+               # Gather on the HOST.  _rvs entries are not guaranteed to sit on the same backend as
+               # indx_list (a device-native integrand writes log_integrand as cupy, and keys written
+               # outside integrate_log arrive host-typed), and indexing a numpy array with a cupy
+               # array raises the same "Implicit conversion" TypeError.  Converting first is free:
+               # this block moves every array to the host anyway.
+               indx_host = np.asarray(identity_convert(indx_list))
                for key in list(self._rvs.keys()):
+                   arr = identity_convert(self._rvs[key])
                    if isinstance(key, tuple):
-                       self._rvs[key] = identity_convert(self._rvs[key][:,indx_list])
+                       self._rvs[key] = arr[:,indx_host]
                    else:
-                       self._rvs[key] = identity_convert(self._rvs[key][indx_list])
+                       self._rvs[key] = arr[indx_host]
 
 
         # Create extra dictionary to return things

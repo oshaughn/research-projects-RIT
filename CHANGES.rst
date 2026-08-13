@@ -64,6 +64,106 @@ development tree is rift_O4d.
   - ILE 'fanout' submission can use multiple GPUs on one host (RIFT_ILE_GPU_FANOUT)
   - Qlm interpolated in factored_likelihood...NoLoop (option)
 
+** (unreleased; development since rc1)
+  Development tree is rift_O4d, staged on oshaughnessy-junior/rift_O4d.  The per-feature detail, review
+  history, and measurements live in fork PRs #19-#84 of oshaughnessy-junior/research-projects-RIT; the
+  grouping below is by subsystem, not by merge order.  Every item is default-off or behavior-preserving
+  unless it is described as a bug fix.
+  - extrinsic sampler PORTFOLIO (mcsamplerPortfolio): member realizations, so cold AV/GMM members no
+    longer crash on their first draw; balance-heuristic (q_mix) estimator, which makes the portfolio safe
+    when one member's proposal is wrong; VARAHA never-freeze default plus a freeze-policy CLI and a draw-share
+    band (--portfolio-varaha-max-frac); opt-in truncated-IS weight clipping restricted to the ADAPTATION /
+    proposal-fit stream only, with the clipped mass tracked (unbiased by construction); opt-in adaptive draw
+    allocation driven by marginal pooled n_eff or q_mix-native MIS credit; per-member interval narrowing
+    (restrict_member_range); warm-startable members with setup-arg snapshot/replay; explicit full-support
+    declaration; fair-draw export weights built on the sampler's own backend rather than forced to host.
+  - ADAPTIVE VOLUME sampler (mcsamplerAdaptiveVolume): bootstrappable warm start from samples / Fisher /
+    mixture / saved state, with a coverage floor (cover_frac) for cross-problem reuse; vectorized
+    sample_from_bins (unblocks concentrated warm starts); opt-in anisotropic per-axis bin allocation
+    (--sampler-anisotropic-bins); draw_simplified subsamples randomly instead of head-slicing a bin-ordered
+    cloud; integrand fed on its native backend (fixes a real GPU-ILE regression).  Bug fixes: the high-SNR
+    empty-live-volume crash, the empty-selection crash in update_sampling_prior_selfish, and bootstrap bin
+    indices out of range on wide seeds.  Sampler collapse is now machine-readable, aggregated across
+    replicas, and the rejection gate is applied to the POOLED verdict too.
+  - high-SNR rescue and warm start in ILE: L0 auto-rescue plus L1 sequential warm start, with the warm seed
+    judged by RANK and puffed to the measured posterior scale, seeded from the points the pass RETAINED
+    (not the fair-draw subset), and a warm-seed reserve that records the exact pre-cap weight total; the
+    warm pass is rejected on evidence only.  ProposalField scaffold and a cherry-picked-pilot workflow for
+    L3 iteration-to-iteration proposal reuse.  Also fixes a pre-existing mcsamplerEnsemble cold-start crash.
+  - GMM proposals: data-driven ("flexible") component allocation with warm-start survival; O(k^3) Hungarian
+    component matching, replacing an O(k!) permutation search; bootstrap_from_samples for warm-starting from
+    a seed cloud; an OPT-IN defensive component whose coverage guarantee is verified and held through the
+    sampler lifecycle rather than only at setup; invalid n_comp now warns instead of silently never training;
+    a CUDA device probe before selecting cupy, and a loud failure when a GMM refit never succeeds.
+  - Monte-Carlo error and evidence integrity: mcsamplerGPU adaptive-proposal support truncation, which
+    biased lnZ LOW, is fixed; the MC error estimate is stabilized (Pareto k-hat tail diagnostic, cold
+    replicas, disclosed budgets) and replicas are pooled for export with the cached log_weights rebuilt so
+    the science exports use the corrected weights; _rvs importance weights are derived rather than read from
+    the ambiguous log_weights cache; the lnL/log-representation convention is keyed off the stored
+    representation, fixing --internal-use-lnL and the distance-grid export; marginal log-likelihood now uses
+    all available values (upstream contribution, C. Talbot).
+  - in-loop CALIBRATION MARGINALIZATION: fused-kernel self-term fix -- the per-realization
+    rho_sq_c = <C_c h | C_c h> is now formed per calibration draw instead of sharing one cal-independent
+    norm, with --calibration-global-norm to fall back to the cheaper <h|h> route; graceful fallback to the
+    prior when a cal proposal seed is absent; cal_mc_error guarded against total-underflow NaN; breadcrumbs
+    stored as string arrays for numpy portability; CPU and CUDA calmarg regression gates added to CI.
+  - SLOW-ROTATION and FINITE-SIZE detector response (new): factored_likelihood_with_rotation provides an
+    FD-native slow-rotation precompute, rotation-aware lnL assembly (Path A), a delay-derivative likelihood
+    (Path B, --rotation-p-max), and a frequency-dependent finite-size response (Path D) with per-detector
+    --freqresponse-arm-length; closed-form sidereal-harmonic response; cubic time interpolation with a
+    precision-preserving time reference.  Wired into batchmode ILE via --rotation-slow / --freqresponse,
+    with cupy/GPU support validated end-to-end on A100 and verify-anywhere demos in demo/rift/slowrot.
+  - differentiable JAX ILE (new, optional): jax_ile provides an AD-compatible extrinsic likelihood for the
+    rotation (Path A/B) and finite-size (Path D) likelihoods, multistart NUTS with a dense mass matrix,
+    gradient MAP-polish of the NUTS seeds, a phase-rotation reparameterization, evidence-weighted pooling,
+    posterior-ESS reporting, and a 3G sky-area-vs-SNR figure generator.  An optional extra: skipped by base
+    CI when JAX is not installed.
+  - ILE extrinsic proposal controls: the extrinsic zoom box (--limit-right-ascension / --limit-declination /
+    --limit-inclination / --limit-psi) is now honoured by the cosine samplers, where it was silently ignored;
+    effective-distance reparameterization of distance<->inclination (--internal-reparam-dl-incl); SNR-scaled
+    extrinsic chunk size in the helper; distance slices inherit the ILE chunk size instead of a private
+    hardcoded 2000 and keep the pinned-d integrand on its native backend, dropping a per-block PCIe round
+    trip; util_RandomizeOverlapOrder interleaves ACROSS worker files, not just within them (ILE was seeing
+    only the first few of many workers).
+  - CIP posterior export: fair export by systematic resampling with a unique capped final draw
+    (--posterior-unique-draw), the unique-draw bound computed exactly from the scaled sum, and weight
+    normalization done in the input dtype before the float64 cast.
+  - CONVERGENCE testing and puffball: convergence_test_samples.py gains --method js_lame ('lame' on the
+    unbounded non-circular parameters, a boundary-reflected JS on each bounded transverse parameter, and a
+    lagged upper-quantile drift test over --drift-window), because the default 'lame' test is blind to slow
+    monotone transverse-tail drift.  --js-lame-auto-threshold keys each threshold to the measured noise floor
+    at the DISTINCT sample count actually supplied (row-count keying is wrong once CIP pads its export with
+    duplicates), and --js-lame-require-lags refuses to certify convergence on an unpopulated lag window.
+    util_ParameterPuffball gains --append-with-random-parameter (append and SHUFFLE uniformly-random
+    transverse draws as a tail guard; the shuffle matters because nested ILE truncates the puffball) and
+    --reflect-parameter.  helper_LDG_Events / util_RIFT_pseudo_pipe expose these as
+    --internal-test-convergence-method and the opt-in --internal-cip-transverse-tails bundle, which requires
+    a precessing analysis and is REJECTED rather than silently changing the spin model.  Defaults unchanged.
+  - waveform and lalsimutils correctness: fix the spurious (l,+-m) asymmetry in hlmoft FD-mode conditioning;
+    zero the unpaired -fNyq bin whenever a resize truncates, not only when conditioning; centralize the
+    FD-grid convention choice in evaluate_fvals(lal_convention=); fix ET (E1/E2/E3) frame selection in
+    frame_data_to_hoft; prefer nrcatalog.compat_nrwf with a legacy fallback.  New waveform symmetry test
+    suite (mode cross-terms, orbital-plane parity), including the IMRPhenomX-family caveats.
+  - workflow and submit fixes: the G-group CIP master sub used the standard CIP exe rather than --cip-exe-G
+    (the flat-mode no-op master is preserved); ILE honours --srate-resample-time-marginalization instead of
+    always doubling, and recovers the requested export rate EXACTLY rather than an integer multiple; Virgo
+    calibration correction convention fixed; multi-GPU ILE fan-out with a multi-container example in one ini.
+  - containers, docs, CI: container survey/warmup tooling (containers/survey_scan) with GPU-inventory
+    profiles and tests; container canaries fixed after setuptools 84; an upstream dependency-compatibility
+    check run on both GitLab and GitHub CI; new docs for distance-grid workflows, the demo catalog, the
+    survey_scan executable, and containers.
+  - test and validation infrastructure (new): an expensive pre-merge posterior SHAPE-recovery gate for the
+    MC integrators (test/expensive_before_merging), with per-cell budgets, a non-blocking STARVED verdict,
+    confirm-at-fresh-seeds before a regression blocks, an opt-in-flag probe, and a provenance guard that
+    refuses to measure a RIFT other than the checkout under test; a quantitative integrator benchmark
+    harness and a weight-clip benchmark that persists per-seed rows and provenance; regression suites for
+    the L0 rescue seed, the cosine-sampler limits, the AV empty-live-volume crash, the portfolio fair-draw
+    backend, distance-slice device residency, cip_pipeline, _rvs weight derivation, and convergence sample
+    order.  demos/integrator_snr_lottery records the chunk-size stability and k-hat validation studies.
+    Measured NEGATIVE results and retractions are recorded alongside the positive ones (n_eff does not
+    certify correctness; k-hat does not catch confidently-wrong runs from support mismatch; the L0 'doubles
+    landed fraction' claim and the cap24 lnZ-bias claim are retracted).
+
 0.0.17.9
 ------------
 development tree is rift_O4c_staging -> rift_O4c; draft MR notes at

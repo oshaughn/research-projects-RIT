@@ -106,6 +106,22 @@ sim_manager_check:
     - python -m pip install lscsoft-glue --break-system-packages || echo "lscsoft-glue unavailable; condor portion will skip"
     - bash .travis/test-simulation-manager.sh
 
+calmarg_check:
+  stage: unit tests
+  script:
+    # in-loop calibration marginalization + per-realization self-term (CPU).
+    - bash .travis/test-calmarg.sh
+
+integrator_gate_accounting_check:
+  stage: unit tests
+  script:
+    # The shape-recovery gate and its opt-in flag probe are far too expensive for CI and stay out
+    # of it.  The ACCOUNTING that decides whether one of their rows blocks a merge is neither: it
+    # is pure logic, runs in seconds (no sampler is built), and a bug in it silently CLEARS a real
+    # regression -- which is how a noisy row failed a PR and how an untested row could pass one.
+    # So that part runs on every pipeline.
+    - python -m pytest -q MonteCarloMarginalizeCode/Code/test/expensive_before_merging/integrators/test_probe_confirm.py
+
 test_run:
   stage: system tests
   script:
@@ -140,7 +156,7 @@ gpu_integration:
       --env GW_SURROGATE="$GW_SURROGATE"
       --env RIFT_CI_REQUIRE_GPU="$RIFT_CI_REQUIRE_GPU"
       "$RIFT_CI_APPTAINER_IMAGE"
-      bash -lc 'cd "$CI_PROJECT_DIR" && export PYTHONPATH="$CI_PROJECT_DIR/MonteCarloMarginalizeCode/Code${PYTHONPATH:+:$PYTHONPATH}" && bash .travis/test-integrate.sh'
+      bash -lc 'cd "$CI_PROJECT_DIR" && export PYTHONPATH="$CI_PROJECT_DIR/MonteCarloMarginalizeCode/Code${PYTHONPATH:+:$PYTHONPATH}" && bash .travis/test-integrate.sh && bash .travis/test-calmarg-gpu.sh'
   rules:
     - if: '$CI_PIPELINE_SOURCE == "web"'
       when: manual

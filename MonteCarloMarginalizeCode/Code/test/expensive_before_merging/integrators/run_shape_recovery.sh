@@ -38,6 +38,11 @@ OUT=${2:?need output json path}
 shift 2
 
 export PYTHONPATH="${CHECKOUT}/MonteCarloMarginalizeCode/Code:${PYTHONPATH}"
+# ...and say so, so shape_recovery.py can CHECK that the prepend actually took.  A mistyped or
+# moved CHECKOUT leaves a PYTHONPATH entry that resolves nothing and falls back to the installed
+# RIFT -- in BOTH arms, whereupon a base-vs-candidate comparison comes back bit-identical, which
+# this suite has already learned to read as "cleared at fresh seeds" (FOLLOWUPS items 1 and 2).
+export RIFT_SHAPE_CHECKOUT="${CHECKOUT}"
 export CUDA_VISIBLE_DEVICES=""
 export OMP_NUM_THREADS=${OMP_NUM_THREADS:-4}
 export MKL_NUM_THREADS=${OMP_NUM_THREADS}

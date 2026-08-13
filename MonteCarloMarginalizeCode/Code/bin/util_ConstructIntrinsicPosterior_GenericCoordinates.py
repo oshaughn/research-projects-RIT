@@ -32,7 +32,8 @@ import lal
 import functools
 import itertools
 
-from RIFT.misc.samples_utils import add_field 
+from RIFT.misc.samples_utils import add_field
+from RIFT.misc.cip_pipeline import systematic_resample, unique_draw_bound
 
 import joblib  # http://scikit-learn.org/stable/modules/model_persistence.html
 
@@ -249,6 +250,7 @@ parser.add_argument("--fref",default=20,type=float, help="Reference frequency us
 parser.add_argument("--fmin",type=float,default=20)
 parser.add_argument("--fname-rom-samples",default=None,help="*.rom_composite output. Treated identically to set of posterior samples produced by mcsampler after constructing fit.")
 parser.add_argument("--n-output-samples",default=3000,type=int,help="output posterior samples (default 3000)")
+parser.add_argument("--posterior-unique-draw",action='store_true',help="Cap the posterior export draw at floor(sum(w)/max(w)), the largest size at which a fair draw can be duplicate-free; the systematic draw is then unique by construction. Delivered size may be smaller than --n-output-samples (honest undersupply; see the +annotation_export.dat sidecar). Intended for the final iteration(s), whose output is consumed downstream as a unique grid.")
 parser.add_argument("--desc-lalinference",type=str,default='',help="String to adjoin to legends for LI")
 parser.add_argument("--desc-ILE",type=str,default='',help="String to adjoin to legends for ILE")
 parser.add_argument("--parameter", action='append', help="Parameters used as fitting parameters AND varied at a low level to make a posterior")
@@ -3453,19 +3455,20 @@ if not no_plots:
 print(" ---- Subset for posterior samples (and further corner work) --- ")
 
 
-# pick random numbers
-p_threshold_size = np.min([5*opts.n_output_samples,len(weights)])
-#p_thresholds =  np.random.uniform(low=0.0,high=1.0,size=p_threshold_size)#opts.n_output_samples)
+# pick random indices, proportional to weight.
+#   Weighted np.random.choice(replace=False) is successive sampling: indices come back in
+#   draw order with the head enriched in high-weight points, so the first-N truncation
+#   below biased the export at any N.  Systematic resampling has exact expected counts
+#   N*w_i/sum(w) at any N and is returned shuffled, so any truncation stays a fair draw.
+p_threshold_size = np.min([5*opts.n_output_samples,len(weights)])   # oversample so the draw survives the downselect below
+n_unique_bound = unique_draw_bound(weights)   # floor(sum/max): largest duplicate-free fair draw
+if opts.posterior_unique_draw:
+    p_threshold_size = np.max([1, np.min([p_threshold_size, n_unique_bound])])
 if opts.verbose:
-    print(" output size: selected thresholds N=", p_threshold_size)
-# find sample indexes associated with the random numbers
-#    - FIXME: first truncate the bad ones
-#cum_sum  = np.cumsum(weights)
-#cum_sum = cum_sum/cum_sum[-1]
-#indx_list = list(map(lambda x : np.sum(cum_sum < x),  p_thresholds))  # this can lead to duplicates
-indx_list = np.random.choice(np.arange(len(weights)),p_threshold_size,p=np.array(weights/np.sum(weights),dtype=float),replace=False)
+    print(" output size: selected thresholds N=", p_threshold_size, " unique-draw bound sum(w)/max(w) = ", n_unique_bound)
+indx_list = systematic_resample(weights, p_threshold_size)
 if opts.verbose:
-    print(" output size: selected random indices N=", len(indx_list))
+    print(" output size: selected random indices N=", len(indx_list), " distinct=", len(np.unique(indx_list)))
 if opts.internal_bound_factor_if_n_eff_small and neff <opts.n_output_samples  and opts.internal_bound_factor_if_n_eff_small* neff < opts.n_output_samples:
     my_size_out = int(neff*opts.internal_bound_factor_if_n_eff_small)+1  # make sure at least one sample
     indx_list = np.random.choice(indx_list, my_size_out, replace=False)
@@ -3473,6 +3476,7 @@ if opts.verbose:
     print(" output size: truncating based on n_eff to N=", len(indx_list))
 lnL_list = []
 P_list =[]
+kept_indx_list = []   # cache index behind each P_list entry, for the export supply annotation
 P = lalsimutils.ChooseWaveformParams()
 P.approx = lalsim.GetApproximantFromString(opts.approx_output)
 #P.approx = lalsim.SEOBNRv2  # DEFAULT
@@ -3549,6 +3553,7 @@ for indx_here in indx_list:
         if include_item:
          if Pgrid.m2 <= Pgrid.m1:  # do not add grid elements with m2> m1, to avoid possible code pathologies !
             P_list.append(Pgrid)
+            kept_indx_list.append(indx_here)
             if not(opts.internal_use_lnL):
                 lnL_list.append(np.log(samples["integrand"][indx_here]))
             else:
@@ -3556,6 +3561,7 @@ for indx_here in indx_list:
          else:
             Pgrid.swap_components()  # IMPORTANT.  This should NOT change the physical functionality FOR THE PURPOSES OF OVERLAP (but will for PE - beware phiref, etc!)
             P_list.append(Pgrid)
+            kept_indx_list.append(indx_here)
             if not(opts.internal_use_lnL):
                 lnL_list.append(np.log(samples["integrand"][indx_here]))
             else:
@@ -3572,6 +3578,11 @@ if len(P_list) <1:
  ### Export data
  ###
 n_output_size = np.min([len(P_list),opts.n_output_samples])
+# Honest-supply annotation: how many samples were requested, how many delivered, how many
+# of the delivered are distinct cache points, and the duplicate-free fair-draw bound.
+n_delivered_unique = len(np.unique(kept_indx_list[:n_output_size]))
+print(" export supply: requested {} delivered {} distinct {} unique-draw bound {} ".format(opts.n_output_samples, n_output_size, n_delivered_unique, n_unique_bound))
+np.savetxt(opts.fname_output_samples+"+annotation_export.dat", [[opts.n_output_samples, n_output_size, n_delivered_unique, n_unique_bound]], header=" n_requested n_delivered n_distinct unique_draw_bound ")
 # Hyperpipeline ASCII grid writer (opt-in via env var).  See note above the
 # earlier identical writer site -- same rationale.
 if _hpio.is_active():
