@@ -30,6 +30,7 @@ import itertools
 import functools
 
 import scipy.special
+import scipy.stats as stats
 
 #from statutils import cumvar
 
@@ -588,7 +589,7 @@ class MCSampler(object):
         args_passed.update(kwargs)
         args_passed['use_lnL']=True
         args_passed['return_lnI']=True
-        return integrate(func, *args, args_passed)
+        return self.integrate(func, *args, **args_passed)
 
     def integrate(self, func, *args,**kwargs):
         nmax = kwargs["nmax"] if "nmax" in kwargs else 1e6
@@ -733,6 +734,18 @@ class MCSampler(object):
         self._rvs['joint_prior'] = self.identity_convert(prior_array)
         self._rvs['joint_s_prior'] = self.identity_convert(p_array)
         self._rvs['integrand'] = self.identity_convert(value_array)
+        if use_lnL:
+            # Preserve the historical ``integrand`` alias for direct callers,
+            # while exposing an unambiguous log-space contract to downstream
+            # consumers.  In log mode ``value_array`` is already ln(L).
+            self._rvs['log_integrand'] = self.identity_convert(integrator.cumulative_values)
+            self._rvs['log_joint_prior'] = self.identity_convert(self.xpy.log(prior_array))
+            self._rvs['log_joint_s_prior'] = self.identity_convert(self.xpy.log(p_array))
+            self._rvs['log_weights'] = self.identity_convert(
+                integrator.cumulative_values
+                + self.xpy.log(prior_array)
+                - self.xpy.log(p_array)
+            )
 
         if bFairdraw and not(n_extr is None):
            # scalars: use Python min on floats.  self.xpy.min([list]) fails on cupy
@@ -920,17 +933,29 @@ def sanityCheckSamplerIntegrateUnity(sampler,*args,**kwargs):
         return sampler.integrate(lambda *args: 1,*args,**kwargs)
 
 def convergence_test_MostSignificantPoint(pcut, rvs, params):
-    weights = rvs["weights"]
+    if "log_weights" in rvs:
+        log_weights = np.asarray(rvs["log_weights"])
+        return np.exp(np.max(log_weights) - scipy.special.logsumexp(log_weights)) < pcut
+    weights = rvs.get("weights")
+    if weights is None:
+        weights = rvs["integrand"]*rvs["joint_prior"]/rvs["joint_s_prior"]
     indxmax = np.argmax(weights)
     wtSum = np.sum(weights)
     return  weights[indxmax]/wtSum < pcut
 
 def convergence_test_NormalSubIntegrals(ncopies, pcutNormalTest, sigmaCutRelativeErrorThreshold, rvs, params):
-    weights = rvs["integrand"]* rvs["joint_prior"]/rvs["joint_s_prior"]
     igrandValues = np.zeros(ncopies)
-    len_part = int(len(weights)/ncopies)
-    for indx in np.arange(ncopies):
-        igrandValues[indx] = np.log(np.mean(weights[indx*len_part:(indx+1)*len_part]))
+    if "log_weights" in rvs:
+        log_weights = np.asarray(rvs["log_weights"])
+        len_part = int(len(log_weights)/ncopies)
+        for indx in np.arange(ncopies):
+            log_weights_here = log_weights[indx*len_part:(indx+1)*len_part]
+            igrandValues[indx] = scipy.special.logsumexp(log_weights_here) - np.log(len(log_weights_here))
+    else:
+        weights = rvs["integrand"]*rvs["joint_prior"]/rvs["joint_s_prior"]
+        len_part = int(len(weights)/ncopies)
+        for indx in np.arange(ncopies):
+            igrandValues[indx] = np.log(np.mean(weights[indx*len_part:(indx+1)*len_part]))
     igrandValues= np.sort(igrandValues)
     valTest = stats.normaltest(igrandValues)[1]
     igrandSigma = (np.std(igrandValues))/np.sqrt(ncopies)
