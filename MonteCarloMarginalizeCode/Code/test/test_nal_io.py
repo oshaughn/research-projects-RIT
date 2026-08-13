@@ -68,7 +68,7 @@ def test_renormalization_is_not_a_product_of_1d_marginals():
     C = np.full((3, 3), rho) + (1 - rho) * np.eye(3)
     n = nal_io.NAL(mu, np.linalg.inv(C), list("abc"),
                    bounds=np.stack([-np.ones(3), np.ones(3)], 1))
-    logm = n._log_mass(n=400000, seed=2)
+    logm = n.log_mass(seed=2)
     from scipy.stats import norm
     factorised = np.log(np.prod([norm.cdf(1) - norm.cdf(-1)] * 3))
     assert np.exp(logm) > np.exp(factorised) * 1.2      # correlation concentrates mass in the box
@@ -76,6 +76,55 @@ def test_renormalization_is_not_a_product_of_1d_marginals():
     G = np.random.default_rng(9).multivariate_normal(mu, C, 400000)
     brute = np.log(np.all(np.abs(G) <= 1, axis=1).mean())
     assert abs(logm - brute) < 0.02
+
+
+def test_truncation_constant_is_computed_once_and_reused():
+    """`renormalize=True` must not re-run the Monte Carlo on every likelihood call."""
+    mu = np.zeros(2)                                     # mass in the box ~ 0.466, comfortably < 1
+    n = nal_io.NAL(mu, np.eye(2), ["mc", "eta"], bounds=np.stack([mu - 1.0, mu + 1.0], 1))
+
+    calls = {"n": 0}
+    real = nal_io._rng
+
+    def counting_rng(seed):
+        calls["n"] += 1
+        return real(seed)
+
+    nal_io._rng = counting_rng
+    try:
+        first = n.log_mass()
+        for _ in range(5):
+            n.lnL(mu, renormalize=True)
+        assert calls["n"] == 1, "truncation mass recomputed inside lnL: %d draws sets" % calls["n"]
+    finally:
+        nal_io._rng = real
+    assert n.log_mass() == first < 0.0
+
+
+def test_unresolvable_truncation_mass_raises_rather_than_guessing():
+    """A mass too small to estimate must fail, not come back floored at 1/n.
+
+    1-D standard normal on [6, 7]: true mass ~1e-9, so no affordable number of draws lands in the
+    box.  The old floor returned ~5e-6 -- an 8.5 nat error presented as a measurement.
+    """
+    n = nal_io.NAL([0.0], [[1.0]], ["mc"], bounds=[[6.0, 7.0]])
+    with pytest.raises(ValueError, match="unresolved"):
+        n.log_mass(max_draws=200000, batch=100000)
+    with pytest.raises(ValueError, match="unresolved"):
+        n.lnL(np.array([[6.5]]), renormalize=True)
+    # ... unless the artifact declares the value it knows
+    n.meta["log_truncation_mass"] = -20.6
+    assert np.isclose(n.log_mass(), -20.6)
+    assert np.isclose(n.lnL(np.array([[6.5]]), renormalize=True)[0], -0.5 * 6.5 ** 2 + 20.6)
+
+
+def test_log_mass_is_accurate_for_a_small_but_reachable_mass():
+    """Against the analytic answer, where the old fixed-n floor would have been consulted."""
+    from scipy.stats import norm
+    n = nal_io.NAL([0.0], [[1.0]], ["mc"], bounds=[[3.0, 4.0]])
+    want = np.log(norm.cdf(4.0) - norm.cdf(3.0))        # ~ -6.8
+    got = n.log_mass(rel_tol=0.02, max_draws=8000000)
+    assert abs(got - want) < 0.1
 
 
 def test_roundtrip_artifact(tmp_path):
@@ -108,7 +157,8 @@ def test_plugin_hook_contract(tmp_path, monkeypatch):
     for i in range(2):                                   # two events -> contributions ADD
         base = str(tmp_path / ("ev%d" % i))
         np.savez(base + ".npz", theta_star=mu, gamma=G)
-        json.dump({"coord_names": names, "lnL_peak": 1.0}, open(base + ".meta.json", "w"))
+        json.dump({"coord_names": names, "lnL_peak": 1.0, "chart": "NAL:aligned",
+                   "frame": "detector"}, open(base + ".meta.json", "w"))
     monkeypatch.setenv("RIFT_NAL_ARTIFACTS", str(tmp_path / "*.npz"))
     nal_io._STATE.update(set=None, coords=None, renormalize=False)
     nal_io.prepare_nal_lnL(config=None, coords=names)
@@ -176,6 +226,165 @@ def test_wrong_basis_from_the_driver_would_evaluate_at_the_wrong_point(tmp_path,
     # s1z has been read as delta_mc: lnL = -1/2 * 4 * (s1z - 0.3)^2
     assert np.isclose(wrong, -0.5 * 4.0 * (s1z - 0.3) ** 2)
     assert wrong < -0.5                                  # and it is nowhere near the peak
+
+
+def test_environment_only_configuration_will_not_guess_the_basis(tmp_path, monkeypatch):
+    """RIFT_NAL_ARTIFACTS alone must fail closed: the incoming arrays have no names.
+
+    The dangerous case has the RIGHT number of arrays, so no dimension check can catch it: a
+    sampler in (mc, eta) against an artifact in (mc, delta_mc) would evaluate eta as delta_mc.
+    """
+    mu = np.array([30.0, 0.3])
+    base = str(tmp_path / "ev")
+    np.savez(base + ".npz", theta_star=mu, gamma=np.diag([1.0, 4.0]))
+    json.dump({"coord_names": ["mc", "delta_mc"], "lnL_peak": 0.0, "frame": "detector"},
+              open(base + ".meta.json", "w"))
+    monkeypatch.setenv("RIFT_NAL_ARTIFACTS", base + ".npz")
+    monkeypatch.delenv("RIFT_NAL_SAMPLER_COORDS", raising=False)
+
+    nal_io._STATE.update(set=None, coords=None, renormalize=False)
+    eta = 0.25 * (1 - 0.3 ** 2)
+    with pytest.raises(ValueError, match="sampling basis is unknown"):
+        nal_io.nal_lnL(np.array([30.0]), np.array([eta]))
+
+    # declaring the basis explicitly is the supported way out, and it then converts eta -> delta_mc
+    monkeypatch.setenv("RIFT_NAL_SAMPLER_COORDS", "mc, eta")
+    nal_io._STATE.update(set=None, coords=None, renormalize=False)
+    out = nal_io.nal_lnL(np.array([30.0]), np.array([eta]))
+    assert np.isclose(out[0], 0.0, atol=1e-10)           # lands on the peak, not off it
+
+
+def test_driver_coords_override_the_environment_declaration(tmp_path, monkeypatch):
+    """The driver knows the real sampling basis; a stale environment value must not win."""
+    mu = np.array([30.0, 0.3])
+    base = str(tmp_path / "ev")
+    np.savez(base + ".npz", theta_star=mu, gamma=np.diag([1.0, 4.0]))
+    json.dump({"coord_names": ["mc", "delta_mc"], "lnL_peak": 0.0, "frame": "detector"},
+              open(base + ".meta.json", "w"))
+    monkeypatch.setenv("RIFT_NAL_ARTIFACTS", base + ".npz")
+    monkeypatch.setenv("RIFT_NAL_SAMPLER_COORDS", "mc,delta_mc")
+    nal_io._STATE.update(set=None, coords=None, renormalize=False)
+    nal_io.prepare_nal_lnL(config=None, coords=["mc", "eta"])
+    assert nal_io._STATE["coords"] == ["mc", "eta"]
+
+
+def test_wrong_number_of_arrays_is_rejected(tmp_path, monkeypatch):
+    mu = np.array([30.0, 0.3])
+    base = str(tmp_path / "ev")
+    np.savez(base + ".npz", theta_star=mu, gamma=np.diag([1.0, 4.0]))
+    json.dump({"coord_names": ["mc", "delta_mc"], "lnL_peak": 0.0},
+              open(base + ".meta.json", "w"))
+    monkeypatch.setenv("RIFT_NAL_ARTIFACTS", base + ".npz")
+    nal_io._STATE.update(set=None, coords=None, renormalize=False)
+    nal_io.prepare_nal_lnL(config=None, coords=["mc", "eta"])
+    with pytest.raises(ValueError, match="sampling basis"):
+        nal_io.nal_lnL(np.array([30.0]))
+
+
+# ------------------------------------------------------------------- summing artifacts / charts
+
+def _nal(meta, seed=0):
+    mu, G = _make(d=2, seed=seed)
+    return nal_io.NAL(mu, G, ["mc", "delta_mc"], meta=meta)
+
+
+def test_set_refuses_artifacts_in_different_frames():
+    """Same coordinate NAMES, different meanings: detector-frame mc is not source-frame mc."""
+    with pytest.raises(ValueError, match="frames"):
+        nal_io.NALSet([_nal({"frame": "detector"}),
+                       _nal({"frame": "source", "cosmology": {"name": "Planck15"},
+                             "d_prior": {"name": "cosmo_sourceframe"}}, seed=1)])
+
+
+def test_set_refuses_undeclared_frame():
+    """Fail closed: an artifact that will not state its frame cannot be shown compatible."""
+    with pytest.raises(ValueError, match="frame"):
+        nal_io.NALSet([_nal({"frame": "detector"}), _nal({}, seed=1)])
+
+
+def test_set_refuses_mismatched_cosmology_or_distance_prior():
+    a = {"frame": "source", "cosmology": {"name": "Planck15"},
+         "d_prior": {"name": "cosmo_sourceframe", "d_max": 10000.0}}
+    b = dict(a, cosmology={"name": "Planck18"})
+    with pytest.raises(ValueError, match="cosmology"):
+        nal_io.NALSet([_nal(a), _nal(b, seed=1)])
+    c = dict(a, d_prior={"name": "uniform_comoving", "d_max": 10000.0})
+    with pytest.raises(ValueError, match="d_prior"):
+        nal_io.NALSet([_nal(a), _nal(c, seed=1)])
+
+
+def test_set_requires_cosmology_for_source_frame_artifacts():
+    with pytest.raises(ValueError, match="cosmology"):
+        nal_io.NALSet([_nal({"frame": "source"}), _nal({"frame": "source"}, seed=1)])
+
+
+def test_set_refuses_mismatched_charts():
+    with pytest.raises(ValueError, match="chart"):
+        nal_io.NALSet([_nal({"frame": "detector", "chart": "NAL:aligned"}),
+                       _nal({"frame": "detector", "chart": "NAL:precessing"}, seed=1)])
+
+
+def test_set_accepts_matching_metadata_and_a_lone_artifact():
+    m = {"frame": "detector", "chart": "NAL:aligned"}
+    s = nal_io.NALSet([_nal(m), _nal(m, seed=1)])
+    assert s.coord_names == ["mc", "delta_mc"]
+    # a single artifact is never checked: nothing is being added to it
+    assert nal_io.NALSet([_nal({})]).coord_names == ["mc", "delta_mc"]
+    # dict ordering is not a difference
+    nal_io.NALSet([_nal({"frame": "source", "cosmology": {"name": "Planck15", "h": 0.679},
+                         "d_prior": {"name": "p", "d_max": 1.0}}),
+                   _nal({"frame": "source", "cosmology": {"h": 0.679, "name": "Planck15"},
+                         "d_prior": {"d_max": 1.0, "name": "p"}}, seed=1)])
+
+
+# ------------------------------------------------------------------------ bounded marginalization
+
+def _correlated(rho=0.9, d=2):
+    C = np.full((d, d), rho) + (1 - rho) * np.eye(d)
+    return np.zeros(d), np.linalg.inv(C)
+
+
+def test_marginal_rejects_a_bounded_correlated_nuisance():
+    """Integrating out a truncated, correlated coordinate is not a covariance sub-block.
+
+    The exact marginal picks up the mass of the dropped coordinate's CONDITIONAL distribution
+    inside its bounds, whose mean moves with the retained coordinate -- a theta-dependent factor,
+    so the untruncated answer has the wrong SHAPE, not just the wrong normalisation.
+    """
+    mu, G = _correlated()
+    n = nal_io.NAL(mu, G, ["mc", "delta_mc"], bounds=np.stack([mu - 0.5, mu + 0.5], 1))
+    with pytest.raises(ValueError, match="delta_mc"):
+        n.marginal(["mc"])
+    # and the escape hatch still gives the untruncated sub-block
+    m = n.marginal(["mc"], ignore_truncation=True)
+    assert np.allclose(m.cov(), np.linalg.inv(G)[:1, :1])
+
+
+def test_marginal_allowed_when_the_dropped_bound_does_not_bite():
+    """Bounds far outside the fit are a formality: the truncation factor is 1 to ~1e-6."""
+    mu, G = _correlated()
+    wide = np.stack([mu - 50.0, mu + 50.0], 1)
+    n = nal_io.NAL(mu, G, ["mc", "delta_mc"], bounds=wide)
+    m = n.marginal(["mc"])
+    assert np.allclose(m.cov(), np.linalg.inv(G)[:1, :1])
+    assert np.allclose(m.bounds, wide[:1])
+
+
+def test_marginal_allowed_when_the_dropped_coordinate_is_uncorrelated():
+    """No correlation -> the truncation factor is a constant, which only shifts lnL_peak."""
+    mu = np.zeros(2)
+    n = nal_io.NAL(mu, np.diag([1.0, 4.0]), ["mc", "delta_mc"],
+                   bounds=np.stack([mu - 0.1, mu + 0.1], 1))
+    m = n.marginal(["mc"])
+    assert np.allclose(m.gamma, [[1.0]])
+
+
+def test_unbounded_marginal_is_unaffected():
+    """The plain (bounds-free) marginal must keep working exactly as before."""
+    mu, G = _make(d=5, seed=3)
+    n = nal_io.NAL(mu, G, list("abcde"))
+    assert np.allclose(n.marginal(["a", "b"]).cov(),
+                       np.linalg.inv(G)[np.ix_([0, 1], [0, 1])], atol=1e-12)
 
 
 # --------------------------------------------------------------------------- writer / provenance

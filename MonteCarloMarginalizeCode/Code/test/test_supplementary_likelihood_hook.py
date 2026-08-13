@@ -135,6 +135,33 @@ def test_prepare_hook_is_actually_invoked(fname):
 
 
 @pytest.mark.parametrize("fname", DRIVERS)
+def test_prepare_hook_is_invoked_without_an_ini(fname):
+    """The prepare call must NOT sit inside `if opts.supplementary_likelihood_factor_ini:`.
+
+    A plugin configured entirely by environment gets no ini, so gating preparation on one leaves it
+    never told the sampling basis -- and a plugin that then has to guess what its input arrays are
+    called can guess wrong with the right array count and no error.  `config=None` is a perfectly
+    good argument; the basis is the part that cannot be reconstructed later.
+    """
+    tree = _tree(fname)
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.If):
+            continue
+        gated_on_ini = any(isinstance(a, ast.Attribute) and
+                           a.attr == "supplementary_likelihood_factor_ini"
+                           for a in ast.walk(node.test))
+        if not gated_on_ini:
+            continue
+        for inner in node.body:
+            for c in ast.walk(inner):
+                assert not (isinstance(c, ast.Call) and isinstance(c.func, ast.Name)
+                            and c.func.id == "supplemental_ln_likelihood_prep"), (
+                    "%s only prepares the supplementary-likelihood plugin when an ini is supplied; "
+                    "it must also be prepared (with config=None) so the plugin is always told "
+                    "coords=" % fname)
+
+
+@pytest.mark.parametrize("fname", DRIVERS)
 def test_prepare_hook_is_told_the_sampling_basis(fname):
     """`coords=` must name the SAME list the driver splats into `sampler.integrate`.
 
