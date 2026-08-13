@@ -1326,9 +1326,15 @@ class MCSampler(object):
         # the support-mismatch diagnostic describes THIS integral: a second point reusing the same
         # sampler object must not inherit the previous point's escaped mass.
         self._reset_support_diagnostics()
-        if 'integrand' in self._rvs:
-          # remove conflict
-          del self._rvs['integrand']
+        # The aggregate sample record belongs to ONE integration pass.  A second call on the
+        # same portfolio object (notably the ILE L0 warm retry) deliberately reuses the MEMBER
+        # proposals, but must not append its draws to the first pass's exported cloud.  Besides
+        # mixing two estimates in _rvs, that made the second pass's warm-seed reserve contain
+        # cold fair-draw rows and inflated its retained-sample evidence.  Proposal/adaptation
+        # state lives on the members, so clearing this portfolio-level cache keeps the warm
+        # start while giving the new pass an independent sample record.  The L0 driver snapshots
+        # and restores the cold cache if the warm pass is rejected or raises.
+        self._rvs = {}
         # Same reasoning for the warm-seed reserve: a pass that raises part-way would
         # otherwise leave the PREVIOUS point's retained samples here, and an L0 rescue would
         # then seed this point's live volume from a different point's peak.  Drop it on

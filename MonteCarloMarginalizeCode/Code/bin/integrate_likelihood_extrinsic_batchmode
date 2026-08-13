@@ -2305,6 +2305,50 @@ def _kish_neff_of_rvs(rvs, use_lnL=None):
         return None
 
 
+def _lnZ_of_reserve_or_rvs(sampler, rvs, reserve=None):
+    """lnZ of a completed pass, from the points it RETAINED where that is available.
+
+    The L0 rescue's reject gate compares the warm pass's lnZ against the cold pass's, and
+    both were read out of _rvs -- which the fair draw has already replaced with
+    min(n_extr, 1.5*eff_samp, 1.5*neff) rows resampled WITH REPLACEMENT, proportional to
+    weight.  That is not a smaller unbiased sample of the same estimator, it is a DIFFERENT
+    and biased one: _lnZ_of_rvs forms logsumexp(w)/n, so drawing n rows proportional to w
+    returns something near max(w) rather than mean(w), high by roughly
+
+        log(n_retained / eff_samp)
+
+    and the two passes are drawn at wildly different n and eff_samp.  On the collapsed cold
+    pass at rho_net 146.8 that is ONE row out of 1000 retained at eff_samp ~ 1 -- about 7
+    nats high -- against 5 rows at eff_samp ~ 8 for the warm pass.  So the gate was reading a
+    4.2-nat artifact of its own two subsample sizes as evidence that the warm seed had missed
+    mass, and rejecting the warm pass in 10 of 12 replicates on it.
+
+    Falls back to the old _rvs reading when no reserve was kept (a sampler that does not
+    keep one, or a pass that raised), so the comparison degrades to the previous behaviour
+    rather than to no gate at all.
+
+    Returns (lnZ, source) -- the caller MUST check that both sides of the comparison came
+    from the same source, because the two readings are not interchangeable: mixing them is
+    the same apples-to-oranges error in a new place.
+    """
+    _res = reserve if reserve is not None else getattr(sampler, '_warm_seed_reserve', None)
+    if isinstance(_res, dict) and 'log_joint_prior' in _res and 'log_joint_s_prior' in _res:
+        try:
+            # NOT _lnZ_of_rvs: it averages over the rows it is handed, and the reserve is
+            # neither the draw set nor a uniform sample of it -- non-finite rows were dropped
+            # and the remainder may have been capped.  lnZ_from_reserve restores the original
+            # proposal-draw normalization from n_finite/n_retained.  Without it a PORTFOLIO
+            # reading is high by ~log(n_retained/n_finite), ~11 nats on a collapsed pass, and
+            # the error does NOT cancel in the gate: the cold and warm passes have different
+            # finite fractions, so it is the difference of two different-sized errors.
+            _v = mcsamplerAdaptiveVolume.lnZ_from_reserve(_res)
+            if _v is not None and numpy.isfinite(_v):
+                return _v, 'retained'
+        except Exception:
+            pass
+    return _lnZ_of_rvs(rvs, already_pooled=False), 'fairdraw'
+
+
 def _warm_seed_geometry(sampler):
     """Which columns a warm seed must span, and the box it must lie in -> (axes, lo, hi).
 
@@ -3362,7 +3406,12 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 # restore below ran -- i.e. the reject path would report the cold lnZ while
                 # exporting the warm cloud, exactly what it exists to prevent.
                 _cold_rvs = dict(sampler._rvs)
-                _cold_lnZ = _lnZ_of_rvs(_cold_rvs, already_pooled=False)
+                # Snapshot the RESERVE for the same reason and at the same moment: the warm
+                # pass's integrate_log clears and rewrites it, so reading it after the fact
+                # would compare the warm pass against itself.
+                _cold_reserve_l0 = getattr(sampler, '_warm_seed_reserve', None)
+                _cold_lnZ, _cold_src = _lnZ_of_reserve_or_rvs(sampler, _cold_rvs,
+                                                              reserve=_cold_reserve_l0)
                 # dict_return too: khat, block scatter, ESS, the confidence interval and the
                 # replica trigger downstream all read it, so keeping the warm pass's diagnostics
                 # beside a restored cold result would describe a run we did not report.
@@ -3370,7 +3419,20 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 _cold_state_l0 = (_cold_rvs, _cold_res, _cold_var, _cold_neff, _cold_dict)
                 sampler.bootstrap_from_samples(_seed, cover_frac=0.0)
                 res, var, neff, dict_return = sampler.integrate(like_to_integrate, *unpinned_params, **pinned_params)
-                _warm_lnZ = _lnZ_of_rvs(sampler._rvs, already_pooled=False)
+                _warm_lnZ, _warm_src = _lnZ_of_reserve_or_rvs(sampler, sampler._rvs)
+                # BOTH SIDES FROM THE SAME READING, or the difference is not a difference.
+                # A fair-drawn lnZ sits ~log(n_retained/eff_samp) above a retained-set one, so
+                # a mixed comparison manufactures a gap of several nats in whichever direction
+                # the mismatch happens to fall.  If the two passes did not produce the same
+                # kind of estimate, fall back to reading BOTH from _rvs -- the old behaviour,
+                # which is at least self-consistent -- rather than compare across conventions.
+                if _cold_src != _warm_src:
+                    print("  [L0 auto-rescue] lnZ provenance differs (cold={}, warm={});"
+                          " re-reading both from the fair-draw record so the comparison is"
+                          " like-for-like.".format(_cold_src, _warm_src))
+                    _cold_lnZ = _lnZ_of_rvs(_cold_rvs, already_pooled=False)
+                    _warm_lnZ = _lnZ_of_rvs(sampler._rvs, already_pooled=False)
+                    _cold_src = _warm_src = 'fairdraw'
                 _evidence_of_loss = (
                     (_cold_lnZ is not None) and (_warm_lnZ is not None)
                     and numpy.isfinite(_cold_lnZ) and numpy.isfinite(_warm_lnZ)
