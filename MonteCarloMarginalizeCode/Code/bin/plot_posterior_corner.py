@@ -254,6 +254,7 @@ parser.add_argument("--matplotlib-block-defaults",action="store_true",help="Reli
 parser.add_argument("--no-mod-psi",action="store_true",help="Default is to take psi mod pi. If present, does not do this")
 parser.add_argument("--downselect-parameter",action='append', help='Name of parameter to be used to eliminate grid points ')
 parser.add_argument("--downselect-parameter-range",action='append',type=str)
+parser.add_argument("--disable-special-ranges", action='store_true')
 # ---- User-supplied coordinate-convert plugin (additive; the hardcoded RIFT
 #      conversion path is untouched).  When --supplementary-coordinate-code is
 #      omitted these flags are a no-op and plotting behaves byte-identically
@@ -478,11 +479,11 @@ if opts.change_parameter_label:
           lalsimutils.tex_dictionary[name] = "$"+new_str+"$"  # should be able to ASSIGN NEW NAMES, not restrict
 
 special_param_ranges = {
-  #'q':[0,1],
-  #'eta':[0,0.25],
+  'q':[0,1],
+  'eta':[0,0.25],
   'a1z':[-opts.chi_max,opts.chi_max],
   'a2z':[-opts.chi_max,opts.chi_max],
-  #'chi_eff': [-opts.chi_max,opts.chi_max],  # this can backfire for very narrow constraints
+  'chi_eff': [-opts.chi_max,opts.chi_max],  # this can backfire for very narrow constraints
   'lambda1':[0,4000],
   'lambda2':[0,4000],
   'chi_pavg':[0,2],
@@ -491,7 +492,8 @@ special_param_ranges = {
   'eccentricity':[opts.ecc_min,opts.ecc_max],
   'meanPerAno':[opts.meanPerAno_min,opts.meanPerAno_max]
 }
-
+if opts.disable_special_ranges:
+	special_param_ranges = {}
 #mc_range deprecated by generic bind_param
 #if opts.mc_range:
 #    special_param_ranges['mc'] = eval(opts.mc_range)
