@@ -132,3 +132,38 @@ def test_prepare_hook_is_actually_invoked(fname):
     assert {"config", "coords"} <= kw, (
         "%s calls the prepare hook without config=/coords=; plugins rely on that signature "
         "(got %s)" % (fname, sorted(kw)))
+
+
+@pytest.mark.parametrize("fname", DRIVERS)
+def test_prepare_hook_is_told_the_sampling_basis(fname):
+    """`coords=` must name the SAME list the driver splats into `sampler.integrate`.
+
+    The sampler is handed one dimension per name in that starred list, so it calls
+    `supplemental_ln_likelihood(*x)` with one array per SAMPLING coordinate, in that order.
+    Declaring any other list -- notably the FIT basis `coord_names`, which differs from
+    `low_level_coord_names` as soon as --parameter-implied or --parameter-nofit is used -- makes
+    the plugin attach the wrong name to each array.  Nothing raises: the plugin simply evaluates
+    at coordinates it has mislabelled.  Comparing the two identifiers is the whole invariant, and
+    it is checkable statically; the runtime consequence of getting it wrong is exercised in
+    test_nal_io.py::test_wrong_basis_from_the_driver_would_evaluate_at_the_wrong_point.
+    """
+    tree = _tree(fname)
+    sampled = {n.value.id for c in ast.walk(tree)
+               if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute)
+               and c.func.attr == "integrate"
+               for n in c.args
+               if isinstance(n, ast.Starred) and isinstance(n.value, ast.Name)}
+    assert sampled, (
+        "%s never splats a coordinate-name list into sampler.integrate(); the basis the "
+        "supplementary hook must be told can no longer be identified" % fname)
+    declared = [k.value for c in ast.walk(tree)
+                if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)
+                and c.func.id == "supplemental_ln_likelihood_prep"
+                for k in c.keywords if k.arg == "coords"]
+    assert declared, "%s never passes coords= to the prepare hook" % fname
+    for node in declared:
+        assert isinstance(node, ast.Name) and node.id in sampled, (
+            "%s tells the prepare hook coords=%s, but integrates over %s -- the hook must be "
+            "given the SAMPLING basis, since that is the order the plugin is called with"
+            % (fname, ast.dump(node) if not isinstance(node, ast.Name) else node.id,
+               sorted(sampled)))

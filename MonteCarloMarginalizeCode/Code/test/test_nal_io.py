@@ -145,6 +145,39 @@ def test_unbuildable_coordinate_raises_named_error(tmp_path, monkeypatch):
         nal_io.nal_lnL(np.array([30.0]), np.array([0.2]))
 
 
+def test_wrong_basis_from_the_driver_would_evaluate_at_the_wrong_point(tmp_path, monkeypatch):
+    """`coords` must be the driver's SAMPLING basis, which is not its FIT basis.
+
+    Concretely, `--parameter mc --parameter eta --parameter-implied delta_mc
+    --parameter-nofit s1z` gives fit coord_names = [mc, eta, delta_mc] but sampling
+    low_level_coord_names = [mc, eta, s1z], and the sampler calls the plugin with one array per
+    SAMPLING coordinate.  Declaring the fit basis zips 'delta_mc' onto the s1z array: same length,
+    no error, silently the wrong point.  This test pins both halves -- the right basis lands on
+    the peak, the wrong one does not -- so the failure mode stays visible rather than numerical.
+    """
+    mu = np.array([30.0, 0.3])                           # chart is (mc, delta_mc)
+    G = np.diag([1.0, 4.0])
+    base = str(tmp_path / "ev")
+    np.savez(base + ".npz", theta_star=mu, gamma=G)
+    json.dump({"coord_names": ["mc", "delta_mc"], "lnL_peak": 0.0},
+              open(base + ".meta.json", "w"))
+    monkeypatch.setenv("RIFT_NAL_ARTIFACTS", base + ".npz")
+
+    mc, eta, s1z = 30.0, 0.25 * (1 - 0.3 ** 2), -0.4     # delta_mc = 0.3 exactly
+    x = [np.array([mc]), np.array([eta]), np.array([s1z])]
+
+    nal_io._STATE.update(set=None, coords=None, renormalize=False)
+    nal_io.prepare_nal_lnL(config=None, coords=["mc", "eta", "s1z"])          # sampling basis
+    assert np.isclose(nal_io.nal_lnL(*x)[0], 0.0, atol=1e-10)
+
+    nal_io._STATE.update(set=None, coords=None, renormalize=False)
+    nal_io.prepare_nal_lnL(config=None, coords=["mc", "eta", "delta_mc"])     # fit basis: WRONG
+    wrong = nal_io.nal_lnL(*x)[0]
+    # s1z has been read as delta_mc: lnL = -1/2 * 4 * (s1z - 0.3)^2
+    assert np.isclose(wrong, -0.5 * 4.0 * (s1z - 0.3) ** 2)
+    assert wrong < -0.5                                  # and it is nowhere near the peak
+
+
 # --------------------------------------------------------------------------- writer / provenance
 
 def test_write_read_roundtrip_preserves_everything(tmp_path):

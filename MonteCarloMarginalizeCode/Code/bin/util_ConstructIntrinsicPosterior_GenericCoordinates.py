@@ -771,8 +771,13 @@ if opts.supplementary_likelihood_factor_code and opts.supplementary_likelihood_f
       config.read(opts.supplementary_likelihood_factor_ini)
       supplemental_ln_likelihood_parsed_ini=config
 
-      # Call the ini file, tell it what coordinates we are using by name
-      supplemental_ln_likelihood_prep(config=supplemental_ln_likelihood_parsed_ini,coords=coord_names)
+      # Call the ini file, tell it what coordinates we are using by name.
+      # MUST be low_level_coord_names, not coord_names: the sampler integrates over
+      # low_level_coord_names and so calls supplemental_ln_likelihood(*x) with one array per
+      # SAMPLING coordinate, in that order.  With --parameter-implied/--parameter-nofit the two
+      # lists differ, and handing over the fit basis would make the plugin label those arrays
+      # wrongly -- evaluating at the wrong coordinates without any error.
+      supplemental_ln_likelihood_prep(config=supplemental_ln_likelihood_parsed_ini,coords=low_level_coord_names)
 
 
 
