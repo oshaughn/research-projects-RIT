@@ -125,9 +125,9 @@ example. Schema:
 For the ILE (and CIP) Condor submit, a manifest produces:
 
 - **`MY.SingularityImage`** — an *unquoted* `ifThenElse(...)` expression that
-  selects the highest-capability image the matched machine can run, defaulting to
-  the `fallback` image (also used when the capability attribute is `undefined`,
-  e.g. on a CPU-only CIP slot — hence the fallback must be CPU-safe):
+  selects the highest-capability image the matched machine can run, with the
+  `fallback` image as the innermost `else` (used when the machine's capability is
+  below every threshold):
 
   ```
   ifThenElse(TARGET.GPUs_Capability >= 8.0, "./rift_container_modern.sif", "/cvmfs/.../rift_container_default.sif")
@@ -148,6 +148,59 @@ For the ILE (and CIP) Condor submit, a manifest produces:
 - **`require_gpus` floor** — `Capability >= <lowest min across the family>`,
   composed (`&&`) with any user-supplied `RIFT_REQUIRE_GPUS` (which today you use
   to block incompatible hosts by `DeviceName`). Both apply; neither is dropped.
+
+### OSG: pick a delivery mode
+
+The expression-valued `MY.SingularityImage` is evaluated *execute-side*. OSPool
+glidein pilots read `SingularityImage` as a **literal string**, so an
+`ifThenElse` lands verbatim and the job holds. Two opt-in modes fix this,
+selected by an environment variable at DAG-build time:
+
+| env var | behaviour |
+|---|---|
+| *(unset)* | legacy `universe = vanilla` + expression-valued `MY.SingularityImage`. Correct on a local/CIT pool; **not OSG-safe**. |
+| `RIFT_CONTAINER_UNIVERSE=1` | **recommended for OSG.** `universe = container` + `container_image = $$([ ifThenElse(...) ])` over image BASENAMES. `$$()` is HTCondor's match-time (schedd-side) machine-ad substitution, so the pilot only ever sees a literal image name. No `MY.SingularityImage`, no `MY.SingularityBindCVMFS`; the matched image arrives via the `$$()` transfer token with `MY.TransferInput` pinned (see below). Requires every family image to be a transferable URL. GPU access is automatic under `request_gpus`. Works on CIT-local too. |
+| `RIFT_CONTAINER_RUNTIME_SELECT=1` | older ILE-only fallback: Condor runs a generated `rift_container_select.sh` on the bare node, which reads the real capability from `nvidia-smi`, fetches only the matching image (`stashcp`/`pelican`) and re-execs under `apptainer exec --nv`. |
+
+Under asimov set it from the blueprint, not the shell:
+
+```yaml
+scheduler:
+  singularity image: /path/to/rift_container_family.yaml
+  singularity base exe directory: /usr/local/bin/
+  environment variables:
+    RIFT_CONTAINER_UNIVERSE: 1
+```
+
+With `osdf://` images inside a manifest, the pipeline also enables the matching
+transfer credential automatically (`use_oauth_services = scitokens`, or `igwn`
+for `igwn+osdf:`) by inspecting the manifest's image URLs — the single-image path
+keys off the `SINGULARITY_RIFT_IMAGE` string, which for a family is only a
+`.yaml` path.
+
+> **Why the container-universe selector names basenames, not URLs.**
+> `condor_submit` parses `container_image` *before* any `$$` expansion and derives
+> the job ad's `ContainerImage` -- the name the image gets in the job scratch dir --
+> as the text after the **last** `/`. A selector containing full paths is cut in
+> half, and the fragment that survives is not a valid image name. Submitting that
+> form to the IGWN pool holds the job at the execute point:
+> `PREPARE_JOB (prepare-hook) failed: Unable to download or build singularity image
+> cutest_busybox_...sif") ])`.
+>
+> So the selector emits **basenames only** (no `/`); the whole `$$` token survives
+> into `ContainerImage` and the schedd expands it at match time
+> (`MATCH_EXP_ContainerImage = "rift_container_modern.sif"`). The image itself
+> arrives via the comma-free `$$()` transfer token, and `MY.TransferInput` is pinned
+> so `condor_submit` does not append the basename selector to `TransferInput` as a
+> bogus extra input file. Verified end to end on an OSPool glidein against
+> `$CondorVersion: 25.11.1`.
+>
+> Consequence: **every image in a family used with container universe must be a
+> transferable URL.** An in-place (CVMFS/local) image can only be named by its full
+> path, which reintroduces the truncation, so `build_container_image_select()`
+> raises `ContainerManifestError` for such a family. Stage those images at a URL, or
+> use `RIFT_CONTAINER_RUNTIME_SELECT=1`.
+
 
 ### HTCondor GPU attribute names — important
 
