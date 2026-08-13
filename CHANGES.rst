@@ -148,6 +148,13 @@ development tree is rift_O4d.
     (the flat-mode no-op master is preserved); ILE honours --srate-resample-time-marginalization instead of
     always doubling, and recovers the requested export rate EXACTLY rather than an integer multiple; Virgo
     calibration correction convention fixed; multi-GPU ILE fan-out with a multi-container example in one ini.
+  - ILE portfolio driver: a portfolio the driver cannot build now FAILS instead of silently
+    integrating with a different sampler.  ``--sampler-method portfolio`` no longer carries a
+    dead ok-flag test that fell through to the plain mcsampler.MCSampler; the terminal
+    diagnostic and the plugin-pipeline branch no longer dereference mcsamplerPortfolio when its
+    import failed (that raised NameError from the diagnostic itself on a torch-free container);
+    an unrecognized ``--sampler-portfolio`` member and an omitted/empty member list are now
+    errors naming the known members.  Ported from rift_O4c (PR #172).
   - asimov: the RIFT bootstrap source can be named explicitly (``scheduler: bootstrap file:``), bypassing
     the dependency scan, with ``{event}``/``{analysis}`` substitution and single-match globbing; the
     PESummary analysis label is auto-derived and an ambiguous or raw-bilby metafile now fails loudly
