@@ -61,11 +61,29 @@ def _prep_log_w(cal_log_weights, n_cal):
     return log_w, log_w_norm
 
 
+def _prep_rho_sq_cal(rho_sq_cal, n_cal, n_ext, rho_sq):
+    """Return (rho_sq_cal_arr cupy (n_cal, n_ext) float64, use_flag int32).
+    When rho_sq_cal is None the kernel keeps the shared cal-independent rho_sq; we
+    still pass a valid (non-null) pointer, so hand it the rho_sq buffer as a dummy."""
+    import cupy
+    if rho_sq_cal is None:
+        return cupy.ascontiguousarray(rho_sq), np.int32(0)
+    arr = cupy.ascontiguousarray(cupy.asarray(rho_sq_cal, dtype=cupy.float64))
+    assert arr.shape == (n_cal, n_ext), \
+        "rho_sq_cal shape %s != (%d, %d)" % (arr.shape, n_cal, n_ext)
+    return arr, np.int32(1)
+
+
 def Q_fused_calmarg_cupy(Q, A, ifirst, invDist, rho_sq, w_t, n_cal, N_window,
                          cal_log_weights=None, phase_marginalization=False,
-                         threads_per_block=256):
+                         threads_per_block=256, rho_sq_cal=None):
     """Compute the calibration-marginalized factored log likelihood per extrinsic
     sample in a single kernel launch.
+
+    rho_sq_cal : optional (n_cal, n_ext) per-realization template self-term
+        rho_sq_c = <C_c h | C_c h> (fused-calmarg self-term fix).  When supplied, the
+        kernel uses rho_sq_cal[c, j] in place of the shared rho_sq[j, t]; when None,
+        behavior is unchanged.
 
     Parameters
     ----------
@@ -111,6 +129,7 @@ def Q_fused_calmarg_cupy(Q, A, ifirst, invDist, rho_sq, w_t, n_cal, N_window,
         "npts_full=%d != N_window*n_cal=%d*%d" % (npts_full, N_window, n_cal)
 
     log_w, log_w_norm = _prep_log_w(cal_log_weights, n_cal)
+    rho_sq_cal_arr, use_rho_sq_cal = _prep_rho_sq_cal(rho_sq_cal, n_cal, n_ext, rho_sq)
     out = cupy.empty(n_ext, dtype=cupy.float64)
 
     fn = _get_kernel()
@@ -121,6 +140,7 @@ def Q_fused_calmarg_cupy(Q, A, ifirst, invDist, rho_sq, w_t, n_cal, N_window,
         np.int32(1 if phase_marginalization else 0),
         np.int32(n_det), np.int32(n_cal), np.int32(N_window), np.int32(npts),
         np.int32(n_lms), np.int32(n_ext), np.int32(npts_full),
+        rho_sq_cal_arr, use_rho_sq_cal,
         out,
     ))
     return out
@@ -129,7 +149,7 @@ def Q_fused_calmarg_cupy(Q, A, ifirst, invDist, rho_sq, w_t, n_cal, N_window,
 def Q_fused_calmarg_distmarg_cupy(Q, A, ifirst, invDist, rho_sq, w_t,
                                   n_cal, N_window, distmarg,
                                   cal_log_weights=None, phase_marginalization=False,
-                                  threads_per_block=256):
+                                  threads_per_block=256, rho_sq_cal=None):
     """Fused calibration + distance marginalization (Option C stage 2).
 
     Same as Q_fused_calmarg_cupy, but applies the distance-marginalization
@@ -163,6 +183,7 @@ def Q_fused_calmarg_distmarg_cupy(Q, A, ifirst, invDist, rho_sq, w_t,
         "npts_full=%d != N_window*n_cal=%d*%d" % (npts_full, N_window, n_cal)
 
     log_w, log_w_norm = _prep_log_w(cal_log_weights, n_cal)
+    rho_sq_cal_arr, use_rho_sq_cal = _prep_rho_sq_cal(rho_sq_cal, n_cal, n_ext, rho_sq)
     out = cupy.empty(n_ext, dtype=cupy.float64)
 
     fn = _get_kernel_distmarg()
@@ -179,6 +200,7 @@ def Q_fused_calmarg_distmarg_cupy(Q, A, ifirst, invDist, rho_sq, w_t,
         np.float64(distmarg["sqrt_bmax"]), np.float64(distmarg["bref"]),
         np.int32(n_det), np.int32(n_cal), np.int32(N_window), np.int32(npts),
         np.int32(n_lms), np.int32(n_ext), np.int32(npts_full),
+        rho_sq_cal_arr, use_rho_sq_cal,
         out,
     ))
     return out
@@ -224,11 +246,17 @@ def _distmarg_lnL_numpy(kappa_sq, rho_sq, d):
 
 def Q_fused_calmarg_numpy(Q, A, ifirst, invDist, rho_sq, w_t, n_cal, N_window,
                           distmarg=None, cal_log_weights=None,
-                          phase_marginalization=False):
+                          phase_marginalization=False, rho_sq_cal=None):
     """Pure-numpy equivalent of Q_fused_calmarg_cupy / _distmarg_cupy.
 
     Same arguments and result; distmarg=None uses the default helper, otherwise the
     distmarg table dict.  Materializes (n_cal, n_ext, npts) -- fine for CPU / testing.
+
+    rho_sq_cal : optional (n_cal, n_ext) per-realization template self-term
+        rho_sq_c = <C_c h | C_c h> (fused-calmarg self-term fix,
+        the calmarg self-term-bias analysis note).  When supplied, realization c uses
+        rho_sq_cal[c] (broadcast over time) instead of the shared, cal-independent
+        rho_sq.  When None, behavior is unchanged.
     """
     Q = np.asarray(Q, dtype=np.complex128)
     A = np.asarray(A, dtype=np.complex128)
@@ -236,11 +264,16 @@ def Q_fused_calmarg_numpy(Q, A, ifirst, invDist, rho_sq, w_t, n_cal, N_window,
     invDist = np.asarray(invDist, dtype=np.float64)
     rho_sq = np.asarray(rho_sq, dtype=np.float64)
     w_t = np.asarray(w_t, dtype=np.float64)
+    if rho_sq_cal is not None:
+        rho_sq_cal = np.asarray(rho_sq_cal, dtype=np.float64)
 
     n_det, npts_full, n_lms = Q.shape
     _, n_ext, _ = A.shape
     npts = w_t.shape[0]
     assert npts_full == N_window * n_cal
+    if rho_sq_cal is not None:
+        assert rho_sq_cal.shape == (n_cal, n_ext), \
+            "rho_sq_cal shape %s != (%d, %d)" % (rho_sq_cal.shape, n_cal, n_ext)
 
     # log(n_cal): unbiased importance estimate (1/n_cal) sum_c w_c L_c (not self-normalized)
     log_w = np.zeros(n_cal) if cal_log_weights is None else np.asarray(cal_log_weights, dtype=np.float64)
@@ -259,10 +292,13 @@ def Q_fused_calmarg_numpy(Q, A, ifirst, invDist, rho_sq, w_t, n_cal, N_window,
             kappa += np.einsum("jl,jtl->jt", A[dd], gathered)
         kappa_scaled = kappa * invDist[:, None]
         kappa_sq = np.abs(kappa_scaled) if phase_marginalization else kappa_scaled.real
+        # Fused-calmarg self-term fix: per-realization rho_sq_c (broadcast over time to
+        # the full (n_ext, npts), as _distmarg_lnL_numpy boolean-indexes rho_sq).
+        rho_sq_c = rho_sq if rho_sq_cal is None else np.broadcast_to(rho_sq_cal[c][:, None], (n_ext, npts))
         if distmarg is None:
-            lnLt = kappa_sq - 0.5 * rho_sq
+            lnLt = kappa_sq - 0.5 * rho_sq_c
         else:
-            lnLt = _distmarg_lnL_numpy(kappa_sq, rho_sq, distmarg)
+            lnLt = _distmarg_lnL_numpy(kappa_sq, rho_sq_c, distmarg)
         lnLt_all[c] = lnLt + log_w[c]
 
     # lnL[j] = log( sum_c sum_t w_t exp(lnLt_all[c,j,t]) ) - log_w_norm

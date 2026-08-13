@@ -53,6 +53,11 @@ Usage
     python shape_recovery.py --preset quick        # ~minutes, smoke
     python shape_recovery.py --preset standard --jobs 8 --json results.json
 
+The RIFT actually imported is printed on every run (`# RIFT under test:`) -- without PYTHONPATH
+this suite happily measures the RIFT the environment has installed and says nothing.  Export
+RIFT_SHAPE_CHECKOUT=/path/to/checkout to have that CHECKED rather than merely reported;
+run_shape_recovery.sh and confirm_regressions.py both do.
+
 This file is self-contained on purpose: it must run unmodified against ANY
 branch (including historical ones that lack test/integrators helpers).
 """
@@ -78,6 +83,101 @@ JS_MULT = 3.0      # pass if JS < JS_MULT*floor + JS_ABS_MIN
 JS_ABS_MIN = 0.004
 MIN_NEFF_FOR_SHAPE = 100.0
 NF_NMAX_CAP = 400000   # NF trains a flow per chunk; cap its budget (warn-only sampler)
+
+
+# ----------------------------------------------------------------------------
+# WHICH RIFT is being measured
+# ----------------------------------------------------------------------------
+# The gate has two entry points -- run_shape_recovery.sh and `pytest test_shape_recovery.py` --
+# and only the shell one carried the setup that decides this: `export
+# PYTHONPATH=<checkout>/MonteCarloMarginalizeCode/Code`.  In any environment that ALSO has RIFT
+# installed (every IGWN conda env, e.g. /cvmfs/software.igwn.org/conda/envs/igwn) the pytest path
+# therefore measured the INSTALLED RIFT while reporting pass/fail as if it had gated the branch.
+# Nothing in the output distinguished the two runs.  The divergence is large, not cosmetic:
+# on `GMM mix_d4_n2_s101` at the quick budget (run seed 987654) the branch reads n_eff 42.3 and
+# the CVMFS-installed RIFT reads 4.6; whole-sweep medians differ by ~2x and the width_ratio
+# signature differs qualitatively.  So: state the answer, and let callers demand it.
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def checkout_code_dir(checkout=None):
+    """`<checkout>/MonteCarloMarginalizeCode/Code` -- the directory that must be on sys.path.
+
+    With no argument, the checkout THIS FILE lives in.  The harness deliberately supports
+    measuring some OTHER checkout (run_shape_recovery.sh takes one as an argument, and
+    confirm_regressions.py runs the base and candidate arms that way), so the caller names it
+    when it is not the enclosing one.
+    """
+    if checkout:
+        return os.path.join(os.path.abspath(os.path.expanduser(checkout)),
+                            "MonteCarloMarginalizeCode", "Code")
+    code = os.path.abspath(os.path.join(HERE, os.pardir, os.pardir, os.pardir))
+    if (os.path.basename(code) != "Code" or
+            os.path.basename(os.path.dirname(code)) != "MonteCarloMarginalizeCode"):
+        raise RuntimeError(
+            "cannot locate the enclosing checkout: expected {} to sit under "
+            "<checkout>/MonteCarloMarginalizeCode/Code/test/expensive_before_merging/integrators, "
+            "but three levels up is {}.  Name the checkout explicitly instead "
+            "(RIFT_SHAPE_CHECKOUT=/path/to/checkout).".format(HERE, code))
+    return code
+
+
+def rift_package_dir():
+    """Directory of the RIFT package `import RIFT` actually resolves to, or None if unimportable.
+
+    Reads sys.modules via the import, not sys.path: an editable install (PEP 660) installs a
+    meta-path finder, which wins over PYTHONPATH -- so reasoning about the path would give the
+    wrong answer in exactly the case worth catching.
+    """
+    try:
+        import RIFT
+    except Exception:
+        return None
+    fname = getattr(RIFT, "__file__", None)
+    if fname:
+        return os.path.realpath(os.path.dirname(fname))
+    paths = list(getattr(RIFT, "__path__", None) or [])     # namespace package
+    return os.path.realpath(paths[0]) if paths else None
+
+
+_WRONG_RIFT = """\
+{who} is measuring the WRONG RIFT.
+
+    import RIFT resolves to : {got}
+    checkout under test     : {want}
+
+`import RIFT` finds whatever the environment has installed unless the checkout is ahead of it on
+sys.path, and nothing in this suite's output distinguishes the two -- so a run that reports PASS
+against the installed RIFT (every IGWN conda env has one) has gated nothing.  Not a cosmetic
+difference: on `GMM mix_d4_n2_s101` at the quick budget (run seed 987654) the branch reads
+n_eff 42.3 and the CVMFS-installed RIFT reads 4.6; whole-sweep medians differ by ~2x and the
+width_ratio signature differs qualitatively.
+
+Put the checkout under test on PYTHONPATH -- and check that the path below is the one you meant:
+
+    export PYTHONPATH={code}:$PYTHONPATH
+
+To measure a DIFFERENT checkout on purpose -- the base-vs-candidate idiom run_shape_recovery.sh
+supports via its CHECKOUT argument -- name it, and set PYTHONPATH to match:
+
+    export RIFT_SHAPE_CHECKOUT=/path/to/that/checkout"""
+
+
+def assert_rift_under_test(checkout=None, who="this entry point"):
+    """Refuse to run unless `import RIFT` resolves inside the checkout under test.
+
+    Loud on purpose.  Prepending the checkout to sys.path here would make the number right and
+    leave the operator's invocation wrong, so the next thing they run by hand -- the probe, a
+    bisect, an interactive reproduction -- measures the installed RIFT again.  Returns the
+    verified RIFT package directory.
+    """
+    code = checkout_code_dir(checkout)
+    want = os.path.realpath(os.path.join(code, "RIFT"))
+    got = rift_package_dir()
+    if got == want:
+        return got
+    raise RuntimeError(_WRONG_RIFT.format(
+        who=who, got=got or "<not importable at all>", want=want, code=code))
 
 
 # ----------------------------------------------------------------------------
@@ -753,6 +853,27 @@ def evaluate(r):
 # MINIMUM (105) is 5% above the floor -- not a margin worth trusting for a row that has already
 # swung between 66 and 119 on unchanged code.  x4 gives min 209 (2.1x margin) and costs ~4% of the
 # gate's total evaluations, since it is one cell of ~96.
+#
+# DO NOT add ("GMM", 4, 2, 101) here.  That cell -- the `quick` preset's d=4 GMM row, which skips as
+# STARVED under `RIFT_RUN_EXPENSIVE=1 pytest` -- looks like the same problem and is not.  Measured
+# over 8 fresh run seeds at each budget:
+#
+#     budget      n_eff min/med/max   clears 100   PASS   median width_ratio[1]
+#      x1 200k        11 /  50 / 101      1/8       0/8         0.989
+#      x4 800k        28 /  44 / 179      2/8       1/8         0.919
+#     x32 6.4M        28 / 139 / 217      6/8       1/8         0.889
+#
+# The median n_eff grows only as ~nmax**0.3 and the across-seed MINIMUM stops improving after x4
+# (11, 16, 24, 28, 41, 33, 28 for x1..x32), so no budget tested up to x32 -- 8x the STANDARD preset's
+# own d=4 budget -- clears the floor at every seed; 2/8 still starve there.  A far larger budget is
+# untested, and moot: the failures are not starvation -- width_ratio[1] degrades
+# MONOTONICALLY with budget while the other three dims stay at 1.00, so a bigger budget turns the
+# quick pytest row from a documented skip into a hard failure on a defect nobody has fixed yet.  AV
+# on the identical target passes 8/8 at each measured budget with width_ratio 1.000, so the target
+# and the thresholds are sound; this is a GMM defect.  Note the row as it stands is a REPRODUCER,
+# not a detector: evaluate() returns STARVED before it looks at width, so no preset currently gates
+# that defect.  FOLLOWUPS.md items 5 (why the skip is deliberate) and 7 (the defect, with a
+# reproducer).
 CELL_BUDGET_MULT = {
     ("GMM", 6, 3, 303): 4,
 }
@@ -822,6 +943,17 @@ def main(argv=None):
     ap.add_argument("--json", default=None, help="write full records here")
     ap.add_argument("--verbose", action="store_true")
     opts = ap.parse_args(argv)
+
+    # WHICH RIFT.  Always reported, so a gate JSON attached to a PR can be traced to a checkout.
+    # ASSERTED when the caller named one (run_shape_recovery.sh exports RIFT_SHAPE_CHECKOUT
+    # alongside PYTHONPATH, as does confirm_regressions.py for each arm): a mistyped or moved
+    # checkout otherwise falls back to the installed RIFT in BOTH arms, and two arms measuring one
+    # RIFT come back bit-identical -- which this suite has already learned to read as "cleared at
+    # fresh seeds" (FOLLOWUPS items 1 and 2).  Fail before the truth pools are built, not after.
+    _checkout = os.environ.get("RIFT_SHAPE_CHECKOUT")
+    if _checkout:
+        assert_rift_under_test(_checkout, who="shape_recovery.py")
+    print("# RIFT under test: {}".format(rift_package_dir() or "<not importable>"))
 
     cfg = dict(PRESETS[opts.preset])
     if opts.dims:

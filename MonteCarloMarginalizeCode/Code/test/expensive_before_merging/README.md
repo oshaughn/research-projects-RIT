@@ -22,6 +22,23 @@ test, not just the integral test.
   `integrators/shape_recovery.py` docstring for method and thresholds, and
   `integrators/run_shape_recovery.sh` for the standard invocation.
 
+### Which RIFT gets measured
+
+Every entry point needs `<checkout>/MonteCarloMarginalizeCode/Code` ahead of the installed RIFT on
+`sys.path`; without it these suites measure whatever the environment has installed (every IGWN
+conda env has a RIFT) and report pass/fail exactly as if they had gated the branch.
+`run_shape_recovery.sh` exports it for you.  Under `pytest`, export it yourself:
+
+```
+export PYTHONPATH=<checkout>/MonteCarloMarginalizeCode/Code:$PYTHONPATH
+RIFT_RUN_EXPENSIVE=1 pytest -v integrators/test_shape_recovery.py
+```
+
+Both paths now refuse to run against a foreign RIFT rather than quietly measuring it, and every
+`shape_recovery.py` run prints the RIFT it resolved (`# RIFT under test:`) so an attached gate JSON
+can be traced to a checkout.  `RIFT_SHAPE_CHECKOUT=<dir>` names a checkout other than the enclosing
+one, for base-vs-candidate work.
+
 ## Merge workflow
 
 1. Run the suite on the **base** branch: `--json base.json`.

@@ -1,5 +1,10 @@
 # Before merging changes to this directory
 
+> See also **`REVIEW_CHECKLIST.md`** in this directory — the cheap, read-it-yourself pass, and
+> the rule for when a change's blast radius warrants a full code review.  It catches a
+> different class from the gate below: defects that leave the integral, the posterior shape
+> AND the diagnostics all looking reasonable while a count or a normalization is wrong.
+
 **Any PR that touches the integrators must pass the posterior SHAPE-recovery
 merge gate**, not just the fast CI integral test:
 

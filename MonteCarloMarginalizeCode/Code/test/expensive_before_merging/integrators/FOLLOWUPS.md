@@ -64,7 +64,9 @@ silences it and makes N production copies no better than one.
 
 ## 2. Strict gate row `GMM mix_d6_n3_s303` is mis-budgeted (starves 4 of 5 seeds)
 
-**Status:** needs a decision, not a code fix.
+**Status:** DONE -- measured and resolved. The cell carries a x4 `CELL_BUDGET_MULT` entry in
+`shape_recovery.py`, applied through `cell_budget()` so both entry points agree. The measurement
+table and the reasoning for x4 over x2 are below.
 
 The cell sits on the `n_eff = 100` starvation floor, so as a **strict** (merge-blocking) row it is
 close to a coin flip on every branch. From the confirm-on-fail run added in #49 (5 fresh seeds,
@@ -184,17 +186,79 @@ the allocation signal needs a shape-aware guard or the flag should be documented
 
 ## 5. The `quick` preset cannot clear its own shape floor on `GMM d4_n2_s101`
 
-**Status:** open, low priority. Surfaced only because the pytest entry point stopped passing
-vacuously (see below) -- it had been silently STARVED the whole time.
+**Status:** RESOLVED as a preset question -- accept the skip, keep the cell, and do NOT give it a
+`CELL_BUDGET_MULT` entry. But the premise below was wrong: this is not a budget shortfall. The
+measurement turned up a real, budget-resistant GMM shape defect, now tracked as item 7.
 
 `quick` budgets `nmax_per_dim=50000`, so `d=4` runs at 200k evaluations and that cell reads
 **n_eff = 42** against the `MIN_NEFF_FOR_SHAPE = 100` floor. The other three quick cells pass. So
 the default `RIFT_RUN_EXPENSIVE=1 pytest test_shape_recovery.py` is 3 passed, 1 skipped, and one
-quarter of the quick matrix tests nothing.
+quarter of the quick matrix tests nothing. That much still stands.
 
-Not a defect in the sampler -- the same cell passes at the standard preset's budget. Either raise
-`quick`'s budget for `d=4` (it stops being quick: this cell needs roughly 2.5x), drop the cell from
-`quick`, or accept the skip. Deliberately not decided here.
+**MEASURED (8 fresh run seeds per budget: 987654 + 988654..994654, CPU, branch on `PYTHONPATH`).**
+The paragraph that used to sit here read "Not a defect in the sampler -- the same cell passes at
+the standard preset's budget ... this cell needs roughly 2.5x". Both halves are false. It was
+extrapolated from the single default-seed reading, which is exactly the one-realization reasoning
+this file warns about everywhere else.
+
+| budget | nmax | n_eff min / med / max | clears 100 | PASS | median `width_ratio[1]` |
+|---|---|---|---|---|---|
+| x1 (`quick`) | 200k | 11 / 50 / 101 | 1/8 | 0/8 | 0.989 |
+| x2 | 400k | 16 / 32 / 122 | 1/8 | 1/8 | 0.976 |
+| x4 (= `standard`'s per-dim budget) | 800k | 28 / 44 / 179 | 2/8 | 1/8 | 0.919 |
+| x8 | 1.6M | 41 / 81 / 133 | 2/8 | 1/8 | 0.906 |
+| x16 | 3.2M | 33 / 96 / 148 | 4/8 | 1/8 | 0.900 |
+| x32 | 6.4M | 28 / 139 / 217 | 6/8 | 1/8 | 0.889 |
+
+Three readings, and none of them supports raising the budget:
+
+* **No TESTED budget reliably clears the floor across seeds.** The median improves sublinearly
+  (~`nmax**0.3`), but the across-seed *minimum* stops improving after x4 -- 11, 16, 24, 28, 41, 33,
+  28 for x1..x32. So over a 32x range the worst seed never gets past ~40, and at x32 (6.4M
+  evaluations, 8x the *standard* preset's own d=4 budget) 2 of 8 seeds still starve. What widens
+  with budget is the spread, not the floor margin. This does not prove some far larger budget could
+  not clear all eight -- nothing here measures that -- but the next bullet makes the question moot.
+* **Clearing the floor does not produce a pass.** PASS is 1/8 at every measured budget from x2 up.
+  At x32, 6/8 clear the floor and 5 of those 6 FAIL. Raising `quick`'s budget would turn the pytest
+  smoke row from a skip into a hard assertion failure on an unfixed defect -- correctly, but that is
+  item 7's decision to make, not a preset-tuning side effect.
+* **It fails because it converges to the WRONG answer.** `width_ratio[1]` degrades monotonically
+  with budget (0.989 -> 0.889) while the other three dims sit at 1.00, and `mean_pull[1]` grows
+  +0.023 -> +0.069. More samples, worse recovered posterior: the same signature as item 4.
+
+**Decision.** Accept the skip.
+
+* *Raise the budget* -- rejected, measured above. No budget up to x32 makes the row reliable, and
+  the budgets that do make it testable turn it into a failure, not a pass.
+* *Drop the cell from `quick`* -- rejected, but on cost, not on coverage. The matrix is
+  `dims x ncomps x seeds x samplers` with no per-cell exclusion (the same "not expressible" wall
+  item 2 hit: `--strict-samplers` is per-SAMPLER, `CELL_BUDGET_MULT` is budget-only). The only
+  expressible drop is removing `d=4` from `quick["dims"]`, which also removes **AV** d=4 -- a row
+  that clears the floor and passes 8/8 at every budget measured. Building a per-cell exclusion
+  mechanism to hide one row we have now fully characterized is the wrong trade; the row costs ~11 s.
+* *Accept the skip* -- taken. `quick` stays quick, the skip stays visible in the pytest summary,
+  and the reason it skips is now recorded here and at `CELL_BUDGET_MULT` instead of being
+  re-derived by the next person.
+
+**What the retained row does and does not buy.** It is a *reproducer*, not a detector. `evaluate()`
+returns `STARVED` at the `n_eff` floor **before** it looks at JS, pull, width or correlation, and
+the pytest wrapper skips that result -- so at `quick`'s budget this row asserts nothing about shape.
+Under the canonical driver it is no better: `classify()` maps STARVED/STARVED to `BOTH-STARVED` and
+returns before the metric-regression branch, and STARVED->FAIL to `NEWLY-TESTABLE-FAIL`, which is
+explicitly flag-don't-block. The only thing a permanently-starved row still catches is
+`REGRESSION(missing-in-candidate)` -- a candidate that crashes and emits no record at all.
+
+So `RIFT_RUN_EXPENSIVE=1 pytest test_shape_recovery.py` is 3 passed / 1 skipped by design, but be
+clear about what that means: **the skipped quarter is an untested corner, and the defect in item 7
+is currently ungated by every preset.** Keeping the row preserves the reproducer and the crash
+canary; it does not preserve coverage, because there was never any to lose.
+
+**Do not "fix" this with a `CELL_BUDGET_MULT` entry.** The mechanism added in #59 makes it a
+one-line edit -- `("GMM", 4, 2, 101): 3` -- that looks exactly like the fix item 2 landed for
+`mix_d6_n3_s303`. It is not the same situation: that cell's bias was flat across budgets, so more
+budget bought real margin; this one's width deficit *grows* with budget. The table above is
+reproduced in a comment at `CELL_BUDGET_MULT` in `shape_recovery.py`, at the line someone would
+edit.
 
 **How it was invisible.** `test_shape_recovery.py` unpacked `evaluate()` as `ok, reasons` and
 asserted `ok`. Commit 6467ac91 (2026-07-22) changed `evaluate()`'s contract from
@@ -203,3 +267,211 @@ asserted `ok`. Commit 6467ac91 (2026-07-22) changed `evaluate()`'s contract from
 hours earlier the same day. Every status string is truthy, so from that commit onward the pytest
 gate passed on FAIL, STARVED and ERROR alike. Same family as the #47/#51/#55 findings: a contract
 with two callers, one updated, both plausible in isolation, failure silent.
+
+---
+
+## 6. The pytest entry point gated the INSTALLED RIFT, not the branch
+
+**Status:** DONE -- the two entry points now agree, and both refuse a foreign RIFT.
+Tests in `test_rift_provenance_guard.py`.
+
+`test_shape_recovery.py` documents itself as an equivalent way into the same gate
+`run_shape_recovery.sh` drives:
+
+```
+RIFT_RUN_EXPENSIVE=1 pytest -v test_shape_recovery.py            # quick matrix
+RIFT_RUN_EXPENSIVE=1 RIFT_SHAPE_PRESET=standard pytest -v ...    # full gate
+```
+
+But the shell driver exports two things the pytest path did not:
+
+```
+export PYTHONPATH="${CHECKOUT}/MonteCarloMarginalizeCode/Code:${PYTHONPATH}"
+export CUDA_VISIBLE_DEVICES=""
+```
+
+So in any environment that also has RIFT installed -- every IGWN conda env -- the pytest entry
+point measured the **installed** RIFT and reported pass/fail as if it had gated the branch.
+Nothing in the output distinguished the two runs.
+
+**Evidence** (`GMM mix_d4_n2_s101`, quick budget, run seed 987654, ldas-pcdev2,
+`/cvmfs/software.igwn.org/conda/envs/igwn`):
+
+| RIFT | n_eff | n_ESS | JSmax | \|pull\| | widthdev |
+|---|---|---|---|---|---|
+| branch (`rift_O4d` checkout on PYTHONPATH) | 42 | 404 | 0.0205 | 0.123 | 0.099 |
+| installed (CVMFS igwn) | 5 | 20 | 0.0865 | 0.245 | 0.166 |
+
+Whole-sweep medians differ by ~2x and the `width_ratio` signature differs qualitatively. Both
+happen to read STARVED on this one cell, which is the point: the two runs are different
+experiments that a verdict column cannot tell apart.
+
+**Fix, and why it REFUSES rather than repairs.** `shape_recovery.assert_rift_under_test()` walks up
+from `__file__` to `<checkout>/MonteCarloMarginalizeCode/Code` and compares against the directory
+`import RIFT` actually resolved to; a mismatch raises with both paths and the `export` to run.
+`test_shape_recovery.py` calls it at import (under `RIFT_RUN_EXPENSIVE` only, so a plain `pytest`
+sweep still just skips), turning the silent wrong measurement into a collection ERROR.
+
+A `conftest.py` prepending the checkout to `sys.path` was the obvious alternative and was
+rejected: it makes the numbers right and leaves the operator's invocation wrong, so the next thing
+run by hand -- the probe, a bisect, an interactive reproduction -- measures the installed RIFT
+again. The failure this entry exists to remove is a person believing they gated a branch. The
+conftest carries only the environment half (`CUDA_VISIBLE_DEVICES=""`, BLAS thread counts), where
+there is nothing to learn.
+
+Resolution reads `RIFT.__file__`, not `sys.path`: an editable install (PEP 660) puts a meta-path
+finder ahead of `PYTHONPATH`, so reasoning about the path would give the wrong answer in exactly
+the case worth catching.
+
+**Same hole existed on the shell side, one level up.** `run_shape_recovery.sh` prepends `CHECKOUT`
+to `PYTHONPATH` but never checked that the prepend resolved anything. A mistyped or moved
+`CHECKOUT` falls back to the installed RIFT -- in **both** arms -- and two arms measuring one RIFT
+come back bit-identical, which this file has already taught everyone to read as "cleared at fresh
+seeds" (items 1 and 2). `run_shape_recovery.sh` and `confirm_regressions.py` now export
+`RIFT_SHAPE_CHECKOUT` alongside `PYTHONPATH`, and `shape_recovery.py:main()` asserts against it
+before building any truth pool. `RIFT_SHAPE_CHECKOUT` is also the escape hatch for measuring a
+checkout other than the enclosing one on purpose.
+
+Every run now prints `# RIFT under test: <dir>`, so a gate JSON attached to a PR can be traced to a
+checkout after the fact.
+
+`confirm_regressions._rerun` also stops discarding the child's stderr: a dying arm reached the
+operator only as an unexplained INCONCLUSIVE much later.
+
+**What is still unguarded.** `probe_portfolio_optin_flags.py` and `escaped_mass_study.py` repair
+`sys.path` silently at import (`sys.path.insert(0, _CODE)`) instead. That is correct for a library
+import and wrong as an operator lesson, but they are study tools, not merge gates, and they say so
+in their docstrings. Left alone deliberately. Note the collection-order consequence: those modules
+are imported by `pytest` before `test_shape_recovery.py`, so a whole-directory sweep can satisfy
+the guard that a sweep of `test_shape_recovery.py` alone would fail. The guard is still answering
+the right question -- "does `import RIFT` resolve to the checkout" -- but the two invocations can
+differ, which is worth knowing before filing it as a bug.
+
+Third instance of the family in items 3 and 5: one thing, two ways in, one way missing a required
+piece of setup, both plausible in isolation, failure silent.
+
+---
+
+## 7. GMM under-covers a broad mixture component on `mix_d4_n2_s101`, and worsens with budget
+
+**Status:** open, confirmed, and **ungated -- no preset detects it.** Found while measuring item 5,
+which had recorded the cell as merely under-budgeted. Not known to affect production.
+
+**Nothing currently catches this, and nothing did before.** `standard` runs `ncomps=[1, 3]`, so the
+ncomp=2 geometry never appears in the merge gate at all. `quick` does run it, but at a budget where
+`evaluate()` short-circuits to `STARVED` at the `n_eff` floor before examining width, pull or
+correlation -- and the pytest wrapper skips STARVED, while `compare_shape_results.classify()` maps
+STARVED/STARVED to the non-blocking `BOTH-STARVED` and never reaches its metric-regression branch.
+Adding coverage therefore means deciding to gate a defect that is not yet fixed; see **Next steps**.
+
+**Reproducer** (~20 s, exits 1, prints the width failure directly). Run it from anywhere inside the
+checkout; `CHECKOUT` is derived, and the script is invoked by absolute path so no `cd` is needed:
+
+```
+CHECKOUT=$(git rev-parse --show-toplevel)
+export RIFT_SHAPE_CHECKOUT="${CHECKOUT}"
+export PYTHONPATH="${CHECKOUT}/MonteCarloMarginalizeCode/Code:${PYTHONPATH}"
+export CUDA_VISIBLE_DEVICES=""
+python3 "${CHECKOUT}/MonteCarloMarginalizeCode/Code/test/expensive_before_merging/integrators/shape_recovery.py" \
+    --samplers GMM --dims 4 --ncomps 2 --target-seeds 101 \
+    --nmax-per-dim 800000 --neff 2000 --warm-cases off --run-seed 989654
+```
+```
+# RIFT under test: <checkout>/MonteCarloMarginalizeCode/Code/RIFT
+sampler    target               n_eff     n_ESS   JSmax  |pull| widthdev lnZbias  verdict
+GMM        mix_d4_n2_s101         148      4181  0.0082   0.061    0.146  -0.058  FAIL  [width_ratio[1]=0.854 (tol 0.055)]
+```
+
+`python3`, not `python`: several IGWN/conda environments provide only the former, the same reason
+`run_shape_recovery.sh` says so at its `exec` line.
+
+The `PYTHONPATH` line is load-bearing -- without it you measure whichever RIFT is **installed**, not
+the branch. On this cell at `quick`'s budget and run seed 987654 that is the difference between
+n_eff 42.3 (branch) and 4.6 (CVMFS igwn): a different experiment wearing the same verdict column,
+and the reason the numbers in this entry are reproducible at all. Item 6 closed that hole -- every
+run now prints `# RIFT under test:`, and the `RIFT_SHAPE_CHECKOUT` export above makes it **checked**
+rather than merely reported, so a mistyped path fails loudly instead of quietly measuring something
+else. Keep that line when adapting this command.
+
+On `MixtureTarget(4, 2, 101)` the GMM sampler recovers dimension 1's marginal **too narrow, and
+progressively more so the longer it runs**, while the other three dimensions stay exact. Medians
+over 8 fresh run seeds per budget:
+
+```
+budget   med n_eff   median width_ratio per dim (x0 x1 x2 x3)   median mean_pull[1]
+ x1  200k     50     1.005  0.989  1.002  1.011                  +0.023
+ x2  400k     32     1.001  0.976  0.981  0.993                  -0.003
+ x3  600k     37     1.001  0.923  0.985  0.998                  +0.039
+ x4  800k     44     1.000  0.919  0.993  0.998                  +0.039
+ x8  1.6M     81     1.003  0.906  0.992  1.003                  +0.052
+x16  3.2M     96     1.003  0.900  0.993  0.994                  +0.046
+x32  6.4M    139     1.008  0.889  0.989  1.004                  +0.069
+```
+
+n_eff grows roughly as `nmax**0.3` instead of linearly, and every FAIL in the sweep names
+`width_ratio[1]` (0.843-0.915); at x32 `mean_pull[1]` and `corr_diff_max` join it as the tolerances
+tighten with n_eff. The evidence bias stays small (median |bias| 0.03-0.07 nats) throughout, so
+**the integral looks fine while the posterior does not** -- which is the failure mode this whole
+suite exists to catch, and is invisible to `.travis/test-integrate.sh`.
+
+**The target is not pathological, and the thresholds are not too tight.** AV on the identical
+target, same seeds:
+
+```
+budget   n_eff min/med/max   clears 100   PASS   median width_ratio per dim
+ x1     157 /  188 /  203       8/8       8/8    1.001  1.004  1.000  0.996
+ x4     721 /  770 /  802       8/8       8/8    1.000  1.004  1.002  1.000
+x16    2002 / 2008 / 2013       8/8       8/8    1.000  1.000  0.999  0.999
+```
+
+AV converges TO 1.000 on the dimension GMM diverges from, and clears the floor at all 8 seeds at
+each of the three budgets measured -- including `quick`'s own x1, where GMM cleared it once.
+
+**It is target-specific, not general GMM.** Sweeping GMM over the six `standard` d=4 cells at x1
+and x4 (8 seeds each): every one scales n_eff ~4x for a 4x budget, holds `width_ratio` within 0.99
+-- 1.01 in all dims, and reaches 7-8/8 PASS at x4. Only `n2_s101` fails to scale (50 -> 44).
+
+```
+cell           x1 med n_eff -> x4      x4 PASS   x4 width_ratio per dim
+d4 n1 s101         69 ->  279            7/8     1.001 1.003 1.002 1.001
+d4 n1 s202         63 ->  252            8/8     1.004 1.005 1.004 1.003
+d4 n1 s303         89 ->  357            8/8     1.002 0.999 0.999 1.000
+d4 n3 s101         74 ->  297            8/8     1.002 0.994 0.994 0.992
+d4 n3 s202        182 ->  719            8/8     1.000 0.998 0.996 1.000
+d4 n3 s303         62 ->  222            7/8     1.008 1.007 1.003 1.000
+d4 n2 s101         50 ->   44            1/8     1.000 0.919 0.993 0.998   <-- this item
+```
+
+Note the ncomp=3 cells are fine, so plain multimodality is not the trigger.
+
+**Geometry of the one target that breaks it.** Two near-equal-weight components (0.479 / 0.521),
+separated 1.83 sigma along x0, whose widths along x1 differ by 2.5x (component sd 1.302 vs 0.520)
+with only 0.95 sigma of separation in that dimension. The recovered pull is positive, i.e. toward
+the NARROW component's x1 mean (0.062) and away from the broad one's (-0.985). So the proposal is
+progressively abandoning the broad component's tail and concentrating on the sharper, higher-density
+one -- and `n_eff = sum(w)/max(w)` cannot see it, because a proposal that has collapsed onto part
+of the support still reports concentrated weights.
+
+**Next steps.** Establish whether the trigger is the width ratio between overlapping components or
+the near-equal weights, by scanning `sigma_1d` / weight ratio on a synthetic two-component target
+rather than hunting more random seeds. Then check whether the fit is degenerate at the source: this
+runs `n_comp=2` on a genuinely 2-component target, so the EM fit is correctly specified and should
+not need to collapse -- if both fitted components land on the narrow mode, the defect is in the
+initialization or in the tempered-refit path (`GMM refit skipped: ESS too low even untempered`
+fires on some seeds here), not in the component count.
+
+**On adding coverage.** Two shapes are available once the scan above says what the trigger is, and
+they answer different questions:
+
+* *Gate it* -- put a ncomp=2 row into `standard` at a budget above the floor. This is the honest
+  end state, but it makes the merge gate red on every branch until the defect is fixed, so it
+  belongs with the fix, not before it.
+* *Characterize it* -- a non-blocking regression test pinning `width_ratio[1]` to the measured band
+  at a stated budget and seed, so that a fix, or a worsening, is visible instead of silent. Cheaper,
+  and it does not hold merges hostage -- but it freezes current behaviour into the suite, so it
+  needs an explicit expiry: it exists to be deleted by whoever fixes the defect.
+
+**Do not** reach for a budget increase, and do not add this cell to `standard` to "make it gated"
+until the defect is understood -- that turns the quick smoke row red without telling anyone anything
+the table above has not already established. See item 5 for what the retained row does and does not
+buy.

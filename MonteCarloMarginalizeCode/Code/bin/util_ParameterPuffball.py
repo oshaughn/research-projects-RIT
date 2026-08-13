@@ -48,6 +48,9 @@ parser.add_argument("--no-correlation", type=str,action='append', help="Pairs of
 #parser.add_argument("--parameter-implied", action='append', help="Parameter used in fit, but not independently varied for Monte Carlo")
 parser.add_argument("--random-parameter", action='append',help="These parameters are specified at random over the entire range, uncorrelated with the grid used for other parameters.  Use for variables which correlate weakly with others; helps with random exploration")
 parser.add_argument("--random-parameter-range", action='append', type=str,help="Add a range (pass as a string evaluating to a python 2-element list): --parameter-range '[0.,1000.]'   MUST specify ALL parameter ranges (min and max) in order if used.  ")
+parser.add_argument("--append-with-random-parameter", action='append', help="APPEND extra copies of randomly-chosen output points with this parameter re-drawn uniformly at random (unlike --random-parameter, which REPLACES the value on every point).  Guarantees the proposed grid keeps offering coverage in that coordinate (e.g. the chi1_perp transverse tail) even after the posterior/grid has contracted: the tail-starvation feedback behind narrow low-mass chi1_perp posteriors (transverse-spin study 2026-07).  For chi1_perp/chi2_perp the azimuth is also re-drawn and the magnitude capped so |chi| respects the chi1/chi2 downselect bound.  Repeatable; ranges via --append-with-random-parameter-range (defaults exist for chi1_perp/chi2_perp).  The combined output rows are SHUFFLED so ordered/truncated downstream reads cannot silently drop the appended points.")
+parser.add_argument("--append-with-random-parameter-range", action='append', type=str, help="Range for each --append-with-random-parameter, as a string '[lo,hi]', in order.  Optional for chi1_perp/chi2_perp (default [0,chi-cap]); required for anything else.")
+parser.add_argument("--append-with-random-fraction", default=0.3, type=float, help="Number of appended randomized points, as a fraction of the (post-downselect) puff output size.  Default 0.3.")
 parser.add_argument("--mc-range",default=None,help="Chirp mass range [mc1,mc2]. Important if we have a low-mass object, to avoid wasting time sampling elsewhere.")
 parser.add_argument("--eta-range",default=None,help="Eta range. Important if we have a BNS or other item that has a strong constraint.")
 parser.add_argument("--mtot-range",default=None,help="Chirp mass range [mc1,mc2]. Important if we have a low-mass object, to avoid wasting time sampling elsewhere.")
@@ -363,6 +366,70 @@ if len(opts.random_parameter) >0:
         if param in ['mc','m1','m2','mtot']:
             val = val* lal.MSUN_SI
         P.assign_param(param,val)
+
+# APPEND-mode randomized coverage ("tail-guard").  Placed AFTER all puff/downselect/
+# randomize logic so the appended points are extra rows on top of the normal output.
+if opts.append_with_random_parameter:
+  if len(P_out) < 1:
+    print(" append-with-random: no base points survived the puff; nothing to append")
+  else:
+    _app_params = opts.append_with_random_parameter
+    # spin-magnitude caps: reuse the pipeline's own chi1/chi2 downselect bounds if given
+    _chi1_cap = downselect_dict['chi1'][1] if 'chi1' in downselect_dict else 1.0
+    _chi2_cap = downselect_dict['chi2'][1] if 'chi2' in downselect_dict else 1.0
+    _app_default_range = {'chi1_perp': [0., _chi1_cap], 'chi2_perp': [0., _chi2_cap]}
+    _app_ranges = {}
+    for _indx, _param in enumerate(_app_params):
+        if opts.append_with_random_parameter_range and _indx < len(opts.append_with_random_parameter_range):
+            _app_ranges[_param] = np.array(eval(opts.append_with_random_parameter_range[_indx]))
+        elif _param in _app_default_range:
+            _app_ranges[_param] = np.array(_app_default_range[_param])
+        else:
+            raise Exception(" --append-with-random-parameter {} requires --append-with-random-parameter-range".format(_param))
+    _n_extra = int(np.ceil(opts.append_with_random_fraction * len(P_out)))
+    P_extra = []
+    for _indx_base in np.random.randint(0, len(P_out), size=_n_extra):
+        P = P_out[_indx_base].manual_copy()
+        _ok = True
+        for _param in _app_params:
+            _lo, _hi = _app_ranges[_param]
+            if _param in ['chi1_perp', 'chi2_perp']:
+                # re-draw the transverse magnitude AND azimuth (azimuth is undefined for
+                # aligned points, which dominate contracted grids), capping so the total
+                # spin magnitude respects the chi bound
+                _sz = P.s1z if _param == 'chi1_perp' else P.s2z
+                _cap = _chi1_cap if _param == 'chi1_perp' else _chi2_cap
+                _hi_eff = min(_hi, np.sqrt(max(_cap**2 - _sz**2, 0.)))
+                if _hi_eff <= _lo:
+                    _ok = False; break
+                _R = np.random.uniform(_lo, _hi_eff)
+                _ph = np.random.uniform(0, 2*np.pi)
+                if _param == 'chi1_perp':
+                    P.s1x = _R*np.cos(_ph); P.s1y = _R*np.sin(_ph)
+                else:
+                    P.s2x = _R*np.cos(_ph); P.s2y = _R*np.sin(_ph)
+            else:
+                _val = np.random.uniform(_lo, _hi)
+                if _param in ['mc', 'm1', 'm2', 'mtot']:
+                    _val = _val*lal.MSUN_SI
+                P.assign_param(_param, _val)
+        if not _ok:
+            continue
+        if np.isnan(P.m1) or np.isnan(P.m2):
+            continue
+        if P.extract_param('chi1') > _chi1_cap or P.extract_param('chi2') > _chi2_cap:
+            continue
+        if not(opts.enforce_duration_bound is None):
+            if lalsimutils.estimateWaveformDuration(P) > opts.enforce_duration_bound:
+                continue
+        P_extra.append(P)
+    print(" append-with-random: appended {} randomized points ({} requested) in {}".format(len(P_extra), _n_extra, _app_params))
+    P_out = P_out + P_extra
+    # SHUFFLE the combined rows: downstream consumers may read grids in order and/or
+    # truncate to the first N rows; without a shuffle the appended tail-coverage points
+    # sit at the END and can be silently dropped, defeating the tail-guard.
+    _perm = np.random.permutation(len(P_out))
+    P_out = [P_out[_i] for _i in _perm]
 
 print(" The number of exported points is ", len(P_out))
 
