@@ -806,6 +806,37 @@ elif opts.sampler_method == "portfolio":
     sampler = mcsamplerPortfolio.MCSampler(portfolio=sampler_list)
 
 
+# Does this sampler hand back ln(integral), or the integral itself?
+#
+# --internal-use-lnL alone does NOT answer that.  'use_lnL'/'return_lnI' ride in as
+# **kwargs to integrate(), and several samplers ignore one or both of them:
+#   mcsamplerAdaptiveVolume, mcsamplerNFlow, mcsamplerPortfolio
+#                     -- integrate() ALWAYS delegates to integrate_log(); the return is
+#                        ln(integral) whether or not the flags were passed
+#   mcsamplerGPU      -- delegates to integrate_log() only when use_lnL is set
+#   mcsamplerEnsemble -- the only sampler that reads return_lnI
+#   mcsampler         -- the legacy 'adaptive_cartesian' backend: reads NEITHER flag,
+#                        and always returns the linear integral
+# Key off the class actually constructed above rather than off --sampler-method: the
+# portfolio branch rebinds sampler, and an unrecognized --sampler-method silently falls
+# through to the default mcsampler.
+_sampler_module = type(sampler).__module__.split('.')[-1]
+if _sampler_module in ['mcsamplerAdaptiveVolume', 'mcsamplerNFlow', 'mcsamplerPortfolio']:
+    sampler_returns_ln_integral = True
+elif _sampler_module in ['mcsamplerGPU', 'mcsamplerEnsemble']:
+    sampler_returns_ln_integral = bool(opts.internal_use_lnL)  # exactly when use_lnL/return_lnI are set below
+else:  # mcsampler, the legacy adaptive_cartesian backend
+    sampler_returns_ln_integral = False
+    if opts.internal_use_lnL:
+        # This backend ignores use_lnL, so it would integrate lnL as though it were L:
+        # the returned value is not an evidence in either convention, and neither
+        # res nor log(res) can repair it.  Refuse rather than write a meaningless
+        # number to --fname-output-integral.  Compare ok_lnL_methods/bad_lnL_methods
+        # in util_ConstructIntrinsicPosterior_GenericCoordinates.py.
+        print(" OPTION MISMATCH : --internal-use-lnL needs a sampler that honors it; --sampler-method {} builds {}, which ignores it.  Use GMM, AV, adaptive_cartesian_gpu, or portfolio.".format(opts.sampler_method, _sampler_module))
+        sys.exit(99)
+
+
 ##
 ## Loop over param names
 ##
@@ -971,6 +1002,14 @@ if opts.internal_use_lnL:
 
 res, var, neff, dict_return = sampler.integrate(fn_passed, *low_level_coord_names,  verbose=True,nmax=int(opts.n_max),n=n_step,neff=opts.n_eff, save_intg=True,tempering_adapt=True, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,adapt_weight_exponent=my_exp,no_protect_names=True,**extra_args)  # MC integrates in the SAMPLING basis (low_level_coord_names); convert_coords routes each sample into the fit basis (coord_names) before evaluating the GP/RF
 
+# result value:  be careful, if the sampler returns lnI, then must not take log twice!
+# See sampler_returns_ln_integral where the sampler is constructed: this is a property of
+# the backend, NOT of --internal-use-lnL.
+ln_integrand_value = None
+if sampler_returns_ln_integral:
+    ln_integrand_value = res
+else:
+    ln_integrand_value = np.log(res)
 
 # Save result -- needed for odds ratios, etc.
 # Absolute scale: a supplementary-likelihood plugin may subtract a constant from its own lnL to keep
@@ -982,7 +1021,6 @@ res, var, neff, dict_return = sampler.integrate(fn_passed, *low_level_coord_name
 if supplemental_ln_likelihood_offset_fn:
     supplemental_ln_likelihood_offset = float(supplemental_ln_likelihood_offset_fn())
     print(" EXTERNAL SUPPLEMENTARY LIKELIHOOD FACTOR : restoring offset {} in reported evidence ".format(supplemental_ln_likelihood_offset))
-ln_integrand_value = np.log(res)
 ln_integrand_value_absolute = ln_integrand_value + supplemental_ln_likelihood_offset
 np.savetxt(opts.fname_output_integral, [ln_integrand_value_absolute])
 
@@ -1124,4 +1162,3 @@ if _extra_cols:
 
 print(" Saving to ", opts.fname_output_samples+".dat")
 np.savetxt(opts.fname_output_samples+".dat",dat_out,header=" lnL sigma_lnL " + ' '.join(dat_orig_names))
-
