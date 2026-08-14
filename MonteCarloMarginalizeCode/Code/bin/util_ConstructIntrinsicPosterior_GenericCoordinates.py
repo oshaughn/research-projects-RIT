@@ -922,6 +922,14 @@ def uniform_eccentricity_ln_prior(x):
 def eccentricity_squared_prior(x):  # note this is INCONSISTENT with the prior above -- we are designed to give a CDF = (e/emax)^2 for example here, or more generally (e^2 - emin^2)/(emax^2-emin^2)
     return np.ones(x.shape) / (ECC_MAX**2-ECC_MIN**2) # uniform over the interval [ECC_MIN, ECC_MAX]
 
+def log_eccentricity_squared_prior(x):
+    # The log_eccentricity_prior distribution expressed in the eccentricity_squared
+    # coordinate, for runs that sample e^2 (--parameter eccentricity_squared) but asked
+    # for --eccentricity-prior log_uniform.  With u = e^2,
+    #   p(u) = p(e) |de/du| = 1/(2 e^2 ln(ECC_MAX/ECC_MIN)) = 1/(u ln(ECC_MAX^2/ECC_MIN^2)),
+    # i.e. log-uniform in u as well, as a log-uniform variable must be under a power map.
+    return np.ones(x.shape) / (2*x*np.log(ECC_MAX/ECC_MIN)) # log uniform, as a density in e^2 on [ECC_MIN^2, ECC_MAX^2]
+
 def meanPerAno_prior(x):
     return np.ones(x.shape) / (MEANPERANO_MAX-MEANPERANO_MIN) # uniform over the interval [MEANPERANO_MIN, MEANPERANO_MAX]
 
@@ -1074,7 +1082,7 @@ elif  opts.aligned_prior == 'alignedspin-zprior-positive':
     # prior on s1z constructed to produce the standard distribution
     prior_map["s1z"] = s_component_zprior_positive
     prior_map["s2z"] = functools.partial(s_component_zprior_positive,R=chi_small_max)
-    prior_map["s1z_bar"] = s_compone+nt_zprior_positive
+    prior_map["s1z_bar"] = s_component_zprior_positive
     prior_map["s2z_bar"] = functools.partial(s_component_zprior_positive,R=chi_small_max)
     prior_range_map['s1z'] = [0,chi_max]
     prior_range_map['s2z'] = [0,chi_small_max]
@@ -1174,14 +1182,26 @@ if opts.prior_lambda_linear:
         prior_map['lambda2'] = functools.partial(mcsampler.power_down_samp,xmin=0,xmax=lambda_small_max,alpha=opts.prior_lambda_power+1)
 
 if opts.eccentricity_prior == 'log_uniform':
+    # Apply the requested prior to EVERY eccentricity coordinate CIP can sample, not just
+    # 'eccentricity': --parameter eccentricity_squared is a supported choice (and what
+    # pseudo_pipe uses for iteration 0 of an eccentric run), so setting only
+    # prior_map['eccentricity'] left such a run silently sampling the uniform-in-e^2
+    # density while reporting a log-uniform prior.
+    # 'eccentricity_ln' needs no entry here: uniform_eccentricity_ln_prior is already
+    # uniform in ln(e), i.e. this same distribution written in that coordinate.
     prior_map['eccentricity'] = log_eccentricity_prior
+    prior_map['eccentricity_squared'] = log_eccentricity_squared_prior
     if ECC_MIN == 0.0:
         print("Warning: You passed 0.0 as a ecc-in with a log-uniform prior. Changing ecc-min to 0.001")
         ECC_MIN = 0.001
         prior_range_map['eccentricity'] = [ECC_MIN,ECC_MAX]
         prior_range_map['eccentricity_ln'] = [np.log(ECC_MIN),np.log(ECC_MAX)]
+        # 1/u is no more integrable down to u=0 than 1/e is down to e=0, so the squared
+        # coordinate's range has to follow the corrected floor too
+        prior_range_map['eccentricity_squared'] = [ECC_MIN**2,ECC_MAX**2]
         print("New eccentricity range: ",prior_range_map['eccentricity'])
         print("New ln(eccentricity) range: ",prior_range_map['eccentricity_ln'])
+        print("New eccentricity^2 range: ",prior_range_map['eccentricity_squared'])
 # tex_dictionary  = {
 #  "mtot": '$M$',
 #  "mc": '${\cal M}_c$',

@@ -23,7 +23,7 @@ source with ``ast`` and execs them in a namespace holding numpy and the handful
 of module-level constants they close over.  The functions under test are
 therefore byte-identical to the ones CIP runs.
 
-Two layers of coverage:
+Three layers of coverage:
 
 ``test_prior_evaluates``
     Every extracted prior must evaluate on a valid array and return finite,
@@ -38,6 +38,14 @@ Two layers of coverage:
     what catches a wrong normalization constant, which evaluates perfectly
     happily and silently reweights a posterior.  Priors documented in-source as
     unnormalized are listed in UNNORMALIZED below and deliberately excluded.
+
+the ``_eccentricity_setup`` tests
+    A correct density is worth nothing if the option does not install it for the
+    coordinate the run actually samples.  These execute CIP's own
+    ``--eccentricity-prior`` block against its own default prior_map /
+    prior_range_map entries, and check every eccentricity coordinate --
+    including eccentricity_squared, which is what an eccentric pseudo_pipe run
+    samples in iteration 0.
 """
 
 import ast
@@ -103,25 +111,29 @@ NOT_A_DENSITY = {
 }
 
 
-def _load_priors():
-    """Exec the prior ``def`` blocks out of the CIP source, verbatim.
-
-    Only top-level FunctionDef nodes are taken, so the surrounding script
-    (argparse, I/O, the fitting machinery) never runs.  Selection is on
-    'prior' appearing anywhere in the name, NOT a '_prior' suffix: the suffix
-    rule silently skips s_component_zprior, s_component_zprior_positive and
-    the two *volumetricprior densities, which is most of the spin sector.
-    """
+def _cip_tree():
     with open(CIP_SCRIPT) as handle:
-        tree = ast.parse(handle.read())
+        return ast.parse(handle.read())
 
-    namespace = {
+
+CIP_TREE = _cip_tree()
+
+
+def _exec_in(namespace, *nodes):
+    """Compile and run the given top-level CIP nodes in `namespace`."""
+    module = ast.Module(body=list(nodes), type_ignores=[])
+    exec(compile(module, CIP_SCRIPT, "exec"), namespace)
+
+
+def _make_namespace(ecc_min=ECC_MIN, eccentricity_prior="uniform"):
+    """The module-level constants the priors and the option wiring close over."""
+    return {
         "np": np,
         "numpy": np,
         "scipy": types.SimpleNamespace(stats=scipy_stats),
         "chi_max": CHI_MAX,
         "chi_small_max": CHI_MAX,
-        "ECC_MIN": ECC_MIN,
+        "ECC_MIN": ecc_min,
         "ECC_MAX": ECC_MAX,
         "MEANPERANO_MIN": 0.0,
         "MEANPERANO_MAX": 2 * np.pi,
@@ -131,23 +143,33 @@ def _load_priors():
         "mc_min": MC_MIN,
         "mc_max": MC_MAX,
         "p_Rbar": _p_rbar(),
-        # lambda_tilde_prior reads opts directly
-        "opts": types.SimpleNamespace(lambda_max=LAMBDA_MAX),
+        # lambda_tilde_prior reads opts directly, as does the --eccentricity-prior block
+        "opts": types.SimpleNamespace(lambda_max=LAMBDA_MAX,
+                                      eccentricity_prior=eccentricity_prior),
     }
 
+
+def _load_priors(namespace):
+    """Exec the prior ``def`` blocks out of the CIP source, verbatim.
+
+    Only top-level FunctionDef nodes are taken, so the surrounding script
+    (argparse, I/O, the fitting machinery) never runs.  Selection is on
+    'prior' appearing anywhere in the name, NOT a '_prior' suffix: the suffix
+    rule silently skips s_component_zprior, s_component_zprior_positive and
+    the two *volumetricprior densities, which is most of the spin sector.
+    """
     found = {}
-    for node in tree.body:
+    for node in CIP_TREE.body:
         if not isinstance(node, ast.FunctionDef):
             continue
         if "prior" not in node.name.lower() or node.name in NOT_A_DENSITY:
             continue
-        module = ast.Module(body=[node], type_ignores=[])
-        exec(compile(module, CIP_SCRIPT, "exec"), namespace)
+        _exec_in(namespace, node)
         found[node.name] = namespace[node.name]
     return found
 
 
-PRIORS = _load_priors()
+PRIORS = _load_priors(_make_namespace())
 
 # Support on which each prior may be evaluated.  Only used to feed the smoke
 # test valid inputs; priors with an integrable singularity at an endpoint are
@@ -172,6 +194,8 @@ SUPPORT = {
     "log_eccentricity_prior": (ECC_MIN, ECC_MAX),
     "uniform_eccentricity_ln_prior": (ECC_MIN, ECC_MAX),
     "eccentricity_squared_prior": (ECC_MIN, ECC_MAX),
+    # a density in e^2, so it is evaluated on the squared interval
+    "log_eccentricity_squared_prior": (ECC_MIN ** 2, ECC_MAX ** 2),
     "meanPerAno_prior": (0.0, 2 * np.pi),
     "precession_prior": (0.0, 2.0),
     "lambda_prior": (LAMBDA_MIN, LAMBDA_MAX),
@@ -234,6 +258,9 @@ NORMALIZED = [
     ("uniform_eccentricity_ln_prior", ECC_MIN, ECC_MAX, "log", ()),
     # Density against d(e^2); see the INCONSISTENT note in CIP.
     ("eccentricity_squared_prior", ECC_MIN, ECC_MAX, "square", ()),
+    # Already written as a function of u=e^2, so it integrates du over the squared
+    # interval directly rather than through the 'square' substitution.
+    ("log_eccentricity_squared_prior", ECC_MIN ** 2, ECC_MAX ** 2, "x", ()),
     ("meanPerAno_prior", 0.0, 2 * np.pi, "x", ()),
     ("precession_prior", 0.0, 2.0, "x", ()),
     ("triangle_prior", -CHI_MAX, CHI_MAX, "x", ()),
@@ -263,7 +290,8 @@ def test_priors_were_actually_extracted():
     assert len(PRIORS) > 25, "only found {} priors in CIP: {}".format(
         len(PRIORS), sorted(PRIORS))
     for name in ("eccentricity_prior", "log_eccentricity_prior",
-                 "uniform_eccentricity_ln_prior", "eccentricity_squared_prior"):
+                 "uniform_eccentricity_ln_prior", "eccentricity_squared_prior",
+                 "log_eccentricity_squared_prior"):
         assert name in PRIORS, "{} not extracted from CIP".format(name)
 
 
@@ -364,3 +392,160 @@ def test_uniform_and_log_eccentricity_priors_differ():
     # log-uniform puts more weight at small e, which is the entire point
     assert log_uniform[0] > flat[0]
     assert log_uniform[-1] < flat[-1]
+
+
+###
+### End-to-end coordinate selection: which density --eccentricity-prior actually
+### installs for the coordinate a run samples in.
+###
+### CIP can sample eccentricity in three coordinates, and pseudo_pipe chooses among
+### them: --parameter eccentricity, --parameter eccentricity_squared (what
+### --use-eccentricity-squared asks for, and what iteration 0 of an eccentric run uses),
+### and eccentricity_ln.  The prior is looked up by coordinate name -- prior_map[p] with
+### the range prior_range_map[p] -- so an option that rewrites only one entry silently
+### leaves the other coordinates on their default density.
+###
+
+ECC_COORDS = ("eccentricity", "eccentricity_ln", "eccentricity_squared")
+
+
+def _eccentricity_dict_entries(name, namespace):
+    """Exec only the eccentricity entries of a shipped top-level dict literal.
+
+    CIP's prior_map / prior_range_map also hold mcsampler callables, functools partials
+    and mass/spin/matter constants that this test has no business constructing.
+    Rebuilding the literal with just the eccentricity keys keeps the entries under test
+    identical to the shipped ones, while leaving the rest of the script out and not
+    breaking when an unrelated sector gains an entry.
+    """
+    for node in CIP_TREE.body:
+        if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Dict):
+            continue
+        if not (len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)
+                and node.targets[0].id == name):
+            continue
+        keys, values = [], []
+        for key, value in zip(node.value.keys, node.value.values):
+            # IGWN production hosts still provide Python 3.6, where parsed
+            # string literals are ast.Str rather than ast.Constant.
+            key_value = key.s if isinstance(key, ast.Str) else getattr(key, "value", None)
+            if key_value in ECC_COORDS:
+                keys.append(key)
+                values.append(value)
+        assert keys, "no eccentricity entries in CIP's {}".format(name)
+        trimmed = ast.Assign(targets=node.targets,
+                             value=ast.Dict(keys=keys, values=values))
+        _exec_in(namespace, ast.fix_missing_locations(
+            ast.copy_location(trimmed, node)))
+        return namespace[name]
+    raise AssertionError("could not find the {} dict in CIP".format(name))
+
+
+def _exec_eccentricity_option_block(namespace):
+    """Run CIP's `if opts.eccentricity_prior == ...` block, verbatim."""
+    for node in CIP_TREE.body:
+        test = node.test if isinstance(node, ast.If) else None
+        left = test.left if isinstance(test, ast.Compare) else None
+        if (isinstance(left, ast.Attribute)
+                and isinstance(left.value, ast.Name)
+                and left.value.id == "opts"
+                and left.attr == "eccentricity_prior"):
+            _exec_in(namespace, node)
+            return
+    raise AssertionError("could not find the --eccentricity-prior block in CIP")
+
+
+def _eccentricity_setup(ecc_min=ECC_MIN, eccentricity_prior="uniform"):
+    """Reproduce CIP's eccentricity prior selection: defaults, then the option block."""
+    namespace = _make_namespace(ecc_min=ecc_min,
+                                eccentricity_prior=eccentricity_prior)
+    _load_priors(namespace)
+    # ln(ECC_MIN) with --ecc-min 0 is -inf here exactly as it is in CIP; the option
+    # block is what repairs it, and that repair is the thing under test
+    with np.errstate(divide="ignore"):
+        prior_map = _eccentricity_dict_entries("prior_map", namespace)
+        prior_range_map = _eccentricity_dict_entries("prior_range_map", namespace)
+        _exec_eccentricity_option_block(namespace)
+    return namespace, prior_map, prior_range_map
+
+
+def _integral_over_range(density, bounds):
+    """Integrate a coordinate's density over that coordinate's sampling range."""
+    lo, hi = bounds
+    integrand = lambda u: float(np.asarray(density(np.array([u])), dtype=float)[0])
+    return integrate.quad(integrand, lo, hi, limit=200)
+
+
+def test_uniform_eccentricity_prior_leaves_the_shipped_defaults():
+    """--eccentricity-prior uniform (the default) must not touch any entry."""
+    namespace, prior_map, _ = _eccentricity_setup(eccentricity_prior="uniform")
+
+    assert prior_map["eccentricity"] is namespace["eccentricity_prior"]
+    assert prior_map["eccentricity_squared"] is namespace["eccentricity_squared_prior"]
+    assert prior_map["eccentricity_ln"] is namespace["uniform_eccentricity_ln_prior"]
+
+
+def test_log_uniform_selects_a_log_uniform_density_for_every_coordinate():
+    """--eccentricity-prior log_uniform must reach the coordinate actually sampled.
+
+    Setting only prior_map['eccentricity'] left a --parameter eccentricity_squared run
+    on the flat-in-e^2 default: no error, no warning, a different posterior than the
+    one requested.
+    """
+    namespace, prior_map, prior_range_map = _eccentricity_setup(
+        eccentricity_prior="log_uniform")
+
+    assert prior_map["eccentricity"] is namespace["log_eccentricity_prior"]
+    assert prior_map["eccentricity_squared"] is namespace["log_eccentricity_squared_prior"]
+    # uniform in ln(e) already IS this distribution written in that coordinate, so the
+    # default entry is correct and deliberately left alone
+    assert prior_map["eccentricity_ln"] is namespace["uniform_eccentricity_ln_prior"]
+
+    for coord in ECC_COORDS:
+        total, err = _integral_over_range(prior_map[coord], prior_range_map[coord])
+        assert err < 1e-4, "{}: quadrature did not converge".format(coord)
+        assert total == pytest.approx(1.0, rel=2e-3), (
+            "{}: selected density integrates to {:.6f} over its sampling range {}, "
+            "not 1".format(coord, total, prior_range_map[coord]))
+
+
+def test_log_uniform_is_one_distribution_in_e_and_in_e_squared():
+    """The e and e^2 coordinates must describe the SAME distribution.
+
+    Equal densities are not the requirement -- equal probability is.  P(e < E) computed
+    in the e coordinate must equal P(e^2 < E^2) computed in the e^2 coordinate, which is
+    what fails if the e^2 entry keeps a density of a different family.
+    """
+    _, prior_map, _ = _eccentricity_setup(eccentricity_prior="log_uniform")
+
+    for cut in np.geomspace(1.5 * ECC_MIN, 0.9 * ECC_MAX, 5):
+        cdf_e, _ = _integral_over_range(prior_map["eccentricity"], (ECC_MIN, cut))
+        cdf_u, _ = _integral_over_range(prior_map["eccentricity_squared"],
+                                        (ECC_MIN ** 2, cut ** 2))
+        assert cdf_u == pytest.approx(cdf_e, rel=1e-6), (
+            "P(e<{:.4f}) is {:.6f} sampling in e but {:.6f} sampling in e^2".format(
+                cut, cdf_e, cdf_u))
+
+
+def test_ecc_min_zero_correction_reaches_every_coordinate_range():
+    """--ecc-min 0 with log_uniform: the 0.001 floor must reach every range.
+
+    A log-uniform density is not integrable down to zero in ANY of these coordinates, so
+    a range whose lower edge is left at 0 gives a divergent normalization rather than a
+    prior.
+    """
+    namespace, prior_map, prior_range_map = _eccentricity_setup(
+        ecc_min=0.0, eccentricity_prior="log_uniform")
+
+    assert namespace["ECC_MIN"] == 0.001
+
+    for coord in ECC_COORDS:
+        bounds = prior_range_map[coord]
+        assert np.all(np.isfinite(bounds)), (
+            "{}: sampling range {} still has a zero-eccentricity edge".format(
+                coord, bounds))
+        total, err = _integral_over_range(prior_map[coord], bounds)
+        assert err < 1e-4, "{}: quadrature did not converge".format(coord)
+        assert total == pytest.approx(1.0, rel=2e-3), (
+            "{}: selected density integrates to {:.6f} over its sampling range {}, "
+            "not 1".format(coord, total, bounds))
