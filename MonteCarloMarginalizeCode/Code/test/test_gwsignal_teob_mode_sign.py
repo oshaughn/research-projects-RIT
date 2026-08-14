@@ -39,14 +39,17 @@ A whole-waveform scalar fit would NOT work here: the buggy and correct forms
 differ per mode by ``-exp(i m pi/2)``, which is ``+1`` at ``m = +-2``, so the
 dominant quadrupole agrees either way and carries nearly all the power.
 
-Not run in CI: the runners have no TEOBResumSDALI plugin, so the generator
-probe skips there.  That probe is the *only* thing allowed to skip -- once
-gwsignal hands back a generator, every later failure (waveform generation,
-``hlmoft``, the fit, the assertion) is a real failure and is reported as one.
+Not run in CI: the runners do not have the plugin packages, so the
+backend-availability check skips there.  A missing backend package is the
+*only* thing allowed to skip -- once the package is present, every later
+failure (building the generator, waveform generation, ``hlmoft``, the fit, the
+assertion) is a real failure and is reported as one.
 Run it where the plugin is installed:
 
     python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_gwsignal_teob_mode_sign.py
 """
+import importlib.util
+
 import numpy as np
 import pytest
 
@@ -112,20 +115,36 @@ def _regrid(ts, a, grid):
     return a[np.clip(np.searchsorted(ts, grid), 0, len(a) - 1)]
 
 
-def _generator_or_skip(approx):
-    """Availability probe, and nothing else.
+# Third-party package each model is implemented by; a missing one is the only
+# thing here that means "not this host" rather than "broken".  Keyed by
+# approximant, so adding an approximant to the parametrization without saying
+# what provides it raises KeyError instead of silently skipping.  Both are
+# top-level modules, which keeps the ``find_spec`` lookup below simple.
+_BACKEND_MODULE = {
+    "TEOBResumSDALI": "EOBRun_module",   # pip install teobresums
+    "SEOBNRv5EHM": "pyseobnr",
+}
 
-    Asking gwsignal for the generator is the one step that legitimately fails
-    when a model is simply not installed, so it is the only step whose failure
-    is turned into a skip.  Everything after it is the code under test: a
-    blanket ``except`` there would quietly downgrade the very regression this
-    file exists to catch into a green skip on a machine that *does* have the
-    plugin.
+
+def _generator(approx):
+    """The gwsignal generator for ``approx``; skip only if its backend is absent.
+
+    Absence is decided on its own terms, before anything is constructed:
+    ``find_spec`` locates the plugin package without importing it, so it cannot
+    be confused with a failure of the code under test.  The factory call is
+    then deliberately unguarded.  On a host that *has* the backend, an API
+    incompatibility, a plugin that raises on import, or a regression inside
+    ``gwsignal_get_waveform_generator`` is a real failure of this guard;
+    catching it would downgrade the very breakage this file exists to detect
+    into a green skip that asserts nothing.  A gwsignal too old to know the
+    approximant at all fails here for the same reason -- the package is
+    installed, so the mismatch is worth reporting.
     """
-    try:
-        return gws.models.gwsignal_get_waveform_generator(approx)
-    except Exception as exc:
-        pytest.skip("%s generator unavailable: %r" % (approx, exc))
+    module = _BACKEND_MODULE[approx]
+    if importlib.util.find_spec(module) is None:
+        pytest.skip("%s needs the %s module, which is not installed here"
+                    % (approx, module))
+    return gws.models.gwsignal_get_waveform_generator(approx)
 
 
 def _coeffs_per_m(approx, gen):
@@ -172,7 +191,7 @@ def _sign_invariant(c):
 
 @pytest.mark.parametrize("approx", ["TEOBResumSDALI", "SEOBNRv5EHM"])
 def test_no_global_sign_error_vs_polarizations(approx):
-    c = _coeffs_per_m(approx, _generator_or_skip(approx))
+    c = _coeffs_per_m(approx, _generator(approx))
 
     for m in (2, 4):
         assert m in c, "need m=%d to separate a sign from a phase" % m
