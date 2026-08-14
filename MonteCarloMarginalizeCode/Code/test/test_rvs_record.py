@@ -189,3 +189,200 @@ def test_the_record_is_not_a_dict_subclass():
     with pytest.raises(TypeError):
         rec["log_integrand"]
     assert "log_integrand" in rec.columns
+
+
+###
+### MIGRATION SAFETY: while the record and the flags both exist, they must agree
+###
+### This is the one real cost of option A -- two sources of truth during the migration -- so it
+### is asserted rather than left as a promise in a design doc.  Four review rounds on #87 were
+### all "two descriptions of one thing drifted apart"; this is the guard against doing it again
+### at one level up.
+###
+
+import os
+
+_ILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                    '..', 'bin', 'integrate_likelihood_extrinsic_batchmode')
+
+
+def _ile_predicates():
+    """Exec the ILE's two provenance predicates (it parses argv, so it is not importable)."""
+    src = open(_ILE).read()
+    start = src.index("def _rvs_is_export_resample")
+    end = src.index("def _pool_replica_rvs")
+    ns = {"numpy": np, "np": np, "_rvs_lnL_convention": lambda x=None: bool(x)}
+    exec(compile(src[start:end], "ile_predicates", "exec"), ns)
+    return ns
+
+
+class _Sampler(object):
+    """A sampler carrying BOTH descriptions, as the tree does mid-migration."""
+    def __init__(self, record, is_fairdraw, is_pooled):
+        self._rvs_record = record
+        self._rvs_is_fairdraw = is_fairdraw
+        self._rvs_is_pooled = is_pooled
+
+
+@pytest.mark.skipif(not os.path.exists(_ILE), reason='ILE executable not in this tree')
+@pytest.mark.parametrize('state,record,flag_fd,flag_pooled', [
+    ('retained',      RvsRecord.retained(_cols(20)),                            False, False),
+    ('fair draw',     RvsRecord.fair_draw(_cols(20)),                           True,  False),
+    ('pooled',        RvsRecord.pooled(_cols(20), [True, True], [10, 10]),      True,  True),
+    ('pooled mixed',  RvsRecord.pooled(_cols(20), [True, False], [10, 10]),     True,  True),
+    ('pooled raw',    RvsRecord.pooled(_cols(20), [False, False], [10, 10]),    False, True),
+])
+def test_the_record_and_the_flags_agree_in_every_state(state, record, flag_fd, flag_pooled):
+    P = _ile_predicates()
+    s = _Sampler(record, flag_fd, flag_pooled)
+    assert record.rows_are_resampled() == P["_rvs_is_export_resample"](s), \
+        '{}: rows-resampled disagrees between record and flag'.format(state)
+    assert record.is_equal_weight() == P["_rvs_is_equal_weight"](s), \
+        '{}: equal-weight disagrees between record and flag'.format(state)
+
+
+@pytest.mark.skipif(not os.path.exists(_ILE), reason='ILE executable not in this tree')
+def test_the_migrated_consumer_only_trusts_a_record_describing_THESE_columns():
+    """The record is a second reference to a mutable dict.  If _rvs has been replaced since the
+    record was built, the record describes the wrong rows -- so the consumer checks identity
+    and falls back to the flags rather than trusting a stale description."""
+    src = open(_ILE).read()
+    i = src.index('def ln_weights_for_posterior')
+    body = src[i:i + 3000]
+    assert '_rec.columns is rvs' in body, \
+        'the migrated consumer trusts a record without checking it describes these columns'
+    assert '_rvs_is_equal_weight(sampler)' in body, 'the flag fallback is gone too early'
+
+
+###
+### THE RESERVE IS REFERENCED, NOT COPIED  (open question 2, answered by measurement)
+###
+
+def test_the_record_points_at_the_reserve_rather_than_copying_it():
+    reserve = dict(X=np.zeros((7, 6)), lnL=np.zeros(7), n_retained=99999,
+                   n_finite=7, ln_sum_w_finite=1.5, params_ordered=list('abcdef'))
+    rec = RvsRecord.fair_draw(_cols(3), n_retained=99999, reserve=reserve)
+    assert rec.reserve is reserve, 'the reserve was copied; that is the cost this design avoids'
+    assert rec.has_retained()
+    assert rec.retained_points().shape == (7, 6)
+    assert rec.n_retained() == 99999, 'n_retained is the PRE-draw count, not len(record)'
+    assert len(rec) == 3
+
+
+def test_a_record_without_a_reserve_says_so_rather_than_guessing():
+    rec = RvsRecord.fair_draw(_cols(3))
+    assert rec.has_retained() is False
+    assert rec.retained_points() is None and rec.retained_lnL() is None
+
+
+def test_a_snapshot_keeps_the_reserve_by_reference():
+    reserve = dict(X=np.zeros((4, 2)), lnL=np.zeros(4))
+    rec = RvsRecord.fair_draw(_cols(3), reserve=reserve)
+    assert rec.snapshot().reserve is reserve
+
+
+def test_a_pooled_record_carries_no_reserve():
+    """A pooled record is a mixture of several passes, so there is no single retained set for
+    it to point at.  Saying None is correct; pointing at one arbitrary pass's would not be."""
+    rec = RvsRecord.pooled(_cols(20), [True, True], [10, 10])
+    assert rec.has_retained() is False
+
+
+###
+### END TO END on the sampler that was converted
+###
+
+def _av_sampler(n_chunk=20000):
+    import RIFT.integrators.mcsamplerAdaptiveVolume as AV
+    s = AV.MCSampler(n_chunk=n_chunk)
+    s.xpy = AV.xpy_default
+    s.identity_convert = AV.identity_convert
+    for name in ['right_ascension', 'declination', 'phi_orb', 'inclination', 'psi', 'distance']:
+        s.add_parameter(name, pdf=None, left_limit=0.0, right_limit=1.0,
+                        prior_pdf=lambda x: np.ones(np.shape(x)), adaptive_sampling=True)
+    return s
+
+
+def _av_peaked(rho):
+    x0 = 0.5 * np.ones(6)
+    w = (0.5 / rho) * np.ones(6)
+    lnLmax = 0.5 * rho ** 2
+
+    def lnL(*args, **kwargs):
+        x = np.array([np.asarray(a, dtype=float).ravel() for a in args]).T
+        out = lnLmax - 0.5 * np.sum(((x - x0) / w) ** 2, axis=-1)
+        return np.where(out > lnLmax - 745.0, out, -np.inf)
+    return lnL
+
+
+NAMES6 = ['right_ascension', 'declination', 'phi_orb', 'inclination', 'psi', 'distance']
+
+
+def test_a_real_collapsed_pass_records_the_draw_and_points_at_its_reserve():
+    np.random.seed(20260813)
+    s = _av_sampler()
+    s.integrate_log(_av_peaked(100.0), *NAMES6, nmax=400000, neff=8, n=20000,
+                    no_protect_names=True, verbose=False,
+                    igrand_fairdraw_samples=True, igrand_fairdraw_samples_max=200)
+    rec = s._rvs_record
+    assert rec is not None and rec.rows_are_resampled() and rec.is_equal_weight()
+    assert rec.columns is s._rvs, 'the record must view the live columns'
+    assert rec.reserve is s._warm_seed_reserve, 'the reserve was copied rather than referenced'
+    assert rec.n_retained() > len(rec), \
+        'this pass did not collapse, so it does not exercise the case ({} vs {})'.format(
+            rec.n_retained(), len(rec))
+    assert rec.retained_points().shape[0] >= len(rec)
+
+
+def test_a_pass_with_no_fair_draw_still_gets_a_record():
+    """"absent" and "not resampled" are different statements; a consumer that has to tell them
+    apart is back to combining conditions by hand."""
+    np.random.seed(20260813)
+    s = _av_sampler()
+    s.integrate_log(_av_peaked(100.0), *NAMES6, nmax=400000, neff=8, n=20000,
+                    no_protect_names=True, verbose=False)
+    rec = s._rvs_record
+    assert rec is not None, 'no record on the no-fair-draw path'
+    assert rec.rows_are_resampled() is False and rec.is_equal_weight() is False
+    assert rec.columns is s._rvs
+
+
+@pytest.mark.skipif(not os.path.exists(_ILE), reason='ILE executable not in this tree')
+def test_the_migration_changes_no_number():
+    """The record path and the flag path must return the SAME weights on a real pass.
+
+    This is what makes the migration safe to land incrementally: converting a consumer is a
+    refactor, not a behaviour change, and the two paths can be compared directly until the
+    flags are removed.
+    """
+    src = open(_ILE).read()
+    start = src.index("def ln_weights_from_rvs")
+    end = src.index("def _pool_replica_rvs")
+    ns = {"numpy": np, "np": np, "_rvs_lnL_convention": lambda x=None: bool(x)}
+    exec(compile(src[start:end], "ile_w", "exec"), ns)
+    ln_w_post = ns["ln_weights_for_posterior"]
+
+    np.random.seed(20260813)
+    s = _av_sampler()
+    s.integrate_log(_av_peaked(100.0), *NAMES6, nmax=400000, neff=8, n=20000,
+                    no_protect_names=True, verbose=False,
+                    igrand_fairdraw_samples=True, igrand_fairdraw_samples_max=200)
+    assert s._rvs_record is not None and s._rvs_is_fairdraw
+
+    with_record = ln_w_post(s._rvs, s)
+    stashed, s._rvs_record = s._rvs_record, None      # force the flag path
+    without_record = ln_w_post(s._rvs, s)
+    s._rvs_record = stashed
+    assert np.array_equal(with_record, without_record), \
+        'the record path and the flag path disagree; the migration is not a refactor'
+
+    # ...and the same on a pass with no fair draw, where the answer is the other branch
+    np.random.seed(20260813)
+    s2 = _av_sampler()
+    s2.integrate_log(_av_peaked(100.0), *NAMES6, nmax=400000, neff=8, n=20000,
+                     no_protect_names=True, verbose=False)
+    a = ln_w_post(s2._rvs, s2)
+    s2._rvs_record = None
+    b = ln_w_post(s2._rvs, s2)
+    assert np.array_equal(a, b)
+    assert np.std(a) > 0.0, 'a retained record must keep its varying importance weights'

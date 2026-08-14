@@ -116,21 +116,53 @@ regardless.
   rather than fixing the current ones, and it has already caught an addition nobody wrote it
   for: this draft's own.
 
-## What is in this draft
+## What is in this branch (updated: option A started, 2026-08-13)
 
-* `RIFT/integrators/rvs_record.py` — `RvsRecord`, the provenance object and the two views.
-* `mcsamplerAdaptiveVolume` populates `self._rvs_record` at the rebind, alongside the existing
-  `_rvs` and its flags. **Nothing reads it yet**, so this branch is a no-op on every output.
-* `test/test_rvs_record.py` — the contract, including the four failure shapes from review, each
-  written as a test that would have caught its round.
+**Status: A agreed and begun.** Still a small change, still reviewable in one sitting.
+
+* `RIFT/integrators/rvs_record.py` -- `RvsRecord` + `RvsProvenance`, the three named questions,
+  and `retained_points()` / `retained_lnL()` / `n_retained()`, which **reference the bounded
+  `_warm_seed_reserve`** rather than copy retained rows (decision from the memory measurement).
+* `mcsamplerAdaptiveVolume` sets `self._rvs_record` on **both** paths -- `fair_draw` when the
+  draw fires, `retained` when it does not -- because "absent" and "not resampled" are different
+  statements, and a consumer that must tell them apart is back to combining conditions by hand.
+* The ILE's replica pooling builds a **pooled** record carrying `_rep_fairdraw` PER BLOCK --
+  the thing the two booleans cannot express, and the reason a raw/resampled mixture needed a
+  special case in `_pool_replica_rvs`.
+* **First consumer migrated:** `ln_weights_for_posterior`. Chosen because it is the exact site
+  of the one-flag-two-questions defect, so the conversion demonstrates the point rather than
+  merely exercising the API.
+
+### How the migration is kept safe
+
+Two descriptions of one thing is the real cost of A, and four review rounds on #87 were all
+"two descriptions drifted apart". So it is asserted, not promised:
+
+* **`test_the_record_and_the_flags_agree_in_every_state`** -- record vs flags across retained,
+  fair draw, pooled, pooled-mixed and pooled-raw.
+* **`test_the_migration_changes_no_number`** -- on a real collapsed AV pass, the record path and
+  the flag path return **bit-identical** weights, on both branches. The conversion is a
+  refactor, not a behaviour change, and stays checkable until the flags are deleted.
+* The migrated consumer only trusts a record whose `.columns is rvs`; `_rvs` is a mutable dict
+  that may have been replaced since the record was built, so a stale description falls back to
+  the flags instead of being believed.
+
+### Next steps, in order
+
+1. Migrate the remaining `ln_weights_for_posterior` callers' siblings (`.dgrid`, breadcrumb,
+   `.dslice` guard) to ask the record.
+2. Set the record in the other six samplers -- mechanical; the rebind sites are enumerated by
+   `audit_rvs_fairdraw.py`.
+3. Only then delete `_rvs_is_fairdraw` / `_rvs_is_pooled`, once nothing reads them.
+4. Issue #95 (option B) becomes tractable at that point, not before.
 
 ## What is deliberately NOT in it
 
-* No consumer migrated. That is the next step and wants its own review.
-* No change to any sampler except AV. If the shape is agreed, the other six follow mechanically
-  — the rebind sites are already enumerated by the audit script.
+* The other six samplers, and the other consumers. One worked example first, on purpose.
 * No removal of `_rvs_is_fairdraw` / `_rvs_is_pooled`. They stay until the last consumer that
-  reads them is migrated, and the record is built to reproduce them exactly in the meantime.
+  reads them is migrated, and the agreement test above holds them to the record in the meantime.
+* Nothing in the LISA driver: it is being caught up separately, and its 36 post-rebind reads are
+  all `BENIGN`/`PER_ROW` (it never pools or reweights).
 
 ## Review answers (2026-08-13)
 

@@ -19,13 +19,18 @@
     "verdict": "PER_ROW",
     "why": "Element-wise dtype/backend conversion (cupy -> numpy) over whatever rows are present. Touches no population statistic; correct on any row set."
   },
+  "RIFT/integrators/mcsamplerAdaptiveVolume.py:integrate_log:933aaa5c69": {
+    "source": "self._rvs, reserve=getattr(self, '_warm_seed_reserve', None))",
+    "verdict": "PER_ROW",
+    "why": "DRAFT (DESIGN_rvs_naming.md): hands the just-rebound columns to RvsRecord as a VIEW, together with the pre-draw row count. Reads no statistic of them -- it records that they ARE the export resample, at the moment that becomes true, which is the whole point of the record. Nothing consumes it yet."
+  },
   "RIFT/integrators/mcsamplerAdaptiveVolume.py:integrate_log:c0e27aa48f": {
     "source": "self._rvs[name] = identity_convert(self._rvs[name])   # this is trivial if xpy_default is numpy, and a conversion otherwise",
     "verdict": "PER_ROW",
     "why": "Element-wise dtype/backend conversion (cupy -> numpy) over whatever rows are present. Touches no population statistic; correct on any row set."
   },
-  "RIFT/integrators/mcsamplerAdaptiveVolume.py:integrate_log:d88734be7d": {
-    "source": "self._rvs, n_retained=_n_retained_before_draw)",
+  "RIFT/integrators/mcsamplerAdaptiveVolume.py:integrate_log:c1cda1dea4": {
+    "source": "self._rvs, n_retained=_n_retained_before_draw,",
     "verdict": "PER_ROW",
     "why": "DRAFT (DESIGN_rvs_naming.md): hands the just-rebound columns to RvsRecord as a VIEW, together with the pre-draw row count. Reads no statistic of them -- it records that they ARE the export resample, at the moment that becomes true, which is the whole point of the record. Nothing consumes it yet."
   },

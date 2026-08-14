@@ -51,6 +51,7 @@ import glue.lal
 import RIFT.lalsimutils as lalsimutils
 from RIFT.precision import RiftFloat
 import RIFT.integrators.mcsampler as mcsampler
+from RIFT.integrators.rvs_record import RvsRecord as _RvsRecord   # DRAFT: DESIGN_rvs_naming.md
 # NOTE: the name 'mcsampler' above is REBOUND below to mcsamplerGPU for some --sampler-method
 # choices, so the zoom-box helpers are imported under their own names.  They are backend-agnostic:
 # each closure infers its array module from the argument it is handed (numpy on the CPU/AV paths,
@@ -2178,6 +2179,20 @@ def ln_weights_for_posterior(rvs, sampler, convert=None, use_lnL=None):
     So: uniform (zero log-weight) for a fair-drawn record, the derived importance weight
     otherwise.  Returns a float array the length of the record.
     """
+    # DRAFT MIGRATION (DESIGN_rvs_naming.md), the first consumer to move.  This is the exact
+    # site where the one-flag-two-questions defect lived, so it is the one worth converting
+    # first: `is_equal_weight()` is a named question rather than two booleans a caller has to
+    # combine, and it cannot be answered with the wrong one.
+    #
+    # The flags stay as the fallback while the other six samplers are unconverted -- and while
+    # both exist they MUST agree, which is asserted directly in test_rvs_record.py rather than
+    # left as a comment, because "two sources of truth" is the risk this migration runs.
+    _rec = getattr(sampler, '_rvs_record', None)
+    if _rec is not None and _rec.columns is rvs:
+        if _rec.is_equal_weight():
+            return numpy.zeros(_rvs_len(rvs), dtype=float)
+        return numpy.asarray(ln_weights_from_rvs(rvs, convert=convert, use_lnL=use_lnL),
+                             dtype=float)
     if _rvs_is_equal_weight(sampler):
         return numpy.zeros(_rvs_len(rvs), dtype=float)
     return numpy.asarray(ln_weights_from_rvs(rvs, convert=convert, use_lnL=use_lnL),
@@ -3856,6 +3871,20 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             # ln_weights_for_posterior must read the reconstructed per-row weights.
             sampler._rvs_is_pooled = True
             sampler._rvs_is_fairdraw = any(_rep_fairdraw)
+            # DRAFT (DESIGN_rvs_naming.md): the same statement, as a record.  Note it carries
+            # _rep_fairdraw PER BLOCK -- the thing the two booleans above cannot express, and
+            # the reason a mixture of raw and resampled replicas needed a special case in
+            # _pool_replica_rvs.  The reserve does NOT ride along: it describes one pass, and
+            # a pooled record is a mixture of several, so there is no single retained set.
+            if getattr(sampler, '_rvs_record', None) is not None:
+                try:
+                    sampler._rvs_record = _RvsRecord.pooled(
+                        _pooled_rvs, resampled_blocks=list(_rep_fairdraw),
+                        block_sizes=[_rvs_len(_r) for _r in _rep_rvs])
+                except Exception as _e_rec:
+                    sampler._rvs_record = None
+                    print("  [rvs-record] pooled record not built ({}); falling back to the"
+                          " provenance flags".format(_e_rec))
         # Did pooling FLATTEN any block?  That, not "is the record resampled", is what makes
         # the pooled Kish n_eff meaningless below -- a flattened block's rows carry its export
         # size rather than its integration quality.

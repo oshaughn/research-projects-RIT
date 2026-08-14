@@ -1962,10 +1962,23 @@ class MCSampler(object):
                # where it happens rather than reconstructed later from a flag someone else
                # has to maintain.  NOTHING READS THIS YET; it is a no-op on every output.
                self._rvs_record = RvsRecord.fair_draw(
-                   self._rvs, n_retained=_n_retained_before_draw)
+                   self._rvs, n_retained=_n_retained_before_draw,
+                   reserve=getattr(self, '_warm_seed_reserve', None))
 
 
                self._rvs_is_fairdraw = True   # _rvs is now an EXPORT resample, rows already ~ w
+        # DRAFT: a record ALWAYS describes the current _rvs, including when no draw fired --
+        # "absent" and "not resampled" are different statements, and a consumer that has to
+        # tell them apart is back to combining conditions by hand.  The reserve rides along by
+        # reference (see retained_points): it is the bounded, finite-stratified copy, not the
+        # raw retained rows, which cost ~384 MB on a portfolio at nmax=4e6 and are ~1e-5
+        # finite on the collapsed pass this work is about.
+        if self._rvs_record is None:
+            self._rvs_record = RvsRecord.retained(
+                self._rvs, reserve=getattr(self, '_warm_seed_reserve', None))
+        else:
+            self._rvs_record.reserve = getattr(self, '_warm_seed_reserve', None)
+
         # perform type conversion of all stored variables.  VERY LARGE -- should only do this if we need it!
         if cupy_ok:
           for name in self._rvs:

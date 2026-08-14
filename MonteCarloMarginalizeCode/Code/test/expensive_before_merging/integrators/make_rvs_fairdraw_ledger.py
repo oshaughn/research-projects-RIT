@@ -30,7 +30,8 @@ def verdict(h):
 
     # --- the integrators themselves ------------------------------------------------
     if f.startswith("RIFT/integrators/"):
-        if "n_retained=_n_retained_before_draw" in s or "RvsRecord.fair_draw" in s:
+        if "n_retained=_n_retained_before_draw" in s or "RvsRecord.fair_draw" in s \
+                or "reserve=getattr(self, '_warm_seed_reserve', None))" in s:
             return ("PER_ROW",
                     "DRAFT (DESIGN_rvs_naming.md): hands the just-rebound columns to RvsRecord "
                     "as a VIEW, together with the pre-draw row count. Reads no statistic of "

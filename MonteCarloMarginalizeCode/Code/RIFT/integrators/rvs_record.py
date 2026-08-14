@@ -70,33 +70,39 @@ class RvsRecord(object):
     whose meaning it does not check, which is the whole problem restated.
     """
 
-    __slots__ = ("columns", "provenance")
+    __slots__ = ("columns", "provenance", "reserve")
 
-    def __init__(self, columns, provenance=None):
+    def __init__(self, columns, provenance=None, reserve=None):
         self.columns = columns
         self.provenance = provenance if provenance is not None else RvsProvenance()
+        # REFERENCE, not a copy.  See retained_* below for why this is a reference and why it
+        # is the bounded reserve rather than the raw retained rows.
+        self.reserve = reserve
 
     # -- construction ------------------------------------------------------------------
     @classmethod
-    def retained(cls, columns, n_retained=None):
+    def retained(cls, columns, n_retained=None, reserve=None):
         """A record whose rows are the pass's own draws, with real importance weights."""
         n = _n_rows(columns)
         return cls(columns, RvsProvenance(resampled_blocks=[False], block_sizes=[n],
                                           pooled=False,
-                                          n_retained=n if n_retained is None else n_retained))
+                                          n_retained=n if n_retained is None else n_retained),
+                   reserve=reserve)
 
     @classmethod
-    def fair_draw(cls, columns, n_retained=None):
+    def fair_draw(cls, columns, n_retained=None, reserve=None):
         """A record whose rows were drawn WITH REPLACEMENT proportional to weight."""
         n = _n_rows(columns)
         return cls(columns, RvsProvenance(resampled_blocks=[True], block_sizes=[n],
-                                          pooled=False, n_retained=n_retained))
+                                          pooled=False, n_retained=n_retained),
+                   reserve=reserve)
 
     @classmethod
-    def pooled(cls, columns, resampled_blocks, block_sizes):
+    def pooled(cls, columns, resampled_blocks, block_sizes, reserve=None):
         """A concatenation of replica blocks, weighted between blocks by their evidences."""
         return cls(columns, RvsProvenance(resampled_blocks=list(resampled_blocks),
-                                          block_sizes=list(block_sizes), pooled=True))
+                                          block_sizes=list(block_sizes), pooled=True),
+                   reserve=reserve)
 
     # -- the questions -----------------------------------------------------------------
     def rows_are_resampled(self):
@@ -144,6 +150,41 @@ class RvsRecord(object):
             return np.zeros(_n_rows(self.columns), dtype=float)
         return np.asarray(ln_weights_from_columns(self.columns), dtype=float)
 
+    # -- the rows the pass actually drew -------------------------------------------------
+    def has_retained(self):
+        """Is a usable record of the pre-draw rows available?"""
+        r = self.reserve
+        return isinstance(r, dict) and 'X' in r and 'lnL' in r
+
+    def retained_points(self):
+        """(n, ndim) of the points the pass RETAINED, or None.
+
+        A REFERENCE to the bounded warm-seed reserve, deliberately, not the raw retained rows.
+        Measured (measure_retained_set_memory.py): holding the raw set costs ~0.9 MB per
+        million nmax for AV -- nothing -- but ~92 MB per million for a PORTFOLIO, whose _rvs
+        holds every draw, i.e. ~384 MB at nmax=4e6 per ILE process.  And it would be mostly
+        ballast: on the collapsed pass this work is about, the portfolio's finite fraction is
+        ~1e-5, so almost all of it is -inf rows no consumer can use.
+
+        make_warm_seed_reserve already keeps the affordable thing -- bounded at n_max rows,
+        stratified by finite-ness, with the EXACT pre-cap weight total recorded alongside so a
+        capped reserve still yields an unbiased lnZ.  Pointing at it costs nothing and is
+        already paid for.
+        """
+        return np.asarray(self.reserve['X'], dtype=float) if self.has_retained() else None
+
+    def retained_lnL(self):
+        """lnL of the retained points, or None.  Same reference as retained_points()."""
+        return (np.asarray(self.reserve['lnL'], dtype=float).ravel()
+                if self.has_retained() else None)
+
+    def n_retained(self):
+        """Rows the pass retained BEFORE the draw, when known -- not len(self)."""
+        n = self.provenance.n_retained
+        if n is None and self.has_retained():
+            n = self.reserve.get('n_retained')
+        return n
+
     # -- lifecycle ---------------------------------------------------------------------
     def snapshot(self):
         """A copy that a rejected pass can be restored from, provenance included.
@@ -153,7 +194,10 @@ class RvsRecord(object):
         leaving provenance describing the rejected pass is one of the four defects this
         record exists to prevent.
         """
-        return RvsRecord(dict(self.columns), copy.deepcopy(self.provenance))
+        # The reserve rides along BY REFERENCE: it is immutable once built (each pass builds a
+        # fresh one), and copying it would reintroduce the memory cost this design avoids.
+        return RvsRecord(dict(self.columns), copy.deepcopy(self.provenance),
+                         reserve=self.reserve)
 
     def __len__(self):
         return _n_rows(self.columns)
