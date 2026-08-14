@@ -312,3 +312,176 @@ def test_the_l0_reject_threshold_is_the_measured_default():
     assert 'default=3.0' in decl, \
         'the L0 reject threshold moved off its measured value; re-measure before changing it'
     assert 'default=0.5' not in decl
+
+
+###
+### 7. COMPOSITION: the marker and the reserve must agree with the record beside them
+###
+### Both defects below were found in review, and both are the same shape: a fix that is
+### correct in isolation and wrong once another code path runs after it.  The tests above
+### exercise the pieces separately and would pass with both bugs present.
+###
+### NOTE ON WHAT CARRIES THE WEIGHT HERE.  The helpers below (_pool_replica_rvs,
+### _snapshot_pass_state / _restore_pass_state) are correct in isolation and were correct
+### with both bugs present -- the bugs were at the CALL SITES, in analyze_event, which needs
+### data, PSDs and a waveform to run and cannot be exercised from a unit test.  So the
+### behavioural tests pin the contracts the call sites depend on, and the source-level tests
+### pin the wiring.  Verified by reverting each fix: only the wiring tests fail.  If a future
+### change makes analyze_event callable in pieces, promote these.
+###
+
+def _load_pool_helpers():
+    """Exec ln_weights_* plus _pool_replica_rvs and its dependencies."""
+    src = open(_ILE).read()
+    start = src.index("def ln_weights_from_rvs")
+    end = src.index("def _warm_seed_geometry")
+    ns = {"numpy": np, "np": np, "_rvs_lnL_convention": lambda x=None: bool(x),
+          "mcsamplerAdaptiveVolume": mcsamplerAV}
+    exec(compile(src[start:end], "ile_pool_helpers", "exec"), ns)
+    return ns
+
+
+P = _load_pool_helpers()
+
+
+class _ConvSampler(object):
+    """Minimal stand-in for the sampler interface _pool_replica_rvs uses."""
+    def __init__(self):
+        self._rvs_is_fairdraw = True
+
+    @staticmethod
+    def identity_convert(x):
+        return x
+
+
+def _fairdrawn_block(n, seed):
+    """An equal-weight posterior draw: the rows a fair draw leaves behind."""
+    rng = np.random.default_rng(seed)
+    lnL = rng.normal(0.0, 2.0, size=n)
+    return {"log_integrand": lnL,
+            "log_joint_prior": np.zeros(n),
+            "log_joint_s_prior": np.zeros(n),
+            "x": rng.normal(size=n)}
+
+
+def test_a_pooled_record_is_not_globally_equal_weight():
+    """P1: each block is equal-weight WITHIN itself, but blocks differ by their evidences.
+
+    Treating the pooled record as a fair draw makes .dgrid and the proposal breadcrumb mix the
+    replicas by exported ROW COUNT instead of by evidence -- discarding exactly the replica
+    disagreement the replicas were run to measure.
+    """
+    rep_lnZ = [7.0, 9.0]                       # a 2-nat disagreement, i.e. e^2 in evidence
+    reps = [_fairdrawn_block(60, 1), _fairdrawn_block(60, 2)]
+    pooled = P["_pool_replica_rvs"](reps, _ConvSampler(), rep_lnZ=rep_lnZ,
+                                    already_resampled=True, use_lnL=False)
+    lw = P["ln_weights_from_rvs"](pooled)
+    assert np.ptp(lw) > 1.0, 'the pooled record came out globally flat; the evidences are gone'
+    a, b = lw[:60], lw[60:]
+    assert np.allclose(a, a[0]) and np.allclose(b, b[0]), 'within a block weights must be equal'
+    assert b[0] - a[0] == pytest.approx(rep_lnZ[1] - rep_lnZ[0], abs=1e-9), \
+        'the between-block offset must be exactly the evidence difference'
+
+
+def test_the_fairdraw_marker_is_cleared_once_the_record_is_pooled():
+    """...so ln_weights_for_posterior reads those reconstructed block weights."""
+    src = open(_ILE).read()
+    i = src.index('_pool_replica_rvs(_rep_rvs')
+    block = src[i:i + 2200]
+    assert '_rvs_is_fairdraw = False' in block, \
+        'the marker survives pooling; the pooled record would be treated as equal-weight'
+    assert 'is _r for _r in _rep_rvs' in block, \
+        'the marker must only be cleared when pooling actually happened -- every fallback in ' \
+        '_pool_replica_rvs returns an INPUT record, which is still a fair draw'
+
+
+def test_posterior_weights_of_a_pooled_record_keep_the_replica_evidences():
+    """End to end through the helper the exporters actually call."""
+    rep_lnZ = [7.0, 9.0]
+    reps = [_fairdrawn_block(40, 5), _fairdrawn_block(40, 6)]
+    s = _ConvSampler()
+    pooled = P["_pool_replica_rvs"](reps, s, rep_lnZ=rep_lnZ,
+                                    already_resampled=True, use_lnL=False)
+    s._rvs_is_fairdraw = False              # what the ILE now does after pooling
+    lw = P["ln_weights_for_posterior"](pooled, s)
+    assert lw[40] - lw[0] == pytest.approx(rep_lnZ[1] - rep_lnZ[0], abs=1e-9)
+    # and the bug: had the marker survived, every row would weigh the same
+    s._rvs_is_fairdraw = True
+    assert np.allclose(P["ln_weights_for_posterior"](pooled, s), 0.0)
+
+
+def test_a_fallback_pool_keeps_the_marker():
+    """One replica, or a record with no sampling-prior column, comes back unchanged and is
+    still the fair draw it arrived as."""
+    one = [_fairdrawn_block(30, 9)]
+    out = P["_pool_replica_rvs"](one, _ConvSampler(), rep_lnZ=[7.0],
+                                 already_resampled=True, use_lnL=False)
+    assert out is one[0], 'a single replica must come back as the same object'
+
+
+def test_rejecting_the_warm_pass_restores_the_cold_reserve():
+    """P1: the reject path put back _rvs, the estimate and the diagnostics, but left
+    _warm_seed_reserve holding the REJECTED warm cloud -- which --sampler-sequential-warmstart
+    then seeds the next intrinsic point from.  Snapshot and restore must move together."""
+    ns = {}
+    src = open(_ILE).read()
+    start = src.index("def _snapshot_pass_state")
+    end = src.index("def _warm_seed_geometry")
+    exec(compile(src[start:end], "ile_state_helpers", "exec"), ns)
+
+    class _S(object):
+        pass
+    s = _S()
+    s._rvs = {"x": np.arange(5)}
+    s._warm_seed_reserve = {"tag": "cold"}
+    s._rvs_is_fairdraw = True
+    s.portfolio_realizations = []
+    state = ns["_snapshot_pass_state"](s, 1.0, 2.0, 3.0, {"d": "cold"})
+
+    # the warm pass runs and overwrites everything in place
+    s._rvs = {"x": np.arange(2)}
+    s._warm_seed_reserve = {"tag": "warm"}
+    s._rvs_is_fairdraw = False
+
+    res, var, neff, dd = ns["_restore_pass_state"](s, state)
+    assert (res, var, neff, dd) == (1.0, 2.0, 3.0, {"d": "cold"})
+    assert s._warm_seed_reserve == {"tag": "cold"}, \
+        'the rejected warm reserve survived; the next point would seed from it'
+    assert s._rvs_is_fairdraw is True, 'the marker must describe the restored record'
+    assert ns["_warm_seed_reserve_for"] is not None
+
+
+def test_the_restore_reaches_portfolio_member_reserves_too():
+    """_warm_seed_reserve_for falls through to portfolio_realizations, so restoring only the
+    aggregate would leave that fallback pointing at the rejected warm pass."""
+    ns = {}
+    src = open(_ILE).read()
+    start = src.index("def _snapshot_pass_state")
+    end = src.index("def _warm_seed_geometry")
+    exec(compile(src[start:end], "ile_state_helpers", "exec"), ns)
+
+    class _S(object):
+        pass
+    m = _S(); m._warm_seed_reserve = {"tag": "cold-member"}
+    s = _S(); s._rvs = {}; s._warm_seed_reserve = None
+    s._rvs_is_fairdraw = False; s.portfolio_realizations = [m]
+    state = ns["_snapshot_pass_state"](s, 0, 0, 0, {})
+    m._warm_seed_reserve = {"tag": "warm-member"}
+    ns["_restore_pass_state"](s, state)
+    assert m._warm_seed_reserve == {"tag": "cold-member"}
+
+
+@pytest.mark.skipif(not os.path.exists(_ILE), reason='ILE executable not in this tree')
+def test_both_l0_restore_paths_go_through_the_shared_helper():
+    """The reject path and the exception handler must not drift in WHAT they put back."""
+    src = open(_ILE).read()
+    assert src.count('_restore_pass_state(sampler, _cold_state_l0)') == 2, \
+        'expected the reject path and the failure handler to share one restore'
+    assert 'sampler._rvs, res, var, neff, dict_return = _cold_state_l0' not in src, \
+        'the old partial tuple restore is back'
+    # and no hand-rolled partial restore alongside it: the reject branch must not poke _rvs
+    # directly, which is precisely what left the reserve describing the rejected warm pass.
+    i = src.index('keeping the COLD (full-support) result')
+    branch = src[i:i + 1200]
+    assert 'sampler._rvs =' not in branch, \
+        'the reject branch assigns _rvs directly again; the reserve and marker will not follow'

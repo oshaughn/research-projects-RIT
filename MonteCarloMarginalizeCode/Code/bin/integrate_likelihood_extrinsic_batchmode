@@ -2385,6 +2385,47 @@ def _lnZ_of_reserve_or_rvs(sampler, rvs, reserve=None):
     return _lnZ_of_rvs(rvs, already_pooled=False), 'fairdraw'
 
 
+def _snapshot_pass_state(sampler, res, var, neff, dict_return, rvs=None):
+    """Everything that must move TOGETHER when a completed pass is put back -> dict.
+
+    THE POINT IS THE WORD "everything".  A pass is described by more than its samples, and the
+    L0 rescue's reject path restored only some of it: `_rvs`, the estimate and `dict_return`
+    went back to the cold pass while `_warm_seed_reserve` was left holding the REJECTED warm
+    cloud.  Nothing read that attribute at the time, so it was latent -- until
+    --sampler-sequential-warmstart began seeding the next intrinsic point from the reserve,
+    at which point a rejected, truncated warm pass became the seed for the following point.
+    That is the exact failure the rescue's own reject gate exists to prevent, reintroduced one
+    attribute over.
+
+    So the snapshot carries the reserve and the fair-draw marker as well, including the
+    per-member reserves: `_warm_seed_reserve_for` falls through to `portfolio_realizations`,
+    so restoring only the aggregate would leave that fallback pointing at the warm pass.
+    """
+    return dict(
+        rvs=(dict(sampler._rvs) if rvs is None else rvs),
+        res=res, var=var, neff=neff, dict_return=dict_return,
+        warm_seed_reserve=getattr(sampler, '_warm_seed_reserve', None),
+        rvs_is_fairdraw=bool(getattr(sampler, '_rvs_is_fairdraw', False)),
+        member_reserves=[getattr(_m, '_warm_seed_reserve', None)
+                         for _m in list(getattr(sampler, 'portfolio_realizations', []) or [])],
+    )
+
+
+def _restore_pass_state(sampler, state):
+    """Undo of _snapshot_pass_state -> (res, var, neff, dict_return).
+
+    Both callers (the reject path and the exception handler) go through here, so the set of
+    attributes that travels with a restored pass cannot drift between them.
+    """
+    sampler._rvs = state['rvs']
+    sampler._warm_seed_reserve = state['warm_seed_reserve']
+    sampler._rvs_is_fairdraw = state['rvs_is_fairdraw']
+    _members = list(getattr(sampler, 'portfolio_realizations', []) or [])
+    for _m, _r in zip(_members, state.get('member_reserves', [])):
+        _m._warm_seed_reserve = _r
+    return state['res'], state['var'], state['neff'], state['dict_return']
+
+
 def _warm_seed_reserve_for(sampler):
     """The retained-sample reserve a completed pass left behind, or None.
 
@@ -3483,9 +3524,11 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                                                               reserve=_cold_reserve_l0)
                 # dict_return too: khat, block scatter, ESS, the confidence interval and the
                 # replica trigger downstream all read it, so keeping the warm pass's diagnostics
-                # beside a restored cold result would describe a run we did not report.
-                _cold_res, _cold_var, _cold_neff, _cold_dict = res, var, neff, dict_return
-                _cold_state_l0 = (_cold_rvs, _cold_res, _cold_var, _cold_neff, _cold_dict)
+                # beside a restored cold result would describe a run we did not report.  And the
+                # RESERVE and the fair-draw marker, for the same reason one level out -- see
+                # _snapshot_pass_state.
+                _cold_state_l0 = _snapshot_pass_state(sampler, res, var, neff, dict_return,
+                                                      rvs=_cold_rvs)
                 sampler.bootstrap_from_samples(_seed, cover_frac=0.0)
                 res, var, neff, dict_return = sampler.integrate(like_to_integrate, *unpinned_params, **pinned_params)
                 _warm_lnZ, _warm_src = _lnZ_of_reserve_or_rvs(sampler, sampler._rvs)
@@ -3520,8 +3563,11 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                         print("  [L0 auto-rescue] keeping the COLD (full-support) result; its n_eff"
                               " is lower but it is not missing mass.  A portfolio avoids this"
                               " trade entirely -- its GMM member carries a defensive component.")
-                        sampler._rvs = _cold_rvs
-                        res, var, neff, dict_return = _cold_res, _cold_var, _cold_neff, _cold_dict
+                        # The RESERVE goes back too.  Without it --sampler-sequential-warmstart
+                        # seeds the next intrinsic point from the warm cloud this gate just
+                        # rejected: _warm_seed_reserve_for would return the warm pass's record
+                        # while _rvs, the estimate and the diagnostics all describe the cold one.
+                        res, var, neff, dict_return = _restore_pass_state(sampler, _cold_state_l0)
                 _clear_warm_state(sampler)
         except Exception as _e_l0:
             # "skipped" is only true if the warm pass never started.  If it raised PARTWAY THROUGH
@@ -3537,7 +3583,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 print("  [L0 auto-rescue] the warm pass may already have replaced the stored"
                       " samples; restoring the COLD pass so the reported diagnostics and the"
                       " exported samples describe the same integral.")
-                sampler._rvs, res, var, neff, dict_return = _cold_state_l0
+                res, var, neff, dict_return = _restore_pass_state(sampler, _cold_state_l0)
             _clear_warm_state(sampler)
 
     # Persist adapted state / trained flow for reuse by later instances.
@@ -3713,9 +3759,25 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         # Folding the factor into log_joint_s_prior is therefore a statement of the real pooled
         # sampling density, not a fudge -- and it leaves every downstream weight computation
         # (which all form log_integrand + log_joint_prior - log_joint_s_prior) correct untouched.
-        sampler._rvs = _pool_replica_rvs(_rep_rvs, sampler, rep_lnZ=_rep_lnZ,
-                                         already_resampled=bool(opts.fairdraw_extrinsic_output),
-                                         use_lnL=rvs_integrand_is_lnL)
+        _pooled_rvs = _pool_replica_rvs(_rep_rvs, sampler, rep_lnZ=_rep_lnZ,
+                                        already_resampled=bool(opts.fairdraw_extrinsic_output),
+                                        use_lnL=rvs_integrand_is_lnL)
+        # A POOLED RECORD IS NOT A FAIR DRAW, even when every block that went into it was.
+        # _pool_replica_rvs gives block k weights summing to Z_k/K: equal WITHIN a block (each
+        # block really is an equal-weight draw from its own posterior) but differing BETWEEN
+        # blocks by exactly the replica evidences.  Leaving the marker set would make
+        # ln_weights_for_posterior return zeros, and .dgrid and the proposal breadcrumb would
+        # then mix the replicas by exported ROW COUNT instead of by evidence -- silently
+        # discarding the disagreement the replicas were run to measure.  The reconstructed
+        # per-row weights already encode it, so clear the marker and let them be read.
+        #
+        # Only when it actually pooled: every fallback path in _pool_replica_rvs returns one of
+        # its INPUT records unchanged (too few replicas, no sampling-prior column, an exception),
+        # and such a record is still the fair draw it arrived as.  Identity, not length, is the
+        # reliable test for that.
+        if not any(_pooled_rvs is _r for _r in _rep_rvs):
+            sampler._rvs_is_fairdraw = False
+        sampler._rvs = _pooled_rvs
         # The pooled export is a mixture over every replica in _rep_rvs, so its collapse
         # status is the OR over them: one collapsed member taints the pool.  Fold that back
         # into dict_return, which is what the status sidecar and the downstream reporting

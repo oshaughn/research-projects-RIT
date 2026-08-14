@@ -239,6 +239,11 @@
     "verdict": "BENIGN",
     "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
   },
+  "bin/integrate_likelihood_extrinsic_batchmode:_snapshot_pass_state:02594db9f0": {
+    "source": "rvs=(dict(sampler._rvs) if rvs is None else rvs),",
+    "verdict": "PER_ROW",
+    "why": "_snapshot_pass_state takes a dict copy of whatever rows are present so a rejected warm pass can be undone. It makes no claim about their statistics, and it snapshots the fair-draw MARKER alongside them so the restored record and the marker describing it cannot disagree."
+  },
   "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:011d296b48": {
     "source": "_rep_rvs = [sampler._rvs]",
     "verdict": "PER_ROW",

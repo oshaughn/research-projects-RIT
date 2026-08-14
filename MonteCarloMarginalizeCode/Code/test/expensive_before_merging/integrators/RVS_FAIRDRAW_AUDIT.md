@@ -166,6 +166,39 @@ which is exactly the property the original comment asked for: it reduces to `sum
 the replicas agree and falls below it when they disagree. The pooled Kish is still used when the
 export was NOT fair-drawn, where per-row weights are real and finer-grained.
 
+## Finding 5 -- two composition defects, from review (FIXED)
+
+Both are the same shape, and it is the shape worth remembering: **a fix that is correct in
+isolation and wrong once another code path runs after it.** The unit tests for Findings 1-3
+all passed with both bugs present, because each tested its helper rather than the composition.
+
+**The fair-draw marker survived pooling.** `_pool_replica_rvs` builds a record that is
+equal-weight *within* each block but weighted *between* blocks by exactly the replica
+evidences `Z_k/K`. Leaving the marker set made `ln_weights_for_posterior` return zeros, so
+`.dgrid` and the proposal breadcrumb would have mixed replicas by exported **row count**
+instead of by evidence -- silently discarding the disagreement the replicas exist to measure.
+The marker is now cleared after pooling, and only when pooling actually happened: every
+fallback in `_pool_replica_rvs` returns one of its *input* records, which is still the fair
+draw it arrived as, so the test is object identity rather than length.
+
+**A rejected warm rescue left its reserve behind.** The reject path restored `_rvs`, the
+estimate and `dict_return`, but not `_warm_seed_reserve` -- which still described the rejected
+warm pass. Latent until Finding 1 made the sequential warm start read the reserve, at which
+point the next intrinsic point would have been seeded from the very truncated cloud the
+evidence gate had just thrown away. Note the direction: **Finding 1's fix is what activated
+this**; before it, the capture read `_rvs`, which the reject path does restore. Snapshot and
+restore now travel through `_snapshot_pass_state` / `_restore_pass_state`, which carry the
+reserve, the fair-draw marker and the per-member reserves (`_warm_seed_reserve_for` falls
+through to `portfolio_realizations`, so restoring only the aggregate would leave that fallback
+pointing at the warm pass). Both restore sites -- the reject path and the exception handler --
+go through the one helper.
+
+A note on the tests, because it is a real limitation: `analyze_event` needs data, PSDs and a
+waveform, so the call sites cannot be exercised from a unit test. The behavioural tests pin
+the contracts the call sites depend on; the wiring is pinned at source level. Verified by
+reverting each fix -- only the wiring tests fail. If `analyze_event` ever becomes callable in
+pieces, promote them.
+
 ## Finding 4 -- the reject knob (MEASURED; default raised)
 
 See `L0_REJECT_DLNZ_MEASUREMENT.md`. Across 160 known-lnZ passes the gate caught **0 of 55**

@@ -45,6 +45,12 @@ def verdict(h):
                     "Row-for-row; unaffected by which rows survived.")
 
     # --- distance exporters: the live defect ----------------------------------------
+    if "rvs=(dict(sampler._rvs) if rvs is None else rvs)" in s:
+        return ("PER_ROW",
+                "_snapshot_pass_state takes a dict copy of whatever rows are present so a "
+                "rejected warm pass can be undone. It makes no claim about their statistics, "
+                "and it snapshots the fair-draw MARKER alongside them so the restored record "
+                "and the marker describing it cannot disagree.")
     if s in ("rvs = sampler._rvs", "_rvs = sampler._rvs") or \
             'sampler._rvs["distance"]' in s:
         return ("PER_ROW",
