@@ -341,19 +341,37 @@ jobs:
         # because this job is the only one matrixed over BOTH numpy lanes, and these tests
         # are the kind that break on numpy API removals (e.g. np.trapz -> np.trapezoid).
         run: python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_limit_cosine_samplers.py
+      - name: Run NAL / supplementary-likelihood hook tests
+        # The NAL I/O round trip and the supplementary-likelihood hook are the seams where an
+        # EXTERNAL likelihood contribution enters ILE, and both fail quietly: a hook that is
+        # never invoked just returns the unmodified likelihood, and a field lost in NAL I/O
+        # reads back as a plausible default. Pure-python, seconds, and matrixed over both
+        # numpy lanes here because the serialization path is dtype-sensitive.
+        run: |
+          python -m pytest -q \
+            MonteCarloMarginalizeCode/Code/test/test_nal_io.py \
+            MonteCarloMarginalizeCode/Code/test/test_supplementary_likelihood_hook.py
       - name: Run adaptive-volume collapse / evidence-accounting regressions
         # These were unguarded.  The AV live-volume-collapse family, the L0 rescue's warm
-        # seed, and the portfolio fair-draw backend each shipped a regression suite that NO
-        # CI job invoked, so a required check could stay green while any of them broke --
-        # including suites from already-merged PRs.  They are exactly the kind that regress
-        # silently: an evidence normalization or an inclusion probability is still a
-        # plausible-looking number when it is wrong.  Fast (seconds each), CPU-only, and
-        # matrixed over both numpy lanes here.
+        # seed, the sequential warm-start seed, and the portfolio fair-draw backend and its
+        # double-weighting guard each shipped a regression suite that NO CI job invoked, so
+        # a required check could stay green while any of them broke -- including suites from
+        # already-merged PRs.  They are exactly the kind that regress silently: an evidence
+        # normalization or an inclusion probability is still a plausible-looking number when
+        # it is wrong.  Fast (seconds each), CPU-only, and matrixed over both numpy lanes here.
         run: |
           python -m pytest -q \
             MonteCarloMarginalizeCode/Code/test/test_av_empty_live_volume.py \
             MonteCarloMarginalizeCode/Code/test/test_l0_rescue_seed.py \
-            MonteCarloMarginalizeCode/Code/test/test_portfolio_fairdraw_backend.py
+            MonteCarloMarginalizeCode/Code/test/test_seq_warmstart_seed.py \
+            MonteCarloMarginalizeCode/Code/test/test_portfolio_fairdraw_backend.py \
+            MonteCarloMarginalizeCode/Code/test/test_fairdraw_double_weighting.py
+      - name: Audit fair-draw / rvs weighting accounting
+        # Structural companion to the fair-draw suites above: the auditor walks the rvs +
+        # fair-draw weighting paths and --check exits non-zero when that accounting drifts
+        # (e.g. the same weight applied twice), which no unit test asserts end to end.
+        # No sampler is built, so it costs seconds and runs on every pipeline.
+        run: python MonteCarloMarginalizeCode/Code/test/expensive_before_merging/integrators/audit_rvs_fairdraw.py --check
       - name: Run CIP intrinsic-prior regressions
         # The CIP prior densities and the --eccentricity-prior coordinate wiring. The
         # suite reads CIP's source with ast instead of importing it, so it needs only
