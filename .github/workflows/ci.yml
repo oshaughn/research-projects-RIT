@@ -196,8 +196,16 @@ jobs:
           python -m pip install -r requirements.txt --break-system-packages
           python -m pip install coverage pytest --break-system-packages
           python -m pip install --editable . --break-system-packages
-      - name: Run probe confirm-on-fail accounting tests
-        run: python -m pytest -q MonteCarloMarginalizeCode/Code/test/expensive_before_merging/integrators/test_probe_confirm.py
+      - name: Run probe confirm-on-fail accounting and CIP intrinsic-prior tests
+        # The CIP prior suite rides along here for the same reason: it is pure logic that
+        # runs in seconds (it reads CIP's source with ast instead of importing it, so it
+        # needs only numpy/scipy), and a wrong prior density or a mis-wired
+        # --eccentricity-prior coordinate raises nothing -- it merely reweights the
+        # posterior. Without a job invoking it the fix can regress behind green checks.
+        run: |
+          python -m pytest -q \
+            MonteCarloMarginalizeCode/Code/test/expensive_before_merging/integrators/test_probe_confirm.py \
+            MonteCarloMarginalizeCode/Code/test/test_cip_priors.py
 
   lisa-check:
     needs: install
@@ -372,14 +380,6 @@ jobs:
         # (e.g. the same weight applied twice), which no unit test asserts end to end.
         # No sampler is built, so it costs seconds and runs on every pipeline.
         run: python MonteCarloMarginalizeCode/Code/test/expensive_before_merging/integrators/audit_rvs_fairdraw.py --check
-      - name: Run CIP intrinsic-prior regressions
-        # The CIP prior densities and the --eccentricity-prior coordinate wiring. The
-        # suite reads CIP's source with ast instead of importing it, so it needs only
-        # numpy/scipy and runs in seconds -- and it belongs in this job because this is
-        # the one matrixed over BOTH numpy lanes. A wrong normalization constant raises
-        # nothing and merely reweights the posterior, so without a job invoking this
-        # module the fix can regress behind green required checks.
-        run: python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_cip_priors.py
       - name: Run test scripts
         run: |
           . .travis/test-coord.sh
