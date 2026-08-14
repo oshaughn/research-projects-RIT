@@ -158,11 +158,20 @@ development tree is rift_O4d.
     iteration 0 of an eccentric pseudo_pipe run uses -- silently kept the uniform-in-e^2
     density; the log-uniform prior is now installed for that coordinate too (as the same
     distribution written in e^2), and the ``--ecc-min 0`` floor correction now reaches its
-    range.  With this, the CIP prior densities get their first test suite: test_cip_priors.py
+    range.  Separately, ``eccentricity_ln`` is a logarithmic coordinate under EVERY prior, so
+    the shipped ``--ecc-min`` default of 0.0 left a run sampling it with a ``[log(0), ...]``
+    range and a prior that divided by zero; the floor correction is now keyed on the sampled
+    coordinate as well as on the prior, while a run that neither asks for the log-uniform
+    prior nor samples a log coordinate keeps ``--ecc-min`` exactly as given.  Finally,
+    ``--eccentricity-prior`` is restricted to ``uniform``/``log_uniform`` in both CIP and
+    pseudo_pipe, which forwards the value verbatim: only ``log_uniform`` is branched on, so an
+    unsupported value ran the uniform prior while reporting the requested one.  With this, the
+    CIP prior densities get their first test suite: test_cip_priors.py
     extracts the shipped ``def`` blocks from CIP with ast rather than transcribing them, then
     checks that all 39 priors evaluate finite and non-negative, that the 20 claiming a
     normalized density integrate to 1 against their stated measure, and that
-    ``--eccentricity-prior`` selects a normalized density for every eccentricity coordinate.
+    ``--eccentricity-prior`` selects a normalized density for every eccentricity coordinate,
+    including at the CLI defaults read out of CIP's own argparse calls rather than assumed.
     Also fixed on rift_O4c (PR #174).
   - ILE portfolio driver: a portfolio the driver cannot build now FAILS instead of silently
     integrating with a different sampler.  ``--sampler-method portfolio`` no longer carries a

@@ -45,7 +45,16 @@ the ``_eccentricity_setup`` tests
     ``--eccentricity-prior`` block against its own default prior_map /
     prior_range_map entries, and check every eccentricity coordinate --
     including eccentricity_squared, which is what an eccentric pseudo_pipe run
-    samples in iteration 0.
+    samples in iteration 0.  They also run the eccentricity_ln coordinate at
+    CIP's *shipped* ``--ecc-min`` default, read out of the argparse call rather
+    than assumed here: that coordinate is logarithmic under every prior, so the
+    default of 0.0 gives it a [-inf, ...] range and a prior that divides by
+    zero, independently of --eccentricity-prior.
+
+``test_eccentricity_prior_option_rejects_unknown_values``
+    The option value is forwarded verbatim from pseudo_pipe to CIP and only the
+    exact string 'log_uniform' is branched on, so both parsers must reject
+    anything else rather than fall through to the uniform prior.
 """
 
 import ast
@@ -64,6 +73,15 @@ CIP_SCRIPT = os.path.join(
     "..",
     "bin",
     "util_ConstructIntrinsicPosterior_GenericCoordinates.py",
+)
+
+# The pipeline driver that forwards --eccentricity-prior to CIP.  Only its argparse
+# spec is inspected (by ast, like everything else here); the script is never imported.
+PSEUDO_PIPE_SCRIPT = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "..",
+    "bin",
+    "util_RIFT_pseudo_pipe.py",
 )
 
 # Values the priors close over.  Chosen to be ordinary production-shaped
@@ -111,12 +129,49 @@ NOT_A_DENSITY = {
 }
 
 
-def _cip_tree():
-    with open(CIP_SCRIPT) as handle:
+def _parse_script(path):
+    with open(path) as handle:
         return ast.parse(handle.read())
 
 
-CIP_TREE = _cip_tree()
+CIP_TREE = _parse_script(CIP_SCRIPT)
+PSEUDO_PIPE_TREE = _parse_script(PSEUDO_PIPE_SCRIPT)
+
+
+def _add_argument_kwargs(tree, option):
+    """The keyword arguments of a shipped ``parser.add_argument(option, ...)`` call.
+
+    Lets a test assert against the CLI as actually shipped -- the real default, the
+    real `choices` -- instead of a value transcribed into the test, which is the same
+    drift problem the prior extraction above avoids.
+    """
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "add_argument" and node.args):
+            continue
+        try:
+            if ast.literal_eval(node.args[0]) != option:
+                continue
+        except (ValueError, SyntaxError):
+            continue
+        found = {}
+        for keyword in node.keywords:
+            if keyword.arg is None:
+                continue
+            try:
+                found[keyword.arg] = ast.literal_eval(keyword.value)
+            except (ValueError, SyntaxError):
+                # e.g. type=float, or a default built from an expression; the tests
+                # here only read literal defaults and choices
+                found[keyword.arg] = None
+        return found
+    raise AssertionError("no add_argument({!r}) call found".format(option))
+
+
+# argparse's own default for --ecc-min: what a run gets when the user says nothing.
+CIP_ECC_MIN_DEFAULT = _add_argument_kwargs(CIP_TREE, "--ecc-min")["default"]
+CIP_ECC_PRIOR_DEFAULT = _add_argument_kwargs(
+    CIP_TREE, "--eccentricity-prior")["default"]
 
 
 def _exec_in(namespace, *nodes):
@@ -125,9 +180,15 @@ def _exec_in(namespace, *nodes):
     exec(compile(module, CIP_SCRIPT, "exec"), namespace)
 
 
-def _make_namespace(ecc_min=ECC_MIN, eccentricity_prior="uniform"):
-    """The module-level constants the priors and the option wiring close over."""
+def _make_namespace(ecc_min=ECC_MIN, eccentricity_prior="uniform", coords=()):
+    """The module-level constants the priors and the option wiring close over.
+
+    `coords` stands in for CIP's low_level_coord_names, the coordinates the Monte
+    Carlo actually samples in; the eccentricity block consults it because the ln
+    coordinate needs a positive floor whatever the prior is.
+    """
     return {
+        "low_level_coord_names": list(coords),
         "np": np,
         "numpy": np,
         "scipy": types.SimpleNamespace(stats=scipy_stats),
@@ -441,24 +502,38 @@ def _eccentricity_dict_entries(name, namespace):
     raise AssertionError("could not find the {} dict in CIP".format(name))
 
 
+def _selects_eccentricity(test):
+    """Does this `if` test steer the eccentricity setup?
+
+    Matched on `opts.eccentricity_prior` or `ECC_MIN` appearing anywhere in the test,
+    rather than on one exact comparison: the prior selection and the zero-floor
+    correction are separate top-level conditions with different triggers, and a test
+    that recognised only the first would silently stop running the second.
+    """
+    for node in ast.walk(test):
+        if (isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name)
+                and node.value.id == "opts" and node.attr == "eccentricity_prior"):
+            return True
+        if isinstance(node, ast.Name) and node.id == "ECC_MIN":
+            return True
+    return False
+
+
 def _exec_eccentricity_option_block(namespace):
-    """Run CIP's `if opts.eccentricity_prior == ...` block, verbatim."""
+    """Run CIP's top-level eccentricity `if` blocks, verbatim and in source order."""
+    found = 0
     for node in CIP_TREE.body:
-        test = node.test if isinstance(node, ast.If) else None
-        left = test.left if isinstance(test, ast.Compare) else None
-        if (isinstance(left, ast.Attribute)
-                and isinstance(left.value, ast.Name)
-                and left.value.id == "opts"
-                and left.attr == "eccentricity_prior"):
+        if isinstance(node, ast.If) and _selects_eccentricity(node.test):
             _exec_in(namespace, node)
-            return
-    raise AssertionError("could not find the --eccentricity-prior block in CIP")
+            found += 1
+    assert found, "could not find the --eccentricity-prior block in CIP"
 
 
-def _eccentricity_setup(ecc_min=ECC_MIN, eccentricity_prior="uniform"):
+def _eccentricity_setup(ecc_min=ECC_MIN, eccentricity_prior="uniform", coords=()):
     """Reproduce CIP's eccentricity prior selection: defaults, then the option block."""
     namespace = _make_namespace(ecc_min=ecc_min,
-                                eccentricity_prior=eccentricity_prior)
+                                eccentricity_prior=eccentricity_prior,
+                                coords=coords)
     _load_priors(namespace)
     # ln(ECC_MIN) with --ecc-min 0 is -inf here exactly as it is in CIP; the option
     # block is what repairs it, and that repair is the thing under test
@@ -549,3 +624,74 @@ def test_ecc_min_zero_correction_reaches_every_coordinate_range():
         assert total == pytest.approx(1.0, rel=2e-3), (
             "{}: selected density integrates to {:.6f} over its sampling range {}, "
             "not 1".format(coord, total, bounds))
+
+
+def test_ln_coordinate_is_usable_at_the_shipped_cli_defaults():
+    """--parameter eccentricity_ln with no --ecc-min and no --eccentricity-prior.
+
+    eccentricity_ln is a logarithmic coordinate under EVERY prior, so the shipped
+    --ecc-min default hits it whatever --eccentricity-prior says: the range is
+    [log(0), log(ECC_MAX)] and uniform_eccentricity_ln_prior divides by log(ECC_MAX/0).
+    The floor therefore has to be keyed on the coordinate as well as on the prior.
+
+    Both defaults are read out of CIP's own argparse calls rather than written here, so
+    this exercises the real default invocation and keeps following it if it changes.
+    """
+    namespace, prior_map, prior_range_map = _eccentricity_setup(
+        ecc_min=CIP_ECC_MIN_DEFAULT,
+        eccentricity_prior=CIP_ECC_PRIOR_DEFAULT,
+        coords=("mc", "eta", "eccentricity_ln"))
+
+    assert namespace["ECC_MIN"] > 0, (
+        "ecc-min is still {} for a run sampling ln(e)".format(namespace["ECC_MIN"]))
+
+    bounds = prior_range_map["eccentricity_ln"]
+    assert np.all(np.isfinite(bounds)), (
+        "eccentricity_ln sampling range {} still has a log(0) edge".format(bounds))
+
+    # evaluating at all is the point: with ECC_MIN left at 0.0 this raises
+    # ZeroDivisionError inside the prior rather than returning a density
+    density = prior_map["eccentricity_ln"]
+    values = np.asarray(density(np.linspace(bounds[0], bounds[1], 9)), dtype=float)
+    assert np.all(np.isfinite(values)) and np.all(values > 0)
+
+    total, err = _integral_over_range(density, bounds)
+    assert err < 1e-4, "eccentricity_ln: quadrature did not converge"
+    assert total == pytest.approx(1.0, rel=2e-3), (
+        "eccentricity_ln: density integrates to {:.6f} over its sampling range {}, "
+        "not 1".format(total, bounds))
+
+
+def test_ecc_min_zero_is_left_alone_without_a_log_prior_or_log_coordinate():
+    """The floor is a repair, not a policy: a linear-in-e run keeps the ecc-min given.
+
+    --parameter eccentricity under the uniform prior is perfectly well defined down to
+    e=0, so raising its lower edge would move a boundary the user set.
+    """
+    namespace, _, prior_range_map = _eccentricity_setup(
+        ecc_min=0.0, eccentricity_prior="uniform", coords=("mc", "eccentricity"))
+
+    assert namespace["ECC_MIN"] == 0.0
+    assert prior_range_map["eccentricity"][0] == 0.0
+
+
+@pytest.mark.parametrize("tree,script", [(CIP_TREE, "CIP"),
+                                         (PSEUDO_PIPE_TREE, "pseudo_pipe")],
+                         ids=["CIP", "pseudo_pipe"])
+def test_eccentricity_prior_option_rejects_unknown_values(tree, script):
+    """Both parsers must constrain --eccentricity-prior to the values CIP implements.
+
+    pseudo_pipe forwards the string verbatim and CIP branches on exactly 'log_uniform',
+    so an unconstrained option turns a typo -- or an unimplemented value -- into a run
+    that silently uses the uniform prior and reports the requested one.
+    """
+    kwargs = _add_argument_kwargs(tree, "--eccentricity-prior")
+    choices = kwargs.get("choices")
+
+    assert choices is not None, (
+        "{}: --eccentricity-prior accepts any string".format(script))
+    assert sorted(choices) == sorted(["uniform", "log_uniform"]), (
+        "{}: --eccentricity-prior choices are {}".format(script, choices))
+    assert kwargs.get("default") in choices, (
+        "{}: default {!r} is not one of the accepted values".format(
+            script, kwargs.get("default")))

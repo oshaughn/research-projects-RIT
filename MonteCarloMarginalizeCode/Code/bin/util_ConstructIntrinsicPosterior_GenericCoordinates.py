@@ -290,7 +290,7 @@ parser.add_argument("--mirror-points",action='store_true',help="Use if you have 
 parser.add_argument("--cap-points",default=-1,type=int,help="Maximum number of points in the sample, if positive. Useful to cap the number of points ued for GP. See also lnLoffset. Note points are selected AT RANDOM")
 parser.add_argument("--chi-max", default=1,type=float,help="Maximum range of 'a' allowed.  Use when comparing to models that aren't calibrated to go to the Kerr limit.")
 parser.add_argument("--chi-small-max", default=None,type=float,help="Maximum range of 'a' allowed on the smaller body.  If not specified, defaults to chi_max")
-parser.add_argument("--eccentricity-prior", default="uniform",help="Options are 'uniform' and 'log_uniform'")
+parser.add_argument("--eccentricity-prior", default="uniform",choices=['uniform','log_uniform'],help="Options are 'uniform' and 'log_uniform'")  # constrained: only 'log_uniform' is branched on below, so anything else would quietly fall through to the uniform prior
 parser.add_argument("--ecc-max", default=0.9,type=float,help="Maximum range of 'eccentricity' allowed.")
 parser.add_argument("--ecc-min", default=0.0,type=float,help="Minimum range of 'eccentricity' allowed.")
 parser.add_argument("--meanPerAno-max", default=2*np.pi,type=float,help="Maximum range of 'meanPerAno' allowed.")
@@ -1191,17 +1191,26 @@ if opts.eccentricity_prior == 'log_uniform':
     # uniform in ln(e), i.e. this same distribution written in that coordinate.
     prior_map['eccentricity'] = log_eccentricity_prior
     prior_map['eccentricity_squared'] = log_eccentricity_squared_prior
-    if ECC_MIN == 0.0:
-        print("Warning: You passed 0.0 as a ecc-in with a log-uniform prior. Changing ecc-min to 0.001")
-        ECC_MIN = 0.001
-        prior_range_map['eccentricity'] = [ECC_MIN,ECC_MAX]
-        prior_range_map['eccentricity_ln'] = [np.log(ECC_MIN),np.log(ECC_MAX)]
-        # 1/u is no more integrable down to u=0 than 1/e is down to e=0, so the squared
-        # coordinate's range has to follow the corrected floor too
-        prior_range_map['eccentricity_squared'] = [ECC_MIN**2,ECC_MAX**2]
-        print("New eccentricity range: ",prior_range_map['eccentricity'])
-        print("New ln(eccentricity) range: ",prior_range_map['eccentricity_ln'])
-        print("New eccentricity^2 range: ",prior_range_map['eccentricity_squared'])
+
+# A zero lower edge is unusable for anything logarithmic in e, and that is a property of
+# the COORDINATE as much as of the prior.  Sampling in 'eccentricity_ln' is logarithmic
+# under the default uniform prior too: with --ecc-min at its default of 0.0 that
+# coordinate's range is [log(0), log(ECC_MAX)] = [-inf, ...], and
+# uniform_eccentricity_ln_prior evaluates log(ECC_MAX/ECC_MIN), i.e. divides by zero.
+# So the correction is keyed on either trigger, not on --eccentricity-prior alone.
+# Runs that neither ask for a log-uniform prior nor sample a log coordinate keep
+# ecc-min exactly as given.
+if ECC_MIN == 0.0 and (opts.eccentricity_prior == 'log_uniform' or 'eccentricity_ln' in low_level_coord_names):
+    print("Warning: You passed 0.0 as ecc-min with a logarithmic eccentricity prior or coordinate. Changing ecc-min to 0.001")
+    ECC_MIN = 0.001
+    prior_range_map['eccentricity'] = [ECC_MIN,ECC_MAX]
+    prior_range_map['eccentricity_ln'] = [np.log(ECC_MIN),np.log(ECC_MAX)]
+    # 1/u is no more integrable down to u=0 than 1/e is down to e=0, so the squared
+    # coordinate's range has to follow the corrected floor too
+    prior_range_map['eccentricity_squared'] = [ECC_MIN**2,ECC_MAX**2]
+    print("New eccentricity range: ",prior_range_map['eccentricity'])
+    print("New ln(eccentricity) range: ",prior_range_map['eccentricity_ln'])
+    print("New eccentricity^2 range: ",prior_range_map['eccentricity_squared'])
 # tex_dictionary  = {
 #  "mtot": '$M$',
 #  "mc": '${\cal M}_c$',
