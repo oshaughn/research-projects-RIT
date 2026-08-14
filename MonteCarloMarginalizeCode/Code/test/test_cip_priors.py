@@ -60,6 +60,7 @@ the ``_eccentricity_setup`` tests
 import ast
 import os
 import re
+import sys
 import types
 
 import numpy as np
@@ -180,7 +181,8 @@ def _exec_in(namespace, *nodes):
     exec(compile(module, CIP_SCRIPT, "exec"), namespace)
 
 
-def _make_namespace(ecc_min=ECC_MIN, eccentricity_prior="uniform", coords=()):
+def _make_namespace(ecc_min=ECC_MIN, ecc_max=ECC_MAX, eccentricity_prior="uniform",
+                    coords=()):
     """The module-level constants the priors and the option wiring close over.
 
     `coords` stands in for CIP's low_level_coord_names, the coordinates the Monte
@@ -189,13 +191,15 @@ def _make_namespace(ecc_min=ECC_MIN, eccentricity_prior="uniform", coords=()):
     """
     return {
         "low_level_coord_names": list(coords),
+        # the eccentricity block exits on an unusable logarithmic range
+        "sys": sys,
         "np": np,
         "numpy": np,
         "scipy": types.SimpleNamespace(stats=scipy_stats),
         "chi_max": CHI_MAX,
         "chi_small_max": CHI_MAX,
         "ECC_MIN": ecc_min,
-        "ECC_MAX": ECC_MAX,
+        "ECC_MAX": ecc_max,
         "MEANPERANO_MIN": 0.0,
         "MEANPERANO_MAX": 2 * np.pi,
         "lambda_min": LAMBDA_MIN,
@@ -529,15 +533,18 @@ def _exec_eccentricity_option_block(namespace):
     assert found, "could not find the --eccentricity-prior block in CIP"
 
 
-def _eccentricity_setup(ecc_min=ECC_MIN, eccentricity_prior="uniform", coords=()):
+def _eccentricity_setup(ecc_min=ECC_MIN, ecc_max=ECC_MAX, eccentricity_prior="uniform",
+                        coords=()):
     """Reproduce CIP's eccentricity prior selection: defaults, then the option block."""
     namespace = _make_namespace(ecc_min=ecc_min,
+                                ecc_max=ecc_max,
                                 eccentricity_prior=eccentricity_prior,
                                 coords=coords)
     _load_priors(namespace)
-    # ln(ECC_MIN) with --ecc-min 0 is -inf here exactly as it is in CIP; the option
-    # block is what repairs it, and that repair is the thing under test
-    with np.errstate(divide="ignore"):
+    # ln(ECC_MIN) with --ecc-min 0 is -inf here exactly as it is in CIP (and nan for a
+    # negative one); the option block is what repairs or rejects it, and that is the
+    # thing under test
+    with np.errstate(divide="ignore", invalid="ignore"):
         prior_map = _eccentricity_dict_entries("prior_map", namespace)
         prior_range_map = _eccentricity_dict_entries("prior_range_map", namespace)
         _exec_eccentricity_option_block(namespace)
@@ -673,6 +680,67 @@ def test_ecc_min_zero_is_left_alone_without_a_log_prior_or_log_coordinate():
 
     assert namespace["ECC_MIN"] == 0.0
     assert prior_range_map["eccentricity"][0] == 0.0
+
+
+# Every way a logarithmic eccentricity range can be unusable other than the zero floor,
+# which is repaired rather than rejected.  All of these reach np.log of a non-positive
+# number or a zero/negative log(ECC_MAX/ECC_MIN), i.e. nan or inf bounds and densities.
+INVALID_LOG_RANGES = [
+    (-0.1, ECC_MAX, "negative ecc-min"),
+    (0.0, -0.1, "zero ecc-min floored, negative ecc-max"),
+    (0.1, 0.0, "zero ecc-max"),
+    (0.3, 0.2, "ecc-max below ecc-min"),
+    (0.2, 0.2, "empty interval"),
+]
+
+# The two independent ways a run becomes logarithmic in e; both must validate.
+LOG_TRIGGERS = [
+    ({"eccentricity_prior": "log_uniform", "coords": ("mc", "eccentricity")},
+     "log_uniform prior"),
+    ({"eccentricity_prior": "uniform", "coords": ("mc", "eccentricity_ln")},
+     "ln coordinate"),
+]
+
+
+@pytest.mark.parametrize("trigger,trigger_id", LOG_TRIGGERS,
+                         ids=[row[1] for row in LOG_TRIGGERS])
+@pytest.mark.parametrize("ecc_min,ecc_max,case", INVALID_LOG_RANGES,
+                         ids=[row[2] for row in INVALID_LOG_RANGES])
+def test_logarithmic_eccentricity_rejects_an_unusable_range(ecc_min, ecc_max, case,
+                                                            trigger, trigger_id):
+    """An invalid logarithmic range must fail the run, not produce nan priors.
+
+    Only an exactly-zero ecc-min was ever checked, so e.g. --ecc-min -0.1 walked past the
+    floor correction into np.log of a negative number: the sampling bounds and the prior
+    densities come out nan, nothing raises, and the run reports a prior it does not have.
+    """
+    with pytest.raises(SystemExit) as excinfo:
+        _eccentricity_setup(ecc_min=ecc_min, ecc_max=ecc_max, **trigger)
+
+    assert excinfo.value.code not in (0, None), (
+        "{} with {}: exited {}, which reads as success".format(
+            case, trigger_id, excinfo.value.code))
+
+
+@pytest.mark.parametrize("trigger,trigger_id", LOG_TRIGGERS,
+                         ids=[row[1] for row in LOG_TRIGGERS])
+def test_valid_logarithmic_eccentricity_range_is_accepted_untouched(trigger, trigger_id):
+    """The rejection above must not catch an ordinary 0 < ecc-min < ecc-max run.
+
+    A validity check that also refuses good input would take out every eccentric run.
+    """
+    namespace, prior_map, prior_range_map = _eccentricity_setup(
+        ecc_min=0.01, ecc_max=ECC_MAX, **trigger)
+
+    assert namespace["ECC_MIN"] == 0.01, "a valid ecc-min was moved"
+    for coord in ECC_COORDS:
+        bounds = prior_range_map[coord]
+        assert np.all(np.isfinite(bounds)), "{}: non-finite range {}".format(coord, bounds)
+        assert bounds[0] < bounds[1], "{}: inverted range {}".format(coord, bounds)
+        values = np.asarray(prior_map[coord](np.linspace(bounds[0], bounds[1], 9)[1:-1]),
+                            dtype=float)
+        assert np.all(np.isfinite(values)) and np.all(values > 0), (
+            "{}: non-finite or non-positive densities".format(coord))
 
 
 @pytest.mark.parametrize("tree,script", [(CIP_TREE, "CIP"),

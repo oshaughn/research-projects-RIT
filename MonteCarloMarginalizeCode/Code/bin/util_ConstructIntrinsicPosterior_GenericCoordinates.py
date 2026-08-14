@@ -1197,20 +1197,32 @@ if opts.eccentricity_prior == 'log_uniform':
 # under the default uniform prior too: with --ecc-min at its default of 0.0 that
 # coordinate's range is [log(0), log(ECC_MAX)] = [-inf, ...], and
 # uniform_eccentricity_ln_prior evaluates log(ECC_MAX/ECC_MIN), i.e. divides by zero.
-# So the correction is keyed on either trigger, not on --eccentricity-prior alone.
-# Runs that neither ask for a log-uniform prior nor sample a log coordinate keep
-# ecc-min exactly as given.
-if ECC_MIN == 0.0 and (opts.eccentricity_prior == 'log_uniform' or 'eccentricity_ln' in low_level_coord_names):
-    print("Warning: You passed 0.0 as ecc-min with a logarithmic eccentricity prior or coordinate. Changing ecc-min to 0.001")
-    ECC_MIN = 0.001
+# So the correction -- and the domain check that follows it -- is keyed on either
+# trigger, not on --eccentricity-prior alone.  Runs that neither ask for a log-uniform
+# prior nor sample a log coordinate keep the ecc range exactly as given.
+if opts.eccentricity_prior == 'log_uniform' or 'eccentricity_ln' in low_level_coord_names:
+    if ECC_MIN == 0.0:
+        print("Warning: You passed 0.0 as ecc-min with a logarithmic eccentricity prior or coordinate. Changing ecc-min to 0.001")
+        ECC_MIN = 0.001
+    # Zero is only the most common invalid floor, not the only one.  Everything
+    # logarithmic in e needs a strictly positive, correctly ordered interval: np.log of a
+    # non-positive edge is nan (or -inf), and log(ECC_MAX/ECC_MIN) is nan for either edge
+    # negative and zero for ECC_MAX == ECC_MIN.  None of that raises -- it propagates
+    # into the sampler as nan/inf coordinate bounds and nan prior densities, i.e. a run
+    # that reports a prior it never had.  The zero floor corrected just above is the one
+    # documented exception; every other invalid range is a configuration error, so say so
+    # and exit nonzero rather than hand the sampler numbers it cannot use.
+    if not (0 < ECC_MIN < ECC_MAX):
+        print("Incompatible options: a logarithmic eccentricity prior or coordinate requires 0 < ecc-min < ecc-max, but received ecc-min = {} and ecc-max = {}".format(ECC_MIN,ECC_MAX))
+        sys.exit(1)
     prior_range_map['eccentricity'] = [ECC_MIN,ECC_MAX]
     prior_range_map['eccentricity_ln'] = [np.log(ECC_MIN),np.log(ECC_MAX)]
     # 1/u is no more integrable down to u=0 than 1/e is down to e=0, so the squared
     # coordinate's range has to follow the corrected floor too
     prior_range_map['eccentricity_squared'] = [ECC_MIN**2,ECC_MAX**2]
-    print("New eccentricity range: ",prior_range_map['eccentricity'])
-    print("New ln(eccentricity) range: ",prior_range_map['eccentricity_ln'])
-    print("New eccentricity^2 range: ",prior_range_map['eccentricity_squared'])
+    print("Eccentricity range: ",prior_range_map['eccentricity'])
+    print("ln(eccentricity) range: ",prior_range_map['eccentricity_ln'])
+    print("eccentricity^2 range: ",prior_range_map['eccentricity_squared'])
 # tex_dictionary  = {
 #  "mtot": '$M$',
 #  "mc": '${\cal M}_c$',
