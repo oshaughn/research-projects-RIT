@@ -1,0 +1,77 @@
+==============================================================================
+Measuring --sampler-l0-rescue-reject-dlnZ on the POST-#79 gate
+sampler = portfolio, rho = 100.0, 20 replicates per condition
+==============================================================================
+### NULL (unimodal -- a good warm pass)   (20 usable of 20 replicates)
+    true lnZ 4973.7237   mass fractions [1.]
+    lnZ sources (cold,warm): [('retained', 'retained')]
+    cold n_eff median 2.18   warm n_eff median 80.34
+    cold_lnZ - TRUE: median -0.233  sd 16.263    <- the gate's reference
+    warm_lnZ - TRUE: median -0.066  sd 0.507
+    cold lnZ REPORTED BY integrate_log - TRUE: median -0.233  sd 16.263
+    warm lnZ REPORTED BY integrate_log - TRUE: median -0.066  sd 0.507
+    gap = cold_lnZ - warm_lnZ:  median -0.229   mean -6.414   sd 15.775   [p05 -28.492, p95 +0.529]
+### SIGNAL (bimodal, seeded mode holds f=0.50; true deficit -log f = +0.693)   (20 usable of 20 replicates)
+    true lnZ 4974.4169   mass fractions [0.5 0.5]
+    lnZ sources (cold,warm): [('retained', 'retained')]
+    cold n_eff median 2.42   warm n_eff median 11.58
+    warm pass reached only ONE mode in 2/20 replicates
+    cold_lnZ - TRUE: median -1.023  sd 0.947    <- the gate's reference
+    warm_lnZ - TRUE: median -0.310  sd 0.371
+    cold lnZ REPORTED BY integrate_log - TRUE: median -1.023  sd 0.947
+    warm lnZ REPORTED BY integrate_log - TRUE: median -0.310  sd 0.371
+    gap = cold_lnZ - warm_lnZ:  median -0.478   mean -0.329   sd 1.038   [p05 -1.589, p95 +1.571]
+### SIGNAL (bimodal, seeded mode holds f=0.75; true deficit -log f = +0.288)   (20 usable of 20 replicates)
+    true lnZ 4974.0114   mass fractions [0.75 0.25]
+    lnZ sources (cold,warm): [('retained', 'retained')]
+    cold n_eff median 1.82   warm n_eff median 16.57
+    warm pass reached only ONE mode in 0/20 replicates
+    cold_lnZ - TRUE: median +0.042  sd 1.123    <- the gate's reference
+    warm_lnZ - TRUE: median -0.246  sd 0.339
+    cold lnZ REPORTED BY integrate_log - TRUE: median +0.042  sd 1.123
+    warm lnZ REPORTED BY integrate_log - TRUE: median -0.246  sd 0.339
+    gap = cold_lnZ - warm_lnZ:  median +0.268   mean +0.535   sd 1.148   [p05 -0.906, p95 +2.515]
+### SIGNAL (bimodal, seeded mode holds f=0.90; true deficit -log f = +0.105)   (20 usable of 20 replicates)
+    true lnZ 4973.8291   mass fractions [0.9 0.1]
+    lnZ sources (cold,warm): [('retained', 'retained')]
+    cold n_eff median 1.67   warm n_eff median 10.74
+    warm pass reached only ONE mode in 1/20 replicates
+    cold_lnZ - TRUE: median -1.043  sd 1.168    <- the gate's reference
+    warm_lnZ - TRUE: median -0.094  sd 0.561
+    cold lnZ REPORTED BY integrate_log - TRUE: median -1.043  sd 1.168
+    warm lnZ REPORTED BY integrate_log - TRUE: median -0.094  sd 0.561
+    gap = cold_lnZ - warm_lnZ:  median -0.905   mean -0.641   sd 1.060   [p05 -1.882, p95 +0.860]
+per-replicate records -> /tmp/claude-40428/knob_PF.json
+==============================================================================
+REJECTION RATE BY WHAT THE WARM PASS ACTUALLY DID
+  good  = warm pass reached every mode (77 replicates)
+  trunc = warm pass reached fewer     (3 replicates)
+==============================================================================
+    dlnZ      FPR (good pass binned)     TPR (truncation caught)
+    0.25                         34%                          0%
+    0.50                         25%                          0%
+    0.75                         18%                          0%
+    1.00                         12%                          0%
+    1.50                          8%                          0%
+    2.00                          5%                          0%
+    2.50                          4%                          0%
+    3.00                          0%                          0%
+    4.00                          0%                          0%
+==============================================================================
+THRESHOLD TABLE
+  FPR = a GOOD warm pass rejected (loud failure: collapsed cold result reported)
+  TPR = a TRUNCATED warm pass rejected (the catch we want)
+==============================================================================
+    dlnZ       FPR  TPR f=0.50  TPR f=0.75  TPR f=0.90
+    0.25       30%         20%         55%         25%
+    0.50       10%         20%         45%         20%
+    0.75        0%         15%         40%         15%
+    1.00        0%         10%         30%          5%
+    1.50        0%         10%         15%          5%
+    2.00        0%          5%         15%          0%
+    3.00        0%          0%          0%          0%
+NULL spread sets the floor: sd 15.775 nats, p95 +0.529.
+STRUCTURAL BLIND SPOT: a threshold T can never catch a missed mode carrying less
+    T=0.5 -> blind to any mode holding < 39% of the total mass
+    T=1.0 -> blind to any mode holding < 63% of the total mass
+    T=2.0 -> blind to any mode holding < 86% of the total mass
