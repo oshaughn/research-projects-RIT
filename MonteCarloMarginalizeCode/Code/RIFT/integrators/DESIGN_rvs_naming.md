@@ -78,6 +78,10 @@ rec.posterior_log_weights()  # what to weight rows by to get the posterior
 
 ### B. The fair draw returns a new object; `_rvs` stays the retained set
 
+**DECIDED 2026-08-13: parked as long-term, tracked in issue #95. Not in the next month or two.**
+Reviewer's assessment -- "B sounds super dangerous" -- and agreed: there is no way to stage it
+and no way to test it incrementally. It stays the end state, not the next step.
+
 The correct end state, and the only one that makes the error unrepresentable.
 
 * **Pro:** the bug becomes impossible rather than merely detectable.
@@ -97,13 +101,20 @@ regardless.
   whole task is maintaining them*. The next person edits one site and the invariant breaks
   somewhere they were not looking.
 
-## Recommendation
+## Recommendation, and what was decided
 
-**A now, B later, C regardless.** A is incremental and each step is independently testable; it
-also subsumes the flags, which is the specific thing that keeps going wrong. B stays the target
-and becomes cheap once most consumers already ask a record rather than a dict. C's CI gate stays
-either way — it is the only mechanism that catches a *new* consumer rather than fixing the
-current ones.
+**A now, B parked, C regardless.** Agreed in review, 2026-08-13.
+
+* **A** is the direction: incremental, each step independently testable, and it subsumes the
+  flags, which is the specific thing that keeps going wrong. With the memory question settled
+  (below), the next step is to have the record **reference the existing bounded reserve** rather
+  than take its own copy of the retained rows.
+* **B** is parked as long-term in **issue #95**, with the blast-radius numbers and a
+  definition-of-done. It stays the target; A is what makes it cheap later, by turning it from a
+  306-site rename into a change of what the record's default view returns.
+* **C**'s CI gate stays either way. It is the only mechanism that catches a *new* consumer
+  rather than fixing the current ones, and it has already caught an addition nobody wrote it
+  for: this draft's own.
 
 ## What is in this draft
 
