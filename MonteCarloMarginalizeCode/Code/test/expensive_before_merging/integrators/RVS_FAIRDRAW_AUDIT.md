@@ -199,6 +199,37 @@ the contracts the call sites depend on; the wiring is pinned at source level. Ve
 reverting each fix -- only the wiring tests fail. If `analyze_event` ever becomes callable in
 pieces, promote them.
 
+## Finding 6 -- one flag was answering two questions (review round 2; FIXED)
+
+The Finding-5 fix cleared `_rvs_is_fairdraw` after pooling. That fixed the weighting question
+and broke two others, because the flag was carrying two distinct properties:
+
+| property | scope | true for a pooled record? |
+|---|---|---|
+| rows were drawn proportional to `w` | per **block** | **yes** |
+| the record is globally equal-weight | whole **record** | **no** |
+
+Clearing it made the `.dslice` all-fresh safeguard stop firing on a pooled record whose blocks
+*are* resampled, and made the new block-Kish `n_eff` branch **unreachable** -- it sat below the
+line that cleared the flag it tested, and is only ever reached when pooling happened.
+
+Now two predicates over two markers: `_rvs_is_export_resample` (rows resampled; survives
+pooling) and `_rvs_is_equal_weight` (`fairdraw and not pooled`). The block-Kish branch keys on
+neither -- it uses a local computed where pooling happens, since "did pooling flatten a block"
+is a fact about that step, not a property of the record.
+
+**And `already_resampled` was the CLI option, not what each pass did.** The draw is skipped per
+pass when it would not shrink that pass's record, so one global boolean either flattens a
+replica whose importance weights are genuine, or leaves a resampled replica double-weighted --
+and a run near the `n_extr` boundary produces a *mixture*, which a boolean cannot describe at
+all. `_pool_replica_rvs` now accepts a per-replica sequence and decides per block; the ILE
+captures each replica's marker beside the record it describes. While there, the empty-record
+filter was made lockstep: it used to drop from `rep_rvs` alone, shifting every later block
+against its own `lnZ`.
+
+The lesson is the same one as Finding 5, one level up: **a boolean that is true for two
+different reasons will eventually be read for the wrong one.**
+
 ## Finding 4 -- the reject knob (MEASURED; default raised)
 
 See `L0_REJECT_DLNZ_MEASUREMENT.md`. Across 160 known-lnZ passes the gate caught **0 of 55**

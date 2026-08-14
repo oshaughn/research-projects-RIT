@@ -2124,15 +2124,40 @@ def _rvs_len(rvs):
 
 
 def _rvs_is_export_resample(sampler):
-    """True when integrate() replaced _rvs with the fair-draw EXPORT resample.
+    """True when the ROWS of _rvs were drawn in proportion to weight.
 
     Set by the samplers at the rebind itself, so it means "the draw FIRED", which is not the
     same predicate as `opts.fairdraw_extrinsic_output`: the draw is skipped when it would not
     shrink the record (n_extr >= len(_rvs)), and then the rows are still the retained set with
     real importance weights.  Keying off the CLI flag would flatten those, which is the same
     class of error in the other direction.
+
+    SURVIVES POOLING.  A pooled record built from fair-drawn replicas still has
+    posterior-resampled rows, so anything that must not re-weight such rows -- the .dslice
+    reweight core -- has to keep seeing True here.  Whether the record is GLOBALLY equal-weight
+    is a different question with a different answer; see _rvs_is_equal_weight.
     """
     return bool(getattr(sampler, '_rvs_is_fairdraw', False))
+
+
+def _rvs_is_equal_weight(sampler):
+    """True when EVERY row of _rvs carries the same posterior weight.
+
+    Two properties were briefly conflated here, and separating them is the whole point:
+
+      rows resampled   -- each row was drawn proportional to w  (per-BLOCK property)
+      equal weight     -- the record as a whole is uniform      (property of the WHOLE record)
+
+    A single fair draw has both.  A POOLED record has the first and not the second:
+    _pool_replica_rvs gives block k weights summing to Z_k/K, equal within a block but
+    differing between blocks by exactly the replica evidences.  Answering the second question
+    with the first flag made .dgrid and the proposal breadcrumb mix replicas by exported row
+    count instead of by evidence; answering the first with the second made the .dslice
+    safeguard and the block-Kish n_eff branch unreachable.  Both are wrong, in opposite
+    directions, from one boolean.
+    """
+    return (bool(getattr(sampler, '_rvs_is_fairdraw', False))
+            and not bool(getattr(sampler, '_rvs_is_pooled', False)))
 
 
 def ln_weights_for_posterior(rvs, sampler, convert=None, use_lnL=None):
@@ -2153,7 +2178,7 @@ def ln_weights_for_posterior(rvs, sampler, convert=None, use_lnL=None):
     So: uniform (zero log-weight) for a fair-drawn record, the derived importance weight
     otherwise.  Returns a float array the length of the record.
     """
-    if _rvs_is_export_resample(sampler):
+    if _rvs_is_equal_weight(sampler):
         return numpy.zeros(_rvs_len(rvs), dtype=float)
     return numpy.asarray(ln_weights_from_rvs(rvs, convert=convert, use_lnL=use_lnL),
                          dtype=float)
@@ -2177,7 +2202,29 @@ def _pool_replica_rvs(rep_rvs, sampler, rep_lnZ=None, already_resampled=False, u
     block's weights, and the equation to solve is convention-dependent (see below).
     """
     _lnL_here = _rvs_lnL_convention(use_lnL)
-    rep_rvs = [r for r in rep_rvs if r]
+    # `already_resampled` may be a single bool or a PER-REPLICA sequence.  It has to be the
+    # latter in general: each pass decides independently whether to fair-draw (the draw is
+    # skipped when it would not shrink that pass's record), so one global flag either flattens
+    # a replica whose weights are genuine, or leaves a resampled replica double-weighted.  A
+    # mixture of raw and resampled replicas is the normal case near the n_extr boundary.
+    _ar_list = (list(already_resampled)
+                if isinstance(already_resampled, (list, tuple, numpy.ndarray))
+                else None)
+    # Drop empty records in LOCKSTEP with their metadata.  The filter used to run on rep_rvs
+    # alone, so a single empty replica shifted every later block against its own lnZ -- and
+    # would now shift it against its own resampled flag too.
+    _keep = [i for i, r in enumerate(rep_rvs) if r]
+    rep_rvs = [rep_rvs[i] for i in _keep]
+    if rep_lnZ is not None:
+        rep_lnZ = [rep_lnZ[i] for i in _keep if i < len(rep_lnZ)]
+    if _ar_list is not None:
+        _ar_list = [_ar_list[i] for i in _keep if i < len(_ar_list)]
+
+    def _block_resampled(i):
+        if _ar_list is not None:
+            return bool(_ar_list[i]) if i < len(_ar_list) else False
+        return bool(already_resampled)
+
     if len(rep_rvs) <= 1:
         return rep_rvs[0] if rep_rvs else {}
     # `already_resampled` -- the records are FAIRDRAW output.  Those samples were already drawn in
@@ -2212,7 +2259,7 @@ def _pool_replica_rvs(rep_rvs, sampler, rep_lnZ=None, already_resampled=False, u
             if n_k <= 0:
                 continue
             _flat_block = False
-            if already_resampled and rep_lnZ is not None and _i < len(rep_lnZ) \
+            if _block_resampled(_i) and rep_lnZ is not None and _i < len(rep_lnZ) \
                     and numpy.isfinite(rep_lnZ[_i]):
                 # equal weights within the block, summing to Z_k/K
                 _flat_block = True
@@ -2406,6 +2453,7 @@ def _snapshot_pass_state(sampler, res, var, neff, dict_return, rvs=None):
         res=res, var=var, neff=neff, dict_return=dict_return,
         warm_seed_reserve=getattr(sampler, '_warm_seed_reserve', None),
         rvs_is_fairdraw=bool(getattr(sampler, '_rvs_is_fairdraw', False)),
+        rvs_is_pooled=bool(getattr(sampler, '_rvs_is_pooled', False)),
         member_reserves=[getattr(_m, '_warm_seed_reserve', None)
                          for _m in list(getattr(sampler, 'portfolio_realizations', []) or [])],
     )
@@ -2420,6 +2468,7 @@ def _restore_pass_state(sampler, state):
     sampler._rvs = state['rvs']
     sampler._warm_seed_reserve = state['warm_seed_reserve']
     sampler._rvs_is_fairdraw = state['rvs_is_fairdraw']
+    sampler._rvs_is_pooled = state['rvs_is_pooled']
     _members = list(getattr(sampler, 'portfolio_realizations', []) or [])
     for _m, _r in zip(_members, state.get('member_reserves', [])):
         _m._warm_seed_reserve = _r
@@ -3690,6 +3739,13 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         # replica scores HIGHEST and would be the one exported.  (Measured elsewhere in this work:
         # the copy with the highest n_eff in its arm was the most biased, 11 nats low.)
         _rep_rvs = [sampler._rvs]
+        # Provenance PER REPLICA, captured beside the record it describes.  The CLI flag is
+        # not this: each pass decides independently whether to fair-draw (skipped when it
+        # would not shrink that pass's record), so passing opts.fairdraw_extrinsic_output to
+        # the pooler either flattens a replica whose importance weights are genuine, or leaves
+        # a resampled replica double-weighted.  Near the n_extr boundary a run can produce a
+        # MIXTURE of raw and resampled replicas, which one global boolean cannot describe.
+        _rep_fairdraw = [bool(getattr(sampler, '_rvs_is_fairdraw', False))]
         # Collapse status must be aggregated over EVERY replica that ends up in the pool.
         # The exported posterior is the pooled mixture, so one collapsed replica taints it
         # even if the first run was healthy -- and the status sidecar is written from
@@ -3747,6 +3803,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 _sig2 = max(float(_sig2), float(_sb2))
             _rep_lnZ.append(float(_lr2)); _rep_sig.append(float(_sig2)); _rep_neff.append(float(_neff2))
             _rep_rvs.append(sampler._rvs)
+            _rep_fairdraw.append(bool(getattr(sampler, '_rvs_is_fairdraw', False)))
             _rep_collapsed.append(bool(_dd2.get('live_volume_collapsed', False))
                                   if isinstance(_dd2, dict) else False)
             if isinstance(_dd2, dict) and _dd2.get('collapse_reason'):
@@ -3760,7 +3817,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         # sampling density, not a fudge -- and it leaves every downstream weight computation
         # (which all form log_integrand + log_joint_prior - log_joint_s_prior) correct untouched.
         _pooled_rvs = _pool_replica_rvs(_rep_rvs, sampler, rep_lnZ=_rep_lnZ,
-                                        already_resampled=bool(opts.fairdraw_extrinsic_output),
+                                        already_resampled=_rep_fairdraw,
                                         use_lnL=rvs_integrand_is_lnL)
         # A POOLED RECORD IS NOT A FAIR DRAW, even when every block that went into it was.
         # _pool_replica_rvs gives block k weights summing to Z_k/K: equal WITHIN a block (each
@@ -3775,8 +3832,18 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         # its INPUT records unchanged (too few replicas, no sampling-prior column, an exception),
         # and such a record is still the fair draw it arrived as.  Identity, not length, is the
         # reliable test for that.
-        if not any(_pooled_rvs is _r for _r in _rep_rvs):
-            sampler._rvs_is_fairdraw = False
+        _did_pool = not any(_pooled_rvs is _r for _r in _rep_rvs)
+        if _did_pool:
+            # POOLED, not equal-weight.  The rows are still posterior-resampled wherever their
+            # block was (so _rvs_is_fairdraw stays, and the .dslice safeguard keeps firing),
+            # but the record as a whole is a mixture weighted by the replica evidences, so
+            # ln_weights_for_posterior must read the reconstructed per-row weights.
+            sampler._rvs_is_pooled = True
+            sampler._rvs_is_fairdraw = any(_rep_fairdraw)
+        # Did pooling FLATTEN any block?  That, not "is the record resampled", is what makes
+        # the pooled Kish n_eff meaningless below -- a flattened block's rows carry its export
+        # size rather than its integration quality.
+        _blocks_flattened = bool(_did_pool and any(_rep_fairdraw))
         sampler._rvs = _pooled_rvs
         # The pooled export is a mixture over every replica in _rep_rvs, so its collapse
         # status is the OR over them: one collapsed member taints the pool.  Fold that back
@@ -3834,7 +3901,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             # which has exactly the property the paragraph above asks for: it reduces to
             # sum_k neff_k when the replicas agree, and falls below it when they disagree --
             # the disagreement these replicas exist to detect.
-            if _rvs_is_export_resample(sampler):
+            if _blocks_flattened:
                 _l_rel = numpy.asarray(_rep_lnZ, dtype=float) - float(numpy.max(_rep_lnZ))
                 _Zk = numpy.exp(_l_rel)
                 _nk = numpy.asarray(_rep_neff, dtype=float)
@@ -4610,6 +4677,10 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             print("  [seq warm-start] could not capture seed ({})".format(_e_cap))
 
     sampler._rvs = {}
+    # _rvs_is_pooled is set by THIS function (the replica block), not by the sampler, so the
+    # sampler's own per-pass reset cannot clear it.  Drop it with the record it describes, or
+    # the next event inherits "pooled" and its exports lose the equal-weight treatment.
+    sampler._rvs_is_pooled = False
 
     return res
 
