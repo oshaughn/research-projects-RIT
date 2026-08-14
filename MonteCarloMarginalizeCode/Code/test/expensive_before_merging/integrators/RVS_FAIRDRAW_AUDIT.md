@@ -230,6 +230,33 @@ against its own `lnZ`.
 The lesson is the same one as Finding 5, one level up: **a boolean that is true for two
 different reasons will eventually be read for the wrong one.**
 
+## Finding 7 -- the pooled marker outlived a FAILED event (review round 3; FIXED)
+
+`_rvs_is_pooled` was cleared on the normal return of `analyze_event`. But `_reject_if_collapsed`
+**raises** after pooling, the caller's `except Exception` swallows it and moves to the next
+event, and the marker survived. The next ordinary fair draw was then read as pooled,
+`_rvs_is_equal_weight` went False, and `.dgrid` and the extrinsic-proposal breadcrumb applied
+importance weights to rows that already carried them -- the `w^2` defect of Finding 2,
+resurrected on the event after any failure.
+
+Reset on ENTRY instead. Entry is reached on every call by construction, needs no restructuring
+of a 2000-line function, and is correct even for a caller that never returns normally. The
+end-of-function clear stays too, so a sampler handed elsewhere afterwards is not carrying a
+stale marker.
+
+**Fourth round, fourth defect in the provenance bookkeeping rather than in the physics.** The
+recurring shapes, for whoever touches this next:
+
+1. correct in isolation, wrong in composition (Finding 5);
+2. one flag answering two questions (Finding 6);
+3. the CLI option is not "what the pass actually did" (Finding 6);
+4. cleared only on the happy path (this one).
+
+All four are the same underlying problem: a boolean describing mutable shared state is a second
+source of truth that every site touching the first must maintain. That is the argument for the
+naming change in the Recommendation below, and the reason it is a separate draft rather than a
+rider on this PR.
+
 ## Finding 4 -- the reject knob (MEASURED; default raised)
 
 See `L0_REJECT_DLNZ_MEASUREMENT.md`. Across 160 known-lnZ passes the gate caught **0 of 55**

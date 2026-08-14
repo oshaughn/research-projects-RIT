@@ -2558,6 +2558,22 @@ def _clear_warm_state(sampler):
 
 def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec):
     nEvals=0
+    # PROVENANCE RESET, ON ENTRY, BEFORE ANYTHING CAN FAIL.
+    #
+    # _rvs_is_pooled describes the record this call is about to build, and it is set by THIS
+    # function (the replica block) rather than by a sampler, so no sampler-side per-pass reset
+    # can clear it.  Clearing it only on the normal return is not enough: _reject_if_collapsed
+    # RAISES after pooling, the caller's `except Exception` swallows that and moves to the next
+    # event, and the marker survives.  The next ordinary fair draw is then read as "pooled",
+    # _rvs_is_equal_weight goes False, and .dgrid and the extrinsic-proposal breadcrumb apply
+    # importance weights to rows that already carry them -- the w^2 defect this whole change
+    # exists to remove, resurrected on the event after any failure.
+    #
+    # On ENTRY rather than in a `finally`: entry is reached on every call by construction,
+    # needs no restructuring of a 2000-line function, and leaves the state correct even for a
+    # caller that never returns normally at all.  The end-of-function clear stays as well, so
+    # a sampler handed to anything else afterwards is not carrying a stale marker.
+    sampler._rvs_is_pooled = False
     P = P_list[indx_event]
     # if pin-distance-to-sim, change the distance prior accordingly
     if opts.pin_distance_to_sim:

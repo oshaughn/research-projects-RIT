@@ -626,3 +626,57 @@ def test_the_pooled_marker_is_dropped_with_the_record():
     # and it must sit with the _rvs wipe at the END of analyze_event, not with the replica
     # loop's per-replica reset, which runs many times per event
     assert 'sampler._rvs = {}' in src[max(0, i - 300):i]
+
+
+###
+### 10. PROVENANCE LIFECYCLE: the pooled marker must not outlive a FAILED event
+###
+
+@pytest.mark.skipif(not os.path.exists(_ILE), reason='ILE executable not in this tree')
+def test_the_pooled_marker_is_reset_on_entry_not_only_on_the_normal_return():
+    """_reject_if_collapsed RAISES after pooling; the caller's `except Exception` swallows it
+    and moves to the next event.  Clearing the marker only on the normal return therefore
+    leaves it set, and the next ordinary fair draw is read as pooled -- so .dgrid and the
+    proposal breadcrumb apply importance weights to rows that already carry them.  That is the
+    w^2 defect this suite exists to prevent, resurrected on the event after any failure."""
+    src = open(_ILE).read()
+    i = src.index('def analyze_event(')
+    head = src[i:i + 1600]
+    assert '_rvs_is_pooled = False' in head, \
+        'the pooled marker is not reset on entry; it survives a failed event'
+    # ...and strictly before anything that could raise or export
+    j_reset = src.index('_rvs_is_pooled = False', i)
+    for later in ('_pool_replica_rvs(_rep_rvs', 'def _reject_if_collapsed',
+                  'ln_weights_for_posterior(rvs, sampler'):
+        if later in src[i:]:
+            assert j_reset < src.index(later, i), \
+                'the reset happens after {}; a raise before it still leaks'.format(later)
+
+
+@pytest.mark.skipif(not os.path.exists(_ILE), reason='ILE executable not in this tree')
+def test_the_raising_collapse_gate_sits_after_pooling_so_the_leak_was_reachable():
+    """Pins the precondition, so this test cannot quietly stop testing anything if the order
+    of the replica block and the gate ever changes."""
+    src = open(_ILE).read()
+    i_pool = src.index('_pool_replica_rvs(_rep_rvs')
+    i_gate = src.index('_reject_if_collapsed(dict_return, "pooled over')
+    assert i_pool < i_gate, 'the pooled-verdict gate no longer runs after pooling'
+    assert 'raise _exc(' in src, 'the collapse gate no longer raises'
+
+
+def test_a_stale_pooled_marker_would_reapply_importance_weights():
+    """The consequence, in numbers: with the marker wrongly set, the helper stops returning
+    uniform weights for a plain fair draw and hands back w -- applied to rows already drawn
+    proportional to w."""
+    r = _record()
+
+    class _S(object):
+        _rvs_is_fairdraw = True
+        _rvs_is_pooled = True          # stale, inherited from a failed previous event
+
+    lw = ln_weights_for_posterior(r, _S())
+    assert not np.allclose(lw, 0.0), 'expected the stale marker to reinstate w (the defect)'
+    assert np.allclose(lw, ln_weights_from_rvs(r))
+
+    _S._rvs_is_pooled = False           # correctly reset on entry
+    assert np.allclose(ln_weights_for_posterior(r, _S()), 0.0)
