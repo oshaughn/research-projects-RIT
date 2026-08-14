@@ -862,7 +862,7 @@ def eccentricity_prior(x):
     return np.ones(x.shape) / (ECC_MAX-ECC_MIN) # uniform over the interval [0.0, ECC_MAX]
 
 def log_eccentricity_prior(x):
-    return np.ones(x.shape) / (x*np.ln(ECC_MAX-ECC_MIN)) # log uniform over the interval [0.0, ECC_MAX]
+    return np.ones(x.shape) / (x*np.log(ECC_MAX/ECC_MIN)) # log uniform over the interval [ECC_MIN, ECC_MAX]; if ECC_MIN=0.0, auto corrects to ECC_MIN=0.001
 
 def uniform_eccentricity_ln_prior(x):
     return np.ones(x.shape) / ((np.log(ECC_MAX/ECC_MIN))) # log uniform over the interval [ECC_MIN, ECC_MAX]; if ECC_MIN=0.0, auto corrects to ECC_MIN=0.001
