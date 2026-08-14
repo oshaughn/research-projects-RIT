@@ -91,6 +91,7 @@ if not( 'RIFT_LOWLATENCY'  in os.environ):
  except:
     print(" - No healpy - ")
 
+from RIFT.integrators.rvs_record import RvsRecord   # DRAFT: see DESIGN_rvs_naming.md
 from RIFT.integrators.statutils import  update,finalize, init_log,update_log,finalize_log, pareto_khat_from_log, ess_from_log_weights, bootstrap_lnZ_quantiles
 
 #from multiprocessing import Pool
@@ -1569,6 +1570,9 @@ class MCSampler(object):
 
         deltalnL = kwargs['igrand_threshold_deltalnL'] if 'igrand_threshold_deltalnL' in kwargs else float("Inf") # default is to return all
         deltaP    = kwargs["igrand_threshold_p"] if 'igrand_threshold_p' in kwargs else 0 # default is to omit 1e-7 of probability
+        # DRAFT: default provenance for this pass -- overwritten below only if the draw fires.
+        # Set BEFORE anything can raise, so the record can never describe a previous pass.
+        self.rvs_record = None
         bFairdraw  = kwargs["igrand_fairdraw_samples"] if "igrand_fairdraw_samples" in kwargs else False
         # The fair draw below REPLACES _rvs with an export resample; a consumer that then
         # weights those rows applies w twice.  Record whether it actually FIRED -- the CLI
@@ -1944,12 +1948,21 @@ class MCSampler(object):
                # aborted this pass mid-way, leaving the caller's result tuple unassigned.  Converting
                # first is free: the block just below moves every array to the host anyway.
                indx_host = np.asarray(identity_convert(indx_list))
+               _n_retained_before_draw = len(self._rvs["log_integrand"])
                for key in list(self._rvs.keys()):
                    arr = identity_convert(self._rvs[key])
                    if isinstance(key, tuple):
                        self._rvs[key] = arr[:,indx_host]
                    else:
                        self._rvs[key] = arr[indx_host]
+               # DRAFT (see DESIGN_rvs_naming.md): the same rows, under a name that says what
+               # they are, carrying their own provenance.  Written HERE because this is the
+               # moment the meaning of _rvs changes -- from the retained set to an export
+               # resample -- and the whole point is that the change of meaning is recorded
+               # where it happens rather than reconstructed later from a flag someone else
+               # has to maintain.  NOTHING READS THIS YET; it is a no-op on every output.
+               self.rvs_record = RvsRecord.fair_draw(
+                   self._rvs, n_retained=_n_retained_before_draw)
 
 
                self._rvs_is_fairdraw = True   # _rvs is now an EXPORT resample, rows already ~ w
