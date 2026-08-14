@@ -1572,7 +1572,7 @@ class MCSampler(object):
         deltaP    = kwargs["igrand_threshold_p"] if 'igrand_threshold_p' in kwargs else 0 # default is to omit 1e-7 of probability
         # DRAFT: default provenance for this pass -- overwritten below only if the draw fires.
         # Set BEFORE anything can raise, so the record can never describe a previous pass.
-        self.rvs_record = None
+        self._rvs_record = None
         bFairdraw  = kwargs["igrand_fairdraw_samples"] if "igrand_fairdraw_samples" in kwargs else False
         # The fair draw below REPLACES _rvs with an export resample; a consumer that then
         # weights those rows applies w twice.  Record whether it actually FIRED -- the CLI
@@ -1961,7 +1961,7 @@ class MCSampler(object):
                # resample -- and the whole point is that the change of meaning is recorded
                # where it happens rather than reconstructed later from a flag someone else
                # has to maintain.  NOTHING READS THIS YET; it is a no-op on every output.
-               self.rvs_record = RvsRecord.fair_draw(
+               self._rvs_record = RvsRecord.fair_draw(
                    self._rvs, n_retained=_n_retained_before_draw)
 
 

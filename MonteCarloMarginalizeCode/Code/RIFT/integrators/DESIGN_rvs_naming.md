@@ -59,7 +59,7 @@ unconverted consumer working unchanged.
 
 ```python
 self._rvs           # unchanged: the export resample when a fair draw fired, else the retained set
-self.rvs_record     # NEW: an RvsRecord carrying rows + provenance, and both views
+self._rvs_record     # NEW: an RvsRecord carrying rows + provenance, and both views
 ```
 
 `RvsRecord` answers the questions the four review rounds kept getting wrong, as *methods with
@@ -108,7 +108,7 @@ current ones.
 ## What is in this draft
 
 * `RIFT/integrators/rvs_record.py` — `RvsRecord`, the provenance object and the two views.
-* `mcsamplerAdaptiveVolume` populates `self.rvs_record` at the rebind, alongside the existing
+* `mcsamplerAdaptiveVolume` populates `self._rvs_record` at the rebind, alongside the existing
   `_rvs` and its flags. **Nothing reads it yet**, so this branch is a no-op on every output.
 * `test/test_rvs_record.py` — the contract, including the four failure shapes from review, each
   written as a test that would have caught its round.
@@ -121,9 +121,85 @@ current ones.
 * No removal of `_rvs_is_fairdraw` / `_rvs_is_pooled`. They stay until the last consumer that
   reads them is migrated, and the record is built to reproduce them exactly in the meantime.
 
-## Open questions for review
+## Review answers (2026-08-13)
 
-1. **`rvs_record` vs `_rvs_record`.** Public reads better for something consumers are meant to
+### 1. Naming -> `_rvs_record` (RESOLVED)
+
+Underscored, per review: these are local to the sampler even though the goal is to standardise
+the *concept* across the different integrators. Applied throughout this branch.
+
+### 2. Should the record hold the RETAINED rows too? -> MEASURED, and the answer differs by sampler
+
+This is an operations question, so it was measured rather than argued.
+`measure_retained_set_memory.py`, run with no fair draw so `_rvs` **is** the retained set
+(log: `RETAINED_SET_MEMORY_2026-08-13.log`):
+
+| sampler | nmax | ntotal | retained rows | cols | record MB |
+|---|---|---|---|---|---|
+| AV | 200k | 200,886 | 7,934 | 9 | 0.5 |
+| AV | 400k | 261,900 | 16,242 | 9 | 1.1 |
+| AV | 800k | 322,587 | 25,374 | 9 | 1.7 |
+| portfolio | 200k | 200,000 | 199,641 | 12 | 18.3 |
+| portfolio | 400k | 400,000 | 399,639 | 12 | 36.6 |
+| portfolio | 800k | 800,000 | 799,637 | 12 | 73.2 |
+
+Extrapolated: **AV ~0.9 MB per million `nmax`** (~4 MB at `nmax`=4e6);
+**portfolio ~92 MB per million** (~**384 MB** at `nmax`=4e6).
+
+The two differ because AV keeps only the in-volume (retained) subset, which grows far more
+slowly than `ntotal`, while the portfolio's `_rvs` holds **every draw** -- so its cost is set
+by `nmax` directly, and 384 MB per ILE process is a real operational cost when many ILE jobs
+share a node.
+
+**Recommendation: do not hold the raw retained set unbounded.** Note the portfolio's retained
+set is mostly ballast: on the collapsed pass this work is about, the finite fraction is ~1e-5,
+so the vast majority of those 384 MB is `-inf` rows that no consumer can use.
+`make_warm_seed_reserve` already solves exactly this -- a bounded, finite-stratified copy
+(`n_max=20000`) with the exact pre-cap weight total recorded alongside. So:
+
+* have `_rvs_record` **reference the existing reserve** rather than take its own copy;
+* for AV, keeping the full retained set is essentially free (~4 MB) and could be an opt-in;
+* revisit only if a consumer turns up that provably needs unbounded retained rows.
+
+That closes most of the value (the reserve is what #79's lnZ fallback wants) at a cost already
+being paid today.
+
+### 3. "Does the LISA twin follow?" -> the question was badly posed; there is NO separate integrator
+
+Clarifying, because the original wording implied something untrue. **LISA uses the same
+integrators.** Both drivers import exactly the same set:
+
+```
+mcsampler, mcsamplerEnsemble, mcsamplerGPU, mcsamplerAdaptiveVolume, mcsamplerPortfolio
+```
+
+So `_rvs_record` reaches LISA **for free** the moment the samplers set it -- there is no
+LISA-side decision in this design, and no reason to have a separate integrator.
+
+The divergence is in the **driver script**, `bin/integrate_likelihood_extrinsic_batchmode_lisa`
+(2,526 lines against the main driver's 4,563), which is a fork of an older ILE and has none of
+the machinery this line of work touched:
+
+| helper / feature | main | lisa |
+|---|---|---|
+| `ln_weights_from_rvs` | 12 | **0** |
+| `_pool_replica_rvs` | 2 | **0** |
+| `_lnZ_of_rvs` / `_kish_neff_of_rvs` | 7 / 2 | **0** |
+| L0 rescue (`sampler_warmstart_retry_neff`) | 3 | **0** |
+| sequential warm start | 6 | **0** |
+| replicas, `.dgrid`, proposal breadcrumb | 4 / 1 / 4 | **0** |
+
+So LISA has **no consumer that needs migrating**: its 36 post-rebind `_rvs` reads are all the
+MAP-seed and export pattern, already classified `BENIGN`/`PER_ROW` in the audit ledger, and it
+never pools or re-weights.
+
+**The real issue is driver duplication, not integrator divergence** -- two forks of one ILE, one
+of which silently misses every fix. That is a separate and larger problem than this design, and
+is called out here only so it is not mistaken for one.
+
+## Original open questions (superseded by the answers above)
+
+1. **`_rvs_record` vs `_rvs_record`.** Public reads better for something consumers are meant to
    use, but every other sampler attribute of this kind is underscored.
 2. **Should the record hold the RETAINED rows too?** It would close the remaining `BROKEN` entry
    (#79's cross-source lnZ fallback) and let `.dslice` reweight properly instead of falling back
