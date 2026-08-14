@@ -24,6 +24,11 @@
     "verdict": "PER_ROW",
     "why": "Element-wise dtype/backend conversion (cupy -> numpy) over whatever rows are present. Touches no population statistic; correct on any row set."
   },
+  "RIFT/integrators/mcsamplerAdaptiveVolume.py:integrate_log:d88734be7d": {
+    "source": "self._rvs, n_retained=_n_retained_before_draw)",
+    "verdict": "PER_ROW",
+    "why": "DRAFT (DESIGN_rvs_naming.md): hands the just-rebound columns to RvsRecord as a VIEW, together with the pre-draw row count. Reads no statistic of them -- it records that they ARE the export resample, at the moment that becomes true, which is the whole point of the record. Nothing consumes it yet."
+  },
   "RIFT/integrators/mcsamplerEnsemble.py:integrate:ac2283de73": {
     "source": "self._rvs[key] = self._rvs[key][indx_list]",
     "verdict": "PER_ROW",

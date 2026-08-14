@@ -30,6 +30,13 @@ def verdict(h):
 
     # --- the integrators themselves ------------------------------------------------
     if f.startswith("RIFT/integrators/"):
+        if "n_retained=_n_retained_before_draw" in s or "RvsRecord.fair_draw" in s:
+            return ("PER_ROW",
+                    "DRAFT (DESIGN_rvs_naming.md): hands the just-rebound columns to RvsRecord "
+                    "as a VIEW, together with the pre-draw row count. Reads no statistic of "
+                    "them -- it records that they ARE the export resample, at the moment that "
+                    "becomes true, which is the whole point of the record. Nothing consumes it "
+                    "yet.")
         if "indx_list" in s:
             return ("PER_ROW",
                     "The rebind's own right-hand side: this IS the fair draw, gathering each "
