@@ -354,6 +354,14 @@ jobs:
             MonteCarloMarginalizeCode/Code/test/test_av_empty_live_volume.py \
             MonteCarloMarginalizeCode/Code/test/test_l0_rescue_seed.py \
             MonteCarloMarginalizeCode/Code/test/test_portfolio_fairdraw_backend.py
+      - name: Run CIP intrinsic-prior regressions
+        # The CIP prior densities and the --eccentricity-prior coordinate wiring. The
+        # suite reads CIP's source with ast instead of importing it, so it needs only
+        # numpy/scipy and runs in seconds -- and it belongs in this job because this is
+        # the one matrixed over BOTH numpy lanes. A wrong normalization constant raises
+        # nothing and merely reweights the posterior, so without a job invoking this
+        # module the fix can regress behind green required checks.
+        run: python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_cip_priors.py
       - name: Run test scripts
         run: |
           . .travis/test-coord.sh
