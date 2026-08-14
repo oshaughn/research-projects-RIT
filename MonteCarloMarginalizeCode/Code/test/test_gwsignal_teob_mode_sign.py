@@ -39,7 +39,10 @@ A whole-waveform scalar fit would NOT work here: the buggy and correct forms
 differ per mode by ``-exp(i m pi/2)``, which is ``+1`` at ``m = +-2``, so the
 dominant quadrupole agrees either way and carries nearly all the power.
 
-Not run in CI: the runners have no TEOBResumSDALI plugin, so this skips there.
+Not run in CI: the runners have no TEOBResumSDALI plugin, so the generator
+probe skips there.  That probe is the *only* thing allowed to skip -- once
+gwsignal hands back a generator, every later failure (waveform generation,
+``hlmoft``, the fit, the assertion) is a real failure and is reported as one.
 Run it where the plugin is installed:
 
     python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_gwsignal_teob_mode_sign.py
@@ -109,10 +112,25 @@ def _regrid(ts, a, grid):
     return a[np.clip(np.searchsorted(ts, grid), 0, len(a) - 1)]
 
 
-def _coeffs_per_m(approx):
+def _generator_or_skip(approx):
+    """Availability probe, and nothing else.
+
+    Asking gwsignal for the generator is the one step that legitimately fails
+    when a model is simply not installed, so it is the only step whose failure
+    is turned into a skip.  Everything after it is the code under test: a
+    blanket ``except`` there would quietly downgrade the very regression this
+    file exists to catch into a green skip on a machine that *does* have the
+    plugin.
+    """
+    try:
+        return gws.models.gwsignal_get_waveform_generator(approx)
+    except Exception as exc:
+        pytest.skip("%s generator unavailable: %r" % (approx, exc))
+
+
+def _coeffs_per_m(approx, gen):
     """Free complex coefficient per azimuthal index, fitting the gwsignal
     polarizations with RIFT's own modes."""
-    gen = gws.models.gwsignal_get_waveform_generator(approx)
     hp, hc = wfm.GenerateTDWaveform(_pdict(), gen)
     t_pol = _times(hp)
 
@@ -154,10 +172,7 @@ def _sign_invariant(c):
 
 @pytest.mark.parametrize("approx", ["TEOBResumSDALI", "SEOBNRv5EHM"])
 def test_no_global_sign_error_vs_polarizations(approx):
-    try:
-        c = _coeffs_per_m(approx)
-    except Exception as exc:                     # plugin absent / model failed
-        pytest.skip("%s unavailable: %r" % (approx, exc))
+    c = _coeffs_per_m(approx, _generator_or_skip(approx))
 
     for m in (2, 4):
         assert m in c, "need m=%d to separate a sign from a phase" % m
