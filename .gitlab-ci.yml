@@ -125,6 +125,10 @@ integrator_gate_accounting_check:
 test_run:
   stage: system tests
   script:
+    # CIP prior densities + the --eccentricity-prior coordinate wiring (pure
+    # numpy/scipy, seconds). Runs before the heavy scripts so a wrong prior fails
+    # fast rather than after the end-to-end runs.
+    - python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_cip_priors.py
     - . .travis/test-coord.sh
     - bash .travis/test-integrate.sh
     - . .travis/test-posterior.sh

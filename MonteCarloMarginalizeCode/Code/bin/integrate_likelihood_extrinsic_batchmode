@@ -341,7 +341,7 @@ integration_params.add_option("--manual-logarithm-offset",type=float,default=0,h
 integration_params.add_option("--auto-logarithm-offset",action='store_true',help="Use the 'guess_snr' field returned in the precompute stage to change --manual-logarithm-offset for each event.")
 integration_params.add_option("--internal-use-lnL",action='store_true',help="likelihood returns lnL, and integrator integrates lnL")
 integration_params.add_option("--sampler-method",default="adaptive_cartesian_gpu",help="adaptive_cartesian|GMM|adaptive_cartesian_gpu")
-integration_params.add_option("--sampler-portfolio",default=None,action='append',type=str,help="comma-separated strings, matching sampler methods other than portfolio")
+integration_params.add_option("--sampler-portfolio",default=None,action='append',type=str,help="Portfolio member sampler, one of AV / GMM / AC (adaptive_cartesian_gpu) or a discovered plugin. Repeat the option per member, or give one comma-separated list; both forms may be mixed. An unrecognized name is an error.")
 integration_params.add_option("--sampler-portfolio-args",default=None, action='append', type=str, help='eval-able dictionaryo to be passed to that sampler')
 # Portfolio freeze-policy knobs (only meaningful with --sampler-method portfolio).  A member
 # whose balance weight drops below --portfolio-freeze-wt normally stops updating its proposal;
@@ -1236,7 +1236,11 @@ elif opts.sampler_method == 'AV':
       mcsampler.set_xpy_to_numpy()
       sampler.xpy= numpy
       sampler.identity_convert= lambda x: x
-elif opts.sampler_method == "portfolio" and mcsampler_Portfolio_ok:
+elif opts.sampler_method == "portfolio":
+    # NB the `and mcsampler_Portfolio_ok` that used to be part of this test made the raise
+    # below dead code AND sent an unavailable portfolio to the `else` fallback at the end of
+    # this chain, which silently runs the plain mcsampler.MCSampler instead.  Requesting a
+    # sampler that cannot be built must fail, not quietly become a different sampler.
     if not(mcsampler_Portfolio_ok):
       raise Exception(" Portfolio integrator requested but not available")
     use_portfolio=True
@@ -1246,7 +1250,11 @@ elif opts.sampler_method == "portfolio" and mcsampler_Portfolio_ok:
     # flatten the appended list and split every element on ',' (e.g. ['AV,GMM'] -> ['AV','GMM'],
     # ['AV','GMM'] -> ['AV','GMM']).  Without this, 'AV,GMM' was one bogus member name that matched
     # no branch, silently yielding a single-member portfolio.
-    sampler_types = [s.strip() for item in opts.sampler_portfolio for s in str(item).split(',') if s.strip()]
+    # The `or []` matters because the option defaults to None: omitting it entirely used to raise
+    # TypeError from this comprehension rather than saying what the user actually got wrong.
+    sampler_types = [s.strip() for item in (opts.sampler_portfolio or []) for s in str(item).split(',') if s.strip()]
+    if not sampler_types:
+      raise Exception(" --sampler-method portfolio requires at least one --sampler-portfolio member")
 
     # prep xpy, etc
     my_xpy = xpy_default
@@ -1277,6 +1285,12 @@ elif opts.sampler_method == "portfolio" and mcsampler_Portfolio_ok:
             mcsampler  = mcsamplerGPU  # force use of routines in that file, for properly configured GPU-accelerated code as needed
         elif name in mcsamplerPortfolio.known_pipelines:  # everything else, including nflow
             sampler =  mcsamplerPortfolio.known_pipelines[name]()
+        else:
+            # No else clause here meant an unrecognized name left `sampler` bound to its
+            # previous value -- the plain MCSampler built before this chain, or, on the second
+            # and later iterations, the PREVIOUS member -- and appended it silently.  The
+            # portfolio then ran with a member the user never asked for.
+            raise Exception(" --sampler-portfolio: unknown member '{}'.  Known: AV, GMM, AC/adaptive_cartesian_gpu, {}".format(name, sorted(mcsamplerPortfolio.known_pipelines)))
         print('PORTFOLIO: adding {} '.format(name))
         # enable xpy for low level sampler as needed 
         if hasattr(sampler, 'xpy'):
@@ -1289,7 +1303,7 @@ elif opts.sampler_method == "portfolio" and mcsampler_Portfolio_ok:
     sampler.identity_convert= my_identity_convert
     sampler.identity_convert_togpu= my_identity_convert_togpu
     # sampler weights will be CPU-typed, so don't change them
-elif opts.sampler_method in mcsamplerPortfolio.known_pipelines: # access from plugins
+elif mcsampler_Portfolio_ok and opts.sampler_method in mcsamplerPortfolio.known_pipelines: # access from plugins
   sampler = mcsamplerPortfolio.known_pipelines[opts.sampler_method]()
   # prep xpy, etc
   my_xpy = xpy_default
@@ -1300,7 +1314,10 @@ elif opts.sampler_method in mcsamplerPortfolio.known_pipelines: # access from pl
   sampler.identity_convert_togpu= my_identity_convert_togpu
 else:
     print(" ILE: **original sampler** ")
-    print(" ILE requested: {}".format(opts.sampler_method), " compare to ", mcsamplerPortfolio.known_pipelines)
+    # mcsamplerPortfolio is only bound if its import succeeded; reaching this line with a
+    # failed import used to raise NameError from the diagnostic itself.
+    print(" ILE requested: {}".format(opts.sampler_method), " compare to ",
+          sorted(mcsamplerPortfolio.known_pipelines) if mcsampler_Portfolio_ok else "<mcsamplerPortfolio unavailable>")
 
 #
 # Psi -- polarization angle
