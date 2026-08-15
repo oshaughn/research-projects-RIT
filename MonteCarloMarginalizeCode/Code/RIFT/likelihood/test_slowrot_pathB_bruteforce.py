@@ -27,10 +27,20 @@ def _peak(lt):
 # raising SRATE refines the lnL time grid (tvals spacing is locked to deltaT by the NoLoop
 # window logic) and lowers f/f_s for the cubic interpolator.
 _SRATE=float(os.environ.get('SRATE','2048')); _FMAX=float(os.environ.get('FMAXHZ','512'))
-fmin,fmax,deltaT,seglen=25.,_FMAX,1/_SRATE,16.; deltaF=1./seglen; fNyq=1/2./deltaT; N=int(round(seglen/deltaT))
+# SEGLEN/FMINHZ: the DEFAULTS ARE UNPHYSICAL and are kept only for continuity with earlier
+# results.  A 2.2+1.8 Msun binary from 25 Hz lasts ~48.5 s; in a 16 s segment it is wrapped,
+# with the merger landing ~10 ms from the segment edge.  Never trust a number from a
+# configuration where the signal does not fit: use SEGLEN=64 (fits at fmin=25) or FMINHZ=50
+# (fits in 16 s).  The script warns when the chirp time exceeds the segment.
+_SEGLEN=float(os.environ.get('SEGLEN','16')); _FMIN=float(os.environ.get('FMINHZ','25'))
+fmin,fmax,deltaT,seglen=_FMIN,_FMAX,1/_SRATE,_SEGLEN; deltaF=1./seglen; fNyq=1/2./deltaT; N=int(round(seglen/deltaT))
 RA,DEC,PSI,INCL,PHIREF=1.2,0.3,0.5,0.4,0.0; DLOUD=fl.distMpcRef*1e6*lsu.lsu_PC/30.
 Psig=lsu.ChooseWaveformParams(fmin=fmin,radec=True,incl=INCL,phiref=PHIREF,theta=DEC,phi=RA,psi=PSI,
     m1=2.2*lal.MSUN_SI,m2=1.8*lal.MSUN_SI,detector=det,dist=200e6*lal.PC_SI,deltaT=deltaT,tref=event_time,deltaF=deltaF); Psig.approx=apx
+_mt=(2.2+1.8)*lal.MSUN_SI*lal.G_SI/lal.C_SI**3; _eta=2.2*1.8/(2.2+1.8)**2
+_tchirp=5./256.*_mt/(_eta*(np.pi*_mt*fmin)**(8./3.))
+print("seglen=%.0fs fmin=%.0fHz chirp_time=%.1fs  FITS=%s"%(seglen,fmin,_tchirp,_tchirp<seglen))
+if _tchirp>=seglen: print("  *** WARNING: signal is TRUNCATED/WRAPPED in this segment ***")
 Pm=Psig.manual_copy(); Pm.dist=DLOUD
 hlms_fd,_=fl.internal_hlm_generator(Pm,Lmax,verbose=False,quiet=True); hlmsT=_ifft(hlms_fd)
 lm0=list(hlmsT.keys())[0]; nn=hlmsT[lm0].data.length; dt=hlmsT[lm0].deltaT; ep=float(hlmsT[lm0].epoch); tt=ep+np.arange(nn)*dt
@@ -42,7 +52,18 @@ A=srr.antenna_harmonics(lald.response,DEC,PSI); At={k:A[k]*np.exp(1j*k*g_ev) for
 B=srr.delay_harmonics(lald.location,DEC); Bt={k:B[k]*np.exp(1j*k*g_ev) for k in B}
 tau_t=np.real(sum(Bt[k]*np.exp(1j*k*OMEGA_INF*tt) for k in Bt))
 F_t=sum(At[k]*np.exp(1j*k*OMEGA_INF*tt) for k in At)
-Sig_d=np.nan_to_num(reS(tt-tau_t)+1j*imS(tt-tau_t))
+# EDGE=nan (default)|wrap.  'nan' is the original construction: extrapolate=False makes
+# Sig(t-tau) NaN wherever the delayed time leaves the sampled span, and nan_to_num ZEROES it,
+# deleting a ~|tau| sliver (~9.5 ms here) from the data that the model still contains.  'wrap'
+# resamples from a periodic extension instead, which is what the FD model actually assumes.
+if os.environ.get("EDGE","nan")=="wrap":
+    _pad=int(np.ceil((np.abs(tau_t).max()+10*dt)/dt))
+    _tte=np.concatenate([tt[0]-dt*np.arange(_pad,0,-1),tt,tt[-1]+dt*np.arange(1,_pad+1)])
+    _sge=np.concatenate([Sig[-_pad:],Sig,Sig[:_pad]])
+    _re=CubicSpline(_tte,_sge.real,extrapolate=False); _im=CubicSpline(_tte,_sge.imag,extrapolate=False)
+    Sig_d=np.nan_to_num(_re(tt-tau_t)+1j*_im(tt-tau_t))
+else:
+    Sig_d=np.nan_to_num(reS(tt-tau_t)+1j*imS(tt-tau_t))
 data=_to_fd(np.real(F_t*Sig_d),lal.LIGOTimeGPS(float(hlmsT[lm0].epoch)+event_time),dt,N); data_dict={det:data}; psd_dict={det:psd}
 IPc=lsu.ComplexIP(fmin,fmax,fNyq,data.deltaF,psd,True,False,0.); HALF_DD=0.5*IPc.ip(data,data).real
 print("inflated seglen=%.0fs 0.5<d|d>=%.4f"%(seglen,HALF_DD))
@@ -57,12 +78,17 @@ PHYS_INFL=340.0
 # leaves a ~0.2 nat peak-resolution floor on the deficit; 'cubic' is the calmarg_in_loop
 # interpolation and should remove it.
 TINTERP=os.environ.get("TINTERP","nearest")
-lnL_by_pmax={}; deficit_by_pmax={}
+lnL_by_pmax={}; deficit_by_pmax={}; lnL_raw_by_pmax={}; overshoot_by_pmax={}
 for pmax in [0,1,2,3]:
     nh=2+pmax
     bk=flwr.PrecomputeLikelihoodTermsWithRotation(event_time,t_window,Psig,data_dict,psd_dict,Lmax,fmax,harmonics=tuple(range(-nh,nh+1)),p_max=pmax,f_sidereal=FSID_INF,analyticPSD_Q=True,verbose=False,quiet=True,skip_interpolation=True)
     lk,rbn,ubn,vbn,epd=flwr.pack_rotation_arrays(bk[4],bk[3],bk[1],bk[2])
-    lnL=_peak(flwr.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation(tvals,Pv,bk[4],lk,rbn,ubn,vbn,epd,Lmax=Lmax,array_output=True,time_interp=TINTERP)[0])
+    _lt=flwr.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation(tvals,Pv,bk[4],lk,rbn,ubn,vbn,epd,Lmax=Lmax,array_output=True,time_interp=TINTERP)[0]
+    # _peak() splines (k=4) and oversamples 32x, which can OVERSHOOT the sampled maximum and
+    # push the deficit negative -- a Cauchy-Schwarz 'violation' that is the estimator, not the
+    # likelihood.  Record the raw grid max too so the overshoot is visible rather than folded in.
+    lnL=_peak(_lt); lnL_raw=float(np.max(np.asarray(_lt,float)))
+    lnL_raw_by_pmax[str(pmax)]=lnL_raw; overshoot_by_pmax[str(pmax)]=lnL-lnL_raw
     lnL_by_pmax[str(pmax)]=float(lnL); deficit_by_pmax[str(pmax)]=float(HALF_DD-lnL)
     print("  p_max=%d : lnL=%.5f  deficit=%.5f"%(pmax,lnL,HALF_DD-lnL))
 # Opt-in persistence: set OUT=<path>.json.  Default behaviour (print only) is unchanged.
@@ -70,12 +96,13 @@ _out=os.environ.get("OUT")
 if _out:
     import json
     with open(_out,"w") as _fh:
-        json.dump({"time_interp":TINTERP,"srate":_SRATE,
+        json.dump({"time_interp":TINTERP,"srate":_SRATE,"edge":os.environ.get("EDGE","nan"),
                    "infl":float(os.environ.get("INFL","340")),
                    "infl_physical_reference":PHYS_INFL,
                    "omega_ratio_vs_physical":float(os.environ.get("INFL","340"))/PHYS_INFL,
                    "half_dd":float(HALF_DD),
                    "deficit_by_pmax":deficit_by_pmax,"lnL_by_pmax":lnL_by_pmax,
-                   "seglen":float(seglen),"fmin":float(fmin),"fmax":float(fmax),
+                   "lnL_raw_by_pmax":lnL_raw_by_pmax,"peak_overshoot_by_pmax":overshoot_by_pmax,
+                   "seglen":float(seglen),"fmin":float(fmin),"chirp_time":float(_tchirp),"signal_fits":bool(_tchirp<seglen),"fmax":float(fmax),
                    "m1":float(Psig.m1/lal.MSUN_SI),"m2":float(Psig.m2/lal.MSUN_SI)},_fh,indent=2)
     print("wrote %s"%_out)
