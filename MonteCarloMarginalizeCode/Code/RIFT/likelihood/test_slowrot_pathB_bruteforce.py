@@ -89,7 +89,12 @@ Pv.tref=event_time; Pv.deltaT=deltaT; Nw=int(0.02/deltaT); tvals=np.arange(-Nw,N
 # INFL=340 reproduces the Omega*T of the worst physical case -- a 90-minute (5400 s) BNS at the
 # true sidereal rate -- on this 16 s segment (5400/16 = 337.5 ~ 340).  So INFL/340 is the rotation
 # rate as a multiple of that worst physical case; it is the quantity the paper quotes.
-PHYS_INFL=340.0
+# The invariant that matters is Omega*T over the SIGNAL, not the segment.  The worst physical
+# case is a 90-minute (5400 s) BNS at the true sidereal rate, so the equivalent inflation is
+# 5400/T_signal, with T_signal = min(chirp_time, seglen) -- the chirp if it fits, the segment if
+# it is truncated.  At the old defaults (fmin=25, chirp 48.5 s truncated to 16 s) that gives 337.5
+# ~ 340, which is where the historical anchor came from; at fmin=50 (7.6 s chirp) it is ~711.
+T_SIGNAL=min(_tchirp,seglen); PHYS_INFL=5400.0/T_SIGNAL
 # TINTERP=nearest (default)|cubic -- the sub-bin time sampling used for the data term.  'nearest'
 # leaves a ~0.2 nat peak-resolution floor on the deficit; 'cubic' is the calmarg_in_loop
 # interpolation and should remove it.
@@ -116,6 +121,7 @@ if _out:
                    "infl":float(os.environ.get("INFL","340")),
                    "infl_physical_reference":PHYS_INFL,
                    "omega_ratio_vs_physical":float(os.environ.get("INFL","340"))/PHYS_INFL,
+                   "t_signal":float(T_SIGNAL),
                    "half_dd":float(HALF_DD),
                    "deficit_by_pmax":deficit_by_pmax,"lnL_by_pmax":lnL_by_pmax,
                    "lnL_raw_by_pmax":lnL_raw_by_pmax,"peak_overshoot_by_pmax":overshoot_by_pmax,
