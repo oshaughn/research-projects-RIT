@@ -12,6 +12,7 @@ from collections import defaultdict
 import numpy
 np=numpy #import numpy as np
 from RIFT.precision import RiftFloat  # platform-portable replacement for np.float128
+from RIFT.integrators.rvs_record import RvsRecord   # DRAFT: see DESIGN_rvs_naming.md
 from scipy import integrate, interpolate, special
 import itertools
 import functools
@@ -91,7 +92,6 @@ if not( 'RIFT_LOWLATENCY'  in os.environ):
  except:
     print(" - No healpy - ")
 
-from RIFT.integrators.rvs_record import RvsRecord   # DRAFT: see DESIGN_rvs_naming.md
 from RIFT.integrators.statutils import  update,finalize, init_log,update_log,finalize_log, pareto_khat_from_log, ess_from_log_weights, bootstrap_lnZ_quantiles
 
 #from multiprocessing import Pool
@@ -1570,15 +1570,15 @@ class MCSampler(object):
 
         deltalnL = kwargs['igrand_threshold_deltalnL'] if 'igrand_threshold_deltalnL' in kwargs else float("Inf") # default is to return all
         deltaP    = kwargs["igrand_threshold_p"] if 'igrand_threshold_p' in kwargs else 0 # default is to omit 1e-7 of probability
-        # DRAFT: default provenance for this pass -- overwritten below only if the draw fires.
-        # Set BEFORE anything can raise, so the record can never describe a previous pass.
-        self._rvs_record = None
         bFairdraw  = kwargs["igrand_fairdraw_samples"] if "igrand_fairdraw_samples" in kwargs else False
         # The fair draw below REPLACES _rvs with an export resample; a consumer that then
         # weights those rows applies w twice.  Record whether it actually FIRED -- the CLI
         # flag is not the same predicate, since the draw is skipped when it would not
         # shrink the record.  Reset per pass: samplers are reused across events.
         self._rvs_is_fairdraw = False
+        # DRAFT: the record describes THIS pass only.  Cleared with the flag above and set
+        # below, so it can never survive into a pass it does not describe.
+        self._rvs_record = None
         n_extr = kwargs["igrand_fairdraw_samples_max"] if "igrand_fairdraw_samples_max" in kwargs else None
 
         bShowEvaluationLog = kwargs['verbose'] if 'verbose' in kwargs else False
@@ -1928,6 +1928,13 @@ class MCSampler(object):
 #        rel_var = np.exp(outvals[1]/2  - outvals[0]  - np.log(self.ntotal)/2 )
 
         # Do a fair draw of points, if option is set. CAST POINTS BACK TO NUMPY, IDEALLY
+        # DRAFT (DESIGN_rvs_naming.md): _rvs is the RETAINED set at this point -- pruned,
+        # perhaps, but never resampled.  Record that before the draw below can change what it
+        # means, so "not resampled" is a statement the record makes rather than the absence of
+        # one.  The reserve rides along BY REFERENCE where the sampler keeps one (AV and the
+        # portfolio); None elsewhere is the honest answer, not a gap.
+        self._rvs_record = RvsRecord.retained(
+            self._rvs, reserve=getattr(self, '_warm_seed_reserve', None))
         if bFairdraw and not(n_extr is None):
            n_extr = int(numpy.min([n_extr,1.5*identity_convert(eff_samp),1.5*neff]))
            print(" Fairdraw size : ", n_extr)
@@ -1948,7 +1955,6 @@ class MCSampler(object):
                # aborted this pass mid-way, leaving the caller's result tuple unassigned.  Converting
                # first is free: the block just below moves every array to the host anyway.
                indx_host = np.asarray(identity_convert(indx_list))
-               _n_retained_before_draw = len(self._rvs["log_integrand"])
                for key in list(self._rvs.keys()):
                    arr = identity_convert(self._rvs[key])
                    if isinstance(key, tuple):
@@ -1961,24 +1967,16 @@ class MCSampler(object):
                # resample -- and the whole point is that the change of meaning is recorded
                # where it happens rather than reconstructed later from a flag someone else
                # has to maintain.  NOTHING READS THIS YET; it is a no-op on every output.
-               self._rvs_record = RvsRecord.fair_draw(
-                   self._rvs, n_retained=_n_retained_before_draw,
-                   reserve=getattr(self, '_warm_seed_reserve', None))
-
-
                self._rvs_is_fairdraw = True   # _rvs is now an EXPORT resample, rows already ~ w
-        # DRAFT: a record ALWAYS describes the current _rvs, including when no draw fired --
-        # "absent" and "not resampled" are different statements, and a consumer that has to
-        # tell them apart is back to combining conditions by hand.  The reserve rides along by
-        # reference (see retained_points): it is the bounded, finite-stratified copy, not the
-        # raw retained rows, which cost ~384 MB on a portfolio at nmax=4e6 and are ~1e-5
-        # finite on the collapsed pass this work is about.
-        if self._rvs_record is None:
-            self._rvs_record = RvsRecord.retained(
-                self._rvs, reserve=getattr(self, '_warm_seed_reserve', None))
-        else:
-            self._rvs_record.reserve = getattr(self, '_warm_seed_reserve', None)
-
+               # ...and now it is an export resample.  n_retained comes from that record's
+                # PROVENANCE, which captured the count eagerly -- NOT from len(), which reads
+                # self._rvs and would return the POST-draw length: the retained record holds a
+                # REFERENCE to the live dict this block has just replaced in place.  That is
+                # this project's own bug class, so it is spelled out rather than assumed.
+               # which counted the rows before this block replaced them.
+               self._rvs_record = RvsRecord.fair_draw(
+                   self._rvs, n_retained=self._rvs_record.n_retained(),
+                   reserve=getattr(self, '_warm_seed_reserve', None))
         # perform type conversion of all stored variables.  VERY LARGE -- should only do this if we need it!
         if cupy_ok:
           for name in self._rvs:

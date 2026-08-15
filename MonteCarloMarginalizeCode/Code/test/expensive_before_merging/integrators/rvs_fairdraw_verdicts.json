@@ -1,4 +1,9 @@
 {
+  "RIFT/integrators/mcsampler.py:integrate:3f9099aa38": {
+    "source": "self._rvs, n_retained=self._rvs_record.n_retained(),",
+    "verdict": "PER_ROW",
+    "why": "Hands the columns to RvsRecord as a VIEW, with the pre-draw count taken from the previous record's PROVENANCE (eager) rather than from len() (lazy, and would read the already-rebound dict). Reads no statistic of the rows: it records WHAT THEY ARE at the moment that changes."
+  },
   "RIFT/integrators/mcsampler.py:integrate:ac2283de73": {
     "source": "self._rvs[key] = self._rvs[key][indx_list]",
     "verdict": "PER_ROW",
@@ -14,25 +19,25 @@
     "verdict": "PER_ROW",
     "why": "Element-wise dtype/backend conversion (cupy -> numpy) over whatever rows are present. Touches no population statistic; correct on any row set."
   },
+  "RIFT/integrators/mcsamplerAdaptiveVolume.py:integrate_log:3f9099aa38": {
+    "source": "self._rvs, n_retained=self._rvs_record.n_retained(),",
+    "verdict": "PER_ROW",
+    "why": "Hands the columns to RvsRecord as a VIEW, with the pre-draw count taken from the previous record's PROVENANCE (eager) rather than from len() (lazy, and would read the already-rebound dict). Reads no statistic of the rows: it records WHAT THEY ARE at the moment that changes."
+  },
   "RIFT/integrators/mcsamplerAdaptiveVolume.py:integrate_log:8f476f15d1": {
     "source": "for name in self._rvs:",
     "verdict": "PER_ROW",
     "why": "Element-wise dtype/backend conversion (cupy -> numpy) over whatever rows are present. Touches no population statistic; correct on any row set."
-  },
-  "RIFT/integrators/mcsamplerAdaptiveVolume.py:integrate_log:933aaa5c69": {
-    "source": "self._rvs, reserve=getattr(self, '_warm_seed_reserve', None))",
-    "verdict": "PER_ROW",
-    "why": "DRAFT (DESIGN_rvs_naming.md): hands the just-rebound columns to RvsRecord as a VIEW, together with the pre-draw row count. Reads no statistic of them -- it records that they ARE the export resample, at the moment that becomes true, which is the whole point of the record. Nothing consumes it yet."
   },
   "RIFT/integrators/mcsamplerAdaptiveVolume.py:integrate_log:c0e27aa48f": {
     "source": "self._rvs[name] = identity_convert(self._rvs[name])   # this is trivial if xpy_default is numpy, and a conversion otherwise",
     "verdict": "PER_ROW",
     "why": "Element-wise dtype/backend conversion (cupy -> numpy) over whatever rows are present. Touches no population statistic; correct on any row set."
   },
-  "RIFT/integrators/mcsamplerAdaptiveVolume.py:integrate_log:c1cda1dea4": {
-    "source": "self._rvs, n_retained=_n_retained_before_draw,",
+  "RIFT/integrators/mcsamplerEnsemble.py:integrate:3f9099aa38": {
+    "source": "self._rvs, n_retained=self._rvs_record.n_retained(),",
     "verdict": "PER_ROW",
-    "why": "DRAFT (DESIGN_rvs_naming.md): hands the just-rebound columns to RvsRecord as a VIEW, together with the pre-draw row count. Reads no statistic of them -- it records that they ARE the export resample, at the moment that becomes true, which is the whole point of the record. Nothing consumes it yet."
+    "why": "Hands the columns to RvsRecord as a VIEW, with the pre-draw count taken from the previous record's PROVENANCE (eager) rather than from len() (lazy, and would read the already-rebound dict). Reads no statistic of the rows: it records WHAT THEY ARE at the moment that changes."
   },
   "RIFT/integrators/mcsamplerEnsemble.py:integrate:ac2283de73": {
     "source": "self._rvs[key] = self._rvs[key][indx_list]",
@@ -53,6 +58,11 @@
     "source": "if isinstance(self._rvs[name],xpy_default.ndarray):",
     "verdict": "PER_ROW",
     "why": "Element-wise dtype/backend conversion (cupy -> numpy) over whatever rows are present. Touches no population statistic; correct on any row set."
+  },
+  "RIFT/integrators/mcsamplerGPU.py:integrate:3f9099aa38": {
+    "source": "self._rvs, n_retained=self._rvs_record.n_retained(),",
+    "verdict": "PER_ROW",
+    "why": "Hands the columns to RvsRecord as a VIEW, with the pre-draw count taken from the previous record's PROVENANCE (eager) rather than from len() (lazy, and would read the already-rebound dict). Reads no statistic of the rows: it records WHAT THEY ARE at the moment that changes."
   },
   "RIFT/integrators/mcsamplerGPU.py:integrate:8f476f15d1": {
     "source": "for name in self._rvs:",
@@ -79,6 +89,11 @@
     "verdict": "PER_ROW",
     "why": "Element-wise dtype/backend conversion (cupy -> numpy) over whatever rows are present. Touches no population statistic; correct on any row set."
   },
+  "RIFT/integrators/mcsamplerGPU.py:integrate_log:3f9099aa38": {
+    "source": "self._rvs, n_retained=self._rvs_record.n_retained(),",
+    "verdict": "PER_ROW",
+    "why": "Hands the columns to RvsRecord as a VIEW, with the pre-draw count taken from the previous record's PROVENANCE (eager) rather than from len() (lazy, and would read the already-rebound dict). Reads no statistic of the rows: it records WHAT THEY ARE at the moment that changes."
+  },
   "RIFT/integrators/mcsamplerGPU.py:integrate_log:8f476f15d1": {
     "source": "for name in self._rvs:",
     "verdict": "PER_ROW",
@@ -104,6 +119,11 @@
     "verdict": "PER_ROW",
     "why": "Element-wise dtype/backend conversion (cupy -> numpy) over whatever rows are present. Touches no population statistic; correct on any row set."
   },
+  "RIFT/integrators/mcsamplerNFlow.py:integrate_log:3f9099aa38": {
+    "source": "self._rvs, n_retained=self._rvs_record.n_retained(),",
+    "verdict": "PER_ROW",
+    "why": "Hands the columns to RvsRecord as a VIEW, with the pre-draw count taken from the previous record's PROVENANCE (eager) rather than from len() (lazy, and would read the already-rebound dict). Reads no statistic of the rows: it records WHAT THEY ARE at the moment that changes."
+  },
   "RIFT/integrators/mcsamplerNFlow.py:integrate_log:8f476f15d1": {
     "source": "for name in self._rvs:",
     "verdict": "PER_ROW",
@@ -123,6 +143,11 @@
     "source": "if isinstance(self._rvs[name],xpy_default.ndarray):",
     "verdict": "PER_ROW",
     "why": "Element-wise dtype/backend conversion (cupy -> numpy) over whatever rows are present. Touches no population statistic; correct on any row set."
+  },
+  "RIFT/integrators/mcsamplerPortfolio.py:integrate_log:3f9099aa38": {
+    "source": "self._rvs, n_retained=self._rvs_record.n_retained(),",
+    "verdict": "PER_ROW",
+    "why": "Hands the columns to RvsRecord as a VIEW, with the pre-draw count taken from the previous record's PROVENANCE (eager) rather than from len() (lazy, and would read the already-rebound dict). Reads no statistic of the rows: it records WHAT THEY ARE at the moment that changes."
   },
   "RIFT/integrators/mcsamplerPortfolio.py:integrate_log:8f476f15d1": {
     "source": "for name in self._rvs:",
@@ -324,6 +349,11 @@
     "verdict": "BENIGN",
     "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
   },
+  "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:4906465e6d": {
+    "source": "_rec_ne = _rvs_record_for(sampler, sampler._rvs)",
+    "verdict": "PER_ROW",
+    "why": "Looks up the record describing these columns, declining it if _rvs has been replaced since. The consumer then asks a NAMED question (rows_are_resampled / blocks_were_flattened) instead of combining flags; the flags remain the fallback until every sampler is converted."
+  },
   "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:4dd03bebc6": {
     "source": "P.phi = sampler._rvs[\"right_ascension\"][indx_guess]",
     "verdict": "BENIGN",
@@ -398,6 +428,11 @@
     "source": "samples = copy.deepcopy(sampler._rvs)  # deep copy: avoid modifying structures and  having side effect on integrator, which loops over keys Expensive!",
     "verdict": "BENIGN",
     "why": "THE export itself. Under --fairdraw-extrinsic-output the fair draw is precisely what these rows are supposed to be, so the resample is the correct input here rather than a hazard."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:b8eaf9c12b": {
+    "source": "_rec_ds = _rvs_record_for(sampler, sampler._rvs)",
+    "verdict": "PER_ROW",
+    "why": "Looks up the record describing these columns, declining it if _rvs has been replaced since. The consumer then asks a NAMED question (rows_are_resampled / blocks_were_flattened) instead of combining flags; the flags remain the fallback until every sampler is converted."
   },
   "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:c717be4455": {
     "source": "dL = np.array(sampler._rvs[\"distance\"])",

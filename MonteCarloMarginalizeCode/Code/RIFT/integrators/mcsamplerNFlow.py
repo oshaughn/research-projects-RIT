@@ -104,6 +104,8 @@ except:
   cupy_ok = False
   cupy_pi = np.pi
 
+from RIFT.integrators.rvs_record import RvsRecord   # DRAFT: see DESIGN_rvs_naming.md
+
 def set_xpy_to_numpy():
    xpy_default=numpy
    identity_convert = lambda x: x  # trivial return itself
@@ -813,6 +815,9 @@ class MCSampler(MCSamplerGeneric):
         # flag is not the same predicate, since the draw is skipped when it would not
         # shrink the record.  Reset per pass: samplers are reused across events.
         self._rvs_is_fairdraw = False
+        # DRAFT: the record describes THIS pass only.  Cleared with the flag above and set
+        # below, so it can never survive into a pass it does not describe.
+        self._rvs_record = None
         n_extr = kwargs["igrand_fairdraw_samples_max"] if "igrand_fairdraw_samples_max" in kwargs else None
 
         bShowEvaluationLog = kwargs['verbose'] if 'verbose' in kwargs else True
@@ -965,6 +970,13 @@ class MCSampler(MCSamplerGeneric):
 #        rel_var = np.exp(outvals[1]/2  - outvals[0]  - np.log(self.ntotal)/2 )
 
         # Do a fair draw of points, if option is set. CAST POINTS BACK TO NUMPY, IDEALLY
+        # DRAFT (DESIGN_rvs_naming.md): _rvs is the RETAINED set at this point -- pruned,
+        # perhaps, but never resampled.  Record that before the draw below can change what it
+        # means, so "not resampled" is a statement the record makes rather than the absence of
+        # one.  The reserve rides along BY REFERENCE where the sampler keeps one (AV and the
+        # portfolio); None elsewhere is the honest answer, not a gap.
+        self._rvs_record = RvsRecord.retained(
+            self._rvs, reserve=getattr(self, '_warm_seed_reserve', None))
         if bFairdraw and not(n_extr is None):
            n_extr = int(numpy.min([n_extr,1.5*identity_convert(eff_samp),1.5*neff]))
            print(" Fairdraw size : ", n_extr)
@@ -983,6 +995,15 @@ class MCSampler(MCSamplerGeneric):
 
 
                self._rvs_is_fairdraw = True   # _rvs is now an EXPORT resample, rows already ~ w
+               # ...and now it is an export resample.  n_retained comes from that record's
+                # PROVENANCE, which captured the count eagerly -- NOT from len(), which reads
+                # self._rvs and would return the POST-draw length: the retained record holds a
+                # REFERENCE to the live dict this block has just replaced in place.  That is
+                # this project's own bug class, so it is spelled out rather than assumed.
+               # which counted the rows before this block replaced them.
+               self._rvs_record = RvsRecord.fair_draw(
+                   self._rvs, n_retained=self._rvs_record.n_retained(),
+                   reserve=getattr(self, '_warm_seed_reserve', None))
         # perform type conversion of all stored variables.  VERY LARGE -- should only do this if we need it!
         if cupy_ok:
           for name in self._rvs:

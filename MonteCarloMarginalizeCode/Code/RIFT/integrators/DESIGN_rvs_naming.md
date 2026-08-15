@@ -147,14 +147,34 @@ Two descriptions of one thing is the real cost of A, and four review rounds on #
   that may have been replaced since the record was built, so a stale description falls back to
   the flags instead of being believed.
 
-### Next steps, in order
+### Progress
 
-1. Migrate the remaining `ln_weights_for_posterior` callers' siblings (`.dgrid`, breadcrumb,
-   `.dslice` guard) to ask the record.
-2. Set the record in the other six samplers -- mechanical; the rebind sites are enumerated by
-   `audit_rvs_fairdraw.py`.
-3. Only then delete `_rvs_is_fairdraw` / `_rvs_is_pooled`, once nothing reads them.
-4. Issue #95 (option B) becomes tractable at that point, not before.
+| step | state |
+|---|---|
+| 1. record + reserve-by-reference, first consumer migrated | **done** |
+| 2. remaining consumers ask the record | **done** -- `.dgrid` and the breadcrumb via `ln_weights_for_posterior`; the `.dslice` guard and the pooled `n_eff` directly |
+| 3. all seven rebind sites set the record | **done** -- one patcher against PR #87's own markers, so all seven are identical |
+| 4. delete `_rvs_is_fairdraw` / `_rvs_is_pooled` | not yet: they are still the fallback, and the agreement tests are what make step 3 checkable |
+| 5. issue #95 (option B) | unblocked only after step 4 |
+
+Every consumer now goes through **one** lookup, `_rvs_record_for(sampler, rvs)`, which declines
+a record whose `.columns` is not the dict being held -- `_rvs` is replaced in place, so "the
+sampler has a record" and "the record describes these rows" are different questions. The
+producer at the pooling site asks a third one, `_sampler_keeps_records`, and has its own name
+for the reason this whole document exists.
+
+### Two things found while doing the mechanical step
+
+* **`n_retained` had to be captured eagerly.** `RvsRecord.retained(self._rvs)` holds a
+  reference to the live column dict, which the fair draw then rebinds -- so `len(record)` after
+  the draw returns the *post*-draw count. Reading it made a collapsed pass report
+  `n_retained == rows`, i.e. "nothing was discarded", the exact opposite of the truth. This
+  project's own bug class, in the code written to prevent it. Pinned by
+  `test_n_retained_is_captured_eagerly_not_read_back_from_the_columns`.
+* **`mcsampler` and `mcsamplerEnsemble` take a LINEAR integrand**, AV and the portfolio a log
+  one. Feeding the wrong kind makes the fair draw compute negative weights and raise. Verified
+  to fail identically on the pristine file, so it is a harness contract rather than a defect --
+  recorded here because it cost time and will cost it again.
 
 ## What is deliberately NOT in it
 

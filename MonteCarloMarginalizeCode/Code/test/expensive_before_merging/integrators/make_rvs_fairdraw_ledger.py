@@ -29,6 +29,21 @@ def verdict(h):
     s = " ".join(src.split())
 
     # --- the integrators themselves ------------------------------------------------
+    # --- DRAFT option A: the record (DESIGN_rvs_naming.md) ---------------------------
+    if "RvsRecord.fair_draw(" in s or "RvsRecord.retained(" in s \
+            or "n_retained=self._rvs_record.n_retained()" in s \
+            or "reserve=getattr(self, '_warm_seed_reserve', None))" in s:
+        return ("PER_ROW",
+                "Hands the columns to RvsRecord as a VIEW, with the pre-draw count taken from "
+                "the previous record's PROVENANCE (eager) rather than from len() (lazy, and "
+                "would read the already-rebound dict). Reads no statistic of the rows: it "
+                "records WHAT THEY ARE at the moment that changes.")
+    if "_rvs_record_for(sampler, sampler._rvs)" in s:
+        return ("PER_ROW",
+                "Looks up the record describing these columns, declining it if _rvs has been "
+                "replaced since. The consumer then asks a NAMED question "
+                "(rows_are_resampled / blocks_were_flattened) instead of combining flags; the "
+                "flags remain the fallback until every sampler is converted.")
     if f.startswith("RIFT/integrators/"):
         if "n_retained=_n_retained_before_draw" in s or "RvsRecord.fair_draw" in s \
                 or "reserve=getattr(self, '_warm_seed_reserve', None))" in s:

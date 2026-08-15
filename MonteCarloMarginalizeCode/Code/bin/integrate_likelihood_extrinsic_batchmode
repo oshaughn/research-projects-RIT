@@ -2124,6 +2124,38 @@ def _rvs_len(rvs):
     return 0
 
 
+def _rvs_record_for(sampler, rvs):
+    """The record describing THESE columns, or None.  DRAFT: DESIGN_rvs_naming.md.
+
+    THE IDENTITY CHECK IS THE POINT.  A record holds a reference to a column dict that other
+    code replaces in place, so "the sampler has a record" and "the record describes the rows I
+    am holding" are different questions -- the same shape as everything else in this file's
+    history. A record that has fallen out of step is not consulted; the caller falls back to
+    the provenance flags, which are maintained separately and are still correct.
+
+    One lookup rather than the check repeated per consumer, for the reason the reserve lookup
+    was centralised in #87: two copies of a guard drift.
+    """
+    rec = getattr(sampler, '_rvs_record', None)
+    if rec is None or getattr(rec, 'columns', None) is not rvs:
+        return None
+    return rec
+
+
+def _sampler_keeps_records(sampler):
+    """Does this sampler populate `_rvs_record` at all?  DRAFT: DESIGN_rvs_naming.md.
+
+    A PRODUCER's question, not a consumer's, and deliberately a different function from
+    `_rvs_record_for`.  The pooling step is about to REPLACE `sampler._rvs`, so asking "does a
+    record describe the rows I hold" is the wrong question there -- it would be answered `None`
+    and the pooled record would silently not be built.  What it needs to know is whether this
+    sampler participates in the record scheme at all.
+
+    Two questions, two names.  That is the entire lesson of this file's last four review rounds.
+    """
+    return getattr(sampler, '_rvs_record', None) is not None
+
+
 def _rvs_is_export_resample(sampler):
     """True when the ROWS of _rvs were drawn in proportion to weight.
 
@@ -2187,8 +2219,8 @@ def ln_weights_for_posterior(rvs, sampler, convert=None, use_lnL=None):
     # The flags stay as the fallback while the other six samplers are unconverted -- and while
     # both exist they MUST agree, which is asserted directly in test_rvs_record.py rather than
     # left as a comment, because "two sources of truth" is the risk this migration runs.
-    _rec = getattr(sampler, '_rvs_record', None)
-    if _rec is not None and _rec.columns is rvs:
+    _rec = _rvs_record_for(sampler, rvs)
+    if _rec is not None:
         if _rec.is_equal_weight():
             return numpy.zeros(_rvs_len(rvs), dtype=float)
         return numpy.asarray(ln_weights_from_rvs(rvs, convert=convert, use_lnL=use_lnL),
@@ -3876,7 +3908,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             # the reason a mixture of raw and resampled replicas needed a special case in
             # _pool_replica_rvs.  The reserve does NOT ride along: it describes one pass, and
             # a pooled record is a mixture of several, so there is no single retained set.
-            if getattr(sampler, '_rvs_record', None) is not None:
+            if _sampler_keeps_records(sampler):
                 try:
                     sampler._rvs_record = _RvsRecord.pooled(
                         _pooled_rvs, resampled_blocks=list(_rep_fairdraw),
@@ -3946,7 +3978,11 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             # which has exactly the property the paragraph above asks for: it reduces to
             # sum_k neff_k when the replicas agree, and falls below it when they disagree --
             # the disagreement these replicas exist to detect.
-            if _blocks_flattened:
+            # DRAFT: the record answers this directly.  blocks_were_flattened() is a THIRD
+            # question, distinct from the other two -- keying it on either of them is what made
+            # this branch dead code in review round 2.
+            _rec_ne = _rvs_record_for(sampler, sampler._rvs)
+            if (_rec_ne.blocks_were_flattened() if _rec_ne is not None else _blocks_flattened):
                 _l_rel = numpy.asarray(_rep_lnZ, dtype=float) - float(numpy.max(_rep_lnZ))
                 _Zk = numpy.exp(_l_rel)
                 _nk = numpy.asarray(_rep_neff, dtype=float)
@@ -4270,7 +4306,13 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
           # The fresh path is exact and already supported, so use it rather than reporting a
           # plausible wrong number -- every slice becomes an independent fixed-d integration.
           # It costs more likelihood evaluations; say so, rather than changing cost silently.
-          if not all_fresh and _rvs_is_export_resample(sampler):
+          # DRAFT: ask the record when it describes these rows; the flag is the fallback.
+          # Note this is the ROWS-RESAMPLED question, not equal-weight: a pooled record still
+          # has resampled rows, and reweighting them still double-counts.
+          _rec_ds = _rvs_record_for(sampler, sampler._rvs)
+          _ds_resampled = (_rec_ds.rows_are_resampled() if _rec_ds is not None
+                           else _rvs_is_export_resample(sampler))
+          if not all_fresh and _ds_resampled:
               print("  [dslice] _rvs is the fair-draw export; forcing --distance-slice-all-fresh"
                     " (the reweight core would double-count pi_Omega/q_Omega on resampled rows)."
                     "  K fresh fixed-d integrations instead of a reweighted core.")
