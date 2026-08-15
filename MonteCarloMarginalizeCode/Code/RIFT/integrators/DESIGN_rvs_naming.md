@@ -176,6 +176,44 @@ for the reason this whole document exists.
   to fail identically on the pristine file, so it is a harness contract rather than a defect --
   recorded here because it cost time and will cost it again.
 
+## The backend divergence, made visible (2026-08-14)
+
+Raised in review: *"the code is pretty messy in that we have structurally different things for
+each backend, which is a huge landmine for developers."* Agreed, and it is a **separate** problem
+from the naming one -- the record does not fix it, so the first step is to stop it being
+invisible. `audit_backend_contracts.py` prints it, and `--check` (in CI) fails when a contract
+changes without the recorded table changing with it.
+
+| backend | entry | `_rvs['integrand']` holds | reserve | rebinds |
+|---|---|---|---|---|
+| `mcsampler` | `integrate` | **linear L** | no | 1 |
+| `mcsamplerGPU` | both | **linear L** | no | 2 |
+| `mcsamplerAdaptiveVolume` | both | **lnL** (aliased) | yes | 1 |
+| `mcsamplerNFlow` | both | **lnL** (aliased) | no | 1 |
+| `mcsamplerPortfolio` | both | **lnL** (aliased) | yes | 1 |
+| `mcsamplerEnsemble` | both | **L *or* lnL**, per the `return_lnI` kwarg | no | 1 |
+
+Three different meanings for one column name, and for `mcsamplerEnsemble` the meaning is a
+**runtime property of how the pass was called** -- no amount of reading the consumer tells you
+which it is. That is why `ln_weights_from_rvs` demands `use_lnL` explicitly, and why it must be
+the *stored* convention rather than `opts.internal_use_lnL`.
+
+The failure is asymmetric, which is what makes it a landmine rather than a nuisance: feeding a
+log callable to a linear entry point makes the fair draw compute negative weights and **raise**;
+making the same mistake downstream does **not** raise -- it takes `log()` of a log and returns a
+plausible, almost-flat weight vector. It cost time twice in one afternoon while wiring the
+record, which is the only reason it is documented rather than rediscovered.
+
+Two other differences the table records, because consumers have to cope with them:
+
+* only AV and the portfolio keep a `_warm_seed_reserve`, so `retained_points()` answers `None`
+  for the other four and the L0 rescue / sequential warm start keep their fallbacks;
+* the portfolio's `_rvs` holds **every** draw, AV's only the retained subset -- ~92 MB vs
+  ~0.9 MB per million `nmax` -- so `n_retained` means different things per backend.
+
+**This gate does not forbid the differences.** Some are load-bearing and none should be
+"tidied" without a decision. It makes a change to one show up as a diff.
+
 ## What is deliberately NOT in it
 
 * The other six samplers, and the other consumers. One worked example first, on purpose.

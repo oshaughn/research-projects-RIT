@@ -565,3 +565,60 @@ def test_all_seven_rebind_sites_are_wired_the_same_way():
 
 _INTEGRATORS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 '..', 'RIFT', 'integrators')
+
+
+###
+### BACKEND CONTRACTS: the differences are real, so make them visible rather than implicit
+###
+
+_AUDIT_BE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         'expensive_before_merging', 'integrators',
+                         'audit_backend_contracts.py')
+
+
+def _backend_contracts():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('audit_backend_contracts', _AUDIT_BE)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+@pytest.mark.skipif(not os.path.exists(_AUDIT_BE), reason='backend audit not in this tree')
+def test_the_recorded_backend_contracts_match_the_code():
+    """The CI gate, as a unit test too: the point is not that the backends agree -- they do
+    not, and that is allowed -- but that a change to one shows up as a diff."""
+    mod = _backend_contracts()
+    import json
+    assert os.path.exists(mod.LEDGER), 'no recorded contracts; run --emit-ledger'
+    want = json.load(open(mod.LEDGER))
+    for b in mod.BACKENDS:
+        got = mod.scan(b)
+        assert b in want, '{} is not in the recorded contracts'.format(b)
+        for k in sorted(set(got) | set(want[b])):
+            assert got.get(k) == want[b].get(k), \
+                '{}.{}: recorded {!r}, now {!r}'.format(b, k, want[b].get(k), got.get(k))
+
+
+@pytest.mark.skipif(not os.path.exists(_AUDIT_BE), reason='backend audit not in this tree')
+def test_the_integrand_column_really_does_mean_three_different_things():
+    """Pinned because it is the specific trap that cost time twice in one afternoon, and
+    because a future 'tidy-up' that collapses the three cases would be a behaviour change."""
+    mod = _backend_contracts()
+    holds = {b: mod.scan(b)['integrand_holds'] for b in mod.BACKENDS}
+    assert holds['mcsamplerAdaptiveVolume'] == 'log (aliased)'
+    assert holds['mcsamplerPortfolio'] == 'log (aliased)'
+    assert holds['mcsampler'] == 'linear'
+    assert holds['mcsamplerEnsemble'] == 'L or lnL (kwarg)', \
+        'the runtime-dependent case is the dangerous one; it must stay visible'
+    assert len(set(holds.values())) == 3, \
+        'expected exactly three distinct meanings, got {}'.format(sorted(set(holds.values())))
+
+
+@pytest.mark.skipif(not os.path.exists(_AUDIT_BE), reason='backend audit not in this tree')
+def test_only_two_backends_keep_a_warm_seed_reserve():
+    """So RvsRecord.retained_points() must answer None for the other four rather than pretend,
+    and the L0 rescue / sequential warm start must keep their fallbacks."""
+    mod = _backend_contracts()
+    keeps = {b for b in mod.BACKENDS if mod.scan(b)['keeps_warm_seed_reserve']}
+    assert keeps == {'mcsamplerAdaptiveVolume', 'mcsamplerPortfolio'}, sorted(keeps)
