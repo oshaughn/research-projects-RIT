@@ -2144,6 +2144,82 @@ def _cubic_Q_window_numpy(Q_block, start_indices, fractional_offsets, npts):
     return Qlms
 
 
+SINC_HALFWIDTH_DEFAULT = 8   # taps per side for time_interp='sinc' (stencil 2a); see
+                             # _sinc_Q_window_numpy for the accuracy-vs-oversampling crossover
+
+
+def _sinc_lanczos_weights(u, a=SINC_HALFWIDTH_DEFAULT):
+    """Lanczos (windowed-sinc) interpolation weights for a target at fractional offset u.
+
+    Returns (offsets, weights) with offsets in [-a+1, a] relative to the sample below the target.
+    L(x) = sinc(x) sinc(x/a) with numpy's normalised sinc, so L(0)=1 and L(k)=0 at nonzero integer
+    k: at u=0 this reduces to the identity and reproduces the original samples exactly, as the
+    cubic stencil does.  Weights are renormalised to sum to unity, which is a no-op at u=0 and
+    makes the interpolation exact for constants.
+    """
+    k = np.arange(-a + 1, a + 1)
+    x = u - k
+    w = np.sinc(x) * np.sinc(x / float(a))
+    w = np.where(np.abs(x) >= a, 0.0, w)
+    total = w.sum()
+    if total != 0:
+        w = w / total
+    return k, w
+
+
+def _sinc_Q_window_numpy(Q_block, start_indices, fractional_offsets, npts,
+                         a=SINC_HALFWIDTH_DEFAULT):
+    """Return band-limited-interpolated Q windows with zero extension.
+
+    Same contract as _cubic_Q_window_numpy: Q_block has shape (n_time, n_lm), result has shape
+    (n_extrinsic, npts, n_lm).  a is the number of taps per side (stencil 2a).
+
+    WHEN THIS WINS, AND WHEN IT DOES NOT.  Q^a_lm(t) is band-limited to fmax, sampled at 1/deltaT,
+    so what matters is the oversampling factor fNyq/fmax.  The two stencils fail differently:
+
+      * 'cubic' is a four-point Lagrange polynomial.  Its error is O(h^4) and so falls FAST with
+        oversampling -- but it is poor near Nyquist, where a cubic cannot follow the signal.
+      * 'sinc' (this) is a Lanczos-windowed sinc.  Its error is set by the window, NOT by h, so it
+        PLATEAUS: more oversampling does not help it, but neither does less hurt it.
+
+    Measured max relative error on a synthetic band-limited signal (test_q_window_interp.py):
+
+        fNyq/fmax     cubic      sinc a=8     sinc a=32
+            1.5       6.2e-2      1.2e-3        9.9e-5
+            2         2.7e-2      7.9e-4        4.7e-5
+            4         2.2e-3      4.3e-4        2.8e-5
+            8         9.0e-5      2.7e-4        2.0e-5
+           16         1.0e-5      3.3e-4        2.2e-5
+
+    So the crossover is around fNyq/fmax ~ 4-8 (higher a pushes it further).  PRODUCTION RUNS ARE
+    NEAR NYQUIST -- srate 4096 with fmax ~1700 is fNyq/fmax ~ 1.2 -- which is exactly where sinc is
+    tens of times better.  A heavily oversampled configuration (the slow-rotation brute-force test
+    runs fmax=512 at srate 16384, i.e. 16) is the regime where cubic already wins and this option
+    should NOT be used.
+
+    Because of that crossover the DEFAULT is deliberately left at 'cubic': this is opt-in, and the
+    right choice depends on fNyq/fmax, which this function cannot see.
+
+    COST: 2a taps against the cubic's 4, so term1 costs ~a/2 times more.
+    """
+    npts_extrinsic = len(start_indices)
+    n_lms_det = Q_block.shape[1]
+    Qlms = np.zeros((npts_extrinsic, npts, n_lms_det), dtype=np.complex128)
+    tgrid = np.arange(npts)
+    n_time = Q_block.shape[0]
+    for i in range(npts_extrinsic):
+        idxs = int(start_indices[i]) + tgrid
+        offsets, weights = _sinc_lanczos_weights(float(fractional_offsets[i]), a)
+        for offset, weight in zip(offsets, weights):
+            if weight == 0.0:
+                continue
+            idxs_here = idxs + offset
+            valid = (idxs_here >= 0) & (idxs_here < n_time)
+            if np.any(valid):
+                Qlms[i, valid] += weight * Q_block[idxs_here[valid]]
+    return Qlms
+
+
 def _nearest_Q_window_numpy(Q_block, start_indices, npts, xpy=np):
     """Return nearest-grid Q windows with zero extension."""
     npts_extrinsic = len(start_indices)
