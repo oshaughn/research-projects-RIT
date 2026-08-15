@@ -11,7 +11,7 @@ default:
 
 stages:
   - system tests
-  - unit tests # TODO: write some
+  - unit tests
   - docs
 #  - docker image
 #  - deploy
@@ -46,6 +46,19 @@ import_check:
   stage: system tests
   script:
     - python .travis/test-all-mod.py
+
+cip_prior_check:
+  # First occupant of the 'unit tests' stage.  Without this the suite added
+  # alongside it would sit in the tree and never execute on rift_O4c: this
+  # branch has no .github/workflows, so GitHub runs nothing here, and the
+  # GitLab jobs above are all whole-pipeline system tests that never invoke
+  # pytest on a specific file.
+  #
+  # Fast (about a second) and needs only numpy + scipy, both already in
+  # requirements.txt, so it adds no dependency and no meaningful CI time.
+  stage: unit tests
+  script:
+    - python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_cip_priors.py
 
 test_run:
   stage: system tests
