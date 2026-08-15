@@ -23,7 +23,11 @@ from scipy.interpolate import InterpolatedUnivariateSpline
 def _peak(lt):
     lt=np.asarray(lt,float); x=np.arange(len(lt)); sp=InterpolatedUnivariateSpline(x,lt,k=4)
     xs=np.linspace(0,len(lt)-1,len(lt)*32); return float(np.max(sp(xs)))
-fmin,fmax,deltaT,seglen=25.,512.,1/2048.,16.; deltaF=1./seglen; fNyq=1/2./deltaT; N=int(round(seglen/deltaT))
+# SRATE (default 2048) and FMAXHZ (default 512) are knobs for diagnosing the deficit floor:
+# raising SRATE refines the lnL time grid (tvals spacing is locked to deltaT by the NoLoop
+# window logic) and lowers f/f_s for the cubic interpolator.
+_SRATE=float(os.environ.get('SRATE','2048')); _FMAX=float(os.environ.get('FMAXHZ','512'))
+fmin,fmax,deltaT,seglen=25.,_FMAX,1/_SRATE,16.; deltaF=1./seglen; fNyq=1/2./deltaT; N=int(round(seglen/deltaT))
 RA,DEC,PSI,INCL,PHIREF=1.2,0.3,0.5,0.4,0.0; DLOUD=fl.distMpcRef*1e6*lsu.lsu_PC/30.
 Psig=lsu.ChooseWaveformParams(fmin=fmin,radec=True,incl=INCL,phiref=PHIREF,theta=DEC,phi=RA,psi=PSI,
     m1=2.2*lal.MSUN_SI,m2=1.8*lal.MSUN_SI,detector=det,dist=200e6*lal.PC_SI,deltaT=deltaT,tref=event_time,deltaF=deltaF); Psig.approx=apx
@@ -49,12 +53,16 @@ Pv.tref=event_time; Pv.deltaT=deltaT; Nw=int(0.02/deltaT); tvals=np.arange(-Nw,N
 # true sidereal rate -- on this 16 s segment (5400/16 = 337.5 ~ 340).  So INFL/340 is the rotation
 # rate as a multiple of that worst physical case; it is the quantity the paper quotes.
 PHYS_INFL=340.0
+# TINTERP=nearest (default)|cubic -- the sub-bin time sampling used for the data term.  'nearest'
+# leaves a ~0.2 nat peak-resolution floor on the deficit; 'cubic' is the calmarg_in_loop
+# interpolation and should remove it.
+TINTERP=os.environ.get("TINTERP","nearest")
 lnL_by_pmax={}; deficit_by_pmax={}
 for pmax in [0,1,2,3]:
     nh=2+pmax
     bk=flwr.PrecomputeLikelihoodTermsWithRotation(event_time,t_window,Psig,data_dict,psd_dict,Lmax,fmax,harmonics=tuple(range(-nh,nh+1)),p_max=pmax,f_sidereal=FSID_INF,analyticPSD_Q=True,verbose=False,quiet=True,skip_interpolation=True)
     lk,rbn,ubn,vbn,epd=flwr.pack_rotation_arrays(bk[4],bk[3],bk[1],bk[2])
-    lnL=_peak(flwr.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation(tvals,Pv,bk[4],lk,rbn,ubn,vbn,epd,Lmax=Lmax,array_output=True)[0])
+    lnL=_peak(flwr.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation(tvals,Pv,bk[4],lk,rbn,ubn,vbn,epd,Lmax=Lmax,array_output=True,time_interp=TINTERP)[0])
     lnL_by_pmax[str(pmax)]=float(lnL); deficit_by_pmax[str(pmax)]=float(HALF_DD-lnL)
     print("  p_max=%d : lnL=%.5f  deficit=%.5f"%(pmax,lnL,HALF_DD-lnL))
 # Opt-in persistence: set OUT=<path>.json.  Default behaviour (print only) is unchanged.
@@ -62,7 +70,8 @@ _out=os.environ.get("OUT")
 if _out:
     import json
     with open(_out,"w") as _fh:
-        json.dump({"infl":float(os.environ.get("INFL","340")),
+        json.dump({"time_interp":TINTERP,"srate":_SRATE,
+                   "infl":float(os.environ.get("INFL","340")),
                    "infl_physical_reference":PHYS_INFL,
                    "omega_ratio_vs_physical":float(os.environ.get("INFL","340"))/PHYS_INFL,
                    "half_dd":float(HALF_DD),
