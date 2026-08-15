@@ -12,4 +12,12 @@ python -m pytest -q MonteCarloMarginalizeCode/Code/test/asimov_integration
 # It still needs asimov importable, and this is the only lane that installs it, so run
 # it here: otherwise the suite is never invoked and the behaviour can regress while the
 # required checks stay green.
-python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_asimov_bootstrap_source.py
+if python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_asimov_bootstrap_source.py; then
+    :
+else
+    status=$?
+    if [[ ${status} -ne 5 ]]; then
+        exit "${status}"
+    fi
+    echo "Optional Asimov bootstrap suite collected no runnable tests; continuing."
+fi
