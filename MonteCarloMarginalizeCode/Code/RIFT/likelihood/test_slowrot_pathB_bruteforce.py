@@ -28,6 +28,28 @@ from scipy.interpolate import InterpolatedUnivariateSpline
 def _peak(lt):
     lt=np.asarray(lt,float); x=np.arange(len(lt)); sp=InterpolatedUnivariateSpline(x,lt,k=4)
     xs=np.linspace(0,len(lt)-1,len(lt)*32); return float(np.max(sp(xs)))
+def _peak_bandlimited(lt,upsample=64):
+    """Peak of lnL(t) by band-limited (sinc) interpolation -- exact, not approximate.
+
+    lnL(t) = Re[sum_a conj(C_a) sum_lm conj(Ylm) Q^a_lm(t)] - term2, term2 is time independent,
+    and every Q^a_lm(t) is the inverse transform of something supported on [fmin,fmax].  So lnL(t)
+    is BAND-LIMITED to fmax.  Sampled at 1/deltaT >> 2 fmax it is heavily oversampled (16x at
+    srate 16384, fmax 512), so zero-padding in frequency IS Whittaker-Shannon interpolation and is
+    exact -- unlike the order-4 spline in _peak, whose reconstruction error set the old resolution
+    floor (1.8 nats of interpolation at srate 2048, and the deficit could go negative on it).
+
+    A LINEAR baseline through the endpoints is removed before the transform and restored after, so
+    the implicit periodic extension has neither a step nor a slope discontinuity to ring on.
+    """
+    lt=np.asarray(lt,float); n=lt.size
+    if n<4: return float(np.max(lt))
+    x=np.arange(n); slope=(lt[-1]-lt[0])/(n-1.); base=lt[0]+slope*x
+    Y=np.fft.rfft(lt-base); m=n*upsample
+    Yp=np.zeros(m//2+1,dtype=complex); Yp[:Y.size]=Y
+    if n%2==0 and Y.size<=m//2: Yp[n//2]*=0.5   # split the Nyquist bin when zero-padding
+    yp=np.fft.irfft(Yp,m)*upsample
+    xp=np.arange(m)/float(upsample)
+    return float(np.max(yp+lt[0]+slope*xp))
 # SRATE (default 2048) and FMAXHZ (default 512) are knobs for diagnosing the deficit floor:
 # raising SRATE refines the lnL time grid (tvals spacing is locked to deltaT by the NoLoop
 # window logic) and lowers f/f_s for the cubic interpolator.
@@ -99,7 +121,7 @@ T_SIGNAL=min(_tchirp,seglen); PHYS_INFL=5400.0/T_SIGNAL
 # leaves a ~0.2 nat peak-resolution floor on the deficit; 'cubic' is the calmarg_in_loop
 # interpolation and should remove it.
 TINTERP=os.environ.get("TINTERP","nearest")
-lnL_by_pmax={}; deficit_by_pmax={}; lnL_raw_by_pmax={}; overshoot_by_pmax={}
+lnL_by_pmax={}; deficit_by_pmax={}; lnL_raw_by_pmax={}; overshoot_by_pmax={}; lnL_spline_by_pmax={}; lnL_bl_by_pmax={}
 for pmax in [0,1,2,3]:
     nh=2+pmax
     bk=flwr.PrecomputeLikelihoodTermsWithRotation(event_time,t_window,Psig,data_dict,psd_dict,Lmax,fmax,harmonics=tuple(range(-nh,nh+1)),p_max=pmax,f_sidereal=FSID_INF,analyticPSD_Q=True,verbose=False,quiet=True,skip_interpolation=True)
@@ -108,8 +130,11 @@ for pmax in [0,1,2,3]:
     # _peak() splines (k=4) and oversamples 32x, which can OVERSHOOT the sampled maximum and
     # push the deficit negative -- a Cauchy-Schwarz 'violation' that is the estimator, not the
     # likelihood.  Record the raw grid max too so the overshoot is visible rather than folded in.
-    lnL=_peak(_lt); lnL_raw=float(np.max(np.asarray(_lt,float)))
+    lnL_spline=_peak(_lt); lnL_bl=_peak_bandlimited(_lt)
+    lnL=lnL_bl if os.environ.get('PEAK','bandlimited')=='bandlimited' else lnL_spline
+    lnL_raw=float(np.max(np.asarray(_lt,float)))
     lnL_raw_by_pmax[str(pmax)]=lnL_raw; overshoot_by_pmax[str(pmax)]=lnL-lnL_raw
+    lnL_spline_by_pmax[str(pmax)]=lnL_spline; lnL_bl_by_pmax[str(pmax)]=lnL_bl
     lnL_by_pmax[str(pmax)]=float(lnL); deficit_by_pmax[str(pmax)]=float(HALF_DD-lnL)
     print("  p_max=%d : lnL=%.5f  deficit=%.5f"%(pmax,lnL,HALF_DD-lnL))
 # Opt-in persistence: set OUT=<path>.json.  Default behaviour (print only) is unchanged.
@@ -125,6 +150,8 @@ if _out:
                    "half_dd":float(HALF_DD),
                    "deficit_by_pmax":deficit_by_pmax,"lnL_by_pmax":lnL_by_pmax,
                    "lnL_raw_by_pmax":lnL_raw_by_pmax,"peak_overshoot_by_pmax":overshoot_by_pmax,
+                   "peak_estimator":os.environ.get("PEAK","bandlimited"),
+                   "lnL_spline_by_pmax":lnL_spline_by_pmax,"lnL_bandlimited_by_pmax":lnL_bl_by_pmax,
                    "approx":os.environ.get("APPROX","IMRPhenomD"),"seglen":float(seglen),"fmin":float(fmin),"chirp_time":float(_tchirp),"signal_fits":bool(_tchirp<seglen),"fmax":float(fmax),
                    "m1":float(Psig.m1/lal.MSUN_SI),"m2":float(Psig.m2/lal.MSUN_SI)},_fh,indent=2)
     print("wrote %s"%_out)
