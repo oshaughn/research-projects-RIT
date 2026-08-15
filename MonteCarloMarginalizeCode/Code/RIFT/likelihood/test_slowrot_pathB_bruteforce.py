@@ -45,9 +45,28 @@ print("inflated seglen=%.0fs 0.5<d|d>=%.4f"%(seglen,HALF_DD))
 Pv=Psig.manual_copy()
 for k,v in [('phi',RA),('theta',DEC),('incl',INCL),('phiref',PHIREF),('psi',PSI),('dist',DLOUD)]: setattr(Pv,k,np.ones(1)*v)
 Pv.tref=event_time; Pv.deltaT=deltaT; Nw=int(0.02/deltaT); tvals=np.arange(-Nw,Nw)*deltaT
+# INFL=340 reproduces the Omega*T of the worst physical case -- a 90-minute (5400 s) BNS at the
+# true sidereal rate -- on this 16 s segment (5400/16 = 337.5 ~ 340).  So INFL/340 is the rotation
+# rate as a multiple of that worst physical case; it is the quantity the paper quotes.
+PHYS_INFL=340.0
+lnL_by_pmax={}; deficit_by_pmax={}
 for pmax in [0,1,2,3]:
     nh=2+pmax
     bk=flwr.PrecomputeLikelihoodTermsWithRotation(event_time,t_window,Psig,data_dict,psd_dict,Lmax,fmax,harmonics=tuple(range(-nh,nh+1)),p_max=pmax,f_sidereal=FSID_INF,analyticPSD_Q=True,verbose=False,quiet=True,skip_interpolation=True)
     lk,rbn,ubn,vbn,epd=flwr.pack_rotation_arrays(bk[4],bk[3],bk[1],bk[2])
     lnL=_peak(flwr.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation(tvals,Pv,bk[4],lk,rbn,ubn,vbn,epd,Lmax=Lmax,array_output=True)[0])
+    lnL_by_pmax[str(pmax)]=float(lnL); deficit_by_pmax[str(pmax)]=float(HALF_DD-lnL)
     print("  p_max=%d : lnL=%.5f  deficit=%.5f"%(pmax,lnL,HALF_DD-lnL))
+# Opt-in persistence: set OUT=<path>.json.  Default behaviour (print only) is unchanged.
+_out=os.environ.get("OUT")
+if _out:
+    import json
+    with open(_out,"w") as _fh:
+        json.dump({"infl":float(os.environ.get("INFL","340")),
+                   "infl_physical_reference":PHYS_INFL,
+                   "omega_ratio_vs_physical":float(os.environ.get("INFL","340"))/PHYS_INFL,
+                   "half_dd":float(HALF_DD),
+                   "deficit_by_pmax":deficit_by_pmax,"lnL_by_pmax":lnL_by_pmax,
+                   "seglen":float(seglen),"fmin":float(fmin),"fmax":float(fmax),
+                   "m1":float(Psig.m1/lal.MSUN_SI),"m2":float(Psig.m2/lal.MSUN_SI)},_fh,indent=2)
+    print("wrote %s"%_out)
