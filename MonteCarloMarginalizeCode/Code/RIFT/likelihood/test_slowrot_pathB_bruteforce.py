@@ -5,9 +5,14 @@ import RIFT.lalsimutils as lsu
 import RIFT.likelihood.factored_likelihood as fl
 import RIFT.likelihood.factored_likelihood_with_rotation as flwr
 import RIFT.likelihood.slowrot_response as srr
-event_time=1e9; Lmax=2; t_window=0.1; det='H1'
-psd=lalsim.SimNoisePSDaLIGOZeroDetHighPower; apx=lalsim.GetApproximantFromString("IMRPhenomD")
 import os
+event_time=1e9; Lmax=2; t_window=0.1; det='H1'
+psd=lalsim.SimNoisePSDaLIGOZeroDetHighPower; # APPROX: default IMRPhenomD is an FD model, which routes through hlmoft_FromFD_dict ->
+# SimInspiralTDModesFromPolarizations and inherits LAL's minimal post-ringdown pad (~9 ms
+# after the peak), bypassing RIFT's own fd_centering_factor=0.9 (which would reserve 10% of
+# the segment).  That 9 ms is SHORTER than the Earth light-crossing delay, so the delayed
+# lookup clips the loudest samples.  Use a TD model (TaylorT4) for development.
+apx=lalsim.GetApproximantFromString(os.environ.get("APPROX","IMRPhenomD"))
 OMEGA_INF=flwr.OMEGA_EARTH*float(os.environ.get("INFL","340")); FSID_INF=OMEGA_INF/(2*np.pi)
 def _ifft(hf_d):
     o={}
@@ -46,6 +51,17 @@ hlms_fd,_=fl.internal_hlm_generator(Pm,Lmax,verbose=False,quiet=True); hlmsT=_if
 lm0=list(hlmsT.keys())[0]; nn=hlmsT[lm0].data.length; dt=hlmsT[lm0].deltaT; ep=float(hlmsT[lm0].epoch); tt=ep+np.arange(nn)*dt
 Sig=np.zeros(nn,complex)
 for lm in hlmsT: Sig+=hlmsT[lm].data.data*lal.SpinWeightedSphericalHarmonic(INCL,-PHIREF,-2,lm[0],lm[1])
+# NOTE (unresolved): NEITHER generator route leaves room after the peak for the delay lookup.
+# IMRPhenomD (FD -> hlmoft_FromFD_dict -> SimInspiralTDModesFromPolarizations) inherits LAL's
+# ~9.28 ms post-ringdown pad; TaylorT4 (TD) terminates at ISCO with a 0 ms gap.  max|tau| is
+# ~9.5 ms, so in both cases the delayed lookup reads past the end and nan_to_num deletes the
+# loudest samples -- 2.6e-3 of the power for PhenomD (floor 0.207), 1.3e-2 for TaylorT4 (floor
+# 1.49).  RIFT's own FD-modes path reserves 10% of the segment (fd_centering_factor=0.9,
+# fd_alignment_postevent_time) but this route never reaches it.
+# Rolling the array to make trailing room is NOT a valid fix: it wraps the head around, and the
+# head is quiet only in configurations that do not have the problem in the first place.  The fix
+# is to ZERO-EXTEND after the merger (grow the array past the peak, keeping the epoch), with
+# Psig.deltaF kept consistent so the template is built on the same grid.  Not yet implemented.
 reS=CubicSpline(tt,Sig.real,extrapolate=False); imS=CubicSpline(tt,Sig.imag,extrapolate=False)
 lald=lalsim.DetectorPrefixToLALDetector(det); g_ev=lal.GreenwichMeanSiderealTime(lal.LIGOTimeGPS(event_time))-RA
 A=srr.antenna_harmonics(lald.response,DEC,PSI); At={k:A[k]*np.exp(1j*k*g_ev) for k in A}
@@ -103,6 +119,6 @@ if _out:
                    "half_dd":float(HALF_DD),
                    "deficit_by_pmax":deficit_by_pmax,"lnL_by_pmax":lnL_by_pmax,
                    "lnL_raw_by_pmax":lnL_raw_by_pmax,"peak_overshoot_by_pmax":overshoot_by_pmax,
-                   "seglen":float(seglen),"fmin":float(fmin),"chirp_time":float(_tchirp),"signal_fits":bool(_tchirp<seglen),"fmax":float(fmax),
+                   "approx":os.environ.get("APPROX","IMRPhenomD"),"seglen":float(seglen),"fmin":float(fmin),"chirp_time":float(_tchirp),"signal_fits":bool(_tchirp<seglen),"fmax":float(fmax),
                    "m1":float(Psig.m1/lal.MSUN_SI),"m2":float(Psig.m2/lal.MSUN_SI)},_fh,indent=2)
     print("wrote %s"%_out)
