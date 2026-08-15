@@ -386,6 +386,9 @@ def DiscreteFactoredLogLikelihoodFreqResponseNoLoop(
         # -- this likelihood is CPU-only but runs inside the GPU cvmfs container).
         t_det = float(P_vec.tref - float(t_ref)) + FL.TimeDelayFromEarthCenter(
             detector_location, RA, DEC, gmst_tref, xpy=np)
+        # NOTE: this file previously had NO validation, so an unknown time_interp
+        # silently executed the cubic branch below.  Gate it, and reject 'sinc' on GPU.
+        FL.validate_time_interp(time_interp, on_gpu=not (xpy is np))
         sample_first = (t_det + float(tvals[0])) / P_vec.deltaT   # float(): tvals may be a cupy array on GPU
         if time_interp == 'nearest':
             ifirst = (np.round(sample_first) + 0.5).astype(int)
@@ -419,7 +422,8 @@ def DiscreteFactoredLogLikelihoodFreqResponseNoLoop(
                     for i in range(npts_ex):
                         Qa[i] = det_rho[..., ifirst[i]:ilast[i]].T
                 else:
-                    Qa = FL._cubic_Q_window_numpy(det_rho.T, ifirst, frac_first, npts)
+                    Qa = FL._q_window_numpy_interp(det_rho.T, ifirst, frac_first, npts,
+                                                  time_interp)
                 term1 += np.conj(bvec[p])[:, None] * np.einsum('xi,xti->xt', np.conj(Ylms), Qa)
         term1 = term1.real * inv_dist[:, None]
 

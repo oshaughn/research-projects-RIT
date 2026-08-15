@@ -2220,6 +2220,34 @@ def _sinc_Q_window_numpy(Q_block, start_indices, fractional_offsets, npts,
     return Qlms
 
 
+TIME_INTERP_CHOICES = ('nearest', 'cubic', 'sinc')
+
+
+def validate_time_interp(time_interp, on_gpu=False):
+    """Reject unknown stencils loudly, and reject 'sinc' on GPU where it has no kernel yet."""
+    if time_interp not in TIME_INTERP_CHOICES:
+        raise ValueError("time_interp must be one of %r, got %r"
+                         % (TIME_INTERP_CHOICES, time_interp))
+    if on_gpu and time_interp == 'sinc':
+        raise NotImplementedError(
+            "time_interp='sinc' has no GPU kernel yet: cuda_Q_inner_product.cu provides Q_inner "
+            "and Q_inner_cubic but no Q_inner_sinc. Run without --gpu, or use time_interp="
+            "'cubic'. This raises rather than falling back, because silently running cubic would "
+            "misreport which stencil produced the result.")
+    return time_interp
+
+
+def _q_window_numpy_interp(Q_block, start_indices, fractional_offsets, npts, time_interp,
+                           xpy=np):
+    """CPU Q-window dispatch.  start_indices must already match the stencil: 'nearest' rounds,
+    the interpolating stencils floor and carry the fractional part separately."""
+    if time_interp == 'nearest':
+        return _nearest_Q_window_numpy(Q_block, start_indices, npts, xpy=xpy)
+    if time_interp == 'sinc':
+        return _sinc_Q_window_numpy(Q_block, start_indices, fractional_offsets, npts)
+    return _cubic_Q_window_numpy(Q_block, start_indices, fractional_offsets, npts)
+
+
 def _nearest_Q_window_numpy(Q_block, start_indices, npts, xpy=np):
     """Return nearest-grid Q windows with zero extension."""
     npts_extrinsic = len(start_indices)
@@ -2285,7 +2313,13 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         Distance-marginalization table+params for the fused distmarg kernel; see
         RIFT.likelihood.Q_fused_calmarg.Q_fused_calmarg_distmarg_cupy.
 
-    time_interp : {'nearest', 'cubic'}
+    time_interp : {'nearest', 'cubic', 'sinc'}
+        Sub-sample stencil for the Q(t) lookup.  Which is best depends on the oversampling
+        factor fNyq/fmax: 'cubic' (4-point Lagrange) has O(h^4) error so it wins when heavily
+        oversampled, while 'sinc' (Lanczos) is window-limited so its error is flat in
+        oversampling and it wins near Nyquist -- ~50x better at fNyq/fmax ~ 1.2, which is where
+        production runs sit.  Crossover is around fNyq/fmax ~ 4-8.  See _sinc_Q_window_numpy.
+        'sinc' is CPU-only for now.
         Detector-time sampling convention for the data term.  'nearest'
         preserves the historical NoLoop integer-bin gather.  'cubic' evaluates
         the precomputed Q_lm time series at the fractional detector arrival time
@@ -2294,8 +2328,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
     """
     global distMpcRef
 
-    if time_interp not in ('nearest', 'cubic'):
-        raise ValueError("time_interp must be 'nearest' or 'cubic'")
+    validate_time_interp(time_interp, on_gpu=not (xpy is np))
     if time_interp != 'nearest' and cal_method == 'fused':
         raise NotImplementedError("time_interp='{}' is not implemented for cal_method='fused'".format(time_interp))
 
@@ -2532,10 +2565,8 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
           else:
             # Use old code completely unchanged ... very wasteful on memory management!
             Q_block = rholmsArrayDict[det].T
-            if time_interp == 'nearest':
-                Qlms = _nearest_Q_window_numpy(Q_block, ifirst, npts, xpy=xpy)
-            else:
-                Qlms = _cubic_Q_window_numpy(Q_block, ifirst, frac_first, npts)
+            Qlms = _q_window_numpy_interp(Q_block, ifirst, frac_first, npts, time_interp,
+                                          xpy=xpy)
             if phase_marginalization:
                 Qlms[:, :, 1] = xpy.conj(Qlms[:, :, 1])
 
@@ -2696,10 +2727,8 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
                         Q_block, FY_conj_det, ifirst_within, frac_first_det, npts,
                     )
             else:
-                if time_interp == 'nearest':
-                    Qlms = _nearest_Q_window_numpy(Q_block, ifirst_within, npts, xpy=xpy)
-                else:
-                    Qlms = _cubic_Q_window_numpy(Q_block, ifirst_within, frac_first_det, npts)
+                Qlms = _q_window_numpy_interp(Q_block, ifirst_within, frac_first_det, npts,
+                                              time_interp, xpy=xpy)
                 # Q_det and FY_conj_det already encode any phase-marg conjugation
                 Q_prod_result = np.einsum("ej,etj->et", FY_conj_det, Qlms)
             kappa_sq_c += Q_prod_result * invDistMpc[..., np.newaxis]
