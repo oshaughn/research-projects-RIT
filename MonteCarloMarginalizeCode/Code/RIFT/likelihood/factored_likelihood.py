@@ -2365,8 +2365,9 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         factor fNyq/fmax: 'cubic' (4-point Lagrange) has O(h^4) error so it wins when heavily
         oversampled, while 'sinc' (Lanczos) is window-limited so its error is flat in
         oversampling and it wins near Nyquist -- ~50x better at fNyq/fmax ~ 1.2, which is where
-        production runs sit.  Crossover is around fNyq/fmax ~ 4-8.  See _sinc_Q_window_numpy.
-        'sinc' is CPU-only for now.
+        production runs sit.  Measured crossover is fNyq/fmax ~ 5.3; see _sinc_Q_window_numpy for
+        the table and RIFT.likelihood.time_interp_choice for the threshold the pipeline applies.
+        All three stencils have both CPU and GPU implementations.
         Detector-time sampling convention for the data term.  'nearest'
         preserves the historical NoLoop integer-bin gather.  'cubic' evaluates
         the precomputed Q_lm time series at the fractional detector arrival time

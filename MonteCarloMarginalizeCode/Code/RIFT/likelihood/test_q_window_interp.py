@@ -22,7 +22,11 @@ until it was no longer a local stencil, so the crossover is asserted in BOTH dir
 
 Self-contained: numpy only, no LAL, no data.  Runs in about a second.
 
-    python3 test_q_window_interp.py
+    python3 test_q_window_interp.py          # or: pytest test_q_window_interp.py
+
+NOTE the assertions live in test_-prefixed functions, not in main().  They used to live only in
+main(), which meant `pytest` collected ZERO tests from this file and reported success -- the
+crossover gate silently did not run.  Keep any new assertion in a test_ function.
 """
 from __future__ import print_function
 
@@ -76,17 +80,23 @@ def max_rel_error(kind, samples, evaluate, starts, fracs, npts, n_time):
     return err
 
 
-def main():
-    n_time, n_lm, npts = 4096, 2, 24
+N_TIME, N_LM, NPTS = 4096, 2, 24
+
+
+def _fixed_targets():
     rng = np.random.RandomState(7)
-    starts = rng.randint(200, n_time - 300, size=6)
-    fracs = rng.rand(6)
+    return rng.randint(200, N_TIME - 300, size=6), rng.rand(6)
+
+
+def test_stencil_accuracy_and_crossover():
+    """The accuracy table, and the crossover asserted in BOTH directions."""
+    starts, fracs = _fixed_targets()
 
     print("%-12s %14s %14s %14s" % ("fNyq/fmax", "nearest", "cubic", "sinc(a=8)"))
     err = {}
     for oversample in (1.5, 2, 4, 8, 16):
-        samples, evaluate = band_limited_signal(n_time, n_lm, oversample)
-        e = {k: max_rel_error(k, samples, evaluate, starts, fracs, npts, n_time)
+        samples, evaluate = band_limited_signal(N_TIME, N_LM, oversample)
+        e = {k: max_rel_error(k, samples, evaluate, starts, fracs, NPTS, N_TIME)
              for k in ("nearest", "cubic", "sinc")}
         err[oversample] = e
         print("%-12s %14.3e %14.3e %14.3e"
@@ -109,20 +119,31 @@ def main():
     print("  fNyq/fmax=16: cubic is %.0fx better than sinc, as expected"
           % (err[16]["sinc"] / err[16]["cubic"]))
 
-    # At integer offsets every stencil must reproduce the samples exactly.
-    samples, _ = band_limited_signal(n_time, n_lm, 8)
-    exact = _sinc_Q_window_numpy(samples, starts, np.zeros(len(starts)), npts)
+
+def test_zero_offset_identity():
+    """At integer offsets every stencil must reproduce the samples exactly."""
+    starts, _ = _fixed_targets()
+    samples, _ = band_limited_signal(N_TIME, N_LM, 8)
+    exact = _sinc_Q_window_numpy(samples, starts, np.zeros(len(starts)), NPTS)
     for i, s0 in enumerate(starts):
-        assert np.allclose(exact[i], samples[s0:s0 + npts], atol=1e-12), \
+        assert np.allclose(exact[i], samples[s0:s0 + NPTS], atol=1e-12), \
             "sinc must be the identity at zero fractional offset"
     print("zero-offset identity: OK")
 
-    # Weights must sum to one for any offset, so a constant is interpolated exactly.
+
+def test_partition_of_unity():
+    """Weights must sum to one for any offset, so a constant is interpolated exactly."""
     from RIFT.likelihood.factored_likelihood import _sinc_lanczos_weights
     for u in (0.0, 0.1, 0.5, 0.9, 0.999):
         _, w = _sinc_lanczos_weights(u)
         assert abs(w.sum() - 1.0) < 1e-12, "weights must sum to 1 at u=%g" % u
     print("partition of unity: OK")
+
+
+def main():
+    test_stencil_accuracy_and_crossover()
+    test_zero_offset_identity()
+    test_partition_of_unity()
     print("\nPASS")
 
 
