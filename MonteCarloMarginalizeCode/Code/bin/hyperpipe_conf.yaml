@@ -67,7 +67,11 @@ puff:
   # Leave keys null to take the updater's built-in defaults.
   settings:
     update-method: null        # smc-mala-bd | smc-mala | birth-death | ucb | puffball
-    tracer-fit-method: null    # rf | rbf | polynomial | quadratic
+    tracer-fit-method: null    # rf | rbf | polynomial | quadratic | gp_linmean
+                               # gp_linmean: linear-mean GP; extrapolates past the
+                               # training hull (rf goes flat) and gives ucb a real sigma
+    tracer-lnl-floor-delta: null  # clamp training lnL at max-DELTA instead of cutting
+                               # catastrophic-fit outliers; null = off (legacy)
     ucb-kappa: null            # UCB exploration weight (default 2.0)
     ucb-n-candidates: null     # UCB candidate pool size (default 20000)
     n-mala-steps: null         # int

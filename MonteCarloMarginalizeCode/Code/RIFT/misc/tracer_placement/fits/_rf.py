@@ -5,8 +5,9 @@ estimate via predict_with_std. This is *not* a calibrated posterior std --
 it is the empirical spread of the per-tree predictions, which is large in
 unexplored regions (because trees disagree on extrapolation) and small in
 well-sampled regions (because trees fit similar values). That qualitative
-behavior is what UCB needs; for calibration use a GP fit when one becomes
-available.
+behavior is what UCB needs; for a calibrated posterior std, and for a surrogate
+that can extrapolate past the training hull instead of going flat, use
+--tracer-fit-method gp_linmean (_gp_linmean.py).
 """
 import numpy as np
 from ._base import FitBase

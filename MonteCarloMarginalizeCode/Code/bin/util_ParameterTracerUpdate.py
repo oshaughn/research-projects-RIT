@@ -27,7 +27,14 @@
 # NEW
 #   --update-method {smc-mala-bd, smc-mala, birth-death, puffball}
 #       Default smc-mala-bd. "puffball" reproduces util_ParameterPuffball.py for regression.
-#   --tracer-fit-method {rf, rbf, quadratic, polynomial}     default rf
+#   --tracer-fit-method {rf, rbf, quadratic, polynomial, gp_linmean}   default rf
+#       gp_linmean is a linear-mean GP: unlike rf (piecewise-constant, flat
+#       outside the training hull) it extrapolates the global lnL trend past
+#       the sampled region, so placement can chase a peak clipped at a box
+#       edge. It also supplies a real posterior sigma (predict_with_std).
+#   --tracer-lnl-floor-delta FLOAT  default None (OFF; legacy unchanged)
+#       Clamp training lnL at max(lnL)-delta instead of cutting outliers, so
+#       catastrophic-fit points remain anchors for the surrogate's scale.
 #   --no-union-refit                if --fname-prev given, do NOT include prev points in f_k fit
 #   --n-mala-steps INT              default 8
 #   --target-ess-frac FLOAT         default 0.5
@@ -119,8 +126,14 @@ def build_parser():
                    choices=("smc-mala-bd", "smc-mala", "birth-death", "puffball"),
                    default="smc-mala-bd")
     p.add_argument("--tracer-fit-method",
-                   choices=("rf", "rbf", "quadratic", "polynomial"),
+                   choices=("rf", "rbf", "quadratic", "polynomial", "gp_linmean"),
                    default="rf")
+    p.add_argument("--tracer-lnl-floor-delta", default=None, type=float,
+                   help="Clamp training lnL from below at max(lnL) - DELTA "
+                        "instead of discarding low points. Keeps catastrophic-fit "
+                        "outliers as anchors that pin the surrogate's length "
+                        "scale and signal variance. Default off (legacy "
+                        "behaviour bit-for-bit unchanged).")
     p.add_argument("--no-union-refit", action="store_true",
                    help="If --fname-prev is given, do NOT include those points in the f_k fit.")
     p.add_argument("--n-mala-steps", default=8, type=int)
@@ -303,10 +316,12 @@ def main(argv=None):
                              if (S_prev is not None and S_k is not None) else None)
             # f_{k-1} fit on prior data only
             fit_prev = _tracer_fits.build(opts.tracer_fit_method,
-                                          X_prev, Y_prev, sigma=S_prev)
+                                          X_prev, Y_prev, sigma=S_prev,
+                                          lnl_floor_delta=opts.tracer_lnl_floor_delta)
 
     fit_now = _tracer_fits.build(opts.tracer_fit_method,
-                                 X_train_k, Y_train_k, sigma=S_train_k)
+                                 X_train_k, Y_train_k, sigma=S_train_k,
+                                 lnl_floor_delta=opts.tracer_lnl_floor_delta)
 
     state = {}
     if opts.state_in and os.path.exists(opts.state_in):

@@ -110,7 +110,8 @@ puff:
   # Null values fall through to the updater's built-in defaults.
   settings:
     update-method: null         # smc-mala-bd | smc-mala | birth-death | puffball
-    tracer-fit-method: null     # rf | rbf | polynomial | quadratic
+    tracer-fit-method: null     # rf | rbf | polynomial | quadratic | gp_linmean
+    tracer-lnl-floor-delta: null  # clamp lnL at max-DELTA instead of cutting; null = off
     n-mala-steps: null          # -> --n-mala-steps
     target-ess-frac: null       # -> --target-ess-frac
     birth-death-rate: null      # -> --birth-death-rate
