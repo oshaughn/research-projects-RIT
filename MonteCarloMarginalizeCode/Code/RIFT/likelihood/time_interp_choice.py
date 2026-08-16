@@ -47,10 +47,38 @@ and at srate 16384 (SEOBNRv4 cannot be generated at 4096 below M ~ 8):
       5                                          cubic (21x)
       2.6                                        cubic (34x)
 
-RULE OF THUMB: **the crossover is between 20 and 35 Msun total** at production settings, so
-'sinc' is the better stencil across much of the stellar-mass BBH range and 'cubic' above it.
-Note the low-mass rows above are at a HIGHER sample rate, where the same binary is far more
-oversampled -- oversampling, not mass alone, is what sets the answer.
+FMIN SWEEP, same method, 20 points, 3 seeds each, marginal winners replicated with 3 fresh seeds
+(all 12 identical).  Winner and margin; srate 4096, fmax 1700 throughout:
+
+    M \ fmin      20          30          50          100         150
+      9        sinc 2.1x   sinc 2.2x   sinc 2.5x   sinc 6.1x   sinc 12.4x
+     20        sinc 1.8x   sinc 2.2x   sinc 2.9x   sinc 8.6x   sinc 15.9x
+     35        cubic 2.3x  cubic 2.1x  cubic 1.7x  SINC 2.5x   SINC 5.6x
+     55        cubic 2.4x  cubic 3.0x  cubic 4.4x  cubic 1.1x  SINC 1.2x
+
+(capitals mark where the fmin-blind rule named the worse stencil).
+
+RULE OF THUMB, and it is TWO-DIMENSIONAL -- fmin matters as much as mass:
+
+    fmin <= 50 Hz    crossover 20-35 Msun total: 'sinc' below it, 'cubic' above.
+    fmin >= 100 Hz   prefer 'sinc' AT ANY MASS.
+
+An earlier revision of this file gave only the first line, and it was measurably wrong at high
+fmin: it named the worse stencil at (M=35, fmin=100) by 2.5x, (M=35, fmin=150) by **5.6x**, and
+(M=55, fmin=150) by 1.2x.  Measured crossover against fmin, same 20-point SEOBNRv4 grid:
+
+    fmin        20      30      50     100     150
+    crossover  20-35   20-35   20-35  35-55   > 55
+
+THE MECHANISM, and it is the same property that makes sinc worth having: sinc's error is FLAT --
+2.3-5.6 nats across the entire 20-point grid -- while **cubic degrades ~6-8x as fmin goes
+20 -> 150** at fixed mass (M=9: 10.7 -> 69.3 nats; M=20: 4.7 -> 45.2).  Raising fmin cuts the long
+low-frequency inspiral out of band, which broadens Q relative to Nyquist: exactly sinc's regime.
+
+WHY THE HIGH-fmin RULE IS "PREFER SINC" RATHER THAN A SECOND CROSSOVER.  Over fmin >= 100 the
+penalty for always choosing sinc is at worst 1.12x (at M=55, fmin=100, the one place cubic still
+wins), against 5.58x for always choosing cubic.  With margins that asymmetric a flat
+recommendation beats a finely-placed boundary that is only supported at four masses.
 
 'nearest' is never competitive: 200-440 nats throughout, and it crosses 1 nat of error at SNR
 2-6, i.e. it is already unusable at O4 SNRs.
@@ -71,10 +99,17 @@ Nor is a 99.99%-power quantile of the measured spectrum: with IMR points it is n
 (sinc still wins at fNyq/f_Q = 4.63 while cubic already wins at 4.23), because an IMR spectrum
 has a ringdown bump rather than a smooth roll-off.
 
-RIFT.misc.psd_bandwidth DOES separate them, at quantile 0.99: ranking the 9 IMR points by
-fNyq/estimate puts every sinc winner below 2.99 and every cubic winner above 4.33, a 45% gap.
-That is the candidate for a future automatic selector -- it is not wired in yet, and the fmin
-dependence has not been re-checked with IMR.
+RIFT.misc.psd_bandwidth does NOT separate them, and this has now been tested properly.  An
+earlier revision proposed it as a future selector on the strength of a clean split at quantile
+0.99 (sinc <= 2.99, cubic >= 4.33, a 45% gap).  That split was measured at a SINGLE fmin -- all 9
+points were fmin 30.  Adding the fmin sweep, the classes OVERLAP over [4.21, 6.01] with 5 points
+inside, and one sinc winner ranks above four cubic winners.  A quantile sweep from 0.50 to
+0.99999 finds NO separating value; the best is 0.95, still overlapping by 1.18x.  The estimator's
+fmin response is simply too weak in the direction that matters: over fmin 20->150 it moves the
+M=55 score by only -7% while the physics flips the winner.
+
+That is the THIRD candidate signature to fail -- fNyq/fmax, then f_ISCO, now a PSD-integrated
+bandwidth -- which is why the choice is documented rather than automated.
 
 ERROR GROWS AS SNR^2 (measured exponent 1.999-2.006 over two decades), so the choice matters more
 at 3G sensitivities.
@@ -121,7 +156,8 @@ BARE_FLAG_SENTINEL = '__bare__'
 # asserts each entry point's --help contains this exact text, which is what stops one copy drifting
 # (an earlier revision left util_RIFT_pseudo_pipe.py recommending the pre-IMR "cubic unless below
 # ~4 Msun", i.e. the measurably worse stencil across roughly 4-20 Msun, while the others were right).
-CROSSOVER_GUIDANCE = "the crossover is between 20 and 35 Msun"
+CROSSOVER_GUIDANCE = ("the crossover is between 20 and 35 Msun AT fmin <= 50 Hz, and rises with "
+                      "fmin -- at fmin >= 100 Hz prefer sinc at any mass")
 
 
 

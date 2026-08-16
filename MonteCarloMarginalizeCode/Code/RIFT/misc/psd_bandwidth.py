@@ -33,26 +33,20 @@ IFO_PREFERENCE = ('H1', 'L1', 'K1', 'I1', 'V1')
 
 # Fraction of the matched-filter SNR^2 that must accumulate below the reported bandwidth.
 #
-# CHOSEN FOR SEPARATING POWER, NOT FOR RATIO ACCURACY -- those are different objectives and they
-# disagree here.  Validated against 9 SEOBNRv4 (IMR) stencil measurements: rank each configuration
-# by fNyq/estimate and ask whether the sinc winners and the cubic winners separate.
+# NOT CALIBRATED FOR ANY DECISION, and a decision built on it has been tried and RETRACTED.
 #
-#     ranked by                     sinc wins up to   cubic wins from   separates?   gap
-#     fNyq / measured 99.99%             4.628             4.233        NO (overlap)  --
-#     fNyq / estimate, q = 0.95          6.059             6.113        yes          1.009x
-#     fNyq / estimate, q = 0.99          2.990             4.330        yes          1.45x
+# An earlier revision chose 0.99 for "separating power": ranking 9 stencil measurements by
+# fNyq/estimate split the winners cleanly (sinc <= 2.99, cubic >= 4.33, a 45% gap).  All 9 points
+# were at a SINGLE fmin.  Adding a 20-point fmin sweep, the classes OVERLAP over [4.21, 6.01]
+# with 5 points inside, and a quantile sweep from 0.50 to 0.99999 finds NO separating value (the
+# best, 0.95, still overlaps by 1.18x).  The estimator's fmin response is too weak in the
+# direction that matters: over fmin 20->150 it moves the M=55 score by only -7% while the physics
+# flips the winner.
 #
-# q = 0.95 gives the most uniform estimate/measured RATIO (spread 1.36x against IMR) but leaves a
-# 1% window to place a threshold in, which is not usable.  q = 0.99 has a worse ratio spread
-# (1.76x) and a 45%-wide window.  For a decision, separation is what matters.
-#
-# Note the raw measured 99.99%-power bandwidth does NOT separate them at all -- an IMR spectrum
-# has a ringdown bump rather than a smooth roll-off, so a very high quantile chases the bump.
-# This estimator works precisely because it integrates against the PSD instead.
-#
-# If a stencil selector is ever built on this: threshold ~ 3.6 (the geometric mean of the
-# 2.99-4.33 bracket).  NOT wired in yet -- the fmin dependence has not been re-checked with an
-# IMR model, and with TaylorT4 fmin alone flipped the winner at M = 5.
+# 0.99 is retained as the default because it is where the PSD demonstrably does work (see
+# test_psd_bandwidth's structural guards) -- NOT because it is validated against anything.  If
+# you are about to key a decision off this number, measure first; two previous bandwidth proxies
+# and this one have all failed that test.
 DEFAULT_POWER_QUANTILE = 0.99
 
 
