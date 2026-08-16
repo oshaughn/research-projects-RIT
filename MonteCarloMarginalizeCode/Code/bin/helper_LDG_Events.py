@@ -1141,9 +1141,11 @@ helper_ile_args += " --n-chunk " + str(n_chunk_ile) + " "
 if opts.internal_ile_interpolate_time and not is_off_request(opts.internal_ile_interpolate_time):
     # Sub-sample Q_lm time interpolation; needs the NoLoop path (--vectorized --gpu --force-xpy).
     # A bare flag (or the legacy literal 'True') means "pick the stencil for me"; anything else is
-    # passed through verbatim so an explicit request is never second-guessed.  Both srate and the
-    # effective fmax are final by this point: srate is set at most once from [engine]/srate above,
-    # and fmax likewise, so no later assignment can invalidate the choice made here.
+    # a stencil name, validated and then passed through so an explicit request is never
+    # second-guessed.  Both `srate` and the effective fmax are final by this point -- each is
+    # assigned at most once, above -- so no later statement can invalidate the choice made here.
+    # But note the decision does NOT use `srate` directly; see effective_srate_for_stencil below,
+    # because --srate-internal and an absent --srate both move the grid the stencil steps along.
     _interp_request = str(opts.internal_ile_interpolate_time).strip()
     if is_auto_request(_interp_request):
         fmax_effective = opts.fmax if not (opts.fmax is None) else fmax
