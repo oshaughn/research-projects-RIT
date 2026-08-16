@@ -139,13 +139,16 @@ RULES = [
     (r"^OPTION:--sampler-warmstart-(cover-frac|inflate)$", "PORT",
      "Coverage floor and inflation for a handed-off seed. Pure geometry on the "
      "sampled unit cube."),
-    (r"^OPTION:--sampler-warmstart-samples$", "PHYSICS",
-     "QUESTION: what frame are the named columns of a LISA pilot file in? The reader "
-     "expects right_ascension/declination/inclination/psi/phi_orb/distance, and the "
-     "LISA driver does use those KEY NAMES internally -- but they carry ecliptic "
-     "(and, with --internal-sky-network-coordinates, rotated) values, so a file is only "
-     "meaningful if the writer and reader agree on the convention. Needs a stated "
-     "convention before it can be ported, or a pilot written by the LISA driver itself."),
+    (r"^OPTION:--sampler-warmstart-samples$", "PORT",
+     "RESOLVED (RO asked 'does it matter what convention it is?' -- it does not). The seed "
+     "is only points in the sampler's OWN coordinate space, read positionally against "
+     "params_ordered, so any self-consistent convention works; what matters is that the "
+     "file and this driver agree. With the sky settled as ecliptic that is determined: the "
+     "pilot is in the driver's sampled coordinates. THE HAZARD IS THAT A MISMATCH IS "
+     "UNDETECTABLE -- ecliptic lambda and RA share [0,2pi), beta and dec share [-pi/2,pi/2], "
+     "so no range check can tell them apart, and a wrong-frame seed silently contracts the "
+     "live volume around the wrong region (biased lnZ, healthy-looking n_eff). Port with a "
+     "frame tag written by the producer and refused/warned on by the reader."),
 
     # --------------------------------------------------------------------- MC error replicas
     (r"^OPTION:--mc-error-(replicas|sigma-trigger|ess-trigger|khat-trigger)$", "PORTED",
@@ -243,25 +246,31 @@ RULES = [
      "double-weighting site."),
 
     # ----------------------------------------------------------------- cosmology / d prior
-    (r"^OPTION:--d-prior-redshift$", "PHYSICS",
-     "QUESTION: which cosmology and which redshift range should a LISA distance prior "
-     "use? This is arguably MORE important for LISA than for ground-based work -- MBHB "
-     "sit at z~1-20 where a Euclidean d^2 prior is badly wrong -- but the main driver's "
-     "helper was built and gridded for the ground-based range. Needs a stated "
-     "cosmology and a z ceiling before porting."),
-    (r"^FUNC:(dLofz|dVdz)$", "PHYSICS",
-     "Cosmology helpers behind --d-prior-redshift. Same question: the interpolation "
-     "range has to be re-chosen for MBHB redshifts."),
+    (r"^OPTION:--d-prior-redshift$", "PORT",
+     "ANSWERED (RO 2026-08-16): use Planck15 via the framework helper, "
+     "RIFT.likelihood.priors_utils.get_astropy_cosmology('Planck15'). NOTE a divergence to "
+     "raise at port time: the MAIN driver does NOT use that helper -- it hardcodes "
+     "FlatLambdaCDM(H0=67.900, Om0=0.3065) from H0_SI/OMEGA_M, whereas astropy Planck15 is "
+     "H0=67.740, Om0=0.3075 (dL(z=5) 47756 vs 47732 Mpc, 0.05%). Small, but this exercise "
+     "exists to stop silent divergences, so either LISA follows the instruction and main is "
+     "noted as different, or main moves to the helper too."),
+    (r"^FUNC:(dLofz|dVdz)$", "PORT",
+     "Cosmology helpers behind --d-prior-redshift. Planck15 via the framework helper; the "
+     "interpolation grid still needs a z ceiling that covers MBHB (z~20), which is a "
+     "gridding choice rather than a physics decision."),
 
     # -------------------------------------------------------------- distance/incl reparam
-    (r"^OPTION:--internal-reparam-dl-incl$", "PHYSICS",
-     "QUESTION: does the quadrupole amplitude A(iota)=sqrt(((1+cos^2 i)/2)^2+cos^2 i) "
-     "remain the right axis to reparameterize distance against under the LISA TDI "
-     "response? The reparameterization is a pure l=|m|=2 statement; LISA MBHB are "
-     "strongly higher-mode and the TDI channels mix the two polarizations differently, "
-     "so the degeneracy it straightens may not be the degeneracy LISA has."),
-    (r"^FUNC:_reparam_A_of_incl$", "PHYSICS", "Implementation of --internal-reparam-dl-incl."),
-    (r"^CONST:_REPARAM_", "PHYSICS", "Tuning constants for --internal-reparam-dl-incl."),
+    (r"^OPTION:--internal-reparam-dl-incl$", "PORT",
+     "ANSWERED (RO 2026-08-16): 'should be good enough; it is a testable axis though -- "
+     "do not guess, measure.' So: port it, but do NOT enable by default until measured. The "
+     "test is cheap and direct -- compare n_eff / lnZ scatter with and without the "
+     "reparameterization on a fixed LISA MBHB intrinsic point, since if the axis is wrong "
+     "for TDI it shows up as no improvement or worse conditioning, not as a bias."),
+    (r"^FUNC:_reparam_A_of_incl$", "PORT",
+     "Implementation of --internal-reparam-dl-incl; ports with it, measured before default-on."),
+    (r"^CONST:_REPARAM_", "PORT",
+     "Tuning constants for --internal-reparam-dl-incl; port verbatim, re-tune only if the "
+     "measurement says the axis helps."),
 
     # ---------------------------------------------------------------------- extrinsic boxes
     (r"^OPTION:--limit-(psi|inclination)$", "PORT",
@@ -269,14 +278,15 @@ RULES = [
      "both drivers and LISA exposes --inclination-cosine-sampler, which is exactly the "
      "case junior PR #58 found silently ignored -- so port the POST-#58 form, including "
      "the cos(iota) endpoint swap."),
-    (r"^OPTION:--limit-(right-ascension|declination)$", "PHYSICS",
-     "QUESTION: what should a sky zoom box mean for LISA? The LISA driver reuses the "
-     "KEY NAMES right_ascension/declination for its sampled sky pair, but the values "
-     "are ecliptic (lambda,beta) and may be further rotated by "
-     "--internal-sky-network-coordinates. A box is therefore well-defined only once it "
-     "is stated which frame the user is quoting -- and LISA already has "
-     "--ecliptic-latitude/--ecliptic-longitude/--lisa-fixed-sky, which may already be "
-     "the intended mechanism."),
+    (r"^OPTION:--limit-(right-ascension|declination)$", "PORT",
+     "ANSWERED (RO 2026-08-16): LISA and LIGO are never overlapping use cases, so follow "
+     "the convention already in this driver, document it in the help string, and DO NOT "
+     "rename the options. VERIFIED that convention is ECLIPTIC: the sampled "
+     "right_ascension/declination columns flow to P.phi/P.theta and then to "
+     "lisa_sky_lamda/lisa_sky_beta, i.e. ecliptic longitude/latitude, under the historical "
+     "key names. So --limit-right-ascension bounds lambda and --limit-declination bounds "
+     "beta; say exactly that in the help text. Port the post-PR#58 form including the "
+     "cos(iota)/cos(dec) endpoint swap under the cosine samplers."),
 
     # --------------------------------------------------------------------- data / waveform io
     (r"^OPTION:--internal-data-storage-window-half$", "NA",
