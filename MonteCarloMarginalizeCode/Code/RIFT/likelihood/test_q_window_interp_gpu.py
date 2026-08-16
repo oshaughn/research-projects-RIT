@@ -21,6 +21,21 @@ Three levels, cheapest first, so a failure localises itself:
 
 SKIPPED if cupy / a GPU is unavailable.  Run on a GPU node:
     python RIFT/likelihood/test_q_window_interp_gpu.py
+
+MEASURED (2026-08): identical to the last digit on an RTX 2080 Ti (sm_75) and on an RTX PRO 4000
+Blackwell (sm_120), so the kernel is not architecture-sensitive.
+
+If cupy raises "nvrtc: error: invalid value for --gpu-architecture (-arch)" you are on a card
+newer than your cupy knows.  cupy 10.6 computes min(arch, nvrtc_max_cc) on STRINGS, so
+min("120","86") == "120" and it hands nvrtc an sm_120 it cannot target.  BOTH of these are needed
+to work around it (either alone still fails) -- pin the PTX target and let the driver JIT forward:
+
+    export CUPY_COMPILE_WITH_PTX=1
+    # plus a sitecustomize.py early on PYTHONPATH:
+    #   import cupy.cuda.compiler as _c; _c._get_arch = lambda: "86"
+
+That is a test-time workaround for an old cupy, NOT something to carry into production; the real
+fix is a container whose CUDA can target the card directly.
 """
 from __future__ import print_function, division
 
