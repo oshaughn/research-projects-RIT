@@ -25,7 +25,7 @@ from RIFT.misc.psd_bandwidth import (
     bandwidth_from_psd,
     choose_representative_ifo,
     estimate_signal_bandwidth,
-    inspiral_amplitude_sq,
+    imr_amplitude_sq,
 )
 
 
@@ -119,65 +119,66 @@ def test_malformed_psd_inputs_return_none():
     print("malformed PSD inputs return None: OK")
 
 
-def test_inspiral_amplitude_truncates_at_isco():
+def test_amplitude_is_a_power_law_in_the_inspiral():
     f = np.array([10.0, 100.0, 1000.0])
-    a_untrunc = inspiral_amplitude_sq(f)
+    a_untrunc = imr_amplitude_sq(f)
     assert np.all(a_untrunc > 0)
-    # M=55 -> f_ISCO ~ 80 Hz, so only the 10 Hz bin survives
-    a_trunc = inspiral_amplitude_sq(f, m_total_msun=55.0)
-    assert a_trunc[0] > 0 and a_trunc[1] == 0 and a_trunc[2] == 0
-    # power-law shape, f^(-7/3)
+    # power-law shape in the inspiral, f^(-7/3)
     ratio = a_untrunc[0] / a_untrunc[1]
     assert abs(ratio - 10.0 ** (7.0 / 3.0)) < 1e-6 * ratio
-    print("inspiral amplitude is f^(-7/3), truncated at f_ISCO: OK")
+    print("inspiral amplitude is f^(-7/3): OK")
 
 
-def test_estimator_does_not_degenerate_into_f_isco():
-    """THE STRUCTURAL GUARD.  The PSD must actually influence the answer.
+def test_signal_has_power_above_f_isco():
+    """f_ISCO is the TERMINATION POINT OF AN APPROXIMANT, not where a binary stops radiating.
 
-    At a very high power quantile the f_ISCO truncation dominates and this tool returns f_ISCO to
-    within a percent, contributing nothing over a formula that needs no PSD at all -- and
-    inheriting f_ISCO's measured 7.4x drift against true Q bandwidth, which is exactly what made
-    an earlier f_ISCO-based stencil rule unusable.  The default quantile must sit where the PSD's
-    high-frequency roll-off is doing real work.
+    An earlier version of this module truncated |h|^2 at f_ISCO. That hard-coded TaylorT4's
+    behaviour (it terminates at ISCO by construction) as if it were physics, and it made the
+    whole estimator degenerate into f_ISCO -- inheriting the 7.4x drift that made an f_ISCO-based
+    stencil rule unusable. A real IMR signal keeps radiating through merger and ringdown, to
+    ~4x f_ISCO.
+    """
+    for m_total in (5.0, 20.0, 55.0):
+        f_isco = 4397.0 / m_total
+        probe = np.array([0.5, 1.5, 3.0, 8.0]) * f_isco
+        amp = imr_amplitude_sq(probe, m_total_msun=m_total)
+        assert amp[0] > 0 and amp[1] > 0, "inspiral and merger must carry power"
+        assert amp[2] > 0, (
+            "M=%g: no power at 3x f_ISCO -- the spectrum is being truncated at the approximant's "
+            "termination point rather than modelling merger-ringdown" % m_total)
+        assert amp[3] == 0, "power must eventually cut off well above ringdown"
+    print("IMR spectrum carries power to ~4x f_ISCO, not truncated at it: OK")
 
-    Uses a synthetic PSD that rises steeply above a knee, which is the feature of a real detector
-    curve that makes this work.  No lal, no data.
+
+def test_quieter_high_frequency_noise_widens_the_band():
+    """THE STRUCTURAL GUARD, and the forward-looking one.
+
+    Real detector high-frequency walls are NOT steep -- aLIGO ZDHP is only ~3.7x its minimum at
+    1500 Hz -- and future detectors are flatter still. So the estimate must respond to the
+    high-frequency noise level in the right direction: making the detector quieter up there must
+    WIDEN the occupied band, because more high-frequency signal becomes measurable.
+
+    A tool that failed this would be reporting the waveform's scale while ignoring the detector,
+    which is the failure mode that motivated writing it.
     """
     df = 0.25
     freqs = np.arange(df, 2048.0 + df, df)
-    knee = 300.0
-    psd = 1e-46 * (1.0 + (freqs / knee) ** 4)          # flat, then steeply rising
+    # a realistic shape: flat bucket, GENTLE high-frequency rise (not the steep wall it is
+    # tempting to write -- see the module docstring)
+    base = 1e-46 * (1.0 + (freqs / 800.0) ** 2)
 
-    for m_total in (5.0, 20.0, 55.0):
-        f_isco = 4397.0 / m_total
-        bw = bandwidth_from_psd(freqs, psd, 30.0, 1700.0, m_total_msun=m_total)
+    prev = None
+    for factor in (1.0, 3.0, 10.0, 100.0):
+        psd = base.copy()
+        psd[freqs > 300.0] /= factor
+        bw = bandwidth_from_psd(freqs, psd, 30.0, 1700.0, m_total_msun=20.0)
         assert bw is not None
-        # must be strictly inside the truncation, not sitting on it
-        assert bw < 0.98 * f_isco, (
-            "at M=%g the estimate (%.1f Hz) is within 2%% of f_ISCO (%.1f Hz): the PSD is not "
-            "influencing the answer, so this tool has degenerated into a formula that needs no "
-            "PSD -- and inherits f_ISCO's 7.4x drift. Lower DEFAULT_POWER_QUANTILE."
-            % (m_total, bw, f_isco))
-        print("M=%5.1f: estimate %6.1f Hz vs f_ISCO %6.1f Hz (%.0f%% of it)"
-              % (m_total, bw, f_isco, 100.0 * bw / f_isco))
-
-    # ...and the PSD must demonstrably matter: extra high-frequency noise must narrow the band.
-    #
-    # Compare a flat PSD against the same PSD with a wall of extra noise above 200 Hz.  (Do NOT
-    # compare (1+(f/knee)^4) against (1+(f/knee)^8) expecting the latter to be "steeper" -- below
-    # the knee x^8 < x^4, so that curve is actually the QUIETER one exactly where the quantile
-    # lands, and the comparison measures the opposite of what it looks like.)
-    flat = np.ones_like(freqs) * 1e-46
-    walled = flat.copy()
-    walled[freqs > 200.0] *= 1000.0
-    bw_flat = bandwidth_from_psd(freqs, flat, 30.0, 1700.0, m_total_msun=5.0)
-    bw_walled = bandwidth_from_psd(freqs, walled, 30.0, 1700.0, m_total_msun=5.0)
-    print("M=5, flat PSD %.1f Hz -> with a noise wall above 200 Hz %.1f Hz"
-          % (bw_flat, bw_walled))
-    assert bw_walled < bw_flat, (
-        "adding high-frequency noise must reduce the estimated bandwidth (%g vs %g); if it does "
-        "not, the PSD is being ignored" % (bw_walled, bw_flat))
+        print("high-f noise divided by %5.0f -> bandwidth %6.1f Hz" % (factor, bw))
+        if prev is not None:
+            assert bw > prev, (
+                "reducing high-frequency noise by %gx did not widen the band (%.1f -> %.1f Hz); "
+                "the estimator is ignoring the detector" % (factor, prev, bw))
+        prev = bw
 
 
 def test_preference_list_is_sane():
@@ -193,7 +194,8 @@ if __name__ == "__main__":
     test_bandwidth_is_bounded_by_the_band_and_by_the_mass()
     test_binary_too_heavy_for_the_band_gives_no_estimate()
     test_malformed_psd_inputs_return_none()
-    test_inspiral_amplitude_truncates_at_isco()
-    test_estimator_does_not_degenerate_into_f_isco()
+    test_amplitude_is_a_power_law_in_the_inspiral()
+    test_signal_has_power_above_f_isco()
+    test_quieter_high_frequency_noise_widens_the_band()
     test_preference_list_is_sane()
     print("\nPASS")

@@ -33,30 +33,27 @@ IFO_PREFERENCE = ('H1', 'L1', 'K1', 'I1', 'V1')
 
 # Fraction of the matched-filter SNR^2 that must accumulate below the reported bandwidth.
 #
-# CALIBRATED, and the value matters more than it looks.  Compared against Q bandwidths measured
-# directly from the likelihood's own Q_lm spectra (ZDHP analytic PSD, fmin 30, fmax 1700), the
-# ratio estimate/measured behaves like this:
+# *** NOT YET CALIBRATED.  DO NOT USE THIS TO DRIVE A DECISION WITHOUT CALIBRATING IT FIRST. ***
 #
-#     M/Msun         2.6    5    10    20    35    55    80   120     spread
-#     q = 0.9999    3.23  1.86  1.33  1.10  0.94  0.81  0.68  0.45     7.2x
-#     q = 0.99      1.35  1.25  1.16  1.05  0.92  0.81  0.67  0.45     3.0x
-#     q = 0.95      0.67  0.68  0.80  0.88  0.85  0.77  0.66  0.45     1.5x
+# An earlier revision quoted a calibration against Q bandwidths measured from the likelihood's
+# own Q_lm spectra.  Those references were generated with TaylorT4, which terminates at ISCO and
+# has no merger-ringdown, so they understate the true bandwidth by an unknown and mass-dependent
+# amount.  Calibrating this against them would have propagated exactly the approximant artifact
+# this module was rewritten to stop modelling.  An IMR re-measurement is in progress; the
+# quantile should be fixed against those numbers, not the TaylorT4 ones.
 #
-# At a very high quantile the f_ISCO truncation dominates and the PSD contributes essentially
-# nothing -- the estimator degenerates into f_ISCO and inherits its 7x drift, which is precisely
-# the failure that made an earlier f_ISCO-based stencil rule unusable.  Only at a lower quantile
-# does the PSD's high-frequency roll-off actually do the work, and the drift collapses.
+# WHAT IS ALREADY KNOWN ABOUT THE SHAPE OF THE ANSWER, from the IMR amplitude against a ZDHP PSD
+# at fmin 30 / fmax 1700, quantile 0.95:
 #
-# 0.95 systematically UNDER-reads the true bandwidth by ~25%, roughly uniformly (0.66-0.88
-# excluding M=120, which is a degenerate 6.6 Hz-wide band).  Under-reading is the safe direction
-# for the stencil decision: it inflates fNyq/bandwidth and so favours the cheaper, more forgiving
-# stencil.  Do not raise this without re-checking that the estimator has not collapsed back onto
-# f_ISCO -- test_psd_bandwidth guards exactly that.
+#     M/Msun        2.6    5    10    20    35    55    80
+#     estimate/Hz   336   336   340   352   335   264   199
 #
-# CALIBRATION IS PROVISIONAL: the reference bandwidths above were measured with TaylorT4, which
-# terminates at ISCO and has no merger-ringdown, so the high-mass columns are not trustworthy.
-# An IMR re-measurement is in progress; expect the true high-mass bandwidths to be HIGHER than
-# these, which would make the current under-read larger at high mass (still the safe direction).
+# i.e. it is nearly MASS-INDEPENDENT below ~35 Msun and is being set by the detector, not the
+# binary.  That is plausibly correct physics rather than a bug: when f_ringdown lies above fmax
+# (true for everything below ~10 Msun here), the merger is out of band entirely and the occupied
+# band really is whatever the PSD's sensitive region is.  But it is a strong claim and it has not
+# been checked against a measured IMR Q spectrum, which is the other reason not to wire this into
+# a decision yet.
 DEFAULT_POWER_QUANTILE = 0.95
 
 
@@ -101,30 +98,79 @@ def _read_psd(psd_path, ifo):
         return None
 
 
-def inspiral_amplitude_sq(freqs, m_total_msun=None):
-    """|h(f)|^2 for a stationary-phase inspiral, up to an arbitrary constant.
+# Characteristic frequencies of an IMR signal, as multiples of the GW frequency at ISCO.
+# f_ISCO is NOT where the signal stops -- it is where the inspiral description stops and merger
+# begins.  A real binary keeps radiating through merger and ringdown, and for a remnant spin
+# a ~ 0.7 the (2,2) ringdown sits at ~3.9 f_ISCO.  Truncating at f_ISCO models the TERMINATION OF
+# AN APPROXIMANT (TaylorT4 stops there by construction), not the physics.
+MERGER_OVER_ISCO = 2.0        # inspiral -> merger transition
+RINGDOWN_OVER_ISCO = 3.9      # (2,2) ringdown of an a~0.7 remnant
+RINGDOWN_Q = 3.0              # QNM quality factor; the Lorentzian width is f_ring / (2 Q)
+CUTOFF_OVER_RINGDOWN = 3.0    # where the ringdown Lorentzian has fallen far enough to drop
 
-    The SPA amplitude goes as f^(-7/6), so the power goes as f^(-7/3).  If a total mass is given
-    the spectrum is truncated at the (2,2) GW frequency at ISCO, 4397/M Hz, which is where an
-    inspiral-only description stops being meaningful.
 
-    NOTE this is an INSPIRAL model: it has no merger-ringdown, so it UNDERSTATES the band for
-    high-mass systems where merger power matters.  That is the safe direction for the stencil
-    decision (it inflates fNyq/bandwidth and so favours the cheaper, more forgiving stencil), but
-    it is a real limitation -- do not use this to make a claim about high-mass merger content.
+def imr_amplitude_sq(freqs, m_total_msun=None):
+    """|h(f)|^2 for an inspiral-merger-ringdown signal, up to an arbitrary constant.
+
+    Piecewise, in the standard IMRPhenom shape:
+
+        f <  f_merg    inspiral   |h| ~ f^(-7/6)   ->  |h|^2 ~ f^(-7/3)
+        f <  f_ring    merger     |h| ~ f^(-2/3)   ->  |h|^2 ~ f^(-4/3)
+        f >= f_ring    ringdown   Lorentzian of width f_ring / (2 Q)
+
+    WHY NOT SIMPLY TRUNCATE AT f_ISCO.  An earlier version of this function did, and it was
+    wrong in a way that mattered: f_ISCO is where an inspiral-only APPROXIMANT terminates, not
+    where a binary stops radiating.  Truncating there hard-codes the artifact -- it also made the
+    whole estimator degenerate into f_ISCO, reproducing the 7.4x drift that made an f_ISCO-based
+    stencil rule unusable in the first place.  Here f_ISCO only sets the SCALE of the merger and
+    ringdown features; real power continues to ~4x it.
+
+    With no mass supplied this falls back to the pure inspiral power law, because the merger
+    scale is unknown -- that is the one case where the caller genuinely has nothing better.
     """
     freqs = np.asarray(freqs, dtype=float)
     amp_sq = np.zeros_like(freqs)
     good = freqs > 0
     amp_sq[good] = freqs[good] ** (-7.0 / 3.0)
+
+    m_total = None
     if m_total_msun:
         try:
             m_total = float(m_total_msun)
         except (TypeError, ValueError):
-            m_total = 0.0
-        if np.isfinite(m_total) and m_total > 0:
-            amp_sq[freqs > (4397.0 / m_total)] = 0.0
+            m_total = None
+        if m_total is not None and not (np.isfinite(m_total) and m_total > 0):
+            m_total = None
+    if m_total is None:
+        return amp_sq
+
+    f_isco = 4397.0 / m_total
+    f_merg = MERGER_OVER_ISCO * f_isco
+    f_ring = RINGDOWN_OVER_ISCO * f_isco
+    sigma = f_ring / (2.0 * RINGDOWN_Q)
+    f_cut = f_ring + CUTOFF_OVER_RINGDOWN * sigma
+
+    # merger: |h|^2 ~ f^(-4/3), matched to the inspiral value at f_merg so the spectrum is
+    # continuous (the absolute normalisation is irrelevant -- only the SHAPE sets the quantile).
+    merger = good & (freqs >= f_merg) & (freqs < f_ring)
+    if np.any(merger):
+        scale = f_merg ** (-7.0 / 3.0) / (f_merg ** (-4.0 / 3.0))
+        amp_sq[merger] = scale * freqs[merger] ** (-4.0 / 3.0)
+
+    # ringdown: Lorentzian in |h|, so |h|^2 is the square, matched at f_ring
+    ring = good & (freqs >= f_ring) & (freqs <= f_cut)
+    if np.any(ring):
+        amp_ring = f_merg ** (-7.0 / 6.0) / (f_merg ** (-2.0 / 3.0)) * f_ring ** (-2.0 / 3.0)
+        lorentz = 1.0 / (1.0 + ((freqs[ring] - f_ring) / (0.5 * sigma)) ** 2)
+        amp_sq[ring] = (amp_ring * lorentz) ** 2
+
+    amp_sq[freqs > f_cut] = 0.0
     return amp_sq
+
+
+# Backwards-compatible alias.  The old name promised inspiral-only behaviour, which is no longer
+# what this does; keep it working but point callers at the accurate name.
+inspiral_amplitude_sq = imr_amplitude_sq
 
 
 def bandwidth_from_psd(freqs, psd_values, fmin, fmax, m_total_msun=None,
@@ -158,7 +204,7 @@ def bandwidth_from_psd(freqs, psd_values, fmin, fmax, m_total_msun=None,
         return None
     f = freqs[band]
     s = psd_values[band]
-    integrand = inspiral_amplitude_sq(f, m_total_msun) / s
+    integrand = imr_amplitude_sq(f, m_total_msun) / s
     if not np.any(integrand > 0):
         # the whole in-band integrand was killed, e.g. f_ISCO below fmin (a binary too heavy to
         # radiate in this band at all).  No meaningful bandwidth; say so.
