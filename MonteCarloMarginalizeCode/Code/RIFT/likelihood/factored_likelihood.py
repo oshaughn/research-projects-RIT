@@ -2214,16 +2214,22 @@ def _sinc_Q_window_numpy(Q_block, start_indices, fractional_offsets, npts,
             8         9.0e-5      2.7e-4        2.0e-5
            16         1.0e-5      3.3e-4        2.2e-5
 
-    So the crossover is around fNyq/fmax ~ 4-8 (higher a pushes it further).  PRODUCTION RUNS ARE
-    NEAR NYQUIST -- srate 4096 with fmax ~1700 is fNyq/fmax ~ 1.2 -- which is exactly where sinc is
-    tens of times better.  A heavily oversampled configuration (the slow-rotation brute-force test
-    runs fmax=512 at srate 16384, i.e. 16) is the regime where cubic already wins and this option
-    should NOT be used.
+    Re-measured with 12 seeds per point, the crossover (cubic error = sinc error) sits at
+    fNyq/fmax ~= 5.3, with the seed-to-seed spread bracketing 1.0 only over 5-6.  PRODUCTION RUNS
+    ARE NEAR NYQUIST -- srate 4096 with fmax ~1700 is fNyq/fmax ~ 1.2 -- which is exactly where
+    sinc is tens of times better.  A heavily oversampled configuration (the slow-rotation
+    brute-force test runs fmax=512 at srate 16384, i.e. 16) is the regime where cubic already
+    wins and this option should NOT be used.
 
-    Because of that crossover the DEFAULT is deliberately left at 'cubic': this is opt-in, and the
-    right choice depends on fNyq/fmax, which this function cannot see.
+    Because of that crossover the DEFAULT is deliberately left at 'cubic': the right choice
+    depends on fNyq/fmax, which this function cannot see.  The PIPELINE can, and does:
+    RIFT.likelihood.time_interp_choice.choose_time_interp_stencil applies the threshold, and
+    helper_LDG_Events.py calls it when --internal-ile-interpolate-time is given without a value.
 
-    COST: 2a taps against the cubic's 4, so term1 costs ~a/2 times more.
+    COST, measured (not estimated from the tap count):
+      CPU  ~4.2-4.5x cubic -- 2a=16 taps against 4, and this path IS tap-count bound.
+      GPU  ~1.6-3.0x cubic -- Q_inner_sinc is bandwidth/latency bound, so it does far better
+           than the naive 4x.  See Q_inner_product.Q_inner_product_sinc_cupy.
     """
     npts_extrinsic = len(start_indices)
     n_lms_det = Q_block.shape[1]

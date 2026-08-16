@@ -130,6 +130,18 @@ def Q_inner_product_sinc_cupy(Q, A, start_indices, fractional_offsets, window_si
     Which stencil to use depends on the oversampling factor fNyq/fmax -- see
     ``_sinc_Q_window_numpy`` for the measured crossover.  This one is the accurate choice near
     Nyquist, which is where production runs sit.
+
+    COST, measured on an RTX 2080 Ti against ``Q_inner_product_cubic_cupy``, ms per call at
+    (n_extrinsic, window, n_lms, n_time):
+
+        (1e4, 50, 5, 4096)    0.83 -> 1.35   1.6x
+        (4e4, 50, 5, 4096)    2.95 -> 5.41   1.8x
+        (1.6e5, 50, 5, 4096) 11.39 -> 20.66  1.8x
+        (4e4, 100, 9, 8192)   6.11 -> 18.08  3.0x
+
+    i.e. well under the 4x the 16-vs-4 tap ratio would suggest, because the kernel is bandwidth
+    and latency bound rather than tap bound.  (The CPU window builder, which is tap bound, does
+    show the full ~4.2-4.5x.)
     """
     # Deferred import: factored_likelihood imports this module, so a top-level import would be
     # circular.  By call time factored_likelihood is always fully imported (it is the caller).

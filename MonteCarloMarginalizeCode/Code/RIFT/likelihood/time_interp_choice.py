@@ -24,8 +24,10 @@ signal; medians over 12 seeds; ratio = cubic error / sinc error, so >1 means sin
 The crossover therefore sits at fNyq/fmax ~= 5.3, and the seed-to-seed spread brackets 1.0 only
 over 5-6.  The threshold below is placed at 5, i.e. deliberately on the CUBIC side of the
 measured crossover: through the ambiguous 5-6 band the two errors are within ~30% of each other,
-while sinc costs ~4x cubic in the Q product (16 taps against 4), so there the cheaper incumbent
-should win.  Do not move this without re-measuring -- it is a measured number, not a taste.
+while sinc costs measurably more in the Q product -- ~4.2-4.5x cubic on CPU (16 taps against 4,
+and that path is tap-count bound) and ~1.6-3.0x on GPU (bandwidth bound, so better than the
+naive tap ratio) -- so there the cheaper incumbent should win.  Do not move this without
+re-measuring: it is a measured number, not a taste.
 
 Typical production -- srate 4096 with fmax 1700 -- is fNyq/fmax ~ 1.2, deep in sinc's regime,
 where sinc is 35-50x more accurate.  A heavily oversampled configuration (the slow-rotation
