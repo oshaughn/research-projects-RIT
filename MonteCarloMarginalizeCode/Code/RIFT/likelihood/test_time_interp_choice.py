@@ -21,11 +21,13 @@ Self-contained: numpy only, runs instantly.
 from __future__ import print_function
 
 from RIFT.likelihood.time_interp_choice import (
+    BARE_FLAG_SENTINEL,
     OFF_REQUEST_TOKENS,
     RETIRED_AUTO_TOKENS,
     TIME_INTERP_CHOICES,
     is_off_request,
     is_retired_auto_request,
+    resolve_interpolate_time_request,
     validate_stencil_name,
 )
 
@@ -86,6 +88,45 @@ def test_off_spellings_disable_rather_than_raise():
     print("off / retired-auto / stencil-name are disjoint: OK")
 
 
+def test_bare_flag_is_rejected_not_silently_ignored():
+    """A BARE '--internal-ile-interpolate-time' must not be indistinguishable from omitting it.
+
+    argparse's nargs='?' stores `const` for a bare flag.  With const=None a bare flag looks exactly
+    like an absent flag, so the pipeline's truthiness guard skipped the block and emitted no
+    --interpolate-time at all -- silently turning the feature OFF for anyone using the old
+    store_true spelling, while the help text claimed an explicit stencil was required.  Both
+    entry points now store BARE_FLAG_SENTINEL, which must raise with actionable text.
+    """
+    assert BARE_FLAG_SENTINEL is not None and BARE_FLAG_SENTINEL != '', \
+        "the bare-flag sentinel must be distinguishable from an absent flag"
+    assert resolve_interpolate_time_request(None) is None, "absent flag means disabled"
+    try:
+        resolve_interpolate_time_request(BARE_FLAG_SENTINEL)
+    except ValueError as e:
+        msg = str(e)
+        assert 'no value' in msg and 'nearest|cubic|sinc' in msg, \
+            "the bare-flag error must say what to do instead: %r" % msg
+    else:
+        raise AssertionError("a bare flag must raise, not resolve")
+    print("bare flag raises rather than silently disabling: OK")
+
+
+def test_resolver_covers_every_flag_spelling():
+    """off / bare / retired-auto / stencil / typo -- one resolver, exhaustive."""
+    assert resolve_interpolate_time_request(None) is None
+    for off in OFF_REQUEST_TOKENS + ('False', ' OFF '):
+        assert resolve_interpolate_time_request(off) is None, off
+    for good in TIME_INTERP_CHOICES + (' SINC ', 'Cubic'):
+        assert resolve_interpolate_time_request(good) in TIME_INTERP_CHOICES, good
+    for bad in (BARE_FLAG_SENTINEL,) + RETIRED_AUTO_TOKENS + ('sinK', 'lanczos', ''):
+        try:
+            resolve_interpolate_time_request(bad)
+        except ValueError:
+            continue
+        raise AssertionError("resolve_interpolate_time_request(%r) must raise" % bad)
+    print("resolver covers off / bare / retired-auto / stencil / typo: OK")
+
+
 def test_choices_agree_with_the_likelihood_module():
     """This leaf module duplicates TIME_INTERP_CHOICES to stay import-cheap; keep them in step."""
     from RIFT.likelihood.factored_likelihood import TIME_INTERP_CHOICES as FL_CHOICES
@@ -119,6 +160,8 @@ if __name__ == "__main__":
     test_retired_auto_spellings_raise_with_guidance()
     test_explicit_stencil_names_are_validated()
     test_off_spellings_disable_rather_than_raise()
+    test_bare_flag_is_rejected_not_silently_ignored()
+    test_resolver_covers_every_flag_spelling()
     test_choices_agree_with_the_likelihood_module()
     test_no_automatic_selection_api_survives()
     print("\nPASS")

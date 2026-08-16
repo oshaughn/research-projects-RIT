@@ -108,9 +108,41 @@ OFF_REQUEST_TOKENS = ('false', '0', 'no', 'off', 'none')
 RETIRED_AUTO_TOKENS = ('true', '1', 'yes', 'auto')
 
 
+# The value argparse stores for a BARE '--internal-ile-interpolate-time'.  It must NOT be None:
+# with const=None a bare flag is indistinguishable from omitting the flag entirely, so the
+# pipeline's truthiness guard skips the block and emits no --interpolate-time at all -- silently
+# turning the feature OFF for anyone using the old store_true spelling, while the help text
+# claims an explicit stencil is required.  A distinct sentinel makes the bare form reachable so
+# it can be rejected with an actionable message.
+BARE_FLAG_SENTINEL = '__bare__'
+
+
 def is_off_request(value):
     """True if this --internal-ile-interpolate-time value means "disabled"."""
     return str(value).strip().lower() in OFF_REQUEST_TOKENS
+
+
+def resolve_interpolate_time_request(value):
+    """Map a raw --internal-ile-interpolate-time value to None (disabled) or a stencil name.
+
+    THE SINGLE DEFINITION of what that flag means, so the two pipeline entry points cannot drift.
+    Returns None when the feature is off (flag absent, or an explicit 'False'/'off'/...), and a
+    canonical stencil name otherwise.  Raises ValueError, with guidance, for a bare flag, a
+    retired "choose for me" spelling, or a typo.
+    """
+    if value is None:
+        return None                      # flag absent
+    if is_off_request(value):
+        return None                      # explicitly disabled
+    if str(value).strip().lower() == BARE_FLAG_SENTINEL:
+        raise ValueError(
+            "--internal-ile-interpolate-time was given with no value. It used to be a bare "
+            "on/off flag that also chose the stencil for you; automatic selection has been "
+            "REMOVED as measurably unreliable, so a stencil must now be named explicitly: "
+            "nearest|cubic|sinc. Measured with an IMR model the crossover is between 20 and 35 "
+            "Msun total -- 'sinc' below it, 'cubic' above -- with modest 2.1-3.0x margins either "
+            "way. See RIFT.likelihood.time_interp_choice for the table.")
+    return validate_stencil_name(value)
 
 
 def is_retired_auto_request(value):

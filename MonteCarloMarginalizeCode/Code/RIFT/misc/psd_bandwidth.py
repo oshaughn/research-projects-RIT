@@ -230,17 +230,23 @@ def estimate_signal_bandwidth(psd_names, fmin, fmax, m_total_msun=None,
     """
     if not psd_names:
         return None, None, "no PSDs available"
-    ifo = choose_representative_ifo(list(psd_names.keys()))
-    if ifo is None:
+    if choose_representative_ifo(list(psd_names.keys())) is None:
         return None, None, "no usable detector names in the PSD set"
-    data = _read_psd(psd_names.get(ifo), ifo)
-    if data is None:
-        # one bad file should not sink the estimate if a sibling is readable
-        for alt in [x for x in psd_names if x != ifo]:
-            data = _read_psd(psd_names.get(alt), alt)
-            if data is not None:
-                ifo = alt
-                break
+    # One bad file must not sink the estimate if a sibling is readable -- but the fallback has to
+    # keep obeying the PREFERENCE order, not dict insertion order.  Re-running the chooser over
+    # the remaining candidates is what makes {'H1': malformed, 'V1': ok, 'L1': ok} pick L1; a
+    # plain iteration over the mapping picks whichever happens to come first, which for that
+    # example is Virgo, silently violating this module's stated representative-detector invariant.
+    remaining = list(psd_names.keys())
+    data = None
+    while remaining:
+        ifo = choose_representative_ifo(remaining)
+        if ifo is None:
+            break
+        data = _read_psd(psd_names.get(ifo), ifo)
+        if data is not None:
+            break
+        remaining = [x for x in remaining if x != ifo]
     if data is None:
         return None, ifo, "PSD for %s not readable (missing or malformed)" % (ifo,)
     freqs, values = data

@@ -181,6 +181,33 @@ def test_quieter_high_frequency_noise_widens_the_band():
         prev = bw
 
 
+def test_fallback_after_unreadable_psd_keeps_preference_order():
+    """A malformed PREFERRED PSD must fall back by PREFERENCE, not by dict insertion order.
+
+    {'H1': malformed, 'V1': readable, 'L1': readable} must reach L1, never V1.  Iterating the
+    mapping picks whichever key comes first, which for that example is Virgo -- silently
+    violating the module's representative-detector invariant precisely when a file is bad, i.e.
+    exactly when nobody is watching.  Asserted for BOTH insertion orders so a dict that happens
+    to be ordered favourably cannot hide it.
+    """
+    import RIFT.misc.psd_bandwidth as mod
+    orig = mod._read_psd
+    try:
+        for order in (['H1', 'V1', 'L1'], ['H1', 'L1', 'V1'], ['V1', 'H1', 'L1']):
+            tried = []
+            mod._read_psd = lambda path, ifo, _t=tried: (_t.append(ifo), None)[1]
+            mod.estimate_signal_bandwidth(
+                dict((k, '/nonexistent/%s.xml.gz' % k) for k in order),
+                20.0, 1700.0, m_total_msun=30.0)
+            print("insertion %-18s -> tried %s" % (order, tried))
+            assert tried[0] == 'H1', "H1 must be tried first, got %s" % tried
+            assert tried.index('L1') < tried.index('V1'), (
+                "after H1 failed, L1 must be tried before V1 (got %s) -- the fallback is "
+                "following insertion order rather than the preference list" % tried)
+    finally:
+        mod._read_psd = orig
+
+
 def test_preference_list_is_sane():
     assert IFO_PREFERENCE[-1] == 'V1', "V1 must be last in the preference order"
     assert IFO_PREFERENCE[0] in ('H1', 'L1')
@@ -197,5 +224,6 @@ if __name__ == "__main__":
     test_amplitude_is_a_power_law_in_the_inspiral()
     test_signal_has_power_above_f_isco()
     test_quieter_high_frequency_noise_widens_the_band()
+    test_fallback_after_unreadable_psd_keeps_preference_order()
     test_preference_list_is_sane()
     print("\nPASS")

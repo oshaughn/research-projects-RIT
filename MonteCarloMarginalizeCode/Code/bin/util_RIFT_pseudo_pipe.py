@@ -56,7 +56,8 @@ if _use_hpip_pp:
 from RIFT.misc.dag_utils_generic import which
 from RIFT.misc.cip_pipeline import flag_final_group_unique
 # leaf module: numpy only, so this does not drag numba/cupy into the pipeline script
-from RIFT.likelihood.time_interp_choice import is_off_request
+from RIFT.likelihood.time_interp_choice import (
+    BARE_FLAG_SENTINEL, resolve_interpolate_time_request)
 ligolw_prefix = 'igwn_'
 if not(which(ligolw_prefix + "ligolw_add")):
     ligolw_prefix = ''
@@ -470,7 +471,7 @@ parser.add_argument("--add-extrinsic",action='store_true')
 parser.add_argument("--add-extrinsic-time-resampling",action='store_true',help="adds the time resampling option.  Only deployed for vectorized calculations (which should be all that end-users can access)")
 parser.add_argument("--internal-ile-srate-time-resampling",default=None, help=" Adds --srate-resample-time-marginalization to ILE for  output, to provide higher-resolution time output ")
 parser.add_argument("--internal-ile-srate-internal",default=None, help=" Adds --srate-internal to ILE, modifying how calculations are performed internally to use a higher sampling rate ")
-parser.add_argument("--internal-ile-interpolate-time",nargs='?',const=None,default=None,type=str,help="Enable sub-sample interpolation of Q_lm at fractional detector arrival times in the maintained NoLoop likelihood. REQUIRES AN EXPLICIT STENCIL: nearest|cubic|sinc -- automatic selection was removed as measurably unreliable. Forwarded verbatim to helper_LDG_Events.py, which validates it. Short version: use 'cubic' unless the total mass is below ~4 Msun. See RIFT.likelihood.time_interp_choice for the measured table.")
+parser.add_argument("--internal-ile-interpolate-time",nargs='?',const=BARE_FLAG_SENTINEL,default=None,type=str,help="Enable sub-sample interpolation of Q_lm at fractional detector arrival times in the maintained NoLoop likelihood. REQUIRES AN EXPLICIT STENCIL: nearest|cubic|sinc -- automatic selection was removed as measurably unreliable, and a bare flag is rejected rather than silently doing nothing. MEASURED with an IMR model (SEOBNRv4): the crossover is between 20 and 35 Msun TOTAL MASS -- use 'sinc' BELOW it and 'cubic' above -- with modest 2.1-3.0x margins either way over M=9-55. (Earlier revisions said \"cubic unless below ~4 Msun\"; that came from an inspiral-only model with no merger-ringdown and named the wrong stencil from ~4 to 20 Msun.) Forwarded verbatim to helper_LDG_Events.py, which validates it. See RIFT.likelihood.time_interp_choice for the measured table.")
 parser.add_argument("--internal-ile-n-chunk",default=None,type=int,help="Override the extrinsic chunk size (--n-chunk) passed to ILE, via the helper. Default behaviour (helper): 40000, scaled linearly with SNR above 40 and capped at 160000, because at high SNR the posterior is a vanishing fraction of the prior volume and a small chunk gives few informative samples per adaptation step. Larger chunks cost GPU memory but measured HOST memory (what RequestMemory governs) is flat, so no memory-request change is normally needed. EXPERTS ONLY.")
 parser.add_argument("--batch-extrinsic",action='store_true')
 parser.add_argument("--fmin",default=20,type=int,help="Mininum frequency for integration. template minimum frequency (we hope) so all modes resolved at this frequency")  # should be 23 for the BNS
@@ -604,6 +605,11 @@ parser.add_argument("--archive-pesummary-event-label",default="this_event",help=
 parser.add_argument("--internal-mitigate-fd-J-frame",default="L_frame",help="L_frame|rotate, choose method to deal with ChooseFDWaveform being in wrong frame. Default is to request L frame for inputs")
 parser.add_argument("--internal-force-puff-iterations", default=4, type=int, help="Number of iterations to be puffed")
 opts=  parser.parse_args()
+
+# Resolve the sub-sample stencil request IMMEDIATELY, so a bare flag / retired 'True' / typo
+# fails here rather than being forwarded into a workflow build.  Value unused at this point --
+# the call is for its validation side effect; the helper resolves it again for the emission.
+resolve_interpolate_time_request(opts.internal_ile_interpolate_time)
 
 # Multi-GPU ILE fan-out: --ile-gpu-fanout funnels through RIFT_ILE_GPU_FANOUT, which
 # create_event_parameter_pipeline_BasicIteration (run via os.system, inheriting this
@@ -1246,10 +1252,11 @@ if opts.internal_ile_auto_logarithm_offset:
     cmd += " --internal-ile-auto-logarithm-offset "
 if opts.internal_ile_rotate_phase:
     cmd += " --internal-ile-rotate-phase "
-if opts.internal_ile_interpolate_time and not is_off_request(opts.internal_ile_interpolate_time):
-    # `and not is_off_request(...)`: the flag takes a VALUE now, and '--internal-ile-interpolate-
-    # time False' passes the STRING 'False', which is truthy in Python.  Without this the "off"
-    # spellings would switch the feature ON.
+if resolve_interpolate_time_request(opts.internal_ile_interpolate_time) is not None:
+    # resolve_interpolate_time_request rather than a truthiness test: the flag takes a VALUE, so
+    # '--internal-ile-interpolate-time False' passes the STRING 'False' (truthy in Python) and a
+    # BARE flag passes a sentinel.  Both must be distinguished from "a stencil was named", and a
+    # bare flag must raise rather than silently forward nothing.
     # HELPER passthrough (not a raw ILE arg): the helper owns ILE argument construction, and it
     # also knows whether the NoLoop path (--vectorized --gpu --force-xpy) that --interpolate-time
     # requires is actually in use.  It also owns the stencil choice, because srate and fmax are
