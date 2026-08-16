@@ -79,39 +79,47 @@ RULES = [
      "this dangerous, and entry-reset is what fixes it)."),
 
     # ---------------------------------------------------------------------- lnZ / n_eff
-    (r"^FUNC:_lnZ_of_rvs$", "PORT",
-     "Evidence of an _rvs record with the already_pooled/fairdraw correction. Needed "
-     "only by the L0 rescue gate and the replica pooling, neither of which LISA has "
-     "yet; ports with whichever lands first."),
-    (r"^FUNC:_kish_neff_of_rvs$", "PORT",
-     "Kish n_eff of a record. Same dependency as _lnZ_of_rvs."),
-    (r"^FUNC:_lnZ_of_reserve_or_rvs$", "PORT", "L0-rescue helper; ports with that family."),
+    (r"^FUNC:_lnZ_of_rvs$", "PORTED",
+     "Evidence of an _rvs record with the already_pooled/fairdraw correction. Landed "
+     "with the L0 rescue gate, which is its first consumer here."),
+    (r"^FUNC:_kish_neff_of_rvs$", "PORTED",
+     "Kish n_eff of a record. Landed with _lnZ_of_rvs; its own consumer (replica "
+     "pooling) arrives in the MC-error pass."),
+    (r"^FUNC:_lnZ_of_reserve_or_rvs$", "PORTED",
+     "Reads a pass's lnZ from the points it RETAINED where available, so the reject "
+     "gate is not comparing two differently-sized fair-draw artifacts."),
+    (r"^FUNC:(_snapshot_pass_state|_restore_pass_state)$", "PORTED",
+     "Snapshot/restore of everything that must travel with a put-back pass -- the "
+     "reserve and the fair-draw marker included (Finding 5). Ported as a SET with the "
+     "rescue; either one alone rebuilds the defect."),
+    (r"^FUNC:(_warm_seed_reserve_for|_warm_seed_geometry|_clear_warm_state)$", "PORTED",
+     "Shared reserve lookup (with the column-order guard), adaptive-axis geometry for "
+     "the rank test, and the warm-state clear that reaches portfolio MEMBERS."),
+    (r"^ATTR:_warm_seed_reserve$", "PORTED",
+     "The retained-sample reserve the rescue seeds from and the snapshot carries."),
+    (r"^OPTION:--sampler-warmstart-retry-neff$", "PORTED",
+     "The L0 rescue trigger. High value for LISA: MBHB are high-SNR, which is the "
+     "regime that stalls at n_eff~1."),
+    (r"^OPTION:--sampler-l0-rescue-", "PORTED",
+     "L0 rescue tuning, defaults and help text kept identical to the main driver "
+     "(including reject-dlnZ 3.0, the measured value -- see "
+     "L0_REJECT_DLNZ_MEASUREMENT.md). Pinned by test_lisa_l0_rescue.py."),
+    (r"^OPTION:--sampler-sequential-warmstart-deltalnL$", "PORTED",
+     "The lnL window build_warm_seed keeps. Consumed by the L0 rescue, so it landed "
+     "with that pass rather than with the sequential warm start it is named for."),
 
     # --------------------------------------------------------------- L0 rescue / warm start
-    (r"^OPTION:--sampler-l0-rescue-", "PORT",
-     "L0 auto-rescue tuning. Sampler-agnostic: triggers on low n_eff and re-runs warm "
-     "from the pass's own high-lnL cloud, in whatever coordinates the driver samples. "
-     "LISA MBHB are high-SNR and are exactly the regime that stalls (see the "
-     "high-SNR pool-copies lore), so this is high value, not cosmetic."),
-    (r"^OPTION:--sampler-warmstart-retry-neff$", "PORT",
-     "The L0 rescue trigger itself. Same reasoning."),
     (r"^OPTION:--reject-collapsed-live-volume$", "PORT",
      "AV live-volume collapse rejection. AV is wired in the LISA driver identically."),
     (r"^FUNC:analyze_event\._reject_if_collapsed$", "PORT",
      "Implementation of --reject-collapsed-live-volume."),
-    (r"^FUNC:(_clear_warm_state|_snapshot_pass_state|_restore_pass_state)$", "PORT",
-     "Warm-pass state snapshot/restore. Finding 5: a rejected warm rescue that restores "
-     "_rvs but not the reserve seeds the NEXT point from the cloud the gate just threw "
-     "away. Must port as a set with the L0 rescue, never piecemeal."),
-    (r"^FUNC:(_warm_seed_reserve_for|_warm_seed_geometry)$", "PORT",
-     "Shared warm-seed reserve lookup and its rank/geometry test. Finding 1: the "
-     "count-vs-rank distinction lives here."),
-    (r"^ATTR:_warm_seed_reserve$", "PORT", "The reserve the above maintain."),
     (r"^OPTION:--sampler-sequential-warmstart$", "PORT",
      "Warm-start each intrinsic point from the previous one's cloud. Applies whenever "
-     "--n-events-to-analyze>1, which LISA supports."),
-    (r"^OPTION:--sampler-sequential-warmstart-(cover-frac|deltalnL)$", "PORT",
-     "Tuning for the above; meaningless without it, so they travel together."),
+     "--n-events-to-analyze>1, which LISA supports. Its snapshot/restore prerequisites "
+     "(Finding 5) already landed with the L0 rescue, so this is now capture + the "
+     "event-loop wiring only."),
+    (r"^OPTION:--sampler-sequential-warmstart-cover-frac$", "PORT",
+     "Coverage floor for the above; meaningless without it, so they travel together."),
     (r"^OPTION:--sampler-anisotropic-bins$", "PORT",
      "AV per-axis bin counts during contraction. AV is wired in LISA, and the argument "
      "for it is if anything stronger there: the LISA extrinsic axes are no more "

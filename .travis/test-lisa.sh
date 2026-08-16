@@ -17,4 +17,5 @@ fi
   MonteCarloMarginalizeCode/Code/test/test_lisa_pp_surface.py \
   MonteCarloMarginalizeCode/Code/test/test_lisa_synthetic_demo.py \
   MonteCarloMarginalizeCode/Code/test/test_lisa_fairdraw_weights.py \
+  MonteCarloMarginalizeCode/Code/test/test_lisa_l0_rescue.py \
   MonteCarloMarginalizeCode/Code/test/test_lisa_driver_drift.py

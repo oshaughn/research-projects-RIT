@@ -307,6 +307,17 @@ integration_params.add_option("--sampler-method",default="adaptive_cartesian_gpu
 integration_params.add_option("--sampler-portfolio",default=None,action='append',type=str,help="comma-separated strings, matching sampler methods other than portfolio")
 integration_params.add_option("--sampler-portfolio-args",default=None, action='append', type=str, help='eval-able dictionaryo to be passed to that sampler')
 integration_params.add_option("--sampler-xpy",default=None,help="numpy|cupy  if the adaptive_cartesian_gpu sampler is active, use that.")
+# L0 auto-rescue.  Ported from bin/integrate_likelihood_extrinsic_batchmode; defaults and help
+# text kept IDENTICAL there and here on purpose -- see test_lisa_l0_rescue.py, which pins them.
+integration_params.add_option("--sampler-warmstart-retry-neff",type=float,default=None,help="AV or portfolio (L0 auto-rescue): if a pass finishes below this n_eff (i.e. it stalled on a very sharp / high-amplitude peak), automatically re-run a second pass warm-started from THIS point's own highest-likelihood samples.  Same-problem reuse in the sense that the seed provably contains the peak the cold pass found -- but NOT that every mode is represented, so the warm pass can be biased low if the seed missed one.  The rescue still runs as before; its result is rejected in favour of the cold pass only on positive evidence of lost mass (see --sampler-l0-rescue-reject-dlnZ).  A portfolio is unaffected: its GMM member carries a defensive component.  Directly targets the high-SNR n_eff LOTTERY (a large fraction of independent runs collapse to n_eff~1 by contracting onto the wrong spot); the rescue re-seeds a collapsed run from the peak it did find.  Recommended for high-SNR events; e.g. 5.")
+integration_params.add_option("--sampler-l0-rescue-reject-dlnZ", type=float, default=3.0, help="Evidence threshold (nats) for rejecting the L0 rescue's warm pass: reject when the full-support cold pass reports lnZ this much HIGHER, which would indicate the seed missed mass.  Larger = more permissive.  DEFAULT RAISED 0.5 -> 3.0 ON MEASUREMENT (see test/expensive_before_merging/integrators/L0_REJECT_DLNZ_MEASUREMENT.md): across 160 known-lnZ passes the gate caught 0 of 55 genuinely truncated warm passes at EVERY threshold, while at 0.5 it binned 25% of GOOD portfolio warm passes.  0.5 was therefore strictly dominated -- it bought no detection and cost one good pass in four.  3.0 keeps a safety net for a genuinely large discrepancy at ~0% false-positive rate.  This gate is NOT a working truncation detector; do not rely on it as one.")
+integration_params.add_option("--sampler-l0-rescue-accept-truncated", action='store_true', default=False, help="Report the L0 rescue's warm pass even when it lands well below the full-support cold pass (see --sampler-l0-rescue-reject-dlnZ).  Default OFF: on that evidence the cold result is kept instead, since the warm pass is confined to the seeded peak and may be missing a mode.  The rescue itself still runs either way.")
+integration_params.add_option("--sampler-l0-rescue-puff-scale", type='choice', choices=['fixed','auto'], default='auto', help="How wide to puff the L0 rescue's seed when it is rank-deficient in the adaptive dimensions.  'auto' (default) measures the posterior scale AND correlations from every finite lnL the collapsed pass already drew; 'fixed' uses --sampler-l0-rescue-puff-width-frac of each parameter's prior range, which is the historical behaviour and knows nothing about the posterior (which narrows as 1/rho).  'auto' falls back to 'fixed' when there are too few finite points to estimate a covariance.")
+integration_params.add_option("--sampler-l0-rescue-puff-width-frac", type=float, default=0.005, help="Isotropic puff width for the L0 rescue's rank-deficient seed, as a fraction of each parameter's prior range.  Used by --sampler-l0-rescue-puff-scale fixed, and as the 'auto' fallback.  Default 0.005 = the historical hardcoded 1/200.")
+integration_params.add_option("--sampler-l0-rescue-puff-factor", type=float, default=2.0, help="Multiply the L0 rescue's puff width by this factor.  Default 2 is the measured optimum on a known-lnZ 6-D target (mean lnZ error +0.08 nats, ESS 52); BOTH tails are wrong, so do not treat wide as free -- x0.5 truncates (-8.5 nats), x6 biases high (+3.0) and costs efficiency, x12 is a cold start in all but name and re-collapses (-30).")
+# Also consumed by the rescue (it is the lnL window build_warm_seed keeps), which is why it
+# lands in this pass rather than with the sequential warm start it is named for.
+integration_params.add_option("--sampler-sequential-warmstart-deltalnL",type=float,default=15.0,help="Keep previous-point samples within this lnL of the max as the warm seed for the next point.  Default 15.")
 integration_params.add_option("--supplementary-likelihood-factor-code", default=None,type=str,help="Import a module (in your pythonpath!) containing a supplementary factor for the likelihood.  Used to impose supplementary external priors of arbitrary complexity and external dependence (e.g., EM observations). EXPERTS-ONLY")
 integration_params.add_option("--supplementary-likelihood-factor-function", default=None,type=str,help="With above option, specifies the specific function used as an external prior. EXPERTS ONLY")
 integration_params.add_option("--supplementary-likelihood-factor-ini", default=None,type=str,help="With above option, specifies an ini file that is parsed (here) and passed to the preparation code, called when the module is first loaded, to configure the module. EXPERTS ONLY")
@@ -1443,6 +1454,365 @@ if opts.sampler_method == 'adaptive_cartesian_gpu' and opts.skymap_file:
   sampler.setup()
 
 
+# ---------------------------------------------------------------------------------------
+# L0 auto-rescue.  Ported from bin/integrate_likelihood_extrinsic_batchmode (PR #79/#84/#87);
+# see test/expensive_before_merging/integrators/RVS_FAIRDRAW_AUDIT.md Findings 1 and 5.
+#
+# ONE DELIBERATE STRUCTURAL DIVERGENCE FROM THE MAIN DRIVER.  There the rescue is inline in
+# the single analyze_event.  This driver has TWO -- analyze_event_LISA (used with --LISA) and
+# analyze_event (the non-LISA fallback) -- each with its own integrate call and export block,
+# already ~50% duplicated.  Inlining the rescue twice would create a third copy to keep in
+# step, which is the failure mode this whole exercise exists to prevent.  So the block lives
+# in _maybe_l0_rescue below and both call it.  The helpers are byte-identical to main's and
+# are pinned that way by test_lisa_l0_rescue.py.
+# ---------------------------------------------------------------------------------------
+def _lnZ_of_rvs(rvs, already_pooled=True, use_lnL=None):
+    """log of the evidence implied by an _rvs record.
+
+    For a POOLED record the weights already carry their 1/(K n_k) factor, so the estimate is the
+    plain sum; for a single run it is the mean.  Returns None when the weights cannot be rebuilt.
+    """
+    try:
+        try:
+            lw = ln_weights_from_rvs(rvs, use_lnL=_rvs_lnL_convention(use_lnL))
+        except Exception:
+            return None
+        lw = lw[numpy.isfinite(lw)]
+        if lw.size == 0:
+            return None
+        m = numpy.max(lw)
+        tot = m + numpy.log(numpy.sum(numpy.exp(lw - m)))
+        return float(tot if already_pooled else tot - numpy.log(lw.size))
+    except Exception:
+        return None
+
+
+def _kish_neff_of_rvs(rvs, use_lnL=None):
+    """Kish effective sample size of an _rvs record, or None if the weights are not reconstructible."""
+    try:
+        try:
+            lw = ln_weights_from_rvs(rvs, use_lnL=_rvs_lnL_convention(use_lnL))
+        except Exception:
+            return None
+        lw = lw[numpy.isfinite(lw)]
+        if lw.size == 0:
+            return None
+        lw = lw - numpy.max(lw)
+        w = numpy.exp(lw)
+        return float(numpy.sum(w) ** 2 / numpy.sum(w ** 2))
+    except Exception:
+        return None
+
+
+def _lnZ_of_reserve_or_rvs(sampler, rvs, reserve=None):
+    """lnZ of a completed pass, from the points it RETAINED where that is available.
+
+    The rescue's reject gate compares the warm pass's lnZ against the cold pass's, and both
+    were read out of _rvs -- which the fair draw has already replaced with
+    min(n_extr, 1.5*eff_samp, 1.5*neff) rows resampled WITH REPLACEMENT, proportional to
+    weight.  That is not a smaller unbiased sample of the same estimator, it is a DIFFERENT
+    and biased one: _lnZ_of_rvs forms logsumexp(w)/n, so drawing n rows proportional to w
+    returns something near max(w) rather than mean(w), high by roughly
+
+        log(n_retained / eff_samp)
+
+    and the two passes are drawn at wildly different n and eff_samp.  The gate was reading a
+    multi-nat artifact of its own two subsample sizes as evidence that the warm seed had
+    missed mass.
+
+    Falls back to the old _rvs reading when no reserve was kept, so the comparison degrades to
+    the previous behaviour rather than to no gate at all.
+
+    Returns (lnZ, source) -- the caller MUST check that both sides came from the same source,
+    because the two readings are not interchangeable.
+    """
+    _res = reserve if reserve is not None else getattr(sampler, '_warm_seed_reserve', None)
+    if isinstance(_res, dict) and 'log_joint_prior' in _res and 'log_joint_s_prior' in _res:
+        try:
+            # NOT _lnZ_of_rvs: it averages over the rows it is handed, and the reserve is
+            # neither the draw set nor a uniform sample of it.  lnZ_from_reserve restores the
+            # original proposal-draw normalization from n_finite/n_retained; without it a
+            # PORTFOLIO reading is high by ~log(n_retained/n_finite), and the error does NOT
+            # cancel in the gate because the two passes have different finite fractions.
+            _v = mcsamplerAdaptiveVolume.lnZ_from_reserve(_res)
+            if _v is not None and numpy.isfinite(_v):
+                return _v, 'retained'
+        except Exception:
+            pass
+    return _lnZ_of_rvs(rvs, already_pooled=False), 'fairdraw'
+
+
+def _snapshot_pass_state(sampler, res, var, neff, dict_return, rvs=None):
+    """Everything that must move TOGETHER when a completed pass is put back -> dict.
+
+    THE POINT IS THE WORD "everything".  A pass is described by more than its samples, and the
+    reject path used to restore only some of it: `_rvs`, the estimate and `dict_return` went
+    back to the cold pass while `_warm_seed_reserve` was left holding the REJECTED warm cloud.
+    Latent until --sampler-sequential-warmstart began seeding the next intrinsic point from the
+    reserve, at which point a rejected, truncated warm pass became the seed for the next point
+    -- the exact failure the reject gate exists to prevent, reintroduced one attribute over.
+
+    So the snapshot carries the reserve and the fair-draw marker as well, including the
+    per-member reserves: `_warm_seed_reserve_for` falls through to `portfolio_realizations`,
+    so restoring only the aggregate would leave that fallback pointing at the warm pass.
+    """
+    return dict(
+        rvs=(dict(sampler._rvs) if rvs is None else rvs),
+        res=res, var=var, neff=neff, dict_return=dict_return,
+        warm_seed_reserve=getattr(sampler, '_warm_seed_reserve', None),
+        rvs_is_fairdraw=bool(getattr(sampler, '_rvs_is_fairdraw', False)),
+        rvs_is_pooled=bool(getattr(sampler, '_rvs_is_pooled', False)),
+        member_reserves=[getattr(_m, '_warm_seed_reserve', None)
+                         for _m in list(getattr(sampler, 'portfolio_realizations', []) or [])],
+    )
+
+
+def _restore_pass_state(sampler, state):
+    """Undo of _snapshot_pass_state -> (res, var, neff, dict_return).
+
+    Both callers (the reject path and the exception handler) go through here, so the set of
+    attributes that travels with a restored pass cannot drift between them.
+    """
+    sampler._rvs = state['rvs']
+    sampler._warm_seed_reserve = state['warm_seed_reserve']
+    sampler._rvs_is_fairdraw = state['rvs_is_fairdraw']
+    sampler._rvs_is_pooled = state['rvs_is_pooled']
+    _members = list(getattr(sampler, 'portfolio_realizations', []) or [])
+    for _m, _r in zip(_members, state.get('member_reserves', [])):
+        _m._warm_seed_reserve = _r
+    return state['res'], state['var'], state['neff'], state['dict_return']
+
+
+def _warm_seed_reserve_for(sampler):
+    """The retained-sample reserve a completed pass left behind, or None.
+
+    THE ONE LOOKUP FOR SEED CONSUMERS, because two of them need exactly this record and must
+    not drift: the L0 auto-rescue (which re-seeds a collapsed pass from its own peak) and the
+    --sampler-sequential-warmstart capture (which seeds the NEXT intrinsic point).  Both
+    otherwise fall back to sampler._rvs, which by then has been rebound to a fair-draw subset
+    taken WITH REPLACEMENT -- and the whole point of the reserve is that on the collapsed pass
+    a warm start exists for, that subset is a handful of rows several of which are the same
+    point twice.
+
+    A PORTFOLIO keeps the reserve on the aggregate, not on its members, but a bare AV member
+    can be the one that has it; check the sampler first, then its realizations.
+
+    COLUMN ORDER MUST MATCH or the seed is scrambled: the reserve stores X in the column order
+    of the sampler that built it, and a seed handed to bootstrap_from_samples is read
+    positionally against params_ordered.  A mismatch is silent and produces a seed in the
+    wrong coordinates, so decline the reserve rather than use it.
+
+    NOT SHARED WITH `_lnZ_of_reserve_or_rvs` above, deliberately.  That one reads only lnL and
+    the two prior columns, never X, so a column-order mismatch is harmless to it and declining
+    would throw away a good lnZ reading and silently downgrade the gate to its fallback.
+    """
+    _res = getattr(sampler, '_warm_seed_reserve', None)
+    if _res is None:
+        for _m in list(getattr(sampler, 'portfolio_realizations', []) or []):
+            _res = getattr(_m, '_warm_seed_reserve', None)
+            if _res is not None:
+                break
+    if _res is not None and list(_res.get('params_ordered', [])) != list(sampler.params_ordered):
+        return None
+    return _res
+
+
+def _warm_seed_geometry(sampler):
+    """Which columns a warm seed must span, and the box it must lie in -> (axes, lo, hi).
+
+    The seed is judged on the ADAPTIVE axes, because those are the only ones the live-volume
+    grid resolves (the rest get a single bin), and that is the set the [AV COLLAPSE] report
+    counts against.  Ask the sampler that will consume the seed rather than assuming all
+    dimensions: with --force-adapt-all they coincide, without it a rank test over every column
+    would demand a seed span directions the grid cannot resolve and puff for nothing.
+
+    A PORTFOLIO has no adaptive axes of its own -- they live on its AV-style members -- so fall
+    through to the first member that can answer.  If nobody can, every column it is.
+    """
+    _lo = np.array([sampler.llim[p] for p in sampler.params_ordered], dtype=float)
+    _hi = np.array([sampler.rlim[p] for p in sampler.params_ordered], dtype=float)
+    for _s in [sampler] + list(getattr(sampler, 'portfolio_realizations', []) or []):
+        if hasattr(_s, 'warm_seed_axes'):
+            try:
+                return list(_s.warm_seed_axes()), _lo, _hi
+            except Exception:
+                pass
+    return list(range(len(sampler.params_ordered))), _lo, _hi
+
+
+def _clear_warm_state(sampler):
+    """Clear a warm-start seed AND any grid it installed, reaching PORTFOLIO MEMBERS too.
+
+    `sampler._warm = None` alone is not enough for mcsamplerPortfolio: `_warm` and the
+    contracted AV grid live on each MEMBER, and portfolio.integrate_log() does not rerun each
+    member's setup(), so the next point would silently draw from the PREVIOUS point's
+    contracted live volume.  If the new point's support falls outside it, lnZ is biased low
+    with a healthy-looking n_eff and no error.  Portfolio exposes clear_warm_state();
+    everything else keeps the old behaviour.
+    """
+    # Deliberately NOT wrapped in try/except.  A reset that quietly did not happen leaves the
+    # next point drawing from the previous point's contracted grid -- the exact silent bias
+    # this guards against -- so a failure must abort the point rather than degrade to a log
+    # line nobody reads.
+    if hasattr(sampler, 'clear_warm_state'):
+        sampler.clear_warm_state()
+    else:
+        sampler._warm = None
+        sampler._warm_applied = False
+
+
+def _maybe_l0_rescue(sampler, res, var, neff, dict_return,
+                     like_to_integrate, unpinned_params, pinned_params,
+                     lnL_offset=0.0):
+    """Run the L0 auto-rescue if this pass stalled -> (res, var, neff, dict_return).
+
+    Returns its arguments unchanged when the rescue does not apply, so the call site is a
+    single unconditional assignment.
+
+    MUST BE CALLED BEFORE the `if not(res): raise` guard.  A degenerate early termination
+    (mcsamplerPortfolio/AV returning (None,None,None,None) when the live volume never found
+    finite in-volume samples) is the STRONGEST rescue trigger, not a reason to skip -- such a
+    pass still populated _rvs, so the peak seed is available.  In the main driver that guard
+    sits ~200 lines further down and the ordering is implicit; here it is immediately after
+    integrate, so the ordering is stated and pinned by a test.
+
+    `lnL_offset` is this event's manual_avoid_overflow_logarithm, used only to print absolute
+    lnZ values.  It is a local of the caller in both analyze_event variants, hence a parameter.
+    """
+    _neff_val = None if neff is None else float(sampler.identity_convert(neff))
+    _needs_l0_rescue = (_neff_val is None) or (_neff_val < float(opts.sampler_warmstart_retry_neff or 0))
+    if not (opts.sampler_method in ('AV', 'portfolio') and opts.sampler_warmstart_retry_neff
+            and hasattr(sampler, 'bootstrap_from_samples')
+            and _needs_l0_rescue):
+        return res, var, neff, dict_return
+
+    # Cold state to fall back on, captured only once the warm pass is actually about to run.
+    # `None` means nothing has been disturbed yet, so the handler must not "restore".
+    _cold_state_l0 = None
+    try:
+        # SEED FROM THE POINTS THE PASS RETAINED, not from what survived the fair draw.
+        # sampler._rvs has by now been REBOUND to a fair-draw subset taken WITH REPLACEMENT --
+        # a resample built for EXPORT.  On the collapsed pass this rescue exists for the
+        # effective sample size is ~1, so _rvs can be a single row, or a handful several of
+        # which are the same point twice.  The live set held a thousand.
+        _res_l0 = _warm_seed_reserve_for(sampler)
+        if _res_l0 is not None:
+            _cols = np.asarray(_res_l0['X'], dtype=float)
+            _lnv = np.asarray(_res_l0['lnL'], dtype=float).ravel()
+            print("  [L0 auto-rescue] seeding from {} retained sample(s) of {} (fair draw left {} in _rvs)".format(
+                len(_lnv), _res_l0.get('n_retained', '?'),
+                len(np.asarray(sampler.identity_convert(sampler._rvs['log_integrand'])).ravel())
+                if 'log_integrand' in sampler._rvs else '?'))
+        else:
+            _lnkey = 'log_integrand' if 'log_integrand' in sampler._rvs else ('integrand' if 'integrand' in sampler._rvs else None)
+            _lnv = np.asarray(sampler.identity_convert(sampler._rvs[_lnkey]), dtype=float).ravel() if _lnkey else np.array([])
+            _cols = (np.vstack([np.asarray(sampler.identity_convert(sampler._rvs[p]), dtype=float).ravel()
+                                for p in sampler.params_ordered]).T if _lnv.size else np.zeros((0, len(sampler.params_ordered))))
+        if _lnv.size >= 1 and np.any(np.isfinite(_lnv)):
+            # RANK, not count, decides whether this seed can define a live volume.  A 2-to-5
+            # point seed passes a count test and is still rank-deficient in 6 adaptive
+            # dimensions, so the warm start contracts onto a degenerate subspace and reports a
+            # healthy n_eff over a sliver of the support.  build_warm_seed applies the rank
+            # test through the SAME seed_affine_rank the grid builder uses, and puffs to full
+            # rank when it is short.
+            _ax_l0, _lo_l0, _hi_l0 = _warm_seed_geometry(sampler)
+            _seed, _seed_info = mcsamplerAdaptiveVolume.build_warm_seed(
+                _cols, _lnv, _lo_l0, _hi_l0, _ax_l0,
+                deltalnL=opts.sampler_sequential_warmstart_deltalnL,
+                puff_scale=opts.sampler_l0_rescue_puff_scale,
+                puff_width_frac=opts.sampler_l0_rescue_puff_width_frac,
+                puff_factor=opts.sampler_l0_rescue_puff_factor)
+            print("  [L0 auto-rescue] cold n_eff {} < {}; re-running warm from this point's peak ({} pts)".format(
+                "DEGENERATE (early termination)" if _neff_val is None else "{:.1f}".format(_neff_val),
+                opts.sampler_warmstart_retry_neff, len(_seed)))
+            if _seed_info['puffed']:
+                print("  [L0 auto-rescue] seed of {} point(s) had affine rank {}/{}: PUFFED to rank"
+                      " {}/{} with {} points ({} scale, x{:g}), keeping the original point(s)".format(
+                          _seed_info['n_core'], _seed_info['rank_core'], _seed_info['dim'],
+                          _seed_info['rank_final'], _seed_info['dim'], _seed_info['n_puff'],
+                          _seed_info['puff_scale'], opts.sampler_l0_rescue_puff_factor))
+                if _seed_info['rank_final'] < _seed_info['dim']:
+                    print("  [L0 auto-rescue] *** the puffed seed is STILL rank-deficient"
+                          " ({}/{}); the warm pass will be reported as collapsed.".format(
+                              _seed_info['rank_final'], _seed_info['dim']))
+            # The warm pass is an estimate over TRUNCATED support: the seeded box provably
+            # contains the peak the cold pass found, and says nothing about what that pass did
+            # not reach, so it is biased low by any missed mode.  The rescue still runs, because
+            # it exists to fix the high-SNR n_eff lottery and removing it by default would be a
+            # certain production regression traded against a possible bias.  What the gate below
+            # changes is only the case where there is POSITIVE EVIDENCE of lost mass.
+            #
+            # SNAPSHOT, not an alias: integrate_log repopulates sampler._rvs IN PLACE, so
+            # `_cold_rvs = sampler._rvs` would be holding the warm samples by the time the
+            # restore ran -- i.e. the reject path would report the cold lnZ while exporting the
+            # warm cloud, exactly what it exists to prevent.
+            _cold_rvs = dict(sampler._rvs)
+            # Snapshot the RESERVE for the same reason and at the same moment: the warm pass's
+            # integrate_log clears and rewrites it, so reading it after the fact would compare
+            # the warm pass against itself.
+            _cold_reserve_l0 = getattr(sampler, '_warm_seed_reserve', None)
+            _cold_lnZ, _cold_src = _lnZ_of_reserve_or_rvs(sampler, _cold_rvs,
+                                                          reserve=_cold_reserve_l0)
+            # dict_return too: khat, block scatter, ESS and the confidence interval all read it,
+            # so keeping the warm pass's diagnostics beside a restored cold result would describe
+            # a run we did not report.  And the reserve and the fair-draw marker, one level out.
+            _cold_state_l0 = _snapshot_pass_state(sampler, res, var, neff, dict_return,
+                                                  rvs=_cold_rvs)
+            sampler.bootstrap_from_samples(_seed, cover_frac=0.0)
+            res, var, neff, dict_return = sampler.integrate(like_to_integrate, *unpinned_params, **pinned_params)
+            _warm_lnZ, _warm_src = _lnZ_of_reserve_or_rvs(sampler, sampler._rvs)
+            # BOTH SIDES FROM THE SAME READING, or the difference is not a difference.  A
+            # fair-drawn lnZ sits ~log(n_retained/eff_samp) above a retained-set one, so a mixed
+            # comparison manufactures a gap of several nats in whichever direction the mismatch
+            # happens to fall.  If the two passes did not produce the same kind of estimate, read
+            # BOTH from _rvs -- the old behaviour, at least self-consistent.
+            if _cold_src != _warm_src:
+                print("  [L0 auto-rescue] lnZ provenance differs (cold={}, warm={});"
+                      " re-reading both from the fair-draw record so the comparison is"
+                      " like-for-like.".format(_cold_src, _warm_src))
+                _cold_lnZ = _lnZ_of_rvs(_cold_rvs, already_pooled=False)
+                _warm_lnZ = _lnZ_of_rvs(sampler._rvs, already_pooled=False)
+                _cold_src = _warm_src = 'fairdraw'
+            _evidence_of_loss = (
+                (_cold_lnZ is not None) and (_warm_lnZ is not None)
+                and numpy.isfinite(_cold_lnZ) and numpy.isfinite(_warm_lnZ)
+                and (_cold_lnZ - _warm_lnZ) > float(opts.sampler_l0_rescue_reject_dlnZ))
+            if _evidence_of_loss:
+                print("  [L0 auto-rescue] *** REJECTING the warm pass *** its lnZ {:.3f} is"
+                      " {:.3f} nats BELOW the full-support cold pass ({:.3f}), which is evidence"
+                      " the seed missed mass the cold pass reached.".format(
+                          _warm_lnZ + lnL_offset, _cold_lnZ - _warm_lnZ, _cold_lnZ + lnL_offset))
+                if opts.sampler_l0_rescue_accept_truncated:
+                    print("  [L0 auto-rescue] --sampler-l0-rescue-accept-truncated set:"
+                          " reporting the warm pass anyway (may be biased LOW).")
+                else:
+                    print("  [L0 auto-rescue] keeping the COLD (full-support) result; its n_eff"
+                          " is lower but it is not missing mass.  A portfolio avoids this"
+                          " trade entirely -- its GMM member carries a defensive component.")
+                    # The RESERVE goes back too.  Without it --sampler-sequential-warmstart
+                    # would seed the next intrinsic point from the warm cloud this gate just
+                    # rejected: _warm_seed_reserve_for would return the warm pass's record while
+                    # _rvs, the estimate and the diagnostics all describe the cold one.
+                    res, var, neff, dict_return = _restore_pass_state(sampler, _cold_state_l0)
+            _clear_warm_state(sampler)
+    except Exception as _e_l0:
+        # "skipped" is only true if the warm pass never started.  If it raised PARTWAY THROUGH
+        # sampler.integrate(), the assignment never completed, so res/var/neff/dict_return still
+        # hold the COLD pass -- while sampler._rvs was repopulated in place and now holds the
+        # WARM samples.  Reporting cold k-hat / ESS / lnZ beside a warm export describes a run
+        # that was never made, and it did so silently for a whole campaign.
+        print("  [L0 auto-rescue] *** FAILED *** (", _e_l0, ")")
+        import traceback as _tb_l0
+        _tb_l0.print_exc()
+        if _cold_state_l0 is not None:
+            print("  [L0 auto-rescue] the warm pass may already have replaced the stored"
+                  " samples; restoring the COLD pass so the reported diagnostics and the"
+                  " exported samples describe the same integral.")
+            res, var, neff, dict_return = _restore_pass_state(sampler, _cold_state_l0)
+        _clear_warm_state(sampler)
+    return res, var, neff, dict_return
+
+
 def resample_samples_LISA(my_samples, rholms, cross_terms, right_ascension, declination, P, modes, reference_distance):
   """This function takes in extrinsic samples and for each sample samples a time shift. This is done by generating a likelihood time series at an extrinsic sample and then weighted sampling in time."""
   # How many time samples? Same as the extrinsic samples being passed
@@ -1671,6 +2041,17 @@ def analyze_event_LISA(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_
              sampler.update_sampling_prior(lnL_oracles, opts.n_chunk, external_rvs=rvs_train,log_scale_weights=True,floor_integrated_probability=opts.adapt_floor_level)
 
     res, var, neff, dict_return = sampler.integrate(like_to_integrate, *unpinned_params, **pinned_params)
+
+    # L0 auto-rescue: on a very sharply-peaked (high-amplitude) point a cold AV can stall at
+    # n_eff ~ 1 because it never draws near the tiny peak.  If so, seed a SECOND pass from this
+    # same point's own highest-likelihood samples and re-run.  Opt-in via
+    # --sampler-warmstart-retry-neff.  MUST run BEFORE the not(res) guard below: a degenerate
+    # early termination returns (None,None,None,None) and is the strongest rescue trigger, so
+    # raising on it first would skip exactly the case the rescue exists for.
+    res, var, neff, dict_return = _maybe_l0_rescue(
+        sampler, res, var, neff, dict_return,
+        like_to_integrate, unpinned_params, pinned_params,
+        lnL_offset=manual_avoid_overflow_logarithm)
 
     if not(res): # no resut
       raise ValueError(" No integral result returned")
@@ -2376,6 +2757,17 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_spec_
              sampler.update_sampling_prior(lnL_oracles, opts.n_chunk, external_rvs=rvs_train,log_scale_weights=True,floor_integrated_probability=opts.adapt_floor_level)
 
     res, var, neff, dict_return = sampler.integrate(like_to_integrate, *unpinned_params, **pinned_params)
+
+    # L0 auto-rescue: on a very sharply-peaked (high-amplitude) point a cold AV can stall at
+    # n_eff ~ 1 because it never draws near the tiny peak.  If so, seed a SECOND pass from this
+    # same point's own highest-likelihood samples and re-run.  Opt-in via
+    # --sampler-warmstart-retry-neff.  MUST run BEFORE the not(res) guard below: a degenerate
+    # early termination returns (None,None,None,None) and is the strongest rescue trigger, so
+    # raising on it first would skip exactly the case the rescue exists for.
+    res, var, neff, dict_return = _maybe_l0_rescue(
+        sampler, res, var, neff, dict_return,
+        like_to_integrate, unpinned_params, pinned_params,
+        lnL_offset=manual_avoid_overflow_logarithm)
 
     if not(res): # no resut
       raise ValueError(" No integral result returned")
