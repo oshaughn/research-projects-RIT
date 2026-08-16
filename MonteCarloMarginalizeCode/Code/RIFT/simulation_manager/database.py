@@ -77,10 +77,36 @@ DEFAULT_LOOKUP_KEY_FILE = "lookup_key.py"
 DEFAULT_GETENV_ALLOWLIST = "LD_LIBRARY_PATH,PATH,PYTHONPATH,*RIFT*,LIBRARY_PATH"
 
 
-# Sentinel singletons used inside dedup buckets when a parameter set is
-# unhashable (lookup_key returns e.g. a dict). We fall back to the
-# string repr in that case.
+# Canonicalize a lookup_key into something hashable AND stable across a
+# JSON round-trip, because dedup buckets are rebuilt from index.jsonl on
+# every Archive construction.
+#
+# JSON has no tuple type, so a backend whose lookup_key returns a tuple
+# gets that key back as a *list* when the archive is reopened. Hashing
+# the list fails, we fall into the repr sentinel, and the rehydrated
+# bucket key no longer equals the freshly-computed tuple — dedup then
+# silently misses on every reopened archive and the caller re-runs
+# simulations it already has. Mapping lists and tuples onto the same
+# canonical tuple closes that gap.
+#
+# Collisions between a list and a tuple of equal contents are harmless:
+# buckets only select same_q candidates, and same_q makes the decision.
+#
+# Sentinel singletons are still used for anything genuinely unhashable
+# after canonicalization; we fall back to the string repr in that case.
 def _safe_hashable(x: Any) -> Any:
+    if isinstance(x, (list, tuple)):
+        return tuple(_safe_hashable(v) for v in x)
+    if isinstance(x, dict):
+        # Sort by the key's repr so ordering is total even for mixed
+        # key types, and stable across the JSON round-trip.
+        try:
+            return tuple(sorted(
+                ((k, _safe_hashable(v)) for k, v in x.items()),
+                key=lambda kv: repr(kv[0]),
+            ))
+        except TypeError:                            # pragma: no cover
+            return ("__unhashable__", repr(x))
     try:
         hash(x)
         return x
