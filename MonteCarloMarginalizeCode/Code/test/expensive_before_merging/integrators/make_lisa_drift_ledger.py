@@ -109,10 +109,15 @@ RULES = [
      "with that pass rather than with the sequential warm start it is named for."),
 
     # --------------------------------------------------------------- L0 rescue / warm start
-    (r"^OPTION:--reject-collapsed-live-volume$", "PORT",
-     "AV live-volume collapse rejection. AV is wired in the LISA driver identically."),
-    (r"^FUNC:analyze_event\._reject_if_collapsed$", "PORT",
-     "Implementation of --reject-collapsed-live-volume."),
+    (r"^OPTION:--reject-collapsed-live-volume$", "PORTED",
+     "AV live-volume collapse rejection. AV is wired in the LISA driver identically. "
+     "NOTE the main driver calls its gate TWICE -- first run and replica pool -- and only "
+     "the first call exists here, because there is no pooling yet; the second MUST be "
+     "added with --mc-error-replicas or the flag is bypassed for the case pooling creates."),
+    (r"^FUNC:analyze_event\._reject_if_collapsed$", "PORTED",
+     "Hoisted to module level rather than nested, because this driver has TWO "
+     "analyze_event variants. The audit matches FUNC items on the bare name for exactly "
+     "this reason."),
     (r"^OPTION:--sampler-sequential-warmstart$", "PORT",
      "Warm-start each intrinsic point from the previous one's cloud. Applies whenever "
      "--n-events-to-analyze>1, which LISA supports. Its snapshot/restore prerequisites "
@@ -120,12 +125,12 @@ RULES = [
      "event-loop wiring only."),
     (r"^OPTION:--sampler-sequential-warmstart-cover-frac$", "PORT",
      "Coverage floor for the above; meaningless without it, so they travel together."),
-    (r"^OPTION:--sampler-anisotropic-bins$", "PORT",
+    (r"^OPTION:--sampler-anisotropic-bins$", "PORTED",
      "AV per-axis bin counts during contraction. AV is wired in LISA, and the argument "
      "for it is if anything stronger there: the LISA extrinsic axes are no more "
      "isotropic than the ground-based ones, and a sky pair that localizes tightly "
      "while distance stays broad is the exact case this exists for."),
-    (r"^OPTION:--sampler-(save|load)-state$", "PORT",
+    (r"^OPTION:--sampler-(save|load)-state$", "PORTED",
      "AV live-volume state serialization. AV is wired in LISA; the state is the "
      "sampler's own internal grid, so it carries no LIGO-specific convention."),
     (r"^OPTION:--sampler-warmstart-(cover-frac|inflate)$", "PORT",

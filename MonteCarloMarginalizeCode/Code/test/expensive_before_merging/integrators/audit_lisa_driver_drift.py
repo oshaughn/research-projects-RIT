@@ -151,8 +151,17 @@ def compute_gap():
     main = collect(MAIN)
     lisa = collect(LISA)
     gap, extras = [], []
+    # A FUNC is satisfied by its BARE name as well as its qualified one.  The main driver has
+    # ONE analyze_event and nests helpers inside it; this driver has TWO (analyze_event_LISA
+    # and analyze_event), so a helper ported here must be hoisted to module level or else
+    # duplicated -- and duplicating is the failure mode this audit exists to prevent.  Without
+    # this, every correctly-hoisted port would sit in the gap forever as a false positive,
+    # which is how a gate gets trained out of people.
+    _lisa_bare = {n.rsplit(".", 1)[-1] for n in lisa["FUNC"]}
     for cat in ("FUNC", "OPTION", "CONST", "ATTR"):
         for name in sorted(set(main[cat]) - set(lisa[cat])):
+            if cat == "FUNC" and name.rsplit(".", 1)[-1] in _lisa_bare:
+                continue
             gap.append({"category": cat, "name": name,
                         "key": "%s:%s" % (cat, name), "main_line": main[cat][name]})
         for name in sorted(set(lisa[cat]) - set(main[cat])):

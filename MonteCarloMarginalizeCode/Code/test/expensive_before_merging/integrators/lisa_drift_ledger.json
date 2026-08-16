@@ -57,10 +57,6 @@
       "decision": "PORT",
       "reason": "Diagnostics for the replica triggers."
     },
-    "FUNC:analyze_event._reject_if_collapsed": {
-      "decision": "PORT",
-      "reason": "Implementation of --reject-collapsed-live-volume."
-    },
     "FUNC:dLofz": {
       "decision": "PHYSICS",
       "reason": "Cosmology helpers behind --d-prior-redshift. Same question: the interpolation range has to be re-chosen for MBHB redshifts."
@@ -313,10 +309,6 @@
       "decision": "PORT",
       "reason": "Pick a random event from the input file. Detector-agnostic; flagged dangerous in its own help text for oversampling reasons that apply equally to LISA."
     },
-    "OPTION:--reject-collapsed-live-volume": {
-      "decision": "PORT",
-      "reason": "AV live-volume collapse rejection. AV is wired in the LISA driver identically."
-    },
     "OPTION:--rotation-n-harmonics": {
       "decision": "NA",
       "reason": "Sidereal time-dependence of an EARTH-BASED antenna pattern F(t). The LISA constellation's motion is already carried by the LISA response itself (factored_likelihood_LISA + the h5/TDI frames), so this correction is both unnecessary and wrong there -- it would apply Earth rotation to a heliocentric detector."
@@ -328,18 +320,6 @@
     "OPTION:--rotation-slow": {
       "decision": "NA",
       "reason": "Sidereal time-dependence of an EARTH-BASED antenna pattern F(t). The LISA constellation's motion is already carried by the LISA response itself (factored_likelihood_LISA + the h5/TDI frames), so this correction is both unnecessary and wrong there -- it would apply Earth rotation to a heliocentric detector."
-    },
-    "OPTION:--sampler-anisotropic-bins": {
-      "decision": "PORT",
-      "reason": "AV per-axis bin counts during contraction. AV is wired in LISA, and the argument for it is if anything stronger there: the LISA extrinsic axes are no more isotropic than the ground-based ones, and a sky pair that localizes tightly while distance stays broad is the exact case this exists for."
-    },
-    "OPTION:--sampler-load-state": {
-      "decision": "PORT",
-      "reason": "AV live-volume state serialization. AV is wired in LISA; the state is the sampler's own internal grid, so it carries no LIGO-specific convention."
-    },
-    "OPTION:--sampler-save-state": {
-      "decision": "PORT",
-      "reason": "AV live-volume state serialization. AV is wired in LISA; the state is the sampler's own internal grid, so it carries no LIGO-specific convention."
     },
     "OPTION:--sampler-sequential-warmstart": {
       "decision": "PORT",

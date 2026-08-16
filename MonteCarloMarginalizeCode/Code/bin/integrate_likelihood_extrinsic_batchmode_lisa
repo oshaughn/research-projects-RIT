@@ -325,6 +325,12 @@ integration_params.add_option("--portfolio-weight-clip",default=None,type=float,
 integration_params.add_option("--nf-flow-load",default=None,help="NF only: load a pre-trained normalizing flow (.pt from --nf-flow-save); with --n-adapt 0 this reuses it directly (skips training), otherwise it is polished.")
 integration_params.add_option("--nf-flow-save",default=None,help="NF only: after integration, serialize the trained normalizing flow (.pt) for reuse across ILE instances.")
 integration_params.add_option("--sampler-xpy",default=None,help="numpy|cupy  if the adaptive_cartesian_gpu sampler is active, use that.")
+# AV live-volume state, per-axis bin allocation, and the collapse gate.  Copied verbatim
+# from bin/integrate_likelihood_extrinsic_batchmode; pinned by test_lisa_av_state.py.
+integration_params.add_option("--sampler-save-state",default=None,help="AV only: after integration, write the adapted live-volume state (.npz) for reuse by later instances/iterations. Point --sampler-load-state at the same file across a grid to warm-start each point from the previous one.")
+integration_params.add_option("--sampler-load-state",default=None,help="AV only: load a saved live-volume state (.npz from --sampler-save-state) to warm-start this integration. Overrides --sampler-warmstart-samples.")
+integration_params.add_option("--sampler-anisotropic-bins",action="store_true",help="AV only: give each extrinsic axis a DIFFERENT number of bins during contraction -- fine where the live points cluster tightly (phase/polarization/sky), coarse where they are broad (distance/inclination) -- instead of the default equal split.  Keeps the same total bin budget, so the estimator is unchanged; helps AV wrap a correlated/degenerate posterior more tightly.")
+optp.add_option("--reject-collapsed-live-volume",action='store_true',default=False, help="DROP an event whose adaptive-volume live volume degenerated (see the [AV COLLAPSE] report) instead of exporting it: the integration is treated as a failure, so no likelihood row, XML or posterior samples are written for it.  Such a run's lnZ and samples describe a single mode of the integrand and are NOT a fair posterior draw, and nothing downstream can distinguish them from a converged export.  Default off, because dropping the event silently THINS the posterior in an SNR-dependent way -- that was the pre-fix behaviour, when this case crashed.  Left off, the event is exported but announces itself loudly and (with --mc-error-replicas>0) triggers replication.  Turn it on when a contaminated point is worse than a missing one.")
 # L0 auto-rescue.  Ported from bin/integrate_likelihood_extrinsic_batchmode; defaults and help
 # text kept IDENTICAL there and here on purpose -- see test_lisa_l0_rescue.py, which pins them.
 integration_params.add_option("--sampler-warmstart-retry-neff",type=float,default=None,help="AV or portfolio (L0 auto-rescue): if a pass finishes below this n_eff (i.e. it stalled on a very sharp / high-amplitude peak), automatically re-run a second pass warm-started from THIS point's own highest-likelihood samples.  Same-problem reuse in the sense that the seed provably contains the peak the cold pass found -- but NOT that every mode is represented, so the warm pass can be biased low if the seed missed one.  The rescue still runs as before; its result is rejected in favour of the cold pass only on positive evidence of lost mass (see --sampler-l0-rescue-reject-dlnZ).  A portfolio is unaffected: its GMM member carries a defensive component.  Directly targets the high-SNR n_eff LOTTERY (a large fraction of independent runs collapse to n_eff~1 by contracting onto the wrong spot); the rescue re-seeds a collapsed run from the peak it did find.  Recommended for high-SNR events; e.g. 5.")
@@ -1709,6 +1715,68 @@ def _clear_warm_state(sampler):
         sampler._warm_applied = False
 
 
+def _maybe_load_av_state(sampler):
+    """Warm-start this integration from a saved AV live-volume state (--sampler-load-state)."""
+    try:
+        if opts.sampler_load_state and hasattr(sampler, 'load_state'):
+            print("  warm-start: loading saved sampler state from", opts.sampler_load_state)
+            sampler.load_state(opts.sampler_load_state)
+    except Exception as _e_ls:
+        print("  AV state load skipped (", _e_ls, ")")
+
+
+def _maybe_save_av_state(sampler):
+    """Persist the adapted live-volume state for reuse by later instances/iterations."""
+    if opts.sampler_method == 'AV' and opts.sampler_save_state and hasattr(sampler, 'save_state'):
+        try:
+            sampler.save_state(opts.sampler_save_state)
+            print("  AV: saved live-volume state to", opts.sampler_save_state)
+        except Exception as _e_ss:
+            print("  AV: could not save state (", _e_ss, ")")
+
+
+def _maybe_enable_anisotropic_bins(sampler):
+    """Opt-in per-axis bin allocation, on the AV sampler AND any AV portfolio members."""
+    if getattr(opts, 'sampler_anisotropic_bins', False):
+        _aniso_targets = [sampler] + list(getattr(sampler, 'portfolio_realizations', []))
+        for _t in _aniso_targets:
+            if hasattr(_t, 'anisotropic_bins'):
+                _t.anisotropic_bins = True
+        print("  AV: anisotropic per-axis bin allocation ENABLED")
+
+
+def _reject_if_collapsed(dd, stage):
+    """Apply --reject-collapsed-live-volume to whatever the CURRENT verdict is.
+
+    In the main driver this is called TWICE -- once on the first run and again on the
+    replica pool, because replication can turn a healthy first run into a collapsed POOL.
+    This driver has no replica pooling yet, so only the first call exists here; the second
+    call site must be added WITH --mc-error-replicas, or the flag is silently bypassed for
+    exactly the case pooling introduces.
+    """
+    if not opts.reject_collapsed_live_volume:
+        return
+    if not (isinstance(dd, dict) and dd.get('live_volume_collapsed', False)):
+        return
+    # Route through the ordinary failure path, so the caller skips this binary and writes no
+    # result row -- the pre-fix outcome, but for a stated reason.
+    _exc = mcsamplerAdaptiveVolume.LiveVolumeCollapse if mcsampler_AV_ok else RuntimeError
+    raise _exc(
+        "extrinsic integration collapsed ({}): live volume degenerated ({}); "
+        "--reject-collapsed-live-volume is set, so this event is being dropped "
+        "rather than exported".format(stage, dd.get('collapse_reason', '')))
+
+
+def _report_and_gate_collapse(dict_return, stage="first run"):
+    """Announce a collapsed live volume, then apply the rejection gate."""
+    _collapsed = bool(dict_return.get('live_volume_collapsed', False)) if isinstance(dict_return, dict) else False
+    _collapse_reason = (dict_return or {}).get('collapse_reason', '') if isinstance(dict_return, dict) else ''
+    if _collapsed:
+        print(" [mc error] *** LIVE VOLUME COLLAPSED *** {}".format(_collapse_reason))
+        print(" [mc error] this event's lnZ and exported samples are NOT a fair draw from the posterior.")
+    _reject_if_collapsed(dict_return, stage)
+
+
 def _maybe_load_nf_flow(sampler):
     """Warm-load a pre-trained normalizing flow so this instance skips/shortens training.
 
@@ -2112,6 +2180,8 @@ def analyze_event_LISA(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_
              lnL_oracles  = np.zeros(opts.n_chunk)
              sampler.update_sampling_prior(lnL_oracles, opts.n_chunk, external_rvs=rvs_train,log_scale_weights=True,floor_integrated_probability=opts.adapt_floor_level)
 
+    _maybe_load_av_state(sampler)
+    _maybe_enable_anisotropic_bins(sampler)
     _maybe_load_nf_flow(sampler)
 
     res, var, neff, dict_return = sampler.integrate(like_to_integrate, *unpinned_params, **pinned_params)
@@ -2127,10 +2197,14 @@ def analyze_event_LISA(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_
         like_to_integrate, unpinned_params, pinned_params,
         lnL_offset=manual_avoid_overflow_logarithm)
 
+    _maybe_save_av_state(sampler)
     _maybe_save_nf_flow(sampler)
 
     if not(res): # no resut
       raise ValueError(" No integral result returned")
+
+    # Collapse gate AFTER the result check, matching the main driver's ordering.
+    _report_and_gate_collapse(dict_return, "first run")
 
     if not(opts.internal_use_lnL):
       log_res = numpy.log(res)
@@ -2832,6 +2906,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_spec_
              lnL_oracles  = np.zeros(opts.n_chunk)
              sampler.update_sampling_prior(lnL_oracles, opts.n_chunk, external_rvs=rvs_train,log_scale_weights=True,floor_integrated_probability=opts.adapt_floor_level)
 
+    _maybe_load_av_state(sampler)
+    _maybe_enable_anisotropic_bins(sampler)
     _maybe_load_nf_flow(sampler)
 
     res, var, neff, dict_return = sampler.integrate(like_to_integrate, *unpinned_params, **pinned_params)
@@ -2847,10 +2923,14 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_spec_
         like_to_integrate, unpinned_params, pinned_params,
         lnL_offset=manual_avoid_overflow_logarithm)
 
+    _maybe_save_av_state(sampler)
     _maybe_save_nf_flow(sampler)
 
     if not(res): # no resut
       raise ValueError(" No integral result returned")
+
+    # Collapse gate AFTER the result check, matching the main driver's ordering.
+    _report_and_gate_collapse(dict_return, "first run")
 
     if not(opts.internal_use_lnL):
       log_res = numpy.log(res)
