@@ -419,6 +419,51 @@
     "verdict": "BENIGN",
     "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
   },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:_maybe_l0_rescue:0ab512f38a": {
+    "source": "_warm_lnZ = _lnZ_of_rvs(sampler._rvs, already_pooled=False)",
+    "verdict": "BROKEN",
+    "why": "PR #79's CROSS-SOURCE FALLBACK: fires only when the cold and warm passes produced different reading sources (one had a reserve, the other did not), and then re-reads BOTH sides from the fair-draw record. That is self-consistent, which is what #79 claims for it, but it is not unbiased: the two passes sit at different n_eff, so the log(n/n_eff) artifact does not cancel and this branch is back in the regime measured at +3.48 nats / 100% rejection at the 0.5 default. A known, documented, BOUNDED residual -- not a defect anyone introduced. Closing it needs a retained-set reading on both sides, i.e. a reserve for the samplers that keep none. Follow-up, not a regression."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:_maybe_l0_rescue:1331dd70ea": {
+    "source": "len(np.asarray(sampler.identity_convert(sampler._rvs['log_integrand'])).ravel())",
+    "verdict": "BENIGN",
+    "why": "Reports how many rows the fair draw left, for the log line that contrasts it with the retained count. Reading the resample's size is the POINT here."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:_maybe_l0_rescue:32c64bcd73": {
+    "source": "_lnv = np.asarray(sampler.identity_convert(sampler._rvs[_lnkey]), dtype=float).ravel() if _lnkey else np.array([])",
+    "verdict": "BENIGN",
+    "why": "The DELIBERATE no-reserve fallback for a sampler that keeps none: reads _rvs so the feature degrades to its previous behaviour rather than to no seed at all. The rank hazard is still handled -- build_warm_seed puffs the result to full rank -- so what remains is only 'fewer points', which cannot be improved without a reserve."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:_maybe_l0_rescue:36e58e97fb": {
+    "source": "if 'log_integrand' in sampler._rvs else '?'))",
+    "verdict": "PER_ROW",
+    "why": "Key-presence / column reference, not a population statistic."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:_maybe_l0_rescue:7a4e161eb0": {
+    "source": "_cold_rvs = dict(sampler._rvs)",
+    "verdict": "PER_ROW",
+    "why": "Snapshots the cold record so the reject path can restore it. A dict copy of whatever rows exist; makes no claim about their statistics."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:_maybe_l0_rescue:a6ea5209f8": {
+    "source": "_cols = (np.vstack([np.asarray(sampler.identity_convert(sampler._rvs[p]), dtype=float).ravel()",
+    "verdict": "BENIGN",
+    "why": "The DELIBERATE no-reserve fallback for a sampler that keeps none: reads _rvs so the feature degrades to its previous behaviour rather than to no seed at all. The rank hazard is still handled -- build_warm_seed puffs the result to full rank -- so what remains is only 'fewer points', which cannot be improved without a reserve."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:_maybe_l0_rescue:cfe2518e26": {
+    "source": "_lnkey = 'log_integrand' if 'log_integrand' in sampler._rvs else ('integrand' if 'integrand' in sampler._rvs else None)",
+    "verdict": "PER_ROW",
+    "why": "Key-presence / column reference, not a population statistic."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:_maybe_l0_rescue:d2514d9663": {
+    "source": "_warm_lnZ, _warm_src = _lnZ_of_reserve_or_rvs(sampler, sampler._rvs)",
+    "verdict": "FIXED",
+    "why": "PR #79, re-landed as #86. sampler._rvs is passed as the FALLBACK argument only: the helper prefers the retained reserve via lnZ_from_reserve, and the gate refuses to compare across sources (_cold_src != _warm_src forces BOTH back to the fair-draw reading, which is at least self-consistent). Measured before #79: two passes with identical true lnZ at n_eff 1.8 vs 53 produced a +3.48 nat gap and rejected the good warm pass 100% of the time at the 0.5 default."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:_snapshot_pass_state:02594db9f0": {
+    "source": "rvs=(dict(sampler._rvs) if rvs is None else rvs),",
+    "verdict": "PER_ROW",
+    "why": "_snapshot_pass_state takes a dict copy of whatever rows are present so a rejected warm pass can be undone. It makes no claim about their statistics, and it snapshots the fair-draw MARKER alongside them so the restored record and the marker describing it cannot disagree."
+  },
   "bin/integrate_likelihood_extrinsic_batchmode_lisa:analyze_event:16e8b48c86": {
     "source": "(sampler._rvs[\"phi_orb\"][indx_guess]/(2*numpy.pi)), \\",
     "verdict": "BENIGN",
