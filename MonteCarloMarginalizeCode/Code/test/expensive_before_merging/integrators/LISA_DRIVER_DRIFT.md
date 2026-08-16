@@ -35,6 +35,37 @@ The judgements live in `make_lisa_drift_ledger.py` as ordered
 An item matching no rule is reported and left out, which fails `--check`.  That is the
 intended path for newly-drifted code: **a person has to classify it.**
 
+## What this audit CANNOT see
+
+Stated plainly, because an adversarial review defeated the gate with four realistic drifts
+and the honest answer is that some of them are out of scope by construction rather than by
+oversight.
+
+**It is a NAME-PRESENCE set difference.**  It answers "does the LISA driver have a thing
+called X".  It does not compare behaviour.  So all of these produce **zero** gap items:
+
+* a **changed default** on an option present in both drivers (`--adapt-floor-level` going
+  0.1 -> 0.9 is invisible here);
+* **changed help text**;
+* a **changed body** of a same-named function -- the anti-drift tests in
+  `test/test_lisa_*.py` cover this for the specific helpers that were ported, and nothing
+  covers it for anything else;
+* a **missing `if` branch or `pinned_params` key**, which is not a FUNC/OPTION/CONST/ATTR at
+  all.  A real example is below.
+
+**Option names built at runtime evade the extractor.**  `add_option(_name_var, ...)`,
+options added in a `for` loop, and `"--evade-" + "concat"` are all missed, because the
+extractor reads string LITERALS out of the AST.  Since `OPTION` is the large majority of the
+gap, this is the biggest hole.  Neither driver does any of this today.
+
+**`ATTR` is presence-anywhere.**  A marker READ but never WRITTEN counts as present, so a
+reader-ported/writer-missing port looks closed.  `_rvs_is_pooled` is exactly that today, and
+its ledger entry says so.
+
+The gate is worth having anyway -- it catches the ordinary case, which is a helper or an
+option appearing in the main driver and nobody asking the LISA question.  It is not a proof
+of equivalence, and it should not be described as one.
+
 ## The gate
 
 `test/test_lisa_driver_drift.py`, wired into the `lisa-check` CI job via

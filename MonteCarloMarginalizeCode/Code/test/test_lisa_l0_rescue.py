@@ -299,34 +299,87 @@ def _run(H, sampler, res=1.0, var=0.1, neff=1.0, dict_return=None):
                                  lambda *a, **k: None, (), {})
 
 
-def test_rescue_is_a_noop_when_the_option_is_off():
+def _assert_declined(H, sampler, capsys, **runkw):
+    """The rescue must DECLINE silently -- not run and get rescued by its own except.
+
+    Asserting only the return value is not enough, and an earlier version of these tests
+    made exactly that mistake: with a guard removed the rescue starts, throws somewhere
+    inside, and `except Exception` returns the inputs unchanged -- so the return value is
+    identical either way.  The observable difference is that a declining rescue says
+    NOTHING and never touches the sampler.
+    """
+    capsys.readouterr()
+    out_vals = _run(H, sampler, **runkw)
+    printed = capsys.readouterr().out
+    assert "[L0 auto-rescue]" not in printed, \
+        "the rescue engaged when it should have declined: %r" % printed
+    assert getattr(sampler, 'bootstrapped', None) is None
+    return out_vals
+
+
+def test_rescue_is_a_noop_when_the_option_is_off(capsys):
+    """Uses a DEGENERATE neff, so the option guard is the only thing declining.
+
+    With neff=None, `_needs_l0_rescue` is True on its own; only the
+    `opts.sampler_warmstart_retry_neff` conjunct can stop the rescue here.  A healthy neff
+    would make this test pass with that conjunct deleted.
+    """
     H = _load(opts=_Opts(sampler_warmstart_retry_neff=None))
-    s = _Sampler(rvs=_rec([1.0]))
-    assert _run(H, s) == (1.0, 0.1, 1.0, {'cold': True})
-    assert s.bootstrapped is None
+    s = _Sampler(rvs=_rec([1.0, 2.0, 3.0]), integrate_result=('R2', 'V2', 42.0, {'warm': True}))
+    assert _assert_declined(H, s, capsys, neff=None) == (1.0, 0.1, None, {'cold': True})
 
 
-def test_rescue_is_a_noop_for_a_sampler_that_cannot_warm_start():
+def test_rescue_is_a_noop_for_a_sampler_method_it_does_not_apply_to(capsys):
+    """AV/portfolio only.  Every other conjunct is satisfied here."""
+    H = _load(opts=_Opts(sampler_method='GMM'))
+    s = _Sampler(rvs=_rec([1.0, 2.0, 3.0]), integrate_result=('R2', 'V2', 42.0, {'warm': True}))
+    _assert_declined(H, s, capsys, neff=1.0)
+
+
+def test_rescue_is_a_noop_for_a_sampler_that_cannot_warm_start(capsys):
     """mcsampler/GMM have no bootstrap_from_samples; the rescue must decline, not crash."""
     H = _load()
 
     class _NoBootstrap(object):
         def __init__(self):
             self._rvs = _rec([1.0])
+            self.params_ordered = ['a', 'b']
 
         def identity_convert(self, x):
             return x
 
     s = _NoBootstrap()
     assert not hasattr(s, 'bootstrap_from_samples')
-    assert _run(H, s) == (1.0, 0.1, 1.0, {'cold': True})
+    _assert_declined(H, s, capsys, neff=1.0)
 
 
-def test_rescue_is_a_noop_when_neff_is_healthy():
+def test_rescue_does_not_touch_identity_convert_before_deciding_it_applies(capsys):
+    """Regression: RIFT.integrators.mcsampler.MCSampler has NO identity_convert.
+
+    That is the object this driver keeps for --sampler-method adaptive_cartesian.  The main
+    driver evaluates `sampler.identity_convert(neff)` BEFORE its guard, so porting it
+    verbatim made every adaptive_cartesian event die with AttributeError at the end of a
+    completed integration, before --output-file was written.  The applicability guards must
+    run first.
+    """
+    H = _load(opts=_Opts(sampler_method='adaptive_cartesian'))
+
+    class _NoConvert(object):
+        """Exactly mcsampler.MCSampler's relevant shape: no identity_convert."""
+        def __init__(self):
+            self._rvs = _rec([1.0])
+            self.params_ordered = ['a', 'b']
+
+    s = _NoConvert()
+    assert not hasattr(s, 'identity_convert')
+    capsys.readouterr()
+    assert _run(H, s, neff=1.0) == (1.0, 0.1, 1.0, {'cold': True})
+
+
+def test_rescue_is_a_noop_when_neff_is_healthy(capsys):
     H = _load()
-    s = _Sampler(rvs=_rec([1.0]))
-    assert _run(H, s, neff=500.0)[3] == {'cold': True}
-    assert s.bootstrapped is None
+    s = _Sampler(rvs=_rec([1.0]), integrate_result=('R2', 'V2', 42.0, {'warm': True}))
+    assert _assert_declined(H, s, capsys, neff=500.0)[3] == {'cold': True}
 
 
 def test_degenerate_early_termination_triggers_the_rescue():
@@ -359,6 +412,35 @@ def test_warm_pass_far_below_cold_is_rejected_and_cold_is_restored():
     assert out == ('R1', 'V1', 1.0, {'cold': True}), "the warm pass was not rejected"
     assert s._warm_seed_reserve == {'tag': 'cold'}, "the reserve did not come back (Finding 5)"
     assert np.allclose(s._rvs['log_integrand'], cold['log_integrand'])
+
+
+def test_reject_message_reports_lnZ_on_the_events_offset_scale(capsys):
+    """lnL_offset is this event's manual_avoid_overflow_logarithm.
+
+    It exists so the *** REJECTING *** line quotes absolute lnZ rather than the internally
+    offset value.  Nothing else reads it, so dropping it at the call sites is invisible
+    unless a test drives it at a NON-ZERO value -- which is what made it possible to delete
+    `lnL_offset=manual_avoid_overflow_logarithm` from both call sites with 81 tests green.
+    """
+    H = _load()
+    s = _Sampler(rvs=_rec([0.0, 0.0]), integrate_result=('R2', 'V2', 42.0, {'warm': True}))
+    s.warm_rvs = _rec([-20.0, -20.0])
+    capsys.readouterr()
+    H['_maybe_l0_rescue'](s, 'R1', 'V1', 1.0, {'cold': True},
+                          lambda *a, **k: None, (), {}, lnL_offset=1000.0)
+    out = capsys.readouterr().out
+    assert "REJECTING" in out
+    # cold lnZ 0.0 and warm lnZ -20.0, both shifted by +1000 in the report
+    assert "1000.000" in out and "980.000" in out, \
+        "the reject message did not quote lnZ on the event's offset scale: %r" % out
+
+
+def test_both_call_sites_pass_the_events_offset():
+    """Source-level, because the value comes from a local of each analyze_event."""
+    src = _src()
+    assert src.count("lnL_offset=manual_avoid_overflow_logarithm") == 2, \
+        "a call site dropped the event's lnL offset, so its reject message would quote " \
+        "the internally-offset lnZ instead of the absolute one"
 
 
 def test_accept_truncated_reports_the_warm_pass_anyway():
