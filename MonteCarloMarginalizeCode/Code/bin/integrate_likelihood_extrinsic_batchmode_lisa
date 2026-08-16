@@ -822,6 +822,7 @@ params = {}
 sampler = mcsampler.MCSampler()
 xpy_asarray_already = functools.partial(xpy_default.asarray,dtype=np.float64)
 
+use_gmm_member=False   # set when a portfolio carries a GMM member (see the portfolio setup loop)
 if opts.sampler_method == "adaptive_cartesian_gpu":
     print(" ILE: {}".format(opts.sampler_method))
     sampler = mcsamplerGPU.MCSampler()
@@ -878,8 +879,15 @@ elif opts.sampler_method == "portfolio":
             sampler = mcsamplerAdaptiveVolume.MCSampler(n_chunk=opts.n_chunk) # enforce now, so provided for setup phase
         if name =='GMM':
             sampler = mcsamplerEnsemble.MCSampler()
-            # following override means sampler_method is CHANGED, so THIS MUST BE LAST, and can't condition on portfolio
-            opts.sampler_method = 'GMM'  # this will force the creation/parsing of GMM-specific arguments below, so they are properly passed
+            # A GMM member needs the GMM-specific argument blocks below to run so its config is
+            # forwarded.  This used to CLOBBER opts.sampler_method='GMM', which silently broke
+            # every downstream `sampler_method == "portfolio"` test -- most importantly the L0
+            # auto-rescue gate, which then NEVER FIRED for a portfolio carrying a GMM member --
+            # and made a portfolio take GMM-only branches (e.g. return_lnI).  Flag it
+            # non-destructively instead: sampler_method stays 'portfolio', and the GMM blocks
+            # below key off `use_gmm_args` = standalone GMM OR a portfolio with a GMM member.
+            # Ported from bin/integrate_likelihood_extrinsic_batchmode, which fixed this.
+            use_gmm_member = True
         if name == "adaptive_cartesian_gpu":
             sampler = mcsamplerGPU.MCSampler()
             mcsampler  = mcsamplerGPU  # force use of routines in that file, for properly configured GPU-accelerated code as needed
@@ -1396,7 +1404,8 @@ def ln_weights_for_posterior(rvs, sampler, convert=None, use_lnL=None):
         return numpy.zeros(_rvs_len(rvs), dtype=float)
     return numpy.asarray(ln_weights_from_rvs(rvs, convert=convert, use_lnL=use_lnL),
                          dtype=float)
-if opts.sampler_method == "GMM":
+use_gmm_args = (opts.sampler_method == "GMM") or use_gmm_member
+if use_gmm_args:   # standalone GMM, or a portfolio carrying a GMM member
     n_step =pinned_params["n"]
     n_max_blocks = ((1.0*int(opts.n_max))/n_step)
     # pairing coordinates for adaptive integration: see definition of order below
@@ -2161,7 +2170,7 @@ def analyze_event_LISA(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_
       if 'distance' in sampler.params:
         sampler.reset_sampling('distance')
       sampler.reset_sampling('inclination')
-    elif opts.sampler_method == "GMM":
+    elif use_gmm_args:   # standalone GMM or a portfolio with a GMM member (gmm_dict exists in both)
       if 'distance' in sampler.params:
          pair_d_incl = sampler_param_tuple(sampler, ['distance','inclination'])
          if  pair_d_incl in gmm_dict:
@@ -2885,7 +2894,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_spec_
       if 'distance' in sampler.params:
         sampler.reset_sampling('distance')
       sampler.reset_sampling('inclination')
-    elif opts.sampler_method == "GMM":
+    elif use_gmm_args:   # standalone GMM or a portfolio with a GMM member (gmm_dict exists in both)
       if 'distance' in sampler.params:
          pair_d_incl = sampler_param_tuple(sampler, ['distance','inclination'])
          if  pair_d_incl in gmm_dict:
@@ -3180,7 +3189,7 @@ for indx in numpy.arange(len(P_list)):
     if opts.sampler_method == "adaptive_cartesian_gpu": 
       for name in sampler.params:
         sampler.reset_sampling(name)
-    elif opts.sampler_method == "GMM":
+    elif use_gmm_args:   # standalone GMM or a portfolio with a GMM member
       # reset the GMM dictionary
       for component in gmm_dict:
           gmm_dict[component] = None
