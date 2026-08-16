@@ -29,10 +29,7 @@ import gzip
 # Backward compatibility
 from RIFT.misc.dag_utils_generic import which
 # leaf module: numpy only, so this does not drag numba/cupy into the helper
-from RIFT.likelihood.time_interp_choice import (
-    INTERP_TIME_OVERSAMPLING_THRESHOLD_CPU, INTERP_TIME_OVERSAMPLING_THRESHOLD_GPU,
-    choose_time_interp_stencil, effective_srate_for_stencil, is_auto_request, is_off_request,
-    q_bandwidth_hz, validate_stencil_name)
+from RIFT.likelihood.time_interp_choice import is_off_request, validate_stencil_name
 lalapps_path2cache = which('lal_path2cache')
 ligolw_add = 'igwn_ligolw_add'
 if not(which(ligolw_add)):
@@ -223,7 +220,7 @@ parser.add_argument("--internal-ile-rotate-phase", action='store_true')
 parser.add_argument("--internal-ile-auto-logarithm-offset",action='store_true',help="Passthrough to ILE")
 parser.add_argument("--internal-ile-use-lnL",action='store_true',help="Passthrough to ILE.  Will DISABLE auto-logarithm-offset and manual-logarithm-offset")
 parser.add_argument("--internal-ile-n-chunk",default=None,type=int,help="Override the extrinsic chunk size (--n-chunk) passed to ILE. Default: 40000, scaled linearly with SNR above 40 and capped at 160000. Rationale: at high SNR the posterior is a vanishing fraction of the prior volume, so a small chunk gives few informative samples per adaptation step; measured collapse on a truth-known SNR ladder falls 88%%->50%% (SNR160) and 69%%->25%% (SNR80) going 1e4->1.6e5, and the gain survives at fixed budget. Larger chunks cost GPU memory, so raise the ILE memory request if you raise this a lot.")
-parser.add_argument("--internal-ile-interpolate-time",nargs='?',const='True',default=None,type=str,help="Evaluate Q_lm at FRACTIONAL detector times instead of snapping to the nearest sample bin. Nearest-bin evaluation injects a time-quantization non-smoothness into the extrinsic likelihood surface that is a discretization artifact, not physics; removing it makes convergence more robust. Requires the maintained NoLoop likelihood, i.e. the --vectorized --gpu --force-xpy combination. Bare (or 'True') means CHOOSE THE STENCIL AUTOMATICALLY from this run's oversampling factor fNyq/fmax=(srate/2)/fmax: 'sinc' (Lanczos, accurate near Nyquist, where production sits) below the threshold and 'cubic' (4-point Lagrange, accurate when heavily oversampled) at or above it. The threshold is BACKEND-DEPENDENT because the extra taps cost ~4.5x cubic on CPU but only ~2x on GPU: %g on CPU, %g on GPU, against a measured accuracy crossover at fNyq/fmax ~5.4 -- see RIFT.likelihood.time_interp_choice for the measurement. Pass an explicit 'nearest'/'cubic'/'sinc' to override the choice entirely. The resolved stencil is echoed to the log and appears literally in the generated ILE command line, so a completed run's stencil is auditable. Default off for backward compatibility." % (INTERP_TIME_OVERSAMPLING_THRESHOLD_CPU, INTERP_TIME_OVERSAMPLING_THRESHOLD_GPU))
+parser.add_argument("--internal-ile-interpolate-time",nargs='?',const=None,default=None,type=str,help="Evaluate Q_lm at FRACTIONAL detector times instead of snapping to the nearest sample bin, in the maintained NoLoop likelihood (needs --vectorized --gpu --force-xpy). REQUIRES AN EXPLICIT STENCIL: nearest|cubic|sinc. Automatic selection was removed after measurement -- it mis-selected at 2 of 8 total masses, and the correct stencil depends on fmin as strongly as on mass (at M=5 Msun the winner flips between fmin 30 and 150 with srate, fmax and mass identical), so no (srate,fmax,mass) rule can be right. MEASURED GUIDANCE: 'cubic' is right for essentially all binaries above ~4 Msun total (it beats sinc by 1.5x at M=5 up to >400x at M=80); 'sinc' pays off only for genuinely broadband Q -- low total mass, or a high fmin that cuts the long low-frequency inspiral out of band (it beats cubic by 2.2x at M=2.6 with fmin 30, 5.8x with fmin 150). 'nearest' is never competitive and is already unusable at O4 SNRs. Error grows as SNR^2, so this matters more at 3G sensitivities. Cost: sinc is ~4.2-4.5x cubic on CPU, ~1.6-3.0x on GPU. See RIFT.likelihood.time_interp_choice for the full table and its limitations. Default off.")
 parser.add_argument("--internal-ile-srate-internal",default=None,help="DECISION INPUT ONLY -- this does NOT emit --srate-internal (util_RIFT_pseudo_pipe.py appends that itself). Tell the helper the internal sampling rate the ILE will use, so --internal-ile-interpolate-time can pick the stencil from the grid the likelihood is ACTUALLY on: --srate-internal overrides deltaT inside ILE, so with it set the oversampling factor is (srate_internal/2)/fmax, not (srate/2)/fmax.")
 parser.add_argument("--internal-cip-use-lnL",action='store_true')
 parser.add_argument("--ile-n-eff",default=50,type=int,help="Target n_eff passed to ILE.  Try to keep above 2")
@@ -1140,93 +1137,28 @@ else:
 helper_ile_args += " --n-chunk " + str(n_chunk_ile) + " "
 if opts.internal_ile_interpolate_time and not is_off_request(opts.internal_ile_interpolate_time):
     # Sub-sample Q_lm time interpolation; needs the NoLoop path (--vectorized --gpu --force-xpy).
-    # A bare flag (or the legacy literal 'True') means "pick the stencil for me"; anything else is
-    # a stencil name, validated and then passed through so an explicit request is never
-    # second-guessed.  Both `srate` and the effective fmax are final by this point -- each is
-    # assigned at most once, above -- so no later statement can invalidate the choice made here.
-    # But note the decision does NOT use `srate` directly; see effective_srate_for_stencil below,
-    # because --srate-internal and an absent --srate both move the grid the stencil steps along.
-    _interp_request = str(opts.internal_ile_interpolate_time).strip()
-    if is_auto_request(_interp_request):
-        fmax_effective = opts.fmax if not (opts.fmax is None) else fmax
-        # Decide from the grid the likelihood is ACTUALLY on, which is not always `srate`:
-        # --srate-internal overrides deltaT inside ILE, and when this helper does not emit
-        # --srate the ILE falls back to its own (much higher) default.  Using the wrong one here
-        # does not corrupt the likelihood; it silently picks the stencil for a configuration the
-        # run never has.
-        srate_effective = effective_srate_for_stencil(
-            srate, srate_internal=opts.internal_ile_srate_internal,
-            helper_emits_srate=bool(opts.propose_ile_convergence_options))
-        # The MASS matters as much as the sampling rate, and leaving it out was the original
-        # error here.  Q_lm(t) is band-limited by whichever is lower, fmax or the template's own
-        # cutoff; a heavy binary stops radiating far below fmax, so its Q is much smoother than
-        # fmax implies.  Measured at srate 4096 / fmax 1700: a 30+25 system has 99.99% of its Q
-        # power below 99 Hz (effectively ~20x oversampled, and cubic beats sinc by ~330x there),
-        # while 1.3+1.3 reaches 983 Hz (genuinely near Nyquist, sinc wins by ~6-11x).  Choosing
-        # from fmax alone picks sinc for both.  Without a mass, choose_time_interp_stencil
-        # returns 'cubic' rather than guessing.
-        _m_total = None
-        if "m1" in event_dict and "m2" in event_dict:
-            try:
-                _m_total = float(event_dict["m1"]) + float(event_dict["m2"])
-            except (TypeError, ValueError):
-                _m_total = None
-        # The threshold is backend-dependent, because the extra taps cost ~4.5x on CPU but only
-        # ~2x on GPU, so cost breaks the near-crossover tie at a different place.  This is the
-        # same flag that gates the '--vectorized --gpu' append further down, i.e. the helper's
-        # own decision about whether this job gets a GPU.
-        #
-        # BE HONEST ABOUT WHAT IS LIVE: util_RIFT_pseudo_pipe.py passes
-        # --propose-ile-convergence-options UNCONDITIONALLY, so anything built through the normal
-        # pipeline takes the GPU threshold, and the CPU one is reached only by invoking this
-        # helper directly without that flag (or by other callers of
-        # choose_time_interp_stencil).  Note that without the flag the helper also does not emit
-        # --vectorized --gpu at all, and --interpolate-time needs the NoLoop path those select --
-        # so today the CPU branch is effectively a library/future-path value, not a production
-        # one.  It is kept because the cost asymmetry that motivates it is real and measured, and
-        # because a CPU workflow would otherwise silently inherit a GPU-shaped tradeoff.
-        # Either way production sits at fNyq/fmax ~ 1.2, far below both thresholds.
-        _ile_on_gpu = bool(opts.propose_ile_convergence_options)
-        time_interp_choice, _oversampling, _threshold = choose_time_interp_stencil(
-            srate_effective, fmax_effective, on_gpu=_ile_on_gpu, m_total_msun=_m_total)
-        _srate_note = ""
-        if opts.internal_ile_srate_internal:
-            _srate_note = " [from --srate-internal; pipeline srate {}]".format(srate)
-        elif not opts.propose_ile_convergence_options:
-            _srate_note = " [ILE default; helper emits no --srate]"
-        if _oversampling is None:
-            print("  ==> Q_lm time interpolation: srate/fmax unusable (srate={}, fmax={}); "
-                  "falling back to stencil '{}'".format(
-                      srate_effective, fmax_effective, time_interp_choice))
-        elif _m_total is None:
-            print("  ==> Q_lm time interpolation: no total mass in event_dict, so the Q "
-                  "bandwidth cannot be bounded (fmax-only fNyq/fmax would be {:.2f}); choosing "
-                  "the safe stencil '{}'".format(_oversampling, time_interp_choice))
-        else:
-            _f_q = q_bandwidth_hz(fmax_effective, _m_total)
-            print("  ==> Q_lm time interpolation: srate={}{} fmax={} M_total={:.1f} -> Q "
-                  "bandwidth {:.1f} Hz -> fNyq/f_Q={:.2f} ({} {} threshold {}), choosing "
-                  "stencil '{}'".format(
-                      srate_effective, _srate_note, fmax_effective, _m_total, _f_q,
-                      _oversampling, "below" if _oversampling < _threshold else "at/above",
-                      "GPU" if _ile_on_gpu else "CPU", _threshold, time_interp_choice))
-    else:
-        # Validate NOW, while the workflow is being built.  An unrecognised name would otherwise
-        # ride onto every generated ILE command line and kill each job separately at run time,
-        # after submission -- turning the cheapest possible error into an expensive one.
-        time_interp_choice = validate_stencil_name(_interp_request)
-        print("  ==> Q_lm time interpolation: stencil '{}' requested explicitly, "
-              "not auto-selected".format(time_interp_choice))
-    # The RESOLVED name goes on the ILE command line, never the literal 'True': the stencil a
-    # completed run actually used is then readable off the .sub file, not re-derivable only by
-    # replaying the helper against the same srate/fmax.
     #
-    # VERSION SKEW, and it is one-directional.  An ILE predating stencil names maps any
-    # unrecognised --interpolate-time value to 'nearest' through a truthiness test, with no error
-    # and no log line -- so an OLD ILE driven by THIS helper silently runs 'nearest' where the
-    # old helper's literal 'True' would have given it cubic.  A new ILE raises on a bad value, so
-    # the reverse pairing is safe.  The consequence is a less accurate likelihood, not a wrong
-    # one, but it is invisible: pair this pipeline with an ILE from the same checkout/container.
+    # AN EXPLICIT STENCIL NAME IS REQUIRED.  This flag used to accept 'True' meaning "choose for
+    # me", and the helper picked from the run's oversampling factor.  That was removed after
+    # measurement: the rule mis-selected at 2 of 8 total masses, and the correct stencil depends
+    # on fmin as strongly as on mass -- at M = 5 Msun the winner flips between fmin 30 and 150
+    # with srate, fmax and mass identical, so no (srate, fmax, mass) rule can be right.  A wrong
+    # stencil is silent: it does not raise, it just makes the likelihood less accurate.  So the
+    # user chooses, from the measured table in RIFT.likelihood.time_interp_choice.
+    #
+    # Validated HERE, at workflow-build time -- otherwise a bad value rides onto every generated
+    # ILE command line and kills each job separately after submission.
+    time_interp_choice = validate_stencil_name(opts.internal_ile_interpolate_time)
+    print("  ==> Q_lm time interpolation: stencil '{}' (explicit; automatic selection was "
+          "removed as unreliable -- see RIFT.likelihood.time_interp_choice for the measured "
+          "guidance)".format(time_interp_choice))
+    # The name goes on the ILE command line verbatim, so a completed run's stencil is readable
+    # off the .sub file.
+    #
+    # VERSION SKEW, one-directional: an ILE predating stencil names maps any unrecognised
+    # --interpolate-time value to 'nearest' through a truthiness test, with no error and no log
+    # line -- so an OLD ILE driven by THIS helper silently runs 'nearest'.  A new ILE raises, so
+    # the reverse pairing is safe.  Pair this pipeline with an ILE from the same checkout.
     helper_ile_args += " --interpolate-time " + time_interp_choice + " "
 
 if opts.internal_ile_auto_logarithm_offset and not opts.internal_ile_use_lnL:

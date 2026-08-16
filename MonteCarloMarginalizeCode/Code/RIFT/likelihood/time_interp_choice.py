@@ -1,221 +1,90 @@
-"""Which sub-sample Q_lm stencil should a given run use?
+"""Which sub-sample Q_lm stencil should a run use?  Measured guidance -- and why the pipeline
+does NOT decide for you.
 
-This is a leaf module on purpose: numpy only, no lal, no numba, no cupy.  The pipeline scripts
-(bin/helper_LDG_Events.py) need the answer while building a workflow, and importing
-factored_likelihood there would cost ~4 s of numba compilation for a ten-line decision.  Keeping
-it here also means the thresholds are under a real unit test (test_time_interp_choice.py) rather
-than buried in a script that cannot be imported.
+Leaf module on purpose: numpy only, no lal, no numba, no cupy, so the pipeline scripts can
+import it without paying ~4 s of numba compilation.
 
-THE DECISION.  There is no uniformly better stencil, so the choice is made from the run's own
-oversampling factor fNyq/fmax = (srate/2)/fmax.  The two interpolating stencils fail differently:
+THERE IS NO AUTOMATIC SELECTION HERE, AND THAT IS A MEASURED CONCLUSION, NOT AN OMISSION.
+Two successive attempts were made and both were disproved by measurement:
 
-  'cubic'  4-point Lagrange polynomial.  Error O(h^4): improves FAST with oversampling, poor
-           near Nyquist, because a cubic cannot follow the signal there.
-  'sinc'   Lanczos windowed sinc, 2a taps (a=8).  Error set by the WINDOW, not by h, so it is
-           flat in oversampling: far better than cubic near Nyquist, worse once heavily
-           oversampled.
+  1. Select from fNyq/fmax.  WRONG: that number is identical for every system at fixed settings,
+     but the right stencil is not.  Q^a_lm(t) = <h_lm(t)|d> is band-limited by whichever is
+     lower, fmax or the TEMPLATE's own highest frequency.
+  2. Select from fNyq / (fmax bounded by f_ISCO(M_total)).  ALSO WRONG: mis-selected at 2 of 8
+     measured masses, and -- fatally -- the correct stencil depends on **fmin** as strongly as on
+     mass.  At M = 5 Msun, srate 4096 / fmax 1700, the winner flips from cubic (fmin 30) to sinc
+     (fmin 150) with mass, srate and fmax all identical.  The two cases require disjoint
+     threshold ranges, (1.21, 2.33) and (2.33, 4.66), so NO threshold can make a
+     (srate, fmax, mass) signature correct.
 
-MEASURED accuracy crossover (test_q_window_interp.py's harness, max relative error on a
-synthetic band-limited signal; 24 seeds x 8 targets per point; ratio = cubic error / sinc error,
-so >1 means sinc wins; "frac" is the fraction of seeds in which sinc wins):
+So the flag takes an explicit stencil name.  A wrong automatic choice here is silent -- it does
+not raise, it just makes the likelihood less accurate -- which is exactly the kind of error that
+should not be guessed at.
 
-    fNyq/fmax     4.0    4.5    5.0   5.25    5.5   5.75    6.0    6.5    7.0
-    ratio (med)  3.52   2.08   1.43   1.23   0.95   0.85   0.75   0.62   0.44
-    frac         1.00   1.00   0.92   0.88   0.38   0.08   0.04   0.04   0.00
+===============================================================================================
+MEASURED GUIDANCE -- use this to choose
+===============================================================================================
 
-So the median crossover is fNyq/fmax ~= 5.4, sinc wins in EVERY realization up to 4.5, and
-essentially never above 5.75.
+All against an exact FFT-zero-padded reference; paired, K=2000, 3 seeds; each mass normalised to
+SNR_lik = 100.  Numbers are max|dlnL| in nats.  srate 4096, fmax 1700, fmin 30, Lmax 2.
 
-WHY THERE ARE TWO THRESHOLDS.  Accuracy is only half the decision; the other half is what the
-extra taps cost, and that differs by backend.  Measured cost of sinc relative to cubic in the Q
-product: ~4.2-4.5x on CPU, where the window builder is tap-count bound (16 taps against 4), but
-only ~1.6-3.0x on GPU, where Q_inner_sinc is bandwidth/latency bound and the extra taps are
-largely hidden.  Cost cannot outrank accuracy -- a wrong likelihood is worse than a slow one --
-but it is the right tie-breaker through the band where the two stencils are within a few tens of
-percent of each other.  Hence:
+    M/Msun    nearest      cubic       sinc     winner
+      2.6       295        6.92       3.20      SINC  (2.2x)
+      5         479        4.34       6.67      cubic (1.5x)
+     10         228        0.544      3.02      cubic (5.6x)
+     20         295        0.098      2.95      cubic (30x)
+     35         333        0.033      5.43      cubic (163x)
+     55         333        0.016      4.74      cubic (295x)
+     80         338        0.013      5.32      cubic (414x)
+    120        4262       <0.337     60.3       cubic (>179x)
 
-  GPU  threshold 5.5: sinc is only ~2x the cost, so let ACCURACY decide and put the threshold at
-       the measured median crossover.
-  CPU  threshold 5.0: sinc is ~4.5x the cost, so only pay it while its advantage is robust
-       rather than marginal -- at 5.0 the median gain is still 1.43x and 92% of realizations
-       favour sinc; past that the gain is a coin flip and the 4.5x is not worth it.
+RULE OF THUMB: 'cubic' is right for essentially all binaries above ~4 Msun total.  'sinc' pays
+off only for genuinely broadband Q -- low total mass, and/or a high fmin that cuts the long
+low-frequency inspiral out of the band.  The crossover in total mass is ~3-4 Msun at fmin 30,
+and moves UP with fmin (at fmin 150, sinc still wins at M = 5).
 
-The gap is deliberately small, and that is itself the finding: the accuracy curves are steep
-through the crossover, so a 2x difference in cost moves the optimum by only ~0.5 in fNyq/fmax.
-Do not widen it without re-measuring -- these are measured numbers, not taste.
+'nearest' is never competitive: it is 2-4 orders of magnitude worse everywhere and crosses 1 nat
+of error at SNR 2-6, i.e. it is already unusable at O4 SNRs.
 
-WHAT THE OPERATIVE FREQUENCY IS -- AND THE MISTAKE THIS REPLACED.  An earlier version of this
-module used fNyq/fmax.  That is WRONG, and measurably so: Q^a_lm(t) = <h_lm(t)|d> is band-limited
-by whichever is lower, the analysis cutoff fmax OR the template's own highest frequency, which is
-set by the MASSES.  Measured Q spectra at srate 4096 / fmax 1700 -- nominally "fNyq/fmax = 1.2",
-i.e. near Nyquist for every system:
+WHAT ACTUALLY SETS THE ANSWER is fNyq divided by the true Q bandwidth.  Scoring 12 measured
+(mass, fmin) points that way, a single threshold near 4.2 separates every one of them: sinc wins
+below ~4.1, cubic above ~4.4.  The concept is sound; what is missing is a good enough estimator
+of the bandwidth at workflow-build time.  f_ISCO is not one -- it drifts by 7.4x across
+2.6-120 Msun AND the drift reverses sign (over-predicting the bandwidth by 3.4x at M = 2.6,
+under-predicting by 2.2x at M = 120), so it biases toward sinc exactly where the decision is
+close.  A PSD-weighted high-frequency quantile of |h|^2/S over [fmin, fmax] is computable from
+what the pipeline already has and is the obvious next attempt.
 
-    30+25 Msun     99.99% of Q power below    98.8 Hz   -> really ~20x oversampled
-    1.3+1.3 Msun   99.99% of Q power below   983    Hz   -> really near Nyquist
+ERROR GROWS AS SNR^2 (measured: fitted exponent 1.999-2.006 over two decades), so a stencil that
+looks harmless today matters at 3G sensitivities.  SNR at which each stencil's error first
+reaches 1 nat: nearest 2-6; cubic 15 (1.3+1.3 Msun) to 830 (30+25); sinc 36-46.
 
-and the best stencil follows the TRUE bandwidth, verified against an exact FFT-zero-padded
-reference: cubic beats sinc by ~330x on the heavy system, sinc beats cubic by ~6-11x on the
-light one.  An fmax-only rule picks sinc for both, which is badly wrong for the heavy case --
-and heavy is where most detections are.  So the decision uses q_bandwidth_hz(), not fmax, and
-WITHOUT A MASS it returns 'cubic' rather than guessing.
+COST, measured: sinc is ~4.2-4.5x cubic on CPU (16 taps against 4; that path is tap-count bound)
+but only ~1.6-3.0x on GPU (bandwidth bound).  End-to-end on CPU at fixed n_max: nearest 9.3 s,
+cubic 25.1 s, sinc 85.3 s.  On GPU the difference is not resolvable in wall time.
 
-THE PENALTIES ARE ASYMMETRIC, which is why cubic is the safe side of any uncertainty: wrongly
-choosing sinc cost ~330x in the measured heavy case, wrongly choosing cubic ~6x in the light one.
-
-So 'sinc' is NOT a general production win.  It is the right stencil for genuinely broadband Q --
-low total mass with a high fmax -- and the wrong one for everything else.  A heavily oversampled
-configuration (the slow-rotation brute-force tests run fmax 512 at srate 16384) gets cubic on
-either backend and at any mass.
-
-CAVEAT ON THE VALIDATION: the bandwidth rule is anchored at two measured mass points (2.6 and
-55 Msun) in zero noise, Lmax=2, TaylorT4.  f_ISCO is used as the template-side bound because it
-UNDERestimates the true bandwidth and so errs toward cubic, the safe direction -- but the rule
-deserves measurement across a mass ladder before it is trusted far from those two points.
+STANDING LIMITATIONS of the measurements above: zero noise, analytic ZDHP PSD, Lmax 2, TaylorT4
+(no merger-ringdown -- the high-mass rows' above-f_ISCO content is termination ringing from the
+approximant, not physics, so the high-mass end deserves an IMR check), equal mass except 2.6,
+non-spinning, one sky location, 3 seeds.
 """
 from __future__ import division
 
-import numpy as np
-
-# See the module docstring for the measurement behind each of these.
-INTERP_TIME_OVERSAMPLING_THRESHOLD_CPU = 5.0
-INTERP_TIME_OVERSAMPLING_THRESHOLD_GPU = 5.5
-
-# The stencils this tree knows about.  Kept here rather than imported from
-# factored_likelihood so the pipeline can validate a user's spelling without paying ~4 s of
-# numba compilation; factored_likelihood.TIME_INTERP_CHOICES must agree, and
-# test_time_interp_choice asserts that it does.
+# The stencils this tree knows about.  Kept here rather than imported from factored_likelihood so
+# the pipeline can validate a spelling without paying numba's import cost;
+# factored_likelihood.TIME_INTERP_CHOICES must agree and test_time_interp_choice asserts it does.
 TIME_INTERP_CHOICES = ('nearest', 'cubic', 'sinc')
 
-# integrate_likelihood_extrinsic_batchmode's own --srate default.  DUPLICATED ON PURPOSE and
-# therefore a drift risk: the pipeline has to know what sampling rate the ILE will use when the
-# helper does NOT emit --srate, and the driver is a script that cannot be imported.
-# test_time_interp_choice reads the value back out of the driver source and fails if the two
-# disagree, so the duplication cannot rot silently.
-ILE_DEFAULT_SRATE = 16384
-
-# GW frequency at ISCO for a total mass M (solar masses):  f = c^3 / (6^1.5 pi G M).
-# 4397 Hz at 1 Msun; the familiar "4.4 kHz / M".
-F_ISCO_1MSUN_HZ = 4397.0
-
-
-def _usable_mass(m_total_msun):
-    """Return the total mass as a positive finite float, or None if it is unusable.
-
-    One place, so 'unknown mass' and 'malformed mass' cannot be treated differently by accident:
-    both must end up choosing the safe stencil rather than silently falling back to an
-    fmax-only bandwidth, which is what mis-selects for heavy systems.
-    """
-    if m_total_msun is None:
-        return None
-    try:
-        m = float(m_total_msun)
-    except (TypeError, ValueError):
-        return None
-    if not np.isfinite(m) or m <= 0:
-        return None
-    return m
-
-
-def q_bandwidth_hz(fmax, m_total_msun=None):
-    """Estimate the highest frequency actually present in Q_lm(t), in Hz.
-
-    THIS, NOT fmax, IS WHAT SETS THE STENCIL CHOICE, and getting that wrong was the original
-    mistake here.  Q^a_lm(t) = <h_lm(t)|d> is band-limited by whichever is LOWER: the analysis
-    cutoff fmax, or the template's own highest frequency, which is set by the masses.  A heavy
-    binary stops radiating long before fmax, so its Q is far smoother than fmax suggests.
-
-    MEASURED, at srate 4096 / fmax 1700 (i.e. "fNyq/fmax = 1.2", nominally near Nyquist):
-
-        30+25 Msun   99.99% of Q power below   98.8 Hz  -> really ~20x oversampled
-        1.3+1.3 Msun 99.99% of Q power below  983    Hz  -> really near Nyquist
-
-    and the best stencil follows the true bandwidth, not fmax: cubic wins by ~330x on the first,
-    sinc wins by ~6-11x on the second.  Choosing from fmax alone picks sinc for both, which is
-    badly wrong for the heavy case.
-
-    f_ISCO is used as the template-side bound rather than a ringdown frequency, deliberately.
-    It UNDERestimates the true bandwidth (the 30+25 system's ringdown put measurable power at
-    ~99 Hz against an f_ISCO of 80 Hz), and underestimating is the safe direction: it inflates
-    fNyq/f_Q and so biases toward 'cubic'.  That asymmetry is the point -- the measured penalty
-    for wrongly picking sinc (~330x) is far worse than for wrongly picking cubic (~6x), so the
-    tie must break toward cubic when we are unsure.
-
-    Returns fmax unchanged if the mass is unknown, which reproduces the old (wrong-for-heavy)
-    behaviour -- callers should prefer 'cubic' outright in that case rather than trust this.
-    """
-    try:
-        fmax = float(fmax)
-    except (TypeError, ValueError):
-        return None
-    if not np.isfinite(fmax) or fmax <= 0:
-        return None
-    m_total = _usable_mass(m_total_msun)
-    if m_total is None:
-        return fmax
-    return min(fmax, F_ISCO_1MSUN_HZ / m_total)
-
-# Back-compatible alias: the CPU value is the conservative one.
-INTERP_TIME_OVERSAMPLING_THRESHOLD = INTERP_TIME_OVERSAMPLING_THRESHOLD_CPU
-
-# Values of --internal-ile-interpolate-time that mean "choose for me" rather than naming a
-# stencil.  'True' is the legacy spelling: before automatic selection existed, the helper
-# appended a literal '--interpolate-time True', which the ILE driver read as 'cubic'.
-AUTO_REQUEST_TOKENS = ('true', '1', 'yes', 'auto')
-
-# ...and the values that mean "don't interpolate at all".  These matter because the flag now
-# takes a VALUE: '--internal-ile-interpolate-time False' passes the STRING 'False', which is
-# truthy in Python, so without this it would sail past an `if opts...:` guard and then be
-# rejected as an unknown stencil name.  The flag reads like a boolean, so the boolean spellings
-# have to work.
+# Values of --internal-ile-interpolate-time that mean "don't interpolate at all".  These matter
+# because the flag takes a VALUE: '--internal-ile-interpolate-time False' passes the STRING
+# 'False', which is truthy in Python, so without this it would sail past an `if opts...:` guard
+# and then be rejected as an unknown stencil name.
 OFF_REQUEST_TOKENS = ('false', '0', 'no', 'off', 'none')
 
-
-def interp_time_threshold(on_gpu=False):
-    """The oversampling threshold that applies on this backend."""
-    return (INTERP_TIME_OVERSAMPLING_THRESHOLD_GPU if on_gpu
-            else INTERP_TIME_OVERSAMPLING_THRESHOLD_CPU)
-
-
-def choose_time_interp_stencil(srate, fmax, on_gpu=False, m_total_msun=None):
-    """Return (stencil, oversampling, threshold) for a run at this srate, fmax, mass and backend.
-
-    stencil is 'sinc' below the backend's threshold and 'cubic' at or above it.  oversampling is
-    fNyq / (the ACTUAL Q bandwidth), or None if the inputs were unusable -- in which case the
-    stencil falls back to 'cubic', the long-standing default, so a missing or malformed input can
-    never silently select the more expensive stencil.
-
-    m_total_msun is the binary's total mass.  Pass it: without it this falls back to using fmax
-    as the bandwidth, which is right only for systems that actually radiate up to fmax and is
-    badly wrong for heavy ones -- see q_bandwidth_hz for the measurement.  WITHOUT A MASS THIS
-    RETURNS 'cubic' UNCONDITIONALLY, because the fmax-only estimate is the one that produced the
-    original error and cubic is the safer of the two when we cannot tell.
-
-    on_gpu should reflect whether the ILE job will actually run with --gpu, because the cost of
-    the extra taps -- and therefore where cost should break the tie -- differs by roughly 2x
-    between the backends.  See the module docstring.
-    """
-    threshold = interp_time_threshold(on_gpu)
-    m_total = _usable_mass(m_total_msun)
-    f_q = q_bandwidth_hz(fmax, m_total)
-    if f_q is None:
-        return 'cubic', None, threshold
-    try:
-        oversampling = (float(srate) / 2.0) / f_q
-    except (TypeError, ValueError, ZeroDivisionError):
-        return 'cubic', None, threshold
-    if not np.isfinite(oversampling) or oversampling <= 0:
-        return 'cubic', None, threshold
-    if m_total is None:
-        # Unknown OR malformed mass -- both land here deliberately.  We have an oversampling
-        # factor to report, but it is the fmax-only one, which is exactly the quantity that
-        # mis-selects for heavy systems.  Report it for the log and take the safe stencil.
-        return 'cubic', oversampling, threshold
-    return ('sinc' if oversampling < threshold else 'cubic'), oversampling, threshold
-
-
-def is_auto_request(value):
-    """True if this --internal-ile-interpolate-time value asks for automatic selection."""
-    return str(value).strip().lower() in AUTO_REQUEST_TOKENS
+# Spellings that USED to mean "choose automatically", back when this module tried to.  They are
+# now rejected with a pointer to the guidance above, rather than silently resolved to some
+# default -- a run whose stencil was picked by a rule that no longer exists should not start.
+RETIRED_AUTO_TOKENS = ('true', '1', 'yes', 'auto')
 
 
 def is_off_request(value):
@@ -223,40 +92,31 @@ def is_off_request(value):
     return str(value).strip().lower() in OFF_REQUEST_TOKENS
 
 
+def is_retired_auto_request(value):
+    """True if this value is one of the retired "choose for me" spellings."""
+    return str(value).strip().lower() in RETIRED_AUTO_TOKENS
+
+
 def validate_stencil_name(value):
     """Return the canonical stencil name, or raise ValueError.
 
-    The pipeline calls this so a misspelled stencil fails while the workflow is being BUILT.
-    Without it the bad name rides onto every generated ILE command line and each job dies
-    separately at run time, after submission -- the cheapest possible error made expensive.
+    The pipeline calls this so a bad value fails while the workflow is being BUILT, rather than
+    riding onto every generated ILE command line and killing each job separately after
+    submission.
     """
     name = str(value).strip().lower()
-    if name not in TIME_INTERP_CHOICES:
+    if name in TIME_INTERP_CHOICES:
+        return name
+    if is_retired_auto_request(value):
         raise ValueError(
-            "unrecognised Q_lm time-interpolation stencil %r: expected one of %s, or a value "
-            "meaning automatic selection (%s)"
-            % (value, "|".join(TIME_INTERP_CHOICES), "|".join(AUTO_REQUEST_TOKENS)))
-    return name
-
-
-def effective_srate_for_stencil(srate_helper, srate_internal=None, helper_emits_srate=True):
-    """The sampling rate the Q_lm series the stencil interpolates is ACTUALLY on.
-
-    This is deliberately not just the pipeline's `srate`, because two things move it:
-
-      * ``--srate-internal`` re-samples the data the likelihood works on
-        (integrate_likelihood_extrinsic_batchmode sets ``deltaT = deltaT_internal``), so when it
-        is set it -- not ``--srate`` -- is the grid the stencil steps along.  It is appended to
-        the ILE command line by util_RIFT_pseudo_pipe.py without passing through the helper, so
-        the helper has to be told about it explicitly.
-      * if the helper does not emit ``--srate`` at all, the ILE falls back to its own default
-        (ILE_DEFAULT_SRATE), which is 4x the pipeline's usual 4096.
-
-    Getting this wrong does not corrupt anything -- it just picks the stencil using a number the
-    run never uses, which is exactly the sort of error that never announces itself.
-    """
-    if srate_internal:
-        return float(srate_internal)
-    if helper_emits_srate:
-        return srate_helper
-    return float(ILE_DEFAULT_SRATE)
+            "--internal-ile-interpolate-time %r asked for automatic stencil selection, which has "
+            "been REMOVED: it was measured to pick the worse stencil at 2 of 8 total masses, and "
+            "the correct choice additionally depends on fmin, which no (srate, fmax, mass) rule "
+            "can see. Pass an explicit stencil instead -- 'cubic' is right for essentially all "
+            "binaries above ~4 Msun total; 'sinc' only for genuinely broadband Q (low total mass, "
+            "or a high fmin). See RIFT.likelihood.time_interp_choice for the measured table."
+            % (value,))
+    raise ValueError(
+        "unrecognised Q_lm time-interpolation stencil %r: expected one of %s, or a value meaning "
+        "disabled (%s)"
+        % (value, "|".join(TIME_INTERP_CHOICES), "|".join(OFF_REQUEST_TOKENS)))

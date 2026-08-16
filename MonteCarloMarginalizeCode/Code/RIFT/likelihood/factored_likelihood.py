@@ -2221,10 +2221,13 @@ def _sinc_Q_window_numpy(Q_block, start_indices, fractional_offsets, npts,
     brute-force test runs fmax=512 at srate 16384, i.e. 16) is the regime where cubic already
     wins and this option should NOT be used.
 
-    Because of that crossover the DEFAULT is deliberately left at 'cubic': the right choice
-    depends on fNyq/fmax, which this function cannot see.  The PIPELINE can, and does:
-    RIFT.likelihood.time_interp_choice.choose_time_interp_stencil applies the threshold, and
-    helper_LDG_Events.py calls it when --internal-ile-interpolate-time is given without a value.
+    THE TABLE ABOVE IS FOR A SYNTHETIC SIGNAL BAND-LIMITED TO fmax, AND REAL Q IS NOT.  Q^a_lm(t)
+    is band-limited by whichever is lower, fmax or the TEMPLATE's own cutoff, so the operative
+    oversampling depends on the masses AND on fmin.  Measured against an exact reference, 'cubic'
+    wins for essentially every binary above ~4 Msun total -- by 30x at 20 Msun and >400x at 80 --
+    while 'sinc' pays off only for genuinely broadband Q (low total mass, or a high fmin).  The
+    DEFAULT is therefore 'cubic', and automatic selection was removed as measurably unreliable:
+    see RIFT.likelihood.time_interp_choice for the measured table and the guidance.
 
     COST, measured (not estimated from the tap count):
       CPU  ~4.2-4.5x cubic -- 2a=16 taps against 4, and this path IS tap-count bound.
@@ -2375,8 +2378,10 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         factor fNyq/fmax: 'cubic' (4-point Lagrange) has O(h^4) error so it wins when heavily
         oversampled, while 'sinc' (Lanczos) is window-limited so its error is flat in
         oversampling and it wins near Nyquist -- ~50x better at fNyq/fmax ~ 1.2, which is where
-        production runs sit.  Measured crossover is fNyq/fmax ~ 5.3; see _sinc_Q_window_numpy for
-        the table and RIFT.likelihood.time_interp_choice for the threshold the pipeline applies.
+        Q is band-limited by the TEMPLATE's cutoff as well as by fmax, so the right choice
+        depends on the masses and on fmin, not on fmax alone: measured, 'cubic' wins for
+        essentially every binary above ~4 Msun total and 'sinc' only for genuinely broadband Q.
+        See _sinc_Q_window_numpy and RIFT.likelihood.time_interp_choice for the measured tables.
         All three stencils have both CPU and GPU implementations.
         Detector-time sampling convention for the data term.  'nearest'
         preserves the historical NoLoop integer-bin gather.  'cubic' evaluates

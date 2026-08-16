@@ -470,7 +470,7 @@ parser.add_argument("--add-extrinsic",action='store_true')
 parser.add_argument("--add-extrinsic-time-resampling",action='store_true',help="adds the time resampling option.  Only deployed for vectorized calculations (which should be all that end-users can access)")
 parser.add_argument("--internal-ile-srate-time-resampling",default=None, help=" Adds --srate-resample-time-marginalization to ILE for  output, to provide higher-resolution time output ")
 parser.add_argument("--internal-ile-srate-internal",default=None, help=" Adds --srate-internal to ILE, modifying how calculations are performed internally to use a higher sampling rate ")
-parser.add_argument("--internal-ile-interpolate-time",nargs='?',const='True',default=None,type=str,help="Enable sub-sample interpolation of Q_lm at fractional detector arrival times in the maintained NoLoop likelihood. Bare (or 'True') lets the helper CHOOSE the stencil from the run's oversampling factor fNyq/fmax -- 'sinc' near Nyquist, 'cubic' when heavily oversampled; pass an explicit 'nearest'/'cubic'/'sinc' to override. Forwarded verbatim to helper_LDG_Events.py, which owns the choice and logs it.")
+parser.add_argument("--internal-ile-interpolate-time",nargs='?',const=None,default=None,type=str,help="Enable sub-sample interpolation of Q_lm at fractional detector arrival times in the maintained NoLoop likelihood. REQUIRES AN EXPLICIT STENCIL: nearest|cubic|sinc -- automatic selection was removed as measurably unreliable. Forwarded verbatim to helper_LDG_Events.py, which validates it. Short version: use 'cubic' unless the total mass is below ~4 Msun. See RIFT.likelihood.time_interp_choice for the measured table.")
 parser.add_argument("--internal-ile-n-chunk",default=None,type=int,help="Override the extrinsic chunk size (--n-chunk) passed to ILE, via the helper. Default behaviour (helper): 40000, scaled linearly with SNR above 40 and capped at 160000, because at high SNR the posterior is a vanishing fraction of the prior volume and a small chunk gives few informative samples per adaptation step. Larger chunks cost GPU memory but measured HOST memory (what RequestMemory governs) is flat, so no memory-request change is normally needed. EXPERTS ONLY.")
 parser.add_argument("--batch-extrinsic",action='store_true')
 parser.add_argument("--fmin",default=20,type=int,help="Mininum frequency for integration. template minimum frequency (we hope) so all modes resolved at this frequency")  # should be 23 for the BNS
@@ -1256,14 +1256,6 @@ if opts.internal_ile_interpolate_time and not is_off_request(opts.internal_ile_i
     # resolved there -- so forward the request verbatim rather than resolving it here, and let the
     # helper's log line be the single record of what was chosen.
     cmd += " --internal-ile-interpolate-time " + str(opts.internal_ile_interpolate_time) + " "
-    if opts.internal_ile_srate_internal:
-        # DECISION INPUT for the stencil choice, NOT a duplicate of the --srate-internal appended
-        # to the ILE command line further down.  --srate-internal overrides deltaT inside ILE, so
-        # it -- not --srate -- is the grid the sub-sample stencil steps along.  Without this the
-        # helper chooses from a sampling rate the run never uses: e.g. srate 4096 / fmax 1700
-        # with --srate-internal 32768 looks like fNyq/fmax 1.2 (-> sinc) while the run is really
-        # at 9.6 (-> cubic, by ~10-30x on accuracy).
-        cmd += " --internal-ile-srate-internal {} ".format(opts.internal_ile_srate_internal)
 if not(opts.internal_ile_n_chunk is None):
     cmd += " --internal-ile-n-chunk {} ".format(int(opts.internal_ile_n_chunk))
 # If user provides ini file *and* ini file has fake-cache field, generate a local.cache file, and pass it as argument
