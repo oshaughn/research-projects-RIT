@@ -2239,9 +2239,22 @@ def _sinc_Q_window_numpy(Q_block, start_indices, fractional_offsets, npts,
     Qlms = np.zeros((npts_extrinsic, npts, n_lms_det), dtype=np.complex128)
     tgrid = np.arange(npts)
     n_time = Q_block.shape[0]
+    # All 2a weights for all samples in one shot -- the same call the GPU wrapper makes.  The
+    # per-sample scalar wrapper costs ~0.4 s at n_extrinsic=8000 against ~7 ms vectorized; in
+    # situ it saves rather more than that (0.61-0.67 s, i.e. 13% of this path at npts=64
+    # falling to 6% at npts=512), because its half-dozen small temporaries per sample were
+    # churning the allocator against a working set of hundreds of MB.  Interleaved A/B in one
+    # process, min of 5, ldas-pcdev13, 2026-08-16.
+    #
+    # Bit-identical to the per-sample form -- verified, not assumed, since this is a core
+    # likelihood path: 48060 weight rows over a in 2..64 and batch sizes 1..8000, plus 33M
+    # output elements compared with tobytes().  The one thing that could have differed is the
+    # axis=1 reduction (numpy is free to block a (1,2a) sum differently from row i of an
+    # (n,2a) sum); it does not.
+    offsets, weight_matrix = _sinc_lanczos_weight_matrix(fractional_offsets, a)
     for i in range(npts_extrinsic):
         idxs = int(start_indices[i]) + tgrid
-        offsets, weights = _sinc_lanczos_weights(float(fractional_offsets[i]), a)
+        weights = weight_matrix[i]
         for offset, weight in zip(offsets, weights):
             if weight == 0.0:
                 continue
