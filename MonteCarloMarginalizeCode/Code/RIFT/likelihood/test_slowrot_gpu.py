@@ -21,6 +21,8 @@ import RIFT.likelihood.factored_likelihood_with_rotation as flwr
 if not getattr(fl, "numba_on", True):
     fl.lalylm = np.vectorize(lal.SpinWeightedSphericalHarmonic, otypes=[complex])
 
+from RIFT.likelihood._gpu_test_support import skip_without_gpu
+
 try:
     import cupy
     _ = cupy.array(1.0) + 1.0    # force a real device op
@@ -65,7 +67,7 @@ def _to_gpu(rho_by_a, U_by_aa, V_by_aa):
 
 def test_gpu_matches_cpu():
     if not HAVE_GPU:
-        print("(GPU) SKIPPED: cupy/GPU unavailable (%s)" % _WHY); return
+        if skip_without_gpu(HAVE_GPU, _WHY): return
     ri, ct, ctV, rho, meta = flwr.PrecomputeLikelihoodTermsWithRotation(
         event_time, t_window, Psig, data_dict, psd_dict, Lmax, fmax,
         harmonics=HARM, p_max=0, f_sidereal=flwr.F_SIDEREAL, analyticPSD_Q=True,
@@ -73,7 +75,7 @@ def test_gpu_matches_cpu():
     lk, rbn, ubn, vbn, ep = flwr.pack_rotation_arrays(meta, rho, ct, ctV)
     Pv = _P_vec()
     tvals = np.arange(int(2 * 0.03 / deltaT)) * deltaT - 0.03
-    for interp in ('nearest', 'cubic'):
+    for interp in ('nearest', 'cubic', 'sinc'):
         lnL_cpu = flwr.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation(
             tvals, Pv, meta, lk, rbn, ubn, vbn, ep, Lmax=Lmax, time_interp=interp, xpy=np)
         rG, uG, vG = _to_gpu(rbn, ubn, vbn)
