@@ -144,10 +144,15 @@ def Q_inner_product_sinc_cupy(Q, A, start_indices, fractional_offsets, window_si
     assert not cupy.isfortran(Q)
     assert not cupy.isfortran(A)
 
-    offsets, tap_weights = _sinc_lanczos_weight_matrix(
+    _offsets, tap_weights = _sinc_lanczos_weight_matrix(
         cupy.asarray(fractional_offsets), halfwidth, xpy=cupy)
-    n_taps = int(len(offsets))
-    tap_first = int(offsets[0])          # -a+1
+    # Derived from halfwidth, NOT read back off _offsets: indexing a cupy array to get a Python
+    # int forces a device sync, and this runs once per detector per likelihood call.  The two
+    # must agree, so assert it rather than trusting the comment -- cheap, host-side only.
+    n_taps = 2 * halfwidth
+    tap_first = -halfwidth + 1
+    assert _offsets.shape == (n_taps,), \
+        "weight-matrix stencil width %r disagrees with 2*halfwidth=%d" % (_offsets.shape, n_taps)
     tap_weights_d = cupy.ascontiguousarray(tap_weights.astype(cupy.float64))
 
     out = cupy.empty(
