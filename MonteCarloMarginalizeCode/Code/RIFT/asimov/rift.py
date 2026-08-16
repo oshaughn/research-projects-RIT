@@ -78,10 +78,115 @@ class Rift(Pipeline):
             for section_arg in required_args[section]:
                 if section_arg not in section_data:
                     section_data[section_arg] = {}
+    # Top-level groups a PESummary metafile carries that are not analysis labels
+    _PESUMMARY_RESERVED = ('version', 'history')
+
+    def _resolve_bootstrap_file(self):
+        """
+        Resolve an explicitly-specified bootstrap posterior file, if any.
+
+        Set ``scheduler: bootstrap file:`` to point RIFT straight at a
+        PESummary metafile, bypassing the dependency scan entirely.  Use this
+        when the file is already on disk and you do not want to express it as
+        an asimov dependency - notably when bootstrapping from an offline PE
+        run that RIFT does not otherwise need to wait for.
+
+        The string may contain ``{event}``/``<event>`` and
+        ``{analysis}``/``<analysis>``, and may contain shell wildcards, in
+        which case exactly one match is required.
+
+        Returns None if the setting is absent.  Raises PipelineException if it
+        is present but does not resolve to exactly one existing file - an
+        explicit request that cannot be honoured must never fall back silently.
+        """
+        template = self.production.meta.get('scheduler', {}).get('bootstrap file')
+        if not template:
+            return None
+
+        for token, value in (('event', self.production.event.name),
+                             ('analysis', self.production.name)):
+            template = template.replace('{%s}' % token, value)
+            template = template.replace('<%s>' % token, value)
+
+        if any(ch in template for ch in '*?['):
+            import glob as _glob
+            matches = sorted(_glob.glob(template))
+            if len(matches) != 1:
+                raise PipelineException(
+                    "RIFT bootstrap: 'bootstrap file' pattern {} matched {} files, "
+                    "need exactly 1: {}".format(template, len(matches), matches),
+                    production=self.production.name)
+            template = matches[0]
+
+        if not os.path.exists(template):
+            raise PipelineException(
+                "RIFT bootstrap: 'bootstrap file' {} does not exist".format(template),
+                production=self.production.name)
+
+        self.logger.info("RIFT bootstrap: using explicit file {}".format(template))
+        return template
+
+    def _dataset_label(self, posterior_file):
+        """
+        The PESummary analysis label to read out of ``posterior_file``.
+
+        An explicit ``dataset:`` is returned as-is without opening the file,
+        preserving the previous ``if "dataset" not in self.production.meta``
+        short-circuit: existing ledgers that pin a dataset must keep building
+        even if the source metafile has since moved or become unreadable, as
+        long as the bootstrap grid itself is already present.
+
+        Otherwise auto-derive, requiring exactly one candidate so an ambiguous
+        metafile fails here rather than by silently bootstrapping from whichever
+        label sorted first.
+        """
+        requested = self.production.meta.get('dataset')
+        if requested:
+            return requested
+
+        import h5py
+
+        with h5py.File(posterior_file, 'r') as handle:
+            keys = list(handle.keys())
+            # A PESummary analysis label is a group holding the samples; other
+            # root-level entries (metadata, and the raw-bilby layout below) are
+            # not candidates.
+            labels = [k for k in keys
+                      if k not in self._PESUMMARY_RESERVED
+                      and hasattr(handle[k], 'keys')
+                      and ('posterior_samples' in handle[k] or 'posterior' in handle[k])]
+            root_is_samples = 'posterior' in keys and not labels
+
+        if root_is_samples:
+            # A raw bilby result file: samples live at the root rather than
+            # under an analysis label, so the PESummary reader cannot consume
+            # it.  Say so, instead of raising 'Unknown key in file'.
+            raise PipelineException(
+                "RIFT bootstrap: {} looks like a raw bilby result file, not a "
+                "PESummary metafile. Point 'bootstrap file' at the PESummary "
+                "output (.../pesummary/samples/posterior_samples.h5).".format(
+                    posterior_file),
+                production=self.production.name)
+
+        if len(labels) != 1:
+            raise PipelineException(
+                "RIFT bootstrap: {} has {} analysis labels ({}); set 'dataset:' "
+                "to choose one".format(posterior_file, len(labels), labels),
+                production=self.production.name)
+        return labels[0]
+
     def _find_posterior(self):
         """
         Find the input posterior samples.
+
+        An explicit ``scheduler: bootstrap file:`` wins; otherwise fall back to
+        scanning dependencies for the first that publishes a 'samples' asset.
         """
+        posterior_file = self._resolve_bootstrap_file()
+        if posterior_file:
+            self.production.meta['dataset'] = self._dataset_label(posterior_file)
+            return posterior_file
+
         if self.production.dependencies:
             productions = {}
             for production in self.production.event.productions:
@@ -91,16 +196,18 @@ class Rift(Pipeline):
                 try:
                     if "samples" in productions[previous_job].pipeline.collect_assets():
                         posterior_file = productions[previous_job].pipeline.collect_assets()['samples']
-                        if "dataset" not in self.production.meta:
-                            import h5py
-                            with h5py.File(posterior_file,'r') as f:
-                                keys = list(f.keys())
-                            keys.remove('version')
-                            keys.remove('history')
-                            self.production.meta['dataset'] = keys[0]
+                        self.production.meta['dataset'] = self._dataset_label(posterior_file)
                         return posterior_file
-                except Exception:
-                    pass
+                except PipelineException:
+                    raise
+                except Exception as exc:
+                    # Historically silent. A dependency that publishes 'samples'
+                    # in a form we cannot read (e.g. the bilby pipeline, which
+                    # returns a *list* of raw result files) used to leave the
+                    # run with no bootstrap and no message.
+                    self.logger.warning(
+                        "RIFT bootstrap: could not use samples from {}: {}".format(
+                            previous_job, exc))
         else:
             self.logger.error("Could not find an analysis providing posterior samples to analyse.")
 
@@ -367,8 +474,10 @@ class Rift(Pipeline):
             if self.production.meta["waveform"]["non-spin"]:
                 command += ["--assume-nospin"]
 
-        # Generate initial samples, based on previous PE results
-        if 'bootstrap upstream' in self.production.meta['scheduler']:
+        # Generate initial samples, based on previous PE results (or an
+        # explicitly-specified posterior, via scheduler: bootstrap file:)
+        if ('bootstrap upstream' in self.production.meta['scheduler']
+                or 'bootstrap file' in self.production.meta['scheduler']):
             # get posterior file
             posterior_file = self._find_posterior()
             self.logger.info("  Bootstrap requested, attempting with file {}".format(posterior_file) )                        
@@ -381,6 +490,13 @@ class Rift(Pipeline):
                     )
                 bootstrap_file_ascii = str(bootstrap_file) + "_ascii"
                 # test if bootstrap file already exists
+                if os.path.exists(bootstrap_file):
+                       # Rebuilding an analysis under the same name reuses this
+                       # silently, so a changed bootstrap source has no effect.
+                       self.logger.warning(
+                           "RIFT bootstrap: reusing existing grid {} and IGNORING {}; "
+                           "delete it (and its _ascii) to rebuild".format(
+                               bootstrap_file, posterior_file))
                 if not(os.path.exists(bootstrap_file)):
                        import RIFT.misc.samples_utils
                        RIFT.misc.samples_utils.dump_pesummary_samples_to_file_as_rift(posterior_file, self.production.meta['dataset'], bootstrap_file_ascii)
