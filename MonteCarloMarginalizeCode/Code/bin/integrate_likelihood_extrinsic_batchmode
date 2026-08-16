@@ -475,8 +475,16 @@ else:
     raise ValueError(
         "--interpolate-time: unrecognised value %r. Use a stencil name (nearest|cubic|sinc) or "
         "a legacy boolean (%s)." % (opts.interpolate_time, "|".join(_TI_LEGACY_BOOLEAN)))
-print(" Q_lm sub-sample time stencil: {} (from --interpolate-time {!r})".format(
-    opts._noloop_time_interp, opts.interpolate_time))
+# The LEGACY scalar path (FactoredLogLikelihoodTimeMarginalized) takes a plain boolean and has
+# nothing to do with the NoLoop stencils.  It used to be handed opts.interpolate_time raw, which
+# was fine while that was only ever truthy/falsy -- but 'nearest' is a non-empty string, so once
+# stencil NAMES became legal spellings, "--interpolate-time nearest" would have switched the
+# legacy path's interpolation ON while meaning the exact opposite in NoLoop.  Derive an honest
+# boolean instead: only the two genuinely-interpolating stencils count as "interpolate".
+opts._legacy_interpolate_time = opts._noloop_time_interp in ("cubic", "sinc")
+print(" Q_lm sub-sample time stencil: {} (from --interpolate-time {!r}; legacy scalar path "
+      "interpolate={})".format(
+          opts._noloop_time_interp, opts.interpolate_time, opts._legacy_interpolate_time))
 
 if opts.rotation_slow:
     # Path A/B slow-rotation: wired into BOTH the CPU-vectorized and GPU (xpy) branches; the
@@ -3027,7 +3035,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 
                 lnL[i] = factored_likelihood.FactoredLogLikelihoodTimeMarginalized(tvals,
                         P, rholms_intp, rholms, cross_terms, cross_terms_V,                   
-                        opts.l_max,interpolate=opts.interpolate_time)
+                        opts.l_max,interpolate=opts._legacy_interpolate_time)
                 i+=1
             if supplemental_ln_likelihood:
               lnL += supplemental_ln_likelihood(right_ascension, declination, phi_orb,inclination, psi, distance)
@@ -3384,7 +3392,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 
                 lnL[i] = factored_likelihood.FactoredLogLikelihoodTimeMarginalized(tvals,
                         P, rholms_intp_A, rholms_A, cross_terms_A, cross_terms_V_A,                   
-                        opts.l_max,interpolate=opts.interpolate_time)
+                        opts.l_max,interpolate=opts._legacy_interpolate_time)
                 if numpy.isnan(lnL[i]) or lnL[i]<-200:
                     lnL[i] = -200   # regularize  : a hack, for now, to deal with rare ROM problems. Only on the ROM logic fork
                 i+=1

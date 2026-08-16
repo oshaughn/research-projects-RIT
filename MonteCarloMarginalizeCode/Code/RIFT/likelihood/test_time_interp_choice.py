@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """test_time_interp_choice -- the pipeline's automatic Q_lm stencil selection.
 
-Guards four things that a run's accuracy depends on and that nothing else would catch:
+Guards the things a run's accuracy depends on that nothing else would catch:
 
   1. Both thresholds sit inside the MEASURED ambiguous band, and the two regimes that actually
      occur in this tree land where they should -- production (srate 4096, fmax 1700) on 'sinc',
@@ -13,6 +13,14 @@ Guards four things that a run's accuracy depends on and that nothing else would 
   3. Bad inputs fall back to 'cubic', never to the more expensive stencil.
   4. The legacy '--internal-ile-interpolate-time True' spelling still means "choose for me",
      so existing invocations keep working.
+  5. The decision uses the sampling rate the run is ACTUALLY on -- --srate-internal overrides
+     deltaT inside ILE and reaches the command line without passing through the helper, and an
+     absent --srate means the ILE's own (4x larger) default applies.  Both silently select a
+     stencil for a configuration the run never has.
+  6. ILE_DEFAULT_SRATE still matches the driver, which is a script and cannot be imported, so
+     the duplicated constant is read back out of its source rather than trusted.
+  7. An explicit stencil name is validated while the workflow is BUILT, not once per job after
+     submission.
 
 Self-contained: numpy only, runs instantly.
 
@@ -20,12 +28,20 @@ Self-contained: numpy only, runs instantly.
 """
 from __future__ import print_function
 
+import os
+import re
+
 from RIFT.likelihood.time_interp_choice import (
+    ILE_DEFAULT_SRATE,
     INTERP_TIME_OVERSAMPLING_THRESHOLD_CPU,
     INTERP_TIME_OVERSAMPLING_THRESHOLD_GPU,
+    TIME_INTERP_CHOICES,
     choose_time_interp_stencil,
+    effective_srate_for_stencil,
     interp_time_threshold,
     is_auto_request,
+    is_off_request,
+    validate_stencil_name,
 )
 
 
@@ -126,10 +142,108 @@ def test_legacy_true_still_means_auto():
     print("legacy 'True' means auto; explicit stencil names pass through: OK")
 
 
+def test_off_spellings_disable_rather_than_raise():
+    """'--internal-ile-interpolate-time False' must mean OFF, not "unknown stencil".
+
+    The flag now takes a value, so 'False' arrives as the STRING 'False' -- which is truthy in
+    Python.  Without an explicit off-check it sails past the pipeline's `if opts...:` guard and
+    is then rejected as a bad stencil name, i.e. the most natural way to spell "turn this off"
+    becomes a hard error.  Every value must fall into exactly one of off / auto / stencil.
+    """
+    for v in ('False', 'false', 'FALSE', '0', 'no', 'off', 'none', ' False '):
+        assert is_off_request(v), "%r must mean disabled" % v
+        assert not is_auto_request(v), "%r must not also mean auto" % v
+    for v in ('True', '1', 'yes', 'auto'):
+        assert not is_off_request(v), "%r must not mean disabled" % v
+    for v in TIME_INTERP_CHOICES:
+        assert not is_off_request(v) and not is_auto_request(v), \
+            "%r is a stencil name, neither off nor auto" % v
+    print("off / auto / stencil-name are disjoint and exhaustive: OK")
+
+
+def test_effective_srate_tracks_what_the_run_actually_uses():
+    """The decision must use the grid the likelihood is ON, which is not always `srate`.
+
+    Two ways it diverges, both live:
+      * --srate-internal overrides deltaT inside ILE and is appended to the ILE command line by
+        util_RIFT_pseudo_pipe.py WITHOUT passing through the helper.
+      * if the helper emits no --srate, the ILE uses its own default, which is 4x the pipeline's
+        usual 4096.
+    Getting this wrong silently selects a stencil for a configuration the run never has.
+    """
+    # plain case: helper emits --srate, no internal override
+    assert effective_srate_for_stencil(4096, None, True) == 4096
+
+    # --srate-internal wins, and it must flip the answer in the case that motivated this
+    assert effective_srate_for_stencil(4096, 32768, True) == 32768
+    s_naive, ov_naive, _ = choose_time_interp_stencil(4096, 1700, on_gpu=True)
+    s_true, ov_true, _ = choose_time_interp_stencil(
+        effective_srate_for_stencil(4096, 32768, True), 1700, on_gpu=True)
+    print("srate 4096 + --srate-internal 32768, fmax 1700: naive fNyq/fmax=%.2f -> %s ; "
+          "true fNyq/fmax=%.2f -> %s" % (ov_naive, s_naive, ov_true, s_true))
+    assert (s_naive, s_true) == ('sinc', 'cubic'), (
+        "the --srate-internal case must change the chosen stencil, or this guard is not "
+        "testing the bug it exists for (got %r then %r)" % (s_naive, s_true))
+
+    # no --srate emitted -> ILE's own default, not the pipeline's srate
+    assert effective_srate_for_stencil(4096, None, False) == float(ILE_DEFAULT_SRATE)
+
+
+def test_ile_default_srate_has_not_drifted():
+    """ILE_DEFAULT_SRATE duplicates a value in a script that cannot be imported.
+
+    Read it back out of the driver source so the duplication cannot rot silently.  Skipped only
+    if the driver is not on disk next to this checkout.
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+    driver = os.path.normpath(os.path.join(here, '..', '..', 'bin',
+                                           'integrate_likelihood_extrinsic_batchmode'))
+    if not os.path.isfile(driver):
+        print("driver not found at %s, skipping drift check" % driver)
+        return
+    with open(driver) as f:
+        src = f.read()
+    m = re.search(r'optp\.add_option\(\s*"--srate"\s*,\s*default\s*=\s*(\d+)', src)
+    assert m, "could not find the --srate default in %s; update this test with the driver" % driver
+    found = int(m.group(1))
+    print("driver --srate default = %d, ILE_DEFAULT_SRATE = %d" % (found, ILE_DEFAULT_SRATE))
+    assert found == ILE_DEFAULT_SRATE, (
+        "ILE_DEFAULT_SRATE (%d) no longer matches the driver's --srate default (%d); the "
+        "pipeline would choose the stencil from the wrong sampling rate whenever the helper "
+        "emits no --srate" % (ILE_DEFAULT_SRATE, found))
+
+
+def test_explicit_stencil_names_are_validated_at_build_time():
+    """A typo must fail while the workflow is BUILT, not once per job after submission."""
+    for good in ('nearest', 'cubic', 'sinc', ' SINC ', 'Cubic'):
+        assert validate_stencil_name(good) in TIME_INTERP_CHOICES
+    for bad in ('sinK', 'lanczos', 'Sinc8', '', 'true', 'nearest,cubic'):
+        try:
+            validate_stencil_name(bad)
+        except ValueError:
+            continue
+        raise AssertionError("validate_stencil_name(%r) must raise" % bad)
+    print("explicit stencil names validated, typos rejected: OK")
+
+
+def test_choices_agree_with_the_likelihood_module():
+    """This leaf module duplicates TIME_INTERP_CHOICES to stay import-cheap; keep them in step."""
+    from RIFT.likelihood.factored_likelihood import TIME_INTERP_CHOICES as FL_CHOICES
+    assert tuple(TIME_INTERP_CHOICES) == tuple(FL_CHOICES), (
+        "time_interp_choice.TIME_INTERP_CHOICES %r disagrees with factored_likelihood's %r"
+        % (TIME_INTERP_CHOICES, FL_CHOICES))
+    print("stencil name lists agree with factored_likelihood: OK")
+
+
 if __name__ == "__main__":
     test_thresholds_match_measured_crossover()
     test_gpu_threshold_is_the_looser_one()
     test_real_configurations()
     test_bad_inputs_fall_back_to_cubic()
     test_legacy_true_still_means_auto()
+    test_off_spellings_disable_rather_than_raise()
+    test_effective_srate_tracks_what_the_run_actually_uses()
+    test_ile_default_srate_has_not_drifted()
+    test_explicit_stencil_names_are_validated_at_build_time()
+    test_choices_agree_with_the_likelihood_module()
     print("\nPASS")

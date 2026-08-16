@@ -165,7 +165,11 @@ def Q_inner_product_sinc_cupy(Q, A, start_indices, fractional_offsets, window_si
     tap_first = -halfwidth + 1
     assert _offsets.shape == (n_taps,), \
         "weight-matrix stencil width %r disagrees with 2*halfwidth=%d" % (_offsets.shape, n_taps)
-    tap_weights_d = cupy.ascontiguousarray(tap_weights.astype(cupy.float64))
+    # ascontiguousarray alone: _sinc_lanczos_weight_matrix already builds float64, and cupy's
+    # astype copies even when the dtype already matches (copy=True is its default).  At
+    # n_chunk=1.6e5 that extra (n_ex, 2a) float64 buffer is ~20 MB of transient device memory per
+    # detector per call, on the resource that already caps how large n_chunk can be.
+    tap_weights_d = cupy.ascontiguousarray(tap_weights)
 
     out = cupy.empty(
         (num_extrinsic_samples, window_size),

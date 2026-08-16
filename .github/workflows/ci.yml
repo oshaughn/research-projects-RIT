@@ -233,11 +233,21 @@ jobs:
         # test_q_window_interp asserts the cubic/sinc crossover in BOTH directions on purpose.
         # sinc winning everywhere would mean the Lanczos window had been widened until it was no
         # longer a local stencil, so neither direction may be relaxed to make a change pass.
-        # test_time_interp_choice pins the pipeline threshold inside the measured ambiguous band.
+        # test_time_interp_choice pins the pipeline thresholds inside the measured ambiguous
+        # band, and checks the decision uses the sampling rate the run is actually on.
+        #
+        # test_calmarg_stencil_gating runs its CPU arms without a GPU (its GPU arm is additive),
+        # so it belongs here: it is what stops cubic/sinc being routed to the fused calibration
+        # kernel, which is implemented for 'nearest' only.
+        #
+        # The GPU parity files (test_q_window_interp_gpu, test_noloop_gpu_stencils) are
+        # deliberately NOT here -- there is no GPU on these runners, and they would report as
+        # skipped.  They are run by hand on a GPU node; the numbers are in PR #97.
         run: |
           python -m pytest -q \
             MonteCarloMarginalizeCode/Code/RIFT/likelihood/test_q_window_interp.py \
-            MonteCarloMarginalizeCode/Code/RIFT/likelihood/test_time_interp_choice.py
+            MonteCarloMarginalizeCode/Code/RIFT/likelihood/test_time_interp_choice.py \
+            MonteCarloMarginalizeCode/Code/RIFT/likelihood/test_calmarg_stencil_gating.py
 
   lisa-check:
     needs: install

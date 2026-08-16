@@ -2274,25 +2274,35 @@ def _q_window_numpy_interp(Q_block, start_indices, fractional_offsets, npts, tim
         return _nearest_Q_window_numpy(Q_block, start_indices, npts, xpy=xpy)
     if time_interp == 'sinc':
         return _sinc_Q_window_numpy(Q_block, start_indices, fractional_offsets, npts)
-    return _cubic_Q_window_numpy(Q_block, start_indices, fractional_offsets, npts)
+    if time_interp == 'cubic':
+        return _cubic_Q_window_numpy(Q_block, start_indices, fractional_offsets, npts)
+    # Named explicitly rather than falling through to cubic.  A bare `return cubic` here would
+    # reinstate exactly the silent-wrong-stencil behaviour this work exists to remove: callers
+    # reaching the dispatcher directly (the tests do) would get cubic for a typo and never find
+    # out.  Driver callers are validated upstream; this is the backstop for everyone else.
+    raise ValueError("unknown time_interp %r; expected one of %r"
+                     % (time_interp, TIME_INTERP_CHOICES))
 
 
 def _q_inner_product_gpu(Q, A, start_indices, fractional_offsets, npts, time_interp):
     """GPU Q-product dispatch: the device-side counterpart of _q_window_numpy_interp.
 
-    Same stencil contract and the same fallthrough structure as the CPU dispatch, deliberately:
-    the four GPU call sites (here x2, plus _with_rotation and _freqresponse) all route through
-    this one function so a new stencil cannot be wired into three of them and forgotten in the
-    fourth.  Note this returns the CONTRACTED (n_extrinsic, npts) product, not the
-    (n_extrinsic, npts, n_lm) window the CPU builder returns -- the device kernels fuse the
-    lm contraction to avoid the large temporary."""
+    Same stencil contract as the CPU dispatch, deliberately: the four GPU call sites (here x2,
+    plus _with_rotation and _freqresponse) all route through this one function so a new stencil
+    cannot be wired into three of them and forgotten in the fourth.  Note this returns the
+    CONTRACTED (n_extrinsic, npts) product, not the (n_extrinsic, npts, n_lm) window the CPU
+    builder returns -- the device kernels fuse the lm contraction to avoid the large temporary."""
     if time_interp == 'nearest':
         return Q_inner_product.Q_inner_product_cupy(Q, A, start_indices, npts)
     if time_interp == 'sinc':
         return Q_inner_product.Q_inner_product_sinc_cupy(
             Q, A, start_indices, fractional_offsets, npts)
-    return Q_inner_product.Q_inner_product_cubic_cupy(
-        Q, A, start_indices, fractional_offsets, npts)
+    if time_interp == 'cubic':
+        return Q_inner_product.Q_inner_product_cubic_cupy(
+            Q, A, start_indices, fractional_offsets, npts)
+    # Explicit, for the same reason as the CPU dispatcher above: no silent fallthrough to cubic.
+    raise ValueError("unknown time_interp %r; expected one of %r"
+                     % (time_interp, TIME_INTERP_CHOICES))
 
 
 def _nearest_Q_window_numpy(Q_block, start_indices, npts, xpy=np):

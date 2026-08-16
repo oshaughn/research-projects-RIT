@@ -55,6 +55,8 @@ if _use_hpip_pp:
 # Backward compatibility
 from RIFT.misc.dag_utils_generic import which
 from RIFT.misc.cip_pipeline import flag_final_group_unique
+# leaf module: numpy only, so this does not drag numba/cupy into the pipeline script
+from RIFT.likelihood.time_interp_choice import is_off_request
 ligolw_prefix = 'igwn_'
 if not(which(ligolw_prefix + "ligolw_add")):
     ligolw_prefix = ''
@@ -1244,13 +1246,24 @@ if opts.internal_ile_auto_logarithm_offset:
     cmd += " --internal-ile-auto-logarithm-offset "
 if opts.internal_ile_rotate_phase:
     cmd += " --internal-ile-rotate-phase "
-if opts.internal_ile_interpolate_time:
+if opts.internal_ile_interpolate_time and not is_off_request(opts.internal_ile_interpolate_time):
+    # `and not is_off_request(...)`: the flag takes a VALUE now, and '--internal-ile-interpolate-
+    # time False' passes the STRING 'False', which is truthy in Python.  Without this the "off"
+    # spellings would switch the feature ON.
     # HELPER passthrough (not a raw ILE arg): the helper owns ILE argument construction, and it
     # also knows whether the NoLoop path (--vectorized --gpu --force-xpy) that --interpolate-time
     # requires is actually in use.  It also owns the stencil choice, because srate and fmax are
     # resolved there -- so forward the request verbatim rather than resolving it here, and let the
     # helper's log line be the single record of what was chosen.
     cmd += " --internal-ile-interpolate-time " + str(opts.internal_ile_interpolate_time) + " "
+    if opts.internal_ile_srate_internal:
+        # DECISION INPUT for the stencil choice, NOT a duplicate of the --srate-internal appended
+        # to the ILE command line further down.  --srate-internal overrides deltaT inside ILE, so
+        # it -- not --srate -- is the grid the sub-sample stencil steps along.  Without this the
+        # helper chooses from a sampling rate the run never uses: e.g. srate 4096 / fmax 1700
+        # with --srate-internal 32768 looks like fNyq/fmax 1.2 (-> sinc) while the run is really
+        # at 9.6 (-> cubic, by ~10-30x on accuracy).
+        cmd += " --internal-ile-srate-internal {} ".format(opts.internal_ile_srate_internal)
 if not(opts.internal_ile_n_chunk is None):
     cmd += " --internal-ile-n-chunk {} ".format(int(opts.internal_ile_n_chunk))
 # If user provides ini file *and* ini file has fake-cache field, generate a local.cache file, and pass it as argument
