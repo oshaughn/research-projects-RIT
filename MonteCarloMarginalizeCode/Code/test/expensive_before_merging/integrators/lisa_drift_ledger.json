@@ -33,14 +33,6 @@
       "decision": "PORT",
       "reason": "Normalizes --interpolate-time argv forms. LISA exposes --interpolate-time, so the same normalization applies."
     },
-    "FUNC:_pool_replica_rvs": {
-      "decision": "PORT",
-      "reason": "Pools replica records by evidence. Ports with --mc-error-replicas. NOTE its per-replica already_resampled sequence (Finding 6): a single global boolean is wrong near the n_extr boundary, so port the sequence form, not the boolean."
-    },
-    "FUNC:_pool_replica_rvs._block_resampled": {
-      "decision": "PORT",
-      "reason": "Pools replica records by evidence. Ports with --mc-error-replicas. NOTE its per-replica already_resampled sequence (Finding 6): a single global boolean is wrong near the n_extr boundary, so port the sequence form, not the boolean."
-    },
     "FUNC:_reparam_A_of_incl": {
       "decision": "PHYSICS",
       "reason": "Implementation of --internal-reparam-dl-incl."
@@ -56,10 +48,6 @@
     "FUNC:analyze_event._cal_error_probe._draw_dist": {
       "decision": "NA",
       "reason": "Calibration Monte-Carlo error probe; see the --calibration-* reason."
-    },
-    "FUNC:analyze_event._extract_mc_diag": {
-      "decision": "PORT",
-      "reason": "Diagnostics for the replica triggers."
     },
     "FUNC:dLofz": {
       "decision": "PHYSICS",
@@ -284,22 +272,6 @@
     "OPTION:--limit-right-ascension": {
       "decision": "PHYSICS",
       "reason": "QUESTION: what should a sky zoom box mean for LISA? The LISA driver reuses the KEY NAMES right_ascension/declination for its sampled sky pair, but the values are ecliptic (lambda,beta) and may be further rotated by --internal-sky-network-coordinates. A box is therefore well-defined only once it is stated which frame the user is quoting -- and LISA already has --ecliptic-latitude/--ecliptic-longitude/--lisa-fixed-sky, which may already be the intended mechanism."
-    },
-    "OPTION:--mc-error-ess-trigger": {
-      "decision": "PORT",
-      "reason": "Replica-based lnL error stabilization. Triggers on weight-tail diagnostics of the run's own weights; nothing detector-specific. Valuable for LISA for the same reason as for high-SNR ground events: the reported sigma is the thing downstream CIP trusts."
-    },
-    "OPTION:--mc-error-khat-trigger": {
-      "decision": "PORT",
-      "reason": "Replica-based lnL error stabilization. Triggers on weight-tail diagnostics of the run's own weights; nothing detector-specific. Valuable for LISA for the same reason as for high-SNR ground events: the reported sigma is the thing downstream CIP trusts."
-    },
-    "OPTION:--mc-error-replicas": {
-      "decision": "PORT",
-      "reason": "Replica-based lnL error stabilization. Triggers on weight-tail diagnostics of the run's own weights; nothing detector-specific. Valuable for LISA for the same reason as for high-SNR ground events: the reported sigma is the thing downstream CIP trusts."
-    },
-    "OPTION:--mc-error-sigma-trigger": {
-      "decision": "PORT",
-      "reason": "Replica-based lnL error stabilization. Triggers on weight-tail diagnostics of the run's own weights; nothing detector-specific. Valuable for LISA for the same reason as for high-SNR ground events: the reported sigma is the thing downstream CIP trusts."
     },
     "OPTION:--n-distance-slice-core": {
       "decision": "NA",

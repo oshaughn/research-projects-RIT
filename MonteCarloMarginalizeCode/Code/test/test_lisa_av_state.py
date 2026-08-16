@@ -17,6 +17,7 @@ in the drift ledger, and asserted below.
 
 import ast
 import os
+import textwrap
 
 import pytest
 
@@ -265,12 +266,16 @@ def test_both_analyze_event_variants_get_every_hook():
         called = {c.func.id for c in ast.walk(node)
                   if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)}
         for hook in ('_maybe_load_av_state', '_maybe_save_av_state',
-                     '_maybe_enable_anisotropic_bins', '_report_and_gate_collapse'):
+                     '_maybe_enable_anisotropic_bins', '_maybe_replicate_for_mc_error'):
             assert hook in called, "%s does not call %s" % (name, hook)
 
 
 def test_hook_ordering_at_both_call_sites():
-    """Only a nonempty, collapse-approved result may persist its live-volume state."""
+    """Only a nonempty result may persist its live-volume state -- and BEFORE replication.
+
+    The save must precede the replica loop: afterwards the sampler holds the LAST replica's
+    adapted grid, not the run being reported.  The main driver saves at the same point.
+    """
     src = _src(_LISA)
     pos = 0
     for _ in range(2):
@@ -278,32 +283,43 @@ def test_hook_ordering_at_both_call_sites():
         aniso = src.index("_maybe_enable_anisotropic_bins(sampler)", load)
         integ = src.index("sampler.integrate(like_to_integrate", aniso)
         guard = src.index("if not(res): # no resut", integ)
-        gate = src.index("_report_and_gate_collapse(dict_return", guard)
-        save = src.index("_maybe_save_av_state(sampler)", gate)
-        assert load < aniso < integ < guard < gate < save
-        pos = save + 1
+        save = src.index("_maybe_save_av_state(sampler)", guard)
+        repl = src.index("_maybe_replicate_for_mc_error(", save)
+        assert load < aniso < integ < guard < save < repl
+        pos = repl + 1
 
+def test_both_collapse_gate_call_sites_exist():
+    """Main gates TWICE -- first run and pooled verdict -- and now so does this driver.
 
-def test_the_second_gate_call_site_is_recorded_as_missing():
-    """Main gates twice; this driver gates once because it has no replica pooling yet.
-
-    If someone ports --mc-error-replicas without adding the second call, the flag is
-    silently bypassed for the case pooling creates.  This asserts the warning is still
-    written down where that person will be working.
+    This replaces an earlier test that asserted the second call site was MISSING and carried
+    a warning for whoever ported --mc-error-replicas.  That port has happened, so the warning
+    is spent and the real invariant takes over: replication can turn a healthy first run into
+    a collapsed POOL, and gating only the first would silently bypass
+    --reject-collapsed-live-volume for exactly the case pooling introduces.
     """
     src = _src(_LISA)
-    fn = src[src.index("def _reject_if_collapsed"):]
-    fn = fn[:fn.index("\ndef ")]
-    assert "mc-error-replicas" in fn and "TWICE" in fn
-    # Count CALLS, not textual occurrences: the `def` line matches the same substring.
-    calls = [c for c in ast.walk(ast.parse(src))
+    start = src.index("def _maybe_replicate_for_mc_error(")
+    fn = src[start:src.index("\ndef ", start + 1)]
+    gates = [c for c in ast.walk(ast.parse(textwrap.dedent(fn)))
              if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)
-             and c.func.id == '_report_and_gate_collapse']
-    assert len(calls) == 2, \
-        "expected exactly one gate call per analyze_event variant, found %d" % len(calls)
+             and c.func.id in ("_report_and_gate_collapse", "_reject_if_collapsed")]
+    assert len(gates) >= 2, (
+        "the replica helper performs %d collapse-gate call(s); it needs the first-run gate "
+        "AND the pooled-verdict gate" % len(gates))
+    assert "pooled over" in fn, "the pooled gate does not label its stage"
 
 
-# ---------------------------------------------------------------- anti-drift vs the main driver
+def test_analyze_event_does_not_gate_collapse_itself():
+    """The helper owns both gates; a direct call here would duplicate the first-run one."""
+    for n in ast.parse(_src(_LISA)).body:
+        if isinstance(n, ast.FunctionDef) and n.name in ("analyze_event", "analyze_event_LISA"):
+            names = {c.func.id for c in ast.walk(n)
+                     if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)}
+            assert "_report_and_gate_collapse" not in names, \
+                "%s calls the collapse gate directly" % n.name
+            assert "_maybe_replicate_for_mc_error" in names, \
+                "%s never runs the replica/gate helper" % n.name
+
 def _named(path, name):
     for n in ast.walk(ast.parse(_src(path))):
         if isinstance(n, ast.FunctionDef) and n.name == name:

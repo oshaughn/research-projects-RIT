@@ -148,16 +148,18 @@ RULES = [
      "convention before it can be ported, or a pilot written by the LISA driver itself."),
 
     # --------------------------------------------------------------------- MC error replicas
-    (r"^OPTION:--mc-error-(replicas|sigma-trigger|ess-trigger|khat-trigger)$", "PORT",
+    (r"^OPTION:--mc-error-(replicas|sigma-trigger|ess-trigger|khat-trigger)$", "PORTED",
      "Replica-based lnL error stabilization. Triggers on weight-tail diagnostics of the "
      "run's own weights; nothing detector-specific. Valuable for LISA for the same "
      "reason as for high-SNR ground events: the reported sigma is the thing downstream "
      "CIP trusts."),
-    (r"^FUNC:_pool_replica_rvs(\._block_resampled)?$", "PORT",
-     "Pools replica records by evidence. Ports with --mc-error-replicas. NOTE its "
-     "per-replica already_resampled sequence (Finding 6): a single global boolean is "
-     "wrong near the n_extr boundary, so port the sequence form, not the boolean."),
-    (r"^FUNC:analyze_event\._extract_mc_diag$", "PORT", "Diagnostics for the replica triggers."),
+    (r"^FUNC:_pool_replica_rvs(\._block_resampled)?$", "PORTED",
+     "Pools replica records by evidence, verbatim -- including the PER-REPLICA "
+     "already_resampled sequence (Finding 6). A single global boolean is wrong near the "
+     "n_extr boundary, where a run produces a MIXTURE of raw and resampled replicas."),
+    (r"^FUNC:(analyze_event\.)?_extract_mc_diag$", "PORTED",
+     "Diagnostics for the replica triggers. Hoisted to module level (two analyze_event "
+     "variants); the audit matches FUNC on the bare name for exactly this reason."),
 
     # ------------------------------------------------------------------------ GMM plumbing
     (r"^OPTION:--internal-gmm-", "PORT",

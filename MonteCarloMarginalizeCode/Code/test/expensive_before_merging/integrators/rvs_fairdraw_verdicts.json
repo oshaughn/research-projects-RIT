@@ -459,6 +459,26 @@
     "verdict": "FIXED",
     "why": "PR #79, re-landed as #86. sampler._rvs is passed as the FALLBACK argument only: the helper prefers the retained reserve via lnZ_from_reserve, and the gate refuses to compare across sources (_cold_src != _warm_src forces BOTH back to the fair-draw reading, which is at least self-consistent). Measured before #79: two passes with identical true lnZ at n_eff 1.8 vs 53 produced a +3.48 nat gap and rejected the good warm pass 100% of the time at the 0.5 default."
   },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:_maybe_replicate_for_mc_error:011d296b48": {
+    "source": "_rep_rvs = [sampler._rvs]",
+    "verdict": "PER_ROW",
+    "why": "Collects each replica's record for pooling. _pool_replica_rvs is told already_resampled=bool(opts.fairdraw_extrinsic_output) and forces flat within-block weights on that path, so the resampling is accounted for THERE rather than here."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:_maybe_replicate_for_mc_error:1240e69c24": {
+    "source": "len(numpy.atleast_1d(list(sampler._rvs.values())[0])) if sampler._rvs else 0,",
+    "verdict": "FIXED",
+    "why": "Kish of the pooled record is only used when the export is NOT fair-drawn. When it is, _pool_replica_rvs has flattened each block, and the Kish of piecewise-constant weights is just the row count (5K at the default --fairdraw-extrinsic-output-n-max 5). The ILE now computes the same quantity one level up -- (sum Z_k)^2 / sum(Z_k^2/neff_k), Kish over the BLOCKS -- which reduces to sum(neff_k) when replicas agree and falls below it when they do not. The row count beside it is a deliberate report of the export size."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:_maybe_replicate_for_mc_error:25d9742c4d": {
+    "source": "_rep_rvs.append(sampler._rvs)",
+    "verdict": "PER_ROW",
+    "why": "Collects each replica's record for pooling. _pool_replica_rvs is told already_resampled=bool(opts.fairdraw_extrinsic_output) and forces flat within-block weights on that path, so the resampling is accounted for THERE rather than here."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:_maybe_replicate_for_mc_error:acdd1e28bd": {
+    "source": "_neff_pooled = _kish_neff_of_rvs(sampler._rvs)",
+    "verdict": "FIXED",
+    "why": "Kish of the pooled record is only used when the export is NOT fair-drawn. When it is, _pool_replica_rvs has flattened each block, and the Kish of piecewise-constant weights is just the row count (5K at the default --fairdraw-extrinsic-output-n-max 5). The ILE now computes the same quantity one level up -- (sum Z_k)^2 / sum(Z_k^2/neff_k), Kish over the BLOCKS -- which reduces to sum(neff_k) when replicas agree and falls below it when they do not. The row count beside it is a deliberate report of the export size."
+  },
   "bin/integrate_likelihood_extrinsic_batchmode_lisa:_snapshot_pass_state:02594db9f0": {
     "source": "rvs=(dict(sampler._rvs) if rvs is None else rvs),",
     "verdict": "PER_ROW",
