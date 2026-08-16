@@ -15,8 +15,13 @@ is the same fallback import path the two tracer CLI tools use for local dev::
     python test/test_tracer_placement_gp.py
     pytest test/test_tracer_placement_gp.py
 
-sklearn is needed only for the `rf` half of the comparison; those checks skip
-cleanly without it. Everything about the GP itself is numpy-only.
+or, with a self-contained environment that needs no lalsuite::
+
+    cd test/tracer_placement && pixi run test
+
+sklearn is needed only for the `rf` half of the comparison and scipy only for
+`rbf`; those checks skip cleanly without them. Everything about the GP itself is
+numpy-only.
 """
 
 import ast
@@ -41,6 +46,12 @@ try:
     _HAVE_SKLEARN = True
 except ImportError:
     _HAVE_SKLEARN = False
+
+try:
+    import scipy                                     # noqa: F401
+    _HAVE_SCIPY = True
+except ImportError:
+    _HAVE_SCIPY = False
 
 try:
     import pytest
@@ -352,6 +363,8 @@ def test_lnl_floor_applies_to_every_fit_method():
     methods = ["quadratic", "polynomial", "gp_linmean"]
     if _HAVE_SKLEARN:
         methods.append("rf")
+    if _HAVE_SCIPY:
+        methods.append("rbf")
     for m in methods:
         f = fits.build(m, X, Y_bad, sigma=sigma, lnl_floor_delta=50.0)
         assert np.all(np.isfinite(f.predict(X))), m
