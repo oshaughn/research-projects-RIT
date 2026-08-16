@@ -23,6 +23,8 @@ import RIFT.likelihood.factored_likelihood_freqresponse as flfr
 if not getattr(fl, "numba_on", True):
     fl.lalylm = np.vectorize(lal.SpinWeightedSphericalHarmonic, otypes=[complex])
 
+from RIFT.likelihood._gpu_test_support import skip_without_gpu
+
 try:
     import cupy
     _ = cupy.array(1.0) + 1.0    # force a real device op
@@ -67,7 +69,7 @@ def _to_gpu(rho_by_p, U_by_pp, V_by_pp):
 
 def test_gpu_matches_cpu():
     if not HAVE_GPU:
-        print("(GPU) SKIPPED: cupy/GPU unavailable (%s)" % _WHY); return
+        if skip_without_gpu(HAVE_GPU, _WHY): return
     bk = flfr.PrecomputeLikelihoodTermsFreqResponse(
         event_time, t_window, Psig, data_dict, psd_dict, Lmax, fmax,
         Qmax=Qmax, L_arm=L_CE, analyticPSD_Q=True, verbose=False, quiet=True,

@@ -59,6 +59,8 @@ import RIFT.likelihood.factored_likelihood as fl
 if not getattr(fl, "numba_on", True):
     fl.lalylm = np.vectorize(lal.SpinWeightedSphericalHarmonic, otypes=[complex])
 
+from RIFT.likelihood._gpu_test_support import skip_without_gpu
+
 try:
     import cupy
     _ = cupy.array(1.0) + 1.0    # force a real device op
@@ -224,8 +226,7 @@ def _run_pair(banks, n_cal, interp, Pv, tvals):
 def test_noloop_gpu_matches_cpu_all_stencils():
     """Both GPU dispatch sites of the baseline NoLoop, all three stencils."""
     if not HAVE_GPU:
-        print("(GPU) SKIPPED: cupy/GPU unavailable (%s)" % _WHY)
-        return
+        if skip_without_gpu(HAVE_GPU, _WHY): return
     cache = _setup()
     Pv = _P_vec()
     tvals = np.arange(int(2 * T_HALFWIDTH / deltaT)) * deltaT - T_HALFWIDTH
@@ -261,8 +262,7 @@ def test_stencils_are_distinguishable_on_gpu():
     stencils give DIFFERENT GPU lnL, at both dispatch sites.
     """
     if not HAVE_GPU:
-        print("(GPU) SKIPPED: cupy/GPU unavailable (%s)" % _WHY)
-        return
+        if skip_without_gpu(HAVE_GPU, _WHY): return
     cache = _setup()
     Pv = _P_vec()
     tvals = np.arange(int(2 * T_HALFWIDTH / deltaT)) * deltaT - T_HALFWIDTH
@@ -289,8 +289,7 @@ def test_both_gpu_dispatch_sites_are_reached():
     while silently testing nothing on the device.
     """
     if not HAVE_GPU:
-        print("(GPU) SKIPPED: cupy/GPU unavailable (%s)" % _WHY)
-        return
+        if skip_without_gpu(HAVE_GPU, _WHY): return
     cache = _setup()
     Pv = _P_vec()
     tvals = np.arange(int(2 * T_HALFWIDTH / deltaT)) * deltaT - T_HALFWIDTH

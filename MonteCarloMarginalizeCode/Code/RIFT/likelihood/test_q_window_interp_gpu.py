@@ -43,6 +43,8 @@ import numpy as np
 
 import RIFT.likelihood.factored_likelihood as FL
 
+from RIFT.likelihood._gpu_test_support import skip_without_gpu
+
 try:
     import cupy
     _ = cupy.array(1.0) + 1.0    # force a real device op
@@ -73,7 +75,7 @@ def _gpu(Q, A, starts, fracs, npts, time_interp):
 def test_weight_backends_agree():
     """Level 1: the shared weight formula, numpy backend vs cupy backend."""
     if not HAVE_GPU:
-        print("(GPU) SKIPPED: cupy/GPU unavailable (%s)" % _WHY); return
+        if skip_without_gpu(HAVE_GPU, _WHY): return
     u = np.concatenate([np.linspace(0.0, 1.0, 257), [0.0, 0.5, 1.0 - 1e-12]])
     _, w_np = FL._sinc_lanczos_weight_matrix(u)
     _, w_cp = FL._sinc_lanczos_weight_matrix(cupy.asarray(u), xpy=cupy)
@@ -105,7 +107,7 @@ def _kernel_case(label, n_time, npts, n_lm, starts, seed=3):
 def test_kernels_match_cpu_interior():
     """Level 2a: windows well inside the buffer, where no tap is ever dropped."""
     if not HAVE_GPU:
-        print("(GPU) SKIPPED: cupy/GPU unavailable (%s)" % _WHY); return
+        if skip_without_gpu(HAVE_GPU, _WHY): return
     n_time, npts, n_lm = 2048, 32, 5
     starts = np.random.RandomState(11).randint(64, n_time - 64 - npts, size=64)
     _kernel_case("interior", n_time, npts, n_lm, starts)
@@ -121,7 +123,7 @@ def test_kernels_match_cpu_at_edges():
     negative index wrap, would still look perfect in the interior test above.
     """
     if not HAVE_GPU:
-        print("(GPU) SKIPPED: cupy/GPU unavailable (%s)" % _WHY); return
+        if skip_without_gpu(HAVE_GPU, _WHY): return
     n_time, npts, n_lm = 512, 24, 3
     a = FL.SINC_HALFWIDTH_DEFAULT
     # deliberately straddle 0 and n_time by more than the widest stencil
