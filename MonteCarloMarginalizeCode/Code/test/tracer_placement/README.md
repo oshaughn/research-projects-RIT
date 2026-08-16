@@ -39,6 +39,12 @@ pytest and installs in about a minute.
 `PYTHONPATH` is deliberately *not* pointed at `Code/`, so a stray
 `import RIFT.<anything>` fails loudly here instead of half-working.
 
+`pixi.lock` is **not** tracked (see `.gitignore` here). The root pixi project
+commits its lock because it pins the production RIFT stack; this one is a
+disposable test environment that runs in CI and on assorted developer and
+access-point machines, where a committed lock only churns and goes stale. Let
+pixi re-solve. `test/hyperpipe/` tracks no lock either.
+
 The one thing this buys asymmetric coverage on: `util_HyperparameterTracerUpdate.py`
 (.dat I/O, numpy-only) is run end-to-end, while `util_ParameterTracerUpdate.py`
 (XML I/O via `lalsimutils`) is checked by static parser inspection. Use

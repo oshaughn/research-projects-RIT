@@ -29,6 +29,9 @@
 #   curl -fsSL https://pixi.sh/install.sh | bash      # one-time
 #   cd $RIFT_ROOT/MonteCarloMarginalizeCode/Code/test/tracer_placement
 #   pixi run test
+#
+# pixi.lock is NOT tracked here -- this is a disposable test environment that
+# runs in CI and on assorted machines, so let pixi re-solve. See ./.gitignore.
 
 [workspace]
 name = "rift-tracer-placement-test"
