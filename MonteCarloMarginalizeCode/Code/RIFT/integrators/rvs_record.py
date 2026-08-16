@@ -303,6 +303,18 @@ class SamplerOutputMixin(object):
         """
         return getattr(self, '_rvs_record', None)
 
+    def set_samples(self, record):
+        """Replace this pass's record -> the record, for chaining.
+
+        PUBLIC because the ILE legitimately produces one: replica pooling builds a record the
+        sampler cannot (it is a mixture of several passes).  Without this, that code would have
+        to assign `sampler._rvs_record` directly -- reaching into another object's private
+        attribute, which is the habit this whole design is trying to end.  A writer needs an
+        API as much as a reader does.
+        """
+        self._rvs_record = record
+        return record
+
 
 def _host(v):
     """cupy -> numpy where needed, without importing cupy."""

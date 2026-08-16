@@ -15,7 +15,7 @@ specification of what any replacement has to get right.
 import numpy as np
 import pytest
 
-from RIFT.integrators.rvs_record import RvsRecord, RvsProvenance
+from RIFT.integrators.rvs_record import RvsRecord, RvsProvenance, SamplerOutputMixin
 
 
 def _cols(n, seed=0, spread=2.0):
@@ -217,10 +217,14 @@ def _ile_predicates():
     return ns
 
 
-class _Sampler(object):
-    """A sampler carrying BOTH descriptions, as the tree does mid-migration."""
+class _Sampler(SamplerOutputMixin):
+    """A sampler carrying BOTH descriptions, as the tree does mid-migration.
+
+    Inherits the real mixin rather than faking `samples()`, so a change to the public API
+    breaks this double instead of leaving it quietly testing something that no longer exists.
+    """
     def __init__(self, record, is_fairdraw, is_pooled):
-        self._rvs_record = record
+        self.set_samples(record)
         self._rvs_is_fairdraw = is_fairdraw
         self._rvs_is_pooled = is_pooled
 
@@ -257,9 +261,10 @@ def test_the_migrated_consumer_only_trusts_a_record_describing_THESE_columns():
 
     # and EVERY consumer goes through it rather than reading the attribute directly
     body = src[src.index('def ln_weights_for_posterior'):]
-    n_direct = body.count("getattr(sampler, '_rvs_record', None)")
+    n_direct = body.count("sampler._rvs_record")
     assert n_direct == 0, \
-        '{} consumer(s) read _rvs_record directly, bypassing the identity check'.format(n_direct)
+        '{} consumer(s) touch sampler._rvs_record directly instead of the public API'.format(
+            n_direct)
     assert body.count('_rvs_record_for(sampler') >= 3, \
         'expected the weight helper, the .dslice guard and the pooled n_eff to share the lookup'
 
@@ -267,6 +272,8 @@ def test_the_migrated_consumer_only_trusts_a_record_describing_THESE_columns():
     # about to replace sampler._rvs, so "does a record describe the rows I hold" is wrong there
     assert '_sampler_keeps_records(sampler)' in body, \
         'the pooling producer should ask whether the sampler keeps records at all'
+    assert 'sampler.set_samples(' in body, \
+        'the pooling producer assigns the private attribute instead of using the setter'
     assert src.count('def _sampler_keeps_records') == 1
 
     # the flags remain as the fallback until the last consumer is migrated
@@ -343,7 +350,7 @@ def test_a_real_collapsed_pass_records_the_draw_and_points_at_its_reserve():
     s.integrate_log(_av_peaked(100.0), *NAMES6, nmax=400000, neff=8, n=20000,
                     no_protect_names=True, verbose=False,
                     igrand_fairdraw_samples=True, igrand_fairdraw_samples_max=200)
-    rec = s._rvs_record
+    rec = s.samples()
     assert rec is not None and rec.rows_are_resampled() and rec.is_equal_weight()
     assert rec.columns is s._rvs, 'the record must view the live columns'
     assert rec.reserve is s._warm_seed_reserve, 'the reserve was copied rather than referenced'
@@ -360,7 +367,7 @@ def test_a_pass_with_no_fair_draw_still_gets_a_record():
     s = _av_sampler()
     s.integrate_log(_av_peaked(100.0), *NAMES6, nmax=400000, neff=8, n=20000,
                     no_protect_names=True, verbose=False)
-    rec = s._rvs_record
+    rec = s.samples()
     assert rec is not None, 'no record on the no-fair-draw path'
     assert rec.rows_are_resampled() is False and rec.is_equal_weight() is False
     assert rec.columns is s._rvs
@@ -386,12 +393,13 @@ def test_the_migration_changes_no_number():
     s.integrate_log(_av_peaked(100.0), *NAMES6, nmax=400000, neff=8, n=20000,
                     no_protect_names=True, verbose=False,
                     igrand_fairdraw_samples=True, igrand_fairdraw_samples_max=200)
-    assert s._rvs_record is not None and s._rvs_is_fairdraw
+    assert s.samples() is not None and s._rvs_is_fairdraw
 
     with_record = ln_w_post(s._rvs, s)
-    stashed, s._rvs_record = s._rvs_record, None      # force the flag path
+    stashed = s.samples()
+    s.set_samples(None)                               # force the flag path
     without_record = ln_w_post(s._rvs, s)
-    s._rvs_record = stashed
+    s.set_samples(stashed)
     assert np.array_equal(with_record, without_record), \
         'the record path and the flag path disagree; the migration is not a refactor'
 
@@ -401,7 +409,7 @@ def test_the_migration_changes_no_number():
     s2.integrate_log(_av_peaked(100.0), *NAMES6, nmax=400000, neff=8, n=20000,
                      no_protect_names=True, verbose=False)
     a = ln_w_post(s2._rvs, s2)
-    s2._rvs_record = None
+    s2.set_samples(None)
     b = ln_w_post(s2._rvs, s2)
     assert np.array_equal(a, b)
     assert np.std(a) > 0.0, 'a retained record must keep its varying importance weights'
@@ -442,7 +450,7 @@ def test_a_real_collapsed_pass_reports_more_retained_than_exported():
     s.integrate_log(_av_peaked(100.0), *NAMES6, nmax=400000, neff=8, n=20000,
                     no_protect_names=True, verbose=False,
                     igrand_fairdraw_samples=True, igrand_fairdraw_samples_max=200)
-    rec = s._rvs_record
+    rec = s.samples()
     assert rec.rows_are_resampled()
     assert rec.n_retained() > len(rec), \
         'n_retained={} rows={} -- the record claims the draw discarded nothing'.format(
@@ -632,9 +640,6 @@ def test_only_two_backends_keep_a_warm_seed_reserve():
 ### samplers, linear L on two, and either on a sixth depending on a kwarg.
 ###
 
-from RIFT.integrators.rvs_record import SamplerOutputMixin  # noqa: E402
-
-
 @pytest.mark.parametrize('mod_name', ['mcsampler', 'mcsamplerAdaptiveVolume',
                                       'mcsamplerEnsemble', 'mcsamplerGPU',
                                       'mcsamplerNFlow', 'mcsamplerPortfolio'])
@@ -727,3 +732,91 @@ def test_the_ensemble_return_lnI_convention_is_recorded_by_the_sampler():
     src_mc = open(os.path.join(_INTEGRATORS_DIR, 'mcsampler.py')).read()
     assert 'integrand_is_log=False' in src_mc, \
         'mcsampler writes only linear columns and must say so'
+
+
+###
+### THE BOUNDARY: `_rvs_record` is private to the samplers; everyone else calls samples()
+###
+
+_ILE_LISA = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         '..', 'bin', 'integrate_likelihood_extrinsic_batchmode_lisa')
+
+
+def _attribute_reads(src, attr):
+    """How many times this source touches `<not-self>.attr` -> int.
+
+    AST, not text.  Two earlier attempts got this wrong in ways worth recording:
+
+      * a plain substring search counts the COMMENTS that explain the hazard, which in these
+        files is most of the occurrences (the same false alarm PR #87 hit);
+      * stripping comments and strings then counting tokens MISSES `getattr(sampler,
+        '_rvs_record')` entirely -- the attribute name lives in a string literal there, and
+        that is precisely the form a consumer reaching inside would use.  That version passed
+        against a deliberately reintroduced violation, i.e. it was worse than no test.
+
+    So: attribute access where the object is not `self`, PLUS getattr/setattr/hasattr with the
+    name as a string constant and a non-`self` target.
+    """
+    import ast as _ast
+    try:
+        tree = _ast.parse(src)
+    except SyntaxError:
+        return -1                      # never let a parse failure read as "clean"
+
+    def _is_self(node):
+        return isinstance(node, _ast.Name) and node.id == 'self'
+
+    n = 0
+    for node in _ast.walk(tree):
+        if isinstance(node, _ast.Attribute) and node.attr == attr and not _is_self(node.value):
+            n += 1
+        elif isinstance(node, _ast.Call) and isinstance(node.func, _ast.Name) \
+                and node.func.id in ('getattr', 'setattr', 'hasattr') and len(node.args) >= 2:
+            a = node.args[1]
+            name = a.value if isinstance(a, _ast.Constant) else None
+            if name == attr and not _is_self(node.args[0]):
+                n += 1
+    return n
+
+
+@pytest.mark.skipif(not os.path.exists(_ILE), reason='ILE executable not in this tree')
+def test_the_ile_never_touches_the_private_record_attribute():
+    """Consumers call samples(); the producer at the pooling site calls set_samples().
+
+    This is the property the whole design is for -- `_rvs` and `_rvs_record` are internal, and
+    a consumer reaching inside is how a caller ends up depending on which backend it has.
+    """
+    n = _attribute_reads(open(_ILE).read(), '_rvs_record')
+    assert n == 0, \
+        'the ILE touches sampler._rvs_record in {} place(s); use samples()/set_samples()'.format(n)
+
+
+def test_the_record_tests_use_the_public_api_too():
+    """A test that reaches inside is still a consumer written against an internal, and it is
+    the one place where doing so looks harmless."""
+    n = _attribute_reads(open(os.path.abspath(__file__)).read(), '_rvs_record')
+    assert n == 0, \
+        'this suite touches ._rvs_record in {} place(s); use samples()/set_samples()'.format(n)
+
+
+@pytest.mark.skipif(not os.path.exists(_ILE_LISA), reason='LISA driver not in this tree')
+def test_the_lisa_driver_is_not_quietly_left_behind():
+    """It is a deliberate fork, so it may legitimately have none of this -- but "none" and
+    "half" are different, and half is how a fork rots.  See the driver-drift work."""
+    src = open(_ILE_LISA).read()
+    has_api = 'samples()' in src
+    has_private = _attribute_reads(src, '_rvs_record') > 0
+    assert not has_private or has_api, \
+        'the LISA driver reaches into _rvs_record without using the public API'
+
+
+@pytest.mark.parametrize('mod_name', ['mcsampler', 'mcsamplerAdaptiveVolume',
+                                      'mcsamplerEnsemble', 'mcsamplerGPU',
+                                      'mcsamplerNFlow', 'mcsamplerPortfolio'])
+def test_only_the_owning_sampler_touches_its_own_record(mod_name):
+    """Inside a sampler, `self._rvs_record` is the producer writing its own attribute, which is
+    fine.  What must not appear is one sampler reaching into another's."""
+    src = open(os.path.join(_INTEGRATORS_DIR, '{}.py'.format(mod_name))).read()
+    n = _attribute_reads(src, '_rvs_record')
+    assert n == 0, \
+        '{} touches a _rvs_record that is not its own, in {} place(s)'.format(mod_name, n)

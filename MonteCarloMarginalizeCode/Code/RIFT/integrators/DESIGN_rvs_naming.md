@@ -270,6 +270,31 @@ failure is the rule this codebase already applies one layer down in `ln_weights_
 real common base is a bigger change than this draft should make, and the mixin gets the public
 API onto all six without one.
 
+## Consumers now use the API (2026-08-14)
+
+`_rvs_record` is private to the sampler that owns it. Everyone else -- the ILE and the tests --
+goes through `samples()`, and the pooling step, which legitimately *produces* a record the
+sampler cannot, goes through `set_samples()`. A writer needs an API as much as a reader does;
+without one, that code had to assign another object's private attribute.
+
+Enumerated mechanically before touching anything: 7 sampler self-reads (the producer reading
+its own attribute, which stays), 11 in the ILE (2 of them writes), 14 in the tests.
+
+**The boundary is now a test, not a convention.** `_attribute_reads` walks the AST and fails on
+any `<not-self>._rvs_record`, in either form. Two earlier versions of that guard were wrong in
+ways worth recording, both preserved in its docstring:
+
+* a plain substring search counts the *comments* that explain the hazard -- most of the
+  occurrences in these files, and the same false alarm PR #87 hit;
+* stripping comments and counting tokens **misses `getattr(sampler, '_rvs_record')`**, where
+  the name lives in a string literal -- precisely the form a consumer reaching inside would
+  use. That version **passed against a deliberately reintroduced violation**, i.e. it was worse
+  than no test at all. Caught only by revert-checking it.
+
+Both forms are now verified to fail the guard, and the LISA driver has its own case: it may
+legitimately have none of this, but "none" and "half" are different, and half is how a fork
+rots.
+
 ## What is deliberately NOT in it
 
 * The other six samplers, and the other consumers. One worked example first, on purpose.

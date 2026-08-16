@@ -2136,7 +2136,10 @@ def _rvs_record_for(sampler, rvs):
     One lookup rather than the check repeated per consumer, for the reason the reserve lookup
     was centralised in #87: two copies of a guard drift.
     """
-    rec = getattr(sampler, '_rvs_record', None)
+    # `samples()` is the public accessor; the getattr guard is for an object that predates the
+    # mixin (an old pickle, a test double), not for the six samplers, all of which have it.
+    _get = getattr(sampler, 'samples', None)
+    rec = _get() if callable(_get) else None
     if rec is None or getattr(rec, 'columns', None) is not rvs:
         return None
     return rec
@@ -2153,7 +2156,8 @@ def _sampler_keeps_records(sampler):
 
     Two questions, two names.  That is the entire lesson of this file's last four review rounds.
     """
-    return getattr(sampler, '_rvs_record', None) is not None
+    _get = getattr(sampler, 'samples', None)
+    return callable(_get) and _get() is not None
 
 
 def _rvs_is_export_resample(sampler):
@@ -2501,6 +2505,10 @@ def _snapshot_pass_state(sampler, res, var, neff, dict_return, rvs=None):
         warm_seed_reserve=getattr(sampler, '_warm_seed_reserve', None),
         rvs_is_fairdraw=bool(getattr(sampler, '_rvs_is_fairdraw', False)),
         rvs_is_pooled=bool(getattr(sampler, '_rvs_is_pooled', False)),
+        # The record too.  A stale one is already declined by _rvs_record_for's identity check,
+        # so this is belt-and-braces -- but "everything describing the pass moves together" is
+        # the invariant, and carving an exception into it is how round 1 happened.
+        rvs_record=(sampler.samples() if callable(getattr(sampler, 'samples', None)) else None),
         member_reserves=[getattr(_m, '_warm_seed_reserve', None)
                          for _m in list(getattr(sampler, 'portfolio_realizations', []) or [])],
     )
@@ -2516,6 +2524,8 @@ def _restore_pass_state(sampler, state):
     sampler._warm_seed_reserve = state['warm_seed_reserve']
     sampler._rvs_is_fairdraw = state['rvs_is_fairdraw']
     sampler._rvs_is_pooled = state['rvs_is_pooled']
+    if callable(getattr(sampler, 'set_samples', None)):
+        sampler.set_samples(state.get('rvs_record'))
     _members = list(getattr(sampler, 'portfolio_realizations', []) or [])
     for _m, _r in zip(_members, state.get('member_reserves', [])):
         _m._warm_seed_reserve = _r
@@ -3910,11 +3920,11 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             # a pooled record is a mixture of several, so there is no single retained set.
             if _sampler_keeps_records(sampler):
                 try:
-                    sampler._rvs_record = _RvsRecord.pooled(
+                    sampler.set_samples(_RvsRecord.pooled(
                         _pooled_rvs, resampled_blocks=list(_rep_fairdraw),
-                        block_sizes=[_rvs_len(_r) for _r in _rep_rvs])
+                        block_sizes=[_rvs_len(_r) for _r in _rep_rvs]))
                 except Exception as _e_rec:
-                    sampler._rvs_record = None
+                    sampler.set_samples(None)
                     print("  [rvs-record] pooled record not built ({}); falling back to the"
                           " provenance flags".format(_e_rec))
         # Did pooling FLATTEN any block?  That, not "is the record resampled", is what makes
