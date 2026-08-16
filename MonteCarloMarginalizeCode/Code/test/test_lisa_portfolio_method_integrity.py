@@ -238,3 +238,94 @@ def test_rescue_declines_for_a_clobbered_method():
     s = _Sampler()
     ns['_maybe_l0_rescue'](s, 'R1', 'V1', 1.0, {'cold': True}, lambda *a, **k: None, (), {})
     assert s.bootstrapped is None
+
+
+# --------------------------------------------------- the member-dispatch chain itself
+def _member_loop(path):
+    """The `for name in sampler_types:` loop body, as AST."""
+    for node in ast.walk(ast.parse(_src(path), filename=path)):
+        if (isinstance(node, ast.For) and isinstance(node.target, ast.Name)
+                and node.target.id == 'name'
+                and isinstance(node.iter, ast.Name) and node.iter.id == 'sampler_types'):
+            return node
+    raise AssertionError("no `for name in sampler_types` loop in %s" % os.path.basename(path))
+
+
+@pytest.mark.parametrize("path,label", [(_LISA, 'lisa'), (_MAIN, 'main')])
+def test_member_dispatch_is_a_single_elif_chain(path, label):
+    """A chain of separate `if`s reuses the previous member on an unmatched name.
+
+    With `if name == 'AV': ... ; if name == 'GMM': ...` a name matching NOTHING falls
+    through every test and leaves `sampler` bound to whatever it last held -- the plain
+    MCSampler built before the chain, or on later iterations the PREVIOUS member -- which is
+    then appended.  A typo in --sampler-portfolio silently produced a DUPLICATE member
+    rather than an error.
+    """
+    loop = _member_loop(path)
+    # Only the statements that DISPATCH ON THE MEMBER NAME.  The loop body also holds an
+    # `if hasattr(sampler, 'xpy')` after the chain in both drivers, which is not part of it.
+    dispatch = [st for st in loop.body
+                if isinstance(st, ast.If)
+                and any(isinstance(n, ast.Name) and n.id == 'name'
+                        for n in ast.walk(st.test))]
+    assert len(dispatch) == 1, (
+        "%s: member dispatch is %d separate `if` statements, not one elif chain; an "
+        "unmatched name reuses the previous member" % (label, len(dispatch)))
+
+
+@pytest.mark.parametrize("path,label", [(_LISA, 'lisa'), (_MAIN, 'main')])
+def test_an_unknown_member_name_raises(path, label):
+    """The chain must END in an else that raises, not fall off silently."""
+    node = [st for st in _member_loop(path).body
+            if isinstance(st, ast.If)
+            and any(isinstance(n, ast.Name) and n.id == 'name'
+                    for n in ast.walk(st.test))][0]
+    while isinstance(node, ast.If):
+        tail = node.orelse
+        if len(tail) == 1 and isinstance(tail[0], ast.If):
+            node = tail[0]
+            continue
+        break
+    assert tail, "%s: the member dispatch chain has no else clause" % label
+    assert any(isinstance(st, ast.Raise) for st in tail), (
+        "%s: the else clause does not raise, so an unknown --sampler-portfolio member is "
+        "accepted silently" % label)
+
+
+def test_plugin_pipelines_are_dispatched_before_the_error():
+    """A plugin member (nflow, ...) must CONSTRUCT, not fall through to the raise.
+
+    Checking that the string "known_pipelines" merely appears is not enough: it also appears
+    in the error message, so deleting the whole dispatch branch left that check green.  Walk
+    the chain and require a branch that both TESTS and SUBSCRIPTS known_pipelines.
+    """
+    node = [st for st in _member_loop(_LISA).body
+            if isinstance(st, ast.If)
+            and any(isinstance(n, ast.Name) and n.id == 'name'
+                    for n in ast.walk(st.test))][0]
+    found = False
+    while isinstance(node, ast.If):
+        tests_it = any(isinstance(a, ast.Attribute) and a.attr == 'known_pipelines'
+                       for a in ast.walk(node.test))
+        builds_it = any(isinstance(sub, ast.Subscript)
+                        and any(isinstance(a, ast.Attribute) and a.attr == 'known_pipelines'
+                                for a in ast.walk(sub.value))
+                        for sub in ast.walk(ast.Module(body=node.body, type_ignores=[])))
+        if tests_it and builds_it:
+            found = True
+            break
+        node = node.orelse[0] if (len(node.orelse) == 1
+                                  and isinstance(node.orelse[0], ast.If)) else None
+        if node is None:
+            break
+    assert found, ("no branch dispatches to mcsamplerPortfolio.known_pipelines, so a plugin "
+                   "member falls through to the unknown-member error")
+
+
+def test_the_unknown_member_error_names_what_is_known():
+    assert "--sampler-portfolio: unknown member" in _src(_LISA)
+
+
+def test_AC_is_accepted_as_an_alias():
+    """main accepts 'AC' alongside 'adaptive_cartesian_gpu'; a portfolio spec is shared."""
+    assert "name == 'AC'" in _src(_LISA)

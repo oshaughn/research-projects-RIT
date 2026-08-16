@@ -297,6 +297,13 @@ RULES = [
      "Interpolate the lnL time series onto a finer grid before time resampling. LISA "
      "already has --resample-time-marginalization and its own time-resampling block, "
      "so this is the matching resolution knob and applies directly."),
+    (r"^CONST:_TI_LEGACY_BOOLEAN$", "PORT",
+     "Legacy-boolean vocabulary for --interpolate-time. Main (PR #97) now accepts STENCIL "
+     "NAMES there -- nearest/cubic/sinc -- normalizing into opts._noloop_time_interp, with "
+     "this tuple for back-compat and an explicit typo guard so a misspelling is not "
+     "absorbed as falsey. LISA still passes the raw --interpolate-time value straight to "
+     "the likelihood, so porting means normalizing it AND teaching the LISA time path the "
+     "stencil name; it travels with _normalize_interpolate_time_argv and _truthy_option."),
     (r"^FUNC:_normalize_interpolate_time_argv$", "PORT",
      "Normalizes --interpolate-time argv forms. LISA exposes --interpolate-time, so "
      "the same normalization applies."),

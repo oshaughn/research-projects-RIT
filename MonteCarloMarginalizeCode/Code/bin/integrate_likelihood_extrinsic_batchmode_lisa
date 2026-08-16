@@ -877,7 +877,7 @@ elif opts.sampler_method == "portfolio":
     for name in sampler_types:
         if name =='AV':
             sampler = mcsamplerAdaptiveVolume.MCSampler(n_chunk=opts.n_chunk) # enforce now, so provided for setup phase
-        if name =='GMM':
+        elif name =='GMM':
             sampler = mcsamplerEnsemble.MCSampler()
             # A GMM member needs the GMM-specific argument blocks below to run so its config is
             # forwarded.  This used to CLOBBER opts.sampler_method='GMM', which silently broke
@@ -888,9 +888,21 @@ elif opts.sampler_method == "portfolio":
             # below key off `use_gmm_args` = standalone GMM OR a portfolio with a GMM member.
             # Ported from bin/integrate_likelihood_extrinsic_batchmode, which fixed this.
             use_gmm_member = True
-        if name == "adaptive_cartesian_gpu":
+        elif name == "adaptive_cartesian_gpu" or name == 'AC':
             sampler = mcsamplerGPU.MCSampler()
             mcsampler  = mcsamplerGPU  # force use of routines in that file, for properly configured GPU-accelerated code as needed
+        elif name in mcsamplerPortfolio.known_pipelines:  # everything else, including nflow
+            sampler =  mcsamplerPortfolio.known_pipelines[name]()
+        else:
+            # No else clause here meant an unrecognized name left `sampler` bound to its
+            # previous value -- the plain MCSampler built before this chain, or, on the second
+            # and later iterations, the PREVIOUS member -- and appended it silently.  The
+            # portfolio then ran with a member the user never asked for, and a typo in
+            # --sampler-portfolio produced a duplicate rather than an error.  Ported from
+            # bin/integrate_likelihood_extrinsic_batchmode.  (The chain above is now elif for
+            # the same reason: with plain `if`, a name matching no branch fell through every
+            # test and reused whatever `sampler` still held.)
+            raise Exception(" --sampler-portfolio: unknown member '{}'.  Known: AV, GMM, AC/adaptive_cartesian_gpu, {}".format(name, sorted(mcsamplerPortfolio.known_pipelines)))
         print('PORTFOLIO: adding {} '.format(name))
         # enable xpy for low level sampler as needed 
         if hasattr(sampler, 'xpy'):

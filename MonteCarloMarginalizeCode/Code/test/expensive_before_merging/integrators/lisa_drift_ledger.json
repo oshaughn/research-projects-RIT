@@ -17,6 +17,10 @@
       "decision": "PORT",
       "reason": "Sentinel for the deferred sequential warm-start capture; ports with --sampler-sequential-warmstart."
     },
+    "CONST:_TI_LEGACY_BOOLEAN": {
+      "decision": "PORT",
+      "reason": "Legacy-boolean vocabulary for --interpolate-time. Main (PR #97) now accepts STENCIL NAMES there -- nearest/cubic/sinc -- normalizing into opts._noloop_time_interp, with this tuple for back-compat and an explicit typo guard so a misspelling is not absorbed as falsey. LISA still passes the raw --interpolate-time value straight to the likelihood, so porting means normalizing it AND teaching the LISA time path the stencil name; it travels with _normalize_interpolate_time_argv and _truthy_option."
+    },
     "FUNC:_cal_setup_prior_with_nodes": {
       "decision": "NA",
       "reason": "Calibration-envelope internals; see the --calibration-* reason."
