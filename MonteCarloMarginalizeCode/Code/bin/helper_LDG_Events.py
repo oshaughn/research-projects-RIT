@@ -30,7 +30,8 @@ import gzip
 from RIFT.misc.dag_utils_generic import which
 # leaf module: numpy only, so this does not drag numba/cupy into the helper
 from RIFT.likelihood.time_interp_choice import (
-    INTERP_TIME_OVERSAMPLING_THRESHOLD, choose_time_interp_stencil, is_auto_request)
+    INTERP_TIME_OVERSAMPLING_THRESHOLD_CPU, INTERP_TIME_OVERSAMPLING_THRESHOLD_GPU,
+    choose_time_interp_stencil, is_auto_request)
 lalapps_path2cache = which('lal_path2cache')
 ligolw_add = 'igwn_ligolw_add'
 if not(which(ligolw_add)):
@@ -221,7 +222,7 @@ parser.add_argument("--internal-ile-rotate-phase", action='store_true')
 parser.add_argument("--internal-ile-auto-logarithm-offset",action='store_true',help="Passthrough to ILE")
 parser.add_argument("--internal-ile-use-lnL",action='store_true',help="Passthrough to ILE.  Will DISABLE auto-logarithm-offset and manual-logarithm-offset")
 parser.add_argument("--internal-ile-n-chunk",default=None,type=int,help="Override the extrinsic chunk size (--n-chunk) passed to ILE. Default: 40000, scaled linearly with SNR above 40 and capped at 160000. Rationale: at high SNR the posterior is a vanishing fraction of the prior volume, so a small chunk gives few informative samples per adaptation step; measured collapse on a truth-known SNR ladder falls 88%%->50%% (SNR160) and 69%%->25%% (SNR80) going 1e4->1.6e5, and the gain survives at fixed budget. Larger chunks cost GPU memory, so raise the ILE memory request if you raise this a lot.")
-parser.add_argument("--internal-ile-interpolate-time",nargs='?',const='True',default=None,type=str,help="Evaluate Q_lm at FRACTIONAL detector times instead of snapping to the nearest sample bin. Nearest-bin evaluation injects a time-quantization non-smoothness into the extrinsic likelihood surface that is a discretization artifact, not physics; removing it makes convergence more robust. Requires the maintained NoLoop likelihood, i.e. the --vectorized --gpu --force-xpy combination. Bare (or 'True') means CHOOSE THE STENCIL AUTOMATICALLY from this run's oversampling factor fNyq/fmax=(srate/2)/fmax: 'sinc' (Lanczos, accurate near Nyquist, where production sits) below fNyq/fmax=%g and 'cubic' (4-point Lagrange, accurate when heavily oversampled) at or above it, per the measured crossover at ~5.3 -- see choose_time_interp_stencil. Pass an explicit 'nearest'/'cubic'/'sinc' to override the choice. The resolved stencil is echoed to the log and appears literally in the generated ILE command line, so a completed run's stencil is auditable. Default off for backward compatibility." % INTERP_TIME_OVERSAMPLING_THRESHOLD)
+parser.add_argument("--internal-ile-interpolate-time",nargs='?',const='True',default=None,type=str,help="Evaluate Q_lm at FRACTIONAL detector times instead of snapping to the nearest sample bin. Nearest-bin evaluation injects a time-quantization non-smoothness into the extrinsic likelihood surface that is a discretization artifact, not physics; removing it makes convergence more robust. Requires the maintained NoLoop likelihood, i.e. the --vectorized --gpu --force-xpy combination. Bare (or 'True') means CHOOSE THE STENCIL AUTOMATICALLY from this run's oversampling factor fNyq/fmax=(srate/2)/fmax: 'sinc' (Lanczos, accurate near Nyquist, where production sits) below the threshold and 'cubic' (4-point Lagrange, accurate when heavily oversampled) at or above it. The threshold is BACKEND-DEPENDENT because the extra taps cost ~4.5x cubic on CPU but only ~2x on GPU: %g on CPU, %g on GPU, against a measured accuracy crossover at fNyq/fmax ~5.4 -- see RIFT.likelihood.time_interp_choice for the measurement. Pass an explicit 'nearest'/'cubic'/'sinc' to override the choice entirely. The resolved stencil is echoed to the log and appears literally in the generated ILE command line, so a completed run's stencil is auditable. Default off for backward compatibility." % (INTERP_TIME_OVERSAMPLING_THRESHOLD_CPU, INTERP_TIME_OVERSAMPLING_THRESHOLD_GPU))
 parser.add_argument("--internal-cip-use-lnL",action='store_true')
 parser.add_argument("--ile-n-eff",default=50,type=int,help="Target n_eff passed to ILE.  Try to keep above 2")
 parser.add_argument("--test-convergence",action='store_true',help="If present, the code will terminate if the convergence test  passes. WARNING: if you are using a low-dimensional model the code may terminate during the low-dimensional model!")
@@ -1144,16 +1145,24 @@ if opts.internal_ile_interpolate_time:
     _interp_request = str(opts.internal_ile_interpolate_time).strip()
     if is_auto_request(_interp_request):
         fmax_effective = opts.fmax if not (opts.fmax is None) else fmax
-        time_interp_choice, _oversampling = choose_time_interp_stencil(srate, fmax_effective)
+        # The threshold is backend-dependent, because the extra taps cost ~4.5x on CPU but only
+        # ~2x on GPU, so cost breaks the near-crossover tie at a different place.  This is the
+        # same flag that gates the '--vectorized --gpu' append further down, i.e. the helper's
+        # own decision about whether this job gets a GPU; if a GPU is forced in by some other
+        # route the helper cannot see it, which is benign -- it only shifts the threshold by 0.5
+        # in fNyq/fmax, and production (fNyq/fmax ~ 1.2) is nowhere near it either way.
+        _ile_on_gpu = bool(opts.propose_ile_convergence_options)
+        time_interp_choice, _oversampling, _threshold = choose_time_interp_stencil(
+            srate, fmax_effective, on_gpu=_ile_on_gpu)
         if _oversampling is None:
             print("  ==> Q_lm time interpolation: srate/fmax unusable (srate={}, fmax={}); "
                   "falling back to stencil '{}'".format(srate, fmax_effective, time_interp_choice))
         else:
             print("  ==> Q_lm time interpolation: srate={} fmax={} -> fNyq/fmax={:.2f} "
-                  "({} threshold {}), choosing stencil '{}'".format(
+                  "({} {} threshold {}), choosing stencil '{}'".format(
                       srate, fmax_effective, _oversampling,
-                      "below" if _oversampling < INTERP_TIME_OVERSAMPLING_THRESHOLD else "at/above",
-                      INTERP_TIME_OVERSAMPLING_THRESHOLD, time_interp_choice))
+                      "below" if _oversampling < _threshold else "at/above",
+                      "GPU" if _ile_on_gpu else "CPU", _threshold, time_interp_choice))
     else:
         time_interp_choice = _interp_request
         print("  ==> Q_lm time interpolation: stencil '{}' requested explicitly, "
