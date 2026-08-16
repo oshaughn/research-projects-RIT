@@ -33,7 +33,7 @@ __author__ = "Chris Pankow <pankow@gravity.phys.uwm.edu>"
 
 rosDebugMessages = True
 
-from RIFT.integrators.rvs_record import RvsRecord   # DRAFT: see DESIGN_rvs_naming.md
+from RIFT.integrators.rvs_record import RvsRecord, SamplerOutputMixin   # DRAFT: DESIGN_rvs_naming.md
 
 class NanOrInf(Exception):
     def __init__(self, value):
@@ -41,7 +41,7 @@ class NanOrInf(Exception):
     def __str__(self):
         return repr(self.value)
 
-class MCSampler(object):
+class MCSampler(SamplerOutputMixin, object):
     """
     Class to define a set of parameter names, limits, and probability densities.
     """
@@ -793,8 +793,11 @@ class MCSampler(object):
         # means, so "not resampled" is a statement the record makes rather than the absence of
         # one.  The reserve rides along BY REFERENCE where the sampler keeps one (AV and the
         # portfolio); None elsewhere is the honest answer, not a gap.
+        # This backend writes NO log columns: `integrand` is always linear L, so the
+        # record is told so and log_likelihood() is unambiguous for it too.
         self._rvs_record = RvsRecord.retained(
-            self._rvs, reserve=getattr(self, '_warm_seed_reserve', None))
+            self._rvs, reserve=getattr(self, '_warm_seed_reserve', None),
+                   integrand_is_log=False)
         if bFairdraw and not(n_extr is None):
            n_extr = int(numpy.min([n_extr,1.5*eff_samp,1.5*neff]))
            print(" Fairdraw size : ", n_extr)
@@ -818,7 +821,8 @@ class MCSampler(object):
                # which counted the rows before this block replaced them.
                self._rvs_record = RvsRecord.fair_draw(
                    self._rvs, n_retained=self._rvs_record.n_retained(),
-                   reserve=getattr(self, '_warm_seed_reserve', None))
+                   reserve=getattr(self, '_warm_seed_reserve', None),
+                   integrand_is_log=False)
         # Create extra dictionary to return things
         dict_return ={}
         if convergence_tests is not None:

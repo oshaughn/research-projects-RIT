@@ -70,39 +70,49 @@ class RvsRecord(object):
     whose meaning it does not check, which is the whole problem restated.
     """
 
-    __slots__ = ("columns", "provenance", "reserve")
+    __slots__ = ("columns", "provenance", "reserve", "integrand_is_log")
 
-    def __init__(self, columns, provenance=None, reserve=None):
+    def __init__(self, columns, provenance=None, reserve=None, integrand_is_log=None):
         self.columns = columns
         self.provenance = provenance if provenance is not None else RvsProvenance()
+        # WHAT THE RAW `integrand` COLUMN MEANS ON THIS BACKEND, recorded once by the sampler
+        # that wrote it.  True = lnL, False = linear L, None = unknown.
+        #
+        # This is where `return_lnI` goes to die.  Today that kwarg's value is a RUNTIME
+        # property of how mcsamplerEnsemble was called, and no consumer can recover it -- which
+        # is why ln_weights_from_rvs has to demand `use_lnL` from every caller and why passing
+        # opts.internal_use_lnL instead is a documented bug.  The sampler knows; it now says so
+        # once, here, and log_likelihood() below is unambiguous on every backend.
+        self.integrand_is_log = integrand_is_log
         # REFERENCE, not a copy.  See retained_* below for why this is a reference and why it
         # is the bounded reserve rather than the raw retained rows.
         self.reserve = reserve
 
     # -- construction ------------------------------------------------------------------
     @classmethod
-    def retained(cls, columns, n_retained=None, reserve=None):
+    def retained(cls, columns, n_retained=None, reserve=None, integrand_is_log=None):
         """A record whose rows are the pass's own draws, with real importance weights."""
         n = _n_rows(columns)
         return cls(columns, RvsProvenance(resampled_blocks=[False], block_sizes=[n],
                                           pooled=False,
                                           n_retained=n if n_retained is None else n_retained),
-                   reserve=reserve)
+                   reserve=reserve, integrand_is_log=integrand_is_log)
 
     @classmethod
-    def fair_draw(cls, columns, n_retained=None, reserve=None):
+    def fair_draw(cls, columns, n_retained=None, reserve=None, integrand_is_log=None):
         """A record whose rows were drawn WITH REPLACEMENT proportional to weight."""
         n = _n_rows(columns)
         return cls(columns, RvsProvenance(resampled_blocks=[True], block_sizes=[n],
                                           pooled=False, n_retained=n_retained),
-                   reserve=reserve)
+                   reserve=reserve, integrand_is_log=integrand_is_log)
 
     @classmethod
-    def pooled(cls, columns, resampled_blocks, block_sizes, reserve=None):
+    def pooled(cls, columns, resampled_blocks, block_sizes, reserve=None,
+               integrand_is_log=None):
         """A concatenation of replica blocks, weighted between blocks by their evidences."""
         return cls(columns, RvsProvenance(resampled_blocks=list(resampled_blocks),
                                           block_sizes=list(block_sizes), pooled=True),
-                   reserve=reserve)
+                   reserve=reserve, integrand_is_log=integrand_is_log)
 
     # -- the questions -----------------------------------------------------------------
     def rows_are_resampled(self):
@@ -137,6 +147,72 @@ class RvsRecord(object):
         row count.  Distinct from both questions above -- it is a fact about the pooling STEP.
         """
         return self.provenance.pooled and any(self.provenance.resampled_blocks)
+
+    # -- THE UNIVERSAL OUTPUT API ---------------------------------------------------
+    #
+    # `_rvs` is INTERNAL.  These are what a consumer should call: one name per quantity, the
+    # same meaning on every backend, so nobody has to know that `integrand` holds lnL on three
+    # samplers, linear L on two, and either on a sixth depending on a kwarg (the table is in
+    # test/expensive_before_merging/integrators/audit_backend_contracts.py).
+    #
+    # Everything is returned in LOG space, because that is the only convention all six can
+    # express without loss -- the linear column underflows to 0 at ~745 nats, which is exactly
+    # the regime this whole line of work is about.
+
+    def log_likelihood(self):
+        """ln L per row -> float array.  The same thing on every backend.
+
+        Prefers the unambiguous `log_integrand` column.  Falls back to `integrand` ONLY when
+        the sampler stated what that column means; when it did not, this RAISES rather than
+        guess -- a loud failure beats a plausible wrong number, which is the same rule
+        ln_weights_from_rvs already applies one layer down.
+        """
+        c = self.columns
+        if 'log_integrand' in c:
+            return np.asarray(_host(c['log_integrand']), dtype=float).ravel()
+        if 'integrand' not in c:
+            raise KeyError("record has neither 'log_integrand' nor 'integrand'")
+        ig = np.asarray(_host(c['integrand']), dtype=float).ravel()
+        if self.integrand_is_log is True:
+            return ig
+        if self.integrand_is_log is False:
+            out = np.full(len(ig), -np.inf)
+            pos = ig > 0
+            out[pos] = np.log(ig[pos])       # non-positive means a rejected/underflowed row
+            return out
+        raise ValueError(
+            "this record has only a raw 'integrand' column and the sampler did not record "
+            "whether it holds L or lnL, so its meaning is unrecoverable.  Pass "
+            "integrand_is_log= when building the record (see DESIGN_rvs_naming.md).")
+
+    def log_prior(self):
+        """ln pi per row -> float array."""
+        return self._log_of('log_joint_prior', 'joint_prior')
+
+    def log_sampling_prior(self):
+        """ln q per row -> float array."""
+        return self._log_of('log_joint_s_prior', 'joint_s_prior')
+
+    def _log_of(self, log_key, lin_key):
+        c = self.columns
+        if log_key in c:
+            return np.asarray(_host(c[log_key]), dtype=float).ravel()
+        if lin_key not in c:
+            raise KeyError("record has neither {!r} nor {!r}".format(log_key, lin_key))
+        v = np.asarray(_host(c[lin_key]), dtype=float).ravel()
+        out = np.full(len(v), -np.inf)
+        pos = v > 0
+        out[pos] = np.log(v[pos])
+        return out
+
+    def log_weights(self):
+        """THE importance log-weight per row: lnL + ln pi - ln q -> float array.
+
+        No `use_lnL` argument, because the record already knows.  That parameter exists on
+        ln_weights_from_rvs only because a bare `_rvs` dict cannot say what its own columns
+        mean; a consumer on this API cannot get it wrong.
+        """
+        return self.log_likelihood() + self.log_prior() - self.log_sampling_prior()
 
     # -- weights -----------------------------------------------------------------------
     def posterior_log_weights(self, ln_weights_from_columns):
@@ -204,6 +280,36 @@ class RvsRecord(object):
 
     def __repr__(self):
         return "RvsRecord({} rows, {})".format(len(self), self.provenance)
+
+
+class SamplerOutputMixin(object):
+    """The public output API every backend gets by inheriting it.
+
+    `_rvs` is an INTERNAL variable: it means different things at different times, and its raw
+    columns mean different things on different backends.  Consumers should never reach inside
+    it -- they should call this.
+
+    Kept as a mixin because the six MCSampler classes share no base class today (each is
+    `class MCSampler(object)`), and giving them one is a bigger change than this draft should
+    make.
+    """
+
+    def samples(self):
+        """This pass's samples, with provenance -> RvsRecord, or None if it never ran.
+
+        THE public accessor.  Everything a consumer needs -- log_likelihood(), log_prior(),
+        log_sampling_prior(), log_weights(), rows_are_resampled(), is_equal_weight() -- hangs
+        off the returned record and means the same thing on every backend.
+        """
+        return getattr(self, '_rvs_record', None)
+
+
+def _host(v):
+    """cupy -> numpy where needed, without importing cupy."""
+    try:
+        return v.get() if hasattr(v, 'get') and not isinstance(v, np.ndarray) else v
+    except Exception:
+        return v
 
 
 def _n_rows(columns):

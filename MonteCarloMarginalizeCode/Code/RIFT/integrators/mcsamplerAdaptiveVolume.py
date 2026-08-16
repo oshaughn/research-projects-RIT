@@ -12,7 +12,7 @@ from collections import defaultdict
 import numpy
 np=numpy #import numpy as np
 from RIFT.precision import RiftFloat  # platform-portable replacement for np.float128
-from RIFT.integrators.rvs_record import RvsRecord   # DRAFT: see DESIGN_rvs_naming.md
+from RIFT.integrators.rvs_record import RvsRecord, SamplerOutputMixin   # DRAFT: DESIGN_rvs_naming.md
 from scipy import integrate, interpolate, special
 import itertools
 import functools
@@ -646,7 +646,7 @@ def sample_from_bins(xrange, dx, bu, ninbin, reject_out_of_range=False):
         return x
 
 
-class MCSampler(object):
+class MCSampler(SamplerOutputMixin, object):
     # COMPACT SUPPORT: this sampler's density is EXACTLY ZERO outside its contracted live volume,
     # so once seeded or contracted it cannot serve as the mixture's coverage guarantee.
     # mcsamplerPortfolio reads this to decide whether it must hold one member cold.

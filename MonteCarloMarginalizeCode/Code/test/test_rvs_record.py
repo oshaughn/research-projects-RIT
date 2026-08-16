@@ -622,3 +622,108 @@ def test_only_two_backends_keep_a_warm_seed_reserve():
     mod = _backend_contracts()
     keeps = {b for b in mod.BACKENDS if mod.scan(b)['keeps_warm_seed_reserve']}
     assert keeps == {'mcsamplerAdaptiveVolume', 'mcsamplerPortfolio'}, sorted(keeps)
+
+
+###
+### THE UNIVERSAL OUTPUT API
+###
+### `_rvs` is internal.  These are what a consumer should call, and the point is that they mean
+### the SAME thing on every backend -- so nobody has to know that `integrand` holds lnL on three
+### samplers, linear L on two, and either on a sixth depending on a kwarg.
+###
+
+from RIFT.integrators.rvs_record import SamplerOutputMixin  # noqa: E402
+
+
+@pytest.mark.parametrize('mod_name', ['mcsampler', 'mcsamplerAdaptiveVolume',
+                                      'mcsamplerEnsemble', 'mcsamplerGPU',
+                                      'mcsamplerNFlow', 'mcsamplerPortfolio'])
+def test_every_backend_exposes_the_public_samples_api(mod_name):
+    # SOURCE first, so the wiring is checked even for a backend whose optional dependency is
+    # absent (mcsamplerNFlow needs `nflows`).  A skip that checked nothing would quietly stop
+    # covering a backend the day its dependency dropped out of the environment.
+    src = open(os.path.join(_INTEGRATORS_DIR, '{}.py'.format(mod_name))).read()
+    assert 'class MCSampler(SamplerOutputMixin' in src, \
+        '{}.MCSampler does not inherit the public output API'.format(mod_name)
+
+    import importlib
+    try:
+        mod = importlib.import_module('RIFT.integrators.{}'.format(mod_name))
+    except ImportError as e:
+        pytest.skip('{} needs an optional dependency ({}); source wiring checked above'
+                    .format(mod_name, e))
+    assert issubclass(mod.MCSampler, SamplerOutputMixin), \
+        '{}.MCSampler does not expose samples(); consumers would reach into _rvs'.format(mod_name)
+    assert callable(getattr(mod.MCSampler, 'samples', None))
+
+
+def test_log_likelihood_is_lnL_whatever_the_backend_stored():
+    """The whole point.  A log backend and a linear backend, same call, same meaning."""
+    n = 40
+    lnL = np.linspace(-5.0, 5.0, n)
+
+    log_rec = RvsRecord.retained({'log_integrand': lnL,
+                                  'log_joint_prior': np.zeros(n),
+                                  'log_joint_s_prior': np.zeros(n)})
+    lin_rec = RvsRecord.retained({'integrand': np.exp(lnL),
+                                  'joint_prior': np.ones(n),
+                                  'joint_s_prior': np.ones(n)},
+                                 integrand_is_log=False)
+    assert np.allclose(log_rec.log_likelihood(), lnL)
+    assert np.allclose(lin_rec.log_likelihood(), lnL)
+    assert np.allclose(log_rec.log_weights(), lin_rec.log_weights())
+
+
+def test_a_raw_integrand_column_of_unknown_meaning_raises_rather_than_guessing():
+    """The loud failure this codebase prefers.  Without a recorded convention the column's
+    meaning is genuinely unrecoverable, and returning a plausible number would be the exact
+    defect the backend audit documents."""
+    rec = RvsRecord.retained({'integrand': np.array([1.0, 2.0, 3.0]),
+                              'joint_prior': np.ones(3), 'joint_s_prior': np.ones(3)})
+    assert rec.integrand_is_log is None
+    with pytest.raises(ValueError) as e:
+        rec.log_likelihood()
+    assert 'integrand_is_log' in str(e.value)
+
+
+def test_a_log_integrand_column_needs_no_convention_at_all():
+    """Which is why only mcsampler and Ensemble-in-linear-mode had to be told."""
+    n = 5
+    rec = RvsRecord.retained({'log_integrand': np.zeros(n),
+                              'log_joint_prior': np.zeros(n),
+                              'log_joint_s_prior': np.zeros(n)})
+    assert rec.integrand_is_log is None
+    assert np.allclose(rec.log_likelihood(), 0.0)
+
+
+def test_non_positive_linear_values_become_minus_inf_not_nan():
+    """A rejected or underflowed row is a real zero, not a NaN, and must not poison a sum."""
+    rec = RvsRecord.retained({'integrand': np.array([1.0, 0.0, -1.0]),
+                              'joint_prior': np.ones(3), 'joint_s_prior': np.ones(3)},
+                             integrand_is_log=False)
+    lnL = rec.log_likelihood()
+    assert lnL[0] == pytest.approx(0.0)
+    assert np.isneginf(lnL[1]) and np.isneginf(lnL[2])
+    assert not np.any(np.isnan(lnL))
+
+
+def test_log_weights_needs_no_use_lnL_argument():
+    """ln_weights_from_rvs must be told the convention because a bare dict cannot say what its
+    own columns mean.  A record can, so the parameter disappears -- and with it the class of
+    bug where a caller passes opts.internal_use_lnL instead of the stored convention."""
+    import inspect
+    sig = inspect.signature(RvsRecord.log_weights)
+    assert list(sig.parameters) == ['self'], \
+        'log_weights() grew a convention argument; the record is supposed to already know'
+
+
+@pytest.mark.skipif(not os.path.exists(_ILE), reason='ILE executable not in this tree')
+def test_the_ensemble_return_lnI_convention_is_recorded_by_the_sampler():
+    """The case that made this necessary: for mcsamplerEnsemble the meaning of `integrand` is a
+    RUNTIME property of how the pass was called, so only the sampler can record it."""
+    src = open(os.path.join(_INTEGRATORS_DIR, 'mcsamplerEnsemble.py')).read()
+    assert 'integrand_is_log=bool(use_lnL)' in src, \
+        'the Ensemble backend no longer records what its integrand column holds'
+    src_mc = open(os.path.join(_INTEGRATORS_DIR, 'mcsampler.py')).read()
+    assert 'integrand_is_log=False' in src_mc, \
+        'mcsampler writes only linear columns and must say so'

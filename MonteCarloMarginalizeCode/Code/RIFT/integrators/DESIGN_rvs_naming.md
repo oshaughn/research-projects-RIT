@@ -214,6 +214,62 @@ Two other differences the table records, because consumers have to cope with the
 **This gate does not forbid the differences.** Some are load-bearing and none should be
 "tidied" without a decision. It makes a change to one show up as a diff.
 
+## The universal output API (2026-08-14)
+
+Review made the framing sharper than the original draft had it:
+
+> *"`_rvs` is an internal variable -- consumers should be accessing a first-class non-internal
+> API with clear meaning, not reaching inside for something that is different. If we add a
+> universal API for the output format, we can fully disambiguate and then leave `return_lnI` as
+> stale historical material."*
+
+That is the right shape, and it subsumes the backend divergence rather than merely documenting
+it. So `_rvs` stays internal and this is what consumers call:
+
+```python
+rec = sampler.samples()          # RvsRecord, or None if the pass never ran
+
+rec.log_likelihood()             # ln L      -- same meaning on every backend
+rec.log_prior()                  # ln pi
+rec.log_sampling_prior()         # ln q
+rec.log_weights()                # lnL + ln pi - ln q, NO use_lnL argument
+
+rec.rows_are_resampled()         # provenance, as before
+rec.is_equal_weight()
+rec.blocks_were_flattened()
+```
+
+Everything is **log space**, because it is the only convention all six backends can express
+without loss -- the linear column underflows to 0 at ~745 nats, which is precisely the regime
+this whole line of work is about.
+
+### How `return_lnI` becomes historical
+
+`log_likelihood()` prefers the unambiguous `log_integrand` column, which covers AV, NFlow, the
+portfolio, mcsamplerGPU, and mcsamplerEnsemble *when it ran under `use_lnL`*. Only two cases
+have a bare `integrand` column whose meaning is not on the record:
+
+* `mcsampler` -- writes no log columns at all, so it records `integrand_is_log=False`;
+* `mcsamplerEnsemble` in linear mode -- records `integrand_is_log=bool(use_lnL)`, **at the point
+  where that is known**.
+
+That is the whole trick. The convention was always a runtime property, recoverable only by the
+sampler; now the sampler states it once instead of every caller threading `use_lnL` through and
+one of them eventually passing `opts.internal_use_lnL` by mistake (a documented bug). Once every
+consumer is on this API, `return_lnI` is an implementation detail of one backend rather than
+something the ILE has to know about.
+
+When a record has a raw `integrand` column and no recorded convention, `log_likelihood()`
+**raises**. Guessing would reproduce exactly the defect the backend audit documents, and a loud
+failure is the rule this codebase already applies one layer down in `ln_weights_from_rvs`.
+
+### Delivered as a mixin
+
+`SamplerOutputMixin`, because the six `MCSampler` classes share no base today -- five are
+`class MCSampler(object)` and only `mcsamplerNFlow` inherits `MCSamplerGeneric`. Giving them a
+real common base is a bigger change than this draft should make, and the mixin gets the public
+API onto all six without one.
+
 ## What is deliberately NOT in it
 
 * The other six samplers, and the other consumers. One worked example first, on purpose.

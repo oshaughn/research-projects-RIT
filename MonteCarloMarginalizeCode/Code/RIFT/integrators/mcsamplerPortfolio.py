@@ -59,7 +59,7 @@ except:
   cupy_ok = False
   cupy_pi = np.pi
 
-from RIFT.integrators.rvs_record import RvsRecord   # DRAFT: see DESIGN_rvs_naming.md
+from RIFT.integrators.rvs_record import RvsRecord, SamplerOutputMixin   # DRAFT: DESIGN_rvs_naming.md
 
 def set_xpy_to_numpy():
    xpy_default=numpy
@@ -138,7 +138,7 @@ def portfolio_default_weights(n_ess_list, wt_previous, portfolio_probability_flo
 ###
 
 
-class MCSampler(object):
+class MCSampler(SamplerOutputMixin, object):
     """
     Class to define a set of parameter names, limits, and probability densities.
     """

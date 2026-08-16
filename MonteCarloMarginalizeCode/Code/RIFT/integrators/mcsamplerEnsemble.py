@@ -46,7 +46,7 @@ __author__ = "Ben Champion"
 
 rosDebugMessages = True
 
-from RIFT.integrators.rvs_record import RvsRecord   # DRAFT: see DESIGN_rvs_naming.md
+from RIFT.integrators.rvs_record import RvsRecord, SamplerOutputMixin   # DRAFT: DESIGN_rvs_naming.md
 
 class NanOrInf(Exception):
     def __init__(self, value):
@@ -54,7 +54,7 @@ class NanOrInf(Exception):
     def __str__(self):
         return repr(self.value)
 
-class MCSampler(object):
+class MCSampler(SamplerOutputMixin, object):
 
     @property
     def has_unbounded_support(self):
@@ -772,8 +772,13 @@ class MCSampler(object):
         # means, so "not resampled" is a statement the record makes rather than the absence of
         # one.  The reserve rides along BY REFERENCE where the sampler keeps one (AV and the
         # portfolio); None elsewhere is the honest answer, not a gap.
+        # THE return_lnI CASE.  Log columns are written only under use_lnL; otherwise
+        # `integrand` holds linear L.  Recording the convention HERE, once, where it is
+        # known, is what lets every consumer stop caring -- and lets return_lnI become
+        # historical material rather than something a caller must thread through.
         self._rvs_record = RvsRecord.retained(
-            self._rvs, reserve=getattr(self, '_warm_seed_reserve', None))
+            self._rvs, reserve=getattr(self, '_warm_seed_reserve', None),
+                   integrand_is_log=bool(use_lnL))
         if bFairdraw and not(n_extr is None):
            # scalars: use Python min on floats.  self.xpy.min([list]) fails on cupy
            # (cupy.min has no list overload -> "'list' object has no attribute 'min'"),
@@ -804,7 +809,8 @@ class MCSampler(object):
                # which counted the rows before this block replaced them.
                self._rvs_record = RvsRecord.fair_draw(
                    self._rvs, n_retained=self._rvs_record.n_retained(),
-                   reserve=getattr(self, '_warm_seed_reserve', None))
+                   reserve=getattr(self, '_warm_seed_reserve', None),
+                   integrand_is_log=bool(use_lnL))
         dict_return = {}
         if dict_return_q:
             dict_return["integrator"] = integrator

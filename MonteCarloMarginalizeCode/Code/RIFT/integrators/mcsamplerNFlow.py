@@ -104,7 +104,7 @@ except:
   cupy_ok = False
   cupy_pi = np.pi
 
-from RIFT.integrators.rvs_record import RvsRecord   # DRAFT: see DESIGN_rvs_naming.md
+from RIFT.integrators.rvs_record import RvsRecord, SamplerOutputMixin   # DRAFT: DESIGN_rvs_naming.md
 
 def set_xpy_to_numpy():
    xpy_default=numpy
@@ -399,7 +399,7 @@ class NFlowsNFS_Trainer:
         return losses
 
 
-class MCSampler(MCSamplerGeneric):
+class MCSampler(SamplerOutputMixin, MCSamplerGeneric):
     """
     Class to define a set of parameter names, limits, and probability densities.
     """
