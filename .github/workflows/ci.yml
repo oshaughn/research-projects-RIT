@@ -247,7 +247,8 @@ jobs:
           python -m pytest -q \
             MonteCarloMarginalizeCode/Code/RIFT/likelihood/test_q_window_interp.py \
             MonteCarloMarginalizeCode/Code/RIFT/likelihood/test_time_interp_choice.py \
-            MonteCarloMarginalizeCode/Code/RIFT/likelihood/test_calmarg_stencil_gating.py
+            MonteCarloMarginalizeCode/Code/RIFT/likelihood/test_calmarg_stencil_gating.py \
+            MonteCarloMarginalizeCode/Code/RIFT/misc/test_psd_bandwidth.py
 
   lisa-check:
     needs: install
