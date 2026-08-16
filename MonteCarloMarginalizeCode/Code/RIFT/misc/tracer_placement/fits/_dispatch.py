@@ -29,13 +29,25 @@ def apply_lnl_floor(Y, delta):
     finite = np.isfinite(Yv)
     if not finite.any():
         raise ValueError("lnl_floor_delta given but no finite lnL values")
+    # A floor cannot rescue +inf, and letting it through would fail downstream
+    # with a message telling the user to apply the floor they just applied.
+    n_posinf = int(np.sum(np.isposinf(Yv)))
+    if n_posinf:
+        raise ValueError(
+            f"lnl_floor_delta cannot handle {n_posinf} +inf lnL value(s): a "
+            "floor clamps from below only. A +inf likelihood is an upstream "
+            "bug, not an outlier to be tamed here.")
     floor = float(np.max(Yv[finite])) - delta
-    n_below = int(np.sum(~(Yv >= floor)))       # counts NaN / -inf as below
+    # NaN and -inf both compare False here, so both are clamped to the floor:
+    # a failed evaluation is the same kind of anchor as a catastrophic one.
+    n_below = int(np.sum(~(Yv >= floor)))
+    n_nonfinite = int(np.sum(~finite))
     if n_below:
+        detail = f" ({n_nonfinite} of them non-finite)" if n_nonfinite else ""
         sys.stderr.write(
             f"fits.build: lnL floor at max-{delta:g} = {floor:.4g} clamped "
-            f"{n_below}/{len(Yv)} training point(s) (kept as anchors rather "
-            f"than cut).\n")
+            f"{n_below}/{len(Yv)} training point(s){detail} (kept as anchors "
+            f"rather than cut).\n")
     return np.where(Yv >= floor, Yv, floor)
 
 

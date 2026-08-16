@@ -51,6 +51,11 @@ from ._base import FitBase
 # per-iteration cost of the placement tool; warn rather than refuse.
 _N_WARN = 2000
 
+# Rows per block when evaluating a candidate pool. The (n, chunk) kernel block
+# is the peak allocation, so this bounds memory independently of how many
+# candidates the caller hands us -- samplers.ucb routinely passes 2e4.
+_CHUNK = 2048
+
 
 def _sqdist(A, B):
     """Pairwise squared Euclidean distance |a|^2 + |b|^2 - 2 a.b.
@@ -115,6 +120,24 @@ class LinearMeanGPFit(FitBase):
                 "them to max(lnL) - delta instead of discarding them.")
         n, self.d = X.shape
 
+        # The linear mean has d+1 coefficients. Below that the lstsq solve is
+        # underdetermined and returns the minimum-norm hyperplane, which is an
+        # arbitrary choice among infinitely many that fit the data equally
+        # well -- and this fit exists precisely to EXTRAPOLATE along that
+        # hyperplane. Getting the trend's sign wrong out past the training hull
+        # is entirely possible, so say so rather than quietly placing on it.
+        if mean == "linear" and n <= self.d + 1:
+            how = ("underdetermined (minimum-norm solution; the extrapolation "
+                   "direction is arbitrary)" if n < self.d + 1 else
+                   "exactly determined (zero residual, so the kernel term "
+                   "contributes nothing and the fit is a bare hyperplane)")
+            sys.stderr.write(
+                f"fits._gp_linmean: {n} training points for a {self.d}-D linear "
+                f"mean ({self.d + 1} coefficients) -- the mean function is {how}. "
+                f"Extrapolation past the training hull is not trustworthy here; "
+                f"use mean='const', or a fit that does not extrapolate, until "
+                f"there are more points.\n")
+
         if n > _N_WARN:
             sys.stderr.write(
                 f"fits._gp_linmean: fitting a dense GP to {n} points "
@@ -142,7 +165,14 @@ class LinearMeanGPFit(FitBase):
             iu = np.triu_indices(n, 1)
             med = float(np.median(np.sqrt(d2[iu]))) if len(iu[0]) else 1.0
             length_scale = max(med / np.sqrt(2.0), 1e-2)
-        self.length_scale = float(length_scale)
+        length_scale = float(length_scale)
+        # Guard explicitly: ls=0 divides by zero and yields all-NaN predictions,
+        # and a negative ls is silently squared away into a DIFFERENT fit than
+        # the caller asked for. Both are silent-wrong, so refuse.
+        if not np.isfinite(length_scale) or length_scale <= 0:
+            raise ValueError(f"LinearMeanGPFit: length_scale must be a positive "
+                             f"finite number, got {length_scale!r}")
+        self.length_scale = length_scale
         # Signal variance is the residual scatter about the mean function. This
         # is exactly where a lnL FLOOR beats a lnL CUT: floored known-bad points
         # stay in the fit as anchors and keep sf2 (and the length scale) honest,
@@ -198,7 +228,14 @@ class LinearMeanGPFit(FitBase):
 
     def predict(self, Z):
         Zs = self._standardize(Z)
-        return self._mean_from(Zs, self._kstar(Zs))
+        mean = np.empty(len(Zs))
+        # Chunked for the same reason predict_with_std is: an unchunked
+        # (m, n) kernel block is the peak allocation, and at m=2e4 / n=1.5e3
+        # that alone is enough to blow a modest Condor memory request.
+        for i0 in range(0, len(Zs), _CHUNK):
+            Zc = Zs[i0:i0 + _CHUNK]
+            mean[i0:i0 + _CHUNK] = self._mean_from(Zc, self._kstar(Zc))
+        return mean
 
     def predict_with_std(self, Z):
         """Return (mean, std): the GP posterior mean and standard deviation.
@@ -210,23 +247,22 @@ class LinearMeanGPFit(FitBase):
         Zs = self._standardize(Z)
         mean = np.empty(len(Zs))
         var = np.empty(len(Zs))
-        # Chunked so the (n, chunk) intermediate stays bounded for the ~2e4
-        # candidate pools UCB evaluates in one shot.
-        chunk = 2048
-        for i0 in range(0, len(Zs), chunk):
-            Zc = Zs[i0:i0 + chunk]
+        for i0 in range(0, len(Zs), _CHUNK):
+            Zc = Zs[i0:i0 + _CHUNK]
             ks = self._kstar(Zc)
-            mean[i0:i0 + chunk] = self._mean_from(Zc, ks)
+            mean[i0:i0 + _CHUNK] = self._mean_from(Zc, ks)
             v = self._Linv @ ks.T
-            var[i0:i0 + chunk] = self.sf2 - np.sum(v * v, axis=0)
+            var[i0:i0 + _CHUNK] = self.sf2 - np.sum(v * v, axis=0)
         return mean, np.sqrt(np.maximum(var, 1e-12))
 
     def grad(self, Z, eps=None):
         """Analytic gradient of the posterior mean (eps is ignored)."""
         Zs = self._standardize(Z)
-        ks = self._kstar(Zs)
-        # d/dZs_j [ks @ alpha] = -(1/ls^2) sum_i alpha_i ks_ij (Zs_j - Xs_ij)
-        Aa = ks * self._alpha[None, :]
-        term = Zs * Aa.sum(axis=1)[:, None] - Aa @ self._Xs
-        g = self._beta[1:][None, :] - term / self.length_scale ** 2
-        return g / self._sd_x
+        out = np.empty_like(Zs)
+        for i0 in range(0, len(Zs), _CHUNK):
+            Zc = Zs[i0:i0 + _CHUNK]
+            # d/dZs_j [ks @ alpha] = -(1/ls^2) sum_i alpha_i ks_ij (Zs_j - Xs_ij)
+            Aa = self._kstar(Zc) * self._alpha[None, :]
+            term = Zc * Aa.sum(axis=1)[:, None] - Aa @ self._Xs
+            out[i0:i0 + _CHUNK] = self._beta[1:][None, :] - term / self.length_scale ** 2
+        return out / self._sd_x

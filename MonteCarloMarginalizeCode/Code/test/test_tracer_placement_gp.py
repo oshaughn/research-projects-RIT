@@ -276,6 +276,66 @@ def test_bad_inputs_are_rejected_loudly():
         assert "lnl_floor_delta" in str(e)      # points at the supported remedy
 
 
+def test_nonpositive_length_scale_is_refused():
+    """ls=0 silently produced all-NaN predictions and ls<0 silently gave a
+    DIFFERENT fit than asked for (the sign is squared away). Both are
+    silent-wrong, so the constructor must refuse them."""
+    X, Y, _ = _clipped_training_set(n=30, seed=14)
+    for bad in (0.0, -1.0, np.nan, np.inf):
+        try:
+            LinearMeanGPFit(X, Y, length_scale=bad)
+            raise AssertionError(f"expected ValueError for length_scale={bad}")
+        except ValueError as e:
+            assert "length_scale" in str(e)
+    gp = LinearMeanGPFit(X, Y, length_scale=0.5)
+    assert np.all(np.isfinite(gp.predict(X)))
+
+
+def test_large_candidate_pools_stay_chunked():
+    """Every public evaluator must chunk. An unchunked (m, n) kernel block at
+    UCB's pool size is hundreds of MB on its own -- enough to blow a modest
+    Condor memory request."""
+    import tracemalloc
+    rng = np.random.default_rng(0)
+    X = rng.uniform(0, 1, (1500, 3))
+    gp = LinearMeanGPFit(X, X.sum(axis=1))
+    Z = rng.uniform(0, 1, (20000, 3))
+    n_block = 1500 * 20000 * 8            # what one unchunked block would cost
+    for name in ("predict", "predict_with_std", "grad"):
+        tracemalloc.start()
+        getattr(gp, name)(Z)
+        peak = tracemalloc.get_traced_memory()[1]
+        tracemalloc.stop()
+        assert peak < 0.5 * n_block, (
+            f"{name} peaked at {peak/1e6:.0f} MB; an unchunked block would be "
+            f"{n_block/1e6:.0f} MB, so this is not chunking")
+
+
+def test_warns_when_the_linear_mean_is_underdetermined():
+    """With fewer points than mean coefficients, lstsq returns the min-norm
+    hyperplane -- an arbitrary pick among infinitely many. This fit exists to
+    extrapolate along that hyperplane, so it must not do so quietly."""
+    import io
+    import contextlib
+    rng = np.random.default_rng(1)
+    d = 5
+    for n, expect_warning in ((3, True), (d + 1, True), (40, False)):
+        X = rng.uniform(0, 1, (n, d))
+        Y = X[:, 0] * 3.0
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            LinearMeanGPFit(X, Y)
+        got = "mean function is" in err.getvalue()
+        assert got is expect_warning, (n, err.getvalue())
+        if expect_warning:
+            assert "extrapolation" in err.getvalue().lower()
+    # mean="const" has one coefficient, so it is not subject to this at all.
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        LinearMeanGPFit(rng.uniform(0, 1, (3, d)), rng.normal(size=3), mean="const")
+    assert "mean function is" not in err.getvalue()
+
+
 def test_duplicate_points_do_not_break_the_cholesky():
     """Repeated grid rows are common in RIFT unions; jitter must absorb them."""
     X, Y, sigma = _clipped_training_set(n=30, seed=7)
@@ -333,6 +393,18 @@ def test_lnl_floor_clamps_without_dropping_points():
             raise AssertionError(f"expected ValueError for delta={bad}")
         except ValueError:
             pass
+
+    # NaN is a failed evaluation: same kind of anchor as a catastrophic one.
+    assert fits.apply_lnl_floor(np.array([1.0, np.nan, 3.0]), 10.0)[1] == -7.0
+
+    # +inf is not something a floor can rescue. Letting it through used to
+    # fail downstream with a message telling the user to apply the floor they
+    # had just applied.
+    try:
+        fits.apply_lnl_floor(np.array([1.0, np.inf, 3.0]), 10.0)
+        raise AssertionError("expected ValueError for +inf lnL")
+    except ValueError as e:
+        assert "+inf" in str(e)
 
 
 def test_lnl_floor_rescues_a_gp_fit_wrecked_by_an_outlier():
