@@ -160,17 +160,18 @@ RULES = [
      "is the ecliptic pair -- the grouping still makes sense, the docstring does not."),
 
     # ------------------------------------------------------------------ portfolio plumbing
-    (r"^OPTION:--portfolio-", "PORT",
-     "mcsamplerPortfolio tuning. LISA wires the portfolio sampler and already accepts "
-     "--sampler-portfolio-args (an eval-able dict), so these are reachable today via "
-     "that escape hatch; porting them as first-class flags is pipeline parity, which is "
-     "what the pipe actually passes. Low risk, no physics."),
+    (r"^OPTION:--portfolio-", "PORTED",
+     "mcsamplerPortfolio freeze/allocation policy. Definitions copied verbatim and the "
+     "_freeze_policy_kwargs assembly is textually identical to the main driver's, so "
+     "unset options (None) stay out of the dict and the sampler keeps its own defaults. "
+     "--portfolio-varaha-can-freeze wins over --portfolio-varaha-never-freeze, as there."),
 
     # ------------------------------------------------------------------- NF flow plumbing
-    (r"^OPTION:--nf-flow-(load|save)$", "PORT",
-     "Normalizing-flow persistence. Neither driver lists an NF method in "
-     "ok_lnL_methods (identical lists), so NF is reached only as a portfolio member -- "
-     "equally available to LISA. Low priority, but not LISA-specific in any way."),
+    (r"^OPTION:--nf-flow-(load|save)$", "PORTED",
+     "Normalizing-flow persistence. Neither driver lists an NF method in ok_lnL_methods "
+     "(identical lists), so NF is reached only as a portfolio member -- equally "
+     "available to LISA. Both hooks are hasattr-guarded, so they are a no-op for every "
+     "other sampler."),
 
     # --------------------------------------------------------- extrinsic proposal handoff
     (r"^OPTION:--extrinsic-proposal-output$", "PORT",

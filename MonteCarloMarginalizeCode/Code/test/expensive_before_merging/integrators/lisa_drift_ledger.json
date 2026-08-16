@@ -309,62 +309,6 @@
       "decision": "NA",
       "reason": "The .dslice export and its placement/tuning knobs. This is a data product for a downstream LIGO CIP distance workflow that the LISA pipeline does not run; there is no consumer. If a LISA distance workflow is ever built, note that the .dslice reweight core was the third Finding-2 site and must not be revived in its pre-#87 form."
     },
-    "OPTION:--nf-flow-load": {
-      "decision": "PORT",
-      "reason": "Normalizing-flow persistence. Neither driver lists an NF method in ok_lnL_methods (identical lists), so NF is reached only as a portfolio member -- equally available to LISA. Low priority, but not LISA-specific in any way."
-    },
-    "OPTION:--nf-flow-save": {
-      "decision": "PORT",
-      "reason": "Normalizing-flow persistence. Neither driver lists an NF method in ok_lnL_methods (identical lists), so NF is reached only as a portfolio member -- equally available to LISA. Low priority, but not LISA-specific in any way."
-    },
-    "OPTION:--portfolio-adaptive-alloc": {
-      "decision": "PORT",
-      "reason": "mcsamplerPortfolio tuning. LISA wires the portfolio sampler and already accepts --sampler-portfolio-args (an eval-able dict), so these are reachable today via that escape hatch; porting them as first-class flags is pipeline parity, which is what the pipe actually passes. Low risk, no physics."
-    },
-    "OPTION:--portfolio-alloc-exponent": {
-      "decision": "PORT",
-      "reason": "mcsamplerPortfolio tuning. LISA wires the portfolio sampler and already accepts --sampler-portfolio-args (an eval-able dict), so these are reachable today via that escape hatch; porting them as first-class flags is pipeline parity, which is what the pipe actually passes. Low risk, no physics."
-    },
-    "OPTION:--portfolio-freeze-wt": {
-      "decision": "PORT",
-      "reason": "mcsamplerPortfolio tuning. LISA wires the portfolio sampler and already accepts --sampler-portfolio-args (an eval-able dict), so these are reachable today via that escape hatch; porting them as first-class flags is pipeline parity, which is what the pipe actually passes. Low risk, no physics."
-    },
-    "OPTION:--portfolio-grace-iters": {
-      "decision": "PORT",
-      "reason": "mcsamplerPortfolio tuning. LISA wires the portfolio sampler and already accepts --sampler-portfolio-args (an eval-able dict), so these are reachable today via that escape hatch; porting them as first-class flags is pipeline parity, which is what the pipe actually passes. Low risk, no physics."
-    },
-    "OPTION:--portfolio-probe-period": {
-      "decision": "PORT",
-      "reason": "mcsamplerPortfolio tuning. LISA wires the portfolio sampler and already accepts --sampler-portfolio-args (an eval-able dict), so these are reachable today via that escape hatch; porting them as first-class flags is pipeline parity, which is what the pipe actually passes. Low risk, no physics."
-    },
-    "OPTION:--portfolio-quality-signal": {
-      "decision": "PORT",
-      "reason": "mcsamplerPortfolio tuning. LISA wires the portfolio sampler and already accepts --sampler-portfolio-args (an eval-able dict), so these are reachable today via that escape hatch; porting them as first-class flags is pipeline parity, which is what the pipe actually passes. Low risk, no physics."
-    },
-    "OPTION:--portfolio-revive-period": {
-      "decision": "PORT",
-      "reason": "mcsamplerPortfolio tuning. LISA wires the portfolio sampler and already accepts --sampler-portfolio-args (an eval-able dict), so these are reachable today via that escape hatch; porting them as first-class flags is pipeline parity, which is what the pipe actually passes. Low risk, no physics."
-    },
-    "OPTION:--portfolio-varaha-can-freeze": {
-      "decision": "PORT",
-      "reason": "mcsamplerPortfolio tuning. LISA wires the portfolio sampler and already accepts --sampler-portfolio-args (an eval-able dict), so these are reachable today via that escape hatch; porting them as first-class flags is pipeline parity, which is what the pipe actually passes. Low risk, no physics."
-    },
-    "OPTION:--portfolio-varaha-max-frac": {
-      "decision": "PORT",
-      "reason": "mcsamplerPortfolio tuning. LISA wires the portfolio sampler and already accepts --sampler-portfolio-args (an eval-able dict), so these are reachable today via that escape hatch; porting them as first-class flags is pipeline parity, which is what the pipe actually passes. Low risk, no physics."
-    },
-    "OPTION:--portfolio-varaha-min-frac": {
-      "decision": "PORT",
-      "reason": "mcsamplerPortfolio tuning. LISA wires the portfolio sampler and already accepts --sampler-portfolio-args (an eval-able dict), so these are reachable today via that escape hatch; porting them as first-class flags is pipeline parity, which is what the pipe actually passes. Low risk, no physics."
-    },
-    "OPTION:--portfolio-varaha-never-freeze": {
-      "decision": "PORT",
-      "reason": "mcsamplerPortfolio tuning. LISA wires the portfolio sampler and already accepts --sampler-portfolio-args (an eval-able dict), so these are reachable today via that escape hatch; porting them as first-class flags is pipeline parity, which is what the pipe actually passes. Low risk, no physics."
-    },
-    "OPTION:--portfolio-weight-clip": {
-      "decision": "PORT",
-      "reason": "mcsamplerPortfolio tuning. LISA wires the portfolio sampler and already accepts --sampler-portfolio-args (an eval-able dict), so these are reachable today via that escape hatch; porting them as first-class flags is pipeline parity, which is what the pipe actually passes. Low risk, no physics."
-    },
     "OPTION:--random-event": {
       "decision": "PORT",
       "reason": "Pick a random event from the input file. Detector-agnostic; flagged dangerous in its own help text for oversampling reasons that apply equally to LISA."
