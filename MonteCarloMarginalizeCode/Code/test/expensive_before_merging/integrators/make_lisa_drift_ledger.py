@@ -140,15 +140,16 @@ RULES = [
      "Coverage floor and inflation for a handed-off seed. Pure geometry on the "
      "sampled unit cube."),
     (r"^OPTION:--sampler-warmstart-samples$", "PORT",
-     "RESOLVED (RO asked 'does it matter what convention it is?' -- it does not). The seed "
-     "is only points in the sampler's OWN coordinate space, read positionally against "
-     "params_ordered, so any self-consistent convention works; what matters is that the "
-     "file and this driver agree. With the sky settled as ecliptic that is determined: the "
-     "pilot is in the driver's sampled coordinates. THE HAZARD IS THAT A MISMATCH IS "
-     "UNDETECTABLE -- ecliptic lambda and RA share [0,2pi), beta and dec share [-pi/2,pi/2], "
-     "so no range check can tell them apart, and a wrong-frame seed silently contracts the "
-     "live volume around the wrong region (biased lnZ, healthy-looking n_eff). Port with a "
-     "frame tag written by the producer and refused/warned on by the reader."),
+     "RESOLVED (RO 2026-08-16). The convention does not matter: the seed is points in the "
+     "sampler's OWN coordinate space, read positionally against params_ordered, so any "
+     "self-consistent choice works and the ecliptic sky answer already determines it. The "
+     "hazard is only that a mismatch is UNDETECTABLE -- ecliptic lambda and RA share "
+     "[0,2pi), beta and dec share [-pi/2,pi/2], so no range check separates them and a "
+     "wrong-frame seed silently contracts the live volume around the wrong region. SCOPE "
+     "(RO): these files are used INTERNALLY within a homogeneous run -- we are talking to "
+     "ourselves, not to heterogeneous tooling -- so keep it simple: a one-line frame stamp "
+     "in the file header written by the producer, warn if it is absent or disagrees. Do NOT "
+     "build a validation framework for it."),
 
     # --------------------------------------------------------------------- MC error replicas
     (r"^OPTION:--mc-error-(replicas|sigma-trigger|ess-trigger|khat-trigger)$", "PORTED",
@@ -247,13 +248,12 @@ RULES = [
 
     # ----------------------------------------------------------------- cosmology / d prior
     (r"^OPTION:--d-prior-redshift$", "PORT",
-     "ANSWERED (RO 2026-08-16): use Planck15 via the framework helper, "
-     "RIFT.likelihood.priors_utils.get_astropy_cosmology('Planck15'). NOTE a divergence to "
-     "raise at port time: the MAIN driver does NOT use that helper -- it hardcodes "
-     "FlatLambdaCDM(H0=67.900, Om0=0.3065) from H0_SI/OMEGA_M, whereas astropy Planck15 is "
-     "H0=67.740, Om0=0.3075 (dL(z=5) 47756 vs 47732 Mpc, 0.05%). Small, but this exercise "
-     "exists to stop silent divergences, so either LISA follows the instruction and main is "
-     "noted as different, or main moves to the helper too."),
+     "ANSWERED (RO 2026-08-16): Planck15 via the framework helper, "
+     "RIFT.likelihood.priors_utils.get_astropy_cosmology('Planck15'). RESOLVED AT SOURCE -- "
+     "the MAIN driver has been moved to that helper too (it previously built its own "
+     "FlatLambdaCDM from lal.H0_SI/lal.OMEGA_M = 67.900/0.3065 with a hardcoded fallback), "
+     "so there is no divergence to port around: both codes now ask the same helper and a "
+     "change is made in one place. Pinned by test_cosmology_single_source.py."),
     (r"^FUNC:(dLofz|dVdz)$", "PORT",
      "Cosmology helpers behind --d-prior-redshift. Planck15 via the framework helper; the "
      "interpolation grid still needs a z ceiling that covers MBHB (z~20), which is a "

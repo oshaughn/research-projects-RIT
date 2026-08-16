@@ -205,7 +205,8 @@ jobs:
         run: |
           python -m pytest -q \
             MonteCarloMarginalizeCode/Code/test/expensive_before_merging/integrators/test_probe_confirm.py \
-            MonteCarloMarginalizeCode/Code/test/test_cip_priors.py
+            MonteCarloMarginalizeCode/Code/test/test_cip_priors.py \
+            MonteCarloMarginalizeCode/Code/test/test_cosmology_single_source.py
 
   q-window-stencil-check:
     needs: install

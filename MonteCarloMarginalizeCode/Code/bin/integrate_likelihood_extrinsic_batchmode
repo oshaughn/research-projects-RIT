@@ -1477,17 +1477,22 @@ redshift_to_distance = lambda x: x
 if (opts.d_prior == 'cosmo' or opts.d_prior == 'cosmo_sourceframe') and not opts.distance_marginalization:
     from astropy.cosmology import z_at_value
     from astropy import units as u
-    from astropy.cosmology import FlatLambdaCDM
     from astropy.units import Hz
     # ported form https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/bayespputils.py
-    # need way to query lalsuite parameters! See
-    # https://git.ligo.org/cbc/action_items/-/issues/37#note_1158065
-    try:
-      from lal import H0_SI, OMEGA_M
-    except:
-      # IN FUTURE: based on https://git.ligo.org/rapidpe-rift/rapidpe_rift_review_o4/-/wikis/Cosmo_sourceframe-Code-Review, updating previous version (from lalsuite 7.6.1) to match new constant in 7.25.1
-      H0_SI, OMEGA_M = 2.200489137532724e-18, 0.3065
-    my_cosmo = FlatLambdaCDM(H0=H0_SI*Hz, Om0=OMEGA_M)
+    # ONE named cosmology, from the framework helper, so every code that needs one gets the
+    # same object and a change is made in one place.  Previously this preferred
+    # lal.H0_SI/lal.OMEGA_M with a hardcoded fallback, which is a cosmology nobody can cite
+    # by name in a paper: the installed lal gives H0=67.900, Om0=0.3065, while Planck15 is
+    # H0=67.740, Om0=0.3075.  The difference is tiny (dL(z=5) 47756 vs 47732 Mpc, 0.05%) and
+    # of no physical consequence -- but "which cosmology is this?" is exactly the kind of
+    # question a referee asks, and "whatever the linked lalsuite constant happened to be"
+    # is a worse answer than "Planck15".
+    #
+    # History, kept so it is not rediscovered: the lal-constant route came from
+    # https://git.ligo.org/cbc/action_items/-/issues/37#note_1158065 and
+    # https://git.ligo.org/rapidpe-rift/rapidpe_rift_review_o4/-/wikis/Cosmo_sourceframe-Code-Review
+    # (updating lalsuite 7.6.1 -> 7.25.1).  Superseded deliberately, not by accident.
+    my_cosmo = priors_utils.get_astropy_cosmology("Planck15")
 #    omega = lal.CreateDefaultCosmologicalParameters() # matching the lal options. Only needed if we have it
     zmin  = z_at_value(my_cosmo.luminosity_distance, dmin*u.Mpc).value
     zmax = z_at_value(my_cosmo.luminosity_distance, dmax*u.Mpc).value # use astropy estimate for zmax
