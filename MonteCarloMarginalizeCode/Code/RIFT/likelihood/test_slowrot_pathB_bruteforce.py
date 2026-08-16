@@ -6,7 +6,12 @@ import RIFT.likelihood.factored_likelihood as fl
 import RIFT.likelihood.factored_likelihood_with_rotation as flwr
 import RIFT.likelihood.slowrot_response as srr
 import os
-event_time=1e9; Lmax=2; t_window=0.1; det='H1'
+event_time=1e9; Lmax=2; det='H1'
+# t_window sets how much Q^a_lm(t) the precompute retains, and therefore CAPS the lnL(t)
+# scan: NWMS above ~t_window/2 overruns the Q buffer with a broadcast error.  Raise both
+# together.  Cost is small -- the precompute is dominated by FFTs of length N, not by the
+# retained window.
+t_window=float(os.environ.get("TWIN","0.1"))
 psd=lalsim.SimNoisePSDaLIGOZeroDetHighPower; # APPROX: default IMRPhenomD is an FD model, which routes through hlmoft_FromFD_dict ->
 # SimInspiralTDModesFromPolarizations and inherits LAL's minimal post-ringdown pad (~9 ms
 # after the peak), bypassing RIFT's own fd_centering_factor=0.9 (which would reserve 10% of
@@ -66,8 +71,17 @@ Psig=lsu.ChooseWaveformParams(fmin=fmin,radec=True,incl=INCL,phiref=PHIREF,theta
     m1=2.2*lal.MSUN_SI,m2=1.8*lal.MSUN_SI,detector=det,dist=200e6*lal.PC_SI,deltaT=deltaT,tref=event_time,deltaF=deltaF); Psig.approx=apx
 _mt=(2.2+1.8)*lal.MSUN_SI*lal.G_SI/lal.C_SI**3; _eta=2.2*1.8/(2.2+1.8)**2
 _tchirp=5./256.*_mt/(_eta*(np.pi*_mt*fmin)**(8./3.))
-print("seglen=%.0fs fmin=%.0fHz chirp_time=%.1fs  FITS=%s"%(seglen,fmin,_tchirp,_tchirp<seglen))
-if _tchirp>=seglen: print("  *** WARNING: signal is TRUNCATED/WRAPPED in this segment ***")
+print("seglen=%.0fs fmin=%.0fHz chirp_time=%.1fs (%.0f%% of segment)  FITS=%s"
+      %(seglen,fmin,_tchirp,100*_tchirp/seglen,_tchirp<seglen))
+if _tchirp>=seglen:
+    print("  *** WARNING: signal is TRUNCATED/WRAPPED in this segment ***")
+# NOT a warning: MEASURED not to matter.  A "marginal segment" caution was added here and then
+# removed, because holding the signal fixed (fmin=25, 48.5 s chirp, srate 4096) and doubling
+# seglen 64 -> 128 s -- halving the fill fraction from 76%% to 38%% -- moved the Cauchy-Schwarz
+# deficit from -0.075485 to -0.075585, i.e. 0.13%% and in the WRONG direction.  Segment headroom
+# is not what breaks the slow-rotation likelihood.  ACTUAL truncation (chirp >= seglen) very much
+# is -- see the WARNING above, worth ~85%% of the deficit in the v1 configuration -- but do not
+# re-derive a headroom rule from that: it has been tested and there is none.
 Pm=Psig.manual_copy(); Pm.dist=DLOUD
 # GWSIGNAL path: the SEOBNRv5 family is NOT exposed through GetApproximantFromString at all,
 # only through the gwsignal generator interface -- which is also the only route that accepts
@@ -125,7 +139,11 @@ IPc=lsu.ComplexIP(fmin,fmax,fNyq,data.deltaF,psd,True,False,0.); HALF_DD=0.5*IPc
 print("inflated seglen=%.0fs 0.5<d|d>=%.4f"%(seglen,HALF_DD))
 Pv=Psig.manual_copy()
 for k,v in [('phi',RA),('theta',DEC),('incl',INCL),('phiref',PHIREF),('psi',PSI),('dist',DLOUD)]: setattr(Pv,k,np.ones(1)*v)
-Pv.tref=event_time; Pv.deltaT=deltaT; Nw=int(0.02/deltaT); tvals=np.arange(-Nw,Nw)*deltaT
+# NWMS: half-width of the lnL(t) scan window in ms (default 20).  The window SPAN is fixed in
+# TIME, so raising SRATE adds samples without widening it -- which is why a srate ladder cannot
+# distinguish a sub-sample effect from a window-span effect.  DUMPLNL saves lnL(t) itself.
+_NWMS=float(os.environ.get("NWMS","20"))
+Pv.tref=event_time; Pv.deltaT=deltaT; Nw=int(1e-3*_NWMS/deltaT); tvals=np.arange(-Nw,Nw)*deltaT
 # INFL=340 reproduces the Omega*T of the worst physical case -- a 90-minute (5400 s) BNS at the
 # true sidereal rate -- on this 16 s segment (5400/16 = 337.5 ~ 340).  So INFL/340 is the rotation
 # rate as a multiple of that worst physical case; it is the quantity the paper quotes.
@@ -154,6 +172,10 @@ for pmax in [0,1,2,3]:
     lnL_raw_by_pmax[str(pmax)]=lnL_raw; overshoot_by_pmax[str(pmax)]=lnL-lnL_raw
     lnL_spline_by_pmax[str(pmax)]=lnL_spline; lnL_bl_by_pmax[str(pmax)]=lnL_bl
     lnL_by_pmax[str(pmax)]=float(lnL); deficit_by_pmax[str(pmax)]=float(HALF_DD-lnL)
+    if os.environ.get("DUMPLNL") and pmax==2:
+        np.savez(os.environ["DUMPLNL"], tvals=np.asarray(tvals,float), lnLt=np.asarray(_lt,float),
+                 half_dd=HALF_DD, srate=_SRATE, infl=float(os.environ.get("INFL","340")),
+                 nwms=_NWMS, deltaT=deltaT)
     print("  p_max=%d : lnL=%.5f  deficit=%.5f"%(pmax,lnL,HALF_DD-lnL))
 # Opt-in persistence: set OUT=<path>.json.  Default behaviour (print only) is unchanged.
 _out=os.environ.get("OUT")
@@ -172,6 +194,6 @@ if _out:
                    "lnL_spline_by_pmax":lnL_spline_by_pmax,"lnL_bandlimited_by_pmax":lnL_bl_by_pmax,
                    "approx":(HLM_KW.get("use_gwsignal_approx") or os.environ.get("APPROX","IMRPhenomD")),
                    "lmax_nyquist":HLM_KW.get("extra_waveform_kwargs",{}).get("lmax_nyquist"),
-                   "epoch_s":float(ep),"peak_frac":float(int(np.argmax(np.abs(Sig)))/float(nn)),"seglen":float(seglen),"fmin":float(fmin),"chirp_time":float(_tchirp),"signal_fits":bool(_tchirp<seglen),"fmax":float(fmax),
+                   "epoch_s":float(ep),"peak_frac":float(int(np.argmax(np.abs(Sig)))/float(nn)),"nw_ms":_NWMS,"npts_tvals":int(2*Nw),"seglen":float(seglen),"fmin":float(fmin),"chirp_time":float(_tchirp),"signal_fits":bool(_tchirp<seglen),"fmax":float(fmax),
                    "m1":float(Psig.m1/lal.MSUN_SI),"m2":float(Psig.m2/lal.MSUN_SI)},_fh,indent=2)
     print("wrote %s"%_out)
