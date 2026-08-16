@@ -409,10 +409,7 @@ def DiscreteFactoredLogLikelihoodFreqResponseNoLoop(
             frac_d = None if time_interp == 'nearest' else xpy.asarray(frac_first)
             for p in p_list:
                 Q = xpy.ascontiguousarray(rho_by_p[det][p].T)   # (n_time, n_lms), device
-                if time_interp == 'nearest':
-                    res = Q_inner_product.Q_inner_product_cupy(Q, conjY_d, ifirst_i32, npts)
-                else:
-                    res = Q_inner_product.Q_inner_product_cubic_cupy(Q, conjY_d, ifirst_i32, frac_d, npts)
+                res = FL._q_inner_product_gpu(Q, conjY_d, ifirst_i32, frac_d, npts, time_interp)
                 term1 += xpy.conj(b_d[p])[:, None] * res
         else:
             for p in p_list:

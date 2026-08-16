@@ -76,7 +76,7 @@ def test_gpu_matches_cpu():
     lk, rbp, ubp, vbp, ep = flfr.pack_freqresponse_arrays(bk[4], bk[3], bk[1], bk[2])
     Pv = _P_vec()
     tvals = np.arange(int(2 * 0.03 / deltaT)) * deltaT - 0.03
-    for interp in ('nearest', 'cubic'):
+    for interp in ('nearest', 'cubic', 'sinc'):
         lnL_cpu = flfr.DiscreteFactoredLogLikelihoodFreqResponseNoLoop(
             tvals, Pv, meta, lk, rbp, ubp, vbp, ep, Lmax=Lmax, time_interp=interp, xpy=np)
         rG, uG, vG = _to_gpu(rbp, ubp, vbp)

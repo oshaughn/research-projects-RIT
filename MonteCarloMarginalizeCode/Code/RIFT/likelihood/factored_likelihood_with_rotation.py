@@ -619,10 +619,7 @@ def DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation(
             frac_d = None if time_interp == 'nearest' else xpy.asarray(frac_first)
             for a in a_list:
                 Q = xpy.ascontiguousarray(rho_by_a[det][a].T)   # (n_time, n_lms), device
-                if time_interp == 'nearest':
-                    res = Q_inner_product.Q_inner_product_cupy(Q, conjY_d, ifirst_i32, npts)
-                else:
-                    res = Q_inner_product.Q_inner_product_cubic_cupy(Q, conjY_d, ifirst_i32, frac_d, npts)
+                res = FL._q_inner_product_gpu(Q, conjY_d, ifirst_i32, frac_d, npts, time_interp)
                 term1 += xpy.conj(Cg_d(a))[:, None] * res
         else:
             for a in a_list:

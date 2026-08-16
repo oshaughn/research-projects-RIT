@@ -73,7 +73,7 @@ def test_gpu_matches_cpu():
     lk, rbn, ubn, vbn, ep = flwr.pack_rotation_arrays(meta, rho, ct, ctV)
     Pv = _P_vec()
     tvals = np.arange(int(2 * 0.03 / deltaT)) * deltaT - 0.03
-    for interp in ('nearest', 'cubic'):
+    for interp in ('nearest', 'cubic', 'sinc'):
         lnL_cpu = flwr.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation(
             tvals, Pv, meta, lk, rbn, ubn, vbn, ep, Lmax=Lmax, time_interp=interp, xpy=np)
         rG, uG, vG = _to_gpu(rbn, ubn, vbn)

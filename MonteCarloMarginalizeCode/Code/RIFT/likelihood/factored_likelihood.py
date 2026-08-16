@@ -2148,23 +2148,46 @@ SINC_HALFWIDTH_DEFAULT = 8   # taps per side for time_interp='sinc' (stencil 2a)
                              # _sinc_Q_window_numpy for the accuracy-vs-oversampling crossover
 
 
-def _sinc_lanczos_weights(u, a=SINC_HALFWIDTH_DEFAULT):
-    """Lanczos (windowed-sinc) interpolation weights for a target at fractional offset u.
+def _sinc_lanczos_weight_matrix(u, a=SINC_HALFWIDTH_DEFAULT, xpy=np):
+    """Lanczos (windowed-sinc) interpolation weights for an ARRAY of fractional offsets.
 
-    Returns (offsets, weights) with offsets in [-a+1, a] relative to the sample below the target.
-    L(x) = sinc(x) sinc(x/a) with numpy's normalised sinc, so L(0)=1 and L(k)=0 at nonzero integer
+    THIS IS THE SINGLE DEFINITION OF THE STENCIL.  The CPU window builder and the GPU kernel
+    wrapper both come here for their weights, so the two paths cannot drift apart by someone
+    re-deriving the formula in CUDA; a GPU/CPU parity failure is then unambiguously a kernel bug.
+
+    ``xpy`` selects the array backend: pass cupy and the weights are built ON THE DEVICE, so the
+    GPU path needs no host round trip for the per-sample offsets (at production n_extrinsic that
+    round trip would move tens of MB per detector per likelihood call).  The arithmetic is the
+    same source expression either way; only the underlying sin() differs, at the 1e-16 level.
+
+    Returns (offsets, weights): offsets has shape (2a,) and holds the integer tap positions
+    [-a+1, a] relative to the sample below the target; weights has shape (len(u), 2a).  Both are
+    in the requested backend.
+
+    L(x) = sinc(x) sinc(x/a) with the normalised sinc, so L(0)=1 and L(k)=0 at nonzero integer
     k: at u=0 this reduces to the identity and reproduces the original samples exactly, as the
     cubic stencil does.  Weights are renormalised to sum to unity, which is a no-op at u=0 and
     makes the interpolation exact for constants.
     """
-    k = np.arange(-a + 1, a + 1)
-    x = u - k
-    w = np.sinc(x) * np.sinc(x / float(a))
-    w = np.where(np.abs(x) >= a, 0.0, w)
-    total = w.sum()
-    if total != 0:
-        w = w / total
-    return k, w
+    u = xpy.atleast_1d(xpy.asarray(u, dtype=float))
+    k = xpy.arange(-a + 1, a + 1)
+    x = u[:, None] - k[None, :]
+    w = xpy.sinc(x) * xpy.sinc(x / float(a))
+    w = xpy.where(xpy.abs(x) >= a, 0.0, w)
+    total = w.sum(axis=1)
+    # A zero row cannot happen for u in [0,1) (the u=0 row is a unit vector), but guard anyway
+    # rather than emit NaNs into the likelihood.
+    total = xpy.where(total == 0, 1.0, total)
+    return k, w / total[:, None]
+
+
+def _sinc_lanczos_weights(u, a=SINC_HALFWIDTH_DEFAULT):
+    """Scalar-offset convenience wrapper over _sinc_lanczos_weight_matrix.
+
+    Returns (offsets, weights) with weights of shape (2a,).
+    """
+    k, w = _sinc_lanczos_weight_matrix(u, a)
+    return k, w[0]
 
 
 def _sinc_Q_window_numpy(Q_block, start_indices, fractional_offsets, npts,
@@ -2224,16 +2247,16 @@ TIME_INTERP_CHOICES = ('nearest', 'cubic', 'sinc')
 
 
 def validate_time_interp(time_interp, on_gpu=False):
-    """Reject unknown stencils loudly, and reject 'sinc' on GPU where it has no kernel yet."""
+    """Reject unknown stencils loudly.
+
+    All three stencils now have both a CPU and a GPU implementation ('sinc' via the Q_inner_sinc
+    kernel added alongside Q_inner and Q_inner_cubic), so on_gpu no longer restricts the choice.
+    It is kept in the signature because the callers pass it and because it documents, at each
+    call site, that the stencil has to be legal on the backend actually in use.
+    """
     if time_interp not in TIME_INTERP_CHOICES:
         raise ValueError("time_interp must be one of %r, got %r"
                          % (TIME_INTERP_CHOICES, time_interp))
-    if on_gpu and time_interp == 'sinc':
-        raise NotImplementedError(
-            "time_interp='sinc' has no GPU kernel yet: cuda_Q_inner_product.cu provides Q_inner "
-            "and Q_inner_cubic but no Q_inner_sinc. Run without --gpu, or use time_interp="
-            "'cubic'. This raises rather than falling back, because silently running cubic would "
-            "misreport which stencil produced the result.")
     return time_interp
 
 
@@ -2246,6 +2269,24 @@ def _q_window_numpy_interp(Q_block, start_indices, fractional_offsets, npts, tim
     if time_interp == 'sinc':
         return _sinc_Q_window_numpy(Q_block, start_indices, fractional_offsets, npts)
     return _cubic_Q_window_numpy(Q_block, start_indices, fractional_offsets, npts)
+
+
+def _q_inner_product_gpu(Q, A, start_indices, fractional_offsets, npts, time_interp):
+    """GPU Q-product dispatch: the device-side counterpart of _q_window_numpy_interp.
+
+    Same stencil contract and the same fallthrough structure as the CPU dispatch, deliberately:
+    the four GPU call sites (here x2, plus _with_rotation and _freqresponse) all route through
+    this one function so a new stencil cannot be wired into three of them and forgotten in the
+    fourth.  Note this returns the CONTRACTED (n_extrinsic, npts) product, not the
+    (n_extrinsic, npts, n_lm) window the CPU builder returns -- the device kernels fuse the
+    lm contraction to avoid the large temporary."""
+    if time_interp == 'nearest':
+        return Q_inner_product.Q_inner_product_cupy(Q, A, start_indices, npts)
+    if time_interp == 'sinc':
+        return Q_inner_product.Q_inner_product_sinc_cupy(
+            Q, A, start_indices, fractional_offsets, npts)
+    return Q_inner_product.Q_inner_product_cubic_cupy(
+        Q, A, start_indices, fractional_offsets, npts)
 
 
 def _nearest_Q_window_numpy(Q_block, start_indices, npts, xpy=np):
@@ -2552,16 +2593,8 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
             # Shape Q = (npts_time_full, nlms)
             # Shape A=FY_conj = (npts_extrinsic, nlms)
             # shape result = (npts_extrinsic, npts_time_*window* = npts)
-            if time_interp == 'nearest':
-              Q_prod_result = Q_inner_product.Q_inner_product_cupy(
-                Q, FY_conj,
-                ifirst, npts,
-                )
-            else:
-              Q_prod_result = Q_inner_product.Q_inner_product_cubic_cupy(
-                Q, FY_conj,
-                ifirst, frac_first, npts,
-                )
+            Q_prod_result = _q_inner_product_gpu(
+                Q, FY_conj, ifirst, frac_first, npts, time_interp)
           else:
             # Use old code completely unchanged ... very wasteful on memory management!
             Q_block = rholmsArrayDict[det].T
@@ -2718,14 +2751,8 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
             Q_block = Q_det[c*N_window_block:(c+1)*N_window_block]   # (N_window, n_lms)
             ifirst_within = ifirst_det.astype(np.int32)
             if not (xpy is np):
-                if time_interp == 'nearest':
-                    Q_prod_result = Q_inner_product.Q_inner_product_cupy(
-                        Q_block, FY_conj_det, ifirst_within, npts,
-                    )
-                else:
-                    Q_prod_result = Q_inner_product.Q_inner_product_cubic_cupy(
-                        Q_block, FY_conj_det, ifirst_within, frac_first_det, npts,
-                    )
+                Q_prod_result = _q_inner_product_gpu(
+                    Q_block, FY_conj_det, ifirst_within, frac_first_det, npts, time_interp)
             else:
                 Qlms = _q_window_numpy_interp(Q_block, ifirst_within, frac_first_det, npts,
                                               time_interp, xpy=xpy)
