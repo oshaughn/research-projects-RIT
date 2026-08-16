@@ -77,40 +77,68 @@ DEFAULT_LOOKUP_KEY_FILE = "lookup_key.py"
 DEFAULT_GETENV_ALLOWLIST = "LD_LIBRARY_PATH,PATH,PYTHONPATH,*RIFT*,LIBRARY_PATH"
 
 
-# Canonicalize a lookup_key into something hashable AND stable across a
-# JSON round-trip, because dedup buckets are rebuilt from index.jsonl on
-# every Archive construction.
-#
-# JSON has no tuple type, so a backend whose lookup_key returns a tuple
-# gets that key back as a *list* when the archive is reopened. Hashing
-# the list fails, we fall into the repr sentinel, and the rehydrated
-# bucket key no longer equals the freshly-computed tuple — dedup then
-# silently misses on every reopened archive and the caller re-runs
-# simulations it already has. Mapping lists and tuples onto the same
-# canonical tuple closes that gap.
-#
-# Collisions between a list and a tuple of equal contents are harmless:
-# buckets only select same_q candidates, and same_q makes the decision.
-#
-# Sentinel singletons are still used for anything genuinely unhashable
-# after canonicalization; we fall back to the string repr in that case.
-def _safe_hashable(x: Any) -> Any:
+def _freeze(x: Any) -> Any:
+    """Recursively map a JSON-shaped value onto a hashable one.
+
+    Lists and tuples collapse onto the same tuple form. Dicts become a
+    tuple of (key, frozen-value) pairs sorted by key. Anything still
+    unhashable falls back to the repr sentinel.
+    """
     if isinstance(x, (list, tuple)):
-        return tuple(_safe_hashable(v) for v in x)
+        return tuple(_freeze(v) for v in x)
     if isinstance(x, dict):
-        # Keys are stringified because JSON coerces dict keys to strings:
-        # {1: 'x'} serializes to {"1": "x"}, so leaving them as-is would
-        # leave fresh and rehydrated forms disagreeing — the very failure
-        # this function exists to prevent. Stringifying also gives a
-        # total ordering across mixed key types.
+        # Sort by key alone: after _safe_hashable's JSON pass the keys
+        # are strings and unique, and sorting on the pair could otherwise
+        # try to order two frozen values of unrelated types.
         return tuple(sorted(
-            (str(k), _safe_hashable(v)) for k, v in x.items()
+            ((str(k), _freeze(v)) for k, v in x.items()),
+            key=lambda kv: kv[0],
         ))
     try:
         hash(x)
         return x
     except TypeError:
         return ("__unhashable__", repr(x))
+
+
+# Canonicalize a lookup_key into something hashable AND identical to what
+# comes back out of index.jsonl, because dedup buckets are rebuilt from
+# that file on every Archive construction — which makes the bucket key a
+# persisted value.
+#
+# Getting this wrong is silent: the rehydrated bucket key stops matching
+# the freshly-computed one, find_existing misses, and register() mints a
+# duplicate sim for physics the archive already holds. The caller just
+# pays twice, from the second session onward, with nothing in the logs.
+#
+# Rather than model JSON's coercion rules by hand, we run the value
+# through an actual JSON round-trip first, so the canonical form matches
+# the persisted form *by construction*. That covers, in one step, every
+# way the two could otherwise diverge:
+#
+#   * tuples, which JSON has no type for, coming back as lists;
+#   * dict keys, which JSON coerces to strings — and not via str():
+#     True/False/None serialize as "true"/"false"/"null", and float
+#     infinities as "Infinity", none of which str() reproduces;
+#   * dict keys that collide once coerced ({True: 'a', "true": 'b'}),
+#     which JSON collapses last-wins — applying the same round-trip
+#     means fresh and rehydrated agree on the survivor instead of
+#     disagreeing about how many entries there are.
+#
+# Values that JSON cannot represent at all (a tuple used as a dict key,
+# say) fall through to _freeze on the original. Such a lookup_key could
+# not have been persisted in the first place, so there is no rehydrated
+# form for it to disagree with.
+#
+# Collisions this introduces between distinct inputs — a list and the
+# equal tuple, say — are harmless: buckets only nominate same_q
+# candidates, and same_q still makes the decision.
+def _safe_hashable(x: Any) -> Any:
+    try:
+        x = json.loads(json.dumps(x))
+    except (TypeError, ValueError, RecursionError):
+        pass
+    return _freeze(x)
 
 
 def _default_same_q(a: Any, b: Any) -> bool:
