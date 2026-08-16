@@ -109,6 +109,44 @@ def test_ledger_has_no_entries_for_items_outside_the_gap(state):
                        % (len(spent), ", ".join(spent)))
 
 
+def test_the_committed_ledger_matches_what_its_generator_produces():
+    """The ledger is GENERATED.  Nothing enforced that until this test.
+
+    An adversarial audit added an option to the main driver and hand-wrote a
+    ``{"decision": "NA", "reason": "..."}`` entry straight into the JSON: the whole gate
+    passed while make_lisa_drift_ledger.py still reported the item as matching no rule.
+    The stated property -- that a person has to classify new drift AS A RULE, with a reason
+    -- was silenceable by a one-line JSON edit.
+
+    So regenerate in memory and compare.  This also catches a ledger left stale after the
+    main driver moved.
+    """
+    gen = pytest.importorskip("make_lisa_drift_ledger",
+                              reason="LISA drift ledger generator not present")
+    gap, _extras = audit.compute_gap()
+    expected, unmatched = {}, []
+    for item in gap:
+        decision, reason = gen.classify(item["key"])
+        if decision is None:
+            unmatched.append(item["key"])
+        else:
+            expected[item["key"]] = {"decision": decision, "reason": reason}
+
+    assert not unmatched, (
+        "%d gap item(s) match no rule in make_lisa_drift_ledger.py: %s\n"
+        "Add a rule with a reason -- do not hand-edit the JSON."
+        % (len(unmatched), ", ".join(unmatched)))
+
+    committed = audit.load_ledger()
+    assert committed == expected, (
+        "lisa_drift_ledger.json does not match make_lisa_drift_ledger.py.\n"
+        "Regenerate it (python3 make_lisa_drift_ledger.py) rather than editing the JSON:\n"
+        "  only in committed: %s\n  only in generated: %s\n  differing: %s"
+        % (sorted(set(committed) - set(expected)),
+           sorted(set(expected) - set(committed)),
+           sorted(k for k in set(committed) & set(expected) if committed[k] != expected[k])))
+
+
 def test_the_fairdraw_helpers_ported_in_this_pass_are_present_in_lisa():
     """Belt and braces: name them, so deleting one fails here as well as via the ledger."""
     lisa = audit.collect(audit.LISA)

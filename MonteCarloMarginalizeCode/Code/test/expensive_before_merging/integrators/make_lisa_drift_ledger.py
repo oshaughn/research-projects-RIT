@@ -73,10 +73,13 @@ RULES = [
      "Set by all seven shared rebind sites in RIFT/integrators/, so it already reaches "
      "LISA at runtime; the LISA driver simply never read it."),
     (r"^ATTR:_rvs_is_pooled$", "PORTED",
-     "Written by the ILE around _pool_replica_rvs. Ported as the reset-on-entry "
-     "discipline plus the reader, so _rvs_is_equal_weight is correct even though LISA "
-     "does not pool yet (Finding 7: the marker outliving a FAILED event is what made "
-     "this dangerous, and entry-reset is what fixes it)."),
+     "READER ONLY, deliberately. The marker is read by _rvs_is_equal_weight and carried "
+     "by the pass snapshot/restore; nothing in this driver ever SETS it, because there "
+     "is no replica pooling here yet. Main's reset-on-entry (Finding 7: the marker "
+     "outliving a FAILED event) is therefore NOT ported and MUST come with "
+     "--mc-error-replicas -- without it the first pooled record would leave the marker "
+     "set on the next event. Note this is also the ATTR category's blind spot: a name "
+     "read anywhere counts as present, so reader-ported/writer-missing looks closed."),
 
     # ---------------------------------------------------------------------- lnZ / n_eff
     (r"^FUNC:_lnZ_of_rvs$", "PORTED",

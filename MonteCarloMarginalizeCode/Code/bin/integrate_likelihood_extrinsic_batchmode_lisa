@@ -1602,9 +1602,12 @@ def _snapshot_pass_state(sampler, res, var, neff, dict_return, rvs=None):
     THE POINT IS THE WORD "everything".  A pass is described by more than its samples, and the
     reject path used to restore only some of it: `_rvs`, the estimate and `dict_return` went
     back to the cold pass while `_warm_seed_reserve` was left holding the REJECTED warm cloud.
-    Latent until --sampler-sequential-warmstart began seeding the next intrinsic point from the
-    reserve, at which point a rejected, truncated warm pass became the seed for the next point
-    -- the exact failure the reject gate exists to prevent, reintroduced one attribute over.
+    In the main driver that stayed latent until --sampler-sequential-warmstart began seeding
+    the next intrinsic point from the reserve, at which point a rejected, truncated warm pass
+    became the seed for the next point -- the exact failure the reject gate exists to prevent,
+    reintroduced one attribute over.  THAT OPTION DOES NOT EXIST IN THIS DRIVER YET, so the
+    reserve restore is pre-emptive here; it is also what makes porting the capture safe, which
+    is why it lands first.
 
     So the snapshot carries the reserve and the fair-draw marker as well, including the
     per-member reserves: `_warm_seed_reserve_for` falls through to `portfolio_realizations`,
@@ -1640,10 +1643,11 @@ def _restore_pass_state(sampler, state):
 def _warm_seed_reserve_for(sampler):
     """The retained-sample reserve a completed pass left behind, or None.
 
-    THE ONE LOOKUP FOR SEED CONSUMERS, because two of them need exactly this record and must
-    not drift: the L0 auto-rescue (which re-seeds a collapsed pass from its own peak) and the
-    --sampler-sequential-warmstart capture (which seeds the NEXT intrinsic point).  Both
-    otherwise fall back to sampler._rvs, which by then has been rebound to a fair-draw subset
+    THE ONE LOOKUP FOR SEED CONSUMERS.  In the main driver there are two -- the L0 auto-rescue
+    (which re-seeds a collapsed pass from its own peak) and the --sampler-sequential-warmstart
+    capture (which seeds the NEXT intrinsic point).  ONLY THE RESCUE EXISTS IN THIS DRIVER; the
+    shared lookup is kept so the pair cannot drift once the capture is ported.  Both otherwise
+    fall back to sampler._rvs, which by then has been rebound to a fair-draw subset
     taken WITH REPLACEMENT -- and the whole point of the reserve is that on the collapsed pass
     a warm start exists for, that subset is a handful of rows several of which are the same
     point twice.
@@ -1819,11 +1823,25 @@ def _maybe_l0_rescue(sampler, res, var, neff, dict_return,
     `lnL_offset` is this event's manual_avoid_overflow_logarithm, used only to print absolute
     lnZ values.  It is a local of the caller in both analyze_event variants, hence a parameter.
     """
+    # APPLICABILITY FIRST, then n_eff.  The main driver evaluates
+    #     _neff_val = None if neff is None else float(sampler.identity_convert(neff))
+    # BEFORE its guard, which is safe there only by luck: identity_convert comes from
+    # MCSamplerGeneric, and RIFT.integrators.mcsampler.MCSampler -- the object this driver
+    # keeps for --sampler-method adaptive_cartesian -- does NOT inherit it.  Evaluating it
+    # unconditionally therefore raises AttributeError on EVERY adaptive_cartesian event, at
+    # the end of a completed integration and before --output-file is written, losing the
+    # whole point's compute.  The rescue is AV/portfolio-only regardless, so nothing is lost
+    # by asking whether it applies before touching the sampler's conversion helpers.
+    #
+    # DELIBERATE DIVERGENCE from the main driver, which has the same latent defect on the
+    # line above its own guard and should take the same reordering.
+    if not (opts.sampler_method in ('AV', 'portfolio') and opts.sampler_warmstart_retry_neff
+            and hasattr(sampler, 'bootstrap_from_samples')):
+        return res, var, neff, dict_return
+    # A DEGENERATE EARLY TERMINATION (neff None) counts as below threshold, not as "skip".
     _neff_val = None if neff is None else float(sampler.identity_convert(neff))
     _needs_l0_rescue = (_neff_val is None) or (_neff_val < float(opts.sampler_warmstart_retry_neff or 0))
-    if not (opts.sampler_method in ('AV', 'portfolio') and opts.sampler_warmstart_retry_neff
-            and hasattr(sampler, 'bootstrap_from_samples')
-            and _needs_l0_rescue):
+    if not _needs_l0_rescue:
         return res, var, neff, dict_return
 
     # Cold state to fall back on, captured only once the warm pass is actually about to run.
@@ -1929,10 +1947,11 @@ def _maybe_l0_rescue(sampler, res, var, neff, dict_return,
                     print("  [L0 auto-rescue] keeping the COLD (full-support) result; its n_eff"
                           " is lower but it is not missing mass.  A portfolio avoids this"
                           " trade entirely -- its GMM member carries a defensive component.")
-                    # The RESERVE goes back too.  Without it --sampler-sequential-warmstart
-                    # would seed the next intrinsic point from the warm cloud this gate just
-                    # rejected: _warm_seed_reserve_for would return the warm pass's record while
-                    # _rvs, the estimate and the diagnostics all describe the cold one.
+                    # The RESERVE goes back too.  Once --sampler-sequential-warmstart is
+                    # ported here, omitting this would seed the next intrinsic point from the
+                    # warm cloud this gate just rejected: _warm_seed_reserve_for would return
+                    # the warm pass's record while _rvs, the estimate and the diagnostics all
+                    # describe the cold one.  Nothing reads it in this driver today.
                     res, var, neff, dict_return = _restore_pass_state(sampler, _cold_state_l0)
             _clear_warm_state(sampler)
     except Exception as _e_l0:
