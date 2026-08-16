@@ -1200,6 +1200,159 @@ if opts.sampler_method =="adaptive_cartesian_gpu" and opts.internal_use_lnL:
 if opts.sampler_method =="portfolio":
   return_lnL=True
   pinned_params.update({"use_lnL":True})
+
+# What the sampler will actually STORE in _rvs['integrand'], derived from the pinned params
+# above rather than from the CLI.  This is not the same predicate as opts.internal_use_lnL:
+# that option is accepted for adaptive_cartesian_gpu and portfolio too (see the branches
+# directly above), which set use_lnL WITHOUT return_lnI and therefore still store linear L.
+# Keying the weight helpers off the option would compute L + ln p - ln p_s for those, which
+# is the failure the main driver documents at ln_weights_from_rvs.
+rvs_integrand_is_lnL = bool(pinned_params.get("return_lnI", False))
+
+
+# ---------------------------------------------------------------------------------------
+# Fair-draw weighting helpers.  Ported from bin/integrate_likelihood_extrinsic_batchmode
+# (PR #87); see test/expensive_before_merging/integrators/RVS_FAIRDRAW_AUDIT.md.
+#
+# WHY THESE ARE HERE, given this driver has no .dgrid/.dslice/proposal-breadcrumb exports
+# (the three consumers whose double-weighting PR #87 actually fixed): this driver DOES set
+# igrand_fairdraw_samples from --fairdraw-extrinsic-output, so its _rvs can be a fair draw,
+# and every shared sampler already sets the provenance marker at its rebind.  The marker was
+# arriving here and nothing was reading it.  The helpers are the correct thing for the next
+# person to reach for, which is the whole argument of the audit's Recommendation 1.
+#
+# KEEP IN STEP WITH THE MAIN DRIVER.  These are deliberate copies, not an import, because the
+# two drivers are a deliberate fork; audit_lisa_driver_drift.py is what makes the copy visible.
+# ---------------------------------------------------------------------------------------
+def _rvs_lnL_convention(use_lnL=None):
+    """Resolve the stored-'integrand' convention for a helper call.
+
+    Returns the explicit argument when given, else the run's `rvs_integrand_is_lnL`.  Falls
+    back to False (the historical linear reading) when that global is absent, which is what
+    happens when these helpers are lifted out of the driver by the unit tests.  Read through
+    globals() rather than by name so a missing global cannot become a NameError swallowed by
+    a caller's bare `except Exception`.
+    """
+    if use_lnL is not None:
+        return bool(use_lnL)
+    return bool(globals().get('rvs_integrand_is_lnL', False))
+
+
+def ln_weights_from_rvs(rvs, convert=None, use_lnL=False):
+    """THE importance log-weight of an _rvs record: lnL + ln(prior) - ln(sampling_prior).
+
+    ONE definition, because the alternative has already cost us.  A stored 'log_weights'
+    column does not mean the same thing in every sampler: mcsamplerPortfolio stores the true
+    importance weight, but mcsamplerGPU stores tempering_exp*lnL + ln p - ln p_s -- the
+    ADAPTATION weight, with --adapt-weight-exponent baked in.  That exponent is not 1 in
+    production and --no-adapt drives it to 0, removing the likelihood from the column
+    entirely.  A consumer preferring that cache silently reweights its output by L^(e-1).
+
+    So the cache is never read here: the weight is DERIVED from the canonical components --
+    log form first, then the linear (mcsamplerEnsemble) form, out-of-support rows -inf.
+    Raises when neither set is present: an explicit failure beats a plausible wrong number.
+
+    `use_lnL` is REQUIRED to read the linear form correctly, because mcsamplerEnsemble reuses
+    'integrand' for BOTH conventions (it stores lnL when given return_lnI).  Taking log() of
+    lnL compresses tens of nats into log(tens), leaving an almost flat weight vector, and the
+    positivity cut is wrong in that mode too: non-positive means a low-likelihood point, not
+    a rejected one, so `ig > 0` would discard every sample with lnL <= 0.
+
+    PASS THE STORED CONVENTION, NOT THE CLI OPTION -- `rvs_integrand_is_lnL`, not
+    `opts.internal_use_lnL`.  In this driver the two genuinely differ: --internal-use-lnL is
+    also accepted for adaptive_cartesian_gpu and portfolio, which set use_lnL without
+    return_lnI and still store linear L.
+    """
+    conv = convert if convert is not None else (lambda x: x)
+    if all(k in rvs for k in ('log_integrand', 'log_joint_prior', 'log_joint_s_prior')):
+        return (numpy.asarray(conv(rvs['log_integrand']), dtype=float)
+                + numpy.asarray(conv(rvs['log_joint_prior']), dtype=float)
+                - numpy.asarray(conv(rvs['log_joint_s_prior']), dtype=float))
+    if all(k in rvs for k in ('integrand', 'joint_prior', 'joint_s_prior')):
+        ig = numpy.asarray(conv(rvs['integrand']), dtype=float)
+        jp = numpy.asarray(conv(rvs['joint_prior']), dtype=float)
+        js = numpy.asarray(conv(rvs['joint_s_prior']), dtype=float)
+        out = numpy.full(len(ig), -numpy.inf)
+        if use_lnL:
+            # 'integrand' already holds lnL: do not log it again, do not cut on its sign.
+            keep = numpy.isfinite(ig) & (jp > 0) & (js > 0)
+            out[keep] = ig[keep] + numpy.log(jp[keep]) - numpy.log(js[keep])
+        else:
+            keep = (ig > 0) & (jp > 0) & (js > 0)
+            out[keep] = numpy.log(ig[keep]) + numpy.log(jp[keep]) - numpy.log(js[keep])
+        return out
+    raise Exception("cannot build importance weights from sampler._rvs (keys={})".format(
+        sorted(rvs.keys())))
+
+
+def _rvs_len(rvs):
+    for v in rvs.values():
+        try:
+            return len(numpy.atleast_1d(numpy.asarray(v)).ravel())
+        except Exception:
+            continue
+    return 0
+
+
+def _rvs_is_export_resample(sampler):
+    """True when the ROWS of _rvs were drawn in proportion to weight.
+
+    Set by the samplers at the rebind itself, so it means "the draw FIRED", which is NOT the
+    same predicate as `opts.fairdraw_extrinsic_output`: the draw is skipped when it would not
+    shrink the record (n_extr >= len(_rvs)), and then the rows are still the retained set
+    carrying real importance weights.  Keying off the CLI flag would flatten those -- the same
+    class of error in the other direction.
+
+    SURVIVES POOLING by design.  This driver does not pool replicas today; the distinction is
+    kept anyway so that adding --mc-error-replicas here later cannot quietly get it wrong.
+    """
+    return bool(getattr(sampler, '_rvs_is_fairdraw', False))
+
+
+def _rvs_is_equal_weight(sampler):
+    """True when EVERY row of _rvs carries the same posterior weight.
+
+    Two properties, deliberately not one flag:
+
+      rows resampled  -- each row drawn proportional to w   (per-BLOCK property)
+      equal weight    -- the record as a whole is uniform   (property of the WHOLE record)
+
+    A single fair draw has both.  A POOLED record has the first and not the second, because
+    pooling weights block k by the replica evidence Z_k/K.  Conflating them broke two things
+    in opposite directions in the main driver (audit Finding 6), which is why the split is
+    carried over here even though this driver has no pooling yet.
+    """
+    return (bool(getattr(sampler, '_rvs_is_fairdraw', False))
+            and not bool(getattr(sampler, '_rvs_is_pooled', False)))
+
+
+def ln_weights_for_posterior(rvs, sampler, convert=None, use_lnL=None):
+    """The weights to use when treating an _rvs record as a POSTERIOR SAMPLE SET.
+
+    NOT the same question as `ln_weights_from_rvs`, which answers "what is the importance
+    weight of this record" and is always right about that.  The question here is "how should
+    these rows be weighted to represent the posterior", and the answer depends on whether the
+    fair draw already did it.
+
+    A fair-drawn record was resampled WITH REPLACEMENT proportional to w, so its rows are
+    already an equal-weight draw from the posterior.  Weighting them by w again applies w^2
+    and over-concentrates the result -- measured at a 13% shift in the posterior mean of a
+    weight-correlated coordinate (verify_skew.py).
+
+    So: uniform (zero log-weight) for a fair-drawn record, the derived importance weight
+    otherwise.  Returns a float array the length of the record.
+
+    `use_lnL` is passed THROUGH UNRESOLVED, exactly as in the main driver: a caller that
+    omits it gets the linear reading, not the run's convention.  That is a trap in both
+    drivers, and it is deliberately reproduced rather than fixed here -- a helper of the
+    same name behaving differently in the two forked drivers would be a worse defect than
+    the one it fixes.  Callers must pass `use_lnL=rvs_integrand_is_lnL`, or route through
+    `_rvs_lnL_convention` first, the way the main driver's call sites do.
+    """
+    if _rvs_is_equal_weight(sampler):
+        return numpy.zeros(_rvs_len(rvs), dtype=float)
+    return numpy.asarray(ln_weights_from_rvs(rvs, convert=convert, use_lnL=use_lnL),
+                         dtype=float)
 if opts.sampler_method == "GMM":
     n_step =pinned_params["n"]
     n_max_blocks = ((1.0*int(opts.n_max))/n_step)
