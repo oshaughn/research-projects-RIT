@@ -94,6 +94,34 @@ def test_deterministic_histogram_agrees_with_atomic_branch():
     np.testing.assert_allclose(h_det, h_atomic, rtol=1e-10)
 
 
+def test_deterministic_histogram_accuracy_on_peaked_weights():
+    """Pin the known accuracy cost of prefix-sum differencing.
+
+    A bin total is the difference of two partial sums both of order the grand
+    total, so a bin's relative error is amplified by (total / bin).  With
+    exp(lnL)-peaked weights that measured 5e-11 vs an exact rational reference
+    (per-bin atomics manage 3e-14).  That is fine for a proposal density, but it
+    should not be allowed to get quietly worse.
+    """
+    from fractions import Fraction
+
+    n_bins = 100
+    rng = np.random.RandomState(5)
+    idx = rng.randint(0, n_bins, 100000).astype(np.int32)
+    wts = np.exp(rng.normal(0, 8, 100000))          # spans ~decades, like exp(lnL)
+
+    acc = [Fraction(0)] * n_bins
+    for i, w in zip(idx, wts):
+        acc[int(i)] += Fraction(float(w))
+    ref = np.array([float(a) for a in acc])
+
+    vgt.DETERMINISTIC_REDUCTIONS = True
+    got = vgt._bincount_weighted(idx, wts, n_bins, np)
+
+    rel = np.abs(got - ref) / np.abs(ref)
+    assert rel.max() < 1e-9, "deterministic bincount accuracy regressed: %g" % rel.max()
+
+
 def test_deterministic_histogram_handles_the_unweighted_branch():
     """Unweighted calls pass a read-only broadcast_to view; it must be reorderable."""
     rng = np.random.RandomState(0)
@@ -118,7 +146,7 @@ def test_cupy_weighted_bincount_is_nondeterministic():
     ref = cupy.asnumpy(cupy.bincount(idx, minlength=100, weights=wts))
     differs = any(
         not (cupy.asnumpy(cupy.bincount(idx, minlength=100, weights=wts)) == ref).all()
-        for _ in range(8)
+        for _ in range(32)
     )
     assert differs, "cupy weighted bincount now looks deterministic on this build"
 
@@ -135,6 +163,18 @@ def test_deterministic_gpu_histogram_is_bit_reproducible():
     for _ in range(8):
         again = cupy.asnumpy(vgt.histogram(samples, 100, xpy=cupy, weights=weights))
         assert (again == ref).all(), "deterministic GPU histogram is not bit-stable"
+
+
+@requires_gpu
+def test_deterministic_gpu_histogram_handles_the_unweighted_branch():
+    """cupy.broadcast_to is also read-only and zero-stride; the deterministic
+    path reorders the weights, so this branch must still work on device."""
+    rng = np.random.RandomState(0)
+    samples = cupy.asarray(rng.rand(20000))
+    vgt.DETERMINISTIC_REDUCTIONS = True
+    h = cupy.asnumpy(vgt.histogram(samples, 50, xpy=cupy))
+    assert h.shape == (50,)
+    np.testing.assert_allclose(h.sum(), 50.0, rtol=1e-10)
 
 
 @requires_gpu

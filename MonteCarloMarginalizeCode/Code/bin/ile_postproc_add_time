@@ -177,6 +177,12 @@ else:
 # Seed EVERY backend a sampler can draw from, not just numpy: the samplers draw
 # through self.xpy / xpy_default, which is cupy on GPU, and cupy has its own
 # global generator.  See RIFT/integrators/seeding.py.
+#
+# NOTE: this script is currently dead -- it reads several opts (seed,
+# manual_logarithm_offset, ...) that no add_option ever defines, so it dies with
+# AttributeError here on any invocation.  Kept in step with the live ILE drivers
+# so that reviving it does not reintroduce the GPU seeding bug; resurrecting it
+# is out of scope for this change.
 if opts.seed is not None:
     from RIFT.integrators.seeding import seed_everything
     seed_everything(opts.seed)

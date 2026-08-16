@@ -27,10 +27,32 @@ def _bincount_weighted(indices, weights, n_bins, xpy):
     sum, so the summation order is fixed by the data rather than by the
     scheduler.  It costs ~1.2-1.5x the atomic version on calls that happen once
     per parameter per adaptation, i.e. far off the likelihood hot path.
+
+    Accuracy tradeoff, measured against an exact rational reference: because a
+    bin total is the difference of two partial sums that are both of order the
+    grand total, the relative error in a bin is amplified by (total / bin), so
+    the deterministic branch is *less* accurate than per-bin atomic
+    accumulation when bin totals span decades.  Measured at n_bins=100:
+
+        weights           bin-total spread   deterministic   atomic
+        exponential            ~1               2e-14        7e-15
+        exp(lnL)-peaked        ~2e5             5e-11        3e-14
+
+    5e-11 is irrelevant here: this histogram is a *proposal* density, not an
+    estimator -- the importance weights correct for whatever the proposal
+    actually is, it is consumed as a 100-bin interpolated CDF, and
+    --adapt-floor-level mixes a uniform component in on top.  The atomic
+    branch's extra accuracy is in any case unusable, since it is not
+    reproducible.  If this is ever wanted somewhere the histogram *is* the
+    answer, use a per-bin segmented reduction instead.
     """
     if not DETERMINISTIC_REDUCTIONS:
         return xpy.bincount(indices, minlength=n_bins, weights=weights)
 
+    # The unweighted caller passes a broadcast_to view: read-only and
+    # zero-stride, so it cannot be reordered.  Materialize it here rather than
+    # in the caller, so the default path keeps the old code's zero-copy weights.
+    weights = xpy.ascontiguousarray(weights)
     order = xpy.argsort(indices)
     idx_sorted = indices[order]
     wts_sorted = weights[order]
@@ -68,9 +90,6 @@ def histogram(samples, n_bins, xpy=numpy,weights=None):
             )
     else:
         wts=weights
-    # broadcast_to gives a read-only, zero-stride view; the deterministic path
-    # reorders it, so hand it a real array.
-    wts = xpy.ascontiguousarray(wts)
     histogram_counts = _bincount_weighted(indices, wts, n_bins, xpy)
     return histogram_counts[:n_bins]  # force target length, we should never have points in top bin if it occurs : scaled to [0,1)
 

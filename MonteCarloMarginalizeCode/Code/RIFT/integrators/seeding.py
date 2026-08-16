@@ -100,7 +100,7 @@ def seed_everything(seed, verbose=True):
     n_dev = 0
     try:
         import cupy
-    except Exception as e:
+    except Exception:
         status['cupy'] = 'absent'
     else:
         try:
