@@ -25,48 +25,69 @@ should not be guessed at.
 MEASURED GUIDANCE -- use this to choose
 ===============================================================================================
 
+Measured with **SEOBNRv4** (an IMR model).  An earlier version of this table used TaylorT4, which
+terminates at ISCO and carries no merger-ringdown; it named the WRONG STENCIL at M = 9, 10 and 20
+and overstated cubic's high-mass margins by up to 99x.  Do not reintroduce inspiral-only numbers
+here.
+
 All against an exact FFT-zero-padded reference; paired, K=2000, 3 seeds; each mass normalised to
-SNR_lik = 100.  Numbers are max|dlnL| in nats.  srate 4096, fmax 1700, fmin 30, Lmax 2.
+SNR_lik = 100.  srate 4096, fmax 1700, fmin 30, Lmax 2.  max|dlnL| in nats:
 
     M/Msun    nearest      cubic       sinc     winner
-      2.6       295        6.92       3.20      SINC  (2.2x)
-      5         479        4.34       6.67      cubic (1.5x)
-     10         228        0.544      3.02      cubic (5.6x)
-     20         295        0.098      2.95      cubic (30x)
-     35         333        0.033      5.43      cubic (163x)
-     55         333        0.016      4.74      cubic (295x)
-     80         338        0.013      5.32      cubic (414x)
-    120        4262       <0.337     60.3       cubic (>179x)
+      9         369        8.70       3.90      SINC  (2.2x)
+     10         286       12.2        4.11      SINC  (3.0x)
+     20         284        7.85       3.65      SINC  (2.2x)
+     35         200        1.67       3.51      cubic (2.1x)
+     55         443        1.31       3.88      cubic (3.0x)
+     80         437        0.346      3.15      cubic (9.1x)
+    120         433        0.143      7.89      cubic (55x)
 
-RULE OF THUMB: 'cubic' is right for essentially all binaries above ~4 Msun total.  'sinc' pays
-off only for genuinely broadband Q -- low total mass, and/or a high fmin that cuts the long
-low-frequency inspiral out of the band.  The crossover in total mass is ~3-4 Msun at fmin 30,
-and moves UP with fmin (at fmin 150, sinc still wins at M = 5).
+and at srate 16384 (SEOBNRv4 cannot be generated at 4096 below M ~ 8):
 
-'nearest' is never competitive: it is 2-4 orders of magnitude worse everywhere and crosses 1 nat
-of error at SNR 2-6, i.e. it is already unusable at O4 SNRs.
+      5                                          cubic (21x)
+      2.6                                        cubic (34x)
 
-WHAT ACTUALLY SETS THE ANSWER is fNyq divided by the true Q bandwidth.  Scoring 12 measured
-(mass, fmin) points that way, a single threshold near 4.2 separates every one of them: sinc wins
-below ~4.1, cubic above ~4.4.  The concept is sound; what is missing is a good enough estimator
-of the bandwidth at workflow-build time.  f_ISCO is not one -- it drifts by 7.4x across
-2.6-120 Msun AND the drift reverses sign (over-predicting the bandwidth by 3.4x at M = 2.6,
-under-predicting by 2.2x at M = 120), so it biases toward sinc exactly where the decision is
-close.  A PSD-weighted high-frequency quantile of |h|^2/S over [fmin, fmax] is computable from
-what the pipeline already has and is the obvious next attempt.
+RULE OF THUMB: **the crossover is between 20 and 35 Msun total** at production settings, so
+'sinc' is the better stencil across much of the stellar-mass BBH range and 'cubic' above it.
+Note the low-mass rows above are at a HIGHER sample rate, where the same binary is far more
+oversampled -- oversampling, not mass alone, is what sets the answer.
 
-ERROR GROWS AS SNR^2 (measured: fitted exponent 1.999-2.006 over two decades), so a stencil that
-looks harmless today matters at 3G sensitivities.  SNR at which each stencil's error first
-reaches 1 nat: nearest 2-6; cubic 15 (1.3+1.3 Msun) to 830 (30+25); sinc 36-46.
+'nearest' is never competitive: 200-440 nats throughout, and it crosses 1 nat of error at SNR
+2-6, i.e. it is already unusable at O4 SNRs.
 
-COST, measured: sinc is ~4.2-4.5x cubic on CPU (16 taps against 4; that path is tap-count bound)
-but only ~1.6-3.0x on GPU (bandwidth bound).  End-to-end on CPU at fixed n_max: nearest 9.3 s,
-cubic 25.1 s, sinc 85.3 s.  On GPU the difference is not resolvable in wall time.
+THE MARGINS ARE MODEST AND ROUGHLY SYMMETRIC, which is a change from the earlier inspiral-only
+picture.  Over M = 9-55 every margin either way is 2.1-3.0x, and the worst anywhere below 120 is
+9.1x.  The "330x penalty for picking sinc wrongly" quoted in earlier revisions was a TaylorT4
+artifact and is gone; there is no longer a strong safety reason to break ties toward cubic.
 
-STANDING LIMITATIONS of the measurements above: zero noise, analytic ZDHP PSD, Lmax 2, TaylorT4
-(no merger-ringdown -- the high-mass rows' above-f_ISCO content is termination ringing from the
-approximant, not physics, so the high-mass end deserves an IMR check), equal mass except 2.6,
-non-spinning, one sky location, 3 seeds.
+SINC'S ERROR IS FLAT -- 3.1-7.9 nats across the entire ladder and both approximants -- exactly as
+a window-limited, oversampling-independent error should be.  All the variation is cubic's.  That
+is an independent consistency check on the whole picture.
+
+WHAT ACTUALLY SETS THE ANSWER is fNyq divided by the true Q bandwidth, and estimating that
+bandwidth is the open problem.  f_ISCO is NOT a usable proxy: measured/f_ISCO drifts 15.8x across
+2.6-120 Msun with IMR (worse than the 7.4x seen with TaylorT4) and reverses sign near M ~ 10.
+Nor is a 99.99%-power quantile of the measured spectrum: with IMR points it is non-monotone
+(sinc still wins at fNyq/f_Q = 4.63 while cubic already wins at 4.23), because an IMR spectrum
+has a ringdown bump rather than a smooth roll-off.
+
+RIFT.misc.psd_bandwidth DOES separate them, at quantile 0.99: ranking the 9 IMR points by
+fNyq/estimate puts every sinc winner below 2.99 and every cubic winner above 4.33, a 45% gap.
+That is the candidate for a future automatic selector -- it is not wired in yet, and the fmin
+dependence has not been re-checked with IMR.
+
+ERROR GROWS AS SNR^2 (measured exponent 1.999-2.006 over two decades), so the choice matters more
+at 3G sensitivities.
+
+COST, measured: sinc is ~4.2-4.5x cubic on CPU (16 taps against 4; tap-count bound) but only
+~1.6-3.0x on GPU (bandwidth bound).  End-to-end on CPU at fixed n_max: nearest 9.3 s, cubic
+25.1 s, sinc 85.3 s.  On GPU the difference is not resolvable in wall time.
+
+STANDING LIMITATIONS: zero noise, analytic ZDHP PSD, Lmax 2, non-spinning, equal mass except 2.6,
+one sky location, 3 seeds, one fmin.  SEOBNRv4 is unreachable at srate 4096 below M ~ 8, so the
+IMR crossover is bracketed 20 < M < 35 but not resolved further.  The fmin dependence -- which
+with TaylorT4 flipped the winner at M = 5 between fmin 30 and 150 -- has NOT been re-tested with
+IMR and is the obvious next check.
 """
 from __future__ import division
 
@@ -112,9 +133,10 @@ def validate_stencil_name(value):
             "--internal-ile-interpolate-time %r asked for automatic stencil selection, which has "
             "been REMOVED: it was measured to pick the worse stencil at 2 of 8 total masses, and "
             "the correct choice additionally depends on fmin, which no (srate, fmax, mass) rule "
-            "can see. Pass an explicit stencil instead -- 'cubic' is right for essentially all "
-            "binaries above ~4 Msun total; 'sinc' only for genuinely broadband Q (low total mass, "
-            "or a high fmin). See RIFT.likelihood.time_interp_choice for the measured table."
+            "can see. Pass an explicit stencil instead: measured with an IMR model, the crossover "
+            "is between 20 and 35 Msun total -- 'sinc' below it, 'cubic' above -- with modest "
+            "2.1-3.0x margins either way, so neither is dangerous near it. See "
+            "RIFT.likelihood.time_interp_choice for the measured table."
             % (value,))
     raise ValueError(
         "unrecognised Q_lm time-interpolation stencil %r: expected one of %s, or a value meaning "

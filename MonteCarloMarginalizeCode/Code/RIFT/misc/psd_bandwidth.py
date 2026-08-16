@@ -2,8 +2,8 @@
 
 WHAT THIS IS FOR.  Several build-time decisions depend on where a signal's power really sits in
 [fmin, fmax] rather than on fmax itself -- most immediately the choice of sub-sample Q_lm
-interpolation stencil (see RIFT.likelihood.time_interp_choice), where using fmax was measured to
-pick the worse stencil by up to 330x.  The operative quantity is the bandwidth of the
+interpolation stencil (see RIFT.likelihood.time_interp_choice), where using fmax alone was
+measured to pick the worse stencil.  The operative quantity is the bandwidth of the
 matched-filter integrand, which depends on the MASSES and on fmin as well as on the PSD.
 
 DESIGN CONSTRAINTS, both learned the hard way:
@@ -33,28 +33,27 @@ IFO_PREFERENCE = ('H1', 'L1', 'K1', 'I1', 'V1')
 
 # Fraction of the matched-filter SNR^2 that must accumulate below the reported bandwidth.
 #
-# *** NOT YET CALIBRATED.  DO NOT USE THIS TO DRIVE A DECISION WITHOUT CALIBRATING IT FIRST. ***
+# CHOSEN FOR SEPARATING POWER, NOT FOR RATIO ACCURACY -- those are different objectives and they
+# disagree here.  Validated against 9 SEOBNRv4 (IMR) stencil measurements: rank each configuration
+# by fNyq/estimate and ask whether the sinc winners and the cubic winners separate.
 #
-# An earlier revision quoted a calibration against Q bandwidths measured from the likelihood's
-# own Q_lm spectra.  Those references were generated with TaylorT4, which terminates at ISCO and
-# has no merger-ringdown, so they understate the true bandwidth by an unknown and mass-dependent
-# amount.  Calibrating this against them would have propagated exactly the approximant artifact
-# this module was rewritten to stop modelling.  An IMR re-measurement is in progress; the
-# quantile should be fixed against those numbers, not the TaylorT4 ones.
+#     ranked by                     sinc wins up to   cubic wins from   separates?   gap
+#     fNyq / measured 99.99%             4.628             4.233        NO (overlap)  --
+#     fNyq / estimate, q = 0.95          6.059             6.113        yes          1.009x
+#     fNyq / estimate, q = 0.99          2.990             4.330        yes          1.45x
 #
-# WHAT IS ALREADY KNOWN ABOUT THE SHAPE OF THE ANSWER, from the IMR amplitude against a ZDHP PSD
-# at fmin 30 / fmax 1700, quantile 0.95:
+# q = 0.95 gives the most uniform estimate/measured RATIO (spread 1.36x against IMR) but leaves a
+# 1% window to place a threshold in, which is not usable.  q = 0.99 has a worse ratio spread
+# (1.76x) and a 45%-wide window.  For a decision, separation is what matters.
 #
-#     M/Msun        2.6    5    10    20    35    55    80
-#     estimate/Hz   336   336   340   352   335   264   199
+# Note the raw measured 99.99%-power bandwidth does NOT separate them at all -- an IMR spectrum
+# has a ringdown bump rather than a smooth roll-off, so a very high quantile chases the bump.
+# This estimator works precisely because it integrates against the PSD instead.
 #
-# i.e. it is nearly MASS-INDEPENDENT below ~35 Msun and is being set by the detector, not the
-# binary.  That is plausibly correct physics rather than a bug: when f_ringdown lies above fmax
-# (true for everything below ~10 Msun here), the merger is out of band entirely and the occupied
-# band really is whatever the PSD's sensitive region is.  But it is a strong claim and it has not
-# been checked against a measured IMR Q spectrum, which is the other reason not to wire this into
-# a decision yet.
-DEFAULT_POWER_QUANTILE = 0.95
+# If a stencil selector is ever built on this: threshold ~ 3.6 (the geometric mean of the
+# 2.99-4.33 bracket).  NOT wired in yet -- the fmin dependence has not been re-checked with an
+# IMR model, and with TaylorT4 fmin alone flipped the winner at M = 5.
+DEFAULT_POWER_QUANTILE = 0.99
 
 
 def choose_representative_ifo(ifos):
