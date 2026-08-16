@@ -32,7 +32,7 @@ from RIFT.misc.dag_utils_generic import which
 from RIFT.likelihood.time_interp_choice import (
     INTERP_TIME_OVERSAMPLING_THRESHOLD_CPU, INTERP_TIME_OVERSAMPLING_THRESHOLD_GPU,
     choose_time_interp_stencil, effective_srate_for_stencil, is_auto_request, is_off_request,
-    validate_stencil_name)
+    q_bandwidth_hz, validate_stencil_name)
 lalapps_path2cache = which('lal_path2cache')
 ligolw_add = 'igwn_ligolw_add'
 if not(which(ligolw_add)):
@@ -1157,6 +1157,20 @@ if opts.internal_ile_interpolate_time and not is_off_request(opts.internal_ile_i
         srate_effective = effective_srate_for_stencil(
             srate, srate_internal=opts.internal_ile_srate_internal,
             helper_emits_srate=bool(opts.propose_ile_convergence_options))
+        # The MASS matters as much as the sampling rate, and leaving it out was the original
+        # error here.  Q_lm(t) is band-limited by whichever is lower, fmax or the template's own
+        # cutoff; a heavy binary stops radiating far below fmax, so its Q is much smoother than
+        # fmax implies.  Measured at srate 4096 / fmax 1700: a 30+25 system has 99.99% of its Q
+        # power below 99 Hz (effectively ~20x oversampled, and cubic beats sinc by ~330x there),
+        # while 1.3+1.3 reaches 983 Hz (genuinely near Nyquist, sinc wins by ~6-11x).  Choosing
+        # from fmax alone picks sinc for both.  Without a mass, choose_time_interp_stencil
+        # returns 'cubic' rather than guessing.
+        _m_total = None
+        if "m1" in event_dict and "m2" in event_dict:
+            try:
+                _m_total = float(event_dict["m1"]) + float(event_dict["m2"])
+            except (TypeError, ValueError):
+                _m_total = None
         # The threshold is backend-dependent, because the extra taps cost ~4.5x on CPU but only
         # ~2x on GPU, so cost breaks the near-crossover tie at a different place.  This is the
         # same flag that gates the '--vectorized --gpu' append further down, i.e. the helper's
@@ -1174,7 +1188,7 @@ if opts.internal_ile_interpolate_time and not is_off_request(opts.internal_ile_i
         # Either way production sits at fNyq/fmax ~ 1.2, far below both thresholds.
         _ile_on_gpu = bool(opts.propose_ile_convergence_options)
         time_interp_choice, _oversampling, _threshold = choose_time_interp_stencil(
-            srate_effective, fmax_effective, on_gpu=_ile_on_gpu)
+            srate_effective, fmax_effective, on_gpu=_ile_on_gpu, m_total_msun=_m_total)
         _srate_note = ""
         if opts.internal_ile_srate_internal:
             _srate_note = " [from --srate-internal; pipeline srate {}]".format(srate)
@@ -1184,11 +1198,17 @@ if opts.internal_ile_interpolate_time and not is_off_request(opts.internal_ile_i
             print("  ==> Q_lm time interpolation: srate/fmax unusable (srate={}, fmax={}); "
                   "falling back to stencil '{}'".format(
                       srate_effective, fmax_effective, time_interp_choice))
+        elif _m_total is None:
+            print("  ==> Q_lm time interpolation: no total mass in event_dict, so the Q "
+                  "bandwidth cannot be bounded (fmax-only fNyq/fmax would be {:.2f}); choosing "
+                  "the safe stencil '{}'".format(_oversampling, time_interp_choice))
         else:
-            print("  ==> Q_lm time interpolation: srate={}{} fmax={} -> fNyq/fmax={:.2f} "
-                  "({} {} threshold {}), choosing stencil '{}'".format(
-                      srate_effective, _srate_note, fmax_effective, _oversampling,
-                      "below" if _oversampling < _threshold else "at/above",
+            _f_q = q_bandwidth_hz(fmax_effective, _m_total)
+            print("  ==> Q_lm time interpolation: srate={}{} fmax={} M_total={:.1f} -> Q "
+                  "bandwidth {:.1f} Hz -> fNyq/f_Q={:.2f} ({} {} threshold {}), choosing "
+                  "stencil '{}'".format(
+                      srate_effective, _srate_note, fmax_effective, _m_total, _f_q,
+                      _oversampling, "below" if _oversampling < _threshold else "at/above",
                       "GPU" if _ile_on_gpu else "CPU", _threshold, time_interp_choice))
     else:
         # Validate NOW, while the workflow is being built.  An unrecognised name would otherwise

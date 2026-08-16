@@ -482,9 +482,10 @@ else:
 # legacy path's interpolation ON while meaning the exact opposite in NoLoop.  Derive an honest
 # boolean instead: only the two genuinely-interpolating stencils count as "interpolate".
 opts._legacy_interpolate_time = opts._noloop_time_interp in ("cubic", "sinc")
-print(" Q_lm sub-sample time stencil: {} (from --interpolate-time {!r}; legacy scalar path "
-      "interpolate={})".format(
-          opts._noloop_time_interp, opts.interpolate_time, opts._legacy_interpolate_time))
+# NOTE: deliberately NOT announcing the stencil here.  opts.gpu is not resolved yet at this
+# point, so we cannot yet tell whether the stencil will actually be used -- and a banner that
+# names a stencil the run then ignores is worse than no banner, because it reads as proof.
+# The announcement happens after the honoured-path check below.
 
 if opts.rotation_slow:
     # Path A/B slow-rotation: wired into BOTH the CPU-vectorized and GPU (xpy) branches; the
@@ -624,6 +625,34 @@ if opts.gpu and xpy_default is numpy:
     opts.gpu=False
     if opts.force_xpy:
         opts.gpu=True
+
+# --interpolate-time IS SILENTLY IGNORED ON ONE PATH.  Now that opts.gpu is final, refuse to
+# proceed if a sub-sample stencil was asked for and this configuration cannot honour it.
+#
+# The baseline non-GPU vectorized branch calls DiscreteFactoredLogLikelihoodViaArrayVector,
+# which has no time_interp argument at all -- so '--vectorized --force-xpy' WITHOUT '--gpu'
+# accepted '--interpolate-time sinc' and computed nearest-bin values anyway.  Measured: sinc and
+# cubic returned bit-identical lnL (74.32974090285529) at n_max 2e5, and the startup banner still
+# announced the stencil, so nothing in the run's own output revealed it.  A whole comparison
+# campaign was run against that before it was caught.
+#
+# The rotation-slow and freqresponse paths DO pass time_interp on both branches, so they are fine.
+_stencil_is_honoured = bool(opts.gpu) or opts.rotation_slow or opts.freqresponse
+if opts._noloop_time_interp != 'nearest' and not _stencil_is_honoured:
+    raise ValueError(
+        "--interpolate-time %r was requested, but this configuration cannot honour it: the "
+        "baseline non-GPU vectorized likelihood (DiscreteFactoredLogLikelihoodViaArrayVector) "
+        "takes no stencil and evaluates Q_lm at the nearest sample bin. Add --gpu (with "
+        "--force-xpy if no device is present, which keeps the identical NoLoop code path on "
+        "numpy), or use --rotation-slow / --freqresponse, or drop --interpolate-time. Refusing "
+        "rather than running a different likelihood than the one you asked for."
+        % (opts._noloop_time_interp,))
+print(" Q_lm sub-sample time stencil: {} (from --interpolate-time {!r}); honoured by this "
+      "configuration: {} [gpu={} rotation_slow={} freqresponse={}]; legacy scalar path "
+      "interpolate={}".format(
+          opts._noloop_time_interp, opts.interpolate_time, _stencil_is_honoured,
+          bool(opts.gpu), bool(opts.rotation_slow), bool(opts.freqresponse),
+          opts._legacy_interpolate_time))
 
 manual_avoid_overflow_logarithm=opts.manual_logarithm_offset
 manual_avoid_overflow_logarithm_default =  manual_avoid_overflow_logarithm

@@ -41,6 +41,7 @@ from RIFT.likelihood.time_interp_choice import (
     interp_time_threshold,
     is_auto_request,
     is_off_request,
+    q_bandwidth_hz,
     validate_stencil_name,
 )
 
@@ -80,39 +81,83 @@ def test_gpu_threshold_is_the_looser_one():
         mid = 0.5 * (INTERP_TIME_OVERSAMPLING_THRESHOLD_CPU
                      + INTERP_TIME_OVERSAMPLING_THRESHOLD_GPU)
         srate = 4096
+        # A mass is required for the threshold to be reachable at all (without one the answer is
+        # 'cubic' by construction).  Pick one light enough that f_ISCO exceeds fmax, so the Q
+        # bandwidth is fmax and the oversampling factor is exactly `mid`.
+        m_light = 1.0
         fmax = (srate / 2.0) / mid
-        s_cpu, _, _ = choose_time_interp_stencil(srate, fmax, on_gpu=False)
-        s_gpu, _, _ = choose_time_interp_stencil(srate, fmax, on_gpu=True)
+        assert q_bandwidth_hz(fmax, m_light) == fmax, "test setup: f_ISCO must exceed fmax here"
+        s_cpu, _, _ = choose_time_interp_stencil(srate, fmax, on_gpu=False, m_total_msun=m_light)
+        s_gpu, _, _ = choose_time_interp_stencil(srate, fmax, on_gpu=True, m_total_msun=m_light)
         assert (s_cpu, s_gpu) == ('cubic', 'sinc'), \
             "at fNyq/fmax=%.2f expected CPU->cubic, GPU->sinc, got %r/%r" % (mid, s_cpu, s_gpu)
         print("at fNyq/fmax=%.2f: CPU->%s, GPU->%s (backend changes the answer): OK"
               % (mid, s_cpu, s_gpu))
 
 
-def test_real_configurations():
-    """The configurations that actually occur in this tree -- on BOTH backends."""
+def test_measured_configurations():
+    """The four configurations that were actually MEASURED against an exact reference.
+
+    These are not predictions: each row is a paired lnL comparison against an FFT-zero-padded
+    reference (study_stencil_lnL_sensitivity.py), and the stencil named is the one that won.
+    The point of this test is that the selector reproduces the measurement -- in particular that
+    a HEAVY binary at nominally-near-Nyquist settings gets 'cubic', which choosing from fmax
+    alone got badly wrong (it picked sinc, which measured 330x worse).
+    """
+    # (label, srate, fmax, M_total, measured winner, margin)
+    MEASURED = [
+        ("A-heavy 30+25", 4096, 1700, 55.0, 'cubic', "330x"),
+        ("A-light 1.3+1.3", 4096, 1700, 2.6, 'sinc', "6-11x"),
+        ("B-heavy 30+25", 16384, 512, 55.0, 'cubic', "380x"),
+        ("B-light 1.3+1.3", 16384, 512, 2.6, 'cubic', "180x"),
+    ]
     for on_gpu in (False, True):
         tag = "GPU" if on_gpu else "CPU"
-        # production: fNyq/fmax ~ 1.2, where sinc is 35-50x more accurate.  Both backends must
-        # agree here: the threshold split must not reach the regime production actually runs in.
-        stencil, ov, thr = choose_time_interp_stencil(4096, 1700, on_gpu=on_gpu)
-        print("[%s] srate 4096, fmax 1700 -> fNyq/fmax=%.2f (thr %g) -> %s"
-              % (tag, ov, thr, stencil))
-        assert stencil == 'sinc', "near-Nyquist production must get sinc on %s, got %r" % (
-            tag, stencil)
-        assert abs(ov - 4096 / 2.0 / 1700) < 1e-12
+        for label, srate, fmax, m_tot, want, margin in MEASURED:
+            got, ov, thr = choose_time_interp_stencil(
+                srate, fmax, on_gpu=on_gpu, m_total_msun=m_tot)
+            print("[%s] %-18s fNyq/f_Q=%7.2f (thr %g) -> %-6s  (measured: %s by %s)"
+                  % (tag, label, ov, thr, got, want, margin))
+            assert got == want, (
+                "%s on %s: selector says %r but %r measured better by %s. This test encodes a "
+                "MEASUREMENT, not a preference -- if the selector changed, re-measure with "
+                "study_stencil_lnL_sensitivity.py before touching this."
+                % (label, tag, got, want, margin))
 
-        # slow-rotation brute-force tests: fmax 512 at srate 16384, i.e. 16 -- cubic's regime
-        stencil, ov, _ = choose_time_interp_stencil(16384, 512, on_gpu=on_gpu)
-        print("[%s] srate 16384, fmax 512 -> fNyq/fmax=%.2f -> %s" % (tag, ov, stencil))
-        assert stencil == 'cubic', "heavily oversampled must get cubic on %s, got %r" % (
-            tag, stencil)
 
-        # a run right at the backend's own threshold takes cubic (the cheaper stencil)
-        stencil, _, _ = choose_time_interp_stencil(
-            4096, 2048 / interp_time_threshold(on_gpu), on_gpu=on_gpu)
-        assert stencil == 'cubic', "at the threshold exactly, the cheaper stencil must win"
-    print("exactly at threshold -> cubic on both backends: OK")
+def test_bandwidth_not_fmax_drives_the_choice():
+    """The specific error this replaced: fmax alone mis-selects for heavy systems.
+
+    At srate 4096 / fmax 1700 the naive factor is fNyq/fmax = 1.2 for EVERY system, so an
+    fmax-only rule picks the same stencil for a 2.6 Msun binary and a 55 Msun one.  They measured
+    opposite winners.  Assert the mass actually changes the answer, or the fix is not present.
+    """
+    s_light, ov_light, _ = choose_time_interp_stencil(4096, 1700, on_gpu=True, m_total_msun=2.6)
+    s_heavy, ov_heavy, _ = choose_time_interp_stencil(4096, 1700, on_gpu=True, m_total_msun=55.0)
+    print("same srate/fmax, different mass: 2.6 Msun -> fNyq/f_Q=%.2f -> %s ; "
+          "55 Msun -> fNyq/f_Q=%.2f -> %s" % (ov_light, s_light, ov_heavy, s_heavy))
+    assert (s_light, s_heavy) == ('sinc', 'cubic'), (
+        "mass must change the stencil at fixed srate/fmax (got %r, %r); an fmax-only rule is the "
+        "bug this replaced" % (s_light, s_heavy))
+    assert ov_heavy > ov_light, "a heavier binary must give a LARGER oversampling factor"
+
+
+def test_missing_mass_takes_the_safe_stencil():
+    """Without a mass the Q bandwidth cannot be bounded, so the answer must be 'cubic'.
+
+    The measured penalties are asymmetric -- wrongly choosing sinc cost ~330x, wrongly choosing
+    cubic ~6x -- so cubic is the safe side of an unknown, and guessing from fmax is what produced
+    the original error.
+    """
+    for on_gpu in (False, True):
+        got, ov, _ = choose_time_interp_stencil(4096, 1700, on_gpu=on_gpu, m_total_msun=None)
+        assert got == 'cubic', "no mass must give cubic on %s, got %r" % (on_gpu, got)
+        # the factor is still reported so the caller can log it, but it is the fmax-only one
+        assert ov is not None
+    for bad_mass in (0, -5, float('nan'), 'heavy'):
+        got, _, _ = choose_time_interp_stencil(4096, 1700, on_gpu=True, m_total_msun=bad_mass)
+        assert got == 'cubic', "malformed mass %r must give cubic, got %r" % (bad_mass, got)
+    print("missing/malformed mass -> cubic on both backends: OK")
 
 
 def test_bad_inputs_fall_back_to_cubic():
@@ -121,7 +166,8 @@ def test_bad_inputs_fall_back_to_cubic():
         for srate, fmax in ((None, 1700), (4096, None), (4096, 0), (0, 1700),
                             ('nonsense', 1700), (4096, -100), (float('nan'), 1700),
                             (float('inf'), 1700)):
-            stencil, ov, thr = choose_time_interp_stencil(srate, fmax, on_gpu=on_gpu)
+            stencil, ov, thr = choose_time_interp_stencil(
+                srate, fmax, on_gpu=on_gpu, m_total_msun=2.6)
             assert stencil == 'cubic', \
                 "srate=%r fmax=%r must fall back to cubic, got %r" % (srate, fmax, stencil)
             # the threshold must still be reported, or the caller's log line cannot be written
@@ -129,7 +175,7 @@ def test_bad_inputs_fall_back_to_cubic():
     print("malformed srate/fmax fall back to cubic on both backends: OK")
 
     # ...but a valid pair must NOT report None for the factor, or the log line lies
-    _, ov, _ = choose_time_interp_stencil(4096, 1700)
+    _, ov, _ = choose_time_interp_stencil(4096, 1700, m_total_msun=2.6)
     assert ov is not None
 
 
@@ -176,9 +222,12 @@ def test_effective_srate_tracks_what_the_run_actually_uses():
 
     # --srate-internal wins, and it must flip the answer in the case that motivated this
     assert effective_srate_for_stencil(4096, 32768, True) == 32768
-    s_naive, ov_naive, _ = choose_time_interp_stencil(4096, 1700, on_gpu=True)
+    # a light binary, so the Q bandwidth is fmax and the srate is what moves the answer
+    m_light = 2.6
+    s_naive, ov_naive, _ = choose_time_interp_stencil(
+        4096, 1700, on_gpu=True, m_total_msun=m_light)
     s_true, ov_true, _ = choose_time_interp_stencil(
-        effective_srate_for_stencil(4096, 32768, True), 1700, on_gpu=True)
+        effective_srate_for_stencil(4096, 32768, True), 1700, on_gpu=True, m_total_msun=m_light)
     print("srate 4096 + --srate-internal 32768, fmax 1700: naive fNyq/fmax=%.2f -> %s ; "
           "true fNyq/fmax=%.2f -> %s" % (ov_naive, s_naive, ov_true, s_true))
     assert (s_naive, s_true) == ('sinc', 'cubic'), (
@@ -238,7 +287,9 @@ def test_choices_agree_with_the_likelihood_module():
 if __name__ == "__main__":
     test_thresholds_match_measured_crossover()
     test_gpu_threshold_is_the_looser_one()
-    test_real_configurations()
+    test_measured_configurations()
+    test_bandwidth_not_fmax_drives_the_choice()
+    test_missing_mass_takes_the_safe_stencil()
     test_bad_inputs_fall_back_to_cubic()
     test_legacy_true_still_means_auto()
     test_off_spellings_disable_rather_than_raise()
