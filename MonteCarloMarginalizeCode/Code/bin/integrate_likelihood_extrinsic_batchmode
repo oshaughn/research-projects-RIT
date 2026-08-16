@@ -457,13 +457,26 @@ def _truthy_option(value):
         return False
     return str(value).strip().lower() in ("1", "true", "t", "yes", "y", "on")
 
+_TI_LEGACY_BOOLEAN = ("1", "true", "t", "yes", "y", "on",
+                      "0", "false", "f", "no", "n", "off", "none")
 _ti_raw = str(opts.interpolate_time).strip().lower()
 if _ti_raw in ("nearest", "cubic", "sinc"):
     # explicit stencil name
     opts._noloop_time_interp = _ti_raw
-else:
+elif _ti_raw in _TI_LEGACY_BOOLEAN:
     # legacy boolean: truthy meant cubic
     opts._noloop_time_interp = "cubic" if _truthy_option(opts.interpolate_time) else "nearest"
+else:
+    # Anything else is a typo, and it must NOT be absorbed.  Before this check a misspelled
+    # stencil ('sinK', 'lanczos') was simply non-truthy and so ran 'nearest' -- a silent change
+    # of the likelihood's time discretization, invisible in the log and indistinguishable from a
+    # run that never asked for interpolation at all.  Now that the helper writes a resolved
+    # stencil NAME onto every --interpolate-time command line, a typo there has to be loud.
+    raise ValueError(
+        "--interpolate-time: unrecognised value %r. Use a stencil name (nearest|cubic|sinc) or "
+        "a legacy boolean (%s)." % (opts.interpolate_time, "|".join(_TI_LEGACY_BOOLEAN)))
+print(" Q_lm sub-sample time stencil: {} (from --interpolate-time {!r})".format(
+    opts._noloop_time_interp, opts.interpolate_time))
 
 if opts.rotation_slow:
     # Path A/B slow-rotation: wired into BOTH the CPU-vectorized and GPU (xpy) branches; the
