@@ -116,6 +116,14 @@ RETIRED_AUTO_TOKENS = ('true', '1', 'yes', 'auto')
 # it can be rejected with an actionable message.
 BARE_FLAG_SENTINEL = '__bare__'
 
+# The one-line crossover statement, duplicated verbatim into every user-facing help string that
+# advises on stencil choice.  Defined here so the duplication is CHECKABLE: test_interpolate_time_cli
+# asserts each entry point's --help contains this exact text, which is what stops one copy drifting
+# (an earlier revision left util_RIFT_pseudo_pipe.py recommending the pre-IMR "cubic unless below
+# ~4 Msun", i.e. the measurably worse stencil across roughly 4-20 Msun, while the others were right).
+CROSSOVER_GUIDANCE = "the crossover is between 20 and 35 Msun"
+
+
 
 def is_off_request(value):
     """True if this --internal-ile-interpolate-time value means "disabled"."""

@@ -240,6 +240,13 @@ jobs:
         # so it belongs here: it is what stops cubic/sinc being routed to the fused calibration
         # kernel, which is implemented for 'nearest' only.
         #
+        # test_interpolate_time_cli runs the three scripts as real SUBPROCESSES (~30 s). That
+        # cost is the point: the unit tests exercise the resolver and the gate predicate, but
+        # neither can see whether the SCRIPTS are still wired to them. Reverting a parser to
+        # const=None, or deleting a script's resolver call, leaves every unit test green while
+        # restoring a bare flag that silently does nothing. All three mutations were checked to
+        # fail these tests before they landed.
+        #
         # The GPU parity files (test_q_window_interp_gpu, test_noloop_gpu_stencils) are
         # deliberately NOT here -- there is no GPU on these runners, and they would report as
         # skipped.  They are run by hand on a GPU node; the numbers are in PR #97.
@@ -248,7 +255,8 @@ jobs:
             MonteCarloMarginalizeCode/Code/RIFT/likelihood/test_q_window_interp.py \
             MonteCarloMarginalizeCode/Code/RIFT/likelihood/test_time_interp_choice.py \
             MonteCarloMarginalizeCode/Code/RIFT/likelihood/test_calmarg_stencil_gating.py \
-            MonteCarloMarginalizeCode/Code/RIFT/misc/test_psd_bandwidth.py
+            MonteCarloMarginalizeCode/Code/RIFT/misc/test_psd_bandwidth.py \
+            MonteCarloMarginalizeCode/Code/RIFT/likelihood/test_interpolate_time_cli.py
 
   lisa-check:
     needs: install

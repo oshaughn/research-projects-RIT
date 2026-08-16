@@ -181,29 +181,62 @@ def test_quieter_high_frequency_noise_widens_the_band():
         prev = bw
 
 
-def test_fallback_after_unreadable_psd_keeps_preference_order():
-    """A malformed PREFERRED PSD must fall back by PREFERENCE, not by dict insertion order.
+def test_fallback_after_unreadable_psd_returns_the_preferred_READABLE_detector():
+    """The requested scenario: H1 MALFORMED while both L1 and V1 are READABLE -> must return L1.
 
-    {'H1': malformed, 'V1': readable, 'L1': readable} must reach L1, never V1.  Iterating the
-    mapping picks whichever key comes first, which for that example is Virgo -- silently
-    violating the module's representative-detector invariant precisely when a file is bad, i.e.
-    exactly when nobody is watching.  Asserted for BOTH insertion orders so a dict that happens
-    to be ordered favourably cannot hide it.
+    An earlier version of this test made every _read_psd call fail and only checked the order of
+    attempts.  That is not the same claim: it never established which detector is actually USED,
+    which is the invariant ("not Virgo unless V-only") the fallback was violating.  Here the
+    siblings really do return usable data, so the assertion is on the RESULT.
+
+    Asserted across insertion orders, because the original bug was that the fallback followed
+    dict order -- a dict that happens to be ordered favourably would hide it.
     """
     import RIFT.misc.psd_bandwidth as mod
+
+    df = 0.25
+    freqs = np.arange(df, 2048.0 + df, df)
+    # distinguishable curves, so a wrong pick would also change the number
+    curves = {'L1': 1e-46 * (1.0 + (freqs / 800.0) ** 2),
+              'V1': 1e-45 * (1.0 + (freqs / 200.0) ** 2)}   # noisier, and rolls off sooner
+
     orig = mod._read_psd
     try:
-        for order in (['H1', 'V1', 'L1'], ['H1', 'L1', 'V1'], ['V1', 'H1', 'L1']):
-            tried = []
-            mod._read_psd = lambda path, ifo, _t=tried: (_t.append(ifo), None)[1]
-            mod.estimate_signal_bandwidth(
-                dict((k, '/nonexistent/%s.xml.gz' % k) for k in order),
-                20.0, 1700.0, m_total_msun=30.0)
-            print("insertion %-18s -> tried %s" % (order, tried))
-            assert tried[0] == 'H1', "H1 must be tried first, got %s" % tried
-            assert tried.index('L1') < tried.index('V1'), (
-                "after H1 failed, L1 must be tried before V1 (got %s) -- the fallback is "
-                "following insertion order rather than the preference list" % tried)
+        def fake_read(path, ifo):
+            if ifo == 'H1':
+                return None          # malformed / half-copied, the realistic mid-setup state
+            return (freqs, curves[ifo])
+        mod._read_psd = fake_read
+
+        results = {}
+        for order in (['H1', 'V1', 'L1'], ['H1', 'L1', 'V1'], ['V1', 'L1', 'H1']):
+            psd_names = dict((k, '/wherever/%s-psd.xml.gz' % k) for k in order)
+            bw, ifo, reason = mod.estimate_signal_bandwidth(
+                psd_names, 30.0, 1700.0, m_total_msun=20.0)
+            print("insertion %-18s -> used %s, bandwidth %s Hz"
+                  % (order, ifo, ("%.1f" % bw) if bw else None))
+            assert ifo == 'L1', (
+                "insertion order %s selected %r; with H1 unreadable and BOTH L1 and V1 readable "
+                "the representative must be L1. Selecting V1 violates the module's stated "
+                "invariant, and it happens precisely when a PSD file is bad." % (order, ifo))
+            assert bw is not None, "a readable sibling must still yield an estimate"
+            assert 'L1' in reason, "the reason line must name the detector actually used: %r" % reason
+            results[tuple(order)] = bw
+
+        # the answer must not depend on insertion order either
+        assert len(set(results.values())) == 1, \
+            "bandwidth varied with dict insertion order: %r" % results
+
+        # ...and the V1 curve really is distinguishable, so the assertion above has teeth:
+        # if V1 had been chosen the number would differ.
+        bw_v_only, ifo_v, _ = mod.estimate_signal_bandwidth(
+            {'V1': '/wherever/V1-psd.xml.gz'}, 30.0, 1700.0, m_total_msun=20.0)
+        assert ifo_v == 'V1', "a V-only network must still be answered"
+        assert abs(bw_v_only - list(results.values())[0]) > 1.0, (
+            "the L1 and V1 curves give the same bandwidth (%.1f), so 'it returned L1' is not "
+            "actually distinguishable from 'it returned V1' -- strengthen the fixture"
+            % bw_v_only)
+        print("V-only network answered with V1 (%.1f Hz), distinct from L1: OK" % bw_v_only)
     finally:
         mod._read_psd = orig
 
@@ -224,6 +257,6 @@ if __name__ == "__main__":
     test_amplitude_is_a_power_law_in_the_inspiral()
     test_signal_has_power_above_f_isco()
     test_quieter_high_frequency_noise_widens_the_band()
-    test_fallback_after_unreadable_psd_keeps_preference_order()
+    test_fallback_after_unreadable_psd_returns_the_preferred_READABLE_detector()
     test_preference_list_is_sane()
     print("\nPASS")
