@@ -69,7 +69,25 @@ _tchirp=5./256.*_mt/(_eta*(np.pi*_mt*fmin)**(8./3.))
 print("seglen=%.0fs fmin=%.0fHz chirp_time=%.1fs  FITS=%s"%(seglen,fmin,_tchirp,_tchirp<seglen))
 if _tchirp>=seglen: print("  *** WARNING: signal is TRUNCATED/WRAPPED in this segment ***")
 Pm=Psig.manual_copy(); Pm.dist=DLOUD
-hlms_fd,_=fl.internal_hlm_generator(Pm,Lmax,verbose=False,quiet=True); hlmsT=_ifft(hlms_fd)
+# GWSIGNAL path: the SEOBNRv5 family is NOT exposed through GetApproximantFromString at all,
+# only through the gwsignal generator interface -- which is also the only route that accepts
+# lmax_nyquist.  lmax_nyquist=1 disables the ringdown-vs-Nyquist check entirely (no mode has
+# l<2), which is what lets a light system run below srate 16384.  Requires a py>=3.9 env with
+# gwsignal importable (e.g. ~/.conda/envs/junior_rift); it will NOT import under RIFT_develUWM.
+# The SAME kwargs go to the precompute, so data and template use the same generator -- passing
+# them to only one would silently compare a v5 signal against a default-approximant template.
+HLM_KW={}
+if os.environ.get("GWSIG"):
+    HLM_KW=dict(use_gwsignal=True, use_gwsignal_approx=os.environ.get("GWSIG_APPROX","SEOBNRv5PHM"),
+                extra_waveform_kwargs={"lmax_nyquist":int(os.environ.get("LMAXNYQ","1"))})
+    print("gwsignal: approx=%s lmax_nyquist=%s"%(HLM_KW["use_gwsignal_approx"],
+                                                 HLM_KW["extra_waveform_kwargs"]["lmax_nyquist"]))
+if HLM_KW:
+    # pyseobnr rejects f_ref=0, which is RIFT's default.  Set it ONLY on this path so the
+    # previously measured non-gwsignal configurations are bit-for-bit unperturbed.  Both Psig
+    # (template, via the precompute) and Pm (data) get it, or they would disagree.
+    Psig.fref=fmin; Pm.fref=fmin
+hlms_fd,_=fl.internal_hlm_generator(Pm,Lmax,verbose=False,quiet=True,**HLM_KW); hlmsT=_ifft(hlms_fd)
 lm0=list(hlmsT.keys())[0]; nn=hlmsT[lm0].data.length; dt=hlmsT[lm0].deltaT; ep=float(hlmsT[lm0].epoch); tt=ep+np.arange(nn)*dt
 Sig=np.zeros(nn,complex)
 for lm in hlmsT: Sig+=hlmsT[lm].data.data*lal.SpinWeightedSphericalHarmonic(INCL,-PHIREF,-2,lm[0],lm[1])
@@ -124,7 +142,7 @@ TINTERP=os.environ.get("TINTERP","nearest")
 lnL_by_pmax={}; deficit_by_pmax={}; lnL_raw_by_pmax={}; overshoot_by_pmax={}; lnL_spline_by_pmax={}; lnL_bl_by_pmax={}
 for pmax in [0,1,2,3]:
     nh=2+pmax
-    bk=flwr.PrecomputeLikelihoodTermsWithRotation(event_time,t_window,Psig,data_dict,psd_dict,Lmax,fmax,harmonics=tuple(range(-nh,nh+1)),p_max=pmax,f_sidereal=FSID_INF,analyticPSD_Q=True,verbose=False,quiet=True,skip_interpolation=True)
+    bk=flwr.PrecomputeLikelihoodTermsWithRotation(event_time,t_window,Psig,data_dict,psd_dict,Lmax,fmax,harmonics=tuple(range(-nh,nh+1)),p_max=pmax,f_sidereal=FSID_INF,analyticPSD_Q=True,verbose=False,quiet=True,skip_interpolation=True,**HLM_KW)
     lk,rbn,ubn,vbn,epd=flwr.pack_rotation_arrays(bk[4],bk[3],bk[1],bk[2])
     _lt=flwr.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation(tvals,Pv,bk[4],lk,rbn,ubn,vbn,epd,Lmax=Lmax,array_output=True,time_interp=TINTERP)[0]
     # _peak() splines (k=4) and oversamples 32x, which can OVERSHOOT the sampled maximum and
@@ -152,6 +170,8 @@ if _out:
                    "lnL_raw_by_pmax":lnL_raw_by_pmax,"peak_overshoot_by_pmax":overshoot_by_pmax,
                    "peak_estimator":os.environ.get("PEAK","bandlimited"),
                    "lnL_spline_by_pmax":lnL_spline_by_pmax,"lnL_bandlimited_by_pmax":lnL_bl_by_pmax,
-                   "approx":os.environ.get("APPROX","IMRPhenomD"),"seglen":float(seglen),"fmin":float(fmin),"chirp_time":float(_tchirp),"signal_fits":bool(_tchirp<seglen),"fmax":float(fmax),
+                   "approx":(HLM_KW.get("use_gwsignal_approx") or os.environ.get("APPROX","IMRPhenomD")),
+                   "lmax_nyquist":HLM_KW.get("extra_waveform_kwargs",{}).get("lmax_nyquist"),
+                   "epoch_s":float(ep),"peak_frac":float(int(np.argmax(np.abs(Sig)))/float(nn)),"seglen":float(seglen),"fmin":float(fmin),"chirp_time":float(_tchirp),"signal_fits":bool(_tchirp<seglen),"fmax":float(fmax),
                    "m1":float(Psig.m1/lal.MSUN_SI),"m2":float(Psig.m2/lal.MSUN_SI)},_fh,indent=2)
     print("wrote %s"%_out)
