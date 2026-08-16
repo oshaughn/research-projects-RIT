@@ -175,11 +175,11 @@ RULES = [
      "--portfolio-varaha-can-freeze wins over --portfolio-varaha-never-freeze, as there."),
 
     # ------------------------------------------------------------------- NF flow plumbing
-    (r"^OPTION:--nf-flow-(load|save)$", "PORTED",
-     "Normalizing-flow persistence. Neither driver lists an NF method in ok_lnL_methods "
-     "(identical lists), so NF is reached only as a portfolio member -- equally "
-     "available to LISA. Both hooks are hasattr-guarded, so they are a no-op for every "
-     "other sampler."),
+    (r"^OPTION:--nf-flow-(load|save)$", "PORT",
+     "Normalizing-flow persistence is detector-agnostic, but the LISA portfolio factory "
+     "currently constructs only AV, GMM, and adaptive_cartesian_gpu members. Port the NF "
+     "member construction and route load/save to that member before exposing these flags; "
+     "hooks on the portfolio aggregate are a silent no-op because it has no flow API."),
 
     # --------------------------------------------------------- extrinsic proposal handoff
     (r"^OPTION:--extrinsic-proposal-output$", "PORT",

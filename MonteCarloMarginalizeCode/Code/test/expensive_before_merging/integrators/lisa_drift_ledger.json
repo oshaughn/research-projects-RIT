@@ -305,6 +305,14 @@
       "decision": "NA",
       "reason": "The .dslice export and its placement/tuning knobs. This is a data product for a downstream LIGO CIP distance workflow that the LISA pipeline does not run; there is no consumer. If a LISA distance workflow is ever built, note that the .dslice reweight core was the third Finding-2 site and must not be revived in its pre-#87 form."
     },
+    "OPTION:--nf-flow-load": {
+      "decision": "PORT",
+      "reason": "Normalizing-flow persistence is detector-agnostic, but the LISA portfolio factory currently constructs only AV, GMM, and adaptive_cartesian_gpu members. Port the NF member construction and route load/save to that member before exposing these flags; hooks on the portfolio aggregate are a silent no-op because it has no flow API."
+    },
+    "OPTION:--nf-flow-save": {
+      "decision": "PORT",
+      "reason": "Normalizing-flow persistence is detector-agnostic, but the LISA portfolio factory currently constructs only AV, GMM, and adaptive_cartesian_gpu members. Port the NF member construction and route load/save to that member before exposing these flags; hooks on the portfolio aggregate are a silent no-op because it has no flow API."
+    },
     "OPTION:--random-event": {
       "decision": "PORT",
       "reason": "Pick a random event from the input file. Detector-agnostic; flagged dangerous in its own help text for oversampling reasons that apply equally to LISA."

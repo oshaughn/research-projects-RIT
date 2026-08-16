@@ -398,6 +398,7 @@ def test_accepted_warm_pass_replaces_the_cold_result():
     s.warm_rvs = _rec([0.0, 0.0])         # same lnZ -> no evidence of loss
     out = _run(H, s)
     assert out == ('R2', 'V2', 42.0, {'warm': True})
+    assert s._av_state_reuse_safe is True
 
 
 def test_warm_pass_far_below_cold_is_rejected_and_cold_is_restored():
@@ -412,6 +413,18 @@ def test_warm_pass_far_below_cold_is_rejected_and_cold_is_restored():
     assert out == ('R1', 'V1', 1.0, {'cold': True}), "the warm pass was not rejected"
     assert s._warm_seed_reserve == {'tag': 'cold'}, "the reserve did not come back (Finding 5)"
     assert np.allclose(s._rvs['log_integrand'], cold['log_integrand'])
+    assert s._av_state_reuse_safe is False, "the rejected warm grid could be persisted"
+
+
+def test_a_later_healthy_event_resets_the_state_save_veto():
+    """Sampler objects are reused; an earlier rejection must not poison later state saves."""
+    H = _load()
+    s = _Sampler(rvs=_rec([0.0, 0.0]), integrate_result=('R2', 'V2', 42.0, {}))
+    s.warm_rvs = _rec([-20.0, -20.0])
+    _run(H, s)  # rejected warm pass
+    assert s._av_state_reuse_safe is False
+    _run(H, s, neff=42.0)  # healthy next event; returns before attempting a rescue
+    assert s._av_state_reuse_safe is True
 
 
 def test_reject_message_reports_lnZ_on_the_events_offset_scale(capsys):
@@ -469,6 +482,7 @@ def test_a_raising_warm_pass_restores_the_cold_state():
     assert np.allclose(s._rvs['log_integrand'], cold['log_integrand']), \
         "cold diagnostics were reported beside a warm export"
     assert s._warm_seed_reserve == {'tag': 'cold'}
+    assert s._av_state_reuse_safe is False, "the failed warm grid could be persisted"
 
 
 def test_rescue_clears_warm_state_afterwards():

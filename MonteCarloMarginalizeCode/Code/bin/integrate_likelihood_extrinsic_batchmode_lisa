@@ -306,9 +306,8 @@ integration_params.add_option("--internal-use-lnL",action='store_true',help="lik
 integration_params.add_option("--sampler-method",default="adaptive_cartesian_gpu",help="adaptive_cartesian|GMM|adaptive_cartesian_gpu")
 integration_params.add_option("--sampler-portfolio",default=None,action='append',type=str,help="comma-separated strings, matching sampler methods other than portfolio")
 integration_params.add_option("--sampler-portfolio-args",default=None, action='append', type=str, help='eval-able dictionaryo to be passed to that sampler')
-# Portfolio freeze/allocation policy and NF flow persistence.  Pure pass-through to the
-# shared samplers, which this driver already wires (identical ok_lnL_methods).  Definitions
-# copied verbatim from bin/integrate_likelihood_extrinsic_batchmode; pinned by
+# Portfolio freeze/allocation policy.  Pure pass-through to the shared portfolio sampler.
+# Definitions copied verbatim from bin/integrate_likelihood_extrinsic_batchmode; pinned by
 # test_lisa_sampler_plumbing.py.
 integration_params.add_option("--portfolio-adaptive-alloc",action='store_true',default=False,help="Portfolio: ENABLE (opt-in) adaptive-probe draw allocation -- concentrate draws on the best per-chunk-n_ess member. Good on strongly-correlated targets; NOT recommended for AV-favorable high-SNR events (it starves the slow-contracting AV workhorse). Off by default (legacy n_ess reweighting).")
 integration_params.add_option("--portfolio-alloc-exponent",default=None,type=float,help="Portfolio: adaptive allocation ~ member_quality^exponent. Higher concentrates harder on the winner. Sampler default 1.0.")
@@ -322,8 +321,6 @@ integration_params.add_option("--portfolio-varaha-max-frac",default=None,type=fl
 integration_params.add_option("--portfolio-varaha-min-frac",default=None,type=float,help="Portfolio: reserve this combined DRAW fraction for VARAHA/AV members (0/unset = off). never-freeze keeps a VARAHA member UPDATING, but both allocation rules score by per-chunk n_ess, which sits at ~1 during VARAHA's slow cumulative contraction -- so a member that looks instantly good can take nearly the whole budget (measured on S250114ax post-#33: GMM took ~0.84 and the portfolio collapsed to n_eff ~2 vs ~100 for standalone AV). Unbiased for any allocation (q_mix); trades efficiency only.")
 integration_params.add_option("--portfolio-varaha-never-freeze",action='store_true',default=False,help="Portfolio: VARAHA/AV members always update every chunk past their breakpoint (freeze-exempt). This is the sampler default; the flag is here for explicitness/pipe pass-through.")
 integration_params.add_option("--portfolio-weight-clip",default=None,type=float,help="Portfolio: OPT-IN truncated importance sampling applied to the PROPOSAL-FIT INPUT ONLY. Caps the weights fed to member.update_sampling_prior (the GMM covariance fit) at tau = C*sqrt(n)*mean(w) (0/unset = off; C~1 is the standard Ionides choice), so one enormous weight cannot make that fit degenerate. The estimator (ln Z, n_eff), the n_ess report, and the allocation signal all use the TRUE unclipped weights, so they stay exactly unbiased and undistorted. Do NOT clip the estimator (measured on S250114ax: n_eff=100 2x faster than AV but ln Z biased -11.5 nats) or the n_ess report (clipping inflates the clipped member's n_ess and starves the AV workhorse). The withheld tail mass is tracked and reported as a diagnostic. NOTE: if huge weights come from q_mix UNDERFLOW (watch for the warning) they are a numerical artifact, not tail mass.")
-integration_params.add_option("--nf-flow-load",default=None,help="NF only: load a pre-trained normalizing flow (.pt from --nf-flow-save); with --n-adapt 0 this reuses it directly (skips training), otherwise it is polished.")
-integration_params.add_option("--nf-flow-save",default=None,help="NF only: after integration, serialize the trained normalizing flow (.pt) for reuse across ILE instances.")
 integration_params.add_option("--sampler-xpy",default=None,help="numpy|cupy  if the adaptive_cartesian_gpu sampler is active, use that.")
 # AV live-volume state, per-axis bin allocation, and the collapse gate.  Copied verbatim
 # from bin/integrate_likelihood_extrinsic_batchmode; pinned by test_lisa_av_state.py.
@@ -1732,6 +1729,9 @@ def _maybe_load_av_state(sampler):
 def _maybe_save_av_state(sampler):
     """Persist the adapted live-volume state for reuse by later instances/iterations."""
     if opts.sampler_method == 'AV' and opts.sampler_save_state and hasattr(sampler, 'save_state'):
+        if not getattr(sampler, '_av_state_reuse_safe', True):
+            print("  AV: not saving live-volume state from a rejected/failed rescue")
+            return
         try:
             sampler.save_state(opts.sampler_save_state)
             print("  AV: saved live-volume state to", opts.sampler_save_state)
@@ -1781,30 +1781,6 @@ def _report_and_gate_collapse(dict_return, stage="first run"):
     _reject_if_collapsed(dict_return, stage)
 
 
-def _maybe_load_nf_flow(sampler):
-    """Warm-load a pre-trained normalizing flow so this instance skips/shortens training.
-
-    hasattr-guarded, so it is a no-op for every sampler that is not NF -- including all five
-    this driver lists in ok_lnL_methods, where NF is reachable only as a portfolio member.
-    """
-    if opts.nf_flow_load and hasattr(sampler, 'load_flow'):
-        try:
-            print("  NF: loading pre-trained flow from", opts.nf_flow_load)
-            sampler.load_flow(opts.nf_flow_load)
-        except Exception as _e_nf:
-            print("  NF flow load skipped (", _e_nf, ")")
-
-
-def _maybe_save_nf_flow(sampler):
-    """Serialize the trained flow for reuse across ILE instances.  hasattr-guarded as above."""
-    if opts.nf_flow_save and hasattr(sampler, 'save_flow'):
-        try:
-            sampler.save_flow(opts.nf_flow_save)
-            print("  NF: saved trained flow to", opts.nf_flow_save)
-        except Exception as _e_fs:
-            print("  NF: could not save flow (", _e_fs, ")")
-
-
 def _maybe_l0_rescue(sampler, res, var, neff, dict_return,
                      like_to_integrate, unpinned_params, pinned_params,
                      lnL_offset=0.0):
@@ -1823,6 +1799,9 @@ def _maybe_l0_rescue(sampler, res, var, neff, dict_return,
     `lnL_offset` is this event's manual_avoid_overflow_logarithm, used only to print absolute
     lnZ values.  It is a local of the caller in both analyze_event variants, hence a parameter.
     """
+    # Reset per event before ANY early return.  The sampler is reused: a rejected rescue on
+    # one event must not suppress saving a later healthy event that needs no rescue at all.
+    sampler._av_state_reuse_safe = True
     # APPLICABILITY FIRST, then n_eff.  The main driver evaluates
     #     _neff_val = None if neff is None else float(sampler.identity_convert(neff))
     # BEFORE its guard, which is safe there only by luck: identity_convert comes from
@@ -1953,6 +1932,7 @@ def _maybe_l0_rescue(sampler, res, var, neff, dict_return,
                     # the warm pass's record while _rvs, the estimate and the diagnostics all
                     # describe the cold one.  Nothing reads it in this driver today.
                     res, var, neff, dict_return = _restore_pass_state(sampler, _cold_state_l0)
+                    sampler._av_state_reuse_safe = False
             _clear_warm_state(sampler)
     except Exception as _e_l0:
         # "skipped" is only true if the warm pass never started.  If it raised PARTWAY THROUGH
@@ -1968,6 +1948,7 @@ def _maybe_l0_rescue(sampler, res, var, neff, dict_return,
                   " samples; restoring the COLD pass so the reported diagnostics and the"
                   " exported samples describe the same integral.")
             res, var, neff, dict_return = _restore_pass_state(sampler, _cold_state_l0)
+            sampler._av_state_reuse_safe = False
         _clear_warm_state(sampler)
     return res, var, neff, dict_return
 
@@ -2201,8 +2182,6 @@ def analyze_event_LISA(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_
 
     _maybe_load_av_state(sampler)
     _maybe_enable_anisotropic_bins(sampler)
-    _maybe_load_nf_flow(sampler)
-
     res, var, neff, dict_return = sampler.integrate(like_to_integrate, *unpinned_params, **pinned_params)
 
     # L0 auto-rescue: on a very sharply-peaked (high-amplitude) point a cold AV can stall at
@@ -2216,14 +2195,15 @@ def analyze_event_LISA(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_
         like_to_integrate, unpinned_params, pinned_params,
         lnL_offset=manual_avoid_overflow_logarithm)
 
-    _maybe_save_av_state(sampler)
-    _maybe_save_nf_flow(sampler)
-
     if not(res): # no resut
       raise ValueError(" No integral result returned")
 
     # Collapse gate AFTER the result check, matching the main driver's ordering.
     _report_and_gate_collapse(dict_return, "first run")
+    # Persist only a result we are actually willing to report.  In particular, never write
+    # a collapsed grid that --reject-collapsed-live-volume just rejected, nor a warm grid
+    # whose rescue result was rejected/failed and replaced by the cold estimate.
+    _maybe_save_av_state(sampler)
 
     if not(opts.internal_use_lnL):
       log_res = numpy.log(res)
@@ -2927,8 +2907,6 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_spec_
 
     _maybe_load_av_state(sampler)
     _maybe_enable_anisotropic_bins(sampler)
-    _maybe_load_nf_flow(sampler)
-
     res, var, neff, dict_return = sampler.integrate(like_to_integrate, *unpinned_params, **pinned_params)
 
     # L0 auto-rescue: on a very sharply-peaked (high-amplitude) point a cold AV can stall at
@@ -2942,14 +2920,13 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_spec_
         like_to_integrate, unpinned_params, pinned_params,
         lnL_offset=manual_avoid_overflow_logarithm)
 
-    _maybe_save_av_state(sampler)
-    _maybe_save_nf_flow(sampler)
-
     if not(res): # no resut
       raise ValueError(" No integral result returned")
 
     # Collapse gate AFTER the result check, matching the main driver's ordering.
     _report_and_gate_collapse(dict_return, "first run")
+    # See the LISA variant above: only persist accepted, reusable AV state.
+    _maybe_save_av_state(sampler)
 
     if not(opts.internal_use_lnL):
       log_res = numpy.log(res)

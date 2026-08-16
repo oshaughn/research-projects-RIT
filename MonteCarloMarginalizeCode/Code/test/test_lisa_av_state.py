@@ -131,6 +131,16 @@ def test_save_state_is_restricted_to_the_AV_method():
     assert s.saved is None
 
 
+def test_rejected_or_failed_rescue_state_is_not_saved(capsys):
+    """The warm grid may outlive restoration of the cold result; never persist that mismatch."""
+    ns = _load(sampler_save_state="/out.npz")
+    s = _AV()
+    s._av_state_reuse_safe = False
+    ns['_maybe_save_av_state'](s)
+    assert s.saved is None
+    assert "not saving" in capsys.readouterr().out
+
+
 def test_state_hooks_tolerate_a_sampler_without_state_support():
     ns = _load(sampler_load_state="/in.npz", sampler_save_state="/out.npz")
     ns['_maybe_load_av_state'](_NoState())
@@ -260,18 +270,18 @@ def test_both_analyze_event_variants_get_every_hook():
 
 
 def test_hook_ordering_at_both_call_sites():
-    """load/aniso before the integration, save after it, the gate after the result check."""
+    """Only a nonempty, collapse-approved result may persist its live-volume state."""
     src = _src(_LISA)
     pos = 0
     for _ in range(2):
         load = src.index("_maybe_load_av_state(sampler)", pos)
         aniso = src.index("_maybe_enable_anisotropic_bins(sampler)", load)
         integ = src.index("sampler.integrate(like_to_integrate", aniso)
-        save = src.index("_maybe_save_av_state(sampler)", integ)
-        guard = src.index("if not(res): # no resut", save)
+        guard = src.index("if not(res): # no resut", integ)
         gate = src.index("_report_and_gate_collapse(dict_return", guard)
-        assert load < aniso < integ < save < guard < gate
-        pos = gate + 1
+        save = src.index("_maybe_save_av_state(sampler)", gate)
+        assert load < aniso < integ < guard < gate < save
+        pos = save + 1
 
 
 def test_the_second_gate_call_site_is_recorded_as_missing():

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """
-Tests for the portfolio freeze/allocation policy and NF flow persistence ported into the
-LISA ILE driver (bin/integrate_likelihood_extrinsic_batchmode_lisa).
+Tests for the portfolio freeze/allocation policy ported into the LISA ILE driver
+(bin/integrate_likelihood_extrinsic_batchmode_lisa).
 
 This is pure PASS-THROUGH plumbing to samplers the LISA driver already wires -- it exposes
 the same ``ok_lnL_methods`` as the main driver (``GMM, adaptive_cartesian,
@@ -17,7 +17,6 @@ WHAT CAN ACTUALLY GO WRONG HERE, and is therefore what these tests check:
     own default with nothing.  The assembly's whole shape -- ``if opts.x is not None`` --
     exists for that, and a single dropped guard is invisible until a run behaves oddly.
   * the two mutually-exclusive VARAHA flags resolving the wrong way round.
-  * an NF hook that is not hasattr-guarded, which would break every non-NF sampler.
 
 The freeze-policy assembly is inline in both drivers (not a function), so it is exercised
 here by extracting the block and exec'ing it against a fake ``opts``.  That tests the real
@@ -42,7 +41,6 @@ PORTFOLIO_OPTS = [
     "--portfolio-varaha-max-frac", "--portfolio-varaha-min-frac",
     "--portfolio-varaha-never-freeze", "--portfolio-weight-clip",
 ]
-NF_OPTS = ["--nf-flow-load", "--nf-flow-save"]
 
 
 def _src(path):
@@ -84,13 +82,13 @@ def opts_main():
 
 
 # ------------------------------------------------------------------------------ presence
-@pytest.mark.parametrize("opt", PORTFOLIO_OPTS + NF_OPTS)
+@pytest.mark.parametrize("opt", PORTFOLIO_OPTS)
 def test_option_is_present_in_the_lisa_driver(opt, opts_lisa):
     assert opt in opts_lisa
 
 
 # ------------------------------------------------------------------------------- defaults
-@pytest.mark.parametrize("opt", PORTFOLIO_OPTS + NF_OPTS)
+@pytest.mark.parametrize("opt", PORTFOLIO_OPTS)
 def test_option_signature_matches_the_main_driver(opt, opts_lisa, opts_main):
     """Same default, same type, same action.
 
@@ -223,109 +221,3 @@ def test_assembly_result_is_actually_handed_to_setup():
     """Building the dict and not passing it would be a silent no-op."""
     src = _src(_LISA)
     assert "sampler.setup(portfolio_args=opts.sampler_portfolio_args, **_freeze_policy_kwargs" in src
-
-
-# ------------------------------------------------------------------------------- NF hooks
-def _fn(path, name):
-    for n in ast.parse(_src(path)).body:
-        if isinstance(n, ast.FunctionDef) and n.name == name:
-            return n
-    raise AssertionError("%s not found in %s" % (name, os.path.basename(path)))
-
-
-def _load_nf(**optkw):
-    ns = {"opts": type("O", (), dict({"nf_flow_load": None, "nf_flow_save": None}, **optkw))()}
-    mod = ast.Module(body=[_fn(_LISA, '_maybe_load_nf_flow'), _fn(_LISA, '_maybe_save_nf_flow')],
-                     type_ignores=[])
-    exec(compile(ast.fix_missing_locations(mod), "nf", "exec"), ns)
-    return ns
-
-
-class _NoFlow(object):
-    """A sampler with no flow support -- i.e. every sampler in ok_lnL_methods."""
-
-
-class _WithFlow(object):
-    def __init__(self):
-        self.loaded = self.saved = None
-
-    def load_flow(self, path):
-        self.loaded = path
-
-    def save_flow(self, path):
-        self.saved = path
-
-
-def test_nf_hooks_are_noops_when_the_options_are_unset():
-    ns = _load_nf()
-    s = _WithFlow()
-    ns['_maybe_load_nf_flow'](s)
-    ns['_maybe_save_nf_flow'](s)
-    assert s.loaded is None and s.saved is None
-
-
-def test_nf_hooks_are_noops_for_a_sampler_without_flow_support(capsys):
-    """hasattr-guarded: must DECLINE for AV/GMM/portfolio/adaptive_cartesian.
-
-    Asserting "does not raise" is not enough and an earlier version of this test made
-    exactly that mistake: the body is wrapped in `except Exception`, so dropping the
-    hasattr guard still does not raise -- it announces "loading pre-trained flow", calls a
-    method that does not exist, and swallows the AttributeError.  Every non-NF run would
-    then log a flow load that never happened.  So the observable property is that the hook
-    says NOTHING and touches nothing when the sampler has no flow support.
-    """
-    ns = _load_nf(nf_flow_load="/x/flow.pt", nf_flow_save="/x/flow.pt")
-    capsys.readouterr()
-    ns['_maybe_load_nf_flow'](_NoFlow())
-    ns['_maybe_save_nf_flow'](_NoFlow())
-    out = capsys.readouterr().out
-    assert "NF" not in out, (
-        "the hook engaged a sampler with no flow support (and the except swallowed it): %r" % out)
-
-
-def test_nf_load_and_save_reach_a_flow_capable_sampler():
-    ns = _load_nf(nf_flow_load="/in.pt", nf_flow_save="/out.pt")
-    s = _WithFlow()
-    ns['_maybe_load_nf_flow'](s)
-    ns['_maybe_save_nf_flow'](s)
-    assert s.loaded == "/in.pt" and s.saved == "/out.pt"
-
-
-def test_nf_failures_do_not_abort_the_event():
-    """A missing/corrupt flow file must degrade to a cold run, not kill the point."""
-    ns = _load_nf(nf_flow_load="/in.pt", nf_flow_save="/out.pt")
-
-    class _Boom(object):
-        def load_flow(self, p):
-            raise IOError("no such file")
-
-        def save_flow(self, p):
-            raise IOError("read-only")
-
-    ns['_maybe_load_nf_flow'](_Boom())
-    ns['_maybe_save_nf_flow'](_Boom())
-
-
-# ------------------------------------------------------------------------ call-site wiring
-def test_both_analyze_event_variants_get_the_nf_hooks():
-    """This driver has two; wiring only one is a silent half-port."""
-    tree = ast.parse(_src(_LISA))
-    fns = {n.name: n for n in tree.body
-           if isinstance(n, ast.FunctionDef) and n.name in ('analyze_event', 'analyze_event_LISA')}
-    assert set(fns) == {'analyze_event', 'analyze_event_LISA'}
-    for name, node in fns.items():
-        called = {c.func.id for c in ast.walk(node)
-                  if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)}
-        assert '_maybe_load_nf_flow' in called, "%s never loads the flow" % name
-        assert '_maybe_save_nf_flow' in called, "%s never saves the flow" % name
-
-
-def test_flow_is_loaded_before_the_integration_and_saved_after():
-    src = _src(_LISA)
-    pos = 0
-    for _ in range(2):
-        load = src.index("_maybe_load_nf_flow(sampler)", pos)
-        integ = src.index("sampler.integrate(like_to_integrate", load)
-        save = src.index("_maybe_save_nf_flow(sampler)", integ)
-        assert load < integ < save, "flow load/save straddle the integration incorrectly"
-        pos = save + 1
