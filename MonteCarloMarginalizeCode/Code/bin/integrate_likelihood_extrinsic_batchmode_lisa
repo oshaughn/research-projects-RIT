@@ -1232,6 +1232,17 @@ if opts.sampler_method=="GMM"  and opts.internal_use_lnL:
 if opts.sampler_method =="adaptive_cartesian_gpu" and opts.internal_use_lnL:
   return_lnL=True
   pinned_params.update({"use_lnL":True})
+if opts.sampler_method =="AV" and opts.internal_use_lnL:
+  # AV integrates in log space natively (integrate() is a thin wrapper over integrate_log);
+  # without this, --internal-use-lnL --sampler-method AV passed the ok_lnL_methods check but
+  # silently did nothing, so exp(lnL) overflowed at high SNR when no logarithm offset was set.
+  #
+  # PORTED FROM THE MAIN DRIVER, where this branch already exists.  It was missing here, and
+  # the drift audit could not see it: a missing `if` branch is not a FUNC/OPTION/CONST/ATTR,
+  # so it produces no gap item.  High-SNR is the LISA MBHB regime, which is exactly the case
+  # the main driver's comment describes.
+  return_lnL=True
+  pinned_params.update({"use_lnL":True})
 if opts.sampler_method =="portfolio":
   return_lnL=True
   pinned_params.update({"use_lnL":True})

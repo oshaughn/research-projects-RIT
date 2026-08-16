@@ -20,4 +20,5 @@ fi
   MonteCarloMarginalizeCode/Code/test/test_lisa_l0_rescue.py \
   MonteCarloMarginalizeCode/Code/test/test_lisa_sampler_plumbing.py \
   MonteCarloMarginalizeCode/Code/test/test_lisa_av_state.py \
+  MonteCarloMarginalizeCode/Code/test/test_lisa_use_lnL_branches.py \
   MonteCarloMarginalizeCode/Code/test/test_lisa_driver_drift.py
