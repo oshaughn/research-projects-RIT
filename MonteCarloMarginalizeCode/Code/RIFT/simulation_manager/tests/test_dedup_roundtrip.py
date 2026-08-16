@@ -59,6 +59,21 @@ def test_dicts_canonicalize_regardless_of_insertion_order():
     assert hash(_safe_hashable(a)) is not None
 
 
+def test_dict_keys_survive_json_coercion_to_strings():
+    """JSON turns {1: 'x'} into {"1": "x"}. A dict lookup_key with
+    non-string keys must still land in the same bucket after a reopen,
+    so keys are compared stringified."""
+    d = {1: "x", 2: "y"}
+    restored = json.loads(json.dumps(d))
+    assert _safe_hashable(restored) == _safe_hashable(d)
+
+
+def test_dict_ordering_is_total_across_mixed_key_types():
+    """Mixed key types must not raise on sort."""
+    key = _safe_hashable({1: "a", "b": 2, 3.5: "c"})
+    assert hash(key) is not None
+
+
 def test_scalars_pass_through():
     for v in ("a", 1, 1.5, None, True):
         assert _safe_hashable(v) == v

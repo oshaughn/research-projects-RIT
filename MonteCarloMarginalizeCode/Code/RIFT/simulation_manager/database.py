@@ -98,15 +98,14 @@ def _safe_hashable(x: Any) -> Any:
     if isinstance(x, (list, tuple)):
         return tuple(_safe_hashable(v) for v in x)
     if isinstance(x, dict):
-        # Sort by the key's repr so ordering is total even for mixed
-        # key types, and stable across the JSON round-trip.
-        try:
-            return tuple(sorted(
-                ((k, _safe_hashable(v)) for k, v in x.items()),
-                key=lambda kv: repr(kv[0]),
-            ))
-        except TypeError:                            # pragma: no cover
-            return ("__unhashable__", repr(x))
+        # Keys are stringified because JSON coerces dict keys to strings:
+        # {1: 'x'} serializes to {"1": "x"}, so leaving them as-is would
+        # leave fresh and rehydrated forms disagreeing — the very failure
+        # this function exists to prevent. Stringifying also gives a
+        # total ordering across mixed key types.
+        return tuple(sorted(
+            (str(k), _safe_hashable(v)) for k, v in x.items()
+        ))
     try:
         hash(x)
         return x
