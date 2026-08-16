@@ -1148,9 +1148,18 @@ if opts.internal_ile_interpolate_time:
         # The threshold is backend-dependent, because the extra taps cost ~4.5x on CPU but only
         # ~2x on GPU, so cost breaks the near-crossover tie at a different place.  This is the
         # same flag that gates the '--vectorized --gpu' append further down, i.e. the helper's
-        # own decision about whether this job gets a GPU; if a GPU is forced in by some other
-        # route the helper cannot see it, which is benign -- it only shifts the threshold by 0.5
-        # in fNyq/fmax, and production (fNyq/fmax ~ 1.2) is nowhere near it either way.
+        # own decision about whether this job gets a GPU.
+        #
+        # BE HONEST ABOUT WHAT IS LIVE: util_RIFT_pseudo_pipe.py passes
+        # --propose-ile-convergence-options UNCONDITIONALLY, so anything built through the normal
+        # pipeline takes the GPU threshold, and the CPU one is reached only by invoking this
+        # helper directly without that flag (or by other callers of
+        # choose_time_interp_stencil).  Note that without the flag the helper also does not emit
+        # --vectorized --gpu at all, and --interpolate-time needs the NoLoop path those select --
+        # so today the CPU branch is effectively a library/future-path value, not a production
+        # one.  It is kept because the cost asymmetry that motivates it is real and measured, and
+        # because a CPU workflow would otherwise silently inherit a GPU-shaped tradeoff.
+        # Either way production sits at fNyq/fmax ~ 1.2, far below both thresholds.
         _ile_on_gpu = bool(opts.propose_ile_convergence_options)
         time_interp_choice, _oversampling, _threshold = choose_time_interp_stencil(
             srate, fmax_effective, on_gpu=_ile_on_gpu)
