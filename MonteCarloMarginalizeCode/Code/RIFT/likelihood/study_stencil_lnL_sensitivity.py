@@ -94,8 +94,8 @@ class Setup(object):
             m1=m1 * lal.MSUN_SI, m2=m2 * lal.MSUN_SI,
             detector='H1', dist=self.dist_mpc * 1e6 * lal.PC_SI, deltaT=self.deltaT,
             tref=EVENT_TIME, deltaF=self.deltaF)
-        # Approximant.  Default (None) leaves ChooseWaveformParams' own default, TaylorT4,
-        # which is what the existing slowrot tests use.  SEOBNRv4 is a TD IMR model and is
+        # Approximant.  Default (None) resolves to DEFAULT_APPROX (SEOBNRv4), the IMR model
+        # behind the shipped guidance -- NOT ChooseWaveformParams' own TaylorT4 default.  SEOBNRv4 is a TD IMR model and is
         # the reason this is an argument: TaylorT4 terminates at ISCO and has NO merger or
         # ringdown, so every feature above f_ISCO in a TaylorT4 Q spectrum is termination
         # ringing from the approximant rather than physics.
