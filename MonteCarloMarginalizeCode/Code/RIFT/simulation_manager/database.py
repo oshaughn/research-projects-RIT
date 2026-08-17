@@ -77,10 +77,23 @@ DEFAULT_LOOKUP_KEY_FILE = "lookup_key.py"
 DEFAULT_GETENV_ALLOWLIST = "LD_LIBRARY_PATH,PATH,PYTHONPATH,*RIFT*,LIBRARY_PATH"
 
 
-# Sentinel singletons used inside dedup buckets when a parameter set is
-# unhashable (lookup_key returns e.g. a dict). We fall back to the
-# string repr in that case.
-def _safe_hashable(x: Any) -> Any:
+def _freeze(x: Any) -> Any:
+    """Recursively map a JSON-shaped value onto a hashable one.
+
+    Lists and tuples collapse onto the same tuple form. Dicts become a
+    tuple of (key, frozen-value) pairs sorted by key. Anything still
+    unhashable falls back to the repr sentinel.
+    """
+    if isinstance(x, (list, tuple)):
+        return tuple(_freeze(v) for v in x)
+    if isinstance(x, dict):
+        # Sort by key alone: after _safe_hashable's JSON pass the keys
+        # are strings and unique, and sorting on the pair could otherwise
+        # try to order two frozen values of unrelated types.
+        return tuple(sorted(
+            ((str(k), _freeze(v)) for k, v in x.items()),
+            key=lambda kv: kv[0],
+        ))
     try:
         hash(x)
         return x
@@ -88,6 +101,82 @@ def _safe_hashable(x: Any) -> Any:
         return ("__unhashable__", repr(x))
 
 
+# Canonicalize a lookup_key into something hashable AND identical to what
+# comes back out of index.jsonl, because dedup buckets are rebuilt from
+# that file on every Archive construction — which makes the bucket key a
+# persisted value.
+#
+# Getting this wrong is silent: the rehydrated bucket key stops matching
+# the freshly-computed one, find_existing misses, and register() mints a
+# duplicate sim for physics the archive already holds. The caller just
+# pays twice, from the second session onward, with nothing in the logs.
+#
+# Rather than model JSON's coercion rules by hand, we run the value
+# through an actual JSON round-trip first, so the canonical form matches
+# the persisted form *by construction*. That covers, in one step, every
+# way the two could otherwise diverge:
+#
+#   * tuples, which JSON has no type for, coming back as lists;
+#   * dict keys, which JSON coerces to strings — and not via str():
+#     True/False/None serialize as "true"/"false"/"null", and float
+#     infinities as "Infinity", none of which str() reproduces;
+#   * dict keys that collide once coerced ({True: 'a', "true": 'b'}),
+#     which JSON collapses last-wins — applying the same round-trip
+#     means fresh and rehydrated agree on the survivor instead of
+#     disagreeing about how many entries there are.
+#
+# Values that JSON cannot represent at all (a tuple used as a dict key,
+# say) fall through to _freeze on the original. Such a lookup_key could
+# not have been persisted in the first place, so there is no rehydrated
+# form for it to disagree with.
+#
+# Collisions this introduces between distinct inputs — a list and the
+# equal tuple, say — are harmless: buckets only nominate same_q
+# candidates, and same_q still makes the decision.
+def _json_normalized(x: Any) -> Any:
+    """The value as it will exist after a round-trip through index.jsonl.
+
+    This is the form that must be *stored*, not merely the form used for
+    bucketing. Normalizing only at bucket time is not enough: the index
+    row keeps whatever `lookup_key` returned, and `Index._write_all`
+    serializes rows with ``sort_keys=True``. A dict key set that JSON
+    would coerce to strings is still raw at that point, so a key like
+    ``{True: 'a', 'true': 'b'}`` reaches `sorted()` as a bool beside a
+    str and raises
+
+        TypeError: '<' not supported between instances of 'str' and 'bool'
+
+    from inside `register`. Normalizing on the way in makes the stored
+    value sortable and makes persisted and canonical forms identical by
+    construction.
+    """
+    try:
+        return json.loads(json.dumps(x))
+    except (TypeError, ValueError, RecursionError):
+        return x
+
+
+def _safe_hashable(x: Any) -> Any:
+    return _freeze(_json_normalized(x))
+
+
+def _require_persistable_lookup_key(key: Any) -> Any:
+    """Normalize a lookup_key for storage, or say clearly why it cannot be.
+
+    Backends control `lookup_key`, and a value JSON cannot represent —
+    a set, a frozenset, a tuple used as a dict key — cannot live in
+    index.jsonl at all. Catching it here names the contract instead of
+    surfacing a json/sorted TypeError from deep in the write path.
+    """
+    try:
+        json.dumps(key)
+    except (TypeError, ValueError) as exc:
+        raise TypeError(
+            "lookup_key must be JSON-serializable so it can be persisted in "
+            "index.jsonl and compared after reopen; got {!r} ({}). Return a "
+            "string, number, or a list/dict of them.".format(key, exc)
+        ) from exc
+    return _json_normalized(key)
 def _reject_reserved_basename(entry: str, what: str) -> None:
     """Refuse an entry whose basename shadows a file the archive stages.
 
@@ -700,6 +789,13 @@ class Archive:
             if existing is not None:
                 self._maybe_bump_target(existing, target_level)
                 return existing
+            # Compute and validate the key BEFORE allocating a name or
+            # writing anything. Validating after the mkdir left sims/<name>/
+            # with params.json and status.json behind when the key turned
+            # out to be unpersistable — a half-registered simulation that
+            # the index has never heard of, and that the next register()
+            # will silently allocate around.
+            lk = _require_persistable_lookup_key(self._lookup_key(params))
             if name is None:
                 name = str(len(list((self.base / "sims").iterdir())) + 1)
             sd = self.sim_dir(name)
@@ -708,7 +804,6 @@ class Archive:
             (sd / "params.json").write_text(json.dumps(params) + "\n")
             rec = StatusRecord.new(name, params, target_level=target_level)
             rec.write(sd)
-            lk = self._lookup_key(params)
             self.index.upsert({"name": name, "params": params,
                                "status": "ready", "summary": None,
                                "lookup_key": lk,
@@ -1067,8 +1162,15 @@ class Archive:
                     "params": params,
                     "status": rec.data.get("status"),
                     "summary": summary,
-                    "lookup_key": (self._lookup_key(params)
-                                   if params is not None else None),
+                    # Normalized exactly as register() does. Storing the
+                    # raw key here meant an archive that registered and
+                    # reopened cleanly still blew up in rebuild_index with
+                    # the original sorted() TypeError, because _write_all
+                    # serializes rows with sort_keys=True.
+                    "lookup_key": (
+                        _require_persistable_lookup_key(
+                            self._lookup_key(params))
+                        if params is not None else None),
                     "target_level": rec.data.get("target_level", 0),
                     "current_level": rec.data.get("current_level", 0),
                 }

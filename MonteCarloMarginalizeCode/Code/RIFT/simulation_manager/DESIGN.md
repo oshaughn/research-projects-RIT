@@ -189,11 +189,38 @@ def same_q(params_a, params_b) -> bool:
     """Reflexive, symmetric, transitive equality on parameters.
     Defaults to exact equality (params_a == params_b)."""
 
-def lookup_key(params) -> Hashable:
-    """Maps params to a coarse hashable bucket for fast dedup.
+def lookup_key(params) -> "JSON-serializable":
+    """Maps params to a coarse bucket for fast dedup.
     Must be consistent with same_q: same_q(a, b) == True implies
     lookup_key(a) == lookup_key(b). Defaults to str(params)."""
 ```
+
+**`lookup_key` must be JSON-serializable, not merely hashable.** The
+bucket key is a *persisted* value — written to `index.jsonl`, with the
+dedup buckets rebuilt from that file on every `Archive` construction. So
+the real requirement is that it survive the archive's JSON normalization
+unchanged. That is both stricter and weaker than hashability: a
+`frozenset` is hashable but cannot be persisted, while a plain `list` can
+be persisted but is not hashable.
+
+The engine normalizes on the way in and canonicalizes the same way on the
+way out, so these are handled rather than silently breaking dedup:
+
+* **tuples** — JSON has no tuple type, so a tuple key returns as a list;
+  both canonicalize to the same form.
+* **dict keys** — JSON coerces them to strings, and not via `str()`:
+  `True`/`False`/`None` become `"true"`/`"false"`/`"null"`, float
+  infinities `"Infinity"`. Keys colliding once coerced
+  (`{True: 'a', "true": 'b'}`) collapse last-wins, consistently on both
+  sides.
+
+A key JSON cannot represent at all raises at `register()` with a message
+naming this contract, rather than surfacing as a `sorted()` TypeError
+from inside the index write.
+
+The safest choice is a **string**: it round-trips to itself, sorts, and
+cannot collide by coercion. RIFT's own `gw_pe_synthetic` returns a tuple,
+which the normalization handles.
 
 These together give O(1) average lookup: bucket by `lookup_key`, then
 run `same_q` against only the (typically zero or one) entries in that
