@@ -2219,7 +2219,8 @@ def _sinc_Q_window_numpy(Q_block, start_indices, fractional_offsets, npts,
     fNyq/FMAX and is NOT directly usable -- see the paragraph below, which supersedes it.  (An
     earlier version of this docstring argued from fmax alone that production runs sit near
     Nyquist at fNyq/fmax ~ 1.2 and therefore favour sinc.  fmax is not what band-limits Q, so
-    that reasoning was wrong; the mass-based crossover below replaces it.)
+    that reasoning was wrong; the mass/fmin-based guidance in
+    RIFT/likelihood/DESIGN_q_window_stencil.md replaces it.)
 
     THE TABLE ABOVE IS FOR A SYNTHETIC SIGNAL BAND-LIMITED TO fmax, AND REAL Q IS NOT.  Q^a_lm(t)
     is band-limited by whichever is lower, fmax or the TEMPLATE's own cutoff, so the operative
@@ -2410,11 +2411,11 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         RIFT/likelihood/DESIGN_q_window_stencil.md.  THE DEFAULT IS 'nearest', NOT 'cubic': this argument defaults to
         'nearest', and the batch-mode CLI's --interpolate-time defaults to off, which also
         resolves to 'nearest'.  Omitting either therefore keeps the historical nearest-bin
-        behavior, whose errors the guidance below calls scientifically significant (200-440
+        behavior, whose errors the measured guidance calls scientifically significant (200-443
         nats at SNR 100, reaching 1 nat by SNR 2-6); 'cubic' is only what a legacy truthy
         --interpolate-time value maps to.  Ask for a stencil explicitly if you want one.
         All three stencils have CPU and GPU implementations.  See _sinc_Q_window_numpy and
-        RIFT.likelihood.time_interp_choice for the measured tables.
+        RIFT/likelihood/DESIGN_q_window_stencil.md for the measured tables.
     """
     global distMpcRef
 

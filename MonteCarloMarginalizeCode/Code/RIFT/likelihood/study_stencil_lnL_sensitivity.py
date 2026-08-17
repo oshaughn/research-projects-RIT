@@ -74,6 +74,48 @@ DELTA_F = 1. / 4.
 DEFAULT_APPROX = 'SEOBNRv4'
 
 
+class ApproximantUnavailable(Exception):
+    """The requested (model, srate, mass) combination cannot be GENERATED.
+
+    Recoverable: the caller may legitimately skip this configuration and continue.  A bad
+    approximant NAME is deliberately NOT this exception -- see UnknownApproximant."""
+
+
+class UnknownApproximant(Exception):
+    """The approximant name does not exist.  A user typo, not a configuration limitation.
+
+    Raised rather than skipped, and never caught by the per-configuration handlers: skipping it
+    made every configuration 'skip' and the process exit 0 with nothing measured, so a batch
+    wrapper checking $? saw success on an empty run."""
+
+
+def build_setup_or_skip(label, approx, *args, **kwargs):
+    """Construct a Setup, or explain and skip.  ONE implementation, called by every mode.
+
+    An earlier revision put this recovery in run_config only; run_snr_ladder kept a bare
+    Setup(...) and still aborted the whole invocation with a raw lal domain error.  Two copies of
+    a recovery path is one copy too many.
+
+    A BAD MODEL NAME IS NOT A GENERABILITY FAILURE and must not be reported as one -- it raises
+    before any waveform is attempted, and no amount of raising srate will help.
+    """
+    name = approx or DEFAULT_APPROX
+    if not hasattr(lalsim, name):
+        raise UnknownApproximant(
+            "unknown approximant %r -- not an attribute of lalsimulation. Check the spelling; "
+            "this is not a srate/mass problem." % (name,))
+    try:
+        return Setup(label, *args, approx=approx, **kwargs)
+    except Exception as exc:
+        raise ApproximantUnavailable(
+            "%s could not be generated at srate %g (%s). Its ringdown must fit under Nyquist, "
+            "which fails for low total mass at low srate. Use a configuration whose srate is "
+            "high enough -- '--only B-light' is the 16384 Hz configuration in this script -- or "
+            "pass --approx TaylorT4 and accept that inspiral-only results named the WRONG "
+            "stencil at M = 9, 10 and 20. See RIFT/likelihood/DESIGN_q_window_stencil.md."
+            % (name, kwargs.get('fSample', args[0] if args else float('nan')), str(exc)[:120]))
+
+
 class Setup(object):
     """Everything the likelihood needs for one (sample rate, fmax, source) combination."""
 
@@ -107,12 +149,7 @@ class Setup(object):
         # script whose default output contradicts the recommendation it supports is a trap.
         self.approx_name = approx or DEFAULT_APPROX
         self.Psig.approx = getattr(lalsim, self.approx_name)
-        self._unreachable_hint = (
-            "%s cannot be generated at srate %g for M = %.4g Msun (its ringdown exceeds Nyquist). "
-            "Raise --mass-ladder-srate / the config's srate to 16384, or pass an inspiral-only "
-            "model with --approx TaylorT4 -- but note inspiral-only results named the WRONG "
-            "stencil at M = 9, 10 and 20, so do not use them to support stencil guidance."
-            % (self.approx_name, fSample, m1 + m2))
+
         if 'Taylor' in self.approx_name:
             print("  ** WARNING: %s is INSPIRAL-ONLY (terminates at ISCO, no merger-ringdown).\n"
                   "     It understates the Q bandwidth by 2-3.7x and named the WRONG stencil at\n"
@@ -477,11 +514,16 @@ def run_snr_ladder(label, fSample, fmax, m1, m2, fmin, dist0, snr_targets, K, se
     """
     t0 = time.time()
     print("=" * 100)
-    print("SNR LADDER  %s : fSample=%g fmax=%g  fNyq/fmax=%.3g  m1=%g m2=%g fmin=%g"
-          % (label, fSample, fmax, (fSample / 2.) / fmax, m1, m2, fmin))
+    print("SNR LADDER  %s : approximant=%s  fSample=%g fmax=%g  fNyq/fmax=%.3g  m1=%g m2=%g fmin=%g"
+          % (label, approx or DEFAULT_APPROX, fSample, fmax, (fSample / 2.) / fmax, m1, m2, fmin))
     sys.stdout.flush()
 
-    probe = Setup(label, fSample, fmax, m1, m2, fmin, t_window, dist_mpc=dist0, approx=approx)
+    try:
+        probe = build_setup_or_skip(label, approx, fSample, fmax, m1, m2, fmin, t_window,
+                                    dist_mpc=dist0)
+    except ApproximantUnavailable as exc:
+        print("\n  SNR LADDER %s SKIPPED -- %s" % (label, exc))
+        return None
     npts_half = int(round(t_half * fSample))
     npts = 2 * npts_half + 1
     tvals = (np.arange(npts) - npts_half) * probe.deltaT
@@ -919,24 +961,19 @@ def run_config(label, fSample, fmax, m1, m2, fmin, dist_mpc, K, seeds, t_half, M
                approx=None):
     t0 = time.time()
     print("=" * 100)
-    print("CONFIG %s : fSample=%g fmax=%g  fNyq/fmax=%.3g   source m1=%g m2=%g fmin=%g "
-          "dist=%g Mpc" % (label, fSample, fmax, (fSample / 2.) / fmax, m1, m2, fmin, dist_mpc))
+    print("CONFIG %s : approximant=%s  fSample=%g fmax=%g  fNyq/fmax=%.3g   source m1=%g m2=%g fmin=%g "
+          "dist=%g Mpc" % (label, approx or DEFAULT_APPROX, fSample, fmax,
+                           (fSample / 2.) / fmax, m1, m2, fmin, dist_mpc))
     sys.stdout.flush()
 
     try:
-        setup = Setup(label, fSample, fmax, m1, m2, fmin, t_window, dist_mpc=dist_mpc,
-                      approx=approx)
-    except Exception as exc:
+        setup = build_setup_or_skip(label, approx, fSample, fmax, m1, m2, fmin, t_window,
+                                    dist_mpc=dist_mpc)
+    except ApproximantUnavailable as exc:
         # Almost always: an IMR model asked for below the mass where its ringdown fits under
         # Nyquist.  Say what to do instead of emitting a raw lal domain error, and skip this
         # configuration rather than aborting the remaining ones.
-        print("\n  CONFIG %s SKIPPED -- %s could not be generated at srate %g for M = %.4g Msun."
-              % (label, approx or DEFAULT_APPROX, fSample, m1 + m2))
-        print("    %s" % (str(exc)[:160],))
-        print("    Raise this config's srate to 16384, or re-run with --approx TaylorT4 -- but "
-              "note\n    inspiral-only results named the WRONG stencil at M = 9, 10 and 20, so do "
-              "not use\n    them to support stencil guidance. See "
-              "RIFT/likelihood/DESIGN_q_window_stencil.md.")
+        print("\n  CONFIG %s SKIPPED -- %s" % (label, exc))
         return None
     packs = setup.packs
     n_time = packs['rho']['H1'].shape[1]
@@ -1084,6 +1121,21 @@ def check_bounds(setup, packs, seeds, K, tvals, npts, M_check, dist_mpc):
     assert worst_lo > 0 and worst_hi > 0, "evaluation window runs off the stored Q series"
 
 
+SKIPPED_CONFIGS = []
+
+
+def _exit_if_nothing_measured(results, what):
+    """Exit non-zero when every configuration skipped.
+
+    An empty run and a completed run must not share an exit status; a reproduction wrapper
+    checking $? cannot tell them apart otherwise."""
+    if not any(r is not None for r in results):
+        print("\n*** NOTHING WAS MEASURED: every %s was skipped. Exiting non-zero so this is "
+              "not mistaken for a completed run. ***" % what)
+        sys.exit(2)
+    return results
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--K", type=int, default=2000)
@@ -1142,6 +1194,8 @@ def main():
                         approx=args.approx)
         return
 
+    _results = []
+
     if args.mode == 'snr-ladder':
         # Near-Nyquist configuration A only (fNyq/fmax = 1.2), both sources.
         for (label, fS, fmax, m1, m2, fmin, dmpc, tw, tws) in configs:
@@ -1149,17 +1203,28 @@ def main():
                 continue
             if args.only and args.only not in label:
                 continue
-            run_snr_ladder(label, fS, fmax, m1, m2, fmin, dmpc, args.snr_targets, args.K,
-                           args.seeds, args.t_half, args.M_ref, args.M_check, tw, args.chunk, approx=args.approx)
+            _results.append(
+                run_snr_ladder(label, fS, fmax, m1, m2, fmin, dmpc, args.snr_targets, args.K,
+                               args.seeds, args.t_half, args.M_ref, args.M_check, tw, args.chunk,
+                               approx=args.approx))
+        _exit_if_nothing_measured(_results, "SNR-ladder configuration")
         return
 
     for (label, fS, fmax, m1, m2, fmin, dmpc, tw, tws) in configs:
         if args.only and args.only not in label:
             continue
-        run_config(label, fS, fmax, m1, m2, fmin, dmpc * args.dist_scale, args.K, args.seeds,
-                   args.t_half, args.M_ref, args.M_check, tw, tws, args.chunk,
-                   ladder_Ms=args.ladder_Ms, approx=args.approx)
+        _results.append(
+            run_config(label, fS, fmax, m1, m2, fmin, dmpc * args.dist_scale, args.K, args.seeds,
+                       args.t_half, args.M_ref, args.M_check, tw, tws, args.chunk,
+                       ladder_Ms=args.ladder_Ms, approx=args.approx))
+    _exit_if_nothing_measured(_results, "grid configuration")
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except UnknownApproximant as exc:
+        # A user typo, reported cleanly and fatally.  Never skipped: skipping it made every
+        # configuration "skip" and the process exit 0 having measured nothing.
+        print("\n*** %s ***" % exc)
+        sys.exit(2)
