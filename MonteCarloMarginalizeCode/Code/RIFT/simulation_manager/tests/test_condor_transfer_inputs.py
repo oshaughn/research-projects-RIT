@@ -161,7 +161,7 @@ def test_reaches_the_queue_through_the_manifest(tmp_path):
                                 "entrypoint": "generator:run"})
     reopened = Archive(base_location=tmp_path / "arch")
     _, run_queue = make_queues_from_manifest(reopened)
-    assert run_queue.extra_transfer_input_files == BULK
+    assert list(run_queue.extra_transfer_input_files) == BULK
 
 
 # ---------------------------------------------------------------------------
@@ -351,4 +351,60 @@ def test_unknown_placeholder_names_the_contract(archive):
     q = DualCondorRunQueue(extra_transfer_output_files=["stuff_{foo}"])
     name = archive.register({"x": 1}, target_level=1)
     with pytest.raises(ValueError, match="placeholder"):
+        q.build_worker(archive, name, 1)
+
+
+# ---------------------------------------------------------------------------
+# The read path, not just the write path
+#
+# Validating on assignment protected the setter and nothing else: the
+# getter handed back the live list, so `.append()` never went through it,
+# and the private backing attribute was a plain assignment away.
+# ---------------------------------------------------------------------------
+
+def test_getter_does_not_expose_the_live_list(archive):
+    """`q.extra_transfer_input_files.append(bad)` must not quietly work."""
+    q = DualCondorRunQueue(extra_transfer_input_files=["osdf:///good/a.h5"])
+    with pytest.raises(AttributeError):
+        q.extra_transfer_input_files.append("/data/tab,v2.h5")
+    assert list(q.extra_transfer_input_files) == ["osdf:///good/a.h5"]
+
+
+def test_output_getter_does_not_expose_the_live_list():
+    q = DualCondorRunQueue(extra_transfer_output_files=["work_{level}"])
+    with pytest.raises(AttributeError):
+        q.extra_transfer_output_files.append("evil;name=/etc/hosts")
+
+
+@pytest.mark.parametrize("bad", [
+    "/data/tab,v2.h5",
+    "osdf:///a\nrequest_memory = 999999",
+])
+def test_private_backing_attribute_is_caught_at_submit(archive, bad):
+    """Writing straight to the private attribute skips the setter, so the
+    check has to also happen where the value is used."""
+    q = DualCondorRunQueue()
+    q._extra_transfer_input_files = [bad]
+    name = archive.register({"x": 1}, target_level=1)
+    with pytest.raises(ValueError):
+        q.build_worker(archive, name, 1)
+
+
+def test_extras_colliding_with_each_other_are_rejected(archive):
+    """Two different objects that flatten to the same sandbox filename.
+    Neither collides with anything the archive stages — only with each
+    other — so the reserved-name check could not see it."""
+    q = DualCondorRunQueue(extra_transfer_input_files=[
+        "osdf:///siteA/data.h5", "osdf:///siteB/data.h5"])
+    name = archive.register({"x": 1}, target_level=1)
+    with pytest.raises(ValueError, match="resolve to"):
+        q.build_worker(archive, name, 1)
+
+
+def test_output_extras_colliding_after_expansion_are_rejected(archive):
+    """`a_{level}` and `a_1` are distinct templates that expand to the
+    same name at level 1."""
+    q = DualCondorRunQueue(extra_transfer_output_files=["a_{level}", "a_1"])
+    name = archive.register({"x": 1}, target_level=1)
+    with pytest.raises(ValueError, match="resolve to"):
         q.build_worker(archive, name, 1)
