@@ -33,20 +33,14 @@ IFO_PREFERENCE = ('H1', 'L1', 'K1', 'I1', 'V1')
 
 # Fraction of the matched-filter SNR^2 that must accumulate below the reported bandwidth.
 #
-# NOT CALIBRATED FOR ANY DECISION, and a decision built on it has been tried and RETRACTED.
+# NOT CALIBRATED FOR ANY DECISION.  A selector built on this was tried and RETRACTED: the clean
+# split it showed was measured at a single fmin and does not survive an fmin sweep, at any
+# quantile.  0.99 is retained because it is where the PSD demonstrably does work (see
+# test_psd_bandwidth's structural guards), NOT because it is validated against anything.
 #
-# An earlier revision chose 0.99 for "separating power": ranking 9 stencil measurements by
-# fNyq/estimate split the winners cleanly (sinc <= 2.99, cubic >= 4.33, a 45% gap).  All 9 points
-# were at a SINGLE fmin.  Adding a 20-point fmin sweep, the classes OVERLAP over [4.21, 6.01]
-# with 5 points inside, and a quantile sweep from 0.50 to 0.99999 finds NO separating value (the
-# best, 0.95, still overlaps by 1.18x).  The estimator's fmin response is too weak in the
-# direction that matters: over fmin 20->150 it moves the M=55 score by only -7% while the physics
-# flips the winner.
-#
-# 0.99 is retained as the default because it is where the PSD demonstrably does work (see
-# test_psd_bandwidth's structural guards) -- NOT because it is validated against anything.  If
-# you are about to key a decision off this number, measure first; two previous bandwidth proxies
-# and this one have all failed that test.
+# If you are about to key a decision off this number, measure first -- two other bandwidth proxies
+# and this one have all failed that test.  The measurements are in
+# RIFT/likelihood/DESIGN_q_window_stencil.md (section 6), as of 2026-08-16.
 DEFAULT_POWER_QUANTILE = 0.99
 
 
