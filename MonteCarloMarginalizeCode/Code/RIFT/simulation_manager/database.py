@@ -88,7 +88,25 @@ def _safe_hashable(x: Any) -> Any:
         return ("__unhashable__", repr(x))
 
 
-def _validate_transfer_entries(entries: Any, *, what: str) -> List[str]:
+def _reject_reserved_basename(entry: str, what: str) -> None:
+    """Refuse an entry whose basename shadows a file the archive stages.
+
+    Condor flattens basenames into the sandbox cwd, so on the input side
+    this would overwrite the archive's own copy on the worker. On the
+    OUTPUT side it is worse: the remap points back at sims/<name>/, so a
+    returned `params.json` overwrites the sim's recorded inputs in the
+    archive itself, corrupting state every later level reads.
+    """
+    base = entry.rstrip("/").rsplit("/", 1)[-1]
+    if base in _RESERVED_SANDBOX_BASENAMES or (
+            base.startswith("level_") and base.endswith(".json")):
+        raise ValueError(
+            "{}: {!r} has basename {!r}, which collides with a file the "
+            "archive itself stages or writes.".format(what, entry, base))
+
+
+def _validate_transfer_entries(entries: Any, *, what: str,
+                               remap_syntax: bool = False) -> List[str]:
     """Check a backend-supplied transfer list, or say why it is unusable.
 
     Every rejection here is something HTCondor accepts without complaint
@@ -118,9 +136,16 @@ def _validate_transfer_entries(entries: Any, *, what: str) -> List[str]:
         text = str(entry)
         if not text.strip():
             raise ValueError("{}: empty entry".format(what))
-        for bad, why in ((",", "separates entries in transfer_input_files"),
-                         ("\n", "ends the submit command"),
-                         ("\r", "ends the submit command")):
+        bad_chars = [(",", "separates entries in the transfer list"),
+                     ("\n", "ends the submit command"),
+                     ("\r", "ends the submit command")]
+        if remap_syntax:
+            # transfer_output_remaps is a ';'-separated list of name=path
+            # pairs, so either character makes the remap unparseable.
+            bad_chars += [(";", "separates pairs in transfer_output_remaps"),
+                          ("=", "separates name from path in "
+                                "transfer_output_remaps")]
+        for bad, why in bad_chars:
             if bad in text:
                 raise ValueError(
                     "{}: entry {!r} contains {!r}, which {}. HTCondor accepts "
@@ -1434,26 +1459,13 @@ class DualCondorRunQueue(RunQueue):
                  **submit_kwargs: Any):
         self.run_pool = run_pool
         self.run_collector = run_collector
-        self.extra_transfer_input_files = _validate_transfer_entries(
-            extra_transfer_input_files, what="extra_transfer_input_files")
-        self.extra_transfer_output_files = _validate_transfer_entries(
-            extra_transfer_output_files, what="extra_transfer_output_files")
-        for _e in self.extra_transfer_input_files:
-            _base = _e.rstrip("/").rsplit("/", 1)[-1]
-            if _base in _RESERVED_SANDBOX_BASENAMES or (
-                    _base.startswith("level_") and _base.endswith(".json")):
-                raise ValueError(
-                    "extra_transfer_input_files: {!r} has basename {!r}, which "
-                    "collides with a file the archive already stages. Condor "
-                    "flattens basenames into the sandbox, so this would "
-                    "overwrite the archive's own copy on the worker.".format(
-                        _e, _base))
+        self.extra_transfer_input_files = extra_transfer_input_files
+        self.extra_transfer_output_files = extra_transfer_output_files
         if (self.extra_transfer_input_files or self.extra_transfer_output_files) \
                 and subdag_factory is not None:
-            # submit() dispatches to the subdag when one is set and never
-            # calls build_worker, so the extras would be stored, persisted
-            # to the manifest, and reach nothing. Fail rather than let the
-            # operator believe bulk staging is configured.
+            # Fail early for the common case. submit() re-checks, because
+            # both of these are plain attributes and assigning either after
+            # construction reaches the same silently-ignoring path.
             raise ValueError(
                 "extra_transfer_{input,output}_files are applied by "
                 "build_worker, which is bypassed when subdag_factory is set: "
@@ -1497,6 +1509,36 @@ class DualCondorRunQueue(RunQueue):
         self.last_wrapper_dag_path: Optional[str] = None
 
     # -------- per-(sim, level) submit description --------------------------
+
+    # These are validated on ASSIGNMENT, not only in __init__. Checking
+    # once at construction is not protection: they are ordinary public
+    # attributes, and configuring a queue by assigning to them after the
+    # fact is the natural thing to do — which walked straight past every
+    # guard.
+    @property
+    def extra_transfer_input_files(self) -> List[str]:
+        return self._extra_transfer_input_files
+
+    @extra_transfer_input_files.setter
+    def extra_transfer_input_files(self, value: Any) -> None:
+        entries = _validate_transfer_entries(
+            value, what="extra_transfer_input_files")
+        for entry in entries:
+            _reject_reserved_basename(entry, "extra_transfer_input_files")
+        self._extra_transfer_input_files = entries
+
+    @property
+    def extra_transfer_output_files(self) -> List[str]:
+        return self._extra_transfer_output_files
+
+    @extra_transfer_output_files.setter
+    def extra_transfer_output_files(self, value: Any) -> None:
+        entries = _validate_transfer_entries(
+            value, what="extra_transfer_output_files", remap_syntax=True)
+        for entry in entries:
+            _reject_reserved_basename(entry, "extra_transfer_output_files")
+        self._extra_transfer_output_files = entries
+
     def _bootstrap_path(self, archive: Archive) -> Path:
         path = archive.base / "run_queue" / "workers" / "bootstrap.py"
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -1587,7 +1629,27 @@ class DualCondorRunQueue(RunQueue):
         out_names = [out_base]
         out_remaps = ["{}={}".format(out_base, out_target)]
         for entry in self.extra_transfer_output_files:
-            name = str(entry).format(level=int(level), sim_name=sim_name)
+            try:
+                name = str(entry).format(level=int(level), sim_name=sim_name)
+            except (KeyError, IndexError) as exc:
+                raise ValueError(
+                    "extra_transfer_output_files: {!r} uses an unknown "
+                    "placeholder {}; only {{level}} and {{sim_name}} are "
+                    "substituted.".format(entry, exc)) from None
+            # Re-validate AFTER substitution: the checks at assignment saw
+            # the template, and expansion can introduce a space or a path
+            # separator that HTCondor's transfer list cannot express.
+            _validate_transfer_entries([name],
+                                       what="extra_transfer_output_files "
+                                            "(after substitution)",
+                                       remap_syntax=True)
+            _reject_reserved_basename(
+                name, "extra_transfer_output_files (after substitution)")
+            if " " in name or "/" in name:
+                raise ValueError(
+                    "extra_transfer_output_files: {!r} expands to {!r}; "
+                    "HTCondor transfer lists cannot express a space or a "
+                    "path separator in an entry.".format(entry, name))
             out_names.append(name)
             out_remaps.append("{}={}".format(name, sd / name))
         lines.append("transfer_output_files   = {}".format(",".join(out_names)))
@@ -1672,6 +1734,18 @@ class DualCondorRunQueue(RunQueue):
             for lvl in range(cur + 1, tgt + 1):
                 node_id = "{}_lvl{}".format(sim, lvl)
                 if self.subdag_factory is not None:
+                    # Checked here, not just in __init__: subdag_factory and
+                    # the extras are plain attributes, and assigning either
+                    # after construction reached this path with the extras
+                    # silently ignored.
+                    if (self.extra_transfer_input_files
+                            or self.extra_transfer_output_files):
+                        raise ValueError(
+                            "extra_transfer_{input,output}_files are applied by "
+                            "build_worker, which this sub-DAG path bypasses: the "
+                            "sub-DAG owns its own submit descriptions. Put the "
+                            "entries in the DAG the factory generates, or clear "
+                            "subdag_factory.")
                     work_path = self.subdag_factory(archive, sim, lvl)
                     nodes.append((sim, lvl, work_path, True))
                 else:
@@ -1936,6 +2010,8 @@ class SlurmRunQueue(RunQueue):
         self.submit_kwargs = submit_kwargs
         # Per-archive bookkeeping: sim_name -> [(level, jobid), ...]
         self.submitted_jobs: Dict[str, List[Tuple[int, str]]] = {}
+
+
 
     # ---- bootstrap helpers ------------------------------------------------
     def _bootstrap_path(self, archive: Archive) -> Path:

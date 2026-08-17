@@ -238,12 +238,16 @@ def test_extra_outputs_are_returned_and_remapped(archive, tmp_path):
 
 
 def test_output_placeholders_track_the_level(archive):
-    q = DualCondorRunQueue(extra_transfer_output_files=["level_{level}"])
+    """Asserting `"level_2" in out` was vacuous — the marker is already
+    named level_2.json, so it passed with the feature unimplemented.
+    Check the actual entry list instead."""
+    q = DualCondorRunQueue(extra_transfer_output_files=["work_{level}"])
     name = archive.register({"x": 1}, target_level=2)
     sub = open(q.build_worker(archive, name, 2)).read()
     out = next(l for l in sub.splitlines()
                if l.strip().startswith("transfer_output_files"))
-    assert "level_2" in out and "level_1," not in out
+    entries = [e.strip() for e in out.split("=", 1)[1].split(",")]
+    assert entries == ["level_2.json", "work_2"]
 
 
 def test_output_default_is_unchanged(archive):
@@ -256,3 +260,95 @@ def test_output_default_is_unchanged(archive):
                  if l.strip().startswith("transfer_output_remaps"))
     assert out.split("=", 1)[1].strip() == "level_1.json"
     assert ";" not in remap
+
+
+# ---------------------------------------------------------------------------
+# Guards must survive attribute assignment, not just __init__
+#
+# All of these were reachable after the first round of "fixes": the
+# attributes are public, and configuring a queue by assigning to them is
+# the natural thing to do, which walked past every constructor check.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("bad", [
+    ["/data/tab,v2.h5"],
+    ["/data/a.h5\nrequest_memory = 999999"],
+    "osdf:///a/b.h5",
+    ["osdf:///bulk/params.json"],
+])
+def test_input_assignment_after_construction_is_validated(bad):
+    q = DualCondorRunQueue()
+    with pytest.raises((ValueError, TypeError)):
+        q.extra_transfer_input_files = bad
+
+
+@pytest.mark.parametrize("bad", [
+    ["evil;name=/etc/hosts"],
+    ["a=b"],
+    ["params.json"],
+    ["out,put"],
+])
+def test_output_assignment_after_construction_is_validated(bad):
+    q = DualCondorRunQueue()
+    with pytest.raises((ValueError, TypeError)):
+        q.extra_transfer_output_files = bad
+
+
+def test_subdag_factory_assigned_late_still_refuses_extras(archive):
+    """The P0: setting subdag_factory after construction reached the
+    sub-DAG path with the extras stored and silently ignored."""
+    q = DualCondorRunQueue(extra_transfer_input_files=BULK,
+                           submit_mode="embed")
+    q.subdag_factory = lambda a, s, l: "/some/external.dag"
+    name = archive.register({"x": 1}, target_level=1)
+    with pytest.raises(ValueError, match="sub-DAG"):
+        q.submit(archive, [name])
+
+
+def test_extras_assigned_late_still_refuse_a_subdag(archive):
+    """...and the same in the other order."""
+    q = DualCondorRunQueue(submit_mode="embed",
+                           subdag_factory=lambda a, s, l: "/some/external.dag")
+    q.extra_transfer_input_files = BULK
+    name = archive.register({"x": 1}, target_level=1)
+    with pytest.raises(ValueError, match="sub-DAG"):
+        q.submit(archive, [name])
+
+
+# ---------------------------------------------------------------------------
+# Output-side hazards the shared validator did not originally cover
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("bad", ["evil;x", "a=b"])
+def test_remap_delimiters_are_rejected(bad):
+    """transfer_output_remaps is a ';'-separated list of name=path pairs,
+    so either character makes the remap unparseable on the execute side."""
+    with pytest.raises(ValueError):
+        DualCondorRunQueue(extra_transfer_output_files=[bad])
+
+
+@pytest.mark.parametrize("bad", ["params.json", "code", "level_{level}.json"])
+def test_output_basename_collisions_are_rejected(bad):
+    """An output entry is remapped back under sims/<name>/, so a returned
+    params.json overwrites the sim's recorded inputs in the archive —
+    corrupting state every later level reads."""
+    with pytest.raises(ValueError, match="collides"):
+        q = DualCondorRunQueue(extra_transfer_output_files=[bad])
+        q.build_worker.__self__            # constructed: force the check
+
+
+def test_expanded_names_are_revalidated(archive):
+    """Validation at assignment sees the template; expansion can still
+    introduce a space or a path separator."""
+    name = archive.register({"x": 1}, target_level=1)
+    for template in ("my file_{level}", "sub/dir_{level}"):
+        q = DualCondorRunQueue(extra_transfer_output_files=[template])
+        with pytest.raises(ValueError):
+            q.build_worker(archive, name, 1)
+
+
+def test_unknown_placeholder_names_the_contract(archive):
+    q = DualCondorRunQueue(extra_transfer_output_files=["stuff_{foo}"])
+    name = archive.register({"x": 1}, target_level=1)
+    with pytest.raises(ValueError, match="placeholder"):
+        q.build_worker(archive, name, 1)
