@@ -1960,6 +1960,92 @@ def _pool_replica_rvs(rep_rvs, sampler, rep_lnZ=None, already_resampled=False, u
     return out
 
 
+def _export_rvs_equal_weight(rvs, sampler, use_lnL=None):
+    """The version of a POOLED record that may be written to the SimInspiral XML.
+
+    THE XML KEEPS NO WEIGHT THIS DRIVER WRITES.  xmlutils maps 'joint_prior'/'joint_s_prior'
+    onto alpha2/alpha3 -- which the ILE export below overwrites with zeros -- and the
+    log_joint_* columns the pool actually carries have no mapping at all.  So every exported
+    row is read downstream with the same weight, whatever the record says.
+
+    For an ordinary run that is the long-standing convention (the export is a fair draw, or is
+    treated as one).  For a POOLED record it is wrong in a NEW way: _pool_replica_rvs gives
+    block k weights summing to Z_k/K, deliberately unequal BETWEEN blocks, so equal-weight rows
+    mix the replicas by ROW COUNT instead of by evidence -- silently discarding exactly the
+    disagreement the replicas were run to measure, in the one output a human looks at.
+
+    So convert here rather than hope: draw rows in proportion to the pool's reconstructed
+    posterior weights, turning weights the format drops into row multiplicities it keeps.
+
+    Returns its argument UNCHANGED for any record that is not a pooled mixture (every
+    non-replica run is untouched), and on any failure to rebuild or apply the weights -- with a
+    message, because a weighted export is a real defect, not a silent degradation.
+    """
+    if not bool(getattr(sampler, '_rvs_is_pooled', False)):
+        return rvs
+    _conv = getattr(sampler, 'identity_convert', None)
+    n = _rvs_len(rvs)
+    if n <= 1:
+        return rvs
+
+    def _bail(why):
+        print(" [mc error] pooled export left AS-IS ({}); the XML preserves no weight column,"
+              " so its consumers will mix the replicas by row count".format(why))
+        return rvs
+
+    try:
+        # ln_weights_for_posterior, not ln_weights_from_rvs: it is the "how should these rows be
+        # weighted as a posterior" question.  The pooled marker is what makes it answer with the
+        # reconstructed per-row weights instead of zeros -- a flat block contributes constant
+        # weights summing to Z_k/K (already an equal-weight draw, correctly scaled), a raw block
+        # its genuine importance weights, likewise scaled.  Resolve the stored convention here:
+        # the helper deliberately passes use_lnL through unresolved, as the main driver's does.
+        lw = numpy.asarray(ln_weights_for_posterior(rvs, sampler, convert=_conv,
+                                                    use_lnL=_rvs_lnL_convention(use_lnL)),
+                           dtype=float).ravel()
+    except Exception as e:
+        return _bail(e)
+    if lw.size != n:
+        return _bail("weights are {} long for {} rows".format(lw.size, n))
+    _ok = numpy.isfinite(lw)
+    if not numpy.any(_ok):
+        return _bail("no finite weights")
+    w = numpy.zeros(n, dtype=float)
+    w[_ok] = numpy.exp(lw[_ok] - numpy.max(lw[_ok]))
+    _tot = float(numpy.sum(w))
+    if not numpy.isfinite(_tot) or _tot <= 0:
+        return _bail("weights do not sum to anything usable")
+    w = w / _tot
+    # HOW MANY ROWS.  The Kish n_eff of the pooled weights, capped at the rows available: the
+    # honest count, and the same quantity the samplers' own fair draw caps on.  Drawing the full
+    # K*n_k rows instead would report K times the independent information whenever one replica
+    # dominates -- the case pooling exists to expose.
+    n_out = int(min(n, max(1, int(round(1.0 / float(numpy.sum(w ** 2)))))))
+    # SYSTEMATIC resampling, not multinomial: one uniform offset, then n_out equally spaced
+    # positions through the cumulative weight.  Unbiased in the same way, but each block gets its
+    # evidence share of the rows deterministically rather than with O(sqrt(n)) draw noise on top
+    # of the replica scatter being measured -- and when the replicas agree (equal weights,
+    # n_out == n) it returns every row exactly once, where a bootstrap would duplicate ~37% of
+    # them for nothing.
+    cdf = numpy.cumsum(w)
+    cdf[-1] = 1.0
+    pos = (numpy.random.uniform() + numpy.arange(n_out)) / float(n_out)
+    idx = numpy.clip(numpy.searchsorted(cdf, pos, side='left'), 0, n - 1)
+    out = {}
+    for k, v in rvs.items():
+        try:
+            arr = numpy.asarray(_conv(v) if _conv is not None else v)
+        except Exception as e:
+            return _bail("column {!r}: {}".format(k, e))
+        # Index the LAST axis: _rvs may hold tuple-keyed pairs stored as (2, n).
+        if arr.ndim < 1 or arr.shape[-1] != n:
+            return _bail("column {!r} is not row-shaped".format(k))
+        out[k] = arr[..., idx]
+    print(" [mc error] pooled export re-drawn to equal weight: {} rows -> {} (weights the XML"
+          " cannot carry are now row multiplicities)".format(n, n_out))
+    return out
+
+
 def _reject_if_collapsed(dd, stage):
     """Apply --reject-collapsed-live-volume to whatever the CURRENT verdict is.
 
@@ -2734,6 +2820,11 @@ def analyze_event_LISA(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_
     if opts.save_samples and opts.output_file:
       import copy
       samples = copy.deepcopy(sampler._rvs)  # deep copy: avoid modifying structures and  having side effect on integrator, which loops over keys Expensive!
+      # A POOLED record (--mc-error-replicas) is weighted BETWEEN blocks by the replica
+      # evidences, and nothing below preserves those weights: convert it to an equal-weight
+      # draw BEFORE anything consumes it -- including resample_samples_LISA, which picks a time
+      # per row and so assumes the rows already are the posterior.  A no-op otherwise.
+      samples = _export_rvs_equal_weight(samples, sampler, use_lnL=rvs_integrand_is_lnL)
       # Insert reference distance if it was marginalized over
       if "distance" not in samples:
         # Not distance output is the same as internal calculations: in *Mpc*
@@ -2751,7 +2842,7 @@ def analyze_event_LISA(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_
       xmldoc = ligolw.Document()
       xmldoc.appendChild(ligolw.LIGO_LW())
       process.register_to_xmldoc(xmldoc, sys.argv[0], opts.__dict__)
-      if not(opts.resample_time_marginalization): 
+      if not(opts.resample_time_marginalization):
         if not opts.time_marginalization:
             samples["t_ref"] += float(fiducial_epoch)
         else:
@@ -2769,7 +2860,7 @@ def analyze_event_LISA(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_
         samples['psi']= psi_true
         samples['phi_orb'] = phi_orb_true
       samples["polarization"] = samples["psi"]
-      samples["coa_phase"] = samples["phi_orb"]        
+      samples["coa_phase"] = samples["phi_orb"]
       if ("declination", "right_ascension") in sampler.params:
             samples["latitude"], samples["longitude"] = samples[("declination", "right_ascension")]
       else:
@@ -3472,6 +3563,11 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_spec_
     if opts.save_samples and opts.output_file:
       import copy
       samples = copy.deepcopy(sampler._rvs)  # deep copy: avoid modifying structures and  having side effect on integrator, which loops over keys Expensive!
+      # A POOLED record (--mc-error-replicas) is weighted BETWEEN blocks by the replica
+      # evidences, and nothing below preserves those weights: convert it to an equal-weight
+      # draw BEFORE anything consumes it -- including the time resampler, which picks a time per
+      # row and so assumes the rows already are the posterior.  A no-op otherwise.
+      samples = _export_rvs_equal_weight(samples, sampler, use_lnL=rvs_integrand_is_lnL)
       # Insert reference distance if it was marginalized over
       if "distance" not in samples:
         # Not distance output is the same as internal calculations: in *Mpc*

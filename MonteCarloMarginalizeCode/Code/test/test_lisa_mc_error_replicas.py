@@ -471,6 +471,87 @@ def test_disagreeing_replicas_report_less_than_the_sum():
     assert float(out[2]) < 9.0, "disagreeing replicas still reported the full sum"
 
 
+# ==========================================================================================
+# The XML export of a pooled record.
+#
+# The pool is deliberately weighted BETWEEN blocks (Z_k/K), and the SimInspiral export keeps no
+# column carrying that: xmlutils maps joint_prior/joint_s_prior onto alpha2/alpha3, which the
+# ILE export overwrites with zeros, and the log_joint_* columns the pool uses map to nothing.
+# So the rows must be re-drawn to equal weight first, or downstream mixes the replicas by ROW
+# COUNT instead of by evidence -- discarding the disagreement the replicas were run to measure.
+# ==========================================================================================
+
+EXPORT = ['_rvs_lnL_convention', 'ln_weights_from_rvs', '_rvs_len', '_rvs_is_equal_weight',
+          'ln_weights_for_posterior', '_export_rvs_equal_weight']
+
+
+@pytest.fixture(scope="module")
+def EW():
+    defs = _defs(_LISA, EXPORT)
+    mod = ast.Module(body=[defs[n] for n in EXPORT], type_ignores=[])
+    ns = {"numpy": np, "np": np}
+    exec(compile(ast.fix_missing_locations(mod), "export", "exec"), ns)
+    return ns
+
+
+class _ES(_S):
+    """Minimal sampler carrying the provenance markers the export helper keys on."""
+    def __init__(self, pooled=True, fairdraw=True):
+        self._rvs_is_pooled = pooled
+        self._rvs_is_fairdraw = fairdraw
+
+
+def test_a_record_that_was_never_pooled_is_exported_untouched(EW):
+    """Identity, not equality: no non-replica run may change shape because of this path."""
+    r = _rec([0.0, 1.0, 2.0])
+    assert EW['_export_rvs_equal_weight'](r, _ES(pooled=False)) is r
+
+
+def test_the_pooled_export_mixes_replicas_by_EVIDENCE_not_by_row_count(EW):
+    """Block 1 has 3x the evidence of block 0 at equal row counts, so it must dominate.
+
+    Both blocks are flat (each is its own equal-weight draw), which is exactly the case where
+    the row count carries no evidence information at all: unconverted, the XML would report the
+    two replicas as an even mixture.
+    """
+    rec = {'log_integrand': np.zeros(8),
+           'log_joint_prior': np.zeros(8),
+           # weights e^0 in block 0, e^log(3)=3 in block 1
+           'log_joint_s_prior': np.concatenate([np.zeros(4), -np.log(3.0) * np.ones(4)]),
+           'x': np.concatenate([np.zeros(4), np.ones(4)])}
+    np.random.seed(7)
+    out = EW['_export_rvs_equal_weight'](rec, _ES())
+    frac = float(np.mean(out['x']))                       # share of rows from block 1
+    assert 0.6 < frac < 0.9, (
+        "pooled export mixed the replicas at %.2f; 0.5 is mixing by row count, 0.75 is the "
+        "evidence share" % frac)
+    assert _rvs_len(out) <= 8, "the export claims more rows than the pool held"
+
+
+def test_an_unusable_pooled_record_is_returned_rather_than_mangled(EW):
+    bad = {'x': np.zeros(4)}                              # no weight components at all
+    assert EW['_export_rvs_equal_weight'](bad, _ES()) is bad
+
+
+def test_both_xml_export_paths_convert_before_consuming_the_pool():
+    """Source-level: the conversion must sit on the deepcopy, ahead of every consumer.
+
+    Including resample_samples*, which picks a time per row and so assumes the rows already are
+    the posterior -- converting after it would leave that draw made from the wrong mixture.
+    """
+    src = _src(_LISA)
+    copies = [i for i in range(len(src)) if src.startswith("copy.deepcopy(sampler._rvs)", i)]
+    assert len(copies) == 2, "expected two --save-samples export blocks, found %d" % len(copies)
+    for i in copies:
+        end = src.index("append_samples_to_xmldoc", i)      # the block this deepcopy feeds
+        block = src[i:end]
+        assert "_export_rvs_equal_weight(samples, sampler" in block, \
+            "an XML export path consumes the pooled record without converting it"
+        assert block.index("_export_rvs_equal_weight(samples, sampler") \
+            < block.index("resample_time_marginalization"), \
+            "the conversion happens after the time resampler has already drawn from the rows"
+
+
 def test_a_failing_replica_is_skipped_not_fatal():
     class _Boom(_RepSampler):
         def integrate(self, fn, *a, **kw):
