@@ -38,6 +38,23 @@ DRIVER = os.path.join(BIN, 'integrate_likelihood_extrinsic_batchmode')
 PIPELINE_ENTRY_POINTS = [('helper_LDG_Events.py', HELPER),
                          ('util_RIFT_pseudo_pipe.py', PSEUDO)]
 
+# EVERY surface that hands a user a stencil recommendation.  The driver's --help was omitted from
+# the original guidance test even though it interpolates the same constant, so that third copy
+# could drift silently -- which is the exact failure this whole test file exists to prevent.
+ADVICE_SURFACES = PIPELINE_ENTRY_POINTS + [
+    ('integrate_likelihood_extrinsic_batchmode', DRIVER)]
+
+# Values the guidance constant has previously held and that must never reappear in user-facing
+# text.  A positive assertion ("the current constant is present") cannot catch a SUPERSEDED claim
+# left standing beside it -- that is how a rendered error message came to read "the crossover is
+# between 20 and 35 the crossover rises with fmin ...", splicing the retracted rule onto its
+# replacement, while every test passed.  Add each retired value here when the constant changes.
+RETIRED_GUIDANCE_FRAGMENTS = (
+    'the crossover is between 20 and 35 Msun',
+    'unless the total mass is below',
+    'prefer sinc at any mass',
+)
+
 
 def _run(script, args, timeout=300):
     """Run a script and return its combined output.  Never raises on non-zero exit."""
@@ -108,16 +125,41 @@ def test_help_text_carries_the_same_crossover_guidance_in_both_entry_points():
     Both helps must carry the canonical phrase from time_interp_choice, and neither may carry the
     old recommendation.
     """
-    for name, script in PIPELINE_ENTRY_POINTS:
+    for name, script in ADVICE_SURFACES:
         out = _squash(_run(script, ['--help']))
         assert CROSSOVER_GUIDANCE in out, (
             "%s --help does not contain the canonical crossover guidance %r. If the measurement "
             "changed, update CROSSOVER_GUIDANCE in time_interp_choice and every help string "
             "together -- that is what this test is for." % (name, CROSSOVER_GUIDANCE))
-        assert 'unless the total mass is below' not in out, (
-            "%s --help still carries the pre-IMR recommendation, which names the worse stencil "
-            "across roughly 4-20 Msun" % name)
-        print("%-26s help carries canonical guidance: OK" % name)
+        for retired in RETIRED_GUIDANCE_FRAGMENTS:
+            assert retired not in out, (
+                "%s --help still carries retired guidance %r. A superseded recommendation left "
+                "standing beside the current one reads as authoritative." % (name, retired))
+        print("%-40s help carries canonical guidance, no retired text: OK" % name)
+
+
+def test_error_messages_carry_the_canonical_guidance_too():
+    """The error paths advise users as much as --help does, and were never checked.
+
+    A bare flag and a retired 'True' both print guidance. One of them shipped rendering the
+    RETIRED constant spliced onto the current one -- ungrammatical, and advising the superseded
+    rule -- while every test passed, because nothing asserted on those strings at all.
+    """
+    from RIFT.likelihood.time_interp_choice import (
+        BARE_FLAG_SENTINEL, resolve_interpolate_time_request)
+    for value in (BARE_FLAG_SENTINEL, 'True'):
+        try:
+            resolve_interpolate_time_request(value)
+        except ValueError as e:
+            msg = _squash(str(e))
+        else:
+            raise AssertionError("%r must raise" % value)
+        assert CROSSOVER_GUIDANCE in msg, (
+            "the error for %r does not carry the canonical guidance: %r" % (value, msg))
+        for retired in RETIRED_GUIDANCE_FRAGMENTS:
+            assert retired not in msg, (
+                "the error for %r still carries retired guidance %r: %r" % (value, retired, msg))
+        print("error path for %-12s carries canonical guidance, no retired text: OK" % repr(value))
 
 
 def test_driver_refuses_configurations_that_cannot_honour_the_stencil():
@@ -163,6 +205,7 @@ if __name__ == "__main__":
     test_typo_and_retired_auto_are_rejected_by_both_entry_points()
     test_valid_and_off_spellings_pass_the_resolver_in_both_entry_points()
     test_help_text_carries_the_same_crossover_guidance_in_both_entry_points()
+    test_error_messages_carry_the_canonical_guidance_too()
     test_driver_refuses_configurations_that_cannot_honour_the_stencil()
     test_driver_does_not_gate_the_default_stencil()
     print("\nPASS")

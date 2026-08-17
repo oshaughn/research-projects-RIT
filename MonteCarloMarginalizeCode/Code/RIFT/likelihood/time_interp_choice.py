@@ -5,8 +5,8 @@ it without paying ~4 s of numba compilation.
 
 THE DECISION.  There is no automatic selection, and that is a MEASURED CONCLUSION, not an
 omission: three candidate rules were built and all three were disproved, the last fatally --
-the right stencil depends on fmin as well as mass, so no (srate, fmax, mass) signature can be
-correct.  The flag therefore takes an explicit stencil name, and the retired "choose for me"
+the right stencil depends on fmin and srate as well as mass, so no (srate, fmax, mass)
+signature can be correct.  The flag therefore takes an explicit stencil name, and the retired "choose for me"
 spelling raises rather than resolving to a default.
 
 The live recommendation is the CROSSOVER_GUIDANCE constant below.  Every user-facing help string
@@ -52,8 +52,11 @@ BARE_FLAG_SENTINEL = '__bare__'
 # asserts each entry point's --help contains this exact text, which is what stops one copy drifting
 # (an earlier revision left util_RIFT_pseudo_pipe.py recommending the pre-IMR "cubic unless below
 # ~4 Msun", i.e. the measurably worse stencil across roughly 4-20 Msun, while the others were right).
-CROSSOVER_GUIDANCE = ("the crossover rises with fmin -- 20-35 Msun at fmin <= 50 Hz, 35-55 Msun "
-                      "at fmin 100, and above 55 Msun at fmin 150 (measured over 9-55 Msun only)")
+CROSSOVER_GUIDANCE = (
+    "at srate 4096 / fmax 1700 the crossover in TOTAL MASS rises with fmin -- 20-35 Msun at "
+    "fmin <= 50 Hz, 35-55 Msun at fmin 100, above 55 Msun at fmin 150 -- with 'sinc' BELOW the "
+    "crossover and 'cubic' ABOVE it; measured over 9-55 Msun at that srate only, and a higher "
+    "srate moves it (at srate 16384 even 2.6-5 Msun measures cubic, by 21-34x)")
 
 
 
@@ -79,9 +82,8 @@ def resolve_interpolate_time_request(value):
             "--internal-ile-interpolate-time was given with no value. It used to be a bare "
             "on/off flag that also chose the stencil for you; automatic selection has been "
             "REMOVED as measurably unreliable, so a stencil must now be named explicitly: "
-            "nearest|cubic|sinc. Measured with an IMR model the crossover is between 20 and 35 "
-            "%s; 'sinc' below the crossover, 'cubic' above. See "
-            "RIFT.likelihood.time_interp_choice for the tables." % CROSSOVER_GUIDANCE)
+            "nearest|cubic|sinc. Measured with an IMR model, %s. See "
+            "RIFT/likelihood/DESIGN_q_window_stencil.md for the tables." % CROSSOVER_GUIDANCE)
     return validate_stencil_name(value)
 
 
@@ -105,9 +107,9 @@ def validate_stencil_name(value):
             "--internal-ile-interpolate-time %r asked for automatic stencil selection, which has "
             "been REMOVED: it was measured to pick the worse stencil at 2 of 8 total masses, and "
             "the correct choice additionally depends on fmin, which no (srate, fmax, mass) rule "
-            "can see. Pass an explicit stencil instead. Measured with an IMR model, %s; "
-            "'sinc' below the crossover, 'cubic' above. See RIFT.likelihood.time_interp_choice "
-            "for the measured tables." % (value, CROSSOVER_GUIDANCE))
+            "can see. Pass an explicit stencil instead. Measured with an IMR model, %s. See "
+            "RIFT/likelihood/DESIGN_q_window_stencil.md for the measured tables."
+            % (value, CROSSOVER_GUIDANCE))
     raise ValueError(
         "unrecognised Q_lm time-interpolation stencil %r: expected one of %s, or a value meaning "
         "disabled (%s)"

@@ -1,10 +1,13 @@
 """Estimate the frequency band a signal actually occupies, from a PSD, at workflow-build time.
 
-WHAT THIS IS FOR.  Several build-time decisions depend on where a signal's power really sits in
-[fmin, fmax] rather than on fmax itself -- most immediately the choice of sub-sample Q_lm
-interpolation stencil (see RIFT.likelihood.time_interp_choice), where using fmax alone was
-measured to pick the worse stencil.  The operative quantity is the bandwidth of the
+WHAT THIS IS FOR.  Build-time decisions that depend on where a signal's power really sits in
+[fmin, fmax] rather than on fmax itself.  The operative quantity is the bandwidth of the
 matched-filter integrand, which depends on the MASSES and on fmin as well as on the PSD.
+
+IT IS NOT CURRENTLY USED TO CHOOSE A Q_lm INTERPOLATION STENCIL, and a selector built on it was
+tried and RETRACTED -- the clean split it appeared to give was measured at a single fmin and does
+not survive an fmin sweep at any quantile.  See DEFAULT_POWER_QUANTILE below and
+RIFT/likelihood/DESIGN_q_window_stencil.md section 6.  Nothing here is calibrated for a decision.
 
 DESIGN CONSTRAINTS, both learned the hard way:
 

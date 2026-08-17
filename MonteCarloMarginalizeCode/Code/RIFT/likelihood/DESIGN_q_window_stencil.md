@@ -23,9 +23,12 @@ The crossover in total mass **rises with fmin**:
 | 100 Hz | 35–55 M☉ | `sinc` | `cubic` |
 | 150 Hz | above 55 M☉ | `sinc` at every mass measured (9–55) | *unmeasured* |
 
-**Measured range is 9–55 M☉.** There is no high-fmin evidence at 80 or 120 M☉; the fmin-30 ladder
-puts those firmly in cubic's regime and nothing here contradicts that. Do not read the fmin-150 row
-as "sinc at any mass" — it is "sinc everywhere we looked, and we stopped at 55".
+**Measured range is 9–55 M☉ at srate 4096.** There is no high-fmin evidence at 80 or 120 M☉. The
+fmin-30 ladder puts those in cubic's regime, but **do not extrapolate that to high fmin**: the
+whole finding of §4 is that the crossover rises with fmin, and it moved M=35 and M=55 across it.
+Extrapolating a fmin-30 result is the exact error that made #97 wrong. 80 and 120 M☉ at fmin ≥ 100
+are simply **unmeasured**. Likewise do not read the fmin-150 row as "sinc at any mass" — it is
+"sinc everywhere we looked, and we stopped at 55".
 
 `nearest` is never competitive: 200–440 nats throughout, crossing 1 nat of error by SNR 2–6, i.e.
 already unusable at O4 SNRs.
@@ -78,6 +81,11 @@ mass normalised to SNR_lik = 100. srate 4096, fmax 1700, fmin 30, Lmax 2. max|Δ
 At srate 16384 (SEOBNRv4 cannot be generated at 4096 below M ≈ 8): M = 5 → cubic 21×, M = 2.6 →
 cubic 34×.
 
+**Those two rows are at a HIGHER srate, and that is why they read the other way.** The same binary
+is far more oversampled at srate 16384, and oversampling — not mass alone — is what sets the
+answer. Do not read them as "cubic wins at low mass"; read them as "srate moves the crossover
+as surely as fmin does". Every crossover quoted in this document is **at srate 4096**.
+
 **Do not reintroduce inspiral-only numbers here.** An earlier version of this table used TaylorT4,
 which terminates at ISCO and carries no merger-ringdown. It named the **wrong stencil** at M = 9,
 10 and 20, and overstated cubic's high-mass margins by up to 99×.
@@ -101,8 +109,9 @@ The M=35 / fmin=150 mis-call costs 5.6×, and at 15.8 nats is a *larger absolute
 anything cubic does at fmin 30 anywhere over 9–120 M☉* — not a bookkeeping difference.
 
 **Conservative rule inside the measured range:** over fmin ≥ 100 **and** M ≤ 55, always choosing
-sinc costs at most 1.12× (at M=55, fmin=100, the single point where cubic still wins), against
-5.58× for always choosing cubic. That asymmetry is why a flat "prefer sinc" is defensible there —
+sinc costs at most 1.12× (at M=55, fmin=100, the single point where cubic still wins), against **15.9×** for always choosing cubic (M=20, fmin=150 — the largest sinc-win margin in
+that region; the 5.58× quoted in an earlier draft was a different quantity, the worst harm of the
+old fmin-blind rule). That asymmetry is why a flat "prefer sinc" is defensible there —
 bounded by the measurement, not universal.
 
 ---
@@ -113,8 +122,9 @@ bounded by the measurement, not universal.
 2.3–5.6 nats across the 20-point fmin sweep. Flat in *both* sweeps is exactly what a
 window-limited, oversampling-independent error must do.
 
-All the variation is `cubic`'s: it degrades **~6–8×** as fmin goes 20 → 150 at fixed mass (M=9:
-10.7 → 69.3 nats; M=20: 4.7 → 45.2). Raising fmin cuts the long low-frequency inspiral out of
+All the variation is `cubic`'s: it degrades **~6.5–9.6×** as fmin goes 20 → 150 at fixed mass (M=9:
+10.7 → 69.3 nats, 6.5×; M=20: 4.7 → 45.2, 9.6×).  Note this is an ENDPOINT ratio, not a
+monotone trend — cubic at M=9 is 10.7 at fmin 20 but 8.70 at fmin 30. Raising fmin cuts the long low-frequency inspiral out of
 band, broadening Q relative to Nyquist — exactly sinc's regime. That is why the crossover rises.
 
 **Margins are scoped, and the two scopes are not interchangeable.** At fmin 30, every margin either
@@ -159,8 +169,12 @@ low-fmin crossover is bracketed 20 < M < 35 but not resolved further, and the hi
 only as "> 55".
 
 **Swept: mass and fmin. Both moved the answer — and the second moved it *after* the first had been
-published as settled.** `fmax` and `Lmax` have **not** been swept and should be presumed
+published as settled.** `srate`, `fmax` and `Lmax` have **not** been swept and should be presumed
 load-bearing until they are; on this heuristic that presumption has been correct twice out of two.
+
+`srate` deserves special suspicion: it is the numerator of the fNyq/bandwidth ratio this whole
+document says sets the answer, and the two srate-16384 rows in §3 already show it flipping the
+winner. The entire fmin sweep is at srate 4096.
 
 ---
 

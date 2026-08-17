@@ -471,7 +471,7 @@ parser.add_argument("--add-extrinsic",action='store_true')
 parser.add_argument("--add-extrinsic-time-resampling",action='store_true',help="adds the time resampling option.  Only deployed for vectorized calculations (which should be all that end-users can access)")
 parser.add_argument("--internal-ile-srate-time-resampling",default=None, help=" Adds --srate-resample-time-marginalization to ILE for  output, to provide higher-resolution time output ")
 parser.add_argument("--internal-ile-srate-internal",default=None, help=" Adds --srate-internal to ILE, modifying how calculations are performed internally to use a higher sampling rate ")
-parser.add_argument("--internal-ile-interpolate-time",nargs='?',const=BARE_FLAG_SENTINEL,default=None,type=str,help="Enable sub-sample interpolation of Q_lm at fractional detector arrival times in the maintained NoLoop likelihood. REQUIRES AN EXPLICIT STENCIL: nearest|cubic|sinc -- automatic selection was removed as measurably unreliable, and a bare flag is rejected rather than silently doing nothing. MEASURED GUIDANCE (SEOBNRv4, an IMR model; fmin matters as much as mass): \"%s\". An earlier revision gave only the mass crossover and named the worse stencil at high fmin, by up to 5.6x. Forwarded verbatim to helper_LDG_Events.py, which validates it. See RIFT.likelihood.time_interp_choice for the measured tables." % CROSSOVER_GUIDANCE)
+parser.add_argument("--internal-ile-interpolate-time",nargs='?',const=BARE_FLAG_SENTINEL,default=None,type=str,help="Enable sub-sample interpolation of Q_lm at fractional detector arrival times in the maintained NoLoop likelihood. REQUIRES AN EXPLICIT STENCIL: nearest|cubic|sinc -- automatic selection was removed as measurably unreliable, and a bare flag is rejected rather than silently doing nothing. MEASURED GUIDANCE (SEOBNRv4, an IMR model): %s. Forwarded verbatim to helper_LDG_Events.py, which validates it. Full tables, limitations and provenance: RIFT/likelihood/DESIGN_q_window_stencil.md." % CROSSOVER_GUIDANCE)
 parser.add_argument("--internal-ile-n-chunk",default=None,type=int,help="Override the extrinsic chunk size (--n-chunk) passed to ILE, via the helper. Default behaviour (helper): 40000, scaled linearly with SNR above 40 and capped at 160000, because at high SNR the posterior is a vanishing fraction of the prior volume and a small chunk gives few informative samples per adaptation step. Larger chunks cost GPU memory but measured HOST memory (what RequestMemory governs) is flat, so no memory-request change is normally needed. EXPERTS ONLY.")
 parser.add_argument("--batch-extrinsic",action='store_true')
 parser.add_argument("--fmin",default=20,type=int,help="Mininum frequency for integration. template minimum frequency (we hope) so all modes resolved at this frequency")  # should be 23 for the BNS
@@ -1258,8 +1258,9 @@ if resolve_interpolate_time_request(opts.internal_ile_interpolate_time) is not N
     # BARE flag passes a sentinel.  Both must be distinguished from "a stencil was named", and a
     # bare flag must raise rather than silently forward nothing.
     # HELPER passthrough (not a raw ILE arg): the helper owns ILE argument construction, and it
-    # also knows whether the NoLoop path (--vectorized --gpu --force-xpy) that --interpolate-time
-    # requires is actually in use.  It also owns the stencil choice, because srate and fmax are
+    # also knows whether the maintained NoLoop path that --interpolate-time requires is in use --
+    # which needs --time-marginalization AND --vectorized AND one of --gpu/--rotation-slow/
+    # --freqresponse; the ILE driver refuses rather than ignoring if any is missing.  It also owns the stencil choice, because srate and fmax are
     # resolved there -- so forward the request verbatim rather than resolving it here, and let the
     # helper's log line be the single record of what was chosen.
     cmd += " --internal-ile-interpolate-time " + str(opts.internal_ile_interpolate_time) + " "
