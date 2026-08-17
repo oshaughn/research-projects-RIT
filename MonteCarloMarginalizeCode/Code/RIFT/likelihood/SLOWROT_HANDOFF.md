@@ -99,6 +99,7 @@ precompute-and-marginalize architecture. Two effects, both implemented (Path A +
     python RIFT/likelihood/test_slowrot_likelihood_v1.py       # scalar Path A vs baseline + brute force
     python RIFT/likelihood/test_slowrot_noloop.py              # vectorized Path A vs baseline NoLoop
     python RIFT/likelihood/test_slowrot_noloop_bruteforce.py   # vectorized Path A vs brute force
+    python RIFT/likelihood/test_slowrot_cauchy_schwarz.py      # lnL <= 0.5<d|d> + explicit-model value
     python RIFT/likelihood/test_slowrot_pathB.py               # Path B reduction + bound
     python RIFT/likelihood/test_slowrot_headtohead.py          # matched-sample rotation vs baseline (cubic)
     python RIFT/likelihood/test_slowrot_freqresponse.py        # [Path D] finite-size response vs LAL
@@ -122,8 +123,13 @@ End-to-end ILE head-to-head (ILE-GPU-Paper demo data), baseline vs rotation vs f
 ## Validation status (all PASSING)
 - Response harmonics vs LAL: ~1e-16.  FD ops vs LAL round trips: ~1e-13.
 - Path A scalar: V1a (Omega=0 vs baseline) 2.7e-12; V1b (real vs brute force) 2.6e-9.
-- Path A vectorized: vs baseline NoLoop 3.6e-12; vs brute force 3.2e-10; V0 (precompute
-  recovery on real data) exact.
+- Path A vectorized: vs baseline NoLoop 3.6e-12; vs brute force 3.9e-10 (against the REWRITTEN,
+  convention-free brute force -- see below; the old figure 3.2e-10 was against a reference that
+  shared the implementation's conventions); V0 (precompute recovery on real data) exact.
+- Cauchy-Schwarz (test_slowrot_cauchy_schwarz.py, 2026-08-17): lnL sits ON 0.5<d|d> to 0 nats
+  with the data equal to the exact Path-A model, and matches an explicit time-domain
+  <d|h>-(1/2)<h|h> to 5e-11.  Before the rotation_post_phase fix the same test overshot the
+  bound by 83.6 nats.
 - Path B: scalar reduce-to-baseline 9e-13; respects 0.5<d|d>; vectorized reduce 6.4e-12.
 - Path D (finite-size, --freqresponse): response Sum_p b_p W_p == antenna_response_fd to 6e-11
   on both +/-f; likelihood L->0 reduces to baseline NoLoop 3e-9; Cauchy-Schwarz respected;
@@ -142,6 +148,27 @@ lnL; corrected it is ~0.008. My independent "brute force" reference shared the s
 convention, so `vec == brute-force` PASSED while both were wrong. **Always cross-check
 against the Cauchy-Schwarz bound 0.5<d|d>, not only against a reference that can share
 conventions.**
+
+### The same lesson fired again, and this time the bound caught it (2026-08-17)
+Referencing the modulation to the intrinsic epoch is necessary but NOT sufficient. It leaves a
+residual `exp(i n Omega (t_arrival - tref))` -- the post-phase -- which the implementation
+dropped from the model norm, and it hid behind a second shortcut: term1 pushed the modulation
+onto the DATA (`<e^{inOmega.}h|d> == <h|e^{-inOmega.}d>`), an identity that is **false for a
+noise-weighted overlap**, because a frequency shift does not commute with the 1/S(f) band
+weight. term1 and term2 were therefore evaluating different templates, and lnL exceeded
+0.5<d|d> by ~1e-4 of <d|d> -- growing linearly with `Omega * (t_arrival - tref)`.
+
+Both are fixed: `chi_a` now goes into the data-term overlap directly (data untouched), and
+`rotation_post_phase()` applies `C~_a = C_a exp(i n_a Omega (t - tref))` to BOTH terms. Patching
+term2 alone does NOT work -- measured, it still violates by 73 nats where the full fix sits on
+the bound exactly.
+
+**And, exactly as the lesson above predicted, `test_slowrot_noloop_bruteforce` certified the bug
+at 3e-10 because its reference took the same two shortcuts.** That reference has been rewritten
+to build the real strain `Re[F(t') hY(t'-t_arr)]` in the time domain at every arrival sample and
+take both inner products of that one series -- sharing no convention with the implementation. It
+now fails against the old code (2.5e-3) and passes against the new one (3.9e-10).
+`test_slowrot_cauchy_schwarz.py` guards the bound itself.
 
 ## PATH B STATUS (findings 2026-07-04, the systematic pass in progress)
 - Matched-seed head-to-head DONE (test_slowrot_headtohead.py): rot(f_sid=0)==baseline 9e-13;

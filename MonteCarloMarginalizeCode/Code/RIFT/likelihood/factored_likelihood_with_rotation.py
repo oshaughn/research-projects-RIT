@@ -28,11 +28,22 @@ Path A, sec_delay Path B, app_response) for the derivation and the meaning of th
 Index conventions in the returned structures
 --------------------------------------------
 An "elementary modulated template" is labelled a = (p, n):
-      chi_a(t) = exp(i n Omega t) * d^p/dt^p h_lm(t - tau_0).
-The physical data-term time series carries a post-phase (derived in the notes):
-      Q^a_lm(t) = exp(i n Omega t) * < chi_a(.-t) | d >          [applied here]
-while the cross terms are arrival-time independent:
-      U^{a,a'} = < chi_a | chi_a' >,   V^{a,a'} = < chi_a^* | chi_a' >.
+      chi_a(u) = exp(i n Omega u) * d^p/du^p h_lm(u - tau_0),
+with u the template's INTRINSIC time (its own epoch, ~0), not absolute GPS.  Everything the
+precompute returns is a plain overlap against that intrinsic-time object:
+      Q^a_lm(t) = < chi_a(.-t) | d >,
+      U^{a,a'}  = < chi_a | chi_a' >,   V^{a,a'} = < chi_a^* | chi_a' >.
+
+THE ARRIVAL-TIME POST-PHASE IS THE EXTRINSIC LAYER'S JOB, AND IT APPLIES TO BOTH TERMS.
+The physical modulation runs on absolute time, exp(i n Omega (t' - tref)); placing the
+template at arrival time t splits it as exp(i n Omega u) * exp(i n Omega (t - tref)).  So the
+coefficient that multiplies chi_a in the model is not C_a but
+
+      C~_a(t) = C_a * exp(i n_a Omega (t - tref)),                     [rotation_post_phase]
+
+and the SAME C~ must be used in the data term AND in the model norm.  Using C~ in only one of
+them evaluates <d|h> and <h|h> for two different h, which breaks the Cauchy-Schwarz bound
+lnL <= (1/2)<d|d> by O(n Omega (t-tref)) -- see test_slowrot_cauchy_schwarz.py.
 
 Path A (default) uses only p = 0 (amplitude drift; exact 5-harmonic).  Path B adds p >= 1.
 
@@ -138,10 +149,15 @@ def _lal_freq_modulate(hf, coef, f_sidereal=F_SIDEREAL, t_ref=0.0):
     forward-FFT back.  Uses the same COMPLEX16 transforms RIFT uses for its overlaps.
 
     The reference t_ref is physical, not cosmetic: the true antenna phase is
-    exp(i n (GMST(t')-RA)) = exp(i n (GMST(t_ev)-RA)) * exp(i n Omega (t'-t_ev)), so the
-    precompute must carry exactly exp(i n Omega (t' - t_ev)) at absolute data time t',
-    with the constant GMST(t_ev) piece carried analytically by A_n (slowrot_response).
-    Hence callers pass t_ref = event_time_geo.
+    exp(i n (GMST(t')-RA)) = exp(i n (GMST(tref)-RA)) * exp(i n Omega (t'-tref)), with the
+    constant GMST(tref) piece carried analytically by A_n (slowrot_response).
+
+    ALL CALLERS NOW PASS t_ref = 0.0, i.e. they modulate on the template's own INTRINSIC time
+    axis (hf.epoch ~ -T_dur, near zero).  An earlier revision also modulated the DATA with
+    t_ref = event_time_geo, to push exp(i n Omega t) off the template and onto the data; that
+    identity is false for a noise-weighted overlap and is gone.  The remaining absolute-time
+    piece, exp(i n Omega (t_arrival - tref)), is applied once in the extrinsic layer by
+    rotation_post_phase() -- to BOTH the data term and the model norm.
     """
     import lal
     if coef == 0:
@@ -216,11 +232,10 @@ def PrecomputeLikelihoodTermsWithRotation(
 
     assert data_dict.keys() == psd_dict.keys()
     detectors = list(data_dict.keys())
-    t_ev = float(event_time_geo)
-    # The exp(i n Omega t) modulation for the data term Q is applied to the DATA (shift by
-    # -n f_sidereal, referenced to t_ev), which is mode-independent: one shift per (det,n),
-    # and -- since the modulation lives on the fixed absolute data-time axis -- needs NO
-    # arrival-time-dependent post-phase.  U,V use modulated templates (same t_ev reference).
+    # NOTE: event_time_geo now only sets the retained-window placement (t_shift/N_shift) and
+    # is recorded in meta.  The bank itself is referenced entirely to the template's intrinsic
+    # epoch; the absolute-time reference enters once, in the extrinsic layer, as the
+    # rotation_post_phase() applied to BOTH the data term and the model norm.
 
     # Reference distance handling identical to the base precompute.
     P.dist = FL.distMpcRef * 1e6 * lsu.lsu_PC
@@ -269,23 +284,25 @@ def PrecomputeLikelihoodTermsWithRotation(
         N_window = int(2 * t_window / P.deltaT)
         t = np.arange(N_window) * P.deltaT + float(rho_epoch + N_shift * P.deltaT)
 
-        # ---- data-term overlaps Q^a_lm(t) ----
-        # exp(i n Omega t) on the template is equivalent to shifting the data spectrum by
-        # -n f_sidereal (mode-independent).  Realize it by modulating the DATA time series
-        # by exp(-i n Omega (t_abs - t_ev)) (round trip).  Because the modulation lives on
-        # the absolute data-time axis, the resulting overlap is directly
-        #   Q^a_lm(t) = int e^{-i n Omega (t'-t_ev)} [d^p h_lm]^*(t'-t) d(t') dt'
-        # with NO arrival-time-dependent post-phase.
+        # ---- data-term overlaps Q^a_lm(t) = <chi_a(.-t)|d> ----
+        # The MODULATED template goes into the overlap, against the untouched data, so Q and
+        # the U,V cross terms below are overlaps of the same chi_a and the extrinsic layer's
+        # post-phase C~_a = C_a exp(i n Omega (t-tref)) makes term1 and term2 consistent.
+        #
+        # An earlier revision instead pushed the modulation onto the DATA (shift its spectrum
+        # by -n f_sidereal) and dropped the post-phase, on the grounds that
+        # <e^{inOmega.}h | d> == <h | e^{-inOmega.}d>.  That identity holds for the UNWEIGHTED
+        # overlap and FAILS for the noise-weighted one used here: a frequency shift does not
+        # commute with the 1/S(f) band weight.  Measured, the two routes differ by ~1e-4 of
+        # <d|d> at the physical rate -- enough to violate Cauchy-Schwarz, and it is the U,V
+        # terms (which have no data-side route available) that are then left inconsistent.
         rholms_rot[det] = {}
         rholms_intp_rot[det] = {}
-        data_by_n = {}
-        for n in set(nn for (_, nn) in a_list):
-            data_by_n[n] = data if n == 0 else _lal_freq_modulate(data, -n, f_sidereal, t_ev)
 
         for a in a_list:
             p, n = a
             rho = FL.ComputeModeIPTimeSeries(
-                hlms_p[p], data_by_n[n], psd, P.fmin, fMax, 1. / 2. / P.deltaT,
+                chi[a], data, psd, P.fmin, fMax, 1. / 2. / P.deltaT,
                 N_shift, N_window, analyticPSD_Q, inv_spec_trunc_Q, T_spec)
             rholms_rot[det][a] = rho
             if not skip_interpolation:
@@ -382,6 +399,22 @@ def rotation_coefficients(det, RA, DEC, psi, tref, p_max):
     return C
 
 
+def rotation_post_phase(C, omega, delta):
+    """Arrival-time post-phase on the elementary-template coefficients: C~_a = C_a e^{i n_a omega delta}.
+
+    ``delta`` = (arrival time) - (the tref the coefficients were referenced to), in seconds.
+    It may be a scalar or an ndarray broadcastable against the entries of ``C``.
+
+    Why this exists: the bank is built from chi_a(u) = e^{i n Omega u} h^{(p)}(u) on the
+    template's INTRINSIC time u, while the physical response modulation is e^{i n Omega
+    (t'-tref)} on absolute time.  Placing the template at arrival time t gives t' = u + t, so
+    the modulation factorizes as e^{i n Omega u} * e^{i n Omega (t-tref)}; the second factor
+    belongs to the coefficient.  Apply it to BOTH the data term and the model norm, or
+    lnL = <d|h> - (1/2)<h|h> is evaluated for two different h and can exceed (1/2)<d|d>.
+    """
+    return {a: c * np.exp(1.0j * a[1] * omega * delta) for a, c in C.items()}
+
+
 def FactoredLogLikelihoodWithRotation(extr_params, rholms_intp_rot, crossTerms_rot,
                                       crossTermsV_rot, meta, Lmax):
     """Slow-rotation analogue of factored_likelihood.FactoredLogLikelihood (Path A).
@@ -425,6 +458,11 @@ def FactoredLogLikelihoodWithRotation(extr_params, rholms_intp_rot, crossTerms_r
     for det in detectors:
         C = rotation_coefficients(det, RA, DEC, psi, tref, p_max)  # {(p,n): C_a}
         t_det = FL.ComputeArrivalTimeAtDetector(det, RA, DEC, tref)
+        # Arrival-time post-phase (see rotation_post_phase): delta = t_arrival - tref is just
+        # the geometric delay here, taken directly rather than as a difference of two ~1e9 s.
+        delta_arr = float(lal.TimeDelayFromEarthCenter(
+            FL.lalsim.DetectorPrefixToLALDetector(det).location, RA, DEC, tref))
+        C = rotation_post_phase(C, 2.0 * np.pi * meta['f_sidereal'], delta_arr)
         CT = crossTerms_rot[det]
         CTV = crossTermsV_rot[det]
 
@@ -607,22 +645,51 @@ def DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation(
             frac_first = (sample_first - np.floor(sample_first)).astype(np.float64)
         ilast = ifirst + npts
 
+        # ---- arrival-time post-phase (see rotation_post_phase) ----
+        # Output sample j of extrinsic sample i is the template placed at arrival time
+        # t_ref + (samp0_i + j)*deltaT, so delta_ij = (samp0_i + j)*deltaT - off with
+        # off = tref - t_ref.  That SEPARATES, so no (npts_ex, npts) phase array is ever
+        # materialized: exp(i m omega delta_ij) = pe_m[i] * pt_m[j].
+        off = float(P_vec.tref - float(t_ref))
+        samp0 = ifirst.astype(np.float64) if time_interp == 'nearest' else sample_first
+        delta0 = samp0 * P_vec.deltaT - off                       # (npts_ex,)
+        jgrid = np.arange(npts) * P_vec.deltaT                    # (npts,)
+        omega_sid = 2.0 * np.pi * meta['f_sidereal']
+        _ph_cache = {}
+
+        def _ph(m):
+            """exp(i m omega_sid delta_ij) as rank-1 factors (pe (npts_ex,), pt (npts,))."""
+            if m not in _ph_cache:
+                if m == 0:
+                    _ph_cache[m] = (None, None)      # identity; callers skip the multiply
+                else:
+                    _ph_cache[m] = (xpy.asarray(np.exp(1.0j * m * omega_sid * delta0)),
+                                    xpy.asarray(np.exp(1.0j * m * omega_sid * jgrid)))
+            return _ph_cache[m]
+
         # Device-side arrays for the heavy contraction (identity on CPU; host->device on GPU).
         Ylms_d = xpy.asarray(Ylms); conjY_d = xpy.conj(Ylms_d)
         zero_d = xpy.zeros(npts_ex, dtype=complex)
         C_d = {k: xpy.asarray(v) for k, v in C.items()}
         Cg_d = lambda a: C_d[a] if a in C_d else zero_d
 
+        def _apply_post_phase(a, coef_ex, res):
+            """conj(C~_a) Q^a  =  conj(C_a) e^{-i n_a omega delta_ij} Q^a_ij."""
+            pe, pt = _ph(-a[1])
+            if pe is None:
+                return coef_ex[:, None] * res
+            return (coef_ex * pe)[:, None] * (pt[None, :] * res)
+
         term1 = xpy.zeros((npts_ex, npts), dtype=np.complex128)
         if on_gpu:
-            # term1 = Re[ sum_a conj(C_a) sum_lm conj(Ylm) Q^a_lm(t) ]: reuse the baseline fused
+            # term1 = Re[ sum_a conj(C~_a) sum_lm conj(Ylm) Q^a_lm(t) ]: reuse the baseline fused
             # kernel per elementary template a (A = conj(Ylm)), no (n_ex,npts,n_lms) temporary.
             ifirst_i32 = xpy.asarray(ifirst).astype(np.int32)
             frac_d = None if time_interp == 'nearest' else xpy.asarray(frac_first)
             for a in a_list:
                 Q = xpy.ascontiguousarray(rho_by_a[det][a].T)   # (n_time, n_lms), device
                 res = FL._q_inner_product_gpu(Q, conjY_d, ifirst_i32, frac_d, npts, time_interp)
-                term1 += xpy.conj(Cg_d(a))[:, None] * res
+                term1 += _apply_post_phase(a, xpy.conj(Cg_d(a)), res)
         else:
             for a in a_list:
                 det_rho = rho_by_a[det][a]
@@ -634,20 +701,35 @@ def DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation(
                     # sub-sample interpolation; the helpers expect Q_block shape (n_time, n_lm).
                     Qa = FL._q_window_numpy_interp(det_rho.T, ifirst, frac_first, npts,
                                                   time_interp)
-                term1 += np.conj(Cg(a))[:, None] * np.einsum('xi,xti->xt', np.conj(Ylms), Qa)
+                term1 += _apply_post_phase(a, np.conj(Cg(a)),
+                                           np.einsum('xi,xti->xt', np.conj(Ylms), Qa))
         term1 = term1.real * inv_dist[:, None]
 
-        term2 = xpy.zeros(npts_ex, dtype=np.complex128)
+        # term2 also carries the post-phase, and it enters ONLY through m = n_a' - n_a for both
+        # the U contraction (conj(C~_a) C~_a') and the V one (C~_{(p,-n_a)} C~_a').  So bucket
+        # the |a_list|^2 einsums -- unchanged in cost -- by m, and pay one rank-1 phase per
+        # distinct m (at most 4*(2+p_max)+1 of them) instead of one per pair.
+        term2_by_m = {}
         for a in a_list:
             aR = (a[0], -a[1])
             for ap in a_list:
-                term2 += xpy.conj(Cg_d(a)) * Cg_d(ap) * xpy.einsum(
+                val = xpy.conj(Cg_d(a)) * Cg_d(ap) * xpy.einsum(
                     'xi,xj,ij->x', conjY_d, Ylms_d, xpy.asarray(U_by_aa[det][(a, ap)]))
-                term2 += Cg_d(aR) * Cg_d(ap) * xpy.einsum(
+                val = val + Cg_d(aR) * Cg_d(ap) * xpy.einsum(
                     'xi,xj,ij->x', Ylms_d, Ylms_d, xpy.asarray(V_by_aa[det][(a, ap)]))
-        term2 = (-0.25 * term2.real) * inv_dist ** 2
+                m = ap[1] - a[1]
+                term2_by_m[m] = term2_by_m[m] + val if m in term2_by_m else val
+        # Re[] is linear, so accumulate the real part per m and keep the persistent array real.
+        term2 = xpy.zeros((npts_ex, npts), dtype=np.float64)
+        for m, val in term2_by_m.items():
+            pe, pt = _ph(m)
+            if pe is None:
+                term2 += val.real[:, None]
+            else:
+                term2 += ((val * pe)[:, None] * pt[None, :]).real
+        term2 = (-0.25 * term2) * (inv_dist ** 2)[:, None]
 
-        lnL_t += term1 + term2[:, None]
+        lnL_t += term1 + term2
 
     if array_output:
         return lnL_t
