@@ -127,9 +127,12 @@ def Q_inner_product_sinc_cupy(Q, A, start_indices, fractional_offsets, window_si
     MB per detector per call at production n_extrinsic.  The weight work is O(n_ex * 2a) against
     the kernel's O(n_ex * window * n_lms * 2a), so it is negligible either way.
 
-    Which stencil to use depends on the oversampling factor fNyq/fmax -- see
-    ``_sinc_Q_window_numpy`` for the measured crossover.  This one is the accurate choice near
-    Nyquist, which is where production runs sit.
+    WHICH STENCIL TO USE IS NOT RESTATED HERE.  An earlier version of this docstring said the
+    choice depends on fNyq/fmax and that production "sits near Nyquist" and so favours sinc.
+    Both halves were measured to be wrong: fmax is not what band-limits Q, and the right choice
+    depends on the masses, on fmin and on srate.  Live recommendation:
+    RIFT.likelihood.time_interp_choice.CROSSOVER_GUIDANCE.  Measured tables:
+    RIFT/likelihood/DESIGN_q_window_stencil.md.
 
     COST, measured on an RTX 2080 Ti against ``Q_inner_product_cubic_cupy``, ms per call at
     (n_extrinsic, window, n_lms, n_time):
