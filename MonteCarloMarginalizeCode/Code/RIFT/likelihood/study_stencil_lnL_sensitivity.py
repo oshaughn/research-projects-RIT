@@ -89,6 +89,20 @@ class UnknownApproximant(Exception):
     wrapper checking $? saw success on an empty run."""
 
 
+def validate_approximant(approx):
+    """Raise UnknownApproximant if the name does not exist.  Call ONCE, before dispatch.
+
+    Doing it per-configuration was the bug: run_mass_ladder's blanket `except Exception` turned
+    the getattr AttributeError into a skipped mass, so a typo skipped every mass and exited 0.
+    Validating up front means no mode's handler can swallow it, present or future."""
+    name = approx or DEFAULT_APPROX
+    if not hasattr(lalsim, name):
+        raise UnknownApproximant(
+            "unknown approximant %r -- not an attribute of lalsimulation. Check the spelling; "
+            "this is not a srate/mass problem." % (name,))
+    return name
+
+
 def build_setup_or_skip(label, approx, *args, **kwargs):
     """Construct a Setup, or explain and skip.  ONE implementation, called by every mode.
 
@@ -99,11 +113,7 @@ def build_setup_or_skip(label, approx, *args, **kwargs):
     A BAD MODEL NAME IS NOT A GENERABILITY FAILURE and must not be reported as one -- it raises
     before any waveform is attempted, and no amount of raising srate will help.
     """
-    name = approx or DEFAULT_APPROX
-    if not hasattr(lalsim, name):
-        raise UnknownApproximant(
-            "unknown approximant %r -- not an attribute of lalsimulation. Check the spelling; "
-            "this is not a srate/mass problem." % (name,))
+    name = validate_approximant(approx)
     try:
         return Setup(label, *args, approx=approx, **kwargs)
     except Exception as exc:
@@ -710,11 +720,13 @@ def run_mass_ladder(fSample, fmax, fmin, masses, target_snr, K, seeds, t_half, M
         tau = chirp_time_s(m1, m2, fmin)
 
         try:
-            probe = Setup('probe', fSample, fmax, m1, m2, fmin, t_window, dist_mpc=200.,
-                          deltaF=dF, approx=approx)
-        except Exception as exc:
-            print("  M=%6.1f : SKIPPED -- %s cannot be generated at srate %g: %s"
-                  % (m_total, approx or DEFAULT_APPROX, fSample, str(exc)[:120]))
+            probe = build_setup_or_skip('probe', approx, fSample, fmax, m1, m2, fmin, t_window,
+                                        dist_mpc=200., deltaF=dF)
+        except ApproximantUnavailable as exc:
+            # NOTE the narrow except: UnknownApproximant deliberately propagates.  A blanket
+            # `except Exception` here turned a typo into a skipped mass, so every mass skipped
+            # and the run exited 0 having measured nothing.
+            print("  M=%6.1f : SKIPPED -- %s" % (m_total, exc))
             sys.stdout.flush()
             continue
         npts_half = int(round(t_half * fSample))
@@ -1188,11 +1200,17 @@ def main():
         ("B-light", 16384., 512., 1.3, 1.3, 150., 12., 0.4, 0.2),
     ]
     if args.mode == 'mass-ladder':
-        run_mass_ladder(args.mass_ladder_srate, 1700., args.mass_ladder_fmin, args.masses,
-                        args.mass_ladder_snr, args.K, args.seeds, args.t_half, args.M_ref,
-                        args.M_check, args.t_window, args.t_window_short, args.chunk,
-                        approx=args.approx)
+        _ladder_rows = run_mass_ladder(
+            args.mass_ladder_srate, 1700., args.mass_ladder_fmin, args.masses,
+            args.mass_ladder_snr, args.K, args.seeds, args.t_half, args.M_ref,
+            args.M_check, args.t_window, args.t_window_short, args.chunk,
+            approx=args.approx)
+        _exit_if_nothing_measured(_ladder_rows or [], "mass in the ladder")
         return
+
+    # Validate the approximant NAME once, before any mode runs.  Per-configuration handlers
+    # must never be given the chance to swallow a typo.
+    validate_approximant(args.approx)
 
     _results = []
 
