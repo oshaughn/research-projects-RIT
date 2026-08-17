@@ -21,6 +21,10 @@
       "decision": "PORT",
       "reason": "Legacy-boolean vocabulary for --interpolate-time. Main (PR #97) now accepts STENCIL NAMES there -- nearest/cubic/sinc -- normalizing into opts._noloop_time_interp, with this tuple for back-compat and an explicit typo guard so a misspelling is not absorbed as falsey. LISA still passes the raw --interpolate-time value straight to the likelihood, so porting means normalizing it AND teaching the LISA time path the stencil name; it travels with _normalize_interpolate_time_argv and _truthy_option."
     },
+    "FUNC:_cal_rng": {
+      "decision": "NA",
+      "reason": "Per-stream RNG for the calibration-side auxiliary draws (the error probe and the adaptive growth of the cal draw set), so those stay reproducible under --seed instead of taking fresh OS entropy. Calibration-envelope internals; see the --calibration-* reason. NOT a seeding gap on the LISA side: this is a thin per-stream counter over RIFT.integrators.seeding.derived_rng, which is a shared module both drivers already import, and the LISA driver calls seed_everything on the same footing as the main one. If LISA ever models calibration, it wants derived_rng directly, not this wrapper."
+    },
     "FUNC:_cal_setup_prior_with_nodes": {
       "decision": "NA",
       "reason": "Calibration-envelope internals; see the --calibration-* reason."

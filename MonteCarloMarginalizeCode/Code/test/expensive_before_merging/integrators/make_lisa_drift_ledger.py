@@ -210,6 +210,14 @@ RULES = [
      "so porting the LIGO machinery would be actively misleading."),
     (r"^FUNC:(_cal_setup_prior_with_nodes|_draw_more_calibration_draws)$", "NA",
      "Calibration-envelope internals; see the --calibration-* reason."),
+    (r"^FUNC:_cal_rng$", "NA",
+     "Per-stream RNG for the calibration-side auxiliary draws (the error probe and the "
+     "adaptive growth of the cal draw set), so those stay reproducible under --seed instead "
+     "of taking fresh OS entropy. Calibration-envelope internals; see the --calibration-* "
+     "reason. NOT a seeding gap on the LISA side: this is a thin per-stream counter over "
+     "RIFT.integrators.seeding.derived_rng, which is a shared module both drivers already "
+     "import, and the LISA driver calls seed_everything on the same footing as the main "
+     "one. If LISA ever models calibration, it wants derived_rng directly, not this wrapper."),
     (r"^FUNC:analyze_event\._cal_error_probe(\._draw_dist)?$", "NA",
      "Calibration Monte-Carlo error probe; see the --calibration-* reason."),
 

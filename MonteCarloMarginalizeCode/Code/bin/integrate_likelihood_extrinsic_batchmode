@@ -307,7 +307,7 @@ integration_params.add_option("--fairdraw-extrinsic-output", action='store_true'
 integration_params.add_option("--fairdraw-extrinsic-output-n-max", default=5, type=int, help="Maximum number of fair draws per ILE evaluation.")
 integration_params.add_option("--n-chunk", type=int, help="Chunk'.",default=10000)
 integration_params.add_option("--convergence-tests-on",default=False,action='store_true')
-integration_params.add_option("--seed", type=int, help="Random seed to use. Default is to not seed the RNG.")
+integration_params.add_option("--seed", type=int, help="Random seed to use. Default is to not seed the RNG.  Seeds every backend the samplers draw through (numpy, cupy, torch), so a seeded run is reproducible on GPU as well as CPU.")
 integration_params.add_option("--no-adapt", action="store_true", help="Turn off adaptive sampling. Adaptive sampling is on by default.")
 integration_params.add_option("--force-adapt-all", action="store_true", help="Force adaptive sampling for all parameters.")
 integration_params.add_option("--force-reset-all", action="store_true", help="Force reset of sampling every iteration. (Recommended if AC and not using no-adapt-after-first)")
@@ -755,10 +755,12 @@ n_eff = opts.n_eff # Effective number of points evaluated
 #
 # Initialize the RNG, if needed
 #
-# TODO: Do we seed a given instance of the integrator, or set it for all
-# or both?
+# Seed EVERY backend a sampler can draw from, not just numpy: the samplers draw
+# through self.xpy / xpy_default, which is cupy on GPU, and cupy has its own
+# global generator.  See RIFT/integrators/seeding.py.
 if opts.seed is not None:
-    numpy.random.seed(opts.seed)
+    from RIFT.integrators.seeding import seed_everything
+    seed_everything(opts.seed)
 
 
 if opts.event_time is not None:
@@ -1060,6 +1062,21 @@ _calpilot_logresp_list = []      # per-intrinsic-point per-realization log-respo
 calibration_nodes = None         # (n_cal, 2*n_nodes_amp*len(dets)) per-det [amp_0..,phase_0..] blocks
 calibration_node_dets = None     # detector order matching the node blocks
 calibration_n_nodes_amp = None   # spline nodes per detector per (amp|phase)
+_cal_rng_counters = {}           # stream name -> number of draws taken from it so far
+def _cal_rng(stream):
+    """Generator for a calibration-side auxiliary draw.
+
+    The base cal realizations are drawn from default_rng(opts.seed), but the
+    probe/growth paths used a bare default_rng(), which takes fresh entropy from
+    the OS and so is NOT covered by --seed: two identical seeded invocations could probe
+    a different cal error, grow to a different n_cal, and marginalize over different
+    realizations.  Derive those streams from the seed instead (RIFT.integrators.seeding),
+    with a per-stream counter so repeated calls stay independent of each other -- and of
+    the base draw set -- while remaining reproducible.  Unseeded runs keep fresh entropy."""
+    from RIFT.integrators.seeding import derived_rng
+    n = _cal_rng_counters.get(stream, 0)
+    _cal_rng_counters[stream] = n + 1
+    return derived_rng(stream, n)
 def _cal_setup_prior_with_nodes(psd_dict):
     """Populate calibration_realization_dict from broad-PRIOR cal draws.  When
     --calibration-export-posterior is set, RETAIN the node vectors too (via
@@ -1167,19 +1184,25 @@ def _draw_more_calibration_draws(n_more, psd_dict):
     log-weights, node vectors), and return JUST the new realizations dict so the
     caller can precompute only the new rholm blocks and append them.
 
-    Fresh, unseeded randomness ON PURPOSE: cal draws must remain independent across
-    points/workers -- the variance is disclosed (cal MC error budget) and reduced by
-    growing the draw set, never by sharing draws."""
+    The added draws come from a stream INDEPENDENT of the original set, and of every
+    earlier growth round: independence is what the cal MC error budget assumes -- the
+    variance is disclosed and reduced by growing the draw set, never by sharing draws.
+    That stream is DERIVED from --seed when one was given (so the enlarged set, and
+    hence the likelihood, is reproducible) and taken from fresh OS entropy when it was
+    not.  See _cal_rng."""
     global calibration_realization_dict, calibration_log_weights, calibration_nodes
     import RIFT.calmarg.generate_realizations as _genr
     new = {}
+    # used by the two node-drawing branches; create_realizations (below) draws through
+    # numpy's global RNG, which seed_everything already covers.
+    _rng = _cal_rng('calmarg.extra_draws')
     if opts.calibration_proposal_breadcrumb:
         import RIFT.calmarg.breadcrumbs
         _bc = RIFT.calmarg.breadcrumbs.load(opts.calibration_proposal_breadcrumb)
         new, _lw, _nodes = _genr.seed_realizations_from_breadcrumb(
             _bc, 1./P.deltaF, P.deltaT, opts.fmin_template, fmax,
             opts.calibration_spline_count, n_more, fmin_ifo=cal_fmin_ifo,
-            rng=np.random.default_rng())
+            rng=_rng)
         calibration_log_weights = np.concatenate([np.asarray(calibration_log_weights), np.asarray(_lw)])
         if calibration_nodes is not None:
             calibration_nodes = np.vstack([calibration_nodes, _nodes])
@@ -1187,7 +1210,7 @@ def _draw_more_calibration_draws(n_more, psd_dict):
         _ret = _genr.draw_prior_realizations_with_nodes(
             opts.calibration_envelope_directory, list(psd_dict.keys()), 1./P.deltaF, P.deltaT,
             opts.fmin_template, fmax, opts.calibration_spline_count, n_more,
-            fmin_ifo=cal_fmin_ifo, rng=np.random.default_rng())
+            fmin_ifo=cal_fmin_ifo, rng=_rng)
         new = _ret['realizations']
         calibration_nodes = np.vstack([calibration_nodes, _ret['nodes']]) if calibration_nodes is not None else _ret['nodes']
     else:
@@ -2864,7 +2887,10 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             Responsibilities are ~extrinsic-independent so modest batches converge."""
             import RIFT.calmarg.adaptive as _adapt
             from scipy.special import logsumexp as _lse
-            _rng = np.random.default_rng()   # fresh randomness: this is a diagnostic
+            # A fresh probe stream per call (so successive probes do not reuse each
+            # other's extrinsic batch), derived from --seed when the run was seeded:
+            # this probe also DECIDES n_cal below, so it must not float run to run.
+            _rng = _cal_rng('calmarg.error_probe')
             if n_cap is None:
                 n_cap = max(int(opts.calibration_mc_error_extrinsic or 0), n_start)
             _warned = []
