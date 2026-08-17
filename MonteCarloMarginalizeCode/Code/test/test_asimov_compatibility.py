@@ -126,6 +126,80 @@ def test_reweighted_samples_keep_list_contract(tmp_path):
 
     assert assets["samples"] == [str(reweighted)]
     assert assets["samples_calmarg"] == str(reweighted)
+    assert "asset_contract" not in assets
+
+
+def test_collect_assets_resolves_relative_detector_paths_from_repository(
+        tmp_path, monkeypatch):
+    repository_dir = tmp_path / "repository"
+    run = tmp_path / "run"
+    run.mkdir()
+    (run / "extrinsic_posterior_samples.dat").write_text("# samples\n")
+    config = repository_dir / "C01_offline" / "rift.ini"
+    config.parent.mkdir(parents=True)
+    config.write_text("[analysis]\n")
+    psd = repository_dir / "assets" / "H1-psd.dat"
+    calibration = repository_dir / "assets" / "H1-calibration.dat"
+    psd.parent.mkdir()
+    psd.write_text("20 1e-46\n")
+    calibration.write_text("20 0 0\n")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+
+    event = types.SimpleNamespace(
+        name="S250202cu",
+        repository=types.SimpleNamespace(directory=str(repository_dir)),
+    )
+    production = types.SimpleNamespace(
+        name="rift-relative",
+        category="C01_offline",
+        rundir=str(run),
+        event=event,
+        psds={"H1": "assets/H1-psd.dat"},
+        xml_psds={},
+        meta={"data": {"calibration": {
+            "H1": "assets/H1-calibration.dat"}}},
+        get_configuration=lambda: types.SimpleNamespace(ini_loc="rift.ini"),
+    )
+
+    assets = _pipe(production).collect_assets(absolute=True)
+
+    assert assets["psds"] == {"H1": str(psd)}
+    assert assets["calibration"] == {"H1": str(calibration)}
+    assert assets["asset_contract"] == "rift-assets/v1"
+
+
+def test_collect_assets_distinguishes_standard_calmarg_and_all_net(tmp_path):
+    run = tmp_path / "run"
+    run.mkdir()
+    standard = run / "extrinsic_posterior_samples.dat"
+    calmarg = run / "reweighted_posterior_samples.dat"
+    all_net = run / "all.net"
+    standard.write_text("# standard\n")
+    calmarg.write_text("# calmarg\n")
+    all_net.write_text("# likelihood\n")
+    repository = tmp_path / "repository"
+    config = repository / "C01_offline" / "rift.ini"
+    config.parent.mkdir(parents=True)
+    config.write_text("[analysis]\n")
+    event = types.SimpleNamespace(
+        name="S250202cu",
+        repository=types.SimpleNamespace(directory=str(repository)),
+    )
+    production = types.SimpleNamespace(
+        name="rift-both", category="C01_offline", rundir=str(run),
+        event=event, psds={}, xml_psds={}, meta={"data": {}},
+        get_configuration=lambda: types.SimpleNamespace(ini_loc="rift.ini"),
+    )
+
+    assets = _pipe(production).collect_assets(absolute=True)
+
+    assert assets["samples"] == [str(calmarg)]
+    assert assets["samples_raw"] == str(standard)
+    assert assets["samples_calmarg"] == str(calmarg)
+    assert assets["lnL_marg"] == str(all_net)
+    assert assets["asset_contract"] == "rift-assets/v1"
 
 
 def test_asimov_07_psd_attributes_replace_legacy_getter():
@@ -180,6 +254,23 @@ def test_multiple_sample_files_are_rejected_for_bootstrap():
 
     with pytest.raises(PipelineException, match="exactly one PESummary metafile"):
         _pipe(production)._find_posterior()
+
+
+def test_existing_bootstrap_requires_explicit_unprovenanced_reuse(tmp_path):
+    bootstrap = tmp_path / "bootstrap.xml.gz"
+    bootstrap.write_text("old grid")
+    production = types.SimpleNamespace(
+        name="rift-bootstrap", category="C01_offline",
+        meta={"scheduler": {}},
+    )
+    pipe = _pipe(production)
+
+    with pytest.raises(PipelineException, match="bootstrap reuse existing"):
+        pipe._reuse_existing_bootstrap(str(bootstrap), "new-posterior.h5")
+
+    production.meta["scheduler"]["bootstrap reuse existing"] = True
+    assert pipe._reuse_existing_bootstrap(
+        str(bootstrap), "new-posterior.h5") is True
 
 
 if __name__ == "__main__":
