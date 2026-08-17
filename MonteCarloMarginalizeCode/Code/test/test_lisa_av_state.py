@@ -265,28 +265,91 @@ def test_both_analyze_event_variants_get_every_hook():
     for name, node in fns.items():
         called = {c.func.id for c in ast.walk(node)
                   if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)}
-        for hook in ('_maybe_load_av_state', '_maybe_save_av_state',
-                     '_maybe_enable_anisotropic_bins', '_maybe_replicate_for_mc_error'):
+        for hook in ('_maybe_load_av_state', '_maybe_enable_anisotropic_bins',
+                     '_maybe_replicate_for_mc_error'):
             assert hook in called, "%s does not call %s" % (name, hook)
+        # The SAVE is reached through the replica helper, which sequences it after the
+        # first-run gate (see test_hook_ordering_at_both_call_sites).  Calling it here too
+        # would write a grid the gate has not yet approved.
+        assert '_maybe_save_av_state' not in called, (
+            "%s saves AV state directly, bypassing the collapse gate the helper puts in "
+            "front of it" % name)
 
 
 def test_hook_ordering_at_both_call_sites():
-    """Only a nonempty result may persist its live-volume state -- and BEFORE replication.
+    """Only a nonempty, COLLAPSE-APPROVED result may persist its live-volume state.
 
-    The save must precede the replica loop: afterwards the sampler holds the LAST replica's
-    adapted grid, not the run being reported.  The main driver saves at the same point.
+    The save now lives inside _maybe_replicate_for_mc_error, doubly constrained:
+      * AFTER the first-run gate, so a grid that --reject-collapsed-live-volume rejects is
+        never written (otherwise the next point warm-starts from the degenerate volume);
+      * BEFORE the replica loop, or it persists the LAST replica's grid.
+
+    An earlier revision of this test dropped the gate<save half when the gate moved into the
+    helper, which is how the collapse-approval invariant was silently lost.  Both halves are
+    asserted here, in the helper, so neither can go missing again.
     """
     src = _src(_LISA)
+    # call-site half: load/aniso before the integration, then the helper
     pos = 0
     for _ in range(2):
         load = src.index("_maybe_load_av_state(sampler)", pos)
         aniso = src.index("_maybe_enable_anisotropic_bins(sampler)", load)
         integ = src.index("sampler.integrate(like_to_integrate", aniso)
         guard = src.index("if not(res): # no resut", integ)
-        save = src.index("_maybe_save_av_state(sampler)", guard)
-        repl = src.index("_maybe_replicate_for_mc_error(", save)
-        assert load < aniso < integ < guard < save < repl
+        repl = src.index("_maybe_replicate_for_mc_error(", guard)
+        assert load < aniso < integ < guard < repl
         pos = repl + 1
+    # helper half: gate < save < replica loop
+    h = src.index("def _maybe_replicate_for_mc_error(")
+    fn = src[h:src.index("\ndef ", h + 1)]
+    gate = fn.index('_report_and_gate_collapse(dict_return, "first run")')
+    save = fn.index("_maybe_save_av_state(sampler)")
+    loop = fn.index("for _irep in range(")
+    assert gate < save, "a collapsed grid can be persisted before the gate rejects it"
+    assert save < loop, "the save would persist the LAST replica's grid, not the reported run"
+
+
+def test_a_collapsed_run_never_persists_its_state(tmp_path):
+    """Behavioural: drive the gate+save sequence and check no file is written.
+
+    Source ordering is necessary but not sufficient -- this executes it.
+    """
+    import numpy as _np
+    names = ["_extract_mc_diag", "_maybe_save_av_state", "_reject_if_collapsed",
+             "_report_and_gate_collapse"]
+    defs = {n.name: n for n in ast.parse(_src(_LISA)).body
+            if isinstance(n, ast.FunctionDef) and n.name in names}
+    mod = ast.Module(body=[defs[n] for n in names], type_ignores=[])
+    target = str(tmp_path / "state.npz")
+
+    class _AVmod(object):
+        LiveVolumeCollapse = _Collapse
+
+    class _Sampler(object):
+        def __init__(self):
+            self.saved = None
+            self._av_state_reuse_safe = True
+
+        def save_state(self, path):
+            self.saved = path
+
+    ns = {"numpy": _np, "np": _np, "mcsamplerAdaptiveVolume": _AVmod, "mcsampler_AV_ok": True,
+          "opts": type("O", (), {"sampler_method": "AV", "sampler_save_state": target,
+                                 "reject_collapsed_live_volume": True})()}
+    exec(compile(ast.fix_missing_locations(mod), "avstate", "exec"), ns)
+
+    s = _Sampler()
+    dd = {"live_volume_collapsed": True, "collapse_reason": "zero volume"}
+    with pytest.raises(_Collapse):
+        ns["_report_and_gate_collapse"](dd, "first run")
+        ns["_maybe_save_av_state"](s)          # must never be reached
+    assert s.saved is None, "a collapsed live volume was persisted for later reuse"
+
+    # sanity: a healthy run DOES save, so the assertion above is not vacuous
+    s2 = _Sampler()
+    ns["_report_and_gate_collapse"]({"live_volume_collapsed": False}, "first run")
+    ns["_maybe_save_av_state"](s2)
+    assert s2.saved == target
 
 def test_both_collapse_gate_call_sites_exist():
     """Main gates TWICE -- first run and pooled verdict -- and now so does this driver.

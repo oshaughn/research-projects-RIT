@@ -231,14 +231,43 @@ def test_the_pooled_marker_is_set_only_when_pooling_happened():
 
 
 def test_rvs_is_pooled_is_reset_on_entry_of_both_analyze_event_variants():
-    """Cleared only on the happy path, it survives the pooled gate's raise (Finding 7)."""
+    """Cleared only on the happy path, it survives the pooled gate's raise (Finding 7).
+
+    POSITION-AWARE, not merely presence-aware.  An adversarial review pointed out that an
+    earlier version used `"... = False" in ast.unparse(fn)`, which passes just as happily if
+    the reset is MOVED to after the replica call -- reintroducing exactly the bug, since the
+    pooled gate raises and the caller's `except` swallows it.  So: the reset must be the first
+    statement region of the function and must precede the replica call.
+    """
     tree = ast.parse(_src(_LISA))
     for n in tree.body:
-        if isinstance(n, ast.FunctionDef) and n.name in ("analyze_event", "analyze_event_LISA"):
-            body = textwrap.dedent(ast.unparse(n)) if hasattr(ast, "unparse") else ""
-            assert "sampler._rvs_is_pooled = False" in body, \
-                "%s does not reset the pooled marker on entry" % n.name
-
+        if not (isinstance(n, ast.FunctionDef)
+                and n.name in ("analyze_event", "analyze_event_LISA")):
+            continue
+        resets = [st.lineno for st in ast.walk(n)
+                  if isinstance(st, ast.Assign)
+                  and any(isinstance(t, ast.Attribute) and t.attr == "_rvs_is_pooled"
+                          and isinstance(t.value, ast.Name) and t.value.id == "sampler"
+                          for t in st.targets)]
+        assert resets, "%s never resets the pooled marker" % n.name
+        calls = [c.lineno for c in ast.walk(n)
+                 if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)
+                 and c.func.id == "_maybe_replicate_for_mc_error"]
+        assert calls, "%s never runs the replica helper" % n.name
+        assert min(resets) < min(calls), (
+            "%s resets _rvs_is_pooled at line %d, AFTER the replica helper at %d; the pooled "
+            "gate raises, the caller swallows it, and the marker survives into the next event"
+            % (n.name, min(resets), min(calls)))
+        # and it must be one of the FIRST STATEMENTS, not buried behind work that can fail.
+        # Counted in statements, not lines: the reset carries a long explanatory comment, so a
+        # line-distance rule fails on the correct code (it did, on the first attempt).
+        top = [st for st in n.body[:4]]
+        assert any(isinstance(st, ast.Assign)
+                   and any(isinstance(t, ast.Attribute) and t.attr == "_rvs_is_pooled"
+                           for t in st.targets)
+                   for st in top), (
+            "%s does not reset the pooled marker within its first 4 statements; it must "
+            "happen on entry, before anything can raise" % n.name)
 
 def test_block_kish_neff_is_used_when_blocks_were_flattened():
     """Kish over a flattened pooled record just reports the EXPORT SIZE (5K by default)."""
@@ -271,3 +300,183 @@ def test_ported_helper_is_identical_to_the_main_driver(name):
             if isinstance(n, ast.FunctionDef) and n.name == name][0]
     assert _normalized(lisa) == _normalized(main), \
         "%s has drifted between the two drivers (docstrings excluded)" % name
+
+
+# ==========================================================================================
+# BEHAVIOURAL coverage of _maybe_replicate_for_mc_error.
+#
+# Everything above this line tests _pool_replica_rvs (a pure function) behaviourally and the
+# ORCHESTRATION only at source level.  An adversarial review planted five bugs in the
+# orchestration -- moving the _rvs_is_pooled reset off entry, dedenting the pooled-marker
+# assignment out of `if _did_pool`, inverting `if _blocks_flattened`, neutering the POOLED
+# collapse gate, and deleting the collapse-status OR -- and all five passed 220/220 tests.
+# Substring and AST-name checks cannot see any of that.  So: execute the helper.
+# ==========================================================================================
+
+ORCH = ['_rvs_lnL_convention', 'ln_weights_from_rvs', '_rvs_len', '_lnZ_of_rvs',
+        '_kish_neff_of_rvs', '_extract_mc_diag', '_pool_replica_rvs',
+        '_maybe_save_av_state', '_reject_if_collapsed', '_report_and_gate_collapse',
+        '_maybe_replicate_for_mc_error']
+
+
+class _Collapse(Exception):
+    pass
+
+
+class _AVmod(object):
+    LiveVolumeCollapse = _Collapse
+
+
+class _RepSampler(object):
+    """Sampler whose integrate() returns a scripted list of replica results."""
+
+    def __init__(self, first_rvs, replicas, fairdraw_first=False):
+        self._rvs = first_rvs
+        self._rvs_is_fairdraw = fairdraw_first
+        self._rvs_is_pooled = False
+        self._warm_seed_reserve = None
+        self.params_ordered = ['x']
+        self._queue = list(replicas)          # [(res,var,neff,dd,rvs,fairdraw), ...]
+        self.saved = None
+
+    def identity_convert(self, x):
+        return x
+
+    def save_state(self, path):
+        self.saved = path
+
+    def integrate(self, fn, *a, **kw):
+        res, var, neff, dd, rvs, fd = self._queue.pop(0)
+        self._rvs = rvs
+        self._rvs_is_fairdraw = fd
+        return res, var, neff, dd
+
+
+def _load_orch(**optkw):
+    base = dict(mc_error_replicas=0, mc_error_sigma_trigger=1e9,
+                mc_error_khat_trigger=0.7, mc_error_ess_trigger=0.0,
+                reject_collapsed_live_volume=False, internal_use_lnL=True,
+                sampler_method='AV', sampler_save_state=None)
+    base.update(optkw)
+    defs = _defs(_LISA, ORCH)
+    mod = ast.Module(body=[defs[n] for n in ORCH], type_ignores=[])
+    ns = {"numpy": np, "np": np, "mcsamplerAdaptiveVolume": _AVmod,
+          "mcsampler_AV_ok": True, "rvs_integrand_is_lnL": False,
+          "opts": type("O", (), base)()}
+    exec(compile(ast.fix_missing_locations(mod), "orch", "exec"), ns)
+    return ns
+
+
+def _run_orch(ns, sampler, dict_return, log_res=0.0, sigma=5.0, neff=1.0):
+    return ns['_maybe_replicate_for_mc_error'](
+        sampler, np.exp(log_res), 1.0, neff, dict_return, log_res, sigma,
+        lambda *a, **k: None, (), {'neff': 100.0})
+
+
+def test_no_trigger_means_no_replicas_and_nothing_changed():
+    ns = _load_orch(mc_error_replicas=0)
+    s = _RepSampler(_rec([0.0, 0.0]), [])
+    out = _run_orch(ns, s, {}, sigma=0.001)
+    assert out[0:3] == (1.0, 1.0, 1.0) or out[2] == 1.0
+    assert s._rvs_is_pooled is False
+
+
+def test_sigma_trigger_runs_replicas_and_pools_them():
+    ns = _load_orch(mc_error_replicas=2, mc_error_sigma_trigger=0.1)
+    s = _RepSampler(_rec([0.0] * 4), [
+        (1.0, 1.0, 5.0, {}, _rec([0.0] * 4), False),
+        (1.0, 1.0, 5.0, {}, _rec([0.0] * 4), False)])
+    out = _run_orch(ns, s, {}, sigma=5.0)
+    assert not s._queue, "the replica loop did not run the requested replicas"
+    assert s._rvs_is_pooled is True, "the pooled marker was not set"
+    assert _rvs_len(s._rvs) == 12, "the pooled record is not the concatenation"
+    assert out[2] > 0
+
+
+def _rvs_len(rec):
+    for v in rec.values():
+        return len(np.atleast_1d(np.asarray(v)).ravel())
+    return 0
+
+
+def test_the_pooled_collapse_gate_fires_on_a_collapsed_REPLICA():
+    """Mutation D: a healthy first run plus a collapsed replica must still be rejected.
+
+    This is the whole reason the gate is called twice.  The first-run gate sees nothing wrong.
+    """
+    ns = _load_orch(mc_error_replicas=1, mc_error_sigma_trigger=0.1,
+                    reject_collapsed_live_volume=True)
+    s = _RepSampler(_rec([0.0] * 4), [
+        (1.0, 1.0, 5.0, {'live_volume_collapsed': True, 'collapse_reason': 'replica died'},
+         _rec([0.0] * 4), False)])
+    with pytest.raises(_Collapse) as e:
+        _run_orch(ns, s, {'live_volume_collapsed': False}, sigma=5.0)
+    assert "pooled over" in str(e.value)
+
+
+def test_collapse_status_is_folded_back_as_the_OR():
+    """Mutation E: the sidecar must not record collapsed=false for a tainted pool."""
+    ns = _load_orch(mc_error_replicas=1, mc_error_sigma_trigger=0.1)
+    dd = {'live_volume_collapsed': False}
+    s = _RepSampler(_rec([0.0] * 4), [
+        (1.0, 1.0, 5.0, {'live_volume_collapsed': True, 'collapse_reason': 'replica died'},
+         _rec([0.0] * 4), False)])
+    out = _run_orch(ns, s, dd, sigma=5.0)
+    got = out[5]
+    assert got['live_volume_collapsed'] is True, "a collapsed replica was not folded in"
+    assert got['n_replicas_pooled'] == 2 and got['n_replicas_collapsed'] == 1
+    assert 'replica died' in got['collapse_reason']
+
+
+def test_the_pooled_marker_is_not_set_when_pooling_fell_back():
+    """Mutation B: a fallback returns an INPUT record, which is not a pooled mixture.
+
+    Records with no sampling-prior column make _pool_replica_rvs return replica 0 unchanged.
+    """
+    bad = {'x': np.zeros(3), 'log_integrand': np.zeros(3)}       # no *_joint_s_prior
+    ns = _load_orch(mc_error_replicas=1, mc_error_sigma_trigger=0.1)
+    s = _RepSampler(dict(bad), [(1.0, 1.0, 5.0, {}, dict(bad), False)])
+    _run_orch(ns, s, {}, sigma=5.0)
+    assert s._rvs_is_pooled is False, \
+        "the pooled marker was set even though pooling fell back to an input record"
+
+
+def test_flattened_blocks_report_block_kish_not_the_export_row_count():
+    """Mutation C: with fair-drawn replicas the pooled Kish is just the row count.
+
+    Two agreeing replicas of n_eff 5 should give a pooled n_eff near their sum (10), not the
+    12 rows of the export.
+    """
+    ns = _load_orch(mc_error_replicas=1, mc_error_sigma_trigger=0.1)
+    # AGREEING replicas: with --internal-use-lnL the replica's lnZ IS its `res`, so the first
+    # run's log_res must match it or the two disagree and block-Kish correctly falls below the
+    # sum.  (An earlier version of this test used 0.0 vs 1.0 and measured 8.24 -- the code was
+    # right and the setup was wrong, which is itself evidence the assertion is sensitive.)
+    s = _RepSampler(_rec([0.0] * 6), [(1.0, 1.0, 5.0, {}, _rec([0.0] * 6), True)],
+                    fairdraw_first=True)
+    out = _run_orch(ns, s, {}, log_res=1.0, sigma=5.0, neff=5.0)
+    neff_out = float(out[2])
+    assert 9.0 < neff_out < 11.0, (
+        "expected block-Kish ~sum(neff)=10 for agreeing replicas, got %r (12 would be the "
+        "exported row count)" % neff_out)
+
+
+def test_disagreeing_replicas_report_less_than_the_sum():
+    """The property block-Kish exists for: disagreement must SHOW UP as lower n_eff."""
+    ns = _load_orch(mc_error_replicas=1, mc_error_sigma_trigger=0.1)
+    s = _RepSampler(_rec([0.0] * 6), [(1.0, 1.0, 5.0, {}, _rec([0.0] * 6), True)],
+                    fairdraw_first=True)
+    # replica lnZ far below the first run -> Z_k wildly unequal -> pooled neff -> ~5
+    out = _run_orch(ns, s, {}, log_res=20.0, sigma=5.0, neff=5.0)
+    assert float(out[2]) < 9.0, "disagreeing replicas still reported the full sum"
+
+
+def test_a_failing_replica_is_skipped_not_fatal():
+    class _Boom(_RepSampler):
+        def integrate(self, fn, *a, **kw):
+            raise RuntimeError("replica exploded")
+
+    ns = _load_orch(mc_error_replicas=1, mc_error_sigma_trigger=0.1)
+    s = _Boom(_rec([0.0] * 4), [])
+    out = _run_orch(ns, s, {}, sigma=5.0)
+    assert out is not None and out[2] == 1.0

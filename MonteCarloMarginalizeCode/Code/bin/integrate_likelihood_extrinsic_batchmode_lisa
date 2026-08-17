@@ -1372,8 +1372,10 @@ def _rvs_is_export_resample(sampler):
     carrying real importance weights.  Keying off the CLI flag would flatten those -- the same
     class of error in the other direction.
 
-    SURVIVES POOLING by design.  This driver does not pool replicas today; the distinction is
-    kept anyway so that adding --mc-error-replicas here later cannot quietly get it wrong.
+    SURVIVES POOLING by design, and this driver now does pool (--mc-error-replicas): a pooled
+    record built from fair-drawn replicas still has posterior-resampled rows, so anything that
+    must not re-weight them keeps seeing True here.  Whether the record is GLOBALLY
+    equal-weight is a different question; see _rvs_is_equal_weight.
     """
     return bool(getattr(sampler, '_rvs_is_fairdraw', False))
 
@@ -1961,11 +1963,10 @@ def _pool_replica_rvs(rep_rvs, sampler, rep_lnZ=None, already_resampled=False, u
 def _reject_if_collapsed(dd, stage):
     """Apply --reject-collapsed-live-volume to whatever the CURRENT verdict is.
 
-    In the main driver this is called TWICE -- once on the first run and again on the
-    replica pool, because replication can turn a healthy first run into a collapsed POOL.
-    This driver has no replica pooling yet, so only the first call exists here; the second
-    call site must be added WITH --mc-error-replicas, or the flag is silently bypassed for
-    exactly the case pooling introduces.
+    Called TWICE, in both drivers: once on the first run and again on the replica POOL,
+    because replication can turn a healthy first run into a collapsed pool and gating only
+    the first would bypass the flag for exactly the case pooling introduces.  Both calls live
+    in _maybe_replicate_for_mc_error, which is why analyze_event must not gate directly.
     """
     if not opts.reject_collapsed_live_volume:
         return
@@ -2023,6 +2024,18 @@ def _maybe_replicate_for_mc_error(sampler, res, var, neff, dict_return,
 
     # First-run collapse report AND gate (see the docstring: the pooled gate is below).
     _report_and_gate_collapse(dict_return, "first run")
+
+    # AV live-volume state is persisted HERE, and the position is doubly constrained:
+    #   * AFTER the first-run gate, so a collapsed grid that --reject-collapsed-live-volume
+    #     rejects is never written.  Otherwise the event is correctly dropped while the NEXT
+    #     intrinsic point warm-starts from the degenerate volume via --sampler-load-state,
+    #     biased toward the surviving mode with nothing flagged.
+    #   * BEFORE the replica loop, because afterwards the sampler holds the LAST replica's
+    #     adapted grid rather than the run being reported.
+    # The main driver satisfies only the second: it saves ~80 lines above its own first-run
+    # gate, so a collapsed grid CAN be persisted there.  Deliberate divergence, and the main
+    # driver should take the same reordering -- flagged rather than changed here.
+    _maybe_save_av_state(sampler)
     _collapsed = bool(dict_return.get('live_volume_collapsed', False)) if isinstance(dict_return, dict) else False
     _collapse_reason = (dict_return or {}).get('collapse_reason', '') if isinstance(dict_return, dict) else ''
 
@@ -2200,8 +2213,9 @@ def _maybe_replicate_for_mc_error(sampler, res, var, neff, dict_return,
             # export.  _pool_replica_rvs deliberately FLATTENS each block in that case (equal
             # weights within a block, summing to Z_k/K), and the Kish n_eff of piecewise-constant
             # weights is just the row count -- i.e. K*min(n_max, 1.5*eff_samp, 1.5*neff), the size
-            # of the EXPORT, which says nothing about how well the integral converged.  With
-            # --fairdraw-extrinsic-output-n-max at its default of 5 that reports n_eff = 5K.
+            # of the EXPORT, which says nothing about how well the integral converged.  NOTE this
+            # driver has no --fairdraw-extrinsic-output-n-max: it caps the export at opts.n_eff
+            # (igrand_fairdraw_samples_max), so the bogus figure would be K*n_eff, not 5K.
             #
             # Do the same computation one level up, where the quantities are still meaningful:
             # Kish over the BLOCKS, each carrying its own Z_k and its own n_eff,
@@ -2665,11 +2679,6 @@ def analyze_event_LISA(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_
 
     if not(res): # no resut
       raise ValueError(" No integral result returned")
-
-    # Persist only a result we are actually willing to report.  In particular, never write
-    # a collapsed grid that --reject-collapsed-live-volume just rejected, nor a warm grid
-    # whose rescue result was rejected/failed and replaced by the cold estimate.
-    _maybe_save_av_state(sampler)
 
     if not(opts.internal_use_lnL):
       log_res = numpy.log(res)
@@ -3412,9 +3421,6 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_spec_
 
     if not(res): # no resut
       raise ValueError(" No integral result returned")
-
-    # See the LISA variant above: only persist accepted, reusable AV state.
-    _maybe_save_av_state(sampler)
 
     if not(opts.internal_use_lnL):
       log_res = numpy.log(res)

@@ -247,7 +247,7 @@
   "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:011d296b48": {
     "source": "_rep_rvs = [sampler._rvs]",
     "verdict": "PER_ROW",
-    "why": "Collects each replica's record for pooling. _pool_replica_rvs is told already_resampled=bool(opts.fairdraw_extrinsic_output) and forces flat within-block weights on that path, so the resampling is accounted for THERE rather than here."
+    "why": "Collects each replica's record for pooling. _pool_replica_rvs is told already_resampled=_rep_fairdraw -- the PER-REPLICA sequence, captured beside each record from that pass's own _rvs_is_fairdraw marker -- and forces flat within-block weights for the blocks that were resampled, so the resampling is accounted for THERE rather than here. (This text used to say bool(opts.fairdraw_extrinsic_output); that is the CLI flag, which is precisely the Finding-6 defect the sequence exists to avoid. A verdict whose reason describes a mechanism the code does not use certifies nothing.)"
   },
   "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:07f46c212f": {
     "source": "_lnv = (np.asarray(sampler.identity_convert(sampler._rvs[_lnkey]), dtype=float).ravel()",
@@ -282,7 +282,7 @@
   "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:25d9742c4d": {
     "source": "_rep_rvs.append(sampler._rvs)",
     "verdict": "PER_ROW",
-    "why": "Collects each replica's record for pooling. _pool_replica_rvs is told already_resampled=bool(opts.fairdraw_extrinsic_output) and forces flat within-block weights on that path, so the resampling is accounted for THERE rather than here."
+    "why": "Collects each replica's record for pooling. _pool_replica_rvs is told already_resampled=_rep_fairdraw -- the PER-REPLICA sequence, captured beside each record from that pass's own _rvs_is_fairdraw marker -- and forces flat within-block weights for the blocks that were resampled, so the resampling is accounted for THERE rather than here. (This text used to say bool(opts.fairdraw_extrinsic_output); that is the CLI flag, which is precisely the Finding-6 defect the sequence exists to avoid. A verdict whose reason describes a mechanism the code does not use certifies nothing.)"
   },
   "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:29d2d2ebb6": {
     "source": "P.dist = sampler._rvs[\"distance\"][indx_guess]*1e6*lal.PC_SI",
@@ -462,7 +462,7 @@
   "bin/integrate_likelihood_extrinsic_batchmode_lisa:_maybe_replicate_for_mc_error:011d296b48": {
     "source": "_rep_rvs = [sampler._rvs]",
     "verdict": "PER_ROW",
-    "why": "Collects each replica's record for pooling. _pool_replica_rvs is told already_resampled=bool(opts.fairdraw_extrinsic_output) and forces flat within-block weights on that path, so the resampling is accounted for THERE rather than here."
+    "why": "Collects each replica's record for pooling. _pool_replica_rvs is told already_resampled=_rep_fairdraw -- the PER-REPLICA sequence, captured beside each record from that pass's own _rvs_is_fairdraw marker -- and forces flat within-block weights for the blocks that were resampled, so the resampling is accounted for THERE rather than here. (This text used to say bool(opts.fairdraw_extrinsic_output); that is the CLI flag, which is precisely the Finding-6 defect the sequence exists to avoid. A verdict whose reason describes a mechanism the code does not use certifies nothing.)"
   },
   "bin/integrate_likelihood_extrinsic_batchmode_lisa:_maybe_replicate_for_mc_error:1240e69c24": {
     "source": "len(numpy.atleast_1d(list(sampler._rvs.values())[0])) if sampler._rvs else 0,",
@@ -472,7 +472,7 @@
   "bin/integrate_likelihood_extrinsic_batchmode_lisa:_maybe_replicate_for_mc_error:25d9742c4d": {
     "source": "_rep_rvs.append(sampler._rvs)",
     "verdict": "PER_ROW",
-    "why": "Collects each replica's record for pooling. _pool_replica_rvs is told already_resampled=bool(opts.fairdraw_extrinsic_output) and forces flat within-block weights on that path, so the resampling is accounted for THERE rather than here."
+    "why": "Collects each replica's record for pooling. _pool_replica_rvs is told already_resampled=_rep_fairdraw -- the PER-REPLICA sequence, captured beside each record from that pass's own _rvs_is_fairdraw marker -- and forces flat within-block weights for the blocks that were resampled, so the resampling is accounted for THERE rather than here. (This text used to say bool(opts.fairdraw_extrinsic_output); that is the CLI flag, which is precisely the Finding-6 defect the sequence exists to avoid. A verdict whose reason describes a mechanism the code does not use certifies nothing.)"
   },
   "bin/integrate_likelihood_extrinsic_batchmode_lisa:_maybe_replicate_for_mc_error:acdd1e28bd": {
     "source": "_neff_pooled = _kish_neff_of_rvs(sampler._rvs)",
