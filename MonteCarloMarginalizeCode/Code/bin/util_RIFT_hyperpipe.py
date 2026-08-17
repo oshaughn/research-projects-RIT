@@ -259,6 +259,7 @@ def _build_puff_args(cfg, coord_spec) -> str:
     setting_flags = [
         ("update-method", "--update-method"),
         ("tracer-fit-method", "--tracer-fit-method"),
+        ("tracer-lnl-floor-delta", "--tracer-lnl-floor-delta"),
         ("ucb-kappa", "--ucb-kappa"),
         ("ucb-n-candidates", "--ucb-n-candidates"),
         ("n-mala-steps", "--n-mala-steps"),
