@@ -30,7 +30,7 @@ Extrapolating a fmin-30 result is the exact error that made #97 wrong. 80 and 12
 are simply **unmeasured**. Likewise do not read the fmin-150 row as "sinc at any mass" — it is
 "sinc everywhere we looked, and we stopped at 55".
 
-`nearest` is never competitive: 200–440 nats throughout, crossing 1 nat of error by SNR 2–6, i.e.
+`nearest` is never competitive: 200–443 nats throughout, crossing 1 nat of error by SNR 2–6, i.e.
 already unusable at O4 SNRs.
 
 ---

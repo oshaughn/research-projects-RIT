@@ -69,6 +69,11 @@ DELTA_F = 1. / 4.
 # ---------------------------------------------------------------------------
 # configuration / precompute
 # ---------------------------------------------------------------------------
+# The model behind the shipped guidance (RIFT/likelihood/DESIGN_q_window_stencil.md).  Named once
+# so the banner, the skip message, the argparse help and Setup cannot disagree -- they did.
+DEFAULT_APPROX = 'SEOBNRv4'
+
+
 class Setup(object):
     """Everything the likelihood needs for one (sample rate, fmax, source) combination."""
 
@@ -100,9 +105,15 @@ class Setup(object):
         # numbers -- which are not merely less precise: they NAMED THE WRONG STENCIL at M = 9,
         # 10 and 20, because TaylorT4 terminates at ISCO and carries no merger-ringdown.  A
         # script whose default output contradicts the recommendation it supports is a trap.
-        self.approx_name = approx or 'SEOBNRv4'
+        self.approx_name = approx or DEFAULT_APPROX
         self.Psig.approx = getattr(lalsim, self.approx_name)
-        if self.approx_name.startswith('Taylor'):
+        self._unreachable_hint = (
+            "%s cannot be generated at srate %g for M = %.4g Msun (its ringdown exceeds Nyquist). "
+            "Raise --mass-ladder-srate / the config's srate to 16384, or pass an inspiral-only "
+            "model with --approx TaylorT4 -- but note inspiral-only results named the WRONG "
+            "stencil at M = 9, 10 and 20, so do not use them to support stencil guidance."
+            % (self.approx_name, fSample, m1 + m2))
+        if 'Taylor' in self.approx_name:
             print("  ** WARNING: %s is INSPIRAL-ONLY (terminates at ISCO, no merger-ringdown).\n"
                   "     It understates the Q bandwidth by 2-3.7x and named the WRONG stencil at\n"
                   "     M = 9, 10 and 20. Do not use these numbers to support stencil guidance;\n"
@@ -455,7 +466,7 @@ def ess_fraction(lnL):
 # SNR ladder (near-Nyquist configuration A)
 # ---------------------------------------------------------------------------
 def run_snr_ladder(label, fSample, fmax, m1, m2, fmin, dist0, snr_targets, K, seeds,
-                   t_half, M_ref, M_check, t_window, chunk):
+                   t_half, M_ref, M_check, t_window, chunk, approx=None):
     """Configuration A across an SNR ladder.
 
     A stencil makes a fixed RELATIVE error in Q(t).  lnL ~ SNR^2, so the ABSOLUTE lnL error
@@ -470,7 +481,7 @@ def run_snr_ladder(label, fSample, fmax, m1, m2, fmin, dist0, snr_targets, K, se
           % (label, fSample, fmax, (fSample / 2.) / fmax, m1, m2, fmin))
     sys.stdout.flush()
 
-    probe = Setup(label, fSample, fmax, m1, m2, fmin, t_window, dist_mpc=dist0)
+    probe = Setup(label, fSample, fmax, m1, m2, fmin, t_window, dist_mpc=dist0, approx=approx)
     npts_half = int(round(t_half * fSample))
     npts = 2 * npts_half + 1
     tvals = (np.arange(npts) - npts_half) * probe.deltaT
@@ -489,7 +500,7 @@ def run_snr_ladder(label, fSample, fmax, m1, m2, fmin, dist0, snr_targets, K, se
     rows = []
     for target in snr_targets:
         d_inj = dist0 * rho_probe / float(target)
-        setup = Setup(label, fSample, fmax, m1, m2, fmin, t_window, dist_mpc=d_inj)
+        setup = Setup(label, fSample, fmax, m1, m2, fmin, t_window, dist_mpc=d_inj, approx=approx)
         packs = setup.packs
         rho_fine, _ = build_fine_rho(packs, M_ref)
         rho = network_snr(setup, packs, tvals, chunk, rho_fine=rho_fine)
@@ -641,7 +652,7 @@ def run_mass_ladder(fSample, fmax, fmin, masses, target_snr, K, seeds, t_half, M
     print("=" * 110)
     print("MASS LADDER : approximant=%s  fSample=%g  fmax=%g  fmin=%g  "
           "(fNyq/fmax = %.3g for every mass)"
-          % (approx or 'TaylorT4', fSample, fmax, fmin, (fSample / 2.) / fmax))
+          % (approx or DEFAULT_APPROX, fSample, fmax, fmin, (fSample / 2.) / fmax))
     print("  every mass normalised to SNR_lik = %g so the nats are comparable down the ladder"
           % target_snr)
     print("  selector under test: %s" % tic.__file__)
@@ -661,7 +672,7 @@ def run_mass_ladder(fSample, fmax, fmin, masses, target_snr, K, seeds, t_half, M
                           deltaF=dF, approx=approx)
         except Exception as exc:
             print("  M=%6.1f : SKIPPED -- %s cannot be generated at srate %g: %s"
-                  % (m_total, approx or 'TaylorT4', fSample, str(exc)[:120]))
+                  % (m_total, approx or DEFAULT_APPROX, fSample, str(exc)[:120]))
             sys.stdout.flush()
             continue
         npts_half = int(round(t_half * fSample))
@@ -904,14 +915,29 @@ def ref_convergence_ladder(setup, packs, pts, tvals, lnL_ref, Ms, chunk, K_sub):
 
 
 def run_config(label, fSample, fmax, m1, m2, fmin, dist_mpc, K, seeds, t_half, M_ref,
-               M_check, t_window, t_window_short, chunk, ladder_Ms=(32, 64, 128, 256)):
+               M_check, t_window, t_window_short, chunk, ladder_Ms=(32, 64, 128, 256),
+               approx=None):
     t0 = time.time()
     print("=" * 100)
     print("CONFIG %s : fSample=%g fmax=%g  fNyq/fmax=%.3g   source m1=%g m2=%g fmin=%g "
           "dist=%g Mpc" % (label, fSample, fmax, (fSample / 2.) / fmax, m1, m2, fmin, dist_mpc))
     sys.stdout.flush()
 
-    setup = Setup(label, fSample, fmax, m1, m2, fmin, t_window, dist_mpc=dist_mpc)
+    try:
+        setup = Setup(label, fSample, fmax, m1, m2, fmin, t_window, dist_mpc=dist_mpc,
+                      approx=approx)
+    except Exception as exc:
+        # Almost always: an IMR model asked for below the mass where its ringdown fits under
+        # Nyquist.  Say what to do instead of emitting a raw lal domain error, and skip this
+        # configuration rather than aborting the remaining ones.
+        print("\n  CONFIG %s SKIPPED -- %s could not be generated at srate %g for M = %.4g Msun."
+              % (label, approx or DEFAULT_APPROX, fSample, m1 + m2))
+        print("    %s" % (str(exc)[:160],))
+        print("    Raise this config's srate to 16384, or re-run with --approx TaylorT4 -- but "
+              "note\n    inspiral-only results named the WRONG stencil at M = 9, 10 and 20, so do "
+              "not use\n    them to support stencil guidance. See "
+              "RIFT/likelihood/DESIGN_q_window_stencil.md.")
+        return None
     packs = setup.packs
     n_time = packs['rho']['H1'].shape[1]
     print("  precompute: %.1fs   n_time(stored Q window)=%d  (=%.4g s)  SNR guess=%.4g"
@@ -1079,8 +1105,13 @@ def main():
     ap.add_argument("--mass-ladder-fmin", type=float, default=30.)
     ap.add_argument("--mass-ladder-srate", type=float, default=4096.)
     ap.add_argument("--approx", type=str, default=None,
-                    help="lalsimulation approximant name, e.g. SEOBNRv4. Default: "
-                         "ChooseWaveformParams' own default (TaylorT4).")
+                    help="lalsimulation approximant name. DEFAULT %s -- the IMR model behind the "
+                         "guidance in RIFT/likelihood/DESIGN_q_window_stencil.md. Inspiral-only "
+                         "models (TaylorT4) terminate at ISCO, understate the Q bandwidth by "
+                         "2-3.7x and NAMED THE WRONG STENCIL at M = 9, 10 and 20; passing one "
+                         "prints a warning. Note %s cannot be generated below M ~ 8 at srate "
+                         "4096 -- use srate 16384 there, or accept the inspiral-only caveat."
+                         % (DEFAULT_APPROX, DEFAULT_APPROX))
     ap.add_argument("--t-window", type=float, default=0.4,
                     help="half width of the STORED Q window (the reference is built from it)")
     ap.add_argument("--t-window-short", type=float, default=0.2,
@@ -1119,7 +1150,7 @@ def main():
             if args.only and args.only not in label:
                 continue
             run_snr_ladder(label, fS, fmax, m1, m2, fmin, dmpc, args.snr_targets, args.K,
-                           args.seeds, args.t_half, args.M_ref, args.M_check, tw, args.chunk)
+                           args.seeds, args.t_half, args.M_ref, args.M_check, tw, args.chunk, approx=args.approx)
         return
 
     for (label, fS, fmax, m1, m2, fmin, dmpc, tw, tws) in configs:
@@ -1127,7 +1158,7 @@ def main():
             continue
         run_config(label, fS, fmax, m1, m2, fmin, dmpc * args.dist_scale, args.K, args.seeds,
                    args.t_half, args.M_ref, args.M_check, tw, tws, args.chunk,
-                   ladder_Ms=args.ladder_Ms)
+                   ladder_Ms=args.ladder_Ms, approx=args.approx)
 
 
 if __name__ == "__main__":

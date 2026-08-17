@@ -50,7 +50,10 @@ ADVICE_SURFACES = PIPELINE_ENTRY_POINTS + [
 # between 20 and 35 the crossover rises with fmin ...", splicing the retracted rule onto its
 # replacement, while every test passed.  Add each retired value here when the constant changes.
 RETIRED_GUIDANCE_FRAGMENTS = (
-    'the crossover is between 20 and 35 Msun',
+    # NB: no trailing ' Msun' -- the splice that actually shipped read "...between 20 and 35 "
+    # immediately followed by the NEW constant, so a fragment ending in 'Msun' could not match it.
+    # Keep retired fragments as short as is still unambiguous.
+    'the crossover is between 20 and 35',
     'unless the total mass is below',
     'prefer sinc at any mass',
 )
