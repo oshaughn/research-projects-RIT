@@ -12,7 +12,8 @@ Public API:
                                      -> (X_new, info)
     samplers.smc_mala(...)            -> (X_new, info)
     samplers.birth_death(...)         -> (X_new, info)
-    fits.build(method, X, Y, sigma=None) -> Fit (callable + .grad helper)
+    fits.build(method, X, Y, sigma=None, lnl_floor_delta=None)
+                                     -> Fit (callable + .grad helper)
 """
 from . import samplers, fits
 

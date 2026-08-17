@@ -160,8 +160,8 @@ def iterate(particles, *, surrogate, surrogate_prev=None,
         sys.stderr.write(
             "samplers.ucb: surrogate has no uncertainty estimate "
             "(predict_with_std returns zeros); UCB will degenerate to greedy "
-            "mean-maximization. Use --tracer-fit-method rf (tree disagreement) "
-            "or a GP fit if available.\n")
+            "mean-maximization. Use --tracer-fit-method gp_linmean (calibrated "
+            "GP posterior variance) or rf (tree disagreement).\n")
 
     # 1. Build candidate pool
     cand = _candidates(rng, X_in, prior_box, n_candidates)
