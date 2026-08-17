@@ -1062,7 +1062,6 @@ _calpilot_logresp_list = []      # per-intrinsic-point per-realization log-respo
 calibration_nodes = None         # (n_cal, 2*n_nodes_amp*len(dets)) per-det [amp_0..,phase_0..] blocks
 calibration_node_dets = None     # detector order matching the node blocks
 calibration_n_nodes_amp = None   # spline nodes per detector per (amp|phase)
-_cal_rng_counters = {}           # stream name -> number of draws taken from it so far
 def _cal_rng(stream):
     """Generator for a calibration-side auxiliary draw.
 
@@ -1070,13 +1069,15 @@ def _cal_rng(stream):
     probe/growth paths used a bare default_rng(), which takes fresh entropy from
     the OS and so is NOT covered by --seed: two identical seeded invocations could probe
     a different cal error, grow to a different n_cal, and marginalize over different
-    realizations.  Derive those streams from the seed instead (RIFT.integrators.seeding),
-    with a per-stream counter so repeated calls stay independent of each other -- and of
-    the base draw set -- while remaining reproducible.  Unseeded runs keep fresh entropy."""
-    from RIFT.integrators.seeding import derived_rng
-    n = _cal_rng_counters.get(stream, 0)
-    _cal_rng_counters[stream] = n + 1
-    return derived_rng(stream, n)
+    realizations.  Derive those streams from the seed instead, with a per-stream counter
+    so repeated calls stay independent of each other -- and of the base draw set -- while
+    remaining reproducible.  Unseeded runs keep fresh entropy.
+
+    The counter bookkeeping lives in RIFT.integrators.seeding.next_derived_rng, which
+    every other counter-advancing site in RIFT already goes through; keeping a second
+    registry here would be one more thing that has to not drift."""
+    from RIFT.integrators.seeding import next_derived_rng
+    return next_derived_rng(stream)
 def _cal_setup_prior_with_nodes(psd_dict):
     """Populate calibration_realization_dict from broad-PRIOR cal draws.  When
     --calibration-export-posterior is set, RETAIN the node vectors too (via
