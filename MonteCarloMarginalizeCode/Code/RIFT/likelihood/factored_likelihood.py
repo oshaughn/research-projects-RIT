@@ -2215,11 +2215,11 @@ def _sinc_Q_window_numpy(Q_block, start_indices, fractional_offsets, npts,
            16         1.0e-5      3.3e-4        2.2e-5
 
     Re-measured with 12 seeds per point, the crossover (cubic error = sinc error) sits at
-    fNyq/fmax ~= 5.3, with the seed-to-seed spread bracketing 1.0 only over 5-6.  PRODUCTION RUNS
-    ARE NEAR NYQUIST -- srate 4096 with fmax ~1700 is fNyq/fmax ~ 1.2 -- which is exactly where
-    sinc is tens of times better.  A heavily oversampled configuration (the slow-rotation
-    brute-force test runs fmax=512 at srate 16384, i.e. 16) is the regime where cubic already
-    wins and this option should NOT be used.
+    fNyq/fmax ~= 5.3, with the seed-to-seed spread bracketing 1.0 only over 5-6.  That crossover is stated in
+    fNyq/FMAX and is NOT directly usable -- see the paragraph below, which supersedes it.  (An
+    earlier version of this docstring argued from fmax alone that production runs sit near
+    Nyquist at fNyq/fmax ~ 1.2 and therefore favour sinc.  fmax is not what band-limits Q, so
+    that reasoning was wrong; the mass-based crossover below replaces it.)
 
     THE TABLE ABOVE IS FOR A SYNTHETIC SIGNAL BAND-LIMITED TO fmax, AND REAL Q IS NOT.  Q^a_lm(t)
     is band-limited by whichever is lower, fmax or the TEMPLATE's own cutoff, so the operative
@@ -2229,6 +2229,11 @@ def _sinc_Q_window_numpy(Q_block, start_indices, fractional_offsets, npts,
     RIFT.likelihood.time_interp_choice.CROSSOVER_GUIDANCE, and the measured tables are in
     RIFT/likelihood/DESIGN_q_window_stencil.md.  Automatic selection was removed as measurably
     unreliable.
+
+    NO stencil is applied by default -- time_interp defaults to 'nearest', as does
+    --interpolate-time when omitted, so a caller who asks for nothing gets the nearest-bin gather
+    and neither interpolating stencil; 'cubic' is only the legacy truthy --interpolate-time
+    mapping.
 
     COST, measured (not estimated from the tap count):
       CPU  ~4.2-4.5x cubic -- 2a=16 taps against 4, and this path IS tap-count bound.
@@ -2388,20 +2393,28 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         RIFT.likelihood.Q_fused_calmarg.Q_fused_calmarg_distmarg_cupy.
 
     time_interp : {'nearest', 'cubic', 'sinc'}
-        Sub-sample stencil for the Q(t) lookup.  Which is best depends on the oversampling
-        factor fNyq/fmax: 'cubic' (4-point Lagrange) has O(h^4) error so it wins when heavily
-        oversampled, while 'sinc' (Lanczos) is window-limited so its error is flat in
-        oversampling and it wins near Nyquist -- ~50x better at fNyq/fmax ~ 1.2, which is where
-        Q is band-limited by the TEMPLATE's cutoff as well as by fmax, so the right choice
-        depends on the masses, on fmin and on srate, not on fmax alone.  The live recommendation
-        is RIFT.likelihood.time_interp_choice.CROSSOVER_GUIDANCE; the measured tables are in
-        RIFT/likelihood/DESIGN_q_window_stencil.md.  Not restated here -- copies go stale.
-        All three stencils have both CPU and GPU implementations.
         Detector-time sampling convention for the data term.  'nearest'
         preserves the historical NoLoop integer-bin gather.  'cubic' evaluates
         the precomputed Q_lm time series at the fractional detector arrival time
         using a four-sample cubic Lagrange stencil, with zero extension outside
         the precomputed buffer.
+
+        CHOOSING BETWEEN 'cubic' AND 'sinc': neither is uniformly better.  'cubic' (4-point
+        Lagrange) has O(h^4) error, so it improves fast with oversampling and is poor near
+        Nyquist; 'sinc' (Lanczos) is window-limited, so its error is flat in oversampling.
+        The operative quantity is NOT fNyq/fmax: Q^a_lm(t) is band-limited by whichever is
+        lower, fmax or the TEMPLATE's own cutoff, so the right choice depends on the masses,
+        on fmin AND on srate.  The recommendation is NOT restated here -- it has been superseded
+        twice and docstring copies went stale both times.  Live value:
+        RIFT.likelihood.time_interp_choice.CROSSOVER_GUIDANCE; measured tables:
+        RIFT/likelihood/DESIGN_q_window_stencil.md.  THE DEFAULT IS 'nearest', NOT 'cubic': this argument defaults to
+        'nearest', and the batch-mode CLI's --interpolate-time defaults to off, which also
+        resolves to 'nearest'.  Omitting either therefore keeps the historical nearest-bin
+        behavior, whose errors the guidance below calls scientifically significant (200-440
+        nats at SNR 100, reaching 1 nat by SNR 2-6); 'cubic' is only what a legacy truthy
+        --interpolate-time value maps to.  Ask for a stencil explicitly if you want one.
+        All three stencils have CPU and GPU implementations.  See _sinc_Q_window_numpy and
+        RIFT.likelihood.time_interp_choice for the measured tables.
     """
     global distMpcRef
 

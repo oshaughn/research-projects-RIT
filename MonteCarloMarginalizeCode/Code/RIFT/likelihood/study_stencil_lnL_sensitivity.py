@@ -94,9 +94,19 @@ class Setup(object):
         # the reason this is an argument: TaylorT4 terminates at ISCO and has NO merger or
         # ringdown, so every feature above f_ISCO in a TaylorT4 Q spectrum is termination
         # ringing from the approximant rather than physics.
-        self.approx_name = approx or 'TaylorT4'
-        if approx is not None:
-            self.Psig.approx = getattr(lalsim, approx)
+        # DEFAULT IS THE IMR MODEL, deliberately.  This script produced the guidance in
+        # RIFT/likelihood/DESIGN_q_window_stencil.md, and that guidance rests on SEOBNRv4.
+        # Defaulting to TaylorT4 meant an ordinary reproduction run regenerated inspiral-only
+        # numbers -- which are not merely less precise: they NAMED THE WRONG STENCIL at M = 9,
+        # 10 and 20, because TaylorT4 terminates at ISCO and carries no merger-ringdown.  A
+        # script whose default output contradicts the recommendation it supports is a trap.
+        self.approx_name = approx or 'SEOBNRv4'
+        self.Psig.approx = getattr(lalsim, self.approx_name)
+        if self.approx_name.startswith('Taylor'):
+            print("  ** WARNING: %s is INSPIRAL-ONLY (terminates at ISCO, no merger-ringdown).\n"
+                  "     It understates the Q bandwidth by 2-3.7x and named the WRONG stencil at\n"
+                  "     M = 9, 10 and 20. Do not use these numbers to support stencil guidance;\n"
+                  "     see RIFT/likelihood/DESIGN_q_window_stencil.md." % self.approx_name)
         self.data_dict = {}
         for det in ("H1", "L1", "V1"):
             P = self.Psig.manual_copy()

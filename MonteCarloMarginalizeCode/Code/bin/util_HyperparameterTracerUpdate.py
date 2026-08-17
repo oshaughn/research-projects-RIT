@@ -21,7 +21,14 @@
 #
 # NEW
 #   --update-method {smc-mala-bd, smc-mala, birth-death, ucb, puffball}  default smc-mala-bd
-#   --tracer-fit-method {rf, rbf, quadratic, polynomial}               default rf
+#   --tracer-fit-method {rf, rbf, quadratic, polynomial, gp_linmean}   default rf
+#       gp_linmean is a linear-mean GP: unlike rf (piecewise-constant, flat
+#       outside the training hull) it extrapolates the global lnL trend past
+#       the sampled region, so placement can chase a peak clipped at a box
+#       edge. It also supplies a real posterior sigma for --update-method ucb.
+#   --tracer-lnl-floor-delta FLOAT      default None (OFF; legacy unchanged)
+#       Clamp training lnL at max(lnL)-delta instead of cutting outliers, so
+#       catastrophic-fit points remain anchors for the surrogate's scale.
 #   --inj-file-prev      OPTIONAL previous-iteration .dat (enables SMC bridging)
 #   --no-union-refit     opt out of union refit when --inj-file-prev is given
 #   --n-mala-steps INT                  default 8
@@ -101,8 +108,14 @@ def build_parser():
                    choices=("smc-mala-bd", "smc-mala", "birth-death", "ucb", "puffball"),
                    default="smc-mala-bd")
     p.add_argument("--tracer-fit-method",
-                   choices=("rf", "rbf", "quadratic", "polynomial"),
+                   choices=("rf", "rbf", "quadratic", "polynomial", "gp_linmean"),
                    default="rf")
+    p.add_argument("--tracer-lnl-floor-delta", default=None, type=float,
+                   help="Clamp training lnL from below at max(lnL) - DELTA "
+                        "instead of discarding low points. Keeps catastrophic-fit "
+                        "outliers as anchors that pin the surrogate's length "
+                        "scale and signal variance. Default off (legacy "
+                        "behaviour bit-for-bit unchanged).")
     p.add_argument("--inj-file-prev", default=None,
                    help="Optional previous-iteration .dat for SMC bridging / union refit.")
     p.add_argument("--no-union-refit", action="store_true")
@@ -361,7 +374,8 @@ def main(argv=None):
         Y_prev = rows_p[:, 0]
         S_prev = rows_p[:, 1] if rows_p.shape[1] >= 2 else None
         fit_prev = _tracer_fits.build(opts.tracer_fit_method,
-                                      X_prev, Y_prev, sigma=S_prev)
+                                      X_prev, Y_prev, sigma=S_prev,
+                                      lnl_floor_delta=opts.tracer_lnl_floor_delta)
         if not opts.no_union_refit:
             X_train = np.vstack([X_prev, X])
             Y_train = np.concatenate([Y_prev, Y])
@@ -371,7 +385,8 @@ def main(argv=None):
                 S_train = None
 
     fit_now = _tracer_fits.build(opts.tracer_fit_method,
-                                 X_train, Y_train, sigma=S_train)
+                                 X_train, Y_train, sigma=S_train,
+                                 lnl_floor_delta=opts.tracer_lnl_floor_delta)
 
     state = {}
     if opts.state_in and os.path.exists(opts.state_in):
