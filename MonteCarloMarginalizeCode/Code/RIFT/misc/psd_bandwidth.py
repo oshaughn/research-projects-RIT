@@ -1,10 +1,13 @@
 """Estimate the frequency band a signal actually occupies, from a PSD, at workflow-build time.
 
-WHAT THIS IS FOR.  Several build-time decisions depend on where a signal's power really sits in
-[fmin, fmax] rather than on fmax itself -- most immediately the choice of sub-sample Q_lm
-interpolation stencil (see RIFT.likelihood.time_interp_choice), where using fmax alone was
-measured to pick the worse stencil.  The operative quantity is the bandwidth of the
+WHAT THIS IS FOR.  Build-time decisions that depend on where a signal's power really sits in
+[fmin, fmax] rather than on fmax itself.  The operative quantity is the bandwidth of the
 matched-filter integrand, which depends on the MASSES and on fmin as well as on the PSD.
+
+IT IS NOT CURRENTLY USED TO CHOOSE A Q_lm INTERPOLATION STENCIL, and a selector built on it was
+tried and RETRACTED -- the clean split it appeared to give was measured at a single fmin and does
+not survive an fmin sweep at any quantile.  See DEFAULT_POWER_QUANTILE below and
+RIFT/likelihood/DESIGN_q_window_stencil.md section 6.  Nothing here is calibrated for a decision.
 
 DESIGN CONSTRAINTS, both learned the hard way:
 
@@ -33,26 +36,14 @@ IFO_PREFERENCE = ('H1', 'L1', 'K1', 'I1', 'V1')
 
 # Fraction of the matched-filter SNR^2 that must accumulate below the reported bandwidth.
 #
-# CHOSEN FOR SEPARATING POWER, NOT FOR RATIO ACCURACY -- those are different objectives and they
-# disagree here.  Validated against 9 SEOBNRv4 (IMR) stencil measurements: rank each configuration
-# by fNyq/estimate and ask whether the sinc winners and the cubic winners separate.
+# NOT CALIBRATED FOR ANY DECISION.  A selector built on this was tried and RETRACTED: the clean
+# split it showed was measured at a single fmin and does not survive an fmin sweep, at any
+# quantile.  0.99 is retained because it is where the PSD demonstrably does work (see
+# test_psd_bandwidth's structural guards), NOT because it is validated against anything.
 #
-#     ranked by                     sinc wins up to   cubic wins from   separates?   gap
-#     fNyq / measured 99.99%             4.628             4.233        NO (overlap)  --
-#     fNyq / estimate, q = 0.95          6.059             6.113        yes          1.009x
-#     fNyq / estimate, q = 0.99          2.990             4.330        yes          1.45x
-#
-# q = 0.95 gives the most uniform estimate/measured RATIO (spread 1.36x against IMR) but leaves a
-# 1% window to place a threshold in, which is not usable.  q = 0.99 has a worse ratio spread
-# (1.76x) and a 45%-wide window.  For a decision, separation is what matters.
-#
-# Note the raw measured 99.99%-power bandwidth does NOT separate them at all -- an IMR spectrum
-# has a ringdown bump rather than a smooth roll-off, so a very high quantile chases the bump.
-# This estimator works precisely because it integrates against the PSD instead.
-#
-# If a stencil selector is ever built on this: threshold ~ 3.6 (the geometric mean of the
-# 2.99-4.33 bracket).  NOT wired in yet -- the fmin dependence has not been re-checked with an
-# IMR model, and with TaylorT4 fmin alone flipped the winner at M = 5.
+# If you are about to key a decision off this number, measure first -- two other bandwidth proxies
+# and this one have all failed that test.  The measurements are in
+# RIFT/likelihood/DESIGN_q_window_stencil.md (section 6), as of 2026-08-16.
 DEFAULT_POWER_QUANTILE = 0.99
 
 
