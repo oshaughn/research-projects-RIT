@@ -149,6 +149,17 @@ def test_rift_liquid_template_renders_realistic_baseline_ledger():
     assert "manual-extra-ile-args=--internal-waveform-extra-kwargs" in rendered
 
 
+def test_rift_liquid_template_prefers_asimov_07_minimum_frequency():
+    meta = _base_meta()
+    meta["likelihood"]["minimum frequency"] = {"H1": 18, "L1": 19}
+
+    _rendered, parser = _render(meta)
+
+    flow = parser.get("lalinference", "flow")
+    assert '"H1":18' in flow
+    assert '"L1":19' in flow
+
+
 @pytest.mark.parametrize(
     "distance_prior,expected",
     [
