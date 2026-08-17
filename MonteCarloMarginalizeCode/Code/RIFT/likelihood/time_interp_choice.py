@@ -58,39 +58,46 @@ FMIN SWEEP, same method, 20 points, 3 seeds each, marginal winners replicated wi
 
 (capitals mark where the fmin-blind rule named the worse stencil).
 
-RULE OF THUMB, and it is TWO-DIMENSIONAL -- fmin matters as much as mass:
+RULE OF THUMB, and it is TWO-DIMENSIONAL -- fmin matters as much as mass.  The crossover in
+total mass RISES with fmin:
 
-    fmin <= 50 Hz    crossover 20-35 Msun total: 'sinc' below it, 'cubic' above.
-    fmin >= 100 Hz   prefer 'sinc' AT ANY MASS.
+    fmin <= 50 Hz    crossover 20-35 Msun    'sinc' below it, 'cubic' above
+    fmin  = 100 Hz   crossover 35-55 Msun    'sinc' below it, 'cubic' above
+    fmin  = 150 Hz   sinc wins at every mass MEASURED (9-55); crossover is above 55
 
-An earlier revision of this file gave only the first line, and it was measurably wrong at high
-fmin: it named the worse stencil at (M=35, fmin=100) by 2.5x, (M=35, fmin=150) by **5.6x**, and
-(M=55, fmin=150) by 1.2x.  Measured crossover against fmin, same 20-point SEOBNRv4 grid:
+MEASURED RANGE: 9-55 Msun.  The fmin sweep does NOT cover 80 or 120 Msun, so there is no
+high-fmin evidence at those masses -- the fmin-30 ladder puts them firmly in cubic's regime and
+nothing here contradicts that.  Do not read the fmin-150 row as "sinc at any mass"; it is "sinc
+everywhere we looked, and we stopped at 55".
 
-    fmin        20      30      50     100     150
-    crossover  20-35   20-35   20-35  35-55   > 55
+If you want one conservative rule INSIDE the measured range rather than a boundary: over
+fmin >= 100 and M <= 55, always choosing sinc costs at most 1.12x (at M=55, fmin=100, the single
+point where cubic still wins), against 5.58x for always choosing cubic.  That asymmetry is why a
+flat "prefer sinc" is defensible there -- but it is bounded by the measurement, not universal.
+
+An earlier revision of this file gave only the fmin <= 50 line and it was measurably wrong at
+high fmin: it named the worse stencil at (M=35, fmin=100) by 2.5x, (M=35, fmin=150) by **5.6x**,
+and (M=55, fmin=150) by 1.2x.
 
 THE MECHANISM, and it is the same property that makes sinc worth having: sinc's error is FLAT --
 2.3-5.6 nats across the entire 20-point grid -- while **cubic degrades ~6-8x as fmin goes
 20 -> 150** at fixed mass (M=9: 10.7 -> 69.3 nats; M=20: 4.7 -> 45.2).  Raising fmin cuts the long
 low-frequency inspiral out of band, which broadens Q relative to Nyquist: exactly sinc's regime.
 
-WHY THE HIGH-fmin RULE IS "PREFER SINC" RATHER THAN A SECOND CROSSOVER.  Over fmin >= 100 the
-penalty for always choosing sinc is at worst 1.12x (at M=55, fmin=100, the one place cubic still
-wins), against 5.58x for always choosing cubic.  With margins that asymmetric a flat
-recommendation beats a finely-placed boundary that is only supported at four masses.
-
 'nearest' is never competitive: 200-440 nats throughout, and it crosses 1 nat of error at SNR
 2-6, i.e. it is already unusable at O4 SNRs.
 
-THE MARGINS ARE MODEST AND ROUGHLY SYMMETRIC, which is a change from the earlier inspiral-only
-picture.  Over M = 9-55 every margin either way is 2.1-3.0x, and the worst anywhere below 120 is
-9.1x.  The "330x penalty for picking sinc wrongly" quoted in earlier revisions was a TaylorT4
-artifact and is gone; there is no longer a strong safety reason to break ties toward cubic.
+MARGINS, SCOPED.  **At fmin 30** (the mass ladder above) every margin either way over M = 9-55 is
+2.1-3.0x and the worst below 120 is 9.1x.  **Across the fmin sweep** the range is wider, 1.1x to
+15.9x, because cubic degrades with fmin while sinc does not.  Quote whichever matches the
+configuration you are describing; they are not interchangeable.  The "330x penalty for picking
+sinc wrongly" quoted in pre-IMR revisions was a TaylorT4 artifact and is gone either way -- there
+is no longer a strong safety reason to break ties toward cubic.
 
-SINC'S ERROR IS FLAT -- 3.1-7.9 nats across the entire ladder and both approximants -- exactly as
-a window-limited, oversampling-independent error should be.  All the variation is cubic's.  That
-is an independent consistency check on the whole picture.
+SINC'S ERROR IS FLAT, which is the load-bearing consistency check: 3.1-7.9 nats across the fmin-30
+mass ladder and both approximants, and 2.3-5.6 nats across the 20-point fmin sweep.  Flat in BOTH
+sweeps is exactly what a window-limited, oversampling-independent error must do.  All the
+variation, in both, is cubic's.
 
 WHAT ACTUALLY SETS THE ANSWER is fNyq divided by the true Q bandwidth, and estimating that
 bandwidth is the open problem.  f_ISCO is NOT a usable proxy: measured/f_ISCO drifts 15.8x across
@@ -160,8 +167,8 @@ BARE_FLAG_SENTINEL = '__bare__'
 # asserts each entry point's --help contains this exact text, which is what stops one copy drifting
 # (an earlier revision left util_RIFT_pseudo_pipe.py recommending the pre-IMR "cubic unless below
 # ~4 Msun", i.e. the measurably worse stencil across roughly 4-20 Msun, while the others were right).
-CROSSOVER_GUIDANCE = ("the crossover is between 20 and 35 Msun AT fmin <= 50 Hz, and rises with "
-                      "fmin -- at fmin >= 100 Hz prefer sinc at any mass")
+CROSSOVER_GUIDANCE = ("the crossover rises with fmin -- 20-35 Msun at fmin <= 50 Hz, 35-55 Msun "
+                      "at fmin 100, and above 55 Msun at fmin 150 (measured over 9-55 Msun only)")
 
 
 
@@ -188,8 +195,8 @@ def resolve_interpolate_time_request(value):
             "on/off flag that also chose the stencil for you; automatic selection has been "
             "REMOVED as measurably unreliable, so a stencil must now be named explicitly: "
             "nearest|cubic|sinc. Measured with an IMR model the crossover is between 20 and 35 "
-            "Msun total -- 'sinc' below it, 'cubic' above -- with modest 2.1-3.0x margins either "
-            "way. See RIFT.likelihood.time_interp_choice for the table.")
+            "%s; 'sinc' below the crossover, 'cubic' above. See "
+            "RIFT.likelihood.time_interp_choice for the tables." % CROSSOVER_GUIDANCE)
     return validate_stencil_name(value)
 
 
@@ -213,11 +220,9 @@ def validate_stencil_name(value):
             "--internal-ile-interpolate-time %r asked for automatic stencil selection, which has "
             "been REMOVED: it was measured to pick the worse stencil at 2 of 8 total masses, and "
             "the correct choice additionally depends on fmin, which no (srate, fmax, mass) rule "
-            "can see. Pass an explicit stencil instead: measured with an IMR model, the crossover "
-            "is between 20 and 35 Msun total -- 'sinc' below it, 'cubic' above -- with modest "
-            "2.1-3.0x margins either way, so neither is dangerous near it. See "
-            "RIFT.likelihood.time_interp_choice for the measured table."
-            % (value,))
+            "can see. Pass an explicit stencil instead. Measured with an IMR model, %s; "
+            "'sinc' below the crossover, 'cubic' above. See RIFT.likelihood.time_interp_choice "
+            "for the measured tables." % (value, CROSSOVER_GUIDANCE))
     raise ValueError(
         "unrecognised Q_lm time-interpolation stencil %r: expected one of %s, or a value meaning "
         "disabled (%s)"
