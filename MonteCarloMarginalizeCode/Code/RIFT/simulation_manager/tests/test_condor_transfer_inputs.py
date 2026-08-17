@@ -408,3 +408,25 @@ def test_output_extras_colliding_after_expansion_are_rejected(archive):
     name = archive.register({"x": 1}, target_level=1)
     with pytest.raises(ValueError, match="resolve to"):
         q.build_worker(archive, name, 1)
+
+
+@pytest.mark.parametrize("raw", ["wxyz", b"abc"])
+def test_output_raw_collection_type_is_checked_at_submit(archive, raw):
+    """The input side validates the whole collection before per-entry
+    work; the output side only looped. A bare str/bytes tuple()s into one
+    entry per character, and each single character passes the per-entry
+    checks, so a garbage transfer_output_files line was emitted with no
+    error at all."""
+    q = DualCondorRunQueue()
+    q._extra_transfer_output_files = raw
+    name = archive.register({"x": 1}, target_level=1)
+    with pytest.raises(TypeError, match="not a bare string"):
+        q.build_worker(archive, name, 1)
+
+
+def test_attribute_style_placeholder_names_the_contract(archive):
+    """`{sim_name.bogus}` raised a bare AttributeError past the handler."""
+    q = DualCondorRunQueue(extra_transfer_output_files=["{sim_name.bogus}"])
+    name = archive.register({"x": 1}, target_level=1)
+    with pytest.raises(ValueError, match="placeholder"):
+        q.build_worker(archive, name, 1)

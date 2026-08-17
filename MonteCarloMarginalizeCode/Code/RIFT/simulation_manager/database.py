@@ -1668,10 +1668,20 @@ class DualCondorRunQueue(RunQueue):
         # jobs complete having thrown their results away.
         out_names = [out_base]
         out_remaps = ["{}={}".format(out_base, out_target)]
-        for entry in self.extra_transfer_output_files:
+        # Validate the raw COLLECTION first, exactly as the input side
+        # does. Iterating the property alone was not symmetric: a bare
+        # str reaching the backing attribute tuple()s into one entry per
+        # character, and each single character then passes the per-entry
+        # checks cleanly — so build_worker emitted
+        # `transfer_output_files = level_1.json,w,x,y,z` and returned
+        # successfully, instead of raising the way the input side does.
+        for entry in _validate_transfer_entries(
+                self._extra_transfer_output_files,
+                what="extra_transfer_output_files (at submit)",
+                remap_syntax=True):
             try:
                 name = str(entry).format(level=int(level), sim_name=sim_name)
-            except (KeyError, IndexError) as exc:
+            except (KeyError, IndexError, AttributeError) as exc:
                 raise ValueError(
                     "extra_transfer_output_files: {!r} uses an unknown "
                     "placeholder {}; only {{level}} and {{sim_name}} are "
