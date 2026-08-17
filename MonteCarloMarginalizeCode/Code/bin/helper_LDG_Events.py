@@ -28,6 +28,9 @@ import gzip
 
 # Backward compatibility
 from RIFT.misc.dag_utils_generic import which
+# leaf module: numpy only, so this does not drag numba/cupy into the helper
+from RIFT.likelihood.time_interp_choice import (
+    BARE_FLAG_SENTINEL, CROSSOVER_GUIDANCE, resolve_interpolate_time_request)
 lalapps_path2cache = which('lal_path2cache')
 ligolw_add = 'igwn_ligolw_add'
 if not(which(ligolw_add)):
@@ -218,7 +221,7 @@ parser.add_argument("--internal-ile-rotate-phase", action='store_true')
 parser.add_argument("--internal-ile-auto-logarithm-offset",action='store_true',help="Passthrough to ILE")
 parser.add_argument("--internal-ile-use-lnL",action='store_true',help="Passthrough to ILE.  Will DISABLE auto-logarithm-offset and manual-logarithm-offset")
 parser.add_argument("--internal-ile-n-chunk",default=None,type=int,help="Override the extrinsic chunk size (--n-chunk) passed to ILE. Default: 40000, scaled linearly with SNR above 40 and capped at 160000. Rationale: at high SNR the posterior is a vanishing fraction of the prior volume, so a small chunk gives few informative samples per adaptation step; measured collapse on a truth-known SNR ladder falls 88%%->50%% (SNR160) and 69%%->25%% (SNR80) going 1e4->1.6e5, and the gain survives at fixed budget. Larger chunks cost GPU memory, so raise the ILE memory request if you raise this a lot.")
-parser.add_argument("--internal-ile-interpolate-time",action='store_true',help="Evaluate Q_lm at FRACTIONAL detector times by cubic interpolation instead of snapping to the nearest sample bin (passes --interpolate-time True). Requires the maintained NoLoop likelihood, i.e. the --vectorized --gpu --force-xpy combination. Nearest-bin evaluation injects a time-quantization non-smoothness into the extrinsic likelihood surface that is a discretization artifact, not physics; removing it makes convergence more robust. Default off for backward compatibility.")
+parser.add_argument("--internal-ile-interpolate-time",nargs='?',const=BARE_FLAG_SENTINEL,default=None,type=str,help="Evaluate Q_lm at FRACTIONAL detector times instead of snapping to the nearest sample bin, in the maintained NoLoop likelihood (needs --time-marginalization --vectorized and one of --gpu/--rotation-slow/--freqresponse; the driver REFUSES rather than ignores otherwise). REQUIRES AN EXPLICIT STENCIL: nearest|cubic|sinc -- automatic selection was removed as measurably unreliable, and a bare flag is rejected rather than silently doing nothing. MEASURED GUIDANCE (SEOBNRv4, an IMR model): %s. 'nearest' is never competitive and is already unusable at O4 SNRs. Error grows as SNR^2, so this matters more at 3G. Cost: sinc is ~4.2-4.5x cubic on CPU, ~1.6-3.0x on GPU. Full tables, limitations and provenance: RIFT/likelihood/DESIGN_q_window_stencil.md. Default off." % CROSSOVER_GUIDANCE)
 parser.add_argument("--internal-cip-use-lnL",action='store_true')
 parser.add_argument("--ile-n-eff",default=50,type=int,help="Target n_eff passed to ILE.  Try to keep above 2")
 parser.add_argument("--test-convergence",action='store_true',help="If present, the code will terminate if the convergence test  passes. WARNING: if you are using a low-dimensional model the code may terminate during the low-dimensional model!")
@@ -259,6 +262,11 @@ parser.add_argument("--use-cvmfs-frames",action='store_true',help="If true, requ
 parser.add_argument("--use-ini",default=None,type=str,help="Attempt to parse LI ini file to set corresponding options. WARNING: MAY OVERRIDE SOME OTHER COMMAND-LINE OPTIONS")
 parser.add_argument("--verbose",action='store_true')
 opts=  parser.parse_args()
+
+# Resolve the sub-sample stencil request IMMEDIATELY, so a bare flag / retired 'True' / typo
+# fails here rather than after a whole workflow has been built and submitted.  Returns None when
+# the feature is off; a canonical stencil name otherwise.
+time_interp_choice = resolve_interpolate_time_request(opts.internal_ile_interpolate_time)
 
 if opts.assume_matter_but_primary_bh:
     opts.assume_matter=True
@@ -1132,9 +1140,20 @@ else:
         n_chunk_ile = int(40000 * np.max([1.0, event_dict["SNR"] / 40.0]))
         n_chunk_ile = int(np.min([n_chunk_ile, 160000]))
 helper_ile_args += " --n-chunk " + str(n_chunk_ile) + " "
-if opts.internal_ile_interpolate_time:
-    # cubic Q_lm time interpolation; needs the NoLoop path (--vectorized --gpu --force-xpy)
-    helper_ile_args += " --interpolate-time True "
+if time_interp_choice is not None:
+    # Sub-sample Q_lm time interpolation; needs the maintained NoLoop path.  The stencil was
+    # already validated at parse time (see resolve_interpolate_time_request above), so by here it
+    # is one of nearest|cubic|sinc.  The name goes on the ILE command line verbatim, so a
+    # completed run's stencil is readable off the .sub file.
+    print("  ==> Q_lm time interpolation: stencil '{}' (explicit; automatic selection was "
+          "removed as unreliable -- see RIFT.likelihood.time_interp_choice for the measured "
+          "guidance)".format(time_interp_choice))
+    #
+    # VERSION SKEW, one-directional: an ILE predating stencil names maps any unrecognised
+    # --interpolate-time value to 'nearest' through a truthiness test, with no error and no log
+    # line -- so an OLD ILE driven by THIS helper silently runs 'nearest'.  A new ILE raises, so
+    # the reverse pairing is safe.  Pair this pipeline with an ILE from the same checkout.
+    helper_ile_args += " --interpolate-time " + time_interp_choice + " "
 
 if opts.internal_ile_auto_logarithm_offset and not opts.internal_ile_use_lnL:
     helper_ile_args += " --auto-logarithm-offset "

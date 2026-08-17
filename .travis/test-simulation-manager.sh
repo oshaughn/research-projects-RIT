@@ -16,3 +16,8 @@ python3 -m pytest -v MonteCarloMarginalizeCode/Code/test/test_simulation_manager
 
 # v2 archive unit tests (database.py + queues + admin operations).
 python3 -m pytest -v MonteCarloMarginalizeCode/Code/test/test_database.py
+
+# In-package tests under RIFT/simulation_manager/tests/. These were not
+# collected by anything before, so nearby_reuse and the condor transfer
+# hooks shipped without CI coverage.
+python3 -m pytest -v MonteCarloMarginalizeCode/Code/RIFT/simulation_manager/tests/

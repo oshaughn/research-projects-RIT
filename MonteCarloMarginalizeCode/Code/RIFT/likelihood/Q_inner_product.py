@@ -108,3 +108,105 @@ def Q_inner_product_cubic_cupy(Q, A, start_indices, fractional_offsets, window_s
     )
 
     return out
+
+
+def Q_inner_product_sinc_cupy(Q, A, start_indices, fractional_offsets, window_size,
+                              halfwidth=None):
+    """Band-limited (Lanczos windowed-sinc) Q inner product for fractional detector-time offsets.
+
+    Same contract as ``Q_inner_product_cubic_cupy``: ``start_indices`` are the integer floor
+    indices of the first requested time sample, ``fractional_offsets`` the corresponding
+    fractional parts in [0, 1).  The stencil is 2*halfwidth taps wide (default
+    ``factored_likelihood.SINC_HALFWIDTH_DEFAULT``) with zero extension outside the precomputed
+    Q buffer.
+
+    The tap weights come from the same ``factored_likelihood._sinc_lanczos_weight_matrix`` the
+    CPU window builder uses, evaluated with the cupy backend so they are built ON THE DEVICE:
+    deriving them a second time in CUDA would put two independent definitions of the stencil in
+    the tree, and pulling the offsets back to the host to use the numpy path would move tens of
+    MB per detector per call at production n_extrinsic.  The weight work is O(n_ex * 2a) against
+    the kernel's O(n_ex * window * n_lms * 2a), so it is negligible either way.
+
+    Which stencil to use depends on the oversampling factor fNyq/fmax -- see
+    ``_sinc_Q_window_numpy`` for the measured crossover.  This one is the accurate choice near
+    Nyquist, which is where production runs sit.
+
+    COST, measured on an RTX 2080 Ti against ``Q_inner_product_cubic_cupy``, ms per call at
+    (n_extrinsic, window, n_lms, n_time):
+
+        (1e4, 50, 5, 4096)    0.83 -> 1.35   1.6x
+        (4e4, 50, 5, 4096)    2.95 -> 5.41   1.8x
+        (1.6e5, 50, 5, 4096) 11.39 -> 20.66  1.8x
+        (4e4, 100, 9, 8192)   6.11 -> 18.08  3.0x
+
+    i.e. well under the 4x the 16-vs-4 tap ratio would suggest, because the kernel is bandwidth
+    and latency bound rather than tap bound.  (The CPU window builder, which is tap bound, does
+    show the full ~4.2-4.5x.)
+    """
+    # Deferred import: factored_likelihood imports this module, so a top-level import would be
+    # circular.  By call time factored_likelihood is always fully imported (it is the caller).
+    from .factored_likelihood import _sinc_lanczos_weight_matrix, SINC_HALFWIDTH_DEFAULT
+
+    if halfwidth is None:
+        halfwidth = SINC_HALFWIDTH_DEFAULT
+
+    num_time_points, num_lms = Q.shape
+    num_extrinsic_samples, _ = A.shape
+
+    assert not cupy.isfortran(Q)
+    assert not cupy.isfortran(A)
+
+    _offsets, tap_weights = _sinc_lanczos_weight_matrix(
+        cupy.asarray(fractional_offsets), halfwidth, xpy=cupy)
+    # Derived from halfwidth, NOT read back off _offsets: indexing a cupy array to get a Python
+    # int forces a device sync, and this runs once per detector per likelihood call.  The two
+    # must agree, so assert it rather than trusting the comment -- cheap, host-side only.
+    n_taps = 2 * halfwidth
+    tap_first = -halfwidth + 1
+    assert _offsets.shape == (n_taps,), \
+        "weight-matrix stencil width %r disagrees with 2*halfwidth=%d" % (_offsets.shape, n_taps)
+    # ascontiguousarray alone: _sinc_lanczos_weight_matrix already builds float64, and cupy's
+    # astype copies even when the dtype already matches (copy=True is its default).  At
+    # n_chunk=1.6e5 that extra (n_ex, 2a) float64 buffer is ~20 MB of transient device memory per
+    # detector per call, on the resource that already caps how large n_chunk can be.
+    tap_weights_d = cupy.ascontiguousarray(tap_weights)
+
+    out = cupy.empty(
+        (num_extrinsic_samples, window_size),
+        dtype=cupy.complex128,
+        order="C",
+    )
+
+    global _cuda_code
+    if _cuda_code is None:
+        path = os.path.join(os.path.dirname(__file__), 'cuda_Q_inner_product.cu')
+        if not (os.path.isfile(path)):
+            path = os.path.join(os.path.split(os.path.dirname(__file__))[0], 'cuda_Q_inner_product.cu')
+        with open(path, 'r') as f:
+            _cuda_code = f.read()
+            Q_prod_fn = cupy.RawKernel(_cuda_code, "Q_inner_sinc")
+    else:
+        Q_prod_fn = cupy.RawKernel(_cuda_code, "Q_inner_sinc")
+
+    # 2a taps against the cubic's 4, so this kernel is heavier still; keep the same conservative
+    # default block shape and the same env-tunable override.
+    num_threads_x = int(os.environ.get("RIFT_Q_SINC_THREADS_X", "4"))
+    num_threads_y = int(os.environ.get("RIFT_Q_SINC_THREADS_Y", "128"))
+    block_size = num_threads_x, num_threads_y, 0
+    grid_size = (
+        (num_extrinsic_samples+num_threads_x-1)//num_threads_x,
+        0,
+        0,
+    )
+    args = (
+        Q, A, start_indices, tap_weights_d, n_taps, tap_first, window_size,
+        num_time_points, num_extrinsic_samples, num_lms,
+        out,
+    )
+    Q_prod_fn(
+        grid_size, block_size, args,
+        # one double per tap per threadIdx.x, staged so the innermost loop reads shared not global
+        shared_mem=cupy.int32(num_threads_x*n_taps*8),
+    )
+
+    return out
