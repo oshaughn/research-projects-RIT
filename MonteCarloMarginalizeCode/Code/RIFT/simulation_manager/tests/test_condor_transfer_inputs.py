@@ -78,12 +78,20 @@ def test_extras_are_appended(archive):
 
 
 def test_archive_entries_are_preserved(archive, tmp_path):
-    """The whole point: extras must not displace the frozen code."""
+    """The whole point: extras must be present AND must not displace the
+    frozen code.
+
+    Asserting only the archive entries made this pass unmodified against
+    the base revision — the old constructor swallowed the unknown kwarg
+    into **submit_kwargs rather than raising, so the test could not
+    detect the failure mode it names."""
     q = DualCondorRunQueue(extra_transfer_input_files=BULK)
     name, sub = _build(archive, q)
     line = _transfer_line(sub)
     assert str(tmp_path / "arch" / "code") in line
     assert "params.json" in line
+    for url in BULK:
+        assert url in line
 
 
 def test_default_is_unchanged(archive, tmp_path):
@@ -154,3 +162,97 @@ def test_reaches_the_queue_through_the_manifest(tmp_path):
     reopened = Archive(base_location=tmp_path / "arch")
     _, run_queue = make_queues_from_manifest(reopened)
     assert run_queue.extra_transfer_input_files == BULK
+
+
+# ---------------------------------------------------------------------------
+# Rejections: each of these is something condor_submit accepts with exit 0
+# and then gets wrong on a remote worker.
+# ---------------------------------------------------------------------------
+
+def test_bare_string_is_rejected():
+    """A str is a Sequence[str], so it would iterate as one transfer
+    request per character."""
+    with pytest.raises(TypeError, match="not a bare string"):
+        DualCondorRunQueue(extra_transfer_input_files="osdf:///a/b.h5")
+
+
+@pytest.mark.parametrize("bad", [
+    "/data/tab,v2.h5",                      # comma separates entries
+    "/data/a.h5\nrequest_memory = 999999",  # newline injects a submit command
+    "   ",                                  # empty
+])
+def test_corrupting_entries_are_rejected(bad):
+    with pytest.raises(ValueError):
+        DualCondorRunQueue(extra_transfer_input_files=[bad])
+
+
+@pytest.mark.parametrize("colliding", [
+    "osdf:///bulk/params.json", "osdf:///bulk/code", "osdf:///bulk/level_1.json",
+])
+def test_basename_collisions_are_rejected(colliding):
+    """Condor flattens basenames into the sandbox, so these would
+    overwrite the archive's own staged files on the worker."""
+    with pytest.raises(ValueError, match="collides"):
+        DualCondorRunQueue(extra_transfer_input_files=[colliding])
+
+
+def test_extras_with_subdag_factory_are_rejected():
+    """submit() dispatches to the sub-DAG and never calls build_worker,
+    so the extras would be stored, persisted to the manifest, and reach
+    nothing at all."""
+    with pytest.raises(ValueError, match="subdag_factory"):
+        DualCondorRunQueue(extra_transfer_input_files=BULK,
+                           subdag_factory=lambda a, s, l: "x.dag")
+
+
+@pytest.mark.parametrize("key", [
+    "transfer_input_files", "transfer_output_files", "transfer_output_remaps",
+])
+def test_extra_condor_cmds_cannot_replace_the_transfer_lines(archive, key):
+    """extra_condor_cmds is emitted last, so setting these would replace
+    the archive's own line and strip what the worker needs."""
+    q = DualCondorRunQueue(extra_condor_cmds={key: "/other/thing"})
+    name = archive.register({"x": 1}, target_level=1)
+    with pytest.raises(ValueError, match=key):
+        q.build_worker(archive, name, 1)
+
+
+# ---------------------------------------------------------------------------
+# Output side
+# ---------------------------------------------------------------------------
+
+def test_extra_outputs_are_returned_and_remapped(archive, tmp_path):
+    """transfer_output_files is explicit, so anything not named here is
+    destroyed with the sandbox — a backend whose science IS output files
+    completes having discarded its own results."""
+    q = DualCondorRunQueue(extra_transfer_output_files=["level_{level}"])
+    name = archive.register({"x": 1}, target_level=1)
+    sub = open(q.build_worker(archive, name, 1)).read()
+    out = next(l for l in sub.splitlines()
+               if l.strip().startswith("transfer_output_files"))
+    remap = next(l for l in sub.splitlines()
+                 if l.strip().startswith("transfer_output_remaps"))
+    assert "level_1.json" in out and "level_1" in out
+    assert str(tmp_path / "arch" / "sims" / name / "level_1") in remap
+    assert remap.count(";") == 1          # marker remap plus ours
+
+
+def test_output_placeholders_track_the_level(archive):
+    q = DualCondorRunQueue(extra_transfer_output_files=["level_{level}"])
+    name = archive.register({"x": 1}, target_level=2)
+    sub = open(q.build_worker(archive, name, 2)).read()
+    out = next(l for l in sub.splitlines()
+               if l.strip().startswith("transfer_output_files"))
+    assert "level_2" in out and "level_1," not in out
+
+
+def test_output_default_is_unchanged(archive):
+    q = DualCondorRunQueue()
+    name = archive.register({"x": 1}, target_level=1)
+    sub = open(q.build_worker(archive, name, 1)).read()
+    out = next(l for l in sub.splitlines()
+               if l.strip().startswith("transfer_output_files"))
+    remap = next(l for l in sub.splitlines()
+                 if l.strip().startswith("transfer_output_remaps"))
+    assert out.split("=", 1)[1].strip() == "level_1.json"
+    assert ";" not in remap

@@ -88,6 +88,54 @@ def _safe_hashable(x: Any) -> Any:
         return ("__unhashable__", repr(x))
 
 
+def _validate_transfer_entries(entries: Any, *, what: str) -> List[str]:
+    """Check a backend-supplied transfer list, or say why it is unusable.
+
+    Every rejection here is something HTCondor accepts without complaint
+    and then gets wrong on a remote worker, which is the worst place to
+    find out. `condor_submit` exits 0 for all of them.
+
+      * a bare string is a Sequence[str], so it iterates as CHARACTERS
+        and becomes one transfer request per letter. This is the likeliest
+        operator mistake and the type annotation invites it.
+      * transfer_input_files is comma-separated, so an entry containing a
+        comma silently splits into two bogus entries. URLs with query
+        strings hit this routinely.
+      * a newline ends the submit command, so the remainder becomes its
+        own submit line. Later duplicates win in Condor, so a stray
+        newline can silently override request_memory, the executable, or
+        the output remaps.
+    """
+    if entries is None:
+        return []
+    if isinstance(entries, (str, bytes)):
+        raise TypeError(
+            "{} must be a list of entries, not a bare string: a string is a "
+            "Sequence[str] and would iterate as one transfer request per "
+            "character. Wrap it: [{!r}].".format(what, entries))
+    out: List[str] = []
+    for entry in entries:
+        text = str(entry)
+        if not text.strip():
+            raise ValueError("{}: empty entry".format(what))
+        for bad, why in ((",", "separates entries in transfer_input_files"),
+                         ("\n", "ends the submit command"),
+                         ("\r", "ends the submit command")):
+            if bad in text:
+                raise ValueError(
+                    "{}: entry {!r} contains {!r}, which {}. HTCondor accepts "
+                    "the submit file and the job fails later on the execute "
+                    "host.".format(what, text, bad, why))
+        out.append(text)
+    return out
+
+
+#: Basenames the archive itself stages into the worker sandbox. Condor
+#: flattens transferred basenames into cwd, so a backend input sharing one
+#: of these silently clobbers it on the worker.
+_RESERVED_SANDBOX_BASENAMES = ("code", "params.json")
+
+
 def _default_same_q(a: Any, b: Any) -> bool:
     return a == b
 
@@ -1343,6 +1391,20 @@ class DualCondorRunQueue(RunQueue):
                                     *replace* the archive's own entries
                                     and strip the frozen code/ directory,
                                     leaving the worker nothing to run.
+        extra_transfer_output_files: list -- products to bring BACK
+                                    beyond the level_<N>.json marker,
+                                    named relative to the job sandbox.
+                                    `{level}` and `{sim_name}` are
+                                    substituted, so e.g. "level_{level}"
+                                    returns a per-level output directory.
+                                    Each is remapped to the same relative
+                                    path under sims/<name>/.
+                                    transfer_output_files is explicit, so
+                                    without this HTCondor returns only the
+                                    marker and everything else the worker
+                                    produced dies with the sandbox — the
+                                    job completes having discarded its
+                                    own results.
 
     The defaults above also apply when DualCondorRunQueue is
     instantiated via make_queues_from_manifest() — keys absent from
@@ -1363,6 +1425,7 @@ class DualCondorRunQueue(RunQueue):
                  singularity_image: Optional[str] = None,
                  extra_condor_cmds: Optional[Dict[str, str]] = None,
                  extra_transfer_input_files: Optional[Sequence[str]] = None,
+                 extra_transfer_output_files: Optional[Sequence[str]] = None,
                  auto_release_on_oom: bool = True,
                  oom_max_retries: int = 5,
                  oom_memory_factor: float = 1.5,
@@ -1371,7 +1434,31 @@ class DualCondorRunQueue(RunQueue):
                  **submit_kwargs: Any):
         self.run_pool = run_pool
         self.run_collector = run_collector
-        self.extra_transfer_input_files = list(extra_transfer_input_files or [])
+        self.extra_transfer_input_files = _validate_transfer_entries(
+            extra_transfer_input_files, what="extra_transfer_input_files")
+        self.extra_transfer_output_files = _validate_transfer_entries(
+            extra_transfer_output_files, what="extra_transfer_output_files")
+        for _e in self.extra_transfer_input_files:
+            _base = _e.rstrip("/").rsplit("/", 1)[-1]
+            if _base in _RESERVED_SANDBOX_BASENAMES or (
+                    _base.startswith("level_") and _base.endswith(".json")):
+                raise ValueError(
+                    "extra_transfer_input_files: {!r} has basename {!r}, which "
+                    "collides with a file the archive already stages. Condor "
+                    "flattens basenames into the sandbox, so this would "
+                    "overwrite the archive's own copy on the worker.".format(
+                        _e, _base))
+        if (self.extra_transfer_input_files or self.extra_transfer_output_files) \
+                and subdag_factory is not None:
+            # submit() dispatches to the subdag when one is set and never
+            # calls build_worker, so the extras would be stored, persisted
+            # to the manifest, and reach nothing. Fail rather than let the
+            # operator believe bulk staging is configured.
+            raise ValueError(
+                "extra_transfer_{input,output}_files are applied by "
+                "build_worker, which is bypassed when subdag_factory is set: "
+                "the sub-DAG owns its own submit descriptions. Put the extra "
+                "entries in the sub-DAG the factory generates instead.")
         self.request_memory = int(request_memory)
         self.request_disk = request_disk
         self.accounting_group = accounting_group or os.environ.get("LIGO_ACCOUNTING")
@@ -1441,6 +1528,19 @@ class DualCondorRunQueue(RunQueue):
         request_disk = res.get("request_disk", self.request_disk)
         extra_cmds = dict(self.extra_condor_cmds)
         extra_cmds.update(res.get("extra_condor_cmds") or {})
+        # extra_condor_cmds is emitted last, so these would REPLACE the
+        # lines built above rather than extend them — dropping the frozen
+        # code/ directory, the sim's params, or the output remaps, with
+        # condor_submit reporting success either way.
+        for _key in ("transfer_input_files", "transfer_output_files",
+                     "transfer_output_remaps"):
+            if _key in extra_cmds:
+                raise ValueError(
+                    "extra_condor_cmds must not set {0!r}: it is emitted after "
+                    "the archive's own line and would replace it, stripping "
+                    "the files the worker needs. Use "
+                    "extra_transfer_input_files / extra_transfer_output_files, "
+                    "which append.".format(_key))
 
         bootstrap = self._bootstrap_path(archive)
         log_dir = archive.base / "run_queue" / "logs"
@@ -1478,8 +1578,20 @@ class DualCondorRunQueue(RunQueue):
             lines.append("transfer_input_files    = {}".format(",".join(transfer_in)))
         lines.append("should_transfer_files   = YES")
         lines.append("when_to_transfer_output = ON_EXIT")
-        lines.append("transfer_output_files   = {}".format(out_base))
-        lines.append('transfer_output_remaps  = "{}={}"'.format(out_base, out_target))
+        # Backend-supplied products, beyond the level_<N>.json marker.
+        # transfer_output_files is explicit, so HTCondor returns ONLY what
+        # is named here: anything else the worker wrote is destroyed with
+        # the sandbox. A backend whose science *is* output files (rather
+        # than a single JSON marker) has to be able to name them, or its
+        # jobs complete having thrown their results away.
+        out_names = [out_base]
+        out_remaps = ["{}={}".format(out_base, out_target)]
+        for entry in self.extra_transfer_output_files:
+            name = str(entry).format(level=int(level), sim_name=sim_name)
+            out_names.append(name)
+            out_remaps.append("{}={}".format(name, sd / name))
+        lines.append("transfer_output_files   = {}".format(",".join(out_names)))
+        lines.append('transfer_output_remaps  = "{}"'.format(";".join(out_remaps)))
         lines.append("getenv                  = {}".format(self.getenv))
 
         if self.auto_release_on_oom:
