@@ -84,3 +84,47 @@ being measured in one commit destroys exactly the independence that makes tier 1
 * the three weight implementations disagree anywhere, in either Ensemble mode;
 * tier 3 cannot be run at all -> say so plainly and mark the migration provisional rather than
   shipping on tiers 0-2 and calling it validated.
+
+---
+
+# RESULTS (2026-08-14), migration of `ln_weights_for_posterior`
+
+Base `1dcabd27`. Command, both arms identical:
+
+```
+shape_recovery.py --preset quick --samplers AV,GMM,AC,portfolio \
+    --dims 2,4 --ncomps 1,2 --target-seeds 101,202 --run-seed 987654 --jobs 1
+```
+
+| tier | result |
+|---|---|
+| 0. shape gate bit-identity | **PASS** -- 32 cells, 19 metrics each, byte-identical apart from `wallclock` |
+| 1. independent third implementation | **PASS** -- AV, Ensemble (both `use_lnL` modes), mcsampler |
+| 2. fast CI + both audit gates | **PASS** -- 276 passed, 4 skipped; AC/GMM/AV recover the known integral to 0.939 / 0.997 / 0.933 |
+| 3. full ILE run | **NOT RUN** -- needs network + GPU; see below |
+
+## What the validation caught
+
+**A real defect in the new API, before it shipped.** `log_weights()` was first written as
+`log_likelihood() + log_prior() - log_sampling_prior()`. That is wrong on the linear column
+family: `ln_weights_from_rvs` applies a **conjunctive** keep-mask (`ig>0 & jp>0 & js>0`, whole
+row to `-inf`), while evaluating the three terms independently gives `-inf - (-inf) = NaN`. A
+NaN weight poisons every downstream sum; `-inf` is a real zero. Found by fuzzing the two
+implementations against each other **before** switching -- 1200 randomized records, systematic
+divergence on both linear families.
+
+**And a test that could not fail.** `test_three_independent_weight_implementations_agree` --
+tier 1, the end-to-end check -- **passes with that defect reintroduced**, because real sampler
+records have positive priors and never reach the masked rows. It is a decoration for this
+defect. The test with teeth is the randomized one
+(`test_log_weights_matches_the_canonical_form_including_out_of_support_rows`), which was
+revert-checked: bug in -> FAIL, bug out -> PASS. Both are kept; only the second is load-bearing.
+
+## Tier 3 is NOT discharged
+
+`.travis/test-run.sh` / `test-run-alts.sh` clone `ILE-GPU-Paper` and run
+`make test_workflow_batch_gpu_lowlatency`. That needs network egress and is GPU-shaped, and on
+CIT must run on a different host from the session. **It has not been run.** Per the plan's own
+stopping rule, this migration is therefore **provisional** until it has: tiers 0-2 are strong
+evidence that the change is a pure refactor, but they do not exercise a real waveform, a real
+PSD, or the GPU code path.

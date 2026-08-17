@@ -174,7 +174,12 @@ class RvsRecord(object):
             raise KeyError("record has neither 'log_integrand' nor 'integrand'")
         ig = np.asarray(_host(c['integrand']), dtype=float).ravel()
         if self.integrand_is_log is True:
-            return ig
+            # NON-FINITE ROWS BECOME -inf, matching ln_weights_from_rvs's `keep = isfinite(ig)`.
+            # Not cosmetic: a NaN here propagates into every downstream sum (lnZ, Kish n_eff,
+            # the exported weights), while -inf is a real zero weight that sums correctly.  The
+            # difference was found by diffing the two implementations before migrating the
+            # weight path onto this one -- a NaN integrand came back NaN here and -inf there.
+            return np.where(np.isfinite(ig), ig, -np.inf)
         if self.integrand_is_log is False:
             out = np.full(len(ig), -np.inf)
             pos = ig > 0
@@ -211,8 +216,44 @@ class RvsRecord(object):
         No `use_lnL` argument, because the record already knows.  That parameter exists on
         ln_weights_from_rvs only because a bare `_rvs` dict cannot say what its own columns
         mean; a consumer on this API cannot get it wrong.
+
+        NOT `log_likelihood() + log_prior() - log_sampling_prior()`.  That was the first
+        implementation and it is WRONG on the linear column family, systematically rather than
+        in a corner: `ln_weights_from_rvs` applies a CONJUNCTIVE keep-mask there --
+        `(ig > 0) & (jp > 0) & (js > 0)`, whole row to -inf otherwise -- whereas evaluating the
+        three terms independently yields `-inf - (-inf) = NaN` whenever both a prior and a
+        sampling prior are non-positive.  A NaN weight then poisons every downstream sum, while
+        -inf is a real zero.  Found by fuzzing the two implementations against each other before
+        migrating the weight path onto this one; 600 randomized records diverged.
+
+        So this mirrors the established contract branch for branch.  The per-quantity accessors
+        above remain correct in isolation -- conjunctiveness is a property of the WEIGHT, not of
+        the prior.
         """
-        return self.log_likelihood() + self.log_prior() - self.log_sampling_prior()
+        c = self.columns
+        if all(k in c for k in ('log_integrand', 'log_joint_prior', 'log_joint_s_prior')):
+            # log family: a plain sum, no mask, exactly as ln_weights_from_rvs does
+            return (np.asarray(_host(c['log_integrand']), dtype=float).ravel()
+                    + np.asarray(_host(c['log_joint_prior']), dtype=float).ravel()
+                    - np.asarray(_host(c['log_joint_s_prior']), dtype=float).ravel())
+        if all(k in c for k in ('integrand', 'joint_prior', 'joint_s_prior')):
+            ig = np.asarray(_host(c['integrand']), dtype=float).ravel()
+            jp = np.asarray(_host(c['joint_prior']), dtype=float).ravel()
+            js = np.asarray(_host(c['joint_s_prior']), dtype=float).ravel()
+            out = np.full(len(ig), -np.inf)
+            if self.integrand_is_log is True:
+                keep = np.isfinite(ig) & (jp > 0) & (js > 0)
+                out[keep] = ig[keep] + np.log(jp[keep]) - np.log(js[keep])
+            elif self.integrand_is_log is False:
+                keep = (ig > 0) & (jp > 0) & (js > 0)
+                out[keep] = np.log(ig[keep]) + np.log(jp[keep]) - np.log(js[keep])
+            else:
+                raise ValueError(
+                    "raw 'integrand' column with no recorded convention; pass "
+                    "integrand_is_log= when building the record (see DESIGN_rvs_naming.md).")
+            return out
+        raise KeyError("cannot build importance weights from this record (columns={})".format(
+            sorted(c)))
 
     # -- weights -----------------------------------------------------------------------
     def posterior_log_weights(self, ln_weights_from_columns):

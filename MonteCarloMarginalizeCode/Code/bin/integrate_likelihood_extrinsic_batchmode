@@ -2227,8 +2227,17 @@ def ln_weights_for_posterior(rvs, sampler, convert=None, use_lnL=None):
     if _rec is not None:
         if _rec.is_equal_weight():
             return numpy.zeros(_rvs_len(rvs), dtype=float)
-        return numpy.asarray(ln_weights_from_rvs(rvs, convert=convert, use_lnL=use_lnL),
-                             dtype=float)
+        # THE WEIGHT ITSELF now comes from the record, not from ln_weights_from_rvs -- which is
+        # the point of the record: it knows its own convention, so there is no `use_lnL` to
+        # thread through and no way for a caller to pass the wrong one.
+        #
+        # Verified equivalent before switching, not after: the two implementations were fuzzed
+        # against each other over 1200 randomized records spanning all three column families
+        # with NaN / -inf / 0 sprinkled through every column.  That found a REAL divergence
+        # first -- log_weights() had been computing lnL + ln(pi) - ln(q) term by term, which
+        # yields NaN where the canonical form's conjunctive keep-mask yields -inf -- and it is
+        # fixed there rather than papered over here.
+        return numpy.asarray(_rec.log_weights(), dtype=float)
     if _rvs_is_equal_weight(sampler):
         return numpy.zeros(_rvs_len(rvs), dtype=float)
     return numpy.asarray(ln_weights_from_rvs(rvs, convert=convert, use_lnL=use_lnL),

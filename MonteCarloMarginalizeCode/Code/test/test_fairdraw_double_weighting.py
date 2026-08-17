@@ -553,11 +553,21 @@ def test_the_block_kish_branch_is_reachable_after_pooling():
 
 @pytest.mark.skipif(not os.path.exists(_ILE), reason='ILE executable not in this tree')
 def test_the_posterior_weight_helper_asks_the_equal_weight_question():
+    # Take the function's ACTUAL extent, not a magic character count: the previous version
+    # sliced 2600 chars and started failing the moment the docstring grew, which reads as a
+    # regression in the code rather than in the test.
+    import ast as _ast
     src = open(_ILE).read()
-    i = src.index('def ln_weights_for_posterior')
-    body = src[i:i + 2600]
+    body = None
+    for _n in _ast.walk(_ast.parse(src)):
+        if isinstance(_n, _ast.FunctionDef) and _n.name == 'ln_weights_for_posterior':
+            body = _ast.get_source_segment(src, _n)
+    assert body is not None, 'ln_weights_for_posterior has gone'
     assert '_rvs_is_equal_weight(sampler)' in body
     assert '_rvs_is_export_resample(sampler)' not in body
+    # ...and the weight itself now comes from the record
+    assert '_rec.log_weights()' in body, \
+        'the weight is still derived outside the record; the migration is incomplete'
 
 
 ###

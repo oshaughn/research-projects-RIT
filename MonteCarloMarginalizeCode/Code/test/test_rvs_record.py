@@ -820,3 +820,158 @@ def test_only_the_owning_sampler_touches_its_own_record(mod_name):
     n = _attribute_reads(src, '_rvs_record')
     assert n == 0, \
         '{} touches a _rvs_record that is not its own, in {} place(s)'.format(mod_name, n)
+
+
+###
+### TIER 1 (VALIDATION_rvs_weight_migration.md): the independent third implementation
+###
+### shape_recovery.py -- the merge gate -- carries its OWN log_weights_from_rvs(), written
+### independently of both ln_weights_from_rvs and RvsRecord.log_weights().  Comparing against it
+### is the check that can falsify the migration rather than testing it against itself.
+###
+### It is a HEURISTIC, deliberately: it guesses the convention with
+### `L if np.nanmin(L) < 0 else np.log(L + 1e-300)` and floors instead of masking.  So the
+### criterion is agreement on the in-support rows, not bit-identity -- and the fact that the
+### gate has to guess at all is the clearest statement of why the record records instead.
+###
+
+def _shape_recovery_module():
+    import importlib.util
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        'expensive_before_merging', 'integrators', 'shape_recovery.py')
+    if not os.path.exists(path):
+        return None
+    spec = importlib.util.spec_from_file_location('shape_recovery_for_test', path)
+    mod = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(mod)
+    except Exception:
+        return None
+    return mod
+
+
+def _ile_weight_fn():
+    src = open(_ILE).read()
+    ns = {"numpy": np, "np": np, "_rvs_lnL_convention": lambda x=None: bool(x)}
+    exec(compile(src[src.index("def ln_weights_from_rvs"):src.index("def _pool_replica_rvs")],
+                 "w", "exec"), ns)
+    return ns["ln_weights_from_rvs"]
+
+
+@pytest.mark.skipif(not os.path.exists(_ILE), reason='ILE executable not in this tree')
+@pytest.mark.parametrize('backend', ['AV', 'Ensemble_log', 'Ensemble_linear', 'mcsampler'])
+def test_three_independent_weight_implementations_agree(backend):
+    """rec.log_weights() vs ln_weights_from_rvs vs the shape gate's own derivation."""
+    sr = _shape_recovery_module()
+    if sr is None:
+        pytest.skip('shape_recovery.py not importable here')
+    import RIFT.integrators.mcsamplerAdaptiveVolume as AV
+    import RIFT.integrators.mcsamplerEnsemble as ENS
+    import RIFT.integrators.mcsampler as MC
+
+    def log_t(rho=8.0):
+        x0 = 0.5 * np.ones(6); w = (0.5 / rho) * np.ones(6); m = 0.5 * rho ** 2
+
+        def f(*a, **k):
+            x = np.array([np.asarray(v, float).ravel() for v in a]).T
+            o = m - 0.5 * np.sum(((x - x0) / w) ** 2, axis=-1)
+            return np.where(o > m - 745.0, o, -np.inf)
+        return f
+
+    def lin_t(rho=4.0):
+        x0 = 0.5 * np.ones(6); w = (0.5 / rho) * np.ones(6)
+
+        def f(*a, **k):
+            x = np.array([np.asarray(v, float).ravel() for v in a]).T
+            return np.exp(-0.5 * np.sum(((x - x0) / w) ** 2, axis=-1))
+        return f
+
+    np.random.seed(11)
+    v = np.vectorize(lambda x: 1.0)
+    kw = dict(nmax=50000, neff=30, n=5000, no_protect_names=True, verbose=False, save_intg=True)
+    if backend == 'AV':
+        s = AV.MCSampler(n_chunk=5000); s.xpy = AV.xpy_default
+        s.identity_convert = AV.identity_convert
+        for n in NAMES6:
+            s.add_parameter(n, pdf=None, left_limit=0.0, right_limit=1.0,
+                            prior_pdf=lambda x: np.ones(np.shape(x)), adaptive_sampling=True)
+        s.integrate_log(log_t(), *NAMES6, **kw); use_lnL = True
+    else:
+        mod = MC if backend == 'mcsampler' else ENS
+        s = mod.MCSampler()
+        for n in NAMES6:
+            s.add_parameter(n, v, prior_pdf=v, left_limit=0.0, right_limit=1.0,
+                            adaptive_sampling=True)
+        if backend == 'Ensemble_log':
+            s.integrate(log_t(), *NAMES6, use_lnL=True, return_lnI=True, **kw); use_lnL = True
+        else:
+            s.integrate(lin_t(), *NAMES6, **kw); use_lnL = False
+
+    rec = s.samples()
+    assert rec is not None, '{}: no record'.format(backend)
+    a = np.asarray(rec.log_weights(), dtype=float)
+    b = np.asarray(_ile_weight_fn()(rec.columns, use_lnL=use_lnL), dtype=float)
+    c = np.asarray(sr.log_weights_from_rvs(rec.columns), dtype=float)
+
+    # canonical pair: exact
+    assert np.array_equal(np.nan_to_num(a, nan=-9e99, neginf=-9e99),
+                          np.nan_to_num(b, nan=-9e99, neginf=-9e99)), \
+        '{}: rec.log_weights() disagrees with ln_weights_from_rvs'.format(backend)
+
+    # independent heuristic: agree on the rows that carry weight.  Compare SHAPE (differences
+    # from the max), since an additive offset would cancel in every downstream normalization.
+    good = np.isfinite(a) & np.isfinite(c)
+    assert good.sum() >= 5, '{}: too few comparable rows ({})'.format(backend, int(good.sum()))
+    da = a[good] - np.max(a[good])
+    dc = c[good] - np.max(c[good])
+    assert np.allclose(da, dc, atol=1e-8), \
+        '{}: the gate\'s independent derivation disagrees (max |diff| {:.3e})'.format(
+            backend, float(np.max(np.abs(da - dc))))
+
+
+@pytest.mark.skipif(not os.path.exists(_ILE), reason='ILE executable not in this tree')
+def test_log_weights_matches_the_canonical_form_including_out_of_support_rows():
+    """Randomized equivalence with ln_weights_from_rvs, across all three column families.
+
+    THIS is the test with teeth, and the one above is not.  `log_weights()` was first written as
+    `log_likelihood() + log_prior() - log_sampling_prior()`, which is wrong on the linear family:
+    the canonical form applies a CONJUNCTIVE keep-mask (`ig>0 & jp>0 & js>0`, whole row -inf),
+    while evaluating the terms independently gives `-inf - (-inf) = NaN`.  A NaN weight poisons
+    every downstream sum; -inf is a real zero.
+
+    Real sampler records never expose it -- their priors are positive -- so
+    `test_three_independent_weight_implementations_agree` PASSES with the bug reintroduced.
+    Verified, not assumed: that is why this fuzz exists rather than resting on the end-to-end
+    comparison, and why the out-of-support rows are sprinkled in deliberately.
+    """
+    lwf = _ile_weight_fn()
+    rng = np.random.default_rng(3)
+    bad = []
+    for _ in range(300):
+        n = int(rng.integers(3, 40))
+        for kind, use, is_log in (('log', None, None),
+                                  ('linear', False, False),
+                                  ('linear-as-lnL', True, True)):
+            if kind == 'log':
+                cols = {'log_integrand': rng.normal(0, 5, n),
+                        'log_joint_prior': rng.normal(0, 1, n),
+                        'log_joint_s_prior': rng.normal(0, 1, n)}
+            else:
+                cols = {'integrand': rng.normal(0, 3, n),
+                        'joint_prior': rng.normal(0, 2, n),      # NEGATIVE priors on purpose
+                        'joint_s_prior': rng.normal(0, 2, n)}
+            for k in list(cols):                                  # and the nasty values
+                v = cols[k].copy()
+                v[rng.integers(0, n)] = np.nan
+                v[rng.integers(0, n)] = -np.inf
+                v[rng.integers(0, n)] = 0.0
+                cols[k] = v
+            with np.errstate(invalid='ignore', divide='ignore'):
+                a = np.asarray(lwf(cols, use_lnL=bool(use)), dtype=float)
+                b = np.asarray(RvsRecord.retained(cols, integrand_is_log=is_log).log_weights(),
+                               dtype=float)
+            f = lambda x: np.nan_to_num(x, nan=-9e99, posinf=9e99, neginf=-9e99)
+            if not np.array_equal(f(a), f(b)):
+                bad.append(kind)
+    assert not bad, 'log_weights() diverges from the canonical form on {} record(s): {}'.format(
+        len(bad), sorted(set(bad)))
