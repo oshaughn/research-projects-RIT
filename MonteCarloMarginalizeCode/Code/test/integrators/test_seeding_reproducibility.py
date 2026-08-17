@@ -79,6 +79,58 @@ def test_seed_everything_absent_backend_is_not_an_error():
                 or status[backend].startswith('failed:')), status[backend]
 
 
+def test_derived_rng_is_reproducible_under_the_same_seed():
+    """default_rng() takes OS entropy, so paths that build their own Generator
+    (the calibration error probe, the adaptive cal draw growth) escaped --seed
+    entirely and could change n_cal / the cal realizations run to run."""
+    seeding.seed_everything(101, verbose=False)
+    a = seeding.derived_rng('calmarg.error_probe').standard_normal(64)
+    seeding.seed_everything(101, verbose=False)
+    b = seeding.derived_rng('calmarg.error_probe').standard_normal(64)
+    seeding.seed_everything(202, verbose=False)
+    c = seeding.derived_rng('calmarg.error_probe').standard_normal(64)
+
+    assert (a == b).all(), "same seed did not reproduce the derived stream"
+    assert not (a == c).all(), "different seeds gave an identical stream"
+
+
+def test_derived_rng_streams_do_not_collide():
+    """Reproducible must not mean 'everyone draws the same numbers': distinct
+    call sites, distinct counters, and the seed's own default_rng(seed) stream
+    all have to stay independent, or growing the cal draw set would just append
+    copies of draws already in it."""
+    seeding.seed_everything(101, verbose=False)
+    probe0 = seeding.derived_rng('calmarg.error_probe', 0).standard_normal(64)
+    probe1 = seeding.derived_rng('calmarg.error_probe', 1).standard_normal(64)
+    extra0 = seeding.derived_rng('calmarg.extra_draws', 0).standard_normal(64)
+    plain = np.random.default_rng(101).standard_normal(64)
+
+    for lhs, rhs, what in ((probe0, probe1, "counters"),
+                           (probe0, extra0, "stream names"),
+                           (probe0, plain, "derived vs default_rng(seed)")):
+        assert not (lhs == rhs).any(), "%s share draws" % what
+
+
+def test_derived_rng_is_unseeded_when_the_run_was_not_seeded():
+    """No --seed must still mean fresh entropy, not a fixed fallback stream."""
+    seeding._seed_used = None
+    a = seeding.derived_rng('calmarg.error_probe').standard_normal(64)
+    b = seeding.derived_rng('calmarg.error_probe').standard_normal(64)
+    assert not (a == b).any()
+
+
+def test_derived_rng_stream_label_is_stable_across_processes():
+    """The label must not come from hash(): str hashing is salted per process,
+    so a 'stable' identifier built that way would silently drift between the
+    two runs the user is trying to compare."""
+    seeding.seed_everything(101, verbose=False)
+    got = seeding.derived_rng('calmarg.error_probe', 3).standard_normal(8)
+    import zlib
+    expect = np.random.default_rng(
+        [101, zlib.crc32(b'calmarg.error_probe'), 3]).standard_normal(8)
+    assert (got == expect).all()
+
+
 def test_deterministic_histogram_agrees_with_atomic_branch():
     """The reproducible branch must be the same histogram, not a different one."""
     rng = np.random.RandomState(0)

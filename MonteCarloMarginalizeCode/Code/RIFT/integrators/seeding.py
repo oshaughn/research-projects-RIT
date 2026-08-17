@@ -37,10 +37,12 @@ which is what an ILE process is -- is fully covered.  If more than one device
 is visible we say so, rather than implying a guarantee we are not making.
 """
 
+import zlib
+
 import numpy
 
 
-__all__ = ['seed_everything', 'get_seed']
+__all__ = ['seed_everything', 'get_seed', 'derived_rng']
 
 
 # The seed the process was started with, or None if the run was never seeded.
@@ -53,6 +55,43 @@ _seed_used = None
 def get_seed():
     """Return the seed passed to seed_everything, or None if never seeded."""
     return _seed_used
+
+
+def derived_rng(stream, counter=0):
+    """Return a numpy Generator for an auxiliary draw, reproducible when seeded.
+
+    ``numpy.random.default_rng()`` obtains fresh entropy from the OS, so a
+    Generator built that way is NOT covered by seed_everything -- seeding the
+    global RNGs does not reach it.  Anything such a Generator decides therefore
+    still varies between two runs given the same ``--seed``; when it feeds the
+    likelihood (e.g. the calibration error probe, which chooses how many
+    calibration realizations to marginalize over) that changes the scientific
+    result.  Derive the stream from the run's seed instead::
+
+        rng = derived_rng('calmarg.error_probe', counter)
+
+    Parameters
+    ----------
+    stream : str
+        Stable identifier for the call site.  Different identifiers give
+        different streams, so unrelated call sites never share draws.
+    counter : int
+        Distinguishes repeated uses of the same identifier (successive probes,
+        successive rounds of draws), so a site that is called more than once
+        does not reuse its own draws.
+
+    Distinct ``(stream, counter)`` pairs seed distinct, independent
+    SeedSequence streams -- independent also of the ``default_rng(seed)`` stream
+    the seed itself produces -- so this buys reproducibility without
+    correlating draws that are meant to be independent.  A run that was never
+    seeded keeps fresh entropy, exactly as before.
+    """
+    if _seed_used is None:
+        return numpy.random.default_rng()
+    # crc32 of the name rather than hash(): str hashing is salted per process,
+    # so hash() would silently make the "stable" identifier unstable.
+    label = zlib.crc32(str(stream).encode('utf-8'))
+    return numpy.random.default_rng([_seed_used, label, int(counter)])
 
 
 def seed_everything(seed, verbose=True):
