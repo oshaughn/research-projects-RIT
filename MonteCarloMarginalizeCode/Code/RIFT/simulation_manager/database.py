@@ -179,6 +179,15 @@ def _validate_transfer_entries(entries: Any, *, what: str,
     return out
 
 
+#: Submit commands the archive composes itself. A backend that sets any
+#: of these through extra_condor_cmds replaces the archive's line rather
+#: than extending it, because extra_condor_cmds is emitted last. Stored
+#: casefolded: HTCondor command names are case-insensitive, so the guard
+#: has to be too.
+_PROTECTED_SUBMIT_COMMANDS = frozenset({
+    "transfer_input_files", "transfer_output_files", "transfer_output_remaps",
+})
+
 #: Basenames the archive itself stages into the worker sandbox. Condor
 #: flattens transferred basenames into cwd, so a backend input sharing one
 #: of these silently clobbers it on the worker.
@@ -1602,13 +1611,20 @@ class DualCondorRunQueue(RunQueue):
         # lines built above rather than extend them — dropping the frozen
         # code/ directory, the sim's params, or the output remaps, with
         # condor_submit reporting success either way.
-        for _key in ("transfer_input_files", "transfer_output_files",
-                     "transfer_output_remaps"):
-            if _key in extra_cmds:
+        # Compared case-insensitively: HTCondor submit command names are
+        # case-insensitive, so `Transfer_Input_Files` is the same directive
+        # as `transfer_input_files` and an exact lowercase match let it
+        # straight through — reinstating the very substitution this guard
+        # exists to prevent, with the frozen code/ and params.json silently
+        # dropped. `extra_cmds` is the merged dict, so per-sim overrides
+        # from Archive.set_resources are covered by the same pass.
+        for _key in extra_cmds:
+            if str(_key).strip().casefold() in _PROTECTED_SUBMIT_COMMANDS:
                 raise ValueError(
-                    "extra_condor_cmds must not set {0!r}: it is emitted after "
-                    "the archive's own line and would replace it, stripping "
-                    "the files the worker needs. Use "
+                    "extra_condor_cmds must not set {0!r}: HTCondor command "
+                    "names are case-insensitive, and this one is emitted "
+                    "after the archive's own line, so it would replace it and "
+                    "strip the files the worker needs. Use "
                     "extra_transfer_input_files / extra_transfer_output_files, "
                     "which append.".format(_key))
 

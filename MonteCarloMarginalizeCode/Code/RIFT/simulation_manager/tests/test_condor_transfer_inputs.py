@@ -430,3 +430,29 @@ def test_attribute_style_placeholder_names_the_contract(archive):
     name = archive.register({"x": 1}, target_level=1)
     with pytest.raises(ValueError, match="placeholder"):
         q.build_worker(archive, name, 1)
+
+
+@pytest.mark.parametrize("key", [
+    "Transfer_Input_Files", "TRANSFER_INPUT_FILES", "transfer_Input_files",
+    "Transfer_Output_Files", "TRANSFER_OUTPUT_REMAPS", " transfer_input_files ",
+])
+def test_protected_commands_are_matched_case_insensitively(archive, key):
+    """HTCondor command names are case-insensitive, so an exact lowercase
+    guard let `Transfer_Input_Files` through — reinstating the exact
+    substitution the guard exists to prevent, with the frozen code/ and
+    params.json silently dropped from the job."""
+    q = DualCondorRunQueue(extra_condor_cmds={key: "/tmp/evil.dat"})
+    name = archive.register({"x": 1}, target_level=1)
+    with pytest.raises(ValueError, match="case-insensitive"):
+        q.build_worker(archive, name, 1)
+
+
+def test_per_sim_override_is_also_matched_case_insensitively(archive):
+    """Archive.set_resources merges into the same dict, so it must be
+    covered by the same pass."""
+    name = archive.register({"x": 1}, target_level=1)
+    archive.set_resources(name, extra_condor_cmds={
+        "Transfer_Input_Files": "/tmp/evil.dat"})
+    q = DualCondorRunQueue()
+    with pytest.raises(ValueError, match="case-insensitive"):
+        q.build_worker(archive, name, 1)
