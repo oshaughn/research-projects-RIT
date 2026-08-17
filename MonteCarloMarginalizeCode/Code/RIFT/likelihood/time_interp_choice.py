@@ -119,10 +119,14 @@ COST, measured: sinc is ~4.2-4.5x cubic on CPU (16 taps against 4; tap-count bou
 25.1 s, sinc 85.3 s.  On GPU the difference is not resolvable in wall time.
 
 STANDING LIMITATIONS: zero noise, analytic ZDHP PSD, Lmax 2, non-spinning, equal mass except 2.6,
-one sky location, 3 seeds, one fmin.  SEOBNRv4 is unreachable at srate 4096 below M ~ 8, so the
-IMR crossover is bracketed 20 < M < 35 but not resolved further.  The fmin dependence -- which
-with TaylorT4 flipped the winner at M = 5 between fmin 30 and 150 -- has NOT been re-tested with
-IMR and is the obvious next check.
+one sky location, 3 seeds, one sky/PSD combination.  SEOBNRv4 is unreachable at srate 4096 below
+M ~ 8, so the low-fmin crossover is bracketed 20 < M < 35 but not resolved further, and the
+high-fmin crossover only as "> 55".
+
+THE AXES THAT HAVE BEEN SWEPT ARE mass and fmin.  BOTH moved the answer, and the second one moved
+it AFTER the first had been published as settled.  fmax and Lmax have NOT been swept and should be
+presumed load-bearing until they are -- on this heuristic that presumption has now been correct
+twice.
 """
 from __future__ import division
 
