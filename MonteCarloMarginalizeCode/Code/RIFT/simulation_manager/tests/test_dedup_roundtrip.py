@@ -140,12 +140,10 @@ def _dict_lookup_key_src():
     """A dict-returning lookup_key keyed on bools, which JSON coerces to
     "true"/"false" — not the "True"/"False" that str() produces.
 
-    Keys are all bools on purpose. `Index` serializes rows with
-    sort_keys=True, so a dict whose keys are of mutually incomparable
-    types (None alongside a bool, say) cannot be persisted at all: the
-    write raises TypeError. That is a loud failure, unlike the silent
-    dedup miss under test here, so it is out of scope for this file —
-    but it does constrain what a dict lookup_key may look like.
+    Mixed key types are fine now: `register` normalizes the key through
+    JSON before storing it, so `Index._write_all`'s sort_keys=True sees
+    strings. That was not always true — see the mixed-key tests at the
+    bottom of this file for the regression.
     """
     return (
         "def lookup_key(params):\n"
@@ -261,3 +259,120 @@ def test_stored_key_is_what_we_think_it_is(archive_factory, tmp_path):
     a.register(dict(PARAMS), target_level=1)
     row = list(a.index.all())[0]
     assert isinstance(row["lookup_key"], list)
+
+
+# ---------------------------------------------------------------------------
+# Dict-valued lookup_key, through a real archive
+#
+# _safe_hashable alone is not enough evidence. `register` stores the key in
+# the index row and `Index._write_all` serializes rows with sort_keys=True,
+# so a key set JSON would coerce to strings still reaches sorted() raw. A
+# key like {True: 'a', 'true': 'b'} passed the unit test above while
+# register() raised
+#     TypeError: '<' not supported between instances of 'str' and 'bool'
+# These drive register -> reopen instead.
+# ---------------------------------------------------------------------------
+
+def _dict_key_archive(tmp_path, subdir, lookup_body):
+    code = tmp_path / (subdir + "_src")
+    code.mkdir(parents=True, exist_ok=True)
+    (code / "generator.py").write_text(_generator_src())
+    (code / "lookup_key.py").write_text(lookup_body)
+    (code / "same_q.py").write_text(
+        "def same_q(a, b):\n"
+        "    return a.get('tag') == b.get('tag')\n")
+    manifest = Manifest.new(
+        name="dict_key", request_queue_kind="local", run_queue_kind="local",
+        same_q_entrypoint="same_q:same_q",
+        lookup_key_entrypoint="lookup_key:lookup_key",
+    )
+    return Archive(
+        base_location=tmp_path / subdir, manifest=manifest,
+        generator_spec={"module_path": str(code / "generator.py"),
+                        "entrypoint": "generator:run"},
+        same_q_spec={"module_path": str(code / "same_q.py"),
+                     "entrypoint": "same_q:same_q"},
+        lookup_key_spec={"module_path": str(code / "lookup_key.py"),
+                         "entrypoint": "lookup_key:lookup_key"},
+    )
+
+
+_MIXED_KEY_LOOKUP = (
+    "def lookup_key(params):\n"
+    "    return {True: 'a', 'true': 'b', 'tag': params.get('tag')}\n"
+)
+
+_NESTED_COMPOSITION_LOOKUP = (
+    # SuperNu-shaped: a composition dict mixing atomic numbers and symbols.
+    "def lookup_key(params):\n"
+    "    return {'tag': params.get('tag'),\n"
+    "            'comp': {26: 0.5, 'Fe': 0.5, None: 0.0}}\n"
+)
+
+
+def test_mixed_type_dict_keys_can_be_registered(tmp_path):
+    """The regression: register() raised on sorted() before this fix."""
+    a = _dict_key_archive(tmp_path, "arch", _MIXED_KEY_LOOKUP)
+    name = a.register({"tag": "x"}, target_level=1)
+    assert name
+
+
+def test_mixed_type_dict_keys_dedup_across_reopen(tmp_path):
+    a = _dict_key_archive(tmp_path, "arch", _MIXED_KEY_LOOKUP)
+    first = a.register({"tag": "x"}, target_level=1)
+
+    reopened = Archive(base_location=tmp_path / "arch")
+    assert reopened.register({"tag": "x"}, target_level=1) == first
+    assert len(list(reopened.index.all())) == 1
+
+
+def test_nested_composition_keys_dedup_across_reopen(tmp_path):
+    """SuperNu-shaped: atomic numbers, element symbols and None together."""
+    a = _dict_key_archive(tmp_path, "arch", _NESTED_COMPOSITION_LOOKUP)
+    first = a.register({"tag": "x"}, target_level=1)
+
+    reopened = Archive(base_location=tmp_path / "arch")
+    assert reopened.register({"tag": "x"}, target_level=1) == first
+    assert len(list(reopened.index.all())) == 1
+
+
+def test_stored_dict_key_is_json_normalized(tmp_path):
+    """What lands in index.jsonl must already be the coerced form, or
+    the next write hits the same sorted() failure."""
+    a = _dict_key_archive(tmp_path, "arch", _MIXED_KEY_LOOKUP)
+    a.register({"tag": "x"}, target_level=1)
+    stored = list(a.index.all())[0]["lookup_key"]
+    assert all(isinstance(k, str) for k in stored)
+    assert stored["true"] == "b"          # collision collapsed last-wins
+
+
+def test_distinct_physics_still_separates_with_dict_keys(tmp_path):
+    a = _dict_key_archive(tmp_path, "arch", _MIXED_KEY_LOOKUP)
+    first = a.register({"tag": "x"}, target_level=1)
+
+    reopened = Archive(base_location=tmp_path / "arch")
+    other = reopened.register({"tag": "y"}, target_level=1)
+    assert other != first
+    assert len(list(reopened.index.all())) == 2
+
+
+def test_index_survives_a_second_write_after_reopen(tmp_path):
+    """_write_all runs again on the next upsert; the stored key must
+    still be sortable then."""
+    a = _dict_key_archive(tmp_path, "arch", _MIXED_KEY_LOOKUP)
+    a.register({"tag": "x"}, target_level=1)
+
+    reopened = Archive(base_location=tmp_path / "arch")
+    reopened.register({"tag": "y"}, target_level=1)      # triggers a rewrite
+    again = Archive(base_location=tmp_path / "arch")
+    assert len(list(again.index.all())) == 2
+
+
+def test_unpersistable_lookup_key_names_the_contract(tmp_path):
+    """A set cannot live in index.jsonl. Say so, rather than surfacing a
+    json TypeError from the write path."""
+    a = _dict_key_archive(
+        tmp_path, "arch",
+        "def lookup_key(params):\n    return {frozenset(['a']): 1}\n")
+    with pytest.raises(TypeError, match="JSON-serializable"):
+        a.register({"tag": "x"}, target_level=1)

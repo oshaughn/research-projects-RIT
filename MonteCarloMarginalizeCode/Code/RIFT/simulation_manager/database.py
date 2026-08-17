@@ -133,12 +133,50 @@ def _freeze(x: Any) -> Any:
 # Collisions this introduces between distinct inputs — a list and the
 # equal tuple, say — are harmless: buckets only nominate same_q
 # candidates, and same_q still makes the decision.
-def _safe_hashable(x: Any) -> Any:
+def _json_normalized(x: Any) -> Any:
+    """The value as it will exist after a round-trip through index.jsonl.
+
+    This is the form that must be *stored*, not merely the form used for
+    bucketing. Normalizing only at bucket time is not enough: the index
+    row keeps whatever `lookup_key` returned, and `Index._write_all`
+    serializes rows with ``sort_keys=True``. A dict key set that JSON
+    would coerce to strings is still raw at that point, so a key like
+    ``{True: 'a', 'true': 'b'}`` reaches `sorted()` as a bool beside a
+    str and raises
+
+        TypeError: '<' not supported between instances of 'str' and 'bool'
+
+    from inside `register`. Normalizing on the way in makes the stored
+    value sortable and makes persisted and canonical forms identical by
+    construction.
+    """
     try:
-        x = json.loads(json.dumps(x))
+        return json.loads(json.dumps(x))
     except (TypeError, ValueError, RecursionError):
-        pass
-    return _freeze(x)
+        return x
+
+
+def _safe_hashable(x: Any) -> Any:
+    return _freeze(_json_normalized(x))
+
+
+def _require_persistable_lookup_key(key: Any) -> Any:
+    """Normalize a lookup_key for storage, or say clearly why it cannot be.
+
+    Backends control `lookup_key`, and a value JSON cannot represent —
+    a set, a frozenset, a tuple used as a dict key — cannot live in
+    index.jsonl at all. Catching it here names the contract instead of
+    surfacing a json/sorted TypeError from deep in the write path.
+    """
+    try:
+        json.dumps(key)
+    except (TypeError, ValueError) as exc:
+        raise TypeError(
+            "lookup_key must be JSON-serializable so it can be persisted in "
+            "index.jsonl and compared after reopen; got {!r} ({}). Return a "
+            "string, number, or a list/dict of them.".format(key, exc)
+        ) from exc
+    return _json_normalized(key)
 
 
 def _default_same_q(a: Any, b: Any) -> bool:
@@ -655,7 +693,9 @@ class Archive:
             (sd / "params.json").write_text(json.dumps(params) + "\n")
             rec = StatusRecord.new(name, params, target_level=target_level)
             rec.write(sd)
-            lk = self._lookup_key(params)
+            # Normalize before storing, so the persisted value is exactly
+            # what comes back on reopen and is sortable by _write_all.
+            lk = _require_persistable_lookup_key(self._lookup_key(params))
             self.index.upsert({"name": name, "params": params,
                                "status": "ready", "summary": None,
                                "lookup_key": lk,
