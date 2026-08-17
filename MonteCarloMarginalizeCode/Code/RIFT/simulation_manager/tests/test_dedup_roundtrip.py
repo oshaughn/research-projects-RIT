@@ -376,3 +376,66 @@ def test_unpersistable_lookup_key_names_the_contract(tmp_path):
         "def lookup_key(params):\n    return {frozenset(['a']): 1}\n")
     with pytest.raises(TypeError, match="JSON-serializable"):
         a.register({"tag": "x"}, target_level=1)
+
+
+# ---------------------------------------------------------------------------
+# rebuild_index and failed registration
+# ---------------------------------------------------------------------------
+
+def test_rebuild_index_normalizes_the_key(tmp_path):
+    """register -> rebuild -> reopen. rebuild_index stored the raw key,
+    so a mixed-key archive that registered and reopened cleanly still
+    failed here with the original sorted() TypeError."""
+    a = _dict_key_archive(tmp_path, "arch", _MIXED_KEY_LOOKUP)
+    first = a.register({"tag": "x"}, target_level=1)
+
+    assert a.rebuild_index() == 1
+
+    reopened = Archive(base_location=tmp_path / "arch")
+    assert reopened.register({"tag": "x"}, target_level=1) == first
+    assert len(list(reopened.index.all())) == 1
+
+
+def test_rebuild_index_keeps_dedup_working_for_nested_keys(tmp_path):
+    a = _dict_key_archive(tmp_path, "arch", _NESTED_COMPOSITION_LOOKUP)
+    first = a.register({"tag": "x"}, target_level=1)
+    a.rebuild_index()
+    reopened = Archive(base_location=tmp_path / "arch")
+    assert reopened.find_existing({"tag": "x"}) == first
+
+
+def test_failed_registration_leaves_no_partial_sim(tmp_path):
+    """An unpersistable key raised the intended error but left sims/1
+    behind, with params.json and status.json, unknown to the index."""
+    a = _dict_key_archive(
+        tmp_path, "arch",
+        "def lookup_key(params):\n    return {frozenset(['a']): 1}\n")
+
+    with pytest.raises(TypeError, match="JSON-serializable"):
+        a.register({"tag": "x"}, target_level=1)
+
+    sims = tmp_path / "arch" / "sims"
+    assert list(sims.iterdir()) == [], "left a half-registered simulation"
+    assert list(a.index.all()) == []
+
+
+#: Fails only for tag == "bad", so one archive can see both outcomes.
+_SOMETIMES_BAD_LOOKUP = (
+    "def lookup_key(params):\n"
+    "    if params.get('tag') == 'bad':\n"
+    "        return {frozenset(['a']): 1}\n"
+    "    return 'ok|' + str(params.get('tag'))\n"
+)
+
+
+def test_a_failed_registration_does_not_consume_a_name(tmp_path):
+    """Names are allocated by counting entries in sims/, so an orphan
+    directory shifts every later name. Using two archives here would not
+    test that — the orphan has to be in the SAME archive."""
+    a = _dict_key_archive(tmp_path, "arch", _SOMETIMES_BAD_LOOKUP)
+
+    with pytest.raises(TypeError, match="JSON-serializable"):
+        a.register({"tag": "bad"}, target_level=1)
+
+    assert a.register({"tag": "good"}, target_level=1) == "1"
+    assert len(list(a.index.all())) == 1

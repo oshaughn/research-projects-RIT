@@ -685,6 +685,13 @@ class Archive:
             if existing is not None:
                 self._maybe_bump_target(existing, target_level)
                 return existing
+            # Compute and validate the key BEFORE allocating a name or
+            # writing anything. Validating after the mkdir left sims/<name>/
+            # with params.json and status.json behind when the key turned
+            # out to be unpersistable — a half-registered simulation that
+            # the index has never heard of, and that the next register()
+            # will silently allocate around.
+            lk = _require_persistable_lookup_key(self._lookup_key(params))
             if name is None:
                 name = str(len(list((self.base / "sims").iterdir())) + 1)
             sd = self.sim_dir(name)
@@ -693,9 +700,6 @@ class Archive:
             (sd / "params.json").write_text(json.dumps(params) + "\n")
             rec = StatusRecord.new(name, params, target_level=target_level)
             rec.write(sd)
-            # Normalize before storing, so the persisted value is exactly
-            # what comes back on reopen and is sortable by _write_all.
-            lk = _require_persistable_lookup_key(self._lookup_key(params))
             self.index.upsert({"name": name, "params": params,
                                "status": "ready", "summary": None,
                                "lookup_key": lk,
@@ -1054,8 +1058,15 @@ class Archive:
                     "params": params,
                     "status": rec.data.get("status"),
                     "summary": summary,
-                    "lookup_key": (self._lookup_key(params)
-                                   if params is not None else None),
+                    # Normalized exactly as register() does. Storing the
+                    # raw key here meant an archive that registered and
+                    # reopened cleanly still blew up in rebuild_index with
+                    # the original sorted() TypeError, because _write_all
+                    # serializes rows with sort_keys=True.
+                    "lookup_key": (
+                        _require_persistable_lookup_key(
+                            self._lookup_key(params))
+                        if params is not None else None),
                     "target_level": rec.data.get("target_level", 0),
                     "current_level": rec.data.get("current_level", 0),
                 }
