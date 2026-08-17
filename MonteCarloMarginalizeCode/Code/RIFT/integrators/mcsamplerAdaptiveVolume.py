@@ -111,6 +111,27 @@ def _av_trace(msg):
         print("  [AV trace] " + msg)
         sys.stdout.flush()
 
+def _warm_seed_rng(seed, stream):
+    """RNG for the warm-start seed clouds (the bootstrap_from_* family).
+
+    `seed=None` used to mean np.random.RandomState(None), which takes fresh OS
+    entropy and is reached by NOTHING that seed_everything touches -- so with the
+    driver's warm-start options on (their coverage floors default to 0.5, i.e. the
+    uniform cover cloud is drawn on every warm start) two invocations with the same
+    --seed built DIFFERENT live volumes, hence different draws and a different lnZ.
+    A warm seed cannot bias the integral, but it certainly moves it, which is
+    exactly what --seed exists to pin down.
+
+    So derive the stream from the run's seed instead, advancing a counter per call
+    so successive warm starts (one per intrinsic point) stay independent rather than
+    all sharing one coverage cloud.  An explicit integer `seed` still wins, and an
+    unseeded run still gets fresh entropy.
+    """
+    if seed is not None:
+        return np.random.RandomState(seed)
+    from RIFT.integrators.seeding import next_derived_rng
+    return next_derived_rng(stream)
+
 class NanOrInf(Exception):
     def __init__(self, value):
         self.value = value
@@ -539,7 +560,7 @@ def warm_seed_scale_from_finite_points(points, lnL, box_lo, box_hi, axes,
 
 def build_warm_seed(points, lnL, box_lo, box_hi, axes, deltalnL=15.0,
                     puff_width_frac=1.0 / 200, puff_scale='auto', puff_factor=2.0,
-                    n_puff=2000, seed=0):
+                    n_puff=2000, seed=None):
     """Build the L0 rescue's warm seed from a pass's own samples -> (seed, info).
 
     `points` (n, ndim) and `lnL` (n,) are the completed pass's draws.  The seed is the
@@ -594,7 +615,13 @@ def build_warm_seed(points, lnL, box_lo, box_hi, axes, deltalnL=15.0,
         used = 'fixed'
         cov_u = np.diag(np.full(len(ax), float(puff_width_frac) ** 2))
     cov_u = cov_u * (float(puff_factor) ** 2)
-    rng = np.random.RandomState(seed)
+    # The puff was RandomState(0): deterministic, so it never broke same-seed
+    # reproducibility -- it broke the other half of what --seed means.  Both driver call
+    # sites (L0 auto-rescue, sequential warm-start) omit `seed`, so EVERY intrinsic point
+    # of a run was puffed with the same standard normal deviates, and --seed 101 and
+    # --seed 202 got the identical cloud.  A replicate-seed study then has its rescue arm
+    # frozen across arms, which understates exactly the run-to-run spread it is measuring.
+    rng = _warm_seed_rng(seed, 'av.build_warm_seed.puff')
     n_puff = int(n_puff)
     # scaled draws on the adaptive axes; the remaining axes get the isotropic width (the
     # grid puts one bin on them, so their only job is to not be a single repeated value)
@@ -1321,7 +1348,7 @@ class MCSampler(object):
         cover_frac = float(np.clip(cover_frac, 0.0, 1.0))
         _core = X   # the concentrated proposal; sets the grid RESOLUTION
         if cover_frac > 0:
-            rng = np.random.RandomState(seed)
+            rng = _warm_seed_rng(seed, 'av.bootstrap_from_samples.cover')
             n_cover = max(int(cover_frac / (1.0 - cover_frac) * len(X)), 1)
             Xc = rng.uniform(self.my_ranges.T[0], self.my_ranges.T[1],
                              size=(n_cover, len(self.params_ordered)))
@@ -1356,7 +1383,7 @@ class MCSampler(object):
         possibly-misspecified seed.  Default 0."""
         if not hasattr(self, 'my_ranges'):
             self.setup()
-        rng = np.random.RandomState(seed)
+        rng = _warm_seed_rng(seed, 'av.bootstrap_from_gaussian')
         mean = np.asarray(mean, dtype=float)
         cov = np.atleast_2d(np.asarray(cov, dtype=float))
         if params is not None:
@@ -1394,7 +1421,7 @@ class MCSampler(object):
         unbiased."""
         if not hasattr(self, 'my_ranges'):
             self.setup()
-        rng = np.random.RandomState(seed)
+        rng = _warm_seed_rng(seed, 'av.bootstrap_from_gaussian_mixture')
         means = [np.asarray(m, dtype=float) for m in means]
         covs = [np.atleast_2d(np.asarray(c, dtype=float)) for c in covs]
         k = len(means)

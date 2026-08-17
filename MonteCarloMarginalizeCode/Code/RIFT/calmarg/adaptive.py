@@ -217,7 +217,7 @@ def adaptive_cal(evaluate, prior_mean, prior_sigma, n_nodes_amp,
     Returns dict with the final realizations' `nodes`, `log_w` (prior/proposal, for the
     marginalization), `proposal` (mean,cov), and per-iteration `neff` history.
     """
-    rng = rng or np.random.default_rng()
+    rng = rng or _gr._default_cal_rng('calmarg.adaptive_cal')
     dim = prior_mean.shape[0]
     if betas is None:
         # ramp tempering 0.3 -> 1.0
