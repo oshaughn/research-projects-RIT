@@ -12,7 +12,12 @@ from asimov import config, logger
 from asimov.utils import set_directory
 
 from asimov.pipeline import Pipeline, PipelineException, PipelineLogger
-from asimov.pipeline import PESummaryPipeline
+
+try:
+    from asimov.pipeline import PESummaryPipeline
+except ImportError:
+    # ASIMOV >= 0.7 supplies PESummary as a separate pipeline plugin.
+    PESummaryPipeline = None
 
 from asimov.utils import update
 
@@ -78,6 +83,18 @@ class Rift(Pipeline):
             for section_arg in required_args[section]:
                 if section_arg not in section_data:
                     section_data[section_arg] = {}
+
+    def _get_psds(self, format="ascii"):
+        """Return PSD assets across the ASIMOV 0.5 and 0.7 APIs."""
+        legacy_getter = getattr(self.production, "get_psds", None)
+        if callable(legacy_getter):
+            assets = legacy_getter(format)
+        else:
+            attribute = "xml_psds" if format == "xml" else "psds"
+            assets = getattr(self.production, attribute, {}) or {}
+        if format == "xml" and isinstance(assets, dict):
+            return list(assets.values())
+        return assets
     # Top-level groups a PESummary metafile carries that are not analysis labels
     _PESUMMARY_RESERVED = ('version', 'history')
 
@@ -196,6 +213,14 @@ class Rift(Pipeline):
                 try:
                     if "samples" in productions[previous_job].pipeline.collect_assets():
                         posterior_file = productions[previous_job].pipeline.collect_assets()['samples']
+                        if isinstance(posterior_file, (list, tuple)):
+                            if len(posterior_file) != 1:
+                                raise PipelineException(
+                                    "RIFT bootstrap: {} publishes {} sample files; "
+                                    "need exactly one PESummary metafile".format(
+                                        previous_job, len(posterior_file)),
+                                    production=self.production.name)
+                            posterior_file = posterior_file[0]
                         self.production.meta['dataset'] = self._dataset_label(posterior_file)
                         return posterior_file
                 except PipelineException:
@@ -212,9 +237,18 @@ class Rift(Pipeline):
             self.logger.error("Could not find an analysis providing posterior samples to analyse.")
 
     def after_completion(self):
+        if PESummaryPipeline is None:
+            self.logger.info(
+                "Job has completed. PESummary is managed by a separate "
+                "ASIMOV postprocessing analysis."
+            )
+            super().after_completion()
+            return
 
-        self.logger.info("Job has completed. Running PE Summary.")
-        post_pipeline = PESummaryPipeline(production=self.production)
+        self.logger.info("Job has completed. Running legacy PE Summary.")
+        post_pipeline = PESummaryPipeline(
+            production=self.production, category=self.category
+        )
         cluster = post_pipeline.submit_dag()
 
         self.production.meta["job id"] = int(cluster)
@@ -248,7 +282,7 @@ class Rift(Pipeline):
         category = config.get("general", "calibration_directory")
         # XML PSDs
         self.logger.info("Checking for XML format PSDs")
-        if len(self.production.get_psds("xml")) == 0 and "psds" in self.production.meta:
+        if len(self._get_psds("xml")) == 0 and "psds" in self.production.meta:
             self.logger.info("Did not find XML format PSDs")
             for ifo in self.production.meta["interferometers"]:
                 with set_directory(f"{event.work_dir}"):
@@ -625,7 +659,7 @@ class Rift(Pipeline):
                         )
                     if self.production.event.repository:
                         # with set_directory(os.path.abspath(self.production.rundir)):
-                        for psdfile in self.production.get_psds("xml"):
+                        for psdfile in self._get_psds("xml"):
                             ifo = psdfile.split("/")[-1].split("-")[1].split(".")[0]
                             os.system(f"cp {psdfile} {ifo}-psd.xml.gz")
 
@@ -668,7 +702,7 @@ class Rift(Pipeline):
            This will be raised if the pipeline fails to submit the job.
         """
         self.before_submit()
-        for psdfile in self.production.get_psds("xml"):
+        for psdfile in self._get_psds("xml"):
             ifo = psdfile.split("/")[-1].split("-")[1].split(".")[0]
             os.system(f"cp {psdfile} {ifo}-psd.xml.gz")
 
@@ -679,12 +713,12 @@ class Rift(Pipeline):
             "marginalize_intrinsic_parameters_BasicIterationWorkflow.dag",
         ]
         if dryrun:
-            for psdfile in self.production.get_psds("xml"):
+            for psdfile in self._get_psds("xml"):
                 print(f"cp {psdfile} {self.production.rundir}/{psdfile.split('/')[-1]}")
             print("")
             print(" ".join(command))
         else:
-            for psdfile in self.production.get_psds("xml"):
+            for psdfile in self._get_psds("xml"):
                 os.system(
                     f"cp {psdfile} {self.production.rundir}/{psdfile.split('/')[-1]}"
                 )
@@ -844,7 +878,11 @@ class Rift(Pipeline):
 
     def collect_assets(self,absolute=False):
         """
-        Gather all of the results assets for this job.
+        Gather result assets for downstream ASIMOV/PESummary analyses.
+
+        ``samples`` is always a list, including calibration-reweighted output.
+        Consumers which run outside the RIFT working directory should request
+        absolute paths.
         """
         if absolute:
             rundir = os.path.abspath(self.production.rundir)
@@ -852,11 +890,47 @@ class Rift(Pipeline):
             rundir = self.production.rundir
         rift_all_lnL = os.path.join(rundir, 'all.net')
         samples_raw = os.path.join(rundir,'extrinsic_posterior_samples.dat')
-        dict_out = {"samples":self.samples(), "lnL_marg":rift_all_lnL, "samples_raw":samples_raw}
+        dict_out = {
+            "asset_contract": "rift-assets/v1",
+            "samples": self.samples(absolute=absolute),
+            "lnL_marg": rift_all_lnL,
+            "samples_raw": samples_raw,
+            "provenance": {
+                "pipeline": "rift",
+                "event": self.production.event.name,
+                "analysis": self.production.name,
+            },
+        }
         rewt_file_name  = os.path.join(rundir,'reweighted_posterior_samples.dat')
         if os.path.exists(rewt_file_name):
             dict_out['samples_calmarg'] = rewt_file_name
-            dict_out['samples'] = rewt_file_name
+            dict_out['samples'] = [rewt_file_name]
+
+        try:
+            ini = self.production.get_configuration().ini_loc
+            if not os.path.isabs(ini):
+                ini = os.path.join(
+                    self.production.event.repository.directory,
+                    self.category,
+                    ini,
+                )
+            dict_out["config"] = os.path.abspath(ini) if absolute else ini
+        except (AttributeError, IndexError, TypeError, ValueError):
+            self.logger.warning("RIFT configuration asset is not available")
+
+        psds = self._get_psds("ascii")
+        if psds:
+            dict_out["psds"] = {
+                ifo: os.path.abspath(path) if absolute else path
+                for ifo, path in psds.items()
+            }
+
+        calibration = self.production.meta.get("data", {}).get("calibration", {})
+        if calibration:
+            dict_out["calibration"] = {
+                ifo: os.path.abspath(path) if absolute else path
+                for ifo, path in calibration.items()
+            }
 
         return dict_out
 
