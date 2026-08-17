@@ -2167,9 +2167,10 @@ def _maybe_replicate_for_mc_error(sampler, res, var, neff, dict_return,
         for _irep in range(int(opts.mc_error_replicas)):
             # cold restart: drop the sample cache and reset per-parameter adaptation so
             # this replica is independent of the runs before it (AV cold-starts by
-            # construction; the AC/GPU sampler needs the explicit reset; samplers
-            # without reset_sampling rerun warm -- still an independent realization of
-            # the draws, just not of the adaptation).
+            # construction; the AC/GPU sampler needs the explicit reset; the portfolio and
+            # the standalone GMM each need their own, below.  Any sampler matching none of
+            # these reruns warm -- still an independent realization of the draws, just not
+            # of the adaptation).
             sampler._rvs = {}
             # PORTFOLIO first.  Neither mcsamplerPortfolio, mcsamplerAdaptiveVolume nor
             # mcsamplerEnsemble defines reset_sampling (only the AC/GPU sampler does), so the
@@ -2189,6 +2190,39 @@ def _maybe_replicate_for_mc_error(sampler, res, var, neff, dict_return,
                 sampler.reset_adaptation()
             elif hasattr(sampler, 'clear_warm_state'):
                 sampler.clear_warm_state()
+            elif hasattr(sampler, 'integrator'):
+                # STANDALONE GMM (mcsamplerEnsemble) -- the one supported sampler with NONE of
+                # the resets above, and the one that warm-starts hardest.  It carries the fit
+                # forward by TWO routes, so both have to be cut or the replicas share the very
+                # adaptation whose failure they exist to detect:
+                #   1. its integrate() builds a fresh integrator and then deliberately
+                #      TRANSFERS every fitted model from the previous self.integrator into it
+                #      (the warm-start-survival path).  Dropping self.integrator is the whole
+                #      reset -- integrate() rebuilds it from its own arguments, and with no
+                #      previous integrator the transfer is skipped.
+                #   2. the gmm_dict passed in pinned_params is ALIASED, not copied: the
+                #      MonteCarloEnsemble integrator holds that very object and _train writes
+                #      each refitted model back into it, so the driver's dict accumulates the
+                #      previous run's proposals and would rewarm the next replica through
+                #      kwargs even with self.integrator gone.
+                # Only the ADAPTING groups are blanked, and for them None is the exact state
+                # this dict had before the first run.  A non-adapting group (by default
+                # (psi,phi_orb), seeded with the wide phase prior) is skipped by _train and so
+                # is still pristine; blanking it would leave that group with no model at all
+                # for the rest of the run -- a silent downgrade to uniform sampling, not a
+                # cold start.  With --internal-rotate-phase that group does adapt, and its
+                # seed was updated IN PLACE by the first run, so no pristine copy survives
+                # anywhere to restore: it cold-starts from uniform, which is what the wide
+                # single-component prior approximates anyway.
+                sampler.integrator = None
+                _gmm_dict_rep = pinned_params.get('gmm_dict', None)
+                _gmm_adapt_rep = pinned_params.get('gmm_adapt', None)
+                if not isinstance(_gmm_adapt_rep, dict):
+                    _gmm_adapt_rep = {}
+                if isinstance(_gmm_dict_rep, dict):
+                    for _grp in list(_gmm_dict_rep.keys()):
+                        if _gmm_adapt_rep.get(_grp, True):
+                            _gmm_dict_rep[_grp] = None
             if hasattr(sampler, 'reset_sampling'):
                 for _p in list(getattr(sampler, 'params_ordered', [])):
                     try:

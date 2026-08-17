@@ -552,6 +552,78 @@ def test_both_xml_export_paths_convert_before_consuming_the_pool():
             "the conversion happens after the time resampler has already drawn from the rows"
 
 
+# --------------------------------------------- cold replicas on the standalone GMM sampler
+class _GMMSampler(_RepSampler):
+    """mcsamplerEnsemble's shape: an `integrator` attribute and NONE of the reset methods.
+
+    Warmth reaches a replica by two routes there, so a "cold" replica needs both cut:
+    integrate() transfers the previous integrator's fitted models into the new one, and the
+    gmm_dict it is handed is the caller's object, which the fit writes its models back into.
+    """
+
+    def __init__(self, first_rvs, replicas):
+        _RepSampler.__init__(self, first_rvs, replicas)
+        self.integrator = object()            # the first run's fitted integrator
+        self.seen_integrator = "unset"
+        self.seen_gmm = None
+
+    def integrate(self, fn, *a, **kw):
+        self.seen_integrator = self.integrator
+        self.seen_gmm = dict(kw.get('gmm_dict') or {})
+        return _RepSampler.integrate(self, fn, *a, **kw)
+
+
+def test_a_standalone_GMM_replica_is_cold_in_both_warm_start_channels():
+    """Sharing the first run's proposal keeps the same mode missed in every replica.
+
+    The between-replica scatter is then a measure of the draws alone, understating exactly the
+    MC error the replicas were run to expose.
+    """
+    ns = _load_orch(mc_error_replicas=1, mc_error_sigma_trigger=0.1, sampler_method='GMM')
+    fitted, seeded = object(), object()
+    sky, phase = ('right_ascension', 'declination'), ('psi', 'phi_orb')
+    gmm_dict = {sky: fitted, phase: seeded}
+    gmm_adapt = {sky: True, phase: False}
+    s = _GMMSampler(_rec([0.0] * 4), [(1.0, 1.0, 5.0, {}, _rec([0.0] * 4), False)])
+    ns['_maybe_replicate_for_mc_error'](
+        s, 1.0, 1.0, 1.0, {}, 0.0, 5.0, lambda *a, **k: None, (),
+        {'neff': 100.0, 'gmm_dict': gmm_dict, 'gmm_adapt': gmm_adapt})
+    assert s.seen_integrator is None, \
+        "the replica ran with the previous integrator, whose fitted models integrate() transfers"
+    assert s.seen_gmm[sky] is None, \
+        "the replica inherited the first run's fit through the aliased gmm_dict"
+    assert s.seen_gmm[phase] is seeded, (
+        "the fixed non-adapting proposal was blanked; _train skips that group, so it would "
+        "have no model at all and the group would degrade to uniform sampling")
+
+
+def test_the_GMM_cold_reset_does_not_touch_samplers_that_have_their_own():
+    """A portfolio owns clear_warm_state/reset_adaptation and no `integrator`: unchanged."""
+    class _Portfolio(_RepSampler):
+        def __init__(self, *a, **kw):
+            _RepSampler.__init__(self, *a, **kw)
+            self.cleared = 0
+            self.seen_gmm = None
+
+        def reset_adaptation(self):
+            self.cleared += 1
+
+        def integrate(self, fn, *a, **kw):
+            self.seen_gmm = dict(kw.get('gmm_dict') or {})
+            return _RepSampler.integrate(self, fn, *a, **kw)
+
+    ns = _load_orch(mc_error_replicas=1, mc_error_sigma_trigger=0.1)
+    sky = ('right_ascension', 'declination')
+    fitted = object()
+    s = _Portfolio(_rec([0.0] * 4), [(1.0, 1.0, 5.0, {}, _rec([0.0] * 4), False)])
+    ns['_maybe_replicate_for_mc_error'](
+        s, 1.0, 1.0, 1.0, {}, 0.0, 5.0, lambda *a, **k: None, (),
+        {'neff': 100.0, 'gmm_dict': {sky: fitted}, 'gmm_adapt': {sky: True}})
+    assert s.cleared == 1, "the portfolio's own reset stopped being called"
+    assert s.seen_gmm[sky] is fitted, \
+        "the GMM branch reached a sampler that rebuilds its members from their setup arguments"
+
+
 def test_a_failing_replica_is_skipped_not_fatal():
     class _Boom(_RepSampler):
         def integrate(self, fn, *a, **kw):
