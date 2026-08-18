@@ -39,6 +39,8 @@ import inspect
 import json
 import logging
 import os
+import warnings
+from types import MappingProxyType
 import shutil
 import subprocess
 import sys
@@ -46,7 +48,7 @@ import textwrap
 import threading
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple, Union, Mapping
 
 try:
     import fcntl   # POSIX-only; archive multi-writer safety relies on flock(2)
@@ -218,6 +220,105 @@ def _reject_duplicate_basenames(entries: Sequence[str], what: str) -> None:
         seen[base] = str(entry)
 
 
+def _validate_hold_codes(value: Any, *, what: str) -> Tuple[int, ...]:
+    """Hold codes naming the condition a policy acts on.
+
+    Deliberately data rather than an expression: these round-trip
+    through the manifest as JSON, and they are what a site operator
+    reads off their own infrastructure record. Order is preserved so
+    the emitted expression is stable across runs.
+    """
+    if value is None:
+        return ()
+    if isinstance(value, (str, bytes)) or not isinstance(value, Iterable):
+        raise TypeError(
+            "{0} must be a sequence of integer hold codes, got {1!r}".format(
+                what, type(value).__name__))
+    codes = []
+    for entry in value:
+        if isinstance(entry, bool) or not isinstance(entry, int):
+            # bool is an int subclass and `True` would silently become 1.
+            raise TypeError(
+                "{0} entries must be integer hold codes, got {1!r}".format(
+                    what, entry))
+        if entry not in codes:
+            codes.append(entry)
+    return tuple(codes)
+
+
+def _validate_subcode_exclusions(value: Any, *, what: str
+                                 ) -> Dict[int, Tuple[int, ...]]:
+    """Sub-codes to carve out of a hold code, as {code: (subcode, ...)}.
+
+    A hold code says which subsystem held the job; the sub-code says
+    why. `SYSTEM_PERIODIC_HOLD` is the case that forces this to exist --
+    every site expression it evaluates produces the same hold code, and
+    only the sub-code distinguishes "over memory" from "restarted too
+    many times".
+
+    Keys are coerced from str, because JSON has no integer keys and
+    these arrive back from the manifest as strings. Skipping that turns
+    a configured exclusion into a silently ignored one after a round
+    trip, which is the same class of bug as a lookup_key that is not
+    JSON-stable.
+    """
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping):
+        raise TypeError(
+            "{0} must be a mapping of {{hold_code: [subcode, ...]}}, got "
+            "{1!r}".format(what, type(value).__name__))
+    out: Dict[int, Tuple[int, ...]] = {}
+    for key, subs in value.items():
+        if isinstance(key, bool):
+            raise TypeError("{0} keys must be hold codes".format(what))
+        if isinstance(key, str):
+            try:
+                key = int(key)
+            except ValueError:
+                raise TypeError(
+                    "{0} key {1!r} is not a hold code".format(what, key))
+        if not isinstance(key, int):
+            raise TypeError(
+                "{0} keys must be hold codes, got {1!r}".format(what, key))
+        out[key] = _validate_hold_codes(
+            subs, what="{0}[{1}]".format(what, key))
+    return out
+
+
+def _validate_release_expression(value: Any, *, what: str) -> str:
+    """Check a ClassAd expression destined for a submit command.
+
+    The expression is not parsed. The HTCondor python bindings are
+    optional here, and a check that runs only where they happen to be
+    installed is worse than no check at all: it moves the failure off
+    the author's machine and onto someone else's. condor_submit rejects
+    a malformed expression, loudly, at submit time.
+
+    What is checked is the part that is not the author's own mistake to
+    make. A newline ends a submit command, so a value carrying one --
+    from a manifest, a config file, a `run_queue.extra` dict written by
+    another tool -- would have its remainder read as further submit
+    commands, free to set `getenv = True` or replace
+    transfer_output_files. That is refused.
+    """
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise TypeError(
+            "{0} must be a string ClassAd expression, got {1!r}".format(
+                what, type(value).__name__))
+    text = value.strip()
+    if not text:
+        return ""
+    if "\n" in text or "\r" in text:
+        raise ValueError(
+            "{0} must be a single line: a newline would end the submit "
+            "command and let the rest of the value be read as further "
+            "commands".format(what))
+    return text
+
+
 def _validate_transfer_entries(entries: Any, *, what: str,
                                remap_syntax: bool = False) -> List[str]:
     """Check a backend-supplied transfer list, or say why it is unusable.
@@ -268,6 +369,25 @@ def _validate_transfer_entries(entries: Any, *, what: str,
     return out
 
 
+#: Hold codes this class treats as "the job ran out of memory", and the
+#: attribute that rations retries. Both are DEFAULTS, not facts: what a
+#: hold code means is a property of the site, not of HTCondor. 34 is the
+#: unambiguous memory code; 26 is SystemPolicy, which means whatever the
+#: site's SYSTEM_PERIODIC_HOLD expressions say it means -- on the LIGO
+#: clusters this policy was written for that is usually memory, and on
+#: an OSG access point it is as likely to be an anti-thrash limiter
+#: whose precondition is a high NumJobStarts. Sites that differ pass
+#: oom_hold_codes / oom_hold_subcode_exclusions / oom_retry_counter
+#: rather than editing this.
+#:
+#: Deliberately NOT recorded here: which sites differ, and how. That
+#: belongs in whatever inventory the operator already keeps about their
+#: own infrastructure. A table of site facts in shared code is stale the
+#: day after it is written and wrong for everyone it does not name.
+DEFAULT_OOM_HOLD_CODES = (34, 26)
+DEFAULT_OOM_RETRY_COUNTER = "NumJobStarts"
+
+
 #: Submit commands the archive composes itself. A backend that sets any
 #: of these through extra_condor_cmds replaces the archive's line rather
 #: than extending it, because extra_condor_cmds is emitted last. Stored
@@ -275,7 +395,34 @@ def _validate_transfer_entries(entries: Any, *, what: str,
 #: has to be too.
 _PROTECTED_SUBMIT_COMMANDS = frozenset({
     "transfer_input_files", "transfer_output_files", "transfer_output_remaps",
+    # periodic_release joined this set when extra_periodic_release gave it
+    # a supported additive alternative. Setting it here replaced the
+    # queue's line and silently discarded the auto_release_on_oom memory
+    # policy -- the exact bug the additive hook exists to remove, which
+    # would otherwise stay reachable, unguarded, right beside the fix.
+    "periodic_release",
+    # request_memory is the other half of the same policy. Replacing it
+    # leaves periodic_release intact, so the job is released the full
+    # oom_max_retries times at a fixed size and OOMs every time -- it
+    # spends the whole budget achieving nothing, which is a worse end
+    # than losing the release arm. Per-sim sizes go through
+    # Archive.set_resources, which composes rather than substitutes.
+    "request_memory",
 })
+
+#: What to use instead of each refused key. Kept beside the set so a new
+#: entry cannot be added without answering "and what should they do?" --
+#: a guard that refuses without a remedy just moves the dead end.
+_PROTECTED_ALTERNATIVES = {
+    "transfer_input_files": "extra_transfer_input_files, which appends",
+    "transfer_output_files": "extra_transfer_output_files, which appends",
+    "transfer_output_remaps": "extra_transfer_output_files, whose entries "
+                              "accept remap syntax",
+    "periodic_release": "extra_periodic_release, which is OR'd into the "
+                        "expression instead of replacing it",
+    "request_memory": "the request_memory argument, or "
+                      "Archive.set_resources for a per-sim override",
+}
 
 #: Basenames the archive itself stages into the worker sandbox. Condor
 #: flattens transferred basenames into cwd, so a backend input sharing one
@@ -1535,6 +1682,46 @@ class DualCondorRunQueue(RunQueue):
                                    explicitly only on sites that allow it.
         use_singularity  : bool
         singularity_image: str   -- required if use_singularity=True
+        oom_hold_codes   : seq  -- hold codes this site reports when a
+                                   job runs out of memory. Default
+                                   DEFAULT_OOM_HOLD_CODES = (34, 26). 34
+                                   is unambiguous; 26 is SystemPolicy and
+                                   means whatever the site's
+                                   SYSTEM_PERIODIC_HOLD expressions say,
+                                   which elsewhere may be an anti-thrash
+                                   limiter rather than memory.
+        oom_hold_subcode_exclusions: {code: [subcode, ...]} -- sub-codes
+                                   to carve out of a code above. Needed
+                                   because every SYSTEM_PERIODIC_HOLD at
+                                   a site reports one hold code and only
+                                   the sub-code separates "over memory"
+                                   from "restarted too many times". A
+                                   sub-code keyed on a code not listed in
+                                   oom_hold_codes is refused rather than
+                                   ignored.
+        oom_retry_counter: str  -- ClassAd expression rationing the
+                                   retries and scaling the bump. Default
+                                   DEFAULT_OOM_RETRY_COUNTER =
+                                   "NumJobStarts". NumHolds is the other
+                                   obvious choice and is not better
+                                   everywhere: it counts holds of every
+                                   kind, including transfer failures that
+                                   increment it without the job ever
+                                   running.
+        extra_periodic_release: str -- a ClassAd expression OR'd into
+                                   periodic_release alongside the OOM
+                                   policy, for sites that hold jobs for
+                                   reasons this class does not model.
+                                   While auto_release_on_oom is on, the
+                                   term is scoped away from whatever
+                                   codes oom_hold_codes names, so
+                                   oom_max_retries stays a real cap and
+                                   the term governs every other code.
+                                   With the OOM policy off it governs all
+                                   of them. Setting periodic_release
+                                   through extra_condor_cmds is refused
+                                   -- it replaced the whole expression and
+                                   dropped the memory handling with it.
         extra_condor_cmds: dict  -- additional `key = value` lines
                                     appended verbatim to the submit
                                     description (e.g. +DESIRED_SITES,
@@ -1587,6 +1774,10 @@ class DualCondorRunQueue(RunQueue):
                  extra_transfer_input_files: Optional[Sequence[str]] = None,
                  extra_transfer_output_files: Optional[Sequence[str]] = None,
                  auto_release_on_oom: bool = True,
+                 extra_periodic_release: Optional[str] = None,
+                 oom_hold_codes: Optional[Sequence[int]] = None,
+                 oom_hold_subcode_exclusions: Optional[Mapping[int, Sequence[int]]] = None,
+                 oom_retry_counter: Optional[str] = None,
                  oom_max_retries: int = 5,
                  oom_memory_factor: float = 1.5,
                  subdag_factory: Optional[Callable[[Any, str, int], str]] = None,
@@ -1619,6 +1810,13 @@ class DualCondorRunQueue(RunQueue):
         self.singularity_image = singularity_image
         self.extra_condor_cmds = extra_condor_cmds or {}
         self.auto_release_on_oom = bool(auto_release_on_oom)
+        self.extra_periodic_release = extra_periodic_release
+        self.oom_hold_codes = (DEFAULT_OOM_HOLD_CODES if oom_hold_codes is None
+                               else oom_hold_codes)
+        self.oom_hold_subcode_exclusions = oom_hold_subcode_exclusions
+        self.oom_retry_counter = (DEFAULT_OOM_RETRY_COUNTER
+                                  if oom_retry_counter is None
+                                  else oom_retry_counter)
         self.oom_max_retries = int(oom_max_retries)
         self.oom_memory_factor = float(oom_memory_factor)
         # Per-(sim, level) work-unit factory. When set, each level emits
@@ -1639,6 +1837,21 @@ class DualCondorRunQueue(RunQueue):
                              .format(submit_mode))
         self.submit_mode = submit_mode
         self.submit_kwargs = submit_kwargs
+        if submit_kwargs:
+            # submit_kwargs is stored and never read. Silence here makes
+            # the manifest a one-way hatch across versions: a RIFT that
+            # predates a key lands it in here and submits under different
+            # policy than the archive was built with, with nothing in the
+            # log. That is the same silent-substitution failure the
+            # transfer and periodic_release guards exist to stop, on the
+            # version axis instead of the config one.
+            warnings.warn(
+                "DualCondorRunQueue ignoring unrecognised option(s) {0}. "
+                "If these came from a manifest's run_queue.extra, this "
+                "RIFT is older than the archive and the jobs will submit "
+                "under different policy than intended.".format(
+                    ", ".join(sorted(map(repr, submit_kwargs)))),
+                RuntimeWarning, stacklevel=2)
         # Per-archive state.
         self.dag_cluster_id: Optional[int] = None
         self.last_wrapper_dag_path: Optional[str] = None
@@ -1677,6 +1890,112 @@ class DualCondorRunQueue(RunQueue):
         for entry in entries:
             _reject_reserved_basename(entry, "extra_transfer_output_files")
         self._extra_transfer_output_files = entries
+
+    @property
+    def extra_periodic_release(self) -> str:
+        return self._extra_periodic_release
+
+    @extra_periodic_release.setter
+    def extra_periodic_release(self, value: Any) -> None:
+        self._extra_periodic_release = _validate_release_expression(
+            value, what="extra_periodic_release")
+
+    @property
+    def oom_hold_codes(self) -> Tuple[int, ...]:
+        return self._oom_hold_codes
+
+    @oom_hold_codes.setter
+    def oom_hold_codes(self, value: Any) -> None:
+        # None means "the default", as it does in the constructor and for
+        # oom_retry_counter. Reading it as "own no codes" would let
+        # `q.oom_hold_codes = None` disable the memory policy outright,
+        # which is a thing to have to ask for -- pass () for that.
+        codes = (DEFAULT_OOM_HOLD_CODES if value is None
+                 else _validate_hold_codes(value, what="oom_hold_codes"))
+        # Checked against the CANDIDATE, before it is stored. Assigning
+        # first and validating after leaves the queue holding the value
+        # the check just rejected, so a caller who catches the ValueError
+        # submits under it anyway -- the raise reads as "nothing changed"
+        # and is not.
+        self._reject_orphan_subcode_exclusions(
+            codes, getattr(self, "_oom_hold_subcode_exclusions", None))
+        self._oom_hold_codes = codes
+
+    @property
+    def oom_hold_subcode_exclusions(self) -> Mapping[int, Tuple[int, ...]]:
+        # A read-only view, not a copy: a copy makes
+        # `q.oom_hold_subcode_exclusions[26] = (100,)` a silent no-op,
+        # where this makes it raise. Same reasoning as the transfer
+        # properties handing back tuples rather than live lists.
+        return MappingProxyType(self._oom_hold_subcode_exclusions)
+
+    @oom_hold_subcode_exclusions.setter
+    def oom_hold_subcode_exclusions(self, value: Any) -> None:
+        exclusions = _validate_subcode_exclusions(
+            value, what="oom_hold_subcode_exclusions")
+        # Same order as oom_hold_codes: check the candidate, then store.
+        self._reject_orphan_subcode_exclusions(
+            getattr(self, "_oom_hold_codes", None), exclusions)
+        self._oom_hold_subcode_exclusions = exclusions
+
+    @staticmethod
+    def _reject_orphan_subcode_exclusions(
+            codes: Optional[Sequence[int]],
+            orphans: Optional[Mapping[int, Sequence[int]]]) -> None:
+        """An exclusion on a code the policy does not own does nothing.
+
+        Silently ignoring it means a typo'd key reads as configured and
+        has no effect -- the site believes it has carved out its
+        anti-thrash sub-code and has not. Takes the pair to check as
+        arguments rather than reading the attributes, so each setter can
+        call it before assigning: a failed assignment then leaves the
+        previous policy in place. `codes is None` is the constructor's
+        first setter running before the other attribute exists.
+        """
+        if codes is None or not orphans:
+            return
+        unknown = sorted(k for k in orphans if k not in codes)
+        if unknown:
+            raise ValueError(
+                "oom_hold_subcode_exclusions names hold code(s) {0} that "
+                "oom_hold_codes does not include ({1}), so the exclusion "
+                "would have no effect".format(
+                    ", ".join(map(str, unknown)),
+                    ", ".join(map(str, codes)) or "none"))
+
+    @property
+    def oom_retry_counter(self) -> str:
+        return self._oom_retry_counter
+
+    @oom_retry_counter.setter
+    def oom_retry_counter(self, value: Any) -> None:
+        self._oom_retry_counter = _validate_release_expression(
+            value, what="oom_retry_counter") or DEFAULT_OOM_RETRY_COUNTER
+
+    def _oom_hold_predicate(self, code_attr: str, subcode_attr: str) -> str:
+        """"This hold is one the OOM policy owns", as a ClassAd expression.
+
+        Built twice per submit description against different attributes:
+        periodic_release asks about the CURRENT hold, request_memory about
+        the LAST one. Same policy, two vantage points -- which is why this
+        is a builder and not a string the caller supplies ready-made.
+        """
+        terms = []
+        for code in self._oom_hold_codes:
+            term = "({0} =?= {1})".format(code_attr, code)
+            excluded = self._oom_hold_subcode_exclusions.get(code) or ()
+            if excluded:
+                term = "({0}{1})".format(term, "".join(
+                    " && ({0} =!= {1})".format(subcode_attr, sub)
+                    for sub in excluded))
+            terms.append(term)
+        if not terms:
+            # No codes configured means the policy owns nothing. Emit a
+            # constant rather than an empty string, so the surrounding
+            # expression stays well-formed instead of becoming a parse
+            # error at submit time.
+            return "false"
+        return " || ".join(terms)
 
     def _bootstrap_path(self, archive: Archive) -> Path:
         path = archive.base / "run_queue" / "workers" / "bootstrap.py"
@@ -1723,12 +2042,13 @@ class DualCondorRunQueue(RunQueue):
         for _key in extra_cmds:
             if str(_key).strip().casefold() in _PROTECTED_SUBMIT_COMMANDS:
                 raise ValueError(
-                    "extra_condor_cmds must not set {0!r}: HTCondor command "
-                    "names are case-insensitive, and this one is emitted "
-                    "after the archive's own line, so it would replace it and "
-                    "strip the files the worker needs. Use "
-                    "extra_transfer_input_files / extra_transfer_output_files, "
-                    "which append.".format(_key))
+                    "extra_condor_cmds must not set {0!r}: it is emitted "
+                    "after the archive's own line, so it replaces that line "
+                    "rather than extending it (compared case-insensitively, "
+                    "because HTCondor command names are). Use {1} "
+                    "instead.".format(_key, _PROTECTED_ALTERNATIVES.get(
+                        str(_key).strip().casefold(),
+                        "the corresponding append-only option")))
 
         bootstrap = self._bootstrap_path(archive)
         log_dir = archive.base / "run_queue" / "logs"
@@ -1825,25 +2145,86 @@ class DualCondorRunQueue(RunQueue):
         lines.append('transfer_output_remaps  = "{}"'.format(";".join(out_remaps)))
         lines.append("getenv                  = {}".format(self.getenv))
 
+        release_terms = []
         if self.auto_release_on_oom:
-            # Stuart's catch-and-release pattern. On hold codes 26
-            # (OUT_OF_MEMORY) or 34 (MEMORY_LIMIT_EXCEEDED), bump
-            # request_memory by oom_memory_factor and release the job.
-            # After oom_max_retries the job stays held and we let the
-            # archive's stuck-detection take over.
+            # Stuart's catch-and-release pattern: on a hold this site
+            # calls "out of memory", bump request_memory by
+            # oom_memory_factor and release. After oom_max_retries the job
+            # stays held and the archive's stuck-detection takes over.
+            #
+            # Which holds those are, and what counts the retries, come from
+            # oom_hold_codes / oom_hold_subcode_exclusions /
+            # oom_retry_counter. See DEFAULT_OOM_HOLD_CODES for why they
+            # cannot be constants.
+            was_oom = self._oom_hold_predicate(
+                "LastHoldReasonCode", "LastHoldReasonSubCode")
+            is_oom = self._oom_hold_predicate(
+                "HoldReasonCode", "HoldReasonSubCode")
             lines.append("MY.InitialRequestMemory = {}".format(request_memory))
+            # MemoryUsage is the attribute here that can actually be
+            # undefined: in the job ad it is itself an expression over
+            # ResidentSetSize, which a job held before it ever executed
+            # does not have. int(factor * n * undefined) is undefined, an
+            # undefined request_memory matches no slot, and the job then
+            # sits Idle with nothing in its log to say why. Fall back to
+            # the original request: released unchanged it may hold again,
+            # but the retry cap bounds that, whereas never matching is
+            # bounded by nothing.
             lines.append(
-                "request_memory          = ifthenelse("
-                "(LastHoldReasonCode =!= 34 && LastHoldReasonCode =!= 26), "
-                "MY.InitialRequestMemory, "
-                "int({factor} * NumJobStarts * MemoryUsage))".format(
-                    factor=self.oom_memory_factor))
-            lines.append(
-                "periodic_release        = "
-                "((HoldReasonCode =?= 34) || (HoldReasonCode =?= 26)) "
-                "&& (NumJobStarts < {})".format(self.oom_max_retries))
+                "request_memory          = ifthenelse(({was_oom}) && "
+                "(MemoryUsage =!= undefined), "
+                "int({factor} * ({counter}) * MemoryUsage), "
+                "MY.InitialRequestMemory)".format(
+                    was_oom=was_oom, factor=self.oom_memory_factor,
+                    counter=self.oom_retry_counter))
+            release_terms.append(
+                "({is_oom}) && ({counter} < {n})".format(
+                    is_oom=is_oom, counter=self.oom_retry_counter,
+                    n=self.oom_max_retries))
         else:
             lines.append("request_memory          = {}M".format(request_memory))
+
+        # A backend with its own release condition contributes a term
+        # rather than a replacement. Before this, the only way to add one
+        # was extra_condor_cmds, which is emitted last and so overwrites
+        # periodic_release outright -- taking the OOM policy above with
+        # it, silently, and leaving that copy of the expression to drift
+        # away from this one. Site policy varies enough that the hook is
+        # necessary (an opportunistic pool holds jobs for reasons a
+        # dedicated cluster never sees); losing the memory handling to
+        # get it is not.
+        if self.extra_periodic_release:
+            site_term = self.extra_periodic_release
+            if self.auto_release_on_oom:
+                # Scope the site term away from the codes the OOM policy
+                # owns. Without this, OR-ing does not partition anything:
+                # a term like `(HoldReasonCode =!= 1) && (NumJobStarts <
+                # 50)` matches 26 and 34 as well, so it re-releases a job
+                # whose memory budget is deliberately spent. oom_max_retries
+                # then caps nothing, request_memory keeps being multiplied
+                # by a NumHolds nothing bounds, and the job climbs past
+                # every slot in the pool and sits Idle forever -- a worse
+                # end than the Held state the cap exists to produce.
+                # ...away from whatever codes the policy is CONFIGURED to
+                # own, not a second hardcoded copy of the default set.
+                site_term = "({site}) && !({is_oom})".format(
+                    site=site_term,
+                    is_oom=self._oom_hold_predicate(
+                        "HoldReasonCode", "HoldReasonSubCode"))
+            release_terms.append(site_term)
+        if release_terms:
+            # One term is emitted bare so that configuring no site term
+            # leaves the expression byte-identical to what this class
+            # emitted before the hook existed.
+            #
+            # Term order is load-bearing when there are two. The OOM term
+            # comes first and `||` short-circuits on True, so a site term
+            # that evaluates to Error cannot suppress a memory release.
+            # Reversing them would let a malformed site expression take
+            # the memory policy down with it.
+            body = (release_terms[0] if len(release_terms) == 1
+                    else " || ".join("({})".format(t) for t in release_terms))
+            lines.append("periodic_release        = " + body)
 
         lines.append("request_disk            = {}".format(request_disk))
         if self.accounting_group:
