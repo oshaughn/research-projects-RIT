@@ -307,12 +307,13 @@ def _accumulate_unit(data, ra, dec, psi, incl, phiref, interp,
             Qi = gather(Q[:, k], pos)
             kappa_det = kappa_det + FY_conj[:, k][:, None] * Qi
         kappa_unit = kappa_unit + kappa_det
-        # NOT a gap: this is the BASELINE (non-banded) accumulator, and it is unreachable for
-        # slow rotation -- _accumulate_unit delegates to _accumulate_unit_banded whenever
-        # data.feature is set.  Here the response coefficient is the static scalar F, which
-        # carries no sidereal harmonic index, so there is no arrival-time post-phase to apply
-        # and a time-independent rho_sq is correct.  The rotation gap is at the corresponding
-        # site in _accumulate_unit_banded below.
+        # NOT a gap, and worth saying so because an earlier revision wrongly marked it as one:
+        # this is the BASELINE (non-banded) accumulator, unreachable for slow rotation, since
+        # _accumulate_unit delegates to _accumulate_unit_banded whenever data.feature is set.
+        # Its response coefficient is the static scalar F, evaluated once at tref and carrying
+        # no sidereal harmonic index, so there is no arrival-time post-phase to apply and <h|h>
+        # genuinely does not depend on where in the window the template is placed.  The
+        # slow-rotation model does have that dependence -- see _accumulate_unit_banded.
         rho_sq_unit = rho_sq_unit + rho_sq_det[:, None]
 
     return kappa_unit, rho_sq_unit
@@ -361,6 +362,40 @@ def _accumulate_unit_banded(data, ra, dec, psi, incl, phiref, interp,
     ``term2``).  ``aR`` is the V-term reflection (``(p,-n)`` for rotation, the
     identity for finite-size), supplied as ``data.band['refl_idx']``.
 
+    ARRIVAL-TIME POST-PHASE (``feature == "rotation"`` only).
+    The bank's elementary templates ``chi_a(u) = e^{i n_a Omega u} h^{(p_a)}(u)`` live on
+    the template's INTRINSIC time ``u``, while the physical response modulation lives on
+    absolute time.  Placing the template at arrival time ``t`` (``t' = u + t``) factorizes
+    it and leaves a residual factor that belongs to the coefficient,
+
+        C~_a(t) = C_a * exp(i n_a Omega (t - tref))
+
+    (``factored_likelihood_with_rotation.rotation_post_phase``), which must be applied to
+    the data term AND the model norm -- using it in only one evaluates ``<d|h>`` and
+    ``<h|h>`` for different ``h`` and breaks ``lnL <= (1/2)<d|d>``.  It makes ``rho_sq``
+    arrival-time DEPENDENT, hence ``(S, npts)`` rather than a broadcast ``(S,)`` scalar.
+
+    No ``(S, npts)`` phase array is materialized per band: with the gather positions
+    ``pos_ij = p0_i + j`` the offset separates,
+
+        delta_ij = pos_ij * deltaT - (tref - epoch) = delta0_i + jgrid_j,
+
+    so ``exp(i m omega delta_ij) = pe[m, i] * pt[m, j]`` is rank-1, and the phase enters
+    both terms only through the integer ``m`` (``-n_a`` for the data term, ``n_a' - n_a``
+    for BOTH the U and V contractions).  One ``(M, S)`` and one ``(M, npts)`` table cover
+    everything; ``M`` is the number of distinct ``m``, ``4*n_harmonics + 1`` at the default
+    width whatever ``p_max`` is (several ``p`` share a harmonic once ``p_max >= 1``, so the
+    ``(a, a')`` pairs genuinely collide in a bucket and the scatter-add accumulates them).
+
+    This mirrors ``DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation``,
+    including its choice of arrival sample: ``interp="nearest"`` phases each output bin at
+    the sample the gather actually read.  The one exception is a position at ``rint(pos)
+    == -1`` -- one bin off the FRONT of the rholm buffer -- where ``_gather_nearest``'s
+    ``trunc(. + 0.5)`` index rounds to sample 0; see the note at the ``samp0`` assignment.
+
+    ``freqresponse`` (Path D) has NO post-phase -- its basis is not a sidereal modulation
+    -- and keeps the arrival-time-independent ``rho_sq``.
+
     ``phase_marginalization`` is not supported for banded features.
     """
     if phase_marginalization:
@@ -381,6 +416,27 @@ def _accumulate_unit_banded(data, ra, dec, psi, incl, phiref, interp,
     npts = data.npts
     t_offsets = jnp.arange(npts, dtype=jnp.float64)
     refl_idx = data.band["refl_idx"]           # (A,) int, static
+
+    # Arrival-time post-phase: rotation only (see the docstring).  Honour the bank
+    # convention flag rather than assuming it, so a future change fails loudly.
+    band = data.band
+    post_phase = (data.feature == "rotation")
+    if post_phase:
+        if not bool(band.get("post_phase_required", False)):
+            raise ValueError(
+                "rotation likelihood data does not declare post_phase_required; this "
+                "evaluator applies the arrival-time post-phase (rotation_post_phase) to "
+                "both the data term and the model norm and is only correct for a bank "
+                "built in that convention.  meta['post_phase_required'] is set by "
+                "PrecomputeLikelihoodTermsWithRotation as of PR #117 -- if this tree does "
+                "not have #117, it does not have the corrected precompute either and the "
+                "JAX rotation path MUST NOT be used on it.  Otherwise rebuild the bank "
+                "with banded.build_rotation_data.")
+        omega_sid = 2.0 * np.pi * float(band["f_sidereal"])
+        pp_m = jnp.asarray(np.asarray(band["pp_m_values"], dtype=np.float64))  # (M,)
+        pp_t1 = np.asarray(band["pp_term1_idx"], dtype=np.int64)               # (A,) static
+        pp_t2 = jnp.asarray(np.asarray(band["pp_term2_idx"], dtype=np.int64))  # (A,A)
+        M = int(pp_m.shape[0])
 
     kappa_unit = jnp.zeros((S, npts), dtype=jnp.complex128)
     rho_sq_unit = jnp.zeros((S, npts), dtype=jnp.float64)
@@ -405,36 +461,66 @@ def _accumulate_unit_banded(data, ra, dec, psi, incl, phiref, interp,
         p0 = (t_det + data.tval0) * inv_deltaT
         pos = p0[:, None] + t_offsets[None, :]              # (S, npts)
 
-        # --- term1: sum_a conj(C_a) * ( sum_lm conj(Y_lm) Q^a_lm(t) ) ---
+        if post_phase:
+            # delta_ij = (arrival time of output bin j for sample i) - tref, in seconds.
+            # ``pos`` is in samples from the rholm epoch, so delta = pos*deltaT - off with
+            # off = tref - epoch.  It must be the arrival the GATHER actually uses, or the
+            # data term and the model norm drift apart again: for interp="nearest" that is
+            # the rounded position, for the interpolating stencils the continuous one.
+            #
+            # ``jnp.rint(p0) + j == jnp.rint(p0 + j)`` exactly (j is an integer and the sum
+            # is well inside float64's exact-integer range), so this IS the gathered
+            # position, and it stays separable in (i, j).  _gather_nearest's index is
+            # ``trunc(rint(pos) + 0.5)``, which equals rint(pos) for every non-negative
+            # position; the one place the two differ is rint(pos) == -1, where that
+            # truncation reads sample 0 for a position one bin off the FRONT of the buffer.
+            # That is a pre-existing quirk of the gather (the numpy NoLoop, which slices
+            # ``ifirst:ilast``, is no better there) and not something the post-phase can or
+            # should paper over; every position the gather treats as in-bounds and
+            # non-negative is phased at exactly the sample it read.
+            off = float(data.tref_minus_epoch(det))
+            samp0 = jnp.rint(p0) if interp == "nearest" else p0
+            delta0 = samp0 * data.deltaT - off              # (S,)
+            jgrid = t_offsets * data.deltaT                 # (npts,)
+            pe = jnp.exp(1j * omega_sid * pp_m[:, None] * delta0[None, :])   # (M, S)
+            pt = jnp.exp(1j * omega_sid * pp_m[:, None] * jgrid[None, :])    # (M, npts)
+
+        # --- term1: sum_a conj(C~_a) * ( sum_lm conj(Y_lm) Q^a_lm(t) ) ---
+        # conj(C~_a) = conj(C_a) exp(-i n_a omega delta), i.e. the m = -n_a bucket.
         kappa_det = jnp.zeros((S, npts), dtype=jnp.complex128)
         for a in range(A):
             inner_a = jnp.zeros((S, npts), dtype=jnp.complex128)
             Qa = Q_bank[a]                                   # (npts_full, K)
             for k in range(K):
                 inner_a = inner_a + conjY[:, k][:, None] * gather(Qa[:, k], pos)
-            kappa_det = kappa_det + jnp.conj(C[a])[:, None] * inner_a
+            if post_phase:
+                i1 = int(pp_t1[a])
+                kappa_det = kappa_det + ((jnp.conj(C[a]) * pe[i1])[:, None]
+                                         * (pt[i1][None, :] * inner_a))
+            else:
+                kappa_det = kappa_det + jnp.conj(C[a])[:, None] * inner_a
         kappa_unit = kappa_unit + kappa_det
 
-        # --- term2: 0.5 Re[ sum_{a,a'} conj(C_a)C_a' YbarUY + C_aR C_a' YVY ] ---
+        # --- term2: 0.5 Re[ sum_{a,a'} conj(C~_a)C~_a' YbarUY + C~_aR C~_a' YVY ] ---
         # YUY[a,a'] = einsum(conjY, Y, U_bank[a,a']); YVY[a,a'] = einsum(Y, Y, V)
         YUY = jnp.einsum("si,sj,abij->abs", conjY, Y, U_bank)   # (A,A,S)
         YVY = jnp.einsum("si,sj,abij->abs", Y, Y, V_bank)       # (A,A,S)
-        # conj(C_a) C_a'  and  C_aR C_a'  contracted over (a,a')
+        # conj(C_a) C_a'  and  C_aR C_a'  contracted over (a,a') -- the post-phase is
+        # applied below, since it depends only on m = n_a' - n_a for both contractions.
         CC_U = jnp.einsum("as,bs->abs", jnp.conj(C), C)          # (A,A,S)
         CC_V = jnp.einsum("as,bs->abs", C_refl, C)              # (A,A,S)
-        term2_c = jnp.sum(CC_U * YUY + CC_V * YVY, axis=(0, 1))  # (S,) complex
-        rho_sq_det = 0.5 * term2_c.real                          # (S,)
-        # KNOWN GAP (rotation only): rho_sq is arrival-time INDEPENDENT and the response
-        # coefficients above are the bare C_a, i.e. this kernel does not carry the
-        # arrival-time post-phase C~_a = C_a exp(i n_a Omega (t - tref)) that
-        # factored_likelihood_with_rotation.rotation_post_phase applies to BOTH terms.
-        # So for Path A/B the JAX kappa and rho_sq describe different templates, the result
-        # can exceed 0.5<d|d>, and it disagrees with the NoLoop by ~1e-5 relative.  NOT
-        # production-ready for rotation; freqresponse is unaffected (no post-phase there).
-        # Porting it makes rho_sq time-dependent -- a structural change to this loop.
-        # Tracked as issue #131 (follow-up to the post-phase fix in PR #117); see also
-        # test_jax_slowrot.check_rotation, whose rotation gate is degraded until it lands.
-        rho_sq_unit = rho_sq_unit + rho_sq_det[:, None]
+        pair = CC_U * YUY + CC_V * YVY                           # (A,A,S) complex
+        if post_phase:
+            # BOTH contractions carry exp(i (n_a' - n_a) omega delta), so bucket the pairs
+            # by m and pay one rank-1 phase per distinct m (M of them) instead of A^2.
+            val_m = jnp.zeros((M, S), dtype=jnp.complex128).at[pp_t2].add(pair)
+            # rho_sq becomes arrival-time dependent: (S, npts), not a broadcast scalar.
+            rho_sq_det = 0.5 * jnp.einsum("ms,mt->st", val_m * pe, pt).real
+        else:
+            term2_c = jnp.sum(pair, axis=(0, 1))                 # (S,) complex
+            rho_sq_det = 0.5 * term2_c.real                      # (S,)
+        rho_sq_unit = rho_sq_unit + (rho_sq_det if post_phase
+                                     else rho_sq_det[:, None])
 
     return kappa_unit, rho_sq_unit
 
