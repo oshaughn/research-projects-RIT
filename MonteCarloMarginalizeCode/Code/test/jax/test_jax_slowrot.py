@@ -141,11 +141,15 @@ def check_rotation(p_max=0):
 
 
 def test_rotation_path_a():
-    check_rotation(p_max=0)
+    # check_ad as well as check_rotation: the __main__ block below runs both, and a
+    # pytest entry point that ran only half of it would leave the AD/jit/vmap/hessian
+    # gates uncollected -- green in CI, exercised only when someone runs the file by
+    # hand.  See .travis/test-jax.sh.
+    check_ad(check_rotation(p_max=0), "rotation p_max=0")
 
 
 def test_rotation_path_b():
-    check_rotation(p_max=1)
+    check_ad(check_rotation(p_max=1), "rotation p_max=1")
 
 
 def check_freqresponse():
@@ -176,7 +180,7 @@ def check_freqresponse():
 
 
 def test_freqresponse():
-    check_freqresponse()
+    check_ad(check_freqresponse(), "freqresponse")
 
 
 def check_ad(data, tag):
@@ -209,12 +213,11 @@ def check_ad(data, tag):
 
 
 if __name__ == "__main__":
-    d_rot = check_rotation(p_max=0)
-    check_ad(d_rot, "rotation p_max=0")
-    d_rotB = check_rotation(p_max=1)
-    check_ad(d_rotB, "rotation p_max=1")
-    d_fr = check_freqresponse()
-    check_ad(d_fr, "freqresponse")
+    # Call the pytest entry points, not the check_* helpers, so the __main__ path and
+    # the collected path cannot drift apart.
+    test_rotation_path_a()
+    test_rotation_path_b()
+    test_freqresponse()
     print("\nSLOWROT + FREQRESPONSE JAX VALIDATION PASSED")
     print("  (agreement with the NoLoop is necessary, not sufficient: the rotation VALUE is")
     print("   pinned by test/jax/test_jax_slowrot_cauchy_schwarz.py.)")
