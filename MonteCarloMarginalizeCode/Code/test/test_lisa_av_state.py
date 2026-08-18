@@ -17,6 +17,7 @@ in the drift ledger, and asserted below.
 
 import ast
 import os
+import textwrap
 
 import pytest
 
@@ -264,46 +265,124 @@ def test_both_analyze_event_variants_get_every_hook():
     for name, node in fns.items():
         called = {c.func.id for c in ast.walk(node)
                   if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)}
-        for hook in ('_maybe_load_av_state', '_maybe_save_av_state',
-                     '_maybe_enable_anisotropic_bins', '_report_and_gate_collapse'):
+        for hook in ('_maybe_load_av_state', '_maybe_enable_anisotropic_bins',
+                     '_maybe_replicate_for_mc_error'):
             assert hook in called, "%s does not call %s" % (name, hook)
+        # The SAVE is reached through the replica helper, which sequences it after the
+        # first-run gate (see test_hook_ordering_at_both_call_sites).  Calling it here too
+        # would write a grid the gate has not yet approved.
+        assert '_maybe_save_av_state' not in called, (
+            "%s saves AV state directly, bypassing the collapse gate the helper puts in "
+            "front of it" % name)
 
 
 def test_hook_ordering_at_both_call_sites():
-    """Only a nonempty, collapse-approved result may persist its live-volume state."""
+    """Only a nonempty, COLLAPSE-APPROVED result may persist its live-volume state.
+
+    The save now lives inside _maybe_replicate_for_mc_error, doubly constrained:
+      * AFTER the first-run gate, so a grid that --reject-collapsed-live-volume rejects is
+        never written (otherwise the next point warm-starts from the degenerate volume);
+      * BEFORE the replica loop, or it persists the LAST replica's grid.
+
+    An earlier revision of this test dropped the gate<save half when the gate moved into the
+    helper, which is how the collapse-approval invariant was silently lost.  Both halves are
+    asserted here, in the helper, so neither can go missing again.
+    """
     src = _src(_LISA)
+    # call-site half: load/aniso before the integration, then the helper
     pos = 0
     for _ in range(2):
         load = src.index("_maybe_load_av_state(sampler)", pos)
         aniso = src.index("_maybe_enable_anisotropic_bins(sampler)", load)
         integ = src.index("sampler.integrate(like_to_integrate", aniso)
         guard = src.index("if not(res): # no resut", integ)
-        gate = src.index("_report_and_gate_collapse(dict_return", guard)
-        save = src.index("_maybe_save_av_state(sampler)", gate)
-        assert load < aniso < integ < guard < gate < save
-        pos = save + 1
+        repl = src.index("_maybe_replicate_for_mc_error(", guard)
+        assert load < aniso < integ < guard < repl
+        pos = repl + 1
+    # helper half: gate < save < replica loop
+    h = src.index("def _maybe_replicate_for_mc_error(")
+    fn = src[h:src.index("\ndef ", h + 1)]
+    gate = fn.index('_report_and_gate_collapse(dict_return, "first run")')
+    save = fn.index("_maybe_save_av_state(sampler)")
+    loop = fn.index("for _irep in range(")
+    assert gate < save, "a collapsed grid can be persisted before the gate rejects it"
+    assert save < loop, "the save would persist the LAST replica's grid, not the reported run"
 
 
-def test_the_second_gate_call_site_is_recorded_as_missing():
-    """Main gates twice; this driver gates once because it has no replica pooling yet.
+def test_a_collapsed_run_never_persists_its_state(tmp_path):
+    """Behavioural: drive the gate+save sequence and check no file is written.
 
-    If someone ports --mc-error-replicas without adding the second call, the flag is
-    silently bypassed for the case pooling creates.  This asserts the warning is still
-    written down where that person will be working.
+    Source ordering is necessary but not sufficient -- this executes it.
+    """
+    import numpy as _np
+    names = ["_extract_mc_diag", "_maybe_save_av_state", "_reject_if_collapsed",
+             "_report_and_gate_collapse"]
+    defs = {n.name: n for n in ast.parse(_src(_LISA)).body
+            if isinstance(n, ast.FunctionDef) and n.name in names}
+    mod = ast.Module(body=[defs[n] for n in names], type_ignores=[])
+    target = str(tmp_path / "state.npz")
+
+    class _AVmod(object):
+        LiveVolumeCollapse = _Collapse
+
+    class _Sampler(object):
+        def __init__(self):
+            self.saved = None
+            self._av_state_reuse_safe = True
+
+        def save_state(self, path):
+            self.saved = path
+
+    ns = {"numpy": _np, "np": _np, "mcsamplerAdaptiveVolume": _AVmod, "mcsampler_AV_ok": True,
+          "opts": type("O", (), {"sampler_method": "AV", "sampler_save_state": target,
+                                 "reject_collapsed_live_volume": True})()}
+    exec(compile(ast.fix_missing_locations(mod), "avstate", "exec"), ns)
+
+    s = _Sampler()
+    dd = {"live_volume_collapsed": True, "collapse_reason": "zero volume"}
+    with pytest.raises(_Collapse):
+        ns["_report_and_gate_collapse"](dd, "first run")
+        ns["_maybe_save_av_state"](s)          # must never be reached
+    assert s.saved is None, "a collapsed live volume was persisted for later reuse"
+
+    # sanity: a healthy run DOES save, so the assertion above is not vacuous
+    s2 = _Sampler()
+    ns["_report_and_gate_collapse"]({"live_volume_collapsed": False}, "first run")
+    ns["_maybe_save_av_state"](s2)
+    assert s2.saved == target
+
+def test_both_collapse_gate_call_sites_exist():
+    """Main gates TWICE -- first run and pooled verdict -- and now so does this driver.
+
+    This replaces an earlier test that asserted the second call site was MISSING and carried
+    a warning for whoever ported --mc-error-replicas.  That port has happened, so the warning
+    is spent and the real invariant takes over: replication can turn a healthy first run into
+    a collapsed POOL, and gating only the first would silently bypass
+    --reject-collapsed-live-volume for exactly the case pooling introduces.
     """
     src = _src(_LISA)
-    fn = src[src.index("def _reject_if_collapsed"):]
-    fn = fn[:fn.index("\ndef ")]
-    assert "mc-error-replicas" in fn and "TWICE" in fn
-    # Count CALLS, not textual occurrences: the `def` line matches the same substring.
-    calls = [c for c in ast.walk(ast.parse(src))
+    start = src.index("def _maybe_replicate_for_mc_error(")
+    fn = src[start:src.index("\ndef ", start + 1)]
+    gates = [c for c in ast.walk(ast.parse(textwrap.dedent(fn)))
              if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)
-             and c.func.id == '_report_and_gate_collapse']
-    assert len(calls) == 2, \
-        "expected exactly one gate call per analyze_event variant, found %d" % len(calls)
+             and c.func.id in ("_report_and_gate_collapse", "_reject_if_collapsed")]
+    assert len(gates) >= 2, (
+        "the replica helper performs %d collapse-gate call(s); it needs the first-run gate "
+        "AND the pooled-verdict gate" % len(gates))
+    assert "pooled over" in fn, "the pooled gate does not label its stage"
 
 
-# ---------------------------------------------------------------- anti-drift vs the main driver
+def test_analyze_event_does_not_gate_collapse_itself():
+    """The helper owns both gates; a direct call here would duplicate the first-run one."""
+    for n in ast.parse(_src(_LISA)).body:
+        if isinstance(n, ast.FunctionDef) and n.name in ("analyze_event", "analyze_event_LISA"):
+            names = {c.func.id for c in ast.walk(n)
+                     if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)}
+            assert "_report_and_gate_collapse" not in names, \
+                "%s calls the collapse gate directly" % n.name
+            assert "_maybe_replicate_for_mc_error" in names, \
+                "%s never runs the replica/gate helper" % n.name
+
 def _named(path, name):
     for n in ast.walk(ast.parse(_src(path))):
         if isinstance(n, ast.FunctionDef) and n.name == name:

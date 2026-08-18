@@ -322,6 +322,12 @@ integration_params.add_option("--portfolio-varaha-min-frac",default=None,type=fl
 integration_params.add_option("--portfolio-varaha-never-freeze",action='store_true',default=False,help="Portfolio: VARAHA/AV members always update every chunk past their breakpoint (freeze-exempt). This is the sampler default; the flag is here for explicitness/pipe pass-through.")
 integration_params.add_option("--portfolio-weight-clip",default=None,type=float,help="Portfolio: OPT-IN truncated importance sampling applied to the PROPOSAL-FIT INPUT ONLY. Caps the weights fed to member.update_sampling_prior (the GMM covariance fit) at tau = C*sqrt(n)*mean(w) (0/unset = off; C~1 is the standard Ionides choice), so one enormous weight cannot make that fit degenerate. The estimator (ln Z, n_eff), the n_ess report, and the allocation signal all use the TRUE unclipped weights, so they stay exactly unbiased and undistorted. Do NOT clip the estimator (measured on S250114ax: n_eff=100 2x faster than AV but ln Z biased -11.5 nats) or the n_ess report (clipping inflates the clipped member's n_ess and starves the AV workhorse). The withheld tail mass is tracked and reported as a diagnostic. NOTE: if huge weights come from q_mix UNDERFLOW (watch for the warning) they are a numerical artifact, not tail mass.")
 integration_params.add_option("--sampler-xpy",default=None,help="numpy|cupy  if the adaptive_cartesian_gpu sampler is active, use that.")
+# MC-error replicas.  Copied verbatim from bin/integrate_likelihood_extrinsic_batchmode;
+# pinned by test_lisa_mc_error_replicas.py.
+optp.add_option("--mc-error-replicas",default=0,type=int, help="MC-error stabilization: when the reported lnL error is untrustworthy (see the trigger options below), re-run the extrinsic integration this many EXTRA times as cold replicas (adaptation reset, sample cache dropped, fresh RNG draws) and report lnL from the LINEAR mean of the replica integrals with sigma from the max of the propagated error and the between-replica scatter (t-distributed, K-1 dof).  The naive per-run sigma is computed from the SAME weights as the integral, so it is small exactly when the run silently missed the peak; only independent replicas can see that.  NEVER combine replicas by inverse-variance weighting -- that overweights the worst replica.  The posterior/fairdraw export POOLS the replicas (weights renormalized so each contributes Z_k/K; fairdraw blocks contribute equal within-block weights, since those samples already carry their weights once), so the exported samples represent the same mixture as the reported evidence.  Default 0 = off (production behavior unchanged).")
+optp.add_option("--mc-error-sigma-trigger",default=0.4,type=float, help="Replicate (see --mc-error-replicas) when the reported sigma_lnZ exceeds this value.")
+optp.add_option("--mc-error-ess-trigger",default=30.,type=float, help="Replicate when the Kish effective sample size (sum w)^2/sum w^2 of the run's weights falls below this value.")
+optp.add_option("--mc-error-khat-trigger",default=0.7,type=float, help="Replicate when the Pareto k-hat weight-tail diagnostic exceeds this value (0.7 = the PSIS reliability threshold: above it the weight variance is effectively unresolved and the naive sigma is a lower bound).")
 # AV live-volume state, per-axis bin allocation, and the collapse gate.  Copied verbatim
 # from bin/integrate_likelihood_extrinsic_batchmode; pinned by test_lisa_av_state.py.
 integration_params.add_option("--sampler-save-state",default=None,help="AV only: after integration, write the adapted live-volume state (.npz) for reuse by later instances/iterations. Point --sampler-load-state at the same file across a grid to warm-start each point from the previous one.")
@@ -1368,8 +1374,10 @@ def _rvs_is_export_resample(sampler):
     carrying real importance weights.  Keying off the CLI flag would flatten those -- the same
     class of error in the other direction.
 
-    SURVIVES POOLING by design.  This driver does not pool replicas today; the distinction is
-    kept anyway so that adding --mc-error-replicas here later cannot quietly get it wrong.
+    SURVIVES POOLING by design, and this driver now does pool (--mc-error-replicas): a pooled
+    record built from fair-drawn replicas still has posterior-resampled rows, so anything that
+    must not re-weight them keeps seeing True here.  Whether the record is GLOBALLY
+    equal-weight is a different question; see _rvs_is_equal_weight.
     """
     return bool(getattr(sampler, '_rvs_is_fairdraw', False))
 
@@ -1783,14 +1791,270 @@ def _maybe_enable_anisotropic_bins(sampler):
         print("  AV: anisotropic per-axis bin allocation ENABLED")
 
 
+def _extract_mc_diag(dd):
+    dd = dd if isinstance(dd, dict) else {}
+    return dd.get('pareto_khat', None), dd.get('sigma_lnZ_block', None), dd.get('n_ESS', None), dd.get('lnZ_ci90', None)
+
+
+def _pool_replica_rvs(rep_rvs, sampler, rep_lnZ=None, already_resampled=False, use_lnL=None):
+    """Concatenate the replicas' samples into one correctly-weighted set.
+
+    Each replica k is an independent importance-sampling estimate with weights w_ki and its own
+    sample count n_k, and the reported evidence is the linear mean (1/K) sum_k Z_k.  The posterior
+    that matches THAT estimator is the concatenation with weights w_ki/(K n_k) -- equivalently the
+    importance weight against the pooled proposal q'_ki = q_ki * K * n_k, which is the actual
+    density of "pick a replica uniformly, then one of its n_k draws".  So the K*n_k factor goes
+    into the sampling prior, where every downstream weight computation already accounts for it.
+
+    Falls back to the first replica if the record shape is unexpected: a degraded export is
+    recoverable, a silently mis-weighted one is not.
+
+    `use_lnL` is the stored convention of the RAW ('integrand') columns -- see
+    `_rvs_lnL_convention`.  It matters here because this function REWRITES joint_s_prior to force a
+    block's weights, and the equation to solve is convention-dependent (see below).
+    """
+    _lnL_here = _rvs_lnL_convention(use_lnL)
+    # `already_resampled` may be a single bool or a PER-REPLICA sequence.  It has to be the
+    # latter in general: each pass decides independently whether to fair-draw (the draw is
+    # skipped when it would not shrink that pass's record), so one global flag either flattens
+    # a replica whose weights are genuine, or leaves a resampled replica double-weighted.  A
+    # mixture of raw and resampled replicas is the normal case near the n_extr boundary.
+    _ar_list = (list(already_resampled)
+                if isinstance(already_resampled, (list, tuple, numpy.ndarray))
+                else None)
+    # Drop empty records in LOCKSTEP with their metadata.  The filter used to run on rep_rvs
+    # alone, so a single empty replica shifted every later block against its own lnZ -- and
+    # would now shift it against its own resampled flag too.
+    _keep = [i for i, r in enumerate(rep_rvs) if r]
+    rep_rvs = [rep_rvs[i] for i in _keep]
+    if rep_lnZ is not None:
+        rep_lnZ = [rep_lnZ[i] for i in _keep if i < len(rep_lnZ)]
+    if _ar_list is not None:
+        _ar_list = [_ar_list[i] for i in _keep if i < len(_ar_list)]
+
+    def _block_resampled(i):
+        if _ar_list is not None:
+            return bool(_ar_list[i]) if i < len(_ar_list) else False
+        return bool(already_resampled)
+
+    if len(rep_rvs) <= 1:
+        return rep_rvs[0] if rep_rvs else {}
+    # `already_resampled` -- the records are FAIRDRAW output.  Those samples were already drawn in
+    # proportion to their own importance weights, so reusing those weights applies them a second
+    # time and the pooled block follows w^2 instead of w.  Renormalizing to Z_k/K fixes the block's
+    # SCALE but not its SHAPE, so it does not help here.  A fairdraw block is an equal-weight draw
+    # from its own posterior, so that is what it must contribute: constant weights within the
+    # block, summing to Z_k/K.
+    #
+    # DO NOT assume the records are raw importance samples.  integrate() may have thresholded or
+    # fairdraw-resampled _rvs before we see it, in which case sum_i w_ki over the RETAINED rows is
+    # no longer Z_k * n_k and a 1/n_k rescale would mis-weight the replica (a fairdraw record is
+    # already posterior-resampled, so scaling it by its retained length weights it twice).  When
+    # the reported per-replica lnZ is available, renormalize each block so it contributes exactly
+    # Z_k/K -- correct whether the rows are raw, pruned or resampled, since only their RELATIVE
+    # weights need be right.
+    keys = set(rep_rvs[0])
+    for r in rep_rvs[1:]:
+        keys &= set(r)
+    log_key = 'log_joint_s_prior' if 'log_joint_s_prior' in keys else None
+    lin_key = 'joint_s_prior' if (log_key is None and 'joint_s_prior' in keys) else None
+    if log_key is None and lin_key is None:
+        print(" [mc error] pooling skipped: no sampling-prior column in the replica records; "
+              "exporting the FIRST replica (consistent weights, fewer samples)")
+        return rep_rvs[0]
+    K = len(rep_rvs)
+    out = {}
+    try:
+        cols = {k: [] for k in keys}
+        for _i, r in enumerate(rep_rvs):
+            n_k = _rvs_len(r)
+            if n_k <= 0:
+                continue
+            _flat_block = False
+            if _block_resampled(_i) and rep_lnZ is not None and _i < len(rep_lnZ) \
+                    and numpy.isfinite(rep_lnZ[_i]):
+                # equal weights within the block, summing to Z_k/K
+                _flat_block = True
+                _target_lw = float(rep_lnZ[_i]) - numpy.log(float(K)) - numpy.log(float(n_k))
+                scale = 0.0
+            elif rep_lnZ is not None and _i < len(rep_lnZ) and numpy.isfinite(rep_lnZ[_i]):
+                # target: this block's weights sum to Z_k/K
+                _cur = _lnZ_of_rvs(r, already_pooled=True, use_lnL=_lnL_here)
+                if _cur is None or not numpy.isfinite(_cur):
+                    scale = numpy.log(float(K) * float(n_k))
+                else:
+                    scale = _cur - (float(rep_lnZ[_i]) - numpy.log(float(K)))
+            else:
+                scale = numpy.log(float(K) * float(n_k))
+            if _flat_block and log_key is not None:
+                # force lw_i = log_integrand + log_joint_prior - log_joint_s_prior == _target_lw
+                _li = numpy.atleast_1d(numpy.asarray(
+                    sampler.identity_convert(r['log_integrand']), dtype=float)).ravel()
+                _lp = numpy.atleast_1d(numpy.asarray(
+                    sampler.identity_convert(r['log_joint_prior']), dtype=float)).ravel()
+                _forced = _li + _lp - _target_lw
+            for k in keys:
+                v = numpy.atleast_1d(numpy.asarray(sampler.identity_convert(r[k]))).ravel()
+                if _flat_block and log_key is not None and k == log_key:
+                    v = _forced
+                elif _flat_block and lin_key is not None and k == lin_key:
+                    # Same forcing for a RAW-field record: choose joint_s_prior so the
+                    # reconstructed weight is exactly _target_lw.  WHICH equation that is depends
+                    # on the convention 'integrand' is stored in -- the same ambiguity
+                    # ln_weights_from_rvs handles:
+                    #   linear:  lw = log(ig) + log(jp) - log(js)  ->  js = ig*jp/exp(target)
+                    #   log:     lw = ig      + log(jp) - log(js)  ->  js = exp(ig + log(jp) - target)
+                    # Applying the linear form to an lnL record gives js < 0 for every row with
+                    # lnL < 0 -- a NEGATIVE proposal density -- and the block weights it produces
+                    # are not constant at all, which is the entire point of the flat block.  Worse,
+                    # it corrupts the canonical columns BEFORE ln_weights_from_rvs ever reads them,
+                    # so fixing the helper alone does not rescue this path.
+                    _ig = numpy.atleast_1d(numpy.asarray(
+                        sampler.identity_convert(r['integrand']), dtype=float)).ravel()
+                    _jp = numpy.atleast_1d(numpy.asarray(
+                        sampler.identity_convert(r['joint_prior']), dtype=float)).ravel()
+                    if _lnL_here:
+                        v = numpy.exp(_ig + numpy.log(_jp) - _target_lw)
+                    else:
+                        v = _ig * _jp / numpy.exp(_target_lw)
+                elif k == log_key:
+                    v = v + scale
+                elif k == lin_key:
+                    # The linear counterpart of 'log_joint_s_prior += scale'.  This used to be a
+                    # hardcoded K*n_k, which is only the FALLBACK value of `scale` -- so whenever a
+                    # reported per-replica lnZ was available the raw-field path silently skipped
+                    # the renormalization the log path applied, and a pruned or thresholded replica
+                    # was mis-weighted.  exp(scale) reduces to K*n_k in the fallback case.
+                    v = v * numpy.exp(scale)
+                cols[k].append(v)
+        for k in keys:
+            out[k] = numpy.concatenate(cols[k]) if cols[k] else numpy.array([])
+        # CACHED WEIGHTS MUST FOLLOW THE COMPONENTS.  _rvs may carry a precomputed 'log_weights'
+        # (mcsamplerPortfolio writes one), and the .dgrid and calibration-posterior exporters
+        # PREFER it -- they only fall back to log_integrand + log_joint_prior - log_joint_s_prior
+        # when it is absent.  Concatenating the per-replica caches unchanged would hand those
+        # scientific outputs the ORIGINAL weights while the estimate used the corrected ones:
+        # replica rebalancing ignored, and fairdraw blocks double-weighted again in exactly the
+        # products this pooling exists to make consistent.  Recompute from the canonical columns.
+        # Rebuild through the ONE canonical definition rather than a second inline copy of it:
+        # the copy that used to live here carried the same linear-only assumption as the helper's
+        # old second branch, so under the log convention it re-logged lnL and cut on its sign --
+        # writing exactly the flattened weights the exporters prefer.
+        try:
+            _lw_pooled = ln_weights_from_rvs(out, use_lnL=_lnL_here)
+        except Exception:
+            _lw_pooled = None
+        if _lw_pooled is not None:
+            if 'log_weights' in out:
+                out['log_weights'] = _lw_pooled
+            if 'weights' in out:
+                out['weights'] = numpy.exp(_lw_pooled - numpy.max(_lw_pooled[numpy.isfinite(_lw_pooled)]))
+        elif 'log_weights' in out or 'weights' in out:
+            # cannot rebuild them -> DROP, so consumers fall through to whatever components exist
+            # rather than silently trusting a stale cache.
+            out.pop('log_weights', None)
+            out.pop('weights', None)
+            print(" [mc error] pooled record: dropped stale cached weights (components unavailable"
+                  " to rebuild them); consumers will reconstruct from what remains")
+    except Exception as e:
+        print(" [mc error] pooling failed ({}); exporting the FIRST replica".format(e))
+        return rep_rvs[0]
+    return out
+
+
+def _export_rvs_equal_weight(rvs, sampler, use_lnL=None):
+    """The version of a POOLED record that may be written to the SimInspiral XML.
+
+    THE XML KEEPS NO WEIGHT THIS DRIVER WRITES.  xmlutils maps 'joint_prior'/'joint_s_prior'
+    onto alpha2/alpha3 -- which the ILE export below overwrites with zeros -- and the
+    log_joint_* columns the pool actually carries have no mapping at all.  So every exported
+    row is read downstream with the same weight, whatever the record says.
+
+    For an ordinary run that is the long-standing convention (the export is a fair draw, or is
+    treated as one).  For a POOLED record it is wrong in a NEW way: _pool_replica_rvs gives
+    block k weights summing to Z_k/K, deliberately unequal BETWEEN blocks, so equal-weight rows
+    mix the replicas by ROW COUNT instead of by evidence -- silently discarding exactly the
+    disagreement the replicas were run to measure, in the one output a human looks at.
+
+    So convert here rather than hope: draw rows in proportion to the pool's reconstructed
+    posterior weights, turning weights the format drops into row multiplicities it keeps.
+
+    Returns its argument UNCHANGED for any record that is not a pooled mixture (every
+    non-replica run is untouched), and on any failure to rebuild or apply the weights -- with a
+    message, because a weighted export is a real defect, not a silent degradation.
+    """
+    if not bool(getattr(sampler, '_rvs_is_pooled', False)):
+        return rvs
+    _conv = getattr(sampler, 'identity_convert', None)
+    n = _rvs_len(rvs)
+    if n <= 1:
+        return rvs
+
+    def _bail(why):
+        print(" [mc error] pooled export left AS-IS ({}); the XML preserves no weight column,"
+              " so its consumers will mix the replicas by row count".format(why))
+        return rvs
+
+    try:
+        # ln_weights_for_posterior, not ln_weights_from_rvs: it is the "how should these rows be
+        # weighted as a posterior" question.  The pooled marker is what makes it answer with the
+        # reconstructed per-row weights instead of zeros -- a flat block contributes constant
+        # weights summing to Z_k/K (already an equal-weight draw, correctly scaled), a raw block
+        # its genuine importance weights, likewise scaled.  Resolve the stored convention here:
+        # the helper deliberately passes use_lnL through unresolved, as the main driver's does.
+        lw = numpy.asarray(ln_weights_for_posterior(rvs, sampler, convert=_conv,
+                                                    use_lnL=_rvs_lnL_convention(use_lnL)),
+                           dtype=float).ravel()
+    except Exception as e:
+        return _bail(e)
+    if lw.size != n:
+        return _bail("weights are {} long for {} rows".format(lw.size, n))
+    _ok = numpy.isfinite(lw)
+    if not numpy.any(_ok):
+        return _bail("no finite weights")
+    w = numpy.zeros(n, dtype=float)
+    w[_ok] = numpy.exp(lw[_ok] - numpy.max(lw[_ok]))
+    _tot = float(numpy.sum(w))
+    if not numpy.isfinite(_tot) or _tot <= 0:
+        return _bail("weights do not sum to anything usable")
+    w = w / _tot
+    # HOW MANY ROWS.  The Kish n_eff of the pooled weights, capped at the rows available: the
+    # honest count, and the same quantity the samplers' own fair draw caps on.  Drawing the full
+    # K*n_k rows instead would report K times the independent information whenever one replica
+    # dominates -- the case pooling exists to expose.
+    n_out = int(min(n, max(1, int(round(1.0 / float(numpy.sum(w ** 2)))))))
+    # SYSTEMATIC resampling, not multinomial: one uniform offset, then n_out equally spaced
+    # positions through the cumulative weight.  Unbiased in the same way, but each block gets its
+    # evidence share of the rows deterministically rather than with O(sqrt(n)) draw noise on top
+    # of the replica scatter being measured -- and when the replicas agree (equal weights,
+    # n_out == n) it returns every row exactly once, where a bootstrap would duplicate ~37% of
+    # them for nothing.
+    cdf = numpy.cumsum(w)
+    cdf[-1] = 1.0
+    pos = (numpy.random.uniform() + numpy.arange(n_out)) / float(n_out)
+    idx = numpy.clip(numpy.searchsorted(cdf, pos, side='left'), 0, n - 1)
+    out = {}
+    for k, v in rvs.items():
+        try:
+            arr = numpy.asarray(_conv(v) if _conv is not None else v)
+        except Exception as e:
+            return _bail("column {!r}: {}".format(k, e))
+        # Index the LAST axis: _rvs may hold tuple-keyed pairs stored as (2, n).
+        if arr.ndim < 1 or arr.shape[-1] != n:
+            return _bail("column {!r} is not row-shaped".format(k))
+        out[k] = arr[..., idx]
+    print(" [mc error] pooled export re-drawn to equal weight: {} rows -> {} (weights the XML"
+          " cannot carry are now row multiplicities)".format(n, n_out))
+    return out
+
+
 def _reject_if_collapsed(dd, stage):
     """Apply --reject-collapsed-live-volume to whatever the CURRENT verdict is.
 
-    In the main driver this is called TWICE -- once on the first run and again on the
-    replica pool, because replication can turn a healthy first run into a collapsed POOL.
-    This driver has no replica pooling yet, so only the first call exists here; the second
-    call site must be added WITH --mc-error-replicas, or the flag is silently bypassed for
-    exactly the case pooling introduces.
+    Called TWICE, in both drivers: once on the first run and again on the replica POOL,
+    because replication can turn a healthy first run into a collapsed pool and gating only
+    the first would bypass the flag for exactly the case pooling introduces.  Both calls live
+    in _maybe_replicate_for_mc_error, which is why analyze_event must not gate directly.
     """
     if not opts.reject_collapsed_live_volume:
         return
@@ -1813,6 +2077,298 @@ def _report_and_gate_collapse(dict_return, stage="first run"):
         print(" [mc error] *** LIVE VOLUME COLLAPSED *** {}".format(_collapse_reason))
         print(" [mc error] this event's lnZ and exported samples are NOT a fair draw from the posterior.")
     _reject_if_collapsed(dict_return, stage)
+
+
+def _maybe_replicate_for_mc_error(sampler, res, var, neff, dict_return,
+                                  log_res, sqrt_var_over_res,
+                                  like_to_integrate, unpinned_params, pinned_params,
+                                  lnL_offset=0.0):
+    """MC-error replication + replica pooling.
+
+    Returns (res, var, neff, log_res, sqrt_var_over_res, dict_return); returns them unchanged
+    when nothing triggers, so the call site is one unconditional assignment.
+
+    A module-level helper rather than inline (as in the main driver) because THIS DRIVER HAS
+    TWO analyze_event variants -- inlining ~200 lines twice would be a third copy to keep in
+    step.  Same reason as _maybe_l0_rescue.
+
+    IT OWNS BOTH COLLAPSE-GATE CALLS.  The main driver gates once on the first run and again
+    on the POOLED verdict, because replication can turn a healthy first run into a collapsed
+    pool; gating only the first silently bypasses --reject-collapsed-live-volume for exactly
+    the case pooling introduces.  Callers must therefore NOT call _report_and_gate_collapse
+    themselves -- this does it.
+
+    `lnL_offset` is the event's lnL_offset, used only for printing
+    absolute lnZ.
+    """
+    _khat, _sig_block, _n_ess, _ci90 = _extract_mc_diag(dict_return)
+    if _sig_block is not None and numpy.isfinite(_sig_block) and _sig_block > sqrt_var_over_res:
+        print(" [mc error] sigma_lnZ raised to the between-chunk scatter: {:.4f} -> {:.4f}".format(float(sqrt_var_over_res), float(_sig_block)))
+        sqrt_var_over_res = float(_sig_block)
+    if _khat is not None:
+        print(" [mc error] Pareto k-hat = {:.3f}{}".format(float(_khat), "  (> {:.2f}: weight tail unresolved; the reported sigma is a LOWER BOUND)".format(opts.mc_error_khat_trigger) if _khat > opts.mc_error_khat_trigger else ""))
+    if _ci90 is not None:
+        print(" [mc error] bootstrap lnZ 5/50/95 quantiles: {}".format(numpy.array2string(numpy.asarray(_ci90) + lnL_offset, precision=4)))
+
+    # First-run collapse report AND gate (see the docstring: the pooled gate is below).
+    _report_and_gate_collapse(dict_return, "first run")
+
+    # AV live-volume state is persisted HERE, and the position is doubly constrained:
+    #   * AFTER the first-run gate, so a collapsed grid that --reject-collapsed-live-volume
+    #     rejects is never written.  Otherwise the event is correctly dropped while the NEXT
+    #     intrinsic point warm-starts from the degenerate volume via --sampler-load-state,
+    #     biased toward the surviving mode with nothing flagged.
+    #   * BEFORE the replica loop, because afterwards the sampler holds the LAST replica's
+    #     adapted grid rather than the run being reported.
+    # The main driver satisfies only the second: it saves ~80 lines above its own first-run
+    # gate, so a collapsed grid CAN be persisted there.  Deliberate divergence, and the main
+    # driver should take the same reordering -- flagged rather than changed here.
+    _maybe_save_av_state(sampler)
+    _collapsed = bool(dict_return.get('live_volume_collapsed', False)) if isinstance(dict_return, dict) else False
+    _collapse_reason = (dict_return or {}).get('collapse_reason', '') if isinstance(dict_return, dict) else ''
+
+    _trigger_reasons = []
+    if _collapsed and opts.mc_error_replicas > 0:
+        _trigger_reasons.append('live volume collapsed ({})'.format(_collapse_reason))
+    if opts.mc_error_replicas > 0:
+        _neff_target = pinned_params.get('neff', None)
+        if sqrt_var_over_res > opts.mc_error_sigma_trigger:
+            _trigger_reasons.append('sigma={:.3f}>{:.2f}'.format(float(sqrt_var_over_res), opts.mc_error_sigma_trigger))
+        if _khat is not None and _khat > opts.mc_error_khat_trigger:
+            _trigger_reasons.append('khat={:.2f}>{:.2f}'.format(float(_khat), opts.mc_error_khat_trigger))
+        if _n_ess is not None and _n_ess < opts.mc_error_ess_trigger:
+            _trigger_reasons.append('ESS={:.1f}<{:g}'.format(float(_n_ess), opts.mc_error_ess_trigger))
+        if _neff_target is not None and float(neff) < float(_neff_target):
+            _trigger_reasons.append('neff={:.1f}<target {:g} (ran out of nmax)'.format(float(neff), float(_neff_target)))
+    if _trigger_reasons:
+        print(" [mc error] REPLICATING ({} extra cold runs): ".format(int(opts.mc_error_replicas)) + ", ".join(_trigger_reasons))
+        _rep_lnZ = [float(log_res)]; _rep_sig = [float(sqrt_var_over_res)]; _rep_neff = [float(neff)]
+        # Keep EVERY replica's samples.  Exporting only the highest-n_eff replica made the
+        # posterior disagree with the evidence it was reported alongside: lnZ is the linear mean
+        # over K replicas, so the samples must represent that same mixture.  Worse, n_eff is the
+        # wrong selector -- it measures weight CONCENTRATION, not coverage, so a mode-collapsed
+        # replica scores HIGHEST and would be the one exported.  (Measured elsewhere in this work:
+        # the copy with the highest n_eff in its arm was the most biased, 11 nats low.)
+        _rep_rvs = [sampler._rvs]
+        # Provenance PER REPLICA, captured beside the record it describes.  The CLI flag is
+        # not this: each pass decides independently whether to fair-draw (skipped when it
+        # would not shrink that pass's record), so passing opts.fairdraw_extrinsic_output to
+        # the pooler either flattens a replica whose importance weights are genuine, or leaves
+        # a resampled replica double-weighted.  Near the n_extr boundary a run can produce a
+        # MIXTURE of raw and resampled replicas, which one global boolean cannot describe.
+        _rep_fairdraw = [bool(getattr(sampler, '_rvs_is_fairdraw', False))]
+        # Collapse status must be aggregated over EVERY replica that ends up in the pool.
+        # The exported posterior is the pooled mixture, so one collapsed replica taints it
+        # even if the first run was healthy -- and the status sidecar is written from
+        # dict_return, which only ever held the FIRST run's verdict.
+        _rep_collapsed = [bool(dict_return.get('live_volume_collapsed', False))
+                          if isinstance(dict_return, dict) else False]
+        _rep_collapse_why = [("run 1: " + dict_return['collapse_reason'])
+                             if isinstance(dict_return, dict) and dict_return.get('collapse_reason')
+                             else None]
+        for _irep in range(int(opts.mc_error_replicas)):
+            # cold restart: drop the sample cache and reset per-parameter adaptation so
+            # this replica is independent of the runs before it (AV cold-starts by
+            # construction; the AC/GPU sampler needs the explicit reset; the portfolio and
+            # the standalone GMM each need their own, below.  Any sampler matching none of
+            # these reruns warm -- still an independent realization of the draws, just not
+            # of the adaptation).
+            sampler._rvs = {}
+            # PORTFOLIO first.  Neither mcsamplerPortfolio, mcsamplerAdaptiveVolume nor
+            # mcsamplerEnsemble defines reset_sampling (only the AC/GPU sampler does), so the
+            # loop below was a no-op for them -- and because portfolio.integrate_log does NOT
+            # call self.setup(), a portfolio replica reran with the PREVIOUS replica's adapted
+            # grid and fitted GMM.  Such replicas share the very adaptation whose failure they
+            # exist to detect, so their scatter understates the true MC error.  clear_warm_state
+            # rebuilds every member from its original setup arguments.  (Standalone AV is
+            # already cold: its integrate_log calls setup() itself.)
+            # reset_adaptation() is the FULL reset: member proposals via clear_warm_state PLUS the
+            # portfolio's own learned state (draw allocation, quality EMAs and their counts, probe
+            # pointer, iteration counter, n_ess histories).  Clearing only the members leaves each
+            # replica scheduling itself from what the previous replicas learned, so they are not
+            # adaptation-independent and the between-replica scatter -- the whole quantity being
+            # measured -- still understates the error.
+            if hasattr(sampler, 'reset_adaptation'):
+                sampler.reset_adaptation()
+            elif hasattr(sampler, 'clear_warm_state'):
+                sampler.clear_warm_state()
+            elif hasattr(sampler, 'integrator'):
+                # STANDALONE GMM (mcsamplerEnsemble) -- the one supported sampler with NONE of
+                # the resets above, and the one that warm-starts hardest.  It carries the fit
+                # forward by TWO routes, so both have to be cut or the replicas share the very
+                # adaptation whose failure they exist to detect:
+                #   1. its integrate() builds a fresh integrator and then deliberately
+                #      TRANSFERS every fitted model from the previous self.integrator into it
+                #      (the warm-start-survival path).  Dropping self.integrator is the whole
+                #      reset -- integrate() rebuilds it from its own arguments, and with no
+                #      previous integrator the transfer is skipped.
+                #   2. the gmm_dict passed in pinned_params is ALIASED, not copied: the
+                #      MonteCarloEnsemble integrator holds that very object and _train writes
+                #      each refitted model back into it, so the driver's dict accumulates the
+                #      previous run's proposals and would rewarm the next replica through
+                #      kwargs even with self.integrator gone.
+                # Only the ADAPTING groups are blanked, and for them None is the exact state
+                # this dict had before the first run.  A non-adapting group (by default
+                # (psi,phi_orb), seeded with the wide phase prior) is skipped by _train and so
+                # is still pristine; blanking it would leave that group with no model at all
+                # for the rest of the run -- a silent downgrade to uniform sampling, not a
+                # cold start.  With --internal-rotate-phase that group does adapt, and its
+                # seed was updated IN PLACE by the first run, so no pristine copy survives
+                # anywhere to restore: it cold-starts from uniform, which is what the wide
+                # single-component prior approximates anyway.
+                sampler.integrator = None
+                _gmm_dict_rep = pinned_params.get('gmm_dict', None)
+                _gmm_adapt_rep = pinned_params.get('gmm_adapt', None)
+                if not isinstance(_gmm_adapt_rep, dict):
+                    _gmm_adapt_rep = {}
+                if isinstance(_gmm_dict_rep, dict):
+                    for _grp in list(_gmm_dict_rep.keys()):
+                        if _gmm_adapt_rep.get(_grp, True):
+                            _gmm_dict_rep[_grp] = None
+            if hasattr(sampler, 'reset_sampling'):
+                for _p in list(getattr(sampler, 'params_ordered', [])):
+                    try:
+                        sampler.reset_sampling(_p)
+                    except Exception:
+                        pass
+            try:
+                _r2 = sampler.integrate(like_to_integrate, *unpinned_params, **pinned_params)
+            except Exception as _e_rep:
+                print(" [mc error] replica {} failed ({}); continuing with {} results".format(_irep + 1, _e_rep, len(_rep_lnZ)))
+                continue
+            if (_r2 is None) or (_r2[0] is None):
+                continue
+            _res2, _var2, _neff2, _dd2 = _r2
+            if not(opts.internal_use_lnL):
+                _lr2 = numpy.log(_res2); _sig2 = numpy.sqrt(_var2)/_res2
+            else:
+                _lr2 = _res2; _sig2 = numpy.exp(_var2/2 - _lr2)
+            _kh2, _sb2, _ne2, _unused = _extract_mc_diag(_dd2)
+            if _sb2 is not None and numpy.isfinite(_sb2):
+                _sig2 = max(float(_sig2), float(_sb2))
+            _rep_lnZ.append(float(_lr2)); _rep_sig.append(float(_sig2)); _rep_neff.append(float(_neff2))
+            _rep_rvs.append(sampler._rvs)
+            _rep_fairdraw.append(bool(getattr(sampler, '_rvs_is_fairdraw', False)))
+            _rep_collapsed.append(bool(_dd2.get('live_volume_collapsed', False))
+                                  if isinstance(_dd2, dict) else False)
+            if isinstance(_dd2, dict) and _dd2.get('collapse_reason'):
+                _rep_collapse_why.append("replica {}: {}".format(_irep + 1, _dd2['collapse_reason']))
+        # POOL the replicas rather than picking one, so the exported posterior is a draw from the
+        # same mixture the reported evidence describes.
+        #   Zhat = (1/K) sum_k (1/n_k) sum_i w_ki    ->    pooled weight  w_ki / (K n_k)
+        # which is exactly the importance weight against the POOLED proposal density
+        # q'_ki = q_ki * K * n_k  (pick a replica uniformly, then draw one of its n_k samples).
+        # Folding the factor into log_joint_s_prior is therefore a statement of the real pooled
+        # sampling density, not a fudge -- and it leaves every downstream weight computation
+        # (which all form log_integrand + log_joint_prior - log_joint_s_prior) correct untouched.
+        _pooled_rvs = _pool_replica_rvs(_rep_rvs, sampler, rep_lnZ=_rep_lnZ,
+                                        already_resampled=_rep_fairdraw,
+                                        use_lnL=rvs_integrand_is_lnL)
+        # A POOLED RECORD IS NOT A FAIR DRAW, even when every block that went into it was.
+        # _pool_replica_rvs gives block k weights summing to Z_k/K: equal WITHIN a block (each
+        # block really is an equal-weight draw from its own posterior) but differing BETWEEN
+        # blocks by exactly the replica evidences.  Leaving the marker set would make
+        # ln_weights_for_posterior return zeros, and .dgrid and the proposal breadcrumb would
+        # then mix the replicas by exported ROW COUNT instead of by evidence -- silently
+        # discarding the disagreement the replicas were run to measure.  The reconstructed
+        # per-row weights already encode it, so clear the marker and let them be read.
+        #
+        # Only when it actually pooled: every fallback path in _pool_replica_rvs returns one of
+        # its INPUT records unchanged (too few replicas, no sampling-prior column, an exception),
+        # and such a record is still the fair draw it arrived as.  Identity, not length, is the
+        # reliable test for that.
+        _did_pool = not any(_pooled_rvs is _r for _r in _rep_rvs)
+        if _did_pool:
+            # POOLED, not equal-weight.  The rows are still posterior-resampled wherever their
+            # block was (so _rvs_is_fairdraw stays, and the .dslice safeguard keeps firing),
+            # but the record as a whole is a mixture weighted by the replica evidences, so
+            # ln_weights_for_posterior must read the reconstructed per-row weights.
+            sampler._rvs_is_pooled = True
+            sampler._rvs_is_fairdraw = any(_rep_fairdraw)
+        # Did pooling FLATTEN any block?  That, not "is the record resampled", is what makes
+        # the pooled Kish n_eff meaningless below -- a flattened block's rows carry its export
+        # size rather than its integration quality.
+        _blocks_flattened = bool(_did_pool and any(_rep_fairdraw))
+        sampler._rvs = _pooled_rvs
+        # The pooled export is a mixture over every replica in _rep_rvs, so its collapse
+        # status is the OR over them: one collapsed member taints the pool.  Fold that back
+        # into dict_return, which is what the status sidecar and the downstream reporting
+        # read -- otherwise a healthy first run followed by a collapsed replica would export
+        # the pooled posterior while recording "collapsed": false.
+        if isinstance(dict_return, dict):
+            _any_collapsed = any(_rep_collapsed)
+            _why = [w for w in _rep_collapse_why if w]
+            dict_return['live_volume_collapsed'] = bool(_any_collapsed)
+            dict_return['n_replicas_pooled'] = int(len(_rep_lnZ))
+            dict_return['n_replicas_collapsed'] = int(sum(1 for c in _rep_collapsed if c))
+            if _any_collapsed:
+                dict_return['collapse_reason'] = "; ".join(_why) if _why else "a pooled replica collapsed"
+                print(" [mc error] *** LIVE VOLUME COLLAPSED in {} of {} pooled replicas ***".format(
+                    dict_return['n_replicas_collapsed'], dict_return['n_replicas_pooled']))
+                print(" [mc error] {}".format(dict_return['collapse_reason']))
+                print(" [mc error] the POOLED posterior therefore contains degenerate samples.")
+        # Re-apply the rejection gate to the POOLED verdict.  The early call above saw only
+        # the first run, so without this a healthy first run followed by a collapsed replica
+        # would export the pooled, collapsed result with --reject-collapsed-live-volume set.
+        _reject_if_collapsed(dict_return, "pooled over {} replicas".format(len(_rep_lnZ)))
+        if len(_rep_lnZ) > 1:
+            _K = len(_rep_lnZ)
+            _l = numpy.array(_rep_lnZ); _s = numpy.array(_rep_sig)
+            _lref = numpy.max(_l)
+            _Z = numpy.exp(_l - _lref)
+            _Zbar = numpy.mean(_Z)
+            _lnZ_comb = numpy.log(_Zbar) + _lref          # linear mean over replicas: unbiased in Z
+            _sig_prop = float(numpy.sqrt(numpy.sum((_s*_Z)**2))/(_K*_Zbar))
+            _sig_scatter = float(numpy.std(_l, ddof=1)/numpy.sqrt(_K))   # t_{K-1}: small-K quantiles are wider than Gaussian, hence the max() below
+            _sig_comb = max(_sig_prop, _sig_scatter)
+            print(" [mc error] combined {} replicas: lnZ {} -> {:.4f} (shift {:+.3f} vs first); sigma propagated {:.3f} / scatter {:.3f} -> {:.3f}; neff {} -> {:.1f}".format(
+                _K, numpy.array2string(_l + lnL_offset, precision=3), float(_lnZ_comb + lnL_offset), float(_lnZ_comb - _rep_lnZ[0]),
+                _sig_prop, _sig_scatter, _sig_comb, numpy.array2string(numpy.asarray(_rep_neff), precision=1), float(numpy.sum(_rep_neff))))
+            log_res = float(_lnZ_comb)
+            sqrt_var_over_res = _sig_comb
+            # Report the POOLED n_eff, not the sum.  The sum claims the posterior carries the
+            # combined effective sample size of K independent runs, which is only true if they
+            # agree; when they disagree -- the case these replicas exist to detect -- the pooled
+            # Kish n_eff is smaller, and that disagreement is exactly what should show up here.
+            #
+            # ...but NOT the Kish n_eff OF THE POOLED RECORD when that record is the fair-draw
+            # export.  _pool_replica_rvs deliberately FLATTENS each block in that case (equal
+            # weights within a block, summing to Z_k/K), and the Kish n_eff of piecewise-constant
+            # weights is just the row count -- i.e. K*min(n_max, 1.5*eff_samp, 1.5*neff), the size
+            # of the EXPORT, which says nothing about how well the integral converged.  NOTE this
+            # driver has no --fairdraw-extrinsic-output-n-max: it caps the export at opts.n_eff
+            # (igrand_fairdraw_samples_max), so the bogus figure would be K*n_eff, not 5K.
+            #
+            # Do the same computation one level up, where the quantities are still meaningful:
+            # Kish over the BLOCKS, each carrying its own Z_k and its own n_eff,
+            #
+            #     neff_pooled = (sum_k Z_k)^2 / sum_k (Z_k^2 / neff_k)
+            #
+            # which has exactly the property the paragraph above asks for: it reduces to
+            # sum_k neff_k when the replicas agree, and falls below it when they disagree --
+            # the disagreement these replicas exist to detect.
+            if _blocks_flattened:
+                _l_rel = numpy.asarray(_rep_lnZ, dtype=float) - float(numpy.max(_rep_lnZ))
+                _Zk = numpy.exp(_l_rel)
+                _nk = numpy.asarray(_rep_neff, dtype=float)
+                _ok = numpy.isfinite(_Zk) & numpy.isfinite(_nk) & (_nk > 0)
+                _neff_pooled = (float(numpy.sum(_Zk[_ok]) ** 2 / numpy.sum(_Zk[_ok] ** 2 / _nk[_ok]))
+                                if numpy.any(_ok) else None)
+                _neff_how = 'block Kish over replicas (the export is fair-drawn)'
+            else:
+                _neff_pooled = _kish_neff_of_rvs(sampler._rvs)
+                _neff_how = 'Kish over the pooled samples'
+            neff = float(_neff_pooled) if _neff_pooled is not None else float(numpy.sum(_rep_neff))
+            if _neff_pooled is not None:
+                print(" [mc error] pooled posterior: {} samples, n_eff {:.1f} via {} (sum over replicas was {:.1f})".format(
+                    len(numpy.atleast_1d(list(sampler._rvs.values())[0])) if sampler._rvs else 0,
+                    float(_neff_pooled), _neff_how, float(numpy.sum(_rep_neff))))
+            # keep the (res, var) pair consistent for any downstream reader
+            if not(opts.internal_use_lnL):
+                res = numpy.exp(log_res); var = (sqrt_var_over_res*res)**2
+            else:
+                res = log_res; var = 2*numpy.log(sqrt_var_over_res) + 2*log_res
+    return res, var, neff, log_res, sqrt_var_over_res, dict_return
 
 
 def _maybe_l0_rescue(sampler, res, var, neff, dict_return,
@@ -2112,6 +2668,20 @@ def resample_samples(my_samples,
 def analyze_event_LISA(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec):
     print("\n###########################################################################################\nPrecomputing\n###########################################################################################")
     nEvals=0
+    # PROVENANCE RESET, ON ENTRY, BEFORE ANYTHING CAN FAIL.
+    #
+    # _rvs_is_pooled describes the record this call is about to build, and it is set by THIS
+    # function (the replica block) rather than by a sampler, so no sampler-side per-pass reset
+    # can clear it.  Clearing it only on the normal return is not enough: _reject_if_collapsed
+    # RAISES after pooling, the caller's `except Exception` swallows that and moves to the next
+    # event, and the marker survives.  The next ordinary fair draw is then read as "pooled",
+    # _rvs_is_equal_weight goes False, and any consumer that weights rows applies importance
+    # weights to rows that already carry them -- the w^2 defect, resurrected on the event after
+    # any failure.
+    #
+    # On ENTRY rather than in a `finally`: entry is reached on every call by construction, and
+    # it leaves the state correct even for a caller that never returns normally at all.
+    sampler._rvs_is_pooled = False
     P = P_list[indx_event]
     # if pin-distance-to-sim, change the distance prior accordingly
     if opts.pin_distance_to_sim:
@@ -2232,19 +2802,22 @@ def analyze_event_LISA(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_
     if not(res): # no resut
       raise ValueError(" No integral result returned")
 
-    # Collapse gate AFTER the result check, matching the main driver's ordering.
-    _report_and_gate_collapse(dict_return, "first run")
-    # Persist only a result we are actually willing to report.  In particular, never write
-    # a collapsed grid that --reject-collapsed-live-volume just rejected, nor a warm grid
-    # whose rescue result was rejected/failed and replaced by the cold estimate.
-    _maybe_save_av_state(sampler)
-
     if not(opts.internal_use_lnL):
       log_res = numpy.log(res)
       sqrt_var_over_res =  numpy.sqrt(var)/res
     else:
       log_res = res
       sqrt_var_over_res =  numpy.exp(var/2 - log_res)
+
+    # MC-error diagnostics, the collapse report/gate, and replica replication+pooling.  This
+    # OWNS both collapse-gate calls (first run and pooled verdict) -- do not add a separate
+    # _report_and_gate_collapse call here, or the pooled one gets bypassed.  It needs
+    # log_res/sqrt_var_over_res, hence its position after they are computed; the main driver
+    # has the same ordering inline.
+    res, var, neff, log_res, sqrt_var_over_res, dict_return = _maybe_replicate_for_mc_error(
+        sampler, res, var, neff, dict_return, log_res, sqrt_var_over_res,
+        like_to_integrate, unpinned_params, pinned_params,
+        lnL_offset=manual_avoid_overflow_logarithm)
 
     # Report results
     if opts.output_file:
@@ -2283,6 +2856,11 @@ def analyze_event_LISA(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_
     if opts.save_samples and opts.output_file:
       import copy
       samples = copy.deepcopy(sampler._rvs)  # deep copy: avoid modifying structures and  having side effect on integrator, which loops over keys Expensive!
+      # A POOLED record (--mc-error-replicas) is weighted BETWEEN blocks by the replica
+      # evidences, and nothing below preserves those weights: convert it to an equal-weight
+      # draw BEFORE anything consumes it -- including resample_samples_LISA, which picks a time
+      # per row and so assumes the rows already are the posterior.  A no-op otherwise.
+      samples = _export_rvs_equal_weight(samples, sampler, use_lnL=rvs_integrand_is_lnL)
       # Insert reference distance if it was marginalized over
       if "distance" not in samples:
         # Not distance output is the same as internal calculations: in *Mpc*
@@ -2300,7 +2878,7 @@ def analyze_event_LISA(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_
       xmldoc = ligolw.Document()
       xmldoc.appendChild(ligolw.LIGO_LW())
       process.register_to_xmldoc(xmldoc, sys.argv[0], opts.__dict__)
-      if not(opts.resample_time_marginalization): 
+      if not(opts.resample_time_marginalization):
         if not opts.time_marginalization:
             samples["t_ref"] += float(fiducial_epoch)
         else:
@@ -2318,7 +2896,7 @@ def analyze_event_LISA(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_
         samples['psi']= psi_true
         samples['phi_orb'] = phi_orb_true
       samples["polarization"] = samples["psi"]
-      samples["coa_phase"] = samples["phi_orb"]        
+      samples["coa_phase"] = samples["phi_orb"]
       if ("declination", "right_ascension") in sampler.params:
             samples["latitude"], samples["longitude"] = samples[("declination", "right_ascension")]
       else:
@@ -2471,6 +3049,20 @@ def analyze_event_LISA(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_
 
 def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec):
     nEvals=0
+    # PROVENANCE RESET, ON ENTRY, BEFORE ANYTHING CAN FAIL.
+    #
+    # _rvs_is_pooled describes the record this call is about to build, and it is set by THIS
+    # function (the replica block) rather than by a sampler, so no sampler-side per-pass reset
+    # can clear it.  Clearing it only on the normal return is not enough: _reject_if_collapsed
+    # RAISES after pooling, the caller's `except Exception` swallows that and moves to the next
+    # event, and the marker survives.  The next ordinary fair draw is then read as "pooled",
+    # _rvs_is_equal_weight goes False, and any consumer that weights rows applies importance
+    # weights to rows that already carry them -- the w^2 defect, resurrected on the event after
+    # any failure.
+    #
+    # On ENTRY rather than in a `finally`: entry is reached on every call by construction, and
+    # it leaves the state correct even for a caller that never returns normally at all.
+    sampler._rvs_is_pooled = False
     P = P_list[indx_event]
     # if pin-distance-to-sim, change the distance prior accordingly
     if opts.pin_distance_to_sim:
@@ -2957,17 +3549,22 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_spec_
     if not(res): # no resut
       raise ValueError(" No integral result returned")
 
-    # Collapse gate AFTER the result check, matching the main driver's ordering.
-    _report_and_gate_collapse(dict_return, "first run")
-    # See the LISA variant above: only persist accepted, reusable AV state.
-    _maybe_save_av_state(sampler)
-
     if not(opts.internal_use_lnL):
       log_res = numpy.log(res)
       sqrt_var_over_res =  numpy.sqrt(var)/res
     else:
       log_res = res
       sqrt_var_over_res =  numpy.exp(var/2 - log_res)
+
+    # MC-error diagnostics, the collapse report/gate, and replica replication+pooling.  This
+    # OWNS both collapse-gate calls (first run and pooled verdict) -- do not add a separate
+    # _report_and_gate_collapse call here, or the pooled one gets bypassed.  It needs
+    # log_res/sqrt_var_over_res, hence its position after they are computed; the main driver
+    # has the same ordering inline.
+    res, var, neff, log_res, sqrt_var_over_res, dict_return = _maybe_replicate_for_mc_error(
+        sampler, res, var, neff, dict_return, log_res, sqrt_var_over_res,
+        like_to_integrate, unpinned_params, pinned_params,
+        lnL_offset=manual_avoid_overflow_logarithm)
 
     # Report results
     if opts.output_file:
@@ -3002,6 +3599,11 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_spec_
     if opts.save_samples and opts.output_file:
       import copy
       samples = copy.deepcopy(sampler._rvs)  # deep copy: avoid modifying structures and  having side effect on integrator, which loops over keys Expensive!
+      # A POOLED record (--mc-error-replicas) is weighted BETWEEN blocks by the replica
+      # evidences, and nothing below preserves those weights: convert it to an equal-weight
+      # draw BEFORE anything consumes it -- including the time resampler, which picks a time per
+      # row and so assumes the rows already are the posterior.  A no-op otherwise.
+      samples = _export_rvs_equal_weight(samples, sampler, use_lnL=rvs_integrand_is_lnL)
       # Insert reference distance if it was marginalized over
       if "distance" not in samples:
         # Not distance output is the same as internal calculations: in *Mpc*

@@ -451,9 +451,22 @@ def test_reject_message_reports_lnZ_on_the_events_offset_scale(capsys):
 def test_both_call_sites_pass_the_events_offset():
     """Source-level, because the value comes from a local of each analyze_event."""
     src = _src()
-    assert src.count("lnL_offset=manual_avoid_overflow_logarithm") == 2, \
-        "a call site dropped the event's lnL offset, so its reject message would quote " \
-        "the internally-offset lnZ instead of the absolute one"
+    # Count PER HELPER, not globally: more than one helper now takes lnL_offset (the L0
+    # rescue and the MC-error replica block), so a global count silently absorbs a call
+    # site that dropped it as long as some other helper still passes it.
+    tree = ast.parse(src)
+    for helper, want in (("_maybe_l0_rescue", 2), ("_maybe_replicate_for_mc_error", 2)):
+        passing = [c for c in ast.walk(tree)
+                   if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)
+                   and c.func.id == helper
+                   and any(k.arg == "lnL_offset"
+                           and isinstance(k.value, ast.Name)
+                           and k.value.id == "manual_avoid_overflow_logarithm"
+                           for k in c.keywords)]
+        assert len(passing) == want, (
+            "%s: %d of %d call sites pass lnL_offset=manual_avoid_overflow_logarithm; a "
+            "site that dropped it would quote the internally-offset lnZ, not the absolute one"
+            % (helper, len(passing), want))
 
 
 def test_accept_truncated_reports_the_warm_pass_anyway():
