@@ -279,6 +279,11 @@
     "verdict": "PER_ROW",
     "why": "_snapshot_pass_state takes a dict copy of whatever rows are present so a rejected warm pass can be undone. It makes no claim about their statistics, and it snapshots the fair-draw MARKER alongside them so the restored record and the marker describing it cannot disagree."
   },
+  "bin/integrate_likelihood_extrinsic_batchmode:_snapshot_pass_state:4b8666916a": {
+    "source": "rvs_record=_rebound_record(sampler, dict(sampler._rvs) if rvs is None else rvs),",
+    "verdict": "PER_ROW",
+    "why": "Snapshots the columns for a possible restore and rebinds the record to that copy, so the restored record describes what is actually put back rather than the original dict (which would fail every identity check and be inert). A dict copy; reads no statistic of the rows."
+  },
   "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:011d296b48": {
     "source": "_rep_rvs = [sampler._rvs]",
     "verdict": "PER_ROW",

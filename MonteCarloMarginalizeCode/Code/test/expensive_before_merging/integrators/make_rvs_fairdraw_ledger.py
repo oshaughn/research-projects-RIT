@@ -38,6 +38,12 @@ def verdict(h):
                 "the previous record's PROVENANCE (eager) rather than from len() (lazy, and "
                 "would read the already-rebound dict). Reads no statistic of the rows: it "
                 "records WHAT THEY ARE at the moment that changes.")
+    if "_rebound_record(sampler, dict(sampler._rvs)" in s:
+        return ("PER_ROW",
+                "Snapshots the columns for a possible restore and rebinds the record to that "
+                "copy, so the restored record describes what is actually put back rather than "
+                "the original dict (which would fail every identity check and be inert). A "
+                "dict copy; reads no statistic of the rows.")
     if "_rvs_record_for(sampler, sampler._rvs)" in s:
         return ("PER_ROW",
                 "Looks up the record describing these columns, declining it if _rvs has been "

@@ -430,8 +430,9 @@ def test_rejecting_the_warm_pass_restores_the_cold_reserve():
     then seeds the next intrinsic point from.  Snapshot and restore must move together."""
     ns = {}
     src = open(_ILE).read()
-    start = src.index("def _snapshot_pass_state")
+    start = src.index("def _rebound_record")   # _snapshot_pass_state calls it
     end = src.index("def _warm_seed_geometry")
+    ns.update({"numpy": np, "np": np})
     exec(compile(src[start:end], "ile_state_helpers", "exec"), ns)
 
     class _S(object):
@@ -461,8 +462,9 @@ def test_the_restore_reaches_portfolio_member_reserves_too():
     aggregate would leave that fallback pointing at the rejected warm pass."""
     ns = {}
     src = open(_ILE).read()
-    start = src.index("def _snapshot_pass_state")
+    start = src.index("def _rebound_record")   # _snapshot_pass_state calls it
     end = src.index("def _warm_seed_geometry")
+    ns.update({"numpy": np, "np": np})
     exec(compile(src[start:end], "ile_state_helpers", "exec"), ns)
 
     class _S(object):
@@ -566,8 +568,10 @@ def test_the_posterior_weight_helper_asks_the_equal_weight_question():
     assert '_rvs_is_equal_weight(sampler)' in body
     assert '_rvs_is_export_resample(sampler)' not in body
     # ...and the weight itself now comes from the record
-    assert '_rec.log_weights()' in body, \
+    assert '_rec.log_weights(' in body, \
         'the weight is still derived outside the record; the migration is incomplete'
+    assert 'convert=convert' in body, \
+        "the caller's converter is dropped on the record path"
 
 
 ###

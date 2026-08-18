@@ -128,3 +128,32 @@ CIT must run on a different host from the session. **It has not been run.** Per 
 stopping rule, this migration is therefore **provisional** until it has: tiers 0-2 are strong
 evidence that the change is a pure refactor, but they do not exercise a real waveform, a real
 PSD, or the GPU code path.
+
+---
+
+# ADVERSARIAL REVIEW (2026-08-14), and what it found
+
+A self-review of the full branch diff produced **6 findings, one of which was a production
+regression this change had introduced**. All six are fixed, each with a regression test.
+
+**HIGH -- replicas on a linear backend would have DROPPED THE EVENT.** `_pool_replica_rvs`
+keeps only the *intersection* of replica keys, so pooling `adaptive_cartesian` (or Ensemble
+without `use_lnL`) replicas yields a bare `integrand` column. The ILE built the pooled record
+with no `integrand_is_log`, so `log_weights()` correctly refused to guess -- and that
+`ValueError` escaped the **unwrapped** `.dgrid` exporter, out of `analyze_event`, into the
+per-event handler, which skips the event and writes an empty `.dat`. The convention is now
+taken from the pre-pool record, falling back to `rvs_integrand_is_lnL`.
+
+Note what this says about the tiers: **tier 0 was bit-identical before and after the fix**,
+because the shape gate does not run the ILE at all, and neither the fast tests nor tier 1
+exercise replica pooling on a linear backend. Bit-identity is a strong check of the code path
+it covers and says nothing about the paths it does not.
+
+The other five: the caller's `convert` was silently dropped on the record path; the pooled
+record's block provenance was built from *unfiltered* replica lists while `_pool_replica_rvs`
+filters in lockstep; `_sampler_keeps_records` tested "has a record right now" while being named
+and documented as "participates at all"; the record restored after an L0 reject could never
+match its columns and was therefore inert rather than belt-and-braces; and an orphaned comment
+fragment sat at all seven rebind sites.
+
+Tier 0 was re-run after the fixes: still **bit-identical** to base across all 32 cells.

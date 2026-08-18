@@ -210,7 +210,7 @@ class RvsRecord(object):
         out[pos] = np.log(v[pos])
         return out
 
-    def log_weights(self):
+    def log_weights(self, convert=None):
         """THE importance log-weight per row: lnL + ln pi - ln q -> float array.
 
         No `use_lnL` argument, because the record already knows.  That parameter exists on
@@ -230,16 +230,21 @@ class RvsRecord(object):
         above remain correct in isolation -- conjunctiveness is a property of the WEIGHT, not of
         the prior.
         """
+        # `convert` is the CALLER's host-transfer hook (the ILE passes identity_convert).  It
+        # was silently ignored in the first version, which happened to be harmless because
+        # _host and cupy.asnumpy coincide for cupy arrays -- but "happens to coincide" is not a
+        # contract, and the GPU path is exactly where it would not be noticed.  Honour it.
+        _cv = convert if convert is not None else _host
         c = self.columns
         if all(k in c for k in ('log_integrand', 'log_joint_prior', 'log_joint_s_prior')):
             # log family: a plain sum, no mask, exactly as ln_weights_from_rvs does
-            return (np.asarray(_host(c['log_integrand']), dtype=float).ravel()
-                    + np.asarray(_host(c['log_joint_prior']), dtype=float).ravel()
-                    - np.asarray(_host(c['log_joint_s_prior']), dtype=float).ravel())
+            return (np.asarray(_cv(c['log_integrand']), dtype=float).ravel()
+                    + np.asarray(_cv(c['log_joint_prior']), dtype=float).ravel()
+                    - np.asarray(_cv(c['log_joint_s_prior']), dtype=float).ravel())
         if all(k in c for k in ('integrand', 'joint_prior', 'joint_s_prior')):
-            ig = np.asarray(_host(c['integrand']), dtype=float).ravel()
-            jp = np.asarray(_host(c['joint_prior']), dtype=float).ravel()
-            js = np.asarray(_host(c['joint_s_prior']), dtype=float).ravel()
+            ig = np.asarray(_cv(c['integrand']), dtype=float).ravel()
+            jp = np.asarray(_cv(c['joint_prior']), dtype=float).ravel()
+            js = np.asarray(_cv(c['joint_s_prior']), dtype=float).ravel()
             out = np.full(len(ig), -np.inf)
             if self.integrand_is_log is True:
                 keep = np.isfinite(ig) & (jp > 0) & (js > 0)

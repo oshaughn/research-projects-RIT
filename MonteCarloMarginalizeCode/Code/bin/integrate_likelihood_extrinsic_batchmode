@@ -51,7 +51,8 @@ import glue.lal
 import RIFT.lalsimutils as lalsimutils
 from RIFT.precision import RiftFloat
 import RIFT.integrators.mcsampler as mcsampler
-from RIFT.integrators.rvs_record import RvsRecord as _RvsRecord   # DRAFT: DESIGN_rvs_naming.md
+from RIFT.integrators.rvs_record import (RvsRecord as _RvsRecord,   # DRAFT: DESIGN_rvs_naming.md
+                                         SamplerOutputMixin)
 # NOTE: the name 'mcsampler' above is REBOUND below to mcsamplerGPU for some --sampler-method
 # choices, so the zoom-box helpers are imported under their own names.  They are backend-agnostic:
 # each closure infers its array module from the argument it is handed (numpy on the CPU/AV paths,
@@ -2156,8 +2157,13 @@ def _sampler_keeps_records(sampler):
 
     Two questions, two names.  That is the entire lesson of this file's last four review rounds.
     """
-    _get = getattr(sampler, 'samples', None)
-    return callable(_get) and _get() is not None
+    # PARTICIPATION, not "is one present right now".  Every sampler clears _rvs_record at the
+    # top of integrate(), so a replica that raised leaves None behind while the sampler is still
+    # a full participant -- and keying on presence would silently skip building the pooled
+    # record for it.  Ask whether the sampler implements the scheme at all.
+    return isinstance(sampler, SamplerOutputMixin) or (
+        callable(getattr(sampler, 'samples', None))
+        and callable(getattr(sampler, 'set_samples', None)))
 
 
 def _rvs_is_export_resample(sampler):
@@ -2237,7 +2243,7 @@ def ln_weights_for_posterior(rvs, sampler, convert=None, use_lnL=None):
         # first -- log_weights() had been computing lnL + ln(pi) - ln(q) term by term, which
         # yields NaN where the canonical form's conjunctive keep-mask yields -inf -- and it is
         # fixed there rather than papered over here.
-        return numpy.asarray(_rec.log_weights(), dtype=float)
+        return numpy.asarray(_rec.log_weights(convert=convert), dtype=float)
     if _rvs_is_equal_weight(sampler):
         return numpy.zeros(_rvs_len(rvs), dtype=float)
     return numpy.asarray(ln_weights_from_rvs(rvs, convert=convert, use_lnL=use_lnL),
@@ -2492,6 +2498,21 @@ def _lnZ_of_reserve_or_rvs(sampler, rvs, reserve=None):
     return _lnZ_of_rvs(rvs, already_pooled=False), 'fairdraw'
 
 
+def _rebound_record(sampler, columns):
+    """A copy of the sampler's record whose `.columns` is `columns` -> RvsRecord or None.
+
+    Snapshot/restore installs a COPY of the column dict, so a record still pointing at the
+    original would fail every identity check and silently do nothing.
+    """
+    _get = getattr(sampler, 'samples', None)
+    rec = _get() if callable(_get) else None
+    if rec is None:
+        return None
+    out = rec.snapshot()
+    out.columns = columns
+    return out
+
+
 def _snapshot_pass_state(sampler, res, var, neff, dict_return, rvs=None):
     """Everything that must move TOGETHER when a completed pass is put back -> dict.
 
@@ -2517,7 +2538,11 @@ def _snapshot_pass_state(sampler, res, var, neff, dict_return, rvs=None):
         # The record too.  A stale one is already declined by _rvs_record_for's identity check,
         # so this is belt-and-braces -- but "everything describing the pass moves together" is
         # the invariant, and carving an exception into it is how round 1 happened.
-        rvs_record=(sampler.samples() if callable(getattr(sampler, 'samples', None)) else None),
+        # REBOUND to the snapshot's columns.  The record held a reference to the LIVE dict, and
+        # the restore installs a COPY -- so storing it as-is produced a record whose identity
+        # check could never match, i.e. inert rather than belt-and-braces.  Rebinding makes it
+        # describe what is actually put back.
+        rvs_record=_rebound_record(sampler, dict(sampler._rvs) if rvs is None else rvs),
         member_reserves=[getattr(_m, '_warm_seed_reserve', None)
                          for _m in list(getattr(sampler, 'portfolio_realizations', []) or [])],
     )
@@ -3929,9 +3954,28 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             # a pooled record is a mixture of several, so there is no single retained set.
             if _sampler_keeps_records(sampler):
                 try:
+                    # THE CONVENTION MUST COME ALONG.  _pool_replica_rvs keeps only the
+                    # INTERSECTION of the replica keys, so on a linear-only backend
+                    # (adaptive_cartesian, or Ensemble without use_lnL) the pooled record has a
+                    # bare `integrand` column.  Without a recorded convention log_weights()
+                    # raises rather than guessing -- correct in itself, but it would abort the
+                    # unwrapped .dgrid export and the outer handler would DROP THE EVENT.  The
+                    # blocks all come from one sampler, so its pre-pool record knows; fall back
+                    # to the run's stored convention.
+                    _pre = sampler.samples()
+                    _pool_is_log = (_pre.integrand_is_log if _pre is not None else None)
+                    if _pool_is_log is None:
+                        _pool_is_log = rvs_integrand_is_lnL
+                    # LOCKSTEP with _pool_replica_rvs, which drops empty records together with
+                    # their lnZ and their resampled flag.  Filtering here too keeps the
+                    # provenance describing the blocks the record actually contains.
+                    _keep_rec = [_i for _i, _r in enumerate(_rep_rvs) if _r]
                     sampler.set_samples(_RvsRecord.pooled(
-                        _pooled_rvs, resampled_blocks=list(_rep_fairdraw),
-                        block_sizes=[_rvs_len(_r) for _r in _rep_rvs]))
+                        _pooled_rvs,
+                        resampled_blocks=[_rep_fairdraw[_i] for _i in _keep_rec
+                                          if _i < len(_rep_fairdraw)],
+                        block_sizes=[_rvs_len(_rep_rvs[_i]) for _i in _keep_rec],
+                        integrand_is_log=_pool_is_log))
                 except Exception as _e_rec:
                     sampler.set_samples(None)
                     print("  [rvs-record] pooled record not built ({}); falling back to the"

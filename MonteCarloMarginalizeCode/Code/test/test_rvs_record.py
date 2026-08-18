@@ -718,8 +718,12 @@ def test_log_weights_needs_no_use_lnL_argument():
     bug where a caller passes opts.internal_use_lnL instead of the stored convention."""
     import inspect
     sig = inspect.signature(RvsRecord.log_weights)
-    assert list(sig.parameters) == ['self'], \
+    # a host-transfer hook is fine; a CONVENTION argument is not -- the record already knows
+    assert set(sig.parameters) <= {'self', 'convert'}, \
         'log_weights() grew a convention argument; the record is supposed to already know'
+    for banned in ('use_lnL', 'return_lnI', 'integrand_is_log'):
+        assert banned not in sig.parameters, \
+            'log_weights() takes {}; the whole point is that it does not need one'.format(banned)
 
 
 @pytest.mark.skipif(not os.path.exists(_ILE), reason='ILE executable not in this tree')
@@ -975,3 +979,95 @@ def test_log_weights_matches_the_canonical_form_including_out_of_support_rows():
                 bad.append(kind)
     assert not bad, 'log_weights() diverges from the canonical form on {} record(s): {}'.format(
         len(bad), sorted(set(bad)))
+
+
+###
+### ADVERSARIAL REVIEW FINDINGS (2026-08-14) -- regressions for each
+###
+
+def test_a_pooled_record_from_a_linear_backend_can_still_produce_weights():
+    """REVIEW FINDING 1, the one that would have dropped events.
+
+    _pool_replica_rvs keeps only the INTERSECTION of the replica keys, so pooling
+    adaptive_cartesian (or Ensemble without use_lnL) replicas yields a bare `integrand` column.
+    Built without a convention, log_weights() correctly refuses to guess -- and that ValueError
+    escapes the UNWRAPPED .dgrid exporter, out of analyze_event, into the per-event handler,
+    which skips the event and writes an empty .dat.  Replicas + a linear backend + .dgrid was a
+    dropped event.
+    """
+    cols = {'integrand': np.array([1.0, 2.0, 3.0, 4.0]),
+            'joint_prior': np.ones(4), 'joint_s_prior': np.ones(4)}
+    unconventioned = RvsRecord.pooled(cols, [True, True], [2, 2])
+    with pytest.raises(ValueError):
+        unconventioned.log_weights()          # the record is right to refuse...
+
+    # ...so the ILE must supply the convention, which it takes from the pre-pool record.
+    fixed = RvsRecord.pooled(cols, [True, True], [2, 2], integrand_is_log=False)
+    lw = fixed.log_weights()
+    assert np.all(np.isfinite(lw)) and len(lw) == 4
+
+
+@pytest.mark.skipif(not os.path.exists(_ILE), reason='ILE executable not in this tree')
+def test_the_ile_passes_a_convention_when_it_builds_the_pooled_record():
+    src = open(_ILE).read()
+    i = src.index('_RvsRecord.pooled(')
+    block = src[max(0, i - 1600):i + 400]
+    assert 'integrand_is_log=' in block, \
+        'the pooled record is built with no convention; a linear backend will raise'
+    assert 'rvs_integrand_is_lnL' in block, 'no fallback when the pre-pool record is absent'
+
+
+@pytest.mark.skipif(not os.path.exists(_ILE), reason='ILE executable not in this tree')
+def test_the_pooled_record_provenance_is_filtered_in_lockstep():
+    """REVIEW FINDING 3: _pool_replica_rvs drops empty replicas together with their lnZ and
+    their resampled flag; the record's block lists must be filtered the same way or they
+    describe blocks the record does not contain."""
+    src = open(_ILE).read()
+    i = src.index('_RvsRecord.pooled(')
+    block = src[max(0, i - 1600):i + 500]
+    assert '_keep_rec' in block, 'the record\'s block provenance is built from unfiltered lists'
+
+
+@pytest.mark.skipif(not os.path.exists(_ILE), reason='ILE executable not in this tree')
+def test_participation_is_not_confused_with_currently_having_a_record():
+    """REVIEW FINDING 4: a replica that raised leaves _rvs_record None while the sampler is
+    still a full participant; keying on presence silently skips the pooled record."""
+    src = open(_ILE).read()
+    i = src.index('def _sampler_keeps_records')
+    body = src[i:i + 1400]
+    assert 'isinstance(sampler, SamplerOutputMixin)' in body, \
+        'participation is still inferred from whether a record happens to be present'
+
+
+def test_a_snapshotted_record_describes_the_columns_that_get_restored():
+    """REVIEW FINDING 5: the restore installs a COPY of the column dict, so a record still
+    pointing at the original fails every identity check and does nothing at all."""
+    # ONE namespace as globals: the helpers call each other, and functions resolve names in
+    # globals, so exec(code, globals, locals) leaves them unable to see one another.
+    src = open(_ILE).read()
+    start = src.index("def _rebound_record")
+    end = src.index("def _warm_seed_geometry")
+    ns = {"numpy": np, "np": np}
+    exec(compile(src[start:end], "ile_state", "exec"), ns)
+
+    class _S(SamplerOutputMixin):
+        pass
+    s = _S()
+    s._rvs = {'log_integrand': np.zeros(3), 'log_joint_prior': np.zeros(3),
+              'log_joint_s_prior': np.zeros(3)}
+    s.set_samples(RvsRecord.retained(s._rvs))
+    s._rvs_is_fairdraw = False; s._rvs_is_pooled = False
+    s._warm_seed_reserve = None; s.portfolio_realizations = []
+
+    cold = dict(s._rvs)
+    state = ns["_snapshot_pass_state"](s, 1, 2, 3, {}, rvs=cold)
+    s._rvs = {'log_integrand': np.ones(9)}            # the warm pass replaces it
+    s.set_samples(RvsRecord.fair_draw(s._rvs))
+    ns["_restore_pass_state"](s, state)
+
+    assert s.samples() is not None, 'the record was dropped on restore'
+    assert s.samples().columns is s._rvs, \
+        'the restored record does not describe the restored columns, so it is inert'
+    # which is exactly what _rvs_record_for's identity check asks (it is defined earlier in
+    # the file than the slice exec'd above, so the condition is restated rather than imported)
+    assert s.samples().columns is s._rvs

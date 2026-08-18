@@ -1973,7 +1973,6 @@ class MCSampler(SamplerOutputMixin, object):
                 # self._rvs and would return the POST-draw length: the retained record holds a
                 # REFERENCE to the live dict this block has just replaced in place.  That is
                 # this project's own bug class, so it is spelled out rather than assumed.
-               # which counted the rows before this block replaced them.
                self._rvs_record = RvsRecord.fair_draw(
                    self._rvs, n_retained=self._rvs_record.n_retained(),
                    reserve=getattr(self, '_warm_seed_reserve', None))
