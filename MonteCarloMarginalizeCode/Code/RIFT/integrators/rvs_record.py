@@ -395,10 +395,55 @@ def _host(v):
         return v
 
 
+# Columns that are one scalar PER ROW on every backend, so any of them settles the row count
+# without having to reason about a parameter's layout at all.  Consulted first, in this order.
+_ROW_COUNT_COLUMNS = ('log_integrand', 'integrand', 'log_joint_prior', 'joint_prior',
+                      'log_joint_s_prior', 'joint_s_prior')
+
+
+def _column_shape(value):
+    """Shape of one column without pulling a GPU array to the host, or None."""
+    shape = getattr(value, 'shape', None)
+    if shape is not None:
+        return tuple(shape)          # numpy or cupy alike; counting rows must not copy
+    try:
+        return np.atleast_1d(np.asarray(value)).shape
+    except Exception:
+        return None
+
+
+def _column_n_rows(key, value):
+    """Rows in one column, or None if it says nothing about the count.
+
+    THE KEY SAYS WHERE THE ROW AXIS IS.  A parameter registered under a TUPLE key is a
+    combined parameter stored (ndim, N); a plain key is one entry per row.  That is not a
+    guess -- it is the convention every sampler already indexes by, `col[:, idx]` for a tuple
+    key against `col[idx]` otherwise (mcsampler.py and its five siblings).
+    """
+    shape = _column_shape(value)
+    if not shape:                    # unreadable, or 0-d: not a per-row column
+        return None
+    return int(shape[-1]) if isinstance(key, tuple) else int(shape[0])
+
+
 def _n_rows(columns):
-    for v in (columns or {}).values():
-        try:
-            return len(np.atleast_1d(np.asarray(v)).ravel())
-        except Exception:
-            continue
+    """Rows in a record's columns.
+
+    Flattening whichever column came first was wrong for the ordinary case, not a corner:
+    `_rvs` is seeded parameters-first, so a run with a combined parameter -- (ndim, N) under a
+    tuple key -- put one at the front and reported ndim*N.  That number became len(record), the
+    block size and n_retained in the provenance, and the LENGTH OF THE UNIFORM VECTOR
+    posterior_log_weights() hands back for a fair draw, i.e. an output-length failure ndim
+    times too long rather than a mislabelled count.
+    """
+    columns = columns or {}
+    for key in _ROW_COUNT_COLUMNS:
+        if key in columns:
+            n = _column_n_rows(key, columns[key])
+            if n is not None:
+                return n
+    for key, value in columns.items():
+        n = _column_n_rows(key, value)
+        if n is not None:
+            return n
     return 0

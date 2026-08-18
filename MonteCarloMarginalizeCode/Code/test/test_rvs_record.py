@@ -177,6 +177,44 @@ def test_len_reports_rows_not_columns():
 
 
 ###
+### A COMBINED PARAMETER IS (ndim, N), AND IT COMES FIRST
+###
+### Every sampler indexes a TUPLE-keyed column as `col[:, idx]` and a plain one as `col[idx]`,
+### and `_rvs` is seeded parameters-first -- so counting rows by flattening whichever column
+### came first reported ndim*N for an ordinary run with a combined parameter.
+###
+
+def _cols_with_combined(n, ndim=3, seed=0):
+    """Columns in the order a sampler builds them: the combined parameter FIRST."""
+    rng = np.random.default_rng(seed)
+    cols = {tuple("p{}".format(i) for i in range(ndim)): rng.normal(size=(ndim, n))}
+    cols.update(_cols(n, seed=seed))
+    return cols
+
+
+def test_a_combined_parameter_does_not_multiply_the_row_count():
+    rec = RvsRecord.retained(_cols_with_combined(64, ndim=3))
+    assert len(rec) == 64, 'the (ndim, N) column was flattened into ndim*N rows'
+    assert rec.provenance.block_sizes == [64]
+    assert rec.provenance.n_retained == 64
+
+
+def test_a_fair_draws_uniform_weights_are_one_per_row_not_one_per_entry():
+    """The output-length failure: this vector is handed to consumers alongside the rows."""
+    rec = RvsRecord.fair_draw(_cols_with_combined(50, ndim=4, seed=5))
+    lw = rec.posterior_log_weights(_ln_w)
+    assert lw.shape == (50,)
+    assert np.allclose(lw, 0.0)
+
+
+def test_the_row_axis_is_read_from_the_key_even_with_no_scalar_column():
+    """A record of parameter columns alone still has to know where its rows are."""
+    rng = np.random.default_rng(7)
+    assert len(RvsRecord.retained({("m1", "m2"): rng.normal(size=(2, 12))})) == 12
+    assert len(RvsRecord.retained({"m1": rng.normal(size=12)})) == 12
+
+
+###
 ### The record is deliberately NOT a dict
 ###
 
