@@ -72,7 +72,9 @@ def build_rotation_data_from_precompute(P, data_dict, psd_dict, fiducial_epoch,
         # tvals spaced EXACTLY by deltaT (arange, not linspace) so the grid matches
         # the pos<->sample mapping and Simpson weights the likelihood assumes; the
         # maintained NoLoop path uses this same arange(-Nw,Nw)*deltaT convention.
-        # (A linspace grid is spaced deltaT*npts/(npts-1) and shifts the time
+        # (A linspace(-iwh,iwh,npts) grid is spaced 2*iwh/(npts-1), NOT
+        # deltaT*npts/(npts-1) -- those coincide only when 2*iwh/deltaT is an
+        # exact integer, i.e. exactly when this mismatch cannot arise.  It shifts the time
         # reference by a fraction of a sample -> a sky bias that only shows up at
         # high SNR, where cubic interpolation resolves the razor-sharp peak.)
         Nw = int(integration_window_half / deltaT)
@@ -121,7 +123,9 @@ def build_freqresponse_data_from_precompute(P, data_dict, psd_dict, fiducial_epo
         # tvals spaced EXACTLY by deltaT (arange, not linspace) so the grid matches
         # the pos<->sample mapping and Simpson weights the likelihood assumes; the
         # maintained NoLoop path uses this same arange(-Nw,Nw)*deltaT convention.
-        # (A linspace grid is spaced deltaT*npts/(npts-1) and shifts the time
+        # (A linspace(-iwh,iwh,npts) grid is spaced 2*iwh/(npts-1), NOT
+        # deltaT*npts/(npts-1) -- those coincide only when 2*iwh/deltaT is an
+        # exact integer, i.e. exactly when this mismatch cannot arise.  It shifts the time
         # reference by a fraction of a sample -> a sky bias that only shows up at
         # high SNR, where cubic interpolation resolves the razor-sharp peak.)
         Nw = int(integration_window_half / deltaT)
@@ -156,7 +160,7 @@ def build_data_from_precompute(P, data_dict, psd_dict, fiducial_epoch,
       i.e. spacing exactly ``deltaT`` (see the ``if tvals is None`` branch
       below).  NOTE this is deliberately NOT the driver's
       ``linspace(-iwh, iwh, int(2*iwh/deltaT))``, whose spacing is
-      ``deltaT*npts/(npts-1)``.  Anything that compares this data object against
+      ``2*iwh/(npts-1)`` with ``npts = int(2*iwh/deltaT)``.  Anything that compares this data object against
       the numpy reference must pass ``data.tvals`` to the reference rather than
       rebuild a grid, or the two paths land on different integer sample offsets.
 
@@ -186,7 +190,11 @@ def build_data_from_precompute(P, data_dict, psd_dict, fiducial_epoch,
     deltaT = float(P.deltaT)
     if tvals is None:
         # arange(-Nw,Nw)*deltaT: spacing exactly deltaT (see the freqresponse
-        # builder) -- matches the maintained NoLoop tvals convention.
+        # builder).  NOTE: this matches the convention both likelihoods EVALUATE in
+        # (each steps by deltaT from tvals[0] and integrates with dx=deltaT), NOT the
+        # grid bin/integrate_likelihood_extrinsic_batchmode constructs -- all ten of
+        # its NoLoop call sites still build linspace(-t_ref_wind,t_ref_wind,...).
+        # The two drivers therefore disagree; see the cross-driver issue.
         Nw = int(integration_window_half / deltaT)
         tvals = np.arange(-Nw, Nw) * deltaT
 

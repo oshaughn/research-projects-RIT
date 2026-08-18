@@ -113,16 +113,33 @@ def main():
     # Compare like with like: hand the numpy reference the SAME time grid the
     # JAX data object was built with.  ``build_data_from_precompute`` builds
     # tvals as arange(-Nw, Nw)*deltaT (spacing EXACTLY deltaT); a
-    # linspace(-iwh, iwh, npts) grid is spaced deltaT*npts/(npts-1) and starts
-    # 0.2 samples earlier here.  NoLoop consumes only tvals[0] and len(tvals)
-    # (it steps by P.deltaT and integrates with dx=deltaT), so a *sub-sample*
-    # difference in tvals[0] rounds ifirst to a DIFFERENT integer sample for a
-    # sky-dependent subset of samples -- and a different subset per detector,
-    # which misaligns the coherent network sum by one sample.  Building an
-    # independent grid here therefore reports a ~67.8 nat "mismatch" that is
-    # entirely an artifact of the harness.
+    # linspace(-iwh, iwh, npts) grid is spaced 2*iwh/(npts-1) (NOT
+    # deltaT*npts/(npts-1) -- those agree only when 2*iwh/deltaT is an exact
+    # integer) and starts 0.2 samples earlier here.  NoLoop consumes only
+    # tvals[0] and len(tvals) (it steps by P.deltaT and integrates with
+    # dx=deltaT), so a *sub-sample* difference in tvals[0] rounds ifirst to a
+    # DIFFERENT integer sample for a sky-dependent subset of samples -- and a
+    # different subset per detector, which misaligns the coherent network sum
+    # by one sample.  Building an independent grid here therefore reported a
+    # ~67.8 nat "mismatch" that is an artifact OF THIS HARNESS.
+    #
+    # It is NOT, however, only a harness artifact in general: the same 67.8
+    # nats is the size of a real disagreement between the two production
+    # drivers, which build their grids differently (jax_ile defaults to
+    # arange; bin/integrate_likelihood_extrinsic_batchmode uses linspace at all
+    # ten of its NoLoop call sites).  This test deliberately does not measure
+    # that -- it tests that the two LIKELIHOODS agree, holding the grid fixed.
+    # Tracked separately; do not read a green run here as the drivers agreeing.
     tvals = np.asarray(data.tvals)
-    assert len(tvals) == data.npts
+    # Pin the builder's convention by VALUE, independently reconstructed.  (An
+    # `assert len(tvals) == data.npts` would be a tautology -- core.py sets
+    # npts = len(tvals) -- and would not have caught the original defect
+    # either, since both grids had length 614 and differed only in offset.)
+    _Nw = int(integration_window_half / P.deltaT)
+    np.testing.assert_allclose(tvals, np.arange(-_Nw, _Nw) * P.deltaT,
+                               rtol=0, atol=0,
+                               err_msg="build_data_from_precompute tvals convention changed; "
+                                       "a linspace grid here silently misaligns ifirst")
 
     lnL_ref = FL.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(
         tvals, Pvec, lookupNKDict, rholmsArrayDict, ctUArrayDict, ctVArrayDict,
@@ -184,6 +201,13 @@ def main():
           f"({best[0]:.2f},{best[1]:.2f})  [truth (1.20,-0.40)]")
 
     print("\nEND-TO-END TEST PASSED")
+
+
+def test_endtoend():
+    """pytest entry point.  Without this the file defines no test_* function and
+    `pytest test/jax/` collects ZERO items from it and exits 5 ("no tests ran"),
+    which reads as green -- which is how this test stayed broken for a month."""
+    main()
 
 
 if __name__ == "__main__":
