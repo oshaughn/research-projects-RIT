@@ -12,10 +12,43 @@ convention floor), at an inflated sidereal rate so the delay drift is large.  At
 90-min-BNS rate (= x340 inflation on a 16s test): p_max=0 deficit 3.43 -> p_max=1 0.23 ->
 p_max=2 0.207 -> p_max=3 0.207: CONVERGES, bound-respected, NO blow-up.  So Path B recovers
 the delay drift and is production-ready for the target signals with p_max<=2.
-KNOWN LIMIT: the p>=3 catastrophic cancellation (huge high-f U terms x tiny delta_tau^p
-coefficients) only bites at x1000+ inflation (>2.6x faster than any physical signal): x1000
-gives p=2 deficit 5.9 but p=3 blows to 1e5.  So the band-limit fix (low-pass the p>=1
-derivative templates) is a robustness nicety, NOT a blocker for real signals.
+RETRACTED (2026-08-18) -- there is NO p>=3 catastrophic cancellation.  This file used to say it
+"only bites at x1000+ inflation (>2.6x faster than any physical signal)".  That was an artefact of
+a bug in the likelihood, not a property of the expansion: term2 dropped the arrival-time post-phase
+e^{i n Omega (t-tref)} and term1 concealed it by moving the modulation onto the DATA, using
+<e^{inOmega.}h|d> == <h|e^{-inOmega.}d> -- an identity that is FALSE for the noise-weighted overlap,
+because a frequency shift does not commute with 1/S(f).  Fixed in PR #117.
+  The 2.6x itself was never measured: only x340 and x1000 were ever run, and 1000/340 = 2.94.
+  Re-measured after the fix (SEOBNRv4, fmin=50, seglen=16 s, srate=16384), deficits by p_max:
+    0.5x  2.697  0.00543  0.000172  0.000182       <- x = multiple of the 90-min-BNS rate
+    1.0x  4.323  0.01555  0.000166  0.000258
+    1.5x 10.040  0.06892  0.000450  0.000049
+    2.0x 51.041  2.85329  0.101903  0.001989
+    3.0x 333.19  152.282  43.01335  7.563424
+  The Cauchy-Schwarz bound is respected at EVERY rate, and p=3 IMPROVES on p=2 at 1.5x/2x/3x (by
+  9x, 51x, 5.7x).  The expansion converges monotonically; high rates simply need more orders.  At
+  the physical rate the p=2 residual (1.7e-4) sits at the test's rotation-off noise floor (1.5e-4),
+  so it is an UPPER LIMIT, not a measurement -- fractional agreement 1.6e-7.
+  CONSEQUENCE: the "band-limit the p>=1 derivative templates" fix proposed further down this file
+  is a fix for a problem that does not exist.  Do not implement it.
+
+ALSO RETRACTED: the "~0.1-0.2 resolution floor from NoLoop nearest-neighbour time sampling" below.
+That floor was a TRUNCATION artefact -- the test was running a 48.5 s chirp in a 16 s segment, so
+the delayed lookup ran off the array end and nan_to_num deleted the loudest samples.
+  DECISIVE EVIDENCE, and it is clean: run INFL=1.  With the rotation switched off the floor is
+  still there (0.205), and INFL=1 is IMMUNE to the PR #117 bug because that error scales with
+  Omega.  A floor that survives turning the rotation off cannot be the rotation likelihood; it also
+  fails to improve under a 4x finer time grid or under cubic sub-sample interpolation, so it was
+  not the time lookup either.  With a segment the waveform actually fits, the ROTATION-OFF floor is
+  1.5e-4 (measured both before and after #117 -- they agree, as they must).
+  CAUTION on the supporting scans: the srate and cubic comparisons quoted in the analysis notes
+  were run at INFL=340 with rotation ON in the truncated configuration, so their ABSOLUTE numbers
+  contain the #117 bug.  Only the INFL=1 comparison and the qualitative "does not improve with grid
+  refinement" trend survive; do not quote those absolute values.
+  NOTE the 1.5e-4 above is the rotation-off floor.  It is NOT what a fitting segment alone buys at
+  the physical rate: pre-#117, with a fitting segment, that was still 0.053.  Reaching 1.7e-4 at
+  the physical rate needed BOTH a fitting segment AND the #117 fix.
+
 Separately validated vs LAL's SimDetectorStrainREAL8TimeSeries (`test_slowrot_pathB_groundtruth.py`):
 baseline/PathA/PathB all agree with Jolien's full delay map to ~0.07 at fmax=256 (the ~26
 deficit at fmax=1024 was SimDetectorStrain's high-f TD delay-INTERPOLATION, not a bug --
@@ -198,7 +231,10 @@ now fails against the old code (2.5e-3) and passes against the new one (3.9e-10)
   lnL(p_max=0..3) = [1794.39, 1781.31, 1781.63, 928.30]: p=0->1->2 captures a real ~13-in-lnL
   delay effect and appears to converge (~1781.6) and respects 0.5<d|d>=1938 -- BUT p_max=3
   BLOWS UP (increment 853).
-- ROOT CAUSE of the p>=3 blow-up (likely): the FD derivative weight (2 pi i f)^p amplifies high
+- ROOT CAUSE of the p>=3 blow-up: SETTLED, and it was NOT this.  See the RETRACTED note at the
+  top: it was the missing arrival-time post-phase (PR #117), not the derivative weight.  The
+  paragraph below is kept only as a record of what was believed.
+- (superseded) the FD derivative weight (2 pi i f)^p amplifies high
   frequencies; in the model norm the integrand ~ (2 pi f)^{2p} |h(f)|^2 / S grows like f^{11/3}
   for a chirp (|h|^2 ~ f^{-7/3}), so high-order terms are dominated by the f_max edge, not the
   physical low-frequency delay drift.  FIX for the systematic pass: BAND-LIMIT the delay-
@@ -211,7 +247,7 @@ now fails against the old code (2.5e-3) and passes against the new one (3.9e-10)
 
 ## OPEN / NEXT (the one remaining systematic pass — do it all together)
 1. **Path B rigorous validation** (TWO parts, do together):
-   (a) FIX the p>=3 high-frequency derivative blow-up by band-limiting the delay-derivative
+   (a) DONE/MOOT -- there is no p>=3 blow-up to fix (PR #117).  Formerly: band-limit the delay-derivative
        terms to low frequency (see PATH B STATUS above); re-check convergence is monotone.
    (b) Validate vs an INDEPENDENT ground truth that uses LAL's OWN full delay-time map --
        lalsim.SimDetectorStrainREAL8TimeSeries (Jolien's code).  KEY FACTS FOUND 2026-07-04:
