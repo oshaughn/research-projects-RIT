@@ -328,7 +328,8 @@ def PrecomputeLikelihoodTermsWithRotation(
     # post-phase moved to the extrinsic layer: Q is now <chi_a(.-t)|d> against untouched
     # data, and any evaluator MUST apply rotation_post_phase() to both terms.  A consumer
     # written against the old convention is silently wrong rather than broken, so it is
-    # recorded here for evaluators to check.  Both maintained evaluators do:
+    # recorded here and every evaluator that post-phases REJECTS a bank without it (see
+    # require_post_phase_bank): FactoredLogLikelihoodWithRotation and
     # DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation below, and
     # jax_ile.banded.build_rotation_data / jax_ile.core._accumulate_unit_banded.
     meta = dict(harmonics=tuple(harmonics), p_max=p_max, f_sidereal=f_sidereal,
@@ -423,6 +424,29 @@ def rotation_post_phase(C, omega, delta):
     return {a: c * np.exp(1.0j * a[1] * omega * delta) for a, c in C.items()}
 
 
+def require_post_phase_bank(meta, where):
+    """Refuse a bank that does not declare the post-phase convention (see rotation_post_phase).
+
+    ``meta['post_phase_required']`` marks a bank whose Q is <chi_a(.-t)|d> against UNTOUCHED
+    data, so the evaluator owes the arrival-time post-phase on BOTH the data term and the
+    model norm.  A bank from the previous revision instead pushed the modulation onto the
+    DATA and carries no such debt: post-phasing it produces finite, silently WRONG lnL rather
+    than an error, so check the marker rather than assume it.  Same guard as
+    jax_ile.banded.build_rotation_data / jax_ile.core._accumulate_unit_banded.
+    """
+    if not bool(meta.get('post_phase_required', False)):
+        raise ValueError(
+            "%s requires meta['post_phase_required'] == True: this evaluator applies the "
+            "arrival-time post-phase (rotation_post_phase) to both the data term and the "
+            "model norm, which is only correct for a bank built in that convention.  Got "
+            "meta['post_phase_required']=%r.\n"
+            "That key is set by PrecomputeLikelihoodTermsWithRotation as of PR #117.  A bank "
+            "from the earlier revision folded the modulation into the data instead and must "
+            "NOT be evaluated here -- regenerate it with the current "
+            "PrecomputeLikelihoodTermsWithRotation rather than hand-assembling meta."
+            % (where, meta.get('post_phase_required')))
+
+
 def FactoredLogLikelihoodWithRotation(extr_params, rholms_intp_rot, crossTerms_rot,
                                       crossTermsV_rot, meta, Lmax):
     """Slow-rotation analogue of factored_likelihood.FactoredLogLikelihood (Path A).
@@ -435,6 +459,8 @@ def FactoredLogLikelihoodWithRotation(extr_params, rholms_intp_rot, crossTerms_r
     Currently implements p_max=0 (amplitude drift only); the delay-derivative (Path B)
     contraction with B_n is a TODO.
     """
+    require_post_phase_bank(meta, 'FactoredLogLikelihoodWithRotation')
+
     import lal
     from . import factored_likelihood as FL
     from .. import lalsimutils as lsu
@@ -601,6 +627,9 @@ def DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation(
     array_output=True returns lnL_t of shape (npts_ex, npts) (before time marginalization);
     array_output=False returns the time-marginalized lnL of shape (npts_ex,).
     """
+    require_post_phase_bank(
+        meta, 'DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation')
+
     import lal
     from . import factored_likelihood as FL
     on_gpu = not (xpy is np)
