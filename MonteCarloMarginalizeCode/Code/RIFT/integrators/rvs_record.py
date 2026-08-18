@@ -1,6 +1,6 @@
 """A sampler's sample record, carrying its own provenance.
 
-DRAFT -- see DESIGN_rvs_naming.md in this directory.  Nothing reads this yet.
+See DESIGN_rvs_naming.md in this directory for the design and its alternatives.
 
 WHY THIS EXISTS
 ---------------

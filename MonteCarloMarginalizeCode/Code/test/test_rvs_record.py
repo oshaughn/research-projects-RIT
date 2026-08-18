@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Contract for RvsRecord (DRAFT -- see RIFT/integrators/DESIGN_rvs_naming.md).
+Contract for RvsRecord (see RIFT/integrators/DESIGN_rvs_naming.md).
 
 The point of this suite is not coverage for its own sake.  Nine defects of one shape are on
 record, and FOUR of them were found while reviewing the fix for the other five -- every one of

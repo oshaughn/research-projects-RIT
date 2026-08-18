@@ -439,7 +439,7 @@ jobs:
         run: |
           python MonteCarloMarginalizeCode/Code/test/expensive_before_merging/integrators/audit_rvs_fairdraw.py --check
       - name: Audit sampler backend contracts
-        # DRAFT (DESIGN_rvs_naming.md).  The backends are structurally different in ways
+        # (DESIGN_rvs_naming.md)  The backends are structurally different in ways
         # nothing states -- _rvs['integrand'] holds lnL on three of them, linear L on two, and
         # EITHER on mcsamplerEnsemble depending on a kwarg -- and a consumer that guesses wrong
         # gets a plausible number rather than an error.  This does not forbid the differences;

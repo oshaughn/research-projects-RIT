@@ -52,7 +52,7 @@ import RIFT.lalsimutils as lalsimutils
 from RIFT.likelihood.time_interp_choice import CROSSOVER_GUIDANCE as _CROSSOVER_GUIDANCE
 from RIFT.precision import RiftFloat
 import RIFT.integrators.mcsampler as mcsampler
-from RIFT.integrators.rvs_record import (RvsRecord as _RvsRecord,   # DRAFT: DESIGN_rvs_naming.md
+from RIFT.integrators.rvs_record import (RvsRecord as _RvsRecord,   # see DESIGN_rvs_naming.md
                                          SamplerOutputMixin)
 # NOTE: the name 'mcsampler' above is REBOUND below to mcsamplerGPU for some --sampler-method
 # choices, so the zoom-box helpers are imported under their own names.  They are backend-agnostic:
@@ -2243,7 +2243,7 @@ def _rvs_len(rvs):
 
 
 def _rvs_record_for(sampler, rvs):
-    """The record describing THESE columns, or None.  DRAFT: DESIGN_rvs_naming.md.
+    """The record describing THESE columns, or None.  See DESIGN_rvs_naming.md.
 
     THE IDENTITY CHECK IS THE POINT.  A record holds a reference to a column dict that other
     code replaces in place, so "the sampler has a record" and "the record describes the rows I
@@ -2277,7 +2277,7 @@ def _internal_record_of(sampler):
 
 
 def _sampler_keeps_records(sampler):
-    """Does this sampler populate `_rvs_record` at all?  DRAFT: DESIGN_rvs_naming.md.
+    """Does this sampler populate `_rvs_record` at all?  See DESIGN_rvs_naming.md.
 
     A PRODUCER's question, not a consumer's, and deliberately a different function from
     `_rvs_record_for`.  The pooling step is about to REPLACE `sampler._rvs`, so asking "does a
@@ -2351,7 +2351,7 @@ def ln_weights_for_posterior(rvs, sampler, convert=None, use_lnL=None):
     So: uniform (zero log-weight) for a fair-drawn record, the derived importance weight
     otherwise.  Returns a float array the length of the record.
     """
-    # DRAFT MIGRATION (DESIGN_rvs_naming.md), the first consumer to move.  This is the exact
+    # MIGRATION (DESIGN_rvs_naming.md), the first consumer to move.  This is the exact
     # site where the one-flag-two-questions defect lived, so it is the one worth converting
     # first: `is_equal_weight()` is a named question rather than two booleans a caller has to
     # combine, and it cannot be answered with the wrong one.
@@ -4121,7 +4121,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             # ln_weights_for_posterior must read the reconstructed per-row weights.
             sampler._rvs_is_pooled = True
             sampler._rvs_is_fairdraw = any(_rep_fairdraw)
-            # DRAFT (DESIGN_rvs_naming.md): the same statement, as a record.  Note it carries
+            # (DESIGN_rvs_naming.md) The same statement, as a record.  Note it carries
             # _rep_fairdraw PER BLOCK -- the thing the two booleans above cannot express, and
             # the reason a mixture of raw and resampled replicas needed a special case in
             # _pool_replica_rvs.  The reserve does NOT ride along: it describes one pass, and
@@ -4215,7 +4215,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             # which has exactly the property the paragraph above asks for: it reduces to
             # sum_k neff_k when the replicas agree, and falls below it when they disagree --
             # the disagreement these replicas exist to detect.
-            # DRAFT: the record answers this directly.  blocks_were_flattened() is a THIRD
+            # The record answers this directly.  blocks_were_flattened() is a THIRD
             # question, distinct from the other two -- keying it on either of them is what made
             # this branch dead code in review round 2.
             _rec_ne = _rvs_record_for(sampler, sampler._rvs)
@@ -4544,7 +4544,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
           # The fresh path is exact and already supported, so use it rather than reporting a
           # plausible wrong number -- every slice becomes an independent fixed-d integration.
           # It costs more likelihood evaluations; say so, rather than changing cost silently.
-          # DRAFT: ask the record when it describes these rows; the flag is the fallback.
+          # Ask the record when it describes these rows; the flag is the fallback.
           # Note this is the ROWS-RESAMPLED question, not equal-weight: a pooled record still
           # has resampled rows, and reweighting them still double-counts.
           _rec_ds = _rvs_record_for(sampler, sampler._rvs)

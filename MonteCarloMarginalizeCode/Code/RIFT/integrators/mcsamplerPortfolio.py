@@ -59,7 +59,7 @@ except:
   cupy_ok = False
   cupy_pi = np.pi
 
-from RIFT.integrators.rvs_record import RvsRecord, SamplerOutputMixin   # DRAFT: DESIGN_rvs_naming.md
+from RIFT.integrators.rvs_record import RvsRecord, SamplerOutputMixin   # see DESIGN_rvs_naming.md
 
 def set_xpy_to_numpy():
    xpy_default=numpy
@@ -1298,7 +1298,7 @@ class MCSampler(SamplerOutputMixin, object):
         # flag is not the same predicate, since the draw is skipped when it would not
         # shrink the record.  Reset per pass: samplers are reused across events.
         self._rvs_is_fairdraw = False
-        # DRAFT: the record describes THIS pass only.  Cleared with the flag above and set
+        # The record describes THIS pass only.  Cleared with the flag above and set
         # below, so it can never survive into a pass it does not describe.
         self._rvs_record = None
         n_extr = kwargs["igrand_fairdraw_samples_max"] if "igrand_fairdraw_samples_max" in kwargs else None
@@ -1924,7 +1924,7 @@ class MCSampler(SamplerOutputMixin, object):
                     self._rvs[key] = self._rvs[key][indx_list]
 
         # Do a fair draw of points, if option is set. CAST POINTS BACK TO NUMPY, IDEALLY
-        # DRAFT (DESIGN_rvs_naming.md): _rvs is the RETAINED set at this point -- pruned,
+        # (DESIGN_rvs_naming.md) _rvs is the RETAINED set at this point -- pruned,
         # perhaps, but never resampled.  Record that before the draw below can change what it
         # means, so "not resampled" is a statement the record makes rather than the absence of
         # one.  The reserve rides along BY REFERENCE where the sampler keeps one (AV and the

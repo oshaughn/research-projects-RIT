@@ -1,8 +1,13 @@
-# DESIGN (DRAFT): give the retained set and the export resample separate names
+# DESIGN: give the retained set and the export resample separate names
 
-**Status: draft for discussion. Not proposed for merge.** The code here is one worked example
-of the proposal, wired into a single sampler, so the shape can be argued about against something
-concrete rather than against prose.
+**Status: implemented (option A).** This began as a draft wired into a single sampler so the
+shape could be argued about against something concrete rather than against prose. It is now
+carried by all six backends and read by the ILE weight path in both drivers, with the
+validation recorded in `VALIDATION_rvs_weight_migration.md` (tiers 0-3).
+
+Option B -- making `_rvs` itself an object -- was considered and DEFERRED as too invasive to
+attempt near-term; it is recorded in full below so the reasoning survives, not because it is
+scheduled.
 
 ## The problem, stated once
 

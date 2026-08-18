@@ -12,7 +12,7 @@ from collections import defaultdict
 import numpy
 np=numpy #import numpy as np
 from RIFT.precision import RiftFloat  # platform-portable replacement for np.float128
-from RIFT.integrators.rvs_record import RvsRecord, SamplerOutputMixin   # DRAFT: DESIGN_rvs_naming.md
+from RIFT.integrators.rvs_record import RvsRecord, SamplerOutputMixin   # see DESIGN_rvs_naming.md
 from scipy import integrate, interpolate, special
 import itertools
 import functools
@@ -1603,7 +1603,7 @@ class MCSampler(SamplerOutputMixin, object):
         # flag is not the same predicate, since the draw is skipped when it would not
         # shrink the record.  Reset per pass: samplers are reused across events.
         self._rvs_is_fairdraw = False
-        # DRAFT: the record describes THIS pass only.  Cleared with the flag above and set
+        # The record describes THIS pass only.  Cleared with the flag above and set
         # below, so it can never survive into a pass it does not describe.
         self._rvs_record = None
         n_extr = kwargs["igrand_fairdraw_samples_max"] if "igrand_fairdraw_samples_max" in kwargs else None
@@ -1955,7 +1955,7 @@ class MCSampler(SamplerOutputMixin, object):
 #        rel_var = np.exp(outvals[1]/2  - outvals[0]  - np.log(self.ntotal)/2 )
 
         # Do a fair draw of points, if option is set. CAST POINTS BACK TO NUMPY, IDEALLY
-        # DRAFT (DESIGN_rvs_naming.md): _rvs is the RETAINED set at this point -- pruned,
+        # (DESIGN_rvs_naming.md) _rvs is the RETAINED set at this point -- pruned,
         # perhaps, but never resampled.  Record that before the draw below can change what it
         # means, so "not resampled" is a statement the record makes rather than the absence of
         # one.  The reserve rides along BY REFERENCE where the sampler keeps one (AV and the
@@ -1988,7 +1988,7 @@ class MCSampler(SamplerOutputMixin, object):
                        self._rvs[key] = arr[:,indx_host]
                    else:
                        self._rvs[key] = arr[indx_host]
-               # DRAFT (see DESIGN_rvs_naming.md): the same rows, under a name that says what
+               # (see DESIGN_rvs_naming.md) the same rows, under a name that says what
                # they are, carrying their own provenance.  Written HERE because this is the
                # moment the meaning of _rvs changes -- from the retained set to an export
                # resample -- and the whole point is that the change of meaning is recorded

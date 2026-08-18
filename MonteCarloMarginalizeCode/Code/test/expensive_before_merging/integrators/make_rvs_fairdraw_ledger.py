@@ -29,7 +29,7 @@ def verdict(h):
     s = " ".join(src.split())
 
     # --- the integrators themselves ------------------------------------------------
-    # --- DRAFT option A: the record (DESIGN_rvs_naming.md) ---------------------------
+    # --- option A: the record (DESIGN_rvs_naming.md) ---------------------------
     if "RvsRecord.fair_draw(" in s or "RvsRecord.retained(" in s \
             or "n_retained=self._rvs_record.n_retained()" in s \
             or "reserve=getattr(self, '_warm_seed_reserve', None))" in s:
@@ -54,7 +54,7 @@ def verdict(h):
         if "n_retained=_n_retained_before_draw" in s or "RvsRecord.fair_draw" in s \
                 or "reserve=getattr(self, '_warm_seed_reserve', None))" in s:
             return ("PER_ROW",
-                    "DRAFT (DESIGN_rvs_naming.md): hands the just-rebound columns to RvsRecord "
+                    "(DESIGN_rvs_naming.md) hands the just-rebound columns to RvsRecord "
                     "as a VIEW, together with the pre-draw row count. Reads no statistic of "
                     "them -- it records that they ARE the export resample, at the moment that "
                     "becomes true, which is the whole point of the record. Nothing consumes it "

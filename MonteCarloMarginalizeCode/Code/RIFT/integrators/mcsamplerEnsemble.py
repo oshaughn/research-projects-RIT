@@ -46,7 +46,7 @@ __author__ = "Ben Champion"
 
 rosDebugMessages = True
 
-from RIFT.integrators.rvs_record import RvsRecord, SamplerOutputMixin   # DRAFT: DESIGN_rvs_naming.md
+from RIFT.integrators.rvs_record import RvsRecord, SamplerOutputMixin   # see DESIGN_rvs_naming.md
 
 class NanOrInf(Exception):
     def __init__(self, value):
@@ -644,7 +644,7 @@ class MCSampler(SamplerOutputMixin, object):
         # flag is not the same predicate, since the draw is skipped when it would not
         # shrink the record.  Reset per pass: samplers are reused across events.
         self._rvs_is_fairdraw = False
-        # DRAFT: the record describes THIS pass only.  Cleared with the flag above and set
+        # The record describes THIS pass only.  Cleared with the flag above and set
         # below, so it can never survive into a pass it does not describe.
         self._rvs_record = None
         n_extr = kwargs["igrand_fairdraw_samples_max"] if "igrand_fairdraw_samples_max" in kwargs else None
@@ -767,7 +767,7 @@ class MCSampler(SamplerOutputMixin, object):
                 - self.xpy.log(p_array)
             )
 
-        # DRAFT (DESIGN_rvs_naming.md): _rvs is the RETAINED set at this point -- pruned,
+        # (DESIGN_rvs_naming.md) _rvs is the RETAINED set at this point -- pruned,
         # perhaps, but never resampled.  Record that before the draw below can change what it
         # means, so "not resampled" is a statement the record makes rather than the absence of
         # one.  The reserve rides along BY REFERENCE where the sampler keeps one (AV and the
