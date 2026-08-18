@@ -234,15 +234,13 @@ def test_owning_no_codes_disables_the_policy_without_breaking_the_file(
                  MemoryUsage=1000, InitialRequestMemory=4096) == 4096
 
 
-def test_the_policy_is_not_a_table_of_site_names():
-    """Guards the design decision, which is easy to erode one helpful
-    constant at a time. Site facts belong in the operator's own
-    inventory; this module holds defaults and a mechanism."""
-    from RIFT.simulation_manager import database
-    src = open(database.__file__).read().lower()
-    for site in ("ospool", "osg_", "ap41", "chtc", "caltech", "cit_",
-                 "ligo.org"):
-        assert site not in src.replace("osg site-selection", ""), site
+# A test asserting "no site names appear in database.py" used to live
+# here. It was theatre: none of its needles occurred in the module even
+# before this change, so it passed unconditionally and on the parent
+# commit too, while the module does say "LIGO clusters" and "OSG access
+# point" in prose the needle list happened not to cover. A grep cannot
+# express "no site-to-policy table" -- the constraint is a review one,
+# and it is stated in DEFAULT_OOM_HOLD_CODES and DESIGN.md instead.
 
 
 # --------------------------------------------------------------------
@@ -438,7 +436,7 @@ def test_the_policy_survives_the_manifest(tmp_path):
     manifest = Manifest.new(
         name="oom_manifest", request_queue_kind="condor",
         run_queue_kind="condor",
-        run_queue_extra={"oom_hold_codes": [34],
+        run_queue_extra={"oom_hold_codes": [34, 26],
                          "oom_hold_subcode_exclusions": {"26": [100]},
                          "oom_retry_counter": "NumHolds",
                          "extra_periodic_release": SITE_TERM})
@@ -447,8 +445,8 @@ def test_the_policy_survives_the_manifest(tmp_path):
                             "entrypoint": "generator:run"})
     reopened = Archive(base_location=tmp_path / "arch")
     _, run_queue = make_queues_from_manifest(reopened)
-    assert run_queue.oom_hold_codes == (34,)
-    assert run_queue.oom_hold_subcode_exclusions == {26: (100,)}
+    assert run_queue.oom_hold_codes == (34, 26)
+    assert dict(run_queue.oom_hold_subcode_exclusions) == {26: (100,)}
     assert run_queue.oom_retry_counter == "NumHolds"
     assert run_queue.extra_periodic_release == SITE_TERM
 
@@ -486,3 +484,100 @@ def test_condor_accepts_every_shape_of_policy(archive, tmp_path, kwargs):
                     if l.split("=")[0].strip().lower()
                     in ("requestmemory", "periodicrelease")]
     assert len(materialised) == 2, materialised
+
+
+# --------------------------------------------------------------------
+# the counter is spliced into arithmetic, not only into a comparison
+# --------------------------------------------------------------------
+
+@needs_classad
+def test_a_compound_counter_is_not_mangled_by_precedence(archive):
+    """`oom_retry_counter` is validated as an EXPRESSION, so a compound
+    one is advertised input. Unparenthesised in the bump it reassociates:
+    `int(1.5 * NumHolds - NumJobStarts * MemoryUsage)` is
+    (1.5*NumHolds) - (NumJobStarts*MemoryUsage), which for a job at
+    NumHolds=6, NumJobStarts=2, MemoryUsage=1000 asks for -1991 MB.
+    condor_submit accepts that, and a negative request matches no slot --
+    the wedged-Idle failure this policy's MemoryUsage guard exists to
+    prevent, reintroduced through a different door."""
+    q = DualCondorRunQueue(auto_release_on_oom=True, oom_memory_factor=1.5,
+                           oom_retry_counter="NumHolds - NumJobStarts")
+    mem = _command(_build(archive, q), "request_memory")
+    assert _eval(mem, LastHoldReasonCode=34, NumHolds=6, NumJobStarts=2,
+                 MemoryUsage=1000, InitialRequestMemory=4096) == 6000
+
+
+@needs_classad
+def test_the_comparison_form_is_unaffected(archive):
+    """`<` has lower precedence than any arithmetic, so the release arm
+    was already safe -- which is why the fix is confined to the bump and
+    the default release text stays byte-identical."""
+    q = DualCondorRunQueue(auto_release_on_oom=True, oom_max_retries=5,
+                           oom_retry_counter="NumHolds - NumJobStarts")
+    release = _command(_build(archive, q), "periodic_release")
+    assert _eval(release, HoldReasonCode=34, NumHolds=6, NumJobStarts=2)
+    assert _eval(release, HoldReasonCode=34, NumHolds=9,
+                 NumJobStarts=2) is False
+
+
+# --------------------------------------------------------------------
+# configuration that would quietly do nothing
+# --------------------------------------------------------------------
+
+def test_an_exclusion_on_an_unowned_code_is_refused(archive):
+    """Silently ignoring it means a typo reads as configured: the site
+    believes it has carved out its anti-thrash sub-code and has not."""
+    with pytest.raises(ValueError, match="99"):
+        DualCondorRunQueue(oom_hold_codes=(34,),
+                           oom_hold_subcode_exclusions={99: (1,)})
+    q = DualCondorRunQueue(oom_hold_codes=(34, 26),
+                           oom_hold_subcode_exclusions={26: (100,)})
+    with pytest.raises(ValueError):
+        q.oom_hold_codes = (34,)        # orphans the exclusion after the fact
+
+
+def test_none_means_the_default_not_the_empty_set(archive):
+    """As it does in the constructor and for oom_retry_counter. Reading
+    it as "own no codes" would let an assignment disable the memory
+    policy outright; pass () to ask for that."""
+    q = DualCondorRunQueue(auto_release_on_oom=True, oom_max_retries=5)
+    q.oom_hold_codes = None
+    assert _command(_build(archive, q), "periodic_release") == \
+        PRE_EXISTING_RELEASE
+
+
+def test_the_exclusion_view_cannot_be_mutated_in_place(archive):
+    """A copy would make this a silent no-op, the same trap the transfer
+    properties avoid by handing back tuples."""
+    q = DualCondorRunQueue(oom_hold_codes=(34, 26))
+    with pytest.raises(TypeError):
+        q.oom_hold_subcode_exclusions[26] = (100,)
+
+
+# --------------------------------------------------------------------
+# the other half of the memory policy
+# --------------------------------------------------------------------
+
+def test_request_memory_cannot_be_replaced_through_extra_condor_cmds(archive):
+    """Protecting periodic_release alone did not close the path.
+    Replacing request_memory leaves the release arm intact, so the job is
+    released the full oom_max_retries times at a fixed size and OOMs
+    every time -- it spends the whole budget achieving nothing."""
+    q = DualCondorRunQueue(auto_release_on_oom=True,
+                           extra_condor_cmds={"request_memory": "8G"})
+    with pytest.raises(ValueError, match="request_memory"):
+        _build(archive, q)
+
+
+@pytest.mark.parametrize("key,expected", [
+    ("periodic_release", "extra_periodic_release"),
+    ("request_memory", "set_resources"),
+    ("transfer_input_files", "extra_transfer_input_files"),
+])
+def test_the_refusal_names_the_thing_to_use_instead(archive, key, expected):
+    """A guard that refuses without a remedy just moves the dead end.
+    The periodic_release message used to point at the transfer options."""
+    q = DualCondorRunQueue(auto_release_on_oom=True,
+                           extra_condor_cmds={key: "whatever"})
+    with pytest.raises(ValueError, match=expected):
+        _build(archive, q)

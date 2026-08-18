@@ -596,15 +596,59 @@ append-only alternative:
 | `transfer_input_files` | `extra_transfer_input_files` (appended) |
 | `transfer_output_files` | `extra_transfer_output_files` (appended, `{level}`/`{sim_name}` substituted) |
 | `periodic_release` | `extra_periodic_release` (OR'd in) |
+| `request_memory` | the `request_memory` argument, or `Archive.set_resources` per sim |
 
 `extra_periodic_release` takes a single-line ClassAd expression for
 sites whose pool holds jobs for reasons the queue does not model — an
 opportunistic pool produces transient holds a dedicated cluster never
-sees. While `auto_release_on_oom` is on, hold codes 26 and 34 belong to
-the OOM policy and the term is scoped away from them, so
-`oom_max_retries` remains a real cap and `request_memory` cannot be
-multiplied without bound; the term governs every other hold code. With
-the OOM policy off it governs all of them.
+sees. While `auto_release_on_oom` is on, the term is scoped away from
+whatever codes `oom_hold_codes` names, so `oom_max_retries` remains a
+real cap and `request_memory` cannot be multiplied without bound; the
+term governs every other hold code. With the OOM policy off it governs
+all of them.
+
+### The OOM policy is site configuration
+
+`auto_release_on_oom` releases a job held for running out of memory and
+raises its request. Three parts of that are properties of the **site**,
+not of HTCondor, and are arguments rather than constants:
+
+| key | default | what it is |
+|---|---|---|
+| `oom_hold_codes` | `(34, 26)` | codes this site reports for a memory hold |
+| `oom_hold_subcode_exclusions` | `{}` | `{code: [subcode, ...]}` to carve out |
+| `oom_retry_counter` | `"NumJobStarts"` | expression rationing the retries |
+
+34 is the unambiguous memory code. **26 is `SystemPolicy`** — it means
+whatever the site's `SYSTEM_PERIODIC_HOLD` expressions say it means. On
+the clusters this policy came from that is usually memory; on an OSG
+access point it may be an anti-thrash limiter whose precondition is a
+high `NumJobStarts`, in which case releasing it with a bigger memory
+request fights the pool's own protection. Sub-codes exist for the finer
+case: every `SYSTEM_PERIODIC_HOLD` at a site reports one hold code, so
+only the sub-code separates "over memory" from "restarted too many
+times".
+
+The counter is site-dependent too. `NumJobStarts` counts execution
+attempts, so preemption spends the budget. `NumHolds` counts holds of
+every kind, including input-transfer failures that increment it while
+the job has never run. Neither is "the number of memory holds"
+everywhere.
+
+```python
+DualCondorRunQueue(
+    auto_release_on_oom=True,
+    oom_hold_codes=(34,),                          # 26 means something else here
+    oom_hold_subcode_exclusions={26: (100, 101)},  # ...or keep 26, minus the limiter
+    oom_retry_counter="NumHolds",
+)
+```
+
+**Which site is which is not recorded here.** That belongs in whatever
+inventory you already keep about your own infrastructure; a table of
+site facts in this file would be stale immediately and wrong for every
+site it did not name. `condor_config_val -dump | grep SYSTEM_PERIODIC_HOLD`
+on the access point is what answers it.
 
 ```python
 DualCondorRunQueue(
