@@ -1399,8 +1399,13 @@ class MCSampler(SamplerOutputMixin, object):
         # means, so "not resampled" is a statement the record makes rather than the absence of
         # one.  The reserve rides along BY REFERENCE where the sampler keeps one (AV and the
         # portfolio); None elsewhere is the honest answer, not a gap.
+        # THIS ENTRY POINT IS UNAMBIGUOUSLY LINEAR.  A use_lnL=True call was handed off to
+        # integrate_log at the top, so everything reaching here stored `integrand` = the linear
+        # value and wrote no log columns at all.  Say so on the record: without it a consumer
+        # calling log_likelihood()/log_weights() gets a raise for the DEFAULT GPU mode.
         self._rvs_record = RvsRecord.retained(
-            self._rvs, reserve=getattr(self, '_warm_seed_reserve', None))
+            self._rvs, reserve=getattr(self, '_warm_seed_reserve', None),
+            integrand_is_log=False)
         if bFairdraw and not(n_extr is None):
            n_extr = int(numpy.min([n_extr,1.5*eff_samp,1.5*neff]))
            print(" Fairdraw size : ", n_extr)
@@ -1423,7 +1428,8 @@ class MCSampler(SamplerOutputMixin, object):
                 # this project's own bug class, so it is spelled out rather than assumed.
                self._rvs_record = RvsRecord.fair_draw(
                    self._rvs, n_retained=self._rvs_record.n_retained(),
-                   reserve=getattr(self, '_warm_seed_reserve', None))
+                   reserve=getattr(self, '_warm_seed_reserve', None),
+                   integrand_is_log=False)
         # Create extra dictionary to return things
         dict_return ={}
         if convergence_tests is not None:

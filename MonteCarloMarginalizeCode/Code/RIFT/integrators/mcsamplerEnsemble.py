@@ -772,13 +772,18 @@ class MCSampler(SamplerOutputMixin, object):
         # means, so "not resampled" is a statement the record makes rather than the absence of
         # one.  The reserve rides along BY REFERENCE where the sampler keeps one (AV and the
         # portfolio); None elsewhere is the honest answer, not a gap.
-        # THE return_lnI CASE.  Log columns are written only under use_lnL; otherwise
-        # `integrand` holds linear L.  Recording the convention HERE, once, where it is
-        # known, is what lets every consumer stop caring -- and lets return_lnI become
-        # historical material rather than something a caller must thread through.
+        # THE return_lnI CASE.  What `integrand` holds is decided by return_lnI and by
+        # NOTHING ELSE: value_array above is `cumulative_values` (always lnL, whichever
+        # convention the CALLABLE used) when return_lnI, and exp() of it when not.  use_lnL
+        # governs a different question -- whether the log columns were written alongside --
+        # so recording it here would mislabel the supported return_lnI=True, use_lnL=False
+        # pass as linear, sending its negative-lnL rows to zero weight and taking log() of a
+        # log on the rest.  Recording the convention HERE, once, where it is known, is what
+        # lets every consumer stop caring -- and lets return_lnI become historical material
+        # rather than something a caller must thread through.
         self._rvs_record = RvsRecord.retained(
             self._rvs, reserve=getattr(self, '_warm_seed_reserve', None),
-                   integrand_is_log=bool(use_lnL))
+                   integrand_is_log=bool(return_lnI))
         if bFairdraw and not(n_extr is None):
            # scalars: use Python min on floats.  self.xpy.min([list]) fails on cupy
            # (cupy.min has no list overload -> "'list' object has no attribute 'min'"),
@@ -809,7 +814,7 @@ class MCSampler(SamplerOutputMixin, object):
                self._rvs_record = RvsRecord.fair_draw(
                    self._rvs, n_retained=self._rvs_record.n_retained(),
                    reserve=getattr(self, '_warm_seed_reserve', None),
-                   integrand_is_log=bool(use_lnL))
+                   integrand_is_log=bool(return_lnI))
         dict_return = {}
         if dict_return_q:
             dict_return["integrator"] = integrator

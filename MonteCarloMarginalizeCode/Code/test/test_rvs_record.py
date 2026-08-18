@@ -726,16 +726,49 @@ def test_log_weights_needs_no_use_lnL_argument():
             'log_weights() takes {}; the whole point is that it does not need one'.format(banned)
 
 
-@pytest.mark.skipif(not os.path.exists(_ILE), reason='ILE executable not in this tree')
 def test_the_ensemble_return_lnI_convention_is_recorded_by_the_sampler():
     """The case that made this necessary: for mcsamplerEnsemble the meaning of `integrand` is a
-    RUNTIME property of how the pass was called, so only the sampler can record it."""
+    RUNTIME property of how the pass was called, so only the sampler can record it.
+
+    And the predicate has to be the RIGHT runtime property.  `integrand` is `value_array`,
+    which is `cumulative_values` (lnL either way) under return_lnI and exp() of it otherwise;
+    use_lnL only decides whether the log columns are written BESIDE it.  An earlier version
+    recorded bool(use_lnL) here, which is correct on three of the four combinations and
+    silently wrong on return_lnI=True, use_lnL=False -- the mislabelled linear reading sends
+    every negative-lnL row to zero weight and logs the positive ones twice.
+    """
     src = open(os.path.join(_INTEGRATORS_DIR, 'mcsamplerEnsemble.py')).read()
-    assert 'integrand_is_log=bool(use_lnL)' in src, \
+    assert 'integrand_is_log=bool(return_lnI)' in src, \
         'the Ensemble backend no longer records what its integrand column holds'
+    assert 'integrand_is_log=bool(use_lnL)' not in src, \
+        'use_lnL says whether log columns were written, NOT what `integrand` holds'
     src_mc = open(os.path.join(_INTEGRATORS_DIR, 'mcsampler.py')).read()
     assert 'integrand_is_log=False' in src_mc, \
         'mcsampler writes only linear columns and must say so'
+
+
+def test_the_gpu_linear_entry_point_records_that_it_is_linear():
+    """mcsamplerGPU.integrate() hands a use_lnL=True call off to integrate_log, so anything
+    reaching its record stored a linear `integrand` and no log columns at all.  Leaving the
+    convention unrecorded there makes samples().log_likelihood() raise for the DEFAULT mode of
+    that backend -- the one case where the record's refusal to guess is a false alarm rather
+    than a caught defect."""
+    src = open(os.path.join(_INTEGRATORS_DIR, 'mcsamplerGPU.py')).read()
+    # both rebind sites of the linear path: the retained record and the fair-draw one
+    assert src.count('integrand_is_log=False') == 2, \
+        'the GPU linear path must state its convention on BOTH the retained and fairdraw records'
+
+
+def test_a_mislabelled_log_column_is_not_a_harmless_annotation():
+    """Why the two findings above are defects and not bookkeeping: the same rows read under the
+    wrong convention are not approximately wrong, they are a different posterior."""
+    lnL = np.array([-3.0, -1.0, 2.0, 4.0])
+    cols = {'integrand': lnL, 'joint_prior': np.ones(4), 'joint_s_prior': np.ones(4)}
+    right = RvsRecord.retained(dict(cols), integrand_is_log=True).log_weights()
+    wrong = RvsRecord.retained(dict(cols), integrand_is_log=False).log_weights()
+    assert np.allclose(right, lnL)
+    assert np.isneginf(wrong[0]) and np.isneginf(wrong[1])   # negative lnL -> zero weight
+    assert np.allclose(wrong[2:], np.log(lnL[2:]))           # and log() of a log on the rest
 
 
 ###

@@ -251,12 +251,21 @@ this whole line of work is about.
 ### How `return_lnI` becomes historical
 
 `log_likelihood()` prefers the unambiguous `log_integrand` column, which covers AV, NFlow, the
-portfolio, mcsamplerGPU, and mcsamplerEnsemble *when it ran under `use_lnL`*. Only two cases
-have a bare `integrand` column whose meaning is not on the record:
+portfolio, `mcsamplerGPU.integrate_log`, and mcsamplerEnsemble *when it ran under `use_lnL`*.
+Three cases have a bare `integrand` column, and each states its own convention:
 
 * `mcsampler` -- writes no log columns at all, so it records `integrand_is_log=False`;
-* `mcsamplerEnsemble` in linear mode -- records `integrand_is_log=bool(use_lnL)`, **at the point
-  where that is known**.
+* `mcsamplerGPU.integrate` -- likewise linear, and unambiguously so: a `use_lnL=True` call is
+  handed off to `integrate_log` before any column is written, so everything reaching the record
+  is linear `L`. It records `integrand_is_log=False`. **This was missed in the first version**,
+  which left the default GPU mode raising from its own public accessor;
+* `mcsamplerEnsemble` -- records `integrand_is_log=bool(return_lnI)`, **at the point where that
+  is known**. `return_lnI` and not `use_lnL`: `integrand` is `value_array`, which is
+  `cumulative_values` (always `lnL`, whatever convention the *callable* used) under `return_lnI`
+  and `exp()` of it otherwise. `use_lnL` decides only whether the log columns are written
+  *beside* it. The first version recorded `bool(use_lnL)`, which agrees on three of the four
+  combinations and mislabels `return_lnI=True, use_lnL=False` as linear -- sending every
+  negative-`lnL` row to zero weight and taking `log()` of a log on the rest.
 
 That is the whole trick. The convention was always a runtime property, recoverable only by the
 sampler; now the sampler states it once instead of every caller threading `use_lnL` through and
