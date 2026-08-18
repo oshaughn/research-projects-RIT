@@ -120,21 +120,28 @@ End-to-end ILE head-to-head (ILE-GPU-Paper demo data), baseline vs rotation vs f
         --freqresponse-arm-length 40000 --freqresponse-qmax 6 ...                     # Path D (finite-size)
     # --interpolate-time selects cubic sub-bin time interpolation for all of the above (default nearest).
 
-## Validation status (all PASSING except jax_ile -- see below)
+## Validation status (all PASSING)
 - Response harmonics vs LAL: ~1e-16.  FD ops vs LAL round trips: ~1e-13.
 - Path A scalar: V1a (Omega=0 vs baseline) 2.7e-12; V1b (real vs brute force) 2.6e-9.
 - Path A vectorized: vs baseline NoLoop 3.6e-12; vs brute force 3.9e-10 (against the REWRITTEN,
   convention-free brute force -- see below; the old figure 3.2e-10 was against a reference that
   shared the implementation's conventions); V0 (precompute recovery on real data) exact.
-- NOT PASSING -- jax_ile (issue #131): the JAX reimplementation of the rotation contraction was
-  never given the arrival-time post-phase, so its rho_sq is arrival-time independent, its lnL can
-  exceed 0.5<d|d>, and it disagrees with the NoLoop by max|rel| 1.3e-5.  test_jax_slowrot.py's
-  rotation gate is DEGRADED to 1e-4 until the port lands; Path A/B under jax_ile is not fit for
-  production inference.  Path D (freqresponse) is unaffected, still 1.6e-14.
+- jax_ile (issue #131, ported 2026-08-18): the JAX rotation contraction now carries the
+  arrival-time post-phase in BOTH terms, so its rho_sq is arrival-time dependent (rank-1 in
+  (sample, time bin), bucketed by m = n_a' - n_a, as the NoLoop does).  test_jax_slowrot.py
+  rotation gate (a) vs the NoLoop: max|rel| 1.33e-05 -> 2.14e-15 (max|abs| 5.37e-02 -> 5.46e-12),
+  gate restored to 1e-10.  Path D (freqresponse) has no post-phase and is unchanged at 1.6e-14.
+  Value pinned independently by test/jax/test_jax_slowrot_cauchy_schwarz.py (see below).
 - Cauchy-Schwarz (test_slowrot_cauchy_schwarz.py, 2026-08-17): lnL sits ON 0.5<d|d> to 0 nats
   with the data equal to the exact Path-A model, and matches an explicit time-domain
   <d|h>-(1/2)<h|h> to 5e-11.  Before the rotation_post_phase fix the same test overshot the
   bound by 83.6 nats.
+- Cauchy-Schwarz, JAX (test/jax/test_jax_slowrot_cauchy_schwarz.py, 2026-08-18): the same ladder
+  against jax_ile -- (A) static deficit 4.99 nats, (B) lnL sits ON 0.5<d|d> to 0 nats at the true
+  arrival sample, (C) matches an explicit time-domain <d|h>-(1/2)<h|h> to 6.5e-11, (D) matches the
+  numpy NoLoop lnL(t) to 5.8e-11.  Mutation-tested: dropping the post-phase from both terms is
+  self-consistent (bound NOT violated) and (C) catches it at 95.3 nats; dropping it from the model
+  norm only overshoots the bound by 10.6 nats and (B) catches it.
 - Path B: scalar reduce-to-baseline 9e-13; respects 0.5<d|d>; vectorized reduce 6.4e-12.
 - Path D (finite-size, --freqresponse): response Sum_p b_p W_p == antenna_response_fd to 6e-11
   on both +/-f; likelihood L->0 reduces to baseline NoLoop 3e-9; Cauchy-Schwarz respected;

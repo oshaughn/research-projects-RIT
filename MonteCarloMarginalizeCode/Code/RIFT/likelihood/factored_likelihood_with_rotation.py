@@ -328,8 +328,9 @@ def PrecomputeLikelihoodTermsWithRotation(
     # post-phase moved to the extrinsic layer: Q is now <chi_a(.-t)|d> against untouched
     # data, and any evaluator MUST apply rotation_post_phase() to both terms.  A consumer
     # written against the old convention is silently wrong rather than broken, so it is
-    # recorded here for evaluators to check.  (jax_ile does not yet honour it -- see its
-    # KNOWN GAP note in jax_ile/core.py, tracked as issue #131.)
+    # recorded here for evaluators to check.  Both maintained evaluators do:
+    # DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation below, and
+    # jax_ile.banded.build_rotation_data / jax_ile.core._accumulate_unit_banded.
     meta = dict(harmonics=tuple(harmonics), p_max=p_max, f_sidereal=f_sidereal,
                 a_list=a_list, event_time_geo=float(event_time_geo),
                 omega_earth=OMEGA_EARTH, modes=list(hlms.keys()),

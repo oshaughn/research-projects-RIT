@@ -18,6 +18,22 @@ builds on ``slowrot_response.antenna_harmonics_vector`` /
 The detector-fixed inputs (``response`` tensor, ``location`` vector) are host
 constants supplied by the caller (from ``lalsimulation.DetectorPrefixToLALDetector``);
 only ``DEC, psi, RA`` are JAX (differentiable) leaves and ``gmst_tref`` a host float.
+
+THE ARRIVAL-TIME POST-PHASE IS NOT IN ``C_a`` -- IT CANNOT BE.
+``rotation_coefficients_dict`` / ``rotation_coefficients_packed`` return the BARE
+``C_a``, matching ``rotation_coefficients_vector``.  The bank's elementary templates
+live on the template's INTRINSIC time ``u`` while the physical modulation lives on
+absolute time, so placing the template at arrival time ``t`` leaves
+
+    C~_a(t) = C_a * exp(i n_a Omega (t - tref))    [rotation_post_phase]
+
+which the evaluator MUST apply to the data term AND the model norm (dropping it from
+one of them evaluates ``<d|h>`` and ``<h|h>`` for different ``h`` and breaks
+``lnL <= (1/2)<d|d>``; see ``test_slowrot_cauchy_schwarz.py``).  It is arrival-time
+dependent, so it does not fit in an ``(A, S)`` coefficient array; the helpers
+:func:`harmonic_indices` and :func:`post_phase_bucketing` below give the evaluator the
+static index bookkeeping it needs to apply it as a rank-1 (per-sample x per-time-bin)
+phase, bucketed by ``m``.  ``core._accumulate_unit_banded`` is that evaluator.
 """
 
 import math
@@ -200,3 +216,48 @@ def rotation_coefficients_packed(response, location, RA, DEC, psi, gmst_tref,
     cdict = rotation_coefficients_dict(response, location, RA, DEC, psi,
                                        gmst_tref, p_max)
     return pack_coefficients(cdict, a_list, S)
+
+
+# ---------------------------------------------------------------------------
+# Arrival-time post-phase bookkeeping (see the module docstring and
+# factored_likelihood_with_rotation.rotation_post_phase).
+# ---------------------------------------------------------------------------
+def harmonic_indices(a_list):
+    """Sidereal harmonic ``n_a`` of each elementary template ``a = (p, n)``.
+
+    Returns an ``(A,)`` int numpy array (static; used to index the post-phase table).
+    """
+    return np.asarray([int(n) for (_p, n) in a_list], dtype=np.int64)
+
+
+def post_phase_bucketing(a_list):
+    """Static index bookkeeping for the arrival-time post-phase.
+
+    The post-phase enters the two likelihood terms only through an integer harmonic
+    multiplier ``m``, so a single table of ``exp(i m omega delta)`` serves both:
+
+      * data term:   ``conj(C~_a) Q^a``  carries  ``m = -n_a``          (one per band a)
+      * model norm:  ``conj(C~_a) C~_a'``  and  ``C~_{(p,-n_a)} C~_a'`` BOTH carry
+        ``m = n_a' - n_a``                                              (one per pair)
+
+    (The V contraction reflects the first index, ``(p, n_a) -> (p, -n_a)``, so its phase
+    is ``exp(i(-n_a) omega delta) exp(i n_a' omega delta)`` -- the same ``m``.  This is
+    why ``factored_likelihood_with_rotation``'s NoLoop can bucket U and V together.)
+
+    Returns
+    -------
+    m_values : (M,) int numpy array
+        The distinct ``m`` actually needed, ascending.
+    term1_idx : (A,) int numpy array
+        ``m_values[term1_idx[a]] == -n_a``.
+    term2_idx : (A, A) int numpy array
+        ``m_values[term2_idx[a, ap]] == n_ap - n_a``.
+    """
+    n_of_a = harmonic_indices(a_list)
+    t1 = -n_of_a                                        # (A,)
+    t2 = n_of_a[None, :] - n_of_a[:, None]              # (A, A): [a, ap] = n_ap - n_a
+    m_values = np.unique(np.concatenate([t1.ravel(), t2.ravel()]))
+    pos = {int(m): i for i, m in enumerate(m_values)}
+    term1_idx = np.asarray([pos[int(m)] for m in t1], dtype=np.int64)
+    term2_idx = np.asarray([[pos[int(m)] for m in row] for row in t2], dtype=np.int64)
+    return m_values.astype(np.int64), term1_idx, term2_idx
