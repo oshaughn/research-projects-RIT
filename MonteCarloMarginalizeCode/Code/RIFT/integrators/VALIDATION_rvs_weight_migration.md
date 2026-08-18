@@ -157,3 +157,112 @@ match its columns and was therefore inert rather than belt-and-braces; and an or
 fragment sat at all seven rebind sites.
 
 Tier 0 was re-run after the fixes: still **bit-identical** to base across all 32 cells.
+
+---
+
+# TIER 3 (2026-08-18): the full ILE run, DISCHARGED
+
+Run on `ldas-pcdev12` (4x A100-SXM4-80GB), IGWN CVMFS python 3.11.14, cupy 12.0.0, lal 7.7.0.
+Base = `364a22fd` (merge-base), candidate = `63b50062`, both commit-gated against the remote.
+Raw data, scripts and the analysis are committed under
+`test/expensive_before_merging/integrators/tier3/`.
+
+## The thing that had to be established first: this run is NOT deterministic
+
+Tier 0's acceptance criterion was bit-identity. **That criterion does not transfer here.** Two
+runs of the *base* code, same `--seed 4242`, same host, same GPU:
+
+| | run 1 | run 2 |
+|---|---|---|
+| `lnL` | 66.2279 | 66.5573 |
+| `neff` | 22.46 | 4.19 |
+| `sigma_lnL` | 0.1376 | 0.2637 |
+
+The first base-vs-candidate comparison showed `dlnL` 0.11 and looked like a regression. It is
+**smaller than the spread base shows against itself** (0.33). Had I stopped at the first diff I
+would have reported a regression that does not exist; had I stopped at "it differs, GPU runs
+differ, fine" I would have had no argument at all. So tier 3 is a comparison of DISTRIBUTIONS
+with a MEASURED null, not a diff.
+
+## Getting a real run at all: three dead ends, all pre-existing
+
+The first four attempts failed, and none of the failures was mine -- **every one reproduces on
+the unmodified base checkout**, which is the only reason they are not blockers:
+
+1. `TypeError: ... argument 1 of type 'REAL8'` in `ComputeYlms`. **My option set was wrong**, not
+   the code: without `--vectorized` the ILE takes the scalar loop at line ~3130 and hands an
+   ARRAY of inclinations to a scalar `lal.SpinWeightedSphericalHarmonic`. `--force-xpy` does not
+   help. `--vectorized --gpu` is the fix.
+2. `--internal-use-lnL` + `adaptive_cartesian_gpu` (the DEFAULT sampler) dies in
+   `mcsamplerGPU.integrate_log` mixing a numpy `maxval` into a cupy expression.
+3. `--internal-use-lnL` + `adaptive_cartesian` (CPU) dies with `'MCSampler' object has no
+   attribute 'identity_convert'`.
+4. `portfolio` + `--internal-use-lnL` + replicas + `.dgrid` exits 1 with `'NoneType' object is
+   not iterable`.
+
+**(2) and (3) together mean the `.dgrid` export is currently UNREACHABLE on both
+linear-integrand backends**, because the exporter is gated on `opts.internal_use_lnL`. That is
+worth knowing independently of this branch: it bounds how much of the HIGH finding's blast radius
+is reachable in production today. Only AV and GMM can emit a `.dgrid`. Filed separately; not
+fixed here, because fixing them is not this branch's job and would have made the arms differ.
+
+## The NoLoop path was PROVEN, not assumed
+
+`noloop_probe.py` wraps the likelihood entry points and counts calls in a real run:
+
+```
+NOLOOP-PROBE: first call to DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop  time_interp='nearest' xpy=cupy
+NOLOOP-PROBE COUNTS: {'...NoLoop': 20, '...NoLoopOrig': 0, 'FactoredLogLikelihoodTimeMarginalized': 0}
+```
+
+`xpy=cupy`, 20 calls, scalar path 0. Config D re-runs the whole ensemble with
+`--interpolate-time True` for the cubic time interpolation as well.
+
+## Design: 5 configs x 2 arms x 30 replicates = 300 runs, 300 clean
+
+Arms are **interleaved within each replicate** so any drift in machine state hits both equally,
+and `CUDA_VISIBLE_DEVICES` is pinned to an idle card (index 0 was at 100% from another user).
+
+| cfg | what it exercises |
+|---|---|
+| A | GPU linear backend (`integrand` = L), plain |
+| B | linear backend + **replica pooling** |
+| D | cubic NoLoop time interpolation |
+| AV | AV (lnL family) + pooling + **`.dgrid` export** |
+| GMM | GMM (lnL family) + pooling + **`.dgrid` export** |
+
+B/AV/GMM are the point: **tiers 0-2 were structurally blind to replica pooling** -- that is
+exactly how the adversarial review's HIGH finding survived a bit-identical tier 0.
+
+## Result
+
+19 metric comparisons (lnL, sigma_lnL, neff, and the `.dgrid` grid statistics), two-sided
+**permutation test** on the arm labels (20000 shuffles, no normality assumption):
+
+**0 of 19 comparisons reach p<0.05. Expected by chance at alpha=0.05: ~1.** Smallest p is 0.262.
+
+And the null was measured rather than trusted: an **A/A control** that splits the base runs into
+two pseudo-arms of identical code and runs the same test gives **0 of 19** as well -- so the test
+is not simply insensitive to everything.
+
+## What this does NOT establish
+
+"No significant difference" is only as strong as the sensitivity behind it. Minimum detectable
+shift in `lnL` at 80% power, n=30/arm:
+
+| cfg | MDE (nats) | observed abs(d) |
+|---|---|---|
+| A | 0.150 | 0.049 (32%) |
+| B | 0.087 | 0.019 (22%) |
+| D | 0.141 | 0.021 (15%) |
+| AV | 0.045 | 0.018 (41%) |
+| GMM | 0.354 | 0.073 (21%) |
+
+So this ensemble rules out a systematic bias larger than **~0.05 nats on AV** and **~0.15 nats on
+the noisy GPU-linear config** -- not a bias below that. Every observed difference sits well
+inside its own detection floor. It is also ONE event, ONE waveform (SEOBNRv4), `l-max 2`, zero
+noise.
+
+**Tier 3 is discharged and the migration is no longer provisional.** The stopping rule in the
+plan above -- "tier 3 cannot be run at all -> mark the migration provisional" -- no longer
+applies.
