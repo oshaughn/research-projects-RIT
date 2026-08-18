@@ -11,11 +11,28 @@ Checks:
   V1a (assembly algebra):  with f_sidereal -> 0 the rotation lnL must equal the baseline
       FactoredLogLikelihood exactly (all modulations become identity, sum_n A_tilde_n ->
       F(tref)).  This validates the whole harmonic contraction incl. the V-term's A_{-nu}.
-  V1b (rotation physics):  with the real sidereal rate, the rotation lnL must equal a
-      brute-force Path-R likelihood that applies the FULL time-varying antenna pattern
-      F_k(t) (sampled from lal.ComputeDetAMResponse, independent of the A_n harmonic
-      decomposition) directly to the data (term1) and to the modes (term2).  This validates
-      that Q^{(n)} is paired with the correct conj(A_tilde_n), i.e. the physics.
+  V1b (harmonic decomposition):  with the real sidereal rate, the rotation lnL must agree
+      with a brute-force Path-R likelihood that applies the FULL time-varying antenna
+      pattern F_k(t), sampled from lal.ComputeDetAMResponse and so independent of the A_n
+      harmonic decomposition.  That is what V1b validates: that the 5-harmonic expansion
+      reproduces the true F_k(t), and that Q^{(n)} is paired with the right conj(A_tilde_n).
+
+      READ THIS BEFORE TRUSTING V1b FOR ANYTHING ELSE.  Its reference is NOT
+      convention-free: _pathR_lnL pushes the modulation onto the data for term1
+      (conj(F) * d, an identity that fails for a noise-weighted overlap) and samples F for
+      the modes with the template pinned at event_time for term2 (no arrival-time
+      post-phase).  Those are exactly the two mistakes that once made this likelihood
+      exceed 0.5<d|d>; a reference that shares them cannot detect them.  V1b is therefore
+      blind to the post-phase, and its tolerance (1e-4 of |lnL|, i.e. ~0.6 nats here) is far
+      too loose to notice.  Since the post-phase was restored, V1b reads |diff| ~ 1.3e-3
+      rather than the ~3e-9 it read while both sides were wrong -- that gap IS the
+      post-phase plus the term1 commutator, not drift.
+
+      What actually guards this: the Cauchy-Schwarz assertion on the scalar path in
+      test_slowrot_pathB.py, and, for the maintained NoLoop, test_slowrot_cauchy_schwarz.py
+      plus the rewritten convention-free reference in test_slowrot_noloop_bruteforce.py.
+      The scalar entry point here is non-preferred -- production routes through the NoLoop
+      -- so this reference was deliberately NOT rebuilt.
 """
 from __future__ import print_function, division
 

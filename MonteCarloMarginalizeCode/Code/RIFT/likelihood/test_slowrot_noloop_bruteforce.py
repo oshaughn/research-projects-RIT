@@ -1,12 +1,18 @@
 """
 test_slowrot_noloop_bruteforce : the definitive rotation-physics validation.
 
-The vectorized rotation NoLoop lnL_t (real sidereal rate) is compared, over the full
-time window, to an INDEPENDENT brute-force likelihood that applies the true time-varying
-antenna pattern F_k(t) -- sampled directly from lal.ComputeDetAMResponse -- to the data
-(term1) and to the modes (term2), reusing RIFT's own overlaps.  This confirms both that
-the vectorized harmonic contraction is correct AND that the (large, at high SNR) shift the
-sidereal rotation induces in the marginalized lnL is genuine physics, not an artifact.
+The vectorized rotation NoLoop lnL_t (real sidereal rate) is compared, over the full time
+window, to an INDEPENDENT brute-force likelihood that builds the real detector strain
+    h(t') = Re[ F(t') * sum_lm Y_lm h_lm(t' - t_arr) ],   F from lal.ComputeDetAMResponse,
+explicitly in the time domain at every arrival sample, and takes BOTH inner products of that
+one series.  This confirms that the vectorized harmonic contraction is correct AND that the
+(large, at high SNR) shift the sidereal rotation induces in the marginalized lnL is genuine
+physics, not an artifact.
+
+The reference deliberately shares NO convention with the implementation -- it never pushes the
+modulation onto the data and never pins the template's arrival time -- so, unlike the version
+this replaced, it cannot agree with a broken likelihood by making the same mistake.  See
+test_slowrot_cauchy_schwarz.py and rotation_post_phase() for what that used to hide.
 
 Run: source ~/RIFT_develUWM/bin/activate;
      PYTHONPATH=~/RIFT_slowrot/MonteCarloMarginalizeCode/Code python <this file>
@@ -38,36 +44,41 @@ hlms,hlms_conj=fl.internal_hlm_generator(Pm,Lmax,verbose=False,quiet=True)
 Ylms=fl.ComputeYlms(Lmax,INCL,-PHIREF,selected_modes=list(hlms.keys()))
 distMpc=DIST/(lsu.lsu_PC*1e6);invD=fl.distMpcRef/distMpc
 npts=400
+# CONVENTION-FREE REFERENCE.  An earlier version of this brute force pushed the F(t) modulation
+# onto the DATA for term1 (<F h|d> == <h|conj(F) d>) and evaluated term2 for the template pinned
+# at event_time.  Both shortcuts are exactly the ones the likelihood used to take, so the test
+# agreed to 3e-10 while BOTH were wrong -- the failure mode SLOWROT_HANDOFF.md calls out as the
+# critical lesson.  The first identity holds only for the UNWEIGHTED overlap (a frequency shift
+# does not commute with the 1/S(f) band weight); the second drops the arrival-time post-phase
+# exp(i n Omega (t-tref)).
+#
+# So this reference now shares nothing with the implementation: it builds the real strain
+#     h(t') = invD * Re[ F(t') * hY(t' - t_arr) ]
+# in the time domain at EACH arrival sample and takes both inner products of that one series.
+# It is therefore a genuine Cauchy-Schwarz-respecting likelihood by construction.
 def bf_lnLt(det):
     data=data_dict[det];psd=psd_dict[det];n=data.data.length;dt=1./(n*data.deltaF)
     t_det=fl.ComputeArrivalTimeAtDetector(det,RA,DEC,event_time)
     rho_epoch=data.epoch-hlms[list(hlms.keys())[0]].epoch
-    t_shift=float(float(t_det)-float(t_window)-float(rho_epoch));N_shift=int(t_shift/deltaT+0.5);N_window=int(2*t_window/deltaT)
-    tgrid=np.arange(N_window)*deltaT+float(rho_epoch+N_shift*deltaT)
-    Fd=Fsample(det,float(data.epoch),n,dt);dtd=to_td(data)
-    df=lal.CreateCOMPLEX16TimeSeries("dF",data.epoch,0.,dt,lal.DimensionlessUnit,n);df.data.data[:]=np.conj(Fd)*dtd.data.data
-    rr=fl.ComputeModeIPTimeSeries(hlms,lsu.DataFourier(df),psd,fmin,fmax,fNyq,N_shift,N_window,True,False,0.)
-    ri=fl.InterpolateRholms(rr,tgrid,verbose=False)
-    modes=list(ri.keys())
-    # window aligned like NoLoop
-    ifirst=int(round((float(t_det)-0.02-float(rr[list(rr.keys())[0]].epoch))/deltaT)+0.5)
-    tsel=np.array([float(rr[list(rr.keys())[0]].epoch)+(ifirst+j)*deltaT for j in range(npts)])
-    term1=np.zeros(npts,dtype=complex)
-    for m in modes:
-        term1+=np.conj(Ylms[m])*np.array([ri[m](tt) for tt in tsel])
-    term1=term1.real*invD
+    t_shift=float(float(t_det)-float(t_window)-float(rho_epoch));N_shift=int(t_shift/deltaT+0.5)
+    rr_epoch=float(rho_epoch)+N_shift*deltaT
+    # The arrival samples the NoLoop lands on, as array shifts of the template against the data.
+    # The origin is rho_epoch = data.epoch - hlms.epoch, NOT event_time: the data and the modes
+    # are generated separately here and their epochs differ by ~0.36 s, so index m of the data
+    # holds intrinsic template time (m + (rho_epoch - t_arr)/deltaT).
+    ifirst=int(round((float(t_det)-0.02-rr_epoch)/deltaT)+0.5)
+    kvals=[N_shift+ifirst+j for j in range(npts)]
+    Fd=Fsample(det,float(data.epoch),n,dt)          # F(t') on the absolute data time axis
+    hY=np.zeros(n,dtype=complex)
+    for m in hlms: hY+=Ylms[m]*np.array(to_td(hlms[m]).data.data)
     IP=lsu.ComplexIP(fmin,fmax,fNyq,data.deltaF,psd,True,False,0.)
-    modF={};modC={}
-    for m in modes:
-        htd=to_td(hlms[m]);Fm=Fsample(det,event_time+float(hlms[m].epoch),hlms[m].data.length,dt)
-        pr=lal.CreateCOMPLEX16TimeSeries("Fh",hlms[m].epoch,0.,dt,lal.DimensionlessUnit,hlms[m].data.length);pr.data.data[:]=Fm*htd.data.data;modF[m]=lsu.DataFourier(pr)
-        pc=lal.CreateCOMPLEX16TimeSeries("Fc",hlms[m].epoch,0.,dt,lal.DimensionlessUnit,hlms[m].data.length);pc.data.data[:]=np.conj(Fm*htd.data.data);modC[m]=lsu.DataFourier(pc)
-    t2=0j
-    for p1 in modes:
-        for p2 in modes:
-            t2+=IP.ip(modF[p1],modF[p2])*np.conj(Ylms[p1])*Ylms[p2]+IP.ip(modC[p1],modF[p2])*Ylms[p1]*Ylms[p2]
-    t2=-t2.real/4./(distMpc/fl.distMpcRef)**2
-    return term1+t2
+    out=np.zeros(npts)
+    for j,k in enumerate(kvals):
+        hs=lal.CreateCOMPLEX16TimeSeries("h",data.epoch,0.,dt,lal.DimensionlessUnit,n)
+        hs.data.data[:]=np.real(Fd*np.roll(hY,k))*invD
+        hf=lsu.DataFourier(hs)
+        out[j]=IP.ip(hf,data).real-0.5*IP.ip(hf,hf).real
+    return out
 bf=sum(bf_lnLt(det) for det in data_dict)
 m=np.max(bf);bf_marg=m+np.log(np.trapz(np.exp(bf-m),dx=deltaT))
 # ---- vec rotation, real Omega, same window ----

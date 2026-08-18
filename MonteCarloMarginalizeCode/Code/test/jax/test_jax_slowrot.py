@@ -7,9 +7,19 @@ Gates:
   (a) JAX interp="nearest" reproduces the cupy/numpy NoLoop references
         DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation  (rotation)
         DiscreteFactoredLogLikelihoodFreqResponseNoLoop                (freqresponse)
-      on the SAME packed data, to ~1e-13.
+      on the SAME packed data, to ~1e-13.  Rotation runs at BOTH p_max=0 (Path A) and
+      p_max=1 (Path B) -- see check_rotation() for why Path B is a distinct code path
+      for the arrival-time post-phase and not just a wider bank.  p_max=2 is NOT run: its
+      15-band bank costs 225 U/V cross terms in the precompute (vs 100 at p_max=1, 25 at
+      p_max=0) and roughly doubles this file's runtime again, for no branch p_max=1 does
+      not already exercise -- the same duplicate-m scatter-add and within-p V reflection.
   (b) interp="linear" gradient (distance-marginalized, smooth) vs finite diff ~1e-6.
   (c) jit / vmap / grad / hessian all execute and stay finite.
+
+Agreement with the NoLoop (gate a) is NECESSARY BUT NOT SUFFICIENT for the rotation path: a
+likelihood that drops the arrival-time post-phase from BOTH terms is perfectly self-consistent
+and still ~95 nats wrong.  The VALUE is pinned separately, by the Cauchy-Schwarz / explicit-model
+ladder in test/jax/test_jax_slowrot_cauchy_schwarz.py.
 
 Run:
   PYTHONPATH=<...>/Code  taskset -c 0-3 python test/jax/test_jax_slowrot.py
@@ -83,12 +93,22 @@ def _finite_diff_grad(fn, x0, h=1e-4):
     return g
 
 
-def check_rotation():
-    print("\n=== ROTATION (Path A, p_max=0) ===")
+def check_rotation(p_max=0):
+    """Gate (a) for the rotation bank at the given ``p_max``.
+
+    p_max=0 is Path A (amplitude drift only, a=(0,n)); p_max>=1 is Path B, which adds the
+    delay-derivative bands a=(p,n).  Path B is not a cosmetic extension of this port: several
+    ``p`` then share the same sidereal harmonic ``n``, so the post-phase buckets
+    (m = n_a' - n_a) collect (a,a') pairs from DIFFERENT p -- 4-20 pairs per bucket at
+    p_max=1 vs 1-5 at p_max=0 -- and the V-term reflection (p,n)->(p,-n) has to resolve
+    within p.  Neither branch is exercised at p_max=0.
+    """
+    print("\n=== ROTATION (Path %s, p_max=%d) ===" % ("A" if p_max == 0 else "B", p_max))
     ri, ct, ctV, rho, meta = flwr.PrecomputeLikelihoodTermsWithRotation(
         event_time, t_window, Psig, data_dict, psd_dict, Lmax, fmax,
-        harmonics=HARM, p_max=0, f_sidereal=flwr.F_SIDEREAL, analyticPSD_Q=True,
+        harmonics=HARM, p_max=p_max, f_sidereal=flwr.F_SIDEREAL, analyticPSD_Q=True,
         verbose=False, quiet=True, skip_interpolation=True)
+    assert len(meta['a_list']) == (p_max + 1) * len(HARM), "unexpected a_list size"
     lk, rbn, ubn, vbn, ep = flwr.pack_rotation_arrays(meta, rho, ct, ctV)
     Pv = _P_vec()
     lnL_ref = flwr.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation(
@@ -102,9 +122,22 @@ def check_rotation():
     err = np.max(np.abs(lnL_ref[fin] - lnL_jax[fin]))
     rel = np.max(np.abs(lnL_ref[fin] - lnL_jax[fin]) / (1 + np.abs(lnL_ref[fin])))
     print("(a) nearest vs numpy NoLoop-with-rotation: max|abs| = %.3e  max|rel| = %.3e"
-          "  (%d samples)" % (err, rel, fin.sum()))
-    assert rel < 1e-10, "rotation nearest mismatch (rel) %g" % rel
+          "  (%d samples, A=%d bands)" % (err, rel, fin.sum(), len(meta['a_list'])))
+    # Both sides apply the arrival-time post-phase C~_a = C_a exp(i n_a Omega (t - tref))
+    # (factored_likelihood_with_rotation.rotation_post_phase) to the data term AND the model
+    # norm, and the JAX accumulator uses the same arrival samples the gather uses, so this is
+    # an exact algebraic identity -- only floating-point reassociation separates them.
+    ROT_TOL = 1e-10
+    assert rel < ROT_TOL, "rotation nearest mismatch (rel) %g at p_max=%d" % (rel, p_max)
     return data
+
+
+def test_rotation_path_a():
+    check_rotation(p_max=0)
+
+
+def test_rotation_path_b():
+    check_rotation(p_max=1)
 
 
 def check_freqresponse():
@@ -132,6 +165,10 @@ def check_freqresponse():
           "  (%d samples)" % (err, rel, fin.sum()))
     assert rel < 1e-10, "freqresponse nearest mismatch (rel) %g" % rel
     return data
+
+
+def test_freqresponse():
+    check_freqresponse()
 
 
 def check_ad(data, tag):
@@ -164,8 +201,12 @@ def check_ad(data, tag):
 
 
 if __name__ == "__main__":
-    d_rot = check_rotation()
-    check_ad(d_rot, "rotation")
+    d_rot = check_rotation(p_max=0)
+    check_ad(d_rot, "rotation p_max=0")
+    d_rotB = check_rotation(p_max=1)
+    check_ad(d_rotB, "rotation p_max=1")
     d_fr = check_freqresponse()
     check_ad(d_fr, "freqresponse")
     print("\nSLOWROT + FREQRESPONSE JAX VALIDATION PASSED")
+    print("  (agreement with the NoLoop is necessary, not sufficient: the rotation VALUE is")
+    print("   pinned by test/jax/test_jax_slowrot_cauchy_schwarz.py.)")
