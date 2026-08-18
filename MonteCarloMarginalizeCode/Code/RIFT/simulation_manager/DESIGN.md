@@ -635,11 +635,25 @@ every kind, including input-transfer failures that increment it while
 the job has never run. Neither is "the number of memory holds"
 everywhere.
 
+These are two alternatives, not one configuration: an exclusion on a
+code `oom_hold_codes` does not list is refused, since it could not have
+had any effect. Either disown 26 entirely —
+
 ```python
 DualCondorRunQueue(
     auto_release_on_oom=True,
-    oom_hold_codes=(34,),                          # 26 means something else here
-    oom_hold_subcode_exclusions={26: (100, 101)},  # ...or keep 26, minus the limiter
+    oom_hold_codes=(34,),          # 26 means something else here
+    oom_retry_counter="NumHolds",
+)
+```
+
+— or keep it and carve out the sub-codes the limiter reports:
+
+```python
+DualCondorRunQueue(
+    auto_release_on_oom=True,
+    oom_hold_codes=(34, 26),
+    oom_hold_subcode_exclusions={26: (100, 101)},  # 26, minus the limiter
     oom_retry_counter="NumHolds",
 )
 ```

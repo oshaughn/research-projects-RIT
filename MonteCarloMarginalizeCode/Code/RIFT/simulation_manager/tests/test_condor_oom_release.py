@@ -536,6 +536,29 @@ def test_an_exclusion_on_an_unowned_code_is_refused(archive):
         q.oom_hold_codes = (34,)        # orphans the exclusion after the fact
 
 
+def test_a_refused_assignment_leaves_the_previous_policy_in_place(archive):
+    """A setter that stores first and validates after leaves the queue
+    configured with the value it just rejected: the caller sees the
+    ValueError, reads it as "nothing changed", and submits under (34,)
+    anyway. Both directions of the pair have to hold."""
+    q = DualCondorRunQueue(auto_release_on_oom=True, oom_hold_codes=(34, 26),
+                           oom_hold_subcode_exclusions={26: (100,)})
+    with pytest.raises(ValueError):
+        q.oom_hold_codes = (34,)
+    assert q.oom_hold_codes == (34, 26)
+    with pytest.raises(ValueError):
+        q.oom_hold_subcode_exclusions = {99: (1,)}
+    assert dict(q.oom_hold_subcode_exclusions) == {26: (100,)}
+    # ...and what it submits is the surviving policy, not the rejected
+    # one: the attribute reading right is no use if the emitted text
+    # disagrees with it.
+    intact = DualCondorRunQueue(auto_release_on_oom=True,
+                                oom_hold_codes=(34, 26),
+                                oom_hold_subcode_exclusions={26: (100,)})
+    assert _command(_build(archive, q), "periodic_release") == \
+        _command(_build(archive, intact), "periodic_release")
+
+
 def test_none_means_the_default_not_the_empty_set(archive):
     """As it does in the constructor and for oom_retry_counter. Reading
     it as "own no codes" would let an assignment disable the memory

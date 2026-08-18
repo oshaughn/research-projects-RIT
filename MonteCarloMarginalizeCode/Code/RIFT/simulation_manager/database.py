@@ -1910,10 +1910,16 @@ class DualCondorRunQueue(RunQueue):
         # oom_retry_counter. Reading it as "own no codes" would let
         # `q.oom_hold_codes = None` disable the memory policy outright,
         # which is a thing to have to ask for -- pass () for that.
-        self._oom_hold_codes = (
-            DEFAULT_OOM_HOLD_CODES if value is None
-            else _validate_hold_codes(value, what="oom_hold_codes"))
-        self._reject_orphan_subcode_exclusions()
+        codes = (DEFAULT_OOM_HOLD_CODES if value is None
+                 else _validate_hold_codes(value, what="oom_hold_codes"))
+        # Checked against the CANDIDATE, before it is stored. Assigning
+        # first and validating after leaves the queue holding the value
+        # the check just rejected, so a caller who catches the ValueError
+        # submits under it anyway -- the raise reads as "nothing changed"
+        # and is not.
+        self._reject_orphan_subcode_exclusions(
+            codes, getattr(self, "_oom_hold_subcode_exclusions", None))
+        self._oom_hold_codes = codes
 
     @property
     def oom_hold_subcode_exclusions(self) -> Mapping[int, Tuple[int, ...]]:
@@ -1925,20 +1931,27 @@ class DualCondorRunQueue(RunQueue):
 
     @oom_hold_subcode_exclusions.setter
     def oom_hold_subcode_exclusions(self, value: Any) -> None:
-        self._oom_hold_subcode_exclusions = _validate_subcode_exclusions(
+        exclusions = _validate_subcode_exclusions(
             value, what="oom_hold_subcode_exclusions")
-        self._reject_orphan_subcode_exclusions()
+        # Same order as oom_hold_codes: check the candidate, then store.
+        self._reject_orphan_subcode_exclusions(
+            getattr(self, "_oom_hold_codes", None), exclusions)
+        self._oom_hold_subcode_exclusions = exclusions
 
-    def _reject_orphan_subcode_exclusions(self) -> None:
+    @staticmethod
+    def _reject_orphan_subcode_exclusions(
+            codes: Optional[Sequence[int]],
+            orphans: Optional[Mapping[int, Sequence[int]]]) -> None:
         """An exclusion on a code the policy does not own does nothing.
 
         Silently ignoring it means a typo'd key reads as configured and
         has no effect -- the site believes it has carved out its
-        anti-thrash sub-code and has not. Only checked once both
-        attributes exist, because the constructor sets them in sequence.
+        anti-thrash sub-code and has not. Takes the pair to check as
+        arguments rather than reading the attributes, so each setter can
+        call it before assigning: a failed assignment then leaves the
+        previous policy in place. `codes is None` is the constructor's
+        first setter running before the other attribute exists.
         """
-        codes = getattr(self, "_oom_hold_codes", None)
-        orphans = getattr(self, "_oom_hold_subcode_exclusions", None)
         if codes is None or not orphans:
             return
         unknown = sorted(k for k in orphans if k not in codes)
