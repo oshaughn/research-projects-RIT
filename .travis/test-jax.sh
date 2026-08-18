@@ -23,6 +23,11 @@
 #
 # JAX_PLATFORMS=cpu is set: no GPU is required, and jax must not go hunting for one.
 set -uo pipefail
+# NOTE: deliberately no -e.  Every command below has its rc handled explicitly so the
+# failure messages stay specific; if you add a command, guard it yourself.
+
+# JAXDIR below is repo-relative, so anchor cwd rather than trusting the caller.
+cd "$(dirname "$0")/.." || { echo "test-jax.sh: cannot cd to repo root" >&2; exit 1; }
 
 PYTHON_BIN="${RIFT_JAX_PYTHON:-${PYTHON:-python}}"
 if ! command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
@@ -64,8 +69,12 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 # DELIBERATELY EXCLUDED (measured on ldas-pcdev11, JAX_PLATFORMS=cpu, OMP_NUM_THREADS=1):
 #
 #   test_nuts_phimarg_injection.py  Not a pytest file at all: it runs the whole study at
-#                                 module scope and calls sys.exit() there, so pytest
-#                                 reports a COLLECTION ERROR rather than zero tests.  It
+#                                 module scope and calls sys.exit() there.  WITHOUT numpyro
+#                                 that surfaces as a fast COLLECTION ERROR; WITH numpyro --
+#                                 which THIS JOB INSTALLS -- `--collect-only` actually
+#                                 EXECUTES the study and hangs (reproduced: no output after
+#                                 ~6 min).  So re-adding it would burn to timeout-minutes,
+#                                 not fail fast.  It
 #                                 is also long -- a full NUTS run on a real injection
 #                                 that has exceeded a 1800 s cap in hand testing.  Too
 #                                 expensive for every PR; run it by hand.
@@ -93,6 +102,32 @@ FILES=(
   "${JAXDIR}/test_nuts_phimarg.py"
 )
 
+# EXCLUDED: files in JAXDIR matching test_*.py that are deliberately NOT gated.  The
+# manifest check below fails if a file is in neither FILES nor EXCLUDED, so adding a new
+# test_*.py to test/jax/ forces a decision instead of being silently unrun -- which is
+# this gate's own failure mode, one level up.
+EXCLUDED=(
+  "${JAXDIR}/test_nuts_phimarg_injection.py"
+  "${JAXDIR}/test_flow_reuse.py"
+)
+
+echo "== manifest check (every test_*.py is gated or explicitly excluded) =="
+manifest_rc=0
+for f in "${JAXDIR}"/test_*.py; do
+  known=0
+  for g in "${FILES[@]}" "${EXCLUDED[@]}"; do
+    [ "${f}" = "${g}" ] && { known=1; break; }
+  done
+  if [ "${known}" -eq 0 ]; then
+    echo "test-jax.sh: ${f} is neither gated nor explicitly excluded." >&2
+    manifest_rc=1
+  fi
+done
+if [ "${manifest_rc}" -ne 0 ]; then
+  echo "  Add it to FILES (and raise EXPECTED_TESTS), or to EXCLUDED with a reason." >&2
+  exit 1
+fi
+
 # Sum of the per-file counts above.  Pinned deliberately: a bare `pytest test/jax/`
 # that collected 0 would exit 5, and a partial loss (say 14 -> 3) would still exit 0.
 EXPECTED_TESTS=14
@@ -105,7 +140,10 @@ if [ "${collect_rc}" -ne 0 ]; then
   echo "test-jax.sh: pytest collection failed (exit ${collect_rc})" >&2
   exit 1
 fi
-n_collected="$(printf '%s\n' "${collect_out}" | grep -c '::')"
+# Anchor to '<path>.py::' at line start.  An unanchored grep -c '::' also counts merged
+# stderr (jax/XLA log lines, C++ symbols, '::1'), and because the floor is a >= test,
+# OVER-counting is the dangerous direction: one stray line masks exactly one lost test.
+n_collected="$(printf '%s\n' "${collect_out}" | grep -cE '^[^[:space:]]+\.py::')"
 echo "collected ${n_collected} tests from ${#FILES[@]} files"
 if [ "${n_collected}" -lt "${EXPECTED_TESTS}" ]; then
   printf '%s\n' "${collect_out}"
@@ -116,13 +154,43 @@ if [ "${n_collected}" -lt "${EXPECTED_TESTS}" ]; then
   exit 1
 fi
 
+junit="$(mktemp -t jaxci-junit-XXXXXX.xml)"
+trap 'rm -f "${junit}"' EXIT
+
 echo "== running =="
-"${PYTHON_BIN}" -m pytest -q -p no:cacheprovider --durations=0 "${FILES[@]}"
+"${PYTHON_BIN}" -m pytest -q -p no:cacheprovider --durations=0 --junit-xml="${junit}" "${FILES[@]}"
 rc=$?
 if [ "${rc}" -ne 0 ]; then
   # rc 5 == "no tests ran"; it is a FAILURE here, not a pass.
   echo "test-jax.sh: pytest exited ${rc}" >&2
   exit "${rc}"
 fi
+
+# OUTCOME check.  The floor above counts COLLECTION, which cannot see a test that
+# collects, runs, and asserts nothing: one pytest.skip() or importorskip() disables a
+# gate while both the collected count and the pytest exit status stay green.  That is
+# the very shape this script exists to prevent, so assert what the RUN did.
+"${PYTHON_BIN}" - "${junit}" "${EXPECTED_TESTS}" <<'PYCHECK'
+import sys, xml.etree.ElementTree as ET
+path, expected = sys.argv[1], int(sys.argv[2])
+root = ET.parse(path).getroot()
+ts = root if root.tag == "testsuite" else root.find("testsuite")
+if ts is None:
+    sys.stderr.write("test-jax.sh: no <testsuite> in the junit report\n"); sys.exit(1)
+g = lambda k: int(ts.get(k, 0) or 0)
+tests, skipped, failures, errors = g("tests"), g("skipped"), g("failures"), g("errors")
+print("junit: tests=%d skipped=%d failures=%d errors=%d" % (tests, skipped, failures, errors))
+bad = []
+if tests < expected:
+    bad.append("ran %d tests, expected at least %d" % (tests, expected))
+if skipped:
+    bad.append("%d SKIPPED -- a skip silently disables a gate here; if a skip is "
+               "legitimate, exclude the file in FILES and say why" % skipped)
+if failures or errors:
+    bad.append("%d failures, %d errors" % (failures, errors))
+if bad:
+    sys.stderr.write("test-jax.sh: " + "; ".join(bad) + "\n"); sys.exit(1)
+PYCHECK
+if [ $? -ne 0 ]; then exit 1; fi
 
 echo "jax_ile CPU regression gate: PASS (${n_collected} tests)"

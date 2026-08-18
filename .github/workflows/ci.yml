@@ -269,8 +269,11 @@ jobs:
     # ("no tests ran") on those -- a green tick over an empty run.
     #
     # Python 3.11 rather than the 3.10 used by the sibling jobs: current jax wheels
-    # require >=3.11. jax/numpyro are installed UNPINNED, matching setup.py's
-    # extras_require['jax-apps']; that is deliberate (CI should see what a user gets)
+    # require >=3.11. jax/numpyro are installed UNPINNED and deliberately so (CI should
+    # see what a user gets).  NOTE: RIFT.likelihood.jax_ile declares its dependencies
+    # NOWHERE in setup.py -- extras_require['jax-apps'] is for RIFT.interpolators.jax_gp
+    # and lists a different set -- so this job is their de-facto declaration.  An
+    # extras_require['jax-ile'] would be the right home for them
     # and means a breaking upstream jax release can redden this job outside any PR's
     # control. If that becomes noisy, pin here rather than deleting the job.
     #
@@ -279,7 +282,10 @@ jobs:
     # collection pass.  test_jax_slowrot.py alone is 679 s of that (the p_max=0/p_max=1
     # rotation ladders and freqresponse, each followed by the AD/jit/vmap/hessian
     # checks); it is the first thing to trim if CI minutes ever bite.  timeout-minutes
-    # is ~4x the measured wall so a slower runner does not flake, but a hang still ends.
+    # is generous so a slower runner does not flake, but a hang still ends.  OBSERVED on
+    # the actual runner (job 95750869285, python 3.11.15, jax 0.10.2, numpyro 0.21.0):
+    # 14 passed in 285.96 s, 6m07s job wall -- ~10x headroom, and the unpinned install
+    # had already drifted a jax minor version from the 0.9.2 measured locally.
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -290,16 +296,17 @@ jobs:
           cache-dependency-path: requirements.txt
       - name: Enable symlink
         run: sudo ln -sf $(which python3) /usr/bin/python
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip --break-system-packages
-          python -m pip install -r requirements.txt --break-system-packages
-          python -m pip install coverage pytest --break-system-packages
-          python -m pip install --editable . --break-system-packages
-      - name: Install the CPU JAX stack
+      - name: Install dependencies and the CPU JAX stack
+        # ONE pip invocation on purpose: pip does not co-resolve across invocations, so
+        # installing jax separately lets a jax-driven numpy bump past numba's ceiling land
+        # as a dependency-conflict WARNING with exit 0, and surface later as a collection
+        # error (factored_likelihood imports numba) that looks like a RIFT bug.
         # numpyro is needed by test_nuts_phimarg (the NUTS phase-marginalized sampler).
         # flowMC is deliberately NOT installed -- see test-jax.sh for the exclusions.
-        run: python -m pip install "jax[cpu]" numpyro --break-system-packages
+        run: |
+          python -m pip install --upgrade pip --break-system-packages
+          python -m pip install -r requirements.txt coverage pytest "jax[cpu]" numpyro --break-system-packages
+          python -m pip install --editable . --break-system-packages
       - name: Run jax_ile CPU regression gate
         env:
           JAX_PLATFORMS: cpu
