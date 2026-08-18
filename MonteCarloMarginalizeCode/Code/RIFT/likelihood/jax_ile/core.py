@@ -307,6 +307,16 @@ def _accumulate_unit(data, ra, dec, psi, incl, phiref, interp,
             Qi = gather(Q[:, k], pos)
             kappa_det = kappa_det + FY_conj[:, k][:, None] * Qi
         kappa_unit = kappa_unit + kappa_det
+        # KNOWN GAP (rotation only): rho_sq is arrival-time INDEPENDENT and the response
+        # coefficients above are the bare C_a, i.e. this kernel does not carry the
+        # arrival-time post-phase C~_a = C_a exp(i n_a Omega (t - tref)) that
+        # factored_likelihood_with_rotation.rotation_post_phase applies to BOTH terms.
+        # So for Path A/B the JAX kappa and rho_sq describe different templates, the result
+        # can exceed 0.5<d|d>, and it disagrees with the NoLoop by ~1e-5 relative.  NOT
+        # production-ready for rotation; freqresponse is unaffected (no post-phase there).
+        # Porting it makes rho_sq time-dependent -- a structural change to this loop.
+        # Tracked as issue #131 (follow-up to the post-phase fix in PR #117); see also
+        # test_jax_slowrot.check_rotation, whose rotation gate is degraded until it lands.
         rho_sq_unit = rho_sq_unit + rho_sq_det[:, None]
 
     return kappa_unit, rho_sq_unit
@@ -418,6 +428,16 @@ def _accumulate_unit_banded(data, ra, dec, psi, incl, phiref, interp,
         CC_V = jnp.einsum("as,bs->abs", C_refl, C)              # (A,A,S)
         term2_c = jnp.sum(CC_U * YUY + CC_V * YVY, axis=(0, 1))  # (S,) complex
         rho_sq_det = 0.5 * term2_c.real                          # (S,)
+        # KNOWN GAP (rotation only): rho_sq is arrival-time INDEPENDENT and the response
+        # coefficients above are the bare C_a, i.e. this kernel does not carry the
+        # arrival-time post-phase C~_a = C_a exp(i n_a Omega (t - tref)) that
+        # factored_likelihood_with_rotation.rotation_post_phase applies to BOTH terms.
+        # So for Path A/B the JAX kappa and rho_sq describe different templates, the result
+        # can exceed 0.5<d|d>, and it disagrees with the NoLoop by ~1e-5 relative.  NOT
+        # production-ready for rotation; freqresponse is unaffected (no post-phase there).
+        # Porting it makes rho_sq time-dependent -- a structural change to this loop.
+        # Tracked as issue #131 (follow-up to the post-phase fix in PR #117); see also
+        # test_jax_slowrot.check_rotation, whose rotation gate is degraded until it lands.
         rho_sq_unit = rho_sq_unit + rho_sq_det[:, None]
 
     return kappa_unit, rho_sq_unit

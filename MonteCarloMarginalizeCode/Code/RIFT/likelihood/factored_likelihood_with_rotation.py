@@ -324,9 +324,16 @@ def PrecomputeLikelihoodTermsWithRotation(
                     analyticPSD_Q, inv_spec_trunc_Q, T_spec, prefix="V", verbose=False,
                     same_waveform_Q=False)
 
+    # post_phase_required marks the BANK CONVENTION, which changed when the arrival-time
+    # post-phase moved to the extrinsic layer: Q is now <chi_a(.-t)|d> against untouched
+    # data, and any evaluator MUST apply rotation_post_phase() to both terms.  A consumer
+    # written against the old convention is silently wrong rather than broken, so it is
+    # recorded here for evaluators to check.  (jax_ile does not yet honour it -- see its
+    # KNOWN GAP note in jax_ile/core.py, tracked as issue #131.)
     meta = dict(harmonics=tuple(harmonics), p_max=p_max, f_sidereal=f_sidereal,
                 a_list=a_list, event_time_geo=float(event_time_geo),
-                omega_earth=OMEGA_EARTH, modes=list(hlms.keys()))
+                omega_earth=OMEGA_EARTH, modes=list(hlms.keys()),
+                post_phase_required=True)
     return rholms_intp_rot, crossTerms_rot, crossTermsV_rot, rholms_rot, meta
 
 
@@ -708,7 +715,8 @@ def DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation(
         # term2 also carries the post-phase, and it enters ONLY through m = n_a' - n_a for both
         # the U contraction (conj(C~_a) C~_a') and the V one (C~_{(p,-n_a)} C~_a').  So bucket
         # the |a_list|^2 einsums -- unchanged in cost -- by m, and pay one rank-1 phase per
-        # distinct m (at most 4*(2+p_max)+1 of them) instead of one per pair.
+        # distinct m (4*n_harmonics+1 of them, so 4*(2+p_max)+1 at the default width)
+        # instead of one per pair.
         term2_by_m = {}
         for a in a_list:
             aR = (a[0], -a[1])
