@@ -19,6 +19,7 @@ import numpy as np
 from scipy.special import logsumexp
 
 from RIFT.calmarg import adaptive, breadcrumbs
+from RIFT.calmarg import generate_realizations as _gr
 
 
 # ---------------------------------------------------------------------------
@@ -80,7 +81,7 @@ def seed_cal(cal_proposal, n_cal, rng=None):
     (nodes, log_weights) where log_weights = log prior - log proposal (Phase 0 importance
     weights for the marginalization).  Feed nodes through
     adaptive.nodes_to_cal_factors(...) per detector to get the actual cal factors."""
-    rng = rng or np.random.default_rng()
+    rng = rng or _gr._default_cal_rng('calmarg.seed_cal')
     mean = np.asarray(cal_proposal["proposal_mean"])
     cov = np.asarray(cal_proposal["proposal_cov"])
     nodes = rng.multivariate_normal(mean, cov, size=n_cal)

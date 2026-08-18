@@ -8,8 +8,8 @@ import pytest
 
 
 BLUEPRINT_DIR = pathlib.Path(__file__).with_name("blueprints")
-SUPPORTED_SERIES = {"0.5"}
-FUTURE_SERIES = {"0.6", "0.7"}
+SUPPORTED_SERIES = {"0.5", "0.7"}
+FUTURE_SERIES = {"0.6"}
 EVENT = "GW190426_190642"
 RIFT_ANALYSIS = "rift-v5PHM-calmarg"
 
@@ -32,11 +32,11 @@ def _require_supported_asimov():
     if series in FUTURE_SERIES:
         pytest.skip(
             "RIFT Asimov CI is wired for this series, but the integration "
-            "is currently validated only against Asimov 0.5"
+            "is currently validated against Asimov 0.5 and 0.7"
         )
     if series not in SUPPORTED_SERIES:
         pytest.skip(
-            "RIFT Asimov CI is currently validated only against Asimov 0.5 "
+            "RIFT Asimov CI is currently validated against Asimov 0.5 and 0.7 "
             f"(found {version})"
         )
     return version
@@ -78,13 +78,13 @@ def _tree_text(root):
     return "\n".join(chunks)
 
 
-def test_asimov_05_can_create_project_and_add_rift_event(tmp_path):
+def test_asimov_can_create_project_and_add_rift_event(tmp_path):
     version = _require_supported_asimov()
     _require_htcondor()
     asimov_cli = shutil.which("asimov")
     assert asimov_cli, "asimov CLI is not on PATH"
 
-    # Import after the version gate so 0.6/0.7 API drift skips cleanly.
+    # Import after the version gate so unsupported API series skip cleanly.
     from asimov.pipelines import known_pipelines
     from RIFT.asimov.rift import Rift
 

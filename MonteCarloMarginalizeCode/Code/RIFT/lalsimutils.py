@@ -315,6 +315,20 @@ except:
    lalIMRPhenomTP = -12
    lalIMRPhenomTPHM = -13
 
+# TD-only aligned-spin members of the IMRPhenomT family. These MUST be routed to
+# SimInspiralChooseTDModes in hlmoft: they are not FD-implemented, so they miss the
+# hlmoft_FromFD_dict branch, and if left out of the ChooseTDModes list they fall
+# through to a fallback that conditions them with a different epoch/merger placement
+# (which breaks time-sensitive likelihoods).
+# Sentinels: -2..-19 are used above and the pending_FD_approx block can consume
+# -19,-20, so start at -21.
+try:
+   lalIMRPhenomT = lalsim.IMRPhenomT
+   lalIMRPhenomTHM = lalsim.IMRPhenomTHM
+except:
+   lalIMRPhenomT = -21
+   lalIMRPhenomTHM = -22
+
 MsunInSec = lal.MSUN_SI*lal.G_SI/lal.C_SI**3
 
 def modes_to_k(modes):
@@ -347,7 +361,7 @@ def lsu_StringFromPNOrder(order):
 # Class to hold arguments of ChooseWaveform functions
 #
 
-valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'chi1_perp_bar', 'chi2_perp_bar','chi1_perp_u', 'chi2_perp_u', 's1z_bar', 's2z_bar', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'mc_ecc', 'eta', 'delta_mc', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2', 'cos_theta1', 'cos_theta2',  'theta1_Jfix', 'theta2_Jfix', 'psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'lambda_plus', 'lambda_minus', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin','fref', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L", "shu","ampO", "phaseO",'eccentricity','eccentricity_squared', 'chi_pavg','mu1','mu2','eos_table_index','meanPerAno']
+valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'chi1_perp_bar', 'chi2_perp_bar','chi1_perp_u', 'chi2_perp_u', 's1z_bar', 's2z_bar', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'mc_ecc', 'eta', 'delta_mc', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2', 'cos_theta1', 'cos_theta2',  'theta1_Jfix', 'theta2_Jfix', 'psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'lambda_plus', 'lambda_minus', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin','fref', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L", "shu","ampO", "phaseO",'eccentricity','eccentricity_squared','eccentricity_ln', 'chi_pavg','mu1','mu2','eos_table_index','meanPerAno']
 
 # so far, used for puffball, to prevent insanity (infinite growth) and/or death to downselect
 #   - note we also provide for extrinsic: RA (phi), phiref, psi, just in case we need it in the future
@@ -885,6 +899,9 @@ class ChooseWaveformParams:
         if p == 'eccentricity_squared':
             self.eccentricity = np.sqrt(val)  # value is eccentricity squared
             return self
+        if p == 'eccentricity_ln':
+            self.eccentricity = np.exp(val)   # value is ln(eccentricity)
+            return self
         # assign an attribute
         if hasattr(self,p):
             setattr(self,p,val)
@@ -1313,6 +1330,8 @@ class ChooseWaveformParams:
             return dLt
         if p == 'eccentricity_squared':
             return self.eccentricity**2
+        if p == 'eccentricity_ln':
+            return np.log(self.eccentricity)
         if p == 'ecc_cos_meanPerAno':
             return self.eccentricity*np.cos(self.meanPerAno)
         if p == 'ecc_sin_meanPerAno':
@@ -3449,7 +3468,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
     if lalsim.SimInspiralImplementedFDApproximants(P.approx)==1:
         print("Passing model through hlmoft_FromFD_dict")
         hlms = hlmoft_FromFD_dict(P,Lmax=Lmax)
-    elif (P.approx == lalsim.TaylorT1 or P.approx==lalsim.TaylorT2 or P.approx==lalsim.TaylorT3 or P.approx==lalsim.TaylorT4 or P.approx == lalsim.EOBNRv2HM or P.approx==lalsim.EOBNRv2 or P.approx==lalsim.SpinTaylorT1 or P.approx==lalsim.SpinTaylorT2 or P.approx==lalsim.SpinTaylorT3 or P.approx==lalsim.SpinTaylorT4 or P.approx == lalSEOBNRv4P or P.approx == lalSEOBNRv4PHM or P.approx == lalNRSur7dq4 or P.approx == lalNRSur7dq2 or P.approx==lalNRHybSur3dq8 or P.approx == lalIMRPhenomTPHM) or (P.approx ==lalsim.TEOBResumS and not(has_external_teobresum) and not(info_use_resum_polarizations)):
+    elif (P.approx == lalsim.TaylorT1 or P.approx==lalsim.TaylorT2 or P.approx==lalsim.TaylorT3 or P.approx==lalsim.TaylorT4 or P.approx == lalsim.EOBNRv2HM or P.approx==lalsim.EOBNRv2 or P.approx==lalsim.SpinTaylorT1 or P.approx==lalsim.SpinTaylorT2 or P.approx==lalsim.SpinTaylorT3 or P.approx==lalsim.SpinTaylorT4 or P.approx == lalSEOBNRv4P or P.approx == lalSEOBNRv4PHM or P.approx == lalNRSur7dq4 or P.approx == lalNRSur7dq2 or P.approx==lalNRHybSur3dq8 or P.approx == lalIMRPhenomTPHM or P.approx == lalIMRPhenomT or P.approx == lalIMRPhenomTHM) or (P.approx ==lalsim.TEOBResumS and not(has_external_teobresum) and not(info_use_resum_polarizations)):
         # approximant likst: see https://git.ligo.org/lscsoft/lalsuite/blob/master/lalsimulation/lib/LALSimInspiral.c#2541
         extra_params = P.to_lal_dict_extended(extra_args_dict=extra_waveform_args)
         # prevent segmentation fault when hitting nyquist frequency violations
@@ -3461,11 +3480,25 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
                 raise NameError(" Nyquist frequency error for v4P/v4PHM, check srate")
         # extra phase factor of pi/2 added to fix consistency issue with our reconstruction code and other convention; easily demonstrated with precessing binaries, and also in docs
         phiref_shift_convention =np.pi/2
+        approx_here = P.approx
+        if P.approx == lalIMRPhenomT and P.approx > 0:
+            # IMRPhenomT (22-mode-only) provides no TD-modes generator method in lalsimulation,
+            # so ChooseTDModes raises for it. Its (2,2) mode is identical to IMRPhenomTHM's
+            # (machine precision; THM is built on the T 22 mode), so generate via THM with a
+            # ModeArray restricted to (2,+-2). This keeps the same conditioning/epoch as the
+            # other ChooseTDModes approximants.
+            approx_here = lalIMRPhenomTHM
+            mode_array = lalsim.SimInspiralCreateModeArray()
+            lalsim.SimInspiralModeArrayActivateMode(mode_array, 2, 2)
+            lalsim.SimInspiralModeArrayActivateMode(mode_array, 2, -2)
+            if extra_params is None:
+                extra_params = lal.CreateDict()
+            lalsim.SimInspiralWaveformParamsInsertModeArray(extra_params, mode_array)
         hlms = lalsim.SimInspiralChooseTDModes(P.phiref, P.deltaT, P.m1, P.m2, \
 	    P.s1x, P.s1y, P.s1z, \
 	    P.s2x, P.s2y, P.s2z, \
             P.fmin, P.fref, P.dist, extra_params, \
-             Lmax, P.approx)
+             Lmax, approx_here)
     elif P.approx ==lalsim.TEOBResumS and has_external_teobresum and not(info_use_resum_polarizations):  # don't call external if fallback to polarizations
         print("Using TEOBResumS hlms")
         modes_used = []

@@ -18,6 +18,22 @@ import h5py
 import scipy.interpolate
 
 
+def _default_cal_rng(stream):
+    """RNG for a cal draw whose caller did not supply one.
+
+    The cal realizations ARE part of the likelihood -- the marginalized lnL is an
+    average over them -- so a `rng=None` fallback of np.random.default_rng() means
+    that caller's lnL is not reproducible under --seed, since default_rng() pulls
+    fresh OS entropy and nothing seed_everything does can reach it.  The ILE driver
+    always passes an explicit rng, so this is a guard on the fallback rather than a
+    live defect; it exists so that adding a caller cannot silently reintroduce the
+    hole.  Counter-advancing, so repeated draws (e.g. growing the cal set) stay
+    independent instead of appending copies.  Unseeded runs keep fresh entropy.
+    """
+    from RIFT.integrators.seeding import next_derived_rng
+    return next_derived_rng(stream)
+
+
 def retrieve_envelope_from_file(fname, frequency_array=None,**kwargs):
     """
     retrieve_envelope_from_file
@@ -218,7 +234,7 @@ def draw_prior_realizations_with_nodes(env_dir, dets, T_segment, dT, fmin, fmax,
     """
     import os
     if rng is None:
-        rng = np.random.default_rng()
+        rng = _default_cal_rng('calmarg.draw_prior_realizations_with_nodes')
     priors = []
     for ifo in dets:
         fmin_here = fmin
@@ -275,7 +291,7 @@ def seed_realizations_from_breadcrumb(bc, T_segment, dT, fmin, fmax, n_spline_po
     from RIFT.calmarg import adaptive
     cal = bc["cal"] if (isinstance(bc, dict) and "cal" in bc) else bc
     if rng is None:
-        rng = np.random.default_rng()
+        rng = _default_cal_rng('calmarg.seed_realizations_from_breadcrumb')
     mean = np.asarray(cal["proposal_mean"], dtype=float)
     cov = np.asarray(cal["proposal_cov"], dtype=float)
     prior_mean = np.asarray(cal["prior_mean"], dtype=float)

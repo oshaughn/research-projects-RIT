@@ -199,7 +199,7 @@ integration_params.add_option("--n-eff", type=int, default=100, help="Total numb
 integration_params.add_option("--fairdraw-extrinsic-output", action='store_true' , help="Output is fair draw, rather than being comprehensive")
 integration_params.add_option("--n-chunk", type=int, help="Chunk'.",default=10000)
 integration_params.add_option("--convergence-tests-on",default=False,action='store_true')
-integration_params.add_option("--seed", type=int, help="Random seed to use. Default is to not seed the RNG.")
+integration_params.add_option("--seed", type=int, help="Random seed to use. Default is to not seed the RNG.  Seeds every backend the samplers draw through (numpy, cupy, torch), so a seeded run is reproducible on GPU as well as CPU.")
 integration_params.add_option("--no-adapt", action="store_true", help="Turn off adaptive sampling. Adaptive sampling is on by default.")
 integration_params.add_option("--no-adapt-distance", action="store_true", help="Turn off adaptive sampling, just for distance. Adaptive sampling is on by default.")
 integration_params.add_option("--adapt-weight-exponent", type=float, default=1.0, help="Exponent to use with weights (likelihood integrand) when doing adaptive sampling. Used in tandem with --adapt-floor-level to prevent overconvergence. Default is 1.0.")
@@ -365,10 +365,12 @@ n_eff = opts.n_eff # Effective number of points evaluated
 #
 # Initialize the RNG, if needed
 #
-# TODO: Do we seed a given instance of the integrator, or set it for all
-# or both?
+# Seed EVERY backend a sampler can draw from, not just numpy: the samplers draw
+# through self.xpy / xpy_default, which is cupy on GPU, and cupy has its own
+# global generator.  See RIFT/integrators/seeding.py.
 if opts.seed is not None:
-    numpy.random.seed(opts.seed)
+    from RIFT.integrators.seeding import seed_everything
+    seed_everything(opts.seed)
 
 #
 # Gather information about a injection put in the data

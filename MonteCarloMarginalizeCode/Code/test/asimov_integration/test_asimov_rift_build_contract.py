@@ -1,3 +1,4 @@
+import configparser
 import importlib.metadata
 import pathlib
 import shutil
@@ -8,8 +9,8 @@ import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[4]
 TRAVIS_INPUTS = ROOT / ".travis" / "ref_ini"
-SUPPORTED_SERIES = {"0.5"}
-FUTURE_SERIES = {"0.6", "0.7"}
+SUPPORTED_SERIES = {"0.5", "0.7"}
+FUTURE_SERIES = {"0.6"}
 
 
 def _asimov_version():
@@ -30,11 +31,11 @@ def _require_supported_asimov():
     if series in FUTURE_SERIES:
         pytest.skip(
             "RIFT Asimov CI is wired for this series, but the integration "
-            "is currently validated only against Asimov 0.5"
+            "is currently validated against Asimov 0.5 and 0.7"
         )
     if series not in SUPPORTED_SERIES:
         pytest.skip(
-            "RIFT Asimov CI is currently validated only against Asimov 0.5 "
+            "RIFT Asimov CI is currently validated against Asimov 0.5 and 0.7 "
             f"(found {version})"
         )
     return version
@@ -114,10 +115,13 @@ class _Production:
         return []
 
 
-def test_asimov_05_rift_build_dag_uses_frozen_inputs(monkeypatch, tmp_path):
+def test_rift_build_dag_uses_frozen_inputs(monkeypatch, tmp_path):
     _require_supported_asimov()
     _require_htcondor()
 
+    # Let ASIMOV discover the RIFT entry point before importing its module
+    # directly, avoiding re-entry through a partially initialized module.
+    __import__("asimov")
     from RIFT.asimov import rift as rift_module
     from RIFT.asimov.rift import Rift
 
@@ -148,9 +152,12 @@ def test_asimov_05_rift_build_dag_uses_frozen_inputs(monkeypatch, tmp_path):
     monkeypatch.setattr(Rift, "before_build", lambda self: None)
 
     def fake_config_get(section, option):
+        if section == "authentication":
+            raise configparser.NoSectionError(section)
         values = {
             ("condor", "user"): "rift-ci",
             ("general", "calibration"): "C01",
+            ("general", "calibration_directory"): "C01_offline",
             ("pipelines", "environment"): str(tmp_path / "env"),
             ("rift", "environment"): str(tmp_path / "env"),
         }

@@ -102,7 +102,15 @@ def verdict(h):
                 "so, rather than reporting a plausible wrong number.")
 
     # --- the L0 rescue and the sequential warm start ---------------------------------
-    if f == "bin/integrate_likelihood_extrinsic_batchmode":
+    # BOTH ILE drivers.  The LISA driver now carries a ported copy of the L0 rescue, and the
+    # `_rvs` reads inside it are byte-identical to the ones here -- these rules match on
+    # source TEXT, so the same text earns the same verdict.  (It lives in a module-level
+    # _maybe_l0_rescue there rather than inlined in analyze_event, because that driver has TWO
+    # analyze_event variants; the enclosing function name is not part of the match.)  Rules in
+    # this block naming things the LISA driver does not have -- _rep_rvs, extrinsic_handoff,
+    # the sequential-warm-start seeds -- simply never match for it.
+    if f in ("bin/integrate_likelihood_extrinsic_batchmode",
+             "bin/integrate_likelihood_extrinsic_batchmode_lisa"):
         if "_lnZ_of_reserve_or_rvs" in s:
             return ("FIXED",
                     "PR #79, re-landed as #86. sampler._rvs is passed as the FALLBACK "
@@ -148,9 +156,14 @@ def verdict(h):
         if "_rep_rvs" in s:
             return ("PER_ROW",
                     "Collects each replica's record for pooling. _pool_replica_rvs is told "
-                    "already_resampled=bool(opts.fairdraw_extrinsic_output) and forces flat "
-                    "within-block weights on that path, so the resampling is accounted for "
-                    "THERE rather than here.")
+                    "already_resampled=_rep_fairdraw -- the PER-REPLICA sequence, captured "
+                    "beside each record from that pass's own _rvs_is_fairdraw marker -- and "
+                    "forces flat within-block weights for the blocks that were resampled, so "
+                    "the resampling is accounted for THERE rather than here. (This text used "
+                    "to say bool(opts.fairdraw_extrinsic_output); that is the CLI flag, which "
+                    "is precisely the Finding-6 defect the sequence exists to avoid. A verdict "
+                    "whose reason describes a mechanism the code does not use certifies "
+                    "nothing.)")
 
         if "extrinsic_handoff" in s or (s == "_rvs = sampler._rvs"):
             return ("FIXED",

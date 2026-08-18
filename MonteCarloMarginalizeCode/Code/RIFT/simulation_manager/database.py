@@ -46,7 +46,7 @@ import textwrap
 import threading
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple, Union
 
 try:
     import fcntl   # POSIX-only; archive multi-writer safety relies on flock(2)
@@ -77,15 +77,210 @@ DEFAULT_LOOKUP_KEY_FILE = "lookup_key.py"
 DEFAULT_GETENV_ALLOWLIST = "LD_LIBRARY_PATH,PATH,PYTHONPATH,*RIFT*,LIBRARY_PATH"
 
 
-# Sentinel singletons used inside dedup buckets when a parameter set is
-# unhashable (lookup_key returns e.g. a dict). We fall back to the
-# string repr in that case.
-def _safe_hashable(x: Any) -> Any:
+def _freeze(x: Any) -> Any:
+    """Recursively map a JSON-shaped value onto a hashable one.
+
+    Lists and tuples collapse onto the same tuple form. Dicts become a
+    tuple of (key, frozen-value) pairs sorted by key. Anything still
+    unhashable falls back to the repr sentinel.
+    """
+    if isinstance(x, (list, tuple)):
+        return tuple(_freeze(v) for v in x)
+    if isinstance(x, dict):
+        # Sort by key alone: after _safe_hashable's JSON pass the keys
+        # are strings and unique, and sorting on the pair could otherwise
+        # try to order two frozen values of unrelated types.
+        return tuple(sorted(
+            ((str(k), _freeze(v)) for k, v in x.items()),
+            key=lambda kv: kv[0],
+        ))
     try:
         hash(x)
         return x
     except TypeError:
         return ("__unhashable__", repr(x))
+
+
+# Canonicalize a lookup_key into something hashable AND identical to what
+# comes back out of index.jsonl, because dedup buckets are rebuilt from
+# that file on every Archive construction — which makes the bucket key a
+# persisted value.
+#
+# Getting this wrong is silent: the rehydrated bucket key stops matching
+# the freshly-computed one, find_existing misses, and register() mints a
+# duplicate sim for physics the archive already holds. The caller just
+# pays twice, from the second session onward, with nothing in the logs.
+#
+# Rather than model JSON's coercion rules by hand, we run the value
+# through an actual JSON round-trip first, so the canonical form matches
+# the persisted form *by construction*. That covers, in one step, every
+# way the two could otherwise diverge:
+#
+#   * tuples, which JSON has no type for, coming back as lists;
+#   * dict keys, which JSON coerces to strings — and not via str():
+#     True/False/None serialize as "true"/"false"/"null", and float
+#     infinities as "Infinity", none of which str() reproduces;
+#   * dict keys that collide once coerced ({True: 'a', "true": 'b'}),
+#     which JSON collapses last-wins — applying the same round-trip
+#     means fresh and rehydrated agree on the survivor instead of
+#     disagreeing about how many entries there are.
+#
+# Values that JSON cannot represent at all (a tuple used as a dict key,
+# say) fall through to _freeze on the original. Such a lookup_key could
+# not have been persisted in the first place, so there is no rehydrated
+# form for it to disagree with.
+#
+# Collisions this introduces between distinct inputs — a list and the
+# equal tuple, say — are harmless: buckets only nominate same_q
+# candidates, and same_q still makes the decision.
+def _json_normalized(x: Any) -> Any:
+    """The value as it will exist after a round-trip through index.jsonl.
+
+    This is the form that must be *stored*, not merely the form used for
+    bucketing. Normalizing only at bucket time is not enough: the index
+    row keeps whatever `lookup_key` returned, and `Index._write_all`
+    serializes rows with ``sort_keys=True``. A dict key set that JSON
+    would coerce to strings is still raw at that point, so a key like
+    ``{True: 'a', 'true': 'b'}`` reaches `sorted()` as a bool beside a
+    str and raises
+
+        TypeError: '<' not supported between instances of 'str' and 'bool'
+
+    from inside `register`. Normalizing on the way in makes the stored
+    value sortable and makes persisted and canonical forms identical by
+    construction.
+    """
+    try:
+        return json.loads(json.dumps(x))
+    except (TypeError, ValueError, RecursionError):
+        return x
+
+
+def _safe_hashable(x: Any) -> Any:
+    return _freeze(_json_normalized(x))
+
+
+def _require_persistable_lookup_key(key: Any) -> Any:
+    """Normalize a lookup_key for storage, or say clearly why it cannot be.
+
+    Backends control `lookup_key`, and a value JSON cannot represent —
+    a set, a frozenset, a tuple used as a dict key — cannot live in
+    index.jsonl at all. Catching it here names the contract instead of
+    surfacing a json/sorted TypeError from deep in the write path.
+    """
+    try:
+        json.dumps(key)
+    except (TypeError, ValueError) as exc:
+        raise TypeError(
+            "lookup_key must be JSON-serializable so it can be persisted in "
+            "index.jsonl and compared after reopen; got {!r} ({}). Return a "
+            "string, number, or a list/dict of them.".format(key, exc)
+        ) from exc
+    return _json_normalized(key)
+def _reject_reserved_basename(entry: str, what: str) -> None:
+    """Refuse an entry whose basename shadows a file the archive stages.
+
+    Condor flattens basenames into the sandbox cwd, so on the input side
+    this would overwrite the archive's own copy on the worker. On the
+    OUTPUT side it is worse: the remap points back at sims/<name>/, so a
+    returned `params.json` overwrites the sim's recorded inputs in the
+    archive itself, corrupting state every later level reads.
+    """
+    base = entry.rstrip("/").rsplit("/", 1)[-1]
+    if base in _RESERVED_SANDBOX_BASENAMES or (
+            base.startswith("level_") and base.endswith(".json")):
+        raise ValueError(
+            "{}: {!r} has basename {!r}, which collides with a file the "
+            "archive itself stages or writes.".format(what, entry, base))
+
+
+def _reject_duplicate_basenames(entries: Sequence[str], what: str) -> None:
+    """Refuse two entries that flatten to the same sandbox filename.
+
+    Condor flattens basenames into the job's cwd, so
+    `osdf:///siteA/data.h5` and `osdf:///siteB/data.h5` are two different
+    objects that land on top of each other. The reserved-name check does
+    not see this: neither entry collides with anything the archive
+    stages, only with the other one.
+    """
+    seen = {}
+    for entry in entries:
+        base = str(entry).rstrip("/").rsplit("/", 1)[-1]
+        if base in seen:
+            # Identical entries count too: naming the same file twice is
+            # at best a wasted transfer of a multi-GB object, and on the
+            # output side it emits a duplicate remap pair. Two templates
+            # that expand to the same name land here as equal strings.
+            raise ValueError(
+                "{}: {!r} and {!r} both resolve to {!r} in the job sandbox, "
+                "so one would overwrite the other on the worker.".format(
+                    what, seen[base], entry, base))
+        seen[base] = str(entry)
+
+
+def _validate_transfer_entries(entries: Any, *, what: str,
+                               remap_syntax: bool = False) -> List[str]:
+    """Check a backend-supplied transfer list, or say why it is unusable.
+
+    Every rejection here is something HTCondor accepts without complaint
+    and then gets wrong on a remote worker, which is the worst place to
+    find out. `condor_submit` exits 0 for all of them.
+
+      * a bare string is a Sequence[str], so it iterates as CHARACTERS
+        and becomes one transfer request per letter. This is the likeliest
+        operator mistake and the type annotation invites it.
+      * transfer_input_files is comma-separated, so an entry containing a
+        comma silently splits into two bogus entries. URLs with query
+        strings hit this routinely.
+      * a newline ends the submit command, so the remainder becomes its
+        own submit line. Later duplicates win in Condor, so a stray
+        newline can silently override request_memory, the executable, or
+        the output remaps.
+    """
+    if entries is None:
+        return []
+    if isinstance(entries, (str, bytes)):
+        raise TypeError(
+            "{} must be a list of entries, not a bare string: a string is a "
+            "Sequence[str] and would iterate as one transfer request per "
+            "character. Wrap it: [{!r}].".format(what, entries))
+    out: List[str] = []
+    for entry in entries:
+        text = str(entry)
+        if not text.strip():
+            raise ValueError("{}: empty entry".format(what))
+        bad_chars = [(",", "separates entries in the transfer list"),
+                     ("\n", "ends the submit command"),
+                     ("\r", "ends the submit command")]
+        if remap_syntax:
+            # transfer_output_remaps is a ';'-separated list of name=path
+            # pairs, so either character makes the remap unparseable.
+            bad_chars += [(";", "separates pairs in transfer_output_remaps"),
+                          ("=", "separates name from path in "
+                                "transfer_output_remaps")]
+        for bad, why in bad_chars:
+            if bad in text:
+                raise ValueError(
+                    "{}: entry {!r} contains {!r}, which {}. HTCondor accepts "
+                    "the submit file and the job fails later on the execute "
+                    "host.".format(what, text, bad, why))
+        out.append(text)
+    return out
+
+
+#: Submit commands the archive composes itself. A backend that sets any
+#: of these through extra_condor_cmds replaces the archive's line rather
+#: than extending it, because extra_condor_cmds is emitted last. Stored
+#: casefolded: HTCondor command names are case-insensitive, so the guard
+#: has to be too.
+_PROTECTED_SUBMIT_COMMANDS = frozenset({
+    "transfer_input_files", "transfer_output_files", "transfer_output_remaps",
+})
+
+#: Basenames the archive itself stages into the worker sandbox. Condor
+#: flattens transferred basenames into cwd, so a backend input sharing one
+#: of these silently clobbers it on the worker.
+_RESERVED_SANDBOX_BASENAMES = ("code", "params.json")
 
 
 def _default_same_q(a: Any, b: Any) -> bool:
@@ -594,6 +789,13 @@ class Archive:
             if existing is not None:
                 self._maybe_bump_target(existing, target_level)
                 return existing
+            # Compute and validate the key BEFORE allocating a name or
+            # writing anything. Validating after the mkdir left sims/<name>/
+            # with params.json and status.json behind when the key turned
+            # out to be unpersistable — a half-registered simulation that
+            # the index has never heard of, and that the next register()
+            # will silently allocate around.
+            lk = _require_persistable_lookup_key(self._lookup_key(params))
             if name is None:
                 name = str(len(list((self.base / "sims").iterdir())) + 1)
             sd = self.sim_dir(name)
@@ -602,7 +804,6 @@ class Archive:
             (sd / "params.json").write_text(json.dumps(params) + "\n")
             rec = StatusRecord.new(name, params, target_level=target_level)
             rec.write(sd)
-            lk = self._lookup_key(params)
             self.index.upsert({"name": name, "params": params,
                                "status": "ready", "summary": None,
                                "lookup_key": lk,
@@ -961,8 +1162,15 @@ class Archive:
                     "params": params,
                     "status": rec.data.get("status"),
                     "summary": summary,
-                    "lookup_key": (self._lookup_key(params)
-                                   if params is not None else None),
+                    # Normalized exactly as register() does. Storing the
+                    # raw key here meant an archive that registered and
+                    # reopened cleanly still blew up in rebuild_index with
+                    # the original sorted() TypeError, because _write_all
+                    # serializes rows with sort_keys=True.
+                    "lookup_key": (
+                        _require_persistable_lookup_key(
+                            self._lookup_key(params))
+                        if params is not None else None),
                     "target_level": rec.data.get("target_level", 0),
                     "current_level": rec.data.get("current_level", 0),
                 }
@@ -1332,6 +1540,31 @@ class DualCondorRunQueue(RunQueue):
                                     description (e.g. +DESIRED_SITES,
                                     +UNDESIRED_SITES for OSG site
                                     selection, requirements clauses).
+        extra_transfer_input_files: list -- extra entries APPENDED to
+                                    transfer_input_files for every job.
+                                    Intended for bulk inputs addressed
+                                    by URL (osdf://, http://) so they
+                                    are fetched from a cache instead of
+                                    staged through the submit host's
+                                    spool. Setting `transfer_input_files`
+                                    via extra_condor_cmds would instead
+                                    *replace* the archive's own entries
+                                    and strip the frozen code/ directory,
+                                    leaving the worker nothing to run.
+        extra_transfer_output_files: list -- products to bring BACK
+                                    beyond the level_<N>.json marker,
+                                    named relative to the job sandbox.
+                                    `{level}` and `{sim_name}` are
+                                    substituted, so e.g. "level_{level}"
+                                    returns a per-level output directory.
+                                    Each is remapped to the same relative
+                                    path under sims/<name>/.
+                                    transfer_output_files is explicit, so
+                                    without this HTCondor returns only the
+                                    marker and everything else the worker
+                                    produced dies with the sandbox — the
+                                    job completes having discarded its
+                                    own results.
 
     The defaults above also apply when DualCondorRunQueue is
     instantiated via make_queues_from_manifest() — keys absent from
@@ -1351,6 +1584,8 @@ class DualCondorRunQueue(RunQueue):
                  use_singularity: bool = False,
                  singularity_image: Optional[str] = None,
                  extra_condor_cmds: Optional[Dict[str, str]] = None,
+                 extra_transfer_input_files: Optional[Sequence[str]] = None,
+                 extra_transfer_output_files: Optional[Sequence[str]] = None,
                  auto_release_on_oom: bool = True,
                  oom_max_retries: int = 5,
                  oom_memory_factor: float = 1.5,
@@ -1359,6 +1594,18 @@ class DualCondorRunQueue(RunQueue):
                  **submit_kwargs: Any):
         self.run_pool = run_pool
         self.run_collector = run_collector
+        self.extra_transfer_input_files = extra_transfer_input_files
+        self.extra_transfer_output_files = extra_transfer_output_files
+        if (self.extra_transfer_input_files or self.extra_transfer_output_files) \
+                and subdag_factory is not None:
+            # Fail early for the common case. submit() re-checks, because
+            # both of these are plain attributes and assigning either after
+            # construction reaches the same silently-ignoring path.
+            raise ValueError(
+                "extra_transfer_{input,output}_files are applied by "
+                "build_worker, which is bypassed when subdag_factory is set: "
+                "the sub-DAG owns its own submit descriptions. Put the extra "
+                "entries in the sub-DAG the factory generates instead.")
         self.request_memory = int(request_memory)
         self.request_disk = request_disk
         self.accounting_group = accounting_group or os.environ.get("LIGO_ACCOUNTING")
@@ -1397,6 +1644,40 @@ class DualCondorRunQueue(RunQueue):
         self.last_wrapper_dag_path: Optional[str] = None
 
     # -------- per-(sim, level) submit description --------------------------
+
+    # These are validated on ASSIGNMENT, not only in __init__. Checking
+    # once at construction is not protection: they are ordinary public
+    # attributes, and configuring a queue by assigning to them after the
+    # fact is the natural thing to do — which walked straight past every
+    # guard.
+    @property
+    def extra_transfer_input_files(self) -> Tuple[str, ...]:
+        # A tuple, not the live list: returning the list let a caller do
+        # `q.extra_transfer_input_files.append("/bad,entry")`, which never
+        # goes through the setter and so skipped every check. Handing back
+        # something immutable makes that attempt fail at the append.
+        return tuple(self._extra_transfer_input_files)
+
+    @extra_transfer_input_files.setter
+    def extra_transfer_input_files(self, value: Any) -> None:
+        entries = _validate_transfer_entries(
+            value, what="extra_transfer_input_files")
+        for entry in entries:
+            _reject_reserved_basename(entry, "extra_transfer_input_files")
+        self._extra_transfer_input_files = entries
+
+    @property
+    def extra_transfer_output_files(self) -> Tuple[str, ...]:
+        return tuple(self._extra_transfer_output_files)
+
+    @extra_transfer_output_files.setter
+    def extra_transfer_output_files(self, value: Any) -> None:
+        entries = _validate_transfer_entries(
+            value, what="extra_transfer_output_files", remap_syntax=True)
+        for entry in entries:
+            _reject_reserved_basename(entry, "extra_transfer_output_files")
+        self._extra_transfer_output_files = entries
+
     def _bootstrap_path(self, archive: Archive) -> Path:
         path = archive.base / "run_queue" / "workers" / "bootstrap.py"
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -1428,6 +1709,26 @@ class DualCondorRunQueue(RunQueue):
         request_disk = res.get("request_disk", self.request_disk)
         extra_cmds = dict(self.extra_condor_cmds)
         extra_cmds.update(res.get("extra_condor_cmds") or {})
+        # extra_condor_cmds is emitted last, so these would REPLACE the
+        # lines built above rather than extend them — dropping the frozen
+        # code/ directory, the sim's params, or the output remaps, with
+        # condor_submit reporting success either way.
+        # Compared case-insensitively: HTCondor submit command names are
+        # case-insensitive, so `Transfer_Input_Files` is the same directive
+        # as `transfer_input_files` and an exact lowercase match let it
+        # straight through — reinstating the very substitution this guard
+        # exists to prevent, with the frozen code/ and params.json silently
+        # dropped. `extra_cmds` is the merged dict, so per-sim overrides
+        # from Archive.set_resources are covered by the same pass.
+        for _key in extra_cmds:
+            if str(_key).strip().casefold() in _PROTECTED_SUBMIT_COMMANDS:
+                raise ValueError(
+                    "extra_condor_cmds must not set {0!r}: HTCondor command "
+                    "names are case-insensitive, and this one is emitted "
+                    "after the archive's own line, so it would replace it and "
+                    "strip the files the worker needs. Use "
+                    "extra_transfer_input_files / extra_transfer_output_files, "
+                    "which append.".format(_key))
 
         bootstrap = self._bootstrap_path(archive)
         log_dir = archive.base / "run_queue" / "logs"
@@ -1442,6 +1743,24 @@ class DualCondorRunQueue(RunQueue):
         out_base, out_target = archive.expected_output(sim_name, level)
         transfer_in = [str(archive.base / "code"),
                        str(sd / "params.json")] + prev_paths
+        # Backend-supplied inputs every job also needs — typically bulk
+        # objects addressed by URL (osdf://, http://) so they come from a
+        # cache rather than the submit host's spool. Appended, never
+        # substituted: dropping the entries above would leave the worker
+        # with no frozen code to run.
+        # Re-validated here, not merely at assignment. The output side
+        # already did this; the input side trusted whatever the attribute
+        # happened to hold, so writing to the private backing attribute
+        # reached a submit file with a comma-split entry or an injected
+        # submit command. Validate what we are about to emit.
+        extra_in = _validate_transfer_entries(
+            self._extra_transfer_input_files,
+            what="extra_transfer_input_files (at submit)")
+        for entry in extra_in:
+            _reject_reserved_basename(
+                entry, "extra_transfer_input_files (at submit)")
+        transfer_in += extra_in
+        _reject_duplicate_basenames(transfer_in, "transfer_input_files")
 
         lines: List[str] = [
             "# Auto-generated by RIFT.simulation_manager.database."
@@ -1459,8 +1778,51 @@ class DualCondorRunQueue(RunQueue):
             lines.append("transfer_input_files    = {}".format(",".join(transfer_in)))
         lines.append("should_transfer_files   = YES")
         lines.append("when_to_transfer_output = ON_EXIT")
-        lines.append("transfer_output_files   = {}".format(out_base))
-        lines.append('transfer_output_remaps  = "{}={}"'.format(out_base, out_target))
+        # Backend-supplied products, beyond the level_<N>.json marker.
+        # transfer_output_files is explicit, so HTCondor returns ONLY what
+        # is named here: anything else the worker wrote is destroyed with
+        # the sandbox. A backend whose science *is* output files (rather
+        # than a single JSON marker) has to be able to name them, or its
+        # jobs complete having thrown their results away.
+        out_names = [out_base]
+        out_remaps = ["{}={}".format(out_base, out_target)]
+        # Validate the raw COLLECTION first, exactly as the input side
+        # does. Iterating the property alone was not symmetric: a bare
+        # str reaching the backing attribute tuple()s into one entry per
+        # character, and each single character then passes the per-entry
+        # checks cleanly — so build_worker emitted
+        # `transfer_output_files = level_1.json,w,x,y,z` and returned
+        # successfully, instead of raising the way the input side does.
+        for entry in _validate_transfer_entries(
+                self._extra_transfer_output_files,
+                what="extra_transfer_output_files (at submit)",
+                remap_syntax=True):
+            try:
+                name = str(entry).format(level=int(level), sim_name=sim_name)
+            except (KeyError, IndexError, AttributeError) as exc:
+                raise ValueError(
+                    "extra_transfer_output_files: {!r} uses an unknown "
+                    "placeholder {}; only {{level}} and {{sim_name}} are "
+                    "substituted.".format(entry, exc)) from None
+            # Re-validate AFTER substitution: the checks at assignment saw
+            # the template, and expansion can introduce a space or a path
+            # separator that HTCondor's transfer list cannot express.
+            _validate_transfer_entries([name],
+                                       what="extra_transfer_output_files "
+                                            "(after substitution)",
+                                       remap_syntax=True)
+            _reject_reserved_basename(
+                name, "extra_transfer_output_files (after substitution)")
+            if " " in name or "/" in name:
+                raise ValueError(
+                    "extra_transfer_output_files: {!r} expands to {!r}; "
+                    "HTCondor transfer lists cannot express a space or a "
+                    "path separator in an entry.".format(entry, name))
+            out_names.append(name)
+            out_remaps.append("{}={}".format(name, sd / name))
+        _reject_duplicate_basenames(out_names, "transfer_output_files")
+        lines.append("transfer_output_files   = {}".format(",".join(out_names)))
+        lines.append('transfer_output_remaps  = "{}"'.format(";".join(out_remaps)))
         lines.append("getenv                  = {}".format(self.getenv))
 
         if self.auto_release_on_oom:
@@ -1541,6 +1903,18 @@ class DualCondorRunQueue(RunQueue):
             for lvl in range(cur + 1, tgt + 1):
                 node_id = "{}_lvl{}".format(sim, lvl)
                 if self.subdag_factory is not None:
+                    # Checked here, not just in __init__: subdag_factory and
+                    # the extras are plain attributes, and assigning either
+                    # after construction reached this path with the extras
+                    # silently ignored.
+                    if (self.extra_transfer_input_files
+                            or self.extra_transfer_output_files):
+                        raise ValueError(
+                            "extra_transfer_{input,output}_files are applied by "
+                            "build_worker, which this sub-DAG path bypasses: the "
+                            "sub-DAG owns its own submit descriptions. Put the "
+                            "entries in the DAG the factory generates, or clear "
+                            "subdag_factory.")
                     work_path = self.subdag_factory(archive, sim, lvl)
                     nodes.append((sim, lvl, work_path, True))
                 else:
@@ -1805,6 +2179,8 @@ class SlurmRunQueue(RunQueue):
         self.submit_kwargs = submit_kwargs
         # Per-archive bookkeeping: sim_name -> [(level, jobid), ...]
         self.submitted_jobs: Dict[str, List[Tuple[int, str]]] = {}
+
+
 
     # ---- bootstrap helpers ------------------------------------------------
     def _bootstrap_path(self, archive: Archive) -> Path:

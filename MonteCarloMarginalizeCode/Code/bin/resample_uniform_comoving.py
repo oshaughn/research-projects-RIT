@@ -12,8 +12,13 @@ from lalinference.nest2pos import draw_posterior
 import h5py
 import numpy as np
 import astropy
-from astropy.cosmology import LambdaCDM
-Planck15_lal = LambdaCDM(H0=67.90, Om0=0.3065, Ode0=0.6935)
+import RIFT.likelihood.priors_utils as priors_utils
+# MUST match the cosmology the ILE imposed, because this reweighter divides that prior out
+# again: the two only cancel if they are the same object.  It used to hardcode the lal
+# constants (H0=67.90, Om0=0.3065 -- the name Planck15_lal recorded that intent, and it
+# reproduced the old ILE cosmology to ~1e-12).  Both sides now ask the one helper, so the
+# cancellation stays exact when the helper changes.
+Planck15_lal = priors_utils.get_astropy_cosmology("Planck15")
 
 parser = argparse.ArgumentParser('Program to resample lalinference posteriors from euclidean to uniform-in-comoving-volume distance prior')
 parser.add_argument('--runid',help='RunID to use from file. If not given, will apply to all runs',default=None)
