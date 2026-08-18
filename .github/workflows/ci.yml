@@ -259,6 +259,53 @@ jobs:
             MonteCarloMarginalizeCode/Code/RIFT/misc/test_psd_bandwidth.py \
             MonteCarloMarginalizeCode/Code/RIFT/likelihood/test_interpolate_time_cli.py
 
+  jax-ile-check:
+    needs: install
+    runs-on: ubuntu-latest
+    # test/jax/ was run by NOTHING in this workflow until this job landed (the file had
+    # zero matches for "jax"), and two real defects survived a month each behind that
+    # gap. See .travis/test-jax.sh for why the gate counts tests instead of just
+    # invoking pytest: most files in test/jax/ are __main__ scripts, and pytest exits 5
+    # ("no tests ran") on those -- a green tick over an empty run.
+    #
+    # Python 3.11 rather than the 3.10 used by the sibling jobs: current jax wheels
+    # require >=3.11. jax/numpyro are installed UNPINNED, matching setup.py's
+    # extras_require['jax-apps']; that is deliberate (CI should see what a user gets)
+    # and means a breaking upstream jax release can redden this job outside any PR's
+    # control. If that becomes noisy, pin here rather than deleting the job.
+    #
+    # Measured 964 s wall for the whole gate on a quiet CPU node (ldas-pcdev11, jax 0.9.2,
+    # JAX_PLATFORMS=cpu, OMP_NUM_THREADS=1): 14 tests, 907 s of pytest plus the
+    # collection pass.  test_jax_slowrot.py alone is 679 s of that (the p_max=0/p_max=1
+    # rotation ladders and freqresponse, each followed by the AD/jit/vmap/hessian
+    # checks); it is the first thing to trim if CI minutes ever bite.  timeout-minutes
+    # is ~4x the measured wall so a slower runner does not flake, but a hang still ends.
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+      - name: Enable symlink
+        run: sudo ln -sf $(which python3) /usr/bin/python
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip --break-system-packages
+          python -m pip install -r requirements.txt --break-system-packages
+          python -m pip install coverage pytest --break-system-packages
+          python -m pip install --editable . --break-system-packages
+      - name: Install the CPU JAX stack
+        # numpyro is needed by test_nuts_phimarg (the NUTS phase-marginalized sampler).
+        # flowMC is deliberately NOT installed -- see test-jax.sh for the exclusions.
+        run: python -m pip install "jax[cpu]" numpyro --break-system-packages
+      - name: Run jax_ile CPU regression gate
+        env:
+          JAX_PLATFORMS: cpu
+          OMP_NUM_THREADS: 1
+        run: bash .travis/test-jax.sh
+
   lisa-check:
     needs: install
     runs-on: ubuntu-latest
