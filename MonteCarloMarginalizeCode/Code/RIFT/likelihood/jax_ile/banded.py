@@ -62,8 +62,13 @@ def build_rotation_data(meta, lookupNKDict, rho_by_a, U_by_aa, V_by_aa, epochDic
             "build_rotation_data requires meta['post_phase_required'] == True: the JAX "
             "rotation evaluator applies the arrival-time post-phase (rotation_post_phase) "
             "to both the data term and the model norm, which is only correct for a bank "
-            "built in that convention.  Got meta['post_phase_required']=%r -- regenerate "
-            "the bank with PrecomputeLikelihoodTermsWithRotation."
+            "built in that convention.  Got meta['post_phase_required']=%r.\n"
+            "That key is set by PrecomputeLikelihoodTermsWithRotation as of PR #117, which "
+            "is the REQUIRED PARENT of this code -- if you are seeing this, the tree most "
+            "likely does not carry #117, in which case its precompute still uses the old "
+            "convention and the JAX rotation path must not be used on it at all (merge or "
+            "cherry-pick #117 first).  If the tree does carry #117, regenerate the bank "
+            "with PrecomputeLikelihoodTermsWithRotation rather than hand-assembling meta."
             % (meta.get("post_phase_required"),))
 
     # Minimal baseline-shaped packed dict (rholmArray of the FIRST band as a

@@ -381,10 +381,15 @@ def _accumulate_unit_banded(data, ra, dec, psi, incl, phiref, interp,
     so ``exp(i m omega delta_ij) = pe[m, i] * pt[m, j]`` is rank-1, and the phase enters
     both terms only through the integer ``m`` (``-n_a`` for the data term, ``n_a' - n_a``
     for BOTH the U and V contractions).  One ``(M, S)`` and one ``(M, npts)`` table cover
-    everything; ``M = 4*n_harmonics + 1`` at the default width.  This mirrors
-    ``DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation`` exactly, including
-    its choice of arrival sample (``interp="nearest"`` uses the rounded position the
-    gather itself uses, as the NoLoop uses ``ifirst``).
+    everything; ``M`` is the number of distinct ``m``, ``4*n_harmonics + 1`` at the default
+    width whatever ``p_max`` is (several ``p`` share a harmonic once ``p_max >= 1``, so the
+    ``(a, a')`` pairs genuinely collide in a bucket and the scatter-add accumulates them).
+
+    This mirrors ``DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation``,
+    including its choice of arrival sample: ``interp="nearest"`` phases each output bin at
+    the sample the gather actually read.  The one exception is a position at ``rint(pos)
+    == -1`` -- one bin off the FRONT of the rholm buffer -- where ``_gather_nearest``'s
+    ``trunc(. + 0.5)`` index rounds to sample 0; see the note at the ``samp0`` assignment.
 
     ``freqresponse`` (Path D) has NO post-phase -- its basis is not a sidereal modulation
     -- and keeps the arrival-time-independent ``rho_sq``.
@@ -420,8 +425,11 @@ def _accumulate_unit_banded(data, ra, dec, psi, incl, phiref, interp,
                 "rotation likelihood data does not declare post_phase_required; this "
                 "evaluator applies the arrival-time post-phase (rotation_post_phase) to "
                 "both the data term and the model norm and is only correct for a bank "
-                "built in that convention.  Rebuild with banded.build_rotation_data from "
-                "a PrecomputeLikelihoodTermsWithRotation bank.")
+                "built in that convention.  meta['post_phase_required'] is set by "
+                "PrecomputeLikelihoodTermsWithRotation as of PR #117 -- if this tree does "
+                "not have #117, it does not have the corrected precompute either and the "
+                "JAX rotation path MUST NOT be used on it.  Otherwise rebuild the bank "
+                "with banded.build_rotation_data.")
         omega_sid = 2.0 * np.pi * float(band["f_sidereal"])
         pp_m = jnp.asarray(np.asarray(band["pp_m_values"], dtype=np.float64))  # (M,)
         pp_t1 = np.asarray(band["pp_term1_idx"], dtype=np.int64)               # (A,) static
@@ -456,13 +464,20 @@ def _accumulate_unit_banded(data, ra, dec, psi, incl, phiref, interp,
             # ``pos`` is in samples from the rholm epoch, so delta = pos*deltaT - off with
             # off = tref - epoch.  It must be the arrival the GATHER actually uses, or the
             # data term and the model norm drift apart again: for interp="nearest" that is
-            # the rounded position (identically the NoLoop's ``ifirst``), for the
-            # interpolating stencils the continuous one.
+            # the rounded position, for the interpolating stencils the continuous one.
+            #
+            # ``jnp.rint(p0) + j == jnp.rint(p0 + j)`` exactly (j is an integer and the sum
+            # is well inside float64's exact-integer range), so this IS the gathered
+            # position, and it stays separable in (i, j).  _gather_nearest's index is
+            # ``trunc(rint(pos) + 0.5)``, which equals rint(pos) for every non-negative
+            # position; the one place the two differ is rint(pos) == -1, where that
+            # truncation reads sample 0 for a position one bin off the FRONT of the buffer.
+            # That is a pre-existing quirk of the gather (the numpy NoLoop, which slices
+            # ``ifirst:ilast``, is no better there) and not something the post-phase can or
+            # should paper over; every position the gather treats as in-bounds and
+            # non-negative is phased at exactly the sample it read.
             off = float(data.tref_minus_epoch(det))
-            if interp == "nearest":
-                samp0 = (jnp.rint(p0) + 0.5).astype(jnp.int32).astype(jnp.float64)
-            else:
-                samp0 = p0
+            samp0 = jnp.rint(p0) if interp == "nearest" else p0
             delta0 = samp0 * data.deltaT - off              # (S,)
             jgrid = t_offsets * data.deltaT                 # (npts,)
             pe = jnp.exp(1j * omega_sid * pp_m[:, None] * delta0[None, :])   # (M, S)
