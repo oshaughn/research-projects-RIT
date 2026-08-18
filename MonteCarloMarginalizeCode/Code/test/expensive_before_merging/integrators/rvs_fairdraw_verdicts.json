@@ -294,11 +294,6 @@
     "verdict": "BENIGN",
     "why": "The DELIBERATE no-reserve fallback for a sampler that keeps none: reads _rvs so the feature degrades to its previous behaviour rather than to no seed at all. The rank hazard is still handled -- build_warm_seed puffs the result to full rank -- so what remains is only 'fewer points', which cannot be improved without a reserve."
   },
-  "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:0ab512f38a": {
-    "source": "_warm_lnZ = _lnZ_of_rvs(sampler._rvs, already_pooled=False)",
-    "verdict": "BROKEN",
-    "why": "PR #79's CROSS-SOURCE FALLBACK: fires only when the cold and warm passes produced different reading sources (one had a reserve, the other did not), and then re-reads BOTH sides from the fair-draw record. That is self-consistent, which is what #79 claims for it, but it is not unbiased: the two passes sit at different n_eff, so the log(n/n_eff) artifact does not cancel and this branch is back in the regime measured at +3.48 nats / 100% rejection at the 0.5 default. A known, documented, BOUNDED residual -- not a defect anyone introduced. Closing it needs a retained-set reading on both sides, i.e. a reserve for the samplers that keep none. Follow-up, not a regression."
-  },
   "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:1240e69c24": {
     "source": "len(numpy.atleast_1d(list(sampler._rvs.values())[0])) if sampler._rvs else 0,",
     "verdict": "FIXED",
@@ -364,6 +359,11 @@
     "verdict": "BENIGN",
     "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
   },
+  "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:5a200a208f": {
+    "source": "_warm_lnZ = _lnZ_of_rvs(sampler._rvs, already_pooled=False,",
+    "verdict": "BROKEN",
+    "why": "PR #79's CROSS-SOURCE FALLBACK: fires only when the cold and warm passes produced different reading sources (one had a reserve, the other did not), and then re-reads BOTH sides from the fair-draw record. That is self-consistent, which is what #79 claims for it, but it is not unbiased: the two passes sit at different n_eff, so the log(n/n_eff) artifact does not cancel and this branch is back in the regime measured at +3.48 nats / 100% rejection at the 0.5 default. A known, documented, BOUNDED residual -- not a defect anyone introduced. Closing it needs a retained-set reading on both sides, i.e. a reserve for the samplers that keep none. Follow-up, not a regression."
+  },
   "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:65d3d3b519": {
     "source": "_rvs = sampler._rvs",
     "verdict": "PER_ROW",
@@ -424,11 +424,6 @@
     "verdict": "BENIGN",
     "why": "The DELIBERATE no-reserve fallback for a sampler that keeps none: reads _rvs so the feature degrades to its previous behaviour rather than to no seed at all. The rank hazard is still handled -- build_warm_seed puffs the result to full rank -- so what remains is only 'fewer points', which cannot be improved without a reserve."
   },
-  "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:acdd1e28bd": {
-    "source": "_neff_pooled = _kish_neff_of_rvs(sampler._rvs)",
-    "verdict": "FIXED",
-    "why": "Kish of the pooled record is only used when the export is NOT fair-drawn. When it is, _pool_replica_rvs has flattened each block, and the Kish of piecewise-constant weights is just the row count (5K at the default --fairdraw-extrinsic-output-n-max 5). The ILE now computes the same quantity one level up -- (sum Z_k)^2 / sum(Z_k^2/neff_k), Kish over the BLOCKS -- which reduces to sum(neff_k) when replicas agree and falls below it when they do not. The row count beside it is a deliberate report of the export size."
-  },
   "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:b8c45b4f30": {
     "source": "samples = copy.deepcopy(sampler._rvs)  # deep copy: avoid modifying structures and  having side effect on integrator, which loops over keys Expensive!",
     "verdict": "BENIGN",
@@ -464,10 +459,20 @@
     "verdict": "BENIGN",
     "why": "Printed diagnostic of the best retained sample. Explicitly labelled as what ILE reports including weights; not an input to any result."
   },
+  "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:e09c3e2b32": {
+    "source": "record=_rvs_record_for(sampler, sampler._rvs))",
+    "verdict": "PER_ROW",
+    "why": "Looks up the record describing these columns, declining it if _rvs has been replaced since. The consumer then asks a NAMED question (rows_are_resampled / blocks_were_flattened) instead of combining flags; the flags remain the fallback until every sampler is converted."
+  },
   "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:e0bbb0348e": {
     "source": "P.phiref = sampler._rvs[\"phi_orb\"][indx_guess]",
     "verdict": "BENIGN",
     "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:f2a39eb3a7": {
+    "source": "sampler._rvs, record=_rvs_record_for(sampler, sampler._rvs))",
+    "verdict": "PER_ROW",
+    "why": "Looks up the record describing these columns, declining it if _rvs has been replaced since. The consumer then asks a NAMED question (rows_are_resampled / blocks_were_flattened) instead of combining flags; the flags remain the fallback until every sampler is converted."
   },
   "bin/integrate_likelihood_extrinsic_batchmode_lisa:analyze_event:16e8b48c86": {
     "source": "(sampler._rvs[\"phi_orb\"][indx_guess]/(2*numpy.pi)), \\",

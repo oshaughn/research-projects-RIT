@@ -1071,3 +1071,62 @@ def test_a_snapshotted_record_describes_the_columns_that_get_restored():
     # which is exactly what _rvs_record_for's identity check asks (it is defined earlier in
     # the file than the slice exec'd above, so the condition is restated rather than imported)
     assert s.samples().columns is s._rvs
+
+
+###
+### The lnZ / Kish estimators, now record-aware
+###
+
+def _state_ns():
+    src = open(_ILE).read()
+    ns = {"numpy": np, "np": np, "_rvs_lnL_convention": lambda x=None: bool(x)}
+    exec(compile(src[src.index("def ln_weights_from_rvs"):src.index("def _warm_seed_geometry")],
+                 "ile_est", "exec"), ns)
+    return ns
+
+
+@pytest.mark.skipif(not os.path.exists(_ILE), reason='ILE executable not in this tree')
+def test_the_estimators_give_the_same_answer_from_a_record_or_from_the_columns():
+    """A source choice, not a semantics choice -- so both routes must agree exactly."""
+    ns = _state_ns()
+    n = 60
+    rng = np.random.default_rng(17)
+    cols = {'log_integrand': rng.normal(0, 4, n),
+            'log_joint_prior': rng.normal(0, 1, n),
+            'log_joint_s_prior': rng.normal(0, 1, n)}
+    rec = RvsRecord.retained(cols)
+    for fn, kw in (('_lnZ_of_rvs', dict(already_pooled=False)), ('_kish_neff_of_rvs', {})):
+        a = ns[fn](cols, record=rec, **kw)
+        b = ns[fn](cols, **kw)
+        assert a == pytest.approx(b, rel=1e-12), '{}: record and column routes differ'.format(fn)
+
+
+@pytest.mark.skipif(not os.path.exists(_ILE), reason='ILE executable not in this tree')
+def test_a_record_describing_other_columns_is_not_believed_by_the_estimators():
+    """The identity guard, at the estimators too.  _rvs dicts are copied and replaced all over
+    the ILE; a record pointing at a different dict must be ignored, not trusted."""
+    ns = _state_ns()
+    rng = np.random.default_rng(18)
+    mine = {'log_integrand': rng.normal(0, 4, 40),
+            'log_joint_prior': np.zeros(40), 'log_joint_s_prior': np.zeros(40)}
+    other = {'log_integrand': np.full(40, 99.0),
+             'log_joint_prior': np.zeros(40), 'log_joint_s_prior': np.zeros(40)}
+    stale = RvsRecord.retained(other)                  # describes SOMETHING ELSE
+    got = ns['_lnZ_of_rvs'](mine, already_pooled=False, record=stale)
+    want = ns['_lnZ_of_rvs'](mine, already_pooled=False)
+    assert got == pytest.approx(want, rel=1e-12), \
+        'a record describing other columns was believed; identity guard missing'
+    assert got < 90.0, 'the stale record leaked into the estimate'
+
+
+@pytest.mark.skipif(not os.path.exists(_ILE), reason='ILE executable not in this tree')
+def test_the_estimators_share_one_weight_resolver():
+    """Two copies of "prefer the record, else derive" would drift, which is the failure this
+    whole branch is about."""
+    src = open(_ILE).read()
+    assert src.count('def _lw_of(') == 1
+    for fn in ('def _lnZ_of_rvs', 'def _kish_neff_of_rvs'):
+        i = src.index(fn)
+        body = src[i:i + 1500]
+        assert '_lw_of(rvs, record, use_lnL)' in body, \
+            '{} does not go through the shared resolver'.format(fn)

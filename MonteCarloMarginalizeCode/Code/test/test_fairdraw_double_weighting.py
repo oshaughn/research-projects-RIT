@@ -286,11 +286,12 @@ def test_the_ile_uses_the_block_form_only_for_a_fair_drawn_export():
     over them is finer-grained than the block form -- so the switch must be conditional."""
     src = open(_ILE).read()
     i = src.index('_neff_pooled')
-    block = src[i - 1800:i + 2000]
+    block = src[i - 2200:i + 2400]
     # keyed on whether pooling FLATTENED any block -- not on a record-level flag, which the
     # pooling step two hundred lines above clears, making this branch dead
     assert '_blocks_flattened' in block, 'the switch is unconditional or dead'
-    assert '_kish_neff_of_rvs(sampler._rvs)' in block, \
+    # whitespace-insensitive: the call gained a record= argument and wrapped across lines
+    assert '_kish_neff_of_rvs(sampler._rvs' in ''.join(block.split()).replace(',record', ''), \
         'the non-flattened path no longer uses the pooled Kish'
 
 

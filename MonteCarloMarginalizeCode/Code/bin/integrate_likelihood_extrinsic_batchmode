@@ -2416,7 +2416,23 @@ def _pool_replica_rvs(rep_rvs, sampler, rep_lnZ=None, already_resampled=False, u
     return out
 
 
-def _lnZ_of_rvs(rvs, already_pooled=True, use_lnL=None):
+def _lw_of(rvs, record, use_lnL):
+    """Importance log-weights for `rvs`, preferring a record that describes it.
+
+    ONE resolver, so the two estimators below cannot drift in which source they trust.  A
+    record is used only when its `.columns` IS this dict: `_rvs` is copied and replaced all
+    over this file, and a record describing different columns must not be believed.  Otherwise
+    fall back to the canonical derivation with the stored convention -- the two are verified
+    equivalent by a randomized comparison in test_rvs_record.py, so this is a source choice,
+    not a semantics choice.
+    """
+    if record is not None and getattr(record, 'columns', None) is rvs:
+        return numpy.asarray(record.log_weights(), dtype=float)
+    return numpy.asarray(ln_weights_from_rvs(rvs, use_lnL=_rvs_lnL_convention(use_lnL)),
+                         dtype=float)
+
+
+def _lnZ_of_rvs(rvs, already_pooled=True, use_lnL=None, record=None):
     """log of the evidence implied by an _rvs record.
 
     For a POOLED record the weights already carry their 1/(K n_k) factor, so the estimate is the
@@ -2424,7 +2440,7 @@ def _lnZ_of_rvs(rvs, already_pooled=True, use_lnL=None):
     """
     try:
         try:
-            lw = ln_weights_from_rvs(rvs, use_lnL=_rvs_lnL_convention(use_lnL))
+            lw = _lw_of(rvs, record, use_lnL)
         except Exception:
             return None
         lw = lw[numpy.isfinite(lw)]
@@ -2437,11 +2453,11 @@ def _lnZ_of_rvs(rvs, already_pooled=True, use_lnL=None):
         return None
 
 
-def _kish_neff_of_rvs(rvs, use_lnL=None):
+def _kish_neff_of_rvs(rvs, use_lnL=None, record=None):
     """Kish effective sample size of an _rvs record, or None if the weights are not reconstructible."""
     try:
         try:
-            lw = ln_weights_from_rvs(rvs, use_lnL=_rvs_lnL_convention(use_lnL))
+            lw = _lw_of(rvs, record, use_lnL)
         except Exception:
             return None
         lw = lw[numpy.isfinite(lw)]
@@ -2495,7 +2511,8 @@ def _lnZ_of_reserve_or_rvs(sampler, rvs, reserve=None):
                 return _v, 'retained'
         except Exception:
             pass
-    return _lnZ_of_rvs(rvs, already_pooled=False), 'fairdraw'
+    return _lnZ_of_rvs(rvs, already_pooled=False,
+                       record=_rvs_record_for(sampler, rvs)), 'fairdraw'
 
 
 def _rebound_record(sampler, columns):
@@ -3699,7 +3716,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                           " re-reading both from the fair-draw record so the comparison is"
                           " like-for-like.".format(_cold_src, _warm_src))
                     _cold_lnZ = _lnZ_of_rvs(_cold_rvs, already_pooled=False)
-                    _warm_lnZ = _lnZ_of_rvs(sampler._rvs, already_pooled=False)
+                    _warm_lnZ = _lnZ_of_rvs(sampler._rvs, already_pooled=False,
+                                            record=_rvs_record_for(sampler, sampler._rvs))
                     _cold_src = _warm_src = 'fairdraw'
                 _evidence_of_loss = (
                     (_cold_lnZ is not None) and (_warm_lnZ is not None)
@@ -4054,7 +4072,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                                 if numpy.any(_ok) else None)
                 _neff_how = 'block Kish over replicas (the export is fair-drawn)'
             else:
-                _neff_pooled = _kish_neff_of_rvs(sampler._rvs)
+                _neff_pooled = _kish_neff_of_rvs(
+                    sampler._rvs, record=_rvs_record_for(sampler, sampler._rvs))
                 _neff_how = 'Kish over the pooled samples'
             neff = float(_neff_pooled) if _neff_pooled is not None else float(numpy.sum(_rep_neff))
             if _neff_pooled is not None:
