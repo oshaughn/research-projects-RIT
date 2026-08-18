@@ -583,6 +583,36 @@ OSG site-selection knobs (`+DESIRED_SITES`, `+UNDESIRED_SITES`,
 the manifest). The bindings appear verbatim as additional `key =
 value` lines in every per-(sim, level) submit description.
 
+Because those lines are emitted **last**, a key that the queue already
+writes would replace its line rather than extend it — and
+`condor_submit` reports success either way. `transfer_input_files`,
+`transfer_output_files`, `transfer_output_remaps` and
+`periodic_release` are therefore refused in `extra_condor_cmds`
+(case-insensitively; HTCondor command names are). Each has an
+append-only alternative:
+
+| instead of `extra_condor_cmds[...]` | use |
+|---|---|
+| `transfer_input_files` | `extra_transfer_input_files` (appended) |
+| `transfer_output_files` | `extra_transfer_output_files` (appended, `{level}`/`{sim_name}` substituted) |
+| `periodic_release` | `extra_periodic_release` (OR'd in) |
+
+`extra_periodic_release` takes a single-line ClassAd expression for
+sites whose pool holds jobs for reasons the queue does not model — an
+opportunistic pool produces transient holds a dedicated cluster never
+sees. While `auto_release_on_oom` is on, hold codes 26 and 34 belong to
+the OOM policy and the term is scoped away from them, so
+`oom_max_retries` remains a real cap and `request_memory` cannot be
+multiplied without bound; the term governs every other hold code. With
+the OOM policy off it governs all of them.
+
+```python
+DualCondorRunQueue(
+    auto_release_on_oom=True,
+    extra_periodic_release="(HoldReasonCode =!= 1) && (NumJobStarts < 50)",
+)
+```
+
 
 ## Hyperpipeline / glue.pipeline integration
 
