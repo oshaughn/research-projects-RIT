@@ -70,9 +70,10 @@ class RvsRecord(object):
     whose meaning it does not check, which is the whole problem restated.
     """
 
-    __slots__ = ("columns", "provenance", "reserve", "integrand_is_log")
+    __slots__ = ("columns", "provenance", "reserve", "integrand_is_log", "internal")
 
-    def __init__(self, columns, provenance=None, reserve=None, integrand_is_log=None):
+    def __init__(self, columns, provenance=None, reserve=None, integrand_is_log=None,
+                 internal=False):
         self.columns = columns
         self.provenance = provenance if provenance is not None else RvsProvenance()
         # WHAT THE RAW `integrand` COLUMN MEANS ON THIS BACKEND, recorded once by the sampler
@@ -84,6 +85,12 @@ class RvsRecord(object):
         # opts.internal_use_lnL instead is a documented bug.  The sampler knows; it now says so
         # once, here, and log_likelihood() below is unambiguous on every backend.
         self.integrand_is_log = integrand_is_log
+        # INTERNAL PLUMBING, NOT PUBLIC SURFACE.  Replica pooling has to hand each block's
+        # record back into _pool_replica_rvs so the weights can be derived per block with the
+        # right convention -- but having had to pass the structure around does NOT mean callers
+        # should reach for it.  An internal record is refused by set_samples(), so it can never
+        # come back out of the public samples() accessor.
+        self.internal = bool(internal)
         # REFERENCE, not a copy.  See retained_* below for why this is a reference and why it
         # is the bounded reserve rather than the raw retained rows.
         self.reserve = reserve
@@ -308,6 +315,17 @@ class RvsRecord(object):
         return n
 
     # -- lifecycle ---------------------------------------------------------------------
+    def as_internal(self):
+        """A view of this record marked as internal plumbing -> RvsRecord.
+
+        Same columns and provenance, by reference; only the marker differs.  Used where a
+        record must be threaded through a helper (replica pooling) without becoming something
+        a consumer can obtain from samples().
+        """
+        out = RvsRecord(self.columns, self.provenance, reserve=self.reserve,
+                        integrand_is_log=self.integrand_is_log, internal=True)
+        return out
+
     def snapshot(self):
         """A copy that a rejected pass can be restored from, provenance included.
 
@@ -319,13 +337,15 @@ class RvsRecord(object):
         # The reserve rides along BY REFERENCE: it is immutable once built (each pass builds a
         # fresh one), and copying it would reintroduce the memory cost this design avoids.
         return RvsRecord(dict(self.columns), copy.deepcopy(self.provenance),
-                         reserve=self.reserve)
+                         reserve=self.reserve, integrand_is_log=self.integrand_is_log,
+                         internal=self.internal)
 
     def __len__(self):
         return _n_rows(self.columns)
 
     def __repr__(self):
-        return "RvsRecord({} rows, {})".format(len(self), self.provenance)
+        return "RvsRecord({}{} rows, {})".format(
+            "INTERNAL, " if self.internal else "", len(self), self.provenance)
 
 
 class SamplerOutputMixin(object):
@@ -358,6 +378,11 @@ class SamplerOutputMixin(object):
         attribute, which is the habit this whole design is trying to end.  A writer needs an
         API as much as a reader does.
         """
+        if record is not None and getattr(record, 'internal', False):
+            raise ValueError(
+                "refusing to publish an INTERNAL record through samples(): it is plumbing for "
+                "replica pooling, not part of the sampler's output contract.  If a consumer "
+                "needs it, that is a design question, not a call to set_samples().")
         self._rvs_record = record
         return record
 

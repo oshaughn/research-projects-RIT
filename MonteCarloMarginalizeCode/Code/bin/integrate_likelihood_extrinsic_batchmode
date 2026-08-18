@@ -2146,6 +2146,19 @@ def _rvs_record_for(sampler, rvs):
     return rec
 
 
+def _internal_record_of(sampler):
+    """This pass's record, marked INTERNAL for threading -> RvsRecord or None.
+
+    Replica pooling needs each block's record to derive that block's weights with the right
+    convention.  Marking them internal is the difference between "we had to hand the structure
+    back" and "this is now something consumers may use": set_samples() refuses an internal
+    record, so nothing on this list can reappear from samples().
+    """
+    _get = getattr(sampler, 'samples', None)
+    rec = _get() if callable(_get) else None
+    return rec.as_internal() if rec is not None else None
+
+
 def _sampler_keeps_records(sampler):
     """Does this sampler populate `_rvs_record` at all?  DRAFT: DESIGN_rvs_naming.md.
 
@@ -2250,7 +2263,8 @@ def ln_weights_for_posterior(rvs, sampler, convert=None, use_lnL=None):
                          dtype=float)
 
 
-def _pool_replica_rvs(rep_rvs, sampler, rep_lnZ=None, already_resampled=False, use_lnL=None):
+def _pool_replica_rvs(rep_rvs, sampler, rep_lnZ=None, already_resampled=False, use_lnL=None,
+                      records=None):
     """Concatenate the replicas' samples into one correctly-weighted set.
 
     Each replica k is an independent importance-sampling estimate with weights w_ki and its own
@@ -2276,6 +2290,12 @@ def _pool_replica_rvs(rep_rvs, sampler, rep_lnZ=None, already_resampled=False, u
     _ar_list = (list(already_resampled)
                 if isinstance(already_resampled, (list, tuple, numpy.ndarray))
                 else None)
+    # PER-REPLICA RECORDS, threaded in so each block's lnZ is derived with ITS OWN convention
+    # instead of one `use_lnL` asserted over the whole set.  These are INTERNAL: they are
+    # plumbing for this function, marked as such, and refused by set_samples() so they cannot
+    # escape through the public samples() accessor.  Having had to pass the structure around is
+    # not a reason for anyone else to reach for it.
+    _rec_list = list(records) if records is not None else None
     # Drop empty records in LOCKSTEP with their metadata.  The filter used to run on rep_rvs
     # alone, so a single empty replica shifted every later block against its own lnZ -- and
     # would now shift it against its own resampled flag too.
@@ -2285,6 +2305,15 @@ def _pool_replica_rvs(rep_rvs, sampler, rep_lnZ=None, already_resampled=False, u
         rep_lnZ = [rep_lnZ[i] for i in _keep if i < len(rep_lnZ)]
     if _ar_list is not None:
         _ar_list = [_ar_list[i] for i in _keep if i < len(_ar_list)]
+    if _rec_list is not None:
+        _rec_list = [_rec_list[i] for i in _keep if i < len(_rec_list)]
+
+    def _block_record(i, r):
+        """The record for block i, but only if it describes THAT block's columns."""
+        if _rec_list is None or i >= len(_rec_list):
+            return None
+        rec = _rec_list[i]
+        return rec if getattr(rec, 'columns', None) is r else None
 
     def _block_resampled(i):
         if _ar_list is not None:
@@ -2333,7 +2362,8 @@ def _pool_replica_rvs(rep_rvs, sampler, rep_lnZ=None, already_resampled=False, u
                 scale = 0.0
             elif rep_lnZ is not None and _i < len(rep_lnZ) and numpy.isfinite(rep_lnZ[_i]):
                 # target: this block's weights sum to Z_k/K
-                _cur = _lnZ_of_rvs(r, already_pooled=True, use_lnL=_lnL_here)
+                _cur = _lnZ_of_rvs(r, already_pooled=True, use_lnL=_lnL_here,
+                                   record=_block_record(_i, r))
                 if _cur is None or not numpy.isfinite(_cur):
                     scale = numpy.log(float(K) * float(n_k))
                 else:
@@ -3871,6 +3901,10 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         # a resampled replica double-weighted.  Near the n_extr boundary a run can produce a
         # MIXTURE of raw and resampled replicas, which one global boolean cannot describe.
         _rep_fairdraw = [bool(getattr(sampler, '_rvs_is_fairdraw', False))]
+        # ...and each replica's RECORD, so pooling can derive that block's weights with its own
+        # convention.  Marked INTERNAL: this list is plumbing for _pool_replica_rvs, and
+        # set_samples() refuses an internal record so none of it can reach a consumer.
+        _rep_records = [_internal_record_of(sampler)]
         # Collapse status must be aggregated over EVERY replica that ends up in the pool.
         # The exported posterior is the pooled mixture, so one collapsed replica taints it
         # even if the first run was healthy -- and the status sidecar is written from
@@ -3929,6 +3963,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             _rep_lnZ.append(float(_lr2)); _rep_sig.append(float(_sig2)); _rep_neff.append(float(_neff2))
             _rep_rvs.append(sampler._rvs)
             _rep_fairdraw.append(bool(getattr(sampler, '_rvs_is_fairdraw', False)))
+            _rep_records.append(_internal_record_of(sampler))
             _rep_collapsed.append(bool(_dd2.get('live_volume_collapsed', False))
                                   if isinstance(_dd2, dict) else False)
             if isinstance(_dd2, dict) and _dd2.get('collapse_reason'):
@@ -3943,7 +3978,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         # (which all form log_integrand + log_joint_prior - log_joint_s_prior) correct untouched.
         _pooled_rvs = _pool_replica_rvs(_rep_rvs, sampler, rep_lnZ=_rep_lnZ,
                                         already_resampled=_rep_fairdraw,
-                                        use_lnL=rvs_integrand_is_lnL)
+                                        use_lnL=rvs_integrand_is_lnL,
+                                        records=_rep_records)
         # A POOLED RECORD IS NOT A FAIR DRAW, even when every block that went into it was.
         # _pool_replica_rvs gives block k weights summing to Z_k/K: equal WITHIN a block (each
         # block really is an equal-weight draw from its own posterior) but differing BETWEEN

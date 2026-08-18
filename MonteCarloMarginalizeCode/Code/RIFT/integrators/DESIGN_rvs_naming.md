@@ -390,3 +390,40 @@ is called out here only so it is not mistaken for one.
    whether the full set is, is a real question and I have not measured it.
 3. **Does the LISA twin follow, or diverge on purpose?** It carries 36 of the 131 post-rebind
    reads and none of the helpers this work added.
+
+## Internal vs public records (2026-08-14)
+
+Replica pooling has to thread each block's record into `_pool_replica_rvs`, so that block's
+weights are derived with *its* convention rather than one `use_lnL` asserted over the whole set.
+Review's constraint on that:
+
+> *"per-replica record threading is fine, as long as it's clear some of those records are
+> 'internal' and not exposed for the user -- just because we had to hand back the structure
+> doesn't mean we want them to use it."*
+
+So "internal" is a marker with teeth, not a naming convention:
+
+* `RvsRecord.as_internal()` returns a **view** -- same columns, provenance and reserve by
+  reference, only the marker differs. Copying every replica's columns would reintroduce exactly
+  the memory cost the reserve-by-reference decision avoided.
+* **`set_samples()` refuses an internal record**, raising rather than storing it. The public
+  accessor therefore *cannot* yield one, whatever a future caller tries.
+* The marker survives `snapshot()`, so snapshot/restore cannot launder an internal record into a
+  publishable one.
+* `_pool_replica_rvs` filters the threaded records in lockstep with `rep_rvs`/`rep_lnZ`, and
+  `_block_record()` uses one only when its `.columns` **is** that block's dict -- the same
+  identity guard as everywhere else, one level down.
+
+## Where `use_lnL` still survives, stated plainly
+
+Every ILE weight derivation that *can* consult a record now does. `use_lnL` remains as the
+**fallback** in three places, so `return_lnI` is **not yet deletable**:
+
+1. `ln_weights_for_posterior`, when no record describes the columns (an unconverted sampler, or
+   a record that has fallen out of step);
+2. `_lw_of`, the shared resolver behind `_lnZ_of_rvs` / `_kish_neff_of_rvs`, same reason;
+3. `_pool_replica_rvs` rebuilding the cached `log_weights`/`weights` columns on the **pooled
+   output** -- no record can exist for it yet, since it is the thing being constructed.
+
+(1) and (2) disappear when every sampler and consumer is converted. (3) needs the pooled record
+built inside the pooler rather than at its call site. None of that is done here.

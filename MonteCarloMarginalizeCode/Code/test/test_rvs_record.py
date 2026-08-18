@@ -1130,3 +1130,101 @@ def test_the_estimators_share_one_weight_resolver():
         body = src[i:i + 1500]
         assert '_lw_of(rvs, record, use_lnL)' in body, \
             '{} does not go through the shared resolver'.format(fn)
+
+
+###
+### INTERNAL RECORDS: we had to hand the structure back; that is not the same as publishing it
+###
+
+def test_an_internal_record_cannot_be_published_through_samples():
+    """The boundary that makes 'internal' mean something rather than being a naming convention.
+
+    Replica pooling has to thread each block's record into _pool_replica_rvs so the block's
+    weights are derived with ITS convention. Having had to pass the structure around is not a
+    reason for a consumer to reach for it, so set_samples() refuses an internal record and the
+    public accessor can therefore never yield one.
+    """
+    class _S(SamplerOutputMixin):
+        pass
+    s = _S()
+    pub = RvsRecord.retained(_cols(10))
+    s.set_samples(pub)
+    assert s.samples() is pub
+
+    internal = pub.as_internal()
+    assert internal.internal is True
+    with pytest.raises(ValueError) as e:
+        s.set_samples(internal)
+    assert 'INTERNAL' in str(e.value)
+    assert s.samples() is pub, 'the refused call must leave the public record untouched'
+
+
+def test_as_internal_shares_the_data_and_changes_only_the_marker():
+    """It is a view for threading, not a copy -- copying every replica's columns would
+    reintroduce the memory cost the reserve-by-reference decision avoided."""
+    pub = RvsRecord.fair_draw(_cols(12), n_retained=999, reserve={'X': np.zeros((2, 2))})
+    it = pub.as_internal()
+    assert it.columns is pub.columns
+    assert it.provenance is pub.provenance
+    assert it.reserve is pub.reserve
+    assert it.integrand_is_log == pub.integrand_is_log
+    assert pub.internal is False and it.internal is True
+    assert it.rows_are_resampled() == pub.rows_are_resampled()
+    assert it.n_retained() == 999
+
+
+def test_the_internal_marker_survives_a_snapshot():
+    """Otherwise snapshot/restore would launder an internal record into a publishable one."""
+    it = RvsRecord.retained(_cols(6)).as_internal()
+    assert it.snapshot().internal is True
+
+
+@pytest.mark.skipif(not os.path.exists(_ILE), reason='ILE executable not in this tree')
+def test_the_ile_threads_per_replica_records_and_marks_them_internal():
+    src = open(_ILE).read()
+    assert 'def _internal_record_of' in src
+    i = src.index('_rep_records = [')
+    assert '_internal_record_of(sampler)' in src[i:i + 200], \
+        'per-replica records are captured without being marked internal'
+    j = src.index('_pool_replica_rvs(_rep_rvs')
+    assert 'records=_rep_records' in src[j:j + 500], \
+        'the per-replica records are not threaded into pooling'
+    # and pooling filters them in lockstep with the other per-replica lists
+    k = src.index('def _pool_replica_rvs')
+    body = src[k:k + 4000]
+    assert '_rec_list = [_rec_list[i] for i in _keep' in body, \
+        'the records are not filtered in lockstep with rep_rvs/rep_lnZ'
+    assert 'def _block_record' in body, 'no per-block identity guard on the threaded records'
+
+
+@pytest.mark.skipif(not os.path.exists(_ILE), reason='ILE executable not in this tree')
+def test_pooling_uses_a_block_record_only_when_it_describes_that_block():
+    """The identity guard again, one level down: a record for replica 2 must not be used to
+    derive replica 1's lnZ just because the lists line up."""
+    ns = {"numpy": np, "np": np, "_rvs_lnL_convention": lambda x=None: bool(x)}
+    src = open(_ILE).read()
+    exec(compile(src[src.index("def ln_weights_from_rvs"):src.index("def _warm_seed_geometry")],
+                 "ile_pool", "exec"), ns)
+
+    class _Conv(object):
+        @staticmethod
+        def identity_convert(x):
+            return x
+    rng = np.random.default_rng(21)
+    blocks = []
+    for sd in (1, 2):
+        n = 30
+        blocks.append({'log_integrand': rng.normal(0, 2, n),
+                       'log_joint_prior': np.zeros(n), 'log_joint_s_prior': np.zeros(n)})
+    good = [RvsRecord.retained(b).as_internal() for b in blocks]
+    mismatched = [RvsRecord.retained(blocks[1]).as_internal(),
+                  RvsRecord.retained(blocks[0]).as_internal()]   # swapped on purpose
+
+    kw = dict(rep_lnZ=[7.0, 9.0], already_resampled=[False, False], use_lnL=False)
+    a = ns['_pool_replica_rvs'](list(blocks), _Conv(), records=good, **kw)
+    b = ns['_pool_replica_rvs'](list(blocks), _Conv(), records=mismatched, **kw)
+    c = ns['_pool_replica_rvs'](list(blocks), _Conv(), records=None, **kw)
+    lw = lambda o: ns['ln_weights_from_rvs'](o, use_lnL=False)
+    assert np.allclose(lw(a), lw(c)), 'the record route changed the pooled weights'
+    assert np.allclose(lw(b), lw(c)), \
+        'a record describing ANOTHER block was used; the identity guard is missing'
