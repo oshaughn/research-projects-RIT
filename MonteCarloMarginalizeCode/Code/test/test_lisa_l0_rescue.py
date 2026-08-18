@@ -29,6 +29,7 @@ import ast
 import os
 
 import numpy as np
+from RIFT.integrators.rvs_record import SamplerOutputMixin as _SamplerOutputMixin
 import pytest
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -54,10 +55,23 @@ _DEPS = ['_rvs_lnL_convention', 'ln_weights_from_rvs', '_rvs_len',
 
 
 def _driver_def_names(path):
-    """Every top-level function the driver defines."""
-    with open(path) as fh:
-        return {n.name for n in ast.parse(fh.read()).body
-                if isinstance(n, ast.FunctionDef)}
+    """Every top-level name the driver BINDS: functions and imports alike.
+
+    Imports are in here because of a real miss: the guard originally covered only defs, so
+    `SamplerOutputMixin` -- imported by the driver, referenced by _sampler_keeps_records --
+    slipped straight through it and surfaced as a NameError inside an exec'd helper.
+    """
+    with open(path) as fh:          # read directly: _src() differs between these harnesses
+        src = fh.read()
+    names = set()
+    for n in ast.parse(src).body:
+        if isinstance(n, ast.FunctionDef):
+            names.add(n.name)
+        elif isinstance(n, (ast.Import, ast.ImportFrom)):
+            for a in n.names:
+                if a.name != '*':
+                    names.add(a.asname or a.name.split('.')[0])
+    return names
 
 
 def _assert_helper_set_is_closed(ns, names, path):
@@ -133,7 +147,7 @@ def _load(opts=None, av=None):
     names = _DEPS + PORTED + ['_maybe_l0_rescue']
     defs = _defs(_LISA, names)
     mod = ast.Module(body=[defs[n] for n in names], type_ignores=[])
-    ns = {"numpy": np, "np": np,
+    ns = {"numpy": np, "np": np, "SamplerOutputMixin": _SamplerOutputMixin,
           "opts": opts if opts is not None else _Opts(),
           "mcsamplerAdaptiveVolume": av if av is not None else _FakeAV}
     exec(compile(ast.fix_missing_locations(mod), "lisa_l0_helpers", "exec"), ns)

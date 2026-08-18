@@ -2425,6 +2425,18 @@ def _maybe_replicate_for_mc_error(sampler, res, var, neff, dict_return,
             # ln_weights_for_posterior must read the reconstructed per-row weights.
             sampler._rvs_is_pooled = True
             sampler._rvs_is_fairdraw = any(_rep_fairdraw)
+            # DELIBERATELY record-less, and this line is why it is deliberate.  The main
+            # driver builds an _RvsRecord.pooled() here from per-replica records; the LISA
+            # replica path does not collect them, so there is nothing honest to publish and
+            # the weight route falls back to the flags above.  That fallback is correct --
+            # but WITHOUT this line it would be correct only by accident: the record left on
+            # the sampler describes the pre-pool columns, and it is declined solely because
+            # `sampler._rvs` is about to become a different dict and _rvs_record_for compares
+            # by IDENTITY.  Anything that later made the pooled dict reuse an input dict, or
+            # added a samples() consumer here, would silently start reading a per-pass record
+            # as if it described the mixture.  Clear it, so the absence is a statement.
+            if _sampler_keeps_records(sampler):
+                sampler.set_samples(None)
         # Did pooling FLATTEN any block?  That, not "is the record resampled", is what makes
         # the pooled Kish n_eff meaningless below -- a flattened block's rows carry its export
         # size rather than its integration quality.

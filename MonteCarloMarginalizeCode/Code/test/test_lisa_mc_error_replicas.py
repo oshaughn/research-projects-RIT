@@ -30,6 +30,7 @@ import os
 import textwrap
 
 import numpy as np
+from RIFT.integrators.rvs_record import SamplerOutputMixin as _SamplerOutputMixin
 import pytest
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -53,8 +54,23 @@ def _src(path):
 
 
 def _driver_def_names(path):
-    """Every top-level function the driver defines."""
-    return {n.name for n in ast.parse(_src(path)).body if isinstance(n, ast.FunctionDef)}
+    """Every top-level name the driver BINDS: functions and imports alike.
+
+    Imports are in here because of a real miss: the guard originally covered only defs, so
+    `SamplerOutputMixin` -- imported by the driver, referenced by _sampler_keeps_records --
+    slipped straight through it and surfaced as a NameError inside an exec'd helper.
+    """
+    with open(path) as fh:          # read directly: _src() differs between these harnesses
+        src = fh.read()
+    names = set()
+    for n in ast.parse(src).body:
+        if isinstance(n, ast.FunctionDef):
+            names.add(n.name)
+        elif isinstance(n, (ast.Import, ast.ImportFrom)):
+            for a in n.names:
+                if a.name != '*':
+                    names.add(a.asname or a.name.split('.')[0])
+    return names
 
 
 def _assert_helper_set_is_closed(ns, names, path=_LISA):
@@ -100,7 +116,7 @@ def _defs(path, names):
 def H():
     defs = _defs(_LISA, HELPERS)
     mod = ast.Module(body=[defs[n] for n in HELPERS], type_ignores=[])
-    ns = {"numpy": np, "np": np}
+    ns = {"numpy": np, "np": np, "SamplerOutputMixin": _SamplerOutputMixin}
     exec(compile(ast.fix_missing_locations(mod), "mcerr", "exec"), ns)
     _assert_helper_set_is_closed(ns, HELPERS)
     return ns
@@ -406,7 +422,7 @@ def _load_orch(**optkw):
     base.update(optkw)
     defs = _defs(_LISA, ORCH)
     mod = ast.Module(body=[defs[n] for n in ORCH], type_ignores=[])
-    ns = {"numpy": np, "np": np, "mcsamplerAdaptiveVolume": _AVmod,
+    ns = {"numpy": np, "np": np, "SamplerOutputMixin": _SamplerOutputMixin, "mcsamplerAdaptiveVolume": _AVmod,
           "mcsampler_AV_ok": True, "rvs_integrand_is_lnL": False,
           "opts": type("O", (), base)()}
     exec(compile(ast.fix_missing_locations(mod), "orch", "exec"), ns)
@@ -438,6 +454,48 @@ def test_sigma_trigger_runs_replicas_and_pools_them():
     assert s._rvs_is_pooled is True, "the pooled marker was not set"
     assert _rvs_len(s._rvs) == 12, "the pooled record is not the concatenation"
     assert out[2] > 0
+
+
+class _RecordingRepSampler(_RepSampler):
+    """A _RepSampler that PARTICIPATES in the record scheme (samples/set_samples)."""
+
+    def __init__(self, *a, **kw):
+        _RepSampler.__init__(self, *a, **kw)
+        self._rvs_record = None
+
+    def samples(self):
+        return self._rvs_record
+
+    def set_samples(self, record):
+        self._rvs_record = record
+        return record
+
+
+def test_pooling_clears_a_stale_record_on_a_record_keeping_sampler():
+    """The LISA replica path publishes NO pooled record, so it must publish none at all.
+
+    The main driver builds an _RvsRecord.pooled() here; this driver does not collect the
+    per-replica records to build one from, so the weight route falls back to the flags.
+    That fallback is correct -- but the record left on the sampler describes the PRE-POOL
+    columns, and it is otherwise declined only because _rvs_record_for compares by
+    identity and `_rvs` happens to become a new dict.  Reading a per-pass record as if it
+    described the mixture would mix the replicas by row count instead of by evidence,
+    which is the exact defect the pooled weights exist to prevent.
+    """
+    ns = _load_orch(mc_error_replicas=2, mc_error_sigma_trigger=0.1)
+    s = _RecordingRepSampler(_rec([0.0] * 4), [
+        (1.0, 1.0, 5.0, {}, _rec([0.0] * 4), False),
+        (1.0, 1.0, 5.0, {}, _rec([0.0] * 4), False)])
+
+    class _StaleRecord(object):
+        internal = False
+        columns = s._rvs                      # describes the PRE-POOL columns
+    s.set_samples(_StaleRecord())
+
+    _run_orch(ns, s, {}, sigma=5.0)
+    assert s._rvs_is_pooled is True, "precondition: this test only means anything if it pooled"
+    assert s.samples() is None, \
+        "a pre-pool record survived the pooling step: it would be read as the mixture"
 
 
 def _rvs_len(rec):
@@ -538,7 +596,7 @@ EXPORT = ['_rvs_lnL_convention', 'ln_weights_from_rvs', '_rvs_len', '_rvs_is_equ
 def EW():
     defs = _defs(_LISA, EXPORT)
     mod = ast.Module(body=[defs[n] for n in EXPORT], type_ignores=[])
-    ns = {"numpy": np, "np": np}
+    ns = {"numpy": np, "np": np, "SamplerOutputMixin": _SamplerOutputMixin}
     exec(compile(ast.fix_missing_locations(mod), "export", "exec"), ns)
     _assert_helper_set_is_closed(ns, EXPORT)
     return ns

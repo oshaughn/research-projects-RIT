@@ -33,6 +33,7 @@ because the next such clobber will be somewhere else.
 """
 
 import ast
+from RIFT.integrators.rvs_record import SamplerOutputMixin as _SamplerOutputMixin
 import os
 
 import pytest
@@ -151,8 +152,23 @@ def test_return_lnI_still_keys_on_the_method_not_the_member():
 
 
 def _driver_def_names(path):
-    """Every top-level function the driver defines."""
-    return {n.name for n in ast.parse(_src(path)).body if isinstance(n, ast.FunctionDef)}
+    """Every top-level name the driver BINDS: functions and imports alike.
+
+    Imports are in here because of a real miss: the guard originally covered only defs, so
+    `SamplerOutputMixin` -- imported by the driver, referenced by _sampler_keeps_records --
+    slipped straight through it and surfaced as a NameError inside an exec'd helper.
+    """
+    with open(path) as fh:          # read directly: _src() differs between these harnesses
+        src = fh.read()
+    names = set()
+    for n in ast.parse(src).body:
+        if isinstance(n, ast.FunctionDef):
+            names.add(n.name)
+        elif isinstance(n, (ast.Import, ast.ImportFrom)):
+            for a in n.names:
+                if a.name != '*':
+                    names.add(a.asname or a.name.split('.')[0])
+    return names
 
 
 def _assert_helper_set_is_closed(ns, names, path):
@@ -220,7 +236,7 @@ def _load_rescue(sampler_method):
         'sampler_l0_rescue_puff_scale': 'auto', 'sampler_l0_rescue_puff_width_frac': 0.005,
         'sampler_l0_rescue_puff_factor': 2.0,
         'sampler_sequential_warmstart_deltalnL': 15.0})()
-    ns = {"numpy": np, "np": np, "opts": opts, "mcsamplerAdaptiveVolume": _AV}
+    ns = {"numpy": np, "np": np, "SamplerOutputMixin": _SamplerOutputMixin, "opts": opts, "mcsamplerAdaptiveVolume": _AV}
     exec(compile(ast.fix_missing_locations(mod), "rescue", "exec"), ns)
     _assert_helper_set_is_closed(ns, names, _LISA)
     return ns
