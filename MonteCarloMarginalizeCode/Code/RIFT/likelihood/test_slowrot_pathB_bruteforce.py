@@ -8,9 +8,10 @@ import RIFT.likelihood.slowrot_response as srr
 import os
 event_time=1e9; Lmax=2; det='H1'
 # t_window sets how much Q^a_lm(t) the precompute retains, and therefore CAPS the lnL(t)
-# scan: NWMS above ~t_window/2 overruns the Q buffer with a broadcast error.  Raise both
-# together.  Cost is small -- the precompute is dominated by FFTs of length N, not by the
-# retained window.
+# scan: NWMS+GUARDMS above ~t_window/2 overruns the Q buffer with a broadcast error (the guard
+# samples of the peak estimator are ordinary lnL(t) samples and count against the same buffer).
+# Raise them together.  Cost is small -- the precompute is dominated by FFTs of length N, not by
+# the retained window.
 t_window=float(os.environ.get("TWIN","0.1"))
 psd=lalsim.SimNoisePSDaLIGOZeroDetHighPower; # APPROX: default IMRPhenomD is an FD model, which routes through hlmoft_FromFD_dict ->
 # SimInspiralTDModesFromPolarizations and inherits LAL's minimal post-ringdown pad (~9 ms
@@ -33,28 +34,60 @@ from scipy.interpolate import InterpolatedUnivariateSpline
 def _peak(lt):
     lt=np.asarray(lt,float); x=np.arange(len(lt)); sp=InterpolatedUnivariateSpline(x,lt,k=4)
     xs=np.linspace(0,len(lt)-1,len(lt)*32); return float(np.max(sp(xs)))
-def _peak_bandlimited(lt,upsample=64):
-    """Peak of lnL(t) by band-limited (sinc) interpolation -- exact, not approximate.
+def _peak_bandlimited(lt,guard,upsample=64,band_frac=0.5):
+    """Peak of lnL(t) over the REQUESTED scan interval, by guarded Whittaker-Shannon interpolation.
 
-    lnL(t) = Re[sum_a conj(C_a) sum_lm conj(Ylm) Q^a_lm(t)] - term2, term2 is time independent,
-    and every Q^a_lm(t) is the inverse transform of something supported on [fmin,fmax].  So lnL(t)
-    is BAND-LIMITED to fmax.  Sampled at 1/deltaT >> 2 fmax it is heavily oversampled (16x at
-    srate 16384, fmax 512), so zero-padding in frequency IS Whittaker-Shannon interpolation and is
-    exact -- unlike the order-4 spline in _peak, whose reconstruction error set the old resolution
-    floor (1.8 nats of interpolation at srate 2048, and the deficit could go negative on it).
+    lt holds guard + n_scan + guard uniformly spaced samples; the maximum is taken over the MIDDLE
+    n_scan samples only, and the outer `guard` samples enter solely as reconstruction support.
+    `guard` has NO default on purpose: an unguarded call is the failure mode below, and it should
+    be impossible to make one by accident.
 
-    A LINEAR baseline through the endpoints is removed before the transform and restored after, so
-    the implicit periodic extension has neither a step nor a slope discontinuity to ring on.
+    NOT a periodic (zero-padded FFT) interpolation.  lnL(t) restricted to a scan window is not
+    periodic on that window, and an earlier revision of this routine removed a LINE through the
+    endpoints before an FFT and called the result exact.  It is not: that detrend perturbs even a
+    sinusoid the n-point DFT represents exactly, and the Gibbs ringing on the reintroduced ramp
+    OVERSHOOTS the true maximum (~1.6% of amplitude on cos(2*pi*0.1*x+0.37) with n=80).  That is
+    enough to fake a negative Cauchy-Schwarz deficit -- the artefact this estimator exists to
+    remove -- so any reported deficit taken with it is not trustworthy.
+
+    lnL(t) = Re[sum_a conj(C_a) sum_lm conj(Ylm) Q^a_lm(t)] + term2, term2 is constant in t, and
+    every Q^a_lm(t) is the inverse transform of something supported on [fmin,fmax].  So lnL(t) is
+    band-limited to fmax and the Whittaker-Shannon series over the sampled grid reconstructs it.
+    Two refinements keep the TRUNCATED series accurate away from the array ends:
+      * the constant pedestal is removed before the sum and added back after.  A constant is
+        reproduced exactly, so this is not an approximation; it just leaves a residual that has
+        decayed at the window edges, which is what the truncation error sees.
+      * band_frac = fmax*deltaT < 1/2 means the grid is oversampled, and that freedom buys a
+        Fourier-tapered kernel sinc(u)*sinc(beta*u), beta = 1-2*band_frac, whose transform is
+        still exactly 1 on |f| <= fmax and 0 below the first alias, but which decays like 1/u^2
+        instead of 1/u.  band_frac=1/2 (the default) gives the plain sinc: always valid, slower
+        decay, so more guard is needed for the same accuracy.
+    The value returned is one the reconstruction actually takes on a fine grid, so it cannot
+    overshoot except by that truncation error -- which is small only while the dropped samples sit
+    near the pedestal.  Check that with _peak_edge_residual; nothing here can rescue a peak that
+    sits on the edge of the scan window.
     """
-    lt=np.asarray(lt,float); n=lt.size
-    if n<4: return float(np.max(lt))
-    x=np.arange(n); slope=(lt[-1]-lt[0])/(n-1.); base=lt[0]+slope*x
-    Y=np.fft.rfft(lt-base); m=n*upsample
-    Yp=np.zeros(m//2+1,dtype=complex); Yp[:Y.size]=Y
-    if n%2==0 and Y.size<=m//2: Yp[n//2]*=0.5   # split the Nyquist bin when zero-padding
-    yp=np.fft.irfft(Yp,m)*upsample
-    xp=np.arange(m)/float(upsample)
-    return float(np.max(yp+lt[0]+slope*xp))
+    lt=np.asarray(lt,float); n=lt.size; lo=int(guard); hi=n-1-int(guard)
+    if n<4 or hi<=lo: return float(np.max(lt))
+    nu=min(max(float(band_frac),0.),0.5); beta=max(0.,1.-2.*nu)
+    c=float(np.median(lt)); g=lt-c   # pedestal: reconstructed exactly, so subtracting it is free
+    k=np.arange(n,dtype=float); x=lo+np.arange(int(round((hi-lo)*upsample))+1)/float(upsample)
+    best=-np.inf; step=max(1,int(2**21)//max(n,1))   # chunked: srate 16384 is a 400 MB kernel matrix
+    for s in range(0,x.size,step):
+        u=x[s:s+step,None]-k[None,:]
+        best=max(best,float(np.max(np.dot(np.sinc(u)*np.sinc(beta*u),g))))
+    return best+c
+def _peak_edge_residual(lt):
+    """|lnL(edge)-pedestal| / peak height: how much of the peak leaks past the evaluated window.
+
+    The truncated Whittaker sum in _peak_bandlimited is accurate only while the samples it drops
+    (everything outside lt) sit near the pedestal.  ~0 means the peak is contained; O(1) means it
+    sits on the window edge, and then NO estimator on this window -- this one included -- can be
+    trusted, because the samples that would fix it were never computed.
+    """
+    lt=np.asarray(lt,float); c=float(np.median(lt)); amp=float(np.max(lt)-c)
+    if not amp>0: return float('nan')
+    return float(max(abs(lt[0]-c),abs(lt[-1]-c))/amp)
 # SRATE (default 2048) and FMAXHZ (default 512) are knobs for diagnosing the deficit floor:
 # raising SRATE refines the lnL time grid (tvals spacing is locked to deltaT by the NoLoop
 # window logic) and lowers f/f_s for the cubic interpolator.
@@ -144,6 +177,18 @@ for k,v in [('phi',RA),('theta',DEC),('incl',INCL),('phiref',PHIREF),('psi',PSI)
 # distinguish a sub-sample effect from a window-span effect.  DUMPLNL saves lnL(t) itself.
 _NWMS=float(os.environ.get("NWMS","20"))
 Pv.tref=event_time; Pv.deltaT=deltaT; Nw=int(1e-3*_NWMS/deltaT); tvals=np.arange(-Nw,Nw)*deltaT
+# GUARDMS: extra lnL(t) samples evaluated on BOTH sides of the requested scan window, used only as
+# support for the peak estimator -- the maximum is still taken over the requested window alone.
+# Default: as much guard as the retained Q buffer allows (|t| must stay inside t_window; keep to
+# the documented t_window/2 with a 1 ms margin), capped at the scan half-width because more than
+# that buys nothing.  These are ordinary tvals in the same vectorized NoLoop call, so the extra
+# cost is a longer time axis in one contraction, not another precompute.
+_GMS=float(os.environ.get("GUARDMS","-1"))
+if _GMS<0: _GMS=min(_NWMS,max(0.,500.*t_window-_NWMS-1.))
+Ng=max(0,int(1e-3*_GMS/deltaT)); tvals_ext=np.arange(-Nw-Ng,Nw+Ng)*deltaT
+if Ng<8:
+    print("  *** WARNING: only %d guard samples for the peak estimator (GUARDMS=%.1f ms); the"
+          " reconstruction is edge-limited near the ends of the scan window -- raise TWIN ***"%(Ng,_GMS))
 # INFL=340 reproduces the Omega*T of the worst physical case -- a 90-minute (5400 s) BNS at the
 # true sidereal rate -- on this 16 s segment (5400/16 = 337.5 ~ 340).  So INFL/340 is the rotation
 # rate as a multiple of that worst physical case; it is the quantity the paper quotes.
@@ -157,26 +202,33 @@ T_SIGNAL=min(_tchirp,seglen); PHYS_INFL=5400.0/T_SIGNAL
 # leaves a ~0.2 nat peak-resolution floor on the deficit; 'cubic' is the calmarg_in_loop
 # interpolation and should remove it.
 TINTERP=os.environ.get("TINTERP","nearest")
-lnL_by_pmax={}; deficit_by_pmax={}; lnL_raw_by_pmax={}; overshoot_by_pmax={}; lnL_spline_by_pmax={}; lnL_bl_by_pmax={}
+lnL_by_pmax={}; deficit_by_pmax={}; lnL_raw_by_pmax={}; overshoot_by_pmax={}; lnL_spline_by_pmax={}; lnL_bl_by_pmax={}; edge_by_pmax={}
 for pmax in [0,1,2,3]:
     nh=2+pmax
     bk=flwr.PrecomputeLikelihoodTermsWithRotation(event_time,t_window,Psig,data_dict,psd_dict,Lmax,fmax,harmonics=tuple(range(-nh,nh+1)),p_max=pmax,f_sidereal=FSID_INF,analyticPSD_Q=True,verbose=False,quiet=True,skip_interpolation=True,**HLM_KW)
     lk,rbn,ubn,vbn,epd=flwr.pack_rotation_arrays(bk[4],bk[3],bk[1],bk[2])
-    _lt=flwr.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation(tvals,Pv,bk[4],lk,rbn,ubn,vbn,epd,Lmax=Lmax,array_output=True,time_interp=TINTERP)[0]
+    # Evaluated on the GUARD-EXTENDED axis; _lt is the requested scan window, so the raw max, the
+    # spline diagnostic and DUMPLNL keep their old meaning and the guard only feeds the estimator.
+    _lt_ext=flwr.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation(tvals_ext,Pv,bk[4],lk,rbn,ubn,vbn,epd,Lmax=Lmax,array_output=True,time_interp=TINTERP)[0]
+    _lt=np.asarray(_lt_ext,float)[Ng:Ng+2*Nw]
     # _peak() splines (k=4) and oversamples 32x, which can OVERSHOOT the sampled maximum and
     # push the deficit negative -- a Cauchy-Schwarz 'violation' that is the estimator, not the
     # likelihood.  Record the raw grid max too so the overshoot is visible rather than folded in.
-    lnL_spline=_peak(_lt); lnL_bl=_peak_bandlimited(_lt)
+    lnL_spline=_peak(_lt); lnL_bl=_peak_bandlimited(_lt_ext,Ng,band_frac=fmax*deltaT)
     lnL=lnL_bl if os.environ.get('PEAK','bandlimited')=='bandlimited' else lnL_spline
     lnL_raw=float(np.max(np.asarray(_lt,float)))
     lnL_raw_by_pmax[str(pmax)]=lnL_raw; overshoot_by_pmax[str(pmax)]=lnL-lnL_raw
     lnL_spline_by_pmax[str(pmax)]=lnL_spline; lnL_bl_by_pmax[str(pmax)]=lnL_bl
+    # Validity of the truncated reconstruction: O(1) means the peak is at the window edge, and the
+    # deficit on this configuration says more about NWMS/GUARDMS than about the likelihood.
+    edge_by_pmax[str(pmax)]=_peak_edge_residual(_lt_ext)
     lnL_by_pmax[str(pmax)]=float(lnL); deficit_by_pmax[str(pmax)]=float(HALF_DD-lnL)
     if os.environ.get("DUMPLNL") and pmax==2:
         np.savez(os.environ["DUMPLNL"], tvals=np.asarray(tvals,float), lnLt=np.asarray(_lt,float),
-                 half_dd=HALF_DD, srate=_SRATE, infl=float(os.environ.get("INFL","340")),
+                 tvals_ext=np.asarray(tvals_ext,float), lnLt_ext=np.asarray(_lt_ext,float),
+                 n_guard=Ng, half_dd=HALF_DD, srate=_SRATE, infl=float(os.environ.get("INFL","340")),
                  nwms=_NWMS, deltaT=deltaT)
-    print("  p_max=%d : lnL=%.5f  deficit=%.5f"%(pmax,lnL,HALF_DD-lnL))
+    print("  p_max=%d : lnL=%.5f  deficit=%.5f  edge_residual=%.2e"%(pmax,lnL,HALF_DD-lnL,edge_by_pmax[str(pmax)]))
 # Opt-in persistence: set OUT=<path>.json.  Default behaviour (print only) is unchanged.
 _out=os.environ.get("OUT")
 if _out:
@@ -191,6 +243,9 @@ if _out:
                    "deficit_by_pmax":deficit_by_pmax,"lnL_by_pmax":lnL_by_pmax,
                    "lnL_raw_by_pmax":lnL_raw_by_pmax,"peak_overshoot_by_pmax":overshoot_by_pmax,
                    "peak_estimator":os.environ.get("PEAK","bandlimited"),
+                   "peak_guard_samples":int(Ng),"peak_guard_ms":float(_GMS),
+                   "peak_band_frac":float(fmax*deltaT),
+                   "peak_edge_residual_by_pmax":edge_by_pmax,
                    "lnL_spline_by_pmax":lnL_spline_by_pmax,"lnL_bandlimited_by_pmax":lnL_bl_by_pmax,
                    "approx":(HLM_KW.get("use_gwsignal_approx") or os.environ.get("APPROX","IMRPhenomD")),
                    "lmax_nyquist":HLM_KW.get("extra_waveform_kwargs",{}).get("lmax_nyquist"),
