@@ -331,6 +331,8 @@ jobs:
         include:
           - asimov-series: '0.5'
             asimov-spec: 'asimov>=0.5,<0.6'
+          - asimov-series: '0.7'
+            asimov-spec: 'asimov>=0.7,<0.8'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -351,6 +353,9 @@ jobs:
           python -m pip install htcondor --only-binary=:all: --break-system-packages
       - name: Install Asimov
         run: python -m pip install '${{ matrix.asimov-spec }}' 'asimov-gwdata>=0.4,<0.5' --break-system-packages
+      - name: Install Asimov 0.7 pipeline plugins
+        if: matrix.asimov-series == '0.7'
+        run: python -m pip install 'asimov-bayeswave>=0.2,<0.3' 'pe-configurator>=1,<2' --break-system-packages
       - name: Run Asimov integration test
         run: bash .travis/test-asimov.sh
 
