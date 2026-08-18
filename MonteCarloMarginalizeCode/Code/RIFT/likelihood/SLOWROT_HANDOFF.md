@@ -120,12 +120,17 @@ End-to-end ILE head-to-head (ILE-GPU-Paper demo data), baseline vs rotation vs f
         --freqresponse-arm-length 40000 --freqresponse-qmax 6 ...                     # Path D (finite-size)
     # --interpolate-time selects cubic sub-bin time interpolation for all of the above (default nearest).
 
-## Validation status (all PASSING)
+## Validation status (all PASSING except jax_ile -- see below)
 - Response harmonics vs LAL: ~1e-16.  FD ops vs LAL round trips: ~1e-13.
 - Path A scalar: V1a (Omega=0 vs baseline) 2.7e-12; V1b (real vs brute force) 2.6e-9.
 - Path A vectorized: vs baseline NoLoop 3.6e-12; vs brute force 3.9e-10 (against the REWRITTEN,
   convention-free brute force -- see below; the old figure 3.2e-10 was against a reference that
   shared the implementation's conventions); V0 (precompute recovery on real data) exact.
+- NOT PASSING -- jax_ile (issue #131): the JAX reimplementation of the rotation contraction was
+  never given the arrival-time post-phase, so its rho_sq is arrival-time independent, its lnL can
+  exceed 0.5<d|d>, and it disagrees with the NoLoop by max|rel| 1.3e-5.  test_jax_slowrot.py's
+  rotation gate is DEGRADED to 1e-4 until the port lands; Path A/B under jax_ile is not fit for
+  production inference.  Path D (freqresponse) is unaffected, still 1.6e-14.
 - Cauchy-Schwarz (test_slowrot_cauchy_schwarz.py, 2026-08-17): lnL sits ON 0.5<d|d> to 0 nats
   with the data equal to the exact Path-A model, and matches an explicit time-domain
   <d|h>-(1/2)<h|h> to 5e-11.  Before the rotation_post_phase fix the same test overshot the
