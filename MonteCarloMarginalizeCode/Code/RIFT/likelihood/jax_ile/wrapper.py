@@ -53,7 +53,8 @@ def build_rotation_data_from_precompute(P, data_dict, psd_dict, fiducial_epoch,
 
     ``t_window`` is the rholm-buffer half width for the rotation precompute (it
     builds its own buffer, unlike the baseline two-window driver); ``tvals`` is
-    the marginalization grid (defaults to ``linspace(-iwh, iwh, 2*iwh/deltaT)``).
+    the marginalization grid (defaults to ``arange(-Nw, Nw)*deltaT`` with
+    ``Nw = int(iwh/deltaT)``, i.e. spacing exactly ``deltaT``).
     """
     import RIFT.likelihood.factored_likelihood_with_rotation as flwr
     from .banded import build_rotation_data
@@ -151,8 +152,13 @@ def build_data_from_precompute(P, data_dict, psd_dict, fiducial_epoch,
       location roams, or the analysis window slides off the buffer.
     * ``integration_window_half`` (``--data-integration-window-half``, default
       0.075 s) -- the half-width of the time-*marginalization* window; the
-      ``tvals`` grid is ``linspace(-iwh, iwh, int(2*iwh/deltaT))``, exactly as
-      the driver constructs it.
+      ``tvals`` grid is ``arange(-Nw, Nw)*deltaT`` with ``Nw = int(iwh/deltaT)``,
+      i.e. spacing exactly ``deltaT`` (see the ``if tvals is None`` branch
+      below).  NOTE this is deliberately NOT the driver's
+      ``linspace(-iwh, iwh, int(2*iwh/deltaT))``, whose spacing is
+      ``deltaT*npts/(npts-1)``.  Anything that compares this data object against
+      the numpy reference must pass ``data.tvals`` to the reference rather than
+      rebuild a grid, or the two paths land on different integer sample offsets.
 
     Returns
     -------

@@ -110,8 +110,19 @@ def main():
 
     S = 40
     Pvec, distMpc = build_Pvec(P, S, fiducial_epoch, P.deltaT)
-    tvals = np.linspace(-integration_window_half, integration_window_half,
-                        int(2 * integration_window_half / P.deltaT))
+    # Compare like with like: hand the numpy reference the SAME time grid the
+    # JAX data object was built with.  ``build_data_from_precompute`` builds
+    # tvals as arange(-Nw, Nw)*deltaT (spacing EXACTLY deltaT); a
+    # linspace(-iwh, iwh, npts) grid is spaced deltaT*npts/(npts-1) and starts
+    # 0.2 samples earlier here.  NoLoop consumes only tvals[0] and len(tvals)
+    # (it steps by P.deltaT and integrates with dx=deltaT), so a *sub-sample*
+    # difference in tvals[0] rounds ifirst to a DIFFERENT integer sample for a
+    # sky-dependent subset of samples -- and a different subset per detector,
+    # which misaligns the coherent network sum by one sample.  Building an
+    # independent grid here therefore reports a ~67.8 nat "mismatch" that is
+    # entirely an artifact of the harness.
+    tvals = np.asarray(data.tvals)
+    assert len(tvals) == data.npts
 
     lnL_ref = FL.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(
         tvals, Pvec, lookupNKDict, rholmsArrayDict, ctUArrayDict, ctVArrayDict,
