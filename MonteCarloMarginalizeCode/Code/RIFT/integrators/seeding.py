@@ -42,7 +42,7 @@ import zlib
 import numpy
 
 
-__all__ = ['seed_everything', 'get_seed', 'derived_rng']
+__all__ = ['seed_everything', 'get_seed', 'derived_rng', 'next_derived_rng']
 
 
 # The seed the process was started with, or None if the run was never seeded.
@@ -50,6 +50,10 @@ __all__ = ['seed_everything', 'get_seed', 'derived_rng']
 # a bootstrap diagnostic) can derive one deterministically instead of pulling
 # fresh entropy from the OS.
 _seed_used = None
+
+# stream name -> number of generators already handed out under it, for the call
+# sites that are reached more than once per process (see next_derived_rng).
+_stream_counters = {}
 
 
 def get_seed():
@@ -94,6 +98,29 @@ def derived_rng(stream, counter=0):
     return numpy.random.default_rng([_seed_used, label, int(counter)])
 
 
+def next_derived_rng(stream):
+    """``derived_rng`` for a call site that is reached MORE THAN ONCE per process.
+
+    ``derived_rng(stream)`` defaults to counter 0, so calling it twice under the
+    same name hands back the same draws.  For a site inside a loop -- one warm
+    start per intrinsic point, one bootstrap per integral, one growth round per
+    probe -- that would replace "unseeded" with something worse: seeded and
+    self-correlated, e.g. every intrinsic point getting the *identical* uniform
+    coverage cloud, or a grown draw set appending copies of the draws already in
+    it.  This advances the counter for you, so successive uses of one call site
+    are independent of each other, of every other site, and of the base stream,
+    while the sequence as a whole is fixed by ``--seed``.
+
+    The counters are process state, reset by seed_everything: a run is
+    reproducible from its start, not from an arbitrary point in its middle.  So
+    the property this buys is "two identical invocations agree", which is what
+    ``--seed`` promises; it is NOT "this call always returns the same numbers".
+    """
+    n = _stream_counters.get(stream, 0)
+    _stream_counters[stream] = n + 1
+    return derived_rng(stream, n)
+
+
 def seed_everything(seed, verbose=True):
     """Seed every RNG backend a RIFT sampler can draw from.
 
@@ -118,6 +145,7 @@ def seed_everything(seed, verbose=True):
 
     seed = int(seed)
     _seed_used = seed
+    _stream_counters.clear()   # a fresh seeding is a fresh run: restart the derived streams
     status = {}
 
     # Python's stdlib RNG.  Not used by the samplers today, but it is used

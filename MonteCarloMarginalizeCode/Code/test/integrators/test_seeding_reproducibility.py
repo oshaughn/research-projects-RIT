@@ -50,9 +50,12 @@ def _restore_module_state():
     """seed_everything mutates process-global state; put it back afterwards."""
     prior_det = vgt.DETERMINISTIC_REDUCTIONS
     prior_seed = seeding._seed_used
+    prior_counters = dict(seeding._stream_counters)
     yield
     vgt.DETERMINISTIC_REDUCTIONS = prior_det
     seeding._seed_used = prior_seed
+    seeding._stream_counters.clear()
+    seeding._stream_counters.update(prior_counters)
 
 
 def test_seed_everything_reports_numpy_and_python():
@@ -129,6 +132,133 @@ def test_derived_rng_stream_label_is_stable_across_processes():
     expect = np.random.default_rng(
         [101, zlib.crc32(b'calmarg.error_probe'), 3]).standard_normal(8)
     assert (got == expect).all()
+
+
+def test_next_derived_rng_advances_so_repeated_calls_do_not_share_draws():
+    """A call site inside a loop (one warm start per intrinsic point, one bootstrap
+    per integral) must not hand back the same numbers every time.  Reproducible and
+    self-correlated is WORSE than unseeded: it would give every intrinsic point the
+    identical uniform coverage cloud."""
+    seeding.seed_everything(101, verbose=False)
+    a = seeding.next_derived_rng('unit.test').standard_normal(64)
+    b = seeding.next_derived_rng('unit.test').standard_normal(64)
+    assert not (a == b).any(), "successive calls to one stream share draws"
+    # and they are the counter-0/counter-1 streams, i.e. still derived, not entropy
+    seeding.seed_everything(101, verbose=False)
+    assert (a == seeding.derived_rng('unit.test', 0).standard_normal(64)).all()
+    assert (b == seeding.derived_rng('unit.test', 1).standard_normal(64)).all()
+
+
+def test_next_derived_rng_repeats_the_whole_sequence_under_the_same_seed():
+    """What --seed actually promises: two identical INVOCATIONS agree.  Re-seeding
+    restarts the counters, so run 2 replays run 1's sequence."""
+    seeding.seed_everything(101, verbose=False)
+    run1 = [seeding.next_derived_rng('unit.test').standard_normal(16) for _ in range(3)]
+    seeding.seed_everything(101, verbose=False)
+    run2 = [seeding.next_derived_rng('unit.test').standard_normal(16) for _ in range(3)]
+    seeding.seed_everything(202, verbose=False)
+    run3 = [seeding.next_derived_rng('unit.test').standard_normal(16) for _ in range(3)]
+
+    for x, y in zip(run1, run2):
+        assert (x == y).all(), "same seed did not replay the sequence"
+    for x, z in zip(run1, run3):
+        assert not (x == z).any(), "different seeds gave an identical sequence"
+
+
+def test_next_derived_rng_is_unseeded_when_the_run_was_not_seeded():
+    """No --seed must still mean fresh entropy, not a fixed fallback sequence."""
+    seeding._seed_used = None
+    seeding._stream_counters.clear()
+    a = seeding.next_derived_rng('unit.test').standard_normal(64)
+    seeding._stream_counters.clear()
+    b = seeding.next_derived_rng('unit.test').standard_normal(64)
+    assert not (a == b).any()
+
+
+def test_av_warm_start_cover_cloud_is_reproducible_under_seed():
+    """The one live likelihood-feeding hole this pass closes.
+
+    The bootstrap_from_* family drew its uniform coverage cloud from
+    RandomState(None) -- fresh OS entropy, unreachable by seed_everything -- and
+    the driver's warm-start options default cover_frac to 0.5, so the cloud IS
+    drawn.  It shapes the AV live volume, hence the draws, hence lnZ: two runs
+    with the same --seed built different live volumes.
+    """
+    from RIFT.integrators import mcsamplerAdaptiveVolume as av
+
+    def draw():
+        rng = av._warm_seed_rng(None, 'av.bootstrap_from_samples.cover')
+        return rng.uniform(np.zeros(4), np.ones(4), size=(32, 4))
+
+    seeding.seed_everything(101, verbose=False)
+    a1, a2 = draw(), draw()
+    seeding.seed_everything(101, verbose=False)
+    b1, b2 = draw(), draw()
+    seeding.seed_everything(202, verbose=False)
+    c1, _ = draw(), draw()
+
+    assert (a1 == b1).all() and (a2 == b2).all(), "same seed gave a different cover cloud"
+    assert not (a1 == c1).any(), "different seeds gave the same cover cloud"
+    assert not (a1 == a2).any(), "successive warm starts share one cover cloud"
+
+
+def test_av_warm_start_explicit_seed_still_wins():
+    """An explicit integer seed is an API promise of its own; deriving from --seed
+    must not take it over."""
+    from RIFT.integrators import mcsamplerAdaptiveVolume as av
+    seeding.seed_everything(101, verbose=False)
+    got = av._warm_seed_rng(7, 'av.bootstrap_from_samples.cover').uniform(0, 1, 16)
+    expect = np.random.RandomState(7).uniform(0, 1, 16)
+    assert (got == expect).all()
+
+
+def test_bootstrap_lnZ_quantiles_is_reproducible_and_leaves_numpy_alone():
+    """The lnZ_ci90 diagnostic is reporting-only, so it gets a stream of its own:
+    reproducible under --seed, and NOT drawn from numpy's global RNG -- the samplers
+    draw from that, so spending draws here would move lnL, which a diagnostic is
+    never allowed to do."""
+    from RIFT.integrators.statutils import bootstrap_lnZ_quantiles
+
+    lw = np.log(np.random.RandomState(0).exponential(1.0, 500))
+
+    def run():
+        np.random.seed(3)
+        before = np.random.random(4)          # position in the global stream
+        q = bootstrap_lnZ_quantiles(lw)
+        after = np.random.random(4)           # must be unaffected by the bootstrap
+        return q, before, after
+
+    seeding.seed_everything(101, verbose=False)
+    qa, ba, aa = run()
+    seeding.seed_everything(101, verbose=False)
+    qb, bb, ab = run()
+    seeding.seed_everything(202, verbose=False)
+    qc, _, _ = run()
+
+    assert qa is not None
+    assert (qa == qb).all(), "same seed gave a different bootstrap interval"
+    assert not (qa == qc).any(), "different seeds gave an identical bootstrap interval"
+    assert (ba == bb).all() and (aa == ab).all()
+    # the global stream must be exactly where it would be with no bootstrap at all
+    np.random.seed(3)
+    np.random.random(4)
+    assert (aa == np.random.random(4)).all(), "the diagnostic consumed numpy's global RNG"
+
+
+def test_calmarg_rng_fallback_is_derived_not_entropy():
+    """The ILE driver always passes an explicit rng to the cal draw helpers, so this
+    is a guard, not a live defect: a NEW caller that forgets must not silently
+    reintroduce an unseeded likelihood."""
+    from RIFT.calmarg.generate_realizations import _default_cal_rng
+
+    seeding.seed_everything(101, verbose=False)
+    a = _default_cal_rng('unit.cal').standard_normal(32)
+    seeding.seed_everything(101, verbose=False)
+    b = _default_cal_rng('unit.cal').standard_normal(32)
+    seeding.seed_everything(202, verbose=False)
+    c = _default_cal_rng('unit.cal').standard_normal(32)
+    assert (a == b).all()
+    assert not (a == c).any()
 
 
 def test_deterministic_histogram_agrees_with_atomic_branch():
