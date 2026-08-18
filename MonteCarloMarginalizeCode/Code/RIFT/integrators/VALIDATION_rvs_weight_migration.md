@@ -266,3 +266,69 @@ noise.
 **Tier 3 is discharged and the migration is no longer provisional.** The stopping rule in the
 plan above -- "tier 3 cannot be run at all -> mark the migration provisional" -- no longer
 applies.
+
+---
+
+# RE-VALIDATION (2026-08-18) after merging 155 commits of `rift_O4d`
+
+The tiers above ran against `364a22fd`. Taking the PR out of draft required merging current
+`rift_O4d`, which had moved **155 commits**, so every tier was re-run against the new base
+`36ec85ae`. "The base did not move under it" is exactly the kind of assumption this document
+exists to distrust.
+
+## The base changed the EXPERIMENT, not just the code
+
+**The full ILE run is now DETERMINISTIC at fixed `--seed`.** On the old base it was not -- two
+runs of identical code differed by dlnL 0.33 with `neff` 4.19 vs 22.46, which is why tier 3 was
+built as a distribution comparison with a permutation test. The new base carries the seeding
+work (notably "one counter registry, not two"), and at fixed seed the run now reproduces.
+
+So the tier-3 rerun answers a **stronger** question than the original could:
+
+| | old base `364a22fd` | new base `36ec85ae` |
+|---|---|---|
+| same code, same seed, twice | dlnL **0.33**, neff 4.2 vs 22.5 | reproduces |
+| what tier 3 can therefore test | distributions (permutation test) | **near bit-identity** |
+
+## Tier 3 rerun: 150 runs, 5 configs x 2 arms x 15 replicates, all clean
+
+Base and candidate agree to **floating-point round-off**, per replicate:
+
+| config | max relative base-vs-cand difference | in ulps |
+|---|---|---|
+| AV (lnL family + pooling + `.dgrid`) | **0 -- exactly identical** | 0 |
+| GMM (lnL family + pooling + `.dgrid`) | **0 -- exactly identical** | 0 |
+| A (GPU linear, plain) | 5.6e-14 (`neff`), 2.1e-16 (`lnL`) | ~254 / 1 |
+| B (GPU linear + replica pooling) | 6.2e-14 (`sigma`), 4.3e-16 (`lnL`) | ~281 / 2 |
+| D (cubic NoLoop time interpolation) | 2.9e-13 (`neff`), 2.8e-15 (`lnL`) | ~1301 / 12 |
+
+**This is not bit-identity and should not be reported as such.** On the linear-integrand
+configs the candidate reaches the same weights by a different summation order -- the record path
+and the canonical derivation add the same terms in a different sequence -- and the residual
+amplifies through the sums and ratios that produce `neff` and `sigma_lnL`. `lnL` itself moves by
+1-12 ulp. The two lnL-family configs, which exercise the record path hardest (pooling plus the
+`.dgrid` export), come out exactly equal.
+
+The permutation analysis was re-run anyway and is now uninformative by construction: 0 of 19
+comparisons reach p<0.05 because the two arms are the same numbers.
+
+## Tier 0 rerun: bit-identical
+
+32 cells, all metric rows **byte-identical** between arms. One cell (`AV mix_d4_n1_s202`,
+lnZ bias -0.265) is a strict FAILURE -- **identically in both arms**, so it is a property of the
+new base, not of this change.
+
+A process note worth keeping: the first tier-0 attempt had two copies of the runner writing the
+same output files concurrently, because a `nohup` I believed had been killed was still alive.
+The metric rows agreed, but agreement from possibly-interleaved output is not evidence. It was
+re-run once, cleanly, sequentially, and that is the run reported here.
+
+## Everything else re-run against the new base
+
+| check | result |
+|---|---|
+| integrator CI lane (incl. `test_rvs_record.py`) | 245 passed, 4 skipped |
+| `.travis/test-lisa.sh` | 263 passed |
+| `audit_rvs_fairdraw.py --check` | OK, 160 post-rebind reads classified |
+| `audit_backend_contracts.py --check` | OK, 6 backend contracts |
+| both generated ledgers vs their generators | in sync |
