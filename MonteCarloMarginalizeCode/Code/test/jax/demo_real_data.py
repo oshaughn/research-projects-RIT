@@ -232,7 +232,11 @@ def task_equality(params, data_dir, frame_dir, opts):
     Pv.dist = distMpc * PC * 1e6
     Pv.tref = float(fid)
     Pv.deltaT = 1.0 / opts.srate
-    tvals = np.linspace(-iwh, iwh, int(2 * iwh / Pv.deltaT))
+    # Same grid on both sides -- see test_jax_endtoend: an independently
+    # built linspace grid starts a fraction of a sample away from the
+    # arange(-Nw,Nw)*deltaT grid inside ``data`` and desynchronises the
+    # per-detector integer window offsets.
+    tvals = np.asarray(data.tvals)
 
     lnL_ref = FL.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(
         tvals, Pv, ln, rh, cu, cv, ep, Lmax=opts.l_max, xpy=np)

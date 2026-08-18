@@ -38,7 +38,7 @@ Conventions / "epoch" handling
 -------------------------------
 ``rho_lm^det`` is a discrete timeseries whose sample ``k`` corresponds to GPS
 time ``epoch_det + k * deltaT``.  The window time-bin ``t`` (with
-``tvals = linspace(-t_window, +t_window, npts)`` about the fiducial geocenter
+``tvals = arange(-Nw, Nw)*deltaT`` about the fiducial geocenter
 epoch) maps to the *fractional* sample position
 
     pos_det(theta, t) = ( (tref - epoch_det) + tau_det(RA,DEC) + tvals[0] ) / deltaT + t
@@ -141,7 +141,10 @@ def build_likelihood_data(packed_per_detector, deltaT, tref, tvals,
         Fiducial geocenter epoch (used only to fix GMST and the per-detector
         ``tref - epoch`` offset; time itself is marginalized).
     tvals : array_like, shape (npts,)
-        Time-window grid, ``linspace(-t_window, t_window, npts)``.
+        Time-window grid.  Only ``tvals[0]`` and ``len(tvals)`` are consumed --
+        evaluation steps by ``deltaT`` and integrates with ``dx=deltaT`` regardless of
+        the grid's own spacing -- so a grid whose spacing is not ``deltaT`` mislabels
+        its own samples.  The builders default to ``arange(-Nw, Nw)*deltaT``.
     """
     gmst = float(lal.GreenwichMeanSiderealTime(tref))
     detectors = {}
