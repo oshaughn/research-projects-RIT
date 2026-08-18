@@ -307,16 +307,12 @@ def _accumulate_unit(data, ra, dec, psi, incl, phiref, interp,
             Qi = gather(Q[:, k], pos)
             kappa_det = kappa_det + FY_conj[:, k][:, None] * Qi
         kappa_unit = kappa_unit + kappa_det
-        # KNOWN GAP (rotation only): rho_sq is arrival-time INDEPENDENT and the response
-        # coefficients above are the bare C_a, i.e. this kernel does not carry the
-        # arrival-time post-phase C~_a = C_a exp(i n_a Omega (t - tref)) that
-        # factored_likelihood_with_rotation.rotation_post_phase applies to BOTH terms.
-        # So for Path A/B the JAX kappa and rho_sq describe different templates, the result
-        # can exceed 0.5<d|d>, and it disagrees with the NoLoop by ~1e-5 relative.  NOT
-        # production-ready for rotation; freqresponse is unaffected (no post-phase there).
-        # Porting it makes rho_sq time-dependent -- a structural change to this loop.
-        # Tracked as issue #131 (follow-up to the post-phase fix in PR #117); see also
-        # test_jax_slowrot.check_rotation, whose rotation gate is degraded until it lands.
+        # NOT a gap: this is the BASELINE (non-banded) accumulator, and it is unreachable for
+        # slow rotation -- _accumulate_unit delegates to _accumulate_unit_banded whenever
+        # data.feature is set.  Here the response coefficient is the static scalar F, which
+        # carries no sidereal harmonic index, so there is no arrival-time post-phase to apply
+        # and a time-independent rho_sq is correct.  The rotation gap is at the corresponding
+        # site in _accumulate_unit_banded below.
         rho_sq_unit = rho_sq_unit + rho_sq_det[:, None]
 
     return kappa_unit, rho_sq_unit
