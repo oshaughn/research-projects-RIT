@@ -36,13 +36,56 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 _LISA = os.path.join(_HERE, '..', 'bin', 'integrate_likelihood_extrinsic_batchmode_lisa')
 _MAIN = os.path.join(_HERE, '..', 'bin', 'integrate_likelihood_extrinsic_batchmode')
 
-HELPERS = ['_rvs_lnL_convention', 'ln_weights_from_rvs', '_rvs_len', '_lnZ_of_rvs',
+# The record accessors are REQUIRED here even though no test calls them directly:
+# _lnZ_of_rvs / _kish_neff_of_rvs resolve their weights through _lw_of.  Leaving one out
+# does NOT raise -- _lnZ_of_rvs catches broadly and returns None, so a NameError becomes
+# "no evidence for this block" and the pooled weights silently collapse to 1/K.  That is
+# an assertion failure three layers away from its cause; see the guard in H() below.
+HELPERS = ['_rvs_lnL_convention', 'ln_weights_from_rvs', '_rvs_len',
+           '_rvs_record_for', '_sampler_keeps_records', '_internal_record_of',
+           '_rebound_record', '_lw_of', '_lnZ_of_rvs',
            '_kish_neff_of_rvs', '_extract_mc_diag', '_pool_replica_rvs']
 
 
 def _src(path):
     with open(path) as fh:
         return fh.read()
+
+
+def _driver_def_names(path):
+    """Every top-level function the driver defines."""
+    return {n.name for n in ast.parse(_src(path)).body if isinstance(n, ast.FunctionDef)}
+
+
+def _assert_helper_set_is_closed(ns, names, path=_LISA):
+    """Fail LOUDLY if an exec'd helper calls a driver helper that was not exec'd with it.
+
+    Without this, a name missing from the list above is not a NameError anyone sees:
+    _lnZ_of_rvs catches broadly and returns None, so the omission reads as "this block
+    has no evidence" and the pooled weights collapse to 1/K.  The test then fails on a
+    weight assertion far from the cause.  Checked against the DRIVER's own def names, so
+    ordinary attribute names and locals cannot trip it.
+    """
+    driver = _driver_def_names(path)
+    missing = {}
+    for name in names:
+        fn = ns.get(name)
+        code = getattr(fn, "__code__", None)
+        if code is None:
+            continue
+        stack, seen = [code], set()
+        while stack:
+            c = stack.pop()
+            if id(c) in seen:
+                continue
+            seen.add(id(c))
+            for used in c.co_names:
+                if used in driver and used not in ns:
+                    missing.setdefault(name, set()).add(used)
+            stack.extend(k for k in c.co_consts if hasattr(k, "co_names"))
+    assert not missing, (
+        "exec'd helper set is not closed -- add these to the name list:\n  "
+        + "\n  ".join("%s needs %s" % (k, sorted(v)) for k, v in sorted(missing.items())))
 
 
 def _defs(path, names):
@@ -59,6 +102,7 @@ def H():
     mod = ast.Module(body=[defs[n] for n in HELPERS], type_ignores=[])
     ns = {"numpy": np, "np": np}
     exec(compile(ast.fix_missing_locations(mod), "mcerr", "exec"), ns)
+    _assert_helper_set_is_closed(ns, HELPERS)
     return ns
 
 
@@ -313,7 +357,9 @@ def test_ported_helper_is_identical_to_the_main_driver(name):
 # Substring and AST-name checks cannot see any of that.  So: execute the helper.
 # ==========================================================================================
 
-ORCH = ['_rvs_lnL_convention', 'ln_weights_from_rvs', '_rvs_len', '_lnZ_of_rvs',
+ORCH = ['_rvs_lnL_convention', 'ln_weights_from_rvs', '_rvs_len',
+        '_rvs_record_for', '_sampler_keeps_records', '_internal_record_of',
+        '_rebound_record', '_lw_of', '_lnZ_of_rvs',
         '_kish_neff_of_rvs', '_extract_mc_diag', '_pool_replica_rvs',
         '_maybe_save_av_state', '_reject_if_collapsed', '_report_and_gate_collapse',
         '_maybe_replicate_for_mc_error']
@@ -364,6 +410,7 @@ def _load_orch(**optkw):
           "mcsampler_AV_ok": True, "rvs_integrand_is_lnL": False,
           "opts": type("O", (), base)()}
     exec(compile(ast.fix_missing_locations(mod), "orch", "exec"), ns)
+    _assert_helper_set_is_closed(ns, ORCH)
     return ns
 
 
@@ -482,6 +529,8 @@ def test_disagreeing_replicas_report_less_than_the_sum():
 # ==========================================================================================
 
 EXPORT = ['_rvs_lnL_convention', 'ln_weights_from_rvs', '_rvs_len', '_rvs_is_equal_weight',
+          '_rvs_record_for', '_sampler_keeps_records', '_internal_record_of',
+          '_rebound_record', '_lw_of',
           'ln_weights_for_posterior', '_export_rvs_equal_weight']
 
 
@@ -491,6 +540,7 @@ def EW():
     mod = ast.Module(body=[defs[n] for n in EXPORT], type_ignores=[])
     ns = {"numpy": np, "np": np}
     exec(compile(ast.fix_missing_locations(mod), "export", "exec"), ns)
+    _assert_helper_set_is_closed(ns, EXPORT)
     return ns
 
 

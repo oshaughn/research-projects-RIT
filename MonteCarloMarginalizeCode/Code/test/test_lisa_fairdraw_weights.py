@@ -35,9 +35,50 @@ _MAIN = os.path.join(_HERE, '..', 'bin', 'integrate_likelihood_extrinsic_batchmo
 
 # The helpers ported in this pass.  Named explicitly: if a future edit drops one, the
 # extraction below fails loudly rather than silently testing a smaller surface.
+# The record accessors are in this list DELIBERATELY: it is both the exec set and the
+# anti-drift set, so naming them here fixes the namespace AND puts them under the
+# change-one-change-both gate, which is where a shared-by-copy helper belongs.
 PORTED = ['_rvs_lnL_convention', 'ln_weights_from_rvs', '_rvs_len',
-          '_rvs_is_export_resample', '_rvs_is_equal_weight', 'ln_weights_for_posterior']
+          '_rvs_is_export_resample', '_rvs_is_equal_weight',
+          '_rvs_record_for', '_sampler_keeps_records', '_internal_record_of',
+          '_rebound_record', '_lw_of', 'ln_weights_for_posterior']
 
+
+
+def _driver_def_names(path):
+    """Every top-level function the driver defines."""
+    with open(path) as fh:
+        return {n.name for n in ast.parse(fh.read()).body
+                if isinstance(n, ast.FunctionDef)}
+
+
+def _assert_helper_set_is_closed(ns, names, path):
+    """Fail LOUDLY if an exec'd helper calls a driver helper that was not exec'd with it.
+
+    The same omission in test_lisa_mc_error_replicas.py did NOT raise: _lnZ_of_rvs catches
+    broadly and returns None, so a missing name read as "no evidence" and the pooled
+    weights silently collapsed to 1/K.  Kept in all three LISA harnesses so the next
+    ported helper cannot reintroduce it here instead.
+    """
+    driver = _driver_def_names(path)
+    missing = {}
+    for name in names:
+        code = getattr(ns.get(name), "__code__", None)
+        if code is None:
+            continue
+        stack, seen = [code], set()
+        while stack:
+            c = stack.pop()
+            if id(c) in seen:
+                continue
+            seen.add(id(c))
+            for used in c.co_names:
+                if used in driver and used not in ns:
+                    missing.setdefault(name, set()).add(used)
+            stack.extend(k for k in c.co_consts if hasattr(k, "co_names"))
+    assert not missing, (
+        "exec'd helper set is not closed -- add these to the name list:\n  "
+        + "\n  ".join("%s needs %s" % (k, sorted(v)) for k, v in sorted(missing.items())))
 
 def _extract(path, names):
     """Return {name: ast.FunctionDef} for top-level defs, by name."""
@@ -56,6 +97,7 @@ def _load(path, names=PORTED):
     mod = ast.Module(body=[defs[n] for n in names], type_ignores=[])
     ns = {"numpy": np, "np": np}
     exec(compile(ast.fix_missing_locations(mod), "lisa_weight_helpers", "exec"), ns)
+    _assert_helper_set_is_closed(ns, names, _LISA)
     return ns
 
 

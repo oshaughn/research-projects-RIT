@@ -42,9 +42,51 @@ PORTED = ['_lnZ_of_rvs', '_kish_neff_of_rvs', '_lnZ_of_reserve_or_rvs',
           '_warm_seed_reserve_for', '_warm_seed_geometry', '_clear_warm_state']
 
 # Everything the exec'd namespace needs, in dependency order.
+# The record accessors are here because the PORTED helpers call them by name:
+# _snapshot_pass_state/_restore_pass_state thread the sampler's RvsRecord, and
+# ln_weights_for_posterior reads it.  Leaving one out is a NameError at exec time,
+# not a missing assertion -- which is exactly how this list is meant to fail.
 _DEPS = ['_rvs_lnL_convention', 'ln_weights_from_rvs', '_rvs_len',
-         '_rvs_is_export_resample', '_rvs_is_equal_weight', 'ln_weights_for_posterior']
+         '_rvs_is_export_resample', '_rvs_is_equal_weight',
+         '_rvs_record_for', '_sampler_keeps_records', '_internal_record_of',
+         '_rebound_record', '_lw_of', 'ln_weights_for_posterior']
 
+
+
+def _driver_def_names(path):
+    """Every top-level function the driver defines."""
+    with open(path) as fh:
+        return {n.name for n in ast.parse(fh.read()).body
+                if isinstance(n, ast.FunctionDef)}
+
+
+def _assert_helper_set_is_closed(ns, names, path):
+    """Fail LOUDLY if an exec'd helper calls a driver helper that was not exec'd with it.
+
+    The same omission in test_lisa_mc_error_replicas.py did NOT raise: _lnZ_of_rvs catches
+    broadly and returns None, so a missing name read as "no evidence" and the pooled
+    weights silently collapsed to 1/K.  Kept in all three LISA harnesses so the next
+    ported helper cannot reintroduce it here instead.
+    """
+    driver = _driver_def_names(path)
+    missing = {}
+    for name in names:
+        code = getattr(ns.get(name), "__code__", None)
+        if code is None:
+            continue
+        stack, seen = [code], set()
+        while stack:
+            c = stack.pop()
+            if id(c) in seen:
+                continue
+            seen.add(id(c))
+            for used in c.co_names:
+                if used in driver and used not in ns:
+                    missing.setdefault(name, set()).add(used)
+            stack.extend(k for k in c.co_consts if hasattr(k, "co_names"))
+    assert not missing, (
+        "exec'd helper set is not closed -- add these to the name list:\n  "
+        + "\n  ".join("%s needs %s" % (k, sorted(v)) for k, v in sorted(missing.items())))
 
 def _defs(path, names):
     with open(path) as fh:
@@ -95,6 +137,7 @@ def _load(opts=None, av=None):
           "opts": opts if opts is not None else _Opts(),
           "mcsamplerAdaptiveVolume": av if av is not None else _FakeAV}
     exec(compile(ast.fix_missing_locations(mod), "lisa_l0_helpers", "exec"), ns)
+    _assert_helper_set_is_closed(ns, names, _LISA)
     return ns
 
 

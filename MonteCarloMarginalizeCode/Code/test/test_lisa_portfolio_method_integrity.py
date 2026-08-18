@@ -150,11 +150,50 @@ def test_return_lnI_still_keys_on_the_method_not_the_member():
         "the return_lnI branch was widened to portfolios carrying a GMM member"
 
 
+def _driver_def_names(path):
+    """Every top-level function the driver defines."""
+    return {n.name for n in ast.parse(_src(path)).body if isinstance(n, ast.FunctionDef)}
+
+
+def _assert_helper_set_is_closed(ns, names, path):
+    """Fail LOUDLY if an exec'd helper calls a driver helper that was not exec'd with it.
+
+    Same guard as the other LISA harnesses.  The failure it prevents is silent: the
+    callers here catch broadly, so a missing name turns into "the rescue did not fire"
+    rather than a NameError naming the helper.
+    """
+    driver = _driver_def_names(path)
+    missing = {}
+    for name in names:
+        code = getattr(ns.get(name), "__code__", None)
+        if code is None:
+            continue
+        stack, seen = [code], set()
+        while stack:
+            c = stack.pop()
+            if id(c) in seen:
+                continue
+            seen.add(id(c))
+            for used in c.co_names:
+                if used in driver and used not in ns:
+                    missing.setdefault(name, set()).add(used)
+            stack.extend(k for k in c.co_consts if hasattr(k, "co_names"))
+    assert not missing, (
+        "exec'd helper set is not closed -- add these to the name list:\n  "
+        + "\n  ".join("%s needs %s" % (k, sorted(v)) for k, v in sorted(missing.items())))
+
+
 # ------------------------------------------------------------- the rescue actually fires
 def _load_rescue(sampler_method):
     """Exec the rescue with a chosen opts.sampler_method."""
+    # The record accessors ride along because the ported helpers resolve their weights
+    # through _lw_of / _rvs_record_for.  Omitting one is NOT a visible NameError here --
+    # _maybe_l0_rescue catches it and the rescue simply never fires, which shows up as
+    # "the rescue did not fire", three layers from the cause.  Guarded below.
     names = ['_rvs_lnL_convention', 'ln_weights_from_rvs', '_rvs_len',
-             '_rvs_is_export_resample', '_rvs_is_equal_weight', 'ln_weights_for_posterior',
+             '_rvs_is_export_resample', '_rvs_is_equal_weight',
+             '_rvs_record_for', '_sampler_keeps_records', '_internal_record_of',
+             '_rebound_record', '_lw_of', 'ln_weights_for_posterior',
              '_lnZ_of_rvs', '_kish_neff_of_rvs', '_lnZ_of_reserve_or_rvs',
              '_snapshot_pass_state', '_restore_pass_state', '_warm_seed_reserve_for',
              '_warm_seed_geometry', '_clear_warm_state', '_maybe_l0_rescue']
@@ -183,6 +222,7 @@ def _load_rescue(sampler_method):
         'sampler_sequential_warmstart_deltalnL': 15.0})()
     ns = {"numpy": np, "np": np, "opts": opts, "mcsamplerAdaptiveVolume": _AV}
     exec(compile(ast.fix_missing_locations(mod), "rescue", "exec"), ns)
+    _assert_helper_set_is_closed(ns, names, _LISA)
     return ns
 
 

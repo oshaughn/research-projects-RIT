@@ -427,7 +427,8 @@ jobs:
             MonteCarloMarginalizeCode/Code/test/test_l0_rescue_seed.py \
             MonteCarloMarginalizeCode/Code/test/test_seq_warmstart_seed.py \
             MonteCarloMarginalizeCode/Code/test/test_fairdraw_double_weighting.py \
-            MonteCarloMarginalizeCode/Code/test/test_portfolio_fairdraw_backend.py
+            MonteCarloMarginalizeCode/Code/test/test_portfolio_fairdraw_backend.py \
+            MonteCarloMarginalizeCode/Code/test/test_rvs_record.py
       - name: Audit _rvs consumers against the fair-draw rebind
         # sampler._rvs is rebound to an EXPORT resample at the end of integrate_log, and five
         # separate defects have come from a consumer reading it afterwards as though it were
