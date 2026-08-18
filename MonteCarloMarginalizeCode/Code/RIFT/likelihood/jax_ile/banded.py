@@ -14,6 +14,7 @@ The heavy, data-touching precompute (frame reading, ``<h_lm|d>``, U/V, packing)
 is reused verbatim -- only the cheap extrinsic->lnL contraction is JAX.
 """
 
+import warnings
 import numpy as np
 import jax.numpy as jnp
 
@@ -70,6 +71,22 @@ def build_rotation_data(meta, lookupNKDict, rho_by_a, U_by_aa, V_by_aa, epochDic
             "cherry-pick #117 first).  If the tree does carry #117, regenerate the bank "
             "with PrecomputeLikelihoodTermsWithRotation rather than hand-assembling meta."
             % (meta.get("post_phase_required"),))
+
+    # The bank WIDTH (issue #142): the response coefficients C_{(p,ntilde)} reach
+    # |ntilde| <= 2 + p_max, and this packer packs only a_list -- a coefficient with no
+    # band is dropped and contributes zero, i.e. a truncated model that still evaluates.
+    # Only a bank built with widen_harmonics=False can be short, so warn rather than raise
+    # (the caller opted in), but do not let it through in silence.  Same guard as
+    # factored_likelihood_with_rotation.pack_rotation_arrays.
+    if meta.get("harmonics_truncated"):
+        warnings.warn(
+            "build_rotation_data: this bank was built with widen_harmonics=False and "
+            "carries harmonics=%s, narrower than the |ntilde| <= 2 + p_max = %s the "
+            "response coefficients populate at p_max=%s.  The JAX evaluator packs only "
+            "a_list, so it will evaluate a TRUNCATED model (missing coefficients "
+            "contribute zero).  Rebuild with widen_harmonics=True unless deliberate."
+            % (meta.get("harmonics"), meta.get("harmonics_required"), meta.get("p_max")),
+            RuntimeWarning, stacklevel=2)
 
     # Minimal baseline-shaped packed dict (rholmArray of the FIRST band as a
     # stand-in) so build_likelihood_data can set up lms/epoch/location/response.

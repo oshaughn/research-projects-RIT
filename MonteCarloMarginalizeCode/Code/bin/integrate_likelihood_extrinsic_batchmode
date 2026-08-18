@@ -2820,7 +2820,15 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         rotation_slow_data = None
         if opts.rotation_slow:
             _pmax = int(opts.rotation_p_max)
-            _nh = max(int(opts.rotation_n_harmonics), 2 + _pmax)  # wide enough to cover all C_{(p,ntilde)}
+            # --rotation-n-harmonics is a FLOOR, not the literal width: the response
+            # coefficients C_{(p,ntilde)} reach |ntilde| <= 2 + p_max (issue #142), and the
+            # option's default of 2 is only the p_max=0 answer.  The precompute now enforces
+            # this itself, so this line is belt-and-braces -- kept (a) so the printout below
+            # and any future use of _harm describe the bank that was actually built, and
+            # (b) so the ILE never trips the precompute's widening warning.  The rule itself
+            # lives in ONE place: required_harmonic_width.
+            _nh = max(int(opts.rotation_n_harmonics),
+                      factored_likelihood_with_rotation.required_harmonic_width(_pmax))
             _harm = tuple(range(-_nh, _nh + 1))
             _rint_r, _ct_r, _ctV_r, _rho_r, _meta_r = factored_likelihood_with_rotation.PrecomputeLikelihoodTermsWithRotation(
                 fiducial_epoch, t_window, P, data_dict, psd_dict, opts.l_max, fmax,
@@ -2841,7 +2849,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                         _vNN[_det][_pair] = cupy.asarray(_vNN[_det][_pair])
             rotation_slow_data = dict(meta=_meta_r, lookupNKDict=_lkR, rho_by_n=_rhoN,
                                       U_by_nn=_uNN, V_by_nn=_vNN, epochDict=_epR)
-            print("  [rotation-slow] precompute complete; p_max", _pmax, "sidereal harmonics", _harm,
+            print("  [rotation-slow] precompute complete; p_max", _pmax, "sidereal harmonics",
+                  _meta_r['harmonics'],   # the bank's own record, not our request
                   "(GPU)" if (opts.gpu and not xpy_default is np) else "(CPU)")
 
         # [Path D] finite-size (frequency-dependent) response precompute: fold each W_p(f)

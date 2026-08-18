@@ -111,6 +111,12 @@ precompute-and-marginalize architecture. Two effects, both implemented (Path A +
     elementary template `a=(p,n)`: `Q^a(t)`, `U^{(a,a')}`, `V^{(a,a')}`.
   - `rotation_coefficients` / `rotation_coefficients_vector` — the analytic scalars
     `C_{(p,ntilde)} = (1/p!) sum_{n+m=ntilde} A_tilde_n [(-D)^{*p}]_m` (Path A: `{(0,n): A_tilde_n}`).
+    **Harmonic width (issue #142).** That convolution widens the harmonic index by one per
+    derivative order (`|n|<=2` antenna * `|m|<=1` delay-drift), so the bank must carry
+    `|ntilde| <= required_harmonic_width(p_max) = 2 + p_max` — **not** the `|n|<=2` of the
+    antenna alone. The precompute's `harmonics=(-2..2)` default is the `p_max=0` answer only;
+    it now widens itself (and warns) rather than letting the evaluators drop the missing
+    coefficients, which they both do silently. Guarded by `test_slowrot_harmonic_width.py`.
   - `FactoredLogLikelihoodWithRotation(...)` — scalar lnL (per-sample); term1 = `Re[sum_lm
     conj(Ylm) sum_a conj(C_a) Q^a(t_det)]`, term2 with `U^{(a,a')}` (coef `conj(C_a)C_a'`)
     and `V^{(a,a')}` (coef `C_{(p,-nu)} C_a'`).
@@ -137,6 +143,7 @@ precompute-and-marginalize architecture. Two effects, both implemented (Path A +
     python RIFT/likelihood/test_slowrot_headtohead.py          # matched-sample rotation vs baseline (cubic)
     python RIFT/likelihood/test_slowrot_freqresponse.py        # [Path D] finite-size response vs LAL
     python RIFT/likelihood/test_slowrot_freqresponse_likelihood.py  # [Path D] likelihood: V1/V3 + V4 positive control
+    python RIFT/likelihood/test_slowrot_harmonic_width.py      # bank covers every C_{(p,ntilde)} (#142)
 
 VALUE DEMOS (verify-anywhere, no condor/GPU) -- consolidated in the RIFT tree:
     cd demo/rift/slowrot && make demo        # rotation (Path A/B) + finite-size (Path D)

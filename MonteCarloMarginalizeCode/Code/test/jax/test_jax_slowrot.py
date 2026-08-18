@@ -9,10 +9,11 @@ Gates:
         DiscreteFactoredLogLikelihoodFreqResponseNoLoop                (freqresponse)
       on the SAME packed data, to ~1e-13.  Rotation runs at BOTH p_max=0 (Path A) and
       p_max=1 (Path B) -- see check_rotation() for why Path B is a distinct code path
-      for the arrival-time post-phase and not just a wider bank.  p_max=2 is NOT run: its
-      15-band bank costs 225 U/V cross terms in the precompute (vs 100 at p_max=1, 25 at
-      p_max=0) and roughly doubles this file's runtime again, for no branch p_max=1 does
-      not already exercise -- the same duplicate-m scatter-add and within-p V reflection.
+      for the arrival-time post-phase and not just a wider bank.  p_max=2 is NOT run: the
+      bank carries |ntilde| <= 2 + p_max (issue #142), so it would be 27 bands / 729 U/V
+      cross terms in the precompute (vs 14 / 196 at p_max=1 and 5 / 25 at p_max=0), which
+      roughly triples this file's runtime for no branch p_max=1 does not already exercise
+      -- the same duplicate-m scatter-add and within-p V reflection.
   (b) interp="linear" gradient (distance-marginalized, smooth) vs finite diff ~1e-6.
   (c) jit / vmap / grad / hessian all execute and stay finite.
 
@@ -108,7 +109,14 @@ def check_rotation(p_max=0):
         event_time, t_window, Psig, data_dict, psd_dict, Lmax, fmax,
         harmonics=HARM, p_max=p_max, f_sidereal=flwr.F_SIDEREAL, analyticPSD_Q=True,
         verbose=False, quiet=True, skip_interpolation=True)
-    assert len(meta['a_list']) == (p_max + 1) * len(HARM), "unexpected a_list size"
+    # NOT `len(HARM)`: the precompute widens the requested harmonics to
+    # |ntilde| <= 2 + p_max, because that is what rotation_coefficients actually populates
+    # (issue #142).  So HARM=(-2..2) gives 5 bands per p at p_max=0 but 7 at p_max=1.
+    # Asserting len(HARM) here hard-coded the TRUNCATED bank and had to be corrected.
+    n_bands = 2 * flwr.required_harmonic_width(p_max) + 1
+    assert len(meta['harmonics']) == n_bands, \
+        "harmonics not widened to 2+p_max: %s" % (meta['harmonics'],)
+    assert len(meta['a_list']) == (p_max + 1) * n_bands, "unexpected a_list size"
     lk, rbn, ubn, vbn, ep = flwr.pack_rotation_arrays(meta, rho, ct, ctV)
     Pv = _P_vec()
     lnL_ref = flwr.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation(

@@ -52,6 +52,8 @@ so the light FD primitives below are importable with numpy alone (used by the un
 """
 from __future__ import print_function, division
 
+import warnings
+
 import numpy as np
 
 # Sidereal angular rate [rad/s] and frequency [Hz]
@@ -62,6 +64,45 @@ F_SIDEREAL = OMEGA_EARTH / (2.0 * np.pi)
 # convention.  VALIDATED empirically against a LAL FFT round trip in
 # test_slowrot_fd_ops.py (which will fail loudly if this is wrong).
 FT_SIGN = -1.0
+
+# Half-width of the ANTENNA harmonic set: F_k(t) = sum_{|n|<=2} A_n e^{i n g} is exact
+# (the antenna pattern is quadratic in the rotating detector basis vectors).  The DELAY
+# harmonic set B_n has half-width 1.  rotation_coefficients convolves the antenna
+# harmonics with the delay-drift harmonics once per derivative order, so the harmonic
+# index of the response coefficients C_{(p,ntilde)} widens by exactly one per order --
+# see required_harmonic_width, and test_slowrot_harmonic_width.py, which MEASURES both
+# half-widths rather than trusting this comment.
+N_ANTENNA_HARMONICS = 2
+N_DELAY_HARMONICS = 1
+
+
+def required_harmonic_width(p_max):
+    """Half-width |ntilde|_max actually populated by rotation_coefficients at this p_max.
+
+    C_{(p,ntilde)} = (1/p!) sum_{n+m=ntilde} A_tilde_n [(-D)^{*p}]_m, with |n| <= 2 and
+    |m| <= 1, so the p-th derivative order reaches |ntilde| <= 2 + p and the full bank
+    needs |ntilde| <= 2 + p_max.  Any C outside the precomputed harmonic set has no
+    elementary-template band, and BOTH maintained evaluators drop it without complaint
+    (the NoLoop's Cg/Cg_d return zero for a missing a; the JAX packer in jax_ile.banded
+    packs only a_list) -- i.e. a narrow harmonic set silently truncates the model.  See
+    issue #142.
+    """
+    return N_ANTENNA_HARMONICS + N_DELAY_HARMONICS * int(p_max)
+
+
+def widen_harmonics_for_p_max(harmonics, p_max):
+    """Union of a requested harmonic set with the symmetric range required at p_max.
+
+    Returns ``(harmonics_out, widened_Q)``.  The requested set is returned UNCHANGED
+    (same order) when it is already wide enough, so callers that rely on the ordering of
+    ``meta['a_list']`` are unaffected in the common case.
+    """
+    w = required_harmonic_width(p_max)
+    required = set(range(-w, w + 1))
+    have = set(int(n) for n in harmonics)
+    if required.issubset(have):
+        return tuple(harmonics), False
+    return tuple(sorted(have | required)), True
 
 
 # ---------------------------------------------------------------------------
@@ -200,7 +241,7 @@ def PrecomputeLikelihoodTermsWithRotation(
         harmonics=(-2, -1, 0, 1, 2), p_max=0, f_sidereal=F_SIDEREAL,
         analyticPSD_Q=False, inv_spec_trunc_Q=False, T_spec=0.,
         verbose=True, quiet=False, internal_fast_precompute=True,
-        skip_interpolation=False, **hlm_kwargs):
+        skip_interpolation=False, widen_harmonics=True, **hlm_kwargs):
     """Slow-rotation analogue of factored_likelihood.PrecomputeLikelihoodTerms.
 
     Builds each FD mode once (via factored_likelihood.internal_hlm_generator) and forms the
@@ -211,7 +252,26 @@ def PrecomputeLikelihoodTermsWithRotation(
         crossTermsV_rot[det][(a,a')]   : { ((l,m),(l',m')) : <chi_a^*|chi_a'> }
 
     Parameters mirror PrecomputeLikelihoodTerms; rotation-specific:
-        harmonics : sidereal harmonic indices n to carry (antenna needs |n|<=2).
+        harmonics : sidereal harmonic indices ntilde to carry.  The bank must cover EVERY
+            index the response coefficients populate, which is NOT just the antenna's
+            |n| <= 2: rotation_coefficients convolves the antenna harmonics (|n| <= 2)
+            with the delay-drift harmonics (|m| <= 1) once per derivative order, so the
+            required half-width is
+
+                required_harmonic_width(p_max) = 2 + p_max
+
+            i.e. |ntilde| <= 2 at p_max=0, <= 3 at p_max=1, <= 4 at p_max=2.  The default
+            (-2..2) is the p_max=0 answer ONLY.  A coefficient with no band is dropped
+            without complaint by both maintained evaluators (the NoLoop's Cg/Cg_d return
+            zero for a missing a; the JAX packer in jax_ile.banded packs only a_list), so
+            a too-narrow set yields a quietly truncated model -- consistent, but not the
+            model that was asked for.  See issue #142.
+        widen_harmonics : if True (default) a too-narrow `harmonics` is widened to the
+            union with (-(2+p_max) .. 2+p_max) and a RuntimeWarning names the new width;
+            the extra bands cost |a_list|^2 cross-term overlaps, so the warning is worth
+            reading.  Set False ONLY to build a deliberately truncated bank for band-level
+            inspection that will never be turned into a likelihood -- the truncation is
+            then recorded as meta['harmonics_truncated'].
         p_max     : max delay-derivative order (0 = Path A amplitude-only; >=1 = Path B).
         f_sidereal: sidereal frequency [Hz].
 
@@ -225,6 +285,29 @@ def PrecomputeLikelihoodTermsWithRotation(
     environment and is done separately; the FD primitives used here are unit-tested in
     test_slowrot_fd_ops.py.
     """
+    # --- harmonic-width contract (issue #142) -------------------------------------
+    # rotation_coefficients populates |ntilde| <= 2 + p_max; anything outside the bank is
+    # dropped silently downstream.  Widen (or, if the caller opted out, record the fact).
+    # tuple() FIRST and use only the tuple below: `harmonics` may be any iterable, and a
+    # generator consumed here and re-iterated later would silently yield an empty a_list.
+    harmonics_requested = tuple(harmonics)
+    n_required = required_harmonic_width(p_max)
+    if widen_harmonics:
+        harmonics, _widened = widen_harmonics_for_p_max(harmonics_requested, p_max)
+        harmonics_truncated = False
+        if _widened:
+            warnings.warn(
+                "PrecomputeLikelihoodTermsWithRotation: harmonics=%s cannot carry every "
+                "response coefficient at p_max=%d (rotation_coefficients populates "
+                "|ntilde| <= 2 + p_max = %d); widened to %s.  Pass a harmonic set at "
+                "least this wide to silence this, or widen_harmonics=False to accept a "
+                "truncated model." % (harmonics_requested, p_max, n_required, harmonics),
+                RuntimeWarning, stacklevel=2)
+    else:
+        harmonics = harmonics_requested
+        harmonics_truncated = not set(range(-n_required, n_required + 1)).issubset(
+            set(int(n) for n in harmonics))
+
     # Lazy heavy imports (need the full RIFT stack / lal).
     import lal
     from . import factored_likelihood as FL
@@ -335,7 +418,12 @@ def PrecomputeLikelihoodTermsWithRotation(
     meta = dict(harmonics=tuple(harmonics), p_max=p_max, f_sidereal=f_sidereal,
                 a_list=a_list, event_time_geo=float(event_time_geo),
                 omega_earth=OMEGA_EARTH, modes=list(hlms.keys()),
-                post_phase_required=True)
+                post_phase_required=True,
+                # issue #142: what was asked for, what the coefficients need, and whether
+                # this bank is a truncated model (only possible via widen_harmonics=False).
+                harmonics_requested=harmonics_requested,
+                harmonics_required=n_required,
+                harmonics_truncated=bool(harmonics_truncated))
     return rholms_intp_rot, crossTerms_rot, crossTermsV_rot, rholms_rot, meta
 
 
@@ -575,7 +663,22 @@ def pack_rotation_arrays(meta, rholms_rot, crossTerms_rot, crossTermsV_rot):
 
     Returns (lookupNKDict, rho_by_a, U_by_aa, V_by_aa, epochDict), keyed per detector by
     elementary template a=(p,n) (Path A: a=(0,n); Path B: also p>=1).
+
+    Issue #142: this is the gateway to the NoLoop, whose Cg/Cg_d return zero for a response
+    coefficient with no band.  A bank built with widen_harmonics=False can be missing bands,
+    so say so HERE -- at the point the bank becomes a likelihood -- rather than let the
+    evaluator drop them quietly.  (The precompute's default widens, so this never fires for
+    a caller who did not opt out.)
     """
+    if meta.get('harmonics_truncated'):
+        warnings.warn(
+            "pack_rotation_arrays: this bank was built with widen_harmonics=False and "
+            "carries harmonics=%s, which is narrower than the |ntilde| <= 2 + p_max = %s "
+            "the response coefficients populate at p_max=%s.  The NoLoop will evaluate a "
+            "TRUNCATED model (missing coefficients contribute zero), silently.  Rebuild "
+            "the bank with widen_harmonics=True unless the truncation is deliberate."
+            % (meta.get('harmonics'), meta.get('harmonics_required'), meta.get('p_max')),
+            RuntimeWarning, stacklevel=2)
     a_list = list(meta['a_list'])
     lookupNKDict = {}; rho_by_a = {}; U_by_aa = {}; V_by_aa = {}; epochDict = {}
     for det in rholms_rot:

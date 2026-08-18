@@ -68,16 +68,21 @@ def _run_base():
         ignore_threshold=None)
 
 
-def _run_rot(harmonics, p_max):
+def _run_rot(harmonics, p_max, widen_harmonics=True):
+    # widen_harmonics=False keeps a deliberately narrow bank (issue #142).  Safe HERE and
+    # only here: these checks inspect individual bands (Q, U, V) and never assemble a
+    # likelihood, so the truncation cannot corrupt anything -- and V0's whole point is to
+    # isolate the a=(0,0) band.  Any caller that evaluates lnL must let it widen.
     return flwr.PrecomputeLikelihoodTermsWithRotation(
         event_time, t_window, Psig, data_dict, psd_dict, Lmax, fmax,
         harmonics=harmonics, p_max=p_max, analyticPSD_Q=True,
-        verbose=False, quiet=True, skip_interpolation=True)
+        verbose=False, quiet=True, skip_interpolation=True,
+        widen_harmonics=widen_harmonics)
 
 
 def test_V0_recovers_baseline():
     _, ct_b, ctV_b, rho_b, _, _ = _run_base()
-    _, ct_r, ctV_r, rho_r, meta = _run_rot(harmonics=(0,), p_max=0)
+    _, ct_r, ctV_r, rho_r, meta = _run_rot(harmonics=(0,), p_max=0, widen_harmonics=False)
     a0 = (0, 0)
     worst_q = worst_u = worst_v = 0.0
     for det in data_dict:
