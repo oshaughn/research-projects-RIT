@@ -1,0 +1,117 @@
+{
+ "provenance": "Measured 2026-08-19; rift_transverse_highSNR_study: gate0_*.json (production all.net + baseline-rerun CIP posteriors, GATED_REWEIGHT_2026-08-19.md) and toybench_R_validation/toybench_R.json (known-truth toys, R_TOYBENCH_VALIDATION_2026-08-19.md).  These pin the SHIPPED gate's decisions on the events that defined its validation: the three controls are the events the UNGATED fix drove to 1.543/1.175x the reference width; the T5 family must abstain VIA THE FLOOR (each has R < threshold, so the threshold alone would false-fire).",
+ "cases": [
+  {
+   "case": "S241109bn",
+   "kind": "production exemplar (severe deficit)",
+   "implied": 0.1439840092181753,
+   "R": 0.2696837088415274,
+   "n_post": 58537,
+   "expect": "FIRE"
+  },
+  {
+   "case": "S240413p",
+   "kind": "production exemplar (severe deficit)",
+   "implied": 0.18010047217569025,
+   "R": 0.11220398813147393,
+   "n_post": 45675,
+   "expect": "FIRE"
+  },
+  {
+   "case": "S241102br",
+   "kind": "production exemplar (severe deficit)",
+   "implied": 0.20096137001114464,
+   "R": 0.07031232313953607,
+   "n_post": 43595,
+   "expect": "FIRE"
+  },
+  {
+   "case": "S240629by",
+   "kind": "production exemplar (severe deficit)",
+   "implied": 0.15577056176952697,
+   "R": 0.16373531256694002,
+   "n_post": 44344,
+   "expect": "FIRE"
+  },
+  {
+   "case": "S241225c",
+   "kind": "production exemplar (severe deficit)",
+   "implied": 0.30436345947532645,
+   "R": 0.1706208724185756,
+   "n_post": 49566,
+   "expect": "FIRE"
+  },
+  {
+   "case": "S240921cw",
+   "kind": "production bad-comp healthy-width control",
+   "implied": 0.053384219558466804,
+   "R": 0.5313680128937592,
+   "n_post": 60000,
+   "expect": "NO-FIRE"
+  },
+  {
+   "case": "S240930aa",
+   "kind": "production bad-comp healthy-width control",
+   "implied": 0.03919360486950652,
+   "R": 0.3861174133820846,
+   "n_post": 60000,
+   "expect": "NO-FIRE"
+  },
+  {
+   "case": "S240621dy",
+   "kind": "production bad-comp healthy-width control",
+   "implied": 0.13790937987839455,
+   "R": 0.43228870087905064,
+   "n_post": 60000,
+   "expect": "NO-FIRE"
+  },
+  {
+   "case": "T5/shipped_s2",
+   "kind": "toybench truth-healthy-narrow",
+   "implied": 0.00011633869261157893,
+   "R": 0.0,
+   "n_post": 20000,
+   "expect": "ABSTAIN-FLOOR"
+  },
+  {
+   "case": "T5/shipped_s4",
+   "kind": "toybench truth-healthy-narrow",
+   "implied": 0.00018174932964659058,
+   "R": 0.0,
+   "n_post": 20000,
+   "expect": "ABSTAIN-FLOOR"
+  },
+  {
+   "case": "T5b/shipped_s1",
+   "kind": "toybench truth-healthy-narrow",
+   "implied": 5.444486851012013e-06,
+   "R": 0.0,
+   "n_post": 20000,
+   "expect": "ABSTAIN-FLOOR"
+  },
+  {
+   "case": "T5b/shipped_s3",
+   "kind": "toybench truth-healthy-narrow",
+   "implied": 1.5719962998183644e-05,
+   "R": 0.0,
+   "n_post": 20000,
+   "expect": "ABSTAIN-FLOOR"
+  },
+  {
+   "case": "T5b/shipped_s5",
+   "kind": "toybench truth-healthy-narrow",
+   "implied": 8.994319821827222e-05,
+   "R": 0.0,
+   "n_post": 20000,
+   "expect": "ABSTAIN-FLOOR"
+  },
+  {
+   "case": "T5c/shipped_s4",
+   "kind": "toybench truth-healthy-narrow",
+   "implied": 4.2942846827743646e-05,
+   "R": 0.0,
+   "n_post": 20000,
+   "expect": "ABSTAIN-FLOOR"
+  }
+ ]
+}

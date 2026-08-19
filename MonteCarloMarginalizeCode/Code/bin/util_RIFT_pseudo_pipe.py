@@ -438,6 +438,7 @@ parser.add_argument("--ile-distance-prior",default=None,help="If present, passed
 parser.add_argument("--internal-ile-buffer-after-trigger",default=2,type=float,help="Provided to allow user to change time after trigger. NOT FULLY IMPLEMENTED")
 parser.add_argument("--internal-ile-request-disk",help="Use if you are transferring large files, or if you otherwise expect a lot of data ")
 parser.add_argument("--internal-cip-request-disk",help="Use if you are transferring large files, or if you otherwise expect a lot of data ")
+parser.add_argument("--internal-cip-composition-reweight",action='store_true',help="Opt-in (default OFF): run every CIP through util_CIPCompositionReweightWrapper.sh -- a gated detect-then-repair for the low-mass transverse-spin width deficit.  A first gate-quality CIP pass measures the tail-deficit ratio R (util_CIPTailDeficitGate.py); ONLY a SEVERE deficit (R<0.32 in the fresh-CIP measurement channel, above a mandatory sample-resolution validity floor) triggers composition-equalising thinning of the training set (util_CompositionReweightNet.py) for the final CIP; otherwise the final CIP runs unchanged and the no-op is logged with the R value.  SCOPE, measured: repairs severe deficits only (~half the affected low-mass events); mild deficit vs healthy width is NOT separable in the mid-R band; safety is the strongly supported side (zero false fires across 77 in-sample healthy events, bound 3.8%, and known-truth healthy-narrow benchmarks); fire side in-sample-validated (12/12 events, miss-rate bound 22.1%, plus a causal 13-event paired-CIP repair).  Costs one extra CIP per invocation.  Fail-safe throughout.  Conflicts with --internal-use-amr (both set --cip-exe).")
 parser.add_argument("--internal-general-request-disk",help="Use if you are transferring large files, or if you otherwise expect a lot of data. Specifically for things like calmarg/surrogate h5 files ")
 parser.add_argument("--internal-ile-request-memory",default=4096,type=int,help="ILE memory request in Mb. Only experts should change this.")
 parser.add_argument("--internal-ile-n-max",default=None,type=int,help="Set maximum number of evaluations each ILE worker uses. EXPERTS ONLY")
@@ -2020,6 +2021,10 @@ if opts.distance_reweighting:
     cmd += " --comov-distance-reweighting --comov-distance-reweighting-exe `which make_uni_comov_skymap.py` --convert-ascii2h5-exe `which convert_output_format_ascii2h5.py` "
 if opts.use_gauss_early:
     cmd += " --cip-exe-G `which util_ConstructIntrinsicPosterior_GaussianResampling.py ` "
+if opts.internal_cip_composition_reweight:
+    if opts.internal_use_amr:
+        raise SystemExit("pseudo_pipe: --internal-cip-composition-reweight conflicts with --internal-use-amr (both set --cip-exe)")
+    cmd += " --cip-exe `which util_CIPCompositionReweightWrapper.sh` "
 if opts.internal_use_amr:
     print(" AMR prototype: Using hardcoded aligned-spin settings, assembling grid, requires coinc!")
     if _use_hpip_pp and opts.manual_initial_grid is None:
