@@ -353,7 +353,8 @@ jobs:
           python -m pytest -q \
             MonteCarloMarginalizeCode/Code/test/test_av_empty_live_volume.py \
             MonteCarloMarginalizeCode/Code/test/test_l0_rescue_seed.py \
-            MonteCarloMarginalizeCode/Code/test/test_portfolio_fairdraw_backend.py
+            MonteCarloMarginalizeCode/Code/test/test_portfolio_fairdraw_backend.py \
+            MonteCarloMarginalizeCode/Code/test/test_tail_deficit_gate.py
       - name: Run test scripts
         run: |
           . .travis/test-coord.sh
