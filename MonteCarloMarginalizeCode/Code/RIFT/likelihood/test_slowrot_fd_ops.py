@@ -7,8 +7,11 @@ Checks:
   2. Which signed frequency LAL assigns to a tone, vs evaluate_fvals_from_length -> fixes
      the sign FT_SIGN in the time-derivative weight.
   3. fd_apply_time_derivative reproduces d^p/dt^p exactly for a multi-tone signal.
-  4. _lal_freq_modulate reproduces exp(i coef Omega t) multiplication exactly.
-  5. the O(N^2) reference apply_sidereal_modulation_array agrees with the LAL round trip.
+  4. fd_apply_time_derivative COMMUTES with conjugation and maps real -> real when the
+     signal has Nyquist-bin content, AND gives the right VALUE there at both parities of p
+     (issue #159).
+  5. _lal_freq_modulate reproduces exp(i coef Omega t) multiplication exactly.
+  6. the O(N^2) reference apply_sidereal_modulation_array agrees with the LAL round trip.
 
 Run: python test_slowrot_fd_ops.py   (also usable under pytest)
 """
@@ -109,6 +112,107 @@ def test_time_derivative_exact():
         assert err < 1e-9, "derivative order %d inexact: %g" % (p, err)
 
 
+def test_derivative_commutes_with_conjugation_at_nyquist():
+    """d/dt conj(h) == conj(d/dt h), with the Nyquist bin POPULATED.  See issue #159.
+
+    This packing carries +fNyq (index 0) but not -fNyq, so a derivative weight -- odd in f --
+    has no consistent value there.  Left at +(2 pi i fNyq)^p, the two routes below disagree in
+    that one bin by a sign for odd p.  Nothing in the U cross terms notices, because both
+    factors come from the same template family; V = <chi_a^*|chi_a'> pairs the two routes
+    against each other, and the sidereal modulation (a sub-bin shift done as a time-domain
+    phase) then spreads that single bin across the whole band.  In the p_max=1 slow-rotation
+    bank that was worth 1.5e-07 of the model norm -- enough to break Cauchy-Schwarz.
+
+    Zeroing the Nyquist weight AT ODD p is what makes these two routes agree AND keeps
+    d^p/dt^p of a real series real; both are asserted here, at odd and even p alike (even p
+    already commutes, and must keep doing so).  Without the Nyquist tone this test passes
+    either way, so keep the tone.  Consistency does NOT pin the weight's value -- any real
+    w[+fNyq] passes this test -- so read it together with
+    test_nyquist_derivative_value_both_parities, which does.
+    """
+    h, bins, coeffs = _multitone()
+    h = h + 0.6 * np.exp(2.0j * np.pi * (N // 2 * DELTA_F) * _T)      # the +fNyq bin
+    hf_nyq = _forward(_make_timeseries(h)).data.data[0]
+    assert abs(hf_nyq) > 1e-3 * np.max(np.abs(h)), (
+        "this test is vacuous unless the Nyquist bin actually carries power (got %g)"
+        % abs(hf_nyq))
+    for p in range(1, 7):
+        a = np.conj(_reverse(flwr.fd_apply_time_derivative(
+            _forward(_make_timeseries(h)), p)).data.data)              # differentiate, then conj
+        b = _reverse(flwr.fd_apply_time_derivative(
+            _forward(_make_timeseries(np.conj(h))), p)).data.data      # conj, then differentiate
+        err = np.max(np.abs(a - b)) / np.max(np.abs(b))
+        print("conj/derivative commutation p=%d: rel err = %.2e" % (p, err))
+        # 1e-9 is the same gate test_time_derivative_exact uses, and it is a ROUNDOFF
+        # bound, not slack: the two routes are the same arithmetic through different FFTs,
+        # and (2 pi f)^p amplifies the round trip, so the residual grows with p while the
+        # odd-p normalisation shrinks (the zeroed Nyquist term drops out of the
+        # denominator).  Measured with the fix in: 2.8e-15 / 6.1e-16 / 3.3e-13 / 4.2e-16 /
+        # 3.3e-11 / 4.6e-16 at p = 1..6.  Without it the residual is 1.7e+00 to 3.0e+01 --
+        # eight orders clear of this gate, so tightening it buys nothing and p >= 5 would
+        # fail on precision alone.
+        assert err < 1e-9, (
+            "d/dt does not commute with conjugation at order %d (rel %g): the Nyquist bin of "
+            "time_derivative_weight is inconsistent, and crossTermsV_rot pairs the two orders "
+            "-- see issue #159" % (p, err))
+
+        # ... and the derivative of a REAL series must be real.
+        r = np.real(h)
+        dr = _reverse(flwr.fd_apply_time_derivative(
+            _forward(_make_timeseries(r.astype(complex))), p)).data.data
+        imag = np.max(np.abs(np.imag(dr))) / np.max(np.abs(dr))
+        print("real-in real-out p=%d: |Im|/|.| = %.2e" % (p, imag))
+        assert imag < 1e-9, (
+            "d^%d/dt^%d of a real series came back complex (|Im|/|.| = %g)" % (p, p, imag))
+
+
+def test_nyquist_derivative_value_both_parities():
+    """Pin the VALUE of the Nyquist weight, at both parities.  See issue #159.
+
+    The commutation test below is necessary but NOT sufficient: ANY REAL value of
+    w[+fNyq] commutes with conjugation and keeps a real series real, so consistency alone
+    does not pin the weight.  This one does, from the sampled signal:
+
+      * the real Nyquist component is (-1)^j = cos(2 pi fNyq t) sampled.  Its ODD
+        derivatives are -2 pi fNyq sin(2 pi fNyq t) etc, which vanish at every sample, so
+        the correct weight at odd p is exactly ZERO -- and that is also the only value that
+        can serve both +fNyq and -fNyq, which share this one bin.
+      * its EVEN derivatives are (-(2 pi fNyq)^2)^(p/2) (-1)^j, exactly representable, so
+        the untouched weight is correct and zeroing it would be a regression.  An earlier
+        revision of the #159 fix zeroed every p >= 1: that removes the even-p Nyquist term
+        ENTIRELY, so it fails below at rel err 1.00 (90% at p = 2 and 99% at p = 4 when
+        measured against a full multitone rather than the isolated tone).
+    """
+    fnyq = 1.0 / (2.0 * DELTA_T)
+    nyq = np.exp(2.0j * np.pi * (N // 2 * DELTA_F) * _T)          # == (-1)^j, real
+    assert np.max(np.abs(np.imag(nyq))) < 1e-12
+    base, _, _ = _multitone()
+    h = np.real(base) + 0.6 * np.real(nyq)                        # real, WITH Nyquist power
+    hf = _forward(_make_timeseries(h.astype(complex)))
+    assert abs(hf.data.data[0]) > 1e-3 * np.max(np.abs(h)), (
+        "vacuous unless the Nyquist bin carries power (got %g)" % abs(hf.data.data[0]))
+
+    for p in range(1, 7):        # p >= 5 too: --rotation-p-max is an unbounded int
+        # the Nyquist tone's own contribution, isolated: differentiate it alone.
+        hf_n = _forward(_make_timeseries((0.6 * np.real(nyq)).astype(complex)))
+        got_n = _reverse(flwr.fd_apply_time_derivative(hf_n, p)).data.data
+        scale = np.max(np.abs(_reverse(flwr.fd_apply_time_derivative(hf, 0)).data.data))
+        if p % 2:
+            err = np.max(np.abs(got_n)) / (scale * (2.0 * np.pi * fnyq) ** p)
+            print("nyquist value p=%d (odd, want 0): |d^p x_nyq| / scale = %.2e" % (p, err))
+            assert err < 1e-12, (
+                "odd derivative of the sampled Nyquist component must vanish (got %g of "
+                "the naive weight); w[+fNyq] is not zero -- see issue #159" % err)
+        else:
+            want = 0.6 * (-(2.0 * np.pi * fnyq) ** 2) ** (p // 2) * np.real(nyq)
+            err = np.max(np.abs(got_n - want)) / np.max(np.abs(want))
+            print("nyquist value p=%d (even, want exact): rel err = %.2e" % (p, err))
+            assert err < 1e-10, (
+                "even derivative of the Nyquist component IS representable and must be "
+                "exact (rel %g) -- do not zero the Nyquist weight for even p, see #159"
+                % err)
+
+
 def test_sidereal_modulation_exact():
     h, _, _ = _multitone()
     f_sid = 0.05 * DELTA_F   # exaggerated so coef*f_sid is an appreciable sub-bin shift
@@ -138,6 +242,8 @@ def test_reference_matrix_matches_lal_modulation():
 if __name__ == "__main__":
     test_roundtrip_identity()
     test_tone_frequency_assignment_and_FT_SIGN()
+    test_derivative_commutes_with_conjugation_at_nyquist()
+    test_nyquist_derivative_value_both_parities()
     test_time_derivative_exact()
     test_sidereal_modulation_exact()
     test_reference_matrix_matches_lal_modulation()

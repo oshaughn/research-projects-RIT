@@ -121,10 +121,67 @@ def evaluate_fvals_from_length(npts, deltaF):
 
 
 def time_derivative_weight(fvals, p):
-    """(FT_SIGN * 2 pi i f)^p : exact FD weight for the p-th time derivative."""
+    """(FT_SIGN * 2 pi i f)^p : FD weight for the p-th time derivative.
+
+    THE NYQUIST BIN IS ZEROED FOR ODD p, and only for odd p.  This packing carries +fNyq
+    (k=0) but NOT -fNyq: the bin holding -f[k] is k' = N-k, which for k=0 is bin 0 itself.
+    So that one bin has to serve for both signs, and the weight can only do that when it is
+    EVEN in f -- i.e. when p is even.  For odd p it is odd in f, and two analytically
+    identical expressions then disagree there by a SIGN:
+
+        conj(h^(p))   ->  -(FT_SIGN 2 pi i fNyq)^p conj(H[0])      (differentiate, then conj)
+        (conj h)^(p)  ->  +(FT_SIGN 2 pi i fNyq)^p conj(H[0])      (conj, then differentiate)
+
+    The precompute takes the second route for the conjugate template family (hlms_conj_p),
+    and the first is what any explicitly assembled model gives, so U -- which takes both
+    factors from the same family -- never notices, while V = <chi_a^*|chi_a'> pairs the two
+    orders against each other and picks up the sign flip.  The sidereal modulation is a
+    sub-bin frequency shift applied as a time-domain phase, so it SPREADS that one bin
+    across the whole band rather than leaving it at the top.
+
+    That was not a rounding-level effect: an FD mode from internal_hlm_generator carries
+    |H(+fNyq)| ~ 0.02-0.14 of |H(100 Hz)|, and the resulting p_max=1 model norm was wrong by
+    1.5e-07 relative (0.015 nats out of 1.0e+05) -- enough to push the Cauchy-Schwarz check
+    4e-03 nats OVER (1/2)<d|d>.  See issue #159.
+
+    Zero is the RIGHT value at odd p, not a compromise.  On this grid the Nyquist component
+    is the alternating sequence (-1)^j; as a real signal cos(2 pi fNyq t) its derivative
+    -2 pi fNyq sin(2 pi fNyq t) vanishes at every sample, and as a complex tone
+    exp(+2 pi i fNyq t) it is indistinguishable from exp(-2 pi i fNyq t), whose odd
+    derivatives differ by a sign.  Zero is both the sampled answer and the only consistent
+    one, and it is what keeps d^p/dt^p of a REAL series real.
+
+    EVEN p IS LEFT ALONE, and zeroing it would be a regression rather than extra safety:
+    (2 pi i fNyq)^p is real for even p, so there is no ambiguity to resolve, and the
+    derivative IS representable -- d^2/dt^2 (-1)^j = -(2 pi fNyq)^2 (-1)^j exactly.  An
+    earlier revision of this fix zeroed every p >= 1; measured against the analytic
+    derivative of a Nyquist-carrying multitone that cost 90% relative error at p = 2 and
+    99% at p = 4 (the untouched weight is exact there to 3e-14), and moved a real p_max=2
+    bank by 0.207 nats.  test_slowrot_fd_ops pins both halves, at p = 1..6.
+
+    Do NOT reason that the Nyquist bin sits above fMax and therefore cannot matter -- it
+    does sit above fMax, and it still mattered, because the modulation round trip does not
+    leave it there.
+    """
     if p == 0:
         return np.ones_like(fvals, dtype=complex)
-    return (FT_SIGN * 2.0j * np.pi * fvals) ** p
+    w = (FT_SIGN * 2.0j * np.pi * fvals) ** p
+    if p % 2 == 0:
+        return w
+    f = np.asarray(fvals)
+    if f.ndim < 1 or f.size < 2 or not np.any(f < 0):
+        # Nothing to repair: a one-sided (or degenerate) frequency axis has no unpaired
+        # Nyquist bin.  Leave it rather than eat the top of its band.
+        return w
+    fn = np.max(np.abs(f))
+    if np.any(f >= fn) and np.any(f <= -fn):
+        # Both +fn and -fn are present, so the extreme bin IS paired and the weight is well
+        # defined there.  Test UNPAIREDNESS, not magnitude: keying on |f| == max alone would
+        # blank both ends of a symmetric axis, where nothing is wrong.
+        return w
+    w = np.array(w, dtype=complex)
+    w[np.abs(f) >= fn] = 0.      # abs(): the unpaired bin is at -fNyq in fftfreq ordering
+    return w
 
 
 def apply_time_derivative_array(spectrum, fvals, p):
