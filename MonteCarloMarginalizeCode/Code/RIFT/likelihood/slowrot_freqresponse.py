@@ -421,26 +421,19 @@ def F_fd_expanded(det, ra, dec, psi, f, Qmax, gmst=0.0, L_arm=None):
 
 
 def unpaired_extreme_bin(fvals):
-    """Index mask of the extreme-|f| bin when it has NO partner at the opposite sign.
+    """Mask of the extreme-|f| bin when it has NO partner at the opposite sign.
 
     RIFT's two-sided packing (f[k] = deltaF*(npts/2 - k)) carries +fNyq at k=0 but no
-    -fNyq: the bin holding -f[k] is k' = npts-k, which for k=0 is bin 0 itself.  That one
-    bin therefore has to serve BOTH signs, and any weight that is not EVEN in f cannot be
-    given a consistent value there.
+    -fNyq, because the bin holding -f[k] is npts-k, which for k=0 is bin 0 itself.  That
+    bin has to serve both signs, so a weight which is not even in f has no consistent
+    value there.
 
-    Returns a boolean mask, all False when there is nothing to repair: a ONE-SIDED axis
-    (the top of an analysis band is not an unpaired Nyquist bin and must not be touched), a
-    degenerate one, or a SYMMETRIC one carrying both +fmax and -fmax, where the extreme bin
-    does have a partner.  Tests UNPAIREDNESS rather than magnitude -- keying on |f| == max alone
-    would flag BOTH ends of a symmetric axis, where nothing is wrong.
+    Tests UNPAIREDNESS, not magnitude: a one-sided axis has no such bin (its top is just
+    the top of a band), and neither does a symmetric axis carrying both +/-fmax.  Returns
+    an all-False mask in those cases.
 
-    The same RULE lives in factored_likelihood_with_rotation.time_derivative_weight
-    (issues #159/#164), which names this function in turn.  Neither module imports the
-    other, so the duplication is deliberate rather than an oversight.  The two guards are
-    not byte-identical: that one declines on `not np.any(f < 0)`, this one on
-    `not (np.any(f < 0) and np.any(f > 0))`, so they differ on an all-negative axis (which
-    that one would project and this one leaves alone).  No caller produces such an axis --
-    both are fed by evaluate_fvals_from_length -- but do not assume they are interchangeable.
+    factored_likelihood_with_rotation.time_derivative_weight applies the same rule with a
+    slightly different guard; the two are not interchangeable.
     """
     f = np.asarray(fvals)
     if f.ndim < 1 or f.size < 2:
@@ -463,54 +456,27 @@ def finite_size_response_weights(fvals, geom, Qmax):
         p=0   ("baseline") : W_0(f) = 1                       b_0 = F0 (exact lal)
         p=1+q              : W_{1+q}(f) = e^{-i2pi f T} c_q(f) - [q==0]
                                                               b_{1+q} = beta_q  (arm)
-    Each W_p is Hermitian (W_p(-f)=conj(W_p(f))) so the V cross term needs NO
-    harmonic reflection.  The common delay e^{-i2 pi f T} (= a T=L/c arrival-time
-    shift of the finite-size correction relative to the LWL baseline) is carried
-    inside the correction weights.  Returns the weights, (Npbasis, Nf) complex.
+    The common delay e^{-i2 pi f T} (= a T=L/c arrival-time shift of the finite-size
+    correction relative to the LWL baseline) is carried inside the correction weights.
+    Returns the weights, (Npbasis, Nf) complex.
 
-    NOTE THE RETURNED VALUE AT THE EXTREME BIN DEPENDS ON THE AXIS, not on the frequency
-    alone: this is a grid object, not a pointwise map f -> W(f).  Passing the full two-sided
-    axis projects the +fNyq bin (below); passing `fvals[fvals > 0]`, or any axis where that
-    frequency is NOT the unpaired extreme, returns the unprojected complex value there --
-    a 17% difference at 4 km.  Build the weights on the same axis the overlap will use.
+    Each W_p is Hermitian, W_p(-f) = conj(W_p(f)), which is what lets the V cross term
+    skip a harmonic reflection.  On a two-sided grid the unpaired extreme bin has to stand
+    for both signs, so Hermiticity there means real; it is projected onto its real part,
+    the Hermitian average.  Without that, crossTermsV_fr = <conj(W_p h)|W_p' h'> is not the
+    term it claims to be.
 
-    THE UNPAIRED NYQUIST BIN IS PROJECTED ONTO ITS REAL PART, and the Hermiticity claim
-    above is why.  W_p(-f) = conj(W_p(f)) holds identically in the continuum, and on the
-    grid it holds to the digit at every bin that HAS a partner -- but +fNyq does not have
-    one (see unpaired_extreme_bin), so that single bin must stand for both signs, and it
-    can only do that if it is real.  Unprojected it is not: at L = 4 km, N = 16384,
-    deltaF = 0.25 (f[0] = +2048 Hz), |Im W_p| / |W_p| there is 0.9935, 0.9853, 0.1708,
-    0.9853, 0.1708 for p = 1..5 (W_0 = 1 is already real).
+    This is a GRID object, not a pointwise map f -> W(f): the value at the extreme bin
+    depends on the axis, so build the weights on the same axis the overlap will use.
 
-    The consequence is precise: factored_likelihood_freqresponse builds the conjugate mode
-    family as etac = W_p * conj(h_lm) and pairs it with eta = W_p' * h_l'm' to form
-    crossTermsV_fr = <conj(W_p h) | W_p' h'>.  That identification needs
-    conj(W_p h) == W_p conj(h) bin by bin, which at a self-paired bin holds iff W_p is real
-    there.  Taking the real part is not a fudge: it IS the Hermitian average
-    (W_p(+fNyq) + W_p(-fNyq))/2 = Re W_p(+fNyq), i.e. the response the grid's only Nyquist
-    degree of freedom -- the real alternating sequence (-1)^j -- actually sees.
+    DO NOT REMOVE THE PROJECTION ON THE GROUNDS THAT IT CHANGES NOTHING.  It is a no-op in
+    RIFT overlaps today only because ComplexIP gives the extreme bin zero weight.  Any later
+    step that mixes frequencies -- a modulation, a resampling, a windowed round trip -- or
+    any consumer that indexes W directly instead of going through ComplexIP, makes it live.
+    The Path-B twin is this same bin, made live by exactly such a step.
 
-    Same defect class as issue #159 in time_derivative_weight, and the same resolution: the
-    Hermitian average at the unpaired bin.  There it evaluates to zero for odd p and to the
-    untouched value for even p, which is exactly why that fix is parity-dependent and this
-    one is not.
-
-    THIS ONE MOVES NO NUMBER, and the reason is sharper than "the bin is out of band".
-    lalsimutils.ComplexIP fills its one-sided weights with range(minIdx, maxIdx), which is
-    HALF-OPEN, so the fMax bin gets weight zero; at fMax = fNyq that bin IS +fNyq, and for
-    any smaller fMax it is further down.  The +fNyq bin therefore carries weight exactly 0
-    in every RIFT overlap, at every fMax.  Measured: scaling this bin by 1e6 in all W_p
-    changes crossTerms_fr, crossTermsV_fr and rholms_fr by exactly 0.000e+00 at fMax = 1700
-    and at fMax = fNyq = 2048.  So this is a repair of the primitive and of the Hermiticity
-    contract above, not of a wrong result.
-
-    What made #159 severe by contrast was not the bin's weight but a mechanism to MOVE it:
-    the sidereal modulation there is a sub-bin shift applied as a time-domain phase, and the
-    FFT round trip smeared the bad bin down into bins that do carry weight.  Path D has no
-    such step today.  Anything added later that mixes frequencies -- a modulation, a
-    resampling, a windowed round trip -- or any consumer that indexes W directly instead of
-    going through ComplexIP, would make this live, which is why it is fixed rather than
-    documented.
+    Evidence and measured impact: issues #164 / #165, and (once merged)
+    RIFT_roboto_paper analyses/slowrot_nyquist_bin/NOTE.md.
     """
     fvals = np.asarray(fvals, dtype=float)
     c = finite_size_c_coeffs(fvals, geom['L'], Qmax)
