@@ -1985,6 +1985,30 @@ def _pool_replica_rvs(rep_rvs, sampler, rep_lnZ=None, already_resampled=False, u
             return bool(_ar_list[i]) if i < len(_ar_list) else False
         return bool(already_resampled)
 
+    def _block_column(k, v):
+        """One block's column for key `k`, in the layout the KEY implies.
+        THE KEY SAYS WHERE THE ROW AXIS IS -- the same rule `_rvs_len` delegates to
+        (rvs_record._column_n_rows), applied to the rows themselves.  A combined parameter is
+        stored (ndim, N) under a TUPLE key, so ravelling it and concatenating on axis 0 turns
+        it into ONE 1-D column of length ndim*sum(N) while the scalar columns have sum(N) rows.
+        Consumers still require (ndim, N) -- the sample exporter unpacks the combined sky column
+        as `samples["latitude"], samples["longitude"] = samples[("declination",
+        "right_ascension")]` -- so --mc-error-replicas produced a malformed record and could
+        abort the export.  Per-row columns keep the flatten they always had.
+        """
+        v = numpy.asarray(v)
+        return numpy.atleast_2d(v) if isinstance(k, tuple) else numpy.atleast_1d(v).ravel()
+
+    def _empty_column(k):
+        """No block contributed any rows -- an empty column that still has the key's LAYOUT.
+        Handing back a bare `array([])` for a tuple key would fail to unpack in the exporter
+        for the shape reason above rather than for the real one (there are no samples).
+        """
+        if not isinstance(k, tuple):
+            return numpy.array([])
+        ndim = _block_column(k, sampler.identity_convert(rep_rvs[0][k])).shape[0]
+        return numpy.empty((ndim, 0))
+
     if len(rep_rvs) <= 1:
         return rep_rvs[0] if rep_rvs else {}
     # `already_resampled` -- the records are FAIRDRAW output.  Those samples were already drawn in
@@ -2043,7 +2067,7 @@ def _pool_replica_rvs(rep_rvs, sampler, rep_lnZ=None, already_resampled=False, u
                     sampler.identity_convert(r['log_joint_prior']), dtype=float)).ravel()
                 _forced = _li + _lp - _target_lw
             for k in keys:
-                v = numpy.atleast_1d(numpy.asarray(sampler.identity_convert(r[k]))).ravel()
+                v = _block_column(k, sampler.identity_convert(r[k]))
                 if _flat_block and log_key is not None and k == log_key:
                     v = _forced
                 elif _flat_block and lin_key is not None and k == lin_key:
@@ -2077,7 +2101,10 @@ def _pool_replica_rvs(rep_rvs, sampler, rep_lnZ=None, already_resampled=False, u
                     v = v * numpy.exp(scale)
                 cols[k].append(v)
         for k in keys:
-            out[k] = numpy.concatenate(cols[k]) if cols[k] else numpy.array([])
+            # ...and concatenate along THAT row axis: axis 1 for a combined (ndim, N) parameter,
+            # axis 0 for everything else.  One rule, stated in _block_column, applied twice.
+            out[k] = (numpy.concatenate(cols[k], axis=1 if isinstance(k, tuple) else 0)
+                      if cols[k] else _empty_column(k))
         # CACHED WEIGHTS MUST FOLLOW THE COMPONENTS.  _rvs may carry a precomputed 'log_weights'
         # (mcsamplerPortfolio writes one), and the .dgrid and calibration-posterior exporters
         # PREFER it -- they only fall back to log_integrand + log_joint_prior - log_joint_s_prior

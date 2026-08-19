@@ -168,6 +168,32 @@ def test_pooled_record_concatenates_every_replica(H):
     assert H['_rvs_len'](out) == 7, "pooling dropped or duplicated rows"
 
 
+def test_pooling_preserves_the_layout_of_a_combined_parameter(H):
+    """A combined parameter is stored (ndim, N) under a TUPLE key: the row axis is the SECOND.
+
+    Ravelling every column and concatenating on axis 0 made it a 1-D column of ndim*sum(N)
+    values while the scalar columns had sum(N) rows, and this driver's exporter unpacks it --
+    `samples["latitude"], samples["longitude"] = samples[("declination", "right_ascension")]`
+    -- so a pooled record could not be written out.  The main driver carries the same fix; a
+    layout rule that holds in only one of the two forks is how this fork rots.
+    """
+    sky = ("declination", "right_ascension")
+    reps = []
+    for n in (3, 4):
+        r = _rec([0.0] * n)
+        r[sky] = np.vstack([np.linspace(-1.0, 1.0, n), np.linspace(0.0, 6.0, n)])
+        reps.append(r)
+
+    out = H['_pool_replica_rvs'](reps, _S(), rep_lnZ=[0.0, 0.0])
+    assert out[sky].shape == (2, 7), (
+        "combined parameter pooled to shape {} rather than (ndim, sum(N))".format(
+            out[sky].shape))
+    assert H['_rvs_len'](out) == 7, "combined column disagrees with the scalar columns"
+    lat, lon = out[sky]                      # the exporter's unpack, on the pooled record
+    assert np.allclose(lat, np.concatenate([reps[0][sky][0], reps[1][sky][0]]))
+    assert np.allclose(lon, np.concatenate([reps[0][sky][1], reps[1][sky][1]]))
+
+
 def test_each_block_contributes_its_own_evidence_over_K(H):
     """Block k's weights must sum to Z_k/K -- that is what makes the pool match lnZ."""
     reps = [_rec([0.0] * 4), _rec([0.0] * 6)]
