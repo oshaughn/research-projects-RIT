@@ -1,6 +1,10 @@
 # DRAFT PR: opt-in gated composition reweight for the low-mass transverse-spin width deficit
 
-(Draft text staged on the branch for review BEFORE any push; delete this file at merge.)
+**This PR is not proposed for merge yet.** It is staged as a DRAFT while the paper-scale
+demonstration (in preparation) independently establishes the problem and the fix; the merge
+decision waits on that demonstration. Please do not review or mark ready until then.
+
+(This file mirrors the PR description; delete it at merge.)
 
 ## What this is
 
