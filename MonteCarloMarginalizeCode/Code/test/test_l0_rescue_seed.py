@@ -832,6 +832,11 @@ def test_the_reject_gate_reads_both_sides_from_the_same_record():
         'nothing stops the gate comparing a retained-set lnZ against a fair-drawn one'
     assert 'lnZ_from_reserve' in src, \
         'the reserve reading still averages over stored rows instead of over the draws made'
-    # the cold reserve must be snapshotted before the warm pass overwrites it
-    assert block.index('_cold_reserve_l0') < block.index('sampler.integrate('), \
+    # the cold reserve must be snapshotted before the warm pass overwrites it.  Asserted on
+    # the WHOLE source between the two anchors rather than inside a fixed-size window: the
+    # window version started failing when unrelated lines were added between them, which reads
+    # as a regression in the gate rather than in the test.
+    _i_res = src.index('_cold_reserve_l0')
+    _i_int = src.index('sampler.integrate(', _i_res)
+    assert _i_res < _i_int, \
         'the cold reserve is read after the warm pass has already replaced it'

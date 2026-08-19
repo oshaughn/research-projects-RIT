@@ -27,6 +27,7 @@ import ast
 import os
 
 import numpy as np
+from RIFT.integrators.rvs_record import SamplerOutputMixin as _SamplerOutputMixin
 import pytest
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -35,9 +36,63 @@ _MAIN = os.path.join(_HERE, '..', 'bin', 'integrate_likelihood_extrinsic_batchmo
 
 # The helpers ported in this pass.  Named explicitly: if a future edit drops one, the
 # extraction below fails loudly rather than silently testing a smaller surface.
+# The record accessors are in this list DELIBERATELY: it is both the exec set and the
+# anti-drift set, so naming them here fixes the namespace AND puts them under the
+# change-one-change-both gate, which is where a shared-by-copy helper belongs.
 PORTED = ['_rvs_lnL_convention', 'ln_weights_from_rvs', '_rvs_len',
-          '_rvs_is_export_resample', '_rvs_is_equal_weight', 'ln_weights_for_posterior']
+          '_rvs_is_export_resample', '_rvs_is_equal_weight',
+          '_rvs_record_for', '_sampler_keeps_records', '_internal_record_of',
+          '_rebound_record', '_lw_of', 'ln_weights_for_posterior']
 
+
+
+def _driver_def_names(path):
+    """Every top-level name the driver BINDS: functions and imports alike.
+
+    Imports are in here because of a real miss: the guard originally covered only defs, so
+    `SamplerOutputMixin` -- imported by the driver, referenced by _sampler_keeps_records --
+    slipped straight through it and surfaced as a NameError inside an exec'd helper.
+    """
+    with open(path) as fh:          # read directly: _src() differs between these harnesses
+        src = fh.read()
+    names = set()
+    for n in ast.parse(src).body:
+        if isinstance(n, ast.FunctionDef):
+            names.add(n.name)
+        elif isinstance(n, (ast.Import, ast.ImportFrom)):
+            for a in n.names:
+                if a.name != '*':
+                    names.add(a.asname or a.name.split('.')[0])
+    return names
+
+
+def _assert_helper_set_is_closed(ns, names, path):
+    """Fail LOUDLY if an exec'd helper calls a driver helper that was not exec'd with it.
+
+    The same omission in test_lisa_mc_error_replicas.py did NOT raise: _lnZ_of_rvs catches
+    broadly and returns None, so a missing name read as "no evidence" and the pooled
+    weights silently collapsed to 1/K.  Kept in all three LISA harnesses so the next
+    ported helper cannot reintroduce it here instead.
+    """
+    driver = _driver_def_names(path)
+    missing = {}
+    for name in names:
+        code = getattr(ns.get(name), "__code__", None)
+        if code is None:
+            continue
+        stack, seen = [code], set()
+        while stack:
+            c = stack.pop()
+            if id(c) in seen:
+                continue
+            seen.add(id(c))
+            for used in c.co_names:
+                if used in driver and used not in ns:
+                    missing.setdefault(name, set()).add(used)
+            stack.extend(k for k in c.co_consts if hasattr(k, "co_names"))
+    assert not missing, (
+        "exec'd helper set is not closed -- add these to the name list:\n  "
+        + "\n  ".join("%s needs %s" % (k, sorted(v)) for k, v in sorted(missing.items())))
 
 def _extract(path, names):
     """Return {name: ast.FunctionDef} for top-level defs, by name."""
@@ -54,8 +109,9 @@ def _load(path, names=PORTED):
     """Exec the named helpers out of a driver script into a namespace."""
     defs = _extract(path, names)
     mod = ast.Module(body=[defs[n] for n in names], type_ignores=[])
-    ns = {"numpy": np, "np": np}
+    ns = {"numpy": np, "np": np, "SamplerOutputMixin": _SamplerOutputMixin}
     exec(compile(ast.fix_missing_locations(mod), "lisa_weight_helpers", "exec"), ns)
+    _assert_helper_set_is_closed(ns, names, _LISA)
     return ns
 
 
@@ -238,6 +294,46 @@ def test_rvs_len_survives_an_unsized_entry(H):
     r = _log_record(n=5)
     r['not_an_array'] = None
     assert H['_rvs_len'](r) == 5
+
+
+def _record_with_a_combined_parameter(n=6):
+    """Columns in the order a sampler seeds them: PARAMETERS FIRST, then the weight columns.
+
+    The order is the whole point.  A parameter registered under a TUPLE key is a combined
+    parameter stored (ndim, N) -- the convention every sampler indexes by, `col[:, idx]` for a
+    tuple key against `col[idx]` otherwise -- and it is seeded before the weight columns, so
+    "whichever column came first" lands on it in the ordinary case rather than a corner.
+    """
+    r = {('mc', 'delta_mc'): np.zeros((2, n))}
+    r.update(_log_record(n=n))
+    return r
+
+
+def test_rvs_len_counts_ROWS_not_entries_for_a_combined_parameter():
+    """ndim*N is not a row count, and it is not a cosmetic one either.
+
+    Both drivers: the LISA copy checks the pooled export's weight vector against this number,
+    so an inflated count made the check fail and shipped the pooled record weight-mixed; the
+    main copy hands back a uniform vector OF THIS LENGTH for a fair draw and records it as the
+    pooled `block_sizes`.
+    """
+    r = _record_with_a_combined_parameter(n=6)
+    for path in (_LISA, _MAIN):
+        assert _load(path)['_rvs_len'](r) == 6, os.path.basename(path)
+
+
+def test_rvs_len_reads_the_row_axis_from_the_key_when_no_weight_column_is_present():
+    """No canonical per-row column to settle it -> the key's own layout decides."""
+    r = {('mc', 'delta_mc'): np.zeros((2, 7)), 'psi': np.zeros(7)}
+    for path in (_LISA, _MAIN):
+        assert _load(path)['_rvs_len'](r) == 7, os.path.basename(path)
+
+
+def test_fair_draw_uniform_weights_are_one_per_row_with_a_combined_parameter(H):
+    """The consumer-visible failure: a weight vector ndim times longer than the record."""
+    r = _record_with_a_combined_parameter(n=6)
+    w = H['ln_weights_for_posterior'](r, _FakeSampler(fairdraw=True, pooled=False))
+    assert w.shape == (6,)
 
 
 # ------------------------------------------------------------------ the convention resolver

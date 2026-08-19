@@ -64,6 +64,8 @@ import RIFT.LISA.lalsimutils_compat as lisa_lalsimutils_compat
 import RIFT.likelihood.factored_likelihood as factored_likelihood
 import RIFT.likelihood.factored_likelihood_LISA as factored_likelihood_LISA
 import RIFT.integrators.mcsampler as mcsampler
+from RIFT.integrators.rvs_record import (RvsRecord as _RvsRecord,   # see DESIGN_rvs_naming.md
+                                         SamplerOutputMixin)
 import RIFT.misc.sky_rotations as sky_rotations
 try:
     import RIFT.integrators.mcsamplerEnsemble as mcsamplerEnsemble
@@ -1357,12 +1359,21 @@ def ln_weights_from_rvs(rvs, convert=None, use_lnL=False):
 
 
 def _rvs_len(rvs):
-    for v in rvs.values():
-        try:
-            return len(numpy.atleast_1d(numpy.asarray(v)).ravel())
-        except Exception:
-            continue
-    return 0
+    """Rows in a raw `_rvs` column dict -> int.
+
+    ONE row-count rule, and it lives with the record (`rvs_record.n_rows`).  Flattening
+    whichever column came first was wrong for the ORDINARY case, not a corner: `_rvs` is
+    seeded parameters-first, and a combined parameter is stored (ndim, N) under a TUPLE key,
+    so any run registering one reported ndim*N.  Here that number is the length the pooled
+    export's weight vector is checked against, so the check failed and the pooled record went
+    out weight-mixed -- the exact degradation `_export_rvs_equal_weight` exists to prevent.
+
+    Imported INSIDE the function deliberately: the test harnesses exec these helpers out of
+    the driver into a bare namespace, so a module-level name here would have to be threaded
+    through every one of them -- and this staying a one-line delegation is the point.
+    """
+    from RIFT.integrators.rvs_record import n_rows as _n_rows_of_columns
+    return _n_rows_of_columns(rvs)
 
 
 def _rvs_is_export_resample(sampler):
@@ -1422,6 +1433,29 @@ def ln_weights_for_posterior(rvs, sampler, convert=None, use_lnL=None):
     the one it fixes.  Callers must pass `use_lnL=rvs_integrand_is_lnL`, or route through
     `_rvs_lnL_convention` first, the way the main driver's call sites do.
     """
+    # MIGRATION (DESIGN_rvs_naming.md), the first consumer to move.  This is the exact
+    # site where the one-flag-two-questions defect lived, so it is the one worth converting
+    # first: `is_equal_weight()` is a named question rather than two booleans a caller has to
+    # combine, and it cannot be answered with the wrong one.
+    #
+    # The flags stay as the fallback while the other six samplers are unconverted -- and while
+    # both exist they MUST agree, which is asserted directly in test_rvs_record.py rather than
+    # left as a comment, because "two sources of truth" is the risk this migration runs.
+    _rec = _rvs_record_for(sampler, rvs)
+    if _rec is not None:
+        if _rec.is_equal_weight():
+            return numpy.zeros(_rvs_len(rvs), dtype=float)
+        # THE WEIGHT ITSELF now comes from the record, not from ln_weights_from_rvs -- which is
+        # the point of the record: it knows its own convention, so there is no `use_lnL` to
+        # thread through and no way for a caller to pass the wrong one.
+        #
+        # Verified equivalent before switching, not after: the two implementations were fuzzed
+        # against each other over 1200 randomized records spanning all three column families
+        # with NaN / -inf / 0 sprinkled through every column.  That found a REAL divergence
+        # first -- log_weights() had been computing lnL + ln(pi) - ln(q) term by term, which
+        # yields NaN where the canonical form's conjunctive keep-mask yields -inf -- and it is
+        # fixed there rather than papered over here.
+        return numpy.asarray(_rec.log_weights(convert=convert), dtype=float)
     if _rvs_is_equal_weight(sampler):
         return numpy.zeros(_rvs_len(rvs), dtype=float)
     return numpy.asarray(ln_weights_from_rvs(rvs, convert=convert, use_lnL=use_lnL),
@@ -1559,7 +1593,92 @@ if opts.sampler_method == 'adaptive_cartesian_gpu' and opts.skymap_file:
 # in _maybe_l0_rescue below and both call it.  The helpers are byte-identical to main's and
 # are pinned that way by test_lisa_l0_rescue.py.
 # ---------------------------------------------------------------------------------------
-def _lnZ_of_rvs(rvs, already_pooled=True, use_lnL=None):
+def _rvs_record_for(sampler, rvs):
+    """The record describing THESE columns, or None.  See DESIGN_rvs_naming.md.
+
+    THE IDENTITY CHECK IS THE POINT.  A record holds a reference to a column dict that other
+    code replaces in place, so "the sampler has a record" and "the record describes the rows I
+    am holding" are different questions -- the same shape as everything else in this file's
+    history. A record that has fallen out of step is not consulted; the caller falls back to
+    the provenance flags, which are maintained separately and are still correct.
+
+    One lookup rather than the check repeated per consumer, for the reason the reserve lookup
+    was centralised in #87: two copies of a guard drift.
+    """
+    # `samples()` is the public accessor; the getattr guard is for an object that predates the
+    # mixin (an old pickle, a test double), not for the six samplers, all of which have it.
+    _get = getattr(sampler, 'samples', None)
+    rec = _get() if callable(_get) else None
+    if rec is None or getattr(rec, 'columns', None) is not rvs:
+        return None
+    return rec
+
+
+def _sampler_keeps_records(sampler):
+    """Does this sampler populate `_rvs_record` at all?  See DESIGN_rvs_naming.md.
+
+    A PRODUCER's question, not a consumer's, and deliberately a different function from
+    `_rvs_record_for`.  The pooling step is about to REPLACE `sampler._rvs`, so asking "does a
+    record describe the rows I hold" is the wrong question there -- it would be answered `None`
+    and the pooled record would silently not be built.  What it needs to know is whether this
+    sampler participates in the record scheme at all.
+
+    Two questions, two names.  That is the entire lesson of this file's last four review rounds.
+    """
+    # PARTICIPATION, not "is one present right now".  Every sampler clears _rvs_record at the
+    # top of integrate(), so a replica that raised leaves None behind while the sampler is still
+    # a full participant -- and keying on presence would silently skip building the pooled
+    # record for it.  Ask whether the sampler implements the scheme at all.
+    return isinstance(sampler, SamplerOutputMixin) or (
+        callable(getattr(sampler, 'samples', None))
+        and callable(getattr(sampler, 'set_samples', None)))
+
+
+def _internal_record_of(sampler):
+    """This pass's record, marked INTERNAL for threading -> RvsRecord or None.
+
+    Replica pooling needs each block's record to derive that block's weights with the right
+    convention.  Marking them internal is the difference between "we had to hand the structure
+    back" and "this is now something consumers may use": set_samples() refuses an internal
+    record, so nothing on this list can reappear from samples().
+    """
+    _get = getattr(sampler, 'samples', None)
+    rec = _get() if callable(_get) else None
+    return rec.as_internal() if rec is not None else None
+
+
+def _rebound_record(sampler, columns):
+    """A copy of the sampler's record whose `.columns` is `columns` -> RvsRecord or None.
+
+    Snapshot/restore installs a COPY of the column dict, so a record still pointing at the
+    original would fail every identity check and silently do nothing.
+    """
+    _get = getattr(sampler, 'samples', None)
+    rec = _get() if callable(_get) else None
+    if rec is None:
+        return None
+    out = rec.snapshot()
+    out.columns = columns
+    return out
+
+
+def _lw_of(rvs, record, use_lnL):
+    """Importance log-weights for `rvs`, preferring a record that describes it.
+
+    ONE resolver, so the two estimators below cannot drift in which source they trust.  A
+    record is used only when its `.columns` IS this dict: `_rvs` is copied and replaced all
+    over this file, and a record describing different columns must not be believed.  Otherwise
+    fall back to the canonical derivation with the stored convention -- the two are verified
+    equivalent by a randomized comparison in test_rvs_record.py, so this is a source choice,
+    not a semantics choice.
+    """
+    if record is not None and getattr(record, 'columns', None) is rvs:
+        return numpy.asarray(record.log_weights(), dtype=float)
+    return numpy.asarray(ln_weights_from_rvs(rvs, use_lnL=_rvs_lnL_convention(use_lnL)),
+                         dtype=float)
+
+
+def _lnZ_of_rvs(rvs, already_pooled=True, use_lnL=None, record=None):
     """log of the evidence implied by an _rvs record.
 
     For a POOLED record the weights already carry their 1/(K n_k) factor, so the estimate is the
@@ -1567,7 +1686,7 @@ def _lnZ_of_rvs(rvs, already_pooled=True, use_lnL=None):
     """
     try:
         try:
-            lw = ln_weights_from_rvs(rvs, use_lnL=_rvs_lnL_convention(use_lnL))
+            lw = _lw_of(rvs, record, use_lnL)
         except Exception:
             return None
         lw = lw[numpy.isfinite(lw)]
@@ -1580,11 +1699,11 @@ def _lnZ_of_rvs(rvs, already_pooled=True, use_lnL=None):
         return None
 
 
-def _kish_neff_of_rvs(rvs, use_lnL=None):
+def _kish_neff_of_rvs(rvs, use_lnL=None, record=None):
     """Kish effective sample size of an _rvs record, or None if the weights are not reconstructible."""
     try:
         try:
-            lw = ln_weights_from_rvs(rvs, use_lnL=_rvs_lnL_convention(use_lnL))
+            lw = _lw_of(rvs, record, use_lnL)
         except Exception:
             return None
         lw = lw[numpy.isfinite(lw)]
@@ -1623,16 +1742,19 @@ def _lnZ_of_reserve_or_rvs(sampler, rvs, reserve=None):
     if isinstance(_res, dict) and 'log_joint_prior' in _res and 'log_joint_s_prior' in _res:
         try:
             # NOT _lnZ_of_rvs: it averages over the rows it is handed, and the reserve is
-            # neither the draw set nor a uniform sample of it.  lnZ_from_reserve restores the
-            # original proposal-draw normalization from n_finite/n_retained; without it a
-            # PORTFOLIO reading is high by ~log(n_retained/n_finite), and the error does NOT
-            # cancel in the gate because the two passes have different finite fractions.
+            # neither the draw set nor a uniform sample of it -- non-finite rows were dropped
+            # and the remainder may have been capped.  lnZ_from_reserve restores the original
+            # proposal-draw normalization from n_finite/n_retained.  Without it a PORTFOLIO
+            # reading is high by ~log(n_retained/n_finite), ~11 nats on a collapsed pass, and
+            # the error does NOT cancel in the gate: the cold and warm passes have different
+            # finite fractions, so it is the difference of two different-sized errors.
             _v = mcsamplerAdaptiveVolume.lnZ_from_reserve(_res)
             if _v is not None and numpy.isfinite(_v):
                 return _v, 'retained'
         except Exception:
             pass
-    return _lnZ_of_rvs(rvs, already_pooled=False), 'fairdraw'
+    return _lnZ_of_rvs(rvs, already_pooled=False,
+                       record=_rvs_record_for(sampler, rvs)), 'fairdraw'
 
 
 def _snapshot_pass_state(sampler, res, var, neff, dict_return, rvs=None):
@@ -1658,6 +1780,14 @@ def _snapshot_pass_state(sampler, res, var, neff, dict_return, rvs=None):
         warm_seed_reserve=getattr(sampler, '_warm_seed_reserve', None),
         rvs_is_fairdraw=bool(getattr(sampler, '_rvs_is_fairdraw', False)),
         rvs_is_pooled=bool(getattr(sampler, '_rvs_is_pooled', False)),
+        # The record too.  A stale one is already declined by _rvs_record_for's identity check,
+        # so this is belt-and-braces -- but "everything describing the pass moves together" is
+        # the invariant, and carving an exception into it is how round 1 happened.
+        # REBOUND to the snapshot's columns.  The record held a reference to the LIVE dict, and
+        # the restore installs a COPY -- so storing it as-is produced a record whose identity
+        # check could never match, i.e. inert rather than belt-and-braces.  Rebinding makes it
+        # describe what is actually put back.
+        rvs_record=_rebound_record(sampler, dict(sampler._rvs) if rvs is None else rvs),
         member_reserves=[getattr(_m, '_warm_seed_reserve', None)
                          for _m in list(getattr(sampler, 'portfolio_realizations', []) or [])],
     )
@@ -1673,6 +1803,8 @@ def _restore_pass_state(sampler, state):
     sampler._warm_seed_reserve = state['warm_seed_reserve']
     sampler._rvs_is_fairdraw = state['rvs_is_fairdraw']
     sampler._rvs_is_pooled = state['rvs_is_pooled']
+    if callable(getattr(sampler, 'set_samples', None)):
+        sampler.set_samples(state.get('rvs_record'))
     _members = list(getattr(sampler, 'portfolio_realizations', []) or [])
     for _m, _r in zip(_members, state.get('member_reserves', [])):
         _m._warm_seed_reserve = _r
@@ -1796,7 +1928,8 @@ def _extract_mc_diag(dd):
     return dd.get('pareto_khat', None), dd.get('sigma_lnZ_block', None), dd.get('n_ESS', None), dd.get('lnZ_ci90', None)
 
 
-def _pool_replica_rvs(rep_rvs, sampler, rep_lnZ=None, already_resampled=False, use_lnL=None):
+def _pool_replica_rvs(rep_rvs, sampler, rep_lnZ=None, already_resampled=False, use_lnL=None,
+                      records=None):
     """Concatenate the replicas' samples into one correctly-weighted set.
 
     Each replica k is an independent importance-sampling estimate with weights w_ki and its own
@@ -1822,6 +1955,12 @@ def _pool_replica_rvs(rep_rvs, sampler, rep_lnZ=None, already_resampled=False, u
     _ar_list = (list(already_resampled)
                 if isinstance(already_resampled, (list, tuple, numpy.ndarray))
                 else None)
+    # PER-REPLICA RECORDS, threaded in so each block's lnZ is derived with ITS OWN convention
+    # instead of one `use_lnL` asserted over the whole set.  These are INTERNAL: they are
+    # plumbing for this function, marked as such, and refused by set_samples() so they cannot
+    # escape through the public samples() accessor.  Having had to pass the structure around is
+    # not a reason for anyone else to reach for it.
+    _rec_list = list(records) if records is not None else None
     # Drop empty records in LOCKSTEP with their metadata.  The filter used to run on rep_rvs
     # alone, so a single empty replica shifted every later block against its own lnZ -- and
     # would now shift it against its own resampled flag too.
@@ -1831,11 +1970,44 @@ def _pool_replica_rvs(rep_rvs, sampler, rep_lnZ=None, already_resampled=False, u
         rep_lnZ = [rep_lnZ[i] for i in _keep if i < len(rep_lnZ)]
     if _ar_list is not None:
         _ar_list = [_ar_list[i] for i in _keep if i < len(_ar_list)]
+    if _rec_list is not None:
+        _rec_list = [_rec_list[i] for i in _keep if i < len(_rec_list)]
+
+    def _block_record(i, r):
+        """The record for block i, but only if it describes THAT block's columns."""
+        if _rec_list is None or i >= len(_rec_list):
+            return None
+        rec = _rec_list[i]
+        return rec if getattr(rec, 'columns', None) is r else None
 
     def _block_resampled(i):
         if _ar_list is not None:
             return bool(_ar_list[i]) if i < len(_ar_list) else False
         return bool(already_resampled)
+
+    def _block_column(k, v):
+        """One block's column for key `k`, in the layout the KEY implies.
+        THE KEY SAYS WHERE THE ROW AXIS IS -- the same rule `_rvs_len` delegates to
+        (rvs_record._column_n_rows), applied to the rows themselves.  A combined parameter is
+        stored (ndim, N) under a TUPLE key, so ravelling it and concatenating on axis 0 turns
+        it into ONE 1-D column of length ndim*sum(N) while the scalar columns have sum(N) rows.
+        Consumers still require (ndim, N) -- the sample exporter unpacks the combined sky column
+        as `samples["latitude"], samples["longitude"] = samples[("declination",
+        "right_ascension")]` -- so --mc-error-replicas produced a malformed record and could
+        abort the export.  Per-row columns keep the flatten they always had.
+        """
+        v = numpy.asarray(v)
+        return numpy.atleast_2d(v) if isinstance(k, tuple) else numpy.atleast_1d(v).ravel()
+
+    def _empty_column(k):
+        """No block contributed any rows -- an empty column that still has the key's LAYOUT.
+        Handing back a bare `array([])` for a tuple key would fail to unpack in the exporter
+        for the shape reason above rather than for the real one (there are no samples).
+        """
+        if not isinstance(k, tuple):
+            return numpy.array([])
+        ndim = _block_column(k, sampler.identity_convert(rep_rvs[0][k])).shape[0]
+        return numpy.empty((ndim, 0))
 
     if len(rep_rvs) <= 1:
         return rep_rvs[0] if rep_rvs else {}
@@ -1879,7 +2051,8 @@ def _pool_replica_rvs(rep_rvs, sampler, rep_lnZ=None, already_resampled=False, u
                 scale = 0.0
             elif rep_lnZ is not None and _i < len(rep_lnZ) and numpy.isfinite(rep_lnZ[_i]):
                 # target: this block's weights sum to Z_k/K
-                _cur = _lnZ_of_rvs(r, already_pooled=True, use_lnL=_lnL_here)
+                _cur = _lnZ_of_rvs(r, already_pooled=True, use_lnL=_lnL_here,
+                                   record=_block_record(_i, r))
                 if _cur is None or not numpy.isfinite(_cur):
                     scale = numpy.log(float(K) * float(n_k))
                 else:
@@ -1894,7 +2067,7 @@ def _pool_replica_rvs(rep_rvs, sampler, rep_lnZ=None, already_resampled=False, u
                     sampler.identity_convert(r['log_joint_prior']), dtype=float)).ravel()
                 _forced = _li + _lp - _target_lw
             for k in keys:
-                v = numpy.atleast_1d(numpy.asarray(sampler.identity_convert(r[k]))).ravel()
+                v = _block_column(k, sampler.identity_convert(r[k]))
                 if _flat_block and log_key is not None and k == log_key:
                     v = _forced
                 elif _flat_block and lin_key is not None and k == lin_key:
@@ -1928,7 +2101,10 @@ def _pool_replica_rvs(rep_rvs, sampler, rep_lnZ=None, already_resampled=False, u
                     v = v * numpy.exp(scale)
                 cols[k].append(v)
         for k in keys:
-            out[k] = numpy.concatenate(cols[k]) if cols[k] else numpy.array([])
+            # ...and concatenate along THAT row axis: axis 1 for a combined (ndim, N) parameter,
+            # axis 0 for everything else.  One rule, stated in _block_column, applied twice.
+            out[k] = (numpy.concatenate(cols[k], axis=1 if isinstance(k, tuple) else 0)
+                      if cols[k] else _empty_column(k))
         # CACHED WEIGHTS MUST FOLLOW THE COMPONENTS.  _rvs may carry a precomputed 'log_weights'
         # (mcsamplerPortfolio writes one), and the .dgrid and calibration-posterior exporters
         # PREFER it -- they only fall back to log_integrand + log_joint_prior - log_joint_s_prior
@@ -2285,6 +2461,18 @@ def _maybe_replicate_for_mc_error(sampler, res, var, neff, dict_return,
             # ln_weights_for_posterior must read the reconstructed per-row weights.
             sampler._rvs_is_pooled = True
             sampler._rvs_is_fairdraw = any(_rep_fairdraw)
+            # DELIBERATELY record-less, and this line is why it is deliberate.  The main
+            # driver builds an _RvsRecord.pooled() here from per-replica records; the LISA
+            # replica path does not collect them, so there is nothing honest to publish and
+            # the weight route falls back to the flags above.  That fallback is correct --
+            # but WITHOUT this line it would be correct only by accident: the record left on
+            # the sampler describes the pre-pool columns, and it is declined solely because
+            # `sampler._rvs` is about to become a different dict and _rvs_record_for compares
+            # by IDENTITY.  Anything that later made the pooled dict reuse an input dict, or
+            # added a samples() consumer here, would silently start reading a per-pass record
+            # as if it described the mixture.  Clear it, so the absence is a statement.
+            if _sampler_keeps_records(sampler):
+                sampler.set_samples(None)
         # Did pooling FLATTEN any block?  That, not "is the record resampled", is what makes
         # the pooled Kish n_eff meaningless below -- a flattened block's rows carry its export
         # size rather than its integration quality.

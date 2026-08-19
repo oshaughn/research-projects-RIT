@@ -30,19 +30,78 @@ import os
 import textwrap
 
 import numpy as np
+from RIFT.integrators.rvs_record import SamplerOutputMixin as _SamplerOutputMixin
 import pytest
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _LISA = os.path.join(_HERE, '..', 'bin', 'integrate_likelihood_extrinsic_batchmode_lisa')
 _MAIN = os.path.join(_HERE, '..', 'bin', 'integrate_likelihood_extrinsic_batchmode')
 
-HELPERS = ['_rvs_lnL_convention', 'ln_weights_from_rvs', '_rvs_len', '_lnZ_of_rvs',
+# The record accessors are REQUIRED here even though no test calls them directly:
+# _lnZ_of_rvs / _kish_neff_of_rvs resolve their weights through _lw_of.  Leaving one out
+# does NOT raise -- _lnZ_of_rvs catches broadly and returns None, so a NameError becomes
+# "no evidence for this block" and the pooled weights silently collapse to 1/K.  That is
+# an assertion failure three layers away from its cause; see the guard in H() below.
+HELPERS = ['_rvs_lnL_convention', 'ln_weights_from_rvs', '_rvs_len',
+           '_rvs_record_for', '_sampler_keeps_records', '_internal_record_of',
+           '_rebound_record', '_lw_of', '_lnZ_of_rvs',
            '_kish_neff_of_rvs', '_extract_mc_diag', '_pool_replica_rvs']
 
 
 def _src(path):
     with open(path) as fh:
         return fh.read()
+
+
+def _driver_def_names(path):
+    """Every top-level name the driver BINDS: functions and imports alike.
+
+    Imports are in here because of a real miss: the guard originally covered only defs, so
+    `SamplerOutputMixin` -- imported by the driver, referenced by _sampler_keeps_records --
+    slipped straight through it and surfaced as a NameError inside an exec'd helper.
+    """
+    with open(path) as fh:          # read directly: _src() differs between these harnesses
+        src = fh.read()
+    names = set()
+    for n in ast.parse(src).body:
+        if isinstance(n, ast.FunctionDef):
+            names.add(n.name)
+        elif isinstance(n, (ast.Import, ast.ImportFrom)):
+            for a in n.names:
+                if a.name != '*':
+                    names.add(a.asname or a.name.split('.')[0])
+    return names
+
+
+def _assert_helper_set_is_closed(ns, names, path=_LISA):
+    """Fail LOUDLY if an exec'd helper calls a driver helper that was not exec'd with it.
+
+    Without this, a name missing from the list above is not a NameError anyone sees:
+    _lnZ_of_rvs catches broadly and returns None, so the omission reads as "this block
+    has no evidence" and the pooled weights collapse to 1/K.  The test then fails on a
+    weight assertion far from the cause.  Checked against the DRIVER's own def names, so
+    ordinary attribute names and locals cannot trip it.
+    """
+    driver = _driver_def_names(path)
+    missing = {}
+    for name in names:
+        fn = ns.get(name)
+        code = getattr(fn, "__code__", None)
+        if code is None:
+            continue
+        stack, seen = [code], set()
+        while stack:
+            c = stack.pop()
+            if id(c) in seen:
+                continue
+            seen.add(id(c))
+            for used in c.co_names:
+                if used in driver and used not in ns:
+                    missing.setdefault(name, set()).add(used)
+            stack.extend(k for k in c.co_consts if hasattr(k, "co_names"))
+    assert not missing, (
+        "exec'd helper set is not closed -- add these to the name list:\n  "
+        + "\n  ".join("%s needs %s" % (k, sorted(v)) for k, v in sorted(missing.items())))
 
 
 def _defs(path, names):
@@ -57,8 +116,9 @@ def _defs(path, names):
 def H():
     defs = _defs(_LISA, HELPERS)
     mod = ast.Module(body=[defs[n] for n in HELPERS], type_ignores=[])
-    ns = {"numpy": np, "np": np}
+    ns = {"numpy": np, "np": np, "SamplerOutputMixin": _SamplerOutputMixin}
     exec(compile(ast.fix_missing_locations(mod), "mcerr", "exec"), ns)
+    _assert_helper_set_is_closed(ns, HELPERS)
     return ns
 
 
@@ -106,6 +166,32 @@ def test_pooled_record_concatenates_every_replica(H):
     reps = [_rec([0.0] * 3), _rec([0.0] * 4)]
     out = H['_pool_replica_rvs'](reps, _S(), rep_lnZ=[0.0, 0.0])
     assert H['_rvs_len'](out) == 7, "pooling dropped or duplicated rows"
+
+
+def test_pooling_preserves_the_layout_of_a_combined_parameter(H):
+    """A combined parameter is stored (ndim, N) under a TUPLE key: the row axis is the SECOND.
+
+    Ravelling every column and concatenating on axis 0 made it a 1-D column of ndim*sum(N)
+    values while the scalar columns had sum(N) rows, and this driver's exporter unpacks it --
+    `samples["latitude"], samples["longitude"] = samples[("declination", "right_ascension")]`
+    -- so a pooled record could not be written out.  The main driver carries the same fix; a
+    layout rule that holds in only one of the two forks is how this fork rots.
+    """
+    sky = ("declination", "right_ascension")
+    reps = []
+    for n in (3, 4):
+        r = _rec([0.0] * n)
+        r[sky] = np.vstack([np.linspace(-1.0, 1.0, n), np.linspace(0.0, 6.0, n)])
+        reps.append(r)
+
+    out = H['_pool_replica_rvs'](reps, _S(), rep_lnZ=[0.0, 0.0])
+    assert out[sky].shape == (2, 7), (
+        "combined parameter pooled to shape {} rather than (ndim, sum(N))".format(
+            out[sky].shape))
+    assert H['_rvs_len'](out) == 7, "combined column disagrees with the scalar columns"
+    lat, lon = out[sky]                      # the exporter's unpack, on the pooled record
+    assert np.allclose(lat, np.concatenate([reps[0][sky][0], reps[1][sky][0]]))
+    assert np.allclose(lon, np.concatenate([reps[0][sky][1], reps[1][sky][1]]))
 
 
 def test_each_block_contributes_its_own_evidence_over_K(H):
@@ -313,7 +399,9 @@ def test_ported_helper_is_identical_to_the_main_driver(name):
 # Substring and AST-name checks cannot see any of that.  So: execute the helper.
 # ==========================================================================================
 
-ORCH = ['_rvs_lnL_convention', 'ln_weights_from_rvs', '_rvs_len', '_lnZ_of_rvs',
+ORCH = ['_rvs_lnL_convention', 'ln_weights_from_rvs', '_rvs_len',
+        '_rvs_record_for', '_sampler_keeps_records', '_internal_record_of',
+        '_rebound_record', '_lw_of', '_lnZ_of_rvs',
         '_kish_neff_of_rvs', '_extract_mc_diag', '_pool_replica_rvs',
         '_maybe_save_av_state', '_reject_if_collapsed', '_report_and_gate_collapse',
         '_maybe_replicate_for_mc_error']
@@ -360,10 +448,11 @@ def _load_orch(**optkw):
     base.update(optkw)
     defs = _defs(_LISA, ORCH)
     mod = ast.Module(body=[defs[n] for n in ORCH], type_ignores=[])
-    ns = {"numpy": np, "np": np, "mcsamplerAdaptiveVolume": _AVmod,
+    ns = {"numpy": np, "np": np, "SamplerOutputMixin": _SamplerOutputMixin, "mcsamplerAdaptiveVolume": _AVmod,
           "mcsampler_AV_ok": True, "rvs_integrand_is_lnL": False,
           "opts": type("O", (), base)()}
     exec(compile(ast.fix_missing_locations(mod), "orch", "exec"), ns)
+    _assert_helper_set_is_closed(ns, ORCH)
     return ns
 
 
@@ -391,6 +480,48 @@ def test_sigma_trigger_runs_replicas_and_pools_them():
     assert s._rvs_is_pooled is True, "the pooled marker was not set"
     assert _rvs_len(s._rvs) == 12, "the pooled record is not the concatenation"
     assert out[2] > 0
+
+
+class _RecordingRepSampler(_RepSampler):
+    """A _RepSampler that PARTICIPATES in the record scheme (samples/set_samples)."""
+
+    def __init__(self, *a, **kw):
+        _RepSampler.__init__(self, *a, **kw)
+        self._rvs_record = None
+
+    def samples(self):
+        return self._rvs_record
+
+    def set_samples(self, record):
+        self._rvs_record = record
+        return record
+
+
+def test_pooling_clears_a_stale_record_on_a_record_keeping_sampler():
+    """The LISA replica path publishes NO pooled record, so it must publish none at all.
+
+    The main driver builds an _RvsRecord.pooled() here; this driver does not collect the
+    per-replica records to build one from, so the weight route falls back to the flags.
+    That fallback is correct -- but the record left on the sampler describes the PRE-POOL
+    columns, and it is otherwise declined only because _rvs_record_for compares by
+    identity and `_rvs` happens to become a new dict.  Reading a per-pass record as if it
+    described the mixture would mix the replicas by row count instead of by evidence,
+    which is the exact defect the pooled weights exist to prevent.
+    """
+    ns = _load_orch(mc_error_replicas=2, mc_error_sigma_trigger=0.1)
+    s = _RecordingRepSampler(_rec([0.0] * 4), [
+        (1.0, 1.0, 5.0, {}, _rec([0.0] * 4), False),
+        (1.0, 1.0, 5.0, {}, _rec([0.0] * 4), False)])
+
+    class _StaleRecord(object):
+        internal = False
+        columns = s._rvs                      # describes the PRE-POOL columns
+    s.set_samples(_StaleRecord())
+
+    _run_orch(ns, s, {}, sigma=5.0)
+    assert s._rvs_is_pooled is True, "precondition: this test only means anything if it pooled"
+    assert s.samples() is None, \
+        "a pre-pool record survived the pooling step: it would be read as the mixture"
 
 
 def _rvs_len(rec):
@@ -482,6 +613,8 @@ def test_disagreeing_replicas_report_less_than_the_sum():
 # ==========================================================================================
 
 EXPORT = ['_rvs_lnL_convention', 'ln_weights_from_rvs', '_rvs_len', '_rvs_is_equal_weight',
+          '_rvs_record_for', '_sampler_keeps_records', '_internal_record_of',
+          '_rebound_record', '_lw_of',
           'ln_weights_for_posterior', '_export_rvs_equal_weight']
 
 
@@ -489,8 +622,9 @@ EXPORT = ['_rvs_lnL_convention', 'ln_weights_from_rvs', '_rvs_len', '_rvs_is_equ
 def EW():
     defs = _defs(_LISA, EXPORT)
     mod = ast.Module(body=[defs[n] for n in EXPORT], type_ignores=[])
-    ns = {"numpy": np, "np": np}
+    ns = {"numpy": np, "np": np, "SamplerOutputMixin": _SamplerOutputMixin}
     exec(compile(ast.fix_missing_locations(mod), "export", "exec"), ns)
+    _assert_helper_set_is_closed(ns, EXPORT)
     return ns
 
 

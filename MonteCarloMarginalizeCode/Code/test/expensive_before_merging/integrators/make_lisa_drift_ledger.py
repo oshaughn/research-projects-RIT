@@ -81,6 +81,23 @@ RULES = [
      "set on the next event. Note this is also the ATTR category's blind spot: a name "
      "read anywhere counts as present, so reader-ported/writer-missing looks closed."),
 
+    # ---------------------------------------------------------------------- the _rvs record
+    # PORT decision, not NA: these are PREREQUISITES of helpers already marked PORTED.
+    # ln_weights_for_posterior / _snapshot_pass_state / _restore_pass_state call them by
+    # name, so leaving them out of the LISA driver does not keep the fork simpler -- it
+    # breaks the ported copies outright.  The INTEGRATORS are shared between the two
+    # drivers, so the samplers already carry SamplerOutputMixin and populate a record;
+    # only the driver-side accessors had to come across.
+    (r"^FUNC:(_rvs_record_for|_sampler_keeps_records)$", "PORTED",
+     "Driver-side accessors for the sampler's RvsRecord: the identity-guarded lookup, "
+     "and the 'does this backend keep records at all' test. Prerequisites of the "
+     "already-PORTED ln_weights_for_posterior and the pass-state snapshot/restore."),
+    (r"^FUNC:(_internal_record_of|_rebound_record|_lw_of)$", "PORTED",
+     "The rest of the record accessor set: the INTERNAL record (handed back only so the "
+     "driver can thread it, never as user-facing API), the post-rebind rebuild, and the "
+     "weight helper. Ported as a SET with the above -- the callers reference them "
+     "directly, so a partial port is a NameError at runtime, not a smaller fork."),
+
     # ---------------------------------------------------------------------- lnZ / n_eff
     (r"^FUNC:_lnZ_of_rvs$", "PORTED",
      "Evidence of an _rvs record with the already_pooled/fairdraw correction. Landed "
@@ -157,7 +174,7 @@ RULES = [
      "run's own weights; nothing detector-specific. Valuable for LISA for the same "
      "reason as for high-SNR ground events: the reported sigma is the thing downstream "
      "CIP trusts."),
-    (r"^FUNC:_pool_replica_rvs(\._block_resampled)?$", "PORTED",
+    (r"^FUNC:_pool_replica_rvs(\._block_resampled|\._block_record)?$", "PORTED",
      "Pools replica records by evidence, verbatim -- including the PER-REPLICA "
      "already_resampled sequence (Finding 6). A single global boolean is wrong near the "
      "n_extr boundary, where a run produces a MIXTURE of raw and resampled replicas."),

@@ -481,7 +481,8 @@ jobs:
             MonteCarloMarginalizeCode/Code/test/test_l0_rescue_seed.py \
             MonteCarloMarginalizeCode/Code/test/test_seq_warmstart_seed.py \
             MonteCarloMarginalizeCode/Code/test/test_fairdraw_double_weighting.py \
-            MonteCarloMarginalizeCode/Code/test/test_portfolio_fairdraw_backend.py
+            MonteCarloMarginalizeCode/Code/test/test_portfolio_fairdraw_backend.py \
+            MonteCarloMarginalizeCode/Code/test/test_rvs_record.py
       - name: Audit _rvs consumers against the fair-draw rebind
         # sampler._rvs is rebound to an EXPORT resample at the end of integrate_log, and five
         # separate defects have come from a consumer reading it afterwards as though it were
@@ -491,6 +492,15 @@ jobs:
         # whoever happens to edit the surrounding code.
         run: |
           python MonteCarloMarginalizeCode/Code/test/expensive_before_merging/integrators/audit_rvs_fairdraw.py --check
+      - name: Audit sampler backend contracts
+        # (DESIGN_rvs_naming.md)  The backends are structurally different in ways
+        # nothing states -- _rvs['integrand'] holds lnL on three of them, linear L on two, and
+        # EITHER on mcsamplerEnsemble depending on a kwarg -- and a consumer that guesses wrong
+        # gets a plausible number rather than an error.  This does not forbid the differences;
+        # it fails when one CHANGES without the recorded table changing with it, so the next
+        # developer meets a diff instead of a landmine.
+        run: |
+          python MonteCarloMarginalizeCode/Code/test/expensive_before_merging/integrators/audit_backend_contracts.py --check
       - name: Run test scripts
         run: |
           . .travis/test-coord.sh

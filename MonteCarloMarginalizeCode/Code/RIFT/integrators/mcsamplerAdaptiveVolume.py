@@ -12,6 +12,7 @@ from collections import defaultdict
 import numpy
 np=numpy #import numpy as np
 from RIFT.precision import RiftFloat  # platform-portable replacement for np.float128
+from RIFT.integrators.rvs_record import RvsRecord, SamplerOutputMixin   # see DESIGN_rvs_naming.md
 from scipy import integrate, interpolate, special
 import itertools
 import functools
@@ -672,7 +673,7 @@ def sample_from_bins(xrange, dx, bu, ninbin, reject_out_of_range=False):
         return x
 
 
-class MCSampler(object):
+class MCSampler(SamplerOutputMixin, object):
     # COMPACT SUPPORT: this sampler's density is EXACTLY ZERO outside its contracted live volume,
     # so once seeded or contracted it cannot serve as the mixture's coverage guarantee.
     # mcsamplerPortfolio reads this to decide whether it must hold one member cold.
@@ -1602,6 +1603,9 @@ class MCSampler(object):
         # flag is not the same predicate, since the draw is skipped when it would not
         # shrink the record.  Reset per pass: samplers are reused across events.
         self._rvs_is_fairdraw = False
+        # The record describes THIS pass only.  Cleared with the flag above and set
+        # below, so it can never survive into a pass it does not describe.
+        self._rvs_record = None
         n_extr = kwargs["igrand_fairdraw_samples_max"] if "igrand_fairdraw_samples_max" in kwargs else None
 
         bShowEvaluationLog = kwargs['verbose'] if 'verbose' in kwargs else False
@@ -1951,6 +1955,13 @@ class MCSampler(object):
 #        rel_var = np.exp(outvals[1]/2  - outvals[0]  - np.log(self.ntotal)/2 )
 
         # Do a fair draw of points, if option is set. CAST POINTS BACK TO NUMPY, IDEALLY
+        # (DESIGN_rvs_naming.md) _rvs is the RETAINED set at this point -- pruned,
+        # perhaps, but never resampled.  Record that before the draw below can change what it
+        # means, so "not resampled" is a statement the record makes rather than the absence of
+        # one.  The reserve rides along BY REFERENCE where the sampler keeps one (AV and the
+        # portfolio); None elsewhere is the honest answer, not a gap.
+        self._rvs_record = RvsRecord.retained(
+            self._rvs, reserve=getattr(self, '_warm_seed_reserve', None))
         if bFairdraw and not(n_extr is None):
            n_extr = int(numpy.min([n_extr,1.5*identity_convert(eff_samp),1.5*neff]))
            print(" Fairdraw size : ", n_extr)
@@ -1977,9 +1988,21 @@ class MCSampler(object):
                        self._rvs[key] = arr[:,indx_host]
                    else:
                        self._rvs[key] = arr[indx_host]
-
-
+               # (see DESIGN_rvs_naming.md) the same rows, under a name that says what
+               # they are, carrying their own provenance.  Written HERE because this is the
+               # moment the meaning of _rvs changes -- from the retained set to an export
+               # resample -- and the whole point is that the change of meaning is recorded
+               # where it happens rather than reconstructed later from a flag someone else
+               # has to maintain.  NOTHING READS THIS YET; it is a no-op on every output.
                self._rvs_is_fairdraw = True   # _rvs is now an EXPORT resample, rows already ~ w
+               # ...and now it is an export resample.  n_retained comes from that record's
+                # PROVENANCE, which captured the count eagerly -- NOT from len(), which reads
+                # self._rvs and would return the POST-draw length: the retained record holds a
+                # REFERENCE to the live dict this block has just replaced in place.  That is
+                # this project's own bug class, so it is spelled out rather than assumed.
+               self._rvs_record = RvsRecord.fair_draw(
+                   self._rvs, n_retained=self._rvs_record.n_retained(),
+                   reserve=getattr(self, '_warm_seed_reserve', None))
         # perform type conversion of all stored variables.  VERY LARGE -- should only do this if we need it!
         if cupy_ok:
           for name in self._rvs:
