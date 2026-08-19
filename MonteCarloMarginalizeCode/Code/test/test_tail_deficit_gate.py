@@ -159,9 +159,27 @@ def test_cli_end_to_end_synthetic(tmp_path, deficit, expect):
     assert expect.split("-")[0] in r.stderr or expect in r.stderr
 
 
+def test_cli_multi_rep_mean_decides(tmp_path):
+    """With several detect-rep posteriors the gate must decide on the MEAN R, and the json
+    must record the per-rep values."""
+    train, post_conf = _synthetic(tmp_path, "severe")       # confined posterior: R ~ 0
+    _, post_wide = _synthetic(tmp_path, "healthy")          # prior-wide posterior: R ~ 1
+    # one confined + two wide: mean R lands well above the threshold -> NO-FIRE,
+    # even though the confined rep alone would FIRE
+    r = subprocess.run([sys.executable, _GATE, str(train), str(post_conf), str(post_wide),
+                        str(post_wide), "--json", str(tmp_path / "m.json")],
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.strip().splitlines()[-1].startswith("GATE DECISION=NO-FIRE ")
+    rec = json.load(open(tmp_path / "m.json"))
+    assert rec["n_reps"] == 3 and len(rec["R_per_rep"]) == 3
+    assert rec["R_per_rep"][0] < gate.THRESHOLD < rec["R"]
+    assert "deciding on the mean" in r.stderr
+
+
 def test_wrapper_gates_and_falls_back(tmp_path):
-    """Wrapper e2e with both hooks faked: FIRE path swaps --fname to the thinned set for the
-    FINAL pass only; a broken gate falls back to the original file loudly."""
+    """Wrapper e2e with both hooks faked (2 detect reps): FIRE path swaps --fname to the
+    thinned set for the FINAL pass only; a broken gate falls back to the original loudly."""
     wrapper = os.path.abspath(os.path.join(_BIN, "util_CIPCompositionReweightWrapper.sh"))
     train, post = _synthetic(tmp_path, "severe")
     fake_cip = tmp_path / "fake_cip.sh"
@@ -185,7 +203,7 @@ def test_wrapper_gates_and_falls_back(tmp_path):
     pybin.mkdir()
     (pybin / "python3").symlink_to(sys.executable)
     env = dict(os.environ, CIP_REWEIGHT_REAL_CIP=str(fake_cip),
-               CIP_REWEIGHT_CONVERT=str(fake_conv),
+               CIP_REWEIGHT_CONVERT=str(fake_conv), CIP_REWEIGHT_GATE_REPS="2",
                PATH=str(pybin) + os.pathsep + _BIN + os.pathsep + os.environ.get("PATH", ""))
     r = subprocess.run(["bash", wrapper, "--fname", str(train),
                         "--fname-output-samples", str(tmp_path / "final"),

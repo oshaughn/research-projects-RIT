@@ -19,7 +19,10 @@
 #                      verbatim, and the decision (with R and which condition decided it)
 #                      is logged LOUDLY on stderr -- a no-op is always visible in the log.
 #
-# COST: one extra CIP per invocation when enabled (pass 1).  CIP is the cheap CPU stage.
+# COST: CIP_REWEIGHT_GATE_REPS extra CIP passes per invocation when enabled (default 5).
+# CIP is the cheap CPU stage.  Why N>1: single-rep R noise is shot-dominated (measured
+# sigma ~0.02-0.03 at 20k samples on mid-band events) against a healthy-control margin of
+# ~0.06 to the threshold; deciding on the mean of N reps shrinks sigma by 1/sqrt(N).
 #
 # SCOPE (measured; details in the gate tool's docstring): repairs SEVERE deficits only
 # (~half the affected low-mass events); mild deficit and healthy width are not separable in
@@ -39,6 +42,8 @@ GATE=$(command -v util_CIPTailDeficitGate.py || true)
 CONVERT="${CIP_REWEIGHT_CONVERT:-$(command -v convert_output_format_ile2inference || true)}"
 CIP_EXE="${CIP_REWEIGHT_REAL_CIP:-$(command -v util_ConstructIntrinsicPosterior_GenericCoordinates.py || true)}"
 GATE_MIN_EXPORT=20000
+GATE_REPS="${CIP_REWEIGHT_GATE_REPS:-5}"
+[[ "$GATE_REPS" =~ ^[0-9]+$ ]] && ((GATE_REPS >= 1)) || GATE_REPS=5
 TAGP="util_CIPCompositionReweightWrapper"
 
 if [[ -z "$CIP_EXE" ]]; then
@@ -86,46 +91,56 @@ fi
 
 dir=$(dirname "$fname")
 tag="$(date +%Y%m%d%H%M%S)_p$$"
-p1base="$dir/gatepass1_${tag}"
-p1dat="$dir/gatepass1_${tag}.dat"
 gatejson="$dir/gate_decision_${tag}.json"
 comp="$dir/all_comp_${tag}.net"
-cleanup() { rm -f "$p1base".xml.gz "$p1base"_intg* "$p1dat" "$comp"; }
+cleanup() { rm -f "$dir/gatepass1_${tag}"_r*.xml.gz "$dir/gatepass1_${tag}"_r*_intg* \
+                  "$dir/gatepass1_${tag}"_r*.dat "$comp"; }
 trap cleanup EXIT
 
-# --- pass 1: original training set, export bumped, outputs redirected to temp names ---
-p1=()
-skip=0
-for ((i = 0; i < n; i++)); do
-    if ((skip)); then skip=0; continue; fi
-    a="${args[$i]}"
-    case "$a" in
-        --fname-output-samples=*)  p1+=("--fname-output-samples=$p1base") ;;
-        --fname-output-samples)    p1+=("--fname-output-samples" "$p1base"); skip=1 ;;
-        --fname-output-integral=*) p1+=("--fname-output-integral=${p1base}_intg") ;;
-        --fname-output-integral)   p1+=("--fname-output-integral" "${p1base}_intg"); skip=1 ;;
-        --n-output-samples=*)      nv="${a#--n-output-samples=}"
-                                   ((nv < GATE_MIN_EXPORT)) && nv=$GATE_MIN_EXPORT
-                                   p1+=("--n-output-samples=$nv") ;;
-        --n-output-samples)        nv="${args[$((i + 1))]}"
-                                   ((nv < GATE_MIN_EXPORT)) && nv=$GATE_MIN_EXPORT
-                                   p1+=("--n-output-samples" "$nv"); skip=1 ;;
-        *)                         p1+=("$a") ;;
-    esac
+# --- detect passes: original training set, export bumped, temp outputs, GATE_REPS times ---
+p1dats=()
+for ((rep = 1; rep <= GATE_REPS; rep++)); do
+    p1base="$dir/gatepass1_${tag}_r${rep}"
+    p1=()
+    skip=0
+    for ((i = 0; i < n; i++)); do
+        if ((skip)); then skip=0; continue; fi
+        a="${args[$i]}"
+        case "$a" in
+            --fname-output-samples=*)  p1+=("--fname-output-samples=$p1base") ;;
+            --fname-output-samples)    p1+=("--fname-output-samples" "$p1base"); skip=1 ;;
+            --fname-output-integral=*) p1+=("--fname-output-integral=${p1base}_intg") ;;
+            --fname-output-integral)   p1+=("--fname-output-integral" "${p1base}_intg"); skip=1 ;;
+            --n-output-samples=*)      nv="${a#--n-output-samples=}"
+                                       ((nv < GATE_MIN_EXPORT)) && nv=$GATE_MIN_EXPORT
+                                       p1+=("--n-output-samples=$nv") ;;
+            --n-output-samples)        nv="${args[$((i + 1))]}"
+                                       ((nv < GATE_MIN_EXPORT)) && nv=$GATE_MIN_EXPORT
+                                       p1+=("--n-output-samples" "$nv"); skip=1 ;;
+            *)                         p1+=("$a") ;;
+        esac
+    done
+    echo "$TAGP: detect pass $rep/$GATE_REPS (gate-quality CIP on the ORIGINAL training set)" >&2
+    if ! "$CIP_EXE" "${p1[@]}" 1>&2 || [[ ! -s "$p1base.xml.gz" ]]; then
+        echo "$TAGP: WARNING: detect pass $rep FAILED; continuing with the other reps" >&2
+        continue
+    fi
+    if ! "$CONVERT" "$p1base.xml.gz" > "$p1base.dat" 2>/dev/null || [[ ! -s "$p1base.dat" ]]; then
+        echo "$TAGP: WARNING: detect pass $rep conversion FAILED; continuing" >&2
+        continue
+    fi
+    p1dats+=("$p1base.dat")
 done
-
-echo "$TAGP: pass 1 (gate-quality CIP on the ORIGINAL training set, temp outputs)" >&2
-if ! "$CIP_EXE" "${p1[@]}" 1>&2 || [[ ! -s "$p1base.xml.gz" ]]; then
-    loud "pass-1 CIP FAILED; falling back: final CIP on the ORIGINAL training set"
+if ((${#p1dats[@]} == 0)); then
+    loud "ALL detect passes FAILED; falling back: final CIP on the ORIGINAL training set"
     run_original
 fi
-if ! "$CONVERT" "$p1base.xml.gz" > "$p1dat" 2>/dev/null || [[ ! -s "$p1dat" ]]; then
-    loud "pass-1 sample conversion FAILED; falling back: final CIP on the ORIGINAL training set"
-    run_original
+if ((${#p1dats[@]} < GATE_REPS)); then
+    echo "$TAGP: WARNING: deciding on ${#p1dats[@]}/$GATE_REPS detect reps (noise is larger)" >&2
 fi
 
-# --- gate ---
-decision_line=$("$GATE" "$fname" "$p1dat" --json "$gatejson" | tail -1)
+# --- gate: one decision on the MEAN R over the detect reps ---
+decision_line=$("$GATE" "$fname" "${p1dats[@]}" --json "$gatejson" | tail -1)
 if [[ "$decision_line" != GATE\ DECISION=* ]]; then
     loud "gate tool FAILED to evaluate; falling back: final CIP on the ORIGINAL training set"
     run_original

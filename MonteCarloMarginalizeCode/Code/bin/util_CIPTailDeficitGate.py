@@ -92,7 +92,9 @@ def load_posterior_cp(path):
     return cp[np.isfinite(cp)]
 
 
-def compute_R(train_path, post_path, chi_max=CHI_MAX):
+def compute_R(train_path, post_paths, chi_max=CHI_MAX):
+    if isinstance(post_paths, str):
+        post_paths = [post_paths]
     a = np.loadtxt(train_path, ndmin=2)
     if a.shape[1] <= LNL_COL:
         raise ValueError(f"training file has {a.shape[1]} cols, need lnL at 0-based col {LNL_COL}")
@@ -118,13 +120,21 @@ def compute_R(train_path, post_path, chi_max=CHI_MAX):
         imp_tot += float(ib.mean()) * meanL
         imp_tail += float((ib & (cpp > b)).mean()) * meanL
     implied = imp_tail / imp_tot if imp_tot > 0 else float("nan")
-    cpo = load_posterior_cp(post_path)
-    if len(cpo) < MIN_POST:
-        raise ValueError(f"only {len(cpo)} posterior samples (< {MIN_POST})")
-    delivered = float(np.mean(cpo > b))
+    dl, np_list = [], []
+    for pp in post_paths:
+        cpo = load_posterior_cp(pp)
+        if len(cpo) < MIN_POST:
+            raise ValueError(f"{pp}: only {len(cpo)} posterior samples (< {MIN_POST})")
+        dl.append(float(np.mean(cpo > b)))
+        np_list.append(int(len(cpo)))
+    delivered = float(np.mean(dl))              # equal-weight mean over detect reps
     R = delivered / implied if implied > 0 else float("nan")
+    R_reps = [d / implied if implied > 0 else float("nan") for d in dl]
+    # floor uses the MIN per-rep sample count: conservative, and unchanged for N=1
     return dict(boundary=b, implied=implied, delivered=delivered, R=R,
-                n_post=int(len(cpo)), n_train=int(len(lnl)))
+                n_post=int(min(np_list)), n_train=int(len(lnl)),
+                n_reps=len(dl), R_per_rep=R_reps,
+                R_rep_sd=float(np.std(R_reps, ddof=1)) if len(dl) > 1 else float("nan"))
 
 
 def main():
@@ -136,8 +146,12 @@ def main():
                     "is mandatory and has no disable option: without it the detector returns "
                     "maximum deficit exactly where it can resolve nothing.")
     ap.add_argument("training", help="composite/all.net (col 9 = lnL)")
-    ap.add_argument("posterior", help="CIP posterior samples .dat produced from that training set "
-                                      "(header with a1x a1y columns)")
+    ap.add_argument("posterior", nargs="+",
+                    help="CIP posterior samples .dat produced from that training set (header "
+                         "with a1x a1y columns).  Give SEVERAL independent detect-pass "
+                         "posteriors to decide on the MEAN R: single-rep R noise is "
+                         "shot-dominated (~0.02 at 20k samples on mid-band events, measured), "
+                         "so N reps shrink it by 1/sqrt(N).")
     ap.add_argument("--threshold", type=float, default=THRESHOLD,
                     help="R below this (and above the validity floor) fires; default %(default)s, "
                          "calibrated in the DEPLOYMENT channel (fresh-CIP posterior); changing "
@@ -155,6 +169,10 @@ def main():
         sys.exit(2)
     try:
         r = compute_R(args.training, args.posterior, chi_max=args.chi_max)
+        if r["n_reps"] > 1:
+            sys.stderr.write(f"util_CIPTailDeficitGate: {r['n_reps']} detect reps: R per rep = "
+                             + " ".join(f"{x:.4f}" for x in r["R_per_rep"])
+                             + f"  (sd {r['R_rep_sd']:.4f}; deciding on the mean)\n")
     except Exception as e:
         sys.stderr.write(f"util_CIPTailDeficitGate: cannot evaluate: {type(e).__name__}: {e}\n")
         sys.exit(2)

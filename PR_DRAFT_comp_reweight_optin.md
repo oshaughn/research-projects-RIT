@@ -42,13 +42,15 @@ logged no-op.
 
 ## The wrapper (`util_CIPCompositionReweightWrapper.sh`, drop-in `--cip-exe`)
 
-Detect -> repair, two CIP passes: pass 1 runs the REAL CIP on the ORIGINAL data (exports
-bumped to >= 20000, temp outputs; real output paths untouched); the gate reads pass 1; the
-final CIP runs the original argv verbatim, with `--fname` swapped to the thinned set only on
-a FIRE. Every no-op is logged with the R value and the deciding condition. Fail-safe
-throughout: any tool failure -> final CIP on the original argv, loudly. Costs one extra CIP
-per invocation when enabled. RandomizeOverlapOrder-style modularity: nothing in CIP or the
-merge step changes; flag-off is byte-identical to today.
+Detect -> repair: N detect passes (default N=5, `CIP_REWEIGHT_GATE_REPS`) run the REAL CIP
+on the ORIGINAL data (exports bumped to >= 20000, temp outputs; real output paths
+untouched); the gate decides ONCE on the MEAN R over the reps; the final CIP runs the
+original argv verbatim, with `--fname` swapped to the thinned set only on a FIRE. Every
+no-op is logged with the R value, the per-rep spread, and the deciding condition.
+Fail-safe throughout: any tool failure -> final CIP on the original argv, loudly. Costs N
+extra CIP passes per invocation when enabled (CIP is the cheap CPU stage).
+RandomizeOverlapOrder-style modularity: nothing in CIP or the merge step changes; flag-off
+is byte-identical to today.
 
 Opt in via `util_RIFT_pseudo_pipe.py --internal-cip-composition-reweight` (conflict-guarded
 vs `--internal-use-amr`).
@@ -64,10 +66,18 @@ vs `--internal-use-amr`).
   events (95% bound 3.8%) and on known-truth healthy-narrow toys. The fire side is
   in-sample-validated (12/12 severe-deficit events, 95% miss-rate bound 22.1%) plus the
   causal 13-event paired-CIP repair.
-* Known thin margin: the closest healthy control (S240930aa) reads single-rep R = 0.357 in
-  the live deployment channel, 0.037 above the threshold; per-rep CIP noise means an
-  occasional false fire on events of that type cannot be excluded. The measured worst-case
-  consequence of such a fire is the ungated result on that event (1.54x reference width).
+* Margin, MEASURED (16 independent detect reps on the closest healthy control S240930aa;
+  R_dispersion.json + the live N=5 run in the study record): deployment-channel mean
+  R = 0.371, single-rep sigma = 0.024, and **1 of the 16 single reps actually read below
+  the threshold (0.325)** -- a single-pass gate has an observed ~6%/run false-fire rate on
+  this event class, each fire costing up to the ungated 1.54x corruption. The shipped
+  default N=5 mean-of-reps retires this: effective margin ~4.6 sigma (sem 0.011), and in
+  the live N=5 verification the sub-threshold rep occurred and the mean correctly decided
+  NO-FIRE. Fire side: measured exemplar sigma 0.014 (S240629by, 11 sigma single-rep);
+  the nearest exemplar to the threshold (S241109bn, R = 0.27) keeps ~5 sigma at N=5.
+  The two S240930aa readings quoted earlier (0.386 pooled, 0.357 live) decompose into a
+  REAL channel offset (production 0.457 vs deployment 0.371, -0.086 >> sem) plus this
+  single-rep noise -- both handled: channel-calibrated threshold, averaged decision.
 
 ## Verification
 
