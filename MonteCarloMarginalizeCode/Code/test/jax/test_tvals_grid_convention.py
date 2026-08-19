@@ -40,6 +40,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 _CODE = os.path.abspath(os.path.join(_HERE, os.pardir, os.pardir))
 _BATCHMODE = os.path.join(_CODE, 'bin', 'integrate_likelihood_extrinsic_batchmode')
 _WRAPPER = os.path.join(_CODE, 'RIFT', 'likelihood', 'jax_ile', 'wrapper.py')
+_JAXDRIVER = os.path.join(_CODE, 'bin', 'integrate_likelihood_extrinsic_jax')
 
 # Distinguishes a window grid from the many other linspace/arange calls in these
 # files (distance grids, index ranges, the dense resampling grid).
@@ -150,8 +151,17 @@ def test_all_driver_grid_sites_agree_by_value(srate):
     Before #146 this failed at every one of these rates: differing origin at all
     five, and differing length at 1024, 2048 and 16384.
     """
-    sites = ([('batchmode', l, t) for (l, t) in _grid_call_sites(_BATCHMODE)] +
-             [('wrapper', l, t) for (l, t) in _grid_call_sites(_WRAPPER)])
+    bm = [('batchmode', l, t) for (l, t) in _grid_call_sites(_BATCHMODE)]
+    wr = [('wrapper', l, t) for (l, t) in _grid_call_sites(_WRAPPER)]
+    # Without this, the test degenerates: if one file contributed ZERO sites the loop
+    # below would compare the other file against itself and pass, which is the single
+    # -path-conjunct failure shape this whole file exists to avoid.  It is asserted
+    # here, not only in test_extractor_actually_finds_the_sites, so that THIS test
+    # cannot pass vacuously on its own.
+    assert bm and wr, (
+        "cross-driver comparison needs sites from BOTH files; got %d from batchmode "
+        "and %d from the wrapper" % (len(bm), len(wr)))
+    sites = bm + wr
     ref_tag, ref_line, ref_text = sites[0]
     ref = _eval_site(ref_text, srate)
     for tag, line, text in sites[1:]:
@@ -185,6 +195,37 @@ def test_grid_matches_the_pinned_convention(srate):
     assert (tvals == 0.0).sum() == 1
     # And the window stays inside the requested half-width.
     assert np.abs(tvals).max() <= IWH
+
+
+def test_jax_driver_takes_the_wrapper_default_grid():
+    """`integrate_likelihood_extrinsic_jax` must NOT build or pass its own grid.
+
+    The cross-driver test above compares batchmode against ``jax_ile/wrapper.py``.  That
+    is only a valid proxy for "the two DRIVERS agree" while the JAX driver actually
+    inherits the wrapper's default -- i.e. calls ``build_data_from_precompute`` with no
+    ``tvals=``.  If someone gives that driver its own grid, the wrapper comparison keeps
+    passing while the drivers diverge again, which is precisely the #146 shape.
+    """
+    with open(_JAXDRIVER) as f:
+        src = f.read()
+    tree = ast.parse(src, filename=_JAXDRIVER)
+    builders = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        fn = node.func
+        name = fn.attr if isinstance(fn, ast.Attribute) else getattr(fn, 'id', None)
+        if name and name.startswith('build_') and name.endswith('_from_precompute'):
+            builders.append(node)
+    assert builders, (
+        "no build_*_from_precompute call found in %s -- the driver was restructured and "
+        "this pin no longer checks anything" % os.path.basename(_JAXDRIVER))
+    for node in builders:
+        passed = [kw.arg for kw in node.keywords if kw.arg == 'tvals']
+        assert not passed, (
+            "%s:%d passes its own tvals= to the builder; it must inherit the shared "
+            "default so the two drivers cannot drift apart again (issue #146)"
+            % (os.path.basename(_JAXDRIVER), node.lineno))
 
 
 def test_no_handrolled_window_grid_remains():
