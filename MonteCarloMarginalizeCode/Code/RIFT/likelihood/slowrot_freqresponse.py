@@ -420,6 +420,42 @@ def F_fd_expanded(det, ra, dec, psi, f, Qmax, gmst=0.0, L_arm=None):
     return Fp, Fc
 
 
+def unpaired_extreme_bin(fvals):
+    """Index mask of the extreme-|f| bin when it has NO partner at the opposite sign.
+
+    RIFT's two-sided packing (f[k] = deltaF*(npts/2 - k)) carries +fNyq at k=0 but no
+    -fNyq: the bin holding -f[k] is k' = npts-k, which for k=0 is bin 0 itself.  That one
+    bin therefore has to serve BOTH signs, and any weight that is not EVEN in f cannot be
+    given a consistent value there.
+
+    Returns a boolean mask, all False when there is nothing to repair: a ONE-SIDED axis
+    (the top of an analysis band is not an unpaired Nyquist bin and must not be touched), a
+    degenerate one, or a SYMMETRIC one carrying both +fmax and -fmax, where the extreme bin
+    does have a partner.  Tests UNPAIREDNESS rather than magnitude -- keying on |f| == max alone
+    would flag BOTH ends of a symmetric axis, where nothing is wrong.
+
+    The same RULE lives in factored_likelihood_with_rotation.time_derivative_weight
+    (issues #159/#164), which names this function in turn.  Neither module imports the
+    other, so the duplication is deliberate rather than an oversight.  The two guards are
+    not byte-identical: that one declines on `not np.any(f < 0)`, this one on
+    `not (np.any(f < 0) and np.any(f > 0))`, so they differ on an all-negative axis (which
+    that one would project and this one leaves alone).  No caller produces such an axis --
+    both are fed by evaluate_fvals_from_length -- but do not assume they are interchangeable.
+    """
+    f = np.asarray(fvals)
+    if f.ndim < 1 or f.size < 2:
+        return np.zeros(np.shape(f), dtype=bool)
+    if not (np.any(f < 0) and np.any(f > 0)):
+        # One-sided (or all-zero) axis: the top of an analysis band is NOT an unpaired
+        # Nyquist bin, and must not be touched.
+        return np.zeros(f.shape, dtype=bool)
+    fn = np.max(np.abs(f))
+    if np.any(f >= fn) and np.any(f <= -fn):
+        # Symmetric axis: the extreme bin has a partner, so it is well defined.
+        return np.zeros(f.shape, dtype=bool)
+    return np.abs(f) >= fn
+
+
 def finite_size_response_weights(fvals, geom, Qmax):
     """Per-basis frequency weights W_p(f) folded into the FD modes for the likelihood.
 
@@ -430,7 +466,51 @@ def finite_size_response_weights(fvals, geom, Qmax):
     Each W_p is Hermitian (W_p(-f)=conj(W_p(f))) so the V cross term needs NO
     harmonic reflection.  The common delay e^{-i2 pi f T} (= a T=L/c arrival-time
     shift of the finite-size correction relative to the LWL baseline) is carried
-    inside the correction weights.  Returns (weights (Npbasis, Nf) complex, coeff-builder).
+    inside the correction weights.  Returns the weights, (Npbasis, Nf) complex.
+
+    NOTE THE RETURNED VALUE AT THE EXTREME BIN DEPENDS ON THE AXIS, not on the frequency
+    alone: this is a grid object, not a pointwise map f -> W(f).  Passing the full two-sided
+    axis projects the +fNyq bin (below); passing `fvals[fvals > 0]`, or any axis where that
+    frequency is NOT the unpaired extreme, returns the unprojected complex value there --
+    a 17% difference at 4 km.  Build the weights on the same axis the overlap will use.
+
+    THE UNPAIRED NYQUIST BIN IS PROJECTED ONTO ITS REAL PART, and the Hermiticity claim
+    above is why.  W_p(-f) = conj(W_p(f)) holds identically in the continuum, and on the
+    grid it holds to the digit at every bin that HAS a partner -- but +fNyq does not have
+    one (see unpaired_extreme_bin), so that single bin must stand for both signs, and it
+    can only do that if it is real.  Unprojected it is not: at L = 4 km, N = 16384,
+    deltaF = 0.25 (f[0] = +2048 Hz), |Im W_p| / |W_p| there is 0.9935, 0.9853, 0.1708,
+    0.9853, 0.1708 for p = 1..5 (W_0 = 1 is already real).
+
+    The consequence is precise: factored_likelihood_freqresponse builds the conjugate mode
+    family as etac = W_p * conj(h_lm) and pairs it with eta = W_p' * h_l'm' to form
+    crossTermsV_fr = <conj(W_p h) | W_p' h'>.  That identification needs
+    conj(W_p h) == W_p conj(h) bin by bin, which at a self-paired bin holds iff W_p is real
+    there.  Taking the real part is not a fudge: it IS the Hermitian average
+    (W_p(+fNyq) + W_p(-fNyq))/2 = Re W_p(+fNyq), i.e. the response the grid's only Nyquist
+    degree of freedom -- the real alternating sequence (-1)^j -- actually sees.
+
+    Same defect class as issue #159 in time_derivative_weight, and the same resolution: the
+    Hermitian average at the unpaired bin.  There it evaluates to zero for odd p and to the
+    untouched value for even p, which is exactly why that fix is parity-dependent and this
+    one is not.
+
+    THIS ONE MOVES NO NUMBER, and the reason is sharper than "the bin is out of band".
+    lalsimutils.ComplexIP fills its one-sided weights with range(minIdx, maxIdx), which is
+    HALF-OPEN, so the fMax bin gets weight zero; at fMax = fNyq that bin IS +fNyq, and for
+    any smaller fMax it is further down.  The +fNyq bin therefore carries weight exactly 0
+    in every RIFT overlap, at every fMax.  Measured: scaling this bin by 1e6 in all W_p
+    changes crossTerms_fr, crossTermsV_fr and rholms_fr by exactly 0.000e+00 at fMax = 1700
+    and at fMax = fNyq = 2048.  So this is a repair of the primitive and of the Hermiticity
+    contract above, not of a wrong result.
+
+    What made #159 severe by contrast was not the bin's weight but a mechanism to MOVE it:
+    the sidereal modulation there is a sub-bin shift applied as a time-domain phase, and the
+    FFT round trip smeared the bad bin down into bins that do carry weight.  Path D has no
+    such step today.  Anything added later that mixes frequencies -- a modulation, a
+    resampling, a windowed round trip -- or any consumer that indexes W directly instead of
+    going through ComplexIP, would make this live, which is why it is fixed rather than
+    documented.
     """
     fvals = np.asarray(fvals, dtype=float)
     c = finite_size_c_coeffs(fvals, geom['L'], Qmax)
@@ -439,4 +519,7 @@ def finite_size_response_weights(fvals, geom, Qmax):
     W[0] = 1.0
     for q in range(Qmax + 1):
         W[1 + q] = phase * c[q] - (1.0 if q == 0 else 0.0)
+    nyq = unpaired_extreme_bin(fvals)
+    if np.any(nyq):
+        W[:, nyq] = W[:, nyq].real
     return W
