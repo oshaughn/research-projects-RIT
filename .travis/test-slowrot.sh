@@ -41,6 +41,17 @@ set -uo pipefail
 # SLOWDIR below is repo-relative, so anchor cwd rather than trusting the caller.
 cd "$(dirname "$0")/.." || { echo "test-slowrot.sh: cannot cd to repo root" >&2; exit 1; }
 
+# The two tiers resolve `import RIFT` by DIFFERENT mechanisms, and without this line they
+# can test different code.  TIER 1 runs under pytest, which walks up past RIFT/likelihood/
+# __init__.py and RIFT/__init__.py and prepends .../Code to sys.path -- so it tests the
+# CHECKOUT.  TIER 2 runs each script directly, so sys.path[0] is RIFT/likelihood/ and
+# `import RIFT` falls through to whatever RIFT is INSTALLED.  In CI that is the same tree
+# (the job pip-installs --editable .) so this export is a no-op there, but run by hand on a
+# box with RIFT installed elsewhere the tier carrying the ONLY module-scope asserts would
+# silently validate a different checkout.  MEASURED before this line existed, PYTHONPATH
+# unset: pytest resolved RIFT to the sandbox, the scripts resolved it to ~/RIFT_develUWM.
+export PYTHONPATH="$PWD/MonteCarloMarginalizeCode/Code${PYTHONPATH:+:$PYTHONPATH}"
+
 PYTHON_BIN="${RIFT_SLOWROT_PYTHON:-${PYTHON:-python}}"
 if ! command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
   PYTHON_BIN="$(command -v python3)"
@@ -114,6 +125,11 @@ FILES=(
 # junit `tests` count while gating nothing, which is this script's own failure mode one
 # level down.  Deselecting it makes the 41 honest.
 #
+# CAUTION: --deselect is a PREFIX match, not an exact nodeid match (verified under pytest
+# 6.2.5 and 9.1.1).  A future sibling named test_W5_jax_packer_loses_nothing_v2 would be
+# swallowed by this entry silently, and a >= floor cannot see a test that was never
+# selected.  Name any successor differently, or make this entry exact.
+#
 # The other six tests in that file are numpy+lal and are gated here.  Gating W5 itself
 # needs a jax install; it is NOT covered by jax-ile-check either, whose manifest scans
 # test/jax/ only.  That is a known, stated gap, not a claim of coverage.
@@ -129,13 +145,20 @@ DESELECT=(
 # once by the run).  So they get their own tier: `python <file>`, exit 0 required.
 #
 #   test_slowrot_cauchy_schwarz.py         6 asserts.  lnL = <d|h> - (1/2)<h|h> cannot
-#                                          exceed (1/2)<d|d> for ANY h.  This is the
-#                                          file that catches rotation_post_phase() being
-#                                          dropped, i.e. term1 and term2 evaluated for
-#                                          different templates.
+#                                          exceed (1/2)<d|d> for ANY h.  Catches the
+#                                          arrival-time post-phase being dropped, i.e.
+#                                          term1 and term2 evaluated for different
+#                                          templates.
 #   test_slowrot_noloop_bruteforce.py      1 assert.  The vectorized rotation NoLoop vs
 #                                          an INDEPENDENT time-domain brute force that
-#                                          shares no convention with it.
+#                                          shares no convention with it.  It catches the
+#                                          post-phase mutations TOO -- MEASURED, both the
+#                                          inline-identity and the model-norm-only shapes.
+#                                          So the post-phase has TWO guards here, not one;
+#                                          do not drop either on the belief that the other
+#                                          is redundant with it.  The tier stops at the
+#                                          first failing script, so a mutation run will
+#                                          normally only show you cauchy_schwarz.
 #   test_slowrot_freqresponse_likelihood.py 2 asserts.  The finite-size likelihood
 #                                          reduces to the baseline as L -> 0, respects
 #                                          the bound, and beats the baseline where the
@@ -166,7 +189,8 @@ SCRIPTS=(
 #                                       would smoke-test is already exercised by TIER 1
 #                                       and TIER 2.  Cost is real (measured together at
 #                                       37 s on citlogin6 / AMD EPYC, 3.5 min extrapolated
-#                                       from the Intel timings below) for no assertion.
+#                                       from the Intel timings in the slowrot-check comment
+#                                       in .github/workflows/ci.yml) for no assertion.
 #                                       If either grows an assert, move it into SCRIPTS.
 EXCLUDED=(
   "${SLOWDIR}/test_slowrot_gpu.py"
@@ -239,7 +263,7 @@ for d in "${DESELECT[@]}"; do
   fi
 done
 
-junit="$(mktemp -t slowrotci-junit-XXXXXX.xml)"
+junit="$(mktemp -t slowrotci-junit-XXXXXX.xml)" || { echo "test-slowrot.sh: mktemp failed" >&2; exit 1; }
 trap 'rm -f "${junit}"' EXIT
 
 echo "== TIER 1: pytest =="
