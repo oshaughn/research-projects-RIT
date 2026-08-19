@@ -14,9 +14,20 @@ invented points; lnL span preserved exactly) repairs it: on 5 deficit exemplars,
 on identical inputs moved chi1_perp toward the reference by +0.042..+0.115 with mc/q
 undamaged.
 
-An UNGATED version of that thinning was tested two-sided and REJECTED: on three
-bad-composition events whose widths are already correct it overshot to 1.18–1.54x the
-reference. This PR ships the gated version: thin ONLY on a detected severe deficit.
+An UNGATED version of that thinning was tested two-sided and REJECTED, twice and
+independently: on real data it overshot three bad-composition events whose widths are
+already correct to 1.18–1.54x the reference, and on the known-truth toybench it recovered
+**2.56x / 3.32x / 2.23x truth** on genuinely-narrow transverse posteriors (T5/T5b/T5c) —
+a specificity veto at every tail depth, so the true worst case of unconditional thinning is
+up to **3.32x**, not the 1.54x real data happened to show. The two results reconcile
+exactly: the toybench predicted the high-mass control group should widen past the reference
+under unconditional reweighting, and the real-data test measured precisely that pattern —
+good-composition high-mass controls were exact no-ops (+0.001, +0.013) while
+bad-composition healthy events blew up. The driver is COMPOSITION, not mass: unconditional
+thinning harms bad-composition events regardless of whether they are deficient, because on
+a genuinely narrow posterior it deletes the far rows that teach the fit the tail is
+unsupported. The T5 family is the known-truth instance of exactly the S240930aa class.
+This PR ships the gated version: thin ONLY on a detected severe deficit.
 
 ## The gate (`util_CIPTailDeficitGate.py`)
 
@@ -32,6 +43,12 @@ logged no-op.
   detector returns R = 0 — maximum apparent deficit — exactly where it can resolve nothing:
   on known-truth healthy-narrow benchmarks (toybench T5/T5b/T5c) every chain read R = 0 and
   only the floor prevented false fires.
+* **The toybench's own remedy is this design**: its veto of the ungated arm concludes a
+  deployable version must gate on tail *support*, not row counts — R is exactly a
+  tail-support statistic (implied tail mass from measured lnL x prior volume), the validity
+  floor covers the unresolvable-support case, and on the T5 family the shipped gate was
+  measured to ABSTAIN via that floor. The toys independently veto the ungated tool and
+  independently endorse the gated one's design principle; no more than that is claimed.
 * **The threshold is channel-calibrated at 0.32**, in the fresh-CIP measurement channel the
   wrapper actually uses. The population calibration (102 production events, perfect
   12-vs-77 separation, gap 0.379–0.457) was measured on production consolidated posteriors;
@@ -66,11 +83,19 @@ vs `--internal-use-amr`).
   events (95% bound 3.8%) and on known-truth healthy-narrow toys. The fire side is
   in-sample-validated (12/12 severe-deficit events, 95% miss-rate bound 22.1%) plus the
   causal 13-event paired-CIP repair.
+* What the known-truth evidence does and does not certify: the toybench could not
+  reproduce the pathological regime — its gate (a) FAILED (a1 = 1.381 vs required <= 0.65:
+  from a fresh bootstrap the loop EXPANDS 38% at iteration 1 rather than collapsing; third
+  independent harness to fail this, and the first running the real cepp_BasicIteration
+  DAG) — so it cannot certify the fix where the deficit actually develops. The known-truth
+  evidence certifies the SAFETY side (abstain/no-fire behaviour) only; the REPAIR side
+  rests entirely on the real-data paired-CIP result.
 * Margin, MEASURED (16 independent detect reps on the closest healthy control S240930aa;
   R_dispersion.json + the live N=5 run in the study record): deployment-channel mean
   R = 0.371, single-rep sigma = 0.024, and **1 of the 16 single reps actually read below
   the threshold (0.325)** -- a single-pass gate has an observed ~6%/run false-fire rate on
-  this event class, each fire costing up to the ungated 1.54x corruption. The shipped
+  this event class, each fire costing up to 3.32x truth (known-truth toybench bound;
+  1.54x was the real-data instance). The shipped
   default N=5 mean-of-reps retires this: effective margin ~4.6 sigma (sem 0.011), and in
   the live N=5 verification the sub-threshold rep occurred and the mean correctly decided
   NO-FIRE. Fire side: measured exemplar sigma 0.014 (S240629by, 11 sigma single-rep);
@@ -81,7 +106,7 @@ vs `--internal-use-amr`).
 
 ## Verification
 
-* `test/test_tail_deficit_gate.py` (named in ci.yml; 23 tests, all passing): measured-value
+* `test/test_tail_deficit_gate.py` (named in ci.yml; 24 tests, all passing): measured-value
   regressions pinning the shipped gate's decisions on the 5 exemplars (FIRE), the 3
   controls the ungated fix broke (NO-FIRE), and 6 known-truth healthy-narrow toybench
   chains (ABSTAIN **via the floor** — each has R < threshold, so the threshold alone would
@@ -99,7 +124,9 @@ rift_transverse_highSNR_study `results_triage/`: MULTIEVENT_REWEIGHT_2026-08-19.
 two-sided test, rejected), GATED_REWEIGHT_2026-08-19.md (13-event gate-0),
 R_POPULATION_CALIBRATION_2026-08-19.md (102-event calibration; comp-contamination hypothesis
 refuted), R_TOYBENCH_VALIDATION_2026-08-19.md (known-truth out-of-sample; floor load-bearing),
-BRANCH_LANDING_2026-08-19.md (channel systematic, live e2e).
+TOYBENCH_RESULT_2026-08-19.md (independent campaign: ungated arm VETOED at 2.56-3.32x
+truth; gate (a) failure bounding what the bench can certify), BRANCH_LANDING_2026-08-19.md
+(channel systematic, live e2e, measured R dispersion).
 
 Not applicable to the LISA fork (CIP-side change; the LISA fork diverges only in the ILE
 driver).
