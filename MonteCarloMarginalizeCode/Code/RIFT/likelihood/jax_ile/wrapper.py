@@ -53,8 +53,9 @@ def build_rotation_data_from_precompute(P, data_dict, psd_dict, fiducial_epoch,
 
     ``t_window`` is the rholm-buffer half width for the rotation precompute (it
     builds its own buffer, unlike the baseline two-window driver); ``tvals`` is
-    the marginalization grid (defaults to ``arange(-Nw, Nw)*deltaT`` with
-    ``Nw = int(iwh/deltaT)``, i.e. spacing exactly ``deltaT``).
+    the marginalization grid, defaulting to
+    ``factored_likelihood.marginalization_time_grid(iwh, deltaT)`` -- spacing
+    exactly ``deltaT``, and the SAME grid batchmode builds (issue #146).
 
     ``harmonics`` defaults to the ``p_max=0`` width; at ``p_max>=1`` the precompute
     widens it to ``2 + p_max`` (issue #142) and warns, because the JAX packer would
@@ -73,16 +74,15 @@ def build_rotation_data_from_precompute(P, data_dict, psd_dict, fiducial_epoch,
 
     deltaT = float(P.deltaT)
     if tvals is None:
-        # tvals spaced EXACTLY by deltaT (arange, not linspace) so the grid matches
-        # the pos<->sample mapping and Simpson weights the likelihood assumes; the
-        # maintained NoLoop path uses this same arange(-Nw,Nw)*deltaT convention.
-        # (A linspace(-iwh,iwh,npts) grid is spaced 2*iwh/(npts-1), NOT
-        # deltaT*npts/(npts-1) -- those coincide only when 2*iwh/deltaT is an
-        # exact integer, i.e. exactly when this mismatch cannot arise.  It shifts the time
-        # reference by a fraction of a sample -> a sky bias that only shows up at
-        # high SNR, where cubic interpolation resolves the razor-sharp peak.)
-        Nw = int(integration_window_half / deltaT)
-        tvals = np.arange(-Nw, Nw) * deltaT
+        # THE one window-grid constructor, shared with
+        # bin/integrate_likelihood_extrinsic_batchmode (issue #146).  Spacing is
+        # exactly deltaT, matching the pos<->sample mapping and Simpson weights
+        # the likelihood assumes; a linspace(-iwh,iwh,npts) grid is spaced
+        # 2*iwh/(npts-1) instead, which shifts the time reference by a fraction
+        # of a sample -> a sky bias that only shows up at high SNR, where cubic
+        # interpolation resolves the razor-sharp peak.
+        tvals = factored_likelihood.marginalization_time_grid(
+            integration_window_half, deltaT, xpy=np)
     data = build_rotation_data(meta, lk, rbn, ubn, vbn, ep, deltaT, tvals)
     extras = dict(meta=meta, rho_by_a=rbn, U_by_aa=ubn, V_by_aa=vbn,
                   epochDict=ep, lookupNKDict=lk)
@@ -124,16 +124,15 @@ def build_freqresponse_data_from_precompute(P, data_dict, psd_dict, fiducial_epo
 
     deltaT = float(P.deltaT)
     if tvals is None:
-        # tvals spaced EXACTLY by deltaT (arange, not linspace) so the grid matches
-        # the pos<->sample mapping and Simpson weights the likelihood assumes; the
-        # maintained NoLoop path uses this same arange(-Nw,Nw)*deltaT convention.
-        # (A linspace(-iwh,iwh,npts) grid is spaced 2*iwh/(npts-1), NOT
-        # deltaT*npts/(npts-1) -- those coincide only when 2*iwh/deltaT is an
-        # exact integer, i.e. exactly when this mismatch cannot arise.  It shifts the time
-        # reference by a fraction of a sample -> a sky bias that only shows up at
-        # high SNR, where cubic interpolation resolves the razor-sharp peak.)
-        Nw = int(integration_window_half / deltaT)
-        tvals = np.arange(-Nw, Nw) * deltaT
+        # THE one window-grid constructor, shared with
+        # bin/integrate_likelihood_extrinsic_batchmode (issue #146).  Spacing is
+        # exactly deltaT, matching the pos<->sample mapping and Simpson weights
+        # the likelihood assumes; a linspace(-iwh,iwh,npts) grid is spaced
+        # 2*iwh/(npts-1) instead, which shifts the time reference by a fraction
+        # of a sample -> a sky bias that only shows up at high SNR, where cubic
+        # interpolation resolves the razor-sharp peak.
+        tvals = factored_likelihood.marginalization_time_grid(
+            integration_window_half, deltaT, xpy=np)
     data = build_freqresponse_data(meta, lk, rbp, ubp, vbp, ep, deltaT, tvals,
                                    det_geom)
     extras = dict(meta=meta, rho_by_p=rbp, U_by_pp=ubp, V_by_pp=vbp,
@@ -160,13 +159,16 @@ def build_data_from_precompute(P, data_dict, psd_dict, fiducial_epoch,
       location roams, or the analysis window slides off the buffer.
     * ``integration_window_half`` (``--data-integration-window-half``, default
       0.075 s) -- the half-width of the time-*marginalization* window; the
-      ``tvals`` grid is ``arange(-Nw, Nw)*deltaT`` with ``Nw = int(iwh/deltaT)``,
-      i.e. spacing exactly ``deltaT`` (see the ``if tvals is None`` branch
-      below).  NOTE this is deliberately NOT the driver's
-      ``linspace(-iwh, iwh, int(2*iwh/deltaT))``, whose spacing is
-      ``2*iwh/(npts-1)`` with ``npts = int(2*iwh/deltaT)``.  Anything that compares this data object against
-      the numpy reference must pass ``data.tvals`` to the reference rather than
-      rebuild a grid, or the two paths land on different integer sample offsets.
+      ``tvals`` grid comes from
+      ``factored_likelihood.marginalization_time_grid(iwh, deltaT)``, i.e.
+      ``(arange(npts) - npts//2)*deltaT`` with ``npts = int(2*iwh/deltaT)`` --
+      spacing exactly ``deltaT`` (see the ``if tvals is None`` branch below).
+      ``bin/integrate_likelihood_extrinsic_batchmode`` calls the same helper at
+      all ten of its window-grid sites, so the two drivers agree by value
+      (issue #146; it formerly built ``linspace(-iwh, iwh, int(2*iwh/deltaT))``,
+      spaced ``2*iwh/(npts-1)``).  Anything that compares this data object
+      against the numpy reference should still pass ``data.tvals`` to the
+      reference rather than rebuild a grid.
 
     Returns
     -------
@@ -193,14 +195,14 @@ def build_data_from_precompute(P, data_dict, psd_dict, fiducial_epoch,
 
     deltaT = float(P.deltaT)
     if tvals is None:
-        # arange(-Nw,Nw)*deltaT: spacing exactly deltaT (see the freqresponse
-        # builder).  NOTE: this matches the convention both likelihoods EVALUATE in
-        # (each steps by deltaT from tvals[0] and integrates with dx=deltaT), NOT the
-        # grid bin/integrate_likelihood_extrinsic_batchmode constructs -- all ten of
-        # its NoLoop call sites still build linspace(-t_ref_wind,t_ref_wind,...).
-        # The two drivers therefore disagree; see the cross-driver issue.
-        Nw = int(integration_window_half / deltaT)
-        tvals = np.arange(-Nw, Nw) * deltaT
+        # THE one window-grid constructor, shared with
+        # bin/integrate_likelihood_extrinsic_batchmode (issue #146): spacing
+        # exactly deltaT, which is the convention both likelihoods EVALUATE in
+        # (each steps by deltaT from tvals[0] and integrates with dx=deltaT).
+        # All ten of batchmode's window-grid sites now call this same helper, so
+        # the two drivers build identical grids at every sample rate.
+        tvals = factored_likelihood.marginalization_time_grid(
+            integration_window_half, deltaT, xpy=np)
 
     data = build_likelihood_data(packed, deltaT, float(fiducial_epoch), tvals)
     extras = dict(rholms=rholms, cross_terms=cross_terms,

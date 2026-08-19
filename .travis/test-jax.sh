@@ -65,6 +65,16 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #   test_network_coords.py             1  network-frame sky fold on a real injection
 #   test_nuts_phimarg.py               1  fisher_nuts_sample_phimarg vs an analytic 4-D
 #                                         target (needs numpyro; no lal)
+#   test_tvals_grid_convention.py     12  issue #146: the time-marginalization window
+#                                         grid the JAX wrapper and
+#                                         bin/integrate_likelihood_extrinsic_batchmode
+#                                         build, extracted BY AST FROM THE DRIVER
+#                                         SOURCES and compared by value at srate
+#                                         1024/2048/4096/8192/16384.  Needs no jax; it
+#                                         lives here because it pins the jax_ile
+#                                         wrapper against the production driver, and
+#                                         because 16384 is the rate test_jax_endtoend
+#                                         (4096) structurally cannot cover.
 #
 # DELIBERATELY EXCLUDED (measured on ldas-pcdev11, JAX_PLATFORMS=cpu, OMP_NUM_THREADS=1):
 #
@@ -100,6 +110,7 @@ FILES=(
   "${JAXDIR}/test_jax_slowrot_cauchy_schwarz.py"
   "${JAXDIR}/test_network_coords.py"
   "${JAXDIR}/test_nuts_phimarg.py"
+  "${JAXDIR}/test_tvals_grid_convention.py"
 )
 
 # EXCLUDED: files in JAXDIR matching test_*.py that are deliberately NOT gated.  The
@@ -130,7 +141,7 @@ fi
 
 # Sum of the per-file counts above.  Pinned deliberately: a bare `pytest test/jax/`
 # that collected 0 would exit 5, and a partial loss (say 14 -> 3) would still exit 0.
-EXPECTED_TESTS=14
+EXPECTED_TESTS=26
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${FILES[@]}" 2>&1)"

@@ -2084,7 +2084,7 @@ def resample_samples(my_samples,
 
   # if we are using GPU-based generation this is ok; if itis mcsampler, we will have a lot of 'object' casts to fix, arg
   
-  tvals = xpy_default.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
+  tvals = factored_likelihood.marginalization_time_grid(t_ref_wind, P.deltaT, xpy=xpy_default)  # THE one window-grid constructor; see issue #146
   P.phi =  identity_convert_togpu(my_samples['right_ascension'])  # cast to float
   P.theta =   identity_convert_togpu(my_samples['declination'])
   P.tref = float(fiducial_epoch)
@@ -2119,13 +2119,18 @@ def resample_samples(my_samples,
   if opts.srate_resample_time_marginalization and opts.srate_resample_time_marginalization > fSample:
     # Resample the marginalization-time grid to EXACTLY the requested rate, so
     # the exported geocenter time is quantized at 1/srate_resample seconds.  We
-    # step by exactly 1/srate_resample rather than by an integer subdivision of
-    # the internal grid: that internal grid is a closed-interval linspace whose
-    # spacing is ~1/fSample but NOT exactly (here ~4086.7 Hz vs 4096), so an
-    # integer-factor upsample would land at ~n/deltaT_orig, tens of percent off
-    # the request.  For the usual power-of-two rates 1/srate is exactly
-    # representable in float64, so consecutive output times differ by exactly
-    # that step.
+    # step by exactly 1/srate_resample; for the usual power-of-two rates that is
+    # exactly representable in float64, so consecutive output times differ by
+    # exactly that step.
+    #
+    # HISTORICAL NOTE (issue #146): this comment used to justify the choice by
+    # the internal grid being "a closed-interval linspace whose spacing is
+    # ~1/fSample but NOT exactly (here ~4086.7 Hz vs 4096)".  That is no longer
+    # true -- marginalization_time_grid() is spaced EXACTLY deltaT, so an
+    # integer-factor upsample would now be exact too.  More importantly, the
+    # tvals read as time LABELS below (t_out -> the exported 't_ref') are now
+    # the times the likelihood actually evaluated; under the old linspace they
+    # were off by up to 1.4 samples at the window edge.
     dt_target = 1.0/opts.srate_resample_time_marginalization
     # floor(): stay within [tvals[0], tvals[-1]] so the spline never
     # extrapolates.  At most one step (<1/srate s, tens of us) is dropped at the
@@ -2936,7 +2941,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 corr = np.log(np.clip(pw, 1e-300, None))
                 d = np.asarray(redshift_to_distance(x), dtype=float)
                 return d, corr, 'sampler prior ({})'.format(opts.d_prior)
-            _tv = xpy_default.linspace(-t_ref_wind, t_ref_wind, int((t_ref_wind)*2/P.deltaT))
+            _tv = factored_likelihood.marginalization_time_grid(t_ref_wind, P.deltaT, xpy=xpy_default)  # THE one window-grid constructor; see issue #146
             _calw_np = np.zeros(n_cal_now) if calibration_log_weights is None else np.asarray(identity_convert(calibration_log_weights), dtype=float)[:n_cal_now]
             comp_list = []; corr_list = []
             sigma = None; neff_cal = None; sigma_prev = None
@@ -3037,7 +3042,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             P.phiref = xpy_default.asarray(_rng_ext.uniform(0, 2*np.pi, _Next), dtype=np.float64)
             P.tref   = float(fiducial_epoch)
             P.dist   = xpy_default.asarray(np.full(_Next, factored_likelihood.distMpcRef)*1.e6*lalsimutils.lsu_PC, dtype=np.float64)
-            _tvals = xpy_default.linspace(-t_ref_wind, t_ref_wind, int((t_ref_wind)*2/P.deltaT))
+            _tvals = factored_likelihood.marginalization_time_grid(t_ref_wind, P.deltaT, xpy=xpy_default)  # THE one window-grid constructor; see issue #146
             _comp = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(
                 _tvals, P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict, epochDict,
                 Lmax=opts.l_max, xpy=xpy_default, n_cal=n_cal_for_likelihood, cal_method='loop',
@@ -3105,7 +3110,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             # use EXTREMELY many bits
             lnL = numpy.zeros(right_ascension.shape,dtype=RiftFloat)
             i = 0
-            tvals = numpy.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
+            tvals = factored_likelihood.marginalization_time_grid(t_ref_wind, P.deltaT, xpy=numpy)  # THE one window-grid constructor; see issue #146
 
             for ph, th, phr, ic, ps, di in zip(right_ascension, dec,
                     phi_orb, incl, psi, distance):   # 'incl', NOT the raw sampled 'inclination': under --inclination-cosine-sampler the sampled variable is cos(iota)
@@ -3135,7 +3140,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
           def likelihood_function(right_ascension, declination, phi_orb, inclination,
                 psi, distance):
 #            global nEvals
-            tvals = numpy.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
+            tvals = factored_likelihood.marginalization_time_grid(t_ref_wind, P.deltaT, xpy=numpy)  # THE one window-grid constructor; see issue #146
             dec = numpy.copy(declination).astype(numpy.float64)
             if opts.declination_cosine_sampler:
               dec = numpy.pi/2 - numpy.arccos(dec)
@@ -3197,7 +3202,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
               def likelihood_function(right_ascension, declination, phi_orb, inclination,
                 psi, distance):
 #                global nEvals
-                tvals = xpy_default.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
+                tvals = factored_likelihood.marginalization_time_grid(t_ref_wind, P.deltaT, xpy=xpy_default)  # THE one window-grid constructor; see issue #146
                 # Use xpy_default.asarray (not the passthrough xpy_asarray_already): some
                 # samplers (e.g. AV) hand back numpy arrays, so on GPU we must convert
                 # them to cupy.  asarray is a no-op for already-on-device arrays.  This
@@ -3353,7 +3358,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 
                 def likelihood_function(right_ascension, declination, inclination, psi):
 #                  global nEvals
-                  tvals = xpy_default.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
+                  tvals = factored_likelihood.marginalization_time_grid(t_ref_wind, P.deltaT, xpy=xpy_default)  # THE one window-grid constructor; see issue #146
                   P.phi = xpy_default.asarray(right_ascension, dtype=np.float64)  # cast to float
                   if opts.declination_cosine_sampler:
                     P.theta = numpy.pi/2 - xpy_default.arccos(xpy_default.asarray(declination,dtype=np.float64))
@@ -3400,7 +3405,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 
                 def likelihood_function(right_ascension, declination, phi_orb, inclination, psi):
 #                  global nEvals
-                  tvals = xpy_default.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
+                  tvals = factored_likelihood.marginalization_time_grid(t_ref_wind, P.deltaT, xpy=xpy_default)  # THE one window-grid constructor; see issue #146
                   P.phi = xpy_default.asarray(right_ascension, dtype=np.float64)  # cast to float
                   if opts.declination_cosine_sampler:
                     P.theta = numpy.pi/2 - xpy_default.arccos(xpy_default.asarray(declination,dtype=np.float64))
@@ -3456,7 +3461,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 
             lnL = numpy.zeros(len(right_ascension),dtype=RiftFloat)
 #            i = 0
-            tvals = numpy.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
+            tvals = factored_likelihood.marginalization_time_grid(t_ref_wind, P.deltaT, xpy=numpy)  # THE one window-grid constructor; see issue #146
 
 
 #            t_start =lal.GPSTimeNow() 
@@ -4599,7 +4604,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         if opts.calibration_export_posterior and calibration_marginalization and n_cal_for_likelihood and n_cal_for_likelihood > 1 and _cal_nodes is not None:
           try:
             from scipy.special import logsumexp as _logsumexp   # 'scipy' is shadowed as a local later in analyze_event
-            _tv = xpy_default.linspace(-t_ref_wind, t_ref_wind, int((t_ref_wind)*2/P.deltaT))
+            _tv = factored_likelihood.marginalization_time_grid(t_ref_wind, P.deltaT, xpy=xpy_default)  # THE one window-grid constructor; see issue #146
             # per-realization, time-integrated lnL at each fair-draw sample (P holds the sample
             # extrinsic arrays, just set by resample_samples).  return_cal_components forces the
             # loop method and returns shape (n_samples, n_cal).

@@ -73,6 +73,70 @@ if 'PROFILE' not in os.environ:
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
 
+def marginalization_time_grid(integration_window_half, deltaT, xpy=np):
+    """The time-marginalization window grid, shared by every ILE likelihood path.
+
+    THE ONE CONSTRUCTOR.  Both extrinsic drivers
+    (``bin/integrate_likelihood_extrinsic_batchmode`` and
+    ``bin/integrate_likelihood_extrinsic_jax``, the latter via
+    ``RIFT.likelihood.jax_ile.wrapper``) must obtain their grid here, or they
+    silently evaluate different likelihoods -- see issue #146, which measured
+    up to 67.8 nats per sample between the two conventions that preceded this.
+
+    Convention::
+
+        npts  = int(2*integration_window_half/deltaT)
+        tvals = (arange(npts) - npts//2) * deltaT
+
+    Two properties, and both matter:
+
+    1. **Spacing is EXACTLY deltaT.**  Every consumer of this grid
+       (``DiscreteFactoredLogLikelihoodViaArrayVector*``, the JAX
+       ``fused_log_likelihood*``) reads only ``tvals[0]`` and ``len(tvals)``:
+       it gathers ``rho[ifirst:ifirst+npts]``, i.e. steps by one *sample*, and
+       integrates with ``dx=deltaT``.  So ``tvals[k]`` is a LABEL for a sample
+       the code reaches by stepping deltaT from ``tvals[0]``, and the label is
+       only truthful if the grid is deltaT-spaced.  The former batchmode
+       ``linspace(-iwh, iwh, npts)`` is spaced ``2*iwh/(npts-1)``, which
+       mislabelled its own samples by up to 1.4 samples (3.4e-4 s at
+       iwh=0.075 s, srate=4096) at the window edge -- visible wherever tvals is
+       used as a time label, e.g. the time-resampling export in batchmode.
+
+    2. **npts comes from ``int(2*iwh/deltaT)``, not ``2*int(iwh/deltaT)``.**
+       These differ whenever ``2*iwh/deltaT`` has a fractional part below 0.5:
+       at iwh=0.075 s they disagree at srate 1024, 2048 and **16384** (the
+       low-mass production rate) and agree at 4096 and 8192.  Taking the
+       ``int(2*iwh/deltaT)`` form preserves batchmode's window LENGTH at every
+       rate; it lengthens the former JAX default by one sample at the rates
+       above, which is the deliberate choice made here -- a window that is a
+       sample too SHORT truncates the time marginalization, and matching the
+       longer-standing production length is the lower-risk direction.
+
+    With ``npts`` even the grid is ``[-npts/2, npts/2)`` samples, exactly
+    reproducing the former JAX ``arange(-Nw, Nw)*deltaT``; with ``npts`` odd it
+    is symmetric, ``[-(npts//2), +(npts//2)]``.  Either way ``t=0`` -- the
+    fiducial epoch -- is on the grid exactly, which the old linspace only
+    achieved for odd npts.
+
+    Parameters
+    ----------
+    integration_window_half : float
+        Half-width of the marginalization window in seconds (the drivers'
+        ``t_ref_wind`` / ``--data-integration-window-half``).
+    deltaT : float
+        Sample spacing in seconds.
+    xpy : module
+        ``numpy`` or ``cupy``; the array is built with ``xpy.arange``.
+
+    Returns
+    -------
+    array of shape (npts,), spacing exactly ``deltaT``, containing 0.0.
+    """
+    deltaT = float(deltaT)
+    npts = int(2*float(integration_window_half)/deltaT)
+    return (xpy.arange(npts) - npts//2)*deltaT
+
+
 has_GWS=False  # make sure defined in top-level scope
 try:
    if not('RIFT_NO_GWSIGNAL' in os.environ):
