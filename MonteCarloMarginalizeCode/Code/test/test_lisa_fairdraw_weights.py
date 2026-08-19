@@ -296,6 +296,46 @@ def test_rvs_len_survives_an_unsized_entry(H):
     assert H['_rvs_len'](r) == 5
 
 
+def _record_with_a_combined_parameter(n=6):
+    """Columns in the order a sampler seeds them: PARAMETERS FIRST, then the weight columns.
+
+    The order is the whole point.  A parameter registered under a TUPLE key is a combined
+    parameter stored (ndim, N) -- the convention every sampler indexes by, `col[:, idx]` for a
+    tuple key against `col[idx]` otherwise -- and it is seeded before the weight columns, so
+    "whichever column came first" lands on it in the ordinary case rather than a corner.
+    """
+    r = {('mc', 'delta_mc'): np.zeros((2, n))}
+    r.update(_log_record(n=n))
+    return r
+
+
+def test_rvs_len_counts_ROWS_not_entries_for_a_combined_parameter():
+    """ndim*N is not a row count, and it is not a cosmetic one either.
+
+    Both drivers: the LISA copy checks the pooled export's weight vector against this number,
+    so an inflated count made the check fail and shipped the pooled record weight-mixed; the
+    main copy hands back a uniform vector OF THIS LENGTH for a fair draw and records it as the
+    pooled `block_sizes`.
+    """
+    r = _record_with_a_combined_parameter(n=6)
+    for path in (_LISA, _MAIN):
+        assert _load(path)['_rvs_len'](r) == 6, os.path.basename(path)
+
+
+def test_rvs_len_reads_the_row_axis_from_the_key_when_no_weight_column_is_present():
+    """No canonical per-row column to settle it -> the key's own layout decides."""
+    r = {('mc', 'delta_mc'): np.zeros((2, 7)), 'psi': np.zeros(7)}
+    for path in (_LISA, _MAIN):
+        assert _load(path)['_rvs_len'](r) == 7, os.path.basename(path)
+
+
+def test_fair_draw_uniform_weights_are_one_per_row_with_a_combined_parameter(H):
+    """The consumer-visible failure: a weight vector ndim times longer than the record."""
+    r = _record_with_a_combined_parameter(n=6)
+    w = H['ln_weights_for_posterior'](r, _FakeSampler(fairdraw=True, pooled=False))
+    assert w.shape == (6,)
+
+
 # ------------------------------------------------------------------ the convention resolver
 def test_lnL_convention_prefers_the_explicit_argument(H):
     assert H['_rvs_lnL_convention'](True) is True

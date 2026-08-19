@@ -447,3 +447,16 @@ def _n_rows(columns):
         if n is not None:
             return n
     return 0
+
+
+def n_rows(columns):
+    """Rows in a plain `_rvs` column dict -> int.  THE row count, for callers without a record.
+
+    Public because the ILE drivers need this rule where no record exists yet: replica pooling
+    measures each block from a raw column dict, and the fair-draw consumers ask how long a
+    uniform weight vector must be.  Their own `_rvs_len` flattened whichever column came first
+    and so reported ndim*N wherever a combined parameter was registered -- a second
+    implementation of a rule that already lives here, which is the failure this module exists
+    to stop.  One definition, called from both drivers.
+    """
+    return _n_rows(columns)

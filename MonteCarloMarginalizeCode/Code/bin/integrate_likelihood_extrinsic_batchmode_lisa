@@ -1359,12 +1359,21 @@ def ln_weights_from_rvs(rvs, convert=None, use_lnL=False):
 
 
 def _rvs_len(rvs):
-    for v in rvs.values():
-        try:
-            return len(numpy.atleast_1d(numpy.asarray(v)).ravel())
-        except Exception:
-            continue
-    return 0
+    """Rows in a raw `_rvs` column dict -> int.
+
+    ONE row-count rule, and it lives with the record (`rvs_record.n_rows`).  Flattening
+    whichever column came first was wrong for the ORDINARY case, not a corner: `_rvs` is
+    seeded parameters-first, and a combined parameter is stored (ndim, N) under a TUPLE key,
+    so any run registering one reported ndim*N.  Here that number is the length the pooled
+    export's weight vector is checked against, so the check failed and the pooled record went
+    out weight-mixed -- the exact degradation `_export_rvs_equal_weight` exists to prevent.
+
+    Imported INSIDE the function deliberately: the test harnesses exec these helpers out of
+    the driver into a bare namespace, so a module-level name here would have to be threaded
+    through every one of them -- and this staying a one-line delegation is the point.
+    """
+    from RIFT.integrators.rvs_record import n_rows as _n_rows_of_columns
+    return _n_rows_of_columns(rvs)
 
 
 def _rvs_is_export_resample(sampler):
