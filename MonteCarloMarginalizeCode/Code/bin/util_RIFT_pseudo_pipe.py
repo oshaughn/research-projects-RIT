@@ -438,6 +438,7 @@ parser.add_argument("--ile-distance-prior",default=None,help="If present, passed
 parser.add_argument("--internal-ile-buffer-after-trigger",default=2,type=float,help="Provided to allow user to change time after trigger. NOT FULLY IMPLEMENTED")
 parser.add_argument("--internal-ile-request-disk",help="Use if you are transferring large files, or if you otherwise expect a lot of data ")
 parser.add_argument("--internal-cip-request-disk",help="Use if you are transferring large files, or if you otherwise expect a lot of data ")
+parser.add_argument("--internal-cip-composition-reweight",action='store_true',help="Opt-in: run every CIP through util_CIPCompositionReweightWrapper.sh, which thins the training set (util_CompositionReweightNet.py) so the per-chi1_perp-bin near-peak fraction is equal across bins before the fit.  Targets the low-mass transverse-spin width deficit; fail-safe (falls back to the untouched all.net on any tool failure).  Conflicts with --internal-use-amr (both set --cip-exe).")
 parser.add_argument("--internal-general-request-disk",help="Use if you are transferring large files, or if you otherwise expect a lot of data. Specifically for things like calmarg/surrogate h5 files ")
 parser.add_argument("--internal-ile-request-memory",default=4096,type=int,help="ILE memory request in Mb. Only experts should change this.")
 parser.add_argument("--internal-ile-n-max",default=None,type=int,help="Set maximum number of evaluations each ILE worker uses. EXPERTS ONLY")
@@ -2020,6 +2021,10 @@ if opts.distance_reweighting:
     cmd += " --comov-distance-reweighting --comov-distance-reweighting-exe `which make_uni_comov_skymap.py` --convert-ascii2h5-exe `which convert_output_format_ascii2h5.py` "
 if opts.use_gauss_early:
     cmd += " --cip-exe-G `which util_ConstructIntrinsicPosterior_GaussianResampling.py ` "
+if opts.internal_cip_composition_reweight:
+    if opts.internal_use_amr:
+        raise SystemExit("pseudo_pipe: --internal-cip-composition-reweight conflicts with --internal-use-amr (both set --cip-exe)")
+    cmd += " --cip-exe `which util_CIPCompositionReweightWrapper.sh` "
 if opts.internal_use_amr:
     print(" AMR prototype: Using hardcoded aligned-spin settings, assembling grid, requires coinc!")
     if _use_hpip_pp and opts.manual_initial_grid is None:
