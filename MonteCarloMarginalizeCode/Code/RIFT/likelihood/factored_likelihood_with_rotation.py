@@ -162,6 +162,14 @@ def time_derivative_weight(fvals, p):
     Do NOT reason that the Nyquist bin sits above fMax and therefore cannot matter -- it
     does sit above fMax, and it still mattered, because the modulation round trip does not
     leave it there.
+
+    THE SAME RULE APPLIES ELSEWHERE, and if you are editing this you probably need to edit
+    that too: slowrot_freqresponse.finite_size_response_weights (Path D) has the same
+    unpaired-bin problem and resolves it the same way -- the Hermitian average, which there
+    is Re W_p(+fNyq).  Its predicate lives in slowrot_freqresponse.unpaired_extreme_bin.
+    Neither module imports the other, so the two are a deliberate duplicate; see #164.  They
+    are not byte-identical (that one also declines on an all-negative axis), so do not
+    assume they are interchangeable.
     """
     if p == 0:
         return np.ones_like(fvals, dtype=complex)
