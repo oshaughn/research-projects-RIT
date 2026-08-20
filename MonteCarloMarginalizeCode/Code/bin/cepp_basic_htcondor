@@ -1451,6 +1451,8 @@ if opts.comov_distance_reweighting:
 #    
 
 parent_fit_node = None
+final_evidence_parent_node = None
+final_test_node = None
 last_node=None
 
 if opts.gridinit_args:
@@ -1875,6 +1877,11 @@ for it in np.arange(it_start,opts.n_iterations):
 
 
 
+    # Preserve the final physical-product barrier before adding the convergence
+    # node.  A converged test uses ABORT-DAG-ON, so terminal evidence must run
+    # before that test rather than as its child.
+    final_evidence_parent_node = parent_fit_node
+
     if opts.test_args and it>0:
         # Cannot run test on first iteration
         test_node = Node(test_job)
@@ -1884,17 +1891,19 @@ for it in np.arange(it_start,opts.n_iterations):
         test_node.set_category("CONVERGE")
         dag.add_node(test_node)
         test_node_list.append(test_node)
+        if it == opts.n_iterations - 1:
+            final_test_node = test_node
 
         parent_fit_node=test_node
 
 
-if final_evidence_job is not None and parent_fit_node is not None:
+if final_evidence_job is not None and final_evidence_parent_node is not None:
     final_iteration = opts.n_iterations - 1
     prior_node = Node(prior_job)
     prior_node.add_variable("macroiteration", final_iteration)
     prior_node.set_category("CIP_PRIOR")
     prior_node.retry = opts.general_retries
-    prior_node.add_parent(parent_fit_node)
+    prior_node.add_parent(final_evidence_parent_node)
     dag.add_node(prior_node)
 
     final_evidence_node = Node(final_evidence_job)
@@ -1902,9 +1911,11 @@ if final_evidence_job is not None and parent_fit_node is not None:
     final_evidence_node.add_variable("macroiterationnext", final_iteration + 1)
     final_evidence_node.set_category("EVIDENCE")
     final_evidence_node.retry = opts.general_retries
-    final_evidence_node.add_parent(parent_fit_node)
+    final_evidence_node.add_parent(final_evidence_parent_node)
     final_evidence_node.add_parent(prior_node)
     dag.add_node(final_evidence_node)
+    if final_test_node is not None:
+        final_test_node.add_parent(final_evidence_node)
 
 
 # Create export stages for extrinsic samples

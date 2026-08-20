@@ -104,8 +104,11 @@ def test_pipeline_has_terminal_prior_then_strict_final_evidence(pipeline):
     export = source.index("# Create export stages", terminal)
 
     assert loop < terminal < export
-    assert "prior_node.add_parent(parent_fit_node)" in source[terminal:export]
+    assert "prior_node.add_parent(final_evidence_parent_node)" in source[terminal:export]
+    assert "final_evidence_node.add_parent(final_evidence_parent_node)" in source[terminal:export]
     assert "final_evidence_node.add_parent(prior_node)" in source[terminal:export]
+    assert "final_test_node.add_parent(final_evidence_node)" in source[terminal:export]
+    assert "final_evidence_parent_node = parent_fit_node" in source[loop:terminal]
     assert "--prior-integral prior-integral-$(macroiteration)_withpriorchange+annotation.dat" in source
     assert "--normalized-output evidence_$(macroiteration)_normalized" in source
     assert "--cip-prefix overlap-grid-$(macroiterationnext)" in source
