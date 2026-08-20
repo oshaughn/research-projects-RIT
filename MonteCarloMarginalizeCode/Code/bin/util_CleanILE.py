@@ -28,6 +28,8 @@ col_intrinsic = 9
 import argparse
 parser = argparse.ArgumentParser(usage="util_CleanILE.py fname1.dat fname2.dat ... ")
 parser.add_argument("fname",action='append',nargs='+')
+parser.add_argument("--a6c", action="store_true")
+parser.add_argument("--hyperbolic", action="store_true")
 parser.add_argument("--eccentricity", action="store_true")
 parser.add_argument("--meanPerAno", action="store_true")
 #Askold: adding specification for tabular eos file
@@ -52,13 +54,30 @@ for fname in opts.fname[0]: #sys.argv[1:]:
         line = np.around(line, decimals=my_digits)
         lambda1=lambda2=0
         eos_index = 0
-        if opts.eccentricity:
-            if opts.meanPerAno:
+        if opts.hyperbolic:
+            indx, m1, m2, s1x, s1y, s1z, s2x, s2y, s2z, E0, p_phi0, lnL, sigmaOverL, ntot, neff = line
+            col_intrinsic = 11
+        elif opts.eccentricity:
+            if opts.meanPerAno and len(line)==15:
                 indx, m1,m2, s1x,s1y,s1z,s2x,s2y,s2z,ecc,meanPerAno, lnL, sigmaOverL, ntot, neff = line
                 col_intrinsic = 11
+            elif opts.meanPerAno and len(line)==17:
+                tides_on = True
+                indx, m1,m2, s1x,s1y,s1z,s2x,s2y,s2z, lambda1, lambda2, ecc,meanPerAno, lnL, sigmaOverL, ntot, neff = line
+                col_intrinsic = 13
             else:
                 indx, m1,m2, s1x,s1y,s1z,s2x,s2y,s2z,ecc, lnL, sigmaOverL, ntot, neff = line
                 col_intrinsic = 10
+        elif opts.a6c and len(line)==16:
+            tides_on = True
+            col_intrinsic = 12
+            indx, m1,m2, s1x,s1y,s1z,s2x,s2y,s2z, lambda1,lambda2,a6c,lnL, sigmaOverL, ntot, neff = line
+        elif opts.a6c and len(line)==14:
+            col_intrinsic = 10
+            indx, m1,m2, s1x,s1y,s1z,s2x,s2y,s2z,a6c,lnL, sigmaOverL, ntot, neff = line
+        elif opts.tabular_eos_file and len(line) == 16:
+            col_intrinsic = 12
+            indx, m1, m2, s1x, s1y, s1z, s2x, s2y, s2z, lambda1, lambda2, eos_index, lnL, sigmaOverL, ntot, neff = line
         elif len(line) == 13 and (not tides_on) and (not distance_on):  # strip lines with the wrong length
             indx, m1,m2, s1x,s1y,s1z,s2x,s2y,s2z,lnL, sigmaOverL, ntot, neff = line
         elif  len(line) == 14:
@@ -69,12 +88,8 @@ for fname in opts.fname[0]: #sys.argv[1:]:
             tides_on  = True
             col_intrinsic =11
             indx, m1,m2, s1x,s1y,s1z,s2x,s2y,s2z, lambda1,lambda2,lnL, sigmaOverL, ntot, neff = line
-
-        #Askold: adding the option for tabular eos file
-        elif opts.tabular_eos_file and len(line) == 16: #checking if the tabular eos file is defined in the parser and if the line actually has all the columns
-            #no eccentricity assumed here, since export_eos_index option doesn't output eccentricity, also it doesn't apply to neutron stars
-            col_intrinsic = 12 #I assume eos_index to be intrinsic parameter
-            indx, m1, m2, s1x, s1y, s1z, s2x, s2y, s2z, lambda1, lambda2, eos_index, lnL, sigmaOverL, ntot, neff = line 
+        else:
+            raise ValueError("Unsupported ILE row layout: {} columns".format(len(line)))
 
         if sigmaOverL>0.9:
             continue    # do not allow poorly-resolved cases (e.g., dominated by one point). These are often useless
@@ -84,7 +99,8 @@ for fname in opts.fname[0]: #sys.argv[1:]:
         else:
 #            print " new key ", line[1:9]
             data_at_intrinsic[tuple(line[1:col_intrinsic])] = [line[col_intrinsic:]]
-      except:
+      except Exception as exc:
+          sys.stderr.write("Skipping malformed ILE row in {}: {}\n".format(fname, exc))
           continue
 
 for key in data_at_intrinsic:
@@ -119,11 +135,15 @@ for key in data_at_intrinsic:
 
 
     if opts.eccentricity:
-        if opts.meanPerAno:
+        if opts.meanPerAno and not tides_on:
             print(-1, key[0],key[1], key[2], key[3],key[4], key[5],key[6], key[7], key[8], key[9], lnLmeanMinusLmax+lnLmax, sigmaNetOverL, np.sum(ntot), -1)
+        elif opts.meanPerAno and tides_on:
+            print(-1, key[0],key[1], key[2], key[3],key[4], key[5],key[6], key[7], key[8], key[9], key[10], key[11], lnLmeanMinusLmax+lnLmax, sigmaNetOverL, np.sum(ntot), -1)
         else:
             print(-1, key[0],key[1], key[2], key[3],key[4], key[5],key[6], key[7], key[8], lnLmeanMinusLmax+lnLmax, sigmaNetOverL, np.sum(ntot), -1)
-    elif tides_on:
+    elif opts.hyperbolic:
+        print(-1,  key[0],key[1], key[2], key[3],key[4], key[5],key[6], key[7], key[8],key[9], lnLmeanMinusLmax+lnLmax, sigmaNetOverL, np.sum(ntot), -1)
+    elif tides_on and not (opts.a6c) and not (opts.eccentricity):
         print(-1, key[0],key[1], key[2], key[3],key[4], key[5],key[6], key[7], key[8],key[9], lnLmeanMinusLmax+lnLmax, sigmaNetOverL, np.sum(ntot), -1)
     elif distance_on:
         print(-1, key[0],key[1], key[2], key[3],key[4], key[5],key[6], key[7], key[8], lnLmeanMinusLmax+lnLmax, sigmaNetOverL, np.sum(ntot), -1)
@@ -131,6 +151,10 @@ for key in data_at_intrinsic:
     #Askold: new option for tabular eos file
     elif opts.tabular_eos_file: #written similarly to the previous ones
         print(-1, key[0],key[1], key[2], key[3],key[4], key[5],key[6], key[7], key[8],key[9], key[10],  lnLmeanMinusLmax+lnLmax, sigmaNetOverL, np.sum(ntot), -1)
-    
+    elif opts.a6c:
+        if tides_on:
+            print(-1, key[0],key[1], key[2], key[3],key[4], key[5],key[6], key[7], key[8],key[9],key[10], lnLmeanMinusLmax+lnLmax, sigmaNetOverL, np.sum(ntot), -1)
+        else:
+            print(-1,  key[0],key[1], key[2], key[3],key[4], key[5],key[6], key[7], key[8], lnLmeanMinusLmax+lnLmax, sigmaNetOverL, np.sum(ntot), -1)
     else:
         print(-1,  key[0],key[1], key[2], key[3],key[4], key[5],key[6], key[7], lnLmeanMinusLmax+lnLmax, sigmaNetOverL, np.sum(ntot), -1)
