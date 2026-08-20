@@ -43,6 +43,24 @@ def test_hyperbolic_classification_uses_both_component_masses(monkeypatch):
     assert _FakeEOBRunModule.last_parameters["output_hpc"] == "no"
 
 
+def test_hyperbolic_classification_is_distance_invariant(monkeypatch):
+    monkeypatch.setenv("RIFT_TEOBRESUMS_SKIP_PROBE", "1")
+    monkeypatch.setattr(lalsimutils, "EOBRun_module", _FakeEOBRunModule, raising=False)
+
+    outcomes = []
+    for distance_mpc in (1e-3, 1e24):
+        parameters = lalsimutils.ChooseWaveformParams(
+            m1=30 * lalsimutils.lal.MSUN_SI,
+            m2=20 * lalsimutils.lal.MSUN_SI,
+            dist=distance_mpc * 1e6 * lalsimutils.lal.PC_SI,
+            E0=1.02,
+            p_phi0=4.1,
+        )
+        outcomes.append(parameters.extract_param("hypclass"))
+
+    assert outcomes == ["scatter", "scatter"]
+
+
 def test_real_hyperbolic_classification_when_teob_is_available(monkeypatch):
     eobrun_module = pytest.importorskip("EOBRun_module")
     monkeypatch.setattr(lalsimutils, "EOBRun_module", eobrun_module, raising=False)

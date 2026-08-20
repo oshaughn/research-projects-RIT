@@ -88,6 +88,26 @@ __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
 
 rosDebugMessagesContainer = [False]
+
+
+def _hyperbolic_endpoint_outcome(dynamics, normalized_amplitude):
+    """Distinguish an outgoing scatter from an ingoing plunge.
+
+    Prefer the final radial momentum from TEOBResumS dynamics.  The fallback
+    uses only the endpoint-to-peak amplitude ratio, so the result cannot
+    depend on the arbitrary luminosity distance assigned to the parameters.
+    """
+    if isinstance(dynamics, dict) and "Prstar" in dynamics:
+        radial_momentum = np.asarray(dynamics["Prstar"])
+        if radial_momentum.size:
+            final_momentum = radial_momentum.flat[-1]
+            if np.isfinite(final_momentum) and final_momentum != 0:
+                return "scatter" if final_momentum > 0 else "plunge"
+
+    normalized_amplitude = np.asarray(normalized_amplitude)
+    if not normalized_amplitude.size or not np.isfinite(normalized_amplitude[-1]):
+        return "plunge"
+    return "scatter" if normalized_amplitude[-1] > 1e-4 else "plunge"
 rosDebugMessagesLongContainer = [False]
 if log_loud:
     print( "[Loading lalsimutils.py : MonteCarloMarginalization version]",file=sys.stderr)
@@ -1037,12 +1057,7 @@ class ChooseWaveformParams:
 
             # parsing number of peaks after filtering against distance tolerance
             if len(filtered_peaks) == 1:
-                if np.abs(amp)[-1] > 1e-26:
-                    # scatter waveform
-                    return 'scatter'
-                else:
-                    # plunge waveform
-                    return 'plunge'
+                return _hyperbolic_endpoint_outcome(dym, amp_norm)
             elif len(filtered_peaks) == 0:
                 # meaningless waveform
                 reclassify = True
@@ -1063,12 +1078,9 @@ class ChooseWaveformParams:
                 if len(all_props['prominences']) > 3:
                     print('MANY peaks detected on reclassification, evaluating...')
                     # these can be scatter or plunge
-                    if np.abs(amp)[-1] < 1e-26:
-                        print('Reclassifying to Plunge')
-                        return 'plunge'
-                    else:
-                        print('Reclassifying to Scatter')
-                        return 'scatter'
+                    outcome = _hyperbolic_endpoint_outcome(dym, amp_norm)
+                    print('Reclassifying to {}'.format(outcome.capitalize()))
+                    return outcome
                 elif len(all_props['prominences']) == 3 or len(all_props['prominences']) == 2 or len(all_props['prominences']) == 1:
                     # these are always scatters
                     print('Reclassifying to Scatter')

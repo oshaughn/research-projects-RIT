@@ -3,11 +3,27 @@
 
 ## TEOBResumS
 
-TEOBResumS is available from [git source](https://bitbucket.org/eob_ihes/teobresums/src) and via pypi.  We recommend you install via
+TEOBResumS is available from [git source](https://bitbucket.org/eob_ihes/teobresums/src) and via pypi.  For the standard non-hyperbolic interface, install via
 ```
 pip install teobresums
 ```
-which provides the ``EOBRun_module``.  However, we have noticed some incompatibilties with numpy can arise if this is done.  If needed, please instead install from source as described above
+which provides the ``EOBRun_module``.  However, we have noticed some incompatibilties with numpy can arise if this is done.  If needed, please instead install from source as described above.
+
+The PyPI release is not sufficient for every advanced-physics workflow.  In
+particular, hyperbolic parameters (``H_hyp``, ``j_hyp``, and ``r_hyp``) require
+a DALI-capable source build.  This compatibility layer has been exercised with
+DALI commits ``9c4482d95c51b9b4db634d3e432da23a3c0543ed`` and
+``5504fdb736d2c63df49632f0afc90ddf553b2693``; record the exact source commit
+and compiled ``EOBRun_module`` hash with each production analysis.
+
+RIFT selects a TEOBResumS parameter profile automatically.  The default is
+``RIFT_TEOBRESUMS_PROFILE=auto``; validated deployments may pin ``dali``,
+``default``, or ``legacy``.  An unknown explicit profile fails rather than
+guessing.  The first call for each parameter schema runs in a child process so
+an incompatible native extension cannot crash the parent RIFT process.  For
+unusually long validation calls, tune ``RIFT_TEOBRESUMS_PROBE_TIMEOUT`` (in
+seconds).  Use ``RIFT_TEOBRESUMS_SKIP_PROBE=1`` only with a separately
+validated and pinned binary.
 
 ## gwsurrogate
 
