@@ -777,7 +777,16 @@ def FactoredLogLikelihoodTimeMarginalized(tvals, extr_params, rholms_intp, rholm
     # Said another way, the m^th harmonic of the waveform should transform as
     # e^{- i m phiref}, but the Ylms go as e^{+ i m phiref}, so we must give
     # - phiref as an argument so Y_lm h_lm has the proper phiref dependence
-    Ylms = ComputeYlms(Lmax, incl, -phiref, selected_modes=rholms_intp[list(rholms.keys())[0]].keys())
+    # InterpolateRholms deliberately drops identically-zero data/mode overlaps.
+    # Keep the scalar nearest-neighbour path on that same active-mode set: using
+    # every raw rholm below while building Ylms from only the retained modes
+    # otherwise raises KeyError for symmetry-suppressed modes (for example the
+    # (2,1) mode of an equal-mass source) and for exactly zero data.  Detectors
+    # can retain different modes, so build harmonics for their union.
+    active_modes = set()
+    for det in detectors:
+        active_modes.update(rholms_intp[det].keys())
+    Ylms = ComputeYlms(Lmax, incl, -phiref, selected_modes=active_modes)
 
 #    lnL = 0.
     lnL = np.zeros(len(tvals),dtype=RiftFloat)
@@ -795,7 +804,8 @@ def FactoredLogLikelihoodTimeMarginalized(tvals, extr_params, rholms_intp, rholm
                 det_rholms[key] = func(float(t_det)+tvals)
         else:
             # do not interpolate, just use nearest neighbors.
-            for key, rhoTS in rholms[det].items():
+            for key in rholms_intp[det]:
+                rhoTS = rholms[det][key]
                 tfirst = float(t_det)+tvals[0]
                 ifirst = int(np.round(( float(tfirst) - float(rhoTS.epoch)) / rhoTS.deltaT) + 0.5)
                 ilast = ifirst + len(tvals)

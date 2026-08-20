@@ -1737,7 +1737,10 @@ if not opts.time_marginalization:
                           cdf_inv = None, 
                           left_limit = param_limits["t_ref"][0], 
                           right_limit = param_limits["t_ref"][1],
-                          prior_pdf = functools.partial(mcsampler.uniform_samp_vector, param_limits["t_ref"][0], param_limits["t_ref"][1]))
+                          # Reuse the backend-portable closure above.  AV exposes
+                          # ret_uniform_samp_vector_alt but not the legacy
+                          # uniform_samp_vector symbol.
+                          prior_pdf = tref_sampler)
 
 
 # skymap oracle
@@ -3267,7 +3270,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 P.dist = di* 1.e6 * lalsimutils.lsu_PC # luminosity distance
 
                 lnL[i] = factored_likelihood.FactoredLogLikelihood(
-                        P, rholms_intp, cross_terms, cross_terms_V, opts.l_max)
+                        P, rholms, rholms_intp, cross_terms, cross_terms_V,
+                        opts.l_max)
                 i+=1
             if return_lnL:
               return lnL - manual_avoid_overflow_logarithm 
