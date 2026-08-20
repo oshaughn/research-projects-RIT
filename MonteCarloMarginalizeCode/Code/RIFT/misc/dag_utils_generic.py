@@ -2524,11 +2524,14 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
         # Selective transfer: only the matched osdf image is fetched (via the
         # $$() token, which is comma-free so it survives transfer_input_files
         # comma-splitting).  CVMFS/local images are referenced in place and
-        # never transferred, so the whole family is never pulled.  In container-
-        # universe mode the image is delivered via container_image itself; in
-        # runtime-select mode the wrapper self-fetches.  In both cases do NOT add
-        # the match-time transfer token.
-        if singularity_transfer_expr and not singularity_container_universe and not singularity_runtime_select:
+        # never transferred, so the whole family is never pulled.
+        #
+        # Container universe needs this token too: its container_image selector
+        # names BASENAMES (it may not contain a '/', or condor_submit truncates
+        # it -- see build_container_image_select), so the image itself must be
+        # delivered by file transfer.  Runtime-select mode self-fetches inside
+        # the wrapper, so it is the only mode that skips the token.
+        if singularity_transfer_expr and not singularity_runtime_select:
             extra_files += [singularity_transfer_expr]
     elif singularity_image:
         if 'osdf:' in singularity_image:
@@ -2874,6 +2877,15 @@ echo Starting ...
         fname_str=fname_str.strip()
         ile_job.add_condor_cmd('transfer_input_files', fname_str)
         ile_job.add_condor_cmd('should_transfer_files','YES')
+        if singularity_container_universe:
+            # condor_submit APPENDS the container_image value to the derived
+            # TransferInput.  Our selector names basenames (it may not contain a
+            # '/'), so that appended entry would ask the execute point to fetch a
+            # bare file name from the access point and fail.  Set TransferInput
+            # directly -- emitted after transfer_input_files, it wins -- so the
+            # list is exactly ours, with the matched image supplied by the
+            # comma-free $$() ternary already in extra_files.
+            ile_job.add_condor_cmd('MY.TransferInput', '"' + fname_str.replace('"', '\\"') + '"')
 
     if not transfer_output_files is None:
         if not isinstance(transfer_output_files, list):
@@ -3107,13 +3119,14 @@ def write_calpilot_sub(tag='calpilot', exe=None, log_dir=None, universe="vanilla
         singularity_container_universe = bool(use_singularity and os.environ.get('RIFT_CONTAINER_UNIVERSE'))
         if singularity_container_universe:
             singularity_container_image_select = build_container_image_select(_manifest)
-        else:
-            # Selective ($$()) transfer of only the matched osdf image (comma-free so
-            # it survives transfer_input_files comma-splitting).  In container-universe
-            # mode the image is delivered via container_image itself, so skip this.
-            _transfer_expr = build_transfer_input_expr(_manifest)
-            if on_osg and _transfer_expr:
-                transfer_files += [_transfer_expr]
+        # Selective ($$()) transfer of only the matched osdf image (comma-free so it
+        # survives transfer_input_files comma-splitting).  Container universe needs it
+        # too: its container_image selector names BASENAMES (it may not contain a '/',
+        # or condor_submit truncates it), so the image arrives by file transfer.
+        # (container universe requires use_singularity, which already implies on_osg)
+        _transfer_expr = build_transfer_input_expr(_manifest)
+        if on_osg and _transfer_expr:
+            transfer_files += [_transfer_expr]
 
     if use_singularity:
         base = os.environ.get('SINGULARITY_BASE_EXE_DIR', '/usr/bin/')
@@ -3220,8 +3233,14 @@ def write_calpilot_sub(tag='calpilot', exe=None, log_dir=None, universe="vanilla
         # absolute paths -> condor transfers each to the worker scratch dir by basename,
         # which is what the stage args (basenames) reference.
         transfer_files += [wd + "/consolidated_$(macroiteration).composite", ile_args_file]
-        job.add_condor_cmd('transfer_input_files', ','.join(transfer_files))
+        _tif_str = ','.join(transfer_files)
+        job.add_condor_cmd('transfer_input_files', _tif_str)
         job.add_condor_cmd('should_transfer_files', 'YES')
+        if singularity_container_universe:
+            # condor_submit APPENDS the container_image value to the derived
+            # TransferInput; our selector names basenames, so that entry would ask
+            # the execute point to fetch a bare file name and fail.  Pin the list.
+            job.add_condor_cmd('MY.TransferInput', '"' + _tif_str.replace('"', '\\"') + '"')
         job.add_condor_cmd('when_to_transfer_output', 'ON_EXIT')
         job.add_condor_cmd('transfer_output_files', 'cal_consolidated_$(macroiteration).npz')
     # Container-family GPU jobs (CALPILOT runs ILE on a GPU): exclude slots that

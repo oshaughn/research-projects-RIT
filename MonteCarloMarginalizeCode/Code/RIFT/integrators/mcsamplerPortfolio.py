@@ -1291,6 +1291,11 @@ class MCSampler(object):
         deltalnL = kwargs['igrand_threshold_deltalnL'] if 'igrand_threshold_deltalnL' in kwargs else float("Inf") # default is to return all
         deltaP    = kwargs["igrand_threshold_p"] if 'igrand_threshold_p' in kwargs else 0 # default is to omit 1e-7 of probability
         bFairdraw  = kwargs["igrand_fairdraw_samples"] if "igrand_fairdraw_samples" in kwargs else False
+        # The fair draw below REPLACES _rvs with an export resample; a consumer that then
+        # weights those rows applies w twice.  Record whether it actually FIRED -- the CLI
+        # flag is not the same predicate, since the draw is skipped when it would not
+        # shrink the record.  Reset per pass: samplers are reused across events.
+        self._rvs_is_fairdraw = False
         n_extr = kwargs["igrand_fairdraw_samples_max"] if "igrand_fairdraw_samples_max" in kwargs else None
 
         bShowEvaluationLog = kwargs['verbose'] if 'verbose' in kwargs else False
@@ -1326,9 +1331,15 @@ class MCSampler(object):
         # the support-mismatch diagnostic describes THIS integral: a second point reusing the same
         # sampler object must not inherit the previous point's escaped mass.
         self._reset_support_diagnostics()
-        if 'integrand' in self._rvs:
-          # remove conflict
-          del self._rvs['integrand']
+        # The aggregate sample record belongs to ONE integration pass.  A second call on the
+        # same portfolio object (notably the ILE L0 warm retry) deliberately reuses the MEMBER
+        # proposals, but must not append its draws to the first pass's exported cloud.  Besides
+        # mixing two estimates in _rvs, that made the second pass's warm-seed reserve contain
+        # cold fair-draw rows and inflated its retained-sample evidence.  Proposal/adaptation
+        # state lives on the members, so clearing this portfolio-level cache keeps the warm
+        # start while giving the new pass an independent sample record.  The L0 driver snapshots
+        # and restores the cold cache if the warm pass is rejected or raises.
+        self._rvs = {}
         # Same reasoning for the warm-seed reserve: a pass that raises part-way would
         # otherwise leave the PREVIOUS point's retained samples here, and an L0 rescue would
         # then seed this point's live volume from a different point's peak.  Drop it on
@@ -1945,6 +1956,7 @@ class MCSampler(object):
                        self._rvs[key] = arr[indx_host]
 
 
+               self._rvs_is_fairdraw = True   # _rvs is now an EXPORT resample, rows already ~ w
         # Create extra dictionary to return things
         dict_return ={}
         # if convergence_tests is not None:

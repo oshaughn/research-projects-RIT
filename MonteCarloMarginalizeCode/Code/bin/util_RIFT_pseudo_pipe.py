@@ -428,6 +428,8 @@ parser.add_argument("--assume-matter-but-primary-bh",action='store_true',help="I
 parser.add_argument("--internal-tabular-eos-file",type=str,default=None,help="Tabular file of EOS to use.  The default prior will be UNIFORM in this table!")
 parser.add_argument("--sample-eccentricity-squared",action='store_true', help="Option for sampling as well as fitting in eccentricity_squared instead of fitting in eccentricity_squared and sampling in eccentricity (also need option --use-eccentricity-squared")
 parser.add_argument("--use-eccentricity-squared",action='store_true', help="Allows for fitting and sampling in eccentricity_squared instead of eccentricity")
+parser.add_argument("--sample-eccentricity-ln",action='store_true', help="Option for sampling as well as fitting in eccentricity_ln instead of fitting in eccentricity_ln and sampling in eccentricity (also need option --use-eccentricity-ln")
+parser.add_argument("--use-eccentricity-ln",action='store_true', help="Allows for fitting and sampling in eccentricity_ln instead of eccentricity")
 parser.add_argument("--assume-eccentric",action='store_true', help="Add eccentric options for each part of analysis")
 parser.add_argument("--use-meanPerAno",action='store_true', help="Add meanPerAno options for each part of analysis")
 parser.add_argument("--internal-cip-use-periodic-ecc-vars",action='store_true', help="use e cos ell, e sin ell as fitting variables ")
@@ -493,6 +495,7 @@ parser.add_argument("--ile-force-gpu",action='store_true')
 parser.add_argument("--ile-gpu-fanout",default=None,help="Multi-GPU ILE fan-out: split each ILE batch's intrinsic-grid range across N GPUs on the node (one shard per GPU).  Integer N (also requests N GPUs+CPUs) or 'auto' (split across whatever GPUs are visible at runtime).  Baked into the generated ile_pre.sh, so it needs no runtime environment.  Equivalent to setting RIFT_ILE_GPU_FANOUT.  Requires --ile-force-gpu.")
 parser.add_argument("--fake-data-cache",type=str)
 parser.add_argument("--spin-magnitude-prior",default='default',type=str,help="options are default [uniform mag for precessing, zprior for aligned], volumetric, uniform_mag_prec, uniform_mag_aligned, zprior_aligned")
+parser.add_argument("--eccentricity-prior",default='uniform',type=str,choices=['uniform','log_uniform'],help="options are uniform in e ('uniform') and uniform in log(e) ('log_uniform')")  # constrained: the value is forwarded verbatim to CIP, which only branches on the exact string 'log_uniform', so an unrecognized value here would silently run the uniform prior instead of failing
 parser.add_argument("--force-lambda-max",default=None,type=float,help="Provide this value to override the value of lambda-max provided") 
 parser.add_argument("--force-lambda-small-max",default=None,type=float,help="Provide this value to override the value of lambda-small-max provided") 
 parser.add_argument("--force-lambda-no-linear-init",action='store_true',help="Disables use of priors focused towards small lambda for initial iterations. Designed for PP plot tests with wide/uniform priors.")
@@ -601,6 +604,13 @@ parser.add_argument("--archive-pesummary-event-label",default="this_event",help=
 parser.add_argument("--internal-mitigate-fd-J-frame",default="L_frame",help="L_frame|rotate, choose method to deal with ChooseFDWaveform being in wrong frame. Default is to request L frame for inputs")
 parser.add_argument("--internal-force-puff-iterations", default=4, type=int, help="Number of iterations to be puffed")
 opts=  parser.parse_args()
+
+# Multi-GPU ILE fan-out: --ile-gpu-fanout funnels through RIFT_ILE_GPU_FANOUT, which
+# create_event_parameter_pipeline_BasicIteration (run via os.system, inheriting this
+# environment) and dag_utils read at DAG-build time to size request_GPUs/CPUs and bake
+# the value into ile_pre.sh.  A CLI value wins over any inherited environment value.
+if opts.ile_gpu_fanout is not None:
+    os.environ['RIFT_ILE_GPU_FANOUT'] = str(opts.ile_gpu_fanout)
 
 config_stored=None; config_dict=None
 ile_condor_commands = None
@@ -1610,6 +1620,7 @@ for indx in np.arange(len(instructions_cip)):
     if opts.internal_cip_tripwire:
         line += " --tripwire-fraction {} ".format(opts.internal_cip_tripwire)
     line += prior_args_lookup[opts.spin_magnitude_prior]
+
     if opts.cip_internal_use_eta_in_sampler:
         line = line.replace('parameter delta_mc','parameter eta')
     if opts.cip_fit_method == 'quadratic' or opts.cip_fit_method == 'polynomial':
@@ -1691,11 +1702,14 @@ for indx in np.arange(len(instructions_cip)):
 
     if opts.fit_save_gp:
         line += " --fit-save-gp my_gp "  # fiducial filename, stored in each iteration
+    line += " --eccentricity-prior {}".format(opts.eccentricity_prior)
     if opts.assume_eccentric:
         if opts.use_meanPerAno:
             line += " --parameter meanPerAno --use-meanPerAno "
         if opts.use_eccentricity_squared:
             line += " --use-eccentricity --parameter eccentricity_squared "
+        elif opts.use_eccentricity_ln:
+            line += " --use-eccentricity --parameter eccentricity_ln "
         else:
             line += " --use-eccentricity --parameter eccentricity "
         # if opts.use_eccentricity_squared:
@@ -1988,6 +2002,8 @@ if opts.assume_eccentric:
     cmd += " --use-eccentricity "
     if opts.sample_eccentricity_squared:
         cmd += " --use-eccentricity-squared-sampling "
+    if opts.sample_eccentricity_ln:
+        cmd += " --use-eccentricity-ln-sampling "
     if opts.use_meanPerAno:
         cmd += " --use-meanPerAno "
 if opts.calibration_reweighting and (not opts.bilby_pickle_file):

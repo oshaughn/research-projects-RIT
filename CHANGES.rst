@@ -148,6 +148,43 @@ development tree is rift_O4d.
     (the flat-mode no-op master is preserved); ILE honours --srate-resample-time-marginalization instead of
     always doubling, and recovers the requested export rate EXACTLY rather than an integer multiple; Virgo
     calibration correction convention fixed; multi-GPU ILE fan-out with a multi-container example in one ini.
+  - CIP eccentricity priors: ``--eccentricity-prior log_uniform`` (ingested from rift_O4c
+    0.0.17.12, rapidpe-rift/rift!54) called ``np.ln``, which does not exist in numpy, so the
+    option raised AttributeError as soon as the prior was evaluated; its normalization was also
+    the uniform prior's, ``ln(ECC_MAX-ECC_MIN)``, where a density uniform in ln(e) needs
+    ``ln(ECC_MAX/ECC_MIN)`` (negative for the shipped 0.001/0.4 defaults).  Both fixed.  The
+    option also reached only the ``eccentricity`` coordinate, so a run sampling
+    ``eccentricity_squared`` -- which is what ``--use-eccentricity-squared`` asks for, and what
+    iteration 0 of an eccentric pseudo_pipe run uses -- silently kept the uniform-in-e^2
+    density; the log-uniform prior is now installed for that coordinate too (as the same
+    distribution written in e^2), and the ``--ecc-min 0`` floor correction now reaches its
+    range.  Separately, ``eccentricity_ln`` is a logarithmic coordinate under EVERY prior, so
+    the shipped ``--ecc-min`` default of 0.0 left a run sampling it with a ``[log(0), ...]``
+    range and a prior that divided by zero; the floor correction is now keyed on the sampled
+    coordinate as well as on the prior, while a run that neither asks for the log-uniform
+    prior nor samples a log coordinate keeps ``--ecc-min`` exactly as given.  Finally,
+    ``--eccentricity-prior`` is restricted to ``uniform``/``log_uniform`` in both CIP and
+    pseudo_pipe, which forwards the value verbatim: only ``log_uniform`` is branched on, so an
+    unsupported value ran the uniform prior while reporting the requested one.  With this, the
+    CIP prior densities get their first test suite: test_cip_priors.py
+    extracts the shipped ``def`` blocks from CIP with ast rather than transcribing them, then
+    checks that all 39 priors evaluate finite and non-negative, that the 20 claiming a
+    normalized density integrate to 1 against their stated measure, and that
+    ``--eccentricity-prior`` selects a normalized density for every eccentricity coordinate,
+    including at the CLI defaults read out of CIP's own argparse calls rather than assumed.
+    Also fixed on rift_O4c (PR #174).
+  - ILE portfolio driver: a portfolio the driver cannot build now FAILS instead of silently
+    integrating with a different sampler.  ``--sampler-method portfolio`` no longer carries a
+    dead ok-flag test that fell through to the plain mcsampler.MCSampler; the terminal
+    diagnostic and the plugin-pipeline branch no longer dereference mcsamplerPortfolio when its
+    import failed (that raised NameError from the diagnostic itself on a torch-free container);
+    an unrecognized ``--sampler-portfolio`` member and an omitted/empty member list are now
+    errors naming the known members.  Ported from rift_O4c (PR #172).
+  - asimov: the RIFT bootstrap source can be named explicitly (``scheduler: bootstrap file:``), bypassing
+    the dependency scan, with ``{event}``/``{analysis}`` substitution and single-match globbing; the
+    PESummary analysis label is auto-derived and an ambiguous or raw-bilby metafile now fails loudly
+    instead of silently bootstrapping from whichever label sorted first.  Ingested from rift_O4c 0.0.17.11
+    (rapidpe-rift/rift!53).
   - containers, docs, CI: container survey/warmup tooling (containers/survey_scan) with GPU-inventory
     profiles and tests; container canaries fixed after setuptools 84; an upstream dependency-compatibility
     check run on both GitLab and GitHub CI; new docs for distance-grid workflows, the demo catalog, the
@@ -164,13 +201,32 @@ development tree is rift_O4d.
     certify correctness; k-hat does not catch confidently-wrong runs from support mismatch; the L0 'doubles
     landed fraction' claim and the cap24 lnZ-bias claim are retracted).
 
+0.0.17.13
+---------
+MR https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/55  , for ln(e) parameter access in pipeline
+
+0.0.17.12
+---------
+MR https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/54  , for eccentricity prior (log-uniform)
+
+0.0.17.11
+---------
+MR https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/53  , so user can specify the bootstrap file in asimov yaml
+
+0.0.17.10
+------------
+MR https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/51 , https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/49
+so output sampling rate is precisely what is requested
+
 0.0.17.9
 ------------
 development tree is rift_O4c_staging -> rift_O4c; draft MR notes at
 https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/49
    - (rc0) write_bilby_pickle: shutil.copyfile threw error if cache file already existed (copy into same file error) in
      code that protected against duplicate IFO entries.
-
+   - (rc1) V calibration convention sign (rapidpe-rift/rift!50); multi-container capability; multi-GPU 'fanout' capability
+release is rc1
+     
 
 0.0.17.8
 ------------

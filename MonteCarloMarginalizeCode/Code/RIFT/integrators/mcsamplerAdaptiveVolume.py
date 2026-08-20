@@ -389,6 +389,80 @@ def make_warm_seed_reserve(X, lnL, params_ordered, n_max=20000,
     return out
 
 
+def lnZ_from_reserve(reserve):
+    """lnZ implied by a warm-seed reserve, on the ORIGINAL PROPOSAL-DRAW normalization.
+
+    -> float, or None if the reserve cannot support the estimate.
+
+    THE DENOMINATOR IS THE POINT.  An importance estimate is mean(w) over the draws that were
+    MADE, and a draw whose likelihood underflowed to -inf is a real draw contributing a real
+    zero.  make_warm_seed_reserve drops those rows -- they are ballast for every other
+    consumer -- and may then cap what survives, so the stored array is neither the draw set
+    nor a uniform sample of it.  Averaging over the stored rows silently divides by the wrong
+    n, overestimating by log(n_retained/n_finite).  For a PORTFOLIO, whose _rvs holds every
+    draw and whose finite fraction on a collapsed pass is ~1e-5, that is ~11 nats.
+
+    It does not cancel in the L0 reject gate, which is what makes it dangerous rather than
+    merely wrong: the cold and warm passes have DIFFERENT finite fractions, so the gate would
+    see the difference of two different-sized errors and could again keep a mass-losing warm
+    pass or discard a good one -- the failure the gate change exists to remove, reappearing
+    one layer down.
+
+    So rebuild the estimate explicitly.  With `m` rows kept, out of `n_finite` finite draws,
+    out of `n_retained` draws made:
+
+        sum over the finite population  ~=  (n_finite / m) * sum over kept rows
+        lnZ = logsumexp(lw_kept) + log(n_finite) - log(m) - log(n_retained)
+
+    which collapses to logsumexp(lw) - log(m) exactly when nothing was dropped and nothing
+    was capped -- i.e. for AV, whose retained set is already all finite, leaving its
+    behaviour unchanged.
+
+    One wrinkle, disclosed rather than corrected: make_warm_seed_reserve force-appends the
+    peak row, so the kept rows are very slightly peak-biased rather than uniform.  At one row
+    in n_max (default 20000) that sits far below the MC error on either pass, and correcting
+    it exactly would mean tracking whether the peak was already in the subsample.
+    """
+    if not isinstance(reserve, dict):
+        return None
+    # EXACT PATH.  make_warm_seed_reserve records the finite-population weight total before
+    # the cap, precisely so this does not have to be estimated from the subsample.  Prefer it
+    # whenever it is there: the estimate below is a Horvitz-Thompson realization whose
+    # LOGARITHM carries sampling error, and this gate is a comparison of logarithms against a
+    # 0.5-nat threshold.  See the cap discussion in make_warm_seed_reserve.
+    _exact = reserve.get('ln_sum_w_finite')
+    _n_ret_exact = reserve.get('n_retained')
+    if _exact is not None and _n_ret_exact:
+        try:
+            if np.isfinite(float(_exact)) and float(_n_ret_exact) > 0:
+                return float(float(_exact) - np.log(float(_n_ret_exact)))
+        except (TypeError, ValueError):
+            pass
+    # FALLBACK: a reserve built without the prior components, or by an older writer.  Scale
+    # the kept rows back up to the finite population and then to the draws made -- unbiased
+    # in the linear total, but exposed to the cap sampling error described above.
+    try:
+        lnL = np.asarray(reserve['lnL'], dtype=float).ravel()
+        lp = np.asarray(reserve['log_joint_prior'], dtype=float).ravel()
+        ls = np.asarray(reserve['log_joint_s_prior'], dtype=float).ravel()
+    except (KeyError, TypeError, ValueError):
+        return None
+    m = len(lnL)
+    if m == 0 or len(lp) != m or len(ls) != m:
+        return None
+    lw = lnL + lp - ls
+    lw = lw[np.isfinite(lw)]
+    if lw.size == 0:
+        return None
+    n_fin = float(reserve.get('n_finite', m) or m)
+    n_ret = float(reserve.get('n_retained', n_fin) or n_fin)
+    if not (n_fin > 0 and n_ret > 0):
+        return None
+    mx = np.max(lw)
+    tot = mx + np.log(np.sum(np.exp(lw - mx)))
+    return float(tot + np.log(n_fin) - np.log(float(m)) - np.log(n_ret))
+
+
 def warm_seed_scale_from_finite_points(points, lnL, box_lo, box_hi, axes,
                                        eig_lo=1e-5, eig_hi=0.5):
     """Estimate the POSTERIOR scale (a box-scaled covariance over `axes`) from the finite
@@ -1496,6 +1570,11 @@ class MCSampler(object):
         deltalnL = kwargs['igrand_threshold_deltalnL'] if 'igrand_threshold_deltalnL' in kwargs else float("Inf") # default is to return all
         deltaP    = kwargs["igrand_threshold_p"] if 'igrand_threshold_p' in kwargs else 0 # default is to omit 1e-7 of probability
         bFairdraw  = kwargs["igrand_fairdraw_samples"] if "igrand_fairdraw_samples" in kwargs else False
+        # The fair draw below REPLACES _rvs with an export resample; a consumer that then
+        # weights those rows applies w twice.  Record whether it actually FIRED -- the CLI
+        # flag is not the same predicate, since the draw is skipped when it would not
+        # shrink the record.  Reset per pass: samplers are reused across events.
+        self._rvs_is_fairdraw = False
         n_extr = kwargs["igrand_fairdraw_samples_max"] if "igrand_fairdraw_samples_max" in kwargs else None
 
         bShowEvaluationLog = kwargs['verbose'] if 'verbose' in kwargs else False
@@ -1806,6 +1885,11 @@ class MCSampler(object):
         # Bounded, because this is the array the surrounding code calls a memory hog: a
         # uniform subsample without replacement (plus the peak row, which the seed needs and
         # a subsample can drop) is all a seed or a scale estimate can use.
+        # The two PRIOR components ride along as well, so a consumer can rebuild the
+        # importance weight -- and therefore lnZ -- from the retained set.  Without them the
+        # only reconstructable lnZ is the one from the fair-drawn _rvs, and on this pass that
+        # is a SINGLE row drawn proportional to weight, i.e. the largest weight rather than
+        # the mean: an estimate high by ~log(n_retained / eff_samp), about 7 nats here.
         try:
             self._warm_seed_reserve = make_warm_seed_reserve(
                 allx, allloglkl - allp, self.params_ordered,
@@ -1868,6 +1952,7 @@ class MCSampler(object):
                        self._rvs[key] = arr[indx_host]
 
 
+               self._rvs_is_fairdraw = True   # _rvs is now an EXPORT resample, rows already ~ w
         # perform type conversion of all stored variables.  VERY LARGE -- should only do this if we need it!
         if cupy_ok:
           for name in self._rvs:

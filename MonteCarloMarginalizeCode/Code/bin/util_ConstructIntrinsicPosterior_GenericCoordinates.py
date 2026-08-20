@@ -290,6 +290,7 @@ parser.add_argument("--mirror-points",action='store_true',help="Use if you have 
 parser.add_argument("--cap-points",default=-1,type=int,help="Maximum number of points in the sample, if positive. Useful to cap the number of points ued for GP. See also lnLoffset. Note points are selected AT RANDOM")
 parser.add_argument("--chi-max", default=1,type=float,help="Maximum range of 'a' allowed.  Use when comparing to models that aren't calibrated to go to the Kerr limit.")
 parser.add_argument("--chi-small-max", default=None,type=float,help="Maximum range of 'a' allowed on the smaller body.  If not specified, defaults to chi_max")
+parser.add_argument("--eccentricity-prior", default="uniform",choices=['uniform','log_uniform'],help="Options are 'uniform' and 'log_uniform'")  # constrained: only 'log_uniform' is branched on below, so anything else would quietly fall through to the uniform prior
 parser.add_argument("--ecc-max", default=0.9,type=float,help="Maximum range of 'eccentricity' allowed.")
 parser.add_argument("--ecc-min", default=0.0,type=float,help="Minimum range of 'eccentricity' allowed.")
 parser.add_argument("--meanPerAno-max", default=2*np.pi,type=float,help="Maximum range of 'meanPerAno' allowed.")
@@ -738,6 +739,8 @@ if not(opts.no_plots):
 supplemental_ln_likelihood= None
 supplemental_ln_likelihood_prep =None
 supplemental_ln_likelihood_parsed_ini=None
+supplemental_ln_likelihood_offset_fn=None
+supplemental_ln_likelihood_offset=0.0
 # Supplemental likelihood factor. Must have identical call sequence to 'likelihood_function'. Called with identical raw inputs (including cosines/etc)
 if opts.supplementary_likelihood_factor_code and opts.supplementary_likelihood_factor_function:
   print(" EXTERNAL SUPPLEMENTARY LIKELIHOOD FACTOR : {}.{} ".format(opts.supplementary_likelihood_factor_code,opts.supplementary_likelihood_factor_function))
@@ -745,6 +748,17 @@ if opts.supplementary_likelihood_factor_code and opts.supplementary_likelihood_f
   external_likelihood_module = sys.modules[opts.supplementary_likelihood_factor_code]
   supplemental_ln_likelihood = getattr(external_likelihood_module,opts.supplementary_likelihood_factor_function)
   name_prep = "prepare_"+opts.supplementary_likelihood_factor_function
+  # Optional <function>_offset hook, same naming convention as prepare_<function>.  A plugin whose
+  # contribution is large must return a CENTRED lnL -- the default path here exponentiates it
+  # (likelihood_function*np.exp(supplemental)), and float64 overflows past ~709, which a single
+  # loud-event quadratic (lnL_peak ~ SNR^2/2) exceeds on its own.  That centring is a constant
+  # multiplicative factor: harmless in the posterior, but it would otherwise leak into every
+  # ABSOLUTE lnL and evidence written below and make them wrong by exactly that constant.  The
+  # plugin reports what it removed; we add it back at the write sites.  Queried after integration,
+  # not here: the value is only known once the plugin has been prepared/loaded.
+  name_offset = opts.supplementary_likelihood_factor_function+"_offset"
+  if hasattr(external_likelihood_module,name_offset):
+    supplemental_ln_likelihood_offset_fn=getattr(external_likelihood_module,name_offset)
   if opts.using_eos_for_prior:
           # Load in filename
           fname = opts.using_eos.replace('file:', '')
@@ -762,17 +776,18 @@ if opts.supplementary_likelihood_factor_code and opts.supplementary_likelihood_f
 
 
   if hasattr(external_likelihood_module,name_prep):
-    supplemental_ln_likelhood_prep=getattr(external_likelihood_module,name_prep)
+    supplemental_ln_likelihood_prep=getattr(external_likelihood_module,name_prep)
     # Check for and load in ini file associated with external library
     if opts.supplementary_likelihood_factor_ini:
       import configparser as ConfigParser
       config = ConfigParser.ConfigParser()
-      config.optionxform=str # force preserve case! 
+      config.optionxform=str # force preserve case!
       config.read(opts.supplementary_likelihood_factor_ini)
-      supplemental_ln_likelhood_parsed_ini=config
+      supplemental_ln_likelihood_parsed_ini=config
 
-      # Call the ini file, tell it what coordinates we are using by name
-      supplemental_ln_likelihood_prep(config=supplemental_ln_likelihood_parsed_ini,coords=coord_names)
+    # NOTE the plugin is NOT prepared here: low_level_coord_names is not final at this point (the
+    # tabular-EOS path appends 'ordering' to it further down).  See the preparation call just
+    # before the sampling loop below.
 
 
 
@@ -907,8 +922,29 @@ def tapered_magnitude_prior_alt(x,loc=0.8,kappa=20.):   #
 def eccentricity_prior(x):
     return np.ones(x.shape) / (ECC_MAX-ECC_MIN) # uniform over the interval [0.0, ECC_MAX]
 
+def log_eccentricity_prior(x):
+    # Density in e for a distribution uniform in ln(e) on [ECC_MIN, ECC_MAX].
+    # Was np.ln (does not exist in numpy, so --eccentricity-prior log_uniform raised
+    # AttributeError as soon as the prior was evaluated) with a (ECC_MAX-ECC_MIN)
+    # normalization, which is the uniform prior's normalization, not this one's:
+    # \int_ECC_MIN^ECC_MAX dx/(x*C) = 1  =>  C = ln(ECC_MAX/ECC_MIN).
+    # The statement below is byte-identical to rift_O4c 0.0.17.13, which reached the same
+    # fix independently; keep it that way so future O4c->O4d merges do not conflict here.
+    return np.ones(x.shape) / (x*np.log(ECC_MAX/ECC_MIN)) # log uniform over the interval [ECC_MIN, ECC_MAX]; if ECC_MIN=0.0, auto corrects to ECC_MIN=0.001
+
+def uniform_eccentricity_ln_prior(x):
+    return np.ones(x.shape) / ((np.log(ECC_MAX/ECC_MIN))) # log uniform over the interval [ECC_MIN, ECC_MAX]; if ECC_MIN=0.0, auto corrects to ECC_MIN=0.001
+
 def eccentricity_squared_prior(x):  # note this is INCONSISTENT with the prior above -- we are designed to give a CDF = (e/emax)^2 for example here, or more generally (e^2 - emin^2)/(emax^2-emin^2)
     return np.ones(x.shape) / (ECC_MAX**2-ECC_MIN**2) # uniform over the interval [ECC_MIN, ECC_MAX]
+
+def log_eccentricity_squared_prior(x):
+    # The log_eccentricity_prior distribution expressed in the eccentricity_squared
+    # coordinate, for runs that sample e^2 (--parameter eccentricity_squared) but asked
+    # for --eccentricity-prior log_uniform.  With u = e^2,
+    #   p(u) = p(e) |de/du| = 1/(2 e^2 ln(ECC_MAX/ECC_MIN)) = 1/(u ln(ECC_MAX^2/ECC_MIN^2)),
+    # i.e. log-uniform in u as well, as a log-uniform variable must be under a power map.
+    return np.ones(x.shape) / (2*x*np.log(ECC_MAX/ECC_MIN)) # log uniform, as a density in e^2 on [ECC_MIN^2, ECC_MAX^2]
 
 def meanPerAno_prior(x):
     return np.ones(x.shape) / (MEANPERANO_MAX-MEANPERANO_MIN) # uniform over the interval [MEANPERANO_MIN, MEANPERANO_MAX]
@@ -962,6 +998,7 @@ prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s_component_uniform_prior, "s
     's2z_bar':normalized_zbar_prior,
     # Other priors
     'eccentricity':eccentricity_prior,
+    'eccentricity_ln':uniform_eccentricity_ln_prior,
     'eccentricity_squared':eccentricity_squared_prior,
     'meanPerAno':meanPerAno_prior,
     'chi_pavg':precession_prior,
@@ -985,6 +1022,7 @@ prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*c
   'lambda_plus':[lambda_min,lambda_plus_max],
   'lambda_minus':[-lambda_max,lambda_max],  # will include the true region always...lots of overcoverage for small lambda, but adaptation will save us.
   'eccentricity':[ECC_MIN, ECC_MAX],
+  'eccentricity_ln':[np.log(ECC_MIN), np.log(ECC_MAX)],
   'eccentricity_squared':[ECC_MIN**2, ECC_MAX**2],
   'meanPerAno':[MEANPERANO_MIN, MEANPERANO_MAX],
   'chi_pavg':[0.0,2.0],  
@@ -1159,7 +1197,48 @@ if opts.prior_lambda_linear:
         prior_map['lambda1'] = functools.partial(mcsampler.power_down_samp,xmin=0,xmax=lambda_max,alpha=opts.prior_lambda_power+1)
         prior_map['lambda2'] = functools.partial(mcsampler.power_down_samp,xmin=0,xmax=lambda_small_max,alpha=opts.prior_lambda_power+1)
 
+if opts.eccentricity_prior == 'log_uniform':
+    # Apply the requested prior to EVERY eccentricity coordinate CIP can sample, not just
+    # 'eccentricity': --parameter eccentricity_squared is a supported choice (and what
+    # pseudo_pipe uses for iteration 0 of an eccentric run), so setting only
+    # prior_map['eccentricity'] left such a run silently sampling the uniform-in-e^2
+    # density while reporting a log-uniform prior.
+    # 'eccentricity_ln' needs no entry here: uniform_eccentricity_ln_prior is already
+    # uniform in ln(e), i.e. this same distribution written in that coordinate.
+    prior_map['eccentricity'] = log_eccentricity_prior
+    prior_map['eccentricity_squared'] = log_eccentricity_squared_prior
 
+# A zero lower edge is unusable for anything logarithmic in e, and that is a property of
+# the COORDINATE as much as of the prior.  Sampling in 'eccentricity_ln' is logarithmic
+# under the default uniform prior too: with --ecc-min at its default of 0.0 that
+# coordinate's range is [log(0), log(ECC_MAX)] = [-inf, ...], and
+# uniform_eccentricity_ln_prior evaluates log(ECC_MAX/ECC_MIN), i.e. divides by zero.
+# So the correction -- and the domain check that follows it -- is keyed on either
+# trigger, not on --eccentricity-prior alone.  Runs that neither ask for a log-uniform
+# prior nor sample a log coordinate keep the ecc range exactly as given.
+if opts.eccentricity_prior == 'log_uniform' or 'eccentricity_ln' in low_level_coord_names:
+    if ECC_MIN == 0.0:
+        print("Warning: You passed 0.0 as ecc-min with a logarithmic eccentricity prior or coordinate. Changing ecc-min to 0.001")
+        ECC_MIN = 0.001
+    # Zero is only the most common invalid floor, not the only one.  Everything
+    # logarithmic in e needs a strictly positive, correctly ordered interval: np.log of a
+    # non-positive edge is nan (or -inf), and log(ECC_MAX/ECC_MIN) is nan for either edge
+    # negative and zero for ECC_MAX == ECC_MIN.  None of that raises -- it propagates
+    # into the sampler as nan/inf coordinate bounds and nan prior densities, i.e. a run
+    # that reports a prior it never had.  The zero floor corrected just above is the one
+    # documented exception; every other invalid range is a configuration error, so say so
+    # and exit nonzero rather than hand the sampler numbers it cannot use.
+    if not (0 < ECC_MIN < ECC_MAX):
+        print("Incompatible options: a logarithmic eccentricity prior or coordinate requires 0 < ecc-min < ecc-max, but received ecc-min = {} and ecc-max = {}".format(ECC_MIN,ECC_MAX))
+        sys.exit(1)
+    prior_range_map['eccentricity'] = [ECC_MIN,ECC_MAX]
+    prior_range_map['eccentricity_ln'] = [np.log(ECC_MIN),np.log(ECC_MAX)]
+    # 1/u is no more integrable down to u=0 than 1/e is down to e=0, so the squared
+    # coordinate's range has to follow the corrected floor too
+    prior_range_map['eccentricity_squared'] = [ECC_MIN**2,ECC_MAX**2]
+    print("Eccentricity range: ",prior_range_map['eccentricity'])
+    print("ln(eccentricity) range: ",prior_range_map['eccentricity_ln'])
+    print("eccentricity^2 range: ",prior_range_map['eccentricity_squared'])
 # tex_dictionary  = {
 #  "mtot": '$M$',
 #  "mc": '${\cal M}_c$',
@@ -2597,6 +2676,25 @@ elif mcsampler_Portfolio_ok:
         sampler = mcsamplerPortfolio.known_pipelines[opts.sampler_method]()
 
 
+###
+### Supplemental likelihood: prepare the plugin, now that the sampling basis is FINAL
+###
+# Deliberately here and not next to the import above.  low_level_coord_names is still being built
+# at that point -- the tabular-EOS branch appends 'ordering' to it -- and the plugin RECORDS the
+# basis it is handed, so a list snapshotted earlier is short by that coordinate while the sampler
+# still calls supplemental_ln_likelihood(*x) with one array per FINAL sampling coordinate.  Nothing
+# below this line changes the list, so this is the first point at which it can be declared.
+# Called whether or not an ini was supplied (config=None then): a plugin configured entirely by
+# environment still needs the basis, and without it the arrays it is handed are anonymous -- same
+# count, same order, no error, wrong coordinates.
+# coords MUST be low_level_coord_names, not coord_names: the sampler integrates over
+# low_level_coord_names and so calls supplemental_ln_likelihood(*x) with one array per SAMPLING
+# coordinate, in that order.  With --parameter-implied/--parameter-nofit the two lists differ, and
+# handing over the fit basis would make the plugin label those arrays wrongly -- evaluating at the
+# wrong coordinates without any error.
+if supplemental_ln_likelihood_prep:
+    supplemental_ln_likelihood_prep(config=supplemental_ln_likelihood_parsed_ini,coords=low_level_coord_names)
+
 ##
 ## Loop over param names
 ##
@@ -3001,6 +3099,18 @@ if opts.internal_use_lnL:  # eg, AV integrator, etc
 else:
     ln_integrand_value = np.log(res)
 
+# Absolute scale of everything reported below.  A supplementary-likelihood plugin may subtract a
+# constant from its own lnL to keep the exponentiated integrand in float64 range (see the
+# <function>_offset note at the import above); that constant divides out of the posterior but not
+# out of an evidence or an absolute lnL.  Queried here rather than next to the prepare call because
+# a plugin configured entirely by environment prepares itself lazily on its first evaluation, which
+# has certainly happened by now.  Stays 0.0 for every plugin that does not centre, and for runs
+# with no supplementary factor at all -- so nothing else changes.
+if supplemental_ln_likelihood_offset_fn:
+    supplemental_ln_likelihood_offset = float(supplemental_ln_likelihood_offset_fn())
+    print(" EXTERNAL SUPPLEMENTARY LIKELIHOOD FACTOR : restoring offset {} in reported lnL/evidence ".format(supplemental_ln_likelihood_offset))
+ln_integrand_value_absolute = ln_integrand_value + supplemental_ln_likelihood_offset
+
 # Test n_eff threshold
 if not (opts.fail_unless_n_eff is None):
     if neff < opts.fail_unless_n_eff   and not(opts.not_worker):     # if we need the output to continue:
@@ -3064,7 +3174,7 @@ if neff < opts.n_eff:
 
 # Save result -- needed for odds ratios, etc.
 #   Warning: integral_result.dat uses *original* prior, before any reweighting
-np.savetxt(opts.fname_output_integral+".dat", [ln_integrand_value+lnL_shift])
+np.savetxt(opts.fname_output_integral+".dat", [ln_integrand_value_absolute+lnL_shift])
 
 
 
@@ -3090,12 +3200,12 @@ elif opts.using_eos and opts.using_eos.startswith('file:'):
     annotation_header = linefirst # this will/must be lnL sigma_lnL and then parameter names, which we want to preserve
 with open(opts.fname_output_integral+"+annotation.dat", 'w') as file_out:
   if not(opts.using_eos) or not(opts.using_eos.startswith('file:')):
-    str_out =list( map(str,[ln_integrand_value, np.sqrt(var)/res, neff]))
+    str_out =list( map(str,[ln_integrand_value_absolute, np.sqrt(var)/res, neff]))
     file_out.write("# " + annotation_header + "\n")
     file_out.write(' '.join( str_out + eos_extra + ["\n"]))
   else:
     file_out.write("# " + annotation_header + "\n")
-    file_out.write(" {} {} ".format(ln_integrand_value, np.sqrt(var)/res) + ' '.join(map(str,params_here)))
+    file_out.write(" {} {} ".format(ln_integrand_value_absolute, np.sqrt(var)/res) + ' '.join(map(str,params_here)))
 #np.savetxt(opts.fname_output_integral+"+annotation.dat", np.array([[np.log(res), np.sqrt(var)/res, neff]]), header=eos_extra)
 # since not EOS, can just use np.savetxt
 # with open(opts.fname_output_integral+"+annotation_ESS.dat", 'w') as file_out:
@@ -3148,7 +3258,7 @@ if True:
     weights_scaled = weights_scaled/np.max(weights_scaled)  # try to reduce dynamic range
     n_ESS = np.sum(weights_scaled)**2/np.sum(weights_scaled**2)
     print(" n_eff n_ESS ", neff, n_ESS)
-np.savetxt(opts.fname_output_integral+"+annotation_ESS.dat",[[ln_integrand_value, np.sqrt(var)/res, neff, n_ESS]],header=" lnL sigmaL neff n_ESS ")
+np.savetxt(opts.fname_output_integral+"+annotation_ESS.dat",[[ln_integrand_value_absolute, np.sqrt(var)/res, neff, n_ESS]],header=" lnL sigmaL neff n_ESS ")
 
 
 # Throw away stupid points that don't impact the posterior
@@ -3261,7 +3371,10 @@ if opts.pseudo_gaussian_mass_prior:
 # Integral result v2: using modified prior. 
 # Note also downselects NOT applied: no range cuts, unless applied as part of aligned_prior, etc.  
 #   - use for Bayes factors with GREAT CARE for this reason; should correct for with indx_ok
-log_res_reweighted = lnLmax + np.log(np.mean(weights))
+# Same absolute-scale restoration as for the integral above: lnLmax here is a maximum of the
+# CENTRED integrand, and this file is documented to agree with integral_result.dat -- so leaving the
+# plugin's constant out of one and not the other turns a check into a spurious disagreement.
+log_res_reweighted = lnLmax + np.log(np.mean(weights)) + supplemental_ln_likelihood_offset
 sigma_reweighted= np.std(weights,dtype=RiftFloat)/np.mean(weights)
 neff_reweighted = np.sum(weights)/np.max(weights)
 np.savetxt(opts.fname_output_integral+"_withpriorchange.dat", [log_res_reweighted])  # should agree with the usual result, if no prior changes
@@ -3583,6 +3696,11 @@ n_output_size = np.min([len(P_list),opts.n_output_samples])
 n_delivered_unique = len(np.unique(kept_indx_list[:n_output_size]))
 print(" export supply: requested {} delivered {} distinct {} unique-draw bound {} ".format(opts.n_output_samples, n_output_size, n_delivered_unique, n_unique_bound))
 np.savetxt(opts.fname_output_samples+"+annotation_export.dat", [[opts.n_output_samples, n_output_size, n_delivered_unique, n_unique_bound]], header=" n_requested n_delivered n_distinct unique_draw_bound ")
+# Absolute lnL for every exported product.  Same correction as for the evidence above, and needed
+# for the same reason: the exported lnL column, the _lnL.dat sidecar and best_point_by_lnL_value.dat
+# are all read as absolute lnL by the next stage, so a plugin's internal centring must not reach
+# them.  Adds 0.0 unless a supplementary-likelihood plugin reported an offset.
+lnL_list = np.array(lnL_list,dtype=internal_dtype) + supplemental_ln_likelihood_offset
 # Hyperpipeline ASCII grid writer (opt-in via env var).  See note above the
 # earlier identical writer site -- same rationale.
 if _hpio.is_active():
@@ -3598,7 +3716,6 @@ if _hpio.is_active():
                                  lnL_values=lnL_list[:n_output_size])
 else:
     lalsimutils.ChooseWaveformParams_array_to_xml(P_list[:n_output_size],fname=opts.fname_output_samples,fref=P.fref)
-lnL_list = np.array(lnL_list,dtype=internal_dtype)
 np.savetxt(opts.fname_output_samples+"_lnL.dat", lnL_list)
 
 
