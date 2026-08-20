@@ -597,6 +597,36 @@ append-only alternative:
 | `transfer_output_files` | `extra_transfer_output_files` (appended, `{level}`/`{sim_name}` substituted) |
 | `periodic_release` | `extra_periodic_release` (OR'd in) |
 | `request_memory` | the `request_memory` argument, or `Archive.set_resources` per sim |
+| `universe`, `container_image` | the `container_image` argument |
+| `when_to_transfer_output` | the `when_to_transfer_output` argument |
+
+### Containers
+
+`container_image` selects HTCondor's container universe and supplies the
+image in one argument — `universe = container` follows from it, because a
+`container_image` under a vanilla universe is silently ignored by condor
+and a backend asked to remember both will eventually forget one:
+
+```python
+DualCondorRunQueue(
+    container_image="osdf:///ospool/ap41/data/<user>/supernu-v2.sif",
+    when_to_transfer_output="ON_EXIT_OR_EVICT",
+)
+```
+
+The reference is not resolved or fetched. An `osdf://` or `docker://` URL
+is not readable from the submit host, so requiring that would refuse the
+ordinary OSG case; only a value that could corrupt the submit file is
+rejected.
+
+`use_singularity` / `singularity_image` remain, for sites that honour only
+the legacy `+SingularityImage` form. Setting **both** is refused: emitted
+together, which one takes effect is decided by the site.
+
+`when_to_transfer_output` defaults to `ON_EXIT`, which discards the
+sandbox when a job is evicted. On a preemptable pool that throws away
+whatever the job had already written, so a backend whose science *is*
+output files wants `ON_EXIT_OR_EVICT`.
 
 `extra_periodic_release` takes a single-line ClassAd expression for
 sites whose pool holds jobs for reasons the queue does not model — an

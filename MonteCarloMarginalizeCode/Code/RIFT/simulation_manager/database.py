@@ -286,6 +286,55 @@ def _validate_subcode_exclusions(value: Any, *, what: str
     return out
 
 
+#: HTCondor's `when_to_transfer_output` vocabulary. A closed set, so a
+#: typo is caught here rather than by the schedd -- by then the archive
+#: has recorded the sim as dispatched, and the failure presents as a
+#: stuck simulation rather than as the configuration error it is.
+WHEN_TO_TRANSFER_OUTPUT = ("ON_EXIT", "ON_EXIT_OR_EVICT", "ON_SUCCESS",
+                           "NEVER")
+DEFAULT_WHEN_TO_TRANSFER_OUTPUT = "ON_EXIT"
+
+def _validate_when_to_transfer(value: Any) -> str:
+    """One of HTCondor's four, normalised to upper case."""
+    if value is None:
+        return DEFAULT_WHEN_TO_TRANSFER_OUTPUT
+    if not isinstance(value, str):
+        raise TypeError(
+            "when_to_transfer_output must be a string, got {0!r}".format(
+                type(value).__name__))
+    text = value.strip().upper()
+    if text not in WHEN_TO_TRANSFER_OUTPUT:
+        raise ValueError(
+            "when_to_transfer_output must be one of {0}, got {1!r}".format(
+                ", ".join(WHEN_TO_TRANSFER_OUTPUT), value))
+    return text
+
+
+def _validate_container_image(value: Any) -> str:
+    """A container image reference for `universe = container`.
+
+    Not resolved or fetched. The reference is routinely an osdf:// or
+    docker:// URL the submit host cannot read, so a checker demanding
+    local readability would refuse the ordinary OSG case. Only the shape
+    that could corrupt the submit file is refused.
+    """
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise TypeError(
+            "container_image must be a string, got {0!r}".format(
+                type(value).__name__))
+    text = value.strip()
+    if not text:
+        return ""
+    if "\n" in text or "\r" in text:
+        raise ValueError(
+            "container_image must be a single line: a newline would end "
+            "the submit command and let the rest be read as further "
+            "commands")
+    return text
+
+
 def _validate_release_expression(value: Any, *, what: str) -> str:
     """Check a ClassAd expression destined for a submit command.
 
@@ -408,6 +457,14 @@ _PROTECTED_SUBMIT_COMMANDS = frozenset({
     # than losing the release arm. Per-sim sizes go through
     # Archive.set_resources, which composes rather than substitutes.
     "request_memory",
+    # Composed by the queue since container support landed. Setting these
+    # through extra_condor_cmds was how a backend reached the container
+    # universe before there was an argument for it; leaving the path open
+    # beside the argument means the next one finds it first, and a
+    # universe set twice is decided by whichever line condor reads last.
+    "universe",
+    "container_image",
+    "when_to_transfer_output",
 })
 
 #: What to use instead of each refused key. Kept beside the set so a new
@@ -422,6 +479,10 @@ _PROTECTED_ALTERNATIVES = {
                         "expression instead of replacing it",
     "request_memory": "the request_memory argument, or "
                       "Archive.set_resources for a per-sim override",
+    "universe": "the container_image argument, which selects the "
+                "container universe for you",
+    "container_image": "the container_image argument",
+    "when_to_transfer_output": "the when_to_transfer_output argument",
 }
 
 #: Basenames the archive itself stages into the worker sandbox. Condor
@@ -1680,6 +1741,18 @@ class DualCondorRunQueue(RunQueue):
                                    them); the allowlist is the OSG-blessed
                                    alternative. Pass getenv='True'
                                    explicitly only on sites that allow it.
+        container_image  : str  -- image reference for HTCondor's
+                                   container universe (`osdf://`,
+                                   `docker://`, a local .sif). Setting it
+                                   switches the job from vanilla to
+                                   `universe = container`. Mutually
+                                   exclusive with use_singularity, which
+                                   is the legacy +SingularityImage form.
+        when_to_transfer_output: str -- one of ON_EXIT (default),
+                                   ON_EXIT_OR_EVICT, ON_SUCCESS, NEVER.
+                                   ON_EXIT discards the sandbox on
+                                   eviction, so a preemptable pool loses
+                                   whatever the job had already written.
         use_singularity  : bool
         singularity_image: str   -- required if use_singularity=True
         oom_hold_codes   : seq  -- hold codes this site reports when a
@@ -1768,6 +1841,8 @@ class DualCondorRunQueue(RunQueue):
                  accounting_group: Optional[str] = None,
                  accounting_group_user: Optional[str] = None,
                  getenv: Optional[str] = None,
+                 container_image: Optional[str] = None,
+                 when_to_transfer_output: Optional[str] = None,
                  use_singularity: bool = False,
                  singularity_image: Optional[str] = None,
                  extra_condor_cmds: Optional[Dict[str, str]] = None,
@@ -1806,6 +1881,8 @@ class DualCondorRunQueue(RunQueue):
             self.getenv = getenv
         else:
             self.getenv = os.environ.get("RIFT_GETENV", DEFAULT_GETENV_ALLOWLIST)
+        self.container_image = container_image
+        self.when_to_transfer_output = when_to_transfer_output
         self.use_singularity = use_singularity
         self.singularity_image = singularity_image
         self.extra_condor_cmds = extra_condor_cmds or {}
@@ -1899,6 +1976,22 @@ class DualCondorRunQueue(RunQueue):
     def extra_periodic_release(self, value: Any) -> None:
         self._extra_periodic_release = _validate_release_expression(
             value, what="extra_periodic_release")
+
+    @property
+    def container_image(self) -> str:
+        return self._container_image
+
+    @container_image.setter
+    def container_image(self, value: Any) -> None:
+        self._container_image = _validate_container_image(value)
+
+    @property
+    def when_to_transfer_output(self) -> str:
+        return self._when_to_transfer_output
+
+    @when_to_transfer_output.setter
+    def when_to_transfer_output(self, value: Any) -> None:
+        self._when_to_transfer_output = _validate_when_to_transfer(value)
 
     @property
     def oom_hold_codes(self) -> Tuple[int, ...]:
@@ -2085,9 +2178,22 @@ class DualCondorRunQueue(RunQueue):
         lines: List[str] = [
             "# Auto-generated by RIFT.simulation_manager.database."
             "DualCondorRunQueue",
-            "universe                = vanilla",
+            "universe                = {}".format(
+                "container" if self.container_image else "vanilla"),
             "executable              = {}".format(bootstrap),
         ]
+        if self.container_image:
+            if self.use_singularity:
+                # Two ways to say "run this in a container", emitted
+                # together, resolved by the site. Refuse rather than let
+                # the job run under whichever the pool happens to honour.
+                raise ValueError(
+                    "container_image and use_singularity are alternative "
+                    "ways to request a container: the modern container "
+                    "universe and the legacy +SingularityImage form. Set "
+                    "one. container_image is the one OSG documents now.")
+            lines.append("container_image         = {}".format(
+                self.container_image))
         args_tail = ["--sim-name", sim_name, "--level", str(int(level))]
         if prev_basenames:
             args_tail.append("--prev-levels")
@@ -2097,7 +2203,11 @@ class DualCondorRunQueue(RunQueue):
         if transfer_in:
             lines.append("transfer_input_files    = {}".format(",".join(transfer_in)))
         lines.append("should_transfer_files   = YES")
-        lines.append("when_to_transfer_output = ON_EXIT")
+        # ON_EXIT discards the sandbox when a job is evicted, which on a
+        # preemptable pool throws away partial output the backend may
+        # have checkpointed. ON_EXIT_OR_EVICT keeps it.
+        lines.append("when_to_transfer_output = {}".format(
+            self.when_to_transfer_output))
         # Backend-supplied products, beyond the level_<N>.json marker.
         # transfer_output_files is explicit, so HTCondor returns ONLY what
         # is named here: anything else the worker wrote is destroyed with
