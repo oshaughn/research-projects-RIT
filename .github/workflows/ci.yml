@@ -258,12 +258,8 @@ jobs:
         # invisible to that manifest and would simply run twice.  PR #166, opened before
         # slowrot-check existed, adds test_slowrot_fd_ops.py to the list below -- if that
         # PR lands, DELETE its line rather than keeping both (issue #169).
-        #
-        # #166 also grows that file from 7 tests to 9.  Whichever of the two PRs merges
-        # SECOND must, in the same commit, raise the per-file count and EXPECTED_TESTS in
-        # .travis/test-slowrot.sh from 7/41 to 9/43.  The direction matters: EXPECTED_TESTS
-        # is a >= floor, so leaving it at 41 makes the gate weaker than it could be, while
-        # raising it to 43 BEFORE #166 lands turns the gate red on a file that still has 7.
+        # #166 also changes that file's test count; the floor arithmetic for whoever merges
+        # second is recorded once, at EXPECTED_TESTS in .travis/test-slowrot.sh.
         run: |
           python -m pytest -q \
             MonteCarloMarginalizeCode/Code/RIFT/likelihood/test_q_window_interp.py \
@@ -293,30 +289,10 @@ jobs:
     # would couple a numpy failure's diagnosis to an unpinned upstream jax release.
     # Python 3.10 to match the sibling numpy jobs, NOT the 3.11 jax-ile-check needs.
     #
-    # Cost.  OBSERVED ON THE ACTUAL RUNNER, which is the only figure that governs this
-    # job: run 32312336381 / job 96257948124, python 3.10.20, pytest 9.1.1, numpy 2.2.6,
-    # lalsuite 7.26.15 -- collected 41, "41 passed, 1 deselected in 37.94 s", gate step
-    # 65 s, job wall 2m02s.  Note the runner resolves a NEWER stack than anything below
-    # (numpy 2.x against the 1.23 measured locally) and is green on it.
-    #
-    # Local figures, whole gate end-to-end through .travis/test-slowrot.sh
-    # (RIFT_develUWM python 3.8, numpy 1.23, OMP_NUM_THREADS=1, no GPU, warm caches):
-    #
-    #   citlogin6 (AMD EPYC)              67-70 s over 2 runs.  Decomposes, and the parts
-    #                                     sum: 7.3 s collection pass + 35.7 s TIER 1 +
-    #                                     21.6 s TIER 2 + ~1.8 s interpreter/tool checks
-    #                                     and the deselect-resolves probe.
-    #   ldas-pcdev11 (Xeon E5-2630 v4)    377 / 411 / 423 s over 3 runs in two independent
-    #                                     sessions.  DELIBERATELY NOT DECOMPOSED: this is a
-    #                                     shared interactive node, the run-to-run spread is
-    #                                     ~46 s, and per-phase timings taken at a different
-    #                                     moment do not reconcile with the whole-gate number
-    #                                     to better than a minute.  Quote the range, not a
-    #                                     breakdown.
-    #
-    # The ~6x between the two hosts is the hosts, not the work.  timeout-minutes is
-    # generous so a slower runner does not flake, but a hang still ends -- it is ~28x the
-    # observed runner wall and ~4x the slowest local run.
+    # timeout-minutes is a runaway backstop, not a budget: it is more than an order of
+    # magnitude above the observed job wall.  Measured cost, and the host-by-host numbers
+    # behind it, are in PR #172 (2026-08) -- deliberately not restated here, because a
+    # wall-clock table in a comment rots silently and nothing imports it.
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4

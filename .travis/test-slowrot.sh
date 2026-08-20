@@ -3,37 +3,20 @@
 # (RIFT/likelihood/factored_likelihood_with_rotation.py, slowrot_response.py,
 # slowrot_freqresponse.py), driven from RIFT/likelihood/test_slowrot_*.py.
 #
-# WHY THIS SCRIPT EXISTS
-# ----------------------
-# Until this gate landed, NOTHING in .github/workflows/ci.yml ran any
-# test_slowrot_* file: `grep -rn slowrot .github/workflows/ci.yml` returned one hit and
-# it was a comment (issue #169).  That mattered more than an ordinary coverage gap,
-# because the two most recent changes to this code are changes whose DELIVERABLE IS THE
-# GUARD -- #163 (the Nyquist derivative weight, both parities) and #165 (the Hermitian
-# Nyquist response weight, which provably moves no number).  A guard that never runs
-# automatically leaves exactly nothing behind.
+# Four defences, each guarding a way this directory can go green while testing nothing.
+# Do not simplify any of them into a bare `pytest <dir>`:
 #
-# It is modelled on .travis/test-jax.sh, which solved the same problem for test/jax/,
-# and it keeps that script's three defences, because this directory needs all three:
+#   1. An EXPLICIT file list, not a glob.  Several test_slowrot_*.py files collect ZERO
+#      items, and pytest exits 5 on those -- "no tests ran" reads as a pass in a log skim.
+#   2. A FLOOR on the collected count, so a renamed file or a dropped test_* entry point
+#      goes RED instead of green-on-fewer-tests.
+#   3. A hard fail on ANY nonzero pytest exit (5 included), plus a junit OUTCOME
+#      assertion.  The floor counts COLLECTION, which cannot see a test that collects,
+#      runs, and asserts nothing.
+#   4. A SCRIPTS tier for the assert-carrying files pytest cannot count.
 #
-#   1. An EXPLICIT file list, not a glob.  Five test_slowrot_*.py files collect ZERO
-#      items and exit 5, "no tests ran", which reads as a pass in a skim of the log.
-#   2. A FLOOR on the collected count, so a renamed file or a dropped test_* entry
-#      point turns this job RED instead of green-on-fewer-tests.
-#   3. A hard fail on ANY nonzero pytest exit (which includes exit 5), plus a junit
-#      OUTCOME assertion.  The floor counts COLLECTION, and collection cannot see a
-#      test that collects, runs, and asserts nothing.
-#
-# It adds a fourth, because this directory has a shape test/jax/ does not:
-#
-#   4. A SCRIPTS tier.  Three of the zero-collecting files are module-scope scripts
-#      that carry real asserts -- they validate at import time and never define a
-#      test_* function.  pytest gives them no count and no junit row, so they are run
-#      directly as `python <file>` and required to exit 0.
-#
-# Needs numpy + lal only: no GPU, no jax, no numpyro.  That is deliberate -- see the
-# ci.yml comment for why this is a separate job from jax-ile-check rather than more
-# files in it.
+# Needs numpy + lal only: no GPU, no jax, no numpyro.  Rationale and measured cost:
+# PR #172 (2026-08); the sibling gate it is modelled on is .travis/test-jax.sh.
 set -uo pipefail
 # NOTE: deliberately no -e.  Every command below has its rc handled explicitly so the
 # failure messages stay specific; if you add a command, guard it yourself.
@@ -41,15 +24,12 @@ set -uo pipefail
 # SLOWDIR below is repo-relative, so anchor cwd rather than trusting the caller.
 cd "$(dirname "$0")/.." || { echo "test-slowrot.sh: cannot cd to repo root" >&2; exit 1; }
 
-# The two tiers resolve `import RIFT` by DIFFERENT mechanisms, and without this line they
-# can test different code.  TIER 1 runs under pytest, which walks up past RIFT/likelihood/
-# __init__.py and RIFT/__init__.py and prepends .../Code to sys.path -- so it tests the
-# CHECKOUT.  TIER 2 runs each script directly, so sys.path[0] is RIFT/likelihood/ and
-# `import RIFT` falls through to whatever RIFT is INSTALLED.  In CI that is the same tree
-# (the job pip-installs --editable .) so this export is a no-op there, but run by hand on a
-# box with RIFT installed elsewhere the tier carrying the ONLY module-scope asserts would
-# silently validate a different checkout.  MEASURED before this line existed, PYTHONPATH
-# unset: pytest resolved RIFT to the sandbox, the scripts resolved it to ~/RIFT_develUWM.
+# INVARIANT: this gate always tests THIS CHECKOUT, never an installed build.  Without
+# this line the two tiers disagree -- pytest prepends .../Code to sys.path and gets the
+# checkout, while a directly-run script gets RIFT/likelihood/ as sys.path[0] and falls
+# through to whatever RIFT is installed.  Must PREPEND: appending lets a caller's
+# PYTHONPATH win and restores the split.  If you need to validate a wheel or a container
+# rather than the checkout, run its test files directly -- do not "fix" it here.
 export PYTHONPATH="$PWD/MonteCarloMarginalizeCode/Code${PYTHONPATH:+:$PYTHONPATH}"
 
 PYTHON_BIN="${RIFT_SLOWROT_PYTHON:-${PYTHON:-python}}"
@@ -71,39 +51,20 @@ export MKL_NUM_THREADS="${MKL_NUM_THREADS:-1}"
 SLOWDIR="MonteCarloMarginalizeCode/Code/RIFT/likelihood"
 
 # ---------------------------------------------------------------------------------
-# TIER 1: pytest files, with the count each contributes as of this commit.
+# TIER 1: files whose tests pytest can collect and count.
 #
-#   test_slowrot_fd_ops.py                  7  the FD operator identities the rotation
-#                                              expansion is built from.  Two of the
-#                                              seven are #163: the Nyquist derivative
-#                                              weight must be zeroed for ODD p and left
-#                                              ALONE for even p.  An earlier revision
-#                                              zeroed every p >= 1; that is exact at
-#                                              p=1 (odd either way) and wrong at p=2,
-#                                              worth 0.207 nats on a real p_max=2 bank.
-#   test_slowrot_freqresponse.py           12  the frequency-dependent (finite-size)
-#                                              antenna response.  Five of the twelve
-#                                              are #165: the unpaired-Nyquist predicate,
-#                                              Hermitian symmetry on the grid, the
-#                                              conjugation commutation, the untouched-
-#                                              away-from-the-bin control, and the
-#                                              Hermitian-average value at the bin.
-#   test_slowrot_harmonic_width.py          7  harmonic bandwidth: a too-narrow
-#                                              `harmonics` request silently truncates
-#                                              the model.  ONE of the seven is
-#                                              DESELECTED here -- see DESELECT below.
-#   test_slowrot_headtohead.py              3  Path A vs Path B vs the baseline on one
-#                                              bank.
-#   test_slowrot_likelihood_v1.py           2  reduction to the maintained baseline at
-#                                              zero sidereal rate, and agreement with
-#                                              the brute-force rotation reference.
-#   test_slowrot_noloop.py                  3  the vectorized NoLoop rotation kernel.
-#   test_slowrot_pathB.py                   3  Path B (p=1) scalar and vector kernels,
-#                                              plus the Cauchy-Schwarz bound.
-#   test_slowrot_precompute_integration.py  2  the U/V modulation arrives at the right
-#                                              scale, at the right reference time.
-#   test_slowrot_response.py                3  the rotation response coefficients
-#                                              against lal.ComputeDetAMResponse.
+# Per-file counts are deliberately NOT listed: they need maintenance on every test added,
+# and `pytest --collect-only -q <file>` answers the question in seconds.  EXPECTED_TESTS
+# below is the pinned total, and the manifest check keeps the list complete.
+#
+# Two files carry guards whose whole deliverable is the guard, so do not drop them from
+# this list to save time:
+#   test_slowrot_fd_ops.py        the Nyquist derivative weight, zeroed at ODD p and left
+#                                 alone at EVEN p.  The jax gate is structurally blind to
+#                                 this -- at p=1 the correct and the over-zeroing weights
+#                                 are bit-identical, because 1 is odd either way.  (#163)
+#   test_slowrot_freqresponse.py  the unpaired-Nyquist response weight and its Hermitian
+#                                 average.  (#165)
 FILES=(
   "${SLOWDIR}/test_slowrot_fd_ops.py"
   "${SLOWDIR}/test_slowrot_freqresponse.py"
@@ -116,53 +77,44 @@ FILES=(
   "${SLOWDIR}/test_slowrot_response.py"
 )
 
-# DESELECTED, and the floor is 41 rather than 42 because of it.
+# DESELECTED, and EXPECTED_TESTS is one lower because of it.
 #
-# test_W5_jax_packer_loses_nothing opens with `try: import jax / except ImportError:
-# print("W5 SKIPPED (no jax)"); return`.  Without jax that is not a pytest skip -- it
-# is a test that COLLECTS, RUNS, ASSERTS NOTHING, and REPORTS PASSED.  This job
-# installs no jax (see ci.yml), so leaving it in would add 1 to both the floor and the
-# junit `tests` count while gating nothing, which is this script's own failure mode one
-# level down.  Deselecting it makes the 41 honest.
+# test_W5_jax_packer_loses_nothing catches ImportError on jax and RETURNS.  That is not a
+# pytest skip -- it COLLECTS, RUNS, ASSERTS NOTHING and REPORTS PASSED.  This job installs
+# no jax, so leaving it selected would raise the floor and the junit count while gating
+# nothing, which is this script's own failure mode one level down.
 #
-# CAUTION: --deselect is a PREFIX match, not an exact nodeid match (verified under pytest
-# 6.2.5 and 9.1.1).  A future sibling named test_W5_jax_packer_loses_nothing_v2 would be
-# swallowed by this entry silently, and a >= floor cannot see a test that was never
-# selected.  Name any successor differently, or make this entry exact.
+# Gating W5 needs a jax install.  jax-ile-check does NOT cover it either -- that manifest
+# scans test/jax/ only.  Stated gap, not a claim of coverage.
 #
-# The other six tests in that file are numpy+lal and are gated here.  Gating W5 itself
-# needs a jax install; it is NOT covered by jax-ile-check either, whose manifest scans
-# test/jax/ only.  That is a known, stated gap, not a claim of coverage.
+# CAUTION: --deselect is a PREFIX match, not an exact nodeid match.  A future sibling named
+# test_W5_jax_packer_loses_nothing_v2 would be swallowed silently, and a >= floor cannot see
+# a test that was never selected.  Name any successor differently.
 DESELECT=(
   "${SLOWDIR}/test_slowrot_harmonic_width.py::test_W5_jax_packer_loses_nothing"
 )
 
 # ---------------------------------------------------------------------------------
-# TIER 2: module-scope scripts.  These validate at import time and define no test_*
-# function, so pytest collects 0 from each and would exit 5 if one were run alone.
-# Run through pytest in a multi-file invocation they would still contribute 0 to the
-# floor and 0 to the junit report, while being EXECUTED TWICE (once by --collect-only,
-# once by the run).  So they get their own tier: `python <file>`, exit 0 required.
+# TIER 2: files that assert but define no test_* function, so pytest collects 0 from each
+# and would exit 5 on any of them alone.  Run as `python <file>`, exit 0 required.
 #
-#   test_slowrot_cauchy_schwarz.py         6 asserts.  lnL = <d|h> - (1/2)<h|h> cannot
-#                                          exceed (1/2)<d|d> for ANY h.  Catches the
-#                                          arrival-time post-phase being dropped, i.e.
-#                                          term1 and term2 evaluated for different
-#                                          templates.
-#   test_slowrot_noloop_bruteforce.py      1 assert.  The vectorized rotation NoLoop vs
-#                                          an INDEPENDENT time-domain brute force that
-#                                          shares no convention with it.  It catches the
-#                                          post-phase mutations TOO -- MEASURED, both the
-#                                          inline-identity and the model-norm-only shapes.
-#                                          So the post-phase has TWO guards here, not one;
-#                                          do not drop either on the belief that the other
-#                                          is redundant with it.  The tier stops at the
-#                                          first failing script, so a mutation run will
-#                                          normally only show you cauchy_schwarz.
-#   test_slowrot_freqresponse_likelihood.py 2 asserts.  The finite-size likelihood
-#                                          reduces to the baseline as L -> 0, respects
-#                                          the bound, and beats the baseline where the
-#                                          effect is genuinely in band.
+# The scope of each file's asserts decides how it is gated, and the three differ:
+#
+#   test_slowrot_cauchy_schwarz.py          asserts at MODULE scope
+#   test_slowrot_noloop_bruteforce.py       asserts at MODULE scope
+#   test_slowrot_freqresponse_likelihood.py asserts inside a function, called from __main__
+#
+# The two module-scope files are gated TWICE: here, and by pytest collection, since a failed
+# module-scope assert is a collection error and the floor check treats that as fatal.  The
+# third is gated ONLY by being executed.
+#
+# ANTI-INSTRUCTION: do not "tidy" the module-scope asserts into functions.  That silently
+# abandons the collection-error path while this tier keeps passing, and no count notices.
+#
+# cauchy_schwarz is the one that pins lnL <= (1/2)<d|d>, i.e. that <d|h> and <h|h> are
+# evaluated for the SAME h.  Both it and noloop_bruteforce fail on a dropped arrival-time
+# post-phase; this tier stops at the first failing script, so a mutation run will normally
+# only show you the first.  Neither is redundant with the other.
 SCRIPTS=(
   "${SLOWDIR}/test_slowrot_cauchy_schwarz.py"
   "${SLOWDIR}/test_slowrot_noloop_bruteforce.py"
@@ -170,28 +122,20 @@ SCRIPTS=(
 )
 
 # EXCLUDED, with the reason each is out.  The manifest check below fails if a
-# test_slowrot_*.py is in none of FILES, SCRIPTS or EXCLUDED, so adding a new one forces
-# a decision instead of it being silently unrun -- which is this gate's own failure
-# mode, one level up.
+# test_slowrot_*.py is in none of FILES, SCRIPTS or EXCLUDED, so a new one forces a
+# decision instead of being silently unrun -- this gate's own failure mode, one level up.
 #
-#   test_slowrot_gpu.py                 Need a GPU.  MEASURED on a CPU node: `2 skipped`
-#   test_slowrot_freqresponse_gpu.py    with exit 0 (cupy raises ImportError on
-#                                       libcuda.so.1).  There is no GPU on these
-#                                       runners, so they would report as skipped, and
-#                                       the junit check below treats a skip as a
-#                                       failure.  Run by hand on a GPU node.  Same
-#                                       treatment as the GPU parity files in
+#   test_slowrot_gpu.py                 Need a GPU.  On a CPU runner they report as
+#   test_slowrot_freqresponse_gpu.py    SKIPPED with exit 0, and the junit check below
+#                                       treats a skip as a failure.  Run by hand on a GPU
+#                                       node.  Same treatment as the GPU parity files in
 #                                       q-window-stencil-check.
 #
-#   test_slowrot_pathB_groundtruth.py   ZERO assert statements: both are print-only
-#   test_slowrot_pathB_bruteforce.py    convergence studies.  Running them can fail only
-#                                       on an exception, and the import surface they
-#                                       would smoke-test is already exercised by TIER 1
-#                                       and TIER 2.  Cost is real (measured together at
-#                                       37 s on citlogin6 / AMD EPYC, 3.5 min extrapolated
-#                                       from the Intel timings in the slowrot-check comment
-#                                       in .github/workflows/ci.yml) for no assertion.
-#                                       If either grows an assert, move it into SCRIPTS.
+#   test_slowrot_pathB_groundtruth.py   ZERO assert statements at any scope: both are
+#   test_slowrot_pathB_bruteforce.py    print-only convergence studies, so running them
+#                                       can fail only on an exception, and the import
+#                                       surface is already covered by TIER 1 and TIER 2.
+#                                       If either grows an assert, move it to SCRIPTS.
 EXCLUDED=(
   "${SLOWDIR}/test_slowrot_gpu.py"
   "${SLOWDIR}/test_slowrot_freqresponse_gpu.py"
@@ -221,9 +165,14 @@ if [ "${manifest_rc}" -ne 0 ]; then
   exit 1
 fi
 
-# Sum of the TIER 1 per-file counts above, minus the one deselected test: 42 - 1.
-# Pinned deliberately: a bare `pytest ${SLOWDIR}` would also sweep up files that
-# collect 0, and a partial loss (say 41 -> 3) still exits 0.
+# The pinned floor: the number TIER 1 collects after DESELECT, as of this commit.
+# Re-derive with `pytest --collect-only -q` over FILES; never lower it without saying why
+# in the commit message.  A bare `pytest ${SLOWDIR}` would sweep up files that collect 0,
+# and a partial loss still exits 0, which is what this pins against.
+#
+# MERGE NOTE (#166, #169): PR #166 adds two tests to test_slowrot_fd_ops.py.  Whichever of
+# #166 and #172 merges SECOND raises this to 43 in that same commit.  Raising it early is
+# the direction that goes red; leaving it late only makes the floor weaker than it could be.
 EXPECTED_TESTS=41
 
 DESELECT_ARGS=()
