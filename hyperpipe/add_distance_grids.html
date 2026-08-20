@@ -151,7 +151,7 @@ output under the completed run results. Each ILE evaluation writes
 <code class="docutils literal notranslate"><span class="pre">&lt;ILE-output&gt;_&lt;event-index&gt;_.dgrid</span></code>.  The exact ILE-output prefix and
 result-directory nesting are assigned by the DAG, so from the generated run
 directory discover completed outputs with:</p>
-<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>find<span class="w"> </span>rundir<span class="w"> </span>-type<span class="w"> </span>f<span class="w"> </span>-name<span class="w"> </span><span class="s1">&#39;*_*.dgrid&#39;</span><span class="w"> </span>-print
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>find<span class="w"> </span>rundir<span class="w"> </span>-type<span class="w"> </span>f<span class="w"> </span>-name<span class="w"> </span><span class="s1">'*_*.dgrid'</span><span class="w"> </span>-print
 </pre></div>
 </div>
 <p>Use one returned path with the loader before reconstruction: the
@@ -162,7 +162,7 @@ For example:</p>
     <span class="n">reconstruct_marginal_lnL</span><span class="p">,</span>
 <span class="p">)</span>
 
-<span class="n">grid</span> <span class="o">=</span> <span class="n">load_distance_grid</span><span class="p">(</span><span class="s2">&quot;&lt;path printed by find&gt;&quot;</span><span class="p">)</span>
+<span class="n">grid</span> <span class="o">=</span> <span class="n">load_distance_grid</span><span class="p">(</span><span class="s2">"&lt;path printed by find&gt;"</span><span class="p">)</span>
 <span class="n">reconstructed</span> <span class="o">=</span> <span class="n">reconstruct_marginal_lnL</span><span class="p">(</span><span class="n">grid</span><span class="p">)</span>
 </pre></div>
 </div>

@@ -134,7 +134,7 @@ selection (see <a class="reference internal" href="#what-the-pipeline-generates"
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
 
 <span class="c1"># Machine ClassAd attribute the selection expression tests.</span>
-<span class="c1"># Default GPUs_Capability (see &quot;GPU attribute names&quot; below).</span>
+<span class="c1"># Default GPUs_Capability (see "GPU attribute names" below).</span>
 <span class="nt">capability_attr</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">GPUs_Capability</span>
 
 <span class="c1"># Catch-all image (innermost else of the selection); MUST be CPU-safe,</span>
@@ -149,7 +149,7 @@ selection (see <a class="reference internal" href="#what-the-pipeline-generates"
 <span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/cvmfs/singularity.opensciencegrid.org/oshaughn/rift_container_default.sif</span>
 <span class="w">    </span><span class="nt">cuda_capability_min</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3.5</span><span class="w">     </span><span class="c1"># inclusive lower bound for this image</span>
 <span class="w">    </span><span class="nt">cuda_capability_max</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8.0</span><span class="w">     </span><span class="c1"># informational; null = open-ended</span>
-<span class="w">    </span><span class="nt">note</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;cupy-cuda11x,</span><span class="nv"> </span><span class="s">ubuntu22.04/cuda11.8&quot;</span>
+<span class="w">    </span><span class="nt">note</span><span class="p">:</span><span class="w"> </span><span class="s">"cupy-cuda11x,</span><span class="nv"> </span><span class="s">ubuntu22.04/cuda11.8"</span>
 
 <span class="w">  </span><span class="c1"># Newer image for higher-capability GPUs. Delivered via osdf: only the</span>
 <span class="w">  </span><span class="c1"># matched machine fetches it (selective transfer).</span>
@@ -157,7 +157,7 @@ selection (see <a class="reference internal" href="#what-the-pipeline-generates"
 <span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">osdf:///igwn/staging/oshaughn/rift_containers/rift_container_modern.sif</span>
 <span class="w">    </span><span class="nt">cuda_capability_min</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8.0</span>
 <span class="w">    </span><span class="nt">cuda_capability_max</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span>
-<span class="w">    </span><span class="nt">note</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;cupy-cuda12x,</span><span class="nv"> </span><span class="s">ubuntu22.04/cuda12.4&quot;</span>
+<span class="w">    </span><span class="nt">note</span><span class="p">:</span><span class="w"> </span><span class="s">"cupy-cuda12x,</span><span class="nv"> </span><span class="s">ubuntu22.04/cuda12.4"</span>
 </pre></div>
 </div>
 <table class="docutils align-default">
@@ -221,11 +221,10 @@ if you use hyperpipe.</p>
 <p>For a manifest, the ILE (and CIP) Condor submit files get:</p>
 <ul>
 <li><p><strong>``MY.SingularityImage``</strong> — an <em>unquoted</em> <code class="docutils literal notranslate"><span class="pre">ifThenElse</span></code> expression that
-selects the highest-capability image the matched machine can run, falling back
-to the <code class="docutils literal notranslate"><span class="pre">fallback</span></code> image (also used when the capability attribute is
-<code class="docutils literal notranslate"><span class="pre">undefined</span></code>, e.g. on a CPU-only CIP slot — hence the fallback must be
-CPU-safe):</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">ifThenElse</span><span class="p">(</span><span class="n">TARGET</span><span class="o">.</span><span class="n">GPUs_Capability</span> <span class="o">&gt;=</span> <span class="mf">8.0</span><span class="p">,</span> <span class="s2">&quot;./rift_container_modern.sif&quot;</span><span class="p">,</span> <span class="s2">&quot;/cvmfs/.../rift_container_default.sif&quot;</span><span class="p">)</span>
+selects the highest-capability image the matched machine can run, with the
+<code class="docutils literal notranslate"><span class="pre">fallback</span></code> image as the innermost <code class="docutils literal notranslate"><span class="pre">else</span></code> (used when the machine’s
+capability is below every threshold):</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">ifThenElse</span><span class="p">(</span><span class="n">TARGET</span><span class="o">.</span><span class="n">GPUs_Capability</span> <span class="o">&gt;=</span> <span class="mf">8.0</span><span class="p">,</span> <span class="s2">"./rift_container_modern.sif"</span><span class="p">,</span> <span class="s2">"/cvmfs/.../rift_container_default.sif"</span><span class="p">)</span>
 </pre></div>
 </div>
 </li>
@@ -233,7 +232,7 @@ CPU-safe):</p>
 machine that selected them, via a single HTCondor <code class="docutils literal notranslate"><span class="pre">$$()</span></code> match-time token
 appended to <code class="docutils literal notranslate"><span class="pre">transfer_input_files</span></code>.  CVMFS/local images are referenced in
 place and never transferred, so the <strong>whole family is never pulled</strong>:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>$$([ (TARGET.GPUs_Capability &gt;= 8.0 ? &quot;osdf:///.../rift_container_modern.sif&quot; : &quot;&quot;) ])
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>$$([ (TARGET.GPUs_Capability &gt;= 8.0 ? "osdf:///.../rift_container_modern.sif" : "") ])
 </pre></div>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">request_disk</span></code> is <strong>not</strong> auto-sized — set it to your largest single
@@ -243,7 +242,107 @@ transferred image.</p>
 combined (<code class="docutils literal notranslate"><span class="pre">&amp;&amp;</span></code>) with any <code class="docutils literal notranslate"><span class="pre">RIFT_REQUIRE_GPUS</span></code> you set.  Both apply; neither
 is dropped.  This stops jobs matching a GPU that <em>no</em> image in the family
 supports.</p></li>
+<li><p><strong>A capability-defined ``Requirements`` clause</strong> —
+<code class="docutils literal notranslate"><span class="pre">TARGET.GPUs_Capability</span> <span class="pre">=!=</span> <span class="pre">undefined</span></code>.  The selection above is deliberately
+<em>not</em> undefined-guarded: a slot that does not advertise the machine-level
+capability rollup could be anything (including a Blackwell that hard-fails on
+the older fallback image), so the safe action is to <strong>not match it</strong> rather
+than guess.  Measured on the CIT pool, a large fraction of GPU slots satisfy
+the per-GPU <code class="docutils literal notranslate"><span class="pre">require_gpus</span></code> floor yet do not advertise the rollup attribute;
+without this clause those jobs go on hold with “Cannot expand $$ expression”.</p></li>
 </ul>
+<p>CPU-only jobs are handled differently.  <strong>CIP requests no GPU</strong>, so its matched
+slot advertises no capability at all and a capability-keyed selection cannot
+resolve — it would hold the job.  CIP therefore collapses to a <strong>single fixed
+container</strong>: the manifest <code class="docutils literal notranslate"><span class="pre">fallback</span></code> image (hence the requirement that the
+fallback be CPU-safe), quoted as a plain literal, with no <code class="docutils literal notranslate"><span class="pre">$$()</span></code> token and no
+capability <code class="docutils literal notranslate"><span class="pre">Requirements</span></code> clause.</p>
+</section>
+<section id="choosing-a-delivery-mode-legacy-vs-container-universe">
+<span id="osg-container-modes"></span><h2>Choosing a delivery mode (legacy vs container universe)<a class="headerlink" href="#choosing-a-delivery-mode-legacy-vs-container-universe" title="Link to this heading"></a></h2>
+<p>The expression-valued <code class="docutils literal notranslate"><span class="pre">MY.SingularityImage</span></code> above is evaluated on the
+<em>execute</em> side.  That works on a local HTCondor pool, but <strong>OSPool glidein
+pilots read</strong> <code class="docutils literal notranslate"><span class="pre">SingularityImage</span></code> <strong>as a literal string</strong>, so an <code class="docutils literal notranslate"><span class="pre">ifThenElse</span></code>
+lands verbatim and the job holds.  Two opt-in modes solve this; pick one with an
+environment variable at DAG-build time.</p>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 26.0%" />
+<col style="width: 74.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Mode</p></th>
+<th class="head"><p>Behaviour</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>(default)</em></p></td>
+<td><p>Legacy: <code class="docutils literal notranslate"><span class="pre">universe</span> <span class="pre">=</span> <span class="pre">vanilla</span></code> + expression-valued
+<code class="docutils literal notranslate"><span class="pre">MY.SingularityImage</span></code>.  Correct on a local/CIT pool.  <strong>Not OSG-safe.</strong></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">RIFT_CONTAINER_UNIVERSE=1</span></code></p></td>
+<td><p><strong>Recommended for OSG.</strong>  <code class="docutils literal notranslate"><span class="pre">universe</span> <span class="pre">=</span> <span class="pre">container</span></code> and
+<code class="docutils literal notranslate"><span class="pre">container_image</span> <span class="pre">=</span> <span class="pre">$$([</span> <span class="pre">ifThenElse(...)</span> <span class="pre">])</span></code>.  <code class="docutils literal notranslate"><span class="pre">$$()</span></code> is HTCondor’s
+documented <em>match-time</em> (schedd-side) machine-ad substitution, so the
+pilot only ever sees a literal image URL.  No <code class="docutils literal notranslate"><span class="pre">MY.SingularityImage</span></code>,
+no <code class="docutils literal notranslate"><span class="pre">MY.SingularityBindCVMFS</span></code>, no <code class="docutils literal notranslate"><span class="pre">$$()</span></code> transfer token — the image is
+delivered by <code class="docutils literal notranslate"><span class="pre">container_image</span></code> itself.  GPU access is automatic under
+<code class="docutils literal notranslate"><span class="pre">request_gpus</span></code>.  Works on CIT-local too.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">RIFT_CONTAINER_RUNTIME_SELECT=1</span></code></p></td>
+<td><p>Older fallback, ILE only.  Condor runs a generated
+<code class="docutils literal notranslate"><span class="pre">rift_container_select.sh</span></code> on the bare execute node; the wrapper reads
+the <em>real</em> GPU capability from <code class="docutils literal notranslate"><span class="pre">nvidia-smi</span></code>, fetches only the matching
+image (<code class="docutils literal notranslate"><span class="pre">stashcp</span></code>/<code class="docutils literal notranslate"><span class="pre">pelican</span></code>), and re-execs the command under
+<code class="docutils literal notranslate"><span class="pre">apptainer</span> <span class="pre">exec</span> <span class="pre">--nv</span></code>.  Detects the actual device rather than trusting
+an advertised attribute, at the cost of running outside a container.</p></td>
+</tr>
+</tbody>
+</table>
+<p>Under asimov, set the variable from the blueprint rather than the shell:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">scheduler</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">singularity image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/path/to/rift_container_family.yaml</span>
+<span class="w">  </span><span class="nt">singularity base exe directory</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/usr/local/bin/</span>
+<span class="w">  </span><span class="nt">environment variables</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">RIFT_CONTAINER_UNIVERSE</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+</pre></div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>With a family manifest whose images are <code class="docutils literal notranslate"><span class="pre">osdf://</span></code> URLs, the pipeline also
+enables the matching transfer credential automatically
+(<code class="docutils literal notranslate"><span class="pre">use_oauth_services</span> <span class="pre">=</span> <span class="pre">scitokens</span></code>, or <code class="docutils literal notranslate"><span class="pre">igwn</span></code> for <code class="docutils literal notranslate"><span class="pre">igwn+osdf:</span></code>).  The
+single-image code path keys that off the <code class="docutils literal notranslate"><span class="pre">SINGULARITY_RIFT_IMAGE</span></code> string
+itself, which for a manifest is just a <code class="docutils literal notranslate"><span class="pre">.yaml</span></code> path — so the manifest’s
+image URLs are inspected instead.</p>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p><strong>Why the container-universe selector names basenames, not URLs.</strong>
+<code class="docutils literal notranslate"><span class="pre">condor_submit</span></code> parses <code class="docutils literal notranslate"><span class="pre">container_image</span></code> <em>before</em> any <code class="docutils literal notranslate"><span class="pre">$$</span></code> expansion and
+derives the job ad’s <code class="docutils literal notranslate"><span class="pre">ContainerImage</span></code> — the name the image will have in the
+job scratch dir — as the text after the <strong>last</strong> <code class="docutils literal notranslate"><span class="pre">/</span></code>.  A selector containing
+full paths is therefore cut in half, and the fragment that survives is not a
+valid image name.  Submitting that form to the IGWN pool holds the job at the
+execute point:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">PREPARE_JOB</span> <span class="p">(</span><span class="n">prepare</span><span class="o">-</span><span class="n">hook</span><span class="p">)</span> <span class="n">failed</span> <span class="p">(</span><span class="n">reported</span> <span class="n">status</span> <span class="mi">001</span><span class="p">):</span>
+<span class="n">Unable</span> <span class="n">to</span> <span class="n">download</span> <span class="ow">or</span> <span class="n">build</span> <span class="n">singularity</span> <span class="n">image</span> <span class="n">cutest_busybox_</span><span class="o">...</span><span class="n">sif</span><span class="s2">") ])</span>
+</pre></div>
+</div>
+<p>So the selector emits <strong>basenames only</strong> (no <code class="docutils literal notranslate"><span class="pre">/</span></code>), the whole <code class="docutils literal notranslate"><span class="pre">$$</span></code> token
+survives into <code class="docutils literal notranslate"><span class="pre">ContainerImage</span></code>, and the schedd expands it at match time
+(<code class="docutils literal notranslate"><span class="pre">MATCH_EXP_ContainerImage</span> <span class="pre">=</span> <span class="pre">&quot;rift_container_modern.sif&quot;</span></code>).  The image itself
+is delivered by the comma-free <code class="docutils literal notranslate"><span class="pre">$$()</span></code> transfer token, and <code class="docutils literal notranslate"><span class="pre">MY.TransferInput</span></code>
+is pinned so <code class="docutils literal notranslate"><span class="pre">condor_submit</span></code> does not append the basename selector to
+<code class="docutils literal notranslate"><span class="pre">TransferInput</span></code> as a bogus extra input file.  Verified end to end on an OSPool
+glidein against <code class="docutils literal notranslate"><span class="pre">$CondorVersion:</span> <span class="pre">25.11.1</span></code>.</p>
+<p>Consequence: <strong>every image in a family used with container universe must be a
+transferable URL.</strong>  An image referenced in place (a CVMFS or local path) can
+only be named by its full path, which would reintroduce the truncation, so
+<code class="xref py py-func docutils literal notranslate"><span class="pre">build_container_image_select()</span></code> raises
+<code class="docutils literal notranslate"><span class="pre">ContainerManifestError</span></code> for such a family.  Stage those images at a URL, or
+use <code class="docutils literal notranslate"><span class="pre">RIFT_CONTAINER_RUNTIME_SELECT=1</span></code>.</p>
+</div>
 </section>
 <section id="gpu-attribute-names">
 <h2>GPU attribute names<a class="headerlink" href="#gpu-attribute-names" title="Link to this heading"></a></h2>
@@ -253,7 +352,7 @@ supports.</p></li>
 attribute is <code class="docutils literal notranslate"><span class="pre">GPUs_Capability</span></code>.  Override it per run with the environment
 variable <code class="docutils literal notranslate"><span class="pre">RIFT_GPU_CAPABILITY_ATTR</span></code>, or per manifest with <code class="docutils literal notranslate"><span class="pre">capability_attr</span></code>.
 Verify what your pool advertises:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">condor_status</span> <span class="o">-</span><span class="n">constraint</span> <span class="s1">&#39;TotalGPUs &gt; 0&#39;</span> <span class="o">-</span><span class="n">autoformat</span> <span class="n">GPUs_DeviceName</span> <span class="n">GPUs_Capability</span> <span class="n">GPUs_GlobalMemoryMb</span>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">condor_status</span> <span class="o">-</span><span class="n">constraint</span> <span class="s1">'TotalGPUs &gt; 0'</span> <span class="o">-</span><span class="n">autoformat</span> <span class="n">GPUs_DeviceName</span> <span class="n">GPUs_Capability</span> <span class="n">GPUs_GlobalMemoryMb</span>
 </pre></div>
 </div>
 <p>Not every GPU host advertises this; on such hosts the expression collapses to

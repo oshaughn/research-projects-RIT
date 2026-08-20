@@ -117,7 +117,7 @@ indicating that your job uses the OSG. This adds the appropriate arguments
 in the .sub files used by your job.</p>
 <p>Finally, you need various additional environment variables, ranging from
 absolutely essential to extremely helpful:</p>
-<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="go">RIFT_REQUIRE_GPUS=(DeviceName=!=&quot;Tesla K10.G1.8GB&quot;)&amp;&amp;(DeviceName=!=&quot;Tesla K10.G2.8GB&quot;)</span>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="go">RIFT_REQUIRE_GPUS=(DeviceName=!="Tesla K10.G1.8GB")&amp;&amp;(DeviceName=!="Tesla K10.G2.8GB")</span>
 <span class="go">RIFT_LOWLATENCY=True</span>
 <span class="go">RIFT_GETENV=LD_LIBRARY_PATH,PATH,PYTHONPATH,*RIFT*,LIBRARY_PATH</span>
 <span class="go">SINGULARITY_RIFT_IMAGE=/cvmfs/singularity.opensciencegrid.org/james-clark/research-projects-rit/rift:production</span>

@@ -179,17 +179,17 @@ is to use the structured driver installed as a command-line tool:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">RIFT.hyperpipe.drivers.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">MargDriverBase</span>
 
 <span class="k">class</span><span class="w"> </span><span class="nc">MyDriver</span><span class="p">(</span><span class="n">MargDriverBase</span><span class="p">):</span>
-    <span class="n">description</span> <span class="o">=</span> <span class="s2">&quot;My custom marg driver.&quot;</span>
+    <span class="n">description</span> <span class="o">=</span> <span class="s2">"My custom marg driver."</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">log_likelihood</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">row_values</span><span class="p">,</span> <span class="n">column_names</span><span class="p">,</span> <span class="n">opts</span><span class="p">):</span>
         <span class="c1"># row_values: strings from columns 2.. of the grid</span>
         <span class="c1"># column_names: list of parameter names from the header</span>
         <span class="n">params</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="nb">zip</span><span class="p">(</span><span class="n">column_names</span><span class="p">,</span> <span class="nb">map</span><span class="p">(</span><span class="nb">float</span><span class="p">,</span> <span class="n">row_values</span><span class="p">)))</span>
         <span class="c1"># your physics here</span>
-        <span class="n">lnL</span> <span class="o">=</span> <span class="o">-</span><span class="mf">0.5</span> <span class="o">*</span> <span class="p">(</span><span class="n">params</span><span class="p">[</span><span class="s2">&quot;x&quot;</span><span class="p">]</span><span class="o">**</span><span class="mi">2</span> <span class="o">+</span> <span class="n">params</span><span class="p">[</span><span class="s2">&quot;y&quot;</span><span class="p">]</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span>
+        <span class="n">lnL</span> <span class="o">=</span> <span class="o">-</span><span class="mf">0.5</span> <span class="o">*</span> <span class="p">(</span><span class="n">params</span><span class="p">[</span><span class="s2">"x"</span><span class="p">]</span><span class="o">**</span><span class="mi">2</span> <span class="o">+</span> <span class="n">params</span><span class="p">[</span><span class="s2">"y"</span><span class="p">]</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">lnL</span><span class="p">,</span> <span class="mf">1e-3</span>
 
-<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">"__main__"</span><span class="p">:</span>
     <span class="n">MyDriver</span><span class="p">()</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
 </pre></div>
 </div>
