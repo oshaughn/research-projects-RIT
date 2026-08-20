@@ -104,12 +104,12 @@ DESELECT=(
 #   test_slowrot_noloop_bruteforce.py       asserts at MODULE scope
 #   test_slowrot_freqresponse_likelihood.py asserts inside a function, called from __main__
 #
-# The two module-scope files are gated TWICE: here, and by pytest collection, since a failed
-# module-scope assert is a collection error and the floor check treats that as fatal.  The
-# third is gated ONLY by being executed.
+# All three are gated ONLY by being executed here.  They are not in FILES, so pytest never
+# imports them and the collection floor cannot see a failed assert in any of them -- the
+# scope differences above change WHEN each file's asserts run, not how many gates it has.
 #
-# ANTI-INSTRUCTION: do not "tidy" the module-scope asserts into functions.  That silently
-# abandons the collection-error path while this tier keeps passing, and no count notices.
+# ANTI-INSTRUCTION: do not "tidy" these asserts into functions.  A function this tier never
+# calls leaves `python <file>` exiting 0 having asserted nothing, and no count notices.
 #
 # cauchy_schwarz is the one that pins lnL <= (1/2)<d|d>, i.e. that <d|h> and <h|h> are
 # evaluated for the SAME h.  Both it and noloop_bruteforce fail on a dropped arrival-time
@@ -160,8 +160,8 @@ for f in "${SLOWDIR}"/test_slowrot_*.py; do
   fi
 done
 if [ "${manifest_rc}" -ne 0 ]; then
-  echo "  Add it to FILES (and raise EXPECTED_TESTS), or to SCRIPTS if it asserts at" >&2
-  echo "  module scope, or to EXCLUDED with a reason." >&2
+  echo "  Add it to FILES (and raise EXPECTED_TESTS), or to SCRIPTS if it asserts" >&2
+  echo "  outside a test_* function, or to EXCLUDED with a reason." >&2
   exit 1
 fi
 
@@ -252,15 +252,15 @@ if bad:
 PYCHECK
 if [ $? -ne 0 ]; then exit 1; fi
 
-echo "== TIER 2: module-scope assert scripts =="
+echo "== TIER 2: assert scripts =="
 for s in "${SCRIPTS[@]}"; do
   echo "-- ${s}"
   "${PYTHON_BIN}" "${s}"
   src="$?"
   if [ "${src}" -ne 0 ]; then
     echo "test-slowrot.sh: ${s} exited ${src}" >&2
-    echo "  This file asserts at MODULE SCOPE and defines no test_* function, so a" >&2
-    echo "  nonzero exit here is a failed assertion, not a harness problem." >&2
+    echo "  This file asserts outside any test_* function, so a nonzero exit here is" >&2
+    echo "  a failed assertion, not a harness problem." >&2
     exit 1
   fi
 done

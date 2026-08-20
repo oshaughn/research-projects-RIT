@@ -281,7 +281,8 @@ jobs:
     #
     # See .travis/test-slowrot.sh for why the gate counts tests and runs three files
     # outside pytest: five test_slowrot_*.py files collect ZERO items and exit 5, "no
-    # tests ran", which reads as a pass, and three of those five assert at module scope.
+    # tests ran", which reads as a pass, and three of those five carry asserts pytest
+    # cannot count.
     #
     # SEPARATE FROM jax-ile-check ON PURPOSE.  This suite is numpy + lal: no GPU, no
     # jax, no numpyro.  Folding it into the jax gate would put a 1-2 minute numpy
