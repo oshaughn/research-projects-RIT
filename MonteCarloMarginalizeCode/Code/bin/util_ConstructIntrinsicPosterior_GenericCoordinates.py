@@ -3275,6 +3275,10 @@ np.savetxt(opts.fname_output_integral+"+annotation_ESS.dat",[[ln_integrand_value
 
 # Throw away stupid points that don't impact the posterior
 indx_ok = np.logical_and(dat_logL > lnLmax-opts.lnL_offset ,samples["joint_s_prior"]>0)
+if opts.integrate_prior:
+    # The likelihood-offset cut is a posterior-memory optimization.  For L=1
+    # it would instead excise genuine prior support and bias the normalization.
+    indx_ok = samples["joint_s_prior"] > 0
 for p in low_level_coord_names:
     samples[p] = samples[p][indx_ok]
 dat_logL  = dat_logL[indx_ok]
@@ -3388,6 +3392,11 @@ if opts.pseudo_gaussian_mass_prior:
 # plugin's constant out of one and not the other turns a check into a spurious disagreement.
 log_res_reweighted = lnLmax + np.log(np.mean(weights)) + supplemental_ln_likelihood_offset + lnL_shift
 sigma_reweighted= np.std(weights,dtype=RiftFloat)/np.mean(weights)
+if opts.integrate_prior:
+    # The L=1 result is a fresh importance-sampling mean.  Its fractional
+    # standard error carries the usual 1/sqrt(N); preserve the historical
+    # coefficient-of-variation annotation for ordinary likelihood runs.
+    sigma_reweighted /= np.sqrt(len(weights))
 neff_reweighted = np.sum(weights)/np.max(weights)
 np.savetxt(opts.fname_output_integral+"_withpriorchange.dat", [log_res_reweighted])  # should agree with the usual result, if no prior changes
 with open(opts.fname_output_integral+"_withpriorchange+annotation.dat", 'w') as file_out:
