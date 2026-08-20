@@ -1952,7 +1952,7 @@ if opts.use_EOB_parameters:
         f.write(" --export-EOB-parameters ")
 
 if opts.assume_hyperbolic:
-    with open("helper_convert_args.txt",'w+') as f:
+    with open("helper_convert_args.txt",'a') as f:
         f.write(" --export-hyperbolic ")
 
 if opts.assume_eccentric:

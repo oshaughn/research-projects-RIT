@@ -1,4 +1,6 @@
 import os
+import inspect
+import ast
 from pathlib import Path
 import subprocess
 import sys
@@ -59,6 +61,111 @@ def test_hyperbolic_classification_is_distance_invariant(monkeypatch):
         outcomes.append(parameters.extract_param("hypclass"))
 
     assert outcomes == ["scatter", "scatter"]
+
+
+def test_hyperbolic_mode_generation_has_no_absolute_strain_classifier():
+    source = inspect.getsource(lalsimutils.hlmoft)
+    assert "1e-26" not in source
+
+
+def test_hyperbolic_endpoint_prefers_radial_dynamics():
+    amplitude = np.array([0.0, 1.0, 0.5])
+    assert lalsimutils._hyperbolic_endpoint_outcome(
+        {"Prstar": np.array([-0.2])}, amplitude
+    ) == "plunge"
+    assert lalsimutils._hyperbolic_endpoint_outcome(
+        {"Prstar": np.array([0.2])}, amplitude
+    ) == "scatter"
+
+
+def test_zero_mode_data_zeros_every_mode():
+    class Data:
+        def __init__(self, values):
+            self.data = np.asarray(values, dtype=np.complex128)
+
+    class Series:
+        def __init__(self, values):
+            self.data = Data(values)
+
+    modes = {
+        (2, 2): Series([1.0, 2.0]),
+        (2, -2): Series([3.0, 4.0]),
+    }
+    lalsimutils._zero_mode_data(modes)
+    assert all(np.count_nonzero(series.data.data) == 0 for series in modes.values())
+
+
+def test_hyperbolic_convert_arguments_do_not_truncate_other_exports():
+    script = Path(__file__).parents[1] / "bin" / "helper_LDG_Events.py"
+    tree = ast.parse(script.read_text())
+    hyperbolic_writes = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.If):
+            continue
+        test_source = ast.unparse(node.test)
+        if test_source != "opts.assume_hyperbolic":
+            continue
+        for call in ast.walk(node):
+            if not isinstance(call, ast.Call) or not isinstance(call.func, ast.Name):
+                continue
+            if call.func.id != "open" or len(call.args) < 2:
+                continue
+            if isinstance(call.args[0], ast.Constant) and call.args[0].value == "helper_convert_args.txt":
+                hyperbolic_writes.append(call.args[1].value)
+    assert hyperbolic_writes == ["a"]
+
+
+def test_nrhybsur_tidal_routing_checks_the_approximant_family():
+    script = Path(__file__).parents[1] / "bin" / "util_RIFT_pseudo_pipe.py"
+    source = script.read_text()
+    assert "('NRHybSur' and" not in source
+    assert source.count("'NRHybSur' in opts.approx") >= 2
+
+
+def test_cip_rejects_hyperbolic_class_filter_without_hyperbolic_mode(tmp_path):
+    script = (
+        Path(__file__).parents[1]
+        / "bin"
+        / "util_ConstructIntrinsicPosterior_GenericCoordinates.py"
+    )
+    env = os.environ.copy()
+    env["XDG_CACHE_HOME"] = str(tmp_path / "cache")
+    env["MPLCONFIGDIR"] = str(tmp_path / "matplotlib")
+    result = subprocess.run(
+        [sys.executable, str(script), "--force-scatter"],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert result.returncode == 2
+    assert "require --use-hyperbolic" in result.stderr
+
+
+def test_cip_preserves_base_rf_pca_and_rbf_fit_methods():
+    script = (
+        Path(__file__).parents[1]
+        / "bin"
+        / "util_ConstructIntrinsicPosterior_GenericCoordinates.py"
+    )
+    tree = ast.parse(script.read_text())
+    function_names = {
+        node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)
+    }
+    fit_method_values = {
+        node.comparators[0].value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Compare)
+        and len(node.ops) == 1
+        and isinstance(node.ops[0], ast.Eq)
+        and len(node.comparators) == 1
+        and isinstance(node.comparators[0], ast.Constant)
+        and isinstance(node.left, ast.Attribute)
+        and isinstance(node.left.value, ast.Name)
+        and node.left.value.id == "opts"
+        and node.left.attr == "fit_method"
+    }
+    assert {"fit_rf_pca", "fit_rbf"} <= function_names
+    assert {"rf_pca", "rbf"} <= fit_method_values
 
 
 def test_real_hyperbolic_classification_when_teob_is_available(monkeypatch):

@@ -108,6 +108,12 @@ def _hyperbolic_endpoint_outcome(dynamics, normalized_amplitude):
     if not normalized_amplitude.size or not np.isfinite(normalized_amplitude[-1]):
         return "plunge"
     return "scatter" if normalized_amplitude[-1] > 1e-4 else "plunge"
+
+
+def _zero_mode_data(modes):
+    """Zero every time-series mode in place."""
+    for series in modes.values():
+        series.data.data *= 0.0
 rosDebugMessagesLongContainer = [False]
 if log_loud:
     print( "[Loading lalsimutils.py : MonteCarloMarginalization version]",file=sys.stderr)
@@ -2094,7 +2100,6 @@ class ChooseWaveformParams:
           - uses network SNR to rescale the distance of the source, so the SNR is now  new_SNR
           - returns current_SNR, for sanity
         """
-        deltaF=findDeltaF(self)
         Lmax = kwargs.get('Lmax', 4)  # Default to 4 if not specified in kwargs
         deltaF=findDeltaF(self, Lmax=Lmax)
         det_orig = self.detector
@@ -4014,11 +4019,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
             if len(filtered_peaks) == 1:
                 # scatter case OR plunge case, we can set the epoch normally
                 hpepoch = -P.deltaT*np.argmax(amp)
-
-                if np.abs(amp)[-1] > 1e-26:
-                    hypclass = 'scatter' # maybe should do through assign_param?
-                else:
-                    hypclass = 'plunge'
+                hypclass = _hyperbolic_endpoint_outcome(dym, amp_norm)
 
 
             elif len(filtered_peaks) == 0:
@@ -4044,11 +4045,10 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
 
                 if len(all_props['prominences']) > 3:
                     print('MANY peaks detected on reclassification, evaluating...')
-
-                    if np.abs(amp)[-1] < 1e-26:
+                    hypclass = _hyperbolic_endpoint_outcome(dym, amp_norm)
+                    if hypclass == 'plunge':
                         print('Reclassifying to Plunge')
                         hpepoch = -P.deltaT*np.argmax(amp)
-                        hypclass = 'plunge'
                     else:
                         print('Reclassifying to Scatter')
                         max_peak_index = all_peaks[np.argmax(all_props['peak_heights'])]
@@ -4234,7 +4234,7 @@ data.data[j_signal_end - 1])):
                 print('Zoom-whirl waveform, only start taper')
             elif hypclass =='meaningless':
                 # zero out meaningless
-                hlm[mode].data.data *= 0.0
+                _zero_mode_data(hlm)
 
 #            for mode in hlm:
 #                print(mode)
