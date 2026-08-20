@@ -251,13 +251,24 @@ jobs:
         # The GPU parity files (test_q_window_interp_gpu, test_noloop_gpu_stencils) are
         # deliberately NOT here -- there is no GPU on these runners, and they would report as
         # skipped.  They are run by hand on a GPU node; the numbers are in PR #97.
+        #
+        # test_slowrot_fd_ops is here because it is the ONLY automated guard on the parity of
+        # time_derivative_weight's Nyquist-bin handling (#163).  That bin must be zeroed for ODD
+        # p and left alone for EVEN p; an earlier revision of #163 zeroed every p >= 1 and was
+        # 90% wrong at p=2 and 99% at p=4 against the analytic derivative, worth 0.207 nats on a
+        # real p_max=2 bank.  The jax gate cannot catch that: at p_max=1 -- which is what
+        # test_jax_slowrot_cauchy_schwarz exercises -- the correct and the over-zeroing weights
+        # are BIT-IDENTICAL, because p=1 is odd either way.  Without this file, re-landing the
+        # wrong revision is a green CI run.  numpy + lal only, and fast (sub-second to a few
+        # seconds depending on the interpreter; it adds nothing material to this job).
         run: |
           python -m pytest -q \
             MonteCarloMarginalizeCode/Code/RIFT/likelihood/test_q_window_interp.py \
             MonteCarloMarginalizeCode/Code/RIFT/likelihood/test_time_interp_choice.py \
             MonteCarloMarginalizeCode/Code/RIFT/likelihood/test_calmarg_stencil_gating.py \
             MonteCarloMarginalizeCode/Code/RIFT/misc/test_psd_bandwidth.py \
-            MonteCarloMarginalizeCode/Code/RIFT/likelihood/test_interpolate_time_cli.py
+            MonteCarloMarginalizeCode/Code/RIFT/likelihood/test_interpolate_time_cli.py \
+            MonteCarloMarginalizeCode/Code/RIFT/likelihood/test_slowrot_fd_ops.py
 
   jax-ile-check:
     needs: install
@@ -277,15 +288,20 @@ jobs:
     # and means a breaking upstream jax release can redden this job outside any PR's
     # control. If that becomes noisy, pin here rather than deleting the job.
     #
-    # Measured 964 s wall for the whole gate on a quiet CPU node (ldas-pcdev11, jax 0.9.2,
-    # JAX_PLATFORMS=cpu, OMP_NUM_THREADS=1): 14 tests, 907 s of pytest plus the
-    # collection pass.  test_jax_slowrot.py alone is 679 s of that (the p_max=0/p_max=1
-    # rotation ladders and freqresponse, each followed by the AD/jit/vmap/hessian
-    # checks); it is the first thing to trim if CI minutes ever bite.  timeout-minutes
-    # is generous so a slower runner does not flake, but a hang still ends.  OBSERVED on
-    # the actual runner (job 95750869285, python 3.11.15, jax 0.10.2, numpyro 0.21.0):
-    # 14 passed in 285.96 s, 6m07s job wall -- ~10x headroom, and the unpinned install
-    # had already drifted a jax minor version from the 0.9.2 measured locally.
+    # Cost.  CURRENT (EXPECTED_TESTS=27 in .travis/test-jax.sh): 27 tests, measured
+    # 578-834 s of pytest across repeat runs on quiet CPU nodes (ldas-pcdev11/13, jax
+    # 0.9.2, JAX_PLATFORMS=cpu, JAX_ENABLE_X64=1, OMP_NUM_THREADS=1).
+    # test_jax_slowrot.py dominates (the p_max=0/p_max=1 rotation ladders and
+    # freqresponse, each followed by the AD/jit/vmap/hessian checks); it is the first
+    # thing to trim if CI minutes ever bite.  timeout-minutes is generous so a slower
+    # runner does not flake, but a hang still ends.
+    #
+    # HISTORICAL, and left here only as a runner-vs-local calibration: when this job
+    # collected 14 tests it measured 964 s wall locally and ran 14 passed in 285.96 s on
+    # the actual runner (job 95750869285, python 3.11.15, jax 0.10.2, numpyro 0.21.0) --
+    # ~10x headroom, with the unpinned install already a jax minor version ahead of the
+    # 0.9.2 measured locally.  Do NOT read the 14 as a current count; the file list has
+    # grown since and the gate asserts 27.
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4

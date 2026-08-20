@@ -12,6 +12,11 @@ convention floor), at an inflated sidereal rate so the delay drift is large.  At
 90-min-BNS rate (= x340 inflation on a 16s test): p_max=0 deficit 3.43 -> p_max=1 0.23 ->
 p_max=2 0.207 -> p_max=3 0.207: CONVERGES, bound-respected, NO blow-up.  So Path B recovers
 the delay drift and is production-ready for the target signals with p_max<=2.
+(2026-08-19: that verdict predates #163, which fixed a second, independent defect in the FD
+derivative weight's Nyquist bin affecting every odd-p band.  Path B numbers taken before it are
+not reliable; the post-#163 re-measurement is in the paper repo at
+analyses/slowrot_bound_violation/ section 4b -- which is on an unmerged branch of that repo at
+the time of writing, so this pointer resolves only once it lands.)
 RETRACTED (2026-08-18) -- there is NO p>=3 catastrophic cancellation.  This file used to say it
 "only bites at x1000+ inflation (>2.6x faster than any physical signal)".  That was an artefact of
 a bug in the likelihood, not a property of the expansion: term2 dropped the arrival-time post-phase
@@ -25,7 +30,23 @@ because a frequency shift does not commute with 1/S(f).  Fixed in PR #117.
     1.5x 10.040  0.06892  0.000450  0.000049
     2.0x 51.041  2.85329  0.101903  0.001989
     3.0x 333.19  152.282  43.01335  7.563424
-  The Cauchy-Schwarz bound is respected at EVERY rate, and p=3 IMPROVES on p=2 at 1.5x/2x/3x (by
+  SUPERSEDED BY #163 -- every number in this block was measured with the DEFECTIVE FD
+  derivative weight (the Nyquist bin, see below).  Re-measure before quoting any of it.
+  For scale, that weight violates the bound by 8.0e-03 / 8.0e-03 / 34.4 nats at p_max=1/2/3
+  -- but those are from the JAX Cauchy-Schwarz ladder at INFL=1350, fmax=1700, a DIFFERENT
+  configuration from this table (SEOBNRv4, fmin=50, seglen=16 s, srate=16384), where the same
+  defect is worth ~1e-4 nats.  They are not error bars on the rows below.
+  The p_max=1 entry was flagged 2026-08-19 as possibly the p_max=2 number copied up a row, since
+  issue #159 records 4.108e-03 at that same INFL=1350, fmax=1700, p_max=1.  RESOLVED by
+  re-measurement the same day: reintroducing the Nyquist defect ALONE on the shipped tree gives
+  overshoot +8.0024e-03 nats there (relative residual 1.5701e-07 of 0.5<h|h> = 50991.267), so
+  8.0e-03 is correct and independently reproduced.  #159's 4.108e-03 is not in conflict -- it
+  is quoted here as a MAGNITUDE; #159 prints it as a deficit (-4.108e-03) while the decomposition
+  quotes the same figure as an overshoot (+4.108112e-03) -- that decomposition now lives in
+  RIFT_roboto_paper analyses/slowrot_bound_violation/, not in the jax test.  One number, two sign conventions, no disagreement.  And it
+  was taken with BOTH defects present, and they partly cancelled.  The caveat is withdrawn.
+  As recorded at the time: the Cauchy-Schwarz bound is respected at EVERY rate, and p=3
+  IMPROVES on p=2 at 1.5x/2x/3x (by
   9x, 51x, 5.7x).  The expansion converges monotonically; high rates simply need more orders.  At
   the physical rate the p=2 residual (1.7e-4) sits at the test's rotation-off noise floor (1.5e-4),
   so it is an UPPER LIMIT, not a measurement -- fractional agreement 1.6e-7.
