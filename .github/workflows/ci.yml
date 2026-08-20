@@ -252,14 +252,10 @@ jobs:
         # deliberately NOT here -- there is no GPU on these runners, and they would report as
         # skipped.  They are run by hand on a GPU node; the numbers are in PR #97.
         #
-        # test_slowrot_* files do NOT belong here, including test_slowrot_fd_ops.py.  They
-        # are gated by slowrot-check, whose manifest requires every test_slowrot_*.py in
-        # this directory to be listed or explicitly excluded; a copy in this job's list is
-        # invisible to that manifest and would simply run twice.  PR #166, opened before
-        # slowrot-check existed, adds test_slowrot_fd_ops.py to the list below -- if that
-        # PR lands, DELETE its line rather than keeping both (issue #169).
-        # #166 also changes that file's test count; the floor arithmetic for whoever merges
-        # second is recorded once, at EXPECTED_TESTS in .travis/test-slowrot.sh.
+        # test_slowrot_* files do NOT belong here.  They are gated by slowrot-check, whose
+        # manifest requires every test_slowrot_*.py in this directory to be listed or
+        # explicitly excluded; a copy in this job's list is invisible to that manifest and
+        # would simply run the file twice (issue #169).
         run: |
           python -m pytest -q \
             MonteCarloMarginalizeCode/Code/RIFT/likelihood/test_q_window_interp.py \
@@ -333,15 +329,20 @@ jobs:
     # and means a breaking upstream jax release can redden this job outside any PR's
     # control. If that becomes noisy, pin here rather than deleting the job.
     #
-    # Measured 964 s wall for the whole gate on a quiet CPU node (ldas-pcdev11, jax 0.9.2,
-    # JAX_PLATFORMS=cpu, OMP_NUM_THREADS=1): 14 tests, 907 s of pytest plus the
-    # collection pass.  test_jax_slowrot.py alone is 679 s of that (the p_max=0/p_max=1
-    # rotation ladders and freqresponse, each followed by the AD/jit/vmap/hessian
-    # checks); it is the first thing to trim if CI minutes ever bite.  timeout-minutes
-    # is generous so a slower runner does not flake, but a hang still ends.  OBSERVED on
-    # the actual runner (job 95750869285, python 3.11.15, jax 0.10.2, numpyro 0.21.0):
-    # 14 passed in 285.96 s, 6m07s job wall -- ~10x headroom, and the unpinned install
-    # had already drifted a jax minor version from the 0.9.2 measured locally.
+    # Cost.  CURRENT (EXPECTED_TESTS=27 in .travis/test-jax.sh): 27 tests, measured
+    # 578-834 s of pytest across repeat runs on quiet CPU nodes (ldas-pcdev11/13, jax
+    # 0.9.2, JAX_PLATFORMS=cpu, JAX_ENABLE_X64=1, OMP_NUM_THREADS=1).
+    # test_jax_slowrot.py dominates (the p_max=0/p_max=1 rotation ladders and
+    # freqresponse, each followed by the AD/jit/vmap/hessian checks); it is the first
+    # thing to trim if CI minutes ever bite.  timeout-minutes is generous so a slower
+    # runner does not flake, but a hang still ends.
+    #
+    # HISTORICAL, and left here only as a runner-vs-local calibration: when this job
+    # collected 14 tests it measured 964 s wall locally and ran 14 passed in 285.96 s on
+    # the actual runner (job 95750869285, python 3.11.15, jax 0.10.2, numpyro 0.21.0) --
+    # ~10x headroom, with the unpinned install already a jax minor version ahead of the
+    # 0.9.2 measured locally.  Do NOT read the 14 as a current count; the file list has
+    # grown since and the gate asserts 27.
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4

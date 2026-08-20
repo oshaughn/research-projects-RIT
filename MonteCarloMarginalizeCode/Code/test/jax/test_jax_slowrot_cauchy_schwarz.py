@@ -1,117 +1,77 @@
 """test_jax_slowrot_cauchy_schwarz : the JAX rotation likelihood must be a real <d|h> - (1/2)<h|h>.
 
 The JAX twin of ``RIFT/likelihood/test_slowrot_cauchy_schwarz.py``, which guards the numpy/cupy
-NoLoop.  Read that file first -- the physics, the reason the arrival offset must be nonzero, and
-the (A)/(B)/(C) ladder are documented there and are not repeated in full here.
+NoLoop.  Read that file first -- the physics and the reason the arrival offset must be nonzero are
+documented there and are not repeated here.
 
-WHY THIS FILE EXISTS SEPARATELY FROM test_jax_slowrot.py.
-``test_jax_slowrot.py`` gate (a) checks that the JAX path AGREES with the NoLoop.  That is
-necessary but NOT sufficient, and the difference is not academic: a likelihood that drops the
-arrival-time post-phase from BOTH terms is perfectly self-consistent, satisfies Cauchy-Schwarz,
-and was measured ~95 nats from the correct value.  Agreement pins the two implementations to each
-other; only a bound and an independently constructed model pin the VALUE.
+WHY THIS FILE EXISTS SEPARATELY FROM test_jax_slowrot.py.  That file's gate (a) checks the JAX
+path AGREES with the NoLoop.  Necessary, not sufficient: a likelihood that drops the arrival-time
+post-phase from BOTH terms is self-consistent, satisfies Cauchy-Schwarz, and is badly wrong.
+Agreement pins the two implementations to each other; only a bound and an independently
+constructed model pin the VALUE.
 
-Three checks, in order (the later ones are worthless without the earlier ones):
+Four checks, in order (the later ones are worthless without the earlier ones):
 
   (A) TEETH.  With the modulation switched off (f_sidereal=0) against the SAME rotating data the
-      deficit must be LARGE, or this configuration does not exercise rotation at all and (B),(C)
-      would pass on an untested code path.
+      deficit must be LARGE, or this configuration does not exercise rotation and (B),(C) would
+      pass on an untested code path.  (A) compares the evaluator against ITSELF at f_sidereal=0,
+      so it guards the CONFIGURATION, not the post-phase -- a defect common to both arms cancels.
   (B) THE BOUND.  No sampled lnL(t) may exceed (1/2)<d|d>.  The data IS the exact model at the
-      p_max under test (see data_for), so at the true arrival sample lnL sits ON the bound:
-      maximum sensitivity, no slack.  Measured deficit at the peak: 0.0 nats (p_max=0) and
-      5.1e-04 out of 3.2e+05 (p_max=1).
+      p_max under test (see data_for), so at the true arrival sample lnL sits ON the bound.
+      NOTE THE SIGN: (B) PRINTS a deficit, 0.5<d|d> - max lnL, and ASSERTS on the overshoot,
+      max lnL - 0.5<d|d>.  They are negatives of each other; a violation is a POSITIVE overshoot.
   (C) THE MECHANISM.  lnL(t) must equal a directly constructed <d|h> - (1/2)<h|h> for the model
-      the likelihood implies, built explicitly in the time domain and contracted with the same
-      band-limited, noise-weighted inner product.  (B) can only detect a violation; (C) pins the
-      value.
+      the likelihood implies, built explicitly in the time domain.  (B) can only detect a
+      violation; (C) pins the value.  Its reference shifts the MODULATED template circularly and
+      repairs the phase with rotation_post_phase, because that is what the bank does; modulating
+      on the unrolled grid instead disagrees on the samples that wrap the segment boundary.
+  (D) a cross-check of the JAX lnL(t) against the numpy NoLoop on the same bank.
 
-  (D) is a bonus cross-check: the JAX lnL(t) against the numpy NoLoop lnL(t) on the same bank.
-
-(C)'s tolerance is ABSOLUTE (1e-6 nats) OR RELATIVE to 0.5<h|h> (1e-6), whichever passes.  Both
-rungs now clear it on the ABSOLUTE arm with room to spare; the relative arm is a backstop, not
-slack bought to make p_max=1 go green.
-
-WHAT THE LADDER MEASURES, AS OF ISSUE #159 (Config below; ldas-pcdev11, CPU, float64):
-
-                         p_max=0                      p_max=1
-    bands / 0.5<d|d>     5 / 50960.387223             14 / 50908.118464
-    (A) static deficit   4.9865 nats                  3.9234 nats     (gate: > 1.0)
-    (B) bound deficit    +0.000000e+00                +5.602e-10      (gate: overshoot <= 1e-6)
-    (C) vs explicit      5.821e-11 = 1.14e-15 rel     6.476e-10 = 1.27e-14 rel
-    (D) vs numpy NoLoop  5.821e-11                    8.222e-10
-
-(A) and (B) were scoped to p_max=0 for one release (#151) because the p_max=1 rung read
-(A) 0.3907 / (B) -4.108e-03 / (C) 6.06e-07 relative, i.e. the bound was VIOLATED by more than
-the reference could resolve.  That was diagnosed as the delay expansion diverging.  IT WAS NOT:
-lowering fmax from 1700 to 64, which cuts max|2 pi f delta_tau| from 30.4 to 1.1, moved (C) not
-at all (6.06e-07 -> 5.4e-07).  Two separate defects were responsible, both now fixed:
-
-  1. The NYQUIST BIN of the FD derivative weight.  This packing carries +fNyq but not -fNyq, so
-     an odd derivative weight cannot be consistent there, and conj(h^(p)) and (conj h)^(p) --
-     the same function -- disagreed in that one bin by a SIGN.  U takes both factors from the
-     same family and never noticed; V = <chi_a^*|chi_a'> pairs the two orders and did.  The
-     sidereal modulation is a sub-bin shift applied as a time-domain phase, so it spread that
-     one bin across the whole band.  |H(+fNyq)| is 0.02-0.14 of |H(100 Hz)| for these modes, so
-     this was worth 1.5e-07 of the p_max=1 model norm -- a norm too SMALL, which is exactly how
-     lnL got 4e-03 nats OVER the bound.  Fixed in flwr.time_derivative_weight; it is a defect in
-     the shared precompute, not in this port, and the numpy NoLoop carried it identically.
-  2. THE SHIFT CONVENTION of (C)'s own reference.  See _explicit_model_fd: the bank shifts the
-     MODULATED template circularly and repairs the phase with rotation_post_phase, and the
-     reference has to do the same.  Worth the rest: with defect 1 fixed but the reference
-     still modulating on the unrolled grid, (C) reads 1.66e-02 nats = 3.26e-07 relative at
-     INFL=1350 and 1.30e-01 nats = 2.55e-06 at the INFL=5400 this rung now ships.
-
-With both fixed, (C) is at machine precision at p_max=1 and (B) sits ON the bound to 6e-10, so
-both are asserted at both rungs.  Do not "fix" a future regression here by widening TOL_BOUND,
-TOL_DIRECT_* or MIN_STATIC_DEFICIT -- every number above has four or more orders of margin.
-
-TWO THINGS THIS LADDER DELIBERATELY DOES NOT CLAIM.
-
-  * It does not claim the p-expansion CONVERGES here.  It does not: run_ladder prints
-    max|2 pi f delta_tau| = 184.9 at the p_max=1 configuration (30.4 at the old INFL=1350).
-    That is fine and is the point of building the data as the exact model at the p_max under
-    test -- what is being validated is that the evaluator computes lnL for the model the bank
-    implies, which is a statement about the code and holds at any Omega.  It is NOT a
-    statement that the truncated model is close to a physical waveform.
-  * It does not measure the gap between the bank's CIRCULARLY shifted model and a
-    non-circularly (physically) modulated one.  That gap is real and is 1.30e-01 nats
-    = 2.55e-06 relative at this configuration, because hY^(1) carries 5.9e-04 of its peak
-    over the K_ARR samples the shift wraps (hY^(0) carries 1.2e-16, which is why Path A is
-    immune).  It is a property of FFT-correlation banks generally, not of this port, and no
-    assert here covers it.  A Path-B production analysis with a nonzero arrival offset
-    inherits it.
-
-The whole ladder runs at p_max=0 (Path A) AND p_max=1 (Path B).  Path B is a distinct code path
-for this port, not a wider bank: several ``p`` then share a sidereal harmonic ``n``, so the
-post-phase buckets ``m = n_a' - n_a`` collect (a,a') pairs from DIFFERENT p (4-20 pairs per bucket
-at p_max=1 vs 1-5 at p_max=0) and the V-term reflection ``(p,n)->(p,-n)`` has to resolve within p.
-p_max=2 is NOT run by default: after the #142/#143 widening it is a 27-band bank whose 729
-U/V cross terms dominate the precompute, and it adds no new branch -- the same duplicate-m
-scatter-add and within-p reflection p_max=1 already exercises.  Pass it explicitly to
-run_ladder() if you want it.
+Both rungs run: p_max=0 (Path A) and p_max=1 (Path B).  Path B is a distinct code path, not a
+wider bank -- several ``p`` share a sidereal harmonic ``n``, so the post-phase buckets
+``m = n_a' - n_a`` collect (a,a') pairs from DIFFERENT p, and the V-term reflection
+``(p,n)->(p,-n)`` has to resolve within p.  p_max=2 is not run by default: it is a 27-band bank
+whose 729 U/V cross terms dominate the precompute and it adds no new branch.  config_for()
+RAISES for it rather than guessing a rate: give it a CONFIG entry, with the measurement
+justifying whatever tolerance it needs, before calling run_ladder(p_max=2).
 
 THE ARRIVAL OFFSET MUST BE NONZERO.  The post-phase is exp(i n Omega (t - tref)); at t = tref it
 is the identity and a broken implementation passes every check.  The data is therefore placed at
-the detector's true geometric arrival time (+10.2 ms for H1 here, 42 samples).
+the detector's true geometric arrival time.
 
-MUTATION TEST (measured on the configuration above; both mutations applied to the post-phase in
-jax_ile/core.py, and both rungs re-measured).
-  * Drop the post-phase from BOTH terms (the pre-#131 code).  Self-consistent, so (B) does NOT
-    fire -- it lands 0.057 nats (p_max=0) / 0.993 nats (p_max=1) UNDER the bound.  (C) catches
-    it at 95.31 nats = 1.87e-03 of 0.5<h|h> (p_max=0) and 231.33 nats = 4.54e-03 (p_max=1),
-    i.e. 1900-4500x the relative gate and 1e+11 x the absolute one; (D) at 163 / 379 nats.
-    This is exactly why (C) and (D) exist and why NoLoop agreement alone is not enough --
-    though test_jax_slowrot.py gate (a) does also fire.
-  * Drop it from the model norm only (the asymmetric form).  (B) fires: 10.57 nats OVER the
-    bound at p_max=0, 16.75 nats OVER at p_max=1.
-Neither check subsumes the other; keep both.
+Path B runs at a higher rotation rate than Path A, and that is (A)'s requirement alone: the static
+deficit grows with Omega, and at Path A's rate it falls below MIN_STATIC_DEFICIT.
 
-(A) does NOT move under either mutation (3.9234 nats at p_max=1 in all three runs), and that is
-correct rather than a gap: (A) compares the rotating evaluator against the SAME evaluator with
-f_sidereal=0, so a change common to both cancels.  (A) is a guard on the CONFIGURATION -- it
-fails when the chosen Omega leaves rotation worth less than MIN_STATIC_DEFICIT, which is what
-retired the 90-minute rate for this rung -- not a guard on the post-phase.  (B), (C) and (D)
-are what watch the evaluator.
+DO NOT "fix" a failure here by widening TOL_BOUND, TOL_DIRECT_* or MIN_STATIC_DEFICIT.  Every
+gate has orders of margin over what it catches; a failure is a defect, not a tolerance being
+tight.
+
+TWO THINGS THIS LADDER DELIBERATELY DOES NOT CLAIM.  It does not claim the p-expansion CONVERGES
+here -- it does not, and that is fine, because the data is built as the exact model at the p_max
+under test, so what is validated is that the evaluator computes lnL for the model the bank
+implies.  And it does not claim the bank's CIRCULARLY shifted model matches a physically modulated
+one; they differ on the wrapped samples, which is a property of FFT-correlation banks that a
+Path-B production run inherits, and no assert here covers it.
+
+PORTABILITY -- READ BEFORE FILING A FINDING ON A DIGIT PRINTED BY THIS FILE.  Numbers here are
+bit-stable within a host but NOT across CPU families: cells built from a near-total cancellation
+of large numbers keep only a couple of significant figures, and those figures differ between
+Intel and AMD.  Do NOT "fix" a cell because your host differs, and do not derive an argument from
+a digit that is not stable.  THERE IS NO SHORTCUT FOR CLASSIFYING A NEW CELL -- measure it on both
+families.  A digit-count rule of the form 16 - log10(operand/result) was tried and REFUTED: it
+over-predicts stability and cannot separate cells that split from cells that do not.
+
+The spread is harmless ONLY BECAUSE no gate here is a tolerance on one of these numbers --
+every assert compares against a TOL_* constant, not against a recorded digit.  Pinning any
+host-split cell as an expected value would make the spread live and this suite host-dependent.
+If you must pin one, use a tolerance that survives both families, or state the host.
+
+DO NOT ATTACH A MECHANISM TO A MEASURED TABLE WITHOUT CHECKING IT AT MORE THAN ONE ROW.  Two
+explanations for the split were adopted on partial evidence and later withdrawn; the disconfirming
+row was already in the table both times.
+
+Evidence, sweeps, mutation tables and measured impact: PRs #117 and #163, and
+RIFT_roboto_paper analyses/slowrot_bound_violation/ + analyses/slowrot_nyquist_bin/NOTE.md.
 
 Run: JAX_PLATFORMS=cpu PYTHONPATH=<tree>/MonteCarloMarginalizeCode/Code \\
      python test/jax/test_jax_slowrot_cauchy_schwarz.py
@@ -161,7 +121,7 @@ DLOUD = fl.distMpcRef * 1e6 * lsu.lsu_PC / 30.      # loud, so lnL sits near the
 # The two knobs the rung's conditioning turns on: the rotation rate (through INFL, the factor
 # by which the sidereal rate is inflated so that Omega*T_segment matches a long signal) and the
 # upper end of the band.  They are PER p_max because the p >= 1 rungs need a different balance
-# from Path A -- see CONFIG below and the module docstring.
+# from Path A -- see CONFIG and config_for below.
 INFL_DEFAULT = 5400. / seglen      # Omega * T_segment as for a 90-minute signal
 FMAX_DEFAULT = 1700.
 
@@ -190,16 +150,21 @@ class Config(object):
             self.infl, self.fmax, self.omega * seglen)
 
 
-# The configuration each rung runs at.  p_max not listed here falls back to the default.
+# The configuration each rung runs at.  An unlisted p_max >= 1 RAISES in config_for() below;
+# the bare-Config() fallback is reachable only for p_max < 1 and not in CONFIG -- i.e.
+# negative, or a non-integer below 1 -- since 0 is a key here.  Neither occurs in practice.
 #
 # Path B runs FASTER than Path A, at Omega*T_segment for a 6-hour signal rather than a
 # 90-minute one, and that is (A)'s requirement, not (B)'s or (C)'s.  With the model
 # non-truncated (#142/#143) the static approximation is good to 0.39 nats at the 90-minute
 # rate -- below MIN_STATIC_DEFICIT, i.e. the rung would not be exercising rotation.  The
-# deficit grows like Omega^2 (measured: 0.0046 / 0.107 / 0.389 / 1.296 / 3.923 nats at
-# INFL = 135 / 675 / 1350 / 2700 / 5400), so 4x the rate buys 10x the teeth.  Nothing else
+# deficit grows FASTER THAN LINEARLY but slower than Omega^2 over this range (measured:
+# 0.0046 / 0.107 / 0.389 / 1.296 / 3.923 nats at INFL = 135 / 675 / 1350 / 2700 / 5400 --
+# that is 10.1x for the last 4x, i.e. ~Omega^1.66, where Omega^2 would predict 16x; this
+# comment said "like Omega^2" against that same list).  So 4x the rate buys 10x the teeth.
+# Nothing else
 # pays for it: (B) and (C) are at machine precision across that whole range once the two
-# defects issue #159 turned up are fixed (see the module docstring).
+# defects issue #159 turned up are fixed (see PRs #117 and #163).
 CONFIG = {
     0: Config(),
     1: Config(infl=21600. / seglen),
@@ -207,11 +172,36 @@ CONFIG = {
 
 
 def config_for(p_max):
-    return CONFIG.get(p_max, Config())
+    """Rotation rate for this rung.  REFUSES an unlisted p_max >= 1 rather than guessing.
+
+    The old fallback handed any unlisted p_max the Path-A default, the rate this file argues is
+    too slow for p >= 1, so run_ladder(p_max=2) silently ran at a rate its own asserts reject.
+
+    p_max=2 is unsupported because (D), JAX against the numpy NoLoop, exceeds TOL_NOLOOP at
+    every configuration tried, and TOL_NOLOOP is absolute-only.  Supporting the rung means
+    giving (D) the `abs OR rel` shape (C) already has -- a change to what the test ASSERTS,
+    not a tolerance bump, and not a loosening of TOL_NOLOOP.  Add a CONFIG entry only together
+    with that change and the measurements justifying it.
+
+    DO NOT WRITE A MECHANISM FOR (D)'s SIZE HERE.  Three attempts were made and all three were
+    refuted by measuring a second configuration.  Raising the rate does move (D); it does not
+    move it far enough.
+
+    Measurements: PR #163, and RIFT_roboto_paper analyses/slowrot_bound_violation/.
+    """
+    if p_max in CONFIG:
+        return CONFIG[p_max]
+    if p_max >= 1:
+        raise ValueError(
+            "no CONFIG entry for p_max=%r: this ladder's rate is chosen per rung, and the "
+            "old fallback silently used the Path-A rate (INFL=1350), which p >= 1 asserts "
+            "reject.  See this function's docstring for the p_max=2 measurements." % (p_max,))
+    return Config()
 
 TOL_BOUND = 1e-6           # nats above (1/2)<d|d> that we call a violation
 TOL_DIRECT_ABS = 1e-6      # nats of disagreement with the explicit model
-TOL_DIRECT_REL = 1e-6      # ... or, as a backstop, of 0.5<h|h> (see the module docstring)
+TOL_DIRECT_REL = 1e-6      # ... or, as a backstop, of 0.5<h|h>.  A BACKSTOP, not slack
+                           # bought to make p_max=1 pass: both rungs clear the ABSOLUTE arm.
 TOL_NOLOOP = 1e-8          # nats of disagreement with the numpy NoLoop lnL(t)
 MIN_STATIC_DEFICIT = 1.0   # (A): rotation must be worth at least this much here
 NPTS_SCAN = 164            # +-20 ms
@@ -277,8 +267,19 @@ def delay_expansion_ratio(cfg):
 
     The p >= 1 bands are the Taylor series of h(t - delta_tau(t)) in the delay DRIFT
     delta_tau(t) = tau(t) - tau(tref), so the p-th band is smaller than the p-1'th by roughly
-    this factor.  Above 1 the series diverges at the top of the band and every construction
-    that reconstructs the model from it -- including (C)'s explicit reference -- inherits that.
+    this factor.  Above 1 the series diverges at the top of the band, and every construction
+    that rebuilds the model from it -- including (C)'s explicit reference -- inherits that.
+
+    It is a max over the whole u_grid evaluated at fmax, so it is an UPPER BOUND at the band
+    edge.  What it licenses is refusing p >= 3, where the reconstruction blows up.  IT IS NOT
+    THE REASON THE RUNG STOPS AT p_max = 1 -- at the shipped rate p = 2 is the most
+    perturbative order of all, so this metric says nothing against it; p_max = 2 is
+    unsupported for reasons that are config_for's business, not this metric's.
+
+    Its TREND across rates is the informative part; a single value is a band-edge bound and
+    says nothing on its own about which p you can afford.
+
+    Measured norms per p_max: PR #163, and RIFT_roboto_paper analyses/slowrot_bound_violation/.
     """
     Bd = srr.delay_harmonics(lald.location, DEC)
     Btil = {m: Bd[m] * np.exp(1j * m * g_ev) for m in Bd}
@@ -348,7 +349,7 @@ def rotation_lnL_t(f_sidereal, p_max, cfg):
 # there, and the wrapped mismatch then shows up as ~1e-02 nats of disagreement with the
 # bank, which computes the shift by FFT correlation and is circular in exactly this sense.
 # See issue #159.  The post-phase is still applied EXPLICITLY below, so (C) keeps its teeth
-# against a dropped rotation_post_phase (see the mutation numbers in the module docstring).
+# against a dropped rotation_post_phase (mutation numbers: PRs #117 and #163).
 #
 # At p_max=0 the sum reduces to F(u)*roll(hY,k), the numpy twin's construction (G_0 == F),
 # and data_for() asserts that equality at 1e-12.
@@ -392,7 +393,7 @@ def _explicit_model_fd(k, p_max, a_list, cfg):
     the |n| = 3 coefficients at p_max=1, both evaluators silently dropped them, and summing the
     full coefficient dict here instead of restricting to a_list disagreed by 2.2e+05 nats at
     this configuration -- the dropped bands were the same order as the ones kept, because at
-    INFL=1350 the first-order delay term dominates.
+    INFL=1350, the rate this rung then ran at, the first-order delay term dominates.
     """
     C = flwr.rotation_coefficients(det, RA, DEC, PSI, event_time, p_max)   # {(p,n): C_a}
     keep = set((int(p), int(n)) for (p, n) in a_list)

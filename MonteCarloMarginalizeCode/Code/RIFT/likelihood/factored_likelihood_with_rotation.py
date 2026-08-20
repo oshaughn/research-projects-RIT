@@ -123,53 +123,39 @@ def evaluate_fvals_from_length(npts, deltaF):
 def time_derivative_weight(fvals, p):
     """(FT_SIGN * 2 pi i f)^p : FD weight for the p-th time derivative.
 
-    THE NYQUIST BIN IS ZEROED FOR ODD p, and only for odd p.  This packing carries +fNyq
-    (k=0) but NOT -fNyq: the bin holding -f[k] is k' = N-k, which for k=0 is bin 0 itself.
-    So that one bin has to serve for both signs, and the weight can only do that when it is
-    EVEN in f -- i.e. when p is even.  For odd p it is odd in f, and two analytically
-    identical expressions then disagree there by a SIGN:
+    THE NYQUIST BIN IS ZEROED FOR ODD p, AND ONLY FOR ODD p.  This packing carries +fNyq at
+    k=0 but no -fNyq -- the bin holding -f[k] is npts-k, which for k=0 is bin 0 itself -- so
+    that bin serves both signs, which a weight can only do when it is EVEN in f.  For odd p
+    it is not, and conj(h^(p)) and (conj h)^(p), the same function, then differ there by a
+    sign.  U takes both factors from one template family and cannot see it;
+    V = <chi_a^*|chi_a'> pairs the two orders and can.  The sidereal modulation is a sub-bin
+    shift applied as a time-domain phase, so its FFT round trip spreads that one bin across
+    the band -- being above fMax does not protect it.  Zero is the sampled derivative there,
+    not a compromise: the Nyquist component is (-1)^j, whose odd derivatives vanish at every
+    sample, and zero is the only value that can serve both signs at once.
 
-        conj(h^(p))   ->  -(FT_SIGN 2 pi i fNyq)^p conj(H[0])      (differentiate, then conj)
-        (conj h)^(p)  ->  +(FT_SIGN 2 pi i fNyq)^p conj(H[0])      (conj, then differentiate)
+    DO NOT extend the zeroing to even p.  There the weight is real, there is no ambiguity,
+    and the derivative IS exactly representable; zeroing it is a regression, not extra
+    safety.  test_slowrot_fd_ops pins both parities -- and pins the VALUE, not just
+    consistency, because any real value at that bin satisfies consistency.
 
-    The precompute takes the second route for the conjugate template family (hlms_conj_p),
-    and the first is what any explicitly assembled model gives, so U -- which takes both
-    factors from the same family -- never notices, while V = <chi_a^*|chi_a'> pairs the two
-    orders against each other and picks up the sign flip.  The sidereal modulation is a
-    sub-bin frequency shift applied as a time-domain phase, so it SPREADS that one bin
-    across the whole band rather than leaving it at the top.
+    slowrot_freqresponse.unpaired_extreme_bin applies the same rule but declines on
+    `not (any(f<0) and any(f>0))` where this one declines on `not any(f<0)`.  They agree on
+    every axis production builds and DISAGREE on an all-negative one: this zeroes 1 bin,
+    that zeroes 0.  Not interchangeable, and this is the primary site for that fact -- do
+    not reduce it to a pointer.
 
-    That was not a rounding-level effect: an FD mode from internal_hlm_generator carries
-    |H(+fNyq)| ~ 0.02-0.14 of |H(100 Hz)|, and the resulting p_max=1 model norm was wrong by
-    1.5e-07 relative (0.015 nats out of 1.0e+05) -- enough to push the Cauchy-Schwarz check
-    4e-03 nats OVER (1/2)<d|d>.  See issue #159.
+    Evidence and measured impact: PRs #117 and #163, and RIFT_roboto_paper
+    analyses/slowrot_nyquist_bin/NOTE.md + analyses/slowrot_bound_violation/.
 
-    Zero is the RIGHT value at odd p, not a compromise.  On this grid the Nyquist component
-    is the alternating sequence (-1)^j; as a real signal cos(2 pi fNyq t) its derivative
-    -2 pi fNyq sin(2 pi fNyq t) vanishes at every sample, and as a complex tone
-    exp(+2 pi i fNyq t) it is indistinguishable from exp(-2 pi i fNyq t), whose odd
-    derivatives differ by a sign.  Zero is both the sampled answer and the only consistent
-    one, and it is what keeps d^p/dt^p of a REAL series real.
+    Do NOT reason that this bin sits above fMax and therefore cannot matter -- it does sit
+    above fMax, and it still mattered, because the modulation round trip does not leave it
+    there.
 
-    EVEN p IS LEFT ALONE, and zeroing it would be a regression rather than extra safety:
-    (2 pi i fNyq)^p is real for even p, so there is no ambiguity to resolve, and the
-    derivative IS representable -- d^2/dt^2 (-1)^j = -(2 pi fNyq)^2 (-1)^j exactly.  An
-    earlier revision of this fix zeroed every p >= 1; measured against the analytic
-    derivative of a Nyquist-carrying multitone that cost 90% relative error at p = 2 and
-    99% at p = 4 (the untouched weight is exact there to 3e-14), and moved a real p_max=2
-    bank by 0.207 nats.  test_slowrot_fd_ops pins both halves, at p = 1..6.
-
-    Do NOT reason that the Nyquist bin sits above fMax and therefore cannot matter -- it
-    does sit above fMax, and it still mattered, because the modulation round trip does not
-    leave it there.
-
-    THE SAME RULE APPLIES ELSEWHERE, and if you are editing this you probably need to edit
-    that too: slowrot_freqresponse.finite_size_response_weights (Path D) has the same
-    unpaired-bin problem and resolves it the same way -- the Hermitian average, which there
-    is Re W_p(+fNyq).  Its predicate lives in slowrot_freqresponse.unpaired_extreme_bin.
-    Neither module imports the other, so the two are a deliberate duplicate; see #164.  They
-    are not byte-identical (that one also declines on an all-negative axis), so do not
-    assume they are interchangeable.
+    THE SAME RULE APPLIES IN PATH D, and if you are editing this you probably need to edit
+    that too: slowrot_freqresponse.finite_size_response_weights has the same unpaired-bin
+    problem and resolves it the same way, via the Hermitian average Re W_p(+fNyq).  Neither
+    module imports the other, so the duplicate is deliberate; see #164.
     """
     if p == 0:
         return np.ones_like(fvals, dtype=complex)
@@ -177,6 +163,11 @@ def time_derivative_weight(fvals, p):
     if p % 2 == 0:
         return w
     f = np.asarray(fvals)
+    # NOTE: the ndim test below is redundant -- a 0-d array has size 1, so the size test already
+    # covers it -- and mutating it alone is an EQUIVALENT MUTANT that no test can kill.  Kept for
+    # readability; recorded here so a future mutation sweep does not chase it as a coverage gap.
+    # (Deliberately phrased without the literal source text: a naive string-replace mutation
+    # harness will otherwise rewrite THIS COMMENT instead of the code and report a survivor.)
     if f.ndim < 1 or f.size < 2 or not np.any(f < 0):
         # Nothing to repair: a one-sided (or degenerate) frequency axis has no unpaired
         # Nyquist bin.  Leave it rather than eat the top of its band.

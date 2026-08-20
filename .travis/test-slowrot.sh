@@ -169,11 +169,7 @@ fi
 # Re-derive with `pytest --collect-only -q` over FILES; never lower it without saying why
 # in the commit message.  A bare `pytest ${SLOWDIR}` would sweep up files that collect 0,
 # and a partial loss still exits 0, which is what this pins against.
-#
-# MERGE NOTE (#166, #169): PR #166 adds two tests to test_slowrot_fd_ops.py.  Whichever of
-# #166 and #172 merges SECOND raises this to 43 in that same commit.  Raising it early is
-# the direction that goes red; leaving it late only makes the floor weaker than it could be.
-EXPECTED_TESTS=41
+EXPECTED_TESTS=43
 
 DESELECT_ARGS=()
 for d in "${DESELECT[@]}"; do DESELECT_ARGS+=(--deselect "${d}"); done
