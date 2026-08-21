@@ -161,3 +161,11 @@ def test_pipeline_threads_approximant_into_model_specific_grid_seed():
 
     assert "initial_transverse_spin_range(" in helper_source
     assert "--internal-initial-grid-approximant {}" in pipe_source
+
+
+def test_every_rift_gwsignal_generator_path_uses_transverse_spin_guard():
+    code_root = Path(__file__).parents[1]
+    source = (code_root / "RIFT" / "physics" / "GWSignal.py").read_text()
+
+    assert source.count("gwsignal_get_waveform_generator(") == 3
+    assert source.count("guard_gwsignal_transverse_spins(") == 3

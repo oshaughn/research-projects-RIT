@@ -407,6 +407,12 @@ def complex_hoft(P, Fp=None, Fc=None,approx_string=None,sgn=-1, **kwargs):
     if not(approx_string):
         approx_string_here = lalsim.GetStringFromApproximant(P.approx)
 
+    # complex_hoft reaches the same GWSignal polarization generator as hoft;
+    # keep its ResumS native call behind the same near-aligned safety boundary.
+    python_dict = teobresums_compat.guard_gwsignal_transverse_spins(
+        python_dict, approx_string_here
+    )
+
     # Fork on calling different generators
     gen = gws.models.gwsignal_get_waveform_generator(approx_string_here)
 
