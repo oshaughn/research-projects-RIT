@@ -12,6 +12,7 @@
 import lal
 import lalsimulation as lalsim
 import RIFT.lalsimutils as lalsimutils
+from RIFT.physics import teobresums_compat
 import numpy as np
 import astropy.units as u
 from astropy.time import Time
@@ -126,6 +127,16 @@ def hlmoft(P, Lmax=2,approx_string=None,no_trust_align_method=None,internal_phas
     approx_string_here = approx_string
     if not(approx_string):
         approx_string_here = lalsim.GetStringFromApproximant(P.approx)
+
+    # DO NOT remove this as cosmetic spin rounding.  TEOBResumS-DALI's C code
+    # classifies sum(chi_perp) <= 1e-4 as aligned, while its GWSignal wrapper
+    # requests inertial modes for any exactly nonzero transverse component.
+    # That disagreement segfaults EOBRunPy in production DALI builds.  Zeroing
+    # only the backend's own aligned interval makes both layers take the same
+    # path; genuinely precessing spins above the boundary remain untouched.
+    python_dict = teobresums_compat.guard_gwsignal_transverse_spins(
+        python_dict, approx_string_here
+    )
 
     # Fork on calling different generators
     gen = gws.models.gwsignal_get_waveform_generator(approx_string_here)
@@ -276,6 +287,13 @@ def hoft(P, Fp=None, Fc=None,approx_string=None, **kwargs):
     approx_string_here = approx_string
     if not(approx_string):
         approx_string_here = lalsim.GetStringFromApproximant(P.approx)
+
+    # Apply the same native-backend safety boundary as hlmoft.  Keep this on
+    # the polarization path too: callers may reach TEOBResumS through either
+    # GWSignal entry point.
+    python_dict = teobresums_compat.guard_gwsignal_transverse_spins(
+        python_dict, approx_string_here
+    )
 
     # Fork on calling different generators
     gen = gws.models.gwsignal_get_waveform_generator(approx_string_here)
