@@ -8,6 +8,7 @@ child process before making the first in-process call.
 
 import hashlib
 import json
+import math
 import os
 import subprocess
 import sys
@@ -50,6 +51,62 @@ _PROFILE_VALUES = {
 }
 
 _PROBED_SCHEMAS = set()
+
+
+# TEOBResumS-DALI decides whether a system is precessing from
+# hypot(chi1x, chi1y) + hypot(chi2x, chi2y) > 1e-4.  Keep the value here in
+# sync with TEOBResumSPars.c.  It is a native-backend safety boundary, not a
+# generic numerical-zero tolerance.
+DALI_TRANSVERSE_SPIN_THRESHOLD = 1e-4
+DALI_INITIAL_TRANSVERSE_SPIN_RANGE = (1e-3, 3e-3)
+LEGACY_INITIAL_TRANSVERSE_SPIN_RANGE = (1e-5, 3e-5)
+
+
+def is_teobresums_approximant(approximant):
+    """Return whether an approximant name selects the TEOBResumS family."""
+    return str(approximant or "").lower().startswith("teobresums")
+
+
+def initial_transverse_spin_range(approximant):
+    """Return a non-aligned initial-grid seed appropriate to ``approximant``.
+
+    Other precessing models retain RIFT's long-standing tiny seed.  ResumS
+    needs a seed safely above its native 1e-4 aligned/precessing boundary.
+    """
+    if is_teobresums_approximant(approximant):
+        return DALI_INITIAL_TRANSVERSE_SPIN_RANGE
+    return LEGACY_INITIAL_TRANSVERSE_SPIN_RANGE
+
+
+def _dimensionless_float(value):
+    return float(value.value if hasattr(value, "value") else value)
+
+
+def guard_gwsignal_transverse_spins(parameters, approximant):
+    """Return GWSignal parameters safe at the ResumS alignment boundary.
+
+    TEOBResumS-DALI treats total transverse spin at or below 1e-4 as aligned,
+    but its GWSignal wrapper requests inertial modes for *any* exactly nonzero
+    transverse component.  Some native builds segfault when those two choices
+    disagree.  Match the backend's own classification by zeroing only that
+    interval; do not mutate the caller's dictionary.
+    """
+    if not is_teobresums_approximant(approximant):
+        return parameters
+
+    keys = ("spin1x", "spin1y", "spin2x", "spin2y")
+    values = [_dimensionless_float(parameters[key]) for key in keys]
+    transverse_spin = math.hypot(values[0], values[1]) + math.hypot(
+        values[2], values[3]
+    )
+    if not 0.0 < transverse_spin <= DALI_TRANSVERSE_SPIN_THRESHOLD:
+        return parameters
+
+    safe_parameters = dict(parameters)
+    for key in keys:
+        value = parameters[key]
+        safe_parameters[key] = 0.0 * value.unit if hasattr(value, "unit") else 0.0
+    return safe_parameters
 
 
 def _json_compatible(value):

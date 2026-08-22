@@ -18,6 +18,7 @@ import argparse
 
 import lal
 import RIFT.lalsimutils as lalsimutils
+from RIFT.physics import teobresums_compat
 import lalsimulation as lalsim
 
 from igwn_ligolw import lsctables, table, utils
@@ -238,6 +239,7 @@ parser.add_argument("--internal-test-convergence-method",type=str,default="lame"
 parser.add_argument("--internal-test-convergence-js-lame-fixed-thresholds",action='store_true',help="With --internal-test-convergence-method js_lame: do NOT pass --js-lame-auto-threshold, so the fixed --threshold/--js-threshold/--quantile-tolerance values are used as given.  Only correct if you know the distinct-sample supply matches the sample size those fixed values were tuned at; otherwise the components fire on pure sampling noise and the gate never converges.")
 parser.add_argument("--internal-test-convergence-js-lame-allow-missing-lags",action='store_true',help="With --internal-test-convergence-method js_lame: do NOT pass --js-lame-require-lags, so the test may report convergence before its lag window is populated.  This restores the one-step behaviour js_lame exists to replace (an unusually clean early comparison can stop the loop at sub-iteration 2-3); for diagnostics only.")
 parser.add_argument("--lowlatency-propose-approximant",action='store_true', help="If present, based on the object masses, propose an approximant. Typically TaylorF2 for mc < 6, and SEOBNRv4_ROM for mc > 6.")
+parser.add_argument("--internal-initial-grid-approximant",default=None,type=str,help="Approximant used to choose model-specific initial-grid safety seeds. Normally supplied by util_RIFT_pseudo_pipe.py; an [engine] approx in --use-ini is the fallback.")
 parser.add_argument("--online", action='store_true', help="Use online settings")
 parser.add_argument("--propose-initial-grid",action='store_true',help="If present, the code will either write an initial grid file or (optionally) add arguments to the workflow so the grid is created by the workflow.  The proposed grid is designed for ground-based LIGO/Virgo/Kagra-scale instruments")
 parser.add_argument("--propose-initial-grid-fisher",action='store_true',help="If present, overrides propose-initial-grid.  Uses the SEMIANALYTIC fisher matrix to propose an initial grid: very fast, well targeted.")
@@ -1272,6 +1274,12 @@ if opts.lowlatency_propose_approximant:
         if opts.psd_assume_common_window:
             helper_ile_args += " --psd-window-shape {} ".format(window_shape)
 
+initial_grid_approximant = opts.internal_initial_grid_approximant
+if initial_grid_approximant is None and use_ini and config.has_option('engine', 'approx'):
+    initial_grid_approximant = config.get('engine', 'approx').strip().strip('"\'')
+if initial_grid_approximant is None:
+    initial_grid_approximant = approx_str
+
 if not(internal_dmax is None):
     helper_ile_args +=  " --d-max " + str(int(internal_dmax))
     if dmin != 1: # if not default value, add argument
@@ -1432,8 +1440,15 @@ elif opts.propose_initial_grid:
         grid_size =2500
 
         if opts.assume_precessing_spin:
-            # Handle problems with SEOBNRv3 failing for aligned binaries -- add small amount of misalignment in the initial grid
-            cmd += " --parameter s1x --parameter-range [0.00001,0.00003] "
+            # Keep a nonzero seed for exactly-aligned precessing models, which
+            # can otherwise fall back to a different aligned implementation.
+            # TEOBResumS-DALI is special: its C backend calls sum(chi_perp)
+            # <= 1e-4 aligned, and its GWSignal layer's disagreement with that
+            # decision can segfault.  Seed ResumS a decade above the boundary.
+            seed_min, seed_max = teobresums_compat.initial_transverse_spin_range(
+                initial_grid_approximant
+            )
+            cmd += " --parameter s1x --parameter-range [{},{}] ".format(seed_min, seed_max)
     if opts.use_EOB_parameters:
         cmd += " --random-parameter a6c --random-parameter-range " + a6c_range_str
         grid_size = int(grid_size*1.5)
