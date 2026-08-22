@@ -54,7 +54,12 @@ for fname in opts.fname[0]: #sys.argv[1:]:
         line = np.around(line, decimals=my_digits)
         lambda1=lambda2=0
         eos_index = 0
-        if opts.hyperbolic:
+        if opts.hyperbolic and opts.a6c and len(line)==16:
+            # combined EOB + hyperbolic layout: a6c precedes E0/p_phi0.
+            # a6c is intrinsic, so it must stay in the consolidation key
+            indx, m1, m2, s1x, s1y, s1z, s2x, s2y, s2z, a6c, E0, p_phi0, lnL, sigmaOverL, ntot, neff = line
+            col_intrinsic = 12
+        elif opts.hyperbolic:
             indx, m1, m2, s1x, s1y, s1z, s2x, s2y, s2z, E0, p_phi0, lnL, sigmaOverL, ntot, neff = line
             col_intrinsic = 11
         elif opts.eccentricity:
@@ -141,6 +146,9 @@ for key in data_at_intrinsic:
             print(-1, key[0],key[1], key[2], key[3],key[4], key[5],key[6], key[7], key[8], key[9], key[10], key[11], lnLmeanMinusLmax+lnLmax, sigmaNetOverL, np.sum(ntot), -1)
         else:
             print(-1, key[0],key[1], key[2], key[3],key[4], key[5],key[6], key[7], key[8], lnLmeanMinusLmax+lnLmax, sigmaNetOverL, np.sum(ntot), -1)
+    elif opts.hyperbolic and opts.a6c:
+        # key length varies: 11 with a6c, 10 for hyperbolic-only rows
+        print(-1, *key, lnLmeanMinusLmax+lnLmax, sigmaNetOverL, np.sum(ntot), -1)
     elif opts.hyperbolic:
         print(-1,  key[0],key[1], key[2], key[3],key[4], key[5],key[6], key[7], key[8],key[9], lnLmeanMinusLmax+lnLmax, sigmaNetOverL, np.sum(ntot), -1)
     elif tides_on and not (opts.a6c) and not (opts.eccentricity):

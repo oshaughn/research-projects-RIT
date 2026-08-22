@@ -1038,6 +1038,13 @@ if opts.scale_mc_range:
     mc_min = mc_center -0.5*opts.scale_mc_range*mc_width
     mc_max = mc_center +0.5*opts.scale_mc_range*mc_width
 
+# EOB parameter range.  Must exist before any initial-grid path uses it: an
+# [engine] a6c_min entry is optional, and --use-EOB-parameters is normally
+# passed without one.  Default matches the CIP/puffball a6c limits.
+a6c_min = -80
+a6c_max = -20
+a6c_range_str = "  [{},{}]".format(a6c_min,a6c_max)
+
 if use_ini:
     engine_dict = dict(config['engine'])
     if 'chirpmass-min' in engine_dict:

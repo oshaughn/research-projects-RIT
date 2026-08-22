@@ -4208,6 +4208,9 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
 data.data[j_signal_end - 1])):
                         n_samp2 = int(count / 2)
                         break
+            # A zero-length end taper (first preceding sample already crosses the
+            # threshold) would divide by zero below and write nan into the endpoint
+            n_samp2 = max(int(n_samp2), 1)
             j_taper_end = range(j_signal_end - (n_samp2 + 1), j_signal_end)
 
 

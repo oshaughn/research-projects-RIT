@@ -115,6 +115,22 @@ def test_hyperbolic_convert_arguments_do_not_truncate_other_exports():
     assert hyperbolic_writes == ["a"]
 
 
+def test_helper_defines_a6c_range_without_ini():
+    script = Path(__file__).parents[1] / "bin" / "helper_LDG_Events.py"
+    tree = ast.parse(script.read_text())
+    unconditional = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(target, ast.Name) and target.id == "a6c_range_str"
+            for target in node.targets
+        )
+    ]
+    # --use-EOB-parameters must not require an [engine] a6c_min entry
+    assert unconditional
+
+
 def test_nrhybsur_tidal_routing_checks_the_approximant_family():
     script = Path(__file__).parents[1] / "bin" / "util_RIFT_pseudo_pipe.py"
     source = script.read_text()
@@ -189,18 +205,24 @@ def test_real_hyperbolic_classification_when_teob_is_available(monkeypatch):
     }
 
 
-def _run_clean_ile(tmp_path, option, row):
+def _run_clean_ile_lines(tmp_path, rows, *options):
     input_path = tmp_path / "ile.dat"
-    input_path.write_text(" ".join(str(value) for value in row) + "\n")
+    input_path.write_text(
+        "".join(" ".join(str(value) for value in row) + "\n" for row in rows)
+    )
     script = Path(__file__).parents[1] / "bin" / "util_CleanILE.py"
     result = subprocess.run(
-        [sys.executable, str(script), option, str(input_path)],
+        [sys.executable, str(script), *options, str(input_path)],
         check=True,
         capture_output=True,
         text=True,
         env=os.environ.copy(),
     )
-    return result.stdout.split()
+    return [line.split() for line in result.stdout.strip().splitlines()]
+
+
+def _run_clean_ile(tmp_path, option, row):
+    return _run_clean_ile_lines(tmp_path, [row], option)[0]
 
 
 def test_clean_ile_keeps_hyperbolic_columns(tmp_path):
@@ -225,3 +247,33 @@ def test_clean_ile_keeps_tidal_a6c_columns(tmp_path):
 
     assert len(output) == 16
     assert output[9:12] == ["400.0", "800.0", "-55.0"]
+
+
+def test_clean_ile_keeps_hyperbolic_a6c_columns(tmp_path):
+    rows = [
+        [-1, 30, 20, 0, 0, 0, 0, 0, 0, -55, 1.02, 4.1, 12, 0.1, 100, 30],
+        [-1, 30, 20, 0, 0, 0, 0, 0, 0, -35, 1.02, 4.1, 11, 0.1, 100, 30],
+    ]
+    lines = _run_clean_ile_lines(tmp_path, rows, "--hyperbolic", "--a6c")
+
+    # distinct a6c values are distinct intrinsic points, not repeated evaluations
+    assert len(lines) == 2
+    assert all(len(line) == 16 for line in lines)
+    assert sorted(line[9] for line in lines) == ["-35.0", "-55.0"]
+    assert all(line[10:12] == ["1.02", "4.1"] for line in lines)
+
+
+def test_ile_hyperbolic_output_retains_eob_parameter():
+    script = Path(__file__).parents[1] / "bin" / "integrate_likelihood_extrinsic_batchmode"
+    tree = ast.parse(script.read_text())
+    combined_bodies = [
+        "\n".join(ast.unparse(statement) for statement in node.body)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.If)
+        and ast.unparse(node.test) == "opts.save_hyperbolic and opts.save_EOB_parameters"
+    ]
+    assert combined_bodies
+    for body in combined_bodies:
+        assert "P.a6c" in body
+        assert "P.E0" in body
+        assert "P.p_phi0" in body
