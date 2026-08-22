@@ -238,7 +238,13 @@ def check_critical_and_report(opts, optp):
                    "--event", "--save-samples", "--verbose", "--seed",
                    "--sim-xml", "--sim-grid", "--n-events-to-analyze",
                    "--random-event", "--distance-marginalization",
-                   "--time-marginalization", "--vectorized", "--use-gwsignal"}
+                   "--time-marginalization", "--vectorized", "--use-gwsignal",
+                   "--fairdraw-extrinsic-output",
+                   "--fairdraw-extrinsic-output-n-max",
+                   "--n-fairdraw-extrinsic-samples",
+                   # used by the flowMC modes as the static tempering exponent
+                   # (samplers.flowmc_sample*: inv_T = 1/temper = beta)
+                   "--adapt-weight-exponent"}
     for name in sorted(_ILE_ALL_OPTS - implemented):
         if is_set(name):
             ignored.append(name)
@@ -434,6 +440,17 @@ def build_parser():
     g = OptionGroup(optp, "Output")
     g.add_option("--output-file", default=None)
     g.add_option("--save-samples", action="store_true", default=False)
+    g.add_option("--fairdraw-extrinsic-output", action="store_true", default=False,
+                 help="Bound the fair-draw export to "
+                      "--fairdraw-extrinsic-output-n-max samples (as ILE does). "
+                      "The export is ALWAYS a fair draw when the sampler "
+                      "supplies importance weights; this only caps the count.")
+    g.add_option("--fairdraw-extrinsic-output-n-max", type=int, default=5,
+                 help="Cap on fair draws per evaluation when "
+                      "--fairdraw-extrinsic-output is set (ILE default 5).")
+    g.add_option("--n-fairdraw-extrinsic-samples", type=int, default=None,
+                 help="Export exactly this many fair draws (clamped by 1.5*neff, "
+                      "as in ILE). Overrides --fairdraw-extrinsic-output-n-max.")
     g.add_option("--verbose", action="store_true", default=False)
     optp.add_option_group(g)
 
@@ -659,7 +676,9 @@ def run_prior_mc(like, opts, rng, dim, with_distance):
     theta, _ = sample_prior(opts.n_max, opts, rng, with_distance)
     lnL = eval_lnL(like, theta, opts, with_distance)
     logZ, sig, neff = evidence_from_logweights(lnL)  # draw from prior -> w = L
-    return logZ, sig, neff, opts.n_max, theta, lnL
+    # p_s == p (the proposal IS the prior), so ln w = lnL.  These raw draws are
+    # PRIOR samples, not posterior ones: they must be fair-drawn before export.
+    return logZ, sig, neff, opts.n_max, theta, lnL, lnL
 
 
 def run_laplace_is(like, opts, rng, dim, with_distance, n_adapt=2):
@@ -692,7 +711,9 @@ def run_laplace_is(like, opts, rng, dim, with_distance, n_adapt=2):
     theta = np.concatenate(all_theta); logw = np.concatenate(all_logw)
     lnL = np.concatenate(all_lnL)
     logZ, sig, neff = evidence_from_logweights(logw)
-    return logZ, sig, neff, len(theta), theta, lnL
+    # theta follows the GAUSSIAN PROPOSAL q, not the posterior; logw is what
+    # turns it into one.  Returned so write_samples() can fair-draw.
+    return logZ, sig, neff, len(theta), theta, lnL, logw
 
 
 def run_nuts(like, opts, rng, with_distance):
@@ -773,7 +794,9 @@ def run_nuts(like, opts, rng, with_distance):
         lnL_is[valid] = eval_lnL(like, th_is[valid], opts, with_distance=False)
     logw = np.where(valid, lnL_is + logp - logq, -np.inf)
     logZ, sig, neff = evidence_from_logweights(logw)
-    return logZ, sig, neff, n_is, theta, lnL
+    # theta/lnL are the NUTS chain (already targets the posterior); the IS cloud
+    # th_is/logw is only the evidence estimator, so there is nothing to reweight.
+    return logZ, sig, neff, n_is, theta, lnL, None
 
 
 def run_map(like, opts, rng, dim, with_distance):
@@ -810,9 +833,85 @@ def write_dat(opts, P, out_index, event_id, logZ, sigma_over_Z, ntotal, neff):
     print("Wrote %s" % fname)
 
 
-def write_samples(opts, out_index, theta, lnL, with_distance):
+def fairdraw_indices(logw, n_out, rng):
+    """Indices of a fair (equal-weight) draw from importance weights ``logw``.
+
+    Production ILE convention (``RIFT/integrators/mcsampler.py::integrate`` and
+    the identical block in mcsamplerGPU / mcsamplerAdaptiveVolume /
+    mcsamplerEnsemble / mcsamplerPortfolio): normalise
+    ``w = L * p / p_s`` and multinomial-resample WITH replacement, so the
+    exported rows are equal weight and carry no weight column.
+
+    Returns ``None`` when no resampling is warranted (no finite weights, or the
+    weights are already uniform -- e.g. a converged untempered MCMC chain).
+    """
+    logw = np.asarray(logw, dtype=float)
+    fin = np.isfinite(logw)
+    if fin.sum() < 2:
+        return None
+    lw = logw[fin] - np.max(logw[fin])
+    w = np.exp(lw)
+    tot = w.sum()
+    if not np.isfinite(tot) or tot <= 0:
+        return None
+    w = w / tot
+    neff = 1.0 / np.sum(w ** 2)
+    if np.allclose(w, w[0]):
+        return None                      # already equal weight: nothing to do
+    idx_fin = np.where(fin)[0]
+    # ILE's clamp: never claim more fair draws than the weights support.  Without
+    # it a low-ESS cloud is resampled up to its original length and the file looks
+    # like N independent draws while containing ~ESS distinct points.
+    n_cap = int(np.ceil(1.5 * neff))
+    n_out = len(logw) if n_out is None else int(n_out)
+    n_out = int(max(1, min(n_out, n_cap, len(logw))))
+    print("  fairdraw: %d weighted samples (ESS=%.1f) -> %d equal-weight draws"
+          % (len(logw), neff, n_out))
+    if neff < 200:
+        print("  fairdraw: WARNING ESS=%.1f -- the proposal barely covers this "
+              "posterior; the exported cloud is NOT a usable posterior sample "
+              "however it is drawn." % neff)
+    return idx_fin[rng.choice(len(idx_fin), size=n_out, replace=True, p=w)]
+
+
+def fairdraw_size(opts, n_have, neff):
+    """Requested number of fair draws, or ``None`` for "as many as the weights
+    support" (fairdraw_indices then applies ILE's 1.5*ESS cap).
+
+    ``--n-fairdraw-extrinsic-samples`` is an exact request;
+    ``--fairdraw-extrinsic-output-n-max`` caps the count per evaluation.  Both
+    are additionally clamped by ``1.5*neff`` from the evidence estimate, exactly
+    as ``mcsampler.integrate`` does."""
+    n_req = getattr(opts, "n_fairdraw_extrinsic_samples", None)
+    if n_req is None and getattr(opts, "fairdraw_extrinsic_output", False):
+        n_req = getattr(opts, "fairdraw_extrinsic_output_n_max", None)
+    if n_req is None:
+        return None
+    n_req = int(n_req)
+    if np.isfinite(neff) and neff > 0:
+        n_req = int(min(n_req, np.ceil(1.5 * neff)))
+    return max(1, min(n_req, n_have))
+
+
+def write_samples(opts, out_index, theta, lnL, with_distance, logw=None,
+                  neff=np.nan, rng=None):
+    """Write the exported extrinsic samples.
+
+    ``logw`` are per-sample LOG IMPORTANCE WEIGHTS ``ln(L p / p_s)`` for the
+    rows of ``theta`` (``None`` when the sampler already targets the posterior,
+    e.g. an untempered MCMC chain).  When they are non-uniform the cloud is
+    fair-drawn against them BEFORE writing, so the exported rows are equal
+    weight -- the same contract production ILE's ``--fairdraw-extrinsic-output``
+    provides, and the one every downstream consumer of these files assumes.
+    """
     if not (opts.output_file and opts.save_samples) or theta is None:
         return
+    if logw is not None and len(logw) == len(theta):
+        if rng is None:
+            rng = np.random.default_rng(opts.seed)
+        idx = fairdraw_indices(logw, fairdraw_size(opts, len(theta), neff), rng)
+        if idx is not None:
+            theta, lnL = theta[idx], np.asarray(lnL)[idx]
     good = np.isfinite(lnL)
     ndim = theta.shape[1] if theta.ndim == 2 else len(theta)
     if with_distance:
@@ -1022,18 +1121,27 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
             out_flow_state = res.get("flow_state")  # bootstrap the next event
         theta, lnL = res["theta"], res["lnL"]
         logZ, sig, neff, ntot = res["logZ"], res["sigma_over_Z"], res["neff"], len(theta)
+        # post_weight is the sampler's own correction from the (possibly
+        # TEMPERED, exponent = --adapt-weight-exponent) state it actually
+        # sampled to the exact posterior: L^(1-inv_T) for the flowMC modes.  It
+        # is uniform only when inv_T == 1.  Dropping it silently exported a
+        # tempered -- i.e. over-broad -- cloud.
+        _pw = res.get("post_weight")
+        logw_export = (np.log(np.asarray(_pw, dtype=float))
+                       if _pw is not None and len(_pw) == len(theta) else None)
     elif opts.mode == "prior-mc":
-        logZ, sig, neff, ntot, theta, lnL = run_prior_mc(like, opts, rng, dim, with_distance)
+        logZ, sig, neff, ntot, theta, lnL, logw_export = run_prior_mc(like, opts, rng, dim, with_distance)
     elif opts.mode == "nuts":
-        logZ, sig, neff, ntot, theta, lnL = run_nuts(like, opts, rng, with_distance)
+        logZ, sig, neff, ntot, theta, lnL, logw_export = run_nuts(like, opts, rng, with_distance)
     else:
-        logZ, sig, neff, ntot, theta, lnL = run_laplace_is(like, opts, rng, dim, with_distance)
+        logZ, sig, neff, ntot, theta, lnL, logw_export = run_laplace_is(like, opts, rng, dim, with_distance)
 
     print("\n==== Result (event %d) ====" % event_id)
     print("  log evidence (lnL marginal over extrinsic) = %.5f" % logZ)
     print("  sigma_lnL = %.4g    neff = %.1f    ntotal = %d" % (sig, neff, ntot))
     write_dat(opts, P, out_index, event_id, logZ, sig, ntot, neff)
-    write_samples(opts, out_index, theta, lnL, with_distance)
+    write_samples(opts, out_index, theta, lnL, with_distance,
+                  logw=logw_export, neff=neff, rng=rng)
     return logZ, out_flow_state
 
 
