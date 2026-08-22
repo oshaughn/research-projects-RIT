@@ -210,8 +210,122 @@ def test_tempered_flowmc_weights_are_not_uniform():
         w = np.exp(lw - lw.max()); w /= w.sum()
         assert np.allclose(w, w[0]) is uniform_expected, \
             "inv_T=%g: uniformity of post_weight is %s" % (inv_T, not uniform_expected)
-        idx = drv.fairdraw_indices(np.log(w), 500, np.random.default_rng(1))
+        idx, note = drv.fairdraw_indices(np.log(w), 500, np.random.default_rng(1))
         assert (idx is None) is uniform_expected
+        assert not note.startswith("FAILED"), note
+
+
+def test_exported_lnL_belongs_to_its_own_row(tmp_path):
+    """The resample must carry theta and lnL through the SAME index.  A version
+    that permutes one relative to the other writes a loglikelihood that does not
+    belong to the parameters on its row -- invisible to every distributional
+    check, because both marginals stay correct."""
+    theta, lnL, logw = make_cloud(n=120000)
+    opts = fake_opts(tmp_path)
+    drv.write_samples(opts, 0, theta, lnL, with_distance=False, logw=logw,
+                      neff=np.inf, rng=np.random.default_rng(3))
+    got, _ = read_export(opts)
+    th_out = np.empty((len(got), NDIM))
+    for j in range(NDIM):
+        th_out[:, j] = got[:, COL_OF_THETA[j]]
+    recomputed = _logN(th_out, MU_L, S_L)          # lnL implied by the row's theta
+    err = np.abs(recomputed - got[:, -1])
+    assert np.max(err) < 1e-9, (
+        "exported lnL does not match the exported theta on the same row "
+        "(max |dlnL| = %.4g, mean %.4g) -- theta/lnL pairing was broken"
+        % (np.max(err), np.mean(err)))
+
+
+def test_degenerate_weights_fail_loudly_not_silently(tmp_path):
+    """Weights that cannot be normalized must be reported as FAILED, not
+    silently returned as 'uniform, nothing to do' -- otherwise the raw,
+    unreweighted cloud is written under a header promising a fair draw."""
+    rng = np.random.default_rng(4)
+    theta = rng.standard_normal((5000, NDIM)) * 3.0
+    for bad, why in ((np.full(5000, -np.inf), "all -inf"),
+                     (np.where(np.arange(5000) == 0, 0.0, -np.inf), "one finite")):
+        idx, note = drv.fairdraw_indices(bad, 100, rng)
+        assert idx is None
+        assert note.startswith("FAILED"), "%s reported as %r" % (why, note)
+    opts = fake_opts(tmp_path)
+    drv.write_samples(opts, 0, theta, np.full(5000, -np.inf), with_distance=False,
+                      logw=np.full(5000, -np.inf), neff=np.nan,
+                      rng=np.random.default_rng(5))
+    with open(opts.output_file + "_0_samples.dat") as fh:
+        head = [fh.readline() for _ in range(2)]
+    assert "FAILED" in head[1], "failure not recorded in the export header: %r" % head[1]
+
+
+def test_weights_are_stabilized_at_realistic_lnL(tmp_path):
+    """Real extrinsic lnL runs to several hundred (this BNS peaked at 266; ILE
+    routinely sees >1000).  exp(logw) without subtracting the max overflows to
+    inf there, which the fail-open path used to swallow.  Exercise the range the
+    driver actually operates in, not the O(1) range of a toy target."""
+    rng = np.random.default_rng(6)
+    n = 20000
+    theta = rng.standard_normal((n, NDIM)) * 2.0
+    logw = 800.0 + _logN(theta, MU_L, 1.5)     # ~ +800, well past exp() overflow
+    assert logw.max() > 700.0
+    idx, note = drv.fairdraw_indices(logw, 2000, rng)
+    assert idx is not None, "fair draw refused at realistic lnL: %s" % note
+    assert not note.startswith("FAILED"), note
+    opts = fake_opts(tmp_path)
+    drv.write_samples(opts, 0, theta, logw, with_distance=False, logw=logw,
+                      neff=np.inf, rng=np.random.default_rng(7))
+    got, _ = read_export(opts)
+    assert len(got) > 1 and np.isfinite(got).all()
+    assert len(np.unique(got[:, 0])) > 1, "export collapsed to a single point"
+
+
+def test_export_header_records_ess_and_mode(tmp_path):
+    """The artifact must be self-describing: export ESS was previously recorded
+    nowhere, so a 200000-sample file with ESS 97 looked like any other."""
+    theta, lnL, logw = make_cloud(n=120000)
+    opts = fake_opts(tmp_path)
+    drv.write_samples(opts, 0, theta, lnL, with_distance=False, logw=logw,
+                      neff=np.inf, rng=np.random.default_rng(3))
+    with open(opts.output_file + "_0_samples.dat") as fh:
+        cols_line, prov_line = fh.readline(), fh.readline()
+    assert cols_line.split()[1] == "right_ascension", "column line moved: %r" % cols_line
+    assert "ESS=" in prov_line and "mode=" in prov_line, prov_line
+
+
+def test_export_rng_is_independent_of_the_science_stream(tmp_path):
+    """--save-samples is an OUTPUT flag and must not move any number.  The
+    export draw is keyed by (seed, out_index), so it is reproducible no matter
+    what else has consumed randomness, and it cannot perturb the sampler's
+    stream."""
+    theta, lnL, logw = make_cloud(n=20000)
+    outs = []
+    for burn in (0, 10000):
+        shared = np.random.default_rng(fake_opts(tmp_path).seed)
+        shared.standard_normal(burn)                    # unrelated consumption
+        d = tmp_path / ("burn%d" % burn)
+        os.makedirs(str(d), exist_ok=True)
+        opts = fake_opts(d)
+        drv.write_samples(opts, 0, theta, lnL, with_distance=False, logw=logw,
+                          neff=np.inf)                  # rng=None -> derived
+        outs.append(read_export(opts)[0])
+    assert np.array_equal(outs[0], outs[1]), \
+        "export depends on how much the shared RNG was consumed"
+    # and different events must not reuse the same draw
+    o2 = fake_opts(tmp_path / "ev1"); os.makedirs(str(tmp_path / "ev1"), exist_ok=True)
+    drv.write_samples(o2, 1, theta, lnL, with_distance=False, logw=logw, neff=np.inf)
+    assert not np.array_equal(read_export(o2, 1)[0], outs[0])
+
+
+def test_mode_sets_exclude_non_importance_weights():
+    """multistart-nuts / nuts-phimarg report post_weight as a per-chain Laplace
+    MODE-EVIDENCE weight (samplers.py: np.full(n_per[k], mass[k]/n_per[k])), not
+    L*p/p_s.  They must not be fair-drawn against it."""
+    assert "multistart-nuts" not in drv._TEMPERED_MODES
+    assert "nuts-phimarg" not in drv._TEMPERED_MODES
+    assert "multistart-nuts" not in drv._FAIRDRAW_MODES
+    assert "nuts-phimarg" not in drv._FAIRDRAW_MODES
+    for m in ("flowmc", "flowmc-phimarg", "flowmc-phipsimarg", "flowmc-dpsimarg"):
+        assert m in drv._TEMPERED_MODES and m in drv._FAIRDRAW_MODES
+    for m in ("prior-mc", "laplace-is"):
+        assert m in drv._FAIRDRAW_MODES and m not in drv._TEMPERED_MODES
 
 
 if __name__ == "__main__":

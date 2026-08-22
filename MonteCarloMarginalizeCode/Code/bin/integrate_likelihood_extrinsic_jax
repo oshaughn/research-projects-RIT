@@ -90,6 +90,16 @@ FULL_NAMES = ("ra", "dec", "psi", "incl", "phiref", "distMpc")
 # here as accepted-but-ignored (with the correct arity so parsing succeeds), and
 # a small set that would silently change the *science* if ignored is failed on.
 
+# Modes whose sampler reports a TEMPERED state plus a genuine importance weight
+# (post_weight = L^(1-inv_T)); only these honour --adapt-weight-exponent, and
+# only these consume post_weight at export.
+_TEMPERED_MODES = frozenset((
+    "flowmc", "flowmc-phimarg", "flowmc-phipsimarg", "flowmc-dpsimarg"))
+# Modes whose --save-samples export is a reweighted FAIR DRAW.  Only here do the
+# fair-draw count options do anything; elsewhere the export is the sampler's own
+# chain and the count flags are inert (and must be reported as ignored).
+_FAIRDRAW_MODES = _TEMPERED_MODES | frozenset(("prior-mc", "laplace-is"))
+
 # Boolean (zero-argument) ILE options (action=store_true/false).
 _ILE_BOOL_OPTS = {
     "--check-good-enough", "--zero-likelihood", "--random-event",
@@ -238,13 +248,19 @@ def check_critical_and_report(opts, optp):
                    "--event", "--save-samples", "--verbose", "--seed",
                    "--sim-xml", "--sim-grid", "--n-events-to-analyze",
                    "--random-event", "--distance-marginalization",
-                   "--time-marginalization", "--vectorized", "--use-gwsignal",
-                   "--fairdraw-extrinsic-output",
-                   "--fairdraw-extrinsic-output-n-max",
-                   "--n-fairdraw-extrinsic-samples",
-                   # used by the flowMC modes as the static tempering exponent
-                   # (samplers.flowmc_sample*: inv_T = 1/temper = beta)
-                   "--adapt-weight-exponent"}
+                   "--time-marginalization", "--vectorized", "--use-gwsignal"}
+    # These are implemented PER MODE.  Listing them unconditionally would claim
+    # they act under --mode laplace-is (the default), nuts, map, multistart-nuts
+    # and nuts-phimarg, where they are inert -- exactly the silent no-op this
+    # driver's compat layer exists to prevent.
+    mode = getattr(opts, "mode", None)
+    if mode in _TEMPERED_MODES:
+        # static tempering exponent (samplers.flowmc_sample*: inv_T = 1/temper)
+        implemented.add("--adapt-weight-exponent")
+    if mode in _FAIRDRAW_MODES:
+        implemented |= {"--fairdraw-extrinsic-output",
+                        "--fairdraw-extrinsic-output-n-max",
+                        "--n-fairdraw-extrinsic-samples"}
     for name in sorted(_ILE_ALL_OPTS - implemented):
         if is_set(name):
             ignored.append(name)
@@ -847,17 +863,22 @@ def fairdraw_indices(logw, n_out, rng):
     """
     logw = np.asarray(logw, dtype=float)
     fin = np.isfinite(logw)
+    # FAIL LOUDLY, NOT OPEN.  "cannot compute weights" and "weights are already
+    # uniform" both used to return None, so a degenerate weight vector silently
+    # wrote the UNCORRECTED cloud under a header that promises a fair draw.
+    # They are now distinct outcomes and the caller records which one happened.
     if fin.sum() < 2:
-        return None
+        return None, "FAILED: %d of %d weights are finite" % (int(fin.sum()), len(logw))
     lw = logw[fin] - np.max(logw[fin])
     w = np.exp(lw)
     tot = w.sum()
     if not np.isfinite(tot) or tot <= 0:
-        return None
+        return None, "FAILED: weight sum is %r (overflow or all-zero)" % (tot,)
     w = w / tot
     neff = 1.0 / np.sum(w ** 2)
     if np.allclose(w, w[0]):
-        return None                      # already equal weight: nothing to do
+        # already equal weight (e.g. an untempered chain): nothing to do
+        return None, "none (weights uniform)"
     idx_fin = np.where(fin)[0]
     # ILE's clamp: never claim more fair draws than the weights support.  Without
     # it a low-ESS cloud is resampled up to its original length and the file looks
@@ -871,7 +892,8 @@ def fairdraw_indices(logw, n_out, rng):
         print("  fairdraw: WARNING ESS=%.1f -- the proposal barely covers this "
               "posterior; the exported cloud is NOT a usable posterior sample "
               "however it is drawn." % neff)
-    return idx_fin[rng.choice(len(idx_fin), size=n_out, replace=True, p=w)]
+    note = "ESS=%.1f n_in=%d n_out=%d" % (neff, len(logw), n_out)
+    return idx_fin[rng.choice(len(idx_fin), size=n_out, replace=True, p=w)], note
 
 
 def fairdraw_size(opts, n_have, neff):
@@ -906,12 +928,19 @@ def write_samples(opts, out_index, theta, lnL, with_distance, logw=None,
     """
     if not (opts.output_file and opts.save_samples) or theta is None:
         return
+    provenance = "fairdraw: not applicable (sampler targets the posterior)"
     if logw is not None and len(logw) == len(theta):
         if rng is None:
-            rng = np.random.default_rng(opts.seed)
-        idx = fairdraw_indices(logw, fairdraw_size(opts, len(theta), neff), rng)
+            # own stream, keyed by (seed, event): see the call site in analyze_one
+            rng = np.random.default_rng((opts.seed, out_index))
+        idx, note = fairdraw_indices(logw, fairdraw_size(opts, len(theta), neff), rng)
+        provenance = "fairdraw: " + note
         if idx is not None:
             theta, lnL = theta[idx], np.asarray(lnL)[idx]
+        elif note.startswith("FAILED"):
+            print("  *** fairdraw FAILED (%s) -- writing the RAW, UNREWEIGHTED "
+                  "sampler cloud.  These rows are NOT a fair draw. ***" % note,
+                  file=sys.stderr)
     good = np.isfinite(lnL)
     ndim = theta.shape[1] if theta.ndim == 2 else len(theta)
     if with_distance:
@@ -942,7 +971,10 @@ def write_samples(opts, out_index, theta, lnL, with_distance, logw=None,
                                 theta[good, 2], theta[good, 4], lnL[good]])
         hdr = "right_ascension declination inclination psi phi_orb loglikelihood"
     sname = opts.output_file + "_" + str(out_index) + "_samples.dat"
-    np.savetxt(sname, cols, header=hdr)
+    # Column line FIRST (unchanged, so `head -1` parsers keep working); the
+    # provenance line follows, so the artifact records how it was produced --
+    # notably the export ESS, which was previously written nowhere.
+    np.savetxt(sname, cols, header=hdr + "\nmode=%s %s" % (opts.mode, provenance))
     print("Wrote %s (%d samples)" % (sname, int(good.sum())))
 
 
@@ -1121,12 +1153,21 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
             out_flow_state = res.get("flow_state")  # bootstrap the next event
         theta, lnL = res["theta"], res["lnL"]
         logZ, sig, neff, ntot = res["logZ"], res["sigma_over_Z"], res["neff"], len(theta)
-        # post_weight is the sampler's own correction from the (possibly
-        # TEMPERED, exponent = --adapt-weight-exponent) state it actually
-        # sampled to the exact posterior: L^(1-inv_T) for the flowMC modes.  It
-        # is uniform only when inv_T == 1.  Dropping it silently exported a
-        # tempered -- i.e. over-broad -- cloud.
-        _pw = res.get("post_weight")
+        # post_weight means DIFFERENT things per sampler, so only consume it
+        # where it is an importance weight.
+        #  * flowMC modes: L^(1-inv_T), the correction from the TEMPERED state
+        #    actually sampled (exponent = --adapt-weight-exponent) to the exact
+        #    posterior.  Uniform only at inv_T == 1.  This is a genuine w.
+        #  * multistart-nuts / nuts-phimarg: NOT an importance weight.
+        #    samplers.py builds np.full(n_per[k], mass[k]/n_per[k]) -- a
+        #    per-chain Laplace MODE-EVIDENCE weight, constant within a chain
+        #    (multistart_nuts estimates it as peak_k + 0.5*logdet(sky cov),
+        #    which its own comment flags as approximate).  Fair-drawing against
+        #    it would re-weight whole chains by that estimator and duplicate
+        #    ~half the rows, not correct any proposal mismatch.  It may well fix
+        #    a real mode-mass bias, but that is unvalidated -- so these modes
+        #    export their chains unreweighted until it is measured.
+        _pw = res.get("post_weight") if opts.mode in _TEMPERED_MODES else None
         logw_export = (np.log(np.asarray(_pw, dtype=float))
                        if _pw is not None and len(_pw) == len(theta) else None)
     elif opts.mode == "prior-mc":
@@ -1140,8 +1181,13 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
     print("  log evidence (lnL marginal over extrinsic) = %.5f" % logZ)
     print("  sigma_lnL = %.4g    neff = %.1f    ntotal = %d" % (sig, neff, ntot))
     write_dat(opts, P, out_index, event_id, logZ, sig, ntot, neff)
+    # NOT the shared `rng`: that object also feeds run_laplace_is / run_prior_mc
+    # and the samplers, so drawing from it here made --save-samples (an OUTPUT
+    # flag) change the lnL/logZ of every later event in the batch.  An output
+    # flag must not move the numbers.
     write_samples(opts, out_index, theta, lnL, with_distance,
-                  logw=logw_export, neff=neff, rng=rng)
+                  logw=logw_export, neff=neff,
+                  rng=np.random.default_rng((opts.seed, out_index)))
     return logZ, out_flow_state
 
 
