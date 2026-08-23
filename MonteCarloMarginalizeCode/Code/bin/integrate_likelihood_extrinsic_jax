@@ -90,6 +90,10 @@ FULL_NAMES = ("ra", "dec", "psi", "incl", "phiref", "distMpc")
 # here as accepted-but-ignored (with the correct arity so parsing succeeds), and
 # a small set that would silently change the *science* if ignored is failed on.
 
+# ILE's default cap for --fairdraw-extrinsic-output (integrate_likelihood_
+# extrinsic_batchmode: --fairdraw-extrinsic-output-n-max default=5).
+_FAIRDRAW_N_MAX_DEFAULT = 5
+
 # Modes whose sampler reports a TEMPERED state plus a genuine importance weight
 # (post_weight = L^(1-inv_T)); only these honour --adapt-weight-exponent, and
 # only these consume post_weight at export.
@@ -461,9 +465,11 @@ def build_parser():
                       "--fairdraw-extrinsic-output-n-max samples (as ILE does). "
                       "The export is ALWAYS a fair draw when the sampler "
                       "supplies importance weights; this only caps the count.")
-    g.add_option("--fairdraw-extrinsic-output-n-max", type=int, default=5,
+    g.add_option("--fairdraw-extrinsic-output-n-max", type=int, default=None,
                  help="Cap on fair draws per evaluation when "
-                      "--fairdraw-extrinsic-output is set (ILE default 5).")
+                      "--fairdraw-extrinsic-output is set (ILE default 5).  "
+                      "Left as None when unset so the ignored-option report does "
+                      "not claim the user passed it; resolved to 5 downstream.")
     g.add_option("--n-fairdraw-extrinsic-samples", type=int, default=None,
                  help="Export exactly this many fair draws (clamped by 1.5*neff, "
                       "as in ILE). Overrides --fairdraw-extrinsic-output-n-max.")
@@ -874,12 +880,14 @@ def fairdraw_indices(logw, rng):
     # uniform" both used to return None, so a degenerate weight vector silently
     # wrote the UNCORRECTED cloud under a header that promises a fair draw.
     if fin.sum() < 2:
-        return None, "FAILED: %d of %d weights are finite" % (int(fin.sum()), len(logw))
+        return None, ("FAILED: %d of %d weights are finite ESS=n/a n_in=%d"
+                      % (int(fin.sum()), len(logw), len(logw)))
     lw = logw[fin] - np.max(logw[fin])
     w = np.exp(lw)
     tot = w.sum()
     if not np.isfinite(tot) or tot <= 0:
-        return None, "FAILED: weight sum is %r (overflow or all-zero)" % (tot,)
+        return None, ("FAILED: weight sum is %r (overflow or all-zero) "
+                      "ESS=n/a n_in=%d" % (tot, len(logw)))
     w = w / tot
     neff = 1.0 / np.sum(w ** 2)
     idx_fin = np.where(fin)[0]
@@ -887,16 +895,18 @@ def fairdraw_indices(logw, rng):
         # Already equal weight -- the DEFAULT for the flowMC modes, since
         # --adapt-weight-exponent defaults to 1.  Nothing to reweight; the
         # caller still applies any requested count.
-        return None, ("none (weights uniform) ESS=%.1f n_in=%d"
-                      % (float(len(idx_fin)), len(logw)))
+        # NOT an effective sample size: the weights carry no information about
+        # how correlated the underlying chain is, so reporting the row count as
+        # "ESS" would be a number that looks measured and is not.
+        return None, "none (weights uniform) ESS=n/a n_in=%d" % (len(logw),)
     n_out = int(max(1, min(int(np.ceil(1.5 * neff)), len(logw))))
     print("  fairdraw: %d weighted samples (ESS=%.1f) -> %d equal-weight draws"
           % (len(logw), neff, n_out))
     if neff < 200:
         print("  fairdraw: WARNING ESS=%.1f -- the proposal barely covers this "
               "posterior; the exported cloud is NOT a usable posterior sample "
-              "however it is drawn." % neff)
-    note = "ESS=%.1f n_in=%d" % (neff, len(logw))
+              "however it is drawn." % neff, file=sys.stderr)
+    note = "reweighted ESS=%.1f n_in=%d" % (neff, len(logw))
     return idx_fin[rng.choice(len(idx_fin), size=n_out, replace=True, p=w)], note
 
 
@@ -910,13 +920,27 @@ def fairdraw_size(opts, n_have, neff):
     as ``mcsampler.integrate`` does."""
     n_req = getattr(opts, "n_fairdraw_extrinsic_samples", None)
     if n_req is None and getattr(opts, "fairdraw_extrinsic_output", False):
+        # ILE's default cap is 5; kept out of the parser so an unset flag is not
+        # reported as one the user passed.
         n_req = getattr(opts, "fairdraw_extrinsic_output_n_max", None)
+        if n_req is None:
+            n_req = _FAIRDRAW_N_MAX_DEFAULT
     if n_req is None:
         return None
-    n_req = int(n_req)
+    n_asked = int(n_req)
+    n_req = n_asked
     if np.isfinite(neff) and neff > 0:
         n_req = int(min(n_req, np.ceil(1.5 * neff)))
-    return max(1, min(n_req, n_have))
+    n_req = max(1, min(n_req, n_have))
+    if n_req != n_asked:
+        # ILE prints "Fairdraw size : n" whenever it clamps; silence here meant a
+        # laplace-is run quietly turned a request for 137 into 32.
+        print("  Fairdraw size : %d (requested %d, clamped by 1.5*neff=%s and "
+              "the %d available rows)"
+              % (n_req, n_asked,
+                 ("%.1f" % (1.5 * neff)) if np.isfinite(neff) and neff > 0 else "n/a",
+                 n_have))
+    return n_req
 
 
 def write_samples(opts, out_index, theta, lnL, with_distance, logw=None,
@@ -938,7 +962,10 @@ def write_samples(opts, out_index, theta, lnL, with_distance, logw=None,
     # later event in a batch.  There is deliberately no rng parameter, so that
     # mistake cannot be reintroduced by a caller.
     rng = np.random.default_rng((opts.seed, out_index))
-    note = "not applicable (sampler targets the posterior)"
+    # n_in is the cloud as the sampler handed it over, before any filtering or
+    # counting, so the header records what went in as well as what came out.
+    note = ("not applicable (sampler targets the posterior) ESS=n/a n_in=%d"
+            % len(theta))
     if logw is not None and len(logw) == len(theta):
         idx, note = fairdraw_indices(logw, rng)
         if idx is not None:
@@ -947,55 +974,67 @@ def write_samples(opts, out_index, theta, lnL, with_distance, logw=None,
             print("  *** fairdraw FAILED (%s) -- writing the RAW, UNREWEIGHTED "
                   "sampler cloud.  These rows are NOT a fair draw. ***" % note,
                   file=sys.stderr)
-    # THE count contract, applied once, on every path.  --fairdraw-extrinsic-*
-    # is a COUNT contract, not a reweight contract: ILE applies the count
-    # whatever the weights look like, so uniform weights (the default
-    # configuration!) are not a licence to ignore it.  Rows are equal weight by
-    # this point, so subsample WITHOUT replacement -- a random subset of an
-    # equal-weight cloud is still a fair draw and manufactures no duplicates.
-    n_req = fairdraw_size(opts, len(theta), neff)
-    if n_req is not None and n_req < len(theta):
-        n_before = len(theta)
-        sub = rng.choice(n_before, size=int(n_req), replace=False)
-        theta, lnL = theta[sub], np.asarray(lnL)[sub]
-        print("  fairdraw: exporting %d of %d rows (requested count)"
-              % (int(n_req), n_before))
-    provenance = "fairdraw: %s n_out=%d" % (note, len(theta))
+    # Drop non-finite lnL FIRST.  Doing it last meant the count was applied to
+    # rows that were then discarded, and the provenance n_out counted them: a
+    # header saying n_out=1000 above a 963-row file, and 137 above 129 -- wrong
+    # exactly when the likelihood misbehaved, which is when someone reads it.
+    lnL = np.asarray(lnL)
     good = np.isfinite(lnL)
+    if not good.all():
+        theta, lnL = theta[good], lnL[good]
+    # THE count contract, applied once.  Gated on _FAIRDRAW_MODES -- the SAME set
+    # check_critical_and_report uses to decide whether to report these flags as
+    # ignored, so report and behaviour cannot disagree.  Applying it everywhere
+    # meant `--mode nuts --fairdraw-extrinsic-output` printed "IGNORED" and then
+    # silently wrote 5 rows instead of 300; --fairdraw-extrinsic-output is in
+    # ILE_extr.sub, so that is a real production command line losing 60x of its
+    # export under a banner saying the flag did nothing.
+    # Rows are equal weight by this point, so subsample WITHOUT replacement -- a
+    # random subset of an equal-weight cloud is still a fair draw (verified) and
+    # manufactures no duplicates.
+    if opts.mode in _FAIRDRAW_MODES:
+        n_req = fairdraw_size(opts, len(theta), neff)
+        if n_req is not None and n_req < len(theta):
+            n_before = len(theta)
+            sub = rng.choice(n_before, size=int(n_req), replace=False)
+            theta, lnL = theta[sub], lnL[sub]
+            print("  fairdraw: exporting %d of %d rows (requested count)"
+                  % (int(n_req), n_before))
+    provenance = "fairdraw: %s n_out=%d" % (note, len(theta))
     ndim = theta.shape[1] if theta.ndim == 2 else len(theta)
     if with_distance:
         # 6-D: ra, dec, psi, incl, phiref, dist
-        cols = np.column_stack([theta[good, 0], theta[good, 1], theta[good, 5],
-                                theta[good, 3], theta[good, 2], theta[good, 4],
-                                lnL[good]])
+        cols = np.column_stack([theta[:, 0], theta[:, 1], theta[:, 5],
+                                theta[:, 3], theta[:, 2], theta[:, 4],
+                                lnL])
         hdr = "right_ascension declination distance inclination psi phi_orb loglikelihood"
     elif ndim == 4 and opts.mode == "flowmc-dpsimarg":
         # 4-D (flowmc-dpsimarg): theta = ra, dec, phiref, incl (psi marginalised,
         # phi_ref sampled).  Write ra, dec, incl, phi_orb.
-        cols = np.column_stack([theta[good, 0], theta[good, 1],
-                                theta[good, 3], theta[good, 2], lnL[good]])
+        cols = np.column_stack([theta[:, 0], theta[:, 1],
+                                theta[:, 3], theta[:, 2], lnL])
         hdr = "right_ascension declination inclination phi_orb loglikelihood"
     elif ndim == 4:
         # 4-D (flowmc-phimarg): ra, dec, psi, incl (phi_ref marginalised out)
-        cols = np.column_stack([theta[good, 0], theta[good, 1],
-                                theta[good, 3], theta[good, 2], lnL[good]])
+        cols = np.column_stack([theta[:, 0], theta[:, 1],
+                                theta[:, 3], theta[:, 2], lnL])
         hdr = "right_ascension declination inclination psi loglikelihood"
     elif ndim == 3:
         # 3-D (flowmc-phipsimarg): ra, dec, incl (phi_ref AND psi marginalised out)
-        cols = np.column_stack([theta[good, 0], theta[good, 1],
-                                theta[good, 2], lnL[good]])
+        cols = np.column_stack([theta[:, 0], theta[:, 1],
+                                theta[:, 2], lnL])
         hdr = "right_ascension declination inclination loglikelihood"
     else:
         # 5-D: ra, dec, psi, incl, phiref
-        cols = np.column_stack([theta[good, 0], theta[good, 1], theta[good, 3],
-                                theta[good, 2], theta[good, 4], lnL[good]])
+        cols = np.column_stack([theta[:, 0], theta[:, 1], theta[:, 3],
+                                theta[:, 2], theta[:, 4], lnL])
         hdr = "right_ascension declination inclination psi phi_orb loglikelihood"
     sname = opts.output_file + "_" + str(out_index) + "_samples.dat"
     # Column line FIRST (unchanged, so `head -1` parsers keep working); the
     # provenance line follows, so the artifact records how it was produced --
     # notably the export ESS, which was previously written nowhere.
     np.savetxt(sname, cols, header=hdr + "\nmode=%s %s" % (opts.mode, provenance))
-    print("Wrote %s (%d samples)" % (sname, int(good.sum())))
+    print("Wrote %s (%d samples)" % (sname, len(cols)))
 
 
 def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,

@@ -22,7 +22,9 @@ Run:
 
 import importlib.machinery
 import importlib.util
+import ast
 import inspect
+import textwrap
 import os
 import types
 
@@ -247,6 +249,97 @@ def test_exported_lnL_belongs_to_its_own_row(tmp_path):
         % (np.max(err), np.mean(err)))
 
 
+def test_exported_lnL_stays_paired_through_the_count_subsample(tmp_path):
+    """The pairing test above uses default opts, so it never enters the count
+    path -- and the count subsample is a SECOND place theta and lnL are indexed
+    together.  Re-check it with a count requested."""
+    theta, lnL, logw = make_cloud(n=120000)
+    opts = fake_opts(tmp_path, n_fairdraw_extrinsic_samples=311)
+    drv.write_samples(opts, 0, theta, lnL, with_distance=False, logw=logw,
+                      neff=np.inf)
+    got, _ = read_export(opts)
+    assert len(got) == 311
+    th_out = np.empty((len(got), NDIM))
+    for j in range(NDIM):
+        th_out[:, j] = got[:, COL_OF_THETA[j]]
+    err = np.abs(_logN(th_out, MU_L, S_L) - got[:, -1])
+    assert np.max(err) < 1e-9, (
+        "count subsample broke the theta/lnL pairing (max |dlnL| = %.4g)"
+        % np.max(err))
+
+
+def test_count_flags_are_inert_for_modes_reported_as_ignoring_them(tmp_path):
+    """Report and behaviour must agree.  check_critical_and_report gates these
+    flags on _FAIRDRAW_MODES; applying them anyway under a NUTS mode printed
+    "IGNORED" and then wrote 5 rows instead of 300.  --fairdraw-extrinsic-output
+    is in ILE_extr.sub, so that is a real production line losing 60x of its
+    export under a banner saying the flag did nothing."""
+    rng = np.random.default_rng(21)
+    theta = MEAN_POST[None, :] + rng.standard_normal((300, NDIM)) * SD_POST
+    lnL = _logN(theta, MU_L, S_L)
+    for mode, expect in (("nuts", 300), ("multistart-nuts", 300),
+                         ("nuts-phimarg", 300), ("flowmc-phimarg", 5)):
+        d = tmp_path / mode; os.makedirs(str(d), exist_ok=True)
+        opts = fake_opts(d, mode=mode, fairdraw_extrinsic_output=True,
+                         fairdraw_extrinsic_output_n_max=5)
+        drv.write_samples(opts, 0, theta, lnL, with_distance=False, logw=None,
+                          neff=np.inf)
+        got, _ = read_export(opts)
+        assert len(got) == expect, (
+            "--mode %s: wrote %d rows, expected %d (%s)"
+            % (mode, len(got), expect,
+               "count must be inert where it is reported ignored"
+               if expect == 300 else "count must act where it is reported implemented"))
+
+
+def test_provenance_n_out_matches_the_file(tmp_path):
+    """n_out was computed before non-finite lnL were dropped, so the header
+    over-stated the file exactly when the likelihood misbehaved."""
+    rng = np.random.default_rng(22)
+    n = 1000
+    theta = MEAN_POST[None, :] + rng.standard_normal((n, NDIM)) * SD_POST
+    lnL = _logN(theta, MU_L, S_L)
+    lnL[rng.choice(n, size=37, replace=False)] = np.nan
+    for kw in ({}, dict(n_fairdraw_extrinsic_samples=137)):
+        d = tmp_path / str(len(kw)); os.makedirs(str(d), exist_ok=True)
+        opts = fake_opts(d, **kw)
+        drv.write_samples(opts, 0, theta, lnL, with_distance=False,
+                          logw=np.log(np.ones(n) / n), neff=np.inf)
+        got, _ = read_export(opts)
+        with open(opts.output_file + "_0_samples.dat") as fh:
+            fh.readline(); prov = fh.readline()
+        n_out = int(prov.split("n_out=")[1].split()[0])
+        assert n_out == len(got), (
+            "header says n_out=%d, file holds %d rows" % (n_out, len(got)))
+        assert np.isfinite(got).all()
+
+
+def test_every_path_reports_ess_and_n_in(tmp_path):
+    """F-E in full: the logw=None and FAILED paths reported neither ESS= nor
+    n_in=, so the self-describing header was blank on two of four paths."""
+    rng = np.random.default_rng(23)
+    theta = MEAN_POST[None, :] + rng.standard_normal((500, NDIM)) * SD_POST
+    lnL = _logN(theta, MU_L, S_L)
+    cases = {"none": None,
+             "uniform": np.log(np.ones(500) / 500),
+             "weighted": _logN(theta, MU_L, 1.2),
+             "failed": np.full(500, -np.inf)}
+    for name, lw in cases.items():
+        d = tmp_path / name; os.makedirs(str(d), exist_ok=True)
+        opts = fake_opts(d)
+        drv.write_samples(opts, 0, theta, lnL, with_distance=False, logw=lw,
+                          neff=np.inf)
+        with open(opts.output_file + "_0_samples.dat") as fh:
+            fh.readline(); prov = fh.readline()
+        for field in ("ESS=", "n_in=", "n_out="):
+            assert field in prov, "%s path header lacks %s: %r" % (name, field, prov)
+    # and the uniform path must not pass its ROW COUNT off as an ESS
+    opts = fake_opts(tmp_path / "uniform")
+    with open(opts.output_file + "_0_samples.dat") as fh:
+        fh.readline(); prov = fh.readline()
+    assert "ESS=n/a" in prov, "uniform path reports a fabricated ESS: %r" % prov
+
+
 def test_degenerate_weights_fail_loudly_not_silently(tmp_path):
     """Weights that cannot be normalized must be reported as FAILED, not
     silently returned as 'uniform, nothing to do' -- otherwise the raw,
@@ -338,20 +431,83 @@ def test_mode_sets_exclude_non_importance_weights():
         assert m in drv._FAIRDRAW_MODES and m not in drv._TEMPERED_MODES
 
 
-def test_write_samples_takes_no_rng_parameter():
-    """STRUCTURAL guard for the F2 defect.  The export RNG is derived inside
-    write_samples from (seed, out_index); if the function accepted one, a caller
-    could hand it the generator that feeds the samplers -- which is exactly the
-    bug that made --save-samples change the lnL of every later event.  A
-    regression test on the helper cannot catch that, because the mistake lives
-    at the CALL SITE.  Removing the parameter makes it unwriteable."""
-    sig = inspect.signature(drv.write_samples)
-    assert "rng" not in sig.parameters, (
-        "write_samples grew an rng parameter (%s) -- a caller can now pass the "
-        "science generator" % list(sig.parameters))
-    src = inspect.getsource(drv.analyze_one)
-    call = src[src.index("write_samples("):]
-    assert "rng=" not in call[:call.index(")\n")], "analyze_one passes rng= again"
+def _write_samples_call():
+    """The ast.Call node for write_samples(...) inside analyze_one."""
+    tree = ast.parse(textwrap.dedent(inspect.getsource(drv.analyze_one)))
+    calls = [n for n in ast.walk(tree)
+             if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+             and n.func.id == "write_samples"]
+    assert len(calls) == 1, "expected exactly one write_samples call, found %d" % len(calls)
+    return calls[0]
+
+
+def test_write_samples_never_receives_the_science_generator():
+    """STRUCTURAL guard for F2, checked by AST rather than by substring.
+
+    The export RNG is derived inside write_samples from (seed, out_index).  If a
+    caller can hand it the generator that feeds the samplers, --save-samples --
+    an OUTPUT flag -- moves the science again.
+
+    A name-based guard is not enough: `write_samples(..., generator=rng)` defeats
+    both a signature test that looks for the literal "rng" and a source check for
+    the substring "rng=" (that text contains "=rng").  So instead: no argument
+    expression of the call may be the bare Name `rng`, whatever keyword it wears,
+    and the callee must not name a Generator-ish parameter at all."""
+    call = _write_samples_call()
+    args = list(call.args) + [k.value for k in call.keywords]
+    for a in args:
+        assert not (isinstance(a, ast.Name) and a.id == "rng"), (
+            "analyze_one passes the shared `rng` to write_samples (as %s)"
+            % (next((k.arg for k in call.keywords if k.value is a), "positional")))
+        # `opts.rng`-style smuggling: any attribute access ending in .rng
+        assert not (isinstance(a, ast.Attribute) and a.attr == "rng"), \
+            "analyze_one smuggles an rng in via an attribute"
+    params = list(inspect.signature(drv.write_samples).parameters)
+    for bad in ("rng", "generator", "random_state", "prng", "bitgen"):
+        assert bad not in params, (
+            "write_samples grew a %r parameter -- a caller can now pass the "
+            "science generator (%s)" % (bad, params))
+
+
+def test_post_weight_is_gated_on_tempered_modes_at_the_call_site():
+    """F1 lives at the CALL SITE, not in the frozensets.  Asserting the sets are
+    correct cannot see the guard being deleted from analyze_one -- the same
+    'test the helper, not the wiring' defect fixed for the export RNG.
+
+    Require that the expression which reads res["post_weight"] is guarded by a
+    test mentioning _TEMPERED_MODES."""
+    tree = ast.parse(textwrap.dedent(inspect.getsource(drv.analyze_one)))
+    guarded = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.IfExp):
+            continue
+        body = ast.dump(node.body) + ast.dump(node.orelse)
+        if "post_weight" in body:
+            guarded.append("_TEMPERED_MODES" in ast.dump(node.test))
+    assert guarded, ("no conditional expression reads post_weight in analyze_one "
+                     "-- the F1 guard was removed or restructured")
+    assert all(guarded), ("post_weight is read without a _TEMPERED_MODES guard: "
+                          "multistart-nuts / nuts-phimarg would be fair-drawn "
+                          "against a per-chain Laplace mode-evidence weight")
+
+
+def test_count_option_dests_are_stable():
+    """fairdraw_size reads the options through getattr(..., None), which FAILS
+    OPEN: rename an option's dest and the count silently stops being applied
+    while everything still passes.  Drive the real parser and pin the dests."""
+    optp = drv.build_parser()
+    dests = {o.dest for o in optp._get_all_options() if o.dest}
+    for d in ("n_fairdraw_extrinsic_samples", "fairdraw_extrinsic_output",
+              "fairdraw_extrinsic_output_n_max", "mode", "seed", "save_samples"):
+        assert d in dests, "option dest %r vanished -- fairdraw_size fails open" % d
+    opts, _ = optp.parse_args(["--n-fairdraw-extrinsic-samples", "137"])
+    assert opts.n_fairdraw_extrinsic_samples == 137
+    opts2, _ = optp.parse_args(["--fairdraw-extrinsic-output"])
+    assert opts2.fairdraw_extrinsic_output is True
+    # unset -n-max must stay None so the ignored-option report does not claim
+    # the user passed it; the ILE default of 5 is resolved downstream
+    assert opts2.fairdraw_extrinsic_output_n_max is None
+    assert drv.fairdraw_size(opts2, 10000, np.inf) == drv._FAIRDRAW_N_MAX_DEFAULT
 
 
 def test_count_options_act_when_weights_are_uniform(tmp_path):
