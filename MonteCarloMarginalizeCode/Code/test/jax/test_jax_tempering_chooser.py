@@ -210,6 +210,48 @@ def test_auto_refuses_to_silently_override_an_explicit_exponent():
         "no guard against --auto being combined with --adapt-adapt")
 
 
+def test_beta_above_one_is_refused_not_relabelled_untempered():
+    """beta > 1 SHARPENS the target; it must not be reported as untempered.
+
+    samplers.flowmc_sample* take temper = 1/beta, so beta>1 means inv_T>1 -- a
+    target sharper than the posterior, whose export reweight L^(1-beta) has
+    ESS/N = [beta(2-beta)]^(dim/2) = 0 at beta=2 and undefined beyond.  The first
+    version of this branch tested `if beta >= 1.0` and printed
+    "beta=1 (untempered target)", which was false for every beta>1.
+    """
+    tree = _driver_tree()
+    fn = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
+              and n.name == "resolve_tempering_exponent")
+    src = ast.get_source_segment(open(DRIVER).read(), fn) or ""
+    assert "if beta >= 1.0:" not in src, (
+        "the >=1 branch is back: every beta>1 would be reported as untempered")
+    msgs = " ".join(c.value for n in ast.walk(fn) if isinstance(n, ast.Raise)
+                    for c in ast.walk(n)
+                    if isinstance(c, ast.Constant) and isinstance(c.value, str))
+    assert "is greater than 1" in msgs, "no guard against beta > 1"
+    assert "must be positive" in msgs, "no guard against beta <= 0"
+    # and the law itself refuses the same domain, so the two cannot disagree
+    with pytest.raises(ValueError):
+        export_ess_fraction(1.5, 4)
+
+
+def test_target_frac_default_is_one_named_constant():
+    """The parser default and the was-it-passed check must be the same value.
+
+    Two literals would drift, and the drift is silent: --target-export-ess-frac
+    set to the old default would stop being reported as inert.
+    """
+    src = open(DRIVER).read()
+    assert "_TARGET_EXPORT_ESS_FRAC_DEFAULT = 0.9" in src
+    assert "default=_TARGET_EXPORT_ESS_FRAC_DEFAULT" in src, (
+        "the parser hardcodes its own default instead of the named constant")
+    tree = _driver_tree()
+    fn = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
+              and n.name == "_target_ess_was_given")
+    names = {n.id for n in ast.walk(fn) if isinstance(n, ast.Name)}
+    assert "_TARGET_EXPORT_ESS_FRAC_DEFAULT" in names
+
+
 def test_chooser_is_actually_CALLED_from_the_dispatch():
     """The wiring, not the helper.
 
