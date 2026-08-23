@@ -82,6 +82,24 @@ def _dimensionless_float(value):
     return float(value.value if hasattr(value, "value") else value)
 
 
+def total_transverse_spin(s1x, s1y, s2x, s2y):
+    """Return the transverse spin magnitude TEOBResumS-DALI classifies with."""
+    return math.hypot(_dimensionless_float(s1x), _dimensionless_float(s1y)) + math.hypot(
+        _dimensionless_float(s2x), _dimensionless_float(s2y)
+    )
+
+
+def is_precessing_for_resums(s1x, s1y, s2x, s2y):
+    """Return whether TEOBResumS-DALI evolves these spins on its precessing path.
+
+    Callers must ask the same question the backend does before requesting
+    inertial-frame modes: a component that is merely nonzero can still leave the
+    summed transverse magnitude inside the native aligned interval, and asking
+    for inertial modes there disagrees with the dynamics DALI actually runs.
+    """
+    return total_transverse_spin(s1x, s1y, s2x, s2y) > DALI_TRANSVERSE_SPIN_THRESHOLD
+
+
 def guard_gwsignal_transverse_spins(parameters, approximant):
     """Return GWSignal parameters safe at the ResumS alignment boundary.
 
@@ -95,10 +113,7 @@ def guard_gwsignal_transverse_spins(parameters, approximant):
         return parameters
 
     keys = ("spin1x", "spin1y", "spin2x", "spin2y")
-    values = [_dimensionless_float(parameters[key]) for key in keys]
-    transverse_spin = math.hypot(values[0], values[1]) + math.hypot(
-        values[2], values[3]
-    )
+    transverse_spin = total_transverse_spin(*(parameters[key] for key in keys))
     if not 0.0 < transverse_spin <= DALI_TRANSVERSE_SPIN_THRESHOLD:
         return parameters
 

@@ -1059,7 +1059,9 @@ class ChooseWaveformParams:
                         break
                 if keep:
                     indices_to_keep.add(i)
-            filtered_peaks = peaks[list(indices_to_keep)]
+            # sorted(): indices_to_keep is a set, and downstream epoch choices
+            # need the retained peaks in chronological order
+            filtered_peaks = peaks[sorted(indices_to_keep)]
 
             # parsing number of peaks after filtering against distance tolerance
             if len(filtered_peaks) == 1:
@@ -3168,7 +3170,9 @@ def hoft(P, Fp=None, Fc=None,**kwargs):
 #                'df'                 : P.deltaF,
                 'output_hpc'         : "no"
             }
-            if (np.abs(P.s1x) >  1e-4 or P.s1y!=0.0 or P.s2x!=0.0 or P.s2y!=0.0):
+            # Match the backend's own aligned/precessing decision: requesting
+            # inertial modes for a point DALI evolves as aligned is unsafe.
+            if teobresums_compat.is_precessing_for_resums(P.s1x, P.s1y, P.s2x, P.s2y):
                 pars.update({'use_mode_lm_inertial': k})
             if P.a6c < 1000 and P.a6c != 0.0:
                 pars.update({'a6c' : P.a6c})
@@ -3213,7 +3217,9 @@ def hoft(P, Fp=None, Fc=None,**kwargs):
 #                'df'                 : P.deltaF,
                 'output_hpc'         : "no"
             }
-            if (np.abs(P.s1x) >  1e-4 or P.s1y!=0.0 or P.s2x!=0.0 or P.s2y!=0.0):
+            # Match the backend's own aligned/precessing decision: requesting
+            # inertial modes for a point DALI evolves as aligned is unsafe.
+            if teobresums_compat.is_precessing_for_resums(P.s1x, P.s1y, P.s2x, P.s2y):
                 pars.update({'use_mode_lm_inertial': k})
 
         print("Starting EOBRun_module")
@@ -3250,7 +3256,9 @@ def hoft(P, Fp=None, Fc=None,**kwargs):
                         break
                 if keep:
                     indices_to_keep.add(i)
-            filtered_peaks = peaks[list(indices_to_keep)]
+            # sorted(): indices_to_keep is a set, and downstream epoch choices
+            # need the retained peaks in chronological order
+            filtered_peaks = peaks[sorted(indices_to_keep)]
              # parsing number of peaks after filtering against distance tolerance
             if len(filtered_peaks) == 1:
                 # scatter case OR plunge case, we can set the epoch normally
@@ -3363,7 +3371,9 @@ def hoft(P, Fp=None, Fc=None,**kwargs):
                         break
                 if keep:
                     indices_to_keep.add(i)
-            filtered_peaks = peaks[list(indices_to_keep)]
+            # sorted(): indices_to_keep is a set, and downstream epoch choices
+            # need the retained peaks in chronological order
+            filtered_peaks = peaks[sorted(indices_to_keep)]
 
             vectaper= 0.5 + 0.5*np.cos(np.pi* (1-np.arange(n_samp)/(1.*n_samp))) # this tapers the start
 
@@ -3916,7 +3926,9 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
 #                'df'                 : P.deltaF,
                 'output_hpc'         : "no"
             }
-            if (np.abs(P.s1x) >  1e-4 or P.s1y!=0.0 or P.s2x!=0.0 or P.s2y!=0.0):
+            # Match the backend's own aligned/precessing decision: requesting
+            # inertial modes for a point DALI evolves as aligned is unsafe.
+            if teobresums_compat.is_precessing_for_resums(P.s1x, P.s1y, P.s2x, P.s2y):
                 pars.update({'use_mode_lm_inertial': k})
             if P.a6c < 1000 and P.a6c != 0.0:
                 pars.update({'a6c' : P.a6c})
@@ -3961,7 +3973,9 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
 #                'df'                 : P.deltaF,
                 'output_hpc'         : "no"
             }
-            if (np.abs(P.s1x) >  1e-4 or P.s1y!=0.0 or P.s2x!=0.0 or P.s2y!=0.0):
+            # Match the backend's own aligned/precessing decision: requesting
+            # inertial modes for a point DALI evolves as aligned is unsafe.
+            if teobresums_compat.is_precessing_for_resums(P.s1x, P.s1y, P.s2x, P.s2y):
                 pars.update({'use_mode_lm_inertial': k})
 
         # Run the WF generator
@@ -4014,7 +4028,9 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
                         break
                 if keep:
                     indices_to_keep.add(i)
-            filtered_peaks = peaks[list(indices_to_keep)]
+            # sorted(): indices_to_keep is a set, and downstream epoch choices
+            # need the retained peaks in chronological order
+            filtered_peaks = peaks[sorted(indices_to_keep)]
             # parsing number of peaks after filtering against distance tolerance
             if len(filtered_peaks) == 1:
                 # scatter case OR plunge case, we can set the epoch normally
@@ -4164,7 +4180,9 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
                         hlm[mode] = lal.ResizeCOMPLEX16TimeSeries(hlm[mode],hlm[mode].data.length-TDlen,TDlen)
                 elif TDlen >= hlm[mode].data.length:
                     hlm[mode] = lal.ResizeCOMPLEX16TimeSeries(hlm[mode],0,TDlen)
-            if check_if_only_positive_m or (np.abs(P.s1x) <  1e-4 and P.s2x == 0.0 and P.s1y == 0.0 and P.s2y == 0.0):
+            # Complement of the inertial-mode request above: the aligned path
+            # returns only positive m, so those modes need conjugates here.
+            if check_if_only_positive_m or not teobresums_compat.is_precessing_for_resums(P.s1x, P.s1y, P.s2x, P.s2y):
                 mode_conj = (mode[0],-mode[1])
                 print("Conjugating mode: ",mode_conj)
                 if not mode_conj in hlm:

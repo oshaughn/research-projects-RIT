@@ -180,12 +180,16 @@ for indx in np.arange(opts.target_size):
             P.s1x=0
             P.s2y=0
             P.s2x=0
-    if opts.add_eccentricity_params and P.eccentricity < 1e-5:
+    # Posterior columns win: only synthesize eccentricity if the samples have none
+    if "eccentricity" in samples_in.dtype.names:
+            P.eccentricity = samples_in["eccentricity"][fac_reduce*indx]
+            if "meanPerAno" in samples_in.dtype.names:
+                    P.meanPerAno = samples_in["meanPerAno"][fac_reduce*indx]
+    elif opts.add_eccentricity_params:
             P.meanPerAno = np.random.uniform(0,2*np.pi)
             P.eccentricity = np.random.uniform(0,opts.ecc_max) # some convervative range
-    elif opts.add_eccentricity_params and P.eccentricity >= 1e-5:
-            P.eccentricity = samples_in["eccentricity"][fac_reduce*indx]
-            P.meanPerAno = samples_in["meanPerAno"][fac_reduce*indx]
+    if "a6c" in samples_in.dtype.names:
+            P.a6c = samples_in["a6c"][fac_reduce*indx]
     if "E0" in samples_in.dtype.names:
             P.E0 = samples_in["E0"][fac_reduce*indx]
     if "p_phi0" in samples_in.dtype.names:

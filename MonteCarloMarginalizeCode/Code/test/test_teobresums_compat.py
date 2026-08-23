@@ -163,6 +163,46 @@ def test_pipeline_threads_approximant_into_model_specific_grid_seed():
     assert "--internal-initial-grid-approximant {}" in pipe_source
 
 
+def test_precession_predicate_uses_summed_transverse_magnitude():
+    threshold = compat.DALI_TRANSVERSE_SPIN_THRESHOLD
+
+    # a component that is nonzero but summed-small is still aligned for DALI
+    assert not compat.is_precessing_for_resums(0.0, 1e-5, 2e-5, 3e-5)
+    assert not compat.is_precessing_for_resums(0.0, 0.0, 0.0, 0.0)
+    # two components that are individually below threshold can sum above it
+    assert compat.is_precessing_for_resums(0.9 * threshold, 0.0, 0.9 * threshold, 0.0)
+    assert compat.is_precessing_for_resums(0.0, 0.0, 0.0, 1.000001 * threshold)
+
+
+def test_direct_teobresums_calls_share_the_backend_precession_predicate():
+    source = (Path(__file__).parents[1] / "RIFT" / "lalsimutils.py").read_text()
+
+    # four direct EOBRunPy parameter blocks, plus the complementary decision
+    # about conjugating positive-m modes
+    assert source.count("is_precessing_for_resums(") == 5
+    assert "P.s1y!=0.0" not in source
+
+
+def test_retained_hyperbolic_peaks_are_kept_in_chronological_order():
+    source = (Path(__file__).parents[1] / "RIFT" / "lalsimutils.py").read_text()
+
+    # indices_to_keep is a set: filtered_peaks[-1] is only the last peak if sorted
+    assert "peaks[list(indices_to_keep)]" not in source
+    assert source.count("peaks[sorted(indices_to_keep)]") == 4
+
+
+def test_inference2ile_restores_posterior_columns_it_can_read():
+    source = (
+        Path(__file__).parents[1] / "bin" / "convert_output_format_inference2ile"
+    ).read_text()
+
+    # eccentricity must be restored from the input columns, not from the
+    # freshly initialized (always zero) parameter value
+    assert 'if "eccentricity" in samples_in.dtype.names:' in source
+    assert "P.eccentricity < 1e-5" not in source
+    assert 'if "a6c" in samples_in.dtype.names:' in source
+
+
 def test_every_rift_gwsignal_generator_path_uses_transverse_spin_guard():
     code_root = Path(__file__).parents[1]
     source = (code_root / "RIFT" / "physics" / "GWSignal.py").read_text()
