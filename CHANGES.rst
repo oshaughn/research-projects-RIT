@@ -2,6 +2,22 @@
 0.0.18.0
 ------------
 development tree is rift_O4d.
+
+** jax ILE ``--save-samples`` is now a FAIR DRAW.  Previously the driver wrote
+   whatever cloud the sampler produced, with no weight column, so every consumer
+   read a Gaussian-proposal cloud (``--mode laplace-is``, the default) or raw
+   PRIOR draws (``--mode prior-mc``) as if it were a posterior.  Each estimator
+   now returns its per-sample importance weight and the export is
+   multinomial-resampled against it, matching production ILE's convention
+   (``RIFT/integrators/mcsampler.py::integrate``).  The data columns and their
+   header line are unchanged for a given ``--mode``; a second header line now
+   records the mode and the export ESS.  ``--fairdraw-extrinsic-output``,
+   ``--fairdraw-extrinsic-output-n-max`` and ``--n-fairdraw-extrinsic-samples``
+   are implemented (gated per mode, and honoured as a COUNT contract even when
+   the weights are uniform).  NOTE ``--fairdraw-extrinsic-output-n-max``
+   defaults to 5, as in ILE, so passing ``--fairdraw-extrinsic-output`` without
+   an explicit maximum now yields 5 rows where it previously yielded the whole
+   cloud.
   - (rc0) O4d base refresh, from rift_O4c to rift_O4d: Python/numpy CI modernization (py3.10-py3.13,
     numpy 2.x checks), Asimov/RIFT smoke tests, docs deployment, pluggable workflow backends and
     simulation-manager prototypes, distance-grid/distance-slice likelihood export, container-family and pixi/SWIG

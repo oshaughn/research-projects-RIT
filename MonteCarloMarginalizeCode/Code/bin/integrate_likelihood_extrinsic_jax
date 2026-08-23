@@ -849,24 +849,30 @@ def write_dat(opts, P, out_index, event_id, logZ, sigma_over_Z, ntotal, neff):
     print("Wrote %s" % fname)
 
 
-def fairdraw_indices(logw, n_out, rng):
-    """Indices of a fair (equal-weight) draw from importance weights ``logw``.
+def fairdraw_indices(logw, rng):
+    """Indices that turn a WEIGHTED cloud into an equal-weight one, or ``None``.
 
     Production ILE convention (``RIFT/integrators/mcsampler.py::integrate`` and
     the identical block in mcsamplerGPU / mcsamplerAdaptiveVolume /
-    mcsamplerEnsemble / mcsamplerPortfolio): normalise
-    ``w = L * p / p_s`` and multinomial-resample WITH replacement, so the
-    exported rows are equal weight and carry no weight column.
+    mcsamplerEnsemble / mcsamplerPortfolio): normalise ``w = L * p / p_s`` and
+    multinomial-resample WITH replacement, so the exported rows are equal weight
+    and carry no weight column.  Capped at ``1.5*ESS``: never claim more fair
+    draws than the weights support, or the file looks like N independent draws
+    while holding ~ESS distinct points.
 
-    Returns ``None`` when no resampling is warranted (no finite weights, or the
-    weights are already uniform -- e.g. a converged untempered MCMC chain).
+    This function does REWEIGHTING ONLY.  The export count requested by
+    ``--n-fairdraw-extrinsic-samples`` / ``--fairdraw-extrinsic-output-n-max``
+    is applied by the caller, on every path -- including this one's ``None``
+    returns -- so that the count contract has exactly one implementation and
+    cannot be quietly skipped for some configurations.
+
+    Returns ``(indices_or_None, note)``; the note always records the ESS.
     """
     logw = np.asarray(logw, dtype=float)
     fin = np.isfinite(logw)
     # FAIL LOUDLY, NOT OPEN.  "cannot compute weights" and "weights are already
     # uniform" both used to return None, so a degenerate weight vector silently
     # wrote the UNCORRECTED cloud under a header that promises a fair draw.
-    # They are now distinct outcomes and the caller records which one happened.
     if fin.sum() < 2:
         return None, "FAILED: %d of %d weights are finite" % (int(fin.sum()), len(logw))
     lw = logw[fin] - np.max(logw[fin])
@@ -876,23 +882,21 @@ def fairdraw_indices(logw, n_out, rng):
         return None, "FAILED: weight sum is %r (overflow or all-zero)" % (tot,)
     w = w / tot
     neff = 1.0 / np.sum(w ** 2)
-    if np.allclose(w, w[0]):
-        # already equal weight (e.g. an untempered chain): nothing to do
-        return None, "none (weights uniform)"
     idx_fin = np.where(fin)[0]
-    # ILE's clamp: never claim more fair draws than the weights support.  Without
-    # it a low-ESS cloud is resampled up to its original length and the file looks
-    # like N independent draws while containing ~ESS distinct points.
-    n_cap = int(np.ceil(1.5 * neff))
-    n_out = len(logw) if n_out is None else int(n_out)
-    n_out = int(max(1, min(n_out, n_cap, len(logw))))
+    if np.allclose(w, w[0]):
+        # Already equal weight -- the DEFAULT for the flowMC modes, since
+        # --adapt-weight-exponent defaults to 1.  Nothing to reweight; the
+        # caller still applies any requested count.
+        return None, ("none (weights uniform) ESS=%.1f n_in=%d"
+                      % (float(len(idx_fin)), len(logw)))
+    n_out = int(max(1, min(int(np.ceil(1.5 * neff)), len(logw))))
     print("  fairdraw: %d weighted samples (ESS=%.1f) -> %d equal-weight draws"
           % (len(logw), neff, n_out))
     if neff < 200:
         print("  fairdraw: WARNING ESS=%.1f -- the proposal barely covers this "
               "posterior; the exported cloud is NOT a usable posterior sample "
               "however it is drawn." % neff)
-    note = "ESS=%.1f n_in=%d n_out=%d" % (neff, len(logw), n_out)
+    note = "ESS=%.1f n_in=%d" % (neff, len(logw))
     return idx_fin[rng.choice(len(idx_fin), size=n_out, replace=True, p=w)], note
 
 
@@ -916,7 +920,7 @@ def fairdraw_size(opts, n_have, neff):
 
 
 def write_samples(opts, out_index, theta, lnL, with_distance, logw=None,
-                  neff=np.nan, rng=None):
+                  neff=np.nan):
     """Write the exported extrinsic samples.
 
     ``logw`` are per-sample LOG IMPORTANCE WEIGHTS ``ln(L p / p_s)`` for the
@@ -928,19 +932,35 @@ def write_samples(opts, out_index, theta, lnL, with_distance, logw=None,
     """
     if not (opts.output_file and opts.save_samples) or theta is None:
         return
-    provenance = "fairdraw: not applicable (sampler targets the posterior)"
+    # The export RNG is derived here and NOWHERE ELSE.  It must never be the
+    # generator that feeds the samplers/estimators: --save-samples is an OUTPUT
+    # flag and consuming the science stream made it change the lnL/logZ of every
+    # later event in a batch.  There is deliberately no rng parameter, so that
+    # mistake cannot be reintroduced by a caller.
+    rng = np.random.default_rng((opts.seed, out_index))
+    note = "not applicable (sampler targets the posterior)"
     if logw is not None and len(logw) == len(theta):
-        if rng is None:
-            # own stream, keyed by (seed, event): see the call site in analyze_one
-            rng = np.random.default_rng((opts.seed, out_index))
-        idx, note = fairdraw_indices(logw, fairdraw_size(opts, len(theta), neff), rng)
-        provenance = "fairdraw: " + note
+        idx, note = fairdraw_indices(logw, rng)
         if idx is not None:
             theta, lnL = theta[idx], np.asarray(lnL)[idx]
         elif note.startswith("FAILED"):
             print("  *** fairdraw FAILED (%s) -- writing the RAW, UNREWEIGHTED "
                   "sampler cloud.  These rows are NOT a fair draw. ***" % note,
                   file=sys.stderr)
+    # THE count contract, applied once, on every path.  --fairdraw-extrinsic-*
+    # is a COUNT contract, not a reweight contract: ILE applies the count
+    # whatever the weights look like, so uniform weights (the default
+    # configuration!) are not a licence to ignore it.  Rows are equal weight by
+    # this point, so subsample WITHOUT replacement -- a random subset of an
+    # equal-weight cloud is still a fair draw and manufactures no duplicates.
+    n_req = fairdraw_size(opts, len(theta), neff)
+    if n_req is not None and n_req < len(theta):
+        n_before = len(theta)
+        sub = rng.choice(n_before, size=int(n_req), replace=False)
+        theta, lnL = theta[sub], np.asarray(lnL)[sub]
+        print("  fairdraw: exporting %d of %d rows (requested count)"
+              % (int(n_req), n_before))
+    provenance = "fairdraw: %s n_out=%d" % (note, len(theta))
     good = np.isfinite(lnL)
     ndim = theta.shape[1] if theta.ndim == 2 else len(theta)
     if with_distance:
@@ -1181,13 +1201,12 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
     print("  log evidence (lnL marginal over extrinsic) = %.5f" % logZ)
     print("  sigma_lnL = %.4g    neff = %.1f    ntotal = %d" % (sig, neff, ntot))
     write_dat(opts, P, out_index, event_id, logZ, sig, ntot, neff)
-    # NOT the shared `rng`: that object also feeds run_laplace_is / run_prior_mc
-    # and the samplers, so drawing from it here made --save-samples (an OUTPUT
-    # flag) change the lnL/logZ of every later event in the batch.  An output
-    # flag must not move the numbers.
+    # write_samples takes NO rng: it derives its own from (seed, out_index).
+    # Passing the shared `rng` here -- which also feeds run_laplace_is /
+    # run_prior_mc and the samplers -- made --save-samples, an OUTPUT flag,
+    # change the lnL/logZ of every later event in the batch.
     write_samples(opts, out_index, theta, lnL, with_distance,
-                  logw=logw_export, neff=neff,
-                  rng=np.random.default_rng((opts.seed, out_index)))
+                  logw=logw_export, neff=neff)
     return logZ, out_flow_state
 
 
