@@ -83,6 +83,22 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         write_samples call site) because the defects
 #                                         they pin live at call sites, where a
 #                                         helper-level assertion cannot see them.
+#   test_jax_tempering_chooser.py     16  the --adapt-weight-exponent chooser and the
+#                                         tempering-cost law
+#                                         ESS/N = [beta(2-beta)]^(dim/2) it rests on.
+#                                         Pins the law against the EXACT sweep measured
+#                                         on the real BNS likelihood (both directions:
+#                                         a law that under-predicts the cost would
+#                                         silently under-budget a run), that it takes
+#                                         no SNR argument -- the non-JAX helper's rule
+#                                         keys on SNR and does not transfer -- and, by
+#                                         AST on the DRIVER SOURCE, that the chooser is
+#                                         actually assigned to opts.adapt_weight_exponent
+#                                         and that the degenerate-export guard RAISES
+#                                         rather than warns.  Includes a RETIRED-claim
+#                                         guard asserting the SNR rule has not crept
+#                                         back into the driver.  Needs no lal, no GPU
+#                                         and no flowMC.
 #   test_tvals_grid_convention.py     13  issue #146: the time-marginalization window
 #                                         grid the JAX wrapper and
 #                                         bin/integrate_likelihood_extrinsic_batchmode
@@ -129,6 +145,7 @@ FILES=(
   "${JAXDIR}/test_network_coords.py"
   "${JAXDIR}/test_nuts_phimarg.py"
   "${JAXDIR}/test_jax_fairdraw_export.py"
+  "${JAXDIR}/test_jax_tempering_chooser.py"
   "${JAXDIR}/test_tvals_grid_convention.py"
 )
 
@@ -158,10 +175,10 @@ if [ "${manifest_rc}" -ne 0 ]; then
   exit 1
 fi
 
-# Sum of the per-file counts above (27 + 21 from test_jax_fairdraw_export.py).
+# Sum of the per-file counts above (48 + 16 from test_jax_tempering_chooser.py).
 # Pinned deliberately: a bare `pytest test/jax/`
 # that collected 0 would exit 5, and a partial loss (say 14 -> 3) would still exit 0.
-EXPECTED_TESTS=48
+EXPECTED_TESTS=64
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${FILES[@]}" 2>&1)"

@@ -55,6 +55,66 @@ _PI = float(np.pi)
 
 
 # ---------------------------------------------------------------------------
+# Likelihood tempering: what --adapt-weight-exponent costs on THIS path
+# ---------------------------------------------------------------------------
+# Decision + provenance: DESIGN_jax_tempering.md, beside this module (2026-08-23).
+# The short version, because it is the thing that gets ported wrong:
+#
+#   non-JAX RIFT  beta shapes only the adaptive sampling PRIOR
+#                 (mcsamplerGPU: log_weights = beta*lnL + ln p - ln p_s, while the
+#                 estimator stays log_integrand = lnL + ln p - ln p_s).  Unbiased
+#                 at any beta; beta costs nothing in exported samples.
+#   JAX flowMC    beta = inv_T is the exponent of the target the MCMC SAMPLES.
+#                 The draws are the deliverable, so the export must be reweighted
+#                 by L^(1-beta) (post_weight) -- and that reweight has an ESS cost
+#                 the non-JAX path never pays.
+#
+# helper_LDG_Events.py keys its beta on SNR.  That is right there and wrong here:
+# the cost below is set by the SAMPLED DIMENSION and is independent of lnLmax.
+_TEMPER_ESS_LAW_CAL = 0.79   # measured worst-case ratio (measured/law); see DESIGN doc
+
+
+def export_ess_fraction(beta, n_dim):
+    """Fraction of a beta-tempered cloud that survives the post_weight reweight.
+
+    For a locally Gaussian peak ``ln Z_g = g lnLmax - (n_dim/2) ln g + const``,
+    so the self-normalised reweight ``L^(1-beta)`` from the tempered target
+    ``L^beta pi`` back to the posterior has
+
+        ESS/N = Z_1^2 / (Z_beta Z_{2-beta}) = [beta (2 - beta)]^(n_dim/2)
+
+    **It depends on n_dim and NOT on lnLmax** -- i.e. not on SNR.  That is the
+    whole reason the non-JAX helper's SNR-keyed exponent must not be carried
+    over to this path.
+
+    Measured against the real phi-marginalised BNS likelihood (SNR 23.8, 4-D),
+    the law holds to a ratio 0.79-1.00 over beta in [0.05, 1]; it is therefore a
+    slightly OPTIMISTIC closed form.  Callers sizing a budget should apply
+    ``_TEMPER_ESS_LAW_CAL``.  Provenance and the full sweep: DESIGN_jax_tempering.md.
+    """
+    beta = float(beta)
+    if not (0.0 < beta <= 1.0):
+        raise ValueError("beta must be in (0, 1]; got %r" % (beta,))
+    return float((beta * (2.0 - beta)) ** (0.5 * int(n_dim)))
+
+
+def beta_for_export_ess(target_frac, n_dim):
+    """Inverse of :func:`export_ess_fraction`: the SMALLEST beta meeting a target.
+
+    Solves ``[beta(2-beta)]^(n_dim/2) = target_frac`` on ``beta in (0, 1]``:
+
+        beta = 1 - sqrt(1 - target_frac^(2/n_dim))
+
+    Smallest is the useful root: beta is a breadth knob, so among exponents that
+    meet the export budget the broadest target is the one that explores most.
+    """
+    t = float(target_frac)
+    if not (0.0 < t <= 1.0):
+        raise ValueError("target_frac must be in (0, 1]; got %r" % (t,))
+    return float(1.0 - np.sqrt(max(0.0, 1.0 - t ** (2.0 / int(n_dim)))))
+
+
+# ---------------------------------------------------------------------------
 # Prior (physical, uniform sky + orientation), numpy + JAX flavors
 # ---------------------------------------------------------------------------
 def sample_prior(n, rng):
