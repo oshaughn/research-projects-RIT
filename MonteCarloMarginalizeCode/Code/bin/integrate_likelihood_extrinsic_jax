@@ -284,8 +284,7 @@ def check_critical_and_report(opts, optp):
         inert = [n for n in ("--auto-adapt-weight-exponent",
                              "--allow-degenerate-tempering")
                  if getattr(opts, _dest(n), False)]
-        if getattr(opts, "target_export_ess_frac", None) is not None \
-                and getattr(opts, "auto_adapt_weight_exponent", False):
+        if _target_ess_was_given(opts):
             inert.append("--target-export-ess-frac")
         if inert:
             print("Note: %s only act on the tempered modes (%s); --mode %s ignores "

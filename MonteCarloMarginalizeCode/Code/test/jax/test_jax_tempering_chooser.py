@@ -308,6 +308,47 @@ def test_target_without_auto_is_reported_not_silently_ignored(capsys):
     assert "no effect" not in capsys.readouterr().out
 
 
+def test_inert_note_lists_only_flags_the_user_ACTUALLY_passed(capsys):
+    """On a non-tempered mode the chooser flags are reported as inert -- but the
+    report must not name a flag the user never typed.
+
+    It previously appended --target-export-ess-frac whenever --auto was set, even
+    with the target at its default, telling the user a flag they had not passed
+    was being ignored.
+    """
+    p = drv.build_parser()
+
+    def mk(**kw):
+        class O(object):
+            pass
+        o = O()
+        for opt in p._get_all_options():
+            if opt.dest:
+                setattr(o, opt.dest, opt.default)
+        o.mode = "laplace-is"
+        for k, v in kw.items():
+            setattr(o, k, v)
+        return o
+
+    def note(o):
+        drv.check_critical_and_report(o, p)
+        return "".join(l for l in capsys.readouterr().out.splitlines()
+                       if "tempered modes" in l)
+
+    default_target = note(mk(auto_adapt_weight_exponent=True))
+    assert "--auto-adapt-weight-exponent" in default_target
+    assert "--target-export-ess-frac" not in default_target, default_target
+
+    given_target = note(mk(auto_adapt_weight_exponent=True,
+                           target_export_ess_frac=0.5))
+    assert "--target-export-ess-frac" in given_target, given_target
+
+    # and on a tempered mode nothing is reported inert at all
+    o = mk(auto_adapt_weight_exponent=True)
+    o.mode = "flowmc-phimarg"
+    assert note(o) == ""
+
+
 def test_auto_conflicts_raise_at_runtime():
     with pytest.raises(SystemExit) as e1:
         drv.resolve_tempering_exponent(

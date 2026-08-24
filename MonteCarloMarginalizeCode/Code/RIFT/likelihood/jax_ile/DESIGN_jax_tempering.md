@@ -143,16 +143,66 @@ offline reference.
 (4800 -> 278) and 6.6x in evidence precision**, and the driver itself prints
 *"NOT a usable posterior sample however it is drawn."*
 
-### 3c. Is the cost SNR-set or dimension-set?
+### 3c. Is the cost SNR-set or dimension-set?  (reference-free)
 
-Structurally the law has no `lnLmax` term, and `Var_beta[lnL]` matches
-`d/(2 beta²)` at the measured SNR. An offline sweep over synthetic injections at
-SNR 20/40/80/160 (`beta_ess_vs_snr.py`) reproduced the same ESS(beta) curve, but
-its reference collapsed above SNR 20 (ESS(g=1) = 4.1 at SNR 40 — the Hessian at
-the truth is near-flat in inclination and the eigenvalue floor mis-scales the
-proposal). **Those rows are not evidence and are not quoted here.** The SNR axis
-is carried instead by the driver-reported ESS at fixed beta across injected
-distances (§3d).
+Same source, SNR set by injected distance (network SNR is exactly propto 1/d),
+beta held fixed, reading the driver's own reported export ESS. No reference cloud
+is involved, so this cannot inherit a reference's convergence problems.
+
+| injected d | lnZ | implied SNR | beta=0.5 ESS/N | beta=0.1 ESS/N |
+|---|---|---|---|---|
+| 1200 Mpc | 113.1 | ~15.0 | 0.620 | 0.0472 |
+| 600 Mpc | 533.1 | ~32.7 | 0.517 | 0.0371 |
+| 300 Mpc | 2230.7 | ~66.8 | 0.560 | 0.00823 |
+| 150 Mpc | — | ~134 | 0.126 | 0.00763 |
+| **law** | | | **0.5625** | **0.0361** |
+
+**At beta = 0.5 the cost is flat to +-10% from SNR 15 to 67** — a factor 20 in
+lnLmax, over which the historical rule would have demanded beta fall by the same
+factor 20. That is the discriminator, and it settles it: the reweight cost is not
+SNR-set.
+
+**Two honest caveats, both visible in that table.**
+
+1. **The law is optimistic at small beta, and increasingly so at high SNR.** At
+   beta=0.1 the measured cost falls from 0.047 (SNR 15) to 0.0082 (SNR 67) while
+   the law says 0.036 throughout. The Gaussian-peak approximation degrades where
+   the target is both very sharp and very heavily tempered. This matters for the
+   guard: near its threshold the guard can *under*-refuse, because it trusts a
+   law that is too kind in exactly that corner. It never over-refuses.
+2. **beta = 0.5 breaks down by SNR ~134** (0.126 against 0.5625). At the highest
+   rung the flow itself is struggling, not just the reweight. Static tempering is
+   therefore NOT the tool for the 3G regime, which is the regime it is usually
+   proposed for.
+
+An earlier offline sweep over the same injections (`beta_ess_vs_snr.py`) is
+**not** quoted: its reference collapsed above SNR 20 (ESS(g=1) = 4.1 at SNR 40 —
+the Hessian at the truth is near-flat in inclination and the eigenvalue floor
+mis-scales the proposal). Those rows are not evidence.
+
+### 3d. Does beta < 1 buy accuracy?  (two seeds)
+
+Scored against the independent defensive-IS reference, floor at the arm's own
+row count.
+
+| arm | rows | JS psi s0/s1 | JS incl s0/s1 | sd psi s0/s1 |
+|---|---|---|---|---|
+| beta = 1.0 | 4800 | 0.0735 / 0.0358 | 0.0617 / 0.0325 | 0.940 / 0.990 |
+| beta = 0.7735 (auto) | 4800 | 0.0407 / 0.0289 | 0.0445 / 0.0296 | 0.983 / 1.037 |
+| beta = 0.0951 | 278 / 203 | 0.1354 / 0.1438 | 0.1310 / 0.0954 | 1.081 / 0.872 |
+| `--adapt-adapt` | 4800 | 0.0462 / **0.5690** | 0.0774 / **0.3825** | 1.043 / **0.031** |
+
+**Not resolved: whether beta=0.7735 beats beta=1.** Lower psi and incl JS in both
+seeds, but beta=1's own psi JS varies 2x across seeds — a spread comparable to
+the gap. Two seeds cannot settle it, and **no part of this change rests on it**.
+What is solid is that the auto exponent costs nothing measurable: same 4800 rows,
+export ESS 4203 / 4266.
+
+**Resolved: `--adapt-adapt` collapsed on one seed of two.** Seed 1 returned psi
+spanning only [1.599, 1.769] rad of the full [0, pi] — 3% of the reference width
+— against [0.026, 3.131] for seed 0 and both beta=1 arms. Verified in the raw
+export, not only in the score. Seed 0 was also 21% narrow in inclination. At
+SNR 23.8, not an extreme case.
 
 ## 4. What was built, and what was deliberately NOT
 
@@ -174,12 +224,11 @@ driver already declares unusable.
 
 **Not built: `--adapt-adapt` on by default.** It is a different mechanism — an
 annealing *schedule* that ladders `inv_T` up and always terminates at
-`inv_T = 1` (the loop breaks on `inv_T >= 1`, and `post_weight` is then uniform).
-So it delivers the historical rule's *benefit* — broad exploration, no collapse
-onto a sub-resolution MAP — at **zero** reweight cost. That makes it the right
-answer to the high-SNR problem and the wrong thing to call an "exponent chooser".
-Whether it should be the default is a separate question that needs the high-SNR
-bake-off in PR #183, not this change.
+`inv_T = 1` (the loop breaks on `inv_T >= 1`, and `post_weight` is then uniform),
+so it costs nothing at export. But it is **not** a free robustness win: it
+collapsed on one seed of two at SNR 23.8 (§3d), and cost **>24 min against 156 s**
+for a static run. On this evidence it must not be a default. PR #183 needs this:
+the anneal cannot be assumed safe.
 
 ### The closer structural analogue, for whoever picks this up
 
@@ -192,18 +241,22 @@ cost. Not touched here — out of scope, and unmeasured.
 
 ## 5. Limitations — axes swept, and axes presumed load-bearing
 
-**Swept:** beta over [0.05, 1]; sampled dimension via the closed form (3/4/5,
-verified analytically, only d=4 measured); two independent estimators (offline
-defensive IS, and the driver's own reported ESS).
+**Swept:** beta over [0.05, 1]; SNR ~15 to ~134 at fixed beta; two seeds on the
+accuracy arms; sampled dimension via the closed form (3/4/5, verified
+analytically, only d=4 measured); two independent estimators (offline defensive
+IS, and the driver's own reported ESS).
 
 **NOT swept, presumed load-bearing:**
 
-- **SNR above ~24 end-to-end.** §3a/3b are one event at SNR 23.8. The law's
-  SNR-independence is structural + supported by `Var_beta`, not yet demonstrated
-  end-to-end at 3G SNRs, which is exactly where tempering is claimed to matter.
-- **Posterior accuracy.** Everything above measures export *ESS*, not whether the
-  beta<1 posterior is *right*. The arm-vs-reference scoring is in
-  `RESULTS_jax_tempering_2026-08-23.md` in the paper repo.
+- **Accuracy above SNR 24.** The accuracy arms (§3d) are one event at SNR 23.8.
+  The ESS ladder reaches SNR ~134, but only measures export ESS there, not
+  whether the resulting posterior is right.
+- **The guard\'s threshold in the corner where the law is optimistic** (§3c
+  caveat 1): near ESS ~200 at small beta and high SNR the guard trusts a law that
+  over-predicts. It errs toward passing, not refusing. Not characterised.
+- **Only two seeds.** Enough to show the `--adapt-adapt` collapse (it is a 30x
+  effect) and to leave the beta=0.7735-vs-1 question open. Not enough for either
+  to be a width claim.
 - **Non-Gaussian / strongly multimodal targets.** The law is a Gaussian-peak
   result; the measured 0.79 shortfall at small beta is that approximation
   failing. A target with well-separated equal-mass modes may do worse.
