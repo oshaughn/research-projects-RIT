@@ -398,14 +398,14 @@ ComputeModeCrossTermIPCal / BuildCalibrationSelfTermBasis.)</p>
 </dl>
 <p>via a streaming log-sum-exp over the n_cal realizations (memory unchanged vs
 the n_cal==1 path; one extra GPU kernel launch per realization).</p>
-<dl class="simple">
+<dl>
 <dt>cal_method selects the n_cal&gt;1 reduction:</dt><dd><dl class="simple">
 <dt>‘loop’  (default, Option B): Python loop over realizations reusing the</dt><dd><p>existing Q_inner_product kernel; works on CPU and GPU and with any
 loglikelihood callback (distance/phase marginalization).</p>
 </dd>
 <dt>‘fused’ (Option C): a single fused kernel (RIFT.likelihood.Q_fused_calmarg)</dt><dd><p>does the Q-product, the loglikelihood, and the cal+time log-sum-exp in
 one launch – a CUDA kernel on GPU, or pure numpy on CPU.  Supports
-phase marginalization (<a href="#id41"><span class="problematic" id="id42">|kappa|</span></a>).  With cal_distmarg=None it
+phase marginalization (<a href="#id43"><span class="problematic" id="id44">|kappa|</span></a>).  With cal_distmarg=None it
 uses the default (distance-unmarginalized) helper kernel; with
 cal_distmarg=&lt;table dict&gt; it uses the separate distance-marginalization
 kernel (Q_fused_calmarg_distmarg) reproducing distmarg_loglikelihood.
@@ -417,11 +417,27 @@ path is the fallback for everything (incl. distmarg, on CPU and GPU).</p>
 <dt>cal_distmarg<span class="classifier">dict or None</span></dt><dd><p>Distance-marginalization table+params for the fused distmarg kernel; see
 RIFT.likelihood.Q_fused_calmarg.Q_fused_calmarg_distmarg_cupy.</p>
 </dd>
-<dt>time_interp<span class="classifier">{‘nearest’, ‘cubic’}</span></dt><dd><p>Detector-time sampling convention for the data term.  ‘nearest’
+<dt>time_interp<span class="classifier">{‘nearest’, ‘cubic’, ‘sinc’}</span></dt><dd><p>Detector-time sampling convention for the data term.  ‘nearest’
 preserves the historical NoLoop integer-bin gather.  ‘cubic’ evaluates
 the precomputed Q_lm time series at the fractional detector arrival time
 using a four-sample cubic Lagrange stencil, with zero extension outside
 the precomputed buffer.</p>
+<p>CHOOSING BETWEEN ‘cubic’ AND ‘sinc’: neither is uniformly better.  ‘cubic’ (4-point
+Lagrange) has O(h^4) error, so it improves fast with oversampling and is poor near
+Nyquist; ‘sinc’ (Lanczos) is window-limited, so its error is flat in oversampling.
+The operative quantity is NOT fNyq/fmax: Q^a_lm(t) is band-limited by whichever is
+lower, fmax or the TEMPLATE’s own cutoff, so the right choice depends on the masses,
+on fmin AND on srate.  The recommendation is NOT restated here – it has been superseded
+twice and docstring copies went stale both times.  Live value:
+RIFT.likelihood.time_interp_choice.CROSSOVER_GUIDANCE; measured tables:
+RIFT/likelihood/DESIGN_q_window_stencil.md.  THE DEFAULT IS ‘nearest’, NOT ‘cubic’: this argument defaults to
+‘nearest’, and the batch-mode CLI’s –interpolate-time defaults to off, which also
+resolves to ‘nearest’.  Omitting either therefore keeps the historical nearest-bin
+behavior, whose errors the measured guidance calls scientifically significant (200-443
+nats at SNR 100, reaching 1 nat by SNR 2-6); ‘cubic’ is only what a legacy truthy
+–interpolate-time value maps to.  Ask for a stencil explicitly if you want one.
+All three stencils have CPU and GPU implementations.  See _sinc_Q_window_numpy and
+RIFT/likelihood/DESIGN_q_window_stencil.md for the measured tables.</p>
 </dd>
 </dl>
 </section>
@@ -717,6 +733,67 @@ Needs to be restructured so it works on a ‘hook’ basis, so we are not consta
 <dd></dd></dl>
 
 <dl class="py function">
+<dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.marginalization_time_grid">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">marginalization_time_grid</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">integration_window_half</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deltaT</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.marginalization_time_grid" title="Link to this definition"></a></dt>
+<dd><p>The time-marginalization window grid, shared by every ILE likelihood path.</p>
+<p>THE ONE CONSTRUCTOR.  Both extrinsic drivers
+(<code class="docutils literal notranslate"><span class="pre">bin/integrate_likelihood_extrinsic_batchmode</span></code> and
+<code class="docutils literal notranslate"><span class="pre">bin/integrate_likelihood_extrinsic_jax</span></code>, the latter via
+<code class="docutils literal notranslate"><span class="pre">RIFT.likelihood.jax_ile.wrapper</span></code>) must obtain their grid here, or they
+silently evaluate different likelihoods – see issue #146, which measured
+up to 67.8 nats per sample between the two conventions that preceded this.</p>
+<p>Convention:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">npts</span>  <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="mi">2</span><span class="o">*</span><span class="n">integration_window_half</span><span class="o">/</span><span class="n">deltaT</span><span class="p">)</span>
+<span class="n">tvals</span> <span class="o">=</span> <span class="p">(</span><span class="n">arange</span><span class="p">(</span><span class="n">npts</span><span class="p">)</span> <span class="o">-</span> <span class="n">npts</span><span class="o">//</span><span class="mi">2</span><span class="p">)</span> <span class="o">*</span> <span class="n">deltaT</span>
+</pre></div>
+</div>
+<p>Two properties, and both matter:</p>
+<ol class="arabic simple">
+<li><p><strong>Spacing is EXACTLY deltaT.</strong>  Every consumer of this grid
+(<code class="docutils literal notranslate"><span class="pre">DiscreteFactoredLogLikelihoodViaArrayVector*</span></code>, the JAX
+<code class="docutils literal notranslate"><span class="pre">fused_log_likelihood*</span></code>) reads only <code class="docutils literal notranslate"><span class="pre">tvals[0]</span></code> and <code class="docutils literal notranslate"><span class="pre">len(tvals)</span></code>:
+it gathers <code class="docutils literal notranslate"><span class="pre">rho[ifirst:ifirst+npts]</span></code>, i.e. steps by one <em>sample</em>, and
+integrates with <code class="docutils literal notranslate"><span class="pre">dx=deltaT</span></code>.  So <code class="docutils literal notranslate"><span class="pre">tvals[k]</span></code> is a LABEL for a sample
+the code reaches by stepping deltaT from <code class="docutils literal notranslate"><span class="pre">tvals[0]</span></code>, and the label is
+only truthful if the grid is deltaT-spaced.  The former batchmode
+<code class="docutils literal notranslate"><span class="pre">linspace(-iwh,</span> <span class="pre">iwh,</span> <span class="pre">npts)</span></code> is spaced <code class="docutils literal notranslate"><span class="pre">2*iwh/(npts-1)</span></code>, which
+mislabelled its own samples by up to 1.4 samples (3.4e-4 s at
+iwh=0.075 s, srate=4096) at the window edge – visible wherever tvals is
+used as a time label, e.g. the time-resampling export in batchmode.</p></li>
+<li><p><strong>npts comes from ``int(2*iwh/deltaT)``, not ``2*int(iwh/deltaT)``.</strong>
+These differ whenever <code class="docutils literal notranslate"><span class="pre">2*iwh/deltaT</span></code> has a fractional part below 0.5:
+at iwh=0.075 s they disagree at srate 1024, 2048 and <strong>16384</strong> (the
+low-mass production rate) and agree at 4096 and 8192.  Taking the
+<code class="docutils literal notranslate"><span class="pre">int(2*iwh/deltaT)</span></code> form preserves batchmode’s window LENGTH at every
+rate; it lengthens the former JAX default by one sample at the rates
+above, which is the deliberate choice made here – a window that is a
+sample too SHORT truncates the time marginalization, and matching the
+longer-standing production length is the lower-risk direction.</p></li>
+</ol>
+<p>With <code class="docutils literal notranslate"><span class="pre">npts</span></code> even the grid is <code class="docutils literal notranslate"><span class="pre">[-npts/2,</span> <span class="pre">npts/2)</span></code> samples, exactly
+reproducing the former JAX <code class="docutils literal notranslate"><span class="pre">arange(-Nw,</span> <span class="pre">Nw)*deltaT</span></code>; with <code class="docutils literal notranslate"><span class="pre">npts</span></code> odd it
+is symmetric, <code class="docutils literal notranslate"><span class="pre">[-(npts//2),</span> <span class="pre">+(npts//2)]</span></code>.  Either way <code class="docutils literal notranslate"><span class="pre">t=0</span></code> – the
+fiducial epoch – is on the grid exactly, which the old linspace only
+achieved for odd npts.</p>
+<section id="id35">
+<h3>Parameters<a class="headerlink" href="#id35" title="Link to this heading"></a></h3>
+<dl class="simple">
+<dt>integration_window_half<span class="classifier">float</span></dt><dd><p>Half-width of the marginalization window in seconds (the drivers’
+<code class="docutils literal notranslate"><span class="pre">t_ref_wind</span></code> / <code class="docutils literal notranslate"><span class="pre">--data-integration-window-half</span></code>).</p>
+</dd>
+<dt>deltaT<span class="classifier">float</span></dt><dd><p>Sample spacing in seconds.</p>
+</dd>
+<dt>xpy<span class="classifier">module</span></dt><dd><p><code class="docutils literal notranslate"><span class="pre">numpy</span></code> or <code class="docutils literal notranslate"><span class="pre">cupy</span></code>; the array is built with <code class="docutils literal notranslate"><span class="pre">xpy.arange</span></code>.</p>
+</dd>
+</dl>
+</section>
+<section id="id36">
+<h3>Returns<a class="headerlink" href="#id36" title="Link to this heading"></a></h3>
+<p>array of shape (npts,), spacing exactly <code class="docutils literal notranslate"><span class="pre">deltaT</span></code>, containing 0.0.</p>
+</section>
+</dd></dl>
+
+<dl class="py function">
 <dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.non_herm_hoff">
 <span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">non_herm_hoff</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.non_herm_hoff" title="Link to this definition"></a></dt>
 <dd></dd></dl>
@@ -725,6 +802,16 @@ Needs to be restructured so it works on a ‘hook’ basis, so we are not consta
 <dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.profile">
 <span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">profile</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fn</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.profile" title="Link to this definition"></a></dt>
 <dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.validate_time_interp">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">validate_time_interp</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">time_interp</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">on_gpu</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.validate_time_interp" title="Link to this definition"></a></dt>
+<dd><p>Reject unknown stencils loudly.</p>
+<p>All three stencils now have both a CPU and a GPU implementation (‘sinc’ via the Q_inner_sinc
+kernel added alongside Q_inner and Q_inner_cubic), so on_gpu no longer restricts the choice.
+It is kept in the signature because the callers pass it and because it documents, at each
+call site, that the stencil has to be legal on the backend actually in use.</p>
+</dd></dl>
 
 </section>
 <section id="optimized-gpu-tools">
@@ -998,8 +1085,8 @@ weights:  weights in histogram</p>
 <dd><p>One-dimensional linear interpolation.</p>
 <p>Returns the one-dimensional piecewise linear interpolant to a function
 with given discrete data points (<cite>xp</cite>, <cite>fp</cite>), evaluated at <cite>x</cite>.</p>
-<section id="id35">
-<h3>Parameters<a class="headerlink" href="#id35" title="Link to this heading"></a></h3>
+<section id="id37">
+<h3>Parameters<a class="headerlink" href="#id37" title="Link to this heading"></a></h3>
 <dl>
 <dt>x<span class="classifier">array_like</span></dt><dd><p>The x-coordinates at which to evaluate the interpolated values.</p>
 </dd>
@@ -1022,8 +1109,8 @@ are ignored if <cite>period</cite> is specified.</p>
 </dd>
 </dl>
 </section>
-<section id="id36">
-<h3>Returns<a class="headerlink" href="#id36" title="Link to this heading"></a></h3>
+<section id="id38">
+<h3>Returns<a class="headerlink" href="#id38" title="Link to this heading"></a></h3>
 <dl class="simple">
 <dt>y<span class="classifier">float or complex (corresponding to fp) or ndarray</span></dt><dd><p>The interpolated values, same shape as <cite>x</cite>.</p>
 </dd>
@@ -1055,8 +1142,8 @@ A simple check for increasing is:</p>
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.likelihood.vectorized_lal_tools.ComputeDetAMResponse">
 <span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.vectorized_lal_tools.</span></span><span class="sig-name descname"><span class="pre">ComputeDetAMResponse</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">detector_response_matrix</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">source_right_ascension_radians</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">source_declination_radians</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">source_polarization_radians</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">greenwich_mean_sidereal_time</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dtype_real=&lt;class</span> <span class="pre">'numpy.float64'&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dtype_complex=&lt;class</span> <span class="pre">'numpy.complex128'&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.vectorized_lal_tools.ComputeDetAMResponse" title="Link to this definition"></a></dt>
-<dd><section id="id37">
-<h3>Parameters<a class="headerlink" href="#id37" title="Link to this heading"></a></h3>
+<dd><section id="id39">
+<h3>Parameters<a class="headerlink" href="#id39" title="Link to this heading"></a></h3>
 <dl class="simple">
 <dt>detector_response_matrix<span class="classifier">array_like, shape = det_shape + (3, 3)</span></dt><dd><p>Detector response matrix, or matrices for multiple detectors.  Last two
 axes must be 3-by-3 response matrix, and may include arbitrary axes before
@@ -1074,8 +1161,8 @@ array.</p>
 </dd>
 </dl>
 </section>
-<section id="id38">
-<h3>Returns<a class="headerlink" href="#id38" title="Link to this heading"></a></h3>
+<section id="id40">
+<h3>Returns<a class="headerlink" href="#id40" title="Link to this heading"></a></h3>
 <p>F : array_like, shape = det_shape + sample_shape</p>
 </section>
 </dd></dl>
@@ -1083,8 +1170,8 @@ array.</p>
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.likelihood.vectorized_lal_tools.TimeDelayFromEarthCenter">
 <span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.vectorized_lal_tools.</span></span><span class="sig-name descname"><span class="pre">TimeDelayFromEarthCenter</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">detector_earthfixed_xyz_metres</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">source_right_ascension_radians</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">source_declination_radians</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">greenwich_mean_sidereal_time</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dtype=&lt;class</span> <span class="pre">'numpy.float64'&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.vectorized_lal_tools.TimeDelayFromEarthCenter" title="Link to this definition"></a></dt>
-<dd><section id="id39">
-<h3>Parameters<a class="headerlink" href="#id39" title="Link to this heading"></a></h3>
+<dd><section id="id41">
+<h3>Parameters<a class="headerlink" href="#id41" title="Link to this heading"></a></h3>
 <dl class="simple">
 <dt>detector_earthfixed_xyz_metres<span class="classifier">array_like, shape = det_shape + (3,)</span></dt><dd><p>Location of detector(s) relative to Earth’s center in meters. May provide
 multiple detectors, last axis must be (x,y,z) but other axes can take
@@ -1099,8 +1186,8 @@ array.</p>
 </dd>
 </dl>
 </section>
-<section id="id40">
-<h3>Returns<a class="headerlink" href="#id40" title="Link to this heading"></a></h3>
+<section id="id42">
+<h3>Returns<a class="headerlink" href="#id42" title="Link to this heading"></a></h3>
 <p>time_delay_from_earth_center : array_like, shape = det_shape + sample_shape</p>
 </section>
 </dd></dl>

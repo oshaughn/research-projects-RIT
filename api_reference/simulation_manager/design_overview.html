@@ -291,12 +291,36 @@ generator under <cite>code/</cite>:</p>
 <span class="w">    </span><span class="sd">"""Reflexive, symmetric, transitive equality on parameters.</span>
 <span class="sd">    Defaults to exact equality (params_a == params_b)."""</span>
 
-<span class="k">def</span><span class="w"> </span><span class="nf">lookup_key</span><span class="p">(</span><span class="n">params</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Hashable</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">"""Maps params to a coarse hashable bucket for fast dedup.</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">lookup_key</span><span class="p">(</span><span class="n">params</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">"JSON-serializable"</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Maps params to a coarse bucket for fast dedup.</span>
 <span class="sd">    Must be consistent with same_q: same_q(a, b) == True implies</span>
 <span class="sd">    lookup_key(a) == lookup_key(b). Defaults to str(params)."""</span>
 </pre></div>
 </div>
+<p><strong>`lookup_key` must be JSON-serializable, not merely hashable.</strong> The
+bucket key is a <em>persisted</em> value — written to <cite>index.jsonl</cite>, with the
+dedup buckets rebuilt from that file on every <cite>Archive</cite> construction. So
+the real requirement is that it survive the archive’s JSON normalization
+unchanged. That is both stricter and weaker than hashability: a
+<cite>frozenset</cite> is hashable but cannot be persisted, while a plain <cite>list</cite> can
+be persisted but is not hashable.</p>
+<p>The engine normalizes on the way in and canonicalizes the same way on the
+way out, so these are handled rather than silently breaking dedup:</p>
+<ul class="simple">
+<li><p><strong>tuples</strong> — JSON has no tuple type, so a tuple key returns as a list;
+both canonicalize to the same form.</p></li>
+<li><p><strong>dict keys</strong> — JSON coerces them to strings, and not via <cite>str()</cite>:
+<cite>True</cite>/<cite>False</cite>/<cite>None</cite> become <cite>“true”</cite>/<cite>”false”</cite>/<cite>”null”</cite>, float
+infinities <cite>“Infinity”</cite>. Keys colliding once coerced
+(<cite>{True: ‘a’, “true”: ‘b’}</cite>) collapse last-wins, consistently on both
+sides.</p></li>
+</ul>
+<p>A key JSON cannot represent at all raises at <cite>register()</cite> with a message
+naming this contract, rather than surfacing as a <cite>sorted()</cite> TypeError
+from inside the index write.</p>
+<p>The safest choice is a <strong>string</strong>: it round-trips to itself, sorts, and
+cannot collide by coercion. RIFT’s own <cite>gw_pe_synthetic</cite> returns a tuple,
+which the normalization handles.</p>
 <p>These together give O(1) average lookup: bucket by <cite>lookup_key</cite>, then
 run <cite>same_q</cite> against only the (typically zero or one) entries in that
 bucket. The archive keeps an in-memory <cite>{lookup_key: [sim_name, …]}</cite>
@@ -632,6 +656,71 @@ vars — manifest &gt; constructor &gt; env &gt; hard-coded.</p>
 <cite>extra_condor_cmds</cite> dict (or <cite>run_queue.extra.extra_condor_cmds</cite> in
 the manifest). The bindings appear verbatim as additional <cite>key =
 value</cite> lines in every per-(sim, level) submit description.</p>
+<p>Because those lines are emitted <strong>last</strong>, a key that the queue already
+writes would replace its line rather than extend it — and
+<cite>condor_submit</cite> reports success either way. <cite>transfer_input_files</cite>,
+<cite>transfer_output_files</cite>, <cite>transfer_output_remaps</cite> and
+<cite>periodic_release</cite> are therefore refused in <cite>extra_condor_cmds</cite>
+(case-insensitively; HTCondor command names are). Each has an
+append-only alternative:</p>
+<p><cite>extra_periodic_release</cite> takes a single-line ClassAd expression for
+sites whose pool holds jobs for reasons the queue does not model — an
+opportunistic pool produces transient holds a dedicated cluster never
+sees. While <cite>auto_release_on_oom</cite> is on, the term is scoped away from
+whatever codes <cite>oom_hold_codes</cite> names, so <cite>oom_max_retries</cite> remains a
+real cap and <cite>request_memory</cite> cannot be multiplied without bound; the
+term governs every other hold code. With the OOM policy off it governs
+all of them.</p>
+</section>
+<section id="the-oom-policy-is-site-configuration">
+<h3>The OOM policy is site configuration<a class="headerlink" href="#the-oom-policy-is-site-configuration" title="Link to this heading"></a></h3>
+<p><cite>auto_release_on_oom</cite> releases a job held for running out of memory and
+raises its request. Three parts of that are properties of the <strong>site</strong>,
+not of HTCondor, and are arguments rather than constants:</p>
+<p>34 is the unambiguous memory code. <strong>26 is `SystemPolicy`</strong> — it means
+whatever the site’s <cite>SYSTEM_PERIODIC_HOLD</cite> expressions say it means. On
+the clusters this policy came from that is usually memory; on an OSG
+access point it may be an anti-thrash limiter whose precondition is a
+high <cite>NumJobStarts</cite>, in which case releasing it with a bigger memory
+request fights the pool’s own protection. Sub-codes exist for the finer
+case: every <cite>SYSTEM_PERIODIC_HOLD</cite> at a site reports one hold code, so
+only the sub-code separates “over memory” from “restarted too many
+times”.</p>
+<p>The counter is site-dependent too. <cite>NumJobStarts</cite> counts execution
+attempts, so preemption spends the budget. <cite>NumHolds</cite> counts holds of
+every kind, including input-transfer failures that increment it while
+the job has never run. Neither is “the number of memory holds”
+everywhere.</p>
+<p>These are two alternatives, not one configuration: an exclusion on a
+code <cite>oom_hold_codes</cite> does not list is refused, since it could not have
+had any effect. Either disown 26 entirely —</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">DualCondorRunQueue</span><span class="p">(</span>
+    <span class="n">auto_release_on_oom</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">oom_hold_codes</span><span class="o">=</span><span class="p">(</span><span class="mi">34</span><span class="p">,),</span>          <span class="c1"># 26 means something else here</span>
+    <span class="n">oom_retry_counter</span><span class="o">=</span><span class="s2">"NumHolds"</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>— or keep it and carve out the sub-codes the limiter reports:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">DualCondorRunQueue</span><span class="p">(</span>
+    <span class="n">auto_release_on_oom</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">oom_hold_codes</span><span class="o">=</span><span class="p">(</span><span class="mi">34</span><span class="p">,</span> <span class="mi">26</span><span class="p">),</span>
+    <span class="n">oom_hold_subcode_exclusions</span><span class="o">=</span><span class="p">{</span><span class="mi">26</span><span class="p">:</span> <span class="p">(</span><span class="mi">100</span><span class="p">,</span> <span class="mi">101</span><span class="p">)},</span>  <span class="c1"># 26, minus the limiter</span>
+    <span class="n">oom_retry_counter</span><span class="o">=</span><span class="s2">"NumHolds"</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>Which site is which is not recorded here.</strong> That belongs in whatever
+inventory you already keep about your own infrastructure; a table of
+site facts in this file would be stale immediately and wrong for every
+site it did not name. <cite>condor_config_val -dump | grep SYSTEM_PERIODIC_HOLD</cite>
+on the access point is what answers it.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">DualCondorRunQueue</span><span class="p">(</span>
+    <span class="n">auto_release_on_oom</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">extra_periodic_release</span><span class="o">=</span><span class="s2">"(HoldReasonCode =!= 1) &amp;&amp; (NumJobStarts &lt; 50)"</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+</div>
 </section>
 </section>
 <section id="hyperpipeline-glue-pipeline-integration">
