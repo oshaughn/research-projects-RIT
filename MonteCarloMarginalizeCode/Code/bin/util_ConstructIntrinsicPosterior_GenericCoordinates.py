@@ -1564,7 +1564,7 @@ def fit_xg(x,y,y_errors=None,fname_export='nn_fit',verbose=False):
     import xgboost as xgb
     # Instantiate model. Usually not that many structures to find, don't overcomplicate
     #   - should scale like number of samples
-    rf = xgb.XGBRegressor(n_estimators=100) # no more than 5% of samples in a leaf
+    rf = xgb.XGBRegressor(n_estimators=100)
     if y_errors is None:
         rf.fit(x,y)
     else:
@@ -1625,7 +1625,7 @@ def fit_rf(x,y,y_errors=None,fname_export='nn_fit',verbose=False):
     from sklearn.ensemble import ExtraTreesRegressor
     # Instantiate model. Usually not that many structures to find, don't overcomplicate
     #   - should scale like number of samples
-    rf = ExtraTreesRegressor(n_estimators=100, verbose=verbose,n_jobs=-1) # no more than 5% of samples in a leaf
+    rf = ExtraTreesRegressor(n_estimators=100, verbose=verbose,n_jobs=-1)
     if y_errors is None:
         rf.fit(x,y)
     else:
@@ -1661,7 +1661,7 @@ def fit_rf_pca(x,y,y_errors=None,fname_export='nn_fit'):
     x_pca = pca.fit_transform(x_scaled)
     # Instantiate model. Usually not that many structures to find, don't overcomplicate
     #   - should scale like number of samples
-    rf = ExtraTreesRegressor(n_estimators=100, verbose=True,n_jobs=-1) # no more than 5% of samples in a leaf
+    rf = ExtraTreesRegressor(n_estimators=100, verbose=True,n_jobs=-1)
 
     if y_errors is None:
         rf.fit(x_pca,y)
