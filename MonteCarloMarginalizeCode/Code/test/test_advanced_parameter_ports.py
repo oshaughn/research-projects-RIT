@@ -4,6 +4,7 @@ import ast
 from pathlib import Path
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -263,17 +264,154 @@ def test_clean_ile_keeps_hyperbolic_a6c_columns(tmp_path):
     assert all(line[10:12] == ["1.02", "4.1"] for line in lines)
 
 
-def test_ile_hyperbolic_output_retains_eob_parameter():
+def test_clean_ile_keeps_every_combined_advanced_column(tmp_path):
+    row = [-1, 30, 20, 0, 0, 0, 0, 0, 0, -55, 1.02, 4.1, 0.3, 1.1, 12, 0.1, 100, 30]
+    output = _run_clean_ile_lines(
+        tmp_path, [row], "--a6c", "--hyperbolic", "--eccentricity", "--meanPerAno"
+    )[0]
+
+    assert len(output) == 18
+    assert output[9] == "-55.0"
+    assert output[10:12] == ["1.02", "4.1"]
+    assert output[12:14] == ["0.3", "1.1"]
+
+
+def test_clean_ile_keeps_tidal_columns_alongside_advanced_groups(tmp_path):
+    row = [-1, 2, 1.4, 0, 0, 0, 0, 0, 0, 400, 800, -55, 1.02, 4.1, 0.3, 12, 0.1, 100, 30]
+    output = _run_clean_ile_lines(
+        tmp_path, [row], "--a6c", "--hyperbolic", "--eccentricity"
+    )[0]
+
+    assert len(output) == 19
+    assert output[9:11] == ["400.0", "800.0"]
+    assert output[11] == "-55.0"
+    assert output[12:14] == ["1.02", "4.1"]
+    assert output[14] == "0.3"
+
+
+def test_dag_postprocess_forwards_every_advanced_flag():
+    script = Path(__file__).parents[1] / "bin" / "util_ILEdagPostprocess.sh"
+    source = script.read_text()
+    # every flag after the directory/label arguments reaches util_CleanILE.py
+    assert '"${CLEAN_FLAGS[@]}"' in source
+    # ... instead of a mutually exclusive dispatch on the first flag only
+    assert "'--eccentricity'" not in source
+    assert "'--hyperbolic'" not in source
+
+
+def _extract_ile_output_block():
+    """Source of the ILE .dat writer (hyperpipeline branch + legacy branch)."""
     script = Path(__file__).parents[1] / "bin" / "integrate_likelihood_extrinsic_batchmode"
     tree = ast.parse(script.read_text())
-    combined_bodies = [
-        "\n".join(ast.unparse(statement) for statement in node.body)
-        for node in ast.walk(tree)
-        if isinstance(node, ast.If)
-        and ast.unparse(node.test) == "opts.save_hyperbolic and opts.save_EOB_parameters"
-    ]
-    assert combined_bodies
-    for body in combined_bodies:
-        assert "P.a6c" in body
-        assert "P.E0" in body
-        assert "P.p_phi0" in body
+    for node in ast.walk(tree):
+        for field in ("body", "orelse", "finalbody"):
+            statements = getattr(node, field, None)
+            if not isinstance(statements, list):
+                continue
+            for index, statement in enumerate(statements):
+                if not (
+                    isinstance(statement, ast.If)
+                    and ast.unparse(statement.test) == "_hpio.is_active()"
+                ):
+                    continue
+                start = index
+                while start > 0 and not isinstance(statements[start - 1], ast.ImportFrom):
+                    start -= 1
+                assert start > 0, "hyperpipeline_io import not found above the writer"
+                return "\n".join(
+                    ast.unparse(entry) for entry in statements[start - 1:index + 1]
+                )
+    raise AssertionError("ILE output-format block not found")
+
+
+class _CapturingNumpy:
+    def __init__(self):
+        self.rows = None
+
+    @staticmethod
+    def array(values):
+        return values
+
+    def savetxt(self, fname, rows):
+        self.rows = rows
+
+
+def _legacy_ile_row(monkeypatch, lambda1=0.0, lambda2=0.0, **flags):
+    """Run the ILE .dat writer in legacy mode and return the row it emits."""
+    monkeypatch.delenv("RIFT_HYPERPIPELINE_FORMAT", raising=False)
+    options = SimpleNamespace(
+        save_eccentricity=False,
+        save_meanPerAno=False,
+        save_EOB_parameters=False,
+        save_hyperbolic=False,
+        export_eos_index=False,
+        pin_distance_to_sim=False,
+    )
+    for name, value in flags.items():
+        assert hasattr(options, name)
+        setattr(options, name, value)
+    parameters = SimpleNamespace(
+        s1x=0.1, s1y=0.2, s1z=0.3, s2x=0.4, s2y=0.5, s2z=0.6,
+        lambda1=lambda1, lambda2=lambda2,
+        eccentricity=0.3, meanPerAno=1.1,
+        a6c=-55.0, E0=1.02, p_phi0=4.1, eos_table_index=7,
+    )
+    recorder = _CapturingNumpy()
+    namespace = {
+        "opts": options,
+        "P": parameters,
+        "numpy": recorder,
+        "event_id": -1,
+        "m1": 30.0,
+        "m2": 20.0,
+        "log_res": 12.0,
+        "manual_avoid_overflow_logarithm": 0.0,
+        "sqrt_var_over_res": 0.1,
+        "sampler": SimpleNamespace(ntotal=100),
+        "neff": 30,
+        "pinned_params": {"distance": 410.0},
+        "fname_output_txt": str(Path("unused.dat")),
+    }
+    exec(compile(_extract_ile_output_block(), "<ile-writer>", "exec"), namespace)
+    assert recorder.rows is not None
+    return list(recorder.rows[0])
+
+
+def test_ile_hyperbolic_output_retains_eob_parameter(monkeypatch):
+    row = _legacy_ile_row(monkeypatch, save_EOB_parameters=True, save_hyperbolic=True)
+
+    assert len(row) == 9 + 1 + 2 + 4
+    assert row[9] == -55.0
+    assert row[10:12] == [1.02, 4.1]
+
+
+def test_ile_legacy_row_keeps_every_enabled_group(monkeypatch):
+    row = _legacy_ile_row(
+        monkeypatch,
+        lambda1=400.0,
+        lambda2=800.0,
+        save_eccentricity=True,
+        save_meanPerAno=True,
+        save_EOB_parameters=True,
+        save_hyperbolic=True,
+    )
+
+    # lambda1 lambda2 | a6c | E0 p_phi0 | eccentricity meanPerAno, in CIP order
+    assert len(row) == 9 + 2 + 1 + 2 + 2 + 4
+    assert row[9:11] == [400.0, 800.0]
+    assert row[11] == -55.0
+    assert row[12:14] == [1.02, 4.1]
+    assert row[14:16] == [0.3, 1.1]
+    assert row[16] == 12.0  # lnL still lands 4 columns from the end
+
+
+def test_ile_legacy_row_preserves_unflagged_layout(monkeypatch):
+    assert len(_legacy_ile_row(monkeypatch)) == 13
+    assert len(_legacy_ile_row(monkeypatch, pin_distance_to_sim=True)) == 14
+    assert len(_legacy_ile_row(monkeypatch, lambda1=400.0, lambda2=800.0)) == 15
+    assert len(
+        _legacy_ile_row(
+            monkeypatch, lambda1=400.0, lambda2=800.0, export_eos_index=True
+        )
+    ) == 16
+    assert len(_legacy_ile_row(monkeypatch, save_eccentricity=True)) == 14

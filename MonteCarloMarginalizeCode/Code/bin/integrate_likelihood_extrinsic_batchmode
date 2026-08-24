@@ -4444,15 +4444,19 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         # the file layout is determined by hyperpipeline_io.build_column_list.
         # ------------------------------------------------------------------
         from RIFT.misc import hyperpipeline_io as _hpio
+        # Which optional parameter groups this row carries.  The hyperpipeline
+        # writer and the legacy writer below consume the SAME flags, so a run
+        # that enables several groups at once emits all of them in either
+        # format instead of only whichever one wins a branch dispatch.
+        _use_ecc = bool(opts.save_eccentricity)
+        _use_mpa = bool(_use_ecc and opts.save_meanPerAno)
+        _use_tides = bool(P.lambda1>0 or P.lambda2>0)
+        _use_eos_index = bool(_use_tides and opts.export_eos_index)
+        _use_eob = bool(opts.save_EOB_parameters)
+        _use_hyp = bool(opts.save_hyperbolic)
+        _use_distance = bool(opts.pin_distance_to_sim and not any(
+            (_use_tides, _use_ecc, _use_eob, _use_hyp)))
         if _hpio.is_active():
-            _use_ecc = bool(opts.save_eccentricity)
-            _use_mpa = bool(_use_ecc and opts.save_meanPerAno)
-            _use_tides = bool(P.lambda1>0 or P.lambda2>0)
-            _use_eos_index = bool(_use_tides and opts.export_eos_index)
-            _use_eob = bool(opts.save_EOB_parameters)
-            _use_hyp = bool(opts.save_hyperbolic)
-            _use_distance = bool(opts.pin_distance_to_sim and not any(
-                (_use_tides, _use_ecc, _use_eob, _use_hyp)))
             _cols = _hpio.build_column_list(
                 use_eccentricity=_use_ecc, use_meanPerAno=_use_mpa,
                 use_tides=_use_tides, use_eos_index=_use_eos_index,
@@ -4482,42 +4486,41 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             if _use_distance:
                 _vals["distance"] = pinned_params["distance"]
             _hpio.write_row(fname_output_txt, _cols, [_vals[c] for c in _cols])
-        elif opts.save_eccentricity:
-          if opts.save_meanPerAno:
-            # output format when eccentricity & meanPerAno are being used
-            if (P.lambda1>0 or P.lambda2>0):
-              numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.lambda1, P.lambda2, P.eccentricity, P.meanPerAno,  log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
-            else:
-              numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.eccentricity, P.meanPerAno,  log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
-          else:
-            # output format when only eccentricity is being used
-            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.eccentricity, log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
-        elif opts.save_hyperbolic and opts.save_EOB_parameters:
-          # output format when hyperbolic and EOB parameters are both being used.
-          # a6c precedes E0/p_phi0, matching the CIP column order
-          numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.a6c, P.E0, P.p_phi0, log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))
-        elif opts.save_hyperbolic:
-          # output format when hyperbolic is being used
-          numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.E0, P.p_phi0, log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))
-        elif not (P.lambda1>0 or P.lambda2>0) and opts.save_EOB_parameters:
-          numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.a6c, log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
-        elif (P.lambda1>0 or P.lambda2>0) and opts.save_EOB_parameters:
-          numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.lambda1, P.lambda2, P.a6c, log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
-        elif not (P.lambda1>0 or P.lambda2>0):
-          # output format when lambda is NOT used
-          if not opts.pin_distance_to_sim:
-            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
-#          elif opts.save_EOB_parameters:
-
-          else:
-            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, pinned_params["distance"], log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
         else:
-          if not(opts.export_eos_index):
-            # Alternative output format if lambda is active
-            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.lambda1, P.lambda2, log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
-#          elif opts.save_EOB_parameters:
-          else:
-            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.lambda1, P.lambda2, P.eos_table_index, log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
+          # ----------------------------------------------------------------
+          # Legacy ASCII row, built COMPOSITIONALLY (one `if` per enabled
+          # group), not by dispatching to one branch per combination.  The
+          # optional columns must appear in the same order as CIP's `col_lnL`
+          # increment chain in
+          # util_ConstructIntrinsicPosterior_GenericCoordinates.py:
+          #
+          #   event_id m1 m2 s1x s1y s1z s2x s2y s2z
+          #   [distance] [lambda1 lambda2 [eos_table_index]] [a6c] [E0 p_phi0]
+          #   [eccentricity [meanPerAno]]
+          #   lnL sigma_lnL ntotal neff
+          #
+          # A branch-per-combination layout silently dropped every group but
+          # the first (e.g. --save-eccentricity won over a6c/E0/p_phi0) while
+          # CIP still allocated columns for each enabled group, so it read the
+          # likelihood/statistics columns as physical parameters.
+          # ----------------------------------------------------------------
+          _row = [event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z]
+          if _use_distance:
+              _row += [pinned_params["distance"]]
+          if _use_tides:
+              _row += [P.lambda1, P.lambda2]
+              if _use_eos_index:
+                  _row += [P.eos_table_index]
+          if _use_eob:
+              _row += [P.a6c]
+          if _use_hyp:
+              _row += [P.E0, P.p_phi0]
+          if _use_ecc:
+              _row += [P.eccentricity]
+              if _use_mpa:
+                  _row += [P.meanPerAno]
+          _row += [log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res, sampler.ntotal, neff]
+          numpy.savetxt(fname_output_txt, numpy.array([_row]))
 
         # Per-intrinsic likelihood-vs-distance grid. Pure extrinsic-marginalized
         # likelihood as a function of d_L: divides out the distance sampling
