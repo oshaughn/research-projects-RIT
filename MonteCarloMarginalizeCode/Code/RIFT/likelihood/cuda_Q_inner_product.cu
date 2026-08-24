@@ -121,4 +121,81 @@ extern "C" {
       }
     }
   } // Q_inner_cubic
+
+  /* Band-limited (Lanczos windowed-sinc) sub-sample stencil.
+
+     Unlike Q_inner_cubic, the tap weights are NOT recomputed here: they are
+     precomputed on the host by RIFT.likelihood.factored_likelihood.
+     _sinc_lanczos_weight_matrix and passed in as tap_weights, shape
+     (num_extrinsic_samples, n_taps) row-major.  That is deliberate -- the CPU
+     and GPU stencils then share ONE definition of the weights, so any parity
+     failure is a kernel bug and never a re-derived-formula bug.  The cost is
+     negligible: O(n_ex * n_taps) host work against O(n_ex * window * n_lms *
+     n_taps) device work.
+
+     tap i sits at time index (index_start + i_time) + tap_first + i, with
+     tap_first = -a+1 for a half-width a (n_taps = 2a).
+
+     The weights are normalised to sum to one over the FULL stencil on the host,
+     BEFORE the bounds guard below drops any tap that falls outside the
+     precomputed Q buffer.  Dropped taps are not renormalised away, exactly as in
+     the CPU _sinc_Q_window_numpy, so the two agree in the zero-extension region
+     as well as the interior. */
+  __global__ void Q_inner_sinc(
+    const double2 * Q, const double2 * A,
+    const int * index_start,
+    const double * tap_weights,
+    int n_taps,
+    int tap_first,
+    int window_size,
+    int num_time_points,
+    int num_extrinsic_samples,
+    int num_lms,
+    double2 * out
+  ){
+    /* Weights depend only on the extrinsic sample, so stage them once per
+       threadIdx.x rather than re-reading global memory in the innermost loop. */
+    extern __shared__ double w_sh[];
+
+    size_t sample_idx = threadIdx.x + blockDim.x*blockIdx.x;
+    size_t t_idx = threadIdx.y + blockDim.y * blockIdx.y;
+
+    if (sample_idx < num_extrinsic_samples) {
+      for (int i = threadIdx.y; i < n_taps; i += blockDim.y) {
+        w_sh[threadIdx.x*n_taps + i] = tap_weights[sample_idx*(size_t)n_taps + i];
+      }
+    }
+    /* Outside the bounds check: every thread in the block must reach this. */
+    __syncthreads();
+
+    if (sample_idx < num_extrinsic_samples) {
+      int i_first_time = index_start[sample_idx];
+      const double * w = w_sh + threadIdx.x*n_taps;
+
+      for (size_t i_time = t_idx; i_time < window_size; i_time+=blockDim.y) {
+        size_t i_output = sample_idx*window_size + i_time;
+        int q_time = i_first_time + (int)i_time;
+        double out_re = 0.0;
+        double out_im = 0.0;
+
+        for (size_t i_lm = 0; i_lm < num_lms; ++i_lm) {
+          double q_re = 0.0;
+          double q_im = 0.0;
+          for (int i_tap = 0; i_tap < n_taps; ++i_tap) {
+            int q_idx = q_time + tap_first + i_tap;
+            if (q_idx >= 0 && q_idx < num_time_points) {
+              double2 q = Q[((size_t)q_idx)*num_lms + i_lm];
+              q_re += w[i_tap] * q.x;
+              q_im += w[i_tap] * q.y;
+            }
+          }
+          double2 a = A[sample_idx*num_lms + i_lm];
+          out_re += a.x*q_re - a.y*q_im;
+          out_im += a.x*q_im + a.y*q_re;
+        }
+
+        out[i_output] = make_double2(out_re, out_im);
+      }
+    }
+  } // Q_inner_sinc
 } // extern

@@ -386,6 +386,11 @@ def DiscreteFactoredLogLikelihoodFreqResponseNoLoop(
         # -- this likelihood is CPU-only but runs inside the GPU cvmfs container).
         t_det = float(P_vec.tref - float(t_ref)) + FL.TimeDelayFromEarthCenter(
             detector_location, RA, DEC, gmst_tref, xpy=np)
+        # NOTE: this file previously had NO validation, so an unknown time_interp
+        # silently executed the cubic branch below.  Gate it.  (An earlier revision of this
+        # comment also said 'sinc' was rejected on GPU; that stopped being true when
+        # Q_inner_sinc landed -- all three stencils now have both backends.)
+        FL.validate_time_interp(time_interp, on_gpu=not (xpy is np))
         sample_first = (t_det + float(tvals[0])) / P_vec.deltaT   # float(): tvals may be a cupy array on GPU
         if time_interp == 'nearest':
             ifirst = (np.round(sample_first) + 0.5).astype(int)
@@ -406,10 +411,7 @@ def DiscreteFactoredLogLikelihoodFreqResponseNoLoop(
             frac_d = None if time_interp == 'nearest' else xpy.asarray(frac_first)
             for p in p_list:
                 Q = xpy.ascontiguousarray(rho_by_p[det][p].T)   # (n_time, n_lms), device
-                if time_interp == 'nearest':
-                    res = Q_inner_product.Q_inner_product_cupy(Q, conjY_d, ifirst_i32, npts)
-                else:
-                    res = Q_inner_product.Q_inner_product_cubic_cupy(Q, conjY_d, ifirst_i32, frac_d, npts)
+                res = FL._q_inner_product_gpu(Q, conjY_d, ifirst_i32, frac_d, npts, time_interp)
                 term1 += xpy.conj(b_d[p])[:, None] * res
         else:
             for p in p_list:
@@ -419,7 +421,8 @@ def DiscreteFactoredLogLikelihoodFreqResponseNoLoop(
                     for i in range(npts_ex):
                         Qa[i] = det_rho[..., ifirst[i]:ilast[i]].T
                 else:
-                    Qa = FL._cubic_Q_window_numpy(det_rho.T, ifirst, frac_first, npts)
+                    Qa = FL._q_window_numpy_interp(det_rho.T, ifirst, frac_first, npts,
+                                                  time_interp)
                 term1 += np.conj(bvec[p])[:, None] * np.einsum('xi,xti->xt', np.conj(Ylms), Qa)
         term1 = term1.real * inv_dist[:, None]
 

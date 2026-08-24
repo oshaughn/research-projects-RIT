@@ -189,11 +189,38 @@ def same_q(params_a, params_b) -> bool:
     """Reflexive, symmetric, transitive equality on parameters.
     Defaults to exact equality (params_a == params_b)."""
 
-def lookup_key(params) -> Hashable:
-    """Maps params to a coarse hashable bucket for fast dedup.
+def lookup_key(params) -> "JSON-serializable":
+    """Maps params to a coarse bucket for fast dedup.
     Must be consistent with same_q: same_q(a, b) == True implies
     lookup_key(a) == lookup_key(b). Defaults to str(params)."""
 ```
+
+**`lookup_key` must be JSON-serializable, not merely hashable.** The
+bucket key is a *persisted* value — written to `index.jsonl`, with the
+dedup buckets rebuilt from that file on every `Archive` construction. So
+the real requirement is that it survive the archive's JSON normalization
+unchanged. That is both stricter and weaker than hashability: a
+`frozenset` is hashable but cannot be persisted, while a plain `list` can
+be persisted but is not hashable.
+
+The engine normalizes on the way in and canonicalizes the same way on the
+way out, so these are handled rather than silently breaking dedup:
+
+* **tuples** — JSON has no tuple type, so a tuple key returns as a list;
+  both canonicalize to the same form.
+* **dict keys** — JSON coerces them to strings, and not via `str()`:
+  `True`/`False`/`None` become `"true"`/`"false"`/`"null"`, float
+  infinities `"Infinity"`. Keys colliding once coerced
+  (`{True: 'a', "true": 'b'}`) collapse last-wins, consistently on both
+  sides.
+
+A key JSON cannot represent at all raises at `register()` with a message
+naming this contract, rather than surfacing as a `sorted()` TypeError
+from inside the index write.
+
+The safest choice is a **string**: it round-trips to itself, sorts, and
+cannot collide by coercion. RIFT's own `gw_pe_synthetic` returns a tuple,
+which the normalization handles.
 
 These together give O(1) average lookup: bucket by `lookup_key`, then
 run `same_q` against only the (typically zero or one) entries in that
@@ -555,6 +582,94 @@ OSG site-selection knobs (`+DESIRED_SITES`, `+UNDESIRED_SITES`,
 `extra_condor_cmds` dict (or `run_queue.extra.extra_condor_cmds` in
 the manifest). The bindings appear verbatim as additional `key =
 value` lines in every per-(sim, level) submit description.
+
+Because those lines are emitted **last**, a key that the queue already
+writes would replace its line rather than extend it — and
+`condor_submit` reports success either way. `transfer_input_files`,
+`transfer_output_files`, `transfer_output_remaps` and
+`periodic_release` are therefore refused in `extra_condor_cmds`
+(case-insensitively; HTCondor command names are). Each has an
+append-only alternative:
+
+| instead of `extra_condor_cmds[...]` | use |
+|---|---|
+| `transfer_input_files` | `extra_transfer_input_files` (appended) |
+| `transfer_output_files` | `extra_transfer_output_files` (appended, `{level}`/`{sim_name}` substituted) |
+| `periodic_release` | `extra_periodic_release` (OR'd in) |
+| `request_memory` | the `request_memory` argument, or `Archive.set_resources` per sim |
+
+`extra_periodic_release` takes a single-line ClassAd expression for
+sites whose pool holds jobs for reasons the queue does not model — an
+opportunistic pool produces transient holds a dedicated cluster never
+sees. While `auto_release_on_oom` is on, the term is scoped away from
+whatever codes `oom_hold_codes` names, so `oom_max_retries` remains a
+real cap and `request_memory` cannot be multiplied without bound; the
+term governs every other hold code. With the OOM policy off it governs
+all of them.
+
+### The OOM policy is site configuration
+
+`auto_release_on_oom` releases a job held for running out of memory and
+raises its request. Three parts of that are properties of the **site**,
+not of HTCondor, and are arguments rather than constants:
+
+| key | default | what it is |
+|---|---|---|
+| `oom_hold_codes` | `(34, 26)` | codes this site reports for a memory hold |
+| `oom_hold_subcode_exclusions` | `{}` | `{code: [subcode, ...]}` to carve out |
+| `oom_retry_counter` | `"NumJobStarts"` | expression rationing the retries |
+
+34 is the unambiguous memory code. **26 is `SystemPolicy`** — it means
+whatever the site's `SYSTEM_PERIODIC_HOLD` expressions say it means. On
+the clusters this policy came from that is usually memory; on an OSG
+access point it may be an anti-thrash limiter whose precondition is a
+high `NumJobStarts`, in which case releasing it with a bigger memory
+request fights the pool's own protection. Sub-codes exist for the finer
+case: every `SYSTEM_PERIODIC_HOLD` at a site reports one hold code, so
+only the sub-code separates "over memory" from "restarted too many
+times".
+
+The counter is site-dependent too. `NumJobStarts` counts execution
+attempts, so preemption spends the budget. `NumHolds` counts holds of
+every kind, including input-transfer failures that increment it while
+the job has never run. Neither is "the number of memory holds"
+everywhere.
+
+These are two alternatives, not one configuration: an exclusion on a
+code `oom_hold_codes` does not list is refused, since it could not have
+had any effect. Either disown 26 entirely —
+
+```python
+DualCondorRunQueue(
+    auto_release_on_oom=True,
+    oom_hold_codes=(34,),          # 26 means something else here
+    oom_retry_counter="NumHolds",
+)
+```
+
+— or keep it and carve out the sub-codes the limiter reports:
+
+```python
+DualCondorRunQueue(
+    auto_release_on_oom=True,
+    oom_hold_codes=(34, 26),
+    oom_hold_subcode_exclusions={26: (100, 101)},  # 26, minus the limiter
+    oom_retry_counter="NumHolds",
+)
+```
+
+**Which site is which is not recorded here.** That belongs in whatever
+inventory you already keep about your own infrastructure; a table of
+site facts in this file would be stale immediately and wrong for every
+site it did not name. `condor_config_val -dump | grep SYSTEM_PERIODIC_HOLD`
+on the access point is what answers it.
+
+```python
+DualCondorRunQueue(
+    auto_release_on_oom=True,
+    extra_periodic_release="(HoldReasonCode =!= 1) && (NumJobStarts < 50)",
+)
+```
 
 
 ## Hyperpipeline / glue.pipeline integration

@@ -1370,6 +1370,7 @@ if fetch_args:
 
 
 cip_job_list = None
+cip_args_for_iteration = []
 if  (cip_args_lines is None):
     # Write the default cip_job into cip_job_list n times
     # add some redundancy in case this happens : we're hitting a problem with having too few copies of this/fencepost error later
@@ -1377,6 +1378,7 @@ if  (cip_args_lines is None):
         cip_job_list =(opts.n_iterations)* [cip_job ]
     else:
         cip_job_list =(opts.n_iterations)* [ [cip_job, cip_job_worker] ]
+    cip_args_for_iteration = opts.n_iterations * [cip_args]
 else:  
     # we have different cip jobs for different iteration numbers
     cip_job_list = []
@@ -1466,10 +1468,69 @@ else:
             else:
                 print(" Exploding stage 3 ")
                 cip_job_list = cip_job_list + n_to_add*[[cip_job,cip_job_worker]]
+            # Retain the unmodified science arguments for the independent
+            # terminal L=1 run.  Fit-save/load and worker-output controls are
+            # pipeline mechanics, not part of the configured prior.
+            cip_args_for_iteration += n_to_add * [cip_args_lines[indx]]
         else:
             print(" Indefinite subdag-to-convergence requested for group ", indx)
             cip_job_list += ["Subdag"]
+            # The recursively generated subdag schedules its own terminal
+            # prior/evidence pair, so the outer DAG must not duplicate it.
+            cip_args_for_iteration += [None]
 print(" ===> Iteration size ", len(cip_job_list), opts.n_iterations)
+
+# Dedicated terminal prior-normalization job.  It reuses the final iteration's
+# physical CIP arguments but runs independently with L=1.  Only the terminal
+# node is scheduled below; intermediate evidence summaries remain unchanged.
+prior_job = None
+final_evidence_job = None
+if opts.n_iterations > 0 and cip_args_for_iteration[opts.n_iterations-1] is not None:
+    prior_args = cip_args_for_iteration[opts.n_iterations-1]
+    prior_args += " --integrate-prior --n-output-samples 1 --no-plots "
+    prior_job, prior_job_name = dag_utils.write_CIP_sub(
+        tag='CIP_prior', log_dir=None, arg_str=prior_args,
+        request_memory=opts.request_memory_CIP,
+        input_net=opts.working_directory+'/all.net',
+        output='prior-integral-$(macroiteration)',
+        out_dir=opts.working_directory, exe=cip_exe,
+        universe=local_worker_universe, no_grid=True)
+    prior_job.add_condor_cmd("initialdir", opts.working_directory)
+    prior_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/prior-$(cluster)-$(process).log")
+    prior_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/prior-$(cluster)-$(process).err")
+    prior_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/prior-$(cluster)-$(process).out")
+    prior_job.add_condor_cmd('request_disk', opts.general_request_disk)
+    if opts.use_full_submit_paths:
+        prior_job.set_sub_file(opts.working_directory+"/"+prior_job.get_sub_file())
+    if opts.condor_containerize_nonworker and singularity_image:
+        prior_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+    _add_hpip_condor_env(prior_job)
+    prior_job.write_sub_file()
+
+    final_evidence_source = " --cip-dir iteration_$(macroiteration)_cip"
+    if opts.cip_explode_jobs is None:
+        final_evidence_source = " --cip-dir . --cip-prefix overlap-grid-$(macroiterationnext)"
+    final_evidence_args = (
+        final_evidence_source +
+        " --output evidence_$(macroiteration) --strict"
+        " --prior-integral prior-integral-$(macroiteration)_withpriorchange+annotation.dat"
+        " --normalized-output evidence_$(macroiteration)_normalized "
+    )
+    final_evidence_job, final_evidence_job_name = dag_utils.write_convert_sub(
+        tag='evidence_final', exe=exe_evidence, log_dir='', file_input='',
+        arg_str=final_evidence_args, universe=local_worker_universe,
+        no_grid=no_worker_grid)
+    final_evidence_job.add_condor_cmd("initialdir", opts.working_directory)
+    final_evidence_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/evidence-final-$(cluster)-$(process).log")
+    final_evidence_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/evidence-final-$(cluster)-$(process).err")
+    final_evidence_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/evidence-final-$(cluster)-$(process).out")
+    final_evidence_job.add_condor_cmd('request_disk', opts.general_request_disk)
+    if opts.use_full_submit_paths:
+        final_evidence_job.set_sub_file(opts.working_directory+"/"+final_evidence_job.get_sub_file())
+    if opts.condor_containerize_nonworker and singularity_image:
+        final_evidence_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+    _add_hpip_condor_env(final_evidence_job)
+    final_evidence_job.write_sub_file()
 ##   Test job (terminate, convergence
 if opts.test_args:
     test_node_list = []
@@ -1718,6 +1779,8 @@ if opts.comov_distance_reweighting:
 #    
 
 parent_fit_node = None
+final_evidence_parent_node = None
+final_test_node = None
 last_puff_node = None
 last_node=None
 
@@ -2231,6 +2294,11 @@ for it in np.arange(it_start,opts.n_iterations):
 
 
 
+    # Preserve the final physical-product barrier before adding the convergence
+    # node.  A converged test uses ABORT-DAG-ON, so terminal evidence must run
+    # before that test rather than as its child.
+    final_evidence_parent_node = parent_fit_node
+
     if opts.test_args and it>0:
         # Cannot run test on first iteration
         test_node = pipeline.CondorDAGNode(test_job)
@@ -2240,8 +2308,35 @@ for it in np.arange(it_start,opts.n_iterations):
         test_node.set_category("CONVERGE")
         dag.add_node(test_node)
         test_node_list.append(test_node)
+        if it == opts.n_iterations - 1:
+            final_test_node = test_node
 
         parent_fit_node=test_node
+
+
+# The in-loop evidence node is deliberately backward-looking, so without this
+# terminal pair iteration n_iterations-1 is never summarized.  The prior run
+# is independent of the likelihood workers and the strict final consolidator
+# waits for both products before reporting ln B_H.
+if final_evidence_job is not None and final_evidence_parent_node is not None:
+    final_iteration = opts.n_iterations - 1
+    prior_node = pipeline.CondorDAGNode(prior_job)
+    prior_node.add_macro("macroiteration", final_iteration)
+    prior_node.set_category("CIP_PRIOR")
+    prior_node.set_retry(opts.general_retries)
+    prior_node.add_parent(final_evidence_parent_node)
+    dag.add_node(prior_node)
+
+    final_evidence_node = pipeline.CondorDAGNode(final_evidence_job)
+    final_evidence_node.add_macro("macroiteration", final_iteration)
+    final_evidence_node.add_macro("macroiterationnext", final_iteration + 1)
+    final_evidence_node.set_category("EVIDENCE")
+    final_evidence_node.set_retry(opts.general_retries)
+    final_evidence_node.add_parent(final_evidence_parent_node)
+    final_evidence_node.add_parent(prior_node)
+    dag.add_node(final_evidence_node)
+    if final_test_node is not None:
+        final_test_node.add_parent(final_evidence_node)
 
 
 # Create export stages for extrinsic samples

@@ -420,6 +420,35 @@ def F_fd_expanded(det, ra, dec, psi, f, Qmax, gmst=0.0, L_arm=None):
     return Fp, Fc
 
 
+def unpaired_extreme_bin(fvals):
+    """Mask of the extreme-|f| bin when it has NO partner at the opposite sign.
+
+    RIFT's two-sided packing (f[k] = deltaF*(npts/2 - k)) carries +fNyq at k=0 but no
+    -fNyq, because the bin holding -f[k] is npts-k, which for k=0 is bin 0 itself.  That
+    bin has to serve both signs, so a weight which is not even in f has no consistent
+    value there.
+
+    Tests UNPAIREDNESS, not magnitude: a one-sided axis has no such bin (its top is just
+    the top of a band), and neither does a symmetric axis carrying both +/-fmax.  Returns
+    an all-False mask in those cases.
+
+    factored_likelihood_with_rotation.time_derivative_weight applies the same rule with a
+    slightly different guard; the two are not interchangeable.
+    """
+    f = np.asarray(fvals)
+    if f.ndim < 1 or f.size < 2:
+        return np.zeros(np.shape(f), dtype=bool)
+    if not (np.any(f < 0) and np.any(f > 0)):
+        # One-sided (or all-zero) axis: the top of an analysis band is NOT an unpaired
+        # Nyquist bin, and must not be touched.
+        return np.zeros(f.shape, dtype=bool)
+    fn = np.max(np.abs(f))
+    if np.any(f >= fn) and np.any(f <= -fn):
+        # Symmetric axis: the extreme bin has a partner, so it is well defined.
+        return np.zeros(f.shape, dtype=bool)
+    return np.abs(f) >= fn
+
+
 def finite_size_response_weights(fvals, geom, Qmax):
     """Per-basis frequency weights W_p(f) folded into the FD modes for the likelihood.
 
@@ -427,10 +456,27 @@ def finite_size_response_weights(fvals, geom, Qmax):
         p=0   ("baseline") : W_0(f) = 1                       b_0 = F0 (exact lal)
         p=1+q              : W_{1+q}(f) = e^{-i2pi f T} c_q(f) - [q==0]
                                                               b_{1+q} = beta_q  (arm)
-    Each W_p is Hermitian (W_p(-f)=conj(W_p(f))) so the V cross term needs NO
-    harmonic reflection.  The common delay e^{-i2 pi f T} (= a T=L/c arrival-time
-    shift of the finite-size correction relative to the LWL baseline) is carried
-    inside the correction weights.  Returns (weights (Npbasis, Nf) complex, coeff-builder).
+    The common delay e^{-i2 pi f T} (= a T=L/c arrival-time shift of the finite-size
+    correction relative to the LWL baseline) is carried inside the correction weights.
+    Returns the weights, (Npbasis, Nf) complex.
+
+    Each W_p is Hermitian, W_p(-f) = conj(W_p(f)), which is what lets the V cross term
+    skip a harmonic reflection.  On a two-sided grid the unpaired extreme bin has to stand
+    for both signs, so Hermiticity there means real; it is projected onto its real part,
+    the Hermitian average.  Without that, crossTermsV_fr = <conj(W_p h)|W_p' h'> is not the
+    term it claims to be.
+
+    This is a GRID object, not a pointwise map f -> W(f): the value at the extreme bin
+    depends on the axis, so build the weights on the same axis the overlap will use.
+
+    DO NOT REMOVE THE PROJECTION ON THE GROUNDS THAT IT CHANGES NOTHING.  It is a no-op in
+    RIFT overlaps today only because ComplexIP gives the extreme bin zero weight.  Any later
+    step that mixes frequencies -- a modulation, a resampling, a windowed round trip -- or
+    any consumer that indexes W directly instead of going through ComplexIP, makes it live.
+    The Path-B twin is this same bin, made live by exactly such a step.
+
+    Evidence and measured impact: issues #164 / #165, and (once merged)
+    RIFT_roboto_paper analyses/slowrot_nyquist_bin/NOTE.md.
     """
     fvals = np.asarray(fvals, dtype=float)
     c = finite_size_c_coeffs(fvals, geom['L'], Qmax)
@@ -439,4 +485,7 @@ def finite_size_response_weights(fvals, geom, Qmax):
     W[0] = 1.0
     for q in range(Qmax + 1):
         W[1 + q] = phase * c[q] - (1.0 if q == 0 else 0.0)
+    nyq = unpaired_extreme_bin(fvals)
+    if np.any(nyq):
+        W[:, nyq] = W[:, nyq].real
     return W

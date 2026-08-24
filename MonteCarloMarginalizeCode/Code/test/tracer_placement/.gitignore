@@ -1,0 +1,8 @@
+# This suite's lock is deliberately NOT tracked.
+#
+# The root pixi project commits its lock because it pins the production RIFT
+# stack. This one is a disposable test environment that runs in CI and on
+# assorted developer and access-point machines; a committed lock there just
+# churns, goes stale, and pins platforms nobody in that set is using. Let pixi
+# re-solve. test/hyperpipe/ tracks no lock either.
+pixi.lock

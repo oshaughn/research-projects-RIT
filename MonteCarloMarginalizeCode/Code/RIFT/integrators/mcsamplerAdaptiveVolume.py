@@ -12,6 +12,7 @@ from collections import defaultdict
 import numpy
 np=numpy #import numpy as np
 from RIFT.precision import RiftFloat  # platform-portable replacement for np.float128
+from RIFT.integrators.rvs_record import RvsRecord, SamplerOutputMixin   # see DESIGN_rvs_naming.md
 from scipy import integrate, interpolate, special
 import itertools
 import functools
@@ -110,6 +111,27 @@ def _av_trace(msg):
     if _AV_TRACE:
         print("  [AV trace] " + msg)
         sys.stdout.flush()
+
+def _warm_seed_rng(seed, stream):
+    """RNG for the warm-start seed clouds (the bootstrap_from_* family).
+
+    `seed=None` used to mean np.random.RandomState(None), which takes fresh OS
+    entropy and is reached by NOTHING that seed_everything touches -- so with the
+    driver's warm-start options on (their coverage floors default to 0.5, i.e. the
+    uniform cover cloud is drawn on every warm start) two invocations with the same
+    --seed built DIFFERENT live volumes, hence different draws and a different lnZ.
+    A warm seed cannot bias the integral, but it certainly moves it, which is
+    exactly what --seed exists to pin down.
+
+    So derive the stream from the run's seed instead, advancing a counter per call
+    so successive warm starts (one per intrinsic point) stay independent rather than
+    all sharing one coverage cloud.  An explicit integer `seed` still wins, and an
+    unseeded run still gets fresh entropy.
+    """
+    if seed is not None:
+        return np.random.RandomState(seed)
+    from RIFT.integrators.seeding import next_derived_rng
+    return next_derived_rng(stream)
 
 class NanOrInf(Exception):
     def __init__(self, value):
@@ -539,7 +561,7 @@ def warm_seed_scale_from_finite_points(points, lnL, box_lo, box_hi, axes,
 
 def build_warm_seed(points, lnL, box_lo, box_hi, axes, deltalnL=15.0,
                     puff_width_frac=1.0 / 200, puff_scale='auto', puff_factor=2.0,
-                    n_puff=2000, seed=0):
+                    n_puff=2000, seed=None):
     """Build the L0 rescue's warm seed from a pass's own samples -> (seed, info).
 
     `points` (n, ndim) and `lnL` (n,) are the completed pass's draws.  The seed is the
@@ -594,7 +616,13 @@ def build_warm_seed(points, lnL, box_lo, box_hi, axes, deltalnL=15.0,
         used = 'fixed'
         cov_u = np.diag(np.full(len(ax), float(puff_width_frac) ** 2))
     cov_u = cov_u * (float(puff_factor) ** 2)
-    rng = np.random.RandomState(seed)
+    # The puff was RandomState(0): deterministic, so it never broke same-seed
+    # reproducibility -- it broke the other half of what --seed means.  Both driver call
+    # sites (L0 auto-rescue, sequential warm-start) omit `seed`, so EVERY intrinsic point
+    # of a run was puffed with the same standard normal deviates, and --seed 101 and
+    # --seed 202 got the identical cloud.  A replicate-seed study then has its rescue arm
+    # frozen across arms, which understates exactly the run-to-run spread it is measuring.
+    rng = _warm_seed_rng(seed, 'av.build_warm_seed.puff')
     n_puff = int(n_puff)
     # scaled draws on the adaptive axes; the remaining axes get the isotropic width (the
     # grid puts one bin on them, so their only job is to not be a single repeated value)
@@ -645,7 +673,7 @@ def sample_from_bins(xrange, dx, bu, ninbin, reject_out_of_range=False):
         return x
 
 
-class MCSampler(object):
+class MCSampler(SamplerOutputMixin, object):
     # COMPACT SUPPORT: this sampler's density is EXACTLY ZERO outside its contracted live volume,
     # so once seeded or contracted it cannot serve as the mixture's coverage guarantee.
     # mcsamplerPortfolio reads this to decide whether it must hold one member cold.
@@ -1321,7 +1349,7 @@ class MCSampler(object):
         cover_frac = float(np.clip(cover_frac, 0.0, 1.0))
         _core = X   # the concentrated proposal; sets the grid RESOLUTION
         if cover_frac > 0:
-            rng = np.random.RandomState(seed)
+            rng = _warm_seed_rng(seed, 'av.bootstrap_from_samples.cover')
             n_cover = max(int(cover_frac / (1.0 - cover_frac) * len(X)), 1)
             Xc = rng.uniform(self.my_ranges.T[0], self.my_ranges.T[1],
                              size=(n_cover, len(self.params_ordered)))
@@ -1356,7 +1384,7 @@ class MCSampler(object):
         possibly-misspecified seed.  Default 0."""
         if not hasattr(self, 'my_ranges'):
             self.setup()
-        rng = np.random.RandomState(seed)
+        rng = _warm_seed_rng(seed, 'av.bootstrap_from_gaussian')
         mean = np.asarray(mean, dtype=float)
         cov = np.atleast_2d(np.asarray(cov, dtype=float))
         if params is not None:
@@ -1394,7 +1422,7 @@ class MCSampler(object):
         unbiased."""
         if not hasattr(self, 'my_ranges'):
             self.setup()
-        rng = np.random.RandomState(seed)
+        rng = _warm_seed_rng(seed, 'av.bootstrap_from_gaussian_mixture')
         means = [np.asarray(m, dtype=float) for m in means]
         covs = [np.atleast_2d(np.asarray(c, dtype=float)) for c in covs]
         k = len(means)
@@ -1575,6 +1603,9 @@ class MCSampler(object):
         # flag is not the same predicate, since the draw is skipped when it would not
         # shrink the record.  Reset per pass: samplers are reused across events.
         self._rvs_is_fairdraw = False
+        # The record describes THIS pass only.  Cleared with the flag above and set
+        # below, so it can never survive into a pass it does not describe.
+        self._rvs_record = None
         n_extr = kwargs["igrand_fairdraw_samples_max"] if "igrand_fairdraw_samples_max" in kwargs else None
 
         bShowEvaluationLog = kwargs['verbose'] if 'verbose' in kwargs else False
@@ -1924,6 +1955,13 @@ class MCSampler(object):
 #        rel_var = np.exp(outvals[1]/2  - outvals[0]  - np.log(self.ntotal)/2 )
 
         # Do a fair draw of points, if option is set. CAST POINTS BACK TO NUMPY, IDEALLY
+        # (DESIGN_rvs_naming.md) _rvs is the RETAINED set at this point -- pruned,
+        # perhaps, but never resampled.  Record that before the draw below can change what it
+        # means, so "not resampled" is a statement the record makes rather than the absence of
+        # one.  The reserve rides along BY REFERENCE where the sampler keeps one (AV and the
+        # portfolio); None elsewhere is the honest answer, not a gap.
+        self._rvs_record = RvsRecord.retained(
+            self._rvs, reserve=getattr(self, '_warm_seed_reserve', None))
         if bFairdraw and not(n_extr is None):
            n_extr = int(numpy.min([n_extr,1.5*identity_convert(eff_samp),1.5*neff]))
            print(" Fairdraw size : ", n_extr)
@@ -1950,9 +1988,21 @@ class MCSampler(object):
                        self._rvs[key] = arr[:,indx_host]
                    else:
                        self._rvs[key] = arr[indx_host]
-
-
+               # (see DESIGN_rvs_naming.md) the same rows, under a name that says what
+               # they are, carrying their own provenance.  Written HERE because this is the
+               # moment the meaning of _rvs changes -- from the retained set to an export
+               # resample -- and the whole point is that the change of meaning is recorded
+               # where it happens rather than reconstructed later from a flag someone else
+               # has to maintain.  NOTHING READS THIS YET; it is a no-op on every output.
                self._rvs_is_fairdraw = True   # _rvs is now an EXPORT resample, rows already ~ w
+               # ...and now it is an export resample.  n_retained comes from that record's
+                # PROVENANCE, which captured the count eagerly -- NOT from len(), which reads
+                # self._rvs and would return the POST-draw length: the retained record holds a
+                # REFERENCE to the live dict this block has just replaced in place.  That is
+                # this project's own bug class, so it is spelled out rather than assumed.
+               self._rvs_record = RvsRecord.fair_draw(
+                   self._rvs, n_retained=self._rvs_record.n_retained(),
+                   reserve=getattr(self, '_warm_seed_reserve', None))
         # perform type conversion of all stored variables.  VERY LARGE -- should only do this if we need it!
         if cupy_ok:
           for name in self._rvs:

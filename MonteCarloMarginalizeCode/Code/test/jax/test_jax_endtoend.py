@@ -110,8 +110,32 @@ def main():
 
     S = 40
     Pvec, distMpc = build_Pvec(P, S, fiducial_epoch, P.deltaT)
-    tvals = np.linspace(-integration_window_half, integration_window_half,
-                        int(2 * integration_window_half / P.deltaT))
+    # Compare like with like: hand the numpy reference the SAME time grid the
+    # JAX data object was built with.  Both paths consume only tvals[0] and
+    # len(tvals) -- each steps by P.deltaT and integrates with dx=deltaT -- so a
+    # *sub-sample* difference in tvals[0] rounds ifirst to a DIFFERENT integer
+    # sample for a sky-dependent subset of samples, and a different subset per
+    # detector, which misaligns the coherent network sum by one sample.  Building
+    # an independent grid here therefore reported a ~67.8 nat "mismatch" that was
+    # an artifact OF THIS HARNESS.
+    #
+    # As of issue #146 the same 67.8 nats is no longer ALSO a live disagreement
+    # between the two production drivers: both
+    # bin/integrate_likelihood_extrinsic_batchmode (all ten window-grid sites) and
+    # the jax_ile wrapper now call factored_likelihood.marginalization_time_grid().
+    # test/jax/test_tvals_grid_convention.py is what asserts that, at five sample
+    # rates including 16384; this test still holds the grid fixed and tests only
+    # that the two LIKELIHOODS agree, at 4096.
+    tvals = np.asarray(data.tvals)
+    # Pin the builder's convention by VALUE, independently reconstructed.  (An
+    # `assert len(tvals) == data.npts` would be a tautology -- core.py sets
+    # npts = len(tvals) -- and would not have caught the original defect
+    # either, since both grids had length 614 and differed only in offset.)
+    _npts = int(2 * integration_window_half / P.deltaT)
+    np.testing.assert_allclose(tvals, (np.arange(_npts) - _npts // 2) * P.deltaT,
+                               rtol=0, atol=0,
+                               err_msg="build_data_from_precompute tvals convention changed; "
+                                       "a linspace grid here silently misaligns ifirst")
 
     lnL_ref = FL.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(
         tvals, Pvec, lookupNKDict, rholmsArrayDict, ctUArrayDict, ctVArrayDict,
@@ -173,6 +197,13 @@ def main():
           f"({best[0]:.2f},{best[1]:.2f})  [truth (1.20,-0.40)]")
 
     print("\nEND-TO-END TEST PASSED")
+
+
+def test_endtoend():
+    """pytest entry point.  Without this the file defines no test_* function and
+    `pytest test/jax/` collects ZERO items from it and exits 5 ("no tests ran"),
+    which reads as green -- which is how this test stayed broken for a month."""
+    main()
 
 
 if __name__ == "__main__":

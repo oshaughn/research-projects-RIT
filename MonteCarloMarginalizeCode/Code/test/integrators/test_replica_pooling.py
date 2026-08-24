@@ -60,6 +60,44 @@ def test_pooling_reproduces_the_combined_evidence():
     assert len(pooled['x']) == 12000
 
 
+def test_pooling_preserves_the_layout_of_a_combined_parameter():
+    """A combined parameter is stored (ndim, N) under a TUPLE key -- the row axis is the SECOND
+    one, which is why `_rvs_len` reads shape[-1] there.
+
+    Ravelling every column and concatenating on axis 0 turned that into one 1-D column of length
+    ndim*sum(N) while the scalar columns had sum(N) rows, so --mc-error-replicas handed the
+    exporter a malformed record: it unpacks the combined sky column as
+
+        samples["latitude"], samples["longitude"] = samples[("declination", "right_ascension")]
+
+    which then unpacks a 1-D array of 2*sum(N) values -- an abort, or two wrong columns.
+    """
+    rng = numpy.random.RandomState(41)
+    sky = ("declination", "right_ascension")
+    reps = []
+    for n, lnZ in ((300, 0.0), (200, 0.2)):
+        r = _replica(rng, n, lnZ, 1.0)
+        r[sky] = numpy.vstack([rng.uniform(-1.0, 1.0, size=n), rng.uniform(0.0, 6.0, size=n)])
+        reps.append(r)
+
+    pooled = DRV._pool_replica_rvs(reps, _S(), rep_lnZ=[0.0, 0.2])
+    assert pooled[sky].shape == (2, 500), (
+        "combined parameter pooled to shape {} rather than (ndim, sum(N))".format(
+            pooled[sky].shape))
+    # the combined column must agree with the SCALAR columns about how many rows there are
+    assert len(pooled['log_integrand']) == 500
+    assert DRV._rvs_len(pooled) == 500
+    # and the exporter's unpack must give back each block's rows, in block order
+    lat, lon = pooled[sky]
+    assert numpy.allclose(lat, numpy.concatenate([reps[0][sky][0], reps[1][sky][0]]))
+    assert numpy.allclose(lon, numpy.concatenate([reps[0][sky][1], reps[1][sky][1]]))
+
+    # the flat-block path rewrites joint_s_prior; the combined parameter must ride through it
+    # unchanged in layout as well
+    flat = DRV._pool_replica_rvs(reps, _S(), rep_lnZ=[0.0, 0.2], already_resampled=[True, False])
+    assert flat[sky].shape == (2, 500)
+
+
 def test_max_neff_selection_would_export_the_collapsed_replica():
     """Why selection by n_eff is the wrong rule: n_eff measures CONCENTRATION, not coverage, so a
     mode-collapsed replica scores highest and would be the one exported alongside a combined

@@ -320,7 +320,19 @@ def bootstrap_lnZ_quantiles(log_wt, n_total=None, n_boot=200, quantiles=(0.05, 0
         return None
     if n_total is None:
         n_total = n
-    rng = numpy.random.default_rng(rng_seed)
+    # Reproducibility: default_rng(None) takes fresh OS entropy, so the printed
+    # interval moved between two invocations that agreed on lnZ to the last bit.
+    # Derive the stream from --seed instead.  It MUST be a stream of its own and
+    # must not consume numpy's global RNG: the samplers draw from that global
+    # stream, so spending draws here would shift every subsequent sampler draw and
+    # this diagnostic -- which is not allowed to touch the answer -- would change
+    # lnL.  The counter keeps the per-point/per-replica bootstraps from all
+    # resampling with the same indices.  Unseeded runs keep fresh entropy.
+    if rng_seed is None:
+        from RIFT.integrators.seeding import next_derived_rng
+        rng = next_derived_rng('statutils.bootstrap_lnZ_quantiles')
+    else:
+        rng = numpy.random.default_rng(rng_seed)
     ref = lw.max()
     w = numpy.exp(lw - ref)
     out = numpy.empty(n_boot)

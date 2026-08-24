@@ -69,8 +69,14 @@ def _run(builder, tag, **kw):
     return data
 
 
-if __name__ == "__main__":
+# pytest entry point -- see the note in test_jax_slowrot.py.  Without it this
+# file collects zero items and pytest exits 5, which reads as green.
+def test_one_call_builders():
     _run(build_rotation_data_from_precompute, "rotation", p_max=0)
     _run(build_freqresponse_data_from_precompute, "freqresponse", Qmax=4,
          L_arm=40000.0)
+
+
+if __name__ == "__main__":
+    test_one_call_builders()
     print("ONE-CALL BUILDER SMOKE TEST PASSED")

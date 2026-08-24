@@ -109,5 +109,11 @@ def main():
           "band in theta_n, spread over phi_n.")
 
 
+# pytest entry point -- see the note in test_jax_slowrot.py.  Without it this
+# file collects zero items and pytest exits 5, which reads as green.
+def test_network_fold():
+    main()
+
+
 if __name__ == "__main__":
     main()

@@ -49,8 +49,11 @@ from igwn_ligolw import utils,  ligolw
 import glue.lal
 
 import RIFT.lalsimutils as lalsimutils
+from RIFT.likelihood.time_interp_choice import CROSSOVER_GUIDANCE as _CROSSOVER_GUIDANCE
 from RIFT.precision import RiftFloat
 import RIFT.integrators.mcsampler as mcsampler
+from RIFT.integrators.rvs_record import (RvsRecord as _RvsRecord,   # see DESIGN_rvs_naming.md
+                                         SamplerOutputMixin)
 # NOTE: the name 'mcsampler' above is REBOUND below to mcsamplerGPU for some --sampler-method
 # choices, so the zoom-box helpers are imported under their own names.  They are backend-agnostic:
 # each closure infers its array module from the argument it is handed (numpy on the CPU/AV paths,
@@ -306,7 +309,7 @@ integration_params.add_option("--fairdraw-extrinsic-output", action='store_true'
 integration_params.add_option("--fairdraw-extrinsic-output-n-max", default=5, type=int, help="Maximum number of fair draws per ILE evaluation.")
 integration_params.add_option("--n-chunk", type=int, help="Chunk'.",default=10000)
 integration_params.add_option("--convergence-tests-on",default=False,action='store_true')
-integration_params.add_option("--seed", type=int, help="Random seed to use. Default is to not seed the RNG.")
+integration_params.add_option("--seed", type=int, help="Random seed to use. Default is to not seed the RNG.  Seeds every backend the samplers draw through (numpy, cupy, torch), so a seeded run is reproducible on GPU as well as CPU.")
 integration_params.add_option("--no-adapt", action="store_true", help="Turn off adaptive sampling. Adaptive sampling is on by default.")
 integration_params.add_option("--force-adapt-all", action="store_true", help="Force adaptive sampling for all parameters.")
 integration_params.add_option("--force-reset-all", action="store_true", help="Force reset of sampling every iteration. (Recommended if AC and not using no-adapt-after-first)")
@@ -323,7 +326,7 @@ integration_params.add_option("--internal-gmm-adaptive-components",action='store
 integration_params.add_option("--internal-gmm-max-components",type=int,default=8,help="Cap on the per-group component count for --internal-gmm-adaptive-components (default 8).")
 integration_params.add_option("--internal-gmm-defensive-frac",type=float,default=0.0,help="Weight of the broad box-covering 'defensive' mixture component added to each adaptive GMM group (default 0 = OFF).  Intended to bound the importance weights (Hesterberg defensive IS), but on a wide extrinsic prior the broad component draws physically-extreme points where the likelihood is NaN and it did not improve n_eff on the SNR~82 benchmark -- opt-in only.")
 integration_params.add_option("--internal-gmm-inflate",type=float,default=1.0,help="Covariance inflation factor (std multiplier) applied to each adaptive GMM component (default 1.0 = none).  A value >1 widens the proposal relative to the elite cloud it was fit to; complements --internal-gmm-defensive-frac.")
-integration_params.add_option("--interpolate-time", default=False,help="If using the maintained NoLoop likelihood, evaluate Q_lm at fractional detector times using cubic interpolation instead of nearest sample bins. Accepts truthy values such as True/1/yes. (Default=false)")
+integration_params.add_option("--interpolate-time", default=False,help="Sub-sample stencil for evaluating Q_lm at fractional detector times, instead of snapping to the nearest sample bin. Accepts 'nearest', 'cubic', 'sinc', or a legacy truthy value (True/1/yes) meaning 'cubic'. WHICH TO USE is set by the bandwidth of Q(t), which is NOT fmax -- Q is band-limited by whichever is lower, fmax or the template's own cutoff, so it depends on the MASSES and on FMIN. MEASURED with SEOBNRv4 (an IMR model): %s. fmin matters as much as mass -- cubic degrades from fmin 20 to 150 at fixed mass (endpoint ratios 6.5x at M=9 and 9.6x at M=20, and NOT monotone in between) while sinc stays flat, which is why the crossover rises. NEAREST is never competitive (200-443 nats) and reaches 1 nat of error by SNR 2-6. Do not trust inspiral-only (TaylorT4) numbers for this: no merger-ringdown, understates the band by 2-3.7x. Error grows as SNR^2. COST of sinc vs cubic: ~4.2-4.5x on CPU, ~1.6-3.0x on GPU. All three stencils have CPU and GPU implementations. Requires the maintained NoLoop likelihood: this is REFUSED, not ignored, if the configuration cannot honour it. Measured tables and limitations: RIFT/likelihood/DESIGN_q_window_stencil.md. (Default=false, i.e. nearest)" % _CROSSOVER_GUIDANCE)
 integration_params.add_option("--d-prior",default='Euclidean' ,type=str,help="Distance prior for dL.  Options are dL^2 (Euclidean), 'pseudo_cosmo', and 'cosmo'  and 'cosmo_sourceframe' .")
 integration_params.add_option("--d-prior-redshift", action='store_true', help="If true, distance prior is computed in redshift. This option MAY be enforced for 'cosmo' sampling")
 integration_params.add_option("--d-max", default=10000,type=float,help="Maximum distance in volume integral. Used to SET THE PRIOR; changing this value changes the numerical answer.")
@@ -457,7 +460,35 @@ def _truthy_option(value):
         return False
     return str(value).strip().lower() in ("1", "true", "t", "yes", "y", "on")
 
-opts._noloop_time_interp = "cubic" if _truthy_option(opts.interpolate_time) else "nearest"
+_TI_LEGACY_BOOLEAN = ("1", "true", "t", "yes", "y", "on",
+                      "0", "false", "f", "no", "n", "off", "none")
+_ti_raw = str(opts.interpolate_time).strip().lower()
+if _ti_raw in ("nearest", "cubic", "sinc"):
+    # explicit stencil name
+    opts._noloop_time_interp = _ti_raw
+elif _ti_raw in _TI_LEGACY_BOOLEAN:
+    # legacy boolean: truthy meant cubic
+    opts._noloop_time_interp = "cubic" if _truthy_option(opts.interpolate_time) else "nearest"
+else:
+    # Anything else is a typo, and it must NOT be absorbed.  Before this check a misspelled
+    # stencil ('sinK', 'lanczos') was simply non-truthy and so ran 'nearest' -- a silent change
+    # of the likelihood's time discretization, invisible in the log and indistinguishable from a
+    # run that never asked for interpolation at all.  Now that the helper writes a resolved
+    # stencil NAME onto every --interpolate-time command line, a typo there has to be loud.
+    raise ValueError(
+        "--interpolate-time: unrecognised value %r. Use a stencil name (nearest|cubic|sinc) or "
+        "a legacy boolean (%s)." % (opts.interpolate_time, "|".join(_TI_LEGACY_BOOLEAN)))
+# The LEGACY scalar path (FactoredLogLikelihoodTimeMarginalized) takes a plain boolean and has
+# nothing to do with the NoLoop stencils.  It used to be handed opts.interpolate_time raw, which
+# was fine while that was only ever truthy/falsy -- but 'nearest' is a non-empty string, so once
+# stencil NAMES became legal spellings, "--interpolate-time nearest" would have switched the
+# legacy path's interpolation ON while meaning the exact opposite in NoLoop.  Derive an honest
+# boolean instead: only the two genuinely-interpolating stencils count as "interpolate".
+opts._legacy_interpolate_time = opts._noloop_time_interp in ("cubic", "sinc")
+# NOTE: deliberately NOT announcing the stencil here.  opts.gpu is not resolved yet at this
+# point, so we cannot yet tell whether the stencil will actually be used -- and a banner that
+# names a stencil the run then ignores is worse than no banner, because it reads as proof.
+# The announcement happens after the honoured-path check below.
 
 if opts.rotation_slow:
     # Path A/B slow-rotation: wired into BOTH the CPU-vectorized and GPU (xpy) branches; the
@@ -598,6 +629,48 @@ if opts.gpu and xpy_default is numpy:
     if opts.force_xpy:
         opts.gpu=True
 
+# --interpolate-time IS SILENTLY IGNORED ON SEVERAL PATHS.  Now that opts.gpu is final, refuse to
+# proceed if a sub-sample stencil was asked for and this configuration cannot honour it.
+#
+# THE PREREQUISITES ARE CONJUNCTIVE, and an earlier version of this guard got that wrong by
+# checking only the last of them:
+#
+#   * --time-marginalization.  Without it the code takes the `if not opts.time_marginalization`
+#     branch and calls FactoredLogLikelihood, which has no stencil argument at all.
+#   * --vectorized.  Without it the time-marginalized branch calls the SCALAR
+#     FactoredLogLikelihoodTimeMarginalized, which takes only the legacy boolean `interpolate`
+#     and therefore runs legacy cubic regardless of which stencil was named.
+#   * and then one of: --gpu (the maintained NoLoop path), --rotation-slow, or --freqresponse.
+#     Plain `--vectorized` without any of those calls DiscreteFactoredLogLikelihoodViaArrayVector,
+#     which also has no time_interp argument.
+#
+# Measured on the last of these before it was guarded: '--vectorized --force-xpy' without '--gpu'
+# returned BIT-IDENTICAL lnL (74.32974090285529) for sinc and cubic at n_max 2e5, while the
+# startup banner still announced the stencil.  A whole comparison campaign ran against it.
+_stencil_prereqs = (
+    ('--time-marginalization', bool(opts.time_marginalization)),
+    ('--vectorized', bool(opts.vectorized)),
+    ('one of --gpu / --rotation-slow / --freqresponse',
+     bool(opts.gpu) or bool(opts.rotation_slow) or bool(opts.freqresponse)),
+)
+_stencil_missing = [name for name, ok in _stencil_prereqs if not ok]
+_stencil_is_honoured = not _stencil_missing
+if opts._noloop_time_interp != 'nearest' and not _stencil_is_honoured:
+    raise ValueError(
+        "--interpolate-time %r was requested, but this configuration cannot honour it: missing "
+        "%s. The likelihood that would actually run takes no sub-sample stencil and evaluates "
+        "Q_lm at the nearest sample bin (or, without --vectorized, applies the unrelated legacy "
+        "cubic switch). Add the missing option(s) -- --gpu accepts --force-xpy if no device is "
+        "present, which keeps the identical NoLoop code path on numpy -- or drop "
+        "--interpolate-time. Refusing rather than running a different likelihood than the one "
+        "you asked for." % (opts._noloop_time_interp, ", ".join(_stencil_missing)))
+print(" Q_lm sub-sample time stencil: {} (from --interpolate-time {!r}); honoured by this "
+      "configuration: {} [time_marginalization={} vectorized={} gpu={} rotation_slow={} "
+      "freqresponse={}]; legacy scalar path interpolate={}".format(
+          opts._noloop_time_interp, opts.interpolate_time, _stencil_is_honoured,
+          bool(opts.time_marginalization), bool(opts.vectorized), bool(opts.gpu),
+          bool(opts.rotation_slow), bool(opts.freqresponse), opts._legacy_interpolate_time))
+
 manual_avoid_overflow_logarithm=opts.manual_logarithm_offset
 manual_avoid_overflow_logarithm_default =  manual_avoid_overflow_logarithm
 
@@ -684,10 +757,12 @@ n_eff = opts.n_eff # Effective number of points evaluated
 #
 # Initialize the RNG, if needed
 #
-# TODO: Do we seed a given instance of the integrator, or set it for all
-# or both?
+# Seed EVERY backend a sampler can draw from, not just numpy: the samplers draw
+# through self.xpy / xpy_default, which is cupy on GPU, and cupy has its own
+# global generator.  See RIFT/integrators/seeding.py.
 if opts.seed is not None:
-    numpy.random.seed(opts.seed)
+    from RIFT.integrators.seeding import seed_everything
+    seed_everything(opts.seed)
 
 
 if opts.event_time is not None:
@@ -989,6 +1064,22 @@ _calpilot_logresp_list = []      # per-intrinsic-point per-realization log-respo
 calibration_nodes = None         # (n_cal, 2*n_nodes_amp*len(dets)) per-det [amp_0..,phase_0..] blocks
 calibration_node_dets = None     # detector order matching the node blocks
 calibration_n_nodes_amp = None   # spline nodes per detector per (amp|phase)
+def _cal_rng(stream):
+    """Generator for a calibration-side auxiliary draw.
+
+    The base cal realizations are drawn from default_rng(opts.seed), but the
+    probe/growth paths used a bare default_rng(), which takes fresh entropy from
+    the OS and so is NOT covered by --seed: two identical seeded invocations could probe
+    a different cal error, grow to a different n_cal, and marginalize over different
+    realizations.  Derive those streams from the seed instead, with a per-stream counter
+    so repeated calls stay independent of each other -- and of the base draw set -- while
+    remaining reproducible.  Unseeded runs keep fresh entropy.
+
+    The counter bookkeeping lives in RIFT.integrators.seeding.next_derived_rng, which
+    every other counter-advancing site in RIFT already goes through; keeping a second
+    registry here would be one more thing that has to not drift."""
+    from RIFT.integrators.seeding import next_derived_rng
+    return next_derived_rng(stream)
 def _cal_setup_prior_with_nodes(psd_dict):
     """Populate calibration_realization_dict from broad-PRIOR cal draws.  When
     --calibration-export-posterior is set, RETAIN the node vectors too (via
@@ -1096,19 +1187,25 @@ def _draw_more_calibration_draws(n_more, psd_dict):
     log-weights, node vectors), and return JUST the new realizations dict so the
     caller can precompute only the new rholm blocks and append them.
 
-    Fresh, unseeded randomness ON PURPOSE: cal draws must remain independent across
-    points/workers -- the variance is disclosed (cal MC error budget) and reduced by
-    growing the draw set, never by sharing draws."""
+    The added draws come from a stream INDEPENDENT of the original set, and of every
+    earlier growth round: independence is what the cal MC error budget assumes -- the
+    variance is disclosed and reduced by growing the draw set, never by sharing draws.
+    That stream is DERIVED from --seed when one was given (so the enlarged set, and
+    hence the likelihood, is reproducible) and taken from fresh OS entropy when it was
+    not.  See _cal_rng."""
     global calibration_realization_dict, calibration_log_weights, calibration_nodes
     import RIFT.calmarg.generate_realizations as _genr
     new = {}
+    # used by the two node-drawing branches; create_realizations (below) draws through
+    # numpy's global RNG, which seed_everything already covers.
+    _rng = _cal_rng('calmarg.extra_draws')
     if opts.calibration_proposal_breadcrumb:
         import RIFT.calmarg.breadcrumbs
         _bc = RIFT.calmarg.breadcrumbs.load(opts.calibration_proposal_breadcrumb)
         new, _lw, _nodes = _genr.seed_realizations_from_breadcrumb(
             _bc, 1./P.deltaF, P.deltaT, opts.fmin_template, fmax,
             opts.calibration_spline_count, n_more, fmin_ifo=cal_fmin_ifo,
-            rng=np.random.default_rng())
+            rng=_rng)
         calibration_log_weights = np.concatenate([np.asarray(calibration_log_weights), np.asarray(_lw)])
         if calibration_nodes is not None:
             calibration_nodes = np.vstack([calibration_nodes, _nodes])
@@ -1116,7 +1213,7 @@ def _draw_more_calibration_draws(n_more, psd_dict):
         _ret = _genr.draw_prior_realizations_with_nodes(
             opts.calibration_envelope_directory, list(psd_dict.keys()), 1./P.deltaF, P.deltaT,
             opts.fmin_template, fmax, opts.calibration_spline_count, n_more,
-            fmin_ifo=cal_fmin_ifo, rng=np.random.default_rng())
+            fmin_ifo=cal_fmin_ifo, rng=_rng)
         new = _ret['realizations']
         calibration_nodes = np.vstack([calibration_nodes, _ret['nodes']]) if calibration_nodes is not None else _ret['nodes']
     else:
@@ -1407,17 +1504,22 @@ redshift_to_distance = lambda x: x
 if (opts.d_prior == 'cosmo' or opts.d_prior == 'cosmo_sourceframe') and not opts.distance_marginalization:
     from astropy.cosmology import z_at_value
     from astropy import units as u
-    from astropy.cosmology import FlatLambdaCDM
     from astropy.units import Hz
     # ported form https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/bayespputils.py
-    # need way to query lalsuite parameters! See
-    # https://git.ligo.org/cbc/action_items/-/issues/37#note_1158065
-    try:
-      from lal import H0_SI, OMEGA_M
-    except:
-      # IN FUTURE: based on https://git.ligo.org/rapidpe-rift/rapidpe_rift_review_o4/-/wikis/Cosmo_sourceframe-Code-Review, updating previous version (from lalsuite 7.6.1) to match new constant in 7.25.1
-      H0_SI, OMEGA_M = 2.200489137532724e-18, 0.3065
-    my_cosmo = FlatLambdaCDM(H0=H0_SI*Hz, Om0=OMEGA_M)
+    # ONE named cosmology, from the framework helper, so every code that needs one gets the
+    # same object and a change is made in one place.  Previously this preferred
+    # lal.H0_SI/lal.OMEGA_M with a hardcoded fallback, which is a cosmology nobody can cite
+    # by name in a paper: the installed lal gives H0=67.900, Om0=0.3065, while Planck15 is
+    # H0=67.740, Om0=0.3075.  The difference is tiny (dL(z=5) 47756 vs 47732 Mpc, 0.05%) and
+    # of no physical consequence -- but "which cosmology is this?" is exactly the kind of
+    # question a referee asks, and "whatever the linked lalsuite constant happened to be"
+    # is a worse answer than "Planck15".
+    #
+    # History, kept so it is not rediscovered: the lal-constant route came from
+    # https://git.ligo.org/cbc/action_items/-/issues/37#note_1158065 and
+    # https://git.ligo.org/rapidpe-rift/rapidpe_rift_review_o4/-/wikis/Cosmo_sourceframe-Code-Review
+    # (updating lalsuite 7.6.1 -> 7.25.1).  Superseded deliberately, not by accident.
+    my_cosmo = priors_utils.get_astropy_cosmology("Planck15")
 #    omega = lal.CreateDefaultCosmologicalParameters() # matching the lal options. Only needed if we have it
     zmin  = z_at_value(my_cosmo.luminosity_distance, dmin*u.Mpc).value
     zmax = z_at_value(my_cosmo.luminosity_distance, dmax*u.Mpc).value # use astropy estimate for zmax
@@ -1984,7 +2086,7 @@ def resample_samples(my_samples,
 
   # if we are using GPU-based generation this is ok; if itis mcsampler, we will have a lot of 'object' casts to fix, arg
   
-  tvals = xpy_default.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
+  tvals = factored_likelihood.marginalization_time_grid(t_ref_wind, P.deltaT, xpy=xpy_default)  # THE one window-grid constructor; see issue #146
   P.phi =  identity_convert_togpu(my_samples['right_ascension'])  # cast to float
   P.theta =   identity_convert_togpu(my_samples['declination'])
   P.tref = float(fiducial_epoch)
@@ -2019,13 +2121,18 @@ def resample_samples(my_samples,
   if opts.srate_resample_time_marginalization and opts.srate_resample_time_marginalization > fSample:
     # Resample the marginalization-time grid to EXACTLY the requested rate, so
     # the exported geocenter time is quantized at 1/srate_resample seconds.  We
-    # step by exactly 1/srate_resample rather than by an integer subdivision of
-    # the internal grid: that internal grid is a closed-interval linspace whose
-    # spacing is ~1/fSample but NOT exactly (here ~4086.7 Hz vs 4096), so an
-    # integer-factor upsample would land at ~n/deltaT_orig, tens of percent off
-    # the request.  For the usual power-of-two rates 1/srate is exactly
-    # representable in float64, so consecutive output times differ by exactly
-    # that step.
+    # step by exactly 1/srate_resample; for the usual power-of-two rates that is
+    # exactly representable in float64, so consecutive output times differ by
+    # exactly that step.
+    #
+    # HISTORICAL NOTE (issue #146): this comment used to justify the choice by
+    # the internal grid being "a closed-interval linspace whose spacing is
+    # ~1/fSample but NOT exactly (here ~4086.7 Hz vs 4096)".  That is no longer
+    # true -- marginalization_time_grid() is spaced EXACTLY deltaT, so an
+    # integer-factor upsample would now be exact too.  More importantly, the
+    # tvals read as time LABELS below (t_out -> the exported 't_ref') are now
+    # the times the likelihood actually evaluated; under the old linspace they
+    # were off by up to 1.4 samples at the window edge.
     dt_target = 1.0/opts.srate_resample_time_marginalization
     # floor(): stay within [tvals[0], tvals[-1]] so the spline never
     # extrapolates.  At most one step (<1/srate s, tens of us) is dropped at the
@@ -2132,12 +2239,77 @@ def ln_weights_from_rvs(rvs, convert=None, use_lnL=False):
 
 
 def _rvs_len(rvs):
-    for v in rvs.values():
-        try:
-            return len(numpy.atleast_1d(numpy.asarray(v)).ravel())
-        except Exception:
-            continue
-    return 0
+    """Rows in a raw `_rvs` column dict -> int.
+
+    ONE row-count rule, and it lives with the record (`rvs_record.n_rows`).  Flattening
+    whichever column came first was wrong for the ORDINARY case, not a corner: `_rvs` is
+    seeded parameters-first, and a combined parameter is stored (ndim, N) under a TUPLE key,
+    so any run registering one reported ndim*N.  That number is the length of the uniform
+    vector `ln_weights_for_posterior` hands back for a fair draw -- an output ndim times too
+    long rather than a mislabelled count -- and the `block_sizes` recorded for a pooled
+    record.  The rule that gets it right reads a canonical per-row column first and otherwise
+    takes the row axis from the key's own layout.
+
+    Imported INSIDE the function deliberately: the test harnesses exec these helpers out of
+    the driver into a bare namespace, so a module-level name here would have to be threaded
+    through every one of them -- and this staying a one-line delegation is the point.
+    """
+    from RIFT.integrators.rvs_record import n_rows as _n_rows_of_columns
+    return _n_rows_of_columns(rvs)
+
+
+def _rvs_record_for(sampler, rvs):
+    """The record describing THESE columns, or None.  See DESIGN_rvs_naming.md.
+
+    THE IDENTITY CHECK IS THE POINT.  A record holds a reference to a column dict that other
+    code replaces in place, so "the sampler has a record" and "the record describes the rows I
+    am holding" are different questions -- the same shape as everything else in this file's
+    history. A record that has fallen out of step is not consulted; the caller falls back to
+    the provenance flags, which are maintained separately and are still correct.
+
+    One lookup rather than the check repeated per consumer, for the reason the reserve lookup
+    was centralised in #87: two copies of a guard drift.
+    """
+    # `samples()` is the public accessor; the getattr guard is for an object that predates the
+    # mixin (an old pickle, a test double), not for the six samplers, all of which have it.
+    _get = getattr(sampler, 'samples', None)
+    rec = _get() if callable(_get) else None
+    if rec is None or getattr(rec, 'columns', None) is not rvs:
+        return None
+    return rec
+
+
+def _internal_record_of(sampler):
+    """This pass's record, marked INTERNAL for threading -> RvsRecord or None.
+
+    Replica pooling needs each block's record to derive that block's weights with the right
+    convention.  Marking them internal is the difference between "we had to hand the structure
+    back" and "this is now something consumers may use": set_samples() refuses an internal
+    record, so nothing on this list can reappear from samples().
+    """
+    _get = getattr(sampler, 'samples', None)
+    rec = _get() if callable(_get) else None
+    return rec.as_internal() if rec is not None else None
+
+
+def _sampler_keeps_records(sampler):
+    """Does this sampler populate `_rvs_record` at all?  See DESIGN_rvs_naming.md.
+
+    A PRODUCER's question, not a consumer's, and deliberately a different function from
+    `_rvs_record_for`.  The pooling step is about to REPLACE `sampler._rvs`, so asking "does a
+    record describe the rows I hold" is the wrong question there -- it would be answered `None`
+    and the pooled record would silently not be built.  What it needs to know is whether this
+    sampler participates in the record scheme at all.
+
+    Two questions, two names.  That is the entire lesson of this file's last four review rounds.
+    """
+    # PARTICIPATION, not "is one present right now".  Every sampler clears _rvs_record at the
+    # top of integrate(), so a replica that raised leaves None behind while the sampler is still
+    # a full participant -- and keying on presence would silently skip building the pooled
+    # record for it.  Ask whether the sampler implements the scheme at all.
+    return isinstance(sampler, SamplerOutputMixin) or (
+        callable(getattr(sampler, 'samples', None))
+        and callable(getattr(sampler, 'set_samples', None)))
 
 
 def _rvs_is_export_resample(sampler):
@@ -2195,13 +2367,37 @@ def ln_weights_for_posterior(rvs, sampler, convert=None, use_lnL=None):
     So: uniform (zero log-weight) for a fair-drawn record, the derived importance weight
     otherwise.  Returns a float array the length of the record.
     """
+    # MIGRATION (DESIGN_rvs_naming.md), the first consumer to move.  This is the exact
+    # site where the one-flag-two-questions defect lived, so it is the one worth converting
+    # first: `is_equal_weight()` is a named question rather than two booleans a caller has to
+    # combine, and it cannot be answered with the wrong one.
+    #
+    # The flags stay as the fallback while the other six samplers are unconverted -- and while
+    # both exist they MUST agree, which is asserted directly in test_rvs_record.py rather than
+    # left as a comment, because "two sources of truth" is the risk this migration runs.
+    _rec = _rvs_record_for(sampler, rvs)
+    if _rec is not None:
+        if _rec.is_equal_weight():
+            return numpy.zeros(_rvs_len(rvs), dtype=float)
+        # THE WEIGHT ITSELF now comes from the record, not from ln_weights_from_rvs -- which is
+        # the point of the record: it knows its own convention, so there is no `use_lnL` to
+        # thread through and no way for a caller to pass the wrong one.
+        #
+        # Verified equivalent before switching, not after: the two implementations were fuzzed
+        # against each other over 1200 randomized records spanning all three column families
+        # with NaN / -inf / 0 sprinkled through every column.  That found a REAL divergence
+        # first -- log_weights() had been computing lnL + ln(pi) - ln(q) term by term, which
+        # yields NaN where the canonical form's conjunctive keep-mask yields -inf -- and it is
+        # fixed there rather than papered over here.
+        return numpy.asarray(_rec.log_weights(convert=convert), dtype=float)
     if _rvs_is_equal_weight(sampler):
         return numpy.zeros(_rvs_len(rvs), dtype=float)
     return numpy.asarray(ln_weights_from_rvs(rvs, convert=convert, use_lnL=use_lnL),
                          dtype=float)
 
 
-def _pool_replica_rvs(rep_rvs, sampler, rep_lnZ=None, already_resampled=False, use_lnL=None):
+def _pool_replica_rvs(rep_rvs, sampler, rep_lnZ=None, already_resampled=False, use_lnL=None,
+                      records=None):
     """Concatenate the replicas' samples into one correctly-weighted set.
 
     Each replica k is an independent importance-sampling estimate with weights w_ki and its own
@@ -2227,6 +2423,12 @@ def _pool_replica_rvs(rep_rvs, sampler, rep_lnZ=None, already_resampled=False, u
     _ar_list = (list(already_resampled)
                 if isinstance(already_resampled, (list, tuple, numpy.ndarray))
                 else None)
+    # PER-REPLICA RECORDS, threaded in so each block's lnZ is derived with ITS OWN convention
+    # instead of one `use_lnL` asserted over the whole set.  These are INTERNAL: they are
+    # plumbing for this function, marked as such, and refused by set_samples() so they cannot
+    # escape through the public samples() accessor.  Having had to pass the structure around is
+    # not a reason for anyone else to reach for it.
+    _rec_list = list(records) if records is not None else None
     # Drop empty records in LOCKSTEP with their metadata.  The filter used to run on rep_rvs
     # alone, so a single empty replica shifted every later block against its own lnZ -- and
     # would now shift it against its own resampled flag too.
@@ -2236,11 +2438,44 @@ def _pool_replica_rvs(rep_rvs, sampler, rep_lnZ=None, already_resampled=False, u
         rep_lnZ = [rep_lnZ[i] for i in _keep if i < len(rep_lnZ)]
     if _ar_list is not None:
         _ar_list = [_ar_list[i] for i in _keep if i < len(_ar_list)]
+    if _rec_list is not None:
+        _rec_list = [_rec_list[i] for i in _keep if i < len(_rec_list)]
+
+    def _block_record(i, r):
+        """The record for block i, but only if it describes THAT block's columns."""
+        if _rec_list is None or i >= len(_rec_list):
+            return None
+        rec = _rec_list[i]
+        return rec if getattr(rec, 'columns', None) is r else None
 
     def _block_resampled(i):
         if _ar_list is not None:
             return bool(_ar_list[i]) if i < len(_ar_list) else False
         return bool(already_resampled)
+
+    def _block_column(k, v):
+        """One block's column for key `k`, in the layout the KEY implies.
+        THE KEY SAYS WHERE THE ROW AXIS IS -- the same rule `_rvs_len` delegates to
+        (rvs_record._column_n_rows), applied to the rows themselves.  A combined parameter is
+        stored (ndim, N) under a TUPLE key, so ravelling it and concatenating on axis 0 turns
+        it into ONE 1-D column of length ndim*sum(N) while the scalar columns have sum(N) rows.
+        Consumers still require (ndim, N) -- the sample exporter unpacks the combined sky column
+        as `samples["latitude"], samples["longitude"] = samples[("declination",
+        "right_ascension")]` -- so --mc-error-replicas produced a malformed record and could
+        abort the export.  Per-row columns keep the flatten they always had.
+        """
+        v = numpy.asarray(v)
+        return numpy.atleast_2d(v) if isinstance(k, tuple) else numpy.atleast_1d(v).ravel()
+
+    def _empty_column(k):
+        """No block contributed any rows -- an empty column that still has the key's LAYOUT.
+        Handing back a bare `array([])` for a tuple key would fail to unpack in the exporter
+        for the shape reason above rather than for the real one (there are no samples).
+        """
+        if not isinstance(k, tuple):
+            return numpy.array([])
+        ndim = _block_column(k, sampler.identity_convert(rep_rvs[0][k])).shape[0]
+        return numpy.empty((ndim, 0))
 
     if len(rep_rvs) <= 1:
         return rep_rvs[0] if rep_rvs else {}
@@ -2284,7 +2519,8 @@ def _pool_replica_rvs(rep_rvs, sampler, rep_lnZ=None, already_resampled=False, u
                 scale = 0.0
             elif rep_lnZ is not None and _i < len(rep_lnZ) and numpy.isfinite(rep_lnZ[_i]):
                 # target: this block's weights sum to Z_k/K
-                _cur = _lnZ_of_rvs(r, already_pooled=True, use_lnL=_lnL_here)
+                _cur = _lnZ_of_rvs(r, already_pooled=True, use_lnL=_lnL_here,
+                                   record=_block_record(_i, r))
                 if _cur is None or not numpy.isfinite(_cur):
                     scale = numpy.log(float(K) * float(n_k))
                 else:
@@ -2299,7 +2535,7 @@ def _pool_replica_rvs(rep_rvs, sampler, rep_lnZ=None, already_resampled=False, u
                     sampler.identity_convert(r['log_joint_prior']), dtype=float)).ravel()
                 _forced = _li + _lp - _target_lw
             for k in keys:
-                v = numpy.atleast_1d(numpy.asarray(sampler.identity_convert(r[k]))).ravel()
+                v = _block_column(k, sampler.identity_convert(r[k]))
                 if _flat_block and log_key is not None and k == log_key:
                     v = _forced
                 elif _flat_block and lin_key is not None and k == lin_key:
@@ -2333,7 +2569,10 @@ def _pool_replica_rvs(rep_rvs, sampler, rep_lnZ=None, already_resampled=False, u
                     v = v * numpy.exp(scale)
                 cols[k].append(v)
         for k in keys:
-            out[k] = numpy.concatenate(cols[k]) if cols[k] else numpy.array([])
+            # ...and concatenate along THAT row axis: axis 1 for a combined (ndim, N) parameter,
+            # axis 0 for everything else.  One rule, stated in _block_column, applied twice.
+            out[k] = (numpy.concatenate(cols[k], axis=1 if isinstance(k, tuple) else 0)
+                      if cols[k] else _empty_column(k))
         # CACHED WEIGHTS MUST FOLLOW THE COMPONENTS.  _rvs may carry a precomputed 'log_weights'
         # (mcsamplerPortfolio writes one), and the .dgrid and calibration-posterior exporters
         # PREFER it -- they only fall back to log_integrand + log_joint_prior - log_joint_s_prior
@@ -2367,7 +2606,23 @@ def _pool_replica_rvs(rep_rvs, sampler, rep_lnZ=None, already_resampled=False, u
     return out
 
 
-def _lnZ_of_rvs(rvs, already_pooled=True, use_lnL=None):
+def _lw_of(rvs, record, use_lnL):
+    """Importance log-weights for `rvs`, preferring a record that describes it.
+
+    ONE resolver, so the two estimators below cannot drift in which source they trust.  A
+    record is used only when its `.columns` IS this dict: `_rvs` is copied and replaced all
+    over this file, and a record describing different columns must not be believed.  Otherwise
+    fall back to the canonical derivation with the stored convention -- the two are verified
+    equivalent by a randomized comparison in test_rvs_record.py, so this is a source choice,
+    not a semantics choice.
+    """
+    if record is not None and getattr(record, 'columns', None) is rvs:
+        return numpy.asarray(record.log_weights(), dtype=float)
+    return numpy.asarray(ln_weights_from_rvs(rvs, use_lnL=_rvs_lnL_convention(use_lnL)),
+                         dtype=float)
+
+
+def _lnZ_of_rvs(rvs, already_pooled=True, use_lnL=None, record=None):
     """log of the evidence implied by an _rvs record.
 
     For a POOLED record the weights already carry their 1/(K n_k) factor, so the estimate is the
@@ -2375,7 +2630,7 @@ def _lnZ_of_rvs(rvs, already_pooled=True, use_lnL=None):
     """
     try:
         try:
-            lw = ln_weights_from_rvs(rvs, use_lnL=_rvs_lnL_convention(use_lnL))
+            lw = _lw_of(rvs, record, use_lnL)
         except Exception:
             return None
         lw = lw[numpy.isfinite(lw)]
@@ -2388,11 +2643,11 @@ def _lnZ_of_rvs(rvs, already_pooled=True, use_lnL=None):
         return None
 
 
-def _kish_neff_of_rvs(rvs, use_lnL=None):
+def _kish_neff_of_rvs(rvs, use_lnL=None, record=None):
     """Kish effective sample size of an _rvs record, or None if the weights are not reconstructible."""
     try:
         try:
-            lw = ln_weights_from_rvs(rvs, use_lnL=_rvs_lnL_convention(use_lnL))
+            lw = _lw_of(rvs, record, use_lnL)
         except Exception:
             return None
         lw = lw[numpy.isfinite(lw)]
@@ -2446,7 +2701,23 @@ def _lnZ_of_reserve_or_rvs(sampler, rvs, reserve=None):
                 return _v, 'retained'
         except Exception:
             pass
-    return _lnZ_of_rvs(rvs, already_pooled=False), 'fairdraw'
+    return _lnZ_of_rvs(rvs, already_pooled=False,
+                       record=_rvs_record_for(sampler, rvs)), 'fairdraw'
+
+
+def _rebound_record(sampler, columns):
+    """A copy of the sampler's record whose `.columns` is `columns` -> RvsRecord or None.
+
+    Snapshot/restore installs a COPY of the column dict, so a record still pointing at the
+    original would fail every identity check and silently do nothing.
+    """
+    _get = getattr(sampler, 'samples', None)
+    rec = _get() if callable(_get) else None
+    if rec is None:
+        return None
+    out = rec.snapshot()
+    out.columns = columns
+    return out
 
 
 def _snapshot_pass_state(sampler, res, var, neff, dict_return, rvs=None):
@@ -2471,6 +2742,14 @@ def _snapshot_pass_state(sampler, res, var, neff, dict_return, rvs=None):
         warm_seed_reserve=getattr(sampler, '_warm_seed_reserve', None),
         rvs_is_fairdraw=bool(getattr(sampler, '_rvs_is_fairdraw', False)),
         rvs_is_pooled=bool(getattr(sampler, '_rvs_is_pooled', False)),
+        # The record too.  A stale one is already declined by _rvs_record_for's identity check,
+        # so this is belt-and-braces -- but "everything describing the pass moves together" is
+        # the invariant, and carving an exception into it is how round 1 happened.
+        # REBOUND to the snapshot's columns.  The record held a reference to the LIVE dict, and
+        # the restore installs a COPY -- so storing it as-is produced a record whose identity
+        # check could never match, i.e. inert rather than belt-and-braces.  Rebinding makes it
+        # describe what is actually put back.
+        rvs_record=_rebound_record(sampler, dict(sampler._rvs) if rvs is None else rvs),
         member_reserves=[getattr(_m, '_warm_seed_reserve', None)
                          for _m in list(getattr(sampler, 'portfolio_realizations', []) or [])],
     )
@@ -2486,6 +2765,8 @@ def _restore_pass_state(sampler, state):
     sampler._warm_seed_reserve = state['warm_seed_reserve']
     sampler._rvs_is_fairdraw = state['rvs_is_fairdraw']
     sampler._rvs_is_pooled = state['rvs_is_pooled']
+    if callable(getattr(sampler, 'set_samples', None)):
+        sampler.set_samples(state.get('rvs_record'))
     _members = list(getattr(sampler, 'portfolio_realizations', []) or [])
     for _m, _r in zip(_members, state.get('member_reserves', [])):
         _m._warm_seed_reserve = _r
@@ -2720,7 +3001,15 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         rotation_slow_data = None
         if opts.rotation_slow:
             _pmax = int(opts.rotation_p_max)
-            _nh = max(int(opts.rotation_n_harmonics), 2 + _pmax)  # wide enough to cover all C_{(p,ntilde)}
+            # --rotation-n-harmonics is a FLOOR, not the literal width: the response
+            # coefficients C_{(p,ntilde)} reach |ntilde| <= 2 + p_max (issue #142), and the
+            # option's default of 2 is only the p_max=0 answer.  The precompute now enforces
+            # this itself, so this line is belt-and-braces -- kept (a) so the printout below
+            # and any future use of _harm describe the bank that was actually built, and
+            # (b) so the ILE never trips the precompute's widening warning.  The rule itself
+            # lives in ONE place: required_harmonic_width.
+            _nh = max(int(opts.rotation_n_harmonics),
+                      factored_likelihood_with_rotation.required_harmonic_width(_pmax))
             _harm = tuple(range(-_nh, _nh + 1))
             _rint_r, _ct_r, _ctV_r, _rho_r, _meta_r = factored_likelihood_with_rotation.PrecomputeLikelihoodTermsWithRotation(
                 fiducial_epoch, t_window, P, data_dict, psd_dict, opts.l_max, fmax,
@@ -2741,7 +3030,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                         _vNN[_det][_pair] = cupy.asarray(_vNN[_det][_pair])
             rotation_slow_data = dict(meta=_meta_r, lookupNKDict=_lkR, rho_by_n=_rhoN,
                                       U_by_nn=_uNN, V_by_nn=_vNN, epochDict=_epR)
-            print("  [rotation-slow] precompute complete; p_max", _pmax, "sidereal harmonics", _harm,
+            print("  [rotation-slow] precompute complete; p_max", _pmax, "sidereal harmonics",
+                  _meta_r['harmonics'],   # the bank's own record, not our request
                   "(GPU)" if (opts.gpu and not xpy_default is np) else "(CPU)")
 
         # [Path D] finite-size (frequency-dependent) response precompute: fold each W_p(f)
@@ -2793,7 +3083,10 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             Responsibilities are ~extrinsic-independent so modest batches converge."""
             import RIFT.calmarg.adaptive as _adapt
             from scipy.special import logsumexp as _lse
-            _rng = np.random.default_rng()   # fresh randomness: this is a diagnostic
+            # A fresh probe stream per call (so successive probes do not reuse each
+            # other's extrinsic batch), derived from --seed when the run was seeded:
+            # this probe also DECIDES n_cal below, so it must not float run to run.
+            _rng = _cal_rng('calmarg.error_probe')
             if n_cap is None:
                 n_cap = max(int(opts.calibration_mc_error_extrinsic or 0), n_start)
             _warned = []
@@ -2824,7 +3117,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 corr = np.log(np.clip(pw, 1e-300, None))
                 d = np.asarray(redshift_to_distance(x), dtype=float)
                 return d, corr, 'sampler prior ({})'.format(opts.d_prior)
-            _tv = xpy_default.linspace(-t_ref_wind, t_ref_wind, int((t_ref_wind)*2/P.deltaT))
+            _tv = factored_likelihood.marginalization_time_grid(t_ref_wind, P.deltaT, xpy=xpy_default)  # THE one window-grid constructor; see issue #146
             _calw_np = np.zeros(n_cal_now) if calibration_log_weights is None else np.asarray(identity_convert(calibration_log_weights), dtype=float)[:n_cal_now]
             comp_list = []; corr_list = []
             sigma = None; neff_cal = None; sigma_prev = None
@@ -2925,7 +3218,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             P.phiref = xpy_default.asarray(_rng_ext.uniform(0, 2*np.pi, _Next), dtype=np.float64)
             P.tref   = float(fiducial_epoch)
             P.dist   = xpy_default.asarray(np.full(_Next, factored_likelihood.distMpcRef)*1.e6*lalsimutils.lsu_PC, dtype=np.float64)
-            _tvals = xpy_default.linspace(-t_ref_wind, t_ref_wind, int((t_ref_wind)*2/P.deltaT))
+            _tvals = factored_likelihood.marginalization_time_grid(t_ref_wind, P.deltaT, xpy=xpy_default)  # THE one window-grid constructor; see issue #146
             _comp = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(
                 _tvals, P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict, epochDict,
                 Lmax=opts.l_max, xpy=xpy_default, n_cal=n_cal_for_likelihood, cal_method='loop',
@@ -2993,7 +3286,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             # use EXTREMELY many bits
             lnL = numpy.zeros(right_ascension.shape,dtype=RiftFloat)
             i = 0
-            tvals = numpy.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
+            tvals = factored_likelihood.marginalization_time_grid(t_ref_wind, P.deltaT, xpy=numpy)  # THE one window-grid constructor; see issue #146
 
             for ph, th, phr, ic, ps, di in zip(right_ascension, dec,
                     phi_orb, incl, psi, distance):   # 'incl', NOT the raw sampled 'inclination': under --inclination-cosine-sampler the sampled variable is cos(iota)
@@ -3008,7 +3301,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 
                 lnL[i] = factored_likelihood.FactoredLogLikelihoodTimeMarginalized(tvals,
                         P, rholms_intp, rholms, cross_terms, cross_terms_V,                   
-                        opts.l_max,interpolate=opts.interpolate_time)
+                        opts.l_max,interpolate=opts._legacy_interpolate_time)
                 i+=1
             if supplemental_ln_likelihood:
               lnL += supplemental_ln_likelihood(right_ascension, declination, phi_orb,inclination, psi, distance)
@@ -3023,7 +3316,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
           def likelihood_function(right_ascension, declination, phi_orb, inclination,
                 psi, distance):
 #            global nEvals
-            tvals = numpy.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
+            tvals = factored_likelihood.marginalization_time_grid(t_ref_wind, P.deltaT, xpy=numpy)  # THE one window-grid constructor; see issue #146
             dec = numpy.copy(declination).astype(numpy.float64)
             if opts.declination_cosine_sampler:
               dec = numpy.pi/2 - numpy.arccos(dec)
@@ -3085,7 +3378,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
               def likelihood_function(right_ascension, declination, phi_orb, inclination,
                 psi, distance):
 #                global nEvals
-                tvals = xpy_default.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
+                tvals = factored_likelihood.marginalization_time_grid(t_ref_wind, P.deltaT, xpy=xpy_default)  # THE one window-grid constructor; see issue #146
                 # Use xpy_default.asarray (not the passthrough xpy_asarray_already): some
                 # samplers (e.g. AV) hand back numpy arrays, so on GPU we must convert
                 # them to cupy.  asarray is a no-op for already-on-device arrays.  This
@@ -3241,7 +3534,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 
                 def likelihood_function(right_ascension, declination, inclination, psi):
 #                  global nEvals
-                  tvals = xpy_default.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
+                  tvals = factored_likelihood.marginalization_time_grid(t_ref_wind, P.deltaT, xpy=xpy_default)  # THE one window-grid constructor; see issue #146
                   P.phi = xpy_default.asarray(right_ascension, dtype=np.float64)  # cast to float
                   if opts.declination_cosine_sampler:
                     P.theta = numpy.pi/2 - xpy_default.arccos(xpy_default.asarray(declination,dtype=np.float64))
@@ -3288,7 +3581,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 
                 def likelihood_function(right_ascension, declination, phi_orb, inclination, psi):
 #                  global nEvals
-                  tvals = xpy_default.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
+                  tvals = factored_likelihood.marginalization_time_grid(t_ref_wind, P.deltaT, xpy=xpy_default)  # THE one window-grid constructor; see issue #146
                   P.phi = xpy_default.asarray(right_ascension, dtype=np.float64)  # cast to float
                   if opts.declination_cosine_sampler:
                     P.theta = numpy.pi/2 - xpy_default.arccos(xpy_default.asarray(declination,dtype=np.float64))
@@ -3344,7 +3637,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 
             lnL = numpy.zeros(len(right_ascension),dtype=RiftFloat)
 #            i = 0
-            tvals = numpy.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
+            tvals = factored_likelihood.marginalization_time_grid(t_ref_wind, P.deltaT, xpy=numpy)  # THE one window-grid constructor; see issue #146
 
 
 #            t_start =lal.GPSTimeNow() 
@@ -3365,7 +3658,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 
                 lnL[i] = factored_likelihood.FactoredLogLikelihoodTimeMarginalized(tvals,
                         P, rholms_intp_A, rholms_A, cross_terms_A, cross_terms_V_A,                   
-                        opts.l_max,interpolate=opts.interpolate_time)
+                        opts.l_max,interpolate=opts._legacy_interpolate_time)
                 if numpy.isnan(lnL[i]) or lnL[i]<-200:
                     lnL[i] = -200   # regularize  : a hack, for now, to deal with rare ROM problems. Only on the ROM logic fork
                 i+=1
@@ -3625,7 +3918,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                           " re-reading both from the fair-draw record so the comparison is"
                           " like-for-like.".format(_cold_src, _warm_src))
                     _cold_lnZ = _lnZ_of_rvs(_cold_rvs, already_pooled=False)
-                    _warm_lnZ = _lnZ_of_rvs(sampler._rvs, already_pooled=False)
+                    _warm_lnZ = _lnZ_of_rvs(sampler._rvs, already_pooled=False,
+                                            record=_rvs_record_for(sampler, sampler._rvs))
                     _cold_src = _warm_src = 'fairdraw'
                 _evidence_of_loss = (
                     (_cold_lnZ is not None) and (_warm_lnZ is not None)
@@ -3779,6 +4073,10 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         # a resampled replica double-weighted.  Near the n_extr boundary a run can produce a
         # MIXTURE of raw and resampled replicas, which one global boolean cannot describe.
         _rep_fairdraw = [bool(getattr(sampler, '_rvs_is_fairdraw', False))]
+        # ...and each replica's RECORD, so pooling can derive that block's weights with its own
+        # convention.  Marked INTERNAL: this list is plumbing for _pool_replica_rvs, and
+        # set_samples() refuses an internal record so none of it can reach a consumer.
+        _rep_records = [_internal_record_of(sampler)]
         # Collapse status must be aggregated over EVERY replica that ends up in the pool.
         # The exported posterior is the pooled mixture, so one collapsed replica taints it
         # even if the first run was healthy -- and the status sidecar is written from
@@ -3837,6 +4135,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             _rep_lnZ.append(float(_lr2)); _rep_sig.append(float(_sig2)); _rep_neff.append(float(_neff2))
             _rep_rvs.append(sampler._rvs)
             _rep_fairdraw.append(bool(getattr(sampler, '_rvs_is_fairdraw', False)))
+            _rep_records.append(_internal_record_of(sampler))
             _rep_collapsed.append(bool(_dd2.get('live_volume_collapsed', False))
                                   if isinstance(_dd2, dict) else False)
             if isinstance(_dd2, dict) and _dd2.get('collapse_reason'):
@@ -3851,7 +4150,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         # (which all form log_integrand + log_joint_prior - log_joint_s_prior) correct untouched.
         _pooled_rvs = _pool_replica_rvs(_rep_rvs, sampler, rep_lnZ=_rep_lnZ,
                                         already_resampled=_rep_fairdraw,
-                                        use_lnL=rvs_integrand_is_lnL)
+                                        use_lnL=rvs_integrand_is_lnL,
+                                        records=_rep_records)
         # A POOLED RECORD IS NOT A FAIR DRAW, even when every block that went into it was.
         # _pool_replica_rvs gives block k weights summing to Z_k/K: equal WITHIN a block (each
         # block really is an equal-weight draw from its own posterior) but differing BETWEEN
@@ -3873,6 +4173,39 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             # ln_weights_for_posterior must read the reconstructed per-row weights.
             sampler._rvs_is_pooled = True
             sampler._rvs_is_fairdraw = any(_rep_fairdraw)
+            # (DESIGN_rvs_naming.md) The same statement, as a record.  Note it carries
+            # _rep_fairdraw PER BLOCK -- the thing the two booleans above cannot express, and
+            # the reason a mixture of raw and resampled replicas needed a special case in
+            # _pool_replica_rvs.  The reserve does NOT ride along: it describes one pass, and
+            # a pooled record is a mixture of several, so there is no single retained set.
+            if _sampler_keeps_records(sampler):
+                try:
+                    # THE CONVENTION MUST COME ALONG.  _pool_replica_rvs keeps only the
+                    # INTERSECTION of the replica keys, so on a linear-only backend
+                    # (adaptive_cartesian, or Ensemble without use_lnL) the pooled record has a
+                    # bare `integrand` column.  Without a recorded convention log_weights()
+                    # raises rather than guessing -- correct in itself, but it would abort the
+                    # unwrapped .dgrid export and the outer handler would DROP THE EVENT.  The
+                    # blocks all come from one sampler, so its pre-pool record knows; fall back
+                    # to the run's stored convention.
+                    _pre = sampler.samples()
+                    _pool_is_log = (_pre.integrand_is_log if _pre is not None else None)
+                    if _pool_is_log is None:
+                        _pool_is_log = rvs_integrand_is_lnL
+                    # LOCKSTEP with _pool_replica_rvs, which drops empty records together with
+                    # their lnZ and their resampled flag.  Filtering here too keeps the
+                    # provenance describing the blocks the record actually contains.
+                    _keep_rec = [_i for _i, _r in enumerate(_rep_rvs) if _r]
+                    sampler.set_samples(_RvsRecord.pooled(
+                        _pooled_rvs,
+                        resampled_blocks=[_rep_fairdraw[_i] for _i in _keep_rec
+                                          if _i < len(_rep_fairdraw)],
+                        block_sizes=[_rvs_len(_rep_rvs[_i]) for _i in _keep_rec],
+                        integrand_is_log=_pool_is_log))
+                except Exception as _e_rec:
+                    sampler.set_samples(None)
+                    print("  [rvs-record] pooled record not built ({}); falling back to the"
+                          " provenance flags".format(_e_rec))
         # Did pooling FLATTEN any block?  That, not "is the record resampled", is what makes
         # the pooled Kish n_eff meaningless below -- a flattened block's rows carry its export
         # size rather than its integration quality.
@@ -3934,7 +4267,11 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             # which has exactly the property the paragraph above asks for: it reduces to
             # sum_k neff_k when the replicas agree, and falls below it when they disagree --
             # the disagreement these replicas exist to detect.
-            if _blocks_flattened:
+            # The record answers this directly.  blocks_were_flattened() is a THIRD
+            # question, distinct from the other two -- keying it on either of them is what made
+            # this branch dead code in review round 2.
+            _rec_ne = _rvs_record_for(sampler, sampler._rvs)
+            if (_rec_ne.blocks_were_flattened() if _rec_ne is not None else _blocks_flattened):
                 _l_rel = numpy.asarray(_rep_lnZ, dtype=float) - float(numpy.max(_rep_lnZ))
                 _Zk = numpy.exp(_l_rel)
                 _nk = numpy.asarray(_rep_neff, dtype=float)
@@ -3943,7 +4280,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                                 if numpy.any(_ok) else None)
                 _neff_how = 'block Kish over replicas (the export is fair-drawn)'
             else:
-                _neff_pooled = _kish_neff_of_rvs(sampler._rvs)
+                _neff_pooled = _kish_neff_of_rvs(
+                    sampler._rvs, record=_rvs_record_for(sampler, sampler._rvs))
                 _neff_how = 'Kish over the pooled samples'
             neff = float(_neff_pooled) if _neff_pooled is not None else float(numpy.sum(_rep_neff))
             if _neff_pooled is not None:
@@ -4258,7 +4596,13 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
           # The fresh path is exact and already supported, so use it rather than reporting a
           # plausible wrong number -- every slice becomes an independent fixed-d integration.
           # It costs more likelihood evaluations; say so, rather than changing cost silently.
-          if not all_fresh and _rvs_is_export_resample(sampler):
+          # Ask the record when it describes these rows; the flag is the fallback.
+          # Note this is the ROWS-RESAMPLED question, not equal-weight: a pooled record still
+          # has resampled rows, and reweighting them still double-counts.
+          _rec_ds = _rvs_record_for(sampler, sampler._rvs)
+          _ds_resampled = (_rec_ds.rows_are_resampled() if _rec_ds is not None
+                           else _rvs_is_export_resample(sampler))
+          if not all_fresh and _ds_resampled:
               print("  [dslice] _rvs is the fair-draw export; forcing --distance-slice-all-fresh"
                     " (the reweight core would double-count pi_Omega/q_Omega on resampled rows)."
                     "  K fresh fixed-d integrations instead of a reweighted core.")
@@ -4487,7 +4831,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         if opts.calibration_export_posterior and calibration_marginalization and n_cal_for_likelihood and n_cal_for_likelihood > 1 and _cal_nodes is not None:
           try:
             from scipy.special import logsumexp as _logsumexp   # 'scipy' is shadowed as a local later in analyze_event
-            _tv = xpy_default.linspace(-t_ref_wind, t_ref_wind, int((t_ref_wind)*2/P.deltaT))
+            _tv = factored_likelihood.marginalization_time_grid(t_ref_wind, P.deltaT, xpy=xpy_default)  # THE one window-grid constructor; see issue #146
             # per-realization, time-integrated lnL at each fair-draw sample (P holds the sample
             # extrinsic arrays, just set by resample_samples).  return_cal_components forces the
             # loop method and returns shape (n_samples, n_cal).

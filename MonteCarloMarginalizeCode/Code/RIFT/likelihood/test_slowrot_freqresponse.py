@@ -6,6 +6,10 @@ Checks:
       machine precision, over many random (ra,dec,psi) and H1/L1/V1/K1.  KEY CHECK.
   (B) FREE-SPECTRAL-RANGE STRUCTURE: the single-arm transfer's first null sits at the
       expected frequency c / (L (1 + a.n)); |F(f)| departs from |F(0)| on the f_FSR scale.
+  (D) THE UNPAIRED NYQUIST BIN: the response weights must be Hermitian on the grid, which
+      at the one bin that stands for both +fNyq and -fNyq means REAL -- pinned both as a
+      consistency property (conj(W h) == W conj(h), which crossTermsV_fr relies on) and by
+      VALUE (the Hermitian average).  See issue #164.
   (C) IN-BAND MAGNITUDE: fractional response change |F(f)/F(0) - 1| at 1 kHz and 2 kHz for
       (i) 4-km LIGO and (ii) a 40-km CE arm -- quantifies whether the effect matters in band.
 
@@ -123,6 +127,214 @@ def test_fsr_scale_departure():
 
 
 # ---- (C) in-band magnitude: LIGO vs CE ----------------------------------------------
+# ---------------------------------------------------------------- (D) the unpaired Nyquist bin
+def _rift_fvals(npts, deltaF):
+    """RIFT two-sided packing, f[k] = deltaF*(npts/2 - k): +fNyq at k=0, no -fNyq."""
+    return deltaF * (npts / 2.0 - np.arange(npts))
+
+
+def _geom(L):
+    return dict(L=float(L), T=float(L) / lal.C_SI)
+
+
+_NYQ_GEOM = _geom(4000.0)
+
+# The projection must fire for EVERY geometry and basis size, not just the one that
+# happened to expose the bug.  --freqresponse-arm-length and --freqresponse-qmax are both
+# user-settable (bin/integrate_likelihood_extrinsic_batchmode), and the defect's size at the
+# unpaired bin depends strongly on L: |Im W_p|/|W_p| for p = 1..5 is
+#   L =  4 km   0.9935 0.9853 0.1708 0.9853 0.1708
+#   L = 10 km   0.9596 0.9093 0.4162 0.9093 0.4162
+#   L = 40 km   0.4655 0.1456 0.9893 0.1456 0.9893     (CE; 47% of |W| there)
+# A builder that projects only at (4 km, Qmax=4) passed every check in this file until
+# these loops existed.
+# (arm length, Qmax, npts) -- npts varies for the same reason: a builder that projects
+# only at npts = 16384 passed every check here until the grid size moved too.
+_NYQ_CASES = [(4000.0, 4, 16384), (4000.0, 0, 8192), (4000.0, 1, 32768),
+              (4000.0, 6, 4096), (10000.0, 4, 16384), (40000.0, 2, 32768),
+              (40000.0, 6, 8192)]
+
+
+def test_unpaired_extreme_bin_predicate():
+    """The mask must fire on the RIFT packing and on NOTHING else that is well defined."""
+    f = _rift_fvals(16, 1.0)
+    m = fr.unpaired_extreme_bin(f)
+    assert m.sum() == 1 and m[0], "RIFT packing: expected exactly bin 0 (%r)" % np.where(m)
+    for name, axis in [
+            ("one-sided band", np.arange(30., 513.)),          # top of a band is NOT Nyquist
+            ("symmetric", np.arange(-4., 5.)),                 # extreme bin HAS a partner
+            ("fftfreq order", np.concatenate((np.arange(0., 4.), np.arange(-4., 0.)))),
+            ("single sample", np.array([7.])),
+            ("all zero", np.zeros(4))]:
+        mm = fr.unpaired_extreme_bin(axis)
+        if name == "fftfreq order":
+            # -fNyq is the unpaired one there; it must still be found, and only it.
+            assert mm.sum() == 1 and axis[mm][0] == -4., "%s: got %r" % (name, axis[mm])
+        else:
+            assert not mm.any(), "%s: nothing is unpaired here, but mask flagged %r" % (
+                name, axis[mm])
+
+
+def test_weights_hermitian_on_the_grid():
+    """W_p(-f) = conj(W_p(f)) at every PAIRED bin, and real at the unpaired one."""
+    for L, Qmax, npts in _NYQ_CASES:
+        _hermitian_one_case(L, Qmax, npts)
+
+
+def _hermitian_one_case(L, Qmax, npts):
+    deltaF = 0.25
+    f = _rift_fvals(npts, deltaF)
+    W = fr.finite_size_response_weights(f, _geom(L), Qmax)
+    k = np.arange(1, npts)                      # every bin except the self-paired k=0
+    for p in range(W.shape[0]):
+        d = np.max(np.abs(W[p][npts - k] - np.conj(W[p][k])))
+        scale = np.max(np.abs(W[p]))
+        print("L=%6.0f Qmax=%d W_%d: paired-bin Hermiticity %.2e (scale %.2e)"
+              % (L, Qmax, p, d, scale))
+        assert d <= 1e-12 * scale, (
+            "W_%d not Hermitian at paired bins (L=%g, Qmax=%d): %g" % (p, L, Qmax, d))
+        im = abs(np.imag(W[p][0])) / max(abs(W[p][0]), 1e-300)
+        print("L=%6.0f Qmax=%d W_%d(+fNyq) = %+.6e %+.6ej  |Im|/|W| = %.2e"
+              % (L, Qmax, p, W[p][0].real, W[p][0].imag, im))
+        assert im <= 1e-14, (
+            "W_%d is complex at the UNPAIRED Nyquist bin at L=%g, Qmax=%d (|Im|/|W| = %g).  "
+            "That bin stands "
+            "for both +fNyq and -fNyq, so Hermiticity there means real, and crossTermsV_fr "
+            "identifies conj(W h) with W conj(h) on the strength of it -- see issue #164"
+            % (p, L, Qmax, im))
+
+
+def test_weight_commutes_with_conjugation_at_nyquist():
+    """conj(W_p h) == W_p conj(h), the identity crossTermsV_fr is built on.
+
+    CONSISTENCY only: any REAL value at the unpaired bin satisfies this, so read it with
+    test_nyquist_weight_value_is_the_hermitian_average, which pins the value.
+    """
+    npts, deltaF = 1024, 4.0
+    f = _rift_fvals(npts, deltaF)
+    W = fr.finite_size_response_weights(f, _NYQ_GEOM, 4)
+    rng = np.random.default_rng(20260819)
+    h = rng.normal(size=npts) + 1j * rng.normal(size=npts)
+    h[0] = 3.0 - 1.5j                            # make the Nyquist bin carry real weight
+    assert abs(h[0]) > 1e-3 * np.max(np.abs(h)), "vacuous without Nyquist content"
+    for p in range(W.shape[0]):
+        # conj in the TIME domain <-> conjugate-and-reverse in this packing (k -> npts-k)
+        def conj_spec(x):
+            xc = np.conj(x)
+            return np.concatenate(([xc[0]], xc[1:][::-1]))
+        a = conj_spec(W[p] * h)                  # conj(W h)
+        b = W[p] * conj_spec(h)                  # W conj(h)
+        err = np.max(np.abs(a - b)) / np.max(np.abs(b))
+        print("W_%d: conj/weight commutation rel err = %.2e" % (p, err))
+        assert err <= 1e-14, (
+            "conj(W_%d h) != W_%d conj(h) (rel %g): the unpaired Nyquist bin is not real, "
+            "so crossTermsV_fr = <conj(W h)|W' h'> is not the term it claims -- issue #164"
+            % (p, p, err))
+
+
+def _continuum_weights(fvals, geom, Qmax):
+    """W_p(f) straight from the documented formula, with NO Nyquist projection.
+
+    Independent of the projection logic under test, so it can say what the projection is
+    allowed to touch.  W_0 = 1; W_{1+q} = e^{-i2pi f T} c_q(f) - [q==0].
+
+    THIS IS A HAND COPY of finite_size_response_weights' formula, and deliberately so: the
+    value guard's reference comes from the production function itself (evaluated on a
+    one-sided axis, where the projection declines), so it pins "projected == Re(unprojected)"
+    and nothing about the unprojected value.  This copy is the only thing in the file that
+    would notice the FORMULA changing -- e.g. flipping the sign of the delay phase passes
+    every other check here.  If the formula is deliberately revised, revise this too, and
+    read a large "bins changed" count above as formula drift rather than a bad projection.
+    """
+    fvals = np.asarray(fvals, dtype=float)
+    c = fr.finite_size_c_coeffs(fvals, geom['L'], Qmax)
+    phase = np.exp(-1j * 2.0 * np.pi * fvals * geom['T'])
+    W = np.empty((Qmax + 2, fvals.shape[0]), dtype=complex)
+    W[0] = 1.0
+    for q in range(Qmax + 1):
+        W[1 + q] = phase * c[q] - (1.0 if q == 0 else 0.0)
+    return W
+
+
+def test_weights_untouched_away_from_the_unpaired_bin():
+    """The projection must change the UNPAIRED bin and nothing else, on any axis.
+
+    Without this, a builder that took the real part of EVERY bin -- destroying the entire
+    response phase -- passes the Hermiticity, commutation and value checks above, because a
+    wholly real weight is trivially Hermitian and its unpaired bin is trivially its own real
+    part.  Same for one that projects the top of a ONE-SIDED analysis band, which is not a
+    Nyquist bin at all.  Both were live holes until this test existed (issue #164).
+    """
+    cases = [("two-sided RIFT packing", _rift_fvals(4096, 1.0), 1),
+             ("two-sided, other npts", _rift_fvals(2048, 0.5), 1),
+             ("two-sided, large npts", _rift_fvals(32768, 0.125), 1),
+             ("one-sided band", np.arange(30., 1025.), 0),
+             ("symmetric axis", np.arange(-64., 65.), 0)]
+    for L, Qmax, _npts in _NYQ_CASES:
+        for label, f, n_expected in cases:
+            _scope_one_case("%s L=%g Q=%d" % (label, L, Qmax), f, n_expected, L, Qmax)
+
+
+def _scope_one_case(label, f, n_expected, L, Qmax):
+    if True:
+        W = fr.finite_size_response_weights(f, _geom(L), Qmax)
+        ref = _continuum_weights(f, _geom(L), Qmax)
+        changed = np.where(np.any(np.abs(W - ref) > 0, axis=0))[0]
+        print("%-24s bins changed by the projection: %d (expected %d)"
+              % (label, changed.size, n_expected))
+        assert changed.size == n_expected, (
+            "%s: projection touched %d bins (f = %r), expected %d.\n"
+            "  A SMALL excess means the projection over-reached -- it must change only a "
+            "genuinely unpaired extreme bin (issue #164).\n"
+            "  A LARGE excess (most/all bins) instead means the PRODUCTION FORMULA moved "
+            "away from _continuum_weights below, which is a hand copy of it; fix the copy "
+            "or the formula, not the projection."
+            % (label, changed.size, f[changed][:8], n_expected))
+        if n_expected:
+            assert changed[0] == 0 and f[0] == np.max(np.abs(f)), (
+                "%s: the changed bin is not +fNyq" % label)
+            # and it changed by exactly dropping the imaginary part
+            assert np.max(np.abs(W[:, 0] - ref[:, 0].real)) <= 1e-300 + 1e-14 * np.max(
+                np.abs(ref[:, 0])), "%s: unpaired bin is not Re(continuum)" % label
+
+
+def test_nyquist_weight_value_is_the_hermitian_average():
+    """PIN THE VALUE: the unpaired bin must be Re W_p(+fNyq), not merely some real number.
+
+    The reference is the UNPROJECTED continuum weight, obtained by evaluating on a
+    one-sided axis (where unpaired_extreme_bin correctly declines to touch anything, since
+    the top of a one-sided band is not a Nyquist bin).  Zeroing the bin, or taking |W|, or
+    any other real value, fails here while passing the commutation test above.
+    """
+    for L, Qmax, npts in _NYQ_CASES:
+        _value_one_case(L, Qmax, npts)
+
+
+def _value_one_case(L, Qmax, npts):
+    deltaF = 0.25
+    f = _rift_fvals(npts, deltaF)
+    fnyq = deltaF * npts / 2.0
+    geom = _geom(L)
+    W = fr.finite_size_response_weights(f, geom, Qmax)
+
+    one_sided = np.array([1.0, 10.0, 100.0, fnyq])          # positive only -> no projection
+    assert not fr.unpaired_extreme_bin(one_sided).any()
+    W_cont = fr.finite_size_response_weights(one_sided, geom, Qmax)[:, -1]
+
+    for p in range(W.shape[0]):
+        want = 0.5 * (W_cont[p] + np.conj(W_cont[p]))       # the Hermitian average, = Re
+        got = W[p][0]
+        d = abs(got - want) / max(abs(W_cont[p]), 1e-300)
+        print("L=%6.0f Qmax=%d W_%d(+fNyq): got %+.9e  want Re = %+.9e  "
+              "(|W_cont| = %.3e, rel %.2e)"
+              % (L, Qmax, p, got.real, want.real, abs(W_cont[p]), d))
+        assert d <= 1e-14, (
+            "W_%d at the unpaired Nyquist bin (L=%g, Qmax=%d) is %r, not the Hermitian "
+            "average %r of the continuum weight.  Any real value passes the commutation "
+            "check; only this one is the response the grid's real (-1)^j Nyquist mode "
+            "actually sees -- see #164" % (p, L, Qmax, got, want))
+
+
 def _fractional_change(det, L, freqs, n_sky=4000):
     """Median-over-sky of complex |F(f)/F(0)-1| AND amplitude-only ||F(f)|-|F(0)||/|F(0)|,
     excluding sky positions near antenna-pattern nulls (|F(0)|<0.3) where the ratio blows
@@ -186,6 +398,11 @@ def test_ce_is_100x_longer_effect():
 
 
 if __name__ == "__main__":
+    test_unpaired_extreme_bin_predicate()
+    test_weights_hermitian_on_the_grid()
+    test_weight_commutes_with_conjugation_at_nyquist()
+    test_weights_untouched_away_from_the_unpaired_bin()
+    test_nyquist_weight_value_is_the_hermitian_average()
     print("=" * 78)
     wA = test_long_wavelength_limit_matches_lal()
     test_zero_frequency_is_real()

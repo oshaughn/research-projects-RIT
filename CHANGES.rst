@@ -19,6 +19,19 @@ development tree is rift_O4d.
     exact-regression fallback. See
     https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/ (TBD) and the project notes at
     20260513-Me-ParsimoniousPlacementOptions/parsimonious_placement_plan.md.
+  - **CHANGES lnL VALUES** (issue #146) time-marginalization window grid: the two extrinsic ILE
+    drivers built different grids. bin/integrate_likelihood_extrinsic_batchmode used
+    linspace(-iwh, iwh, int(2*iwh/deltaT)) at ten sites; RIFT.likelihood.jax_ile (and so
+    bin/integrate_likelihood_extrinsic_jax) used arange(-Nw, Nw)*deltaT. Both likelihoods consume
+    only tvals[0] and len(tvals) -- each steps by deltaT and integrates with dx=deltaT -- so the
+    grids differed in origin by 0.2 samples, enough to round ifirst to a different integer sample
+    per detector, and in length at srate 1024/2048/16384. Both now call the single constructor
+    factored_likelihood.marginalization_time_grid(iwh, deltaT), spaced exactly deltaT with
+    npts = int(2*iwh/deltaT). Batchmode's window LENGTH is unchanged at every sample rate; its
+    grid ORIGIN moves by +4.88e-5 s, which shifts lnL by up to ~0.5 nats at the injected
+    parameters at srate 4096 (less at 16384). Marginalized lnZ moves sub-nat. Anyone comparing
+    against archived runs should expect a shift at that scale. The JAX driver's window gains one
+    sample at srate 1024/2048/16384; measured effect on its lnL is < 4e-3 nats.
   - generic worfklow backend (condor, slurm, htcondor, etc) via dag_utils_generic
   - simulation_manager framework: interface requirements for external adaptive simulations
   - CIP hyperpipe improvements (initialize_me; enable population and EOS params in using_eos file with arbitrary

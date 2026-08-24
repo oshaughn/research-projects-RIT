@@ -118,5 +118,12 @@ def main():
     return 0 if ok else 1
 
 
+# pytest entry point -- see the note in test_jax_slowrot.py.  main() reports via
+# its return code, so the assertion has to be on that; a bare main() call would
+# pass even when the run FAILED.
+def test_nuts_phimarg_analytic():
+    assert main() == 0, "fisher_nuts_sample_phimarg failed its analytic-target gates"
+
+
 if __name__ == "__main__":
     sys.exit(main())

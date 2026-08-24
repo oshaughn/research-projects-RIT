@@ -18,6 +18,7 @@ _FSLIB = os.environ.get("SLOWROT_FS_LIB_DIR",
                         os.path.expanduser("~/RIFT_roboto_paper/analyses/slowrot_finite-size"))
 sys.path.insert(0, _FSLIB)
 import slowrot_fs_lib as fslib
+import RIFT.likelihood.factored_likelihood as flib
 import RIFT.likelihood.factored_likelihood_freqresponse as flfr
 import RIFT.likelihood.slowrot_freqresponse as sfr
 import RIFT.lalsimutils as lsu
@@ -48,7 +49,7 @@ def main():
         Psig = fslib._base_params(src, dist, deltaT, deltaF)
         pk = fslib._pack_finite(fslib.EVENT_TIME, t_window, Psig, dd, pd, arm, src.fmax, QMAX)
         for iwh in (0.03, 0.06):
-            Nw = int(iwh / deltaT); tvals = np.arange(-Nw, Nw) * deltaT
+            tvals = flib.marginalization_time_grid(iwh, deltaT)
             # cupy/numpy NoLoop at truth (nearest + cubic)
             Pv = Psig.manual_copy()
             Pv.phi = np.array([rt]); Pv.theta = np.array([dt_]); Pv.psi = np.array([pt])

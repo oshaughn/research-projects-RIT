@@ -1,0 +1,144 @@
+{
+  "mcsampler": {
+    "backend": "mcsampler",
+    "builds_reserve": false,
+    "entry_points": [
+      "integrate"
+    ],
+    "has_bootstrap_from_samples": false,
+    "has_clear_warm_state": false,
+    "has_reset_sampling": false,
+    "has_return_lnI_kwarg": false,
+    "integrand_holds": "linear",
+    "keeps_warm_seed_reserve": false,
+    "n_rebind_sites": 1,
+    "rvs_keys": [
+      "integrand",
+      "joint_prior",
+      "joint_s_prior",
+      "sample_n",
+      "weights"
+    ],
+    "sets_rvs_record": true
+  },
+  "mcsamplerAdaptiveVolume": {
+    "backend": "mcsamplerAdaptiveVolume",
+    "builds_reserve": true,
+    "entry_points": [
+      "integrate",
+      "integrate_log"
+    ],
+    "has_bootstrap_from_samples": true,
+    "has_clear_warm_state": false,
+    "has_reset_sampling": false,
+    "has_return_lnI_kwarg": false,
+    "integrand_holds": "log (aliased)",
+    "keeps_warm_seed_reserve": true,
+    "n_rebind_sites": 1,
+    "rvs_keys": [
+      "integrand",
+      "log_integrand",
+      "log_joint_prior",
+      "log_joint_s_prior"
+    ],
+    "sets_rvs_record": true
+  },
+  "mcsamplerEnsemble": {
+    "backend": "mcsamplerEnsemble",
+    "builds_reserve": false,
+    "entry_points": [
+      "integrate",
+      "integrate_log"
+    ],
+    "has_bootstrap_from_samples": true,
+    "has_clear_warm_state": false,
+    "has_reset_sampling": false,
+    "has_return_lnI_kwarg": true,
+    "integrand_holds": "L or lnL (kwarg)",
+    "keeps_warm_seed_reserve": false,
+    "n_rebind_sites": 1,
+    "rvs_keys": [
+      "integrand",
+      "joint_prior",
+      "joint_s_prior",
+      "log_integrand",
+      "log_joint_prior",
+      "log_joint_s_prior",
+      "log_weights"
+    ],
+    "sets_rvs_record": true
+  },
+  "mcsamplerGPU": {
+    "backend": "mcsamplerGPU",
+    "builds_reserve": false,
+    "entry_points": [
+      "integrate",
+      "integrate_log"
+    ],
+    "has_bootstrap_from_samples": false,
+    "has_clear_warm_state": false,
+    "has_reset_sampling": true,
+    "has_return_lnI_kwarg": false,
+    "integrand_holds": "linear",
+    "keeps_warm_seed_reserve": false,
+    "n_rebind_sites": 2,
+    "rvs_keys": [
+      "integrand",
+      "joint_prior",
+      "joint_s_prior",
+      "log_integrand",
+      "log_joint_prior",
+      "log_joint_s_prior",
+      "log_weights",
+      "sample_n",
+      "weights"
+    ],
+    "sets_rvs_record": true
+  },
+  "mcsamplerNFlow": {
+    "backend": "mcsamplerNFlow",
+    "builds_reserve": false,
+    "entry_points": [
+      "integrate",
+      "integrate_log"
+    ],
+    "has_bootstrap_from_samples": false,
+    "has_clear_warm_state": false,
+    "has_reset_sampling": false,
+    "has_return_lnI_kwarg": false,
+    "integrand_holds": "log (aliased)",
+    "keeps_warm_seed_reserve": false,
+    "n_rebind_sites": 1,
+    "rvs_keys": [
+      "integrand",
+      "log_integrand",
+      "log_joint_prior",
+      "log_joint_s_prior"
+    ],
+    "sets_rvs_record": true
+  },
+  "mcsamplerPortfolio": {
+    "backend": "mcsamplerPortfolio",
+    "builds_reserve": true,
+    "entry_points": [
+      "integrate",
+      "integrate_log"
+    ],
+    "has_bootstrap_from_samples": true,
+    "has_clear_warm_state": true,
+    "has_reset_sampling": false,
+    "has_return_lnI_kwarg": false,
+    "integrand_holds": "log (aliased)",
+    "keeps_warm_seed_reserve": true,
+    "n_rebind_sites": 1,
+    "rvs_keys": [
+      "integrand",
+      "log_integrand",
+      "log_joint_prior",
+      "log_joint_s_prior",
+      "log_weights",
+      "sample_n"
+    ],
+    "sets_rvs_record": true
+  }
+}

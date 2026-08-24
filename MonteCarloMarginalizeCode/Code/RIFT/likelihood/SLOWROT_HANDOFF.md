@@ -12,10 +12,64 @@ convention floor), at an inflated sidereal rate so the delay drift is large.  At
 90-min-BNS rate (= x340 inflation on a 16s test): p_max=0 deficit 3.43 -> p_max=1 0.23 ->
 p_max=2 0.207 -> p_max=3 0.207: CONVERGES, bound-respected, NO blow-up.  So Path B recovers
 the delay drift and is production-ready for the target signals with p_max<=2.
-KNOWN LIMIT: the p>=3 catastrophic cancellation (huge high-f U terms x tiny delta_tau^p
-coefficients) only bites at x1000+ inflation (>2.6x faster than any physical signal): x1000
-gives p=2 deficit 5.9 but p=3 blows to 1e5.  So the band-limit fix (low-pass the p>=1
-derivative templates) is a robustness nicety, NOT a blocker for real signals.
+(2026-08-19: that verdict predates #163, which fixed a second, independent defect in the FD
+derivative weight's Nyquist bin affecting every odd-p band.  Path B numbers taken before it are
+not reliable; the post-#163 re-measurement is in the paper repo at
+analyses/slowrot_bound_violation/ section 4b -- which is on an unmerged branch of that repo at
+the time of writing, so this pointer resolves only once it lands.)
+RETRACTED (2026-08-18) -- there is NO p>=3 catastrophic cancellation.  This file used to say it
+"only bites at x1000+ inflation (>2.6x faster than any physical signal)".  That was an artefact of
+a bug in the likelihood, not a property of the expansion: term2 dropped the arrival-time post-phase
+e^{i n Omega (t-tref)} and term1 concealed it by moving the modulation onto the DATA, using
+<e^{inOmega.}h|d> == <h|e^{-inOmega.}d> -- an identity that is FALSE for the noise-weighted overlap,
+because a frequency shift does not commute with 1/S(f).  Fixed in PR #117.
+  The 2.6x itself was never measured: only x340 and x1000 were ever run, and 1000/340 = 2.94.
+  Re-measured after the fix (SEOBNRv4, fmin=50, seglen=16 s, srate=16384), deficits by p_max:
+    0.5x  2.697  0.00543  0.000172  0.000182       <- x = multiple of the 90-min-BNS rate
+    1.0x  4.323  0.01555  0.000166  0.000258
+    1.5x 10.040  0.06892  0.000450  0.000049
+    2.0x 51.041  2.85329  0.101903  0.001989
+    3.0x 333.19  152.282  43.01335  7.563424
+  SUPERSEDED BY #163 -- every number in this block was measured with the DEFECTIVE FD
+  derivative weight (the Nyquist bin, see below).  Re-measure before quoting any of it.
+  For scale, that weight violates the bound by 8.0e-03 / 8.0e-03 / 34.4 nats at p_max=1/2/3
+  -- but those are from the JAX Cauchy-Schwarz ladder at INFL=1350, fmax=1700, a DIFFERENT
+  configuration from this table (SEOBNRv4, fmin=50, seglen=16 s, srate=16384), where the same
+  defect is worth ~1e-4 nats.  They are not error bars on the rows below.
+  The p_max=1 entry was flagged 2026-08-19 as possibly the p_max=2 number copied up a row, since
+  issue #159 records 4.108e-03 at that same INFL=1350, fmax=1700, p_max=1.  RESOLVED by
+  re-measurement the same day: reintroducing the Nyquist defect ALONE on the shipped tree gives
+  overshoot +8.0024e-03 nats there (relative residual 1.5701e-07 of 0.5<h|h> = 50991.267), so
+  8.0e-03 is correct and independently reproduced.  #159's 4.108e-03 is not in conflict -- it
+  is quoted here as a MAGNITUDE; #159 prints it as a deficit (-4.108e-03) while the decomposition
+  quotes the same figure as an overshoot (+4.108112e-03) -- that decomposition now lives in
+  RIFT_roboto_paper analyses/slowrot_bound_violation/, not in the jax test.  One number, two sign conventions, no disagreement.  And it
+  was taken with BOTH defects present, and they partly cancelled.  The caveat is withdrawn.
+  As recorded at the time: the Cauchy-Schwarz bound is respected at EVERY rate, and p=3
+  IMPROVES on p=2 at 1.5x/2x/3x (by
+  9x, 51x, 5.7x).  The expansion converges monotonically; high rates simply need more orders.  At
+  the physical rate the p=2 residual (1.7e-4) sits at the test's rotation-off noise floor (1.5e-4),
+  so it is an UPPER LIMIT, not a measurement -- fractional agreement 1.6e-7.
+  CONSEQUENCE: the "band-limit the p>=1 derivative templates" fix proposed further down this file
+  is a fix for a problem that does not exist.  Do not implement it.
+
+ALSO RETRACTED: the "~0.1-0.2 resolution floor from NoLoop nearest-neighbour time sampling" below.
+That floor was a TRUNCATION artefact -- the test was running a 48.5 s chirp in a 16 s segment, so
+the delayed lookup ran off the array end and nan_to_num deleted the loudest samples.
+  DECISIVE EVIDENCE, and it is clean: run INFL=1.  With the rotation switched off the floor is
+  still there (0.205), and INFL=1 is IMMUNE to the PR #117 bug because that error scales with
+  Omega.  A floor that survives turning the rotation off cannot be the rotation likelihood; it also
+  fails to improve under a 4x finer time grid or under cubic sub-sample interpolation, so it was
+  not the time lookup either.  With a segment the waveform actually fits, the ROTATION-OFF floor is
+  1.5e-4 (measured both before and after #117 -- they agree, as they must).
+  CAUTION on the supporting scans: the srate and cubic comparisons quoted in the analysis notes
+  were run at INFL=340 with rotation ON in the truncated configuration, so their ABSOLUTE numbers
+  contain the #117 bug.  Only the INFL=1 comparison and the qualitative "does not improve with grid
+  refinement" trend survive; do not quote those absolute values.
+  NOTE the 1.5e-4 above is the rotation-off floor.  It is NOT what a fitting segment alone buys at
+  the physical rate: pre-#117, with a fitting segment, that was still 0.053.  Reaching 1.7e-4 at
+  the physical rate needed BOTH a fitting segment AND the #117 fix.
+
 Separately validated vs LAL's SimDetectorStrainREAL8TimeSeries (`test_slowrot_pathB_groundtruth.py`):
 baseline/PathA/PathB all agree with Jolien's full delay map to ~0.07 at fmax=256 (the ~26
 deficit at fmax=1024 was SimDetectorStrain's high-f TD delay-INTERPOLATION, not a bug --
@@ -78,6 +132,12 @@ precompute-and-marginalize architecture. Two effects, both implemented (Path A +
     elementary template `a=(p,n)`: `Q^a(t)`, `U^{(a,a')}`, `V^{(a,a')}`.
   - `rotation_coefficients` / `rotation_coefficients_vector` — the analytic scalars
     `C_{(p,ntilde)} = (1/p!) sum_{n+m=ntilde} A_tilde_n [(-D)^{*p}]_m` (Path A: `{(0,n): A_tilde_n}`).
+    **Harmonic width (issue #142).** That convolution widens the harmonic index by one per
+    derivative order (`|n|<=2` antenna * `|m|<=1` delay-drift), so the bank must carry
+    `|ntilde| <= required_harmonic_width(p_max) = 2 + p_max` — **not** the `|n|<=2` of the
+    antenna alone. The precompute's `harmonics=(-2..2)` default is the `p_max=0` answer only;
+    it now widens itself (and warns) rather than letting the evaluators drop the missing
+    coefficients, which they both do silently. Guarded by `test_slowrot_harmonic_width.py`.
   - `FactoredLogLikelihoodWithRotation(...)` — scalar lnL (per-sample); term1 = `Re[sum_lm
     conj(Ylm) sum_a conj(C_a) Q^a(t_det)]`, term2 with `U^{(a,a')}` (coef `conj(C_a)C_a'`)
     and `V^{(a,a')}` (coef `C_{(p,-nu)} C_a'`).
@@ -99,10 +159,12 @@ precompute-and-marginalize architecture. Two effects, both implemented (Path A +
     python RIFT/likelihood/test_slowrot_likelihood_v1.py       # scalar Path A vs baseline + brute force
     python RIFT/likelihood/test_slowrot_noloop.py              # vectorized Path A vs baseline NoLoop
     python RIFT/likelihood/test_slowrot_noloop_bruteforce.py   # vectorized Path A vs brute force
+    python RIFT/likelihood/test_slowrot_cauchy_schwarz.py      # lnL <= 0.5<d|d> + explicit-model value
     python RIFT/likelihood/test_slowrot_pathB.py               # Path B reduction + bound
     python RIFT/likelihood/test_slowrot_headtohead.py          # matched-sample rotation vs baseline (cubic)
     python RIFT/likelihood/test_slowrot_freqresponse.py        # [Path D] finite-size response vs LAL
     python RIFT/likelihood/test_slowrot_freqresponse_likelihood.py  # [Path D] likelihood: V1/V3 + V4 positive control
+    python RIFT/likelihood/test_slowrot_harmonic_width.py      # bank covers every C_{(p,ntilde)} (#142)
 
 VALUE DEMOS (verify-anywhere, no condor/GPU) -- consolidated in the RIFT tree:
     cd demo/rift/slowrot && make demo        # rotation (Path A/B) + finite-size (Path D)
@@ -122,8 +184,33 @@ End-to-end ILE head-to-head (ILE-GPU-Paper demo data), baseline vs rotation vs f
 ## Validation status (all PASSING)
 - Response harmonics vs LAL: ~1e-16.  FD ops vs LAL round trips: ~1e-13.
 - Path A scalar: V1a (Omega=0 vs baseline) 2.7e-12; V1b (real vs brute force) 2.6e-9.
-- Path A vectorized: vs baseline NoLoop 3.6e-12; vs brute force 3.2e-10; V0 (precompute
-  recovery on real data) exact.
+- Path A vectorized: vs baseline NoLoop 3.6e-12; vs brute force 3.9e-10 (against the REWRITTEN,
+  convention-free brute force -- see below; the old figure 3.2e-10 was against a reference that
+  shared the implementation's conventions); V0 (precompute recovery on real data) exact.
+- jax_ile (issue #131, ported 2026-08-18): the JAX rotation contraction now carries the
+  arrival-time post-phase in BOTH terms, so its rho_sq is arrival-time dependent (rank-1 in
+  (sample, time bin), bucketed by m = n_a' - n_a, as the NoLoop does).  test_jax_slowrot.py
+  rotation gate (a) vs the NoLoop: max|rel| 1.33e-05 -> 2.14e-15 (max|abs| 5.37e-02 -> 5.46e-12)
+  at p_max=0, and 7.75e-14 (2.62e-10 nats) at p_max=1, which the file now also runs -- Path B is
+  a distinct branch here because several p share a harmonic, so the m buckets mix p and the V
+  reflection must resolve within p.  Gate restored to 1e-10.  Path D (freqresponse) has no
+  post-phase and is unchanged at 1.6e-14.  Value pinned independently by
+  test/jax/test_jax_slowrot_cauchy_schwarz.py (see below).
+- Cauchy-Schwarz (test_slowrot_cauchy_schwarz.py, 2026-08-17): lnL sits ON 0.5<d|d> to 0 nats
+  with the data equal to the exact Path-A model, and matches an explicit time-domain
+  <d|h>-(1/2)<h|h> to 5e-11.  Before the rotation_post_phase fix the same test overshot the
+  bound by 83.6 nats.
+- Cauchy-Schwarz, JAX (test/jax/test_jax_slowrot_cauchy_schwarz.py, 2026-08-18): the same ladder
+  against jax_ile, at p_max=0 AND p_max=1, with the data equal to the exact model at each p_max
+  so lnL sits ON the bound.  p_max=0: (A) 4.99 nats, (B) deficit 0.0, (C) 6.5e-11 vs an explicit
+  time-domain <d|h>-(1/2)<h|h>, (D) 5.8e-11 vs the numpy NoLoop.  p_max=1: (A) 36.4 nats,
+  (B) deficit 5.1e-04 of 3.2e+05, (C) 1.36e-01 = 4.2e-07 of 0.5<h|h> -- and the numpy NoLoop
+  disagrees with the SAME explicit reference by the identical 1.36e-01, so that residual is the
+  reference's conditioning (a divergent delay Taylor series at INFL=1350), not the port --
+  (D) 1.3e-09.  Mutation-tested at both p_max: dropping the post-phase from both terms is
+  self-consistent (bound NOT violated) and (C) catches it at 95.3 nats (p_max=0) / 965.7 nats
+  (p_max=1); dropping it from the model norm only overshoots the bound by 10.6 / 1122.5 nats and
+  (B) catches it.
 - Path B: scalar reduce-to-baseline 9e-13; respects 0.5<d|d>; vectorized reduce 6.4e-12.
 - Path D (finite-size, --freqresponse): response Sum_p b_p W_p == antenna_response_fd to 6e-11
   on both +/-f; likelihood L->0 reduces to baseline NoLoop 3e-9; Cauchy-Schwarz respected;
@@ -143,6 +230,27 @@ convention, so `vec == brute-force` PASSED while both were wrong. **Always cross
 against the Cauchy-Schwarz bound 0.5<d|d>, not only against a reference that can share
 conventions.**
 
+### The same lesson fired again, and this time the bound caught it (2026-08-17)
+Referencing the modulation to the intrinsic epoch is necessary but NOT sufficient. It leaves a
+residual `exp(i n Omega (t_arrival - tref))` -- the post-phase -- which the implementation
+dropped from the model norm, and it hid behind a second shortcut: term1 pushed the modulation
+onto the DATA (`<e^{inOmega.}h|d> == <h|e^{-inOmega.}d>`), an identity that is **false for a
+noise-weighted overlap**, because a frequency shift does not commute with the 1/S(f) band
+weight. term1 and term2 were therefore evaluating different templates, and lnL exceeded
+0.5<d|d> by ~1e-4 of <d|d> -- growing linearly with `Omega * (t_arrival - tref)`.
+
+Both are fixed: `chi_a` now goes into the data-term overlap directly (data untouched), and
+`rotation_post_phase()` applies `C~_a = C_a exp(i n_a Omega (t - tref))` to BOTH terms. Patching
+term2 alone does NOT work -- measured, it still violates by 73 nats where the full fix sits on
+the bound exactly.
+
+**And, exactly as the lesson above predicted, `test_slowrot_noloop_bruteforce` certified the bug
+at 3e-10 because its reference took the same two shortcuts.** That reference has been rewritten
+to build the real strain `Re[F(t') hY(t'-t_arr)]` in the time domain at every arrival sample and
+take both inner products of that one series -- sharing no convention with the implementation. It
+now fails against the old code (2.5e-3) and passes against the new one (3.9e-10).
+`test_slowrot_cauchy_schwarz.py` guards the bound itself.
+
 ## PATH B STATUS (findings 2026-07-04, the systematic pass in progress)
 - Matched-seed head-to-head DONE (test_slowrot_headtohead.py): rot(f_sid=0)==baseline 9e-13;
   evidence shift ln Z_rot - ln Z_base = -1.1e-3 (MC-noise-free) for the short signal.
@@ -151,7 +259,10 @@ conventions.**
   lnL(p_max=0..3) = [1794.39, 1781.31, 1781.63, 928.30]: p=0->1->2 captures a real ~13-in-lnL
   delay effect and appears to converge (~1781.6) and respects 0.5<d|d>=1938 -- BUT p_max=3
   BLOWS UP (increment 853).
-- ROOT CAUSE of the p>=3 blow-up (likely): the FD derivative weight (2 pi i f)^p amplifies high
+- ROOT CAUSE of the p>=3 blow-up: SETTLED, and it was NOT this.  See the RETRACTED note at the
+  top: it was the missing arrival-time post-phase (PR #117), not the derivative weight.  The
+  paragraph below is kept only as a record of what was believed.
+- (superseded) the FD derivative weight (2 pi i f)^p amplifies high
   frequencies; in the model norm the integrand ~ (2 pi f)^{2p} |h(f)|^2 / S grows like f^{11/3}
   for a chirp (|h|^2 ~ f^{-7/3}), so high-order terms are dominated by the f_max edge, not the
   physical low-frequency delay drift.  FIX for the systematic pass: BAND-LIMIT the delay-
@@ -164,7 +275,7 @@ conventions.**
 
 ## OPEN / NEXT (the one remaining systematic pass — do it all together)
 1. **Path B rigorous validation** (TWO parts, do together):
-   (a) FIX the p>=3 high-frequency derivative blow-up by band-limiting the delay-derivative
+   (a) DONE/MOOT -- there is no p>=3 blow-up to fix (PR #117).  Formerly: band-limit the delay-derivative
        terms to low frequency (see PATH B STATUS above); re-check convergence is monotone.
    (b) Validate vs an INDEPENDENT ground truth that uses LAL's OWN full delay-time map --
        lalsim.SimDetectorStrainREAL8TimeSeries (Jolien's code).  KEY FACTS FOUND 2026-07-04:

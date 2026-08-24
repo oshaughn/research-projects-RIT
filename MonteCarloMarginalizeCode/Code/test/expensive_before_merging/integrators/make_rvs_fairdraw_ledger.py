@@ -29,7 +29,36 @@ def verdict(h):
     s = " ".join(src.split())
 
     # --- the integrators themselves ------------------------------------------------
+    # --- option A: the record (DESIGN_rvs_naming.md) ---------------------------
+    if "RvsRecord.fair_draw(" in s or "RvsRecord.retained(" in s \
+            or "n_retained=self._rvs_record.n_retained()" in s \
+            or "reserve=getattr(self, '_warm_seed_reserve', None))" in s:
+        return ("PER_ROW",
+                "Hands the columns to RvsRecord as a VIEW, with the pre-draw count taken from "
+                "the previous record's PROVENANCE (eager) rather than from len() (lazy, and "
+                "would read the already-rebound dict). Reads no statistic of the rows: it "
+                "records WHAT THEY ARE at the moment that changes.")
+    if "_rebound_record(sampler, dict(sampler._rvs)" in s:
+        return ("PER_ROW",
+                "Snapshots the columns for a possible restore and rebinds the record to that "
+                "copy, so the restored record describes what is actually put back rather than "
+                "the original dict (which would fail every identity check and be inert). A "
+                "dict copy; reads no statistic of the rows.")
+    if "_rvs_record_for(sampler, sampler._rvs)" in s:
+        return ("PER_ROW",
+                "Looks up the record describing these columns, declining it if _rvs has been "
+                "replaced since. The consumer then asks a NAMED question "
+                "(rows_are_resampled / blocks_were_flattened) instead of combining flags; the "
+                "flags remain the fallback until every sampler is converted.")
     if f.startswith("RIFT/integrators/"):
+        if "n_retained=_n_retained_before_draw" in s or "RvsRecord.fair_draw" in s \
+                or "reserve=getattr(self, '_warm_seed_reserve', None))" in s:
+            return ("PER_ROW",
+                    "(DESIGN_rvs_naming.md) hands the just-rebound columns to RvsRecord "
+                    "as a VIEW, together with the pre-draw row count. Reads no statistic of "
+                    "them -- it records that they ARE the export resample, at the moment that "
+                    "becomes true, which is the whole point of the record. Nothing consumes it "
+                    "yet.")
         if "indx_list" in s:
             return ("PER_ROW",
                     "The rebind's own right-hand side: this IS the fair draw, gathering each "
@@ -73,7 +102,15 @@ def verdict(h):
                 "so, rather than reporting a plausible wrong number.")
 
     # --- the L0 rescue and the sequential warm start ---------------------------------
-    if f == "bin/integrate_likelihood_extrinsic_batchmode":
+    # BOTH ILE drivers.  The LISA driver now carries a ported copy of the L0 rescue, and the
+    # `_rvs` reads inside it are byte-identical to the ones here -- these rules match on
+    # source TEXT, so the same text earns the same verdict.  (It lives in a module-level
+    # _maybe_l0_rescue there rather than inlined in analyze_event, because that driver has TWO
+    # analyze_event variants; the enclosing function name is not part of the match.)  Rules in
+    # this block naming things the LISA driver does not have -- _rep_rvs, extrinsic_handoff,
+    # the sequential-warm-start seeds -- simply never match for it.
+    if f in ("bin/integrate_likelihood_extrinsic_batchmode",
+             "bin/integrate_likelihood_extrinsic_batchmode_lisa"):
         if "_lnZ_of_reserve_or_rvs" in s:
             return ("FIXED",
                     "PR #79, re-landed as #86. sampler._rvs is passed as the FALLBACK "
@@ -119,9 +156,14 @@ def verdict(h):
         if "_rep_rvs" in s:
             return ("PER_ROW",
                     "Collects each replica's record for pooling. _pool_replica_rvs is told "
-                    "already_resampled=bool(opts.fairdraw_extrinsic_output) and forces flat "
-                    "within-block weights on that path, so the resampling is accounted for "
-                    "THERE rather than here.")
+                    "already_resampled=_rep_fairdraw -- the PER-REPLICA sequence, captured "
+                    "beside each record from that pass's own _rvs_is_fairdraw marker -- and "
+                    "forces flat within-block weights for the blocks that were resampled, so "
+                    "the resampling is accounted for THERE rather than here. (This text used "
+                    "to say bool(opts.fairdraw_extrinsic_output); that is the CLI flag, which "
+                    "is precisely the Finding-6 defect the sequence exists to avoid. A verdict "
+                    "whose reason describes a mechanism the code does not use certifies "
+                    "nothing.)")
 
         if "extrinsic_handoff" in s or (s == "_rvs = sampler._rvs"):
             return ("FIXED",
