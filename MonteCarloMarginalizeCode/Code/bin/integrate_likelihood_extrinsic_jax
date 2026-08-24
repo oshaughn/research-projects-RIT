@@ -50,11 +50,14 @@ Output (matches ILE conventions):
      ``lnL`` = log marginal likelihood (evidence) over extrinsic parameters,
      ``sigma_lnL = sqrt(var)/Z`` (ILE's ``sqrt(var)/res``).  Masses in M_sun.
   <output>_<event>_samples.dat (--save-samples) : per-sample extrinsic params +
-     loglikelihood with ILE-style column names.
+     loglikelihood with ILE-style column names.  Equal-weight FAIR DRAW rows
+     (no weight column), so a collapsed integration whose weights admit no fair
+     draw writes NO samples file and fails the event instead.
 """
 
 from __future__ import print_function
 
+import os
 import sys
 from optparse import OptionParser, OptionGroup
 
@@ -872,7 +875,10 @@ def fairdraw_indices(logw, rng):
     returns -- so that the count contract has exactly one implementation and
     cannot be quietly skipped for some configurations.
 
-    Returns ``(indices_or_None, note)``; the note always records the ESS.
+    Returns ``(indices_or_None, note)``; the note always records the ESS.  A
+    ``FAILED`` note means the cloud CANNOT be fair-drawn: ``write_samples``
+    refuses to write an export at all in that case, rather than passing the
+    unreweighted cloud off as one.
     """
     logw = np.asarray(logw, dtype=float)
     fin = np.isfinite(logw)
@@ -943,6 +949,25 @@ def fairdraw_size(opts, n_have, neff):
     return n_req
 
 
+def _remove_stale_export(sname):
+    """Delete a leftover samples file at the path this export refuses to write.
+
+    The run was going to overwrite ``sname``; if it is left behind, a re-run in
+    an existing output directory leaves the PREVIOUS run's cloud where the
+    pipeline looks for this one's, which is the same "read a file that is not
+    this posterior" failure the refusal exists to prevent."""
+    if not os.path.exists(sname):
+        return
+    try:
+        os.remove(sname)
+    except OSError as e:
+        print("  *** could not remove the stale export %s (%s) -- it is NOT "
+              "this run's output. ***" % (sname, e), file=sys.stderr)
+    else:
+        print("  removed the stale export %s (no fair draw to replace it)"
+              % sname, file=sys.stderr)
+
+
 def write_samples(opts, out_index, theta, lnL, with_distance, logw=None,
                   neff=np.nan):
     """Write the exported extrinsic samples.
@@ -953,9 +978,15 @@ def write_samples(opts, out_index, theta, lnL, with_distance, logw=None,
     fair-drawn against them BEFORE writing, so the exported rows are equal
     weight -- the same contract production ILE's ``--fairdraw-extrinsic-output``
     provides, and the one every downstream consumer of these files assumes.
+
+    If the fair draw CANNOT be performed (degenerate or unnormalizable weights)
+    no file is written and ``RuntimeError`` is raised: the alternative is to ship
+    the raw proposal/prior cloud under the product name that means "posterior
+    draws".
     """
     if not (opts.output_file and opts.save_samples) or theta is None:
         return
+    sname = opts.output_file + "_" + str(out_index) + "_samples.dat"
     # The export RNG is derived here and NOWHERE ELSE.  It must never be the
     # generator that feeds the samplers/estimators: --save-samples is an OUTPUT
     # flag and consuming the science stream made it change the lnL/logZ of every
@@ -971,9 +1002,22 @@ def write_samples(opts, out_index, theta, lnL, with_distance, logw=None,
         if idx is not None:
             theta, lnL = theta[idx], np.asarray(lnL)[idx]
         elif note.startswith("FAILED"):
-            print("  *** fairdraw FAILED (%s) -- writing the RAW, UNREWEIGHTED "
-                  "sampler cloud.  These rows are NOT a fair draw. ***" % note,
-                  file=sys.stderr)
+            # NO ARTIFACT WHEN THE FAIR DRAW FAILS.  Writing the raw cloud here
+            # put proposal/prior draws into the standard, weightless
+            # `*_samples.dat` product under the ONE name every consumer reads as
+            # equal-weight posterior draws -- and none of them is obliged to read
+            # the provenance line -- so the contract broke precisely on the
+            # collapsed integrations where the difference is largest.  Refuse to
+            # produce the file at all: the event fails loudly (and
+            # --soft-fail-event-range still skips to the next one).
+            _remove_stale_export(sname)
+            raise RuntimeError(
+                "fair draw failed for output index %d (%s): the exported cloud "
+                "would be the raw, UNREWEIGHTED sampler/proposal samples, which "
+                "is not a posterior sample.  No %s written.  This integration "
+                "collapsed -- fix the run (more samples, better proposal, "
+                "sanity-check the likelihood) rather than reading the cloud."
+                % (out_index, note, sname))
     # Drop non-finite lnL FIRST.  Doing it last meant the count was applied to
     # rows that were then discarded, and the provenance n_out counted them: a
     # header saying n_out=1000 above a 963-row file, and 137 above 129 -- wrong
@@ -1029,7 +1073,6 @@ def write_samples(opts, out_index, theta, lnL, with_distance, logw=None,
         cols = np.column_stack([theta[:, 0], theta[:, 1], theta[:, 3],
                                 theta[:, 2], theta[:, 4], lnL])
         hdr = "right_ascension declination inclination psi phi_orb loglikelihood"
-    sname = opts.output_file + "_" + str(out_index) + "_samples.dat"
     # Column line FIRST (unchanged, so `head -1` parsers keep working); the
     # provenance line follows, so the artifact records how it was produced --
     # notably the export ESS, which was previously written nowhere.

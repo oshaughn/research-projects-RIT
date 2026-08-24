@@ -65,7 +65,7 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #   test_network_coords.py             1  network-frame sky fold on a real injection
 #   test_nuts_phimarg.py               1  fisher_nuts_sample_phimarg vs an analytic 4-D
 #                                         target (needs numpyro; no lal)
-#   test_jax_fairdraw_export.py       21  the --save-samples export contract of
+#   test_jax_fairdraw_export.py       24  the --save-samples export contract of
 #                                         bin/integrate_likelihood_extrinsic_jax:
 #                                         that it is a FAIR DRAW (reweighted against
 #                                         the sampler's own importance weights, then
@@ -74,8 +74,11 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         options act exactly where the driver reports
 #                                         them implemented and nowhere else, that the
 #                                         export RNG is never the science generator,
-#                                         and that the provenance header describes the
-#                                         file it sits on.  Needs no lal or GPU: the
+#                                         that a fair draw which CANNOT be performed
+#                                         exports nothing at all (and clears a stale
+#                                         file at that path) instead of shipping the
+#                                         raw cloud, and that the provenance header
+#                                         describes the file it sits on.  Needs no lal or GPU: the
 #                                         driver is imported by path and driven on an
 #                                         analytic 4-D target with known moments.
 #                                         Several of these are AST guards on the
@@ -158,10 +161,10 @@ if [ "${manifest_rc}" -ne 0 ]; then
   exit 1
 fi
 
-# Sum of the per-file counts above (27 + 21 from test_jax_fairdraw_export.py).
+# Sum of the per-file counts above (27 + 24 from test_jax_fairdraw_export.py).
 # Pinned deliberately: a bare `pytest test/jax/`
 # that collected 0 would exit 5, and a partial loss (say 14 -> 3) would still exit 0.
-EXPECTED_TESTS=48
+EXPECTED_TESTS=51
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${FILES[@]}" 2>&1)"

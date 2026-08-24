@@ -315,15 +315,16 @@ def test_provenance_n_out_matches_the_file(tmp_path):
 
 
 def test_every_path_reports_ess_and_n_in(tmp_path):
-    """F-E in full: the logw=None and FAILED paths reported neither ESS= nor
-    n_in=, so the self-describing header was blank on two of four paths."""
+    """F-E in full: the logw=None path reported neither ESS= nor n_in=, so the
+    self-describing header was blank on one of the three paths that write.  (The
+    FAILED path writes nothing at all -- see
+    test_failed_fairdraw_writes_no_samples_file.)"""
     rng = np.random.default_rng(23)
     theta = MEAN_POST[None, :] + rng.standard_normal((500, NDIM)) * SD_POST
     lnL = _logN(theta, MU_L, S_L)
     cases = {"none": None,
              "uniform": np.log(np.ones(500) / 500),
-             "weighted": _logN(theta, MU_L, 1.2),
-             "failed": np.full(500, -np.inf)}
+             "weighted": _logN(theta, MU_L, 1.2)}
     for name, lw in cases.items():
         d = tmp_path / name; os.makedirs(str(d), exist_ok=True)
         opts = fake_opts(d)
@@ -340,23 +341,74 @@ def test_every_path_reports_ess_and_n_in(tmp_path):
     assert "ESS=n/a" in prov, "uniform path reports a fabricated ESS: %r" % prov
 
 
-def test_degenerate_weights_fail_loudly_not_silently(tmp_path):
+def test_degenerate_weights_fail_loudly_not_silently():
     """Weights that cannot be normalized must be reported as FAILED, not
     silently returned as 'uniform, nothing to do' -- otherwise the raw,
     unreweighted cloud is written under a header promising a fair draw."""
     rng = np.random.default_rng(4)
-    theta = rng.standard_normal((5000, NDIM)) * 3.0
     for bad, why in ((np.full(5000, -np.inf), "all -inf"),
                      (np.where(np.arange(5000) == 0, 0.0, -np.inf), "one finite")):
         idx, note = drv.fairdraw_indices(bad, rng)
         assert idx is None
         assert note.startswith("FAILED"), "%s reported as %r" % (why, note)
+
+
+def test_failed_fairdraw_writes_no_samples_file(tmp_path):
+    """A FAILED fair draw must produce NO export.  Writing the raw cloud with
+    'FAILED' in the provenance line was still a non-posterior cloud sitting under
+    the standard weightless product name: consumers read `*_samples.dat` rows as
+    equal-weight posterior draws and are not obliged to parse the second header
+    line, so the contract was violated exactly on the collapsed integrations
+    where proposal and posterior differ most."""
+    rng = np.random.default_rng(4)
+    theta = rng.standard_normal((5000, NDIM)) * 3.0
     opts = fake_opts(tmp_path)
-    drv.write_samples(opts, 0, theta, np.full(5000, -np.inf), with_distance=False,
-                      logw=np.full(5000, -np.inf), neff=np.nan)
-    with open(opts.output_file + "_0_samples.dat") as fh:
-        head = [fh.readline() for _ in range(2)]
-    assert "FAILED" in head[1], "failure not recorded in the export header: %r" % head[1]
+    with pytest.raises(RuntimeError) as exc:
+        drv.write_samples(opts, 0, theta, np.full(5000, -np.inf),
+                          with_distance=False, logw=np.full(5000, -np.inf),
+                          neff=np.nan)
+    assert "fair draw failed" in str(exc.value)
+    assert not os.path.exists(opts.output_file + "_0_samples.dat"), \
+        "a non-posterior cloud was exported after the fair draw failed"
+
+
+def test_failed_fairdraw_removes_a_stale_export(tmp_path):
+    """Refusing to write is not enough on a re-run: a samples file left from an
+    earlier run sits at exactly the path the pipeline reads for THIS one, so the
+    refusal must also clear it rather than silently endorsing stale rows."""
+    rng = np.random.default_rng(9)
+    theta = rng.standard_normal((5000, NDIM)) * 3.0
+    opts = fake_opts(tmp_path)
+    stale = opts.output_file + "_0_samples.dat"
+    with open(stale, "w") as fh:
+        fh.write("# right_ascension declination inclination psi loglikelihood\n"
+                 "# mode=flowmc-phimarg fairdraw: reweighted ESS=900.0 n_in=1 n_out=1\n"
+                 "0.1 0.2 0.3 0.4 -5.0\n")
+    with pytest.raises(RuntimeError):
+        drv.write_samples(opts, 0, theta, np.full(5000, -np.inf),
+                          with_distance=False, logw=np.full(5000, -np.inf),
+                          neff=np.nan)
+    assert not os.path.exists(stale), \
+        "the previous run's export survived a failed fair draw"
+
+
+def test_failed_event_is_skippable_but_never_exported(tmp_path):
+    """The refusal must be an ordinary Exception, so main's per-event handler
+    (--soft-fail-event-range) can carry a batch past a collapsed event, and it
+    must not disturb the other events' exports."""
+    src = inspect.getsource(drv.main)
+    assert "except Exception" in src and "soft_fail_event_range" in src, \
+        "main lost the per-event guard that makes a refused export skippable"
+    theta, lnL, logw = make_cloud(n=20000)
+    bad = fake_opts(tmp_path / "bad"); os.makedirs(str(tmp_path / "bad"), exist_ok=True)
+    with pytest.raises(RuntimeError):
+        drv.write_samples(bad, 0, theta, lnL, with_distance=False,
+                          logw=np.full(len(theta), -np.inf), neff=np.nan)
+    good = fake_opts(tmp_path / "good"); os.makedirs(str(tmp_path / "good"), exist_ok=True)
+    drv.write_samples(good, 1, theta, lnL, with_distance=False, logw=logw,
+                      neff=np.inf)
+    assert not os.path.exists(bad.output_file + "_0_samples.dat")
+    assert len(read_export(good, 1)[0]) > 1
 
 
 def test_weights_are_stabilized_at_realistic_lnL(tmp_path):

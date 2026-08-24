@@ -17,7 +17,11 @@ development tree is rift_O4d.
    the weights are uniform).  NOTE ``--fairdraw-extrinsic-output-n-max``
    defaults to 5, as in ILE, so passing ``--fairdraw-extrinsic-output`` without
    an explicit maximum now yields 5 rows where it previously yielded the whole
-   cloud.
+   cloud.  If the weights admit no fair draw at all (degenerate or
+   unnormalizable), the driver writes NO ``*_samples.dat`` -- and deletes a stale
+   one at that path -- and fails the event (``--soft-fail-event-range`` still
+   skips to the next one) rather than exporting an unreweighted cloud under the
+   name that means "posterior draws".
   - (rc0) O4d base refresh, from rift_O4c to rift_O4d: Python/numpy CI modernization (py3.10-py3.13,
     numpy 2.x checks), Asimov/RIFT smoke tests, docs deployment, pluggable workflow backends and
     simulation-manager prototypes, distance-grid/distance-slice likelihood export, container-family and pixi/SWIG
