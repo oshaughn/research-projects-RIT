@@ -43,6 +43,34 @@ def _driver_tree():
         return ast.parse(f.read())
 
 
+def _load_driver():
+    """Import the driver script (no .py suffix) as a module, as
+    test_jax_fairdraw_export.py does, so the chooser can be CALLED rather than
+    only read.  Source-level guards cannot see whether a branch is reachable --
+    a mutation that made the beta>1 branch dead (`if beta >= 1.0 and False:`)
+    survived an AST-only version of these tests."""
+    import importlib.machinery
+    loader = importlib.machinery.SourceFileLoader("_ile_jax_driver_temper", DRIVER)
+    spec = importlib.util.spec_from_loader("_ile_jax_driver_temper", loader)
+    mod = importlib.util.module_from_spec(spec)
+    loader.exec_module(mod)
+    return mod
+
+
+drv = _load_driver()
+
+
+class _Opts(object):
+    """Minimal stand-in for the optparse Values the chooser reads."""
+    def __init__(self, **kw):
+        self.adapt_adapt = False
+        self.auto_adapt_weight_exponent = False
+        self.adapt_weight_exponent = 1.0
+        self.target_export_ess_frac = drv._TARGET_EXPORT_ESS_FRAC_DEFAULT
+        self.allow_degenerate_tempering = False
+        self.__dict__.update(kw)
+
+
 # ----------------------------------------------------------------- the law
 def test_law_matches_the_measured_sweep():
     """The closed form against the EXACT sweep on the real BNS likelihood.
@@ -210,29 +238,92 @@ def test_auto_refuses_to_silently_override_an_explicit_exponent():
         "no guard against --auto being combined with --adapt-adapt")
 
 
-def test_beta_above_one_is_refused_not_relabelled_untempered():
-    """beta > 1 SHARPENS the target; it must not be reported as untempered.
+@pytest.mark.parametrize("bad", [1.5, 2.0, 0.0, -0.2])
+def test_beta_outside_the_unit_interval_is_REFUSED_at_runtime(bad, capsys):
+    """CALL the chooser.  beta>1 sharpens the target past the posterior
+    (samplers.flowmc_sample* take temper = 1/beta, so beta>1 gives inv_T>1) and
+    its export reweight has ESS/N = [beta(2-beta)]^(dim/2): 0 at beta=2,
+    undefined beyond.  beta<=0 samples the prior.
 
-    samplers.flowmc_sample* take temper = 1/beta, so beta>1 means inv_T>1 -- a
-    target sharper than the posterior, whose export reweight L^(1-beta) has
-    ESS/N = [beta(2-beta)]^(dim/2) = 0 at beta=2 and undefined beyond.  The first
-    version of this branch tested `if beta >= 1.0` and printed
-    "beta=1 (untempered target)", which was false for every beta>1.
+    An earlier source-only version of this test passed while a mutation made the
+    branch dead, and an earlier version of the CODE tested `beta >= 1.0` and
+    printed "beta=1 (untempered target)" for every beta>1.  Both are why this
+    exercises the function instead of reading it.
     """
-    tree = _driver_tree()
-    fn = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
-              and n.name == "resolve_tempering_exponent")
-    src = ast.get_source_segment(open(DRIVER).read(), fn) or ""
-    assert "if beta >= 1.0:" not in src, (
-        "the >=1 branch is back: every beta>1 would be reported as untempered")
-    msgs = " ".join(c.value for n in ast.walk(fn) if isinstance(n, ast.Raise)
-                    for c in ast.walk(n)
-                    if isinstance(c, ast.Constant) and isinstance(c.value, str))
-    assert "is greater than 1" in msgs, "no guard against beta > 1"
-    assert "must be positive" in msgs, "no guard against beta <= 0"
-    # and the law itself refuses the same domain, so the two cannot disagree
-    with pytest.raises(ValueError):
-        export_ess_fraction(1.5, 4)
+    with pytest.raises(SystemExit) as e:
+        drv.resolve_tempering_exponent(_Opts(adapt_weight_exponent=bad), 4, 4800)
+    assert "untempered" not in str(e.value)
+    out = capsys.readouterr().out
+    assert "untempered target" not in out, (
+        "beta=%r was reported as untempered" % bad)
+
+
+def test_beta_one_and_a_healthy_beta_are_accepted_at_runtime(capsys):
+    """The negative tests above prove nothing if every input raises."""
+    drv.resolve_tempering_exponent(_Opts(adapt_weight_exponent=1.0), 4, 4800)
+    assert "untempered target" in capsys.readouterr().out
+    o = _Opts(adapt_weight_exponent=0.7735)
+    drv.resolve_tempering_exponent(o, 4, 4800)
+    out = capsys.readouterr().out
+    assert "predicted export ESS/N=0.9" in out, out
+
+
+def test_auto_sets_the_exponent_and_the_value_depends_on_dimension(capsys):
+    """The chooser must MOVE the number, and move it differently per dimension.
+    Identical output across settings is the signature of a dead knob."""
+    got = {}
+    for n_dim in (3, 4, 5):
+        o = _Opts(auto_adapt_weight_exponent=True)
+        drv.resolve_tempering_exponent(o, n_dim, 4800)
+        capsys.readouterr()
+        assert o.adapt_weight_exponent != 1.0, "auto left the exponent at its default"
+        got[n_dim] = o.adapt_weight_exponent
+    assert len(set(got.values())) == 3, got
+    assert got[3] < got[4] < got[5]
+
+
+def test_degenerate_exponent_is_refused_and_the_override_lets_it_through(capsys):
+    """Both directions.  A guard that never passes anything is not a guard."""
+    with pytest.raises(SystemExit) as e:
+        drv.resolve_tempering_exponent(_Opts(adapt_weight_exponent=0.09508), 4, 4800)
+    assert "would not be a usable posterior sample" in str(e.value)
+    capsys.readouterr()
+    drv.resolve_tempering_exponent(
+        _Opts(adapt_weight_exponent=0.09508, allow_degenerate_tempering=True), 4, 4800)
+    assert "predicted export ESS" in capsys.readouterr().out
+
+
+def test_target_without_auto_is_reported_not_silently_ignored(capsys):
+    """Setting a budget and no chooser does nothing; say so.
+
+    Nothing covered this and a mutation deleting the note survived the sweep.
+    """
+    o = _Opts(target_export_ess_frac=0.5)
+    drv.resolve_tempering_exponent(o, 4, 4800)
+    out = capsys.readouterr().out
+    assert "--target-export-ess-frac" in out and "no effect" in out, out
+    # and it must NOT be reported when the chooser is actually on
+    o2 = _Opts(auto_adapt_weight_exponent=True, target_export_ess_frac=0.5)
+    drv.resolve_tempering_exponent(o2, 4, 4800)
+    assert "no effect" not in capsys.readouterr().out
+
+
+def test_auto_conflicts_raise_at_runtime():
+    with pytest.raises(SystemExit) as e1:
+        drv.resolve_tempering_exponent(
+            _Opts(auto_adapt_weight_exponent=True, adapt_weight_exponent=0.5), 4, 4800)
+    assert "would overwrite it" in str(e1.value)
+    with pytest.raises(SystemExit) as e2:
+        drv.resolve_tempering_exponent(
+            _Opts(auto_adapt_weight_exponent=True, adapt_adapt=True), 4, 4800)
+    assert "--adapt-adapt" in str(e2.value)
+
+
+def test_law_refuses_the_same_domain_the_driver_does():
+    """One domain, two enforcers -- they must not disagree."""
+    for bad in (1.5, 0.0, -0.2):
+        with pytest.raises(ValueError):
+            export_ess_fraction(bad, 4)
 
 
 def test_target_frac_default_is_one_named_constant():
