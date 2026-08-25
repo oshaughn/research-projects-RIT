@@ -934,6 +934,13 @@ def resolve_tempering_exponent(opts, n_dim, n_cloud):
 
     ``--adapt-adapt`` anneals inv_T up to 1 and therefore exports at full ESS;
     it is left alone here.
+
+    RETURNS the exponent to use and does NOT write it back to ``opts``.  It used
+    to assign ``opts.adapt_weight_exponent``, which gave per-RUN state a per-EVENT
+    meaning: ``analyze_one`` is called once per intrinsic template with the SAME
+    opts, so on event 1 the chooser read its own event-0 output as a
+    user-supplied exponent and aborted the batch with SystemExit.  Reproduced
+    with ``--n-events-to-analyze 3``; ILE_extr.sub runs batches.
     """
     from RIFT.likelihood.jax_ile.samplers import (
         beta_for_export_ess, export_ess_fraction)
@@ -946,7 +953,19 @@ def resolve_tempering_exponent(opts, n_dim, n_cloud):
                 "is no static exponent for the chooser to pick.  Use one.")
         print("Tempering: --adapt-adapt (anneal inv_T -> 1); export is untempered, "
               "full ESS.")
-        return
+        return float(opts.adapt_weight_exponent)
+
+    # --smc-puffball routes these modes to samplers.smc_puffball_sample, which
+    # swallows `temper` in **_ignore and returns post_weight uniform with
+    # temper=1.0 -- the exponent has NO effect there.  Guarding it would REFUSE a
+    # run over a number that does nothing.  Report the no-op instead; a silent one
+    # is what this driver's compat layer exists to prevent.
+    if getattr(opts, "smc_puffball", False):
+        if opts.auto_adapt_weight_exponent or float(opts.adapt_weight_exponent) != 1.0:
+            print("Note: --smc-puffball ignores --adapt-weight-exponent / "
+                  "--auto-adapt-weight-exponent (smc_puffball_sample anneals to "
+                  "beta=1 internally and exports uniform weights).")
+        return 1.0
 
     if not opts.auto_adapt_weight_exponent and _target_ess_was_given(opts):
         # Setting a target and no chooser does nothing at all.  Say so rather than
@@ -965,13 +984,13 @@ def resolve_tempering_exponent(opts, n_dim, n_cloud):
                 "--adapt-weight-exponent %g.  The chooser would overwrite it.  Pass "
                 "one or the other." % float(opts.adapt_weight_exponent))
         beta = beta_for_export_ess(opts.target_export_ess_frac, n_dim)
-        opts.adapt_weight_exponent = beta
         print("Tempering: AUTO beta=%.5f for %.0f%% export ESS in %d-D "
               "(ESS/N=[beta(2-beta)]^(dim/2); no SNR term -- see "
               "jax_ile/DESIGN_jax_tempering.md)"
               % (beta, 100.0 * opts.target_export_ess_frac, n_dim))
+    else:
+        beta = float(opts.adapt_weight_exponent)
 
-    beta = float(opts.adapt_weight_exponent)
     if beta > 1.0:
         # NOT harmless, and NOT "untempered": samplers.flowmc_sample* take
         # temper = 1/beta, so beta>1 gives inv_T>1 -- it SHARPENS the target past
@@ -992,7 +1011,7 @@ def resolve_tempering_exponent(opts, n_dim, n_cloud):
             % beta)
     if beta == 1.0:
         print("Tempering: beta=1 (untempered target); export ESS is the full cloud.")
-        return
+        return beta
     frac = export_ess_fraction(beta, n_dim)
     ess = frac * n_cloud
     print("Tempering: beta=%.5f in %d-D -> predicted export ESS/N=%.4f, "
@@ -1010,8 +1029,13 @@ def resolve_tempering_exponent(opts, n_dim, n_cloud):
             "  Use --auto-adapt-weight-exponent (picks beta from the export "
             "budget), or --adapt-adapt (anneals to beta=1 at full ESS), or pass "
             "--allow-degenerate-tempering if a near-degenerate cloud is genuinely "
-            "what you want."
+            "what you want -- which is also the right flag under "
+            "--fisher-is-samples, where a SUCCESSFUL Fisher-IS pass replaces the "
+            "cloud with an already-fair-drawn uniform-weight set so this cost "
+            "never materialises.  It is not waived automatically because that "
+            "pass falls back to the tempered draws when it fails."
             % (beta, ess, _USABLE_EXPORT_ESS, n_dim))
+    return beta
 
 
 def fairdraw_indices(logw, rng):
@@ -1305,9 +1329,12 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
                              "(it samples the 5-D angular posterior)." % opts.mode)
         from RIFT.likelihood.jax_ile import samplers as _samplers
         n_starts = opts.num_chains if opts.num_chains and opts.num_chains > 1 else 8
+        # Resolved per event and used directly.  Deliberately a LOCAL: writing it
+        # back to opts made event 1 of a batch read event 0's choice.
+        resolved_beta = float(opts.adapt_weight_exponent)
         if opts.mode in _TEMPERED_MODES:
-            resolve_tempering_exponent(opts, dim,
-                                       tempered_cloud_size(opts, n_starts))
+            resolved_beta = resolve_tempering_exponent(
+                opts, dim, tempered_cloud_size(opts, n_starts))
         if opts.mode == "nuts-phimarg":
             # Fisher-whitened multi-start NUTS on the 4-D phimarg posterior.
             res = _samplers.fisher_nuts_sample_phimarg(
@@ -1339,7 +1366,7 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
             # 4-D d+psi-marg (ra,dec,phiref,incl); flowmc_sample_phimarg is
             # dimension-agnostic (helpers chosen from ANGULAR_PARAM_ORDER).
             # Static tempering: beta = --adapt-weight-exponent -> temper = 1/beta.
-            _beta = float(opts.adapt_weight_exponent)
+            _beta = resolved_beta
             _temper = 1.0 / _beta if _beta > 0 else 1.0
             res = _samplers.flowmc_sample_phimarg(
                 like, opts.d_min, opts.d_max,
@@ -1360,7 +1387,7 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
                 seed=opts.seed, reuse_state=flow_state, verbose=opts.verbose)
             out_flow_state = res.get("flow_state")
         else:
-            _beta = float(opts.adapt_weight_exponent)
+            _beta = resolved_beta
             _temper = 1.0 / _beta if _beta > 0 else 1.0
             res = _samplers.flowmc_sample(
                 like, opts.d_min, opts.d_max, n_chains=max(n_starts, 20),

@@ -68,6 +68,7 @@ class _Opts(object):
         self.adapt_weight_exponent = 1.0
         self.target_export_ess_frac = drv._TARGET_EXPORT_ESS_FRAC_DEFAULT
         self.allow_degenerate_tempering = False
+        self.smc_puffball = False
         self.__dict__.update(kw)
 
 
@@ -195,11 +196,16 @@ def test_no_stray_placeholder_flags():
         assert not flag.endswith("-XX"), "placeholder flag left in the parser: %s" % flag
 
 
-def test_chooser_result_is_actually_assigned_to_the_exponent():
+def test_chooser_result_is_actually_RETURNED_and_consumed():
     """A chooser that is computed and then not used is the classic dead knob.
 
-    Pin that the driver's tempering helper ASSIGNS to opts.adapt_weight_exponent,
-    not merely that it calls beta_for_export_ess somewhere.
+    RETARGETED: this used to require that the chooser ASSIGN
+    opts.adapt_weight_exponent.  That contract was the bug -- opts is per-RUN and
+    analyze_one is per-EVENT, so the write made event 1 of a batch read event 0's
+    choice.  The chooser now RETURNS the exponent; see
+    test_chooser_returns_the_exponent_rather_than_writing_it_back for the other
+    half, and test_chooser_is_reusable_across_a_multi_event_BATCH for the
+    behaviour this protects.
     """
     tree = _driver_tree()
     fn = next((n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
@@ -208,14 +214,8 @@ def test_chooser_result_is_actually_assigned_to_the_exponent():
     calls = {n.func.id for n in ast.walk(fn)
              if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
     assert "beta_for_export_ess" in calls
-    targets = set()
-    for n in ast.walk(fn):
-        if isinstance(n, ast.Assign):
-            for t in n.targets:
-                if isinstance(t, ast.Attribute):
-                    targets.add(t.attr)
-    assert "adapt_weight_exponent" in targets, (
-        "resolve_tempering_exponent never writes opts.adapt_weight_exponent")
+    returns = [n for n in ast.walk(fn) if isinstance(n, ast.Return) and n.value is not None]
+    assert returns, "resolve_tempering_exponent returns nothing"
 
 
 def test_auto_refuses_to_silently_override_an_explicit_exponent():
@@ -274,10 +274,11 @@ def test_auto_sets_the_exponent_and_the_value_depends_on_dimension(capsys):
     got = {}
     for n_dim in (3, 4, 5):
         o = _Opts(auto_adapt_weight_exponent=True)
-        drv.resolve_tempering_exponent(o, n_dim, 4800)
+        beta = drv.resolve_tempering_exponent(o, n_dim, 4800)
         capsys.readouterr()
-        assert o.adapt_weight_exponent != 1.0, "auto left the exponent at its default"
-        got[n_dim] = o.adapt_weight_exponent
+        assert beta != 1.0, "auto returned the default exponent"
+        assert o.adapt_weight_exponent == 1.0, "auto mutated opts (see the batch test)"
+        got[n_dim] = beta
     assert len(set(got.values())) == 3, got
     assert got[3] < got[4] < got[5]
 
@@ -347,6 +348,66 @@ def test_inert_note_lists_only_flags_the_user_ACTUALLY_passed(capsys):
     o = mk(auto_adapt_weight_exponent=True)
     o.mode = "flowmc-phimarg"
     assert note(o) == ""
+
+
+def test_chooser_is_reusable_across_a_multi_event_BATCH():
+    """analyze_one runs once per intrinsic template with the SAME opts.
+
+    The chooser used to write opts.adapt_weight_exponent, so on event 1 it read
+    its own event-0 output as a user-supplied exponent and killed the batch with
+    SystemExit -- and ILE_extr.sub runs batches, so this broke every real
+    multi-event run of --auto.  Pin BOTH halves: it must not raise, and it must
+    not mutate opts.
+    """
+    o = _Opts(auto_adapt_weight_exponent=True)
+    betas = [drv.resolve_tempering_exponent(o, 4, 4800) for _ in range(3)]
+    assert len(set(betas)) == 1, betas
+    assert o.adapt_weight_exponent == 1.0, (
+        "the chooser mutated opts; per-run state must not carry per-event meaning")
+
+
+def test_chooser_returns_the_exponent_rather_than_writing_it_back():
+    """Structural companion: the returned value must be what the caller uses.
+
+    A chooser that returns the right number and is called for its side effect is
+    the same dead knob as one that returns nothing.
+    """
+    tree = _driver_tree()
+    fn = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
+              and n.name == "resolve_tempering_exponent")
+    assert not any(isinstance(t, ast.Attribute) and t.attr == "adapt_weight_exponent"
+                   for n in ast.walk(fn) if isinstance(n, ast.Assign)
+                   for t in n.targets), "chooser still assigns opts.adapt_weight_exponent"
+    ana = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
+               and n.name == "analyze_one")
+    src = ast.get_source_segment(open(DRIVER).read(), ana) or ""
+    assert "resolved_beta = resolve_tempering_exponent(" in src, (
+        "analyze_one ignores the chooser's return value")
+    assert "_beta = resolved_beta" in src, (
+        "the sampler call sites still read opts instead of the resolved value")
+
+
+def test_smc_puffball_is_not_refused_because_the_exponent_is_inert_there():
+    """--smc-puffball routes to smc_puffball_sample, which swallows `temper` in
+    **_ignore and exports uniform weights.  Refusing a run over a number that
+    does nothing is a false alarm; the guard skipped this path check and did
+    exactly that."""
+    for o in (_Opts(smc_puffball=True, adapt_weight_exponent=0.09508),
+              _Opts(smc_puffball=True, auto_adapt_weight_exponent=True)):
+        assert drv.resolve_tempering_exponent(o, 4, 4800) == 1.0
+
+    # ... and the no-op is REPORTED, not silent
+    o = _Opts(smc_puffball=True, adapt_weight_exponent=0.09508)
+    import io
+    import contextlib
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        drv.resolve_tempering_exponent(o, 4, 4800)
+    assert "--smc-puffball ignores" in buf.getvalue(), buf.getvalue()
+
+    # control: WITHOUT --smc-puffball the same exponent is still refused
+    with pytest.raises(SystemExit):
+        drv.resolve_tempering_exponent(_Opts(adapt_weight_exponent=0.09508), 4, 4800)
 
 
 def test_auto_conflicts_raise_at_runtime():

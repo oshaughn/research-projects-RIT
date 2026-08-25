@@ -251,19 +251,38 @@ IS, and the driver's own reported ESS).
 - **Accuracy above SNR 24.** The accuracy arms (§3d) are one event at SNR 23.8.
   The ESS ladder reaches SNR ~134, but only measures export ESS there, not
   whether the resulting posterior is right.
-- **The guard\'s threshold in the corner where the law is optimistic** (§3c
+- **The guard's threshold in the corner where the law is optimistic** (§3c
   caveat 1): near ESS ~200 at small beta and high SNR the guard trusts a law that
   over-predicts. It errs toward passing, not refusing. Not characterised.
 - **Only two seeds.** Enough to show the `--adapt-adapt` collapse (it is a 30x
   effect) and to leave the beta=0.7735-vs-1 question open. Not enough for either
   to be a width claim.
+- **Two paths where the exponent is inert**, both found by reading rather than
+  running. `--smc-puffball` routes to `smc_puffball_sample`, which swallows
+  `temper` in `**_ignore` and exports uniform weights: the guard is skipped there
+  and the no-op reported instead. `--fisher-is-samples` is conditional — a
+  *successful* Fisher-IS pass replaces the cloud with an already-fair-drawn
+  uniform-weight set so the reweight cost never materialises, but it falls back
+  to the tempered draws when it fails. The guard still refuses there
+  (fail-closed), with `--allow-degenerate-tempering` as the documented escape.
+  Neither path was measured.
 - **Non-Gaussian / strongly multimodal targets.** The law is a Gaussian-peak
   result; the measured 0.79 shortfall at small beta is that approximation
   failing. A target with well-separated equal-mass modes may do worse.
 - **Modes other than `flowmc-phimarg`.** `flowmc` (5-D), `flowmc-phipsimarg`
   (3-D) and `flowmc-dpsimarg` (4-D) take the same code path and the same `dim`,
   but were not run.
-- **Seeds.** §3b arms are seed 0; the two-seed matrix is in the results note.
+
+## 5b. A defect class found by READING, not by running
+
+The chooser originally wrote its answer back to `opts`. `opts` is per-RUN;
+`analyze_one` is per-EVENT. On event 1 of a batch the chooser read its own
+event-0 output as a user-supplied exponent and aborted with `SystemExit` — and
+`ILE_extr.sub` runs batches, so every real multi-event `--auto` run would have
+died. **No single-event test can see this**, and every measurement in §3 is
+single-event. The repo's own `RIFT/integrators/REVIEW_CHECKLIST.md` names the
+shape ("Is per-point state cleared on ENTRY"). The chooser is now pure and
+returns the exponent; `analyze_one` keeps it in a local.
 
 ## 6. Reproduce
 
