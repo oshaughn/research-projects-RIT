@@ -649,5 +649,84 @@ def test_result_row_is_written_only_after_the_export():
          "refused fair draw would leave a normal ILE result for a failed event")
 
 
+def _smc_branch_body():
+    """Statements of the ``--smc-puffball`` branch of analyze_one."""
+    tree = ast.parse(textwrap.dedent(inspect.getsource(drv.analyze_one)))
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.If):
+            continue
+        for stmt in node.body:
+            if any(isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute)
+                   and c.func.attr == "smc_puffball_sample"
+                   for c in ast.walk(stmt)):
+                return node.body
+    raise AssertionError("analyze_one no longer calls smc_puffball_sample")
+
+
+def test_unfinished_smc_ladder_is_refused_at_the_call_site():
+    """An SMC ladder that stops at max_stages leaves a cloud targeting
+    L**inv_T * prior.  Its weights are then the L**(1-inv_T) correction, but the
+    export contract here is an EQUAL-WEIGHT file and the `.dat` would carry
+    log Z(inv_T) -- so the event must be refused outright, in the branch itself,
+    before either artifact is written.  Structural, like the other call-site
+    guards: a check inside smc_puffball_sample cannot see what the driver does
+    with the result, and neither can a test of write_samples alone."""
+    body = _smc_branch_body()
+    guards = [n for stmt in body for n in ast.walk(stmt)
+              if isinstance(n, ast.If) and "inv_T" in ast.dump(n.test)
+              and any(isinstance(r, ast.Raise) for r in ast.walk(n))]
+    assert guards, ("the --smc-puffball branch does not check the tempering "
+                    "exponent the ladder reached and raise: an unfinished ladder "
+                    "would be exported as a fair draw of the posterior")
+
+
+class _SharpLike:
+    """4-D angular likelihood sharp enough that one SMC stage cannot finish the
+    ladder.  samplers.eval_lnL_4 needs only ``log_likelihood`` on arrays."""
+
+    ANGULAR_PARAM_ORDER = ("ra", "dec", "psi", "incl")
+
+    def log_likelihood(self, ra, dec, psi, incl):
+        d2 = (ra - 1.0) ** 2 + dec ** 2 + (psi - 1.0) ** 2 + (incl - 1.0) ** 2
+        return -0.5 * d2 / 0.02 ** 2
+
+
+class _FlatLike(_SharpLike):
+    """Constant lnL: every tempering step takes the full max_dbeta, so the ladder
+    reaches inv_T == 1 in a handful of stages."""
+
+    def log_likelihood(self, ra, dec, psi, incl):
+        return np.zeros_like(np.asarray(ra, dtype=float))
+
+
+def test_smc_reports_the_temperature_it_actually_reached():
+    """The sampler must not claim temper=1 with uniform post_weight when it
+    stopped short: that is what let the driver publish a tempered cloud."""
+    from RIFT.likelihood.jax_ile import samplers
+    res = samplers.smc_puffball_sample(_SharpLike(), 1.0, 1000.0, n_walkers=200,
+                                       n_move=1, max_stages=1, is_evidence=False,
+                                       seed=3)
+    inv_T = float(res["inv_T"])
+    assert 0.0 < inv_T < 1.0, "one stage on a sharp target should not finish"
+    pw = np.asarray(res["post_weight"], dtype=float)
+    lw = (1.0 - inv_T) * np.asarray(res["lnL"], dtype=float)
+    want = np.exp(lw - lw.max())
+    want /= want.sum()
+    assert np.allclose(pw, want), \
+        "post_weight is not the L**(1-inv_T) correction for the exponent reached"
+    assert not np.allclose(pw, pw[0]), "an unfinished ladder reported uniform weights"
+
+
+def test_smc_that_finishes_the_ladder_reports_inv_T_one():
+    """The converged path is unchanged: inv_T == 1 and uniform weights."""
+    from RIFT.likelihood.jax_ile import samplers
+    res = samplers.smc_puffball_sample(_FlatLike(), 1.0, 1000.0, n_walkers=64,
+                                       n_move=1, max_stages=20, max_dbeta=0.25,
+                                       is_evidence=False, seed=5)
+    assert float(res["inv_T"]) == 1.0
+    pw = np.asarray(res["post_weight"], dtype=float)
+    assert np.allclose(pw, pw[0]), "a finished ladder needs no correction weight"
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))

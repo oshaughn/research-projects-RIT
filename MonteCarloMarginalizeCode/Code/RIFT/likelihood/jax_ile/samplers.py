@@ -1489,8 +1489,12 @@ def smc_puffball_sample(like, d_min, d_max, n_walkers=2000, seed=0,
     collapse).  This is the SMC analogue of RIFT-AV's "sample -> puffball -> sample"
     and of nested sampling's hill-climb; robust at LISA-loud SNR.
 
-    Returns the same dict shape as :func:`flowmc_sample_phimarg`.  Evidence is the
-    standard SMC normalizing-constant estimator logZ = sum_t logmeanexp(dbeta_t lnL).
+    Returns the same dict shape as :func:`flowmc_sample_phimarg`, plus ``inv_T``:
+    the tempering exponent the ladder ACTUALLY reached (< 1 when it stopped at
+    ``max_stages``), with ``post_weight`` the matching ``L**(1-inv_T)`` correction
+    to the posterior.  Evidence is the standard SMC normalizing-constant estimator
+    logZ = sum_t logmeanexp(dbeta_t lnL) -- which is log Z(inv_T), not log Z, on a
+    ladder that stopped short.
     """
     _param_order = getattr(like, "ANGULAR_PARAM_ORDER", ("ra", "dec", "psi", "incl"))
     n_dim = len(_param_order)
@@ -1632,9 +1636,35 @@ def smc_puffball_sample(like, d_min, d_max, n_walkers=2000, seed=0,
             if verbose:
                 print("  [smc-IS-Z] failed (%r); keeping SMC logZ" % e)
 
+    # THE LADDER CAN STOP SHORT OF THE POSTERIOR.  The loop above also exits on
+    # ``stage == max_stages`` (and on a cloud with fewer than two finite lnL), and
+    # the cloud then still targets ``L**inv_T * prior`` with ``inv_T < 1``.
+    # Reporting ``temper=1.0`` with uniform ``post_weight`` in that case handed the
+    # caller a TEMPERED cloud labelled as a posterior draw.  Report the exponent
+    # actually reached, plus the correction weight ``L**(1-inv_T)`` that carries
+    # the cloud to the posterior -- the same contract flowmc_sample_phimarg uses.
+    # The weight is identically uniform once inv_T == 1, so the converged path is
+    # unchanged.  A step can overshoot 1 by the ``db`` floor, so clip.
+    lnL = np.asarray(lnL, dtype=float)
+    inv_T_final = float(min(inv_T, 1.0))
+    if len(lnL) and inv_T_final < 1.0:
+        lw = (1.0 - inv_T_final) * lnL
+        lw = np.where(np.isfinite(lw), lw, -np.inf)
+        mx = np.max(lw)
+        # All -inf stays all-zero: a cloud whose correction cannot be normalised
+        # must be REFUSED by the caller, not quietly restored to uniform weights,
+        # which is the mislabelling this block exists to prevent.
+        post_weight = np.exp(lw - mx) if np.isfinite(mx) else np.zeros(len(lnL))
+        s = post_weight.sum()
+        if s > 0:
+            post_weight = post_weight / s
+    else:
+        post_weight = np.ones(W) / W
     return dict(theta=cloud, lnL=lnL, logZ=float(logZ),
                 sigma_over_Z=float(sigma_over_Z), neff=float(neff),
-                flow_state=None, post_weight=np.ones(W) / W, temper=1.0,
+                flow_state=None, post_weight=post_weight, inv_T=inv_T_final,
+                temper=(float(1.0 / inv_T_final) if inv_T_final > 0
+                        else float("inf")),
                 logZ_laplace=float(logZ_smc),
                 lnL_map=float(np.max(lnL)) if len(lnL) else np.nan)
 

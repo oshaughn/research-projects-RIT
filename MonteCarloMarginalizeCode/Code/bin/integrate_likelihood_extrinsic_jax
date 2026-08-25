@@ -1233,6 +1233,29 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
                 max_stages=max(opts.temper_max_stages, 80),
                 puff_scale=opts.smc_puff_scale,
                 seed=opts.seed, verbose=opts.verbose)
+            # AN UNFINISHED LADDER IS NOT A POSTERIOR DRAW.  smc_puffball_sample
+            # also stops at max_stages (and on a cloud that has lost its finite
+            # lnL), leaving a cloud that targets L**inv_T * prior -- reachable
+            # exactly in the sharp high-SNR regime this fallback exists for, where
+            # the ESS rule picks very small temperature steps.  NEITHER artifact
+            # may be published from that state: the export would ship a TEMPERED
+            # cloud as an equal-weight posterior draw, and the `.dat` would carry
+            # the SMC log Z(inv_T) rather than log Z.  Fail the event here, before
+            # write_samples/write_dat, and clear anything an earlier run left at
+            # those paths (--soft-fail-event-range still skips to the next event).
+            _inv_T = res.get("inv_T")
+            if _inv_T is None or not float(_inv_T) >= 1.0 - 1e-9:
+                _remove_stale_artifact(samples_path(opts, out_index), "export")
+                _remove_stale_artifact(dat_path(opts, out_index), "result")
+                raise RuntimeError(
+                    "--smc-puffball: the SMC temperature ladder reached inv_T=%s, "
+                    "not 1, so the cloud still targets L**inv_T * prior and is "
+                    "neither a posterior sample nor an evidence.  Nothing written "
+                    "for output index %d.  Give the ladder room to finish (raise "
+                    "--temper-max-stages / --smc-walkers, or lower "
+                    "--temper-ess-frac) rather than exporting the tempered cloud."
+                    % ("(not reported by the installed sampler)" if _inv_T is None
+                       else "%.4g" % float(_inv_T), out_index))
         elif opts.mode in ("flowmc-phimarg", "flowmc-phipsimarg", "flowmc-dpsimarg"):
             # 4-D phi-marg (ra,dec,psi,incl), 3-D phi+psi-marg (ra,dec,incl), or
             # 4-D d+psi-marg (ra,dec,phiref,incl); flowmc_sample_phimarg is
@@ -1278,6 +1301,9 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
         #  * flowMC modes: L^(1-inv_T), the correction from the TEMPERED state
         #    actually sampled (exponent = --adapt-weight-exponent) to the exact
         #    posterior.  Uniform only at inv_T == 1.  This is a genuine w.
+        #    Under --smc-puffball the same key carries the SMC ladder's
+        #    L^(1-inv_T) correction, and the gate above has already refused the
+        #    event unless the ladder finished -- so it is uniform by then.
         #  * multistart-nuts / nuts-phimarg: NOT an importance weight.
         #    samplers.py builds np.full(n_per[k], mass[k]/n_per[k]) -- a
         #    per-chain Laplace MODE-EVIDENCE weight, constant within a chain
