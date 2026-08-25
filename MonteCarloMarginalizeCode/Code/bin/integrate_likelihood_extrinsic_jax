@@ -846,11 +846,21 @@ def run_map(like, opts, rng, dim, with_distance):
 # ---------------------------------------------------------------------------
 # Output
 # ---------------------------------------------------------------------------
+def dat_path(opts, out_index):
+    """Path of the normal per-event ILE result row (evidence, sigma, neff)."""
+    return opts.output_file + "_" + str(out_index) + "_" + ".dat"
+
+
+def samples_path(opts, out_index):
+    """Path of this event's exported extrinsic samples."""
+    return opts.output_file + "_" + str(out_index) + "_samples.dat"
+
+
 def write_dat(opts, P, out_index, event_id, logZ, sigma_over_Z, ntotal, neff):
     if not opts.output_file:
         return
     m1, m2 = P.m1 / MSUN, P.m2 / MSUN
-    fname = opts.output_file + "_" + str(out_index) + "_" + ".dat"
+    fname = dat_path(opts, out_index)
     row = np.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y,
                      P.s2z, logZ, sigma_over_Z, ntotal, neff]])
     np.savetxt(fname, row,
@@ -949,23 +959,23 @@ def fairdraw_size(opts, n_have, neff):
     return n_req
 
 
-def _remove_stale_export(sname):
-    """Delete a leftover samples file at the path this export refuses to write.
+def _remove_stale_artifact(path, what="export"):
+    """Delete a leftover file at a path this failed event refuses to publish.
 
-    The run was going to overwrite ``sname``; if it is left behind, a re-run in
-    an existing output directory leaves the PREVIOUS run's cloud where the
+    The run was going to overwrite ``path``; if it is left behind, a re-run in
+    an existing output directory leaves the PREVIOUS run's file where the
     pipeline looks for this one's, which is the same "read a file that is not
-    this posterior" failure the refusal exists to prevent."""
-    if not os.path.exists(sname):
+    this event's" failure the refusal exists to prevent."""
+    if not os.path.exists(path):
         return
     try:
-        os.remove(sname)
+        os.remove(path)
     except OSError as e:
-        print("  *** could not remove the stale export %s (%s) -- it is NOT "
-              "this run's output. ***" % (sname, e), file=sys.stderr)
+        print("  *** could not remove the stale %s %s (%s) -- it is NOT "
+              "this run's output. ***" % (what, path, e), file=sys.stderr)
     else:
-        print("  removed the stale export %s (no fair draw to replace it)"
-              % sname, file=sys.stderr)
+        print("  removed the stale %s %s (this event produced no valid result)"
+              % (what, path), file=sys.stderr)
 
 
 def write_samples(opts, out_index, theta, lnL, with_distance, logw=None,
@@ -982,11 +992,12 @@ def write_samples(opts, out_index, theta, lnL, with_distance, logw=None,
     If the fair draw CANNOT be performed (degenerate or unnormalizable weights)
     no file is written and ``RuntimeError`` is raised: the alternative is to ship
     the raw proposal/prior cloud under the product name that means "posterior
-    draws".
+    draws".  ``analyze_one`` calls this BEFORE ``write_dat``, so that refusal
+    also leaves the event without a normal ILE result row.
     """
     if not (opts.output_file and opts.save_samples) or theta is None:
         return
-    sname = opts.output_file + "_" + str(out_index) + "_samples.dat"
+    sname = samples_path(opts, out_index)
     # The export RNG is derived here and NOWHERE ELSE.  It must never be the
     # generator that feeds the samplers/estimators: --save-samples is an OUTPUT
     # flag and consuming the science stream made it change the lnL/logZ of every
@@ -1010,7 +1021,14 @@ def write_samples(opts, out_index, theta, lnL, with_distance, logw=None,
             # collapsed integrations where the difference is largest.  Refuse to
             # produce the file at all: the event fails loudly (and
             # --soft-fail-event-range still skips to the next one).
-            _remove_stale_export(sname)
+            #
+            # The `.dat` result row goes too.  analyze_one validates the export
+            # BEFORE write_dat, so this run has not written one -- but a file
+            # left at that path by an earlier run would be collected as this
+            # event's successful integration, which is the same stale-artifact
+            # failure as for the samples file.
+            _remove_stale_artifact(sname, "export")
+            _remove_stale_artifact(dat_path(opts, out_index), "result")
             raise RuntimeError(
                 "fair draw failed for output index %d (%s): the exported cloud "
                 "would be the raw, UNREWEIGHTED sampler/proposal samples, which "
@@ -1282,13 +1300,20 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
     print("\n==== Result (event %d) ====" % event_id)
     print("  log evidence (lnL marginal over extrinsic) = %.5f" % logZ)
     print("  sigma_lnL = %.4g    neff = %.1f    ntotal = %d" % (sig, neff, ntot))
-    write_dat(opts, P, out_index, event_id, logZ, sig, ntot, neff)
+    # EXPORT FIRST, THEN PUBLISH THE RESULT ROW.  write_samples raises when the
+    # cloud admits no fair draw, and that refusal means the integration itself
+    # collapsed -- so the event must leave NO artifact behind.  Writing the
+    # `.dat` first published a normal ILE result row (a finite, collapsed
+    # evidence in the one-finite-weight case) that --soft-fail-event-range then
+    # left in place for downstream collectors while the batch carried on.
+    #
     # write_samples takes NO rng: it derives its own from (seed, out_index).
     # Passing the shared `rng` here -- which also feeds run_laplace_is /
     # run_prior_mc and the samplers -- made --save-samples, an OUTPUT flag,
     # change the lnL/logZ of every later event in the batch.
     write_samples(opts, out_index, theta, lnL, with_distance,
                   logw=logw_export, neff=neff)
+    write_dat(opts, P, out_index, event_id, logZ, sig, ntot, neff)
     return logZ, out_flow_state
 
 

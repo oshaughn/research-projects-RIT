@@ -21,7 +21,10 @@ development tree is rift_O4d.
    unnormalizable), the driver writes NO ``*_samples.dat`` -- and deletes a stale
    one at that path -- and fails the event (``--soft-fail-event-range`` still
    skips to the next one) rather than exporting an unreweighted cloud under the
-   name that means "posterior draws".
+   name that means "posterior draws".  That check runs BEFORE the
+   ``<output>_<index>_.dat`` result row is written, so such an event leaves no
+   normal ILE result behind either (a stale row is likewise removed); otherwise a
+   soft-failed, collapsed integration was still collectable as a success.
   - (rc0) O4d base refresh, from rift_O4c to rift_O4d: Python/numpy CI modernization (py3.10-py3.13,
     numpy 2.x checks), Asimov/RIFT smoke tests, docs deployment, pluggable workflow backends and
     simulation-manager prototypes, distance-grid/distance-slice likelihood export, container-family and pixi/SWIG

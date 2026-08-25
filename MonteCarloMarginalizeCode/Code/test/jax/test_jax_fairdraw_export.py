@@ -603,5 +603,51 @@ def test_uniform_export_header_still_reports_ess(tmp_path):
     assert "ESS=" in prov and "n_in=" in prov and "n_out=" in prov, prov
 
 
+def test_failed_export_leaves_no_result_row(tmp_path):
+    """A refused fair draw means the integration collapsed, so the event must
+    leave no NORMAL ILE result behind either.  `<output>_<index>_.dat` carries no
+    hint that the export was refused, and with --soft-fail-event-range the batch
+    continues -- so a result row at that path is collected as a successful
+    integration (in the one-finite-weight case, a finite but collapsed
+    evidence)."""
+    rng = np.random.default_rng(31)
+    theta = rng.standard_normal((5000, NDIM)) * 3.0
+    opts = fake_opts(tmp_path)
+    stale = drv.dat_path(opts, 0)
+    with open(stale, "w") as fh:
+        fh.write("# event_id m1 m2 s1x s1y s1z s2x s2y s2z lnL sigma_lnL ntotal neff\n"
+                 "-1 1.4 1.3 0 0 0 0 0 0 12.0 0.1 1000 900\n")
+    with pytest.raises(RuntimeError):
+        drv.write_samples(opts, 0, theta, np.full(5000, -np.inf),
+                          with_distance=False, logw=np.full(5000, -np.inf),
+                          neff=np.nan)
+    assert not os.path.exists(stale), \
+        "a normal ILE result row survived a refused fair draw"
+
+
+def test_result_row_is_written_only_after_the_export():
+    """STRUCTURAL guard on the write ORDER in analyze_one.
+
+    write_dat has no way to know the export will be refused, so publishing it
+    first is not fixable inside write_samples: the artifact already exists when
+    the RuntimeError is raised, and --soft-fail-event-range then walks past it.
+    The export must therefore be validated and written FIRST.  Checked at the
+    call site, since a test of write_samples alone cannot see the order."""
+    tree = ast.parse(textwrap.dedent(inspect.getsource(drv.analyze_one)))
+    # Only the function's OWN statement list: --mode map writes its result inside
+    # an `if` that returns immediately, exports nothing, and is not at issue.
+    order = [stmt.value.func.id
+             for stmt in tree.body[0].body
+             if isinstance(stmt, ast.Expr)
+             and isinstance(stmt.value, ast.Call)
+             and isinstance(stmt.value.func, ast.Name)
+             and stmt.value.func.id in ("write_dat", "write_samples")]
+    assert order.count("write_samples") == 1 and order.count("write_dat") == 1, \
+        "expected one write_samples and one write_dat in analyze_one's tail: %s" % order
+    assert order.index("write_samples") < order.index("write_dat"), \
+        ("analyze_one publishes the .dat result before validating the export: a "
+         "refused fair draw would leave a normal ILE result for a failed event")
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
