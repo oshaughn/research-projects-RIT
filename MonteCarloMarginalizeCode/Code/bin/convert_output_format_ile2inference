@@ -285,8 +285,6 @@ for fname in args:
             ecc = [row.alpha4 for row in points]
             meanPerAno = [row.alpha for row in points]
     
-    wt = np.exp(like)*p/ps
-
     for indx in np.arange(len(points)):
         pt = points[indx]
         if not(hasattr(pt,'spin1x')):  # no spins were provided. That means zero spin. Initialize to avoid an error

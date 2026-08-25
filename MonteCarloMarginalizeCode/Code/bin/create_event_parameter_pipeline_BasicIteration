@@ -1134,7 +1134,10 @@ unify_job.write_sub_file()
 
 # Evidence job
 exe_evidence = which('util_CIPDirSummarizeEvidence.py')
-evidence_job, evidence_job_name = dag_utils.write_convert_sub(tag='evidence', exe=exe_evidence, log_dir='', file_input='',  arg_str=" --cip-dir iteration_$(macroiteration)_cip --output evidence_$(macroiteration) ",  universe=local_worker_universe, no_grid=no_worker_grid)
+evidence_source = " --cip-dir iteration_$(macroiteration)_cip"
+if opts.cip_explode_jobs is None:
+    evidence_source = " --cip-dir . --cip-prefix overlap-grid-$(macroiterationnext)"
+evidence_job, evidence_job_name = dag_utils.write_convert_sub(tag='evidence', exe=exe_evidence, log_dir='', file_input='',  arg_str=evidence_source+" --output evidence_$(macroiteration) ",  universe=local_worker_universe, no_grid=no_worker_grid)
 evidence_job.add_condor_cmd("initialdir",opts.working_directory)
 evidence_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/evidence-$(cluster)-$(process).log")
 evidence_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/evidence-$(cluster)-$(process).err")
@@ -1869,6 +1872,7 @@ for it in np.arange(it_start,opts.n_iterations):
     # It is also *backward looking*
     evidence_node = pipeline.CondorDAGNode(evidence_job)
     evidence_node.add_macro("macroiteration",it-1)  # LAST ITERATION being analyzed, not this one
+    evidence_node.add_macro("macroiterationnext",it)
     evidence_node.set_retry(opts.general_retries)
     if it > it_start:
         evidence_node.add_parent(parent_fit_node)  # run evidence after previous iteration, on previous
