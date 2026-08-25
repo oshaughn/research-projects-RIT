@@ -728,5 +728,30 @@ def test_smc_that_finishes_the_ladder_reports_inv_T_one():
     assert np.allclose(pw, pw[0]), "a finished ladder needs no correction weight"
 
 
+class _RazorLike(_SharpLike):
+    """Dynamic range so wide that even the smallest permitted tempering step
+    collapses the ESS, so the rung search always falls back on its ``db`` floor."""
+
+    def log_likelihood(self, ra, dec, psi, incl):
+        d2 = (ra - 1.0) ** 2 + dec ** 2 + (psi - 1.0) ** 2 + (incl - 1.0) ** 2
+        return -0.5 * d2 / 1e-4 ** 2
+
+
+def test_smc_rung_never_steps_past_its_cap():
+    """The floor that keeps a stalled rung search moving must not push the step
+    past the cap (max_dbeta, or the distance left to inv_T == 1).  A step beyond
+    it resamples and moves the cloud at inv_T > 1, and clipping the reported
+    exponent back to 1 would then hand the caller that OVER-tempered cloud with
+    uniform post_weight -- a tempered draw labelled as the posterior."""
+    from RIFT.likelihood.jax_ile import samplers
+    max_dbeta, max_stages = 1e-5, 4
+    res = samplers.smc_puffball_sample(_RazorLike(), 1.0, 1000.0, n_walkers=64,
+                                       n_move=1, max_stages=max_stages,
+                                       max_dbeta=max_dbeta, is_evidence=False,
+                                       seed=7)
+    assert float(res["inv_T"]) <= max_stages * max_dbeta + 1e-12, \
+        "a tempering rung stepped past its cap: the exported cloud is over-tempered"
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
