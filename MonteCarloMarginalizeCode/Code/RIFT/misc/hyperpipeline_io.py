@@ -81,6 +81,9 @@ OPTIONAL_COLUMNS = (
     "lambda1",
     "lambda2",
     "eos_table_index",
+    "a6c",
+    "E0",
+    "p_phi0",
     "distance",
     "ecliptic_longitude",
     "ecliptic_latitude",
@@ -103,6 +106,7 @@ def is_active(env=None):
 
 def build_column_list(use_eccentricity=False, use_meanPerAno=False,
                       use_tides=False, use_eos_index=False,
+                      use_eob_parameters=False, use_hyperbolic=False,
                       use_distance=False, use_sky=False):
     """Compose the column-name tuple for a given physics configuration.
 
@@ -110,7 +114,8 @@ def build_column_list(use_eccentricity=False, use_meanPerAno=False,
     appends the requested optional groups in a fixed canonical order::
 
         (eccentricity, [meanPerAno,] [lambda1, lambda2,]
-         [eos_table_index,] [distance,] [ecliptic_longitude, ecliptic_latitude])
+         [eos_table_index,] [a6c,] [E0, p_phi0,] [distance,]
+         [ecliptic_longitude, ecliptic_latitude])
     """
     cols = list(DEFAULT_BASE_COLUMNS)
     if use_eccentricity:
@@ -121,6 +126,10 @@ def build_column_list(use_eccentricity=False, use_meanPerAno=False,
         cols.extend(["lambda1", "lambda2"])
         if use_eos_index:
             cols.append("eos_table_index")
+    if use_eob_parameters:
+        cols.append("a6c")
+    if use_hyperbolic:
+        cols.extend(["E0", "p_phi0"])
     if use_distance:
         cols.append("distance")
     if use_sky:
@@ -288,6 +297,7 @@ def read_table(fname):
 
 def to_legacy_dat(arr, use_eccentricity=False, use_meanPerAno=False,
                   use_tides=False, use_eos_index=False, use_distance=False,
+                  use_eob_parameters=False, use_hyperbolic=False,
                   use_sky=False):
     """Reshape a hyperpipeline structured array into the legacy CIP layout.
 
@@ -295,7 +305,8 @@ def to_legacy_dat(arr, use_eccentricity=False, use_meanPerAno=False,
     columns are::
 
         [event_id, m1, m2, s1x, s1y, s1z, s2x, s2y, s2z,
-         (distance?), (lambda1, lambda2, (eos_index)?)?,
+         (distance?), (lambda1, lambda2, (eos_index)?)?, (a6c?)?,
+         (E0, p_phi0)?,
          (eccentricity, (meanPerAno)?)?,
          (ecliptic_longitude, ecliptic_latitude)?,
          lnL, sigma_lnL]
@@ -315,6 +326,10 @@ def to_legacy_dat(arr, use_eccentricity=False, use_meanPerAno=False,
         cols.extend(["lambda1", "lambda2"])
         if use_eos_index:
             cols.append("eos_table_index")
+    if use_eob_parameters:
+        cols.append("a6c")
+    if use_hyperbolic:
+        cols.extend(["E0", "p_phi0"])
     if use_eccentricity:
         cols.append("eccentricity")
         if use_meanPerAno:
@@ -640,7 +655,8 @@ def read_grid_to_P_list(fname, P_factory, lal_module=None,
 
 def legacy_column_indices(use_eccentricity=False, use_meanPerAno=False,
                           use_tides=False, use_eos_index=False,
-                          use_distance=False, use_sky=False):
+                          use_distance=False, use_eob_parameters=False,
+                          use_hyperbolic=False, use_sky=False):
     """Return the positional column indices the legacy CIP loop expects.
 
     Mirrors the layout produced by :func:`to_legacy_dat` so callers can
@@ -649,14 +665,16 @@ def legacy_column_indices(use_eccentricity=False, use_meanPerAno=False,
     CIP indexing logic without having to recompute them.
 
     Returns a dict keyed by ``'lnL'``, ``'sigma_lnL'``, ``'distance'``,
-    ``'lambda1'``, ``'eccentricity'``, ``'meanPerAno'``,
+    ``'lambda1'``, ``'a6c'``, ``'E0'``, ``'p_phi0'``,
+    ``'eccentricity'``, ``'meanPerAno'``,
     ``'ecliptic_longitude'``, ``'ecliptic_latitude'``.  Any column not
     present in the configuration maps to ``None``.
     """
     # event_id m1 m2 a1x a1y a1z a2x a2y a2z = 9 leading columns.
     idx = 9
     out = {"lnL": None, "sigma_lnL": None, "distance": None,
-           "lambda1": None, "eccentricity": None, "meanPerAno": None,
+           "lambda1": None, "a6c": None, "E0": None, "p_phi0": None,
+           "eccentricity": None, "meanPerAno": None,
            "ecliptic_longitude": None, "ecliptic_latitude": None}
     if use_distance:
         out["distance"] = idx
@@ -666,6 +684,13 @@ def legacy_column_indices(use_eccentricity=False, use_meanPerAno=False,
         idx += 2  # lambda1, lambda2
         if use_eos_index:
             idx += 1  # eos_table_index (no positional alias used by CIP)
+    if use_eob_parameters:
+        out["a6c"] = idx
+        idx += 1
+    if use_hyperbolic:
+        out["E0"] = idx
+        out["p_phi0"] = idx + 1
+        idx += 2
     if use_eccentricity:
         out["eccentricity"] = idx
         idx += 1

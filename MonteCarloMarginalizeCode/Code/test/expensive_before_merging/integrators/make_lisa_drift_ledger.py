@@ -362,6 +362,10 @@ RULES = [
      "Exports the eccentric mean anomaly. Tied to the ground-based eccentric waveform "
      "path (see --e-freq); the LISA driver's own eccentricity export is "
      "--save-eccentricity."),
+    (r"^OPTION:--(force-hyperbolic-22|save-EOB-parameters|save-hyperbolic)$", "NA",
+     "Controls or exports the ground-based external-TEOBResumS advanced-physics path. "
+     "The LISA driver does not call that waveform path or write its a6c/E0/p_phi0 "
+     "composite layout."),
     (r"^OPTION:--calibration-spline-count$", "NA", "See the --calibration-* reason."),
     (r"^CONST:_SEQ_WS_PENDING$", "PORT",
      "Sentinel for the deferred sequential warm-start capture; ports with "

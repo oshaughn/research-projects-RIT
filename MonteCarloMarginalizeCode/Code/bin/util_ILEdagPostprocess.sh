@@ -8,8 +8,17 @@
 
 DIR_PROCESS=$1
 BASE_OUT=$2
-ECC=$3 # Liz (Capstone): this will only be non-blank in the case where my eccentric PE Makefile has inserted "--eccentricity" into join.sub
-MPA=$4
+# Everything after the first two arguments is the advanced-physics flag list
+# handed to util_CleanILE.py (--eccentricity, --meanPerAno, --a6c,
+# --hyperbolic, --tabular-eos-file, ...).  BasicIteration can enable several
+# groups at once, so forward ALL of them: selecting one flag and dropping the
+# rest made the cleaner parse rows with a layout the run never wrote.
+CLEAN_FLAGS=()
+for arg in "${@:3}"; do
+    if [ -n "$arg" ]; then
+        CLEAN_FLAGS+=("$arg")
+    fi
+done
 
 # --------------------------------------------------------------------------
 # Hyperpipeline ASCII output path (opt-in via env var).
@@ -39,15 +48,22 @@ case "$(echo "${RIFT_HYPERPIPELINE_FORMAT:-}" | tr '[:upper:]' '[:lower:]')" in
 
     # clean them (=join duplicate lines)
     echo " Consolidating multiple instances of the monte carlo  .... "
-    if [ "$3" == '--eccentricity' ]; then
-        if [ "$4" == '--meanPerAno' ]; then
-	    util_CleanILE.py ${RND}_tmp.dat $3 $4 | sort -rg -k12 > $BASE_OUT.composite
-        else
-	    util_CleanILE.py ${RND}_tmp.dat $3 | sort -rg -k11 > $BASE_OUT.composite
-        fi
+    util_CleanILE.py ${RND}_tmp.dat "${CLEAN_FLAGS[@]}" > ${RND}_clean.dat
+
+    # Sort on lnL.  The composite row is
+    #   (event_id, intrinsic..., lnL, sigma_lnL, ntotal, neff)
+    # so lnL is ALWAYS the 4th field from the end, whichever advanced-physics
+    # groups are enabled; derive the key from the row width instead of
+    # hard-coding one column index per flag combination (which silently
+    # mis-sorted, i.e. discarded the composite ordering, for combined runs).
+    NCOL=`awk 'NF>0 && $1 !~ /^#/ {print NF; exit}' ${RND}_clean.dat`
+    if [ -z "${NCOL}" ] || [ "${NCOL}" -lt 5 ]; then
+        echo " WARNING: no usable rows in consolidated ILE output "
+        cp ${RND}_clean.dat $BASE_OUT.composite
     else
-        util_CleanILE.py ${RND}_tmp.dat $3 | sort -rg -k10 > $BASE_OUT.composite
+        sort -rg -k$((NCOL-3)) ${RND}_clean.dat > $BASE_OUT.composite
     fi
+    rm -f ${RND}_clean.dat
     ;;
 esac
 

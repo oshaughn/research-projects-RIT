@@ -296,6 +296,9 @@ optp.add_option("--internal-waveform-extra-lalsuite-args",type=str,default=None)
 optp.add_option("--internal-waveform-extra-kwargs",type=str,default=None)
 optp.add_option("--internal-precompute-ignore-threshold",default=None,type=float)
 optp.add_option("--verbose",action='store_true')
+optp.add_option("--save-EOB-parameters", action="store_true")
+optp.add_option("--save-hyperbolic", action="store_true")
+optp.add_option('--force-hyperbolic-22', default=False, action='store_true', help='Forces just the 22 modes for hyperbolic waveforms')
 optp.add_option("--save-eccentricity", action="store_true")
 optp.add_option("--save-meanPerAno", action="store_true")
 #
@@ -1734,7 +1737,10 @@ if not opts.time_marginalization:
                           cdf_inv = None, 
                           left_limit = param_limits["t_ref"][0], 
                           right_limit = param_limits["t_ref"][1],
-                          prior_pdf = functools.partial(mcsampler.uniform_samp_vector, param_limits["t_ref"][0], param_limits["t_ref"][1]))
+                          # Reuse the backend-portable closure above.  AV exposes
+                          # ret_uniform_samp_vector_alt but not the legacy
+                          # uniform_samp_vector symbol.
+                          prior_pdf = tref_sampler)
 
 
 # skymap oracle
@@ -2934,7 +2940,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             NR_group=NR_template_group,NR_param=NR_template_param,
             use_gwsignal=opts.use_gwsignal,
             use_gwsignal_approx=opts.approximant,
-            use_external_EOB=opts.use_external_EOB,nr_lookup=opts.nr_lookup,nr_lookup_valid_groups=opts.nr_lookup_group,perturbative_extraction=opts.nr_perturbative_extraction,perturbative_extraction_full=opts.nr_perturbative_extraction_full,use_provided_strain=opts.nr_use_provided_strain,hybrid_use=opts.nr_hybrid_use,hybrid_method=opts.nr_hybrid_method,ROM_group=opts.rom_group,ROM_param=opts.rom_param,ROM_use_basis=opts.rom_use_basis,verbose=opts.verbose,quiet=not opts.verbose,ROM_limit_basis_size=opts.rom_limit_basis_size_to,no_memory=opts.no_memory,skip_interpolation=opts.vectorized, extra_waveform_kwargs=extra_waveform_kwargs,**extra_kwargs)
+            use_external_EOB=opts.use_external_EOB,nr_lookup=opts.nr_lookup,nr_lookup_valid_groups=opts.nr_lookup_group,perturbative_extraction=opts.nr_perturbative_extraction,perturbative_extraction_full=opts.nr_perturbative_extraction_full,use_provided_strain=opts.nr_use_provided_strain,hybrid_use=opts.nr_hybrid_use,hybrid_method=opts.nr_hybrid_method,ROM_group=opts.rom_group,ROM_param=opts.rom_param,ROM_use_basis=opts.rom_use_basis,verbose=opts.verbose,quiet=not opts.verbose,ROM_limit_basis_size=opts.rom_limit_basis_size_to,no_memory=opts.no_memory,skip_interpolation=opts.vectorized, extra_waveform_kwargs=extra_waveform_kwargs,force_22_mode=opts.force_hyperbolic_22,**extra_kwargs)
 
     # skip nan ! Something horrible has happened
     if np.isnan(guess_snr):
@@ -3264,7 +3270,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 P.dist = di* 1.e6 * lalsimutils.lsu_PC # luminosity distance
 
                 lnL[i] = factored_likelihood.FactoredLogLikelihood(
-                        P, rholms_intp, cross_terms, cross_terms_V, opts.l_max)
+                        P, rholms, rholms_intp, cross_terms, cross_terms_V,
+                        opts.l_max)
                 i+=1
             if return_lnL:
               return lnL - manual_avoid_overflow_logarithm 
@@ -4437,15 +4444,23 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         # the file layout is determined by hyperpipeline_io.build_column_list.
         # ------------------------------------------------------------------
         from RIFT.misc import hyperpipeline_io as _hpio
+        # Which optional parameter groups this row carries.  The hyperpipeline
+        # writer and the legacy writer below consume the SAME flags, so a run
+        # that enables several groups at once emits all of them in either
+        # format instead of only whichever one wins a branch dispatch.
+        _use_ecc = bool(opts.save_eccentricity)
+        _use_mpa = bool(_use_ecc and opts.save_meanPerAno)
+        _use_tides = bool(P.lambda1>0 or P.lambda2>0)
+        _use_eos_index = bool(_use_tides and opts.export_eos_index)
+        _use_eob = bool(opts.save_EOB_parameters)
+        _use_hyp = bool(opts.save_hyperbolic)
+        _use_distance = bool(opts.pin_distance_to_sim and not any(
+            (_use_tides, _use_ecc, _use_eob, _use_hyp)))
         if _hpio.is_active():
-            _use_ecc = bool(opts.save_eccentricity)
-            _use_mpa = bool(_use_ecc and opts.save_meanPerAno)
-            _use_tides = bool(P.lambda1>0 or P.lambda2>0)
-            _use_eos_index = bool(_use_tides and opts.export_eos_index)
-            _use_distance = bool(opts.pin_distance_to_sim and not _use_tides and not _use_ecc)
             _cols = _hpio.build_column_list(
                 use_eccentricity=_use_ecc, use_meanPerAno=_use_mpa,
                 use_tides=_use_tides, use_eos_index=_use_eos_index,
+                use_eob_parameters=_use_eob, use_hyperbolic=_use_hyp,
                 use_distance=_use_distance)
             _vals = {
                 "lnL": log_res+manual_avoid_overflow_logarithm,
@@ -4463,28 +4478,49 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 _vals["lambda2"] = P.lambda2
                 if _use_eos_index:
                     _vals["eos_table_index"] = P.eos_table_index
+            if _use_eob:
+                _vals["a6c"] = P.a6c
+            if _use_hyp:
+                _vals["E0"] = P.E0
+                _vals["p_phi0"] = P.p_phi0
             if _use_distance:
                 _vals["distance"] = pinned_params["distance"]
             _hpio.write_row(fname_output_txt, _cols, [_vals[c] for c in _cols])
-        elif opts.save_eccentricity:
-          if opts.save_meanPerAno:
-            # output format when eccentricity & meanPerAno are being used
-            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.eccentricity, P.meanPerAno,  log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
-          else:
-            # output format when only eccentricity is being used
-            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.eccentricity, log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
-        elif not (P.lambda1>0 or P.lambda2>0):
-          # output format when lambda is NOT used
-          if not opts.pin_distance_to_sim:
-            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
-          else:
-            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, pinned_params["distance"], log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
         else:
-          if not(opts.export_eos_index):
-            # Alternative output format if lambda is active
-            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.lambda1, P.lambda2, log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
-          else:
-            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.lambda1, P.lambda2, P.eos_table_index, log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
+          # ----------------------------------------------------------------
+          # Legacy ASCII row, built COMPOSITIONALLY (one `if` per enabled
+          # group), not by dispatching to one branch per combination.  The
+          # optional columns must appear in the same order as CIP's `col_lnL`
+          # increment chain in
+          # util_ConstructIntrinsicPosterior_GenericCoordinates.py:
+          #
+          #   event_id m1 m2 s1x s1y s1z s2x s2y s2z
+          #   [distance] [lambda1 lambda2 [eos_table_index]] [a6c] [E0 p_phi0]
+          #   [eccentricity [meanPerAno]]
+          #   lnL sigma_lnL ntotal neff
+          #
+          # A branch-per-combination layout silently dropped every group but
+          # the first (e.g. --save-eccentricity won over a6c/E0/p_phi0) while
+          # CIP still allocated columns for each enabled group, so it read the
+          # likelihood/statistics columns as physical parameters.
+          # ----------------------------------------------------------------
+          _row = [event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z]
+          if _use_distance:
+              _row += [pinned_params["distance"]]
+          if _use_tides:
+              _row += [P.lambda1, P.lambda2]
+              if _use_eos_index:
+                  _row += [P.eos_table_index]
+          if _use_eob:
+              _row += [P.a6c]
+          if _use_hyp:
+              _row += [P.E0, P.p_phi0]
+          if _use_ecc:
+              _row += [P.eccentricity]
+              if _use_mpa:
+                  _row += [P.meanPerAno]
+          _row += [log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res, sampler.ntotal, neff]
+          numpy.savetxt(fname_output_txt, numpy.array([_row]))
 
         # Per-intrinsic likelihood-vs-distance grid. Pure extrinsic-marginalized
         # likelihood as a function of d_L: divides out the distance sampling
@@ -4809,6 +4845,9 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             samples["spin2z"] =numpy.ones(samples["psi"].shape)*P.s2z
             samples["alpha4"] =numpy.ones(samples["psi"].shape)*P.eccentricity
             samples["alpha"] =numpy.ones(samples["psi"].shape)*P.meanPerAno
+            samples["psi0"] =numpy.ones(samples["psi"].shape)*P.a6c
+            samples["beta"] =numpy.ones(samples["psi"].shape)*P.p_phi0
+            samples["psi3"] =numpy.ones(samples["psi"].shape)*P.E0
             samples["alpha5"] =numpy.ones(samples["psi"].shape)*P.lambda1
             samples["alpha6"] =numpy.ones(samples["psi"].shape)*P.lambda2
             # Below exist solely to placate XML export; new issue as of latest lalsuite say 7.15+ or so
@@ -4862,7 +4901,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             print(" WARNING: --calibration-export-posterior failed ({}); skipping cal-posterior export.".format(_e_cep))
       xmlutils.append_samples_to_xmldoc(xmldoc, samples)
         # Extra metadata
-      dict_out={"mass1": m1, "mass2": m2, "spin1z": P.s1z, "spin2z": P.s2z, "alpha4": P.eccentricity, "alpha": P.meanPerAno, "alpha5":P.lambda1, "alpha6":P.lambda2, "event_duration": sqrt_var_over_res, "ttotal": sampler.ntotal}
+      dict_out={"mass1": m1, "mass2": m2, "spin1z": P.s1z, "spin2z": P.s2z, "alpha4": P.eccentricity, "alpha": P.meanPerAno, "alpha5":P.lambda1, "alpha6":P.lambda2, "event_duration": sqrt_var_over_res, "ttotal": sampler.ntotal, "psi0": P.a6c, "psi3": P.E0, "beta": P.p_phi0}
 #      if 'distance' in pinned_params:
 #            dict_out['distance'] = pinned_params["distance"]
       converged_result = False

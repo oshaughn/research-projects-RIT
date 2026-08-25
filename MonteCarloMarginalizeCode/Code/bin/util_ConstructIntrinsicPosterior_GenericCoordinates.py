@@ -74,6 +74,7 @@ from igwn_ligolw import lsctables, utils, ligolw
 lsctables.use_in(ligolw.LIGOLWContentHandler)
 
 import RIFT.integrators.mcsampler as mcsampler
+from RIFT.misc.mc_error import relative_mc_error
 try:
     import RIFT.integrators.mcsamplerEnsemble as mcsamplerEnsemble
     mcsampler_gmm_ok = True
@@ -291,6 +292,12 @@ parser.add_argument("--cap-points",default=-1,type=int,help="Maximum number of p
 parser.add_argument("--chi-max", default=1,type=float,help="Maximum range of 'a' allowed.  Use when comparing to models that aren't calibrated to go to the Kerr limit.")
 parser.add_argument("--chi-small-max", default=None,type=float,help="Maximum range of 'a' allowed on the smaller body.  If not specified, defaults to chi_max")
 parser.add_argument("--eccentricity-prior", default="uniform",choices=['uniform','log_uniform'],help="Options are 'uniform' and 'log_uniform'")  # constrained: only 'log_uniform' is branched on below, so anything else would quietly fall through to the uniform prior
+parser.add_argument("--a6c-max", default=-20,type=float,help="Maximum range of 'a6c' allowed.")
+parser.add_argument("--a6c-min", default=-80,type=float,help="Minimum range of 'a6c' allowed.")
+parser.add_argument("--E0-max", default=1.2,type=float,help="Maximum range of 'E0' allowed.")
+parser.add_argument("--E0-min", default=1.0,type=float,help="Minimum range of 'E0' allowed.")
+parser.add_argument("--pphi0-max", default=5.4,type=float,help="Maximum range of 'p_phi0' allowed.")
+parser.add_argument("--pphi0-min", default=0.0,type=float,help="Minimum range of 'p_phi0' allowed.")
 parser.add_argument("--ecc-max", default=0.9,type=float,help="Maximum range of 'eccentricity' allowed.")
 parser.add_argument("--ecc-min", default=0.0,type=float,help="Minimum range of 'eccentricity' allowed.")
 parser.add_argument("--meanPerAno-max", default=2*np.pi,type=float,help="Maximum range of 'meanPerAno' allowed.")
@@ -365,8 +372,13 @@ parser.add_argument("--internal-correlate-parameters",default=None,type=str,help
 parser.add_argument("--internal-n-comp",default=1,type=int,help="number of components to use for GMM sampling. Default is 1, because we expect a unimodal posterior in well-adapted coordinates.  If you have crappy coordinates, use more")
 parser.add_argument("--internal-gmm-memory-chisquared-factor",default=None,type=float,help="Multiple of the number of degrees of freedom to save. 5 is a part in 10^6, 4 is 10^{-4}, and None keeps all up to lnL_offset.  Note that low-weight points can contribute notably to n_eff, and it can be dangerous to assume a simple chisquared likelihood!  Provided in case we need very long runs")
 parser.add_argument("--assume-eos-but-primary-bh",action='store_true',help="Special case of known EOS, but primary is a BH")
+parser.add_argument("--use-EOB-parameters", action="store_true")
 parser.add_argument("--use-eccentricity", action="store_true")
 parser.add_argument("--use-meanPerAno", action="store_true")
+parser.add_argument("--use-hyperbolic", action="store_true")
+parser.add_argument("--force-scatter",default=False,action='store_true', help='For hyperbolic analyses forces only scatter grid points')
+parser.add_argument("--force-plunge",default=False,action='store_true', help='For hyperbolic analyses forces only plunge grid points')
+parser.add_argument("--force-zoomwhirl",default=False,action='store_true', help='For hyperbolic analyses forces only zoomwhirl grid points')
 parser.add_argument("--tripwire-fraction",default=0.05,type=float,help="Fraction of nmax of iterations after which n_eff needs to be greater than 1+epsilon for a small number epsilon")
 
 # FIXME hacky options added by me (Liz) to try to get my capstone project to work.
@@ -383,6 +395,17 @@ parser.add_argument("--supplementary-prior-code",default=None,type=str,help="Imp
 
 opts=  parser.parse_args()
 
+force_hyperbolic_classes = [
+    opts.force_scatter, opts.force_plunge, opts.force_zoomwhirl,
+]
+if any(force_hyperbolic_classes) and not opts.use_hyperbolic:
+    parser.error(
+        "--force-scatter, --force-plunge, and --force-zoomwhirl require "
+        "--use-hyperbolic"
+    )
+if sum(bool(value) for value in force_hyperbolic_classes) > 1:
+    parser.error("CANNOT use multiple hyperbolic --force-X options at once")
+
 # good enough file: terminate always with success if present, don't try any more work
 if opts.check_good_enough:
   fname = 'cip_good_enough'
@@ -398,10 +421,16 @@ if opts.check_good_enough:
 
 if not(opts.no_adapt_parameter):
     opts.no_adapt_parameter =[] # needs to default to empty list
+A6C_MAX = opts.a6c_max
+A6C_MIN = opts.a6c_min
+E0_MAX = opts.E0_max
+E0_MIN = opts.E0_min
+PPHI0_MAX = opts.pphi0_max
+PPHI0_MIN = opts.pphi0_min
 ECC_MAX = opts.ecc_max
 ECC_MIN = opts.ecc_min
-MEANPERANO_MAX = 2*np.pi
-MEANPERANO_MIN = 0
+MEANPERANO_MAX = opts.meanPerAno_max
+MEANPERANO_MIN = opts.meanPerAno_min
 no_plots = no_plots |  opts.no_plots
 lnL_shift = 0
 lnL_default_large_negative = -500
@@ -683,7 +712,7 @@ if not('chi2' in downselect_dict):
 if opts.input_tides:
     # only insert these cuts if we are using a composite file with tides!
     # do not downselect if lambda1 is not in ! allows NSBH
-    if not('lambda1' in downselect_dict) and 'lambda1' in opts.parameter:
+    if not('lambda1' in downselect_dict) and ('lambda1' in opts.parameter):
         downselect_dict['lambda1'] = [lambda_min,lambda_max]
     if not('lambda2' in downselect_dict):
         downselect_dict['lambda2'] = [lambda_min,lambda_small_max]
@@ -924,6 +953,9 @@ def tapered_magnitude_prior_alt(x,loc=0.8,kappa=20.):   #
     
     return 1/(1+f1)
 
+def a6c_prior(x):
+    return np.ones(x.shape) / (A6C_MAX-A6C_MIN) # uniform over the interval [A6C, A6C_MAX]
+
 def eccentricity_prior(x):
     return np.ones(x.shape) / (ECC_MAX-ECC_MIN) # uniform over the interval [0.0, ECC_MAX]
 
@@ -951,6 +983,12 @@ def log_eccentricity_squared_prior(x):
 
 def meanPerAno_prior(x):
     return np.ones(x.shape) / (MEANPERANO_MAX-MEANPERANO_MIN) # uniform over the interval [MEANPERANO_MIN, MEANPERANO_MAX]
+
+def initial_energy_prior(x):
+    return np.ones(x.shape) / (E0_MAX-E0_MIN) # uniform over the interval [E0_MIN, E0_MAX]
+
+def initial_angmom_prior(x):
+    return np.ones(x.shape) / (PPHI0_MAX-PPHI0_MIN) # uniform over the interval [PPHI0_MIN, PPHI0_MAX]
 
 def precession_prior(x):
     return 0.5*np.ones(x.shape) # uniform over the interval [0.0, 2.0]
@@ -1000,6 +1038,9 @@ prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s_component_uniform_prior, "s
     's1z_bar':normalized_zbar_prior,
     's2z_bar':normalized_zbar_prior,
     # Other priors
+    'a6c':a6c_prior,
+    'E0':initial_energy_prior,
+    'p_phi0':initial_angmom_prior,
     'eccentricity':eccentricity_prior,
     'eccentricity_ln':uniform_eccentricity_ln_prior,
     'eccentricity_squared':eccentricity_squared_prior,
@@ -1024,6 +1065,9 @@ prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*c
   'lambda2':[lambda_min,lambda_small_max],
   'lambda_plus':[lambda_min,lambda_plus_max],
   'lambda_minus':[-lambda_max,lambda_max],  # will include the true region always...lots of overcoverage for small lambda, but adaptation will save us.
+  'a6c':[A6C_MIN, A6C_MAX],
+  'E0':[E0_MIN,E0_MAX],
+  'p_phi0':[PPHI0_MIN,PPHI0_MAX],
   'eccentricity':[ECC_MIN, ECC_MAX],
   'eccentricity_ln':[np.log(ECC_MIN), np.log(ECC_MAX)],
   'eccentricity_squared':[ECC_MIN**2, ECC_MAX**2],
@@ -1073,7 +1117,7 @@ if not (opts.eta_range is None):
     # Note CDF of 1/(1+q)^2 is    -1/(1+q), so the normalization is analytic
     if 'q' in low_level_coord_names:
         delta_range = np.sqrt(1 - 4*np.array(eta_range))
-        q_range = (1-delta_range)/(1+delta_range)
+        q_range = prior_range_map['q'] = (1-delta_range)/(1+delta_range)
         norm_factor_q = 1./(1+q_range[0]) - 1./(1+q_range[1])
         prior_map['q']  = functools.partial(q_prior, norm_factor=norm_factor_q)
         prior_range_map['q'] = q_range
@@ -1651,7 +1695,6 @@ def fit_rf(x,y,y_errors=None,fname_export='nn_fit',verbose=False):
 
 def fit_rf_pca(x,y,y_errors=None,fname_export='nn_fit'):
     # from aasim
-#    from sklearn.ensemble import RandomForestRegressor
     from sklearn.ensemble import ExtraTreesRegressor
     from sklearn.decomposition import PCA
     from sklearn.preprocessing import StandardScaler
@@ -1668,31 +1711,28 @@ def fit_rf_pca(x,y,y_errors=None,fname_export='nn_fit'):
     else:
         rf.fit(x_pca,y,sample_weight=1./y_errors**2)
 
-    ### reject points with infinities : problems for inputs
     def fn_return(x_in,rf=rf):
         f_out = -100000*np.ones(len(x_in))
-        # remove infinity or Nan
         indx_ok = np.all(np.isfinite(x_in),axis=-1)
-        # rf internally uses float32, so we need to remove points > 10^37 or so ! 
-        #    ... this *should* never happen due to bounds constraints, but ...
-        indx_ok_size = np.all( np.logical_not(np.greater(np.abs(x_in),1e37)), axis=-1)
+        indx_ok_size = np.all(
+            np.logical_not(np.greater(np.abs(x_in),1e37)), axis=-1
+        )
         indx_ok = np.logical_and(indx_ok, indx_ok_size)
-
-        f_out[indx_ok] = rf.predict(pca.transform(x_scaler.transform(x_in[indx_ok])))
+        f_out[indx_ok] = rf.predict(
+            pca.transform(x_scaler.transform(x_in[indx_ok]))
+        )
         return f_out
-#    fn_return = lambda x_in: rf.predict(x_in) 
 
-    print( " Demonstrating RF")   # debugging
+    print( " Demonstrating RF")
     residuals = rf.predict(pca.transform(x_scaler.transform(x)))-y
     print( "    std ", np.std(residuals), np.max(y), np.max(fn_return(x)))
     return fn_return
 
 def fit_rbf(x,y,y_errors=None,fname_export='rbf_fit',verbose=False):
     from scipy.interpolate import RBFInterpolator
-    #   - should scale like number of samples
     rbf = RBFInterpolator(x,y)
 
-    print( " Demonstrating RBF")   # debugging
+    print( " Demonstrating RBF")
     residuals = rbf(x)-y
     print( "    std ", np.std(residuals), np.max(y), np.max(rbf(x)))
     return rbf
@@ -1877,6 +1917,9 @@ n_params = -1
 ###
 #  id m1 m2  lnL sigma/L  neff
 col_lnL = 9
+col_a6c = None
+col_E0 = None
+col_pphi0 = None
 col_eccentricity = None
 col_meanPerAno = None
 col_lambda1 = None
@@ -1898,20 +1941,25 @@ if opts.input_tides:
             low_level_coord_names += ['ordering'] 
         print(" Revised fit coord names (for lookup) : ", coord_names) # 'eos_table_index' will be overwritten here
         print(" Revised sampling coord names  : ", low_level_coord_names)
-elif opts.use_eccentricity:
-    print(" Eccentricity input: [",ECC_MIN, ", ",ECC_MAX, "]")
+if opts.use_EOB_parameters:
+    print(" EOB parameters (a6c) input: [", A6C_MIN, ", ", A6C_MAX, "]")
+    col_lnL += 1
+    col_a6c = col_lnL - 1
+if opts.use_hyperbolic:
+    print(" E0 input: [", E0_MIN, ", ", E0_MAX, "]")
+    print(" p_phi0 input: [", PPHI0_MIN, ", ", PPHI0_MAX, "]")
+    col_lnL += 2
+    col_E0 = col_lnL - 2
+    col_pphi0 = col_lnL - 1
+if opts.use_eccentricity:
+    print(" Eccentricity input: [", ECC_MIN, ", ", ECC_MAX, "]")
+    col_lnL += 1
+    col_eccentricity = col_lnL - 1
     if opts.use_meanPerAno:
         print("  Also using meanPerAno ")
-        # perform modulus on desired row
-        col_lnL+=2
-        col_meanPerAno = col_lnL -1
-        col_eccentricity = col_lnL -2
-    else:
         col_lnL += 1
-        col_eccentricity = col_lnL -1
-if opts.input_distance:
-    print(" Distance input")
-    col_lnL +=1
+        col_meanPerAno = col_lnL - 1
+
 # ----------------------------------------------------------------------
 # Hyperpipeline ASCII input path (opt-in via env var or auto-detected).
 # When active, we (a) read a header-bearing file via hyperpipeline_io,
@@ -1936,6 +1984,12 @@ if _use_hpip:
     _use_tides = bool(opts.input_tides) or _has("lambda1")
     _use_eos = bool(opts.input_eos_index) or _has("eos_table_index")
     _use_dist = bool(opts.input_distance) or _has("distance")
+    _use_eob = bool(opts.use_EOB_parameters)
+    _use_hyp = bool(opts.use_hyperbolic)
+    if _has("a6c") and not _use_eob:
+        parser.error("Hyperpipeline input contains a6c; pass --use-EOB-parameters")
+    if (_has("E0") or _has("p_phi0")) and not _use_hyp:
+        parser.error("Hyperpipeline input contains E0/p_phi0; pass --use-hyperbolic")
     # LISA sky: ecliptic_longitude/latitude are NAMED columns -> carry them
     # through (aliased to P.phi/P.theta), so the sky is fit/sampled like any
     # other coordinate.  No positional all.net hacking.
@@ -1943,14 +1997,20 @@ if _use_hpip:
     dat = _hpio.to_legacy_dat(_arr,
                               use_eccentricity=_use_ecc, use_meanPerAno=_use_mpa,
                               use_tides=_use_tides, use_eos_index=_use_eos,
-                              use_distance=_use_dist, use_sky=_use_sky)
+                              use_distance=_use_dist,
+                              use_eob_parameters=_use_eob,
+                              use_hyperbolic=_use_hyp, use_sky=_use_sky)
     _ix = _hpio.legacy_column_indices(
         use_eccentricity=_use_ecc, use_meanPerAno=_use_mpa,
         use_tides=_use_tides, use_eos_index=_use_eos,
-        use_distance=_use_dist, use_sky=_use_sky)
+        use_distance=_use_dist, use_eob_parameters=_use_eob,
+        use_hyperbolic=_use_hyp, use_sky=_use_sky)
     col_lnL = _ix["lnL"]
     col_distance = _ix["distance"]
     col_lambda1 = _ix["lambda1"]
+    col_a6c = _ix["a6c"]
+    col_E0 = _ix["E0"]
+    col_pphi0 = _ix["p_phi0"]
     col_eccentricity = _ix["eccentricity"]
     col_meanPerAno = _ix["meanPerAno"]
     col_ecliptic_longitude = _ix["ecliptic_longitude"]
@@ -2048,6 +2108,8 @@ for line in dat:
         P.lambda2 = line[col_lambda1+1]
     if opts.input_eos_index:
         P.eos_table_index = line[col_lambda1+2]
+    if opts.use_EOB_parameters:
+        P.a6c = line[col_a6c]  # 9
     if opts.use_eccentricity:
         P.eccentricity = line[col_eccentricity]  # 9
         if opts.use_meanPerAno:
@@ -2055,6 +2117,9 @@ for line in dat:
 #        P.eccentricity = line[9]
 #        if opts.use_meanPerAno:
 #            P.meanPerAno = line[10]
+    if opts.use_hyperbolic:
+        P.E0 = line[col_E0]
+        P.p_phi0 = line[col_pphi0]
     if opts.input_distance:
         P.dist = lal.PC_SI*1e6*line[col_distance]  # 9. Previously incompatible with tides when hardcoded
     if _use_sky:
@@ -2445,12 +2510,10 @@ elif opts.fit_method == 'rf':
     my_fit = fit_rf(X,Y,y_errors=Y_err)
 elif opts.fit_method == 'rf_pca':
     print( " FIT METHOD ", opts.fit_method, " IS RF-pca ")
-    # NO data truncation for NN needed?  To be *consistent*, have the code function the same way as the others
     X=X[indx_ok]
     Y=Y[indx_ok] - lnL_shift
     Y_err = Y_err[indx_ok]
-    dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
-    # Cap the total number of points retained, AFTER the threshold cut
+    dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx_ok]
     if opts.cap_points< len(Y) and opts.cap_points> 100:
         n_keep = opts.cap_points
         indx = np.random.choice(np.arange(len(Y)),size=n_keep,replace=False)
@@ -2461,12 +2524,10 @@ elif opts.fit_method == 'rf_pca':
     my_fit = fit_rf_pca(X,Y,y_errors=Y_err)
 elif opts.fit_method == 'rbf':
     print( " FIT METHOD ", opts.fit_method, " IS RBF; **errors not used! **")
-    # NO data truncation for NN needed?  To be *consistent*, have the code function the same way as the others
     X=X[indx_ok]
     Y=Y[indx_ok] - lnL_shift
     Y_err = Y_err[indx_ok]
-    dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
-    # Cap the total number of points retained, AFTER the threshold cut
+    dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx_ok]
     if opts.cap_points< len(Y) and opts.cap_points> 100:
         n_keep = opts.cap_points
         indx = np.random.choice(np.arange(len(Y)),size=n_keep,replace=False)
@@ -2681,9 +2742,8 @@ elif opts.sampler_method == "portfolio":
         print('PORTFOLIO: adding {} '.format(name))
         sampler_list.append(sampler)
     sampler = mcsamplerPortfolio.MCSampler(portfolio=sampler_list)
-elif mcsampler_Portfolio_ok:
-    if opts.sampler_method in mcsamplerPortfolio.known_pipelines: # access from plugins
-        sampler = mcsamplerPortfolio.known_pipelines[opts.sampler_method]()
+elif opts.sampler_method in mcsamplerPortfolio.known_pipelines: # access from plugins
+  sampler = mcsamplerPortfolio.known_pipelines[opts.sampler_method]()
 
 
 ###
@@ -3122,6 +3182,7 @@ if supplemental_ln_likelihood_offset_fn and not opts.integrate_prior:
     supplemental_ln_likelihood_offset = float(supplemental_ln_likelihood_offset_fn())
     print(" EXTERNAL SUPPLEMENTARY LIKELIHOOD FACTOR : restoring offset {} in reported lnL/evidence ".format(supplemental_ln_likelihood_offset))
 ln_integrand_value_absolute = ln_integrand_value + supplemental_ln_likelihood_offset
+sigma_integral = relative_mc_error(res, var, log_space=opts.internal_use_lnL)
 
 # Test n_eff threshold
 if not (opts.fail_unless_n_eff is None):
@@ -3212,12 +3273,12 @@ elif opts.using_eos and opts.using_eos.startswith('file:'):
     annotation_header = linefirst # this will/must be lnL sigma_lnL and then parameter names, which we want to preserve
 with open(opts.fname_output_integral+"+annotation.dat", 'w') as file_out:
   if not(opts.using_eos) or not(opts.using_eos.startswith('file:')):
-    str_out =list( map(str,[ln_integrand_value_absolute, np.sqrt(var)/res, neff]))
+    str_out =list( map(str,[ln_integrand_value_absolute, sigma_integral, neff]))
     file_out.write("# " + annotation_header + "\n")
     file_out.write(' '.join( str_out + eos_extra + ["\n"]))
   else:
     file_out.write("# " + annotation_header + "\n")
-    file_out.write(" {} {} ".format(ln_integrand_value_absolute, np.sqrt(var)/res) + ' '.join(map(str,params_here)))
+    file_out.write(" {} {} ".format(ln_integrand_value_absolute, sigma_integral) + ' '.join(map(str,params_here)))
 #np.savetxt(opts.fname_output_integral+"+annotation.dat", np.array([[np.log(res), np.sqrt(var)/res, neff]]), header=eos_extra)
 # since not EOS, can just use np.savetxt
 # with open(opts.fname_output_integral+"+annotation_ESS.dat", 'w') as file_out:
@@ -3270,7 +3331,7 @@ if True:
     weights_scaled = weights_scaled/np.max(weights_scaled)  # try to reduce dynamic range
     n_ESS = np.sum(weights_scaled)**2/np.sum(weights_scaled**2)
     print(" n_eff n_ESS ", neff, n_ESS)
-np.savetxt(opts.fname_output_integral+"+annotation_ESS.dat",[[ln_integrand_value_absolute, np.sqrt(var)/res, neff, n_ESS]],header=" lnL sigmaL neff n_ESS ")
+np.savetxt(opts.fname_output_integral+"+annotation_ESS.dat",[[ln_integrand_value_absolute, sigma_integral, neff, n_ESS]],header=" lnL sigmaL neff n_ESS ")
 
 
 # Throw away stupid points that don't impact the posterior
@@ -3668,6 +3729,42 @@ for indx_here in indx_list:
                     include_item = False
                     if opts.verbose:
                         print(" Sample: Skipping " , line, ' due to ', p, val, downselect_dict[p])
+
+        if opts.force_scatter:
+            if include_item==False:
+                # no need to evaluate if the point is already downselected out
+                pass
+            else:
+                # removes non-scatter points from the hyperbolic grid
+                hypclass = Pgrid.extract_param('hypclass')
+                if hypclass == 'scatter':
+                    include_item = True
+                else:
+                    include_item = False
+
+        if opts.force_plunge:
+            if include_item==False:
+                # no need to evaluate if the point is already downselected out
+                pass
+            else:
+                # removes non-plunge points from the hyperbolic grid
+                hypclass = Pgrid.extract_param('hypclass')
+                if hypclass == 'plunge':
+                    include_item = True
+                else:
+                    include_item = False
+
+        if opts.force_zoomwhirl:
+            if include_item==False:
+                # no need to evaluate if the point is already downselected out
+                pass
+            else:
+                # removes non-zoomwhirl points from the hyperbolic grid
+                hypclass = Pgrid.extract_param('hypclass')
+                if hypclass == 'zoomwhirl':
+                    include_item = True
+                else:
+                    include_item = False
 
         # Set some superfluous quantities, needed only for PN approximants, so the result is generated sensibly
         Pgrid.ampO =opts.amplitude_order

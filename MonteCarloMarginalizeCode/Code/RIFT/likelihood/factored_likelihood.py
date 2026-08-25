@@ -205,7 +205,7 @@ def internal_hlm_generator(P,
         extra_waveform_kwargs={},
         use_gwsignal=False,
         use_gwsignal_approx=None,
-       use_external_EOB=False,nr_lookup=False,nr_lookup_valid_groups=None,no_memory=True,perturbative_extraction=False,perturbative_extraction_full=False,hybrid_use=False,hybrid_method='taper_add',use_provided_strain=False,ROM_group=None,ROM_param=None,ROM_use_basis=False,ROM_limit_basis_size=None,skip_interpolation=False,**kwargs):
+                           use_external_EOB=False,nr_lookup=False,nr_lookup_valid_groups=None,no_memory=True,perturbative_extraction=False,perturbative_extraction_full=False,hybrid_use=False,hybrid_method='taper_add',use_provided_strain=False,ROM_group=None,ROM_param=None,ROM_use_basis=False,ROM_limit_basis_size=None,skip_interpolation=False,force_22_mode=False,**kwargs):
     """
     internal_hlm_generator: top-level front end to all waveform generators used.
     Needs to be restructured so it works on a 'hook' basis, so we are not constantly changing the source code
@@ -253,7 +253,7 @@ def internal_hlm_generator(P,
     elif use_gwsignal and (has_GWS):  # this MUST be called first, so the P.approx is never tested
         if not quiet:
             print( "  FACTORED LIKELIHOOD WITH hlmoff (GWsignal) " )            
-        hlms, hlms_conj = rgws.std_and_conj_hlmoff(P,Lmax,approx_string=use_gwsignal_approx,**extra_waveform_kwargs)
+        hlms, hlms_conj = rgws.std_and_conj_hlmoff(P,Lmax,approx_string=use_gwsignal_approx,force_22_mode=force_22_mode,**extra_waveform_kwargs)
 
     elif (not nr_lookup) and (not NR_group) and ( P.approx ==lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or P.approx==lalsim.SEOBNRv3 or P.approx == lsu.lalSEOBv4 or P.approx ==lsu.lalSEOBNRv4HM or P.approx == lalsim.EOBNRv2 or P.approx == lsu.lalTEOBv2 or P.approx==lsu.lalTEOBv4 ):
         # note: alternative to this branch is to call hlmoff, which will actually *work* if ChooseTDModes is propertly implemented for that model
@@ -307,7 +307,7 @@ def internal_hlm_generator(P,
         #         hlms_conj = hlms_conj_list
         if not('fd_standoff_factor' in extra_waveform_kwargs):
           extra_waveform_kwargs['fd_standoff_factor'] = 0.9  # IMPORTANT to match SimInspiralTD. But allow user to override
-        hlms, hlms_conj = lsu.std_and_conj_hlmoff(P,Lmax,**extra_waveform_kwargs)
+        hlms, hlms_conj = lsu.std_and_conj_hlmoff(P,Lmax,force_22_mode=force_22_mode,**extra_waveform_kwargs)
     elif (nr_lookup or NR_group) and useNR:
 	    # look up simulation
 	    # use nrwf to get hlmf
@@ -433,7 +433,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         extra_waveform_kwargs={},
         use_gwsignal=False,
         use_gwsignal_approx=None,
-        use_external_EOB=False,nr_lookup=False,nr_lookup_valid_groups=None,no_memory=True,perturbative_extraction=False,perturbative_extraction_full=False,hybrid_use=False,hybrid_method='taper_add',use_provided_strain=False,ROM_group=None,ROM_param=None,ROM_use_basis=False,ROM_limit_basis_size=None,skip_interpolation=False, calibration_realizations=None, calibration_conjugate=False, return_calibration_crossterms=False, calibration_self_term=True):
+        use_external_EOB=False,nr_lookup=False,nr_lookup_valid_groups=None,no_memory=True,perturbative_extraction=False,perturbative_extraction_full=False,hybrid_use=False,hybrid_method='taper_add',use_provided_strain=False,ROM_group=None,ROM_param=None,ROM_use_basis=False,ROM_limit_basis_size=None,skip_interpolation=False,force_22_mode=False, calibration_realizations=None, calibration_conjugate=False, return_calibration_crossterms=False, calibration_self_term=True):
     """
     Compute < h_lm(t) | d > and < h_lm | h_l'm' >
 
@@ -493,7 +493,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
                                              hybrid_use=hybrid_use,hybrid_method=hybrid_method,use_provided_strain=use_provided_strain,
                                              ROM_group=ROM_group,ROM_param=ROM_param,ROM_use_basis=ROM_use_basis,ROM_limit_basis_size=ROM_limit_basis_size,
                                              extra_waveform_kwargs=extra_waveform_kwargs,use_gwsignal=use_gwsignal,use_gwsignal_approx=use_gwsignal_approx,
-                                             skip_interpolation=skip_interpolation)
+                                             skip_interpolation=skip_interpolation,force_22_mode=force_22_mode)
                                              
 
     if not(ignore_threshold is None) and (not ROM_use_basis):
@@ -777,7 +777,16 @@ def FactoredLogLikelihoodTimeMarginalized(tvals, extr_params, rholms_intp, rholm
     # Said another way, the m^th harmonic of the waveform should transform as
     # e^{- i m phiref}, but the Ylms go as e^{+ i m phiref}, so we must give
     # - phiref as an argument so Y_lm h_lm has the proper phiref dependence
-    Ylms = ComputeYlms(Lmax, incl, -phiref, selected_modes=rholms_intp[list(rholms.keys())[0]].keys())
+    # InterpolateRholms deliberately drops identically-zero data/mode overlaps.
+    # Keep the scalar nearest-neighbour path on that same active-mode set: using
+    # every raw rholm below while building Ylms from only the retained modes
+    # otherwise raises KeyError for symmetry-suppressed modes (for example the
+    # (2,1) mode of an equal-mass source) and for exactly zero data.  Detectors
+    # can retain different modes, so build harmonics for their union.
+    active_modes = set()
+    for det in detectors:
+        active_modes.update(rholms_intp[det].keys())
+    Ylms = ComputeYlms(Lmax, incl, -phiref, selected_modes=active_modes)
 
 #    lnL = 0.
     lnL = np.zeros(len(tvals),dtype=RiftFloat)
@@ -795,7 +804,8 @@ def FactoredLogLikelihoodTimeMarginalized(tvals, extr_params, rholms_intp, rholm
                 det_rholms[key] = func(float(t_det)+tvals)
         else:
             # do not interpolate, just use nearest neighbors.
-            for key, rhoTS in rholms[det].items():
+            for key in rholms_intp[det]:
+                rhoTS = rholms[det][key]
                 tfirst = float(t_det)+tvals[0]
                 ifirst = int(np.round(( float(tfirst) - float(rhoTS.epoch)) / rhoTS.deltaT) + 0.5)
                 ilast = ifirst + len(tvals)

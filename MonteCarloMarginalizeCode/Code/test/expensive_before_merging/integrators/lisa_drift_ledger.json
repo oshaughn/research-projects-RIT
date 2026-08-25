@@ -197,6 +197,10 @@
       "decision": "PORT",
       "reason": "Caps rows per fair-draw export. LISA currently hardcodes this to opts.n_eff at the igrand_fairdraw_samples_max call site. WARNING for the port: main's default is 5, so adopting main's default verbatim would silently shrink every LISA export by orders of magnitude. Port the flag with LISA's present behaviour as its default."
     },
+    "OPTION:--force-hyperbolic-22": {
+      "decision": "NA",
+      "reason": "Controls or exports the ground-based external-TEOBResumS advanced-physics path. The LISA driver does not call that waveform path or write its a6c/E0/p_phi0 composite layout."
+    },
     "OPTION:--freqresponse": {
       "decision": "NA",
       "reason": "Finite light-travel-time transfer across the arms for 3G ground detectors (CE/ET), built on lalsimulation detector geometry and an arm-length override in metres. LISA's finite-size response is not an add-on: it is the whole point of the TDI response the LISA driver already applies."
@@ -328,6 +332,14 @@
     "OPTION:--sampler-warmstart-samples": {
       "decision": "PORT",
       "reason": "RESOLVED (RO 2026-08-16). The convention does not matter: the seed is points in the sampler's OWN coordinate space, read positionally against params_ordered, so any self-consistent choice works and the ecliptic sky answer already determines it. The hazard is only that a mismatch is UNDETECTABLE -- ecliptic lambda and RA share [0,2pi), beta and dec share [-pi/2,pi/2], so no range check separates them and a wrong-frame seed silently contracts the live volume around the wrong region. SCOPE (RO): these files are used INTERNALLY within a homogeneous run -- we are talking to ourselves, not to heterogeneous tooling -- so keep it simple: a one-line frame stamp in the file header written by the producer, warn if it is absent or disagrees. Do NOT build a validation framework for it."
+    },
+    "OPTION:--save-EOB-parameters": {
+      "decision": "NA",
+      "reason": "Controls or exports the ground-based external-TEOBResumS advanced-physics path. The LISA driver does not call that waveform path or write its a6c/E0/p_phi0 composite layout."
+    },
+    "OPTION:--save-hyperbolic": {
+      "decision": "NA",
+      "reason": "Controls or exports the ground-based external-TEOBResumS advanced-physics path. The LISA driver does not call that waveform path or write its a6c/E0/p_phi0 composite layout."
     },
     "OPTION:--save-meanPerAno": {
       "decision": "NA",
