@@ -214,6 +214,16 @@ if opts.convention == 'LI':
 
 #
 
+# The .hdf5 reader below walks the fixed-column waveform_parameters array
+# (lalsimutils.hdf_params), which has no a6c, E0 or p_phi0 fields, so its row
+# writer cannot emit them.  Refuse here, before the header promises columns the
+# rows would not carry.
+if any(".hdf5" in fname for fname in args):
+    if opts.export_EOB_parameters:
+        raise Exception(" Not implemented for hdf5 export : --export-EOB-parameters")
+    if opts.export_hyperbolic:
+        raise Exception(" Not implemented for hdf5 export : --export-hyperbolic")
+
 print( "# m1 m2 a1x a1y a1z a2x a2y a2z mc eta indx  Npts ra dec tref phiorb incl psi  dist p ps lnL mtotal q ",end=' ')
 if opts.export_extra_spins:
     print( 'thetaJN phi_jl tilt1 tilt2 phi12 a1 a2 psiJ',end=' ')
