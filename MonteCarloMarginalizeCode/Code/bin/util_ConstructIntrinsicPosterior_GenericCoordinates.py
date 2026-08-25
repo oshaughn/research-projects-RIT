@@ -309,6 +309,7 @@ parser.add_argument("--lambda-plus-max", default=None,type=float,help="Maximum r
 parser.add_argument("--parameter-nofit", action='append', help="Parameter used to initialize the implied parameters, and varied at a low level, but NOT the fitting parameters")
 parser.add_argument("--use-precessing",action='store_true')
 parser.add_argument("--lnL-downscale-factor",type=float,default=None,help="Multiply log likelihood by this number.  Intended for early stages of iterative analyses. Broadens the posterior. Assumes lnL is usual scale. Applied by MULTIPLYING INPUT DATA BY THIS FACTOR, before anything else applied.  Note also applied BEFORE MANUAL OFFSETS")
+parser.add_argument("--integrate-prior", action='store_true', help="Replace the fitted likelihood by L=1 while retaining the configured CIP prior, bounds, coordinate Jacobians, and post-integration prior corrections. Intended for an independent prior-normalization run used to report Bayes factors.")
 parser.add_argument("--lnL-shift-prevent-overflow",default=None,type=float,help="Define this quantity to be a large positive number to avoid overflows. Note that we do *not* define this dynamically based on sample values, to insure reproducibility and comparable integral results. BEWARE: If you shift the result to be below zero, because the GP relaxes to 0, you will get crazy answers.")
 parser.add_argument("--lnL-protect-overflow",action='store_true',help="Before fitting, subtract lnLmax - 100.  Add this quantity back at the end.")
 parser.add_argument("--lnL-offset",type=float,default=np.inf,help="lnL offset. ONLY POINTS within lnLmax - lnLoffset are used in the calculation!  VERY IMPORTANT - default value chosen to include all points, not viable for production with some fit techniques like gp")
@@ -434,6 +435,10 @@ lnL_shift = 0
 lnL_default_large_negative = -500
 if opts.lnL_shift_prevent_overflow:
     lnL_shift  = opts.lnL_shift_prevent_overflow
+if opts.integrate_prior:
+    # No fitted likelihood is evaluated in this mode, so no likelihood-scale
+    # shift or supplementary-likelihood constant belongs in the result.
+    lnL_shift = 0
 if not(opts.force_no_adapt):
     opts.force_no_adapt=False  # force explicit boolean false
 
@@ -1602,7 +1607,7 @@ def fit_xg(x,y,y_errors=None,fname_export='nn_fit',verbose=False):
     import xgboost as xgb
     # Instantiate model. Usually not that many structures to find, don't overcomplicate
     #   - should scale like number of samples
-    rf = xgb.XGBRegressor(n_estimators=100) # no more than 5% of samples in a leaf
+    rf = xgb.XGBRegressor(n_estimators=100)
     if y_errors is None:
         rf.fit(x,y)
     else:
@@ -1663,7 +1668,7 @@ def fit_rf(x,y,y_errors=None,fname_export='nn_fit',verbose=False):
     from sklearn.ensemble import ExtraTreesRegressor
     # Instantiate model. Usually not that many structures to find, don't overcomplicate
     #   - should scale like number of samples
-    rf = ExtraTreesRegressor(n_estimators=100, verbose=verbose,n_jobs=-1) # no more than 5% of samples in a leaf
+    rf = ExtraTreesRegressor(n_estimators=100, verbose=verbose,n_jobs=-1)
     if y_errors is None:
         rf.fit(x,y)
     else:
@@ -1696,6 +1701,8 @@ def fit_rf_pca(x,y,y_errors=None,fname_export='nn_fit'):
     x_scaled = x_scaler.fit_transform(x)
     pca = PCA()
     x_pca = pca.fit_transform(x_scaled)
+    # Instantiate model. Usually not that many structures to find, don't overcomplicate
+    #   - should scale like number of samples
     rf = ExtraTreesRegressor(n_estimators=100, verbose=True,n_jobs=-1)
 
     if y_errors is None:
@@ -2300,7 +2307,14 @@ elif sum(indx_ok) < 5*len(X[0])**2: # and max_lnL > 30:
 X_raw = X.copy()
 
 my_fit= None
-if not(opts.fit_load_quadratic is None):
+if opts.integrate_prior:
+    print(" PRIOR NORMALIZATION: replacing the fitted likelihood by L=1 ")
+    def my_fit(x):
+        x = np.asarray(x)
+        if x.ndim < 2:
+            return 0.0
+        return np.zeros(len(x))
+elif not(opts.fit_load_quadratic is None):
     print("FIT METHOD IS STORED QUADRATIC; no data used! ")
     my_fit = fit_quadratic_stored(opts.fit_load_quadratic, opts.fit_load_quadratic_path)
 elif opts.fit_method == "quadratic":
@@ -3042,6 +3056,8 @@ if opts.sampler_method == 'GMM':
     my_exp = np.min([1,4*np.log(n_step)/np.max(Y)])   # target value : scale to slightly sublinear to (n_step)^(0.8) for Ymax = 200. This means we have ~ n_step points, with peak value wt~ n_step^(0.8)/n_step ~ 1/n_step^(0.2), limiting contrast
 if opts.sampler_method == 'NFlow':
     my_exp = 1 # don't use it
+if opts.integrate_prior:
+    my_exp = 1
 #my_exp = np.max([my_exp,  1/np.log(n_step)]) # do not allow extreme contrast in adaptivity, to the point that one iteration will dominate
 print(" Weight exponent ", my_exp, " and peak contrast (exp)*lnL = ", my_exp*np.max(Y), "; exp(ditto) =  ", np.exp(my_exp*np.max(Y)), " which should ideally be no larger than of order the number of trials in each epoch, to insure reweighting doesn't select a single preferred bin too strongly.  Note also the floor exponent also constrains the peak, de-facto")
 
@@ -3099,11 +3115,11 @@ if opts.force_no_adapt:
     tempering_adapt=False
 # Result shifted by lnL_shift
 fn_passed = likelihood_function
-if supplemental_ln_likelihood:
+if supplemental_ln_likelihood and not opts.integrate_prior:
     fn_passed =  lambda *x: likelihood_function(*x)*np.exp(supplemental_ln_likelihood(*x))
 if opts.internal_use_lnL:
     fn_passed = log_likelihood_function   # helps regularize large values
-    if supplemental_ln_likelihood:
+    if supplemental_ln_likelihood and not opts.integrate_prior:
         fn_passed =  lambda *x: log_likelihood_function(*x) + supplemental_ln_likelihood(*x)
     extra_args.update({"use_lnL":True,"return_lnI":True})
 if opts.internal_temper_log:
@@ -3161,7 +3177,7 @@ else:
 # a plugin configured entirely by environment prepares itself lazily on its first evaluation, which
 # has certainly happened by now.  Stays 0.0 for every plugin that does not centre, and for runs
 # with no supplementary factor at all -- so nothing else changes.
-if supplemental_ln_likelihood_offset_fn:
+if supplemental_ln_likelihood_offset_fn and not opts.integrate_prior:
     supplemental_ln_likelihood_offset = float(supplemental_ln_likelihood_offset_fn())
     print(" EXTERNAL SUPPLEMENTARY LIKELIHOOD FACTOR : restoring offset {} in reported lnL/evidence ".format(supplemental_ln_likelihood_offset))
 ln_integrand_value_absolute = ln_integrand_value + supplemental_ln_likelihood_offset
@@ -3318,6 +3334,10 @@ np.savetxt(opts.fname_output_integral+"+annotation_ESS.dat",[[ln_integrand_value
 
 # Throw away stupid points that don't impact the posterior
 indx_ok = np.logical_and(dat_logL > lnLmax-opts.lnL_offset ,samples["joint_s_prior"]>0)
+if opts.integrate_prior:
+    # The likelihood-offset cut is a posterior-memory optimization.  For L=1
+    # it would instead excise genuine prior support and bias the normalization.
+    indx_ok = samples["joint_s_prior"] > 0
 for p in low_level_coord_names:
     samples[p] = samples[p][indx_ok]
 dat_logL  = dat_logL[indx_ok]
@@ -3429,8 +3449,13 @@ if opts.pseudo_gaussian_mass_prior:
 # Same absolute-scale restoration as for the integral above: lnLmax here is a maximum of the
 # CENTRED integrand, and this file is documented to agree with integral_result.dat -- so leaving the
 # plugin's constant out of one and not the other turns a check into a spurious disagreement.
-log_res_reweighted = lnLmax + np.log(np.mean(weights)) + supplemental_ln_likelihood_offset
+log_res_reweighted = lnLmax + np.log(np.mean(weights)) + supplemental_ln_likelihood_offset + lnL_shift
 sigma_reweighted= np.std(weights,dtype=RiftFloat)/np.mean(weights)
+if opts.integrate_prior:
+    # The L=1 result is a fresh importance-sampling mean.  Its fractional
+    # standard error carries the usual 1/sqrt(N); preserve the historical
+    # coefficient-of-variation annotation for ordinary likelihood runs.
+    sigma_reweighted /= np.sqrt(len(weights))
 neff_reweighted = np.sum(weights)/np.max(weights)
 np.savetxt(opts.fname_output_integral+"_withpriorchange.dat", [log_res_reweighted])  # should agree with the usual result, if no prior changes
 with open(opts.fname_output_integral+"_withpriorchange+annotation.dat", 'w') as file_out:
