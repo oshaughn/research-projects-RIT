@@ -919,6 +919,22 @@ if opts.assume_eccentric:
 if opts.assume_hyperbolic:
     is_analysis_hyperbolic = True
 
+# Resolve ONE effective hyperbolic prior range for the whole workflow.  Each
+# consumer carries its own default and they do not agree: initial points are
+# generated out to p_phi0=10, while CIP defaults to 5.4, so a bare
+# --assume-hyperbolic evaluates likelihood at points the posterior then throws
+# away.  Fix the range here (defaults matching grid generation) and forward it
+# explicitly to grid generation, CIP, and puffing, override or not.
+hyperbolic_range = {'E0_min': 1.0, 'E0_max': 1.2, 'pphi0_min': 0.0, 'pphi0_max': 10.0}
+for _name in hyperbolic_range:
+    _val = getattr(opts, 'force_' + _name)
+    if not(_val is None):
+        hyperbolic_range[_name] = _val
+if is_analysis_hyperbolic:
+    if hyperbolic_range['E0_min'] >= hyperbolic_range['E0_max'] or hyperbolic_range['pphi0_min'] >= hyperbolic_range['pphi0_max']:
+        raise ValueError(" Empty hyperbolic prior range requested: check --force-E0-min/max and --force-pphi0-min/max ")
+    print(" Hyperbolic prior range (grid generation, CIP, puff): E0 [{},{}], p_phi0 [{},{}] ".format(hyperbolic_range['E0_min'],hyperbolic_range['E0_max'],hyperbolic_range['pphi0_min'],hyperbolic_range['pphi0_max']))
+
 dirname_run = gwid+ "_" + opts.calibration+ "_"+ opts.approx+"_fmin" + str(fmin) +"_fmin-template"+str(fmin_template) +"_lmax"+str(opts.l_max) + "_"+opts.spin_magnitude_prior
 if opts.online:
     dirname_run += "_onlineLLframes"
@@ -1158,18 +1174,9 @@ if is_analysis_eccentric:
 if is_analysis_hyperbolic:
     cmd += " --assume-hyperbolic "
     npts_it = int(npts_it*2.25)
-    if not(opts.force_E0_max is None):
-        E0_max = opts.force_E0_max
-        cmd += " --E0-max {}  ".format(E0_max)
-    if not(opts.force_E0_min is None):
-        E0_min = opts.force_E0_min
-        cmd += " --E0-min {}  ".format(E0_min)
-    if not(opts.force_pphi0_max is None):
-        pphi0_max = opts.force_pphi0_max
-        cmd += " --pphi0-max {}  ".format(pphi0_max)
-    if not(opts.force_pphi0_min is None):
-        pphi0_min = opts.force_pphi0_min
-        cmd += " --pphi0-min {}  ".format(pphi0_min)
+    # always pass the resolved range, so grid generation, CIP, and puff agree
+    cmd += " --E0-max {}  --E0-min {}  ".format(hyperbolic_range['E0_max'],hyperbolic_range['E0_min'])
+    cmd += " --pphi0-max {}  --pphi0-min {}  ".format(hyperbolic_range['pphi0_max'],hyperbolic_range['pphi0_min'])
     if opts.force_scatter_grids:
         cmd += " --force-scatter-grids "
     if opts.force_plunge_grids:
@@ -1839,18 +1846,10 @@ for indx in np.arange(len(instructions_cip)):
             line += " --meanPerAno-min {}  ".format(meanPerAno_min)
     if opts.assume_hyperbolic:
         line += " --parameter E0 --parameter p_phi0 --use-hyperbolic "
-        if not(opts.force_E0_max is None):
-            E0_max = opts.force_E0_max
-            line += " --E0-max {}  ".format(E0_max)
-        if not(opts.force_E0_min is None):
-            E0_min = opts.force_E0_min
-            line += " --E0-min {}  ".format(E0_min)
-        if not(opts.force_pphi0_max is None):
-            pphi0_max = opts.force_pphi0_max
-            line += " --pphi0-max {}  ".format(pphi0_max)
-        if not(opts.force_pphi0_min is None):
-            pphi0_min = opts.force_pphi0_min
-            line += " --pphi0-min {}  ".format(pphi0_min)
+        # always pass the resolved range: CIP's own defaults are narrower than
+        # the range used to generate the points it is fitting
+        line += " --E0-max {}  --E0-min {}  ".format(hyperbolic_range['E0_max'],hyperbolic_range['E0_min'])
+        line += " --pphi0-max {}  --pphi0-min {}  ".format(hyperbolic_range['pphi0_max'],hyperbolic_range['pphi0_min'])
 
         if opts.force_scatter_grids:
             line += " --force-scatter "
@@ -1962,15 +1961,11 @@ if opts.assume_eccentric:
     puff_params += " --downselect-parameter eccentricity --downselect-parameter-range [{},{}] ".format(opts.force_ecc_min,opts.force_ecc_max)
 if opts.assume_hyperbolic:
 #    puff_params += " --parameter E0 "
-    if not(opts.force_E0_max is None and opts.force_E0_min is None):
-        E0_max = opts.force_E0_max
-        E0_min = opts.force_E0_min
-        puff_params += " --downselect-parameter E0 --downselect-parameter-range [{},{}] ".format(E0_min,E0_max)
+    # always downselect to the resolved range (a one-sided override used to
+    # write 'None' into the other end of the range here)
+    puff_params += " --downselect-parameter E0 --downselect-parameter-range [{},{}] ".format(hyperbolic_range['E0_min'],hyperbolic_range['E0_max'])
 #    puff_params += " --parameter p_phi0 "
-    if not(opts.force_pphi0_max is None and opts.force_pphi0_min is None):
-        pphi0_max = opts.force_pphi0_max
-        pphi0_min = opts.force_pphi0_min
-        puff_params += " --downselect-parameter p_phi0 --downselect-parameter-range [{},{}]".format(pphi0_min,pphi0_max)
+    puff_params += " --downselect-parameter p_phi0 --downselect-parameter-range [{},{}] ".format(hyperbolic_range['pphi0_min'],hyperbolic_range['pphi0_max'])
     if opts.force_scatter_grids:
         puff_params += ' --force-scatter '
     if opts.force_plunge_grids:

@@ -87,13 +87,16 @@ def hlmoft(P, Lmax=2,approx_string=None,no_trust_align_method=None,internal_phas
         approx_string (str): Approximant string. If None, P.approx is used.
         no_trust_align_method (str): If 'peak', shifts epoch to the peak of the total signal power.
         internal_phase_shift (float): Phase shift applied to the modes. Default is pi/2.
-        **kwargs: Additional arguments (e.g., 'lmax_nyquist').
+        **kwargs: Additional arguments (e.g., 'lmax_nyquist', 'force_22_mode').
+            force_22_mode (bool): If True, return only the (2,+-2) modes.
 
     Returns:
         dict: A dictionary mapping (l, m) to LAL COMPLEX16TimeSeries objects.
     """
 
     assert Lmax >= 2
+
+    force_22_mode = kwargs.get('force_22_mode', False)
 
     # Check that masses are not nan!
     assert (not np.isnan(P.m1)) and (not np.isnan(P.m2)), " masses are NaN "
@@ -158,6 +161,13 @@ def hlmoft(P, Lmax=2,approx_string=None,no_trust_align_method=None,internal_phas
         if isinstance(mode, str):  # skip 'time_array'
             continue
         if mode[0] > Lmax:  # skip modes with L > Lmax
+            continue
+        # force_22_mode must actually produce a 22-only waveform here too, not
+        # just on the lalsimutils path.  The restriction is applied to the
+        # returned modes rather than to the generator arguments, because the
+        # mode-restriction keyword is not uniformly supported by the generators
+        # reachable through gwsignal_get_waveform_generator.
+        if force_22_mode and not(mode[0] == 2 and abs(mode[1]) == 2):
             continue
         # 
         h = lal.CreateCOMPLEX16TimeSeries("hlm",

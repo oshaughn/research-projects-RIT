@@ -3127,8 +3127,13 @@ def hoft(P, Fp=None, Fc=None,**kwargs):
                 k_coprecessing_frame.append(value)
         print(" k inertial modes: ", k, "k coprecessing frames: ", k_coprecessing_frame)
         if kwargs.get('force_22_mode', False):
-            k_coprecessing_frame = [1]
-            print("Forcing ONLY the 22 modes, so k coprecessing frames: ", k_coprecessing_frame)
+            # Restrict EVERY requested list.  The precessing branch below asks the
+            # backend for inertial modes through `k`, so narrowing only the
+            # coprecessing list still returns all modes through Lmax.
+            modes_used = [(2,2)]
+            k = modes_to_k(modes_used)
+            k_coprecessing_frame = list(k)
+            print("Forcing ONLY the 22 modes, so k inertial modes: ", k, " k coprecessing frames: ", k_coprecessing_frame)
         M1=P.m1/lal.MSUN_SI
         M2=P.m2/lal.MSUN_SI
         nu=M1*M2/((M1+M2)**2)
@@ -3884,8 +3889,13 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
                 k_coprecessing_frame.append(value)
         print(" k inertial modes: ", k, "k coprecessing frames: ", k_coprecessing_frame)
         if kwargs.get('force_22_mode', False):
-            k_coprecessing_frame = [1]
-            print("Forcing ONLY the 22 modes, so k coprecessing frames: ", k_coprecessing_frame)
+            # Restrict EVERY requested list.  The precessing branch below asks the
+            # backend for inertial modes through `k`, so narrowing only the
+            # coprecessing list still returns all modes through Lmax.
+            modes_used = [(2,2)]
+            k = modes_to_k(modes_used)
+            k_coprecessing_frame = list(k)
+            print("Forcing ONLY the 22 modes, so k inertial modes: ", k, " k coprecessing frames: ", k_coprecessing_frame)
         M1=P.m1/lal.MSUN_SI
         M2=P.m2/lal.MSUN_SI
         nu=M1*M2/((M1+M2)**2)
@@ -4203,27 +4213,40 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
             for mode in hlm:
                 hlm[mode].data.data*= hp.data.data
         else:
+            # Taper-boundary detection must be TOTAL.  A non-interacting (flat)
+            # mode never crosses the 1% threshold below, and a fully zeroed mode
+            # has no nonzero sample at all.  Those are exactly the meaningless
+            # waveforms the hypclass branch further down zeroes out, so they have
+            # to reach it: start from safe taper bounds and only narrow them if a
+            # crossing is actually found.
+            data_22 = hlm[(2,2)].data.data
+
             # determine location of start taper
             if not 'n_samp' in locals():
-                for count,value in enumerate(hlm[(2,2)].data.data):
+                n_samp = 1
+                for count,value in enumerate(data_22):
                     if count ==0:
                         continue
-                    if np.abs(np.real(value)-np.real(hlm[(2,2)].data.data[0])) > 0.01 * np.abs(np.real(hlm[(2,2)].data.data[0])):
+                    if np.abs(np.real(value)-np.real(data_22[0])) > 0.01 * np.abs(np.real(data_22[0])):
                         n_samp=int(count/2)
                         break
 
             # determine location of end taper
-            if hlm[(2,2)].data.data[-1] == 0.0:
+            j_nonzero = np.nonzero(data_22 != 0.)[0]
+            if len(j_nonzero) == 0:
+                print("Identically zero (2,2) mode; no signal endpoint to locate.")
+                j_signal_end = hlm[(2,2)].data.length
+            elif data_22[-1] == 0.0:
                 print("Signal shorter than seglen; probably can use smaller value.")
-                j_signal_end = np.nonzero(hlm[(2,2)].data.data != 0.)[0][-1] + 1
+                j_signal_end = j_nonzero[-1] + 1
             else:
                 j_signal_end = hlm[(2,2)].data.length
             if not 'n_samp2' in locals():
-                for count, value in enumerate(reversed(hlm[(2,2)].data.data[:j_signal_end])):  # Scan backwards
+                n_samp2 = 1
+                for count, value in enumerate(reversed(data_22[:j_signal_end])):  # Scan backwards
                     if count == 0:
                         continue
-                    if np.abs(np.real(value) - np.real(hlm[(2,2)].data.data[j_signal_end - 1])) > 0.01 * np.abs(np.real(hlm[(2,2)].\
-data.data[j_signal_end - 1])):
+                    if np.abs(np.real(value) - np.real(data_22[j_signal_end - 1])) > 0.01 * np.abs(np.real(data_22[j_signal_end - 1])):
                         n_samp2 = int(count / 2)
                         break
             # A zero-length end taper (first preceding sample already crosses the
