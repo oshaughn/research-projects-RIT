@@ -35,7 +35,18 @@ if CODE not in sys.path:
     sys.path.insert(0, CODE)
 
 from RIFT.likelihood.jax_ile.samplers import (          # noqa: E402
-    beta_for_export_ess, export_ess_fraction)
+    beta_for_export_ess, export_ess_fraction, export_ess_lower_bound)
+
+# The measured sweep (dim=4) from DESIGN_jax_tempering.md.  Kept as data because
+# more than one test needs it, and because the calibration envelope must be
+# checked against ALL of it, not against a couple of convenient points.
+MEASURED_D4 = {
+    0.05: 7.546e-03, 0.09508: 2.763e-02, 0.10: 3.033e-02, 0.20: 1.042e-01,
+    0.30: 2.123e-01, 0.40: 3.481e-01, 0.50: 4.999e-01, 0.55: 5.772e-01,
+    0.60: 6.530e-01, 0.65: 7.253e-01, 0.70: 7.923e-01, 0.75: 8.522e-01,
+    0.80: 9.035e-01, 0.85: 9.449e-01, 0.90: 9.752e-01, 0.95: 9.938e-01,
+    1.00: 1.0,
+}
 
 
 def _driver_tree():
@@ -61,8 +72,15 @@ drv = _load_driver()
 
 
 class _Opts(object):
-    """Minimal stand-in for the optparse Values the chooser reads."""
-    def __init__(self, **kw):
+    """Minimal stand-in for the optparse Values the chooser reads.
+
+    ``supplied`` lists the option TOKENS to pretend were typed.  Setting an
+    attribute is NOT the same as passing the flag any more -- that conflation is
+    the defect this stub previously baked in -- so any test whose behaviour turns
+    on "did the user pass it" must name the token here (or build from argv).
+    """
+    def __init__(self, supplied=(), **kw):
+        self._supplied_options = set(supplied)
         self.adapt_adapt = False
         self.auto_adapt_weight_exponent = False
         self.adapt_weight_exponent = 1.0
@@ -70,6 +88,7 @@ class _Opts(object):
         self.allow_degenerate_tempering = False
         self.smc_puffball = False
         self.__dict__.update(kw)
+        self._supplied_options = set(supplied)
 
 
 # ----------------------------------------------------------------- the law
@@ -83,11 +102,7 @@ def test_law_matches_the_measured_sweep():
     the band both ways is what makes this a test rather than a restatement --
     an over-optimistic law would silently under-budget a real run.
     """
-    measured = {                     # beta: measured ESS/N
-        0.05: 7.546e-03, 0.10: 3.033e-02, 0.20: 1.042e-01, 0.30: 2.123e-01,
-        0.40: 3.481e-01, 0.50: 4.999e-01, 0.60: 6.530e-01, 0.70: 7.923e-01,
-        0.80: 9.035e-01, 0.90: 9.752e-01, 1.00: 1.0,
-    }
+    measured = MEASURED_D4
     ratios = []
     for beta, meas in measured.items():
         law = export_ess_fraction(beta, 4)
@@ -117,12 +132,64 @@ def test_law_depends_on_dimension():
     assert vals[0] > vals[1] > vals[2]        # more dimensions -> costlier
 
 
-def test_roundtrip_beta_and_target():
+def test_chosen_beta_meets_the_target_on_the_MEASURED_lower_bound():
+    """The chooser must satisfy the target against the CALIBRATED envelope.
+
+    THE DEFECT (review): it used to invert the bare Gaussian law, which the sweep
+    shows is optimistic by up to 21%.  Round-tripping that formula is vacuous --
+    it only proves the inverse inverts the thing that is known to overstate the
+    answer.  At dim=4 with a 0.9 target it returned beta=0.77347, whose measured
+    lower bound is 0.866: less than was asked for.
+    """
     for n_dim in (3, 4, 5):
         for target in (0.3, 0.5, 0.9, 0.99):
             beta = beta_for_export_ess(target, n_dim)
             assert 0.0 < beta <= 1.0
-            assert export_ess_fraction(beta, n_dim) == pytest.approx(target, rel=1e-10)
+            assert export_ess_lower_bound(beta, n_dim) >= target - 1e-9, (
+                "dim=%d target=%g -> beta=%g retains only %.4f"
+                % (n_dim, target, beta, export_ess_lower_bound(beta, n_dim)))
+            # and it must be the SMALLEST such beta, to within the solver step
+            if beta > 1e-3:
+                assert export_ess_lower_bound(beta * 0.99, n_dim) < target + 1e-9
+
+
+def test_the_old_uncalibrated_answer_would_NOT_pass():
+    """Pins that the fix changed the number, not just the wording."""
+    assert export_ess_lower_bound(0.77347, 4) < 0.9
+    assert beta_for_export_ess(0.9, 4) > 0.77347
+
+
+def test_calibration_envelope_is_a_true_lower_bound_everywhere_measured():
+    """Every measured point of the sweep must sit at or above the envelope.
+
+    This is the property the guard and the chooser both rely on; if a future
+    knot edit breaks it anywhere, the conservatism is gone silently.
+    """
+    for beta, measured in MEASURED_D4.items():
+        lb = export_ess_lower_bound(beta, 4)
+        assert measured >= lb - 1e-12, (
+            "beta=%g: measured %.4e is BELOW the supposed lower bound %.4e"
+            % (beta, measured, lb))
+
+
+def test_lower_bound_is_never_above_the_law_and_meets_it_at_beta_one():
+    for n_dim in (3, 4, 5):
+        for beta in (0.05, 0.2, 0.5, 0.8, 0.95):
+            assert export_ess_lower_bound(beta, n_dim) <= export_ess_fraction(beta, n_dim)
+        assert export_ess_lower_bound(1.0, n_dim) == pytest.approx(
+            export_ess_fraction(1.0, n_dim))
+
+
+def test_unreachable_target_raises_rather_than_returning_beta_one():
+    """A target the envelope cannot reach must fail loudly, not silently clamp."""
+    import RIFT.likelihood.jax_ile.samplers as S
+    real = S._ESS_CAL_RATIO
+    try:
+        S._ESS_CAL_RATIO = tuple(0.5 * r for r in real)   # envelope caps at 0.5
+        with pytest.raises(ValueError, match="unreachable"):
+            beta_for_export_ess(0.9, 4)
+    finally:
+        S._ESS_CAL_RATIO = real
 
 
 def test_beta_one_is_free_and_is_the_only_free_point():
@@ -262,10 +329,15 @@ def test_beta_one_and_a_healthy_beta_are_accepted_at_runtime(capsys):
     """The negative tests above prove nothing if every input raises."""
     drv.resolve_tempering_exponent(_Opts(adapt_weight_exponent=1.0), 4, 4800)
     assert "untempered target" in capsys.readouterr().out
-    o = _Opts(adapt_weight_exponent=0.7735)
+    # Derive the exponent from the chooser rather than hardcoding one.  The
+    # literal 0.7735 that used to be here was the OLD uncalibrated answer, whose
+    # measured lower bound is 0.866 -- so this assertion was quietly encoding the
+    # very over-claim the calibration exists to remove.
+    beta = beta_for_export_ess(0.9, 4)
+    o = _Opts(adapt_weight_exponent=beta)
     drv.resolve_tempering_exponent(o, 4, 4800)
     out = capsys.readouterr().out
-    assert "predicted export ESS/N=0.9" in out, out
+    assert "export ESS/N >= 0.9" in out, out
 
 
 def test_auto_sets_the_exponent_and_the_value_depends_on_dimension(capsys):
@@ -291,7 +363,7 @@ def test_degenerate_exponent_is_refused_and_the_override_lets_it_through(capsys)
     capsys.readouterr()
     drv.resolve_tempering_exponent(
         _Opts(adapt_weight_exponent=0.09508, allow_degenerate_tempering=True), 4, 4800)
-    assert "predicted export ESS" in capsys.readouterr().out
+    assert "export ESS/N >=" in capsys.readouterr().out
 
 
 def test_target_without_auto_is_reported_not_silently_ignored(capsys):
@@ -299,12 +371,13 @@ def test_target_without_auto_is_reported_not_silently_ignored(capsys):
 
     Nothing covered this and a mutation deleting the note survived the sweep.
     """
-    o = _Opts(target_export_ess_frac=0.5)
+    o = _Opts(target_export_ess_frac=0.5, supplied=["--target-export-ess-frac"])
     drv.resolve_tempering_exponent(o, 4, 4800)
     out = capsys.readouterr().out
     assert "--target-export-ess-frac" in out and "no effect" in out, out
     # and it must NOT be reported when the chooser is actually on
-    o2 = _Opts(auto_adapt_weight_exponent=True, target_export_ess_frac=0.5)
+    o2 = _Opts(auto_adapt_weight_exponent=True, target_export_ess_frac=0.5,
+               supplied=["--auto-adapt-weight-exponent", "--target-export-ess-frac"])
     drv.resolve_tempering_exponent(o2, 4, 4800)
     assert "no effect" not in capsys.readouterr().out
 
@@ -319,7 +392,7 @@ def test_inert_note_lists_only_flags_the_user_ACTUALLY_passed(capsys):
     """
     p = drv.build_parser()
 
-    def mk(**kw):
+    def mk(supplied=(), **kw):
         class O(object):
             pass
         o = O()
@@ -329,6 +402,9 @@ def test_inert_note_lists_only_flags_the_user_ACTUALLY_passed(capsys):
         o.mode = "laplace-is"
         for k, v in kw.items():
             setattr(o, k, v)
+        # Setting the attribute is NOT passing the flag: the report keys on the
+        # command-line token, so a test that wants a flag reported must name it.
+        o._supplied_options = set(supplied)
         return o
 
     def note(o):
@@ -336,16 +412,20 @@ def test_inert_note_lists_only_flags_the_user_ACTUALLY_passed(capsys):
         return "".join(l for l in capsys.readouterr().out.splitlines()
                        if "tempered modes" in l)
 
-    default_target = note(mk(auto_adapt_weight_exponent=True))
+    default_target = note(mk(auto_adapt_weight_exponent=True,
+                             supplied=["--auto-adapt-weight-exponent"]))
     assert "--auto-adapt-weight-exponent" in default_target
     assert "--target-export-ess-frac" not in default_target, default_target
 
     given_target = note(mk(auto_adapt_weight_exponent=True,
-                           target_export_ess_frac=0.5))
+                           target_export_ess_frac=0.5,
+                           supplied=["--auto-adapt-weight-exponent",
+                                     "--target-export-ess-frac"]))
     assert "--target-export-ess-frac" in given_target, given_target
 
     # and on a tempered mode nothing is reported inert at all
-    o = mk(auto_adapt_weight_exponent=True)
+    o = mk(auto_adapt_weight_exponent=True,
+           supplied=["--auto-adapt-weight-exponent"])
     o.mode = "flowmc-phimarg"
     assert note(o) == ""
 
@@ -392,12 +472,15 @@ def test_smc_puffball_is_not_refused_because_the_exponent_is_inert_there():
     **_ignore and exports uniform weights.  Refusing a run over a number that
     does nothing is a false alarm; the guard skipped this path check and did
     exactly that."""
-    for o in (_Opts(smc_puffball=True, adapt_weight_exponent=0.09508),
-              _Opts(smc_puffball=True, auto_adapt_weight_exponent=True)):
+    for o in (_Opts(smc_puffball=True, adapt_weight_exponent=0.09508,
+                    supplied=["--adapt-weight-exponent"]),
+              _Opts(smc_puffball=True, auto_adapt_weight_exponent=True,
+                    supplied=["--auto-adapt-weight-exponent"])):
         assert drv.resolve_tempering_exponent(o, 4, 4800) == 1.0
 
     # ... and the no-op is REPORTED, not silent
-    o = _Opts(smc_puffball=True, adapt_weight_exponent=0.09508)
+    o = _Opts(smc_puffball=True, adapt_weight_exponent=0.09508,
+              supplied=["--adapt-weight-exponent"])
     import io
     import contextlib
     buf = io.StringIO()
@@ -410,10 +493,55 @@ def test_smc_puffball_is_not_refused_because_the_exponent_is_inert_there():
         drv.resolve_tempering_exponent(_Opts(adapt_weight_exponent=0.09508), 4, 4800)
 
 
+def _opts_from_argv(argv):
+    """Parse a real command line AND record which tokens it named."""
+    o, _ = drv.build_parser().parse_args(list(argv))
+    drv.record_supplied_options(o, list(argv))
+    return o
+
+
+@pytest.mark.parametrize("argv", [
+    ["--auto-adapt-weight-exponent", "--adapt-weight-exponent", "1.0"],
+    ["--auto-adapt-weight-exponent", "--adapt-weight-exponent=1.0"],
+    ["--adapt-weight-exponent", "1.0", "--auto-adapt-weight-exponent"],
+])
+def test_auto_conflicts_with_an_EXPLICIT_DEFAULT_exponent(argv):
+    """--auto plus an explicitly-typed --adapt-weight-exponent 1.0 must RAISE.
+
+    THE DEFECT (review): the conflict was detected by comparing the VALUE against
+    the default, so passing the default explicitly was silently accepted and the
+    chooser then replaced the user's explicit untempered target -- the opposite of
+    the documented behaviour, and a change to the sampled target.  Detection is
+    now by command-line TOKEN.  The `--opt=value` form and both orderings are
+    covered because a token scan that missed either would reintroduce it.
+    """
+    with pytest.raises(SystemExit, match="would overwrite it"):
+        drv.resolve_tempering_exponent(_opts_from_argv(argv), 4, 4800)
+
+
+def test_auto_alone_is_still_accepted():
+    """The negative test above proves nothing if every command line raises."""
+    o = _opts_from_argv(["--auto-adapt-weight-exponent"])
+    assert drv.resolve_tempering_exponent(o, 4, 4800) != 1.0
+
+
+def test_was_supplied_reads_tokens_not_values():
+    """Structural: the guard must not infer 'user passed it' from the value."""
+    o = _opts_from_argv(["--adapt-weight-exponent", "1.0"])
+    assert drv.was_supplied(o, "--adapt-weight-exponent") is True
+    assert o.adapt_weight_exponent == 1.0, "value IS the default; only the token differs"
+    o2 = _opts_from_argv([])
+    assert drv.was_supplied(o2, "--adapt-weight-exponent") is False
+    # and an options object built without parsing must not fabricate a conflict
+    assert drv.was_supplied(_Opts(), "--adapt-weight-exponent") is False
+
+
 def test_auto_conflicts_raise_at_runtime():
     with pytest.raises(SystemExit) as e1:
         drv.resolve_tempering_exponent(
-            _Opts(auto_adapt_weight_exponent=True, adapt_weight_exponent=0.5), 4, 4800)
+            _Opts(auto_adapt_weight_exponent=True, adapt_weight_exponent=0.5,
+                  supplied=["--auto-adapt-weight-exponent",
+                            "--adapt-weight-exponent"]), 4, 4800)
     assert "would overwrite it" in str(e1.value)
     with pytest.raises(SystemExit) as e2:
         drv.resolve_tempering_exponent(
@@ -428,21 +556,24 @@ def test_law_refuses_the_same_domain_the_driver_does():
             export_ess_fraction(bad, 4)
 
 
-def test_target_frac_default_is_one_named_constant():
-    """The parser default and the was-it-passed check must be the same value.
-
-    Two literals would drift, and the drift is silent: --target-export-ess-frac
-    set to the old default would stop being reported as inert.
+def test_target_frac_given_is_decided_by_the_TOKEN_not_the_value():
+    """RETARGETED.  This used to require that _target_ess_was_given compare
+    against a named default constant.  That whole mechanism was the defect: a
+    user who explicitly passes the default value was indistinguishable from one
+    who passed nothing.  It now reads the command line.
     """
+    import ast as _ast
     src = open(DRIVER).read()
-    assert "_TARGET_EXPORT_ESS_FRAC_DEFAULT = 0.9" in src
-    assert "default=_TARGET_EXPORT_ESS_FRAC_DEFAULT" in src, (
-        "the parser hardcodes its own default instead of the named constant")
-    tree = _driver_tree()
-    fn = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
+    fn = next(n for n in _ast.walk(_ast.parse(src)) if isinstance(n, _ast.FunctionDef)
               and n.name == "_target_ess_was_given")
-    names = {n.id for n in ast.walk(fn) if isinstance(n, ast.Name)}
-    assert "_TARGET_EXPORT_ESS_FRAC_DEFAULT" in names
+    body = _ast.get_source_segment(src, fn) or ""
+    assert "was_supplied" in body, "still inferring from the value"
+    assert "_TARGET_EXPORT_ESS_FRAC_DEFAULT" not in body, (
+        "still comparing against the default constant")
+    # behaviour: explicitly passing the default counts as supplied
+    o = _opts_from_argv(["--target-export-ess-frac",
+                         str(drv._TARGET_EXPORT_ESS_FRAC_DEFAULT)])
+    assert drv._target_ess_was_given(o) is True
 
 
 def test_chooser_is_actually_CALLED_from_the_dispatch():

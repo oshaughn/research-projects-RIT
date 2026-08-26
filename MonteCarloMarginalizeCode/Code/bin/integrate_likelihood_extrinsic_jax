@@ -932,16 +932,37 @@ def tempered_cloud_size(opts, n_starts):
                * (opts.n_local_steps + opts.n_global_steps))
 
 
-def _target_ess_was_given(opts):
-    """True when --target-export-ess-frac differs from its default.
+def record_supplied_options(opts, argv):
+    """Record which long option TOKENS appeared on the command line.
 
-    optparse cannot report whether an option was passed, so this compares against
-    the single named default the parser also uses -- keeping them one value rather
-    than two literals that can drift.
+    Everything below used to infer "did the user pass this?" from "does its value
+    differ from the default?".  That is wrong whenever the user explicitly passes
+    the default: `--auto-adapt-weight-exponent --adapt-weight-exponent 1.0` was
+    silently ACCEPTED and the chooser then replaced the user's explicit untempered
+    target, which is the opposite of the documented conflict behaviour.  Handles
+    both `--opt value` and `--opt=value`.
     """
-    return (float(getattr(opts, "target_export_ess_frac",
-                          _TARGET_EXPORT_ESS_FRAC_DEFAULT))
-            != _TARGET_EXPORT_ESS_FRAC_DEFAULT)
+    supplied = set()
+    for tok in (argv if argv is not None else sys.argv[1:]):
+        if isinstance(tok, str) and tok.startswith("--"):
+            supplied.add(tok.split("=", 1)[0])
+    opts._supplied_options = supplied
+    return supplied
+
+
+def was_supplied(opts, flag):
+    """True when ``flag`` was named on the command line.
+
+    Falls back to False when the record is absent (a caller that built an options
+    object directly rather than parsing), which is the safe direction: it means
+    "assume the user did not pass it" and so never fabricates a conflict.
+    """
+    return flag in getattr(opts, "_supplied_options", set())
+
+
+def _target_ess_was_given(opts):
+    """True when --target-export-ess-frac was named on the command line."""
+    return was_supplied(opts, "--target-export-ess-frac")
 
 
 def resolve_tempering_exponent(opts, n_dim, n_cloud):
@@ -970,7 +991,7 @@ def resolve_tempering_exponent(opts, n_dim, n_cloud):
     with ``--n-events-to-analyze 3``; ILE_extr.sub runs batches.
     """
     from RIFT.likelihood.jax_ile.samplers import (
-        beta_for_export_ess, export_ess_fraction)
+        beta_for_export_ess, export_ess_lower_bound)
 
     if opts.adapt_adapt:
         if opts.auto_adapt_weight_exponent:
@@ -994,7 +1015,7 @@ def resolve_tempering_exponent(opts, n_dim, n_cloud):
     # inv_T=1.  The exponent being inert here does not depend on that, but do not
     # re-derive "its weights are always uniform" from this branch.)
     if getattr(opts, "smc_puffball", False):
-        if opts.auto_adapt_weight_exponent or float(opts.adapt_weight_exponent) != 1.0:
+        if opts.auto_adapt_weight_exponent or was_supplied(opts, "--adapt-weight-exponent"):
             print("Note: --smc-puffball ignores --adapt-weight-exponent / "
                   "--auto-adapt-weight-exponent (smc_puffball_sample runs its own "
                   "SMC temperature ladder; the event is refused unless that "
@@ -1012,11 +1033,14 @@ def resolve_tempering_exponent(opts, n_dim, n_cloud):
         # An explicit --adapt-weight-exponent alongside --auto is a contradiction.
         # Silently overriding it would be the worst of both: the run reports a
         # chooser it did not obey the user about.
-        if float(opts.adapt_weight_exponent) != 1.0:
+        if was_supplied(opts, "--adapt-weight-exponent"):
             raise SystemExit(
                 "--auto-adapt-weight-exponent was given together with an explicit "
                 "--adapt-weight-exponent %g.  The chooser would overwrite it.  Pass "
-                "one or the other." % float(opts.adapt_weight_exponent))
+                "one or the other.  (Detected from the command line, not from the "
+                "value: passing the default explicitly, --adapt-weight-exponent 1.0, "
+                "is still an explicit choice of an untempered target.)"
+                % float(opts.adapt_weight_exponent))
         beta = beta_for_export_ess(opts.target_export_ess_frac, n_dim)
         print("Tempering: AUTO beta=%.5f for %.0f%% export ESS in %d-D "
               "(ESS/N=[beta(2-beta)]^(dim/2); no SNR term -- see "
@@ -1046,9 +1070,12 @@ def resolve_tempering_exponent(opts, n_dim, n_cloud):
     if beta == 1.0:
         print("Tempering: beta=1 (untempered target); export ESS is the full cloud.")
         return beta
-    frac = export_ess_fraction(beta, n_dim)
+    # LOWER BOUND, not the bare law.  The law is optimistic by up to 21% at small
+    # beta, so guarding on it admits clouds already known to fall below the floor.
+    frac = export_ess_lower_bound(beta, n_dim)
     ess = frac * n_cloud
-    print("Tempering: beta=%.5f in %d-D -> predicted export ESS/N=%.4f, "
+    print("Tempering: beta=%.5f in %d-D -> export ESS/N >= %.4f "
+          "(measured-calibrated lower bound), "
           "ESS~%.0f of %d rows" % (beta, n_dim, frac, ess, n_cloud))
     if ess < _USABLE_EXPORT_ESS and not opts.allow_degenerate_tempering:
         raise SystemExit(
@@ -1597,6 +1624,8 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
 def main(argv=None):
     optp = build_parser()
     opts, _ = optp.parse_args(argv)
+    # BEFORE anything reads an option: which tokens did the user actually type?
+    record_supplied_options(opts, argv)
     check_critical_and_report(opts, optp)
 
     if opts.event_time is None:

@@ -133,7 +133,7 @@ measurement, so this shares no machinery with 3a.
 |---|---|---|---|---|---|
 | beta = 1.0 (default) | 253.686 | 0.0118 | n/a (uniform) | 4800 | 4800 |
 | **beta = 0.0951 (historical)** | 253.908 | **0.0779** | **184.9** | **278** | 157 |
-| beta = 0.7735 (auto, 90% target) | see §4 | | 4202.8 | 4800 | 4320 |
+| beta = 0.7735 | see §4 | | 4202.8 | 4800 | 4320 |
 
 Predicted vs measured: 157 vs 185 (ratio 1.17) and 4320 vs 4203 (0.97). The law
 is validated within ~20% on the real sampler by a route that never touches the
@@ -188,7 +188,7 @@ row count.
 | arm | rows | JS psi s0/s1 | JS incl s0/s1 | sd psi s0/s1 |
 |---|---|---|---|---|
 | beta = 1.0 | 4800 | 0.0735 / 0.0358 | 0.0617 / 0.0325 | 0.940 / 0.990 |
-| beta = 0.7735 (auto) | 4800 | 0.0407 / 0.0289 | 0.0445 / 0.0296 | 0.983 / 1.037 |
+| beta = 0.7735 | 4800 | 0.0407 / 0.0289 | 0.0445 / 0.0296 | 0.983 / 1.037 |
 | beta = 0.0951 | 278 / 203 | 0.1354 / 0.1438 | 0.1310 / 0.0954 | 1.081 / 0.872 |
 | `--adapt-adapt` | 4800 | 0.0462 / **0.5690** | 0.0774 / **0.3825** | 1.043 / **0.031** |
 
@@ -213,7 +213,8 @@ SNR 23.8, not an extreme case.
   a test pins that.
 - `--auto-adapt-weight-exponent` + `--target-export-ess-frac` (default 0.9):
   picks the smallest beta meeting the export budget, keyed on the **sampled
-  dimension** (d=3 -> 0.740, d=4 -> 0.773, d=5 -> 0.797).
+  dimension** (at a 0.9 target: d=3 -> 0.786, d=4 -> 0.807, d=5 -> 0.824).
+  These solve the CALIBRATED lower bound, not the bare law -- see §4a.
 - A guard: any beta whose predicted export ESS falls below the driver's own
   usability floor of 200 is **refused** (exit 1, no file written), with a message
   naming the historical rule as the trap. `--allow-degenerate-tempering` overrides.
@@ -239,6 +240,33 @@ evidence proposal) and `fisher_is_inflate=1.3` (`:1134`, the high-SNR Fisher-IS
 fallback). Those are where "intelligence" could go without paying any export-ESS
 cost. Not touched here — out of scope, and unmeasured.
 
+### 4a. The law is optimistic, so the chooser must not invert it directly
+
+Raised in review of this change, and correct.  `export_ess_fraction` is the
+Gaussian-peak law, which the §3a sweep shows is optimistic by up to 21%
+(measured/law 0.79 at beta=0.05, rising to 1.00 at beta=1).  Inverting it to pick
+beta, and guarding on it, both hand back something already known to fall short of
+what was asked for: at d=4 a 0.9 target returned **beta=0.77347, whose measured
+lower bound is 0.866**.
+
+`export_ess_lower_bound(beta, n_dim) = cal(beta) * law(beta, n_dim)` is now the
+quantity both the chooser and the 200-ESS guard use.  `cal` is a piecewise-linear
+envelope over the measured ratios, every knot at or below every measured point:
+
+| beta | 0.05 | 0.20 | 0.40 | 0.60 | 0.80 | 1.00 |
+|---|---|---|---|---|---|---|
+| cal | 0.79 | 0.79 | 0.83 | 0.91 | 0.97 | 1.00 |
+
+A single flat factor would have been the wrong shape twice over: the shortfall is
+strongly beta-dependent, and a flat 0.79 would make any target above 0.79
+unreachable, since it never rises to 1.  The inverse has no closed form once the
+envelope is included and is solved by bisection (both factors are monotone in
+beta, so the product is).
+
+**Measured at d=4 only.**  Applying the same ratio at other dimensions is an
+assumption, not a measurement.  It is the conservative direction, but it is not
+verified, and it is the first thing to check if a d=3 or d=5 budget comes up short.
+
 ## 5. Limitations — axes swept, and axes presumed load-bearing
 
 **Swept:** beta over [0.05, 1]; SNR ~15 to ~134 at fixed beta; two seeds on the
@@ -254,6 +282,8 @@ IS, and the driver's own reported ESS).
 - **The guard's threshold in the corner where the law is optimistic** (§3c
   caveat 1): near ESS ~200 at small beta and high SNR the guard trusts a law that
   over-predicts. It errs toward passing, not refusing. Not characterised.
+- **The calibration envelope at dimensions other than 4** (§4a): assumed from
+  the d=4 sweep, not measured.
 - **Only two seeds.** Enough to show the `--adapt-adapt` collapse (it is a 30x
   effect) and to leave the beta=0.7735-vs-1 question open. Not enough for either
   to be a width claim.

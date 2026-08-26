@@ -71,7 +71,18 @@ _PI = float(np.pi)
 #
 # helper_LDG_Events.py keys its beta on SNR.  That is right there and wrong here:
 # the cost below is set by the SAMPLED DIMENSION and is independent of lnLmax.
-_TEMPER_ESS_LAW_CAL = 0.79   # measured worst-case ratio (measured/law); see DESIGN doc
+# Measured ratio (measured ESS/N) / (Gaussian law) at dim=4, as a CONSERVATIVE
+# piecewise-linear envelope: every knot sits at or below every measured point of
+# the sweep in DESIGN_jax_tempering.md.  The law is optimistic and increasingly so
+# at small beta, so a single flat factor is the wrong shape -- a flat 0.79 would
+# also make any target above 0.79 unachievable, since it never reaches 1.
+#
+# MEASURED AT dim=4 ONLY.  Applying the same ratio at other dimensions is an
+# assumption, not a measurement; it is the conservative direction (the law is
+# optimistic in dim too, since the exponent grows), but it is not verified.
+_ESS_CAL_BETA = (0.05, 0.20, 0.40, 0.60, 0.80, 1.00)
+_ESS_CAL_RATIO = (0.79, 0.79, 0.83, 0.91, 0.97, 1.00)
+_TEMPER_ESS_LAW_CAL = _ESS_CAL_RATIO[0]   # worst case, retained for reference
 
 
 def export_ess_fraction(beta, n_dim):
@@ -98,6 +109,28 @@ def export_ess_fraction(beta, n_dim):
     return float((beta * (2.0 - beta)) ** (0.5 * int(n_dim)))
 
 
+def _ess_law_calibration(beta):
+    """Conservative lower-bound ratio (measured/law) at this beta, from the sweep."""
+    beta = float(beta)
+    if beta <= _ESS_CAL_BETA[0]:
+        return _ESS_CAL_RATIO[0]
+    if beta >= _ESS_CAL_BETA[-1]:
+        return _ESS_CAL_RATIO[-1]
+    return float(np.interp(beta, _ESS_CAL_BETA, _ESS_CAL_RATIO))
+
+
+def export_ess_lower_bound(beta, n_dim):
+    """CONSERVATIVE estimate of the surviving export fraction.
+
+    ``export_ess_fraction`` is the Gaussian-peak law, which the sweep shows to be
+    OPTIMISTIC by up to 21% (ratio 0.79 at beta=0.05, rising to 1.00 at beta=1).
+    Budget sizing and any usability guard must use THIS, not the bare law:
+    inverting the optimistic form directly hands back a beta already known to
+    retain less than was asked for.
+    """
+    return _ess_law_calibration(beta) * export_ess_fraction(beta, n_dim)
+
+
 def beta_for_export_ess(target_frac, n_dim):
     """Inverse of :func:`export_ess_fraction`: the SMALLEST beta meeting a target.
 
@@ -107,11 +140,31 @@ def beta_for_export_ess(target_frac, n_dim):
 
     Smallest is the useful root: beta is a breadth knob, so among exponents that
     meet the export budget the broadest target is the one that explores most.
+
+    Solves against :func:`export_ess_lower_bound` -- the measured-calibrated
+    envelope -- so the returned beta retains AT LEAST ``target_frac`` on the
+    sweep, rather than at least that much of an optimistic formula.
     """
     t = float(target_frac)
     if not (0.0 < t <= 1.0):
         raise ValueError("target_frac must be in (0, 1]; got %r" % (t,))
-    return float(1.0 - np.sqrt(max(0.0, 1.0 - t ** (2.0 / int(n_dim)))))
+    # Solve on the CALIBRATED lower bound, not the bare law.  Both factors are
+    # non-decreasing in beta, so the product is monotone and bisection is safe.
+    # There is no closed form once the piecewise-linear calibration is included,
+    # and the previous closed-form inverse of the optimistic law returned betas
+    # that retained less than the caller asked for.
+    if export_ess_lower_bound(1.0, n_dim) < t:
+        raise ValueError(
+            "target_frac %g is unreachable in %d-D even at beta=1 (lower bound "
+            "%.4f)" % (t, int(n_dim), export_ess_lower_bound(1.0, n_dim)))
+    lo, hi = 1e-6, 1.0
+    for _ in range(200):
+        mid = 0.5 * (lo + hi)
+        if export_ess_lower_bound(mid, n_dim) >= t:
+            hi = mid
+        else:
+            lo = mid
+    return float(hi)
 
 
 # ---------------------------------------------------------------------------
