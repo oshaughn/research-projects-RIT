@@ -65,6 +65,39 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #   test_network_coords.py             1  network-frame sky fold on a real injection
 #   test_nuts_phimarg.py               1  fisher_nuts_sample_phimarg vs an analytic 4-D
 #                                         target (needs numpyro; no lal)
+#   test_jax_fairdraw_export.py       34  the --save-samples export contract of
+#                                         bin/integrate_likelihood_extrinsic_jax:
+#                                         that it is a FAIR DRAW (reweighted against
+#                                         the sampler's own importance weights, then
+#                                         multinomial-resampled as ILE does), that
+#                                         ILE's 1.5*ESS cap binds, that the count
+#                                         options act exactly where the driver reports
+#                                         them implemented and nowhere else, that the
+#                                         export RNG is never the science generator,
+#                                         that a fair draw which CANNOT be performed
+#                                         exports nothing at all (and clears a stale
+#                                         file at that path) instead of shipping the
+#                                         raw cloud, that a refused export leaves no
+#                                         `_.dat` result row for the event either, that
+#                                         an SMC ladder which stops short of inv_T=1
+#                                         publishes neither artifact (and that the
+#                                         sampler reports the exponent it reached), and
+#                                         that the provenance header
+#                                         describes the file it sits on.  Needs no lal or GPU: the
+#                                         driver is imported by path and driven on an
+#                                         analytic 4-D target with known moments.
+#                                         Several of these are AST guards on the
+#                                         DRIVER SOURCE (the F1 post_weight gate, the
+#                                         write_samples call site, the export-before-
+#                                         result write order) because the defects
+#                                         they pin live at call sites, where a
+#                                         helper-level assertion cannot see them.
+#   test_interp_choices.py             3  #190: --interp cubic is reachable from the
+#                                         CLI and selects _gather_cubic.  Merged in
+#                                         from rift_O4d, which added it to FILES
+#                                         without a count in this ledger; recorded
+#                                         here so the block stays a complete
+#                                         accounting of EXPECTED_TESTS.
 #   test_tvals_grid_convention.py     13  issue #146: the time-marginalization window
 #                                         grid the JAX wrapper and
 #                                         bin/integrate_likelihood_extrinsic_batchmode
@@ -110,6 +143,7 @@ FILES=(
   "${JAXDIR}/test_jax_slowrot_cauchy_schwarz.py"
   "${JAXDIR}/test_network_coords.py"
   "${JAXDIR}/test_nuts_phimarg.py"
+  "${JAXDIR}/test_jax_fairdraw_export.py"
   "${JAXDIR}/test_tvals_grid_convention.py"
   "${JAXDIR}/test_interp_choices.py"
 )
@@ -140,9 +174,10 @@ if [ "${manifest_rc}" -ne 0 ]; then
   exit 1
 fi
 
-# Sum of the per-file counts above.  Pinned deliberately: a bare `pytest test/jax/`
+# Sum of the per-file counts above (27 + 29 from test_jax_fairdraw_export.py).
+# Pinned deliberately: a bare `pytest test/jax/`
 # that collected 0 would exit 5, and a partial loss (say 14 -> 3) would still exit 0.
-EXPECTED_TESTS=30
+EXPECTED_TESTS=64
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${FILES[@]}" 2>&1)"

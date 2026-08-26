@@ -1,5 +1,20 @@
 # `jax_ile` — an AD-compatible JAX reimplementation of the ILE extrinsic likelihood
 
+> **`--save-samples` output is a FAIR DRAW**, not the raw sampler cloud:
+> equal-weight rows, no weight column, and the same columns as before *for a
+> given `--mode`* (different modes export different column sets — see the Driver
+> section). A second header line records the mode and the export ESS, e.g.
+> `# mode=laplace-is fairdraw: ESS=5.5 n_in=300000 n_out=9`. **Check that ESS
+> before trusting a file**: a low-ESS export is not a usable posterior sample
+> however it is drawn, and the driver warns on stderr when it is below 200.
+> When the weights admit no fair draw at all (degenerate/unnormalizable), the
+> event fails and **no samples file is written** (any stale one at that path is
+> removed) — there is no mode in which this product holds unreweighted rows.
+> That refusal is checked *before* the `<output>_<index>_.dat` result row is
+> written, so a failed event leaves **no result row either** (a stale one is
+> removed too): with `--soft-fail-event-range` the batch goes on, and a row left
+> behind would be collected as a successful integration.
+
 A `jax.numpy`, automatic-differentiation-compatible reimplementation of RIFT's
 ILE extrinsic likelihood, mirroring the production
 `factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop`
@@ -178,8 +193,13 @@ Self-test (no frames needed):
 ```
 PYTHONPATH=<...>/Code python bin/integrate_likelihood_extrinsic_jax \
    --inj-mode --mass1 35 --mass2 30 --spin1z 0.1 --spin2z -0.2 \
-   --mode nuts --d-max 5000 --save-samples --output-file out
+   --mode nuts --distance-marginalization --d-max 5000 \
+   --save-samples --output-file out
 ```
+
+(`--mode nuts` requires `--distance-marginalization`: `run_nuts` raises
+`SystemExit` without it, because the bare 5-D angular+distance likelihood is
+degenerate.  The command above previously omitted the flag and could not run.)
 
 Output: `out_0_.dat` (`event_id m1 m2 s1x..s2z lnL sigma_lnL ntotal neff`) and,
 with `--save-samples`, `out_0_samples.dat`.

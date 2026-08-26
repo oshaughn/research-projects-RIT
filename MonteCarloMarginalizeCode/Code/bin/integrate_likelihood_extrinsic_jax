@@ -50,11 +50,14 @@ Output (matches ILE conventions):
      ``lnL`` = log marginal likelihood (evidence) over extrinsic parameters,
      ``sigma_lnL = sqrt(var)/Z`` (ILE's ``sqrt(var)/res``).  Masses in M_sun.
   <output>_<event>_samples.dat (--save-samples) : per-sample extrinsic params +
-     loglikelihood with ILE-style column names.
+     loglikelihood with ILE-style column names.  Equal-weight FAIR DRAW rows
+     (no weight column), so a collapsed integration whose weights admit no fair
+     draw writes NO samples file and fails the event instead.
 """
 
 from __future__ import print_function
 
+import os
 import sys
 from optparse import OptionParser, OptionGroup
 
@@ -89,6 +92,20 @@ FULL_NAMES = ("ra", "dec", "psi", "incl", "phiref", "distMpc")
 # we implement are defined explicitly in build_parser(); the rest are registered
 # here as accepted-but-ignored (with the correct arity so parsing succeeds), and
 # a small set that would silently change the *science* if ignored is failed on.
+
+# ILE's default cap for --fairdraw-extrinsic-output (integrate_likelihood_
+# extrinsic_batchmode: --fairdraw-extrinsic-output-n-max default=5).
+_FAIRDRAW_N_MAX_DEFAULT = 5
+
+# Modes whose sampler reports a TEMPERED state plus a genuine importance weight
+# (post_weight = L^(1-inv_T)); only these honour --adapt-weight-exponent, and
+# only these consume post_weight at export.
+_TEMPERED_MODES = frozenset((
+    "flowmc", "flowmc-phimarg", "flowmc-phipsimarg", "flowmc-dpsimarg"))
+# Modes whose --save-samples export is a reweighted FAIR DRAW.  Only here do the
+# fair-draw count options do anything; elsewhere the export is the sampler's own
+# chain and the count flags are inert (and must be reported as ignored).
+_FAIRDRAW_MODES = _TEMPERED_MODES | frozenset(("prior-mc", "laplace-is"))
 
 # Boolean (zero-argument) ILE options (action=store_true/false).
 _ILE_BOOL_OPTS = {
@@ -239,6 +256,18 @@ def check_critical_and_report(opts, optp):
                    "--sim-xml", "--sim-grid", "--n-events-to-analyze",
                    "--random-event", "--distance-marginalization",
                    "--time-marginalization", "--vectorized", "--use-gwsignal"}
+    # These are implemented PER MODE.  Listing them unconditionally would claim
+    # they act under --mode laplace-is (the default), nuts, map, multistart-nuts
+    # and nuts-phimarg, where they are inert -- exactly the silent no-op this
+    # driver's compat layer exists to prevent.
+    mode = getattr(opts, "mode", None)
+    if mode in _TEMPERED_MODES:
+        # static tempering exponent (samplers.flowmc_sample*: inv_T = 1/temper)
+        implemented.add("--adapt-weight-exponent")
+    if mode in _FAIRDRAW_MODES:
+        implemented |= {"--fairdraw-extrinsic-output",
+                        "--fairdraw-extrinsic-output-n-max",
+                        "--n-fairdraw-extrinsic-samples"}
     for name in sorted(_ILE_ALL_OPTS - implemented):
         if is_set(name):
             ignored.append(name)
@@ -439,6 +468,24 @@ def build_parser():
     g = OptionGroup(optp, "Output")
     g.add_option("--output-file", default=None)
     g.add_option("--save-samples", action="store_true", default=False)
+    g.add_option("--fairdraw-extrinsic-output", action="store_true", default=False,
+                 help="Bound the fair-draw export to "
+                      "--fairdraw-extrinsic-output-n-max samples (as ILE does). "
+                      "The export is ALWAYS a fair draw when the sampler "
+                      "supplies importance weights; this only caps the count.")
+    g.add_option("--fairdraw-extrinsic-output-n-max", type=int, default=None,
+                 help="Cap on fair draws per evaluation when "
+                      "--fairdraw-extrinsic-output is set (ILE default 5).  "
+                      "Left as None when unset so the ignored-option report does "
+                      "not claim the user passed it; resolved to 5 downstream.")
+    g.add_option("--n-fairdraw-extrinsic-samples", type=int, default=None,
+                 help="Export exactly this many fair draws, clamped only by the "
+                      "rows available. Those already carry ILE's 1.5*ESS cap "
+                      "wherever the export weights were non-uniform, applied "
+                      "against the EXPORT weights; there is deliberately no "
+                      "second clamp by the evidence estimator's neff, which "
+                      "describes a different cloud. "
+                      "Overrides --fairdraw-extrinsic-output-n-max.")
     g.add_option("--verbose", action="store_true", default=False)
     optp.add_option_group(g)
 
@@ -664,7 +711,9 @@ def run_prior_mc(like, opts, rng, dim, with_distance):
     theta, _ = sample_prior(opts.n_max, opts, rng, with_distance)
     lnL = eval_lnL(like, theta, opts, with_distance)
     logZ, sig, neff = evidence_from_logweights(lnL)  # draw from prior -> w = L
-    return logZ, sig, neff, opts.n_max, theta, lnL
+    # p_s == p (the proposal IS the prior), so ln w = lnL.  These raw draws are
+    # PRIOR samples, not posterior ones: they must be fair-drawn before export.
+    return logZ, sig, neff, opts.n_max, theta, lnL, lnL
 
 
 def run_laplace_is(like, opts, rng, dim, with_distance, n_adapt=2):
@@ -697,7 +746,9 @@ def run_laplace_is(like, opts, rng, dim, with_distance, n_adapt=2):
     theta = np.concatenate(all_theta); logw = np.concatenate(all_logw)
     lnL = np.concatenate(all_lnL)
     logZ, sig, neff = evidence_from_logweights(logw)
-    return logZ, sig, neff, len(theta), theta, lnL
+    # theta follows the GAUSSIAN PROPOSAL q, not the posterior; logw is what
+    # turns it into one.  Returned so write_samples() can fair-draw.
+    return logZ, sig, neff, len(theta), theta, lnL, logw
 
 
 def run_nuts(like, opts, rng, with_distance):
@@ -778,7 +829,13 @@ def run_nuts(like, opts, rng, with_distance):
         lnL_is[valid] = eval_lnL(like, th_is[valid], opts, with_distance=False)
     logw = np.where(valid, lnL_is + logp - logq, -np.inf)
     logZ, sig, neff = evidence_from_logweights(logw)
-    return logZ, sig, neff, n_is, theta, lnL
+    # theta/lnL are the NUTS chain (already targets the posterior); the IS cloud
+    # th_is/logw is only the evidence estimator, so there is nothing to reweight.
+    # `neff` below therefore describes th_is, NOT the exported chain -- it must
+    # never reach the export count.  It used to: fairdraw_size clamped the export
+    # by 1.5*neff, truncating this chain by an unrelated cloud's ESS on what is
+    # the driver's DEFAULT mode.  write_samples no longer accepts a neff at all.
+    return logZ, sig, neff, n_is, theta, lnL, None
 
 
 def run_map(like, opts, rng, dim, with_distance):
@@ -803,11 +860,21 @@ def run_map(like, opts, rng, dim, with_distance):
 # ---------------------------------------------------------------------------
 # Output
 # ---------------------------------------------------------------------------
+def dat_path(opts, out_index):
+    """Path of the normal per-event ILE result row (evidence, sigma, neff)."""
+    return opts.output_file + "_" + str(out_index) + "_" + ".dat"
+
+
+def samples_path(opts, out_index):
+    """Path of this event's exported extrinsic samples."""
+    return opts.output_file + "_" + str(out_index) + "_samples.dat"
+
+
 def write_dat(opts, P, out_index, event_id, logZ, sigma_over_Z, ntotal, neff):
     if not opts.output_file:
         return
     m1, m2 = P.m1 / MSUN, P.m2 / MSUN
-    fname = opts.output_file + "_" + str(out_index) + "_" + ".dat"
+    fname = dat_path(opts, out_index)
     row = np.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y,
                      P.s2z, logZ, sigma_over_Z, ntotal, neff]])
     np.savetxt(fname, row,
@@ -815,41 +882,264 @@ def write_dat(opts, P, out_index, event_id, logZ, sigma_over_Z, ntotal, neff):
     print("Wrote %s" % fname)
 
 
-def write_samples(opts, out_index, theta, lnL, with_distance):
+def fairdraw_indices(logw, rng):
+    """Indices that turn a WEIGHTED cloud into an equal-weight one, or ``None``.
+
+    Production ILE convention (``RIFT/integrators/mcsampler.py::integrate`` and
+    the identical block in mcsamplerGPU / mcsamplerAdaptiveVolume /
+    mcsamplerEnsemble / mcsamplerPortfolio): normalise ``w = L * p / p_s`` and
+    multinomial-resample WITH replacement, so the exported rows are equal weight
+    and carry no weight column.  Capped at ``1.5*ESS``: never claim more fair
+    draws than the weights support, or the file looks like N independent draws
+    while holding ~ESS distinct points.
+
+    This function does REWEIGHTING ONLY.  The export count requested by
+    ``--n-fairdraw-extrinsic-samples`` / ``--fairdraw-extrinsic-output-n-max``
+    is applied by the caller, on every path -- including this one's ``None``
+    returns -- so that the count contract has exactly one implementation and
+    cannot be quietly skipped for some configurations.
+
+    Returns ``(indices_or_None, note)``; the note always records the ESS.  A
+    ``FAILED`` note means the cloud CANNOT be fair-drawn: ``write_samples``
+    refuses to write an export at all in that case, rather than passing the
+    unreweighted cloud off as one.
+    """
+    logw = np.asarray(logw, dtype=float)
+    fin = np.isfinite(logw)
+    # FAIL LOUDLY, NOT OPEN.  "cannot compute weights" and "weights are already
+    # uniform" both used to return None, so a degenerate weight vector silently
+    # wrote the UNCORRECTED cloud under a header that promises a fair draw.
+    if fin.sum() < 2:
+        return None, ("FAILED: %d of %d weights are finite ESS=n/a n_in=%d"
+                      % (int(fin.sum()), len(logw), len(logw)))
+    lw = logw[fin] - np.max(logw[fin])
+    w = np.exp(lw)
+    tot = w.sum()
+    if not np.isfinite(tot) or tot <= 0:
+        return None, ("FAILED: weight sum is %r (overflow or all-zero) "
+                      "ESS=n/a n_in=%d" % (tot, len(logw)))
+    w = w / tot
+    neff = 1.0 / np.sum(w ** 2)
+    idx_fin = np.where(fin)[0]
+    if np.allclose(w, w[0]):
+        # Already equal weight -- the DEFAULT for the flowMC modes, since
+        # --adapt-weight-exponent defaults to 1.  Nothing to reweight; the
+        # caller still applies any requested count.
+        # NOT an effective sample size: the weights carry no information about
+        # how correlated the underlying chain is, so reporting the row count as
+        # "ESS" would be a number that looks measured and is not.
+        return None, "none (weights uniform) ESS=n/a n_in=%d" % (len(logw),)
+    n_out = int(max(1, min(int(np.ceil(1.5 * neff)), len(logw))))
+    print("  fairdraw: %d weighted samples (ESS=%.1f) -> %d equal-weight draws"
+          % (len(logw), neff, n_out))
+    if neff < 200:
+        print("  fairdraw: WARNING ESS=%.1f -- the proposal barely covers this "
+              "posterior; the exported cloud is NOT a usable posterior sample "
+              "however it is drawn." % neff, file=sys.stderr)
+    note = "reweighted ESS=%.1f n_in=%d" % (neff, len(logw))
+    return idx_fin[rng.choice(len(idx_fin), size=n_out, replace=True, p=w)], note
+
+
+def fairdraw_size(opts, n_have):
+    """Requested number of fair draws, or ``None`` for "as many as the weights
+    support".
+
+    ``--n-fairdraw-extrinsic-samples`` is an exact request;
+    ``--fairdraw-extrinsic-output-n-max`` caps the count per evaluation.  Both
+    are clamped by ``n_have`` and by nothing else.
+
+    WHY THERE IS NO ESS TERM HERE, though ILE appears to have one.
+    ``mcsampler.integrate`` clamps with
+    ``n_extr = min(n_extr, 1.5*eff_samp, 1.5*neff)``, but there ``eff_samp``,
+    ``neff`` and the fair draw are all properties of the SAME importance-weight
+    vector ``wt`` that the draw then samples from -- one weight stream, so the
+    clamp is self-consistent.
+
+    That does not hold on this path.  For every flowMC mode ``theta`` is the
+    production chain while ``res["neff"]`` comes from a SEPARATE estimator: the
+    moment-matched Gaussian importance cloud built for the evidence, or (under
+    ``--adapt-adapt``) the annealing ladder's minimum inter-stage ESS.  Neither
+    describes the exported rows.  Clamping the export by it truncated a
+    perfectly good equal-weight chain to a couple of rows whenever that
+    unrelated proposal happened to have low ESS.
+
+    The ESS that DOES bound this export is the one ``fairdraw_indices``
+    computes from the export weights -- and it has already applied it, as
+    ``n_out = min(ceil(1.5*ESS), n_in)``.  So ``n_have`` already carries the
+    1.5*ESS cap wherever weights were non-uniform, and where they were uniform
+    there is no computed chain ESS to clamp by (an autocorrelation-based one
+    would be a different, unimplemented quantity).  Reported by review on #180."""
+    n_req = getattr(opts, "n_fairdraw_extrinsic_samples", None)
+    if n_req is None and getattr(opts, "fairdraw_extrinsic_output", False):
+        # ILE's default cap is 5; kept out of the parser so an unset flag is not
+        # reported as one the user passed.
+        n_req = getattr(opts, "fairdraw_extrinsic_output_n_max", None)
+        if n_req is None:
+            n_req = _FAIRDRAW_N_MAX_DEFAULT
+    if n_req is None:
+        return None
+    n_asked = int(n_req)
+    n_req = max(1, min(n_asked, n_have))
+    if n_req != n_asked:
+        # ILE prints "Fairdraw size : n" whenever it clamps; silence here meant a
+        # laplace-is run quietly turned a request for 137 into 32.
+        print("  Fairdraw size : %d (requested %d, clamped by the %d available "
+              "rows; those already carry the 1.5*ESS cap from fairdraw_indices "
+              "when the weights were non-uniform)" % (n_req, n_asked, n_have))
+    return n_req
+
+
+def _remove_stale_artifact(path, what="export"):
+    """Delete a leftover file at a path this failed event refuses to publish.
+
+    The run was going to overwrite ``path``; if it is left behind, a re-run in
+    an existing output directory leaves the PREVIOUS run's file where the
+    pipeline looks for this one's, which is the same "read a file that is not
+    this event's" failure the refusal exists to prevent."""
+    if not os.path.exists(path):
+        return
+    try:
+        os.remove(path)
+    except OSError as e:
+        print("  *** could not remove the stale %s %s (%s) -- it is NOT "
+              "this run's output. ***" % (what, path, e), file=sys.stderr)
+    else:
+        print("  removed the stale %s %s (this event produced no valid result)"
+              % (what, path), file=sys.stderr)
+
+
+def write_samples(opts, out_index, theta, lnL, with_distance, logw=None):
+    """Write the exported extrinsic samples.
+
+    ``logw`` are per-sample LOG IMPORTANCE WEIGHTS ``ln(L p / p_s)`` for the
+    rows of ``theta`` (``None`` when the sampler already targets the posterior,
+    e.g. an untempered MCMC chain).  When they are non-uniform the cloud is
+    fair-drawn against them BEFORE writing, so the exported rows are equal
+    weight -- the same contract production ILE's ``--fairdraw-extrinsic-output``
+    provides, and the one every downstream consumer of these files assumes.
+
+    If the fair draw CANNOT be performed (degenerate or unnormalizable weights)
+    no file is written and ``RuntimeError`` is raised: the alternative is to ship
+    the raw proposal/prior cloud under the product name that means "posterior
+    draws".  ``analyze_one`` calls this BEFORE ``write_dat``, so that refusal
+    also leaves the event without a normal ILE result row.
+    """
     if not (opts.output_file and opts.save_samples) or theta is None:
         return
+    sname = samples_path(opts, out_index)
+    # The export RNG is derived here and NOWHERE ELSE.  It must never be the
+    # generator that feeds the samplers/estimators: --save-samples is an OUTPUT
+    # flag and consuming the science stream made it change the lnL/logZ of every
+    # later event in a batch.  There is deliberately no rng parameter, so that
+    # mistake cannot be reintroduced by a caller.
+    rng = np.random.default_rng((opts.seed, out_index))
+    # n_in is the cloud as the sampler handed it over, before any filtering or
+    # counting, so the header records what went in as well as what came out.
+    note = ("not applicable (sampler targets the posterior) ESS=n/a n_in=%d"
+            % len(theta))
+    if logw is not None and len(logw) != len(theta):
+        # FAIL LOUDLY, NOT OPEN.  This used to be a silent `and len(...) ==` in
+        # the guard below, so a mismatched weight vector fell through to the
+        # "not applicable (sampler targets the posterior)" note -- writing an
+        # UNREWEIGHTED tempered cloud under a header claiming none was needed.
+        # A length mismatch is a sampler bug, not a configuration; say so.
+        raise RuntimeError(
+            "export weights and samples disagree in length (%d weights, %d "
+            "rows) for --mode %s.  Refusing to write: the fair draw cannot be "
+            "performed and labelling the raw cloud 'not applicable' would be a "
+            "false provenance line."
+            % (len(logw), len(theta), opts.mode))
+    if logw is not None:
+        idx, note = fairdraw_indices(logw, rng)
+        if idx is not None:
+            theta, lnL = theta[idx], np.asarray(lnL)[idx]
+        elif note.startswith("FAILED"):
+            # NO ARTIFACT WHEN THE FAIR DRAW FAILS.  Writing the raw cloud here
+            # put proposal/prior draws into the standard, weightless
+            # `*_samples.dat` product under the ONE name every consumer reads as
+            # equal-weight posterior draws -- and none of them is obliged to read
+            # the provenance line -- so the contract broke precisely on the
+            # collapsed integrations where the difference is largest.  Refuse to
+            # produce the file at all: the event fails loudly (and
+            # --soft-fail-event-range still skips to the next one).
+            #
+            # The `.dat` result row goes too.  analyze_one validates the export
+            # BEFORE write_dat, so this run has not written one -- but a file
+            # left at that path by an earlier run would be collected as this
+            # event's successful integration, which is the same stale-artifact
+            # failure as for the samples file.
+            _remove_stale_artifact(sname, "export")
+            _remove_stale_artifact(dat_path(opts, out_index), "result")
+            raise RuntimeError(
+                "fair draw failed for output index %d (%s): the exported cloud "
+                "would be the raw, UNREWEIGHTED sampler/proposal samples, which "
+                "is not a posterior sample.  No %s written.  This integration "
+                "collapsed -- fix the run (more samples, better proposal, "
+                "sanity-check the likelihood) rather than reading the cloud."
+                % (out_index, note, sname))
+    # Drop non-finite lnL FIRST.  Doing it last meant the count was applied to
+    # rows that were then discarded, and the provenance n_out counted them: a
+    # header saying n_out=1000 above a 963-row file, and 137 above 129 -- wrong
+    # exactly when the likelihood misbehaved, which is when someone reads it.
+    lnL = np.asarray(lnL)
     good = np.isfinite(lnL)
+    if not good.all():
+        theta, lnL = theta[good], lnL[good]
+    # THE count contract, applied once.  Gated on _FAIRDRAW_MODES -- the SAME set
+    # check_critical_and_report uses to decide whether to report these flags as
+    # ignored, so report and behaviour cannot disagree.  Applying it everywhere
+    # meant `--mode nuts --fairdraw-extrinsic-output` printed "IGNORED" and then
+    # silently wrote 5 rows instead of 300; --fairdraw-extrinsic-output is in
+    # ILE_extr.sub, so that is a real production command line losing 60x of its
+    # export under a banner saying the flag did nothing.
+    # Rows are equal weight by this point, so subsample WITHOUT replacement -- a
+    # random subset of an equal-weight cloud is still a fair draw (verified) and
+    # manufactures no duplicates.
+    if opts.mode in _FAIRDRAW_MODES:
+        # NO evidence-neff argument, deliberately: this function has no parameter
+        # that could carry one.  See fairdraw_size for why an ESS term here was
+        # wrong on the flowMC modes.
+        n_req = fairdraw_size(opts, len(theta))
+        if n_req is not None and n_req < len(theta):
+            n_before = len(theta)
+            sub = rng.choice(n_before, size=int(n_req), replace=False)
+            theta, lnL = theta[sub], lnL[sub]
+            print("  fairdraw: exporting %d of %d rows (requested count)"
+                  % (int(n_req), n_before))
+    provenance = "fairdraw: %s n_out=%d" % (note, len(theta))
     ndim = theta.shape[1] if theta.ndim == 2 else len(theta)
     if with_distance:
         # 6-D: ra, dec, psi, incl, phiref, dist
-        cols = np.column_stack([theta[good, 0], theta[good, 1], theta[good, 5],
-                                theta[good, 3], theta[good, 2], theta[good, 4],
-                                lnL[good]])
+        cols = np.column_stack([theta[:, 0], theta[:, 1], theta[:, 5],
+                                theta[:, 3], theta[:, 2], theta[:, 4],
+                                lnL])
         hdr = "right_ascension declination distance inclination psi phi_orb loglikelihood"
     elif ndim == 4 and opts.mode == "flowmc-dpsimarg":
         # 4-D (flowmc-dpsimarg): theta = ra, dec, phiref, incl (psi marginalised,
         # phi_ref sampled).  Write ra, dec, incl, phi_orb.
-        cols = np.column_stack([theta[good, 0], theta[good, 1],
-                                theta[good, 3], theta[good, 2], lnL[good]])
+        cols = np.column_stack([theta[:, 0], theta[:, 1],
+                                theta[:, 3], theta[:, 2], lnL])
         hdr = "right_ascension declination inclination phi_orb loglikelihood"
     elif ndim == 4:
         # 4-D (flowmc-phimarg): ra, dec, psi, incl (phi_ref marginalised out)
-        cols = np.column_stack([theta[good, 0], theta[good, 1],
-                                theta[good, 3], theta[good, 2], lnL[good]])
+        cols = np.column_stack([theta[:, 0], theta[:, 1],
+                                theta[:, 3], theta[:, 2], lnL])
         hdr = "right_ascension declination inclination psi loglikelihood"
     elif ndim == 3:
         # 3-D (flowmc-phipsimarg): ra, dec, incl (phi_ref AND psi marginalised out)
-        cols = np.column_stack([theta[good, 0], theta[good, 1],
-                                theta[good, 2], lnL[good]])
+        cols = np.column_stack([theta[:, 0], theta[:, 1],
+                                theta[:, 2], lnL])
         hdr = "right_ascension declination inclination loglikelihood"
     else:
         # 5-D: ra, dec, psi, incl, phiref
-        cols = np.column_stack([theta[good, 0], theta[good, 1], theta[good, 3],
-                                theta[good, 2], theta[good, 4], lnL[good]])
+        cols = np.column_stack([theta[:, 0], theta[:, 1], theta[:, 3],
+                                theta[:, 2], theta[:, 4], lnL])
         hdr = "right_ascension declination inclination psi phi_orb loglikelihood"
-    sname = opts.output_file + "_" + str(out_index) + "_samples.dat"
-    np.savetxt(sname, cols, header=hdr)
-    print("Wrote %s (%d samples)" % (sname, int(good.sum())))
+    # Column line FIRST (unchanged, so `head -1` parsers keep working); the
+    # provenance line follows, so the artifact records how it was produced --
+    # notably the export ESS, which was previously written nowhere.
+    np.savetxt(sname, cols, header=hdr + "\nmode=%s %s" % (opts.mode, provenance))
+    print("Wrote %s (%d samples)" % (sname, len(cols)))
 
 
 def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
@@ -987,6 +1277,29 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
                 max_stages=max(opts.temper_max_stages, 80),
                 puff_scale=opts.smc_puff_scale,
                 seed=opts.seed, verbose=opts.verbose)
+            # AN UNFINISHED LADDER IS NOT A POSTERIOR DRAW.  smc_puffball_sample
+            # also stops at max_stages (and on a cloud that has lost its finite
+            # lnL), leaving a cloud that targets L**inv_T * prior -- reachable
+            # exactly in the sharp high-SNR regime this fallback exists for, where
+            # the ESS rule picks very small temperature steps.  NEITHER artifact
+            # may be published from that state: the export would ship a TEMPERED
+            # cloud as an equal-weight posterior draw, and the `.dat` would carry
+            # the SMC log Z(inv_T) rather than log Z.  Fail the event here, before
+            # write_samples/write_dat, and clear anything an earlier run left at
+            # those paths (--soft-fail-event-range still skips to the next event).
+            _inv_T = res.get("inv_T")
+            if _inv_T is None or not float(_inv_T) >= 1.0 - 1e-9:
+                _remove_stale_artifact(samples_path(opts, out_index), "export")
+                _remove_stale_artifact(dat_path(opts, out_index), "result")
+                raise RuntimeError(
+                    "--smc-puffball: the SMC temperature ladder reached inv_T=%s, "
+                    "not 1, so the cloud still targets L**inv_T * prior and is "
+                    "neither a posterior sample nor an evidence.  Nothing written "
+                    "for output index %d.  Give the ladder room to finish (raise "
+                    "--temper-max-stages / --smc-walkers, or lower "
+                    "--temper-ess-frac) rather than exporting the tempered cloud."
+                    % ("(not reported by the installed sampler)" if _inv_T is None
+                       else "%.4g" % float(_inv_T), out_index))
         elif opts.mode in ("flowmc-phimarg", "flowmc-phipsimarg", "flowmc-dpsimarg"):
             # 4-D phi-marg (ra,dec,psi,incl), 3-D phi+psi-marg (ra,dec,incl), or
             # 4-D d+psi-marg (ra,dec,phiref,incl); flowmc_sample_phimarg is
@@ -1027,18 +1340,58 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
             out_flow_state = res.get("flow_state")  # bootstrap the next event
         theta, lnL = res["theta"], res["lnL"]
         logZ, sig, neff, ntot = res["logZ"], res["sigma_over_Z"], res["neff"], len(theta)
+        # post_weight means DIFFERENT things per sampler, so only consume it
+        # where it is an importance weight.
+        #  * flowMC modes: L^(1-inv_T), the correction from the TEMPERED state
+        #    actually sampled (exponent = --adapt-weight-exponent) to the exact
+        #    posterior.  Uniform only at inv_T == 1.  This is a genuine w.
+        #    Under --smc-puffball the same key carries the SMC ladder's
+        #    L^(1-inv_T) correction, and the gate above has already refused the
+        #    event unless the ladder finished -- so it is uniform by then.
+        #  * multistart-nuts / nuts-phimarg: NOT an importance weight.
+        #    samplers.py builds np.full(n_per[k], mass[k]/n_per[k]) -- a
+        #    per-chain Laplace MODE-EVIDENCE weight, constant within a chain
+        #    (multistart_nuts estimates it as peak_k + 0.5*logdet(sky cov),
+        #    which its own comment flags as approximate).  Fair-drawing against
+        #    it would re-weight whole chains by that estimator and duplicate
+        #    ~half the rows, not correct any proposal mismatch.  It may well fix
+        #    a real mode-mass bias, but that is unvalidated -- so these modes
+        #    export their chains unreweighted until it is measured.
+        _pw = res.get("post_weight") if opts.mode in _TEMPERED_MODES else None
+        if _pw is not None and len(_pw) != len(theta):
+            # Silently dropping the weights here made the export claim no
+            # reweighting was needed; write_samples now refuses a mismatch, and
+            # this raises at the source so the mode is named in the message.
+            raise RuntimeError(
+                "--mode %s returned %d post_weight entries for %d samples; the "
+                "tempering correction cannot be applied."
+                % (opts.mode, len(_pw), len(theta)))
+        logw_export = (np.log(np.asarray(_pw, dtype=float))
+                       if _pw is not None else None)
     elif opts.mode == "prior-mc":
-        logZ, sig, neff, ntot, theta, lnL = run_prior_mc(like, opts, rng, dim, with_distance)
+        logZ, sig, neff, ntot, theta, lnL, logw_export = run_prior_mc(like, opts, rng, dim, with_distance)
     elif opts.mode == "nuts":
-        logZ, sig, neff, ntot, theta, lnL = run_nuts(like, opts, rng, with_distance)
+        logZ, sig, neff, ntot, theta, lnL, logw_export = run_nuts(like, opts, rng, with_distance)
     else:
-        logZ, sig, neff, ntot, theta, lnL = run_laplace_is(like, opts, rng, dim, with_distance)
+        logZ, sig, neff, ntot, theta, lnL, logw_export = run_laplace_is(like, opts, rng, dim, with_distance)
 
     print("\n==== Result (event %d) ====" % event_id)
     print("  log evidence (lnL marginal over extrinsic) = %.5f" % logZ)
     print("  sigma_lnL = %.4g    neff = %.1f    ntotal = %d" % (sig, neff, ntot))
+    # EXPORT FIRST, THEN PUBLISH THE RESULT ROW.  write_samples raises when the
+    # cloud admits no fair draw, and that refusal means the integration itself
+    # collapsed -- so the event must leave NO artifact behind.  Writing the
+    # `.dat` first published a normal ILE result row (a finite, collapsed
+    # evidence in the one-finite-weight case) that --soft-fail-event-range then
+    # left in place for downstream collectors while the batch carried on.
+    #
+    # write_samples takes NO rng: it derives its own from (seed, out_index).
+    # Passing the shared `rng` here -- which also feeds run_laplace_is /
+    # run_prior_mc and the samplers -- made --save-samples, an OUTPUT flag,
+    # change the lnL/logZ of every later event in the batch.
+    write_samples(opts, out_index, theta, lnL, with_distance,
+                  logw=logw_export)
     write_dat(opts, P, out_index, event_id, logZ, sig, ntot, neff)
-    write_samples(opts, out_index, theta, lnL, with_distance)
     return logZ, out_flow_state
 
 
