@@ -3,6 +3,18 @@
 ------------
 development tree is rift_O4d.
 
+** BEHAVIOUR CHANGE, jax ILE: flow re-use across ``--n-events-to-analyze`` is now
+   OFF by default.  ``--flow-reuse`` restores the old behaviour; ``--no-flow-reuse``
+   is kept and now restates the default, so existing command lines keep working.
+   Measured over an 8-event batch at two seeds: re-using the trained flow contracts
+   the extrinsic posterior monotonically in slot index -- psi to ~40% of its
+   no-re-use width by slot 7, on BOTH seeds, with slot 0 (where no re-use has yet
+   happened) at ~1.0 as a control -- while costing no measurable wall time (1589 s
+   mean with re-use, 1567 s without; the seed-to-seed spread is larger than the
+   difference and its sign flips).  Anyone relying on re-use to amortize a batch
+   must now pass ``--flow-reuse`` explicitly, and should not do so for any run whose
+   extrinsic SAMPLES are used.  Evidence is less affected than samples.
+
 ** jax ILE ``--save-samples`` is now a FAIR DRAW.  Previously the driver wrote
    whatever cloud the sampler produced, with no weight column, so every consumer
    read a Gaussian-proposal cloud (``--mode laplace-is``, the default) or raw

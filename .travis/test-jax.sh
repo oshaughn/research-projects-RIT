@@ -104,8 +104,11 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         chooser RETURNS the exponent rather than
 #                                         writing it back to opts (writing it made
 #                                         event 1 of a batch read event 0's choice),
-#                                         and that the degenerate-export guard RAISES
-#                                         rather than warns.  Includes a RETIRED-claim
+#                                         and that the degenerate-export branch WARNS
+#                                         (it used to raise; the calibrated estimate
+#                                         cannot support a hard floor -- see
+#                                         DESIGN_jax_tempering.md 4a).  Includes a
+#                                         RETIRED-claim
 #                                         guard asserting the SNR rule has not crept
 #                                         back into the driver.  Needs no lal, no GPU
 #                                         and no flowMC.
@@ -119,6 +122,13 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         "CI fails".  Landed WITHOUT a manifest entry,
 #                                         which made rift_O4d fail its own manifest
 #                                         check; added here.
+#   test_flow_reuse_default.py         7  flow re-use is OFF by default, and --flow-reuse
+#                                         still reaches the old behaviour.  A store_true
+#                                         flag cannot express its own negation, so simply
+#                                         flipping default=True would have made
+#                                         --no-flow-reuse inert AND deleted the capability;
+#                                         both directions and last-one-wins are pinned, as
+#                                         is the batch loop still reading the flag.
 #   test_interp_choices.py             3  #190: --interp cubic is reachable from the
 #                                         CLI and selects _gather_cubic.  Merged in
 #                                         from rift_O4d, which added it to FILES
@@ -175,6 +185,7 @@ FILES=(
   "${JAXDIR}/test_tvals_grid_convention.py"
   "${JAXDIR}/test_interp_choices.py"
   "${JAXDIR}/test_jax_stencil_parity.py"
+  "${JAXDIR}/test_flow_reuse_default.py"
 )
 
 # EXCLUDED: files in JAXDIR matching test_*.py that are deliberately NOT gated.  The
@@ -206,7 +217,8 @@ fi
 # Sum of the per-file counts above.
 # Pinned deliberately: a bare `pytest test/jax/`
 # that collected 0 would exit 5, and a partial loss (say 14 -> 3) would still exit 0.
-EXPECTED_TESTS=133
+EXPECTED_TESTS=140
+EXPECTED_TESTS=140
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${FILES[@]}" 2>&1)"

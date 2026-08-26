@@ -778,10 +778,19 @@ def flowmc_sample(like, d_min, d_max, n_chains=20, n_local_steps=20,
 
     For a *batch* of nearby intrinsic templates (``--n-events-to-analyze``) the
     posterior geometry changes only slowly, so the re-used flow is a strong
-    initialization -- the partial-flow-reuse efficiency gain (most visible at
-    scale, and at high SNR where peaks are narrow).  Re-use degrades gracefully:
-    a model-shape/version mismatch falls back to a fresh flow, mismatched
-    ``positions`` fall back to a high-lnL prior draw.
+    initialization.  Re-use degrades gracefully: a model-shape/version mismatch
+    falls back to a fresh flow, mismatched ``positions`` fall back to a high-lnL
+    prior draw.
+
+    **RE-USE IS OFF BY DEFAULT AND SHOULD STAY OFF FOR SAMPLE-PRODUCING RUNS.**
+    It CONTRACTS the extrinsic posterior in later slots -- psi to ~40% of its
+    no-re-use width by slot 7 of an 8-event batch, on both of two seeds, with
+    slot 0 as a control at ~1.0 -- and the efficiency argument that used to sit
+    here does not survive production settings: 1589 s mean wall with re-use
+    against 1567 s without, a difference smaller than the seed-to-seed spread and
+    of flipping sign.  The ~2x speed-up reported in this module's README is
+    specific to the small-budget SNR-sequence benchmark.  Enable it only where
+    the EVIDENCE, not the samples, is the product.
 
     Returns
     -------
