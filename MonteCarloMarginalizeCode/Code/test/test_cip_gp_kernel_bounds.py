@@ -37,6 +37,18 @@ Coverage:
     In-sample residual rewards flexibility and cannot separate a better fit from
     an overfit one; the held-out score can.  It costs K extra fits, so it must
     stay off by default.
+
+``test_peak_scan_requires_a_valid_coordinate_index``
+    CIP passes the chirp-mass column unconditionally and its "no such
+    coordinate" sentinel is ``-1``, which indexes the last column instead of
+    failing.  The scan must decline to run rather than mislabel a coordinate.
+
+``test_peak_scan_is_bounded_in_points_and_batched`` /
+``test_batched_scan_finds_the_same_peak_as_a_single_pass``
+    The scan is an outer-product grid and ``gp.predict`` forms a
+    points-by-training kernel matrix, so an unbounded 3-D scan can exhaust
+    memory on a fit that succeeded.  Bounding it is only safe if the blocked
+    search still returns the same peak as one pass.
 """
 import ast
 import os
@@ -129,6 +141,20 @@ def _fit(amp_bounds, noise_bounds=(1e-2, 1.0), n=40, seed=0, noise=0.0):
     return gp, kernel, x, y
 
 
+def _fit_nd(ndim, n=30, seed=0):
+    """The same fixture in ``ndim`` dimensions, for the peak-scan tests."""
+    rng = np.random.default_rng(seed)
+    x = rng.uniform(-1, 1, size=(n, ndim))
+    y = (120.0 * np.exp(-0.5 * np.sum((x / 0.4) ** 2, axis=1))
+         + rng.normal(0.0, 0.5, size=n))
+    kernel = (WhiteKernel(noise_level=0.1, noise_level_bounds=(1e-4, 1e3))
+              + C(0.5, (1e-3, 1e8)) * RBF(length_scale=[0.3] * ndim,
+                                          length_scale_bounds=(1e-3, 1e1)))
+    gp = GaussianProcessRegressor(kernel=kernel, alpha=1e-6, n_restarts_optimizer=1)
+    gp.fit(x, y)
+    return gp, kernel, x, y
+
+
 def test_defaults_reproduce_the_historical_hardcoded_bounds():
     """Unset flags must leave fit_gp building exactly the kernel it always did."""
     assert (_add_argument_kwargs(CIP_TREE, "--fit-gp-noise-bounds")["default"]
@@ -200,3 +226,52 @@ def test_report_is_pure_json_and_names_every_hyperparameter():
     assert all(h["name"] and not h["name"].startswith("param_")
                for h in rec["hyperparameters"]), (
         "a hyperparameter fell back to a positional name; the name mapping broke")
+
+
+def test_peak_scan_requires_a_valid_coordinate_index():
+    """CIP's "no chirp mass here" sentinel is -1, a perfectly legal index."""
+    ns = _load_functions("report_gp_kernel")
+    gp, kernel, x, y = _fit_nd(2)
+    for bad in (None, -1, 2, 7):
+        rec = ns["report_gp_kernel"](gp, x, y, peak_index=bad)
+        assert "surface_peak" not in rec, (
+            "peak_index=%r must not be scanned as a coordinate" % (bad,))
+    rec = ns["report_gp_kernel"](gp, x, y, peak_index=1, peak_max_points=256)
+    assert rec["surface_peak"]["coord_index"] == 1
+
+
+def test_peak_scan_is_bounded_in_points_and_batched():
+    """Total scan points and per-call block size must both stay under budget."""
+    ns = _load_functions("report_gp_kernel")
+    gp, kernel, x, y = _fit_nd(3)
+
+    calls = []
+    inner_predict = gp.predict
+
+    def counting_predict(pts, **kwargs):
+        calls.append(len(pts))
+        return inner_predict(pts, **kwargs)
+
+    gp.predict = counting_predict
+    rec = ns["report_gp_kernel"](gp, x, y, peak_index=0, peak_max_points=4096,
+                                 peak_block_elements=3000)
+    scan_calls = calls[1:]                       # calls[0] is the residual predict
+
+    n_axis = rec["surface_peak"]["grid_points_per_axis"]
+    assert n_axis ** 3 <= 4096, "the grid ignored its total-points budget"
+    assert n_axis < 240, "a 3-D scan must be thinned below the per-axis default"
+    assert sum(scan_calls) == n_axis ** 3, "the whole grid must still be scanned"
+    assert max(scan_calls) <= 3000 // len(y), "a block exceeded the element budget"
+
+
+def test_batched_scan_finds_the_same_peak_as_a_single_pass():
+    """Blocking is only acceptable if the running argmax is the global one."""
+    ns = _load_functions("report_gp_kernel")
+    gp, kernel, x, y = _fit(amp_bounds=(1e-3, 1e8), noise_bounds=(1e-4, 1e3), noise=0.5)
+    one = ns["report_gp_kernel"](gp, x, y, peak_index=0,
+                                 peak_block_elements=10 ** 9)["surface_peak"]
+    many = ns["report_gp_kernel"](gp, x, y, peak_index=0,
+                                  peak_block_elements=1)["surface_peak"]
+    assert one["grid_points_per_axis"] == many["grid_points_per_axis"] == 240
+    assert one["value"] == many["value"]
+    assert abs(one["value"]) < 0.2, "the fixture's peak sits at x=0"

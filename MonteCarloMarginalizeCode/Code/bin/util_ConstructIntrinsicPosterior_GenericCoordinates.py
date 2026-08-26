@@ -1379,7 +1379,8 @@ def _gp_bounds_opt(spec):
 
 
 def report_gp_kernel(gp, x, y, tol=1e-3, holdout_folds=0, kernel_proto=None,
-                     alpha_proto=None, peak_index=None, peak_grid=240):
+                     alpha_proto=None, peak_index=None, peak_grid=240,
+                     peak_max_points=200000, peak_block_elements=5000000):
     """Print a machine-readable record of the fitted GP: kernel form, the bounds
     actually in force, the fitted hyperparameters, and -- the part that is not
     self-announcing -- which of them the optimizer drove onto a bound.
@@ -1389,6 +1390,11 @@ def report_gp_kernel(gp, x, y, tol=1e-3, holdout_folds=0, kernel_proto=None,
     kernel bounds, rather than the data, set the answer.  sklearn stores
     hyperparameters and bounds log-transformed in .theta / .bounds, so proximity
     is tested there: |theta - bound| < tol means "on the bound".
+
+    peak_max_points caps the total size of the optional peak scan and
+    peak_block_elements caps the points-by-training kernel block it evaluates at
+    a time; both keep this diagnostic's memory bounded regardless of dimension
+    and retained sample count.
     """
     import json as _json
     rec = {"kernel_form": str(gp.kernel), "kernel_fitted": str(gp.kernel_),
@@ -1430,19 +1436,38 @@ def report_gp_kernel(gp, x, y, tol=1e-3, holdout_folds=0, kernel_proto=None,
         rec["holdout_folds"] = int(holdout_folds)
         rec["holdout_rms_nats"] = float(np.sqrt((errs ** 2).mean()))
         rec["holdout_max_abs_nats"] = float(np.abs(errs).max())
-    if peak_index is not None and x.shape[1] <= 3:
+    # The caller passes the chirp-mass column, whose sentinel for "there is no
+    # such coordinate" is -1: that is a legal numpy index, so it has to be
+    # rejected explicitly or the scan would report the LAST coordinate as mc.
+    peak_index = -1 if peak_index is None else int(peak_index)
+    if 0 <= peak_index < x.shape[1] and x.shape[1] <= 3:
         # Where does the FITTED SURFACE put the likelihood maximum?  This is the
         # question the interpolant exists to answer, and it is not implied by the
         # residual: a saturated kernel can score acceptably on average and still
         # misplace the peak.  Scanned over the training data's own extent.
-        axes = [np.linspace(x[:, i].min(), x[:, i].max(), peak_grid)
-                for i in np.arange(x.shape[1])]
+        #
+        # The grid is a full outer product, so its cost is peak_grid**ndim, and
+        # gp.predict then forms a points-by-training kernel matrix: in 3-D at
+        # peak_grid=240 that is 1.4e7 points against every retained sample, i.e.
+        # tens of GB.  Thin the axes to a fixed total budget and evaluate in
+        # blocks, so a diagnostic can never be what kills a successful fit.
+        ndim = int(x.shape[1])
+        n_per_axis = max(2, int(min(peak_grid, peak_max_points ** (1.0 / ndim))))
+        axes = [np.linspace(x[:, i].min(), x[:, i].max(), n_per_axis)
+                for i in np.arange(ndim)]
         mesh = np.meshgrid(*axes, indexing="ij")
         pts = np.column_stack([m.ravel() for m in mesh])
-        zz = gp.predict(pts)
-        rec["surface_peak"] = {"coord_index": int(peak_index),
-                               "value": float(pts[int(np.argmax(zz)), int(peak_index)]),
-                               "grid_points_per_axis": int(peak_grid)}
+        n_block = max(1, int(peak_block_elements // max(1, len(y))))
+        peak_val, peak_pt = -np.inf, pts[0]
+        for start in np.arange(0, len(pts), n_block):
+            block = pts[start:start + n_block]
+            zz = gp.predict(block)
+            here = int(np.argmax(zz))
+            if zz[here] > peak_val:
+                peak_val, peak_pt = float(zz[here]), block[here]
+        rec["surface_peak"] = {"coord_index": peak_index,
+                               "value": float(peak_pt[peak_index]),
+                               "grid_points_per_axis": int(n_per_axis)}
     rec["saturated"] = bool(rec["n_at_bound"] > 0)
     print(" GP-KERNEL-RECORD " + _json.dumps(rec, sort_keys=True))
     if rec["saturated"]:
