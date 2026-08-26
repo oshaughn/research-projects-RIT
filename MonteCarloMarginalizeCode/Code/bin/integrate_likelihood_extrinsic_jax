@@ -926,14 +926,35 @@ def fairdraw_indices(logw, rng):
     return idx_fin[rng.choice(len(idx_fin), size=n_out, replace=True, p=w)], note
 
 
-def fairdraw_size(opts, n_have, neff):
+def fairdraw_size(opts, n_have):
     """Requested number of fair draws, or ``None`` for "as many as the weights
-    support" (fairdraw_indices then applies ILE's 1.5*ESS cap).
+    support".
 
     ``--n-fairdraw-extrinsic-samples`` is an exact request;
     ``--fairdraw-extrinsic-output-n-max`` caps the count per evaluation.  Both
-    are additionally clamped by ``1.5*neff`` from the evidence estimate, exactly
-    as ``mcsampler.integrate`` does."""
+    are clamped by ``n_have`` and by nothing else.
+
+    WHY THERE IS NO ESS TERM HERE, though ILE appears to have one.
+    ``mcsampler.integrate`` clamps with
+    ``n_extr = min(n_extr, 1.5*eff_samp, 1.5*neff)``, but there ``eff_samp``,
+    ``neff`` and the fair draw are all properties of the SAME importance-weight
+    vector ``wt`` that the draw then samples from -- one weight stream, so the
+    clamp is self-consistent.
+
+    That does not hold on this path.  For every flowMC mode ``theta`` is the
+    production chain while ``res["neff"]`` comes from a SEPARATE estimator: the
+    moment-matched Gaussian importance cloud built for the evidence, or (under
+    ``--adapt-adapt``) the annealing ladder's minimum inter-stage ESS.  Neither
+    describes the exported rows.  Clamping the export by it truncated a
+    perfectly good equal-weight chain to a couple of rows whenever that
+    unrelated proposal happened to have low ESS.
+
+    The ESS that DOES bound this export is the one ``fairdraw_indices``
+    computes from the export weights -- and it has already applied it, as
+    ``n_out = min(ceil(1.5*ESS), n_in)``.  So ``n_have`` already carries the
+    1.5*ESS cap wherever weights were non-uniform, and where they were uniform
+    there is no computed chain ESS to clamp by (an autocorrelation-based one
+    would be a different, unimplemented quantity).  Reported by review on #180."""
     n_req = getattr(opts, "n_fairdraw_extrinsic_samples", None)
     if n_req is None and getattr(opts, "fairdraw_extrinsic_output", False):
         # ILE's default cap is 5; kept out of the parser so an unset flag is not
@@ -944,18 +965,13 @@ def fairdraw_size(opts, n_have, neff):
     if n_req is None:
         return None
     n_asked = int(n_req)
-    n_req = n_asked
-    if np.isfinite(neff) and neff > 0:
-        n_req = int(min(n_req, np.ceil(1.5 * neff)))
-    n_req = max(1, min(n_req, n_have))
+    n_req = max(1, min(n_asked, n_have))
     if n_req != n_asked:
         # ILE prints "Fairdraw size : n" whenever it clamps; silence here meant a
         # laplace-is run quietly turned a request for 137 into 32.
-        print("  Fairdraw size : %d (requested %d, clamped by 1.5*neff=%s and "
-              "the %d available rows)"
-              % (n_req, n_asked,
-                 ("%.1f" % (1.5 * neff)) if np.isfinite(neff) and neff > 0 else "n/a",
-                 n_have))
+        print("  Fairdraw size : %d (requested %d, clamped by the %d available "
+              "rows; those already carry the 1.5*ESS cap from fairdraw_indices "
+              "when the weights were non-uniform)" % (n_req, n_asked, n_have))
     return n_req
 
 
@@ -978,8 +994,7 @@ def _remove_stale_artifact(path, what="export"):
               % (what, path), file=sys.stderr)
 
 
-def write_samples(opts, out_index, theta, lnL, with_distance, logw=None,
-                  neff=np.nan):
+def write_samples(opts, out_index, theta, lnL, with_distance, logw=None):
     """Write the exported extrinsic samples.
 
     ``logw`` are per-sample LOG IMPORTANCE WEIGHTS ``ln(L p / p_s)`` for the
@@ -1055,7 +1070,10 @@ def write_samples(opts, out_index, theta, lnL, with_distance, logw=None,
     # random subset of an equal-weight cloud is still a fair draw (verified) and
     # manufactures no duplicates.
     if opts.mode in _FAIRDRAW_MODES:
-        n_req = fairdraw_size(opts, len(theta), neff)
+        # NO evidence-neff argument, deliberately: this function has no parameter
+        # that could carry one.  See fairdraw_size for why an ESS term here was
+        # wrong on the flowMC modes.
+        n_req = fairdraw_size(opts, len(theta))
         if n_req is not None and n_req < len(theta):
             n_before = len(theta)
             sub = rng.choice(n_before, size=int(n_req), replace=False)
@@ -1338,7 +1356,7 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
     # run_prior_mc and the samplers -- made --save-samples, an OUTPUT flag,
     # change the lnL/logZ of every later event in the batch.
     write_samples(opts, out_index, theta, lnL, with_distance,
-                  logw=logw_export, neff=neff)
+                  logw=logw_export)
     write_dat(opts, P, out_index, event_id, logZ, sig, ntot, neff)
     return logZ, out_flow_state
 

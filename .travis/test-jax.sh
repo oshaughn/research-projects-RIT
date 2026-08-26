@@ -65,7 +65,7 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #   test_network_coords.py             1  network-frame sky fold on a real injection
 #   test_nuts_phimarg.py               1  fisher_nuts_sample_phimarg vs an analytic 4-D
 #                                         target (needs numpyro; no lal)
-#   test_jax_fairdraw_export.py       29  the --save-samples export contract of
+#   test_jax_fairdraw_export.py       32  the --save-samples export contract of
 #                                         bin/integrate_likelihood_extrinsic_jax:
 #                                         that it is a FAIR DRAW (reweighted against
 #                                         the sampler's own importance weights, then
@@ -170,7 +170,7 @@ fi
 # Sum of the per-file counts above (27 + 29 from test_jax_fairdraw_export.py).
 # Pinned deliberately: a bare `pytest test/jax/`
 # that collected 0 would exit 5, and a partial loss (say 14 -> 3) would still exit 0.
-EXPECTED_TESTS=56
+EXPECTED_TESTS=59
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${FILES[@]}" 2>&1)"

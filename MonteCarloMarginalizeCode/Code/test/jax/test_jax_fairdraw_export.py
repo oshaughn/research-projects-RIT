@@ -109,8 +109,7 @@ def test_export_is_a_fair_draw_of_the_posterior(tmp_path):
     POSTERIOR -- not the proposal the sampler drew from."""
     theta, lnL, logw = make_cloud()
     opts = fake_opts(tmp_path)
-    drv.write_samples(opts, 0, theta, lnL, with_distance=False, logw=logw,
-                      neff=np.inf)
+    drv.write_samples(opts, 0, theta, lnL, with_distance=False, logw=logw)
     got, hdr = read_export(opts)
 
     # unchanged file format: no weight column, same header as before
@@ -156,12 +155,57 @@ def test_uniform_weights_are_a_no_op(tmp_path):
     lnL = _logN(theta, MU_L, S_L)
     logw = np.log(np.ones(len(theta)) / len(theta))
     opts = fake_opts(tmp_path)
-    drv.write_samples(opts, 0, theta, lnL, with_distance=False, logw=logw,
-                      neff=np.inf)
+    drv.write_samples(opts, 0, theta, lnL, with_distance=False, logw=logw)
     got, _ = read_export(opts)
     assert len(got) == len(theta)
     assert len(np.unique(got[:, 0])) == len(theta), \
         "uniform weights triggered a resample (duplicates in the export)"
+
+
+def test_export_count_is_NOT_clamped_by_the_evidence_estimator(tmp_path):
+    """A valid equal-weight chain must not be truncated by an unrelated ESS.
+
+    THE DEFECT (review, #180): the export count was clamped by
+    ``1.5*res["neff"]``.  On every flowMC mode ``theta`` is the production chain
+    while ``res["neff"]`` comes from a SEPARATE estimator -- the moment-matched
+    Gaussian cloud built for the evidence, or the annealing ladder's minimum
+    inter-stage ESS.  A perfectly good uniform-weight chain was therefore
+    truncated to a couple of rows whenever that unrelated proposal had low ESS.
+
+    ILE's own clamp (mcsampler.integrate: min(n_extr, 1.5*eff_samp, 1.5*neff))
+    is self-consistent because all three describe the SAME weight vector the
+    draw samples from; the port lost that.
+
+    Nothing caught this: all 20 call sites in this file passed neff=inf/nan, so
+    the clamp was never exercised.  This test asks for a count and requires it
+    to be honoured.
+    """
+    n, want = 5000, 1000
+    theta = np.random.default_rng(0).normal(size=(n, 4))
+    lnL = np.zeros(n)
+    opts = fake_opts(tmp_path, n_fairdraw_extrinsic_samples=want)
+    # equal-weight chain -- exactly what a beta=1 flowMC run hands over
+    drv.write_samples(opts, 0, theta, lnL, with_distance=False,
+                      logw=np.log(np.ones(n) / n))
+    got, _ = read_export(opts)
+    assert len(got) == want, (
+        "requested %d equal-weight rows, exported %d" % (want, len(got)))
+
+
+def test_write_samples_cannot_be_handed_an_evidence_neff():
+    """Structural: the parameter is gone, so the defect cannot be re-wired.
+
+    A behavioural test alone would not stop someone re-adding `neff=` and a
+    clamp; pin the signature and the call site together.
+    """
+    import inspect
+    params = list(inspect.signature(drv.write_samples).parameters)
+    assert "neff" not in params, params
+    assert "neff" not in list(inspect.signature(drv.fairdraw_size).parameters)
+    call = _write_samples_call()          # the call inside analyze_one
+    kwnames = {k.arg for k in call.keywords if k.arg}
+    assert "neff" not in kwnames, (
+        "analyze_one passes an evidence neff into the export path again")
 
 
 def test_fairdraw_count_options_are_live(tmp_path):
@@ -174,8 +218,7 @@ def test_fairdraw_count_options_are_live(tmp_path):
                            fairdraw_extrinsic_output_n_max=9), 9)):
         opts = fake_opts(tmp_path / str(want), **kw)
         os.makedirs(str(tmp_path / str(want)), exist_ok=True)
-        drv.write_samples(opts, 0, theta, lnL, with_distance=False, logw=logw,
-                          neff=np.inf)
+        drv.write_samples(opts, 0, theta, lnL, with_distance=False, logw=logw)
         got, _ = read_export(opts)
         assert len(got) == want, "requested %d fair draws, got %d" % (want, len(got))
 
@@ -195,7 +238,7 @@ def test_ess_clamp_prevents_manufactured_draws(tmp_path):
     assert ess < n / 100.0, "the test cloud is not actually low-ESS (ESS=%.1f)" % ess
     opts = fake_opts(tmp_path)
     drv.write_samples(opts, 0, theta, _logN(theta, MU_L, 0.05), with_distance=False,
-                      logw=logw, neff=np.nan)
+                      logw=logw)
     got, _ = read_export(opts)
     assert len(got) <= np.ceil(1.5 * ess), (
         "exported %d rows from an ESS=%.1f cloud (cap %d)"
@@ -235,8 +278,7 @@ def test_exported_lnL_belongs_to_its_own_row(tmp_path):
     check, because both marginals stay correct."""
     theta, lnL, logw = make_cloud(n=120000)
     opts = fake_opts(tmp_path)
-    drv.write_samples(opts, 0, theta, lnL, with_distance=False, logw=logw,
-                      neff=np.inf)
+    drv.write_samples(opts, 0, theta, lnL, with_distance=False, logw=logw)
     got, _ = read_export(opts)
     th_out = np.empty((len(got), NDIM))
     for j in range(NDIM):
@@ -255,8 +297,7 @@ def test_exported_lnL_stays_paired_through_the_count_subsample(tmp_path):
     together.  Re-check it with a count requested."""
     theta, lnL, logw = make_cloud(n=120000)
     opts = fake_opts(tmp_path, n_fairdraw_extrinsic_samples=311)
-    drv.write_samples(opts, 0, theta, lnL, with_distance=False, logw=logw,
-                      neff=np.inf)
+    drv.write_samples(opts, 0, theta, lnL, with_distance=False, logw=logw)
     got, _ = read_export(opts)
     assert len(got) == 311
     th_out = np.empty((len(got), NDIM))
@@ -282,8 +323,7 @@ def test_count_flags_are_inert_for_modes_reported_as_ignoring_them(tmp_path):
         d = tmp_path / mode; os.makedirs(str(d), exist_ok=True)
         opts = fake_opts(d, mode=mode, fairdraw_extrinsic_output=True,
                          fairdraw_extrinsic_output_n_max=5)
-        drv.write_samples(opts, 0, theta, lnL, with_distance=False, logw=None,
-                          neff=np.inf)
+        drv.write_samples(opts, 0, theta, lnL, with_distance=False, logw=None)
         got, _ = read_export(opts)
         assert len(got) == expect, (
             "--mode %s: wrote %d rows, expected %d (%s)"
@@ -304,7 +344,7 @@ def test_provenance_n_out_matches_the_file(tmp_path):
         d = tmp_path / str(len(kw)); os.makedirs(str(d), exist_ok=True)
         opts = fake_opts(d, **kw)
         drv.write_samples(opts, 0, theta, lnL, with_distance=False,
-                          logw=np.log(np.ones(n) / n), neff=np.inf)
+                      logw=np.log(np.ones(n) / n))
         got, _ = read_export(opts)
         with open(opts.output_file + "_0_samples.dat") as fh:
             fh.readline(); prov = fh.readline()
@@ -328,8 +368,7 @@ def test_every_path_reports_ess_and_n_in(tmp_path):
     for name, lw in cases.items():
         d = tmp_path / name; os.makedirs(str(d), exist_ok=True)
         opts = fake_opts(d)
-        drv.write_samples(opts, 0, theta, lnL, with_distance=False, logw=lw,
-                          neff=np.inf)
+        drv.write_samples(opts, 0, theta, lnL, with_distance=False, logw=lw)
         with open(opts.output_file + "_0_samples.dat") as fh:
             fh.readline(); prov = fh.readline()
         for field in ("ESS=", "n_in=", "n_out="):
@@ -365,8 +404,7 @@ def test_failed_fairdraw_writes_no_samples_file(tmp_path):
     opts = fake_opts(tmp_path)
     with pytest.raises(RuntimeError) as exc:
         drv.write_samples(opts, 0, theta, np.full(5000, -np.inf),
-                          with_distance=False, logw=np.full(5000, -np.inf),
-                          neff=np.nan)
+                          with_distance=False, logw=np.full(5000, -np.inf))
     assert "fair draw failed" in str(exc.value)
     assert not os.path.exists(opts.output_file + "_0_samples.dat"), \
         "a non-posterior cloud was exported after the fair draw failed"
@@ -386,8 +424,7 @@ def test_failed_fairdraw_removes_a_stale_export(tmp_path):
                  "0.1 0.2 0.3 0.4 -5.0\n")
     with pytest.raises(RuntimeError):
         drv.write_samples(opts, 0, theta, np.full(5000, -np.inf),
-                          with_distance=False, logw=np.full(5000, -np.inf),
-                          neff=np.nan)
+                          with_distance=False, logw=np.full(5000, -np.inf))
     assert not os.path.exists(stale), \
         "the previous run's export survived a failed fair draw"
 
@@ -403,10 +440,9 @@ def test_failed_event_is_skippable_but_never_exported(tmp_path):
     bad = fake_opts(tmp_path / "bad"); os.makedirs(str(tmp_path / "bad"), exist_ok=True)
     with pytest.raises(RuntimeError):
         drv.write_samples(bad, 0, theta, lnL, with_distance=False,
-                          logw=np.full(len(theta), -np.inf), neff=np.nan)
+                          logw=np.full(len(theta), -np.inf))
     good = fake_opts(tmp_path / "good"); os.makedirs(str(tmp_path / "good"), exist_ok=True)
-    drv.write_samples(good, 1, theta, lnL, with_distance=False, logw=logw,
-                      neff=np.inf)
+    drv.write_samples(good, 1, theta, lnL, with_distance=False, logw=logw)
     assert not os.path.exists(bad.output_file + "_0_samples.dat")
     assert len(read_export(good, 1)[0]) > 1
 
@@ -425,8 +461,7 @@ def test_weights_are_stabilized_at_realistic_lnL(tmp_path):
     assert idx is not None, "fair draw refused at realistic lnL: %s" % note
     assert not note.startswith("FAILED"), note
     opts = fake_opts(tmp_path)
-    drv.write_samples(opts, 0, theta, logw, with_distance=False, logw=logw,
-                      neff=np.inf)
+    drv.write_samples(opts, 0, theta, logw, with_distance=False, logw=logw)
     got, _ = read_export(opts)
     assert len(got) > 1 and np.isfinite(got).all()
     assert len(np.unique(got[:, 0])) > 1, "export collapsed to a single point"
@@ -437,8 +472,7 @@ def test_export_header_records_ess_and_mode(tmp_path):
     nowhere, so a 200000-sample file with ESS 97 looked like any other."""
     theta, lnL, logw = make_cloud(n=120000)
     opts = fake_opts(tmp_path)
-    drv.write_samples(opts, 0, theta, lnL, with_distance=False, logw=logw,
-                      neff=np.inf)
+    drv.write_samples(opts, 0, theta, lnL, with_distance=False, logw=logw)
     with open(opts.output_file + "_0_samples.dat") as fh:
         cols_line, prov_line = fh.readline(), fh.readline()
     assert cols_line.split()[1] == "right_ascension", "column line moved: %r" % cols_line
@@ -458,14 +492,13 @@ def test_export_rng_is_independent_of_the_science_stream(tmp_path):
         d = tmp_path / ("burn%d" % burn)
         os.makedirs(str(d), exist_ok=True)
         opts = fake_opts(d)
-        drv.write_samples(opts, 0, theta, lnL, with_distance=False, logw=logw,
-                          neff=np.inf)   # export rng derived from (seed, out_index)
+        drv.write_samples(opts, 0, theta, lnL, with_distance=False, logw=logw)   # export rng derived from (seed, out_index)
         outs.append(read_export(opts)[0])
     assert np.array_equal(outs[0], outs[1]), \
         "export depends on how much the shared RNG was consumed"
     # and different events must not reuse the same draw
     o2 = fake_opts(tmp_path / "ev1"); os.makedirs(str(tmp_path / "ev1"), exist_ok=True)
-    drv.write_samples(o2, 1, theta, lnL, with_distance=False, logw=logw, neff=np.inf)
+    drv.write_samples(o2, 1, theta, lnL, with_distance=False, logw=logw)
     assert not np.array_equal(read_export(o2, 1)[0], outs[0])
 
 
@@ -559,7 +592,7 @@ def test_count_option_dests_are_stable():
     # unset -n-max must stay None so the ignored-option report does not claim
     # the user passed it; the ILE default of 5 is resolved downstream
     assert opts2.fairdraw_extrinsic_output_n_max is None
-    assert drv.fairdraw_size(opts2, 10000, np.inf) == drv._FAIRDRAW_N_MAX_DEFAULT
+    assert drv.fairdraw_size(opts2, 10000) == drv._FAIRDRAW_N_MAX_DEFAULT
 
 
 def test_count_options_act_when_weights_are_uniform(tmp_path):
@@ -579,7 +612,7 @@ def test_count_options_act_when_weights_are_uniform(tmp_path):
         d = tmp_path / str(want); os.makedirs(str(d), exist_ok=True)
         opts = fake_opts(d, **kw)
         drv.write_samples(opts, 0, theta, lnL, with_distance=False,
-                          logw=uniform, neff=np.inf)
+                      logw=uniform)
         got, _ = read_export(opts)
         assert len(got) == want, (
             "uniform weights: asked for %d rows, wrote %d -- the count contract "
@@ -597,7 +630,7 @@ def test_uniform_export_header_still_reports_ess(tmp_path):
     lnL = _logN(theta, MU_L, S_L)
     opts = fake_opts(tmp_path)
     drv.write_samples(opts, 0, theta, lnL, with_distance=False,
-                      logw=np.log(np.ones(len(theta)) / len(theta)), neff=np.inf)
+                      logw=np.log(np.ones(len(theta)) / len(theta)))
     with open(opts.output_file + "_0_samples.dat") as fh:
         fh.readline(); prov = fh.readline()
     assert "ESS=" in prov and "n_in=" in prov and "n_out=" in prov, prov
@@ -619,8 +652,7 @@ def test_failed_export_leaves_no_result_row(tmp_path):
                  "-1 1.4 1.3 0 0 0 0 0 0 12.0 0.1 1000 900\n")
     with pytest.raises(RuntimeError):
         drv.write_samples(opts, 0, theta, np.full(5000, -np.inf),
-                          with_distance=False, logw=np.full(5000, -np.inf),
-                          neff=np.nan)
+                          with_distance=False, logw=np.full(5000, -np.inf))
     assert not os.path.exists(stale), \
         "a normal ILE result row survived a refused fair draw"
 
