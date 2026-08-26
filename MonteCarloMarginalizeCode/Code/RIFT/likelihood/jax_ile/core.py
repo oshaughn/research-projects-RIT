@@ -19,7 +19,9 @@ list and the timeseries epoch are produced unchanged by
 ``PrecomputeLikelihoodTerms`` / ``PackLikelihoodDataStructuresAsArrays`` and are
 passed in here as plain arrays.
 
-Two time-interpolation modes are provided:
+Time-interpolation modes (``interp=``, ``--interp``).  ``nearest`` and ``linear`` are
+strictly the crudest; between ``cubic`` and ``sinc`` there is no universal ordering --
+see the note under ``sinc``:
 
 * ``interp="nearest"`` -- reproduces the production discrete-shift behaviour
   (round the per-detector arrival to the nearest sample) bit-for-bit, used to
@@ -28,6 +30,18 @@ Two time-interpolation modes are provided:
   *continuous* arrival time, so the likelihood is differentiable with respect
   to sky location (through the geometric time delay) and the other extrinsic
   parameters.  This is the AD-friendly path used for gradient-based exploration.
+  It is the DEFAULT for historical reasons only: at high SNR it is the *worst*
+  option here, worse than ``nearest``, because it undershoots the sharp rholm
+  peak and so biases the recovered arrival time and hence the sky location.
+* ``interp="cubic"`` -- the 4-point cubic-Lagrange stencil the numpy/cupy/CUDA
+  paths spell ``time_interp='cubic'``.
+* ``interp="sinc"`` -- the 2a-tap Lanczos windowed sinc (a =
+  ``SINC_HALFWIDTH_DEFAULT``), matching ``time_interp='sinc'`` on those paths.
+  Which of ``cubic`` and ``sinc`` is more accurate depends on how oversampled Q
+  is -- on fmin and srate as well as on mass -- and there is no automatic rule;
+  see ``RIFT/likelihood/DESIGN_q_window_stencil.md`` and
+  ``RIFT.likelihood.time_interp_choice.CROSSOVER_GUIDANCE``.  Both are
+  differentiable in ``pos``.
 
 Time marginalization uses a precomputed Simpson quadrature weight vector
 (``scipy.integrate.simpson`` applied to the identity, exactly as the production
@@ -53,6 +67,10 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 from scipy import integrate as _scipy_integrate
+
+# The 'sinc' stencil half-width, shared with the numpy/cupy/CUDA backends.  Imported from the
+# leaf module rather than from factored_likelihood so this stays free of numba and lal.
+from RIFT.likelihood.time_interp_choice import SINC_HALFWIDTH_DEFAULT
 
 # Adaptive (per-sample) distance marginalization.  The distance integrand is
 # exp(K x - 0.5 R x^2) with x = d_ref/d -- a Gaussian in x (peak x*=K/R, width
@@ -236,8 +254,86 @@ def _gather_cubic(Q_col, pos):
     return out
 
 
+def _sinc_lanczos_weights_jax(u, a):
+    """Lanczos tap weights, mirroring ``factored_likelihood._sinc_lanczos_weight_matrix``.
+
+    The numpy/cupy/CUDA paths all consume ONE weight array built by that function, so they
+    cannot drift.  JAX cannot: the weights depend on ``u``, which is a traced function of the
+    sky location, so they must be built inside the trace for ``jax.grad`` to see through them.
+    This is therefore a deliberate SECOND definition of the same formula, and the thing that
+    keeps it honest is ``test/jax/test_jax_stencil_parity.py``, which compares this against the
+    numpy generator element-by-element -- including the two details that are easy to get wrong:
+
+      * the ``|x| >= a`` hard zero (it bites only at u == 0, where tap k = a sits exactly at
+        x = -a), and
+      * the renormalisation to unit sum, which is applied over the FULL stencil and is NOT
+        redone after out-of-buffer taps are dropped.  The CUDA kernel does the same, so the
+        three backends agree in the zero-extension region as well as the interior.
+
+    ``u`` has the shape of ``pos``; the return has that shape plus a trailing (2a,) tap axis.
+    """
+    k = jnp.arange(-a + 1, a + 1)
+    x = u[..., None] - k
+    w = jnp.sinc(x) * jnp.sinc(x / float(a))
+    w = jnp.where(jnp.abs(x) >= a, 0.0, w)
+    total = jnp.sum(w, axis=-1)
+    total = jnp.where(total == 0.0, 1.0, total)
+    return k, w / total[..., None]
+
+
+def _make_gather_sinc(a):
+    """Build the 2a-tap Lanczos gatherer used by ``interp="sinc"``.
+
+    VECTORISED OVER TAPS, and that is load-bearing rather than tidiness.  Written as a Python
+    loop over taps -- the shape the 4-tap :func:`_gather_cubic` above can afford -- a 16-tap
+    stencil unrolls into 16 separate gathers, and inside a numpyro NUTS trace the resulting
+    graph is large enough that XLA compilation dominates: measured >1 h of compile at 0-1% GPU
+    against seconds for cubic.  Building the tap axis as an array gives one gather and one
+    reduction, so graph size is independent of ``a`` (0.11 s against 0.84 s for the unrolled
+    form at a=8).  The two forms agree to a few ulp -- not bit-for-bit, since ``jnp.sum`` over
+    the tap axis and a sequential accumulation are free to associate differently -- and
+    test_jax_stencil_parity.test_vectorised_matches_unrolled asserts that, to stop a later
+    "simplification" back into a loop.
+
+    Accuracy against ``cubic`` is NOT universal: it depends on how oversampled Q is, hence on
+    fmin and srate as well as mass.  See RIFT/likelihood/DESIGN_q_window_stencil.md and
+    RIFT.likelihood.time_interp_choice.CROSSOVER_GUIDANCE for the measured crossover.
+    """
+    def _gather(Q_col, pos):
+        n = Q_col.shape[0]
+        fl = jnp.floor(pos)
+        i0 = fl.astype(jnp.int32)
+        k, w = _sinc_lanczos_weights_jax(pos - fl, a)
+        idx = i0[..., None] + k
+        valid = (idx >= 0) & (idx < n)
+        vals = Q_col[jnp.clip(idx, 0, n - 1)]
+        return jnp.sum(w * jnp.where(valid, vals, 0.0 + 0.0j), axis=-1)
+    return _gather
+
+
+def _make_gather_sinc_unrolled(a):
+    """Tap-by-tap form of :func:`_make_gather_sinc`.  Reference for the equivalence test ONLY.
+
+    Do not wire this into ``_GATHERERS``; see the compile-time note there.
+    """
+    def _gather(Q_col, pos):
+        n = Q_col.shape[0]
+        fl = jnp.floor(pos)
+        i0 = fl.astype(jnp.int32)
+        k, w = _sinc_lanczos_weights_jax(pos - fl, a)
+        out = jnp.zeros(pos.shape, dtype=jnp.complex128)
+        for j in range(2 * a):
+            idx = i0 + int(k[j])
+            valid = (idx >= 0) & (idx < n)
+            out = out + w[..., j] * jnp.where(valid, Q_col[jnp.clip(idx, 0, n - 1)],
+                                              0.0 + 0.0j)
+        return out
+    return _gather
+
+
 _GATHERERS = {"nearest": _gather_nearest, "linear": _gather_linear,
-              "cubic": _gather_cubic}
+              "cubic": _gather_cubic,
+              "sinc": _make_gather_sinc(SINC_HALFWIDTH_DEFAULT)}
 
 
 def _accumulate_unit(data, ra, dec, psi, incl, phiref, interp,
