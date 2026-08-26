@@ -71,7 +71,7 @@ import lalsimulation as lalsim
 
 import RIFT.lalsimutils as lalsimutils
 from RIFT.likelihood.jax_ile import build_data_from_precompute
-from RIFT.likelihood.jax_ile.core import _GATHERERS as _JAX_GATHERERS
+from RIFT.likelihood.jax_ile.core import _GATHERERS as _JAX_GATHERERS, JAX_INTERP_DEFAULT
 _JAX_GATHERER_NAMES = tuple(_JAX_GATHERERS)
 from RIFT.likelihood.jax_ile.wrapper import (
     JAXExtrinsicLikelihood, JAXDistanceMarginalizedLikelihood,
@@ -454,17 +454,19 @@ def build_parser():
     # Choices come from the gatherer registry rather than a literal list: a stencil added to
     # _GATHERERS and not here would be unreachable from the command line, which is how 'cubic'
     # spent a release being implemented but unselectable.
-    g.add_option("--interp", default="linear", choices=sorted(_JAX_GATHERER_NAMES),
+    g.add_option("--interp", default=JAX_INTERP_DEFAULT, choices=sorted(_JAX_GATHERER_NAMES),
                  help="Interpolation of the precomputed rholm timeseries in arrival time. "
+                      "DEFAULT CHANGED 2026-08-26 from 'linear' to '" + JAX_INTERP_DEFAULT + "': "
+                      "linear undershoots the rholm peak by an amount that depends on where it "
+                      "falls between samples, which biases the recovered arrival time and hence "
+                      "the sky, and at high SNR -- the only regime this driver is used in -- it "
+                      "is worse than 'nearest'. THIS CHANGES RESULTS for anyone who did not pass "
+                      "--interp; pass '--interp linear' to reproduce a pre-2026-08-26 run. "
                       "'cubic' and 'sinc' mirror the production factored_likelihood stencils of "
                       "the same names; which of the two is more accurate depends on how "
                       "oversampled the rholm timeseries is (on fmin and srate as well as mass) "
                       "and there is no automatic rule -- see "
-                      "RIFT/likelihood/DESIGN_q_window_stencil.md. Linear undershoots the rholm "
-                      "peak by an amount that depends on where it falls between samples, which "
-                      "biases the recovered arrival time and hence the sky, and at high SNR is "
-                      "worse than 'nearest'. Default left at 'linear' for backward "
-                      "compatibility, NOT because it is a good choice.")
+                      "RIFT/likelihood/DESIGN_q_window_stencil.md.")
     g.add_option("--sky-coordinates", default="equatorial",
                  choices=["equatorial", "network"],
                  help="Optional: 'network' samples the sky in the two-detector "

@@ -26,17 +26,19 @@ see the note under ``sinc``:
 * ``interp="nearest"`` -- reproduces the production discrete-shift behaviour
   (round the per-detector arrival to the nearest sample) bit-for-bit, used to
   *validate* the JAX path against the numpy reference.
-* ``interp="linear"`` (default) -- evaluates the rholm timeseries at the
+* ``interp="linear"`` -- evaluates the rholm timeseries at the
   *continuous* arrival time, so the likelihood is differentiable with respect
   to sky location (through the geometric time delay) and the other extrinsic
   parameters.  This is the AD-friendly path used for gradient-based exploration.
-  It is the DEFAULT for historical reasons only: at high SNR it is the *worst*
-  option here, worse than ``nearest``, because it undershoots the sharp rholm
+  It WAS the default until 2026-08-26 and is no longer, because at high SNR it is
+  the *worst* option here, worse than ``nearest``: it undershoots the sharp rholm
   peak and so biases the recovered arrival time and hence the sky location.
 * ``interp="cubic"`` -- the 4-point cubic-Lagrange stencil the numpy/cupy/CUDA
   paths spell ``time_interp='cubic'``.
-* ``interp="sinc"`` -- the 2a-tap Lanczos windowed sinc (a =
-  ``SINC_HALFWIDTH_DEFAULT``), matching ``time_interp='sinc'`` on those paths.
+* ``interp="sinc"`` (**default** since 2026-08-26) -- the 2a-tap Lanczos windowed
+  sinc (a = ``SINC_HALFWIDTH_DEFAULT``), matching ``time_interp='sinc'`` on those
+  paths.  Chosen as the default because its error is BOUNDED across the measured
+  sweep rather than lowest on average; see ``JAX_INTERP_DEFAULT``.
   Which of ``cubic`` and ``sinc`` is more accurate depends on how oversampled Q
   is -- on fmin and srate as well as on mass -- and there is no automatic rule;
   see ``RIFT/likelihood/DESIGN_q_window_stencil.md`` and
@@ -335,6 +337,17 @@ def _make_gather_sinc_unrolled(a):
 _GATHERERS = {"nearest": _gather_nearest, "linear": _gather_linear,
               "cubic": _gather_cubic,
               "sinc": _make_gather_sinc(SINC_HALFWIDTH_DEFAULT)}
+
+# The default stencil for every entry point in this package AND for the --interp flag of
+# bin/integrate_likelihood_extrinsic_jax, which imports it from here so the two cannot drift.
+#
+# CHANGED 2026-08-26: 'linear' -> 'sinc'.  This CHANGES RESULTS for any caller that did not pass
+# interp= explicitly; pass interp="linear" to reproduce a pre-2026-08-26 run.  Rationale, and the
+# concern that goes with it, are recorded in DESIGN_q_window_stencil.md §9.4 -- in one line:
+# linear is the worst stencil here at high SNR (worse than 'nearest'), this path is used
+# exclusively at high SNR, and 'sinc' is the option whose error is BOUNDED (measured flat at
+# 2.3-7.9 nats across the whole mass/fmin sweep) rather than the one with the best best-case.
+JAX_INTERP_DEFAULT = "sinc"
 
 
 def _accumulate_unit(data, ra, dec, psi, incl, phiref, interp,
@@ -635,7 +648,7 @@ def _time_marginalize(lnL_t, w_t):
 
 
 def fused_log_likelihood(data, ra, dec, psi, incl, phiref, distMpc,
-                         interp="linear", phase_marginalization=False):
+                         interp=JAX_INTERP_DEFAULT, phase_marginalization=False):
     """Time-marginalized factored log-likelihood at a fixed distance, lnL(theta).
 
     Parameters
@@ -667,7 +680,7 @@ def fused_log_likelihood(data, ra, dec, psi, incl, phiref, distMpc,
 
 def fused_log_likelihood_distmarg(data, ra, dec, psi, incl, phiref,
                                   x_grid, log_w_grid,
-                                  interp="linear", phase_marginalization=False,
+                                  interp=JAX_INTERP_DEFAULT, phase_marginalization=False,
                                   grid_block=64):
     """Distance- AND time-marginalized factored log-likelihood, lnL(angles).
 
@@ -842,7 +855,7 @@ def phi_ref_grid(nphi: int) -> np.ndarray:
 
 
 def fused_log_likelihood_phimarg(data, ra, dec, psi, incl, distMpc,
-                                  phi_grid, interp="linear"):
+                                  phi_grid, interp=JAX_INTERP_DEFAULT):
     """Time-marginalized factored lnL with φ_ref marginalized via uniform grid sum.
 
     Evaluates the standard factored lnL at each φ_ref in ``phi_grid`` and
@@ -884,7 +897,7 @@ def fused_log_likelihood_phimarg(data, ra, dec, psi, incl, distMpc,
 
 def fused_log_likelihood_distphimarg(data, ra, dec, psi, incl,
                                       x_grid, log_w_grid,
-                                      phi_grid, interp="linear",
+                                      phi_grid, interp=JAX_INTERP_DEFAULT,
                                       grid_block=64):
     """Distance- AND φ_ref-marginalized factored lnL over (ra, dec, psi, incl).
 
@@ -957,7 +970,7 @@ def psi_grid(npsi: int) -> np.ndarray:
 
 def fused_log_likelihood_distphipsimarg(data, ra, dec, incl,
                                         x_grid, log_w_grid, phi_grid, psi_grid_,
-                                        interp="linear", grid_block=64):
+                                        interp=JAX_INTERP_DEFAULT, grid_block=64):
     """Distance-, phi_ref- AND psi-marginalized factored lnL over (ra, dec, incl).
 
     Marginalizes luminosity distance (quadrature grid), orbital phase phi_ref and
@@ -1011,7 +1024,7 @@ def fused_log_likelihood_distphipsimarg(data, ra, dec, incl,
 
 def fused_log_likelihood_distpsimarg(data, ra, dec, phiref, incl,
                                      x_grid, log_w_grid, psi_grid_,
-                                     interp="linear", grid_block=64):
+                                     interp=JAX_INTERP_DEFAULT, grid_block=64):
     """Distance- AND psi-marginalized factored lnL over (ra, dec, phi_ref, incl).
 
     Marginalizes luminosity distance (quadrature grid) and polarization psi
@@ -1057,7 +1070,7 @@ def fused_log_likelihood_distpsimarg(data, ra, dec, phiref, incl,
 
 
 def phi_ref_conditional_lnL(data, ra, dec, psi, incl, distMpc,
-                              phi_grid, interp="linear"):
+                              phi_grid, interp=JAX_INTERP_DEFAULT):
     """Log-likelihood vs φ_ref given the other extrinsic parameters.
 
     Returns a ``(nphi, S)`` array of time-marginalized lnL values, one per
@@ -1107,7 +1120,7 @@ def make_distance_grid(d_min, d_max, n_grid=256, d_prior="euclidean",
     return jnp.asarray(x), jnp.asarray(log_w)
 
 
-def estimate_distance_peak(data, guess_snr=None, n_sky=4000, seed=0, interp="linear"):
+def estimate_distance_peak(data, guess_snr=None, n_sky=4000, seed=0, interp=JAX_INTERP_DEFAULT):
     """Characteristic distance peak/width directly from the precompute.
 
     The distance integrand per (sky, time-bin) is exp(K x - 0.5 R x^2) with
@@ -1243,14 +1256,16 @@ def _tref_minus_epoch(self, det):
 JAXLikelihoodData.tref_minus_epoch = _tref_minus_epoch
 
 
-def make_log_likelihood(data, interp="linear", phase_marginalization=False,
+def make_log_likelihood(data, interp=JAX_INTERP_DEFAULT, phase_marginalization=False,
                         jit=True):
     """Return a closure ``f(ra, dec, psi, incl, phiref, distMpc) -> lnL``.
 
     The returned function closes over ``data`` (treated as constant) and is, by
     default, ``jax.jit``-compiled.  It is differentiable with respect to all six
-    extrinsic arguments when ``interp="linear"``; combine with ``jax.grad`` /
-    ``jax.value_and_grad`` / ``jax.vmap`` as needed.
+    extrinsic arguments for any INTERPOLATING stencil -- ``linear``, ``cubic`` or
+    ``sinc`` -- but NOT for ``nearest``, whose gather is piecewise constant in the
+    arrival time and therefore has zero gradient through the sky.  Combine with
+    ``jax.grad`` / ``jax.value_and_grad`` / ``jax.vmap`` as needed.
     """
     def f(ra, dec, psi, incl, phiref, distMpc):
         return fused_log_likelihood(

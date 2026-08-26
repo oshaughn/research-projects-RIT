@@ -320,6 +320,68 @@ def test_sinc_is_reachable_from_the_registry_and_the_cli():
         "--interp choices is a literal list again; it will drift from _GATHERERS"
 
 
+def test_every_entry_point_defaults_to_the_same_stencil():
+    """The default is ONE constant, and every entry point in the package uses it.
+
+    Changed 2026-08-26 from 'linear' to 'sinc'.  The failure this guards against is a PARTIAL
+    revert or a partial adoption: before this change the CLI flag and ~17 library signatures each
+    carried their own "linear" literal, so moving the CLI alone would have left every direct
+    caller of fused_log_likelihood / JAXDistanceMarginalizedLikelihood on the old stencil while
+    --help claimed otherwise.  Enumerating the ACTUAL signatures, rather than asserting the
+    constant equals itself, is what makes that detectable.
+    """
+    import inspect
+    from RIFT.likelihood.jax_ile import wrapper as JW
+
+    assert JC.JAX_INTERP_DEFAULT in JC._GATHERERS, \
+        "the default names a stencil that does not exist"
+    assert JC.JAX_INTERP_DEFAULT == "sinc", (
+        "default stencil changed to %r -- intentional?  It alters results for every caller that "
+        "does not pass interp=, so update DESIGN_q_window_stencil.md and the --interp help text "
+        "in the same commit." % (JC.JAX_INTERP_DEFAULT,))
+
+    offenders = []
+    for mod in (JC, JW):
+        for name, obj in vars(mod).items():
+            targets = []
+            if inspect.isfunction(obj) and getattr(obj, "__module__", "").startswith("RIFT"):
+                targets.append((name, obj))
+            elif inspect.isclass(obj) and getattr(obj, "__module__", "").startswith("RIFT"):
+                targets.append((name + ".__init__", obj.__init__))
+            for label, fn in targets:
+                try:
+                    par = inspect.signature(fn).parameters.get("interp")
+                except (TypeError, ValueError):
+                    continue
+                if par is None or par.default is inspect.Parameter.empty:
+                    continue
+                if par.default != JC.JAX_INTERP_DEFAULT:
+                    offenders.append("%s.%s=%r" % (mod.__name__, label, par.default))
+    assert not offenders, (
+        "these entry points disagree with JAX_INTERP_DEFAULT=%r: %s"
+        % (JC.JAX_INTERP_DEFAULT, ", ".join(sorted(offenders))))
+    # The sweep must actually have found interp= parameters, or it proves nothing.
+    n_seen = sum(1 for mod in (JC, JW) for _n, o in vars(mod).items()
+                 if inspect.isfunction(o) and getattr(o, "__module__", "").startswith("RIFT")
+                 and "interp" in inspect.signature(o).parameters)
+    assert n_seen >= 8, "only %d interp= entry points found; the sweep is not covering them" % n_seen
+
+
+def test_cli_default_comes_from_the_shared_constant():
+    """--interp's default must be the constant, not a re-typed literal that can drift from it."""
+    import ast, io as _io, os
+    driver = os.path.join(os.path.dirname(__file__), "..", "..", "bin",
+                          "integrate_likelihood_extrinsic_jax")
+    tree = ast.parse(_io.open(driver, encoding="utf-8").read())
+    node = next(n for n in ast.walk(tree)
+                if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                and n.func.attr == "add_option" and n.args
+                and isinstance(n.args[0], ast.Constant) and n.args[0].value == "--interp")
+    default = next(kw for kw in node.keywords if kw.arg == "default")
+    assert ast.unparse(default.value) == "JAX_INTERP_DEFAULT", \
+        "--interp default is %r, not the shared constant" % ast.unparse(default.value)
+
+
 def test_likelihood_runs_and_differentiates_with_sinc():
     """Wire-level check: the stencil must work THROUGH the likelihood, not just as a helper.
     Unit-testing the gatherer proves nothing about whether _accumulate_unit can call it."""

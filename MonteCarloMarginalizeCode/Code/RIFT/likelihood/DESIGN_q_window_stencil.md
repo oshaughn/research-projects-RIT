@@ -318,6 +318,44 @@ zero-noise self-consistent injection and buys 64.5 nats for doing so. This confi
 below the crossover of §1 (M = 3 Msun, fmin 50), which is exactly the regime §1 assigns to
 `sinc` -- the demo is a confirmation of that table, not a counter-example to it.
 
+### 9.4 The JAX default moved from `linear` to `sinc` (2026-08-26)
+
+`RIFT.likelihood.jax_ile.core.JAX_INTERP_DEFAULT` is the single definition, consumed by every
+entry point in the package and by `--interp` in `bin/integrate_likelihood_extrinsic_jax`.
+**This changes results for any caller that did not pass `interp=`/`--interp`.** Pass
+`interp="linear"` to reproduce a pre-2026-08-26 run.
+
+**Why it moved at all.** `linear` was never chosen on merit -- it was the first differentiable
+stencil the JAX path had, and the default was inherited. It is the *worst* option in the registry
+at high SNR, worse than `nearest`, and this driver is used **exclusively** at high SNR, so the
+one regime the default was tuned for is the one regime it is wrong in. On the 3G demo `linear`
+sits between `nearest` and `cubic`; §3's ladder puts `nearest` at 200-443 nats, crossing 1 nat of
+error by SNR 2-6.
+
+**Why `sinc` rather than `cubic`,** given §1 says neither is universally better: a default is
+chosen for its *worst* case, not its average, because it is what people get without thinking.
+§5 measured `sinc`'s error as FLAT -- 3.1-7.9 nats across the fmin-30 mass ladder, 2.3-5.6 across
+the 20-point fmin sweep -- while all the variation belongs to `cubic`, whose error ranges 0.143
+to 69.3 nats over the same points. Error also grows as SNR^2 (measured exponent 1.999-2.006), so
+at 3G sensitivities the tail is what matters. `sinc` costs ~1.6-3.0x `cubic` in the Q product on
+GPU (§7), which is the price of that bound.
+
+**THE CONCERN, recorded because it is not resolved by the above.** `sinc` is the bounded choice,
+not the better one, and there is a real population for which this default is *worse* than the old
+behaviour would have been had anyone set `cubic`: §4 measures `cubic` winning by 2.1-4.4x over
+9-55 Msun at fmin <= 50, and by 9.1x at 80 Msun and 55x at 120 Msun on the fmin-30 ladder. A
+high-mass, low-fmin BBH -- much of the O4 catalogue -- is squarely in `cubic`'s regime, and will
+now silently get `sinc` unless the caller says otherwise. The mitigation is that `sinc`'s loss in
+that regime is bounded (its error never leaves 2.3-7.9 nats) whereas `cubic`'s loss in the other
+regime is not, so the asymmetry favours `sinc` for a default -- but "bounded loss" is still loss,
+and anyone running a high-mass campaign should pass `--interp cubic` explicitly.
+
+Two further limits on that reasoning, both from §8: every crossover in this document is at
+**srate 4096**, which has *not* been swept and is the numerator of the ratio §6 says sets the
+answer; and the flatness claim for `sinc` rests on the same measurements. If srate turns out to
+move the crossover as strongly as fmin did, this default should be revisited -- it would be the
+third time a rule here was overturned by an axis that had not been swept.
+
 ## 10. Provenance
 
 The fmin sweep was measured against a pinned `git archive` of the #97 merge commit `c1a2e2df`,
