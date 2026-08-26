@@ -189,8 +189,12 @@ def build_likelihood_data(packed_per_detector, deltaT, tref, tvals,
     return JAXLikelihoodData(detectors, deltaT, gmst, tvals, tref, distMpcRef)
 
 
-def _gather_nearest(Q_col, pos):
+def _gather_nearest(Q_col, pos, u=None):
     """Q_col[(round(pos))] with the reference's (rint(.)+0.5)->int32 rounding.
+
+    ``u`` is accepted and ignored: every gatherer takes the same signature so the call sites
+    can pass the separable fractional offset unconditionally (see :func:`_separable_u`), and a
+    discrete gather has no use for it.
 
     ``pos`` has shape (S, npts); ``Q_col`` shape (npts_full,).  Positions that
     fall outside the rholm buffer contribute ZERO (the rholm timeseries is zero
@@ -207,7 +211,7 @@ def _gather_nearest(Q_col, pos):
     return jnp.where(valid, Q_col[idx], 0.0 + 0.0j)
 
 
-def _gather_linear(Q_col, pos):
+def _gather_linear(Q_col, pos, u=None):
     """Linear interpolation of Q_col at continuous positions ``pos``.
 
     Differentiable with respect to ``pos`` (the sub-sample arrival time).
@@ -218,7 +222,7 @@ def _gather_linear(Q_col, pos):
     """
     n = Q_col.shape[0]
     i0f = jnp.floor(pos)
-    frac = pos - i0f
+    frac = (pos - i0f) if u is None else u
     i0 = jnp.clip(i0f.astype(jnp.int32), 0, n - 1)
     i1 = jnp.clip(i0 + 1, 0, n - 1)
     val = Q_col[i0] * (1.0 - frac) + Q_col[i1] * frac
@@ -226,7 +230,7 @@ def _gather_linear(Q_col, pos):
     return jnp.where(valid, val, 0.0 + 0.0j)
 
 
-def _gather_cubic(Q_col, pos):
+def _gather_cubic(Q_col, pos, u=None):
     """Four-point cubic-Lagrange interpolation of Q_col at continuous ``pos``.
 
     Mirrors the production ``factored_likelihood._cubic_Q_window_numpy`` /
@@ -242,8 +246,9 @@ def _gather_cubic(Q_col, pos):
     the reference), so an over-running window falls off to zero.
     """
     n = Q_col.shape[0]
-    i0 = jnp.floor(pos).astype(jnp.int32)
-    u = pos - jnp.floor(pos)
+    fl = jnp.floor(pos)
+    i0 = fl.astype(jnp.int32)
+    u = (pos - fl) if u is None else u
     w = (-u * (u - 1.0) * (u - 2.0) / 6.0,
          (u + 1.0) * (u - 1.0) * (u - 2.0) / 2.0,
          -(u + 1.0) * u * (u - 2.0) / 2.0,
@@ -302,29 +307,19 @@ def _make_gather_sinc(a):
     fmin and srate as well as mass.  See RIFT/likelihood/DESIGN_q_window_stencil.md and
     RIFT.likelihood.time_interp_choice.CROSSOVER_GUIDANCE for the measured crossover.
 
-    MEMORY.  XLA does not fuse the tap axis away: it materialises the ``(..., 2a)`` weight array.
-    Measured with ``compile().memory_analysis()`` on the CPU backend, 3 detectors, npts 614,
-    S = 20000 -- whole-likelihood temp is 1285 MB for ``nearest``, 2464 for ``linear``, 4821 for
-    ``cubic``, 6586 for ``sinc``; the 1765 MB that ``sinc`` adds over ``cubic`` is exactly that
-    weight array.  So making ``sinc`` the default costs **2.7x the XLA scratch of ``linear``**,
-    and a run that fitted on a 10-12 GB card at a given chunk size may now need a smaller one.
-
-    The redundancy is real and fixable in principle: both call sites build
-    ``pos = p0[:, None] + arange(npts)``, so ``u`` is IDENTICAL along the time axis and only
-    ``(S, 2a)`` distinct weights exist -- which is precisely the structure the numpy/cupy/CUDA
-    backends exploit by computing one weight row per sample.  It is deliberately NOT fixed here
-    because the obvious general fix is not free: a ``lax.scan`` over taps with the weights built
-    in the scan body cuts the temp to 393 MB but costs 3.9x the runtime on CPU (7.17 s/call
-    against 1.86), and the measurement that would settle the trade is a GPU one, which the
-    available environment could not take (the container's XLA GPU compiler exhausts the host
-    thread cap).  Exploiting the ``pos`` structure directly would instead need a gatherer
-    signature that takes ``(i0, u)`` separately, i.e. a change to all four stencils.
+    MEMORY.  XLA does not fuse the tap axis away on its own -- it materialises the
+    ``(..., 2a)`` weight array -- so **pass ``u``**; see :func:`_separable_u`, which is what makes
+    this stencil affordable.  Without it, GPU whole-likelihood scratch at S=20000/npts=614 is
+    6583 MB against 101 MB for ``cubic``; with it, 1279 MB, and the gather itself drops
+    1719.2 -> 2.7 MB.  Runtime halves as well, because the general form recomputes 16 sinc pairs
+    per (sample, time-bin) when only ``S`` distinct weight rows exist.  Measured figures and the
+    rejected ``lax.scan`` alternative are in DESIGN_q_window_stencil.md §9.5.
     """
-    def _gather(Q_col, pos):
+    def _gather(Q_col, pos, u=None):
         n = Q_col.shape[0]
         fl = jnp.floor(pos)
         i0 = fl.astype(jnp.int32)
-        k, w = _sinc_lanczos_weights_jax(pos - fl, a)
+        k, w = _sinc_lanczos_weights_jax((pos - fl) if u is None else u, a)
         idx = i0[..., None] + k
         valid = (idx >= 0) & (idx < n)
         vals = Q_col[jnp.clip(idx, 0, n - 1)]
@@ -337,11 +332,11 @@ def _make_gather_sinc_unrolled(a):
 
     Do not wire this into ``_GATHERERS``; see the compile-time note there.
     """
-    def _gather(Q_col, pos):
+    def _gather(Q_col, pos, u=None):
         n = Q_col.shape[0]
         fl = jnp.floor(pos)
         i0 = fl.astype(jnp.int32)
-        k, w = _sinc_lanczos_weights_jax(pos - fl, a)
+        k, w = _sinc_lanczos_weights_jax((pos - fl) if u is None else u, a)
         out = jnp.zeros(pos.shape, dtype=jnp.complex128)
         for j in range(2 * a):
             idx = i0 + int(k[j])
@@ -350,6 +345,32 @@ def _make_gather_sinc_unrolled(a):
                                               0.0 + 0.0j)
         return out
     return _gather
+
+
+def _separable_u(p0):
+    """Fractional sample offset for a window built as ``pos = p0[:, None] + arange(npts)``.
+
+    THIS IS A MEMORY FIX, and a large one.  Both accumulators build their window that way, with
+    INTEGER time offsets, so ``frac(pos)`` does not vary along the time axis -- only ``S``
+    distinct values exist, not ``S * npts``.  Letting a gatherer rediscover ``u`` from the full
+    ``pos`` makes it build an ``(S, npts, 2a)`` weight array that XLA then has to materialise:
+    at S = 20000, npts = 614 that is 1719 MB of scratch on GPU, against 0 MB for the 4-tap cubic,
+    whose weights are cheap enough to stay fused.  Passing ``u`` with shape ``(S, 1)`` instead
+    makes the weight array ``(S, 1, 2a)`` -- **2.7 MB, measured, a 637x reduction** -- and small
+    enough that the surrounding product and reduction fuse, exactly as cubic's already do.
+
+    It is also MORE accurate, not a trade.  ``p0`` is a sample index of order 1e5-1e6, so
+    ``p0 + t`` can cross a binade and drop a low mantissa bit; ``frac(p0 + t)`` then differs from
+    ``frac(p0)`` by up to an ulp of the position (~1.5e-11 at 65536, measured).  The numpy, cupy
+    and CUDA backends all compute one fractional offset per sample from the sample position --
+    i.e. this form -- so using it here IMPROVES cross-backend agreement rather than costing it.
+
+    Callers that do not have a separable window simply omit ``u`` and every gatherer falls back
+    to ``pos - floor(pos)``.  Getting it wrong is silent, so
+    test_separable_u_matches_the_general_path pins the two against each other at production
+    magnitudes, and test_accumulators_pass_separable_u pins that the call sites actually pass it.
+    """
+    return (p0 - jnp.floor(p0))[:, None]
 
 
 _GATHERERS = {"nearest": _gather_nearest, "linear": _gather_linear,
@@ -434,10 +455,11 @@ def _accumulate_unit(data, ra, dec, psi, incl, phiref, interp,
                  + time_delay_from_earth_center(dd["location"], ra, dec, gmst))
         p0 = (t_det + data.tval0) * inv_deltaT
         pos = p0[:, None] + t_offsets[None, :]
+        u_sep = _separable_u(p0)          # see _separable_u: 637x less scratch, and more exact
 
         kappa_det = jnp.zeros((S, npts), dtype=jnp.complex128)
         for k in range(K):
-            Qi = gather(Q[:, k], pos)
+            Qi = gather(Q[:, k], pos, u_sep)
             kappa_det = kappa_det + FY_conj[:, k][:, None] * Qi
         kappa_unit = kappa_unit + kappa_det
         # NOT a gap, and worth saying so because an earlier revision wrongly marked it as one:
@@ -593,6 +615,7 @@ def _accumulate_unit_banded(data, ra, dec, psi, incl, phiref, interp,
                  + time_delay_from_earth_center(dd["location"], ra, dec, gmst))
         p0 = (t_det + data.tval0) * inv_deltaT
         pos = p0[:, None] + t_offsets[None, :]              # (S, npts)
+        u_sep = _separable_u(p0)          # see _separable_u: 637x less scratch, and more exact
 
         if post_phase:
             # delta_ij = (arrival time of output bin j for sample i) - tref, in seconds.
@@ -625,7 +648,7 @@ def _accumulate_unit_banded(data, ra, dec, psi, incl, phiref, interp,
             inner_a = jnp.zeros((S, npts), dtype=jnp.complex128)
             Qa = Q_bank[a]                                   # (npts_full, K)
             for k in range(K):
-                inner_a = inner_a + conjY[:, k][:, None] * gather(Qa[:, k], pos)
+                inner_a = inner_a + conjY[:, k][:, None] * gather(Qa[:, k], pos, u_sep)
             if post_phase:
                 i1 = int(pp_t1[a])
                 kappa_det = kappa_det + ((jnp.conj(C[a]) * pe[i1])[:, None]

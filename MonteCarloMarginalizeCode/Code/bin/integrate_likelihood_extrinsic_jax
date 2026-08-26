@@ -466,9 +466,9 @@ def build_parser():
                       "the same names; which of the two is more accurate depends on how "
                       "oversampled the rholm timeseries is (on fmin and srate as well as mass) "
                       "and there is no automatic rule -- see "
-                      "RIFT/likelihood/DESIGN_q_window_stencil.md. MEMORY: 'sinc' needs ~2.7x the "
-                      "XLA scratch of 'linear' and ~1.4x that of 'cubic' (measured; see §9.5), so "
-                      "a run that fitted on a 10-12 GB card may need a smaller --n-chunk.")
+                      "RIFT/likelihood/DESIGN_q_window_stencil.md. COST: 'sinc' is ~1.33x "
+                      "'cubic' in GPU runtime and needs ~12x its XLA scratch (~512 MB against "
+                      "~40 MB at the default --n-chunk 8000; measured, see §9.5).")
     g.add_option("--sky-coordinates", default="equatorial",
                  choices=["equatorial", "network"],
                  help="Optional: 'network' samples the sky in the two-detector "

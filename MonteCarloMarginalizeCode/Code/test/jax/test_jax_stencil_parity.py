@@ -320,6 +320,52 @@ def test_sinc_is_reachable_from_the_registry_and_the_cli():
         "--interp choices is a literal list again; it will drift from _GATHERERS"
 
 
+@pytest.mark.parametrize("name", ["nearest", "linear", "cubic", "sinc"])
+def test_separable_u_matches_the_general_path(name):
+    """Passing ``u`` must not change the answer for a window the accumulators actually build.
+
+    This is the load-bearing test for the memory fix: getting ``u`` wrong is SILENT -- the
+    gather still returns an array of the right shape, just evaluated at the wrong sub-sample
+    offsets. So the separable path is checked against the general one for every stencil, at
+    PRODUCTION magnitudes (p0 ~ 1e5, where a binade crossing in p0 + t is possible) rather than
+    the small indices the other tests use.
+
+    The two are not required to be bit-identical, and the difference has a known sign of merit:
+    ``frac(p0 + t)`` can lose a low mantissa bit that ``frac(p0)`` keeps, so the separable value
+    is the more exact of the two -- and is what numpy/cupy/CUDA compute. An ulp of position at
+    1e5 is ~1.5e-11, so the tolerance is set just above that.
+    """
+    rng = np.random.default_rng(4)
+    n_time, npts, S = 262144, 614, 300
+    Q = jnp.asarray(rng.normal(size=n_time) + 1j * rng.normal(size=n_time))
+    p0 = jnp.asarray(rng.uniform(100.0, n_time - npts - 100.0, (S,)))
+    t = jnp.arange(npts, dtype=jnp.float64)
+    pos = p0[:, None] + t
+    g = JC._GATHERERS[name]
+    gen = np.asarray(g(Q, pos))
+    sep = np.asarray(g(Q, pos, JC._separable_u(p0)))
+    err = np.max(np.abs(gen - sep)) / np.max(np.abs(gen))
+    assert err < 1e-10, "%s: separable-u path disagrees with the general one by %.3e" % (name, err)
+    # And the offsets really are separable for this construction, or the test proves nothing.
+    u_gen = np.asarray(pos - jnp.floor(pos))
+    assert np.max(np.abs(u_gen - u_gen[:, :1])) < 1e-9
+
+
+def test_accumulators_pass_separable_u():
+    """The fix only helps if the CALL SITES pass ``u``; a gatherer that merely accepts it does
+    nothing. Both accumulators must, or the (S, npts, 2a) weight array comes straight back."""
+    import ast, io as _io, os
+    src = _io.open(os.path.join(os.path.dirname(__file__), "..", "..", "RIFT", "likelihood",
+                                "jax_ile", "core.py"), encoding="utf-8").read()
+    tree = ast.parse(src)
+    calls = [n for n in ast.walk(tree)
+             if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "gather"]
+    assert len(calls) >= 2, "expected a gather() call in each accumulator, found %d" % len(calls)
+    bad = [ast.unparse(c) for c in calls if len(c.args) < 3 and
+           not any(kw.arg == "u" for kw in c.keywords)]
+    assert not bad, "gather() called without the separable offset: %s" % bad
+
+
 def test_every_entry_point_defaults_to_the_same_stencil():
     """The default is ONE constant, and every entry point in the package uses it.
 

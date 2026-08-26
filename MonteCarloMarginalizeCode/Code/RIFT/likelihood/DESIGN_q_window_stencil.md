@@ -356,35 +356,63 @@ answer; and the flatness claim for `sinc` rests on the same measurements. If sra
 move the crossover as strongly as fmin did, this default should be revisited -- it would be the
 third time a rule here was overturned by an axis that had not been swept.
 
-### 9.5 Cost of the default move: 2.7x XLA scratch
+### 9.5 The tap-axis memory trap, and why `u` is passed separately
 
-Found by adversarial review of §9.4, and it is an operational consequence a default change owes
-its users. XLA does not fuse the tap axis away -- it materialises the `(..., 2a)` weight array.
-`compile().memory_analysis()`, CPU backend, 3 detectors, npts 614:
+Found by adversarial review of §9.4. The first version of this section was **wrong**, and how it
+was wrong is the point: it quoted 2.7x, measured on the **CPU** backend. On CPU nothing fuses
+well, so the sinc overhead hid inside an already-large baseline. On GPU -- the backend this
+driver actually runs on -- XLA fuses `nearest`, `linear` and `cubic` *completely*, and only sinc
+materialised its `(S, npts, 2a)` weight array. The real figure was **65x**, not 2.7x.
 
-| S | `nearest` | `linear` | `cubic` | `sinc` |
-|---|---|---|---|---|
-| 2000 | 129 MB | 246 MB | 482 MB | 659 MB |
-| 20000 | 1285 MB | 2464 MB | 4821 MB | **6586 MB** |
+Whole-likelihood XLA temp, `compile().memory_analysis()`, 3 detectors, npts 614:
 
-The 1765 MB `sinc` adds over `cubic` at S = 20000 is exactly the `(S, npts, 2a)` float64 weight
-array. **A run that fitted on a 10-12 GB card at a given chunk size may now need a smaller one.**
+| S | backend | `nearest` | `linear` | `cubic` | `sinc` before | `sinc` after |
+|---|---|---|---|---|---|---|
+| 20000 | CPU | 1285 MB | 2464 MB | 4821 MB | 6586 MB | -- |
+| 20000 | **GPU** | 101 MB | 101 MB | 101 MB | **6583 MB** | **1279 MB** |
+| 2000 | GPU | 10.1 MB | 10.1 MB | 10.3 MB | 658 MB | 128 MB |
 
-The redundancy is genuine: both call sites build `pos = p0[:, None] + arange(npts)`, so `u` is
-identical along the time axis and only `(S, 2a)` distinct weights exist -- the structure the
-numpy/cupy/CUDA backends already exploit. Not fixed here because the fix is not free. Measured
-candidates, S = 20000 / npts 614, all agreeing to 2.7e-15:
+**The fix: pass the fractional offset separately.** Both accumulators build
+`pos = p0[:, None] + arange(npts)` with INTEGER offsets, so `frac(pos)` does not vary along the
+time axis -- only `S` distinct values exist, not `S * npts`. `_separable_u(p0)` returns that
+`(S, 1)` array and every gatherer takes it as an optional third argument, so the weight array
+becomes `(S, 1, 2a)` and is small enough that the surrounding product and reduction fuse, exactly
+as cubic's inline weights already do. Isolated gather at S=20000/npts=614:
+**1719.2 MB -> 2.7 MB, a 637x reduction.**
 
-| form | temp | runtime |
+**It is a strict win, not a trade** -- measured on GPU (RTX 3080, container jaxlib):
+
+| axis | before | after |
 |---|---|---|
-| vectorised (shipped) | 1670 MB | 1.86 s |
-| `lax.scan` over taps | 3340 MB | 3.83 s |
-| `lax.scan` + weights built in the body | **393 MB** | **7.17 s** |
+| whole-likelihood temp, S=20000 | 6583 MB | **1279 MB** |
+| runtime, S=2000 | 0.00540 s/call | **0.00269 s/call** |
+| accuracy | -- | unchanged, see below |
 
-So the memory fix costs 3.9x runtime on CPU, and the measurement that would settle it is a GPU
-one -- which this environment could not take (the container's XLA GPU compiler exhausts the host
-thread cap). The alternative, exploiting the `pos` structure directly, needs a gatherer signature
-taking `(i0, u)` separately, i.e. a change to all four stencils. Both are follow-up work.
+Runtime *halves* because the old form recomputed 16 sinc pairs per (sample, time-bin) when only
+`S` distinct weight rows exist -- 614-fold redundant arithmetic. Post-fix sinc costs 1.33x cubic
+(0.00269 against 0.00203) and 1.44x linear, which is the honest price of the stencil.
+
+**And it is slightly MORE accurate.** `p0` is a sample index of order 1e5-1e6, so `p0 + t` can
+cross a binade and drop a low mantissa bit; `frac(p0 + t)` then differs from `frac(p0)` by up to
+an ulp of the position (~1.5e-11 at 65536, measured). The numpy, cupy and CUDA backends all
+compute one fractional offset per sample *from the sample position* -- i.e. the separable form --
+so this brings JAX into line with them rather than away.
+
+Residual: sinc is still 12.7x cubic at the whole-likelihood level (1279 vs 101 MB), because the
+per-(detector, mode) `(S, npts, 2a)` *gathered-value* array is only partly fused. At the
+production default `--n-chunk 8000` that is ~512 MB against ~40 MB -- comfortable on any card
+this runs on. Squeezing the last factor would mean fusing the lm contraction into the gather, as
+the CUDA kernels do; not attempted.
+
+Getting `u` wrong is **silent** -- the gather returns the right shape evaluated at the wrong
+offsets -- so it is pinned two ways: `test_separable_u_matches_the_general_path` compares the two
+paths for all four stencils at production magnitudes, and `test_accumulators_pass_separable_u`
+parses `core.py` to assert both call sites actually pass it. Mutation-tested: perturbing `u` by
+0.05 fails the first for `linear`/`cubic`/`sinc` (and correctly not for `nearest`, which ignores
+it); dropping the argument at either call site fails the second.
+
+A `lax.scan` variant was also measured and rejected -- it cut the temp only to 1427 MB and cost
+2.9x runtime, against the separable form's 1279 MB at 0.5x runtime.
 
 ## 10. Provenance
 
