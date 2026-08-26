@@ -336,6 +336,10 @@ parser.add_argument("--fit-load-gp",default=None,type=str,help="Filename of GP f
 parser.add_argument("--fit-save-gp",default=None,type=str,help="Filename of GP fit to save. ")
 parser.add_argument("--fit-save-jax",default=None,type=str,help="Base path for a self-contained, differentiable jax_gp export (writes <path>.npz + <path>.meta.json). Only used with --fit-method gp-jax-*. Reload with --fit-load-gp pointing at the same base path.")
 parser.add_argument("--fit-order",type=int,default=2,help="Fit order (polynomial case: degree)")
+parser.add_argument("--fit-gp-length-scale-max-factor",default=5.0,type=float,help="fit_gp: upper bound on each RBF length scale, as a multiple of that coordinate's standard deviation over the retained points. Default 5.0 reproduces the hardcoded value. Unlike the noise and amplitude bounds this ceiling is DERIVED FROM THE DATA, not hand-tuned, so raising it lets the GP become effectively linear across the grid; it exists to be measured against, not routinely changed.")
+parser.add_argument("--fit-gp-holdout-folds",default=0,type=int,help="fit_gp: if >0, also report a K-fold HELD-OUT predictive RMS alongside the in-sample residual, refitting the same kernel on each training split. In-sample residual cannot distinguish a flexible fit from an overfit one; this can. Costs K extra GP fits.")
+parser.add_argument("--fit-gp-noise-bounds",default="1e-2,1",type=str,help="fit_gp: comma-separated (lo,hi) bounds on the WhiteKernel noise_level, in nats^2. Default reproduces the hand-tuned LVK-scale value. Widen when lnL spans a dynamic range far larger than LVK's (third-generation networks): the default saturates and the fit under-reports structure.")
+parser.add_argument("--fit-gp-amplitude-bounds",default="1e-3,1e1",type=str,help="fit_gp: comma-separated (lo,hi) bounds on the ConstantKernel amplitude multiplying the RBF, in nats^2. Default reproduces the hand-tuned LVK-scale value, which caps the representable signal amplitude at sqrt(1e1)=3.2 nats.")
 parser.add_argument("--fit-uncertainty-added",default=False, action='store_true', help="Reported likelihood is lnL+(fit error). Use for placement and use of systematic errors.")
 parser.add_argument("--no-plots",action='store_true')
 parser.add_argument("--tabular-eos-file",type=str,default=None,help="Tabular file of EOS to use.  The default prior will be UNIFORM in this table!")
@@ -1368,6 +1372,85 @@ def adderr(y):
     val,err = y
     return val+error_factor*err
 
+def _gp_bounds_opt(spec):
+    """Parse a "lo,hi" CLI string into a (float,float) sklearn bounds tuple."""
+    lo, hi = (float(v) for v in str(spec).split(","))
+    return (lo, hi)
+
+
+def report_gp_kernel(gp, x, y, tol=1e-3, holdout_folds=0, kernel_proto=None,
+                     alpha_proto=None, peak_index=None, peak_grid=240):
+    """Print a machine-readable record of the fitted GP: kernel form, the bounds
+    actually in force, the fitted hyperparameters, and -- the part that is not
+    self-announcing -- which of them the optimizer drove onto a bound.
+
+    A saturated fit returns successfully and looks exactly like a converged one,
+    so the saturation flags are the only way to tell from the outputs whether the
+    kernel bounds, rather than the data, set the answer.  sklearn stores
+    hyperparameters and bounds log-transformed in .theta / .bounds, so proximity
+    is tested there: |theta - bound| < tol means "on the bound".
+    """
+    import json as _json
+    rec = {"kernel_form": str(gp.kernel), "kernel_fitted": str(gp.kernel_),
+           "log_marginal_likelihood": float(gp.log_marginal_likelihood_value_),
+           "n_points": int(len(y)), "lnL_range": float(np.nanmax(y) - np.nanmin(y)),
+           "resid_std": float(np.std(y - gp.predict(x))), "hyperparameters": []}
+    theta, bounds = gp.kernel_.theta, gp.kernel_.bounds
+    names = []
+    for h in gp.kernel_.hyperparameters:
+        names.extend([h.name] * int(h.n_elements if h.n_elements > 1 else 1))
+    for i in np.arange(len(theta)):
+        lo, hi = float(bounds[i][0]), float(bounds[i][1])
+        at_lo, at_hi = bool(theta[i] - lo < tol), bool(hi - theta[i] < tol)
+        rec["hyperparameters"].append(
+            {"name": names[i] if i < len(names) else "param_%d" % i,
+             "value": float(np.exp(theta[i])),
+             "bounds": [float(np.exp(lo)), float(np.exp(hi))],
+             "at_lower_bound": at_lo, "at_upper_bound": at_hi,
+             # decades of headroom to the nearer bound: a value can be
+             # operationally pinned without tripping the boolean flag.
+             "decades_to_bound": float(min(theta[i] - lo, hi - theta[i]) / np.log(10.0))})
+    rec["n_at_bound"] = int(sum(h["at_lower_bound"] or h["at_upper_bound"]
+                                for h in rec["hyperparameters"]))
+    if holdout_folds and holdout_folds > 1 and kernel_proto is not None:
+        # In-sample residual rewards flexibility.  Refit the SAME kernel on K
+        # training splits and score the untouched folds: this is the number that
+        # says whether relaxing the bounds bought generalization or overfitting.
+        from sklearn.model_selection import KFold
+        errs = []
+        alpha_is_vec = hasattr(alpha_proto, "__len__")
+        for tr, te in KFold(holdout_folds, shuffle=True, random_state=0).split(x):
+            g2 = GaussianProcessRegressor(
+                kernel=kernel_proto,
+                alpha=(alpha_proto[tr] if alpha_is_vec else alpha_proto),
+                n_restarts_optimizer=4)
+            g2.fit(x[tr], y[tr])
+            errs.append(g2.predict(x[te]) - y[te])
+        errs = np.concatenate(errs)
+        rec["holdout_folds"] = int(holdout_folds)
+        rec["holdout_rms_nats"] = float(np.sqrt((errs ** 2).mean()))
+        rec["holdout_max_abs_nats"] = float(np.abs(errs).max())
+    if peak_index is not None and x.shape[1] <= 3:
+        # Where does the FITTED SURFACE put the likelihood maximum?  This is the
+        # question the interpolant exists to answer, and it is not implied by the
+        # residual: a saturated kernel can score acceptably on average and still
+        # misplace the peak.  Scanned over the training data's own extent.
+        axes = [np.linspace(x[:, i].min(), x[:, i].max(), peak_grid)
+                for i in np.arange(x.shape[1])]
+        mesh = np.meshgrid(*axes, indexing="ij")
+        pts = np.column_stack([m.ravel() for m in mesh])
+        zz = gp.predict(pts)
+        rec["surface_peak"] = {"coord_index": int(peak_index),
+                               "value": float(pts[int(np.argmax(zz)), int(peak_index)]),
+                               "grid_points_per_axis": int(peak_grid)}
+    rec["saturated"] = bool(rec["n_at_bound"] > 0)
+    print(" GP-KERNEL-RECORD " + _json.dumps(rec, sort_keys=True))
+    if rec["saturated"]:
+        print(" GP WARNING: %d hyperparameter(s) sit ON a bound -- the bounds, not the"
+              " data, are setting the fit." % rec["n_at_bound"])
+    return rec
+
+
 def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False,fname_export="gp_fit"):
     """
     x = array so x[0] , x[1], x[2] are points.
@@ -1398,7 +1481,7 @@ def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False,
         if indx == mc_index:
             length_scale_min_here= 0.2*np.nanstd(x[:,indx]/np.sqrt(len(x)))
             print(" Setting mc range: retained point range is ", np.nanstd(x[:,indx]), " and target min is ", length_scale_min_here)
-        length_scale_bounds_est.append( (length_scale_min_here , 5*np.nanstd(x[:,indx])   ) )  # auto-select range based on sampling *RETAINED* (i.e., passing cut).  Note that for the coordinates I usually use, it would be nonsensical to make the range in coordinate too small, as can occasionally happens
+        length_scale_bounds_est.append( (length_scale_min_here , opts.fit_gp_length_scale_max_factor*np.nanstd(x[:,indx])   ) )  # auto-select range based on sampling *RETAINED* (i.e., passing cut).  Note that for the coordinates I usually use, it would be nonsensical to make the range in coordinate too small, as can occasionally happens
 
     print(" GP: Input sample size ", len(x), len(y))
     print(" GP: Estimated length scales ")
@@ -1410,10 +1493,14 @@ def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False,
         alpha = y_errors**2  # added to diagonal of kernel, used to assign variances of measurements a priori; note also WhiteKernel also absorbs some of this
     if not (hypercube_rescale):
         # These parameters have been hand-tuned by experience to try to set to levels comparable to typical lnL Monte Carlo error
-        kernel = WhiteKernel(noise_level=0.1,noise_level_bounds=(1e-2,1))+C(0.5, (1e-3,1e1))*RBF(length_scale=length_scale_est, length_scale_bounds=length_scale_bounds_est)
+        noise_bounds_here = _gp_bounds_opt(opts.fit_gp_noise_bounds)
+        amp_bounds_here   = _gp_bounds_opt(opts.fit_gp_amplitude_bounds)
+        kernel = WhiteKernel(noise_level=0.1,noise_level_bounds=noise_bounds_here)+C(0.5, amp_bounds_here)*RBF(length_scale=length_scale_est, length_scale_bounds=length_scale_bounds_est)
         gp = GaussianProcessRegressor(kernel=kernel, alpha=alpha,  n_restarts_optimizer=8)
 
         gp.fit(x,y)
+        report_gp_kernel(gp, x, y, holdout_folds=opts.fit_gp_holdout_folds,
+                         kernel_proto=kernel, alpha_proto=alpha, peak_index=mc_index)
 
         print(" Fit: std: ", np.std(y - gp.predict(x)),  "using number of features ", len(y))
 
