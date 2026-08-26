@@ -19,15 +19,31 @@ list and the timeseries epoch are produced unchanged by
 ``PrecomputeLikelihoodTerms`` / ``PackLikelihoodDataStructuresAsArrays`` and are
 passed in here as plain arrays.
 
-Two time-interpolation modes are provided:
+Time-interpolation modes (``interp=``, ``--interp``).  ``nearest`` and ``linear`` are
+strictly the crudest; between ``cubic`` and ``sinc`` there is no universal ordering --
+see the note under ``sinc``:
 
 * ``interp="nearest"`` -- reproduces the production discrete-shift behaviour
   (round the per-detector arrival to the nearest sample) bit-for-bit, used to
   *validate* the JAX path against the numpy reference.
-* ``interp="linear"`` (default) -- evaluates the rholm timeseries at the
+* ``interp="linear"`` -- evaluates the rholm timeseries at the
   *continuous* arrival time, so the likelihood is differentiable with respect
   to sky location (through the geometric time delay) and the other extrinsic
   parameters.  This is the AD-friendly path used for gradient-based exploration.
+  It WAS the default until 2026-08-26 and is no longer, because at high SNR it is
+  the *worst* option here, worse than ``nearest``: it undershoots the sharp rholm
+  peak and so biases the recovered arrival time and hence the sky location.
+* ``interp="cubic"`` -- the 4-point cubic-Lagrange stencil the numpy/cupy/CUDA
+  paths spell ``time_interp='cubic'``.
+* ``interp="sinc"`` (**default** since 2026-08-26) -- the 2a-tap Lanczos windowed
+  sinc (a = ``SINC_HALFWIDTH_DEFAULT``), matching ``time_interp='sinc'`` on those
+  paths.  Chosen as the default because its error is BOUNDED across the measured
+  sweep rather than lowest on average; see ``JAX_INTERP_DEFAULT``.
+  Which of ``cubic`` and ``sinc`` is more accurate depends on how oversampled Q
+  is -- on fmin and srate as well as on mass -- and there is no automatic rule;
+  see ``RIFT/likelihood/DESIGN_q_window_stencil.md`` and
+  ``RIFT.likelihood.time_interp_choice.CROSSOVER_GUIDANCE``.  Both are
+  differentiable in ``pos``.
 
 Time marginalization uses a precomputed Simpson quadrature weight vector
 (``scipy.integrate.simpson`` applied to the identity, exactly as the production
@@ -53,6 +69,10 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 from scipy import integrate as _scipy_integrate
+
+# The 'sinc' stencil half-width, shared with the numpy/cupy/CUDA backends.  Imported from the
+# leaf module rather than from factored_likelihood so this stays free of numba and lal.
+from RIFT.likelihood.time_interp_choice import SINC_HALFWIDTH_DEFAULT
 
 # Adaptive (per-sample) distance marginalization.  The distance integrand is
 # exp(K x - 0.5 R x^2) with x = d_ref/d -- a Gaussian in x (peak x*=K/R, width
@@ -169,8 +189,12 @@ def build_likelihood_data(packed_per_detector, deltaT, tref, tvals,
     return JAXLikelihoodData(detectors, deltaT, gmst, tvals, tref, distMpcRef)
 
 
-def _gather_nearest(Q_col, pos):
+def _gather_nearest(Q_col, pos, u=None):
     """Q_col[(round(pos))] with the reference's (rint(.)+0.5)->int32 rounding.
+
+    ``u`` is accepted and ignored: every gatherer takes the same signature so the call sites
+    can pass the separable fractional offset unconditionally (see :func:`_separable_u`), and a
+    discrete gather has no use for it.
 
     ``pos`` has shape (S, npts); ``Q_col`` shape (npts_full,).  Positions that
     fall outside the rholm buffer contribute ZERO (the rholm timeseries is zero
@@ -187,7 +211,7 @@ def _gather_nearest(Q_col, pos):
     return jnp.where(valid, Q_col[idx], 0.0 + 0.0j)
 
 
-def _gather_linear(Q_col, pos):
+def _gather_linear(Q_col, pos, u=None):
     """Linear interpolation of Q_col at continuous positions ``pos``.
 
     Differentiable with respect to ``pos`` (the sub-sample arrival time).
@@ -198,7 +222,7 @@ def _gather_linear(Q_col, pos):
     """
     n = Q_col.shape[0]
     i0f = jnp.floor(pos)
-    frac = pos - i0f
+    frac = (pos - i0f) if u is None else u
     i0 = jnp.clip(i0f.astype(jnp.int32), 0, n - 1)
     i1 = jnp.clip(i0 + 1, 0, n - 1)
     val = Q_col[i0] * (1.0 - frac) + Q_col[i1] * frac
@@ -206,7 +230,7 @@ def _gather_linear(Q_col, pos):
     return jnp.where(valid, val, 0.0 + 0.0j)
 
 
-def _gather_cubic(Q_col, pos):
+def _gather_cubic(Q_col, pos, u=None):
     """Four-point cubic-Lagrange interpolation of Q_col at continuous ``pos``.
 
     Mirrors the production ``factored_likelihood._cubic_Q_window_numpy`` /
@@ -222,8 +246,9 @@ def _gather_cubic(Q_col, pos):
     the reference), so an over-running window falls off to zero.
     """
     n = Q_col.shape[0]
-    i0 = jnp.floor(pos).astype(jnp.int32)
-    u = pos - jnp.floor(pos)
+    fl = jnp.floor(pos)
+    i0 = fl.astype(jnp.int32)
+    u = (pos - fl) if u is None else u
     w = (-u * (u - 1.0) * (u - 2.0) / 6.0,
          (u + 1.0) * (u - 1.0) * (u - 2.0) / 2.0,
          -(u + 1.0) * u * (u - 2.0) / 2.0,
@@ -236,8 +261,132 @@ def _gather_cubic(Q_col, pos):
     return out
 
 
+def _sinc_lanczos_weights_jax(u, a):
+    """Lanczos tap weights, mirroring ``factored_likelihood._sinc_lanczos_weight_matrix``.
+
+    The numpy/cupy/CUDA paths all consume ONE weight array built by that function, so they
+    cannot drift.  JAX cannot: the weights depend on ``u``, which is a traced function of the
+    sky location, so they must be built inside the trace for ``jax.grad`` to see through them.
+    This is therefore a deliberate SECOND definition of the same formula, and the thing that
+    keeps it honest is ``test/jax/test_jax_stencil_parity.py``, which compares this against the
+    numpy generator element-by-element -- including the two details that are easy to get wrong:
+
+      * the ``|x| >= a`` hard zero.  On the wired path (u in [0,1)) it reaches only u == 0,
+        where tap k = a sits exactly at x = -a and is worth 1.5e-33 -- but these are library
+        helpers, and for u outside [0,1) the clause is worth 2.2e-3, so it is pinned there; and
+      * the renormalisation to unit sum, which is applied over the FULL stencil and is NOT
+        redone after out-of-buffer taps are dropped.  The CUDA kernel does the same, so the
+        three backends agree in the zero-extension region as well as the interior.
+
+    ``u`` has the shape of ``pos``; the return has that shape plus a trailing (2a,) tap axis.
+    """
+    k = jnp.arange(-a + 1, a + 1)
+    x = u[..., None] - k
+    w = jnp.sinc(x) * jnp.sinc(x / float(a))
+    w = jnp.where(jnp.abs(x) >= a, 0.0, w)
+    total = jnp.sum(w, axis=-1)
+    total = jnp.where(total == 0.0, 1.0, total)
+    return k, w / total[..., None]
+
+
+def _make_gather_sinc(a):
+    """Build the 2a-tap Lanczos gatherer used by ``interp="sinc"``.
+
+    VECTORISED OVER TAPS, and that is load-bearing rather than tidiness.  Written as a Python
+    loop over taps -- the shape the 4-tap :func:`_gather_cubic` above can afford -- a 16-tap
+    stencil unrolls into 16 separate gathers, and inside a numpyro NUTS trace the resulting
+    graph is large enough that XLA compilation dominates: measured >1 h of compile at 0-1% GPU
+    against seconds for cubic.  Building the tap axis as an array gives one gather and one
+    reduction, so graph size is independent of ``a`` (0.11 s against 0.84 s for the unrolled
+    form at a=8).  The two forms agree to a few ulp -- not bit-for-bit, since ``jnp.sum`` over
+    the tap axis and a sequential accumulation are free to associate differently -- and
+    test_jax_stencil_parity.test_vectorised_matches_unrolled asserts that, to stop a later
+    "simplification" back into a loop.
+
+    Accuracy against ``cubic`` is NOT universal: it depends on how oversampled Q is, hence on
+    fmin and srate as well as mass.  See RIFT/likelihood/DESIGN_q_window_stencil.md and
+    RIFT.likelihood.time_interp_choice.CROSSOVER_GUIDANCE for the measured crossover.
+
+    MEMORY.  XLA does not fuse the tap axis away on its own -- it materialises the
+    ``(..., 2a)`` weight array -- so **pass ``u``**; see :func:`_separable_u`, which is what makes
+    this stencil affordable.  Without it, GPU whole-likelihood scratch at S=20000/npts=614 is
+    6583 MB against 101 MB for ``cubic``; with it, 1279 MB, and the gather itself drops
+    1719.2 -> 2.7 MB.  Runtime halves as well, because the general form recomputes 16 sinc pairs
+    per (sample, time-bin) when only ``S`` distinct weight rows exist.  Measured figures and the
+    rejected ``lax.scan`` alternative are in DESIGN_q_window_stencil.md §9.5.
+    """
+    def _gather(Q_col, pos, u=None):
+        n = Q_col.shape[0]
+        fl = jnp.floor(pos)
+        i0 = fl.astype(jnp.int32)
+        k, w = _sinc_lanczos_weights_jax((pos - fl) if u is None else u, a)
+        idx = i0[..., None] + k
+        valid = (idx >= 0) & (idx < n)
+        vals = Q_col[jnp.clip(idx, 0, n - 1)]
+        return jnp.sum(w * jnp.where(valid, vals, 0.0 + 0.0j), axis=-1)
+    return _gather
+
+
+def _make_gather_sinc_unrolled(a):
+    """Tap-by-tap form of :func:`_make_gather_sinc`.  Reference for the equivalence test ONLY.
+
+    Do not wire this into ``_GATHERERS``; see the compile-time note there.
+    """
+    def _gather(Q_col, pos, u=None):
+        n = Q_col.shape[0]
+        fl = jnp.floor(pos)
+        i0 = fl.astype(jnp.int32)
+        k, w = _sinc_lanczos_weights_jax((pos - fl) if u is None else u, a)
+        out = jnp.zeros(pos.shape, dtype=jnp.complex128)
+        for j in range(2 * a):
+            idx = i0 + int(k[j])
+            valid = (idx >= 0) & (idx < n)
+            out = out + w[..., j] * jnp.where(valid, Q_col[jnp.clip(idx, 0, n - 1)],
+                                              0.0 + 0.0j)
+        return out
+    return _gather
+
+
+def _separable_u(p0):
+    """Fractional sample offset for a window built as ``pos = p0[:, None] + arange(npts)``.
+
+    THIS IS A MEMORY FIX, and a large one.  Both accumulators build their window that way, with
+    INTEGER time offsets, so ``frac(pos)`` does not vary along the time axis -- only ``S``
+    distinct values exist, not ``S * npts``.  Letting a gatherer rediscover ``u`` from the full
+    ``pos`` makes it build an ``(S, npts, 2a)`` weight array that XLA then has to materialise:
+    at S = 20000, npts = 614 that is 1719 MB of scratch on GPU, against 0 MB for the 4-tap cubic,
+    whose weights are cheap enough to stay fused.  Passing ``u`` with shape ``(S, 1)`` instead
+    makes the weight array ``(S, 1, 2a)`` -- **2.7 MB, measured, a 637x reduction** -- and small
+    enough that the surrounding product and reduction fuse, exactly as cubic's already do.
+
+    It is also MORE accurate, not a trade.  ``p0`` is a sample index of order 1e5-1e6, so
+    ``p0 + t`` can cross a binade and drop a low mantissa bit; ``frac(p0 + t)`` then differs from
+    ``frac(p0)`` by up to an ulp of the position (~1.5e-11 at 65536, measured).  The numpy, cupy
+    and CUDA backends all compute one fractional offset per sample from the sample position --
+    i.e. this form -- so using it here IMPROVES cross-backend agreement rather than costing it.
+
+    Callers that do not have a separable window simply omit ``u`` and every gatherer falls back
+    to ``pos - floor(pos)``.  Getting it wrong is silent, so
+    test_separable_u_matches_the_general_path pins the two against each other at production
+    magnitudes, and test_accumulators_pass_separable_u pins that the call sites actually pass it.
+    """
+    return (p0 - jnp.floor(p0))[:, None]
+
+
 _GATHERERS = {"nearest": _gather_nearest, "linear": _gather_linear,
-              "cubic": _gather_cubic}
+              "cubic": _gather_cubic,
+              "sinc": _make_gather_sinc(SINC_HALFWIDTH_DEFAULT)}
+
+# The default stencil for every entry point in this package AND for the --interp flag of
+# bin/integrate_likelihood_extrinsic_jax, which imports it from here so the two cannot drift.
+#
+# CHANGED 2026-08-26: 'linear' -> 'sinc'.  This CHANGES RESULTS for any caller that did not pass
+# interp= explicitly; pass interp="linear" to reproduce a pre-2026-08-26 run.  Rationale, and the
+# concern that goes with it, are recorded in DESIGN_q_window_stencil.md §9.4 -- in one line:
+# linear is the worst stencil here at high SNR (worse than 'nearest'), this path is used
+# exclusively at high SNR, and 'sinc' is the option whose error is BOUNDED (measured flat at
+# 2.3-7.9 nats across the whole mass/fmin sweep) rather than the one with the best best-case.
+JAX_INTERP_DEFAULT = "sinc"
 
 
 def _accumulate_unit(data, ra, dec, psi, incl, phiref, interp,
@@ -306,10 +455,15 @@ def _accumulate_unit(data, ra, dec, psi, incl, phiref, interp,
                  + time_delay_from_earth_center(dd["location"], ra, dec, gmst))
         p0 = (t_det + data.tval0) * inv_deltaT
         pos = p0[:, None] + t_offsets[None, :]
+        # None for 'nearest': it ignores u, and feeding an unused value into this trace
+        # is NOT free -- it cost >60% wall on the banded slow-rotation path (measured:
+        # test_rotation_path_a 69.8 s -> >113 s), which is compile-bound, not arithmetic-
+        # bound.  Only the weight-building stencils get it.  See _separable_u.
+        u_sep = None if interp == "nearest" else _separable_u(p0)
 
         kappa_det = jnp.zeros((S, npts), dtype=jnp.complex128)
         for k in range(K):
-            Qi = gather(Q[:, k], pos)
+            Qi = gather(Q[:, k], pos, u_sep)
             kappa_det = kappa_det + FY_conj[:, k][:, None] * Qi
         kappa_unit = kappa_unit + kappa_det
         # NOT a gap, and worth saying so because an earlier revision wrongly marked it as one:
@@ -465,6 +619,11 @@ def _accumulate_unit_banded(data, ra, dec, psi, incl, phiref, interp,
                  + time_delay_from_earth_center(dd["location"], ra, dec, gmst))
         p0 = (t_det + data.tval0) * inv_deltaT
         pos = p0[:, None] + t_offsets[None, :]              # (S, npts)
+        # None for 'nearest': it ignores u, and feeding an unused value into this trace
+        # is NOT free -- it cost >60% wall on the banded slow-rotation path (measured:
+        # test_rotation_path_a 69.8 s -> >113 s), which is compile-bound, not arithmetic-
+        # bound.  Only the weight-building stencils get it.  See _separable_u.
+        u_sep = None if interp == "nearest" else _separable_u(p0)
 
         if post_phase:
             # delta_ij = (arrival time of output bin j for sample i) - tref, in seconds.
@@ -497,7 +656,7 @@ def _accumulate_unit_banded(data, ra, dec, psi, incl, phiref, interp,
             inner_a = jnp.zeros((S, npts), dtype=jnp.complex128)
             Qa = Q_bank[a]                                   # (npts_full, K)
             for k in range(K):
-                inner_a = inner_a + conjY[:, k][:, None] * gather(Qa[:, k], pos)
+                inner_a = inner_a + conjY[:, k][:, None] * gather(Qa[:, k], pos, u_sep)
             if post_phase:
                 i1 = int(pp_t1[a])
                 kappa_det = kappa_det + ((jnp.conj(C[a]) * pe[i1])[:, None]
@@ -538,7 +697,7 @@ def _time_marginalize(lnL_t, w_t):
 
 
 def fused_log_likelihood(data, ra, dec, psi, incl, phiref, distMpc,
-                         interp="linear", phase_marginalization=False):
+                         interp=JAX_INTERP_DEFAULT, phase_marginalization=False):
     """Time-marginalized factored log-likelihood at a fixed distance, lnL(theta).
 
     Parameters
@@ -570,7 +729,7 @@ def fused_log_likelihood(data, ra, dec, psi, incl, phiref, distMpc,
 
 def fused_log_likelihood_distmarg(data, ra, dec, psi, incl, phiref,
                                   x_grid, log_w_grid,
-                                  interp="linear", phase_marginalization=False,
+                                  interp=JAX_INTERP_DEFAULT, phase_marginalization=False,
                                   grid_block=64):
     """Distance- AND time-marginalized factored log-likelihood, lnL(angles).
 
@@ -745,7 +904,7 @@ def phi_ref_grid(nphi: int) -> np.ndarray:
 
 
 def fused_log_likelihood_phimarg(data, ra, dec, psi, incl, distMpc,
-                                  phi_grid, interp="linear"):
+                                  phi_grid, interp=JAX_INTERP_DEFAULT):
     """Time-marginalized factored lnL with φ_ref marginalized via uniform grid sum.
 
     Evaluates the standard factored lnL at each φ_ref in ``phi_grid`` and
@@ -787,7 +946,7 @@ def fused_log_likelihood_phimarg(data, ra, dec, psi, incl, distMpc,
 
 def fused_log_likelihood_distphimarg(data, ra, dec, psi, incl,
                                       x_grid, log_w_grid,
-                                      phi_grid, interp="linear",
+                                      phi_grid, interp=JAX_INTERP_DEFAULT,
                                       grid_block=64):
     """Distance- AND φ_ref-marginalized factored lnL over (ra, dec, psi, incl).
 
@@ -860,7 +1019,7 @@ def psi_grid(npsi: int) -> np.ndarray:
 
 def fused_log_likelihood_distphipsimarg(data, ra, dec, incl,
                                         x_grid, log_w_grid, phi_grid, psi_grid_,
-                                        interp="linear", grid_block=64):
+                                        interp=JAX_INTERP_DEFAULT, grid_block=64):
     """Distance-, phi_ref- AND psi-marginalized factored lnL over (ra, dec, incl).
 
     Marginalizes luminosity distance (quadrature grid), orbital phase phi_ref and
@@ -914,7 +1073,7 @@ def fused_log_likelihood_distphipsimarg(data, ra, dec, incl,
 
 def fused_log_likelihood_distpsimarg(data, ra, dec, phiref, incl,
                                      x_grid, log_w_grid, psi_grid_,
-                                     interp="linear", grid_block=64):
+                                     interp=JAX_INTERP_DEFAULT, grid_block=64):
     """Distance- AND psi-marginalized factored lnL over (ra, dec, phi_ref, incl).
 
     Marginalizes luminosity distance (quadrature grid) and polarization psi
@@ -960,7 +1119,7 @@ def fused_log_likelihood_distpsimarg(data, ra, dec, phiref, incl,
 
 
 def phi_ref_conditional_lnL(data, ra, dec, psi, incl, distMpc,
-                              phi_grid, interp="linear"):
+                              phi_grid, interp=JAX_INTERP_DEFAULT):
     """Log-likelihood vs φ_ref given the other extrinsic parameters.
 
     Returns a ``(nphi, S)`` array of time-marginalized lnL values, one per
@@ -1010,7 +1169,7 @@ def make_distance_grid(d_min, d_max, n_grid=256, d_prior="euclidean",
     return jnp.asarray(x), jnp.asarray(log_w)
 
 
-def estimate_distance_peak(data, guess_snr=None, n_sky=4000, seed=0, interp="linear"):
+def estimate_distance_peak(data, guess_snr=None, n_sky=4000, seed=0, interp=JAX_INTERP_DEFAULT):
     """Characteristic distance peak/width directly from the precompute.
 
     The distance integrand per (sky, time-bin) is exp(K x - 0.5 R x^2) with
@@ -1146,14 +1305,16 @@ def _tref_minus_epoch(self, det):
 JAXLikelihoodData.tref_minus_epoch = _tref_minus_epoch
 
 
-def make_log_likelihood(data, interp="linear", phase_marginalization=False,
+def make_log_likelihood(data, interp=JAX_INTERP_DEFAULT, phase_marginalization=False,
                         jit=True):
     """Return a closure ``f(ra, dec, psi, incl, phiref, distMpc) -> lnL``.
 
     The returned function closes over ``data`` (treated as constant) and is, by
     default, ``jax.jit``-compiled.  It is differentiable with respect to all six
-    extrinsic arguments when ``interp="linear"``; combine with ``jax.grad`` /
-    ``jax.value_and_grad`` / ``jax.vmap`` as needed.
+    extrinsic arguments for any INTERPOLATING stencil -- ``linear``, ``cubic`` or
+    ``sinc`` -- but NOT for ``nearest``, whose gather is piecewise constant in the
+    arrival time and therefore has zero gradient through the sky.  Combine with
+    ``jax.grad`` / ``jax.value_and_grad`` / ``jax.vmap`` as needed.
     """
     def f(ra, dec, psi, incl, phiref, distMpc):
         return fused_log_likelihood(
