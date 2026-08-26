@@ -18,6 +18,7 @@ Run on GPU in the JAX container (pin an idle GPU):
     PYTHONPATH=<Code>:<paper>/analyses/slowrot_finite-size \
     python test/jax/make_3g_figdata.py
 """
+import inspect
 import os
 import sys
 import numpy as np
@@ -190,12 +191,18 @@ def main():
     # identifies it.  SLOWROT_OVERSAMPLE overrides the sampling; 1 restores the old
     # library's setting and rebuilds its data bit-for-bit (the sampler on top is not
     # deterministic).  It is passed only when set, so this script still runs unchanged
-    # against the old library.
+    # against the old library -- and an explicit request the old library cannot satisfy
+    # is refused rather than silently downgraded to its fixed 1.
     #
     # Provenance: the decoupling is RIFT_roboto_paper branch claude/stoic-saha-496052
     # (2026-08-26), which at the time of writing had NOT landed on that repo's main.
     fmax = float(os.environ.get("SLOWROT_FMAX", "1024.0"))
     _ovs = os.environ.get("SLOWROT_OVERSAMPLE")
+    if _ovs and "oversample" not in inspect.signature(fslib.Source.__init__).parameters:
+        raise SystemExit(
+            "SLOWROT_OVERSAMPLE=%s needs a slowrot_fs_lib with the oversample knob; this "
+            "one sets deltaT = 1/(2*fmax) and is fixed at the band's own Nyquist rate"
+            % _ovs)
     src_kw = {"oversample": int(_ovs)} if _ovs else {}
     src = fslib.Source(m1=1.6, m2=1.4, ra=1.2, dec=0.3, psi=0.5, incl=incl,
                        phiref=0.0, fmin=50.0, fmax=fmax, seglen=32.0,
