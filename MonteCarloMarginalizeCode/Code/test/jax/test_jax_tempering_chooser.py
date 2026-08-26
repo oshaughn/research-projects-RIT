@@ -525,6 +525,45 @@ def test_auto_alone_is_still_accepted():
     assert drv.resolve_tempering_exponent(o, 4, 4800) != 1.0
 
 
+def test_main_ACTUALLY_populates_the_token_record():
+    """The wiring, not the helper.
+
+    Every other test in this file builds its own options object and calls
+    record_supplied_options() itself, so all 40 stayed green when the call was
+    deleted from main() -- mutation C6.  A perfectly tested helper that production
+    never invokes: was_supplied() would then return False for everything and both
+    conflict guards would silently stop firing.
+
+    Pinned structurally because reaching main() needs frames and a likelihood.
+    Order matters too: check_critical_and_report reads the record to decide which
+    flags to report as inert, so the record must be populated BEFORE it runs.
+    """
+    src = open(DRIVER).read()
+    tree = ast.parse(src)
+    fn = next((n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
+               and n.name == "main"), None)
+    assert fn is not None, "main() is missing from the driver"
+
+    calls = [n for n in ast.walk(fn) if isinstance(n, ast.Call)
+             and isinstance(n.func, ast.Name)]
+    names = [c.func.id for c in calls]
+    assert "record_supplied_options" in names, (
+        "main() never calls record_supplied_options -- was_supplied() would "
+        "return False for every flag and both conflict guards would go silent")
+
+    rec = min(c.lineno for c in calls if c.func.id == "record_supplied_options")
+    rpt = [c.lineno for c in calls if c.func.id == "check_critical_and_report"]
+    if rpt:
+        assert rec < min(rpt), (
+            "the token record is populated AFTER check_critical_and_report, "
+            "which reads it to decide which flags are inert")
+
+    # and it must be handed the argv main was given, not sys.argv implicitly
+    rec_call = next(c for c in calls if c.func.id == "record_supplied_options")
+    assert any(isinstance(a, ast.Name) and a.id == "argv" for a in rec_call.args), \
+        "record_supplied_options is not passed main()'s own argv"
+
+
 def test_was_supplied_reads_tokens_not_values():
     """Structural: the guard must not infer 'user passed it' from the value."""
     o = _opts_from_argv(["--adapt-weight-exponent", "1.0"])
