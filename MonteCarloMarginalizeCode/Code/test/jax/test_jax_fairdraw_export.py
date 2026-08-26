@@ -162,6 +162,45 @@ def test_uniform_weights_are_a_no_op(tmp_path):
         "uniform weights triggered a resample (duplicates in the export)"
 
 
+def test_analyze_one_also_refuses_a_post_weight_length_mismatch():
+    """The SECOND mismatch guard, in analyze_one, pinned structurally.
+
+    Reaching it at runtime needs a full sampler, so this reads the source: the
+    guard must compare lengths and RAISE.  Found by mutation testing -- deleting
+    this guard left all 33 tests green, because the write_samples-level test
+    cannot see the call site that feeds it.
+    """
+    src = textwrap.dedent(inspect.getsource(drv.analyze_one))
+    tree = ast.parse(src)
+    msgs = " ".join(c.value for n in ast.walk(tree) if isinstance(n, ast.Raise)
+                    for c in ast.walk(n)
+                    if isinstance(c, ast.Constant) and isinstance(c.value, str))
+    assert "post_weight entries for" in msgs, (
+        "analyze_one no longer refuses a post_weight/theta length mismatch; a "
+        "mismatch would silently export an unreweighted cloud")
+    # and it must not have gone back to silently dropping the weights
+    assert "if _pw is not None and len(_pw) == len(theta) else None" not in src, (
+        "the silent-drop form is back")
+
+
+def test_length_mismatch_between_weights_and_rows_FAILS_LOUDLY(tmp_path):
+    """A mismatched weight vector must refuse, not silently mislabel.
+
+    The guard used to read `if logw is not None and len(logw) == len(theta)`, so
+    a mismatch fell through to the default note -- writing an UNREWEIGHTED
+    tempered cloud under a header claiming "not applicable (sampler targets the
+    posterior)".  That is a false provenance line on the one product every
+    downstream consumer reads as posterior draws.
+    """
+    theta, lnL, logw = make_cloud(n=2000)
+    opts = fake_opts(tmp_path)
+    with pytest.raises(RuntimeError, match="disagree in length"):
+        drv.write_samples(opts, 0, theta, lnL, with_distance=False,
+                          logw=logw[:-1])
+    assert not os.path.exists(opts.output_file + "_0_samples.dat"), \
+        "refused the draw but still wrote a file"
+
+
 def test_export_count_is_NOT_clamped_by_the_evidence_estimator(tmp_path):
     """A valid equal-weight chain must not be truncated by an unrelated ESS.
 

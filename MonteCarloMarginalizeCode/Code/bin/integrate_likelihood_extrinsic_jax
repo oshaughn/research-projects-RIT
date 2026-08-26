@@ -474,8 +474,13 @@ def build_parser():
                       "Left as None when unset so the ignored-option report does "
                       "not claim the user passed it; resolved to 5 downstream.")
     g.add_option("--n-fairdraw-extrinsic-samples", type=int, default=None,
-                 help="Export exactly this many fair draws (clamped by 1.5*neff, "
-                      "as in ILE). Overrides --fairdraw-extrinsic-output-n-max.")
+                 help="Export exactly this many fair draws, clamped only by the "
+                      "rows available. Those already carry ILE's 1.5*ESS cap "
+                      "wherever the export weights were non-uniform, applied "
+                      "against the EXPORT weights; there is deliberately no "
+                      "second clamp by the evidence estimator's neff, which "
+                      "describes a different cloud. "
+                      "Overrides --fairdraw-extrinsic-output-n-max.")
     g.add_option("--verbose", action="store_true", default=False)
     optp.add_option_group(g)
 
@@ -821,6 +826,10 @@ def run_nuts(like, opts, rng, with_distance):
     logZ, sig, neff = evidence_from_logweights(logw)
     # theta/lnL are the NUTS chain (already targets the posterior); the IS cloud
     # th_is/logw is only the evidence estimator, so there is nothing to reweight.
+    # `neff` below therefore describes th_is, NOT the exported chain -- it must
+    # never reach the export count.  It used to: fairdraw_size clamped the export
+    # by 1.5*neff, truncating this chain by an unrelated cloud's ESS on what is
+    # the driver's DEFAULT mode.  write_samples no longer accepts a neff at all.
     return logZ, sig, neff, n_is, theta, lnL, None
 
 
@@ -1023,7 +1032,19 @@ def write_samples(opts, out_index, theta, lnL, with_distance, logw=None):
     # counting, so the header records what went in as well as what came out.
     note = ("not applicable (sampler targets the posterior) ESS=n/a n_in=%d"
             % len(theta))
-    if logw is not None and len(logw) == len(theta):
+    if logw is not None and len(logw) != len(theta):
+        # FAIL LOUDLY, NOT OPEN.  This used to be a silent `and len(...) ==` in
+        # the guard below, so a mismatched weight vector fell through to the
+        # "not applicable (sampler targets the posterior)" note -- writing an
+        # UNREWEIGHTED tempered cloud under a header claiming none was needed.
+        # A length mismatch is a sampler bug, not a configuration; say so.
+        raise RuntimeError(
+            "export weights and samples disagree in length (%d weights, %d "
+            "rows) for --mode %s.  Refusing to write: the fair draw cannot be "
+            "performed and labelling the raw cloud 'not applicable' would be a "
+            "false provenance line."
+            % (len(logw), len(theta), opts.mode))
+    if logw is not None:
         idx, note = fairdraw_indices(logw, rng)
         if idx is not None:
             theta, lnL = theta[idx], np.asarray(lnL)[idx]
@@ -1332,8 +1353,16 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
         #    a real mode-mass bias, but that is unvalidated -- so these modes
         #    export their chains unreweighted until it is measured.
         _pw = res.get("post_weight") if opts.mode in _TEMPERED_MODES else None
+        if _pw is not None and len(_pw) != len(theta):
+            # Silently dropping the weights here made the export claim no
+            # reweighting was needed; write_samples now refuses a mismatch, and
+            # this raises at the source so the mode is named in the message.
+            raise RuntimeError(
+                "--mode %s returned %d post_weight entries for %d samples; the "
+                "tempering correction cannot be applied."
+                % (opts.mode, len(_pw), len(theta)))
         logw_export = (np.log(np.asarray(_pw, dtype=float))
-                       if _pw is not None and len(_pw) == len(theta) else None)
+                       if _pw is not None else None)
     elif opts.mode == "prior-mc":
         logZ, sig, neff, ntot, theta, lnL, logw_export = run_prior_mc(like, opts, rng, dim, with_distance)
     elif opts.mode == "nuts":

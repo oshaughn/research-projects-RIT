@@ -14,7 +14,13 @@ development tree is rift_O4d.
    records the mode and the export ESS.  ``--fairdraw-extrinsic-output``,
    ``--fairdraw-extrinsic-output-n-max`` and ``--n-fairdraw-extrinsic-samples``
    are implemented (gated per mode, and honoured as a COUNT contract even when
-   the weights are uniform).  NOTE ``--fairdraw-extrinsic-output-n-max``
+   the weights are uniform).  The requested count is clamped ONLY by the rows
+   available; those already carry ILE's ``1.5*ESS`` cap wherever the export
+   weights were non-uniform, applied against the EXPORT weights.  There is
+   deliberately no second clamp by the evidence estimator's ``neff``: on the
+   flowMC modes and on ``laplace-is`` that number describes a separate cloud
+   (the moment-matched Gaussian evidence proposal, or the annealing ladder's
+   minimum rung ESS), and clamping by it truncated valid equal-weight chains.  NOTE ``--fairdraw-extrinsic-output-n-max``
    defaults to 5, as in ILE, so passing ``--fairdraw-extrinsic-output`` without
    an explicit maximum now yields 5 rows where it previously yielded the whole
    cloud.  If the weights admit no fair draw at all (degenerate or
