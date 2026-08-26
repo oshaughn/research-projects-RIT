@@ -283,6 +283,7 @@ class JAXDistanceMarginalizedLikelihood:
     def __init__(self, data, d_min, d_max, n_grid=256, d_prior="euclidean",
                  interp=JAX_INTERP_DEFAULT, phase_marginalization=False):
         self.data = data
+        self.interp = interp   # the instance's stencil; sample_phi_ref defaults to it
         self.x_grid, self.log_w_grid = make_distance_grid(
             d_min, d_max, n_grid, d_prior, distMpcRef=data.distMpcRef)
 
@@ -345,6 +346,7 @@ class JAXDistPhiMargLikelihood:
     def __init__(self, data, d_min, d_max, nphi=32, n_grid=256,
                  d_prior="euclidean", interp=JAX_INTERP_DEFAULT, guess_snr=None):
         self.data = data
+        self.interp = interp   # the instance's stencil; sample_phi_ref defaults to it
         self.nphi = int(nphi)
         self._phi_grid = phi_ref_grid(self.nphi)
         # Adaptive distance quadrature: concentrate grid resolution on the
@@ -406,7 +408,7 @@ class JAXDistPhiMargLikelihood:
         return -H
 
     def sample_phi_ref(self, ra, dec, psi, incl, distMpc, rng=None,
-                       n_samples=1, interp=JAX_INTERP_DEFAULT):
+                       n_samples=1, interp=None):
         """Draw φ_ref from its conditional posterior given the other params.
 
         Evaluates ``phi_ref_conditional_lnL`` on the grid, normalises, draws
@@ -418,11 +420,23 @@ class JAXDistPhiMargLikelihood:
         ra, dec, psi, incl, distMpc : float scalars or (S,) arrays
         rng : numpy.random.Generator (optional)
         n_samples : int  — draws per input sample
+        interp : str or None — stencil to evaluate the conditional with.  None (the default)
+            means **this instance's** stencil, not the module default.
+
+        Notes
+        -----
+        This argument carried its own module-level default until 2026-08-26, which was harmless
+        only while that string happened to equal the constructor's: an instance built with any
+        other stencil drew its phases from a DIFFERENT likelihood than the one it reports lnL and
+        evidence from, and nothing raised.  Moving the module default to 'sinc' made it bite the
+        documented backward-compatibility recipe -- constructing with interp="linear" gave a
+        linear evidence and sinc phase draws.  Pass interp= only to override deliberately.
 
         Returns
         -------
         phi_ref : (S,) float array (or (S, n_samples) when n_samples > 1)
         """
+        interp = self.interp if interp is None else interp
         rng = rng or np.random.default_rng()
         ra_ = np.atleast_1d(np.asarray(ra, float))
         dec_ = np.atleast_1d(np.asarray(dec, float))
@@ -466,6 +480,7 @@ class JAXDistPhiPsiMargLikelihood:
     def __init__(self, data, d_min, d_max, nphi=32, npsi=16, n_grid=256,
                  d_prior="euclidean", interp=JAX_INTERP_DEFAULT, guess_snr=None):
         self.data = data
+        self.interp = interp   # the instance's stencil; sample_phi_ref defaults to it
         self.nphi = int(nphi)
         self.npsi = int(npsi)
         self._phi_grid = phi_ref_grid(self.nphi)
@@ -539,6 +554,7 @@ class JAXDistPsiMargLikelihood:
     def __init__(self, data, d_min, d_max, npsi=8, n_grid=256,
                  d_prior="euclidean", interp=JAX_INTERP_DEFAULT, guess_snr=None):
         self.data = data
+        self.interp = interp   # the instance's stencil; sample_phi_ref defaults to it
         self.npsi = int(npsi)
         self._psi_grid = psi_grid(self.npsi)
         if int(os.environ.get("JAX_ILE_DISTGRID_ADAPTIVE", "0")) and guess_snr:

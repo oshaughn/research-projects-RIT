@@ -451,6 +451,54 @@ def test_adaptive_distance_grid_uses_the_callers_stencil():
     assert not bad, "estimate_distance_peak called without forwarding interp=: %s" % bad
 
 
+def test_no_method_silently_overrides_the_instance_stencil():
+    """A method that takes its own ``interp`` must default to the INSTANCE's, never to the
+    module default.
+
+    Reported on PR #193.  ``JAXDistPhiMargLikelihood.sample_phi_ref`` carried
+    ``interp=JAX_INTERP_DEFAULT``, so an instance constructed with any other stencil drew its
+    phi_ref from a different likelihood than the one it reports lnL and evidence from -- silently.
+    Harmless only while the two strings coincided; moving the module default to 'sinc' made it
+    break the very ``interp="linear"`` recipe this change advertises for reproducing old runs.
+
+    This checks the SHAPE rather than the one method, so a new sampler with the same defect fails
+    here: any method (other than __init__) that accepts ``interp`` must default it to None, and
+    the class must retain ``self.interp`` for it to fall back to.
+    """
+    import ast, io as _io, os
+    src = _io.open(os.path.join(os.path.dirname(__file__), "..", "..", "RIFT", "likelihood",
+                                "jax_ile", "wrapper.py"), encoding="utf-8").read()
+    tree = ast.parse(src)
+    offenders, checked = [], 0
+    for cls in [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]:
+        stores = any(isinstance(n, ast.Assign) and
+                     any(isinstance(t, ast.Attribute) and t.attr == "interp" for t in n.targets)
+                     for n in ast.walk(cls))
+        for fn in [f for f in cls.body if isinstance(f, ast.FunctionDef)]:
+            args = fn.args.args
+            if "interp" not in [a.arg for a in args]:
+                continue
+            if fn.name == "__init__":
+                if not stores:
+                    offenders.append("%s.__init__ takes interp but never stores self.interp"
+                                     % cls.name)
+                continue
+            checked += 1
+            # map defaults onto the tail of the positional args
+            defaults = dict(zip([a.arg for a in args][-len(fn.args.defaults):],
+                                fn.args.defaults)) if fn.args.defaults else {}
+            d = defaults.get("interp")
+            if not (isinstance(d, ast.Constant) and d.value is None):
+                offenders.append("%s.%s defaults interp to %s, not None -- it will ignore the "
+                                 "instance's stencil" % (cls.name, fn.name,
+                                                         ast.unparse(d) if d else "<required>"))
+            elif "self.interp if interp is None" not in ast.unparse(fn):
+                offenders.append("%s.%s defaults interp to None but never falls back to "
+                                 "self.interp" % (cls.name, fn.name))
+    assert not offenders, "; ".join(offenders)
+    assert checked >= 1, "no method with an interp= parameter found; retarget this test"
+
+
 def test_cli_default_comes_from_the_shared_constant():
     """--interp's default must be the constant, not a re-typed literal that can drift from it."""
     import ast, io as _io, os
