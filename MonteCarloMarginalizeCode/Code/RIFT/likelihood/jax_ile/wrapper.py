@@ -30,7 +30,7 @@ from .core import (build_likelihood_data, fused_log_likelihood,
                    fused_log_likelihood_distpsimarg,
                    make_distance_grid, make_distance_grid_adaptive,
                    estimate_distance_peak, phi_ref_grid, psi_grid,
-                   phi_ref_conditional_lnL, DIST_MPC_REF)
+                   phi_ref_conditional_lnL, DIST_MPC_REF, JAX_INTERP_DEFAULT)
 
 # Parameter order used throughout the wrapper's vectorized interface.
 EXTRINSIC_PARAM_ORDER = ("ra", "dec", "psi", "incl", "phiref", "distMpc")
@@ -221,7 +221,7 @@ class JAXExtrinsicLikelihood:
     arrays of shape (S,).
     """
 
-    def __init__(self, data, interp="linear", phase_marginalization=False):
+    def __init__(self, data, interp=JAX_INTERP_DEFAULT, phase_marginalization=False):
         self.data = data
         self.interp = interp
         self.phase_marginalization = phase_marginalization
@@ -281,8 +281,9 @@ class JAXDistanceMarginalizedLikelihood:
     ANGULAR_PARAM_ORDER = ("ra", "dec", "psi", "incl", "phiref")
 
     def __init__(self, data, d_min, d_max, n_grid=256, d_prior="euclidean",
-                 interp="linear", phase_marginalization=False):
+                 interp=JAX_INTERP_DEFAULT, phase_marginalization=False):
         self.data = data
+        self.interp = interp   # the instance's stencil; sample_phi_ref defaults to it
         self.x_grid, self.log_w_grid = make_distance_grid(
             d_min, d_max, n_grid, d_prior, distMpcRef=data.distMpcRef)
 
@@ -343,8 +344,9 @@ class JAXDistPhiMargLikelihood:
     ANGULAR_PARAM_ORDER = ("ra", "dec", "psi", "incl")
 
     def __init__(self, data, d_min, d_max, nphi=32, n_grid=256,
-                 d_prior="euclidean", interp="linear", guess_snr=None):
+                 d_prior="euclidean", interp=JAX_INTERP_DEFAULT, guess_snr=None):
         self.data = data
+        self.interp = interp   # the instance's stencil; sample_phi_ref defaults to it
         self.nphi = int(nphi)
         self._phi_grid = phi_ref_grid(self.nphi)
         # Adaptive distance quadrature: concentrate grid resolution on the
@@ -354,7 +356,11 @@ class JAXDistPhiMargLikelihood:
         # same stable logsumexp kernel and is gradient-stable.  Enable with env
         # JAX_ILE_DISTGRID_ADAPTIVE=1; falls back to uniform otherwise.
         if int(os.environ.get("JAX_ILE_DISTGRID_ADAPTIVE", "0")) and guess_snr:
-            d_peak, sigma_d = estimate_distance_peak(data, guess_snr)
+            # interp= must be forwarded: this sizes the distance grid the likelihood then
+            # integrates on, so leaving it at the module default silently mixes stencils --
+            # and would break the documented 'pass interp="linear" to reproduce a
+            # pre-2026-08-26 run' recipe, which is the whole mitigation for that default move.
+            d_peak, sigma_d = estimate_distance_peak(data, guess_snr, interp=interp)
             self.x_grid, self.log_w_grid = make_distance_grid_adaptive(
                 d_min, d_max, d_peak, sigma_d, d_prior, distMpcRef=data.distMpcRef)
             self.dist_grid_info = dict(mode="adaptive", d_peak=float(d_peak),
@@ -402,7 +408,7 @@ class JAXDistPhiMargLikelihood:
         return -H
 
     def sample_phi_ref(self, ra, dec, psi, incl, distMpc, rng=None,
-                       n_samples=1, interp="linear"):
+                       n_samples=1, interp=None):
         """Draw φ_ref from its conditional posterior given the other params.
 
         Evaluates ``phi_ref_conditional_lnL`` on the grid, normalises, draws
@@ -414,11 +420,23 @@ class JAXDistPhiMargLikelihood:
         ra, dec, psi, incl, distMpc : float scalars or (S,) arrays
         rng : numpy.random.Generator (optional)
         n_samples : int  — draws per input sample
+        interp : str or None — stencil to evaluate the conditional with.  None (the default)
+            means **this instance's** stencil, not the module default.
+
+        Notes
+        -----
+        This argument carried its own module-level default until 2026-08-26, which was harmless
+        only while that string happened to equal the constructor's: an instance built with any
+        other stencil drew its phases from a DIFFERENT likelihood than the one it reports lnL and
+        evidence from, and nothing raised.  Moving the module default to 'sinc' made it bite the
+        documented backward-compatibility recipe -- constructing with interp="linear" gave a
+        linear evidence and sinc phase draws.  Pass interp= only to override deliberately.
 
         Returns
         -------
         phi_ref : (S,) float array (or (S, n_samples) when n_samples > 1)
         """
+        interp = self.interp if interp is None else interp
         rng = rng or np.random.default_rng()
         ra_ = np.atleast_1d(np.asarray(ra, float))
         dec_ = np.atleast_1d(np.asarray(dec, float))
@@ -460,14 +478,19 @@ class JAXDistPhiPsiMargLikelihood:
     ANGULAR_PARAM_ORDER = ("ra", "dec", "incl")
 
     def __init__(self, data, d_min, d_max, nphi=32, npsi=16, n_grid=256,
-                 d_prior="euclidean", interp="linear", guess_snr=None):
+                 d_prior="euclidean", interp=JAX_INTERP_DEFAULT, guess_snr=None):
         self.data = data
+        self.interp = interp   # the instance's stencil; sample_phi_ref defaults to it
         self.nphi = int(nphi)
         self.npsi = int(npsi)
         self._phi_grid = phi_ref_grid(self.nphi)
         self._psi_grid = psi_grid(self.npsi)
         if int(os.environ.get("JAX_ILE_DISTGRID_ADAPTIVE", "0")) and guess_snr:
-            d_peak, sigma_d = estimate_distance_peak(data, guess_snr)
+            # interp= must be forwarded: this sizes the distance grid the likelihood then
+            # integrates on, so leaving it at the module default silently mixes stencils --
+            # and would break the documented 'pass interp="linear" to reproduce a
+            # pre-2026-08-26 run' recipe, which is the whole mitigation for that default move.
+            d_peak, sigma_d = estimate_distance_peak(data, guess_snr, interp=interp)
             self.x_grid, self.log_w_grid = make_distance_grid_adaptive(
                 d_min, d_max, d_peak, sigma_d, d_prior, distMpcRef=data.distMpcRef)
             self.dist_grid_info = dict(mode="adaptive", d_peak=float(d_peak),
@@ -529,12 +552,17 @@ class JAXDistPsiMargLikelihood:
     ANGULAR_PARAM_ORDER = ("ra", "dec", "phiref", "incl")
 
     def __init__(self, data, d_min, d_max, npsi=8, n_grid=256,
-                 d_prior="euclidean", interp="linear", guess_snr=None):
+                 d_prior="euclidean", interp=JAX_INTERP_DEFAULT, guess_snr=None):
         self.data = data
+        self.interp = interp   # the instance's stencil; sample_phi_ref defaults to it
         self.npsi = int(npsi)
         self._psi_grid = psi_grid(self.npsi)
         if int(os.environ.get("JAX_ILE_DISTGRID_ADAPTIVE", "0")) and guess_snr:
-            d_peak, sigma_d = estimate_distance_peak(data, guess_snr)
+            # interp= must be forwarded: this sizes the distance grid the likelihood then
+            # integrates on, so leaving it at the module default silently mixes stencils --
+            # and would break the documented 'pass interp="linear" to reproduce a
+            # pre-2026-08-26 run' recipe, which is the whole mitigation for that default move.
+            d_peak, sigma_d = estimate_distance_peak(data, guess_snr, interp=interp)
             self.x_grid, self.log_w_grid = make_distance_grid_adaptive(
                 d_min, d_max, d_peak, sigma_d, d_prior, distMpcRef=data.distMpcRef)
             self.dist_grid_info = dict(mode="adaptive", d_peak=float(d_peak),

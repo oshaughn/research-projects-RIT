@@ -2218,8 +2218,11 @@ def _cubic_Q_window_numpy(Q_block, start_indices, fractional_offsets, npts):
     return Qlms
 
 
-SINC_HALFWIDTH_DEFAULT = 8   # taps per side for time_interp='sinc' (stencil 2a); see
-                             # _sinc_Q_window_numpy for the accuracy-vs-oversampling crossover
+# taps per side for time_interp='sinc' (stencil 2a); see _sinc_Q_window_numpy for the
+# accuracy-vs-oversampling crossover.  DEFINED IN time_interp_choice, not here, so the JAX
+# gatherer can read it without importing this module (numba/lal); re-exported so every existing
+# `factored_likelihood.SINC_HALFWIDTH_DEFAULT` reference keeps resolving.
+from .time_interp_choice import SINC_HALFWIDTH_DEFAULT
 
 
 def _sinc_lanczos_weight_matrix(u, a=SINC_HALFWIDTH_DEFAULT, xpy=np):

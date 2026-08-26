@@ -27,6 +27,13 @@ from __future__ import division
 # factored_likelihood.TIME_INTERP_CHOICES must agree and test_time_interp_choice asserts it does.
 TIME_INTERP_CHOICES = ('nearest', 'cubic', 'sinc')
 
+# Taps per SIDE for the 'sinc' stencil (the full stencil is 2a wide).  It lives in this leaf
+# module, rather than beside the weight builder in factored_likelihood, because three backends
+# now need it -- the CPU window builder, the cupy kernel wrapper, and the JAX gatherer -- and the
+# JAX path must not pay factored_likelihood's numba/lal import cost to learn one integer.
+# factored_likelihood re-exports it, so `FL.SINC_HALFWIDTH_DEFAULT` keeps working.
+SINC_HALFWIDTH_DEFAULT = 8
+
 # Values of --internal-ile-interpolate-time that mean "don't interpolate at all".  These matter
 # because the flag takes a VALUE: '--internal-ile-interpolate-time False' passes the STRING
 # 'False', which is truthy in Python, so without this it would sail past an `if opts...:` guard

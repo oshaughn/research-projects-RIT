@@ -109,6 +109,16 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         guard asserting the SNR rule has not crept
 #                                         back into the driver.  Needs no lal, no GPU
 #                                         and no flowMC.
+#   test_jax_stencil_parity.py        24  #193: the JAX 'sinc' gatherer is the SAME
+#                                         stencil as the numpy/cupy/CUDA paths.  Those
+#                                         three share one weight array and cannot drift;
+#                                         JAX re-expresses the formula independently
+#                                         (its weights depend on the traced sub-sample
+#                                         offset), so this is what converts that
+#                                         duplication from "trust the reviewer" into
+#                                         "CI fails".  Landed WITHOUT a manifest entry,
+#                                         which made rift_O4d fail its own manifest
+#                                         check; added here.
 #   test_interp_choices.py             3  #190: --interp cubic is reachable from the
 #                                         CLI and selects _gather_cubic.  Merged in
 #                                         from rift_O4d, which added it to FILES
@@ -164,6 +174,7 @@ FILES=(
   "${JAXDIR}/test_jax_tempering_chooser.py"
   "${JAXDIR}/test_tvals_grid_convention.py"
   "${JAXDIR}/test_interp_choices.py"
+  "${JAXDIR}/test_jax_stencil_parity.py"
 )
 
 # EXCLUDED: files in JAXDIR matching test_*.py that are deliberately NOT gated.  The
@@ -195,7 +206,7 @@ fi
 # Sum of the per-file counts above.
 # Pinned deliberately: a bare `pytest test/jax/`
 # that collected 0 would exit 5, and a partial loss (say 14 -> 3) would still exit 0.
-EXPECTED_TESTS=109
+EXPECTED_TESTS=133
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${FILES[@]}" 2>&1)"
