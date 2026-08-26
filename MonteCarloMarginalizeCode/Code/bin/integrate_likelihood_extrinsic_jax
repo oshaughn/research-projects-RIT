@@ -364,9 +364,29 @@ def build_parser():
     g.add_option("--num-samples", type=int, default=2000,
                  help="NUTS posterior samples per chain (--mode nuts).")
     g.add_option("--num-chains", type=int, default=1)
-    g.add_option("--no-flow-reuse", action="store_true", default=False,
-                 help="Disable bootstrapping the trained flow across "
-                      "--n-events-to-analyze (re-train from scratch each event).")
+    # DEFAULT IS OFF (no re-use).  Measured: across an 8-event batch at two seeds,
+    # re-using the trained flow contracts the extrinsic posterior monotonically in
+    # slot index -- psi to ~40% of its no-re-use width by slot 7, on BOTH seeds,
+    # with slot 0 (where no re-use has happened yet) sitting at ~1.0 as a control.
+    # It buys nothing to pay for that with: 1589 s mean wall with re-use vs 1567 s
+    # without, a difference smaller than the seed-to-seed spread and of flipping
+    # sign.  See analyses/jax_extrinsic_tempering/ in the paper repo.
+    #
+    # --no-flow-reuse is kept (now a no-op restating the default) so existing
+    # command lines and scripts that pass it keep working; --flow-reuse is the way
+    # back to the old behaviour.  Both write the same dest, so the LAST one on the
+    # command line wins.
+    g.add_option("--no-flow-reuse", action="store_true", dest="no_flow_reuse",
+                 default=True,
+                 help="Re-train the flow from scratch each event (the DEFAULT). "
+                      "Kept for compatibility: it now restates the default.")
+    g.add_option("--flow-reuse", action="store_false", dest="no_flow_reuse",
+                 help="Bootstrap the trained flow across --n-events-to-analyze "
+                      "instead of re-training per event.  NOT recommended for any "
+                      "run whose extrinsic SAMPLES are used: it contracts the "
+                      "posterior in later slots (measured ~40% of the no-re-use "
+                      "psi width by slot 7 of 8) for no measurable wall-time "
+                      "saving.  Its evidence is less affected than its samples.")
     # ILE-compatible semantics: store_true, default OFF.  When ON, distance is
     # marginalized analytically (5-D angular problem, well conditioned); when
     # OFF, distance is sampled explicitly (6-D).  Required for --mode nuts.
