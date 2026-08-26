@@ -264,8 +264,9 @@ def _sinc_lanczos_weights_jax(u, a):
     keeps it honest is ``test/jax/test_jax_stencil_parity.py``, which compares this against the
     numpy generator element-by-element -- including the two details that are easy to get wrong:
 
-      * the ``|x| >= a`` hard zero (it bites only at u == 0, where tap k = a sits exactly at
-        x = -a), and
+      * the ``|x| >= a`` hard zero.  On the wired path (u in [0,1)) it reaches only u == 0,
+        where tap k = a sits exactly at x = -a and is worth 1.5e-33 -- but these are library
+        helpers, and for u outside [0,1) the clause is worth 2.2e-3, so it is pinned there; and
       * the renormalisation to unit sum, which is applied over the FULL stencil and is NOT
         redone after out-of-buffer taps are dropped.  The CUDA kernel does the same, so the
         three backends agree in the zero-extension region as well as the interior.
