@@ -365,6 +365,20 @@ def test_accumulators_pass_separable_u():
            not any(kw.arg == "u" for kw in c.keywords)]
     assert not bad, "gather() called without the separable offset: %s" % bad
 
+    # ... and the offset must actually be BUILT, conditionally on the stencil.  Checking only
+    # that a third argument is present is not enough: `u_sep = None` everywhere would satisfy
+    # that while silently disabling the memory fix, which nothing else here would catch.
+    assigns = [n for n in ast.walk(tree) if isinstance(n, ast.Assign)
+               and any(isinstance(t, ast.Name) and t.id == "u_sep" for t in n.targets)]
+    assert len(assigns) >= 2, "expected a u_sep assignment per accumulator, found %d" % len(assigns)
+    for a in assigns:
+        src_expr = ast.unparse(a.value)
+        assert "_separable_u" in src_expr, \
+            "u_sep no longer builds the separable offset (%s); the memory fix is disabled" % src_expr
+        assert isinstance(a.value, ast.IfExp), \
+            ("u_sep is unconditional (%s); it must stay gated off the stencils that ignore u -- "
+             "feeding it to 'nearest' cost >60%% wall on the banded path" % src_expr)
+
 
 def test_every_entry_point_defaults_to_the_same_stencil():
     """The default is ONE constant, and every entry point in the package uses it.
