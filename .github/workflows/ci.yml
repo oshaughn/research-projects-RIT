@@ -329,11 +329,12 @@ jobs:
     # and means a breaking upstream jax release can redden this job outside any PR's
     # control. If that becomes noisy, pin here rather than deleting the job.
     #
-    # Cost.  CURRENT (EXPECTED_TESTS=79 in .travis/test-jax.sh): 79 tests, measured
-    # 308-317 s of pytest on ldas-grid pinned to 8 cores under heavy contention
-    # (jax 0.9.2, JAX_PLATFORMS=cpu, OMP_NUM_THREADS=1) -- i.e. a pessimistic
-    # figure; the count grew 27 -> 48 (#180) -> 79 (the tempering chooser) while
-    # this note still said 27.
+    # Cost.  CURRENT (EXPECTED_TESTS=95 in .travis/test-jax.sh): 95 tests, measured
+    # 859 s of pytest on ldas-pcdev11 pinned to 16 cores (jax 0.9.2,
+    # JAX_PLATFORMS=cpu, OMP_NUM_THREADS=1).  The count grew 27 -> 48 -> 64
+    # (#180, fair-draw export) -> 95 (this PR, the tempering chooser), and #190
+    # added test_interp_choices.py along the way; this note sat at 27 through
+    # several of those, so re-derive it from the gate rather than trusting it.
     # test_jax_slowrot.py dominates (the p_max=0/p_max=1 rotation ladders and
     # freqresponse, each followed by the AD/jit/vmap/hessian checks); it is the first
     # thing to trim if CI minutes ever bite.  timeout-minutes is generous so a slower
@@ -344,8 +345,9 @@ jobs:
     # the actual runner (job 95750869285, python 3.11.15, jax 0.10.2, numpyro 0.21.0) --
     # ~10x headroom, with the unpinned install already a jax minor version ahead of the
     # 0.9.2 measured locally.  Do NOT read the 14 as a current count; the file list has
-    # grown since and the gate asserts 79.  That runner-vs-local ratio (286 s runner
-    # for 964 s local) is why 308 s local is not a timeout concern at 60 minutes.
+    # grown since and the gate asserts 95.  That runner-vs-local ratio (286 s runner
+    # for 964 s local, ~3.4x) is why 859 s local is not a timeout concern at 60
+    # minutes.
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
