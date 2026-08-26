@@ -21,18 +21,55 @@ data_at_intrinsic = {}
 
 my_digits=5  # safety for high-SNR BNS
 
-tides_on = False
-distance_on = False  
-col_intrinsic = 9
-
 import argparse
 parser = argparse.ArgumentParser(usage="util_CleanILE.py fname1.dat fname2.dat ... ")
 parser.add_argument("fname",action='append',nargs='+')
+parser.add_argument("--a6c", action="store_true")
+parser.add_argument("--hyperbolic", action="store_true")
 parser.add_argument("--eccentricity", action="store_true")
 parser.add_argument("--meanPerAno", action="store_true")
 #Askold: adding specification for tabular eos file
 parser.add_argument("--tabular-eos-file", action="store_true") 
 opts = parser.parse_args()
+
+
+def expected_row_lengths(opts):
+    """Column counts consistent with the enabled advanced-physics groups.
+
+    An ILE row is composed as
+
+        event_id m1 m2 s1x s1y s1z s2x s2y s2z
+        [distance] [lambda1 lambda2 [eos_table_index]] [a6c] [E0 p_phi0]
+        [eccentricity [meanPerAno]]
+        lnL sigmaOverL ntotal neff
+
+    (the ordering of the optional groups matches the ``col_lnL`` increment
+    chain in util_ConstructIntrinsicPosterior_GenericCoordinates.py).  Each
+    enabled flag contributes a KNOWN number of columns, so the groups compose:
+    a run with --a6c --hyperbolic --eccentricity --meanPerAno writes all four.
+    Tides / EOS index / pinned distance have no command-line flag here, so the
+    row WIDTH is what distinguishes them; the allowed widths below are the
+    flag-implied base plus each of those possibilities.
+    """
+    n_flag = 0
+    if opts.a6c:
+        n_flag += 1
+    if opts.hyperbolic:
+        n_flag += 2
+    if opts.eccentricity:
+        n_flag += 1
+        if opts.meanPerAno:
+            n_flag += 1
+    lengths = set()
+    lengths.add(13 + n_flag)      # no tides, no pinned distance
+    lengths.add(13 + n_flag + 2)  # lambda1, lambda2
+    lengths.add(13 + n_flag + 3)  # lambda1, lambda2, eos_table_index
+    if n_flag == 0:
+        lengths.add(14)           # pinned distance (written only on its own)
+    return lengths
+
+
+allowed_lengths = expected_row_lengths(opts)
 
 #print opts.fname
 from pathlib import Path
@@ -50,32 +87,13 @@ for fname in opts.fname[0]: #sys.argv[1:]:
     for line in data:
       try:
         line = np.around(line, decimals=my_digits)
-        lambda1=lambda2=0
-        eos_index = 0
-        if opts.eccentricity:
-            if opts.meanPerAno:
-                indx, m1,m2, s1x,s1y,s1z,s2x,s2y,s2z,ecc,meanPerAno, lnL, sigmaOverL, ntot, neff = line
-                col_intrinsic = 11
-            else:
-                indx, m1,m2, s1x,s1y,s1z,s2x,s2y,s2z,ecc, lnL, sigmaOverL, ntot, neff = line
-                col_intrinsic = 10
-        elif len(line) == 13 and (not tides_on) and (not distance_on):  # strip lines with the wrong length
-            indx, m1,m2, s1x,s1y,s1z,s2x,s2y,s2z,lnL, sigmaOverL, ntot, neff = line
-        elif  len(line) == 14:
-            distance_on=True
-            col_intrinsic=10
-            indx, m1,m2, s1x,s1y,s1z,s2x,s2y,s2z,dist, lnL, sigmaOverL, ntot, neff = line
-        elif len(line)==15:
-            tides_on  = True
-            col_intrinsic =11
-            indx, m1,m2, s1x,s1y,s1z,s2x,s2y,s2z, lambda1,lambda2,lnL, sigmaOverL, ntot, neff = line
-
-        #Askold: adding the option for tabular eos file
-        elif opts.tabular_eos_file and len(line) == 16: #checking if the tabular eos file is defined in the parser and if the line actually has all the columns
-            #no eccentricity assumed here, since export_eos_index option doesn't output eccentricity, also it doesn't apply to neutron stars
-            col_intrinsic = 12 #I assume eos_index to be intrinsic parameter
-            indx, m1, m2, s1x, s1y, s1z, s2x, s2y, s2z, lambda1, lambda2, eos_index, lnL, sigmaOverL, ntot, neff = line 
-
+        if len(line) not in allowed_lengths:  # strip lines with the wrong length
+            raise ValueError("Unsupported ILE row layout: {} columns (expected one of {})".format(len(line), sorted(allowed_lengths)))
+        # Whatever the enabled groups, the last four columns are
+        # lnL sigmaOverL ntotal neff, so everything between the event id and
+        # them is the intrinsic key used to consolidate repeated evaluations.
+        col_intrinsic = len(line) - 4
+        lnL, sigmaOverL, ntot, neff = line[col_intrinsic:]
         if sigmaOverL>0.9:
             continue    # do not allow poorly-resolved cases (e.g., dominated by one point). These are often useless
         if tuple(line[1:col_intrinsic]) in data_at_intrinsic:
@@ -84,7 +102,8 @@ for fname in opts.fname[0]: #sys.argv[1:]:
         else:
 #            print " new key ", line[1:9]
             data_at_intrinsic[tuple(line[1:col_intrinsic])] = [line[col_intrinsic:]]
-      except:
+      except Exception as exc:
+          sys.stderr.write("Skipping malformed ILE row in {}: {}\n".format(fname, exc))
           continue
 
 for key in data_at_intrinsic:
@@ -118,19 +137,7 @@ for key in data_at_intrinsic:
     sigmaNetOverL = max(sigma_prop, sigma_scatter)
 
 
-    if opts.eccentricity:
-        if opts.meanPerAno:
-            print(-1, key[0],key[1], key[2], key[3],key[4], key[5],key[6], key[7], key[8], key[9], lnLmeanMinusLmax+lnLmax, sigmaNetOverL, np.sum(ntot), -1)
-        else:
-            print(-1, key[0],key[1], key[2], key[3],key[4], key[5],key[6], key[7], key[8], lnLmeanMinusLmax+lnLmax, sigmaNetOverL, np.sum(ntot), -1)
-    elif tides_on:
-        print(-1, key[0],key[1], key[2], key[3],key[4], key[5],key[6], key[7], key[8],key[9], lnLmeanMinusLmax+lnLmax, sigmaNetOverL, np.sum(ntot), -1)
-    elif distance_on:
-        print(-1, key[0],key[1], key[2], key[3],key[4], key[5],key[6], key[7], key[8], lnLmeanMinusLmax+lnLmax, sigmaNetOverL, np.sum(ntot), -1)
-    
-    #Askold: new option for tabular eos file
-    elif opts.tabular_eos_file: #written similarly to the previous ones
-        print(-1, key[0],key[1], key[2], key[3],key[4], key[5],key[6], key[7], key[8],key[9], key[10],  lnLmeanMinusLmax+lnLmax, sigmaNetOverL, np.sum(ntot), -1)
-    
-    else:
-        print(-1,  key[0],key[1], key[2], key[3],key[4], key[5],key[6], key[7], lnLmeanMinusLmax+lnLmax, sigmaNetOverL, np.sum(ntot), -1)
+    # The key already holds every intrinsic column that was present in the
+    # input rows, in input order, so the composite preserves whatever
+    # combination of advanced-physics groups the run enabled.
+    print(-1, *key, lnLmeanMinusLmax+lnLmax, sigmaNetOverL, np.sum(ntot), -1)

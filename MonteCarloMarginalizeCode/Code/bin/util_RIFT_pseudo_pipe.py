@@ -137,6 +137,15 @@ def retrieve_event_from_coinc(fname_coinc):
     else:
         event_dict["eccentricity"] = None
         event_dict["meanPerAno"] = None
+    try:
+        event_dict["E0"] = row.psi3
+    except:
+        event_dict["E0"] = 0.0
+    try:
+        event_dict["p_phi0"] = row.beta
+    except:
+        event_dict["p_phi0"] = 0.0
+
     event_dict["IFOs"] = list(set(ifo_list))
     max_snr_idx = snr_list.index(max(snr_list))
     event_dict['SNR'] = snr_list[max_snr_idx]
@@ -433,6 +442,8 @@ parser.add_argument("--sample-eccentricity-squared",action='store_true', help="O
 parser.add_argument("--use-eccentricity-squared",action='store_true', help="Allows for fitting and sampling in eccentricity_squared instead of eccentricity")
 parser.add_argument("--assume-eccentric",action='store_true', help="Add eccentric options for each part of analysis")
 parser.add_argument("--use-meanPerAno",action='store_true', help="Add meanPerAno options for each part of analysis")
+parser.add_argument("--use-EOB-parameters",action='store_true', help="Add sampling in EOB parameters; currently only a6c")
+parser.add_argument("--assume-hyperbolic",action='store_true', help="Add hyperbolic options for each part of analysis")
 parser.add_argument("--internal-cip-use-periodic-ecc-vars",action='store_true', help="use e cos ell, e sin ell as fitting variables ")
 parser.add_argument("--assume-lowlatency-tradeoffs",action='store_true', help="Force analysis with various low-latency tradeoffs (e.g., drop spin 2, use aligned, etc)")
 parser.add_argument("--assume-highq",action='store_true', help="Force analysis with the high-q strategy, neglecting spin2. Passed to 'helper'")
@@ -500,18 +511,26 @@ parser.add_argument("--eccentricity-prior",default='uniform',type=str,choices=['
 parser.add_argument("--force-lambda-max",default=None,type=float,help="Provide this value to override the value of lambda-max provided") 
 parser.add_argument("--force-lambda-small-max",default=None,type=float,help="Provide this value to override the value of lambda-small-max provided") 
 parser.add_argument("--force-lambda-no-linear-init",action='store_true',help="Disables use of priors focused towards small lambda for initial iterations. Designed for PP plot tests with wide/uniform priors.")
-parser.add_argument("--force-chi-max",default=None,type=float,help="Provide this value to override the value of chi-max provided") 
-parser.add_argument("--force-chi-small-max",default=None,type=float,help="Provide this value to override the value of chi-max provided") 
-parser.add_argument("--force-ecc-max",default=None,type=float,help="Provide this value to override the value of ecc-max provided")
-parser.add_argument("--force-ecc-min",default=None,type=float,help="Provide this value to override the value of ecc-min provided")
-parser.add_argument("--force-comp-max",default=1000,type=float,help="Provide this value to override the value of the max component mass in CIP provided")
-parser.add_argument("--force-comp-min",default=1,type=float,help="Provide this value to override the value of min component mass in CIP provided")
-parser.add_argument("--force-meanPerAno-max",default=None,type=float,help="Provide this value to override the value of meanPerAno-max provided")
-parser.add_argument("--force-meanPerAno-min",default=None,type=float,help="Provide this value to override the value of meanPerAno-min provided")
+
+parser.add_argument("--force-chi-max",default=None,type=float,help="Provde this value to override the value of chi-max provided")
+parser.add_argument("--force-chi-small-max",default=None,type=float,help="Provde this value to override the value of chi-max provided")
+parser.add_argument("--force-a6c-max",default=-20,type=float,help="Provde this value to override the value of a6c-max provided")
+parser.add_argument("--force-a6c-min",default=-80,type=float,help="Provde this value to override the value of a6c-min provided")
+parser.add_argument("--force-E0-max",default=None,type=float,help="Provide this value to override the value of E0-max provided")
+parser.add_argument("--force-E0-min",default=None,type=float,help="Provide this value to override the value of E0-min provided")
+parser.add_argument("--force-pphi0-max",default=None,type=float,help="Provide this value to override the value of pphi0-max provided")
+parser.add_argument("--force-pphi0-min",default=None,type=float,help="Provide this value to override the value of pphi0-min provided")
+parser.add_argument("--force-ecc-max",default=None,type=float,help="Provde this value to override the value of ecc-max provided")
+parser.add_argument("--force-ecc-min",default=None,type=float,help="Provde this value to override the value of ecc-min provided")
+parser.add_argument("--force-comp-max",default=1000,type=float,help="Provde this value to override the value of the max component mass in CIP provided")
+parser.add_argument("--force-comp-min",default=1,type=float,help="Provde this value to override the value of min component mass in CIP provided")
+parser.add_argument("--force-meanPerAno-max",default=None,type=float,help="Provde this value to override the value of meanPerAno-max provided")
+parser.add_argument("--force-meanPerAno-min",default=None,type=float,help="Provde this value to override the value of meanPerAno-min provided")
 parser.add_argument("--scale-mc-range",type=float,default=None,help="If using the auto-selected mc, scale the ms range proposed by a constant factor. Recommend > 1. . ini file assignment will override this.")
 parser.add_argument("--limit-mc-range",default=None,type=str,help="Pass this argumen through to the helper to set the mc range")
 parser.add_argument("--force-mc-range",default=None,type=str,help="Pass this argumen through to the helper to set the mc range")
 parser.add_argument("--force-eta-range",default=None,type=str,help="Pass this argumen through to the helper to set the eta range")
+parser.add_argument("--force-mtot-range",default=None,type=str,help="Pass this argument through to the helper to set the mtot range. Overrides mc parameter with mtot parameter broadly throughout the pipeline.")
 parser.add_argument("--allow-subsolar", action='store_true', help="Override limits which otherwise prevent subsolar mass PE")
 parser.add_argument("--force-hint-snr",default=None,type=str,help="Pass this argumen through to the helper to control source amplitude effects")
 parser.add_argument("--force-initial-grid-size",default=None,type=float,help="Only used for automated grids.  Passes --force-initial-grid-size down to helper")
@@ -604,6 +623,12 @@ parser.add_argument("--archive-pesummary-label",default=None,help="If provided, 
 parser.add_argument("--archive-pesummary-event-label",default="this_event",help="Label to use on the pesummary page itself")
 parser.add_argument("--internal-mitigate-fd-J-frame",default="L_frame",help="L_frame|rotate, choose method to deal with ChooseFDWaveform being in wrong frame. Default is to request L frame for inputs")
 parser.add_argument("--internal-force-puff-iterations", default=4, type=int, help="Number of iterations to be puffed")
+parser.add_argument("--first-iteration-jumpstart",action='store_true',help="No ILE jobs the first iteration.  Assumes you already have .composite files and want to get going. Particularly helpful for subdag systems")
+parser.add_argument("--use-mtot-coords",action='store_true',help="Passed to the helper to configure CIP and PUFF for mtot instead of mc.")
+parser.add_argument("--force-scatter-grids",action='store_true',help="Eliminates all non-scatter intrinsic points from hyperbolic grids throughout the workflow.")
+parser.add_argument("--force-plunge-grids",action='store_true',help="Eliminates all non-plunge intrinsic points from hyperbolic grids throughout the workflow.")
+parser.add_argument("--force-zoomwhirl-grids",action='store_true',help="Eliminates all non-zoomwhirl intrinsic points from hyperbolic grids throughout the workflow.")
+parser.add_argument("--force-hyperbolic-22", action='store_true', help='Forces just the 22 modes for hyperbolic waveforms')
 opts=  parser.parse_args()
 
 # Resolve the sub-sample stencil request IMMEDIATELY, so a bare flag / retired 'True' / typo
@@ -617,6 +642,15 @@ resolve_interpolate_time_request(opts.internal_ile_interpolate_time)
 # the value into ile_pre.sh.  A CLI value wins over any inherited environment value.
 if opts.ile_gpu_fanout is not None:
     os.environ['RIFT_ILE_GPU_FANOUT'] = str(opts.ile_gpu_fanout)
+
+# Ensure --assume-hyperbolic is set when using any --force-X-grids option
+# Ensure only ONE of the --force-X-grids options is set
+force_grids = [opts.force_scatter_grids, opts.force_plunge_grids, opts.force_zoomwhirl_grids]
+if any(force_grids) and not opts.assume_hyperbolic:
+    parser.error("Using --force-scatter-grids, --force-plunge-grids, or "
+                 "--force-zoomwhirl-grids requires --assume-hyperbolic!")
+if sum(bool(x) for x in force_grids) > 1:
+    parser.error("CANNOT use multiple --force-X-grids options at the same time!")
 
 config_stored=None; config_dict=None
 ile_condor_commands = None
@@ -873,15 +907,33 @@ if opts.choose_data_LI_seglen:
 
 is_analysis_precessing =False
 is_analysis_eccentric =False
+is_analysis_hyperbolic =False
 if opts.approx == "SEOBNRv3" or opts.approx == "NRSur7dq2" or opts.approx == "NRSur7dq4" or (opts.approx == 'SEOBNv3_opt') or (opts.approx == 'IMRPhenomPv2') or (opts.approx =="SEOBNRv4P" ) or (opts.approx == "SEOBNRv4PHM") or (opts.approx == "SEOBNRv5PHM") or ('SpinTaylor' in opts.approx) or ('IMRPhenomTP' in opts.approx or ('IMRPhenomXP' in opts.approx)):
-        is_analysis_precessing=True
+    is_analysis_precessing = True
 if opts.assume_precessing:
-        is_analysis_precessing = True
+    is_analysis_precessing = True
 if opts.assume_nonprecessing:
-        is_analysis_precessing = False
+    is_analysis_precessing = False
 if opts.assume_eccentric:
-        is_analysis_eccentric = True
+    is_analysis_eccentric = True
+if opts.assume_hyperbolic:
+    is_analysis_hyperbolic = True
 
+# Resolve ONE effective hyperbolic prior range for the whole workflow.  Each
+# consumer carries its own default and they do not agree: initial points are
+# generated out to p_phi0=10, while CIP defaults to 5.4, so a bare
+# --assume-hyperbolic evaluates likelihood at points the posterior then throws
+# away.  Fix the range here (defaults matching grid generation) and forward it
+# explicitly to grid generation, CIP, and puffing, override or not.
+hyperbolic_range = {'E0_min': 1.0, 'E0_max': 1.2, 'pphi0_min': 0.0, 'pphi0_max': 10.0}
+for _name in hyperbolic_range:
+    _val = getattr(opts, 'force_' + _name)
+    if not(_val is None):
+        hyperbolic_range[_name] = _val
+if is_analysis_hyperbolic:
+    if hyperbolic_range['E0_min'] >= hyperbolic_range['E0_max'] or hyperbolic_range['pphi0_min'] >= hyperbolic_range['pphi0_max']:
+        raise ValueError(" Empty hyperbolic prior range requested: check --force-E0-min/max and --force-pphi0-min/max ")
+    print(" Hyperbolic prior range (grid generation, CIP, puff): E0 [{},{}], p_phi0 [{},{}] ".format(hyperbolic_range['E0_min'],hyperbolic_range['E0_max'],hyperbolic_range['pphi0_min'],hyperbolic_range['pphi0_max']))
 
 dirname_run = gwid+ "_" + opts.calibration+ "_"+ opts.approx+"_fmin" + str(fmin) +"_fmin-template"+str(fmin_template) +"_lmax"+str(opts.l_max) + "_"+opts.spin_magnitude_prior
 if opts.online:
@@ -899,7 +951,9 @@ if opts.assume_matter:
 if opts.assume_eccentric:
     dirname_run += "_with_eccentricity"
     if opts.use_meanPerAno:
-        dirname_run += "_and_meanPerAno"
+        dirname_run += "_with_eccentricity_and_meanPerAno"
+if opts.assume_hyperbolic:
+    dirname_run += "_with_hyperbolic"
 if opts.no_matter:
     dirname_run += "_no_matter"
 if opts.assume_highq:
@@ -950,12 +1004,17 @@ if not(opts.use_ini is None):
         P.eccentricity = event_dict["eccentricity"]
     if not(event_dict['meanPerAno'] is None):
         P.meanPerAno = event_dict["meanPerAno"]
+    if event_dict['E0'] is not None:
+        P.E0 = event_dict['E0']
+        P.p_phi0 = event_dict['p_phi0']
     # Write 'target_params' file -- hyperpipeline .dat or legacy XML.
     if _use_hpip_pp:
         from RIFT.misc import hyperpipeline_io as _hpio
         _cols = _hpio.build_column_list(
             use_eccentricity=(P.eccentricity != 0),
-            use_meanPerAno=(P.meanPerAno != 0))
+            use_meanPerAno=(P.meanPerAno != 0),
+            use_eob_parameters=opts.use_EOB_parameters,
+            use_hyperbolic=opts.assume_hyperbolic)
         _hpio.write_grid_from_P_list("target_params", [P], _cols,
                                      lal_module=lal,
                                      lalsimutils_module=lalsimutils)
@@ -1072,6 +1131,7 @@ if opts.internal_cip_transverse_tails:
     print("  [transverse-tails] raising NET interim sampling: cip-cap-neff -> {}, n-output-samples -> {} (worker count scaled x{} below); convergence test -> {}; puff tail-guard chi1_perp fraction {}".format(opts.internal_cip_cap_neff, opts.n_output_samples, opts.internal_cip_transverse_tails_worker_scale, opts.internal_test_convergence_method, opts.internal_cip_transverse_tails_puff_fraction))
 
 cmd = " helper_LDG_Events.py --force-notune-initial-grid   --propose-fit-strategy --propose-ile-convergence-options  --fmin " + str(fmin) + " --fmin-template " + str(fmin_template) + " --working-directory " + base_dir + "/" + dirname_run  + helper_psd_args  + " --no-enforce-duration-bound --test-convergence "
+cmd += " --internal-initial-grid-approximant {} ".format(opts.approx)
 if opts.internal_test_convergence_method:
     cmd += " --internal-test-convergence-method {} ".format(opts.internal_test_convergence_method)
 if opts.internal_use_gracedb_bayestar:
@@ -1086,6 +1146,8 @@ if not(opts.internal_use_amr) and not(opts.manual_initial_grid and not(opts.manu
     cmd+= " --propose-initial-grid "
 if opts.force_initial_grid_size:
     cmd += " --force-initial-grid-size {} ".format(int(opts.force_initial_grid_size))
+if opts.use_EOB_parameters:
+    cmd += " --use-EOB-parameters "
 if opts.assume_matter:
         cmd += " --assume-matter "
         npts_it = 1000
@@ -1109,6 +1171,20 @@ if is_analysis_eccentric:
     if opts.use_meanPerAno:
         cmd += " --use-meanPerAno "
         npts_it = int(npts_it*1.5)
+if is_analysis_hyperbolic:
+    cmd += " --assume-hyperbolic "
+    npts_it = int(npts_it*2.25)
+    # always pass the resolved range, so grid generation, CIP, and puff agree
+    cmd += " --E0-max {}  --E0-min {}  ".format(hyperbolic_range['E0_max'],hyperbolic_range['E0_min'])
+    cmd += " --pphi0-max {}  --pphi0-min {}  ".format(hyperbolic_range['pphi0_max'],hyperbolic_range['pphi0_min'])
+    if opts.force_scatter_grids:
+        cmd += " --force-scatter-grids "
+    if opts.force_plunge_grids:
+        cmd += " --force-plunge-grids "
+    if opts.force_zoomwhirl_grids:
+        cmd += " --force-zoomwhirl-grids "
+    if opts.force_hyperbolic_22:
+        cmd += " --force-hyperbolic-22 "
 if opts.assume_highq:
     cmd+= ' --assume-highq  --force-grid-stretch-mc-factor 2'  # the mc range, tuned to equal-mass binaries, is probably too narrow. Workaround until fixed in helper
     npts_it =1000
@@ -1155,6 +1231,10 @@ elif opts.scale_mc_range:
     cmd += " --scale-mc-range  " + str(opts.scale_mc_range).replace(' ','')
 if not(opts.force_eta_range is None):
     cmd+= " --force-eta-range  " + str(opts.force_eta_range).replace(' ','')
+if not(opts.force_mtot_range is None):
+    cmd+= " --force-mtot-range  " + str(opts.force_mtot_range).replace(' ','')
+if opts.use_mtot_coords:
+    cmd+= " --use-mtot-coords "
 if opts.allow_subsolar:
     cmd += " --allow-subsolar "
 if opts.force_chi_max:
@@ -1364,8 +1444,10 @@ if opts.use_gwsignal:
     line += " --use-gwsignal  --approx " + opts.approx
 elif not 'NR' in opts.approx:
         line += " --approx " + opts.approx
-elif opts.use_gwsurrogate and 'NRHybSur' in opts.approx:
+elif opts.use_gwsurrogate and 'NRHybSur' in opts.approx and 'Tidal' not in opts.approx:
         line += " --rom-group {} --rom-param NRHybSur3dq8.h5 --approx {} ".format(sur_location_prefix,opts.approx)
+elif opts.use_gwsurrogate and 'NRHybSur' in opts.approx and 'Tidal' in opts.approx:
+        line += " --rom-group {} --rom-param NRHybSur3dq8Tidal --approx {} ".format(sur_location_prefix,opts.approx)
 elif opts.use_gwsurrogate and "NRSur7dq2" in opts.approx:
         line += " --rom-group {} --rom-param NRSur7dq2.h5 --approx {}  ".format(sur_location_prefix,opts.approx)
 elif opts.use_gwsurrogate and "NRSur7dq4" in opts.approx:
@@ -1642,6 +1724,9 @@ for indx in np.arange(len(instructions_cip)):
         line = line.replace('parameter delta_mc', 'parameter-implied eta --parameter-nofit delta_mc')     # quadratic or cov fit needs eta coordinate
     if opts.force_lambda_no_linear_init:
         line = line.replace("--prior-lambda-linear", "")  # remove this line, usually used in iteration0
+    if opts.use_mtot_coords:
+        line = line.replace('parameter mc', 'parameter-implied mc --parameter-nofit mtot --parameter-nofit q')
+        line = line.replace('parameter delta_mc', 'parameter-implied delta_mc')
     if opts.hierarchical_merger_prior_1g:
         # Must use mtotal, q coordinates!  Change defaults
         line = line.replace('parameter mc', 'parameter mtot')
@@ -1716,6 +1801,8 @@ for indx in np.arange(len(instructions_cip)):
     if opts.fit_save_gp:
         line += " --fit-save-gp my_gp "  # fiducial filename, stored in each iteration
     line += " --eccentricity-prior {}".format(opts.eccentricity_prior)
+    if opts.use_EOB_parameters:
+        line += " --use-EOB-parameters --parameter a6c --a6c-min {} --a6c-max {} ".format(opts.force_a6c_min,opts.force_a6c_max)
     if opts.assume_eccentric:
         if opts.use_meanPerAno:
             line += " --parameter meanPerAno --use-meanPerAno "
@@ -1757,6 +1844,21 @@ for indx in np.arange(len(instructions_cip)):
         if not(opts.force_meanPerAno_min is None):
             meanPerAno_min = opts.force_meanPerAno_min
             line += " --meanPerAno-min {}  ".format(meanPerAno_min)
+    if opts.assume_hyperbolic:
+        line += " --parameter E0 --parameter p_phi0 --use-hyperbolic "
+        # always pass the resolved range: CIP's own defaults are narrower than
+        # the range used to generate the points it is fitting
+        line += " --E0-max {}  --E0-min {}  ".format(hyperbolic_range['E0_max'],hyperbolic_range['E0_min'])
+        line += " --pphi0-max {}  --pphi0-min {}  ".format(hyperbolic_range['pphi0_max'],hyperbolic_range['pphi0_min'])
+
+        if opts.force_scatter_grids:
+            line += " --force-scatter "
+
+        if opts.force_plunge_grids:
+            line += " --force-plunge "
+
+        if opts.force_zoomwhirl_grids:
+            line += " --force-zoomwhirl "
     if not(opts.manual_extra_cip_args is None):
         line += " {} ".format(opts.manual_extra_cip_args)  # embed with space on each side, avoid collisions
     line += "\n"
@@ -1853,8 +1955,24 @@ if opts.internal_cip_transverse_tails:
 if opts.assume_matter:
 #    puff_params += " --parameter LambdaTilde "  # should already be present
     puff_max_it +=5   # make sure we resolve the correlations
+if opts.use_EOB_parameters:
+    puff_params += " --downselect-parameter a6c --downselect-parameter-range [{},{}] ".format(opts.force_a6c_min,opts.force_a6c_max)
 if opts.assume_eccentric:
-        puff_params += " --downselect-parameter eccentricity --downselect-parameter-range [{},{}] ".format(opts.force_ecc_min,opts.force_ecc_max)
+    puff_params += " --downselect-parameter eccentricity --downselect-parameter-range [{},{}] ".format(opts.force_ecc_min,opts.force_ecc_max)
+if opts.assume_hyperbolic:
+#    puff_params += " --parameter E0 "
+    # always downselect to the resolved range (a one-sided override used to
+    # write 'None' into the other end of the range here)
+    puff_params += " --downselect-parameter E0 --downselect-parameter-range [{},{}] ".format(hyperbolic_range['E0_min'],hyperbolic_range['E0_max'])
+#    puff_params += " --parameter p_phi0 "
+    puff_params += " --downselect-parameter p_phi0 --downselect-parameter-range [{},{}] ".format(hyperbolic_range['pphi0_min'],hyperbolic_range['pphi0_max'])
+    if opts.force_scatter_grids:
+        puff_params += ' --force-scatter '
+    if opts.force_plunge_grids:
+        puff_params += ' --force-plunge '
+    if opts.force_zoomwhirl_grids:
+        puff_params += ' --force-zoomwhirl '
+
 if opts.assume_highq:
         puff_params = puff_params.replace(' delta_mc ', ' eta ')  # use natural coordinates in the high q strategy. May want to do this always
         puff_max_it +=3
@@ -1974,12 +2092,14 @@ print(" Pipeline builder (create_event_parameter_pipeline_*): ", cepp)
 cmd =cepp+ "  --ile-n-events-to-analyze {} --input-grid proposed-grid.{} --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args `pwd`/args_ile.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP {} --request-memory-ILE {} --n-samples-per-job ".format(n_jobs_per_worker,grid_suffix_pp,cip_mem,ile_mem) + str(npts_it) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + " --n-iterations-subdag-max {} ".format(opts.internal_n_iterations_subdag_max) + "  --n-copies {} ".format(opts.ile_copies) + "   --ile-retries "+ str(opts.ile_retries) + " --general-retries " + str(opts.general_retries)
 if opts.ile_jobs_per_worker_first:
     cmd += " --ile-n-events-to-analyze-first {} ".format(opts.ile_jobs_per_worker_first)
-if opts.assume_matter or opts.assume_eccentric:
+if opts.assume_matter or opts.assume_eccentric or opts.assume_hyperbolic:
     cmd +=  " --convert-args `pwd`/helper_convert_args.txt "
 if not(opts.ile_runtime_max_minutes is None):
     cmd += " --ile-runtime-max-minutes {} ".format(opts.ile_runtime_max_minutes)
 if not(opts.internal_use_amr) or opts.internal_use_amr_puff:
     cmd+= " --puff-exe `which util_ParameterPuffball.py` --puff-cadence 1 --puff-max-it " + str(puff_max_it)+ " --puff-args `pwd`/args_puff.txt "
+if opts.use_EOB_parameters:
+    cmd += " --use-EOB-parameters "
 if opts.calmarg_pilot:
     cmd += " --calmarg-pilot --calmarg-pilot-cadence {} --calmarg-pilot-max-it {} --calmarg-pilot-top-fraction {} --calmarg-pilot-max-points {} ".format(
         opts.calmarg_pilot_cadence, opts.calmarg_pilot_max_it, opts.calmarg_pilot_top_fraction, opts.calmarg_pilot_max_points)
@@ -2015,6 +2135,8 @@ if opts.assume_eccentric:
         cmd += " --use-eccentricity-squared-sampling "
     if opts.use_meanPerAno:
         cmd += " --use-meanPerAno "
+if opts.assume_hyperbolic:
+    cmd += " --use-hyperbolic "
 if opts.calibration_reweighting and (not opts.bilby_pickle_file):
     cmd += " --calibration-reweighting --calibration-reweighting-exe `which calibration_reweighting.py` --bilby-ini-file {} --bilby-pickle-exe `which bilby_pipe_generation` ".format(str(opts.bilby_ini_file))
     if opts.calibration_reweighting_count:
@@ -2045,6 +2167,8 @@ if opts.distance_reweighting:
     cmd += " --comov-distance-reweighting --comov-distance-reweighting-exe `which make_uni_comov_skymap.py` --convert-ascii2h5-exe `which convert_output_format_ascii2h5.py` "
 if opts.use_gauss_early:
     cmd += " --cip-exe-G `which util_ConstructIntrinsicPosterior_GaussianResampling.py ` "
+if opts.first_iteration_jumpstart:
+    cmd += " --first-iteration-jumpstart "
 if opts.internal_use_amr:
     print(" AMR prototype: Using hardcoded aligned-spin settings, assembling grid, requires coinc!")
     if _use_hpip_pp and opts.manual_initial_grid is None:

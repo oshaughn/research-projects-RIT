@@ -96,6 +96,12 @@ LAMBDA_MAX = 4000.0
 LAMBDA_SMALL_MAX = 2000.0
 MC_MIN = 5.0
 MC_MAX = 60.0
+A6C_MIN = -80.0
+A6C_MAX = -20.0
+E0_MIN = 1.0
+E0_MAX = 1.2
+PPHI0_MIN = 0.0
+PPHI0_MAX = 5.4
 
 # CIP sets p_Rbar = lalsimutils.p_R.  Read out of the lalsimutils SOURCE rather
 # than imported: importing lalsimutils pulls in LAL, whose default error handler
@@ -202,6 +208,12 @@ def _make_namespace(ecc_min=ECC_MIN, ecc_max=ECC_MAX, eccentricity_prior="unifor
         "ECC_MAX": ecc_max,
         "MEANPERANO_MIN": 0.0,
         "MEANPERANO_MAX": 2 * np.pi,
+        "A6C_MIN": A6C_MIN,
+        "A6C_MAX": A6C_MAX,
+        "E0_MIN": E0_MIN,
+        "E0_MAX": E0_MAX,
+        "PPHI0_MIN": PPHI0_MIN,
+        "PPHI0_MAX": PPHI0_MAX,
         "lambda_min": LAMBDA_MIN,
         "lambda_max": LAMBDA_MAX,
         "lambda_small_max": LAMBDA_SMALL_MAX,
@@ -262,6 +274,9 @@ SUPPORT = {
     # a density in e^2, so it is evaluated on the squared interval
     "log_eccentricity_squared_prior": (ECC_MIN ** 2, ECC_MAX ** 2),
     "meanPerAno_prior": (0.0, 2 * np.pi),
+    "a6c_prior": (A6C_MIN, A6C_MAX),
+    "initial_energy_prior": (E0_MIN, E0_MAX),
+    "initial_angmom_prior": (PPHI0_MIN, PPHI0_MAX),
     "precession_prior": (0.0, 2.0),
     "lambda_prior": (LAMBDA_MIN, LAMBDA_MAX),
     "lambda_small_prior": (LAMBDA_MIN, LAMBDA_SMALL_MAX),
@@ -327,6 +342,9 @@ NORMALIZED = [
     # interval directly rather than through the 'square' substitution.
     ("log_eccentricity_squared_prior", ECC_MIN ** 2, ECC_MAX ** 2, "x", ()),
     ("meanPerAno_prior", 0.0, 2 * np.pi, "x", ()),
+    ("a6c_prior", A6C_MIN, A6C_MAX, "x", ()),
+    ("initial_energy_prior", E0_MIN, E0_MAX, "x", ()),
+    ("initial_angmom_prior", PPHI0_MIN, PPHI0_MAX, "x", ()),
     ("precession_prior", 0.0, 2.0, "x", ()),
     ("triangle_prior", -CHI_MAX, CHI_MAX, "x", ()),
     ("s_component_uniform_prior", -CHI_MAX, CHI_MAX, "x", ()),

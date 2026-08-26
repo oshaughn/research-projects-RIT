@@ -449,7 +449,12 @@ def build_parser():
                       "(no flow training -> immune to the SNR>=640 NF-collapse). "
                       "Overrides the exported samples; TI evidence is unchanged. "
                       "0=off; ~40000 recommended at SNR>=640. Implies --fisher-precondition.")
-    g.add_option("--interp", default="linear", choices=["linear", "nearest"])
+    g.add_option("--interp", default="linear", choices=["linear", "nearest", "cubic"],
+                 help="Interpolation of the precomputed rholm timeseries in arrival time. "
+                      "'cubic' mirrors the production factored_likelihood stencil; linear "
+                      "undershoots the rholm peak by an amount that depends on where it falls "
+                      "between samples, which biases the recovered arrival time and hence the "
+                      "sky. Default left at 'linear' for backward compatibility.")
     g.add_option("--sky-coordinates", default="equatorial",
                  choices=["equatorial", "network"],
                  help="Optional: 'network' samples the sky in the two-detector "

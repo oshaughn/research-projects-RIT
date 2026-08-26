@@ -149,6 +149,7 @@ parser.add_argument("--fit-method",default="rf",help="rf (default) : rf|gp|quadr
 parser.add_argument("--fit-load-gp",default=None,type=str,help="Filename of GP fit to load. Overrides fitting process, but user MUST correctly specify coordinate system to interpret the fit with.  Does not override loading and converting the data.")
 parser.add_argument("--fit-save-gp",default=None,type=str,help="Filename of GP fit to save. ")
 parser.add_argument("--fit-order",type=int,default=2,help="Fit order (polynomial case: degree)")
+parser.add_argument("--fit-distance-tail",action='store_true',help="Distance-export (.dslice) runs ONLY, i.e. runs that carry an explicit distance fit coordinate. Beyond each intrinsic point's exported distance support, make the fitted lnL decay to zero as d->infinity instead of holding its edge value. An RF/ExtraTrees fit is piecewise constant outside its training envelope, so without this it holds lnL flat while the volumetric prior keeps growing like d^2, and the recovered distance posterior comes out ~18 percent too wide. Changes nothing on the support, so it is a strict addition. It is an error to request this without a distance fit coordinate.")
 parser.add_argument("--no-plots",action='store_true')
 parser.add_argument("--using-eos-type", type=str, default=None, help="Name of EOS parameterization (must match what is used for inputs). Will use EOS parameterization to identify appropriate field headers")
 parser.add_argument("--sampler-method",default="adaptive_cartesian",help="adaptive_cartesian|GMM|adaptive_cartesian_gpu")
@@ -550,7 +551,7 @@ def fit_rf(x,y,y_errors=None,fname_export='nn_fit'):
     from sklearn.ensemble import ExtraTreesRegressor
     # Instantiate model. Usually not that many structures to find, don't overcomplicate
     #   - should scale like number of samples
-    rf = ExtraTreesRegressor(n_estimators=100, verbose=True,n_jobs=-1) # no more than 5% of samples in a leaf
+    rf = ExtraTreesRegressor(n_estimators=100, verbose=True,n_jobs=-1)
     if y_errors is None:
         rf.fit(x,y)
     else:
@@ -742,6 +743,36 @@ elif opts.fit_method == 'rf':
     if opts.ignore_errors_in_data:
         Y_err=None
     my_fit = fit_rf(X,Y,y_errors=Y_err)
+
+### Distance tail: make the fit decay beyond each intrinsic point's exported distance support
+###
+### Only meaningful for a distance-export (.dslice) run, where `dist` is a FIT coordinate and the
+### training set is ~50 discrete distances per intrinsic point.  An RF/ExtraTrees fit is piecewise
+### constant outside its training envelope, so past a point's outermost exported slice it returns
+### that slice's lnL forever.  The distance prior is volumetric and keeps growing like d^2, so the
+### integrand grows instead of dying and the recovered distance posterior comes out ~18% too wide
+### in every quantile span, median untouched.  See RIFT/interpolators/distance_tail.py.
+###
+### This wraps whatever fit was just built and is a no-op on the support, so nothing that currently
+### works changes.  It is applied AFTER the cap/threshold cuts above so the tail is built from
+### exactly the rows the fit itself saw.
+if opts.fit_distance_tail:
+    if my_fit is None:
+        raise ValueError("--fit-distance-tail: no fit was built (--fit-method %s)" % opts.fit_method)
+    if 'dist' not in list(coord_names):
+        # Fail rather than silently do nothing: a run that asked for this and did not get it would
+        # carry the very bias the option exists to remove, with no sign of it in the log.
+        raise ValueError("--fit-distance-tail requires a distance fit coordinate, but coord_names "
+                         "is %s. This option is for distance-export (.dslice) runs." % (list(coord_names),))
+    from RIFT.interpolators.distance_tail import wrap_distance_tail
+    tail_report = {}
+    # The production decay law is the parameter-free chord (ratio = u), so the wrapper's tuning
+    # arguments -- the per-slice edge-slope fit and its `outer_frac`, the alternate laws -- reach
+    # only the diagnostic branches described in RIFT/interpolators/distance_tail.py. They are
+    # deliberately not exposed here: a CLI knob that cannot change the posterior is worse than none.
+    my_fit = wrap_distance_tail(my_fit, X, Y, coord_names, y_errors=Y_err,
+                                lnL_offset=lnL_shift, report=tail_report)
+    print(" DISTANCE TAIL : decay beyond exported support enabled ", tail_report)
 
 
 # Sort for later convenience (scatterplots, etc)

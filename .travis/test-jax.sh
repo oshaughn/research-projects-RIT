@@ -92,6 +92,12 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         result write order) because the defects
 #                                         they pin live at call sites, where a
 #                                         helper-level assertion cannot see them.
+#   test_interp_choices.py             3  #190: --interp cubic is reachable from the
+#                                         CLI and selects _gather_cubic.  Merged in
+#                                         from rift_O4d, which added it to FILES
+#                                         without a count in this ledger; recorded
+#                                         here so the block stays a complete
+#                                         accounting of EXPECTED_TESTS.
 #   test_tvals_grid_convention.py     13  issue #146: the time-marginalization window
 #                                         grid the JAX wrapper and
 #                                         bin/integrate_likelihood_extrinsic_batchmode
@@ -139,6 +145,7 @@ FILES=(
   "${JAXDIR}/test_nuts_phimarg.py"
   "${JAXDIR}/test_jax_fairdraw_export.py"
   "${JAXDIR}/test_tvals_grid_convention.py"
+  "${JAXDIR}/test_interp_choices.py"
 )
 
 # EXCLUDED: files in JAXDIR matching test_*.py that are deliberately NOT gated.  The
@@ -170,7 +177,7 @@ fi
 # Sum of the per-file counts above (27 + 29 from test_jax_fairdraw_export.py).
 # Pinned deliberately: a bare `pytest test/jax/`
 # that collected 0 would exit 5, and a partial loss (say 14 -> 3) would still exit 0.
-EXPECTED_TESTS=61
+EXPECTED_TESTS=64
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${FILES[@]}" 2>&1)"
