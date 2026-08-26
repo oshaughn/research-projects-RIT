@@ -455,7 +455,11 @@ def _accumulate_unit(data, ra, dec, psi, incl, phiref, interp,
                  + time_delay_from_earth_center(dd["location"], ra, dec, gmst))
         p0 = (t_det + data.tval0) * inv_deltaT
         pos = p0[:, None] + t_offsets[None, :]
-        u_sep = _separable_u(p0)          # see _separable_u: 637x less scratch, and more exact
+        # None for 'nearest': it ignores u, and feeding an unused value into this trace
+        # is NOT free -- it cost >60% wall on the banded slow-rotation path (measured:
+        # test_rotation_path_a 69.8 s -> >113 s), which is compile-bound, not arithmetic-
+        # bound.  Only the weight-building stencils get it.  See _separable_u.
+        u_sep = None if interp == "nearest" else _separable_u(p0)
 
         kappa_det = jnp.zeros((S, npts), dtype=jnp.complex128)
         for k in range(K):
@@ -615,7 +619,11 @@ def _accumulate_unit_banded(data, ra, dec, psi, incl, phiref, interp,
                  + time_delay_from_earth_center(dd["location"], ra, dec, gmst))
         p0 = (t_det + data.tval0) * inv_deltaT
         pos = p0[:, None] + t_offsets[None, :]              # (S, npts)
-        u_sep = _separable_u(p0)          # see _separable_u: 637x less scratch, and more exact
+        # None for 'nearest': it ignores u, and feeding an unused value into this trace
+        # is NOT free -- it cost >60% wall on the banded slow-rotation path (measured:
+        # test_rotation_path_a 69.8 s -> >113 s), which is compile-bound, not arithmetic-
+        # bound.  Only the weight-building stencils get it.  See _separable_u.
+        u_sep = None if interp == "nearest" else _separable_u(p0)
 
         if post_phase:
             # delta_ij = (arrival time of output bin j for sample i) - tref, in seconds.

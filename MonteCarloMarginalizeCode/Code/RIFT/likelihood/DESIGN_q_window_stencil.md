@@ -404,6 +404,15 @@ production default `--n-chunk 8000` that is ~512 MB against ~40 MB -- comfortabl
 this runs on. Squeezing the last factor would mean fusing the lm contraction into the gather, as
 the CUDA kernels do; not attempted.
 
+**`u` is passed only to the weight-building stencils.** Feeding it to `nearest`, which ignores
+it, is not free: an unused extra input in the banded slow-rotation trace -- which is compile-bound
+rather than arithmetic-bound -- cost **>60% wall** (`test_rotation_path_a`, 69.8 s -> >113 s,
+same tree, same load, one variable). So the call sites read
+`u_sep = None if interp == "nearest" else _separable_u(p0)`. The memory win is unaffected: it
+belongs to `cubic`/`sinc`, which still receive it. This is the same lesson as the unrolled-tap
+compile blow-up in `_make_gather_sinc` -- in a large trace, graph shape can cost more than
+arithmetic.
+
 Getting `u` wrong is **silent** -- the gather returns the right shape evaluated at the wrong
 offsets -- so it is pinned two ways: `test_separable_u_matches_the_general_path` compares the two
 paths for all four stencils at production magnitudes, and `test_accumulators_pass_separable_u`
