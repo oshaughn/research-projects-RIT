@@ -95,9 +95,13 @@ def _draw_distance(data, ra, dec, psi, incl, phiref, d_min, d_max, seed=0):
 def run_one(src, net, target_snr, want_samples=False):
     dist = fslib.distance_for_snr(src, net, target_snr)
     # SELFCONSISTENT (int Qmax): render the injection with the recovery's own b_p*W_p
-    # response so truth is the exact global maximum -- combined with a finely-sampled
-    # rholm (fmax>=2048, deltaT<=1/4096) this removes the ~0.16 deg cubic-interpolation
-    # timing systematic that otherwise displaces the razor-sharp high-SNR sky posterior.
+    # response so truth is the exact global maximum -- combined with an adequately
+    # OVERSAMPLED rholm this removes the cubic-interpolation timing systematic that
+    # otherwise displaces the razor-sharp high-SNR sky posterior.  The oversampling is
+    # slowrot_fs_lib's own knob (deltaT = 1/(2*oversample*fmax), defaulted by that
+    # library's OVERSAMPLE); raising fmax does not do it, and at equal sample rate the
+    # narrower band is the better one.  Measured ladders (offset vs oversample, and the
+    # stencil sweep): analyses/slowrot_finite-size/DESIGN_sampling.md in the paper repo.
     sc = os.environ.get("SLOWROT_SELFCONSISTENT")
     data_dict, psd_dict, arm_dict, meta = fslib.build_finite_size_data(
         src, net, dist, selfconsistent_Qmax=(int(sc) if sc else None))
@@ -170,13 +174,21 @@ def main():
     # of a near-face-on dominant-quadrupole source is broken and the orientation
     # sector recovers on truth.  Override with SLOWROT_INCL.
     incl = float(os.environ.get("SLOWROT_INCL", "0.4"))
-    # fmax sets both the waveform bandlimit AND the rholm sampling deltaT=1/(2 fmax);
-    # 2048 (deltaT=1/4096) finely samples the rholm so the recovery's cubic time
-    # interpolation reproduces the per-detector fractional-sample delays -> no sky bias.
+    # fmax is the ANALYSIS BAND LIMIT only: since paper-repo commit 2445905 the rholm
+    # sampling is set independently by slowrot_fs_lib's oversample (deltaT =
+    # 1/(2*oversample*fmax), currently defaulting to 4, so srate = 8192 at fmax=1024),
+    # and raising fmax no longer refines the time series.  1024 stays as the band choice
+    # for this BNS: DESIGN_sampling.md measures the narrower band as marginally better at
+    # equal sample rate.  SLOWROT_OVERSAMPLE overrides the sampling; 1 restores the
+    # pre-2026-08-26 setting, which rebuilds the archived data bit-for-bit (the sampler
+    # on top of it is not deterministic).  It is passed only when set, so the script
+    # still runs against a paper-repo checkout older than the fix.
     fmax = float(os.environ.get("SLOWROT_FMAX", "1024.0"))
+    _ovs = os.environ.get("SLOWROT_OVERSAMPLE")
+    src_kw = {"oversample": int(_ovs)} if _ovs else {}
     src = fslib.Source(m1=1.6, m2=1.4, ra=1.2, dec=0.3, psi=0.5, incl=incl,
                        phiref=0.0, fmin=50.0, fmax=fmax, seglen=32.0,
-                       approx="IMRPhenomD")
+                       approx="IMRPhenomD", **src_kw)
     net = fslib.network(NETWORK)
     print("3G FIGDATA network=%s rep_snr=%.0f snrs=%s" % (NETWORK, SNR_REP, SNRS))
     rows = []
