@@ -15,8 +15,10 @@ band, leaving a 4-point stencil no headroom.  Oversampling the rholm collapses t
 deficit by ~99%, and what survives is a precompute floor (finite t_window, Qmax
 truncation, PSD band) that is flat in oversampling -- not a time-reference convention
 and not a response-model gap of the size this script was chasing.  The ladder and the
-method are in analyses/slowrot_finite-size/DESIGN_sampling.md in the paper repo; they
-were measured on the library's own likelihood, not by this script.
+method are in analyses/slowrot_finite-size/DESIGN_sampling.md in the paper repo.  Note
+they were measured on the library's own numpy likelihood, whereas this script drives the
+JAX one -- the two agree on the sky offset to within the difference between them, but the
+deficit ladder itself has not been reproduced on this path.
 
 This script is therefore kept as a probe OF that regime rather than a question about it:
 it pins oversample=1 (see main) so the scan still exhibits the effect.  Repointing it at
@@ -64,15 +66,24 @@ def lal_copy(d):
 
 
 def main():
-    # PIN oversample=1 deliberately.  This scan is defined RELATIVE to deltaT --
-    # dts = fr * deltaT over +-1 sample -- so it does not merely get finer when the
-    # library samples the rholm more finely, it covers proportionally less physical time
-    # and stops probing the near-Nyquist regime the scan exists to characterise.  At the
-    # library's current default (4) the deficit it reads is flat and near zero, which
-    # looks like "nothing to see" rather than "you are no longer looking".  Older
-    # libraries have no such knob and are already at 1, hence the signature check.
-    _kw = ({"oversample": 1}
-           if "oversample" in inspect.signature(fslib.Source.__init__).parameters else {})
+    # DEFAULT to oversample=1, rather than inheriting the library's.  This scan is
+    # defined RELATIVE to deltaT -- dts = fr * deltaT over +-1 sample -- so it does not
+    # merely get finer when the library samples the rholm more finely, it covers
+    # proportionally less physical time and stops probing the near-Nyquist regime the
+    # scan exists to characterise.  At the library's current default (4) the deficit it
+    # reads is flat and near zero, which looks like "nothing to see" rather than "you are
+    # no longer looking".  Overridable, so the surviving floor can be scanned on purpose.
+    # Old libraries have no such knob and are already at 1: honour that silently, but
+    # refuse an explicit request they cannot satisfy rather than quietly giving 1.
+    _ovs = int(os.environ.get("SLOWROT_OVERSAMPLE", "1"))
+    if "oversample" in inspect.signature(fslib.Source.__init__).parameters:
+        _kw = {"oversample": _ovs}
+    elif _ovs != 1:
+        raise SystemExit(
+            "SLOWROT_OVERSAMPLE=%d needs a slowrot_fs_lib with the oversample knob; this "
+            "one sets deltaT = 1/(2*fmax) and is already at 1" % _ovs)
+    else:
+        _kw = {}
     src = fslib.Source(m1=1.6, m2=1.4, ra=1.2, dec=0.3, psi=0.5, incl=INCL,
                        phiref=0.0, fmin=50.0, fmax=1024.0, seglen=32.0, approx="IMRPhenomD",
                        **_kw)
