@@ -55,6 +55,129 @@ _PI = float(np.pi)
 
 
 # ---------------------------------------------------------------------------
+# Likelihood tempering: what --adapt-weight-exponent costs on THIS path
+# ---------------------------------------------------------------------------
+# Decision + provenance: DESIGN_jax_tempering.md, beside this module (2026-08-23).
+# The short version, because it is the thing that gets ported wrong:
+#
+#   non-JAX RIFT  beta shapes only the adaptive sampling PRIOR
+#                 (mcsamplerGPU: log_weights = beta*lnL + ln p - ln p_s, while the
+#                 estimator stays log_integrand = lnL + ln p - ln p_s).  Unbiased
+#                 at any beta; beta costs nothing in exported samples.
+#   JAX flowMC    beta = inv_T is the exponent of the target the MCMC SAMPLES.
+#                 The draws are the deliverable, so the export must be reweighted
+#                 by L^(1-beta) (post_weight) -- and that reweight has an ESS cost
+#                 the non-JAX path never pays.
+#
+# helper_LDG_Events.py keys its beta on SNR.  That is right there and wrong here:
+# the cost below is set by the SAMPLED DIMENSION and is independent of lnLmax.
+# Measured ratio (measured ESS/N) / (Gaussian law) at dim=4, as a CONSERVATIVE
+# piecewise-linear envelope: every knot sits at or below every measured point of
+# the sweep in DESIGN_jax_tempering.md.  The law is optimistic and increasingly so
+# at small beta, so a single flat factor is the wrong shape -- a flat 0.79 would
+# also make any target above 0.79 unachievable, since it never reaches 1.
+#
+# MEASURED AT dim=4 ONLY.  Applying the same ratio at other dimensions is an
+# assumption, not a measurement; it is the conservative direction (the law is
+# optimistic in dim too, since the exponent grows), but it is not verified.
+_ESS_CAL_BETA = (0.05, 0.20, 0.40, 0.60, 0.80, 1.00)
+_ESS_CAL_RATIO = (0.79, 0.79, 0.83, 0.91, 0.97, 1.00)
+_TEMPER_ESS_LAW_CAL = _ESS_CAL_RATIO[0]   # worst case, retained for reference
+
+
+def export_ess_fraction(beta, n_dim):
+    """Fraction of a beta-tempered cloud that survives the post_weight reweight.
+
+    For a locally Gaussian peak ``ln Z_g = g lnLmax - (n_dim/2) ln g + const``,
+    so the self-normalised reweight ``L^(1-beta)`` from the tempered target
+    ``L^beta pi`` back to the posterior has
+
+        ESS/N = Z_1^2 / (Z_beta Z_{2-beta}) = [beta (2 - beta)]^(n_dim/2)
+
+    **It depends on n_dim and NOT on lnLmax** -- i.e. not on SNR.  That is the
+    whole reason the non-JAX helper's SNR-keyed exponent must not be carried
+    over to this path.
+
+    Measured against the real phi-marginalised BNS likelihood (SNR 23.8, 4-D),
+    the law holds to a ratio 0.79-1.00 over beta in [0.05, 1]; it is therefore a
+    slightly OPTIMISTIC closed form.  Callers sizing a budget should apply
+    ``_TEMPER_ESS_LAW_CAL``.  Provenance and the full sweep: DESIGN_jax_tempering.md.
+    """
+    beta = float(beta)
+    if not (0.0 < beta <= 1.0):
+        raise ValueError("beta must be in (0, 1]; got %r" % (beta,))
+    return float((beta * (2.0 - beta)) ** (0.5 * int(n_dim)))
+
+
+def _ess_law_calibration(beta):
+    """Conservative lower-bound ratio (measured/law) at this beta, from the sweep."""
+    beta = float(beta)
+    if beta <= _ESS_CAL_BETA[0]:
+        return _ESS_CAL_RATIO[0]
+    if beta >= _ESS_CAL_BETA[-1]:
+        return _ESS_CAL_RATIO[-1]
+    return float(np.interp(beta, _ESS_CAL_BETA, _ESS_CAL_RATIO))
+
+
+def export_ess_estimate(beta, n_dim):
+    """Calibrated ESTIMATE of the surviving export fraction.  NOT a bound.
+
+    ``export_ess_fraction`` is the Gaussian-peak law; the SNR-23.8 sweep shows it
+    optimistic by up to 21% (ratio 0.79 at beta=0.05, rising to 1.00 at beta=1),
+    and this applies that ratio.
+
+    IT IS NOT A GUARANTEE, AND THIS FUNCTION WAS ONCE NAMED AS IF IT WERE.  The
+    calibration is fitted at SNR ~= 23.8 only, and the shortfall grows with SNR:
+    the SNR ladder in DESIGN_jax_tempering.md measures ESS/N = 0.00823 at
+    beta=0.1, d=4, SNR ~= 67, against 0.0285 from this estimate -- a factor 3.5
+    the wrong way.  A real bound needs a calibration in (beta, SNR), and this
+    driver has no trustworthy SNR at the point the choice is made (`guess_snr` is
+    an explicit guesstimate: 10.32 against a true network 23.78 on the study
+    event).  So callers must treat the result as advisory and must not refuse a
+    run on it.  Reported by review on #186.
+    """
+    return _ess_law_calibration(beta) * export_ess_fraction(beta, n_dim)
+
+
+def beta_for_export_ess(target_frac, n_dim):
+    """Inverse of :func:`export_ess_fraction`: the SMALLEST beta meeting a target.
+
+    Solves ``[beta(2-beta)]^(n_dim/2) = target_frac`` on ``beta in (0, 1]``:
+
+        beta = 1 - sqrt(1 - target_frac^(2/n_dim))
+
+    Smallest is the useful root: beta is a breadth knob, so among exponents that
+    meet the export budget the broadest target is the one that explores most.
+
+    Solves against :func:`export_ess_estimate`, so the returned beta meets
+    ``target_frac`` **on the SNR ~= 23.8 calibration**.  That is not a guarantee
+    at other SNRs -- the shortfall grows with SNR (see that function) -- which is
+    why ``--auto-adapt-weight-exponent`` is documented as experimental and why
+    nothing refuses a run on this number.
+    """
+    t = float(target_frac)
+    if not (0.0 < t <= 1.0):
+        raise ValueError("target_frac must be in (0, 1]; got %r" % (t,))
+    # Solve on the CALIBRATED lower bound, not the bare law.  Both factors are
+    # non-decreasing in beta, so the product is monotone and bisection is safe.
+    # There is no closed form once the piecewise-linear calibration is included,
+    # and the previous closed-form inverse of the optimistic law returned betas
+    # that retained less than the caller asked for.
+    if export_ess_estimate(1.0, n_dim) < t:
+        raise ValueError(
+            "target_frac %g is unreachable in %d-D even at beta=1 (lower bound "
+            "%.4f)" % (t, int(n_dim), export_ess_estimate(1.0, n_dim)))
+    lo, hi = 1e-6, 1.0
+    for _ in range(200):
+        mid = 0.5 * (lo + hi)
+        if export_ess_estimate(mid, n_dim) >= t:
+            hi = mid
+        else:
+            lo = mid
+    return float(hi)
+
+
+# ---------------------------------------------------------------------------
 # Prior (physical, uniform sky + orientation), numpy + JAX flavors
 # ---------------------------------------------------------------------------
 def sample_prior(n, rng):

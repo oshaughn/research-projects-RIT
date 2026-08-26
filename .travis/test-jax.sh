@@ -92,6 +92,38 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         result write order) because the defects
 #                                         they pin live at call sites, where a
 #                                         helper-level assertion cannot see them.
+#   test_jax_tempering_chooser.py     45  the --adapt-weight-exponent chooser and the
+#                                         tempering-cost law
+#                                         ESS/N = [beta(2-beta)]^(dim/2) it rests on.
+#                                         Pins the law against the EXACT sweep measured
+#                                         on the real BNS likelihood (both directions:
+#                                         a law that under-predicts the cost would
+#                                         silently under-budget a run), that it takes
+#                                         no SNR argument -- the non-JAX helper's rule
+#                                         keys on SNR and does not transfer -- that the
+#                                         chooser RETURNS the exponent rather than
+#                                         writing it back to opts (writing it made
+#                                         event 1 of a batch read event 0's choice),
+#                                         and that the degenerate-export branch WARNS
+#                                         (it used to raise; the calibrated estimate
+#                                         cannot support a hard floor -- see
+#                                         DESIGN_jax_tempering.md 4a).  Includes a
+#                                         RETIRED-claim
+#                                         guard asserting the SNR rule has not crept
+#                                         back into the driver.  Needs no lal, no GPU
+#                                         and no flowMC.
+#   test_jax_stencil_parity.py        23  #193: the JAX 'sinc' gatherer is the SAME
+#                                         stencil as the numpy/cupy/CUDA paths.  Those
+#                                         three share one weight array and cannot drift;
+#                                         JAX re-expresses the formula independently
+#                                         (its weights depend on the traced sub-sample
+#                                         offset), so this is what converts that
+#                                         duplication from "trust the reviewer" into
+#                                         "CI fails".  Landed WITHOUT a manifest entry,
+#                                         which made rift_O4d fail its own manifest
+#                                         check; added here.  24 tests, of which the
+#                                         cupy leg is deselected on this CPU runner --
+#                                         see DESELECTED_TESTS -- so 23 are gated.
 #   test_flow_reuse_default.py         7  flow re-use is OFF by default, and --flow-reuse
 #                                         still reaches the old behaviour.  A store_true
 #                                         flag cannot express its own negation, so simply
@@ -151,8 +183,10 @@ FILES=(
   "${JAXDIR}/test_network_coords.py"
   "${JAXDIR}/test_nuts_phimarg.py"
   "${JAXDIR}/test_jax_fairdraw_export.py"
+  "${JAXDIR}/test_jax_tempering_chooser.py"
   "${JAXDIR}/test_tvals_grid_convention.py"
   "${JAXDIR}/test_interp_choices.py"
+  "${JAXDIR}/test_jax_stencil_parity.py"
   "${JAXDIR}/test_flow_reuse_default.py"
 )
 
@@ -160,10 +194,26 @@ FILES=(
 # manifest check below fails if a file is in neither FILES nor EXCLUDED, so adding a new
 # test_*.py to test/jax/ forces a decision instead of being silently unrun -- which is
 # this gate's own failure mode, one level up.
+DESELECTED_TESTS=(
+  "${JAXDIR}/test_jax_stencil_parity.py::test_gpu_gather_parity_against_numpy_window"
+)
 EXCLUDED=(
   "${JAXDIR}/test_nuts_phimarg_injection.py"
   "${JAXDIR}/test_flow_reuse.py"
 )
+
+# DESELECT: individual tests inside a GATED file that cannot run on this CPU runner.
+# File-level EXCLUDED is too blunt for these -- dropping test_jax_stencil_parity.py to
+# silence its one GPU leg would also drop the 23 CPU tests that are the whole point of
+# #193.  Deselecting is not the same as tolerating a skip: a skip leaves the gate green
+# while asserting nothing, whereas a deselected test is accounted for HERE, in writing.
+#
+#   test_jax_stencil_parity.py::test_gpu_gather_parity_against_numpy_window
+#       The cupy leg of the sinc-stencil parity check.  It needs a real CUDA device;
+#       this job has none, so it self-skips.  It is a genuine gate on a GPU host --
+#       run it by hand there when touching Q_inner_product_sinc_cupy.
+DESELECT=()
+for t in "${DESELECTED_TESTS[@]}"; do DESELECT+=( --deselect "$t" ); done
 
 echo "== manifest check (every test_*.py is gated or explicitly excluded) =="
 manifest_rc=0
@@ -182,13 +232,13 @@ if [ "${manifest_rc}" -ne 0 ]; then
   exit 1
 fi
 
-# Sum of the per-file counts above (27 + 29 from test_jax_fairdraw_export.py).
+# Sum of the per-file counts above.
 # Pinned deliberately: a bare `pytest test/jax/`
 # that collected 0 would exit 5, and a partial loss (say 14 -> 3) would still exit 0.
-EXPECTED_TESTS=71
+EXPECTED_TESTS=139
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
-collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${FILES[@]}" 2>&1)"
+collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"
 collect_rc=$?
 if [ "${collect_rc}" -ne 0 ]; then
   printf '%s\n' "${collect_out}"
@@ -209,11 +259,32 @@ if [ "${n_collected}" -lt "${EXPECTED_TESTS}" ]; then
   exit 1
 fi
 
+# A --deselect whose nodeid does not resolve is SILENTLY IGNORED by pytest: rename the
+# test, or fat-finger the path, and the deselect quietly stops applying while this script
+# still claims the test is accounted for.  The skip would then come back and the count
+# would be off by one, which is exactly the confusion the deselect was added to end.  So
+# verify both halves: the test still EXISTS under that name, and it is actually GONE from
+# the collection.
+for t in "${DESELECTED_TESTS[@]}"; do
+  f="${t%%::*}"; nm="${t##*::}"
+  if [ ! -f "${f}" ]; then
+    echo "test-jax.sh: DESELECTED_TESTS names ${f}, which does not exist." >&2; exit 1
+  fi
+  if ! grep -qE "^[[:space:]]*def ${nm}\\(" "${f}"; then
+    echo "test-jax.sh: DESELECTED_TESTS names ${nm}, which ${f} no longer defines." >&2
+    echo "  It was probably renamed.  Update the nodeid, or drop it from DESELECTED_TESTS." >&2
+    exit 1
+  fi
+  if printf '%s\n' "${collect_out}" | grep -qE "^${f}::${nm}(\\[|$)"; then
+    echo "test-jax.sh: --deselect did not take effect for ${t}." >&2; exit 1
+  fi
+done
+
 junit="$(mktemp -t jaxci-junit-XXXXXX.xml)"
 trap 'rm -f "${junit}"' EXIT
 
 echo "== running =="
-"${PYTHON_BIN}" -m pytest -q -p no:cacheprovider --durations=0 --junit-xml="${junit}" "${FILES[@]}"
+"${PYTHON_BIN}" -m pytest -q -p no:cacheprovider --durations=0 --junit-xml="${junit}" "${DESELECT[@]}" "${FILES[@]}"
 rc=$?
 if [ "${rc}" -ne 0 ]; then
   # rc 5 == "no tests ran"; it is a FAILURE here, not a pass.
@@ -240,7 +311,8 @@ if tests < expected:
     bad.append("ran %d tests, expected at least %d" % (tests, expected))
 if skipped:
     bad.append("%d SKIPPED -- a skip silently disables a gate here; if a skip is "
-               "legitimate, exclude the file in FILES and say why" % skipped)
+               "legitimate, exclude the file in FILES -- or, for a single test, add it to "
+               "DESELECTED_TESTS -- and say why" % skipped)
 if failures or errors:
     bad.append("%d failures, %d errors" % (failures, errors))
 if bad:
