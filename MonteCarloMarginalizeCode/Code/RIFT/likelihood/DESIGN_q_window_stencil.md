@@ -356,6 +356,36 @@ answer; and the flatness claim for `sinc` rests on the same measurements. If sra
 move the crossover as strongly as fmin did, this default should be revisited -- it would be the
 third time a rule here was overturned by an axis that had not been swept.
 
+### 9.5 Cost of the default move: 2.7x XLA scratch
+
+Found by adversarial review of §9.4, and it is an operational consequence a default change owes
+its users. XLA does not fuse the tap axis away -- it materialises the `(..., 2a)` weight array.
+`compile().memory_analysis()`, CPU backend, 3 detectors, npts 614:
+
+| S | `nearest` | `linear` | `cubic` | `sinc` |
+|---|---|---|---|---|
+| 2000 | 129 MB | 246 MB | 482 MB | 659 MB |
+| 20000 | 1285 MB | 2464 MB | 4821 MB | **6586 MB** |
+
+The 1765 MB `sinc` adds over `cubic` at S = 20000 is exactly the `(S, npts, 2a)` float64 weight
+array. **A run that fitted on a 10-12 GB card at a given chunk size may now need a smaller one.**
+
+The redundancy is genuine: both call sites build `pos = p0[:, None] + arange(npts)`, so `u` is
+identical along the time axis and only `(S, 2a)` distinct weights exist -- the structure the
+numpy/cupy/CUDA backends already exploit. Not fixed here because the fix is not free. Measured
+candidates, S = 20000 / npts 614, all agreeing to 2.7e-15:
+
+| form | temp | runtime |
+|---|---|---|
+| vectorised (shipped) | 1670 MB | 1.86 s |
+| `lax.scan` over taps | 3340 MB | 3.83 s |
+| `lax.scan` + weights built in the body | **393 MB** | **7.17 s** |
+
+So the memory fix costs 3.9x runtime on CPU, and the measurement that would settle it is a GPU
+one -- which this environment could not take (the container's XLA GPU compiler exhausts the host
+thread cap). The alternative, exploiting the `pos` structure directly, needs a gatherer signature
+taking `(i0, u)` separately, i.e. a change to all four stencils. Both are follow-up work.
+
 ## 10. Provenance
 
 The fmin sweep was measured against a pinned `git archive` of the #97 merge commit `c1a2e2df`,

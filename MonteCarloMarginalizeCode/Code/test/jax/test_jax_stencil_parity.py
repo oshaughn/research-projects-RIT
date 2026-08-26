@@ -367,6 +367,30 @@ def test_every_entry_point_defaults_to_the_same_stencil():
     assert n_seen >= 8, "only %d interp= entry points found; the sweep is not covering them" % n_seen
 
 
+def test_adaptive_distance_grid_uses_the_callers_stencil():
+    """estimate_distance_peak sizes the grid the likelihood then integrates on, so it must run on
+    the SAME stencil the caller asked for.
+
+    Found by review of the default change.  These three classes accept interp= and forward it to
+    the likelihood but called estimate_distance_peak(data, guess_snr) positionally, so the grid
+    was always sized with the module default.  That was a latent mismatch while the default was
+    'linear'; moving the default to 'sinc' made it break the documented recovery path -- a caller
+    passing interp="linear" to reproduce a pre-2026-08-26 run would have got a linear likelihood
+    on a sinc-sized grid.  The path is behind JAX_ILE_DISTGRID_ADAPTIVE=1, which is exactly why
+    it needs a test rather than a reader.
+    """
+    import ast, io as _io, os
+    src = _io.open(os.path.join(os.path.dirname(__file__), "..", "..", "RIFT", "likelihood",
+                                "jax_ile", "wrapper.py"), encoding="utf-8").read()
+    calls = [n for n in ast.walk(ast.parse(src))
+             if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+             and n.func.id == "estimate_distance_peak"]
+    assert calls, "estimate_distance_peak is no longer called from wrapper.py; retarget this test"
+    bad = [ast.unparse(c) for c in calls
+           if not any(kw.arg == "interp" for kw in c.keywords) and len(c.args) < 5]
+    assert not bad, "estimate_distance_peak called without forwarding interp=: %s" % bad
+
+
 def test_cli_default_comes_from_the_shared_constant():
     """--interp's default must be the constant, not a re-typed literal that can drift from it."""
     import ast, io as _io, os

@@ -301,6 +301,24 @@ def _make_gather_sinc(a):
     Accuracy against ``cubic`` is NOT universal: it depends on how oversampled Q is, hence on
     fmin and srate as well as mass.  See RIFT/likelihood/DESIGN_q_window_stencil.md and
     RIFT.likelihood.time_interp_choice.CROSSOVER_GUIDANCE for the measured crossover.
+
+    MEMORY.  XLA does not fuse the tap axis away: it materialises the ``(..., 2a)`` weight array.
+    Measured with ``compile().memory_analysis()`` on the CPU backend, 3 detectors, npts 614,
+    S = 20000 -- whole-likelihood temp is 1285 MB for ``nearest``, 2464 for ``linear``, 4821 for
+    ``cubic``, 6586 for ``sinc``; the 1765 MB that ``sinc`` adds over ``cubic`` is exactly that
+    weight array.  So making ``sinc`` the default costs **2.7x the XLA scratch of ``linear``**,
+    and a run that fitted on a 10-12 GB card at a given chunk size may now need a smaller one.
+
+    The redundancy is real and fixable in principle: both call sites build
+    ``pos = p0[:, None] + arange(npts)``, so ``u`` is IDENTICAL along the time axis and only
+    ``(S, 2a)`` distinct weights exist -- which is precisely the structure the numpy/cupy/CUDA
+    backends exploit by computing one weight row per sample.  It is deliberately NOT fixed here
+    because the obvious general fix is not free: a ``lax.scan`` over taps with the weights built
+    in the scan body cuts the temp to 393 MB but costs 3.9x the runtime on CPU (7.17 s/call
+    against 1.86), and the measurement that would settle the trade is a GPU one, which the
+    available environment could not take (the container's XLA GPU compiler exhausts the host
+    thread cap).  Exploiting the ``pos`` structure directly would instead need a gatherer
+    signature that takes ``(i0, u)`` separately, i.e. a change to all four stencils.
     """
     def _gather(Q_col, pos):
         n = Q_col.shape[0]

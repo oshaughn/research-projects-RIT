@@ -354,7 +354,11 @@ class JAXDistPhiMargLikelihood:
         # same stable logsumexp kernel and is gradient-stable.  Enable with env
         # JAX_ILE_DISTGRID_ADAPTIVE=1; falls back to uniform otherwise.
         if int(os.environ.get("JAX_ILE_DISTGRID_ADAPTIVE", "0")) and guess_snr:
-            d_peak, sigma_d = estimate_distance_peak(data, guess_snr)
+            # interp= must be forwarded: this sizes the distance grid the likelihood then
+            # integrates on, so leaving it at the module default silently mixes stencils --
+            # and would break the documented 'pass interp="linear" to reproduce a
+            # pre-2026-08-26 run' recipe, which is the whole mitigation for that default move.
+            d_peak, sigma_d = estimate_distance_peak(data, guess_snr, interp=interp)
             self.x_grid, self.log_w_grid = make_distance_grid_adaptive(
                 d_min, d_max, d_peak, sigma_d, d_prior, distMpcRef=data.distMpcRef)
             self.dist_grid_info = dict(mode="adaptive", d_peak=float(d_peak),
@@ -467,7 +471,11 @@ class JAXDistPhiPsiMargLikelihood:
         self._phi_grid = phi_ref_grid(self.nphi)
         self._psi_grid = psi_grid(self.npsi)
         if int(os.environ.get("JAX_ILE_DISTGRID_ADAPTIVE", "0")) and guess_snr:
-            d_peak, sigma_d = estimate_distance_peak(data, guess_snr)
+            # interp= must be forwarded: this sizes the distance grid the likelihood then
+            # integrates on, so leaving it at the module default silently mixes stencils --
+            # and would break the documented 'pass interp="linear" to reproduce a
+            # pre-2026-08-26 run' recipe, which is the whole mitigation for that default move.
+            d_peak, sigma_d = estimate_distance_peak(data, guess_snr, interp=interp)
             self.x_grid, self.log_w_grid = make_distance_grid_adaptive(
                 d_min, d_max, d_peak, sigma_d, d_prior, distMpcRef=data.distMpcRef)
             self.dist_grid_info = dict(mode="adaptive", d_peak=float(d_peak),
@@ -534,7 +542,11 @@ class JAXDistPsiMargLikelihood:
         self.npsi = int(npsi)
         self._psi_grid = psi_grid(self.npsi)
         if int(os.environ.get("JAX_ILE_DISTGRID_ADAPTIVE", "0")) and guess_snr:
-            d_peak, sigma_d = estimate_distance_peak(data, guess_snr)
+            # interp= must be forwarded: this sizes the distance grid the likelihood then
+            # integrates on, so leaving it at the module default silently mixes stencils --
+            # and would break the documented 'pass interp="linear" to reproduce a
+            # pre-2026-08-26 run' recipe, which is the whole mitigation for that default move.
+            d_peak, sigma_d = estimate_distance_peak(data, guess_snr, interp=interp)
             self.x_grid, self.log_w_grid = make_distance_grid_adaptive(
                 d_min, d_max, d_peak, sigma_d, d_prior, distMpcRef=data.distMpcRef)
             self.dist_grid_info = dict(mode="adaptive", d_peak=float(d_peak),
