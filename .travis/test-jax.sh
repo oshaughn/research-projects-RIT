@@ -92,7 +92,7 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         result write order) because the defects
 #                                         they pin live at call sites, where a
 #                                         helper-level assertion cannot see them.
-#   test_jax_tempering_chooser.py     41  the --adapt-weight-exponent chooser and the
+#   test_jax_tempering_chooser.py     45  the --adapt-weight-exponent chooser and the
 #                                         tempering-cost law
 #                                         ESS/N = [beta(2-beta)]^(dim/2) it rests on.
 #                                         Pins the law against the EXACT sweep measured
@@ -195,7 +195,7 @@ fi
 # Sum of the per-file counts above.
 # Pinned deliberately: a bare `pytest test/jax/`
 # that collected 0 would exit 5, and a partial loss (say 14 -> 3) would still exit 0.
-EXPECTED_TESTS=105
+EXPECTED_TESTS=109
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${FILES[@]}" 2>&1)"

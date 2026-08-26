@@ -240,7 +240,7 @@ evidence proposal) and `fisher_is_inflate=1.3` (`:1134`, the high-SNR Fisher-IS
 fallback). Those are where "intelligence" could go without paying any export-ESS
 cost. Not touched here — out of scope, and unmeasured.
 
-### 4a. The law is optimistic, so the chooser must not invert it directly
+### 4a. The law is optimistic — and the calibration is NOT a bound either
 
 Raised in review of this change, and correct.  `export_ess_fraction` is the
 Gaussian-peak law, which the §3a sweep shows is optimistic by up to 21%
@@ -249,8 +249,8 @@ beta, and guarding on it, both hand back something already known to fall short o
 what was asked for: at d=4 a 0.9 target returned **beta=0.77347, whose measured
 lower bound is 0.866**.
 
-`export_ess_lower_bound(beta, n_dim) = cal(beta) * law(beta, n_dim)` is now the
-quantity both the chooser and the 200-ESS guard use.  `cal` is a piecewise-linear
+`export_ess_estimate(beta, n_dim) = cal(beta) * law(beta, n_dim)` is what the
+chooser solves and what the export check reports.  `cal` is a piecewise-linear
 envelope over the measured ratios, every knot at or below every measured point:
 
 | beta | 0.05 | 0.20 | 0.40 | 0.60 | 0.80 | 1.00 |
@@ -263,9 +263,30 @@ unreachable, since it never rises to 1.  The inverse has no closed form once the
 envelope is included and is solved by bisection (both factors are monotone in
 beta, so the product is).
 
-**Measured at d=4 only.**  Applying the same ratio at other dimensions is an
-assumption, not a measurement.  It is the conservative direction, but it is not
-verified, and it is the first thing to check if a d=3 or d=5 budget comes up short.
+**IT IS NOT A LOWER BOUND, AND A SECOND REVIEW ROUND CAUGHT IT BEING USED AS
+ONE.**  `cal` is fitted at SNR ~= 23.8, and the shortfall grows with SNR.  §3c's
+own ladder already said so, and it supplies the counterexample:
+
+| | beta=0.1, d=4 |
+|---|---|
+| estimate (`cal x law`) | 0.0285 |
+| **measured, SNR ~= 67** | **0.00823** |
+
+a factor 3.5 the wrong way.  On a 10 000-row cloud that is an estimated ESS of
+285 against a measured ~82: comfortably over a 200-row floor while being well
+under it.  The first version of this section inverted the estimate to pick beta
+AND refused runs on it, i.e. built a hard guarantee out of a single-SNR fit while
+the caveat disproving it sat two sections above.
+
+A real bound needs a calibration in **(beta, SNR)**, and the driver has no
+trustworthy SNR where the choice is made — `guess_snr` is an explicit
+guesstimate (10.32 against a true network 23.78 on the study event).  So:
+
+* the export check **warns, it does not refuse** — a refusal is a guarantee;
+* `--auto-adapt-weight-exponent` is documented **EXPERIMENTAL and not
+  sufficiently validated**, and no paper result uses it;
+* **measured at d=4 only** — the ratio at other dimensions is assumed, not
+  measured, and is the first thing to check if a d=3 or d=5 budget comes up short.
 
 ## 5. Limitations — axes swept, and axes presumed load-bearing
 
@@ -282,8 +303,11 @@ IS, and the driver's own reported ESS).
 - **The guard's threshold in the corner where the law is optimistic** (§3c
   caveat 1): near ESS ~200 at small beta and high SNR the guard trusts a law that
   over-predicts. It errs toward passing, not refusing. Not characterised.
-- **The calibration envelope at dimensions other than 4** (§4a): assumed from
-  the d=4 sweep, not measured.
+- **The calibration is single-SNR** (§4a).  Fitted at SNR ~= 23.8; the ladder
+  shows it optimistic by 3.5x at SNR ~= 67 and beta=0.1.  Nothing may refuse a
+  run on it, and the chooser's target is met only on that calibration.
+- **The calibration at dimensions other than 4** (§4a): assumed from the d=4
+  sweep, not measured.
 - **Only two seeds.** Enough to show the `--adapt-adapt` collapse (it is a 30x
   effect) and to leave the beta=0.7735-vs-1 question open. Not enough for either
   to be a width claim.

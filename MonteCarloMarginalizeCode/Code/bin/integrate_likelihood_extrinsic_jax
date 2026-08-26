@@ -104,6 +104,10 @@ _USABLE_EXPORT_ESS = 200
 # Default export-ESS budget for --auto-adapt-weight-exponent.  Named so the
 # parser default and the "was this actually passed?" check are ONE value.
 _TARGET_EXPORT_ESS_FRAC_DEFAULT = 0.9
+# Modes whose sampler actually implements the anneal.  samplers.flowmc_sample_phimarg
+# takes temper_adapt; samplers.flowmc_sample (plain `flowmc`) does not.
+_ADAPT_ADAPT_MODES = frozenset((
+    "flowmc-phimarg", "flowmc-phipsimarg", "flowmc-dpsimarg"))
 
 # Modes whose sampler reports a TEMPERED state plus a genuine importance weight
 # (post_weight = L^(1-inv_T)); only these honour --adapt-weight-exponent, and
@@ -431,7 +435,11 @@ def build_parser():
                       "beta<1 broadens (helps the flow find sharp high-SNR peaks). "
                       "Maps to sampler temper = 1/beta (modes flowmc, flowmc-phimarg).")
     g.add_option("--auto-adapt-weight-exponent", action="store_true", default=False,
-                 help="Choose --adapt-weight-exponent automatically from the "
+                 help="EXPERIMENTAL, and not sufficiently validated: the ESS "
+                      "model it inverts is calibrated at SNR ~= 23.8 only and is "
+                      "optimistic at higher SNR, so the fraction it targets is "
+                      "not guaranteed. No paper result uses it. "
+                      "Choose --adapt-weight-exponent automatically from the "
                       "EXPORT budget instead of by hand: pick the smallest beta "
                       "whose reweighted export keeps --target-export-ess-frac of "
                       "the cloud.  Keyed on the SAMPLED DIMENSION, not on SNR -- "
@@ -443,10 +451,10 @@ def build_parser():
                       "export must retain, for --auto-adapt-weight-exponent "
                       "(default 0.9).  ESS/N = [beta(2-beta)]^(dim/2).")
     g.add_option("--allow-degenerate-tempering", action="store_true", default=False,
-                 help="Permit an --adapt-weight-exponent whose predicted export "
-                      "ESS is below the %d-sample usability floor.  Without it "
-                      "such a run is refused rather than writing a near-degenerate "
-                      "cloud under a fair-draw header." % _USABLE_EXPORT_ESS)
+                 help="Silence the warning issued when the ESTIMATED export ESS "
+                      "is below the %d-sample usability floor.  The estimate is "
+                      "advisory (calibrated at one SNR), so this suppresses a "
+                      "warning rather than overriding a refusal." % _USABLE_EXPORT_ESS)
     g.add_option("--adapt-adapt", action="store_true", default=False,
                  help="Adaptive likelihood tempering (flowmc-phimarg): anneal the "
                       "tempering exponent inv_T from --temper-init up to 1.0, "
@@ -932,7 +940,7 @@ def tempered_cloud_size(opts, n_starts):
                * (opts.n_local_steps + opts.n_global_steps))
 
 
-def record_supplied_options(opts, argv):
+def record_supplied_options(opts, argv, parser=None):
     """Record which long option TOKENS appeared on the command line.
 
     Everything below used to infer "did the user pass this?" from "does its value
@@ -944,8 +952,20 @@ def record_supplied_options(opts, argv):
     """
     supplied = set()
     for tok in (argv if argv is not None else sys.argv[1:]):
-        if isinstance(tok, str) and tok.startswith("--"):
-            supplied.add(tok.split("=", 1)[0])
+        if not (isinstance(tok, str) and tok.startswith("--")):
+            continue
+        name = tok.split("=", 1)[0]
+        # CANONICALISE.  optparse accepts unambiguous long-option PREFIXES, so
+        # `--adapt-weight-exp=1.0` parses and sets the value while recording a
+        # token that no was_supplied() query matches -- auto then silently
+        # overwrote the user's explicit exponent.  Ask the parser what the token
+        # actually resolved to.  Reported by review on #186.
+        if parser is not None:
+            try:
+                name = parser._match_long_opt(name)
+            except Exception:
+                pass          # unknown/ambiguous: record it verbatim
+        supplied.add(name)
     opts._supplied_options = supplied
     return supplied
 
@@ -991,7 +1011,22 @@ def resolve_tempering_exponent(opts, n_dim, n_cloud):
     with ``--n-events-to-analyze 3``; ILE_extr.sub runs batches.
     """
     from RIFT.likelihood.jax_ile.samplers import (
-        beta_for_export_ess, export_ess_lower_bound)
+        beta_for_export_ess, export_ess_estimate)
+
+    if opts.adapt_adapt and opts.mode not in _ADAPT_ADAPT_MODES:
+        # samplers.flowmc_sample (the plain 5-D `flowmc` mode) has NO temper_adapt
+        # argument -- it takes `temper` and samples a STATIC beta.  Returning the
+        # "annealed to beta=1, full ESS" answer here reported annealing that never
+        # happened AND skipped the degenerate-export check, so
+        # `--mode flowmc --adapt-adapt --adapt-weight-exponent 0.1` sampled at
+        # beta=0.1 unguarded while claiming full ESS.  Reported by review on #186.
+        raise SystemExit(
+            "--adapt-adapt is not implemented for --mode %s: its sampler "
+            "(samplers.flowmc_sample) takes a STATIC tempering exponent and has "
+            "no annealing path, so the flag would be silently ignored while the "
+            "run reported annealing.  Use one of %s, or drop --adapt-adapt and "
+            "set --adapt-weight-exponent explicitly."
+            % (opts.mode, " ".join(sorted(_ADAPT_ADAPT_MODES))))
 
     if opts.adapt_adapt:
         if opts.auto_adapt_weight_exponent:
@@ -1070,32 +1105,31 @@ def resolve_tempering_exponent(opts, n_dim, n_cloud):
     if beta == 1.0:
         print("Tempering: beta=1 (untempered target); export ESS is the full cloud.")
         return beta
-    # LOWER BOUND, not the bare law.  The law is optimistic by up to 21% at small
-    # beta, so guarding on it admits clouds already known to fall below the floor.
-    frac = export_ess_lower_bound(beta, n_dim)
+    # An ESTIMATE, calibrated at SNR ~= 23.8 -- NOT a bound.  This used to REFUSE
+    # a run below the floor, which is a guarantee the number cannot support: the
+    # SNR ladder measures 0.00823 at beta=0.1/d=4/SNR~67 against an estimate of
+    # 0.0285.  Refusing on it would be false precision in one direction and false
+    # confidence in the other, so it now WARNS.  Reported by review on #186.
+    frac = export_ess_estimate(beta, n_dim)
     ess = frac * n_cloud
     print("Tempering: beta=%.5f in %d-D -> export ESS/N >= %.4f "
           "(measured-calibrated lower bound), "
           "ESS~%.0f of %d rows" % (beta, n_dim, frac, ess, n_cloud))
     if ess < _USABLE_EXPORT_ESS and not opts.allow_degenerate_tempering:
-        raise SystemExit(
-            "--adapt-weight-exponent %g leaves a predicted export ESS of %.0f "
-            "(< %d) on this %d-D target: the reweighted --save-samples cloud "
-            "would not be a usable posterior sample.\n"
+        print(
+            "  WARNING: --adapt-weight-exponent %g gives an ESTIMATED export ESS "
+            "of %.0f (< %d), so the reweighted --save-samples cloud is unlikely "
+            "to be a usable posterior sample.\n"
             "  This is the trap the non-JAX helper's rule sets here: it picks "
             "beta from the SNR (beta=0.1 at SNR<=22.5, 0.1*(22.5/SNR)^2 above), "
             "which is correct where beta only shapes a PROPOSAL, but on this "
-            "path beta is the exponent of the SAMPLED target and costs "
-            "[beta(2-beta)]^(dim/2) of the export.\n"
-            "  Use --auto-adapt-weight-exponent (picks beta from the export "
-            "budget), or --adapt-adapt (anneals to beta=1 at full ESS), or pass "
-            "--allow-degenerate-tempering if a near-degenerate cloud is genuinely "
-            "what you want -- which is also the right flag under "
-            "--fisher-is-samples, where a SUCCESSFUL Fisher-IS pass replaces the "
-            "cloud with an already-fair-drawn uniform-weight set so this cost "
-            "never materialises.  It is not waived automatically because that "
-            "pass falls back to the tempered draws when it fails."
-            % (beta, ess, _USABLE_EXPORT_ESS, n_dim))
+            "path beta is the exponent of the SAMPLED target.\n"
+            "  The estimate is calibrated at SNR ~= 23.8 and is OPTIMISTIC at "
+            "higher SNR (measured 0.00823 vs an estimated 0.0285 at beta=0.1, "
+            "d=4, SNR ~= 67), so the true figure may be several times worse.  "
+            "It is a warning rather than a refusal precisely because it cannot "
+            "support a hard floor; check the ESS the export actually reports."
+            % (beta, ess, _USABLE_EXPORT_ESS), file=sys.stderr)
     return beta
 
 
@@ -1625,7 +1659,7 @@ def main(argv=None):
     optp = build_parser()
     opts, _ = optp.parse_args(argv)
     # BEFORE anything reads an option: which tokens did the user actually type?
-    record_supplied_options(opts, argv)
+    record_supplied_options(opts, argv, optp)
     check_critical_and_report(opts, optp)
 
     if opts.event_time is None:

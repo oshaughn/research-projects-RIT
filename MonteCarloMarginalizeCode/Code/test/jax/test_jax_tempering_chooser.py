@@ -35,7 +35,7 @@ if CODE not in sys.path:
     sys.path.insert(0, CODE)
 
 from RIFT.likelihood.jax_ile.samplers import (          # noqa: E402
-    beta_for_export_ess, export_ess_fraction, export_ess_lower_bound)
+    beta_for_export_ess, export_ess_fraction, export_ess_estimate)
 
 # The measured sweep (dim=4) from DESIGN_jax_tempering.md.  Kept as data because
 # more than one test needs it, and because the calibration envelope must be
@@ -87,6 +87,7 @@ class _Opts(object):
         self.target_export_ess_frac = drv._TARGET_EXPORT_ESS_FRAC_DEFAULT
         self.allow_degenerate_tempering = False
         self.smc_puffball = False
+        self.mode = "flowmc-phimarg"
         self.__dict__.update(kw)
         self._supplied_options = set(supplied)
 
@@ -145,17 +146,17 @@ def test_chosen_beta_meets_the_target_on_the_MEASURED_lower_bound():
         for target in (0.3, 0.5, 0.9, 0.99):
             beta = beta_for_export_ess(target, n_dim)
             assert 0.0 < beta <= 1.0
-            assert export_ess_lower_bound(beta, n_dim) >= target - 1e-9, (
+            assert export_ess_estimate(beta, n_dim) >= target - 1e-9, (
                 "dim=%d target=%g -> beta=%g retains only %.4f"
-                % (n_dim, target, beta, export_ess_lower_bound(beta, n_dim)))
+                % (n_dim, target, beta, export_ess_estimate(beta, n_dim)))
             # and it must be the SMALLEST such beta, to within the solver step
             if beta > 1e-3:
-                assert export_ess_lower_bound(beta * 0.99, n_dim) < target + 1e-9
+                assert export_ess_estimate(beta * 0.99, n_dim) < target + 1e-9
 
 
 def test_the_old_uncalibrated_answer_would_NOT_pass():
     """Pins that the fix changed the number, not just the wording."""
-    assert export_ess_lower_bound(0.77347, 4) < 0.9
+    assert export_ess_estimate(0.77347, 4) < 0.9
     assert beta_for_export_ess(0.9, 4) > 0.77347
 
 
@@ -166,7 +167,7 @@ def test_calibration_envelope_is_a_true_lower_bound_everywhere_measured():
     knot edit breaks it anywhere, the conservatism is gone silently.
     """
     for beta, measured in MEASURED_D4.items():
-        lb = export_ess_lower_bound(beta, 4)
+        lb = export_ess_estimate(beta, 4)
         assert measured >= lb - 1e-12, (
             "beta=%g: measured %.4e is BELOW the supposed lower bound %.4e"
             % (beta, measured, lb))
@@ -175,8 +176,8 @@ def test_calibration_envelope_is_a_true_lower_bound_everywhere_measured():
 def test_lower_bound_is_never_above_the_law_and_meets_it_at_beta_one():
     for n_dim in (3, 4, 5):
         for beta in (0.05, 0.2, 0.5, 0.8, 0.95):
-            assert export_ess_lower_bound(beta, n_dim) <= export_ess_fraction(beta, n_dim)
-        assert export_ess_lower_bound(1.0, n_dim) == pytest.approx(
+            assert export_ess_estimate(beta, n_dim) <= export_ess_fraction(beta, n_dim)
+        assert export_ess_estimate(1.0, n_dim) == pytest.approx(
             export_ess_fraction(1.0, n_dim))
 
 
@@ -355,15 +356,73 @@ def test_auto_sets_the_exponent_and_the_value_depends_on_dimension(capsys):
     assert got[3] < got[4] < got[5]
 
 
-def test_degenerate_exponent_is_refused_and_the_override_lets_it_through(capsys):
-    """Both directions.  A guard that never passes anything is not a guard."""
-    with pytest.raises(SystemExit) as e:
-        drv.resolve_tempering_exponent(_Opts(adapt_weight_exponent=0.09508), 4, 4800)
-    assert "would not be a usable posterior sample" in str(e.value)
-    capsys.readouterr()
-    drv.resolve_tempering_exponent(
-        _Opts(adapt_weight_exponent=0.09508, allow_degenerate_tempering=True), 4, 4800)
-    assert "export ESS/N >=" in capsys.readouterr().out
+def test_degenerate_exponent_WARNS_and_does_not_refuse(capsys):
+    """RETARGETED.  This used to require a REFUSAL.
+
+    A refusal is a guarantee, and review showed the estimate cannot support one:
+    it is calibrated at SNR ~= 23.8, and the PR's own SNR ladder measures
+    ESS/N = 0.00823 at beta=0.1, d=4, SNR ~= 67 against an estimated 0.0285 --
+    3.5x the wrong way.  Refusing on that number would be false confidence, so
+    the run proceeds with a loud warning that says which way the estimate errs.
+    """
+    o = _Opts(adapt_weight_exponent=0.09508, supplied=["--adapt-weight-exponent"])
+    beta = drv.resolve_tempering_exponent(o, 4, 4800)
+    assert beta == pytest.approx(0.09508)          # it RAN
+    cap = capsys.readouterr()
+    assert "WARNING" in cap.err
+    assert "usable posterior sample" in cap.err
+    # and it must disclose the direction of the error, not just the number
+    assert "optimistic" in cap.err.lower() and "0.00823" in cap.err
+
+    # --allow-degenerate-tempering silences it
+    o2 = _Opts(adapt_weight_exponent=0.09508, allow_degenerate_tempering=True,
+               supplied=["--adapt-weight-exponent", "--allow-degenerate-tempering"])
+    drv.resolve_tempering_exponent(o2, 4, 4800)
+    assert "WARNING" not in capsys.readouterr().err
+
+
+def test_the_estimate_is_NOT_presented_as_a_bound():
+    """The name and the docstring must not promise a guarantee.
+
+    The function was called export_ess_lower_bound and the guard refused on it,
+    which is exactly the over-claim review caught.  Pinning the naming stops it
+    being reintroduced by a rename.
+    """
+    import RIFT.likelihood.jax_ile.samplers as S
+    assert not hasattr(S, "export_ess_lower_bound"), (
+        "the bound-flavoured name is back")
+    doc = S.export_ess_estimate.__doc__ or ""
+    assert "NOT a bound" in doc or "not a bound" in doc.lower()
+    assert "0.00823" in doc, "the counterexample that disproves the bound is not recorded"
+
+
+def test_adapt_adapt_is_rejected_for_modes_whose_sampler_cannot_anneal():
+    """--mode flowmc has no temper_adapt path; claiming annealing there both
+    misreported the run and skipped the export check entirely."""
+    o = _Opts(adapt_adapt=True, adapt_weight_exponent=0.1, mode="flowmc",
+              supplied=["--adapt-adapt", "--adapt-weight-exponent"])
+    with pytest.raises(SystemExit, match="not implemented for --mode flowmc"):
+        drv.resolve_tempering_exponent(o, 5, 4800)
+    # the phimarg family still anneals
+    for mode in ("flowmc-phimarg", "flowmc-phipsimarg", "flowmc-dpsimarg"):
+        assert drv.resolve_tempering_exponent(
+            _Opts(adapt_adapt=True, mode=mode, supplied=["--adapt-adapt"]), 4, 4800) == 1.0
+
+
+@pytest.mark.parametrize("abbrev", ["--adapt-weight-exp=1.0",
+                                    "--adapt-weight-expo=0.5"])
+def test_long_option_ABBREVIATIONS_are_canonicalised(abbrev):
+    """optparse accepts unambiguous prefixes.
+
+    Recording the literal token meant `--adapt-weight-exp=1.0` set the value while
+    was_supplied('--adapt-weight-exponent') stayed False, so --auto silently
+    overwrote an explicit exponent -- the L1015 defect through a side door.
+    """
+    argv = ["--auto-adapt-weight-exponent", abbrev]
+    o = _opts_from_argv(argv)
+    assert drv.was_supplied(o, "--adapt-weight-exponent") is True
+    with pytest.raises(SystemExit, match="would overwrite it"):
+        drv.resolve_tempering_exponent(o, 4, 4800)
 
 
 def test_target_without_auto_is_reported_not_silently_ignored(capsys):
@@ -488,15 +547,24 @@ def test_smc_puffball_is_not_refused_because_the_exponent_is_inert_there():
         drv.resolve_tempering_exponent(o, 4, 4800)
     assert "--smc-puffball ignores" in buf.getvalue(), buf.getvalue()
 
-    # control: WITHOUT --smc-puffball the same exponent is still refused
-    with pytest.raises(SystemExit):
-        drv.resolve_tempering_exponent(_Opts(adapt_weight_exponent=0.09508), 4, 4800)
+    # control: WITHOUT --smc-puffball the same exponent is NOT silently fine --
+    # it runs (the floor is advisory now) but must warn.
+    import io as _io2
+    import contextlib as _c2
+    err = _io2.StringIO()
+    with _c2.redirect_stderr(err), _c2.redirect_stdout(_io2.StringIO()):
+        drv.resolve_tempering_exponent(
+            _Opts(adapt_weight_exponent=0.09508,
+                  supplied=["--adapt-weight-exponent"]), 4, 4800)
+    assert "WARNING" in err.getvalue()
 
 
 def _opts_from_argv(argv):
     """Parse a real command line AND record which tokens it named."""
-    o, _ = drv.build_parser().parse_args(list(argv))
-    drv.record_supplied_options(o, list(argv))
+    p = drv.build_parser()
+    o, _ = p.parse_args(list(argv))
+    drv.record_supplied_options(o, list(argv), p)   # parser => abbreviations canonicalised
+    o.mode = "flowmc-phimarg"
     return o
 
 
@@ -640,14 +708,14 @@ def test_chooser_is_actually_CALLED_from_the_dispatch():
         "the chooser is called without the sampled dimension"
 
 
-def test_degenerate_tempering_guard_raises_rather_than_warns():
-    """The guard must RAISE.  A printed warning above a 199-row export is exactly
-    the silent-degradation mode this change exists to remove.
+def test_degenerate_branch_warns_on_STDERR_and_names_the_floor():
+    """RETARGETED.  This required the branch to RAISE; it now warns by design.
 
-    Anchored to the ESS BRANCH specifically, not to "the function contains a
-    raise": the first version of this test asserted the latter and SURVIVED a
-    mutation that turned the guard's raise into a print, because the unrelated
-    --auto/--adapt-adapt conflict raise satisfied it.
+    The refusal was a guarantee the estimate cannot support (see
+    test_degenerate_exponent_WARNS_and_does_not_refuse).  What must survive is
+    that the branch still EXISTS, still keys on the shared floor constant, and
+    still reaches the user -- a warning printed to stdout among progress output
+    is not much better than silence, so stderr is pinned too.
     """
     tree = _driver_tree()
     fn = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
@@ -659,11 +727,10 @@ def test_degenerate_tempering_guard_raises_rather_than_warns():
                 for x in ast.walk(n.test)):
             guard = n
             break
-    assert guard is not None, (
-        "no `if ... _USABLE_EXPORT_ESS ...` branch in resolve_tempering_exponent")
-    assert any(isinstance(x, ast.Raise) for x in ast.walk(guard)), (
-        "the degenerate-export branch does not raise -- a printed warning above a "
-        "near-degenerate export is exactly what this guard exists to prevent")
+    assert guard is not None, "the floor check is gone entirely"
+    src = ast.get_source_segment(open(DRIVER).read(), guard) or ""
+    assert "file=sys.stderr" in src, "the warning does not reach stderr"
+    assert "WARNING" in src
 
 
 def test_guard_threshold_matches_the_message_the_driver_already_prints():

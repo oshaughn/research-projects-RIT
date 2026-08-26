@@ -119,14 +119,22 @@ def _ess_law_calibration(beta):
     return float(np.interp(beta, _ESS_CAL_BETA, _ESS_CAL_RATIO))
 
 
-def export_ess_lower_bound(beta, n_dim):
-    """CONSERVATIVE estimate of the surviving export fraction.
+def export_ess_estimate(beta, n_dim):
+    """Calibrated ESTIMATE of the surviving export fraction.  NOT a bound.
 
-    ``export_ess_fraction`` is the Gaussian-peak law, which the sweep shows to be
-    OPTIMISTIC by up to 21% (ratio 0.79 at beta=0.05, rising to 1.00 at beta=1).
-    Budget sizing and any usability guard must use THIS, not the bare law:
-    inverting the optimistic form directly hands back a beta already known to
-    retain less than was asked for.
+    ``export_ess_fraction`` is the Gaussian-peak law; the SNR-23.8 sweep shows it
+    optimistic by up to 21% (ratio 0.79 at beta=0.05, rising to 1.00 at beta=1),
+    and this applies that ratio.
+
+    IT IS NOT A GUARANTEE, AND THIS FUNCTION WAS ONCE NAMED AS IF IT WERE.  The
+    calibration is fitted at SNR ~= 23.8 only, and the shortfall grows with SNR:
+    the SNR ladder in DESIGN_jax_tempering.md measures ESS/N = 0.00823 at
+    beta=0.1, d=4, SNR ~= 67, against 0.0285 from this estimate -- a factor 3.5
+    the wrong way.  A real bound needs a calibration in (beta, SNR), and this
+    driver has no trustworthy SNR at the point the choice is made (`guess_snr` is
+    an explicit guesstimate: 10.32 against a true network 23.78 on the study
+    event).  So callers must treat the result as advisory and must not refuse a
+    run on it.  Reported by review on #186.
     """
     return _ess_law_calibration(beta) * export_ess_fraction(beta, n_dim)
 
@@ -141,9 +149,11 @@ def beta_for_export_ess(target_frac, n_dim):
     Smallest is the useful root: beta is a breadth knob, so among exponents that
     meet the export budget the broadest target is the one that explores most.
 
-    Solves against :func:`export_ess_lower_bound` -- the measured-calibrated
-    envelope -- so the returned beta retains AT LEAST ``target_frac`` on the
-    sweep, rather than at least that much of an optimistic formula.
+    Solves against :func:`export_ess_estimate`, so the returned beta meets
+    ``target_frac`` **on the SNR ~= 23.8 calibration**.  That is not a guarantee
+    at other SNRs -- the shortfall grows with SNR (see that function) -- which is
+    why ``--auto-adapt-weight-exponent`` is documented as experimental and why
+    nothing refuses a run on this number.
     """
     t = float(target_frac)
     if not (0.0 < t <= 1.0):
@@ -153,14 +163,14 @@ def beta_for_export_ess(target_frac, n_dim):
     # There is no closed form once the piecewise-linear calibration is included,
     # and the previous closed-form inverse of the optimistic law returned betas
     # that retained less than the caller asked for.
-    if export_ess_lower_bound(1.0, n_dim) < t:
+    if export_ess_estimate(1.0, n_dim) < t:
         raise ValueError(
             "target_frac %g is unreachable in %d-D even at beta=1 (lower bound "
-            "%.4f)" % (t, int(n_dim), export_ess_lower_bound(1.0, n_dim)))
+            "%.4f)" % (t, int(n_dim), export_ess_estimate(1.0, n_dim)))
     lo, hi = 1e-6, 1.0
     for _ in range(200):
         mid = 0.5 * (lo + hi)
-        if export_ess_lower_bound(mid, n_dim) >= t:
+        if export_ess_estimate(mid, n_dim) >= t:
             hi = mid
         else:
             lo = mid
