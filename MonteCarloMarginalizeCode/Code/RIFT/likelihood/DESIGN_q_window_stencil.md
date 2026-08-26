@@ -283,10 +283,34 @@ magnitude short of 92. Whatever produces the 3G effect is not reproduced by a si
 synthetic and has not been isolated -- it may involve the 3-site network, the finite-size
 response, or the distance marginalisation. **Do not quote a mechanism for this row.**
 
-That makes "should the shipped stencil renormalise?" an open question with a measured cost
-attached, not a settled design point. It is deliberately NOT changed here: the renormalisation is
-shared by all four backends, so flipping it changes results for every existing `sinc` user, and
-the §3-§4 crossover tables were all measured with it on.
+**A second configuration does not replicate the ordering, so do not generalise the row above.**
+Same demo, same everything, at fmax 2048 / srate 4096:
+
+| stencil | peak offset | lnL at truth | shortfall |
+|---|---|---|---|
+| `cubic` | 0.571' | 179799.15 | 200.9 |
+| `sinc` (shipped, a = 8) | **0.030'** | 179960.42 | 39.6 |
+| `lanczos8` (a = 8, unnormalised) | 0.145' | **179999.42** | **0.6** |
+| `lanczos16` (a = 16, unnormalised) | 0.031' | 179982.00 | 18.0 |
+
+Two things break here that hold at fmax 1024. **(i) The two metrics disagree.** In lnL at truth
+the renormalisation still costs (39 nats, same sign as the 92 at fmax 1024), but in sky offset it
+has *flipped*: shipped `sinc` at 0.030' now beats the unnormalised `lanczos8` at 0.145'. Judge
+this knob on both moments or it will tell you whatever you asked. **(ii) Half-width is
+non-monotone**: `lanczos16` claims *less* lnL at truth than `lanczos8` (179982 against 179999),
+which a purely stencil-limited error cannot do. Something other than the stencil is binding at
+this sampling -- consistent with the `slowrot_fs_lib` at-Nyquist defect being tracked separately.
+
+That is also an independent cross-check on that separate defect, arrived at without using any of
+the sampling evidence from the sky-offset diagnosis: at fmax 1024 even `lanczos16` leaves 55.5
+nats against a 14-23 nat marginalisation floor, so **33-41 nats there are not stencil error**.
+
+So "should the shipped stencil renormalise?" is an open question with a measured cost in one
+metric at two configurations and a measured *reversal* in the other, **not** a settled defect. It
+is deliberately NOT changed here: the renormalisation is shared by all four backends, so flipping
+it changes results for every existing `sinc` user, and the §3-§4 crossover tables were all
+measured with it on. Anyone revisiting it needs more than two configurations and should report
+offset and lnL shortfall side by side.
 
 
 `cubic` is not merely less accurate here: it moves the likelihood peak 9.2 arcmin off a
