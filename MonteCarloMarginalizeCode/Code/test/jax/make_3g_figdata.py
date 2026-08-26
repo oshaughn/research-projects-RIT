@@ -18,6 +18,7 @@ Run on GPU in the JAX container (pin an idle GPU):
     PYTHONPATH=<Code>:<paper>/analyses/slowrot_finite-size \
     python test/jax/make_3g_figdata.py
 """
+import inspect
 import os
 import sys
 import numpy as np
@@ -95,9 +96,15 @@ def _draw_distance(data, ra, dec, psi, incl, phiref, d_min, d_max, seed=0):
 def run_one(src, net, target_snr, want_samples=False):
     dist = fslib.distance_for_snr(src, net, target_snr)
     # SELFCONSISTENT (int Qmax): render the injection with the recovery's own b_p*W_p
-    # response so truth is the exact global maximum -- combined with a finely-sampled
-    # rholm (fmax>=2048, deltaT<=1/4096) this removes the ~0.16 deg cubic-interpolation
-    # timing systematic that otherwise displaces the razor-sharp high-SNR sky posterior.
+    # response so truth is the exact global maximum -- combined with an adequately
+    # OVERSAMPLED rholm this removes the cubic-interpolation timing systematic that
+    # otherwise displaces the razor-sharp high-SNR sky posterior.  The oversampling is
+    # slowrot_fs_lib's own knob (deltaT = 1/(2*oversample*fmax), defaulted by that
+    # library's OVERSAMPLE); raising fmax does not do it, and at equal sample rate the
+    # narrower band is the better one.  Measured ladders (offset vs oversample, and the
+    # stencil sweep): analyses/slowrot_finite-size/DESIGN_sampling.md in the paper repo.
+    # If your slowrot_fs_lib has no `oversample` and still sets deltaT = 1/(2*fmax), it
+    # predates that decoupling and none of this paragraph applies -- see main().
     sc = os.environ.get("SLOWROT_SELFCONSISTENT")
     data_dict, psd_dict, arm_dict, meta = fslib.build_finite_size_data(
         src, net, dist, selfconsistent_Qmax=(int(sc) if sc else None))
@@ -170,13 +177,36 @@ def main():
     # of a near-face-on dominant-quadrupole source is broken and the orientation
     # sector recovers on truth.  Override with SLOWROT_INCL.
     incl = float(os.environ.get("SLOWROT_INCL", "0.4"))
-    # fmax sets both the waveform bandlimit AND the rholm sampling deltaT=1/(2 fmax);
-    # 2048 (deltaT=1/4096) finely samples the rholm so the recovery's cubic time
-    # interpolation reproduces the per-detector fractional-sample delays -> no sky bias.
+    # WHICH slowrot_fs_lib DO YOU HAVE?  Read build_finite_size_data; do not go by a
+    # commit id.  If it sets deltaT = 1/(2*fmax) and Source has no `oversample`, it is the
+    # OLD library: fmax there sets the band AND the sample rate, the rholm sits at its own
+    # band Nyquist, and the only lever you have is fmax.  If it sets
+    # deltaT = 1/(2*oversample*fmax), it is the new one and the rest of this applies.
+    #
+    # In the new library fmax is the ANALYSIS BAND LIMIT only; oversample sets the rholm
+    # sampling (default 4 at the time of writing, so srate = 8192 at fmax=1024), and
+    # raising fmax no longer refines the time series.  1024 stays as the band choice for
+    # this BNS: DESIGN_sampling.md measures the narrower band as marginally better at
+    # equal sample rate, so quote a configuration by fmax AND srate -- neither alone
+    # identifies it.  SLOWROT_OVERSAMPLE overrides the sampling; 1 restores the old
+    # library's setting and rebuilds its data bit-for-bit (the sampler on top is not
+    # deterministic).  It is passed only when set, so this script still runs unchanged
+    # against the old library -- and an explicit request the old library cannot satisfy
+    # is refused rather than silently downgraded to its fixed 1.
+    #
+    # Provenance: the decoupling is RIFT_roboto_paper branch claude/stoic-saha-496052
+    # (2026-08-26), which at the time of writing had NOT landed on that repo's main.
     fmax = float(os.environ.get("SLOWROT_FMAX", "1024.0"))
+    _ovs = os.environ.get("SLOWROT_OVERSAMPLE")
+    if _ovs and "oversample" not in inspect.signature(fslib.Source.__init__).parameters:
+        raise SystemExit(
+            "SLOWROT_OVERSAMPLE=%s needs a slowrot_fs_lib with the oversample knob; this "
+            "one sets deltaT = 1/(2*fmax) and is fixed at the band's own Nyquist rate"
+            % _ovs)
+    src_kw = {"oversample": int(_ovs)} if _ovs else {}
     src = fslib.Source(m1=1.6, m2=1.4, ra=1.2, dec=0.3, psi=0.5, incl=incl,
                        phiref=0.0, fmin=50.0, fmax=fmax, seglen=32.0,
-                       approx="IMRPhenomD")
+                       approx="IMRPhenomD", **src_kw)
     net = fslib.network(NETWORK)
     print("3G FIGDATA network=%s rep_snr=%.0f snrs=%s" % (NETWORK, SNR_REP, SNRS))
     rows = []
