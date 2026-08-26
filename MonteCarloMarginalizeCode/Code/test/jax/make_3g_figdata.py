@@ -102,6 +102,8 @@ def run_one(src, net, target_snr, want_samples=False):
     # library's OVERSAMPLE); raising fmax does not do it, and at equal sample rate the
     # narrower band is the better one.  Measured ladders (offset vs oversample, and the
     # stencil sweep): analyses/slowrot_finite-size/DESIGN_sampling.md in the paper repo.
+    # If your slowrot_fs_lib has no `oversample` and still sets deltaT = 1/(2*fmax), it
+    # predates that decoupling and none of this paragraph applies -- see main().
     sc = os.environ.get("SLOWROT_SELFCONSISTENT")
     data_dict, psd_dict, arm_dict, meta = fslib.build_finite_size_data(
         src, net, dist, selfconsistent_Qmax=(int(sc) if sc else None))
@@ -174,15 +176,24 @@ def main():
     # of a near-face-on dominant-quadrupole source is broken and the orientation
     # sector recovers on truth.  Override with SLOWROT_INCL.
     incl = float(os.environ.get("SLOWROT_INCL", "0.4"))
-    # fmax is the ANALYSIS BAND LIMIT only: since paper-repo commit 2445905 the rholm
-    # sampling is set independently by slowrot_fs_lib's oversample (deltaT =
-    # 1/(2*oversample*fmax), currently defaulting to 4, so srate = 8192 at fmax=1024),
-    # and raising fmax no longer refines the time series.  1024 stays as the band choice
-    # for this BNS: DESIGN_sampling.md measures the narrower band as marginally better at
-    # equal sample rate.  SLOWROT_OVERSAMPLE overrides the sampling; 1 restores the
-    # pre-2026-08-26 setting, which rebuilds the archived data bit-for-bit (the sampler
-    # on top of it is not deterministic).  It is passed only when set, so the script
-    # still runs against a paper-repo checkout older than the fix.
+    # WHICH slowrot_fs_lib DO YOU HAVE?  Read build_finite_size_data; do not go by a
+    # commit id.  If it sets deltaT = 1/(2*fmax) and Source has no `oversample`, it is the
+    # OLD library: fmax there sets the band AND the sample rate, the rholm sits at its own
+    # band Nyquist, and the only lever you have is fmax.  If it sets
+    # deltaT = 1/(2*oversample*fmax), it is the new one and the rest of this applies.
+    #
+    # In the new library fmax is the ANALYSIS BAND LIMIT only; oversample sets the rholm
+    # sampling (default 4 at the time of writing, so srate = 8192 at fmax=1024), and
+    # raising fmax no longer refines the time series.  1024 stays as the band choice for
+    # this BNS: DESIGN_sampling.md measures the narrower band as marginally better at
+    # equal sample rate, so quote a configuration by fmax AND srate -- neither alone
+    # identifies it.  SLOWROT_OVERSAMPLE overrides the sampling; 1 restores the old
+    # library's setting and rebuilds its data bit-for-bit (the sampler on top is not
+    # deterministic).  It is passed only when set, so this script still runs unchanged
+    # against the old library.
+    #
+    # Provenance: the decoupling is RIFT_roboto_paper branch claude/stoic-saha-496052
+    # (2026-08-26), which at the time of writing had NOT landed on that repo's main.
     fmax = float(os.environ.get("SLOWROT_FMAX", "1024.0"))
     _ovs = os.environ.get("SLOWROT_OVERSAMPLE")
     src_kw = {"oversample": int(_ovs)} if _ovs else {}
