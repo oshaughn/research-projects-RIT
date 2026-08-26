@@ -7,6 +7,13 @@
 > `# mode=laplace-is fairdraw: ESS=5.5 n_in=300000 n_out=9`. **Check that ESS
 > before trusting a file**: a low-ESS export is not a usable posterior sample
 > however it is drawn, and the driver warns on stderr when it is below 200.
+> When the weights admit no fair draw at all (degenerate/unnormalizable), the
+> event fails and **no samples file is written** (any stale one at that path is
+> removed) — there is no mode in which this product holds unreweighted rows.
+> That refusal is checked *before* the `<output>_<index>_.dat` result row is
+> written, so a failed event leaves **no result row either** (a stale one is
+> removed too): with `--soft-fail-event-range` the batch goes on, and a row left
+> behind would be collected as a successful integration.
 
 A `jax.numpy`, automatic-differentiation-compatible reimplementation of RIFT's
 ILE extrinsic likelihood, mirroring the production

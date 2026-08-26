@@ -109,8 +109,7 @@ def test_export_is_a_fair_draw_of_the_posterior(tmp_path):
     POSTERIOR -- not the proposal the sampler drew from."""
     theta, lnL, logw = make_cloud()
     opts = fake_opts(tmp_path)
-    drv.write_samples(opts, 0, theta, lnL, with_distance=False, logw=logw,
-                      neff=np.inf)
+    drv.write_samples(opts, 0, theta, lnL, with_distance=False, logw=logw)
     got, hdr = read_export(opts)
 
     # unchanged file format: no weight column, same header as before
@@ -156,12 +155,96 @@ def test_uniform_weights_are_a_no_op(tmp_path):
     lnL = _logN(theta, MU_L, S_L)
     logw = np.log(np.ones(len(theta)) / len(theta))
     opts = fake_opts(tmp_path)
-    drv.write_samples(opts, 0, theta, lnL, with_distance=False, logw=logw,
-                      neff=np.inf)
+    drv.write_samples(opts, 0, theta, lnL, with_distance=False, logw=logw)
     got, _ = read_export(opts)
     assert len(got) == len(theta)
     assert len(np.unique(got[:, 0])) == len(theta), \
         "uniform weights triggered a resample (duplicates in the export)"
+
+
+def test_analyze_one_also_refuses_a_post_weight_length_mismatch():
+    """The SECOND mismatch guard, in analyze_one, pinned structurally.
+
+    Reaching it at runtime needs a full sampler, so this reads the source: the
+    guard must compare lengths and RAISE.  Found by mutation testing -- deleting
+    this guard left all 33 tests green, because the write_samples-level test
+    cannot see the call site that feeds it.
+    """
+    src = textwrap.dedent(inspect.getsource(drv.analyze_one))
+    tree = ast.parse(src)
+    msgs = " ".join(c.value for n in ast.walk(tree) if isinstance(n, ast.Raise)
+                    for c in ast.walk(n)
+                    if isinstance(c, ast.Constant) and isinstance(c.value, str))
+    assert "post_weight entries for" in msgs, (
+        "analyze_one no longer refuses a post_weight/theta length mismatch; a "
+        "mismatch would silently export an unreweighted cloud")
+    # and it must not have gone back to silently dropping the weights
+    assert "if _pw is not None and len(_pw) == len(theta) else None" not in src, (
+        "the silent-drop form is back")
+
+
+def test_length_mismatch_between_weights_and_rows_FAILS_LOUDLY(tmp_path):
+    """A mismatched weight vector must refuse, not silently mislabel.
+
+    The guard used to read `if logw is not None and len(logw) == len(theta)`, so
+    a mismatch fell through to the default note -- writing an UNREWEIGHTED
+    tempered cloud under a header claiming "not applicable (sampler targets the
+    posterior)".  That is a false provenance line on the one product every
+    downstream consumer reads as posterior draws.
+    """
+    theta, lnL, logw = make_cloud(n=2000)
+    opts = fake_opts(tmp_path)
+    with pytest.raises(RuntimeError, match="disagree in length"):
+        drv.write_samples(opts, 0, theta, lnL, with_distance=False,
+                          logw=logw[:-1])
+    assert not os.path.exists(opts.output_file + "_0_samples.dat"), \
+        "refused the draw but still wrote a file"
+
+
+def test_export_count_is_NOT_clamped_by_the_evidence_estimator(tmp_path):
+    """A valid equal-weight chain must not be truncated by an unrelated ESS.
+
+    THE DEFECT (review, #180): the export count was clamped by
+    ``1.5*res["neff"]``.  On every flowMC mode ``theta`` is the production chain
+    while ``res["neff"]`` comes from a SEPARATE estimator -- the moment-matched
+    Gaussian cloud built for the evidence, or the annealing ladder's minimum
+    inter-stage ESS.  A perfectly good uniform-weight chain was therefore
+    truncated to a couple of rows whenever that unrelated proposal had low ESS.
+
+    ILE's own clamp (mcsampler.integrate: min(n_extr, 1.5*eff_samp, 1.5*neff))
+    is self-consistent because all three describe the SAME weight vector the
+    draw samples from; the port lost that.
+
+    Nothing caught this: all 20 call sites in this file passed neff=inf/nan, so
+    the clamp was never exercised.  This test asks for a count and requires it
+    to be honoured.
+    """
+    n, want = 5000, 1000
+    theta = np.random.default_rng(0).normal(size=(n, 4))
+    lnL = np.zeros(n)
+    opts = fake_opts(tmp_path, n_fairdraw_extrinsic_samples=want)
+    # equal-weight chain -- exactly what a beta=1 flowMC run hands over
+    drv.write_samples(opts, 0, theta, lnL, with_distance=False,
+                      logw=np.log(np.ones(n) / n))
+    got, _ = read_export(opts)
+    assert len(got) == want, (
+        "requested %d equal-weight rows, exported %d" % (want, len(got)))
+
+
+def test_write_samples_cannot_be_handed_an_evidence_neff():
+    """Structural: the parameter is gone, so the defect cannot be re-wired.
+
+    A behavioural test alone would not stop someone re-adding `neff=` and a
+    clamp; pin the signature and the call site together.
+    """
+    import inspect
+    params = list(inspect.signature(drv.write_samples).parameters)
+    assert "neff" not in params, params
+    assert "neff" not in list(inspect.signature(drv.fairdraw_size).parameters)
+    call = _write_samples_call()          # the call inside analyze_one
+    kwnames = {k.arg for k in call.keywords if k.arg}
+    assert "neff" not in kwnames, (
+        "analyze_one passes an evidence neff into the export path again")
 
 
 def test_fairdraw_count_options_are_live(tmp_path):
@@ -174,8 +257,7 @@ def test_fairdraw_count_options_are_live(tmp_path):
                            fairdraw_extrinsic_output_n_max=9), 9)):
         opts = fake_opts(tmp_path / str(want), **kw)
         os.makedirs(str(tmp_path / str(want)), exist_ok=True)
-        drv.write_samples(opts, 0, theta, lnL, with_distance=False, logw=logw,
-                          neff=np.inf)
+        drv.write_samples(opts, 0, theta, lnL, with_distance=False, logw=logw)
         got, _ = read_export(opts)
         assert len(got) == want, "requested %d fair draws, got %d" % (want, len(got))
 
@@ -195,7 +277,7 @@ def test_ess_clamp_prevents_manufactured_draws(tmp_path):
     assert ess < n / 100.0, "the test cloud is not actually low-ESS (ESS=%.1f)" % ess
     opts = fake_opts(tmp_path)
     drv.write_samples(opts, 0, theta, _logN(theta, MU_L, 0.05), with_distance=False,
-                      logw=logw, neff=np.nan)
+                      logw=logw)
     got, _ = read_export(opts)
     assert len(got) <= np.ceil(1.5 * ess), (
         "exported %d rows from an ESS=%.1f cloud (cap %d)"
@@ -235,8 +317,7 @@ def test_exported_lnL_belongs_to_its_own_row(tmp_path):
     check, because both marginals stay correct."""
     theta, lnL, logw = make_cloud(n=120000)
     opts = fake_opts(tmp_path)
-    drv.write_samples(opts, 0, theta, lnL, with_distance=False, logw=logw,
-                      neff=np.inf)
+    drv.write_samples(opts, 0, theta, lnL, with_distance=False, logw=logw)
     got, _ = read_export(opts)
     th_out = np.empty((len(got), NDIM))
     for j in range(NDIM):
@@ -255,8 +336,7 @@ def test_exported_lnL_stays_paired_through_the_count_subsample(tmp_path):
     together.  Re-check it with a count requested."""
     theta, lnL, logw = make_cloud(n=120000)
     opts = fake_opts(tmp_path, n_fairdraw_extrinsic_samples=311)
-    drv.write_samples(opts, 0, theta, lnL, with_distance=False, logw=logw,
-                      neff=np.inf)
+    drv.write_samples(opts, 0, theta, lnL, with_distance=False, logw=logw)
     got, _ = read_export(opts)
     assert len(got) == 311
     th_out = np.empty((len(got), NDIM))
@@ -282,8 +362,7 @@ def test_count_flags_are_inert_for_modes_reported_as_ignoring_them(tmp_path):
         d = tmp_path / mode; os.makedirs(str(d), exist_ok=True)
         opts = fake_opts(d, mode=mode, fairdraw_extrinsic_output=True,
                          fairdraw_extrinsic_output_n_max=5)
-        drv.write_samples(opts, 0, theta, lnL, with_distance=False, logw=None,
-                          neff=np.inf)
+        drv.write_samples(opts, 0, theta, lnL, with_distance=False, logw=None)
         got, _ = read_export(opts)
         assert len(got) == expect, (
             "--mode %s: wrote %d rows, expected %d (%s)"
@@ -304,7 +383,7 @@ def test_provenance_n_out_matches_the_file(tmp_path):
         d = tmp_path / str(len(kw)); os.makedirs(str(d), exist_ok=True)
         opts = fake_opts(d, **kw)
         drv.write_samples(opts, 0, theta, lnL, with_distance=False,
-                          logw=np.log(np.ones(n) / n), neff=np.inf)
+                      logw=np.log(np.ones(n) / n))
         got, _ = read_export(opts)
         with open(opts.output_file + "_0_samples.dat") as fh:
             fh.readline(); prov = fh.readline()
@@ -315,20 +394,20 @@ def test_provenance_n_out_matches_the_file(tmp_path):
 
 
 def test_every_path_reports_ess_and_n_in(tmp_path):
-    """F-E in full: the logw=None and FAILED paths reported neither ESS= nor
-    n_in=, so the self-describing header was blank on two of four paths."""
+    """F-E in full: the logw=None path reported neither ESS= nor n_in=, so the
+    self-describing header was blank on one of the three paths that write.  (The
+    FAILED path writes nothing at all -- see
+    test_failed_fairdraw_writes_no_samples_file.)"""
     rng = np.random.default_rng(23)
     theta = MEAN_POST[None, :] + rng.standard_normal((500, NDIM)) * SD_POST
     lnL = _logN(theta, MU_L, S_L)
     cases = {"none": None,
              "uniform": np.log(np.ones(500) / 500),
-             "weighted": _logN(theta, MU_L, 1.2),
-             "failed": np.full(500, -np.inf)}
+             "weighted": _logN(theta, MU_L, 1.2)}
     for name, lw in cases.items():
         d = tmp_path / name; os.makedirs(str(d), exist_ok=True)
         opts = fake_opts(d)
-        drv.write_samples(opts, 0, theta, lnL, with_distance=False, logw=lw,
-                          neff=np.inf)
+        drv.write_samples(opts, 0, theta, lnL, with_distance=False, logw=lw)
         with open(opts.output_file + "_0_samples.dat") as fh:
             fh.readline(); prov = fh.readline()
         for field in ("ESS=", "n_in=", "n_out="):
@@ -340,23 +419,71 @@ def test_every_path_reports_ess_and_n_in(tmp_path):
     assert "ESS=n/a" in prov, "uniform path reports a fabricated ESS: %r" % prov
 
 
-def test_degenerate_weights_fail_loudly_not_silently(tmp_path):
+def test_degenerate_weights_fail_loudly_not_silently():
     """Weights that cannot be normalized must be reported as FAILED, not
     silently returned as 'uniform, nothing to do' -- otherwise the raw,
     unreweighted cloud is written under a header promising a fair draw."""
     rng = np.random.default_rng(4)
-    theta = rng.standard_normal((5000, NDIM)) * 3.0
     for bad, why in ((np.full(5000, -np.inf), "all -inf"),
                      (np.where(np.arange(5000) == 0, 0.0, -np.inf), "one finite")):
         idx, note = drv.fairdraw_indices(bad, rng)
         assert idx is None
         assert note.startswith("FAILED"), "%s reported as %r" % (why, note)
+
+
+def test_failed_fairdraw_writes_no_samples_file(tmp_path):
+    """A FAILED fair draw must produce NO export.  Writing the raw cloud with
+    'FAILED' in the provenance line was still a non-posterior cloud sitting under
+    the standard weightless product name: consumers read `*_samples.dat` rows as
+    equal-weight posterior draws and are not obliged to parse the second header
+    line, so the contract was violated exactly on the collapsed integrations
+    where proposal and posterior differ most."""
+    rng = np.random.default_rng(4)
+    theta = rng.standard_normal((5000, NDIM)) * 3.0
     opts = fake_opts(tmp_path)
-    drv.write_samples(opts, 0, theta, np.full(5000, -np.inf), with_distance=False,
-                      logw=np.full(5000, -np.inf), neff=np.nan)
-    with open(opts.output_file + "_0_samples.dat") as fh:
-        head = [fh.readline() for _ in range(2)]
-    assert "FAILED" in head[1], "failure not recorded in the export header: %r" % head[1]
+    with pytest.raises(RuntimeError) as exc:
+        drv.write_samples(opts, 0, theta, np.full(5000, -np.inf),
+                          with_distance=False, logw=np.full(5000, -np.inf))
+    assert "fair draw failed" in str(exc.value)
+    assert not os.path.exists(opts.output_file + "_0_samples.dat"), \
+        "a non-posterior cloud was exported after the fair draw failed"
+
+
+def test_failed_fairdraw_removes_a_stale_export(tmp_path):
+    """Refusing to write is not enough on a re-run: a samples file left from an
+    earlier run sits at exactly the path the pipeline reads for THIS one, so the
+    refusal must also clear it rather than silently endorsing stale rows."""
+    rng = np.random.default_rng(9)
+    theta = rng.standard_normal((5000, NDIM)) * 3.0
+    opts = fake_opts(tmp_path)
+    stale = opts.output_file + "_0_samples.dat"
+    with open(stale, "w") as fh:
+        fh.write("# right_ascension declination inclination psi loglikelihood\n"
+                 "# mode=flowmc-phimarg fairdraw: reweighted ESS=900.0 n_in=1 n_out=1\n"
+                 "0.1 0.2 0.3 0.4 -5.0\n")
+    with pytest.raises(RuntimeError):
+        drv.write_samples(opts, 0, theta, np.full(5000, -np.inf),
+                          with_distance=False, logw=np.full(5000, -np.inf))
+    assert not os.path.exists(stale), \
+        "the previous run's export survived a failed fair draw"
+
+
+def test_failed_event_is_skippable_but_never_exported(tmp_path):
+    """The refusal must be an ordinary Exception, so main's per-event handler
+    (--soft-fail-event-range) can carry a batch past a collapsed event, and it
+    must not disturb the other events' exports."""
+    src = inspect.getsource(drv.main)
+    assert "except Exception" in src and "soft_fail_event_range" in src, \
+        "main lost the per-event guard that makes a refused export skippable"
+    theta, lnL, logw = make_cloud(n=20000)
+    bad = fake_opts(tmp_path / "bad"); os.makedirs(str(tmp_path / "bad"), exist_ok=True)
+    with pytest.raises(RuntimeError):
+        drv.write_samples(bad, 0, theta, lnL, with_distance=False,
+                          logw=np.full(len(theta), -np.inf))
+    good = fake_opts(tmp_path / "good"); os.makedirs(str(tmp_path / "good"), exist_ok=True)
+    drv.write_samples(good, 1, theta, lnL, with_distance=False, logw=logw)
+    assert not os.path.exists(bad.output_file + "_0_samples.dat")
+    assert len(read_export(good, 1)[0]) > 1
 
 
 def test_weights_are_stabilized_at_realistic_lnL(tmp_path):
@@ -373,8 +500,7 @@ def test_weights_are_stabilized_at_realistic_lnL(tmp_path):
     assert idx is not None, "fair draw refused at realistic lnL: %s" % note
     assert not note.startswith("FAILED"), note
     opts = fake_opts(tmp_path)
-    drv.write_samples(opts, 0, theta, logw, with_distance=False, logw=logw,
-                      neff=np.inf)
+    drv.write_samples(opts, 0, theta, logw, with_distance=False, logw=logw)
     got, _ = read_export(opts)
     assert len(got) > 1 and np.isfinite(got).all()
     assert len(np.unique(got[:, 0])) > 1, "export collapsed to a single point"
@@ -385,8 +511,7 @@ def test_export_header_records_ess_and_mode(tmp_path):
     nowhere, so a 200000-sample file with ESS 97 looked like any other."""
     theta, lnL, logw = make_cloud(n=120000)
     opts = fake_opts(tmp_path)
-    drv.write_samples(opts, 0, theta, lnL, with_distance=False, logw=logw,
-                      neff=np.inf)
+    drv.write_samples(opts, 0, theta, lnL, with_distance=False, logw=logw)
     with open(opts.output_file + "_0_samples.dat") as fh:
         cols_line, prov_line = fh.readline(), fh.readline()
     assert cols_line.split()[1] == "right_ascension", "column line moved: %r" % cols_line
@@ -406,14 +531,13 @@ def test_export_rng_is_independent_of_the_science_stream(tmp_path):
         d = tmp_path / ("burn%d" % burn)
         os.makedirs(str(d), exist_ok=True)
         opts = fake_opts(d)
-        drv.write_samples(opts, 0, theta, lnL, with_distance=False, logw=logw,
-                          neff=np.inf)   # export rng derived from (seed, out_index)
+        drv.write_samples(opts, 0, theta, lnL, with_distance=False, logw=logw)   # export rng derived from (seed, out_index)
         outs.append(read_export(opts)[0])
     assert np.array_equal(outs[0], outs[1]), \
         "export depends on how much the shared RNG was consumed"
     # and different events must not reuse the same draw
     o2 = fake_opts(tmp_path / "ev1"); os.makedirs(str(tmp_path / "ev1"), exist_ok=True)
-    drv.write_samples(o2, 1, theta, lnL, with_distance=False, logw=logw, neff=np.inf)
+    drv.write_samples(o2, 1, theta, lnL, with_distance=False, logw=logw)
     assert not np.array_equal(read_export(o2, 1)[0], outs[0])
 
 
@@ -507,7 +631,7 @@ def test_count_option_dests_are_stable():
     # unset -n-max must stay None so the ignored-option report does not claim
     # the user passed it; the ILE default of 5 is resolved downstream
     assert opts2.fairdraw_extrinsic_output_n_max is None
-    assert drv.fairdraw_size(opts2, 10000, np.inf) == drv._FAIRDRAW_N_MAX_DEFAULT
+    assert drv.fairdraw_size(opts2, 10000) == drv._FAIRDRAW_N_MAX_DEFAULT
 
 
 def test_count_options_act_when_weights_are_uniform(tmp_path):
@@ -527,7 +651,7 @@ def test_count_options_act_when_weights_are_uniform(tmp_path):
         d = tmp_path / str(want); os.makedirs(str(d), exist_ok=True)
         opts = fake_opts(d, **kw)
         drv.write_samples(opts, 0, theta, lnL, with_distance=False,
-                          logw=uniform, neff=np.inf)
+                      logw=uniform)
         got, _ = read_export(opts)
         assert len(got) == want, (
             "uniform weights: asked for %d rows, wrote %d -- the count contract "
@@ -545,10 +669,159 @@ def test_uniform_export_header_still_reports_ess(tmp_path):
     lnL = _logN(theta, MU_L, S_L)
     opts = fake_opts(tmp_path)
     drv.write_samples(opts, 0, theta, lnL, with_distance=False,
-                      logw=np.log(np.ones(len(theta)) / len(theta)), neff=np.inf)
+                      logw=np.log(np.ones(len(theta)) / len(theta)))
     with open(opts.output_file + "_0_samples.dat") as fh:
         fh.readline(); prov = fh.readline()
     assert "ESS=" in prov and "n_in=" in prov and "n_out=" in prov, prov
+
+
+def test_failed_export_leaves_no_result_row(tmp_path):
+    """A refused fair draw means the integration collapsed, so the event must
+    leave no NORMAL ILE result behind either.  `<output>_<index>_.dat` carries no
+    hint that the export was refused, and with --soft-fail-event-range the batch
+    continues -- so a result row at that path is collected as a successful
+    integration (in the one-finite-weight case, a finite but collapsed
+    evidence)."""
+    rng = np.random.default_rng(31)
+    theta = rng.standard_normal((5000, NDIM)) * 3.0
+    opts = fake_opts(tmp_path)
+    stale = drv.dat_path(opts, 0)
+    with open(stale, "w") as fh:
+        fh.write("# event_id m1 m2 s1x s1y s1z s2x s2y s2z lnL sigma_lnL ntotal neff\n"
+                 "-1 1.4 1.3 0 0 0 0 0 0 12.0 0.1 1000 900\n")
+    with pytest.raises(RuntimeError):
+        drv.write_samples(opts, 0, theta, np.full(5000, -np.inf),
+                          with_distance=False, logw=np.full(5000, -np.inf))
+    assert not os.path.exists(stale), \
+        "a normal ILE result row survived a refused fair draw"
+
+
+def test_result_row_is_written_only_after_the_export():
+    """STRUCTURAL guard on the write ORDER in analyze_one.
+
+    write_dat has no way to know the export will be refused, so publishing it
+    first is not fixable inside write_samples: the artifact already exists when
+    the RuntimeError is raised, and --soft-fail-event-range then walks past it.
+    The export must therefore be validated and written FIRST.  Checked at the
+    call site, since a test of write_samples alone cannot see the order."""
+    tree = ast.parse(textwrap.dedent(inspect.getsource(drv.analyze_one)))
+    # Only the function's OWN statement list: --mode map writes its result inside
+    # an `if` that returns immediately, exports nothing, and is not at issue.
+    order = [stmt.value.func.id
+             for stmt in tree.body[0].body
+             if isinstance(stmt, ast.Expr)
+             and isinstance(stmt.value, ast.Call)
+             and isinstance(stmt.value.func, ast.Name)
+             and stmt.value.func.id in ("write_dat", "write_samples")]
+    assert order.count("write_samples") == 1 and order.count("write_dat") == 1, \
+        "expected one write_samples and one write_dat in analyze_one's tail: %s" % order
+    assert order.index("write_samples") < order.index("write_dat"), \
+        ("analyze_one publishes the .dat result before validating the export: a "
+         "refused fair draw would leave a normal ILE result for a failed event")
+
+
+def _smc_branch_body():
+    """Statements of the ``--smc-puffball`` branch of analyze_one."""
+    tree = ast.parse(textwrap.dedent(inspect.getsource(drv.analyze_one)))
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.If):
+            continue
+        for stmt in node.body:
+            if any(isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute)
+                   and c.func.attr == "smc_puffball_sample"
+                   for c in ast.walk(stmt)):
+                return node.body
+    raise AssertionError("analyze_one no longer calls smc_puffball_sample")
+
+
+def test_unfinished_smc_ladder_is_refused_at_the_call_site():
+    """An SMC ladder that stops at max_stages leaves a cloud targeting
+    L**inv_T * prior.  Its weights are then the L**(1-inv_T) correction, but the
+    export contract here is an EQUAL-WEIGHT file and the `.dat` would carry
+    log Z(inv_T) -- so the event must be refused outright, in the branch itself,
+    before either artifact is written.  Structural, like the other call-site
+    guards: a check inside smc_puffball_sample cannot see what the driver does
+    with the result, and neither can a test of write_samples alone."""
+    body = _smc_branch_body()
+    guards = [n for stmt in body for n in ast.walk(stmt)
+              if isinstance(n, ast.If) and "inv_T" in ast.dump(n.test)
+              and any(isinstance(r, ast.Raise) for r in ast.walk(n))]
+    assert guards, ("the --smc-puffball branch does not check the tempering "
+                    "exponent the ladder reached and raise: an unfinished ladder "
+                    "would be exported as a fair draw of the posterior")
+
+
+class _SharpLike:
+    """4-D angular likelihood sharp enough that one SMC stage cannot finish the
+    ladder.  samplers.eval_lnL_4 needs only ``log_likelihood`` on arrays."""
+
+    ANGULAR_PARAM_ORDER = ("ra", "dec", "psi", "incl")
+
+    def log_likelihood(self, ra, dec, psi, incl):
+        d2 = (ra - 1.0) ** 2 + dec ** 2 + (psi - 1.0) ** 2 + (incl - 1.0) ** 2
+        return -0.5 * d2 / 0.02 ** 2
+
+
+class _FlatLike(_SharpLike):
+    """Constant lnL: every tempering step takes the full max_dbeta, so the ladder
+    reaches inv_T == 1 in a handful of stages."""
+
+    def log_likelihood(self, ra, dec, psi, incl):
+        return np.zeros_like(np.asarray(ra, dtype=float))
+
+
+def test_smc_reports_the_temperature_it_actually_reached():
+    """The sampler must not claim temper=1 with uniform post_weight when it
+    stopped short: that is what let the driver publish a tempered cloud."""
+    from RIFT.likelihood.jax_ile import samplers
+    res = samplers.smc_puffball_sample(_SharpLike(), 1.0, 1000.0, n_walkers=200,
+                                       n_move=1, max_stages=1, is_evidence=False,
+                                       seed=3)
+    inv_T = float(res["inv_T"])
+    assert 0.0 < inv_T < 1.0, "one stage on a sharp target should not finish"
+    pw = np.asarray(res["post_weight"], dtype=float)
+    lw = (1.0 - inv_T) * np.asarray(res["lnL"], dtype=float)
+    want = np.exp(lw - lw.max())
+    want /= want.sum()
+    assert np.allclose(pw, want), \
+        "post_weight is not the L**(1-inv_T) correction for the exponent reached"
+    assert not np.allclose(pw, pw[0]), "an unfinished ladder reported uniform weights"
+
+
+def test_smc_that_finishes_the_ladder_reports_inv_T_one():
+    """The converged path is unchanged: inv_T == 1 and uniform weights."""
+    from RIFT.likelihood.jax_ile import samplers
+    res = samplers.smc_puffball_sample(_FlatLike(), 1.0, 1000.0, n_walkers=64,
+                                       n_move=1, max_stages=20, max_dbeta=0.25,
+                                       is_evidence=False, seed=5)
+    assert float(res["inv_T"]) == 1.0
+    pw = np.asarray(res["post_weight"], dtype=float)
+    assert np.allclose(pw, pw[0]), "a finished ladder needs no correction weight"
+
+
+class _RazorLike(_SharpLike):
+    """Dynamic range so wide that even the smallest permitted tempering step
+    collapses the ESS, so the rung search always falls back on its ``db`` floor."""
+
+    def log_likelihood(self, ra, dec, psi, incl):
+        d2 = (ra - 1.0) ** 2 + dec ** 2 + (psi - 1.0) ** 2 + (incl - 1.0) ** 2
+        return -0.5 * d2 / 1e-4 ** 2
+
+
+def test_smc_rung_never_steps_past_its_cap():
+    """The floor that keeps a stalled rung search moving must not push the step
+    past the cap (max_dbeta, or the distance left to inv_T == 1).  A step beyond
+    it resamples and moves the cloud at inv_T > 1, and clipping the reported
+    exponent back to 1 would then hand the caller that OVER-tempered cloud with
+    uniform post_weight -- a tempered draw labelled as the posterior."""
+    from RIFT.likelihood.jax_ile import samplers
+    max_dbeta, max_stages = 1e-5, 4
+    res = samplers.smc_puffball_sample(_RazorLike(), 1.0, 1000.0, n_walkers=64,
+                                       n_move=1, max_stages=max_stages,
+                                       max_dbeta=max_dbeta, is_evidence=False,
+                                       seed=7)
+    assert float(res["inv_T"]) <= max_stages * max_dbeta + 1e-12, \
+        "a tempering rung stepped past its cap: the exported cloud is over-tempered"
 
 
 if __name__ == "__main__":

@@ -65,7 +65,7 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #   test_network_coords.py             1  network-frame sky fold on a real injection
 #   test_nuts_phimarg.py               1  fisher_nuts_sample_phimarg vs an analytic 4-D
 #                                         target (needs numpyro; no lal)
-#   test_jax_fairdraw_export.py       21  the --save-samples export contract of
+#   test_jax_fairdraw_export.py       34  the --save-samples export contract of
 #                                         bin/integrate_likelihood_extrinsic_jax:
 #                                         that it is a FAIR DRAW (reweighted against
 #                                         the sampler's own importance weights, then
@@ -74,13 +74,22 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         options act exactly where the driver reports
 #                                         them implemented and nowhere else, that the
 #                                         export RNG is never the science generator,
-#                                         and that the provenance header describes the
-#                                         file it sits on.  Needs no lal or GPU: the
+#                                         that a fair draw which CANNOT be performed
+#                                         exports nothing at all (and clears a stale
+#                                         file at that path) instead of shipping the
+#                                         raw cloud, that a refused export leaves no
+#                                         `_.dat` result row for the event either, that
+#                                         an SMC ladder which stops short of inv_T=1
+#                                         publishes neither artifact (and that the
+#                                         sampler reports the exponent it reached), and
+#                                         that the provenance header
+#                                         describes the file it sits on.  Needs no lal or GPU: the
 #                                         driver is imported by path and driven on an
 #                                         analytic 4-D target with known moments.
 #                                         Several of these are AST guards on the
 #                                         DRIVER SOURCE (the F1 post_weight gate, the
-#                                         write_samples call site) because the defects
+#                                         write_samples call site, the export-before-
+#                                         result write order) because the defects
 #                                         they pin live at call sites, where a
 #                                         helper-level assertion cannot see them.
 #   test_jax_tempering_chooser.py     31  the --adapt-weight-exponent chooser and the
@@ -91,14 +100,21 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         a law that under-predicts the cost would
 #                                         silently under-budget a run), that it takes
 #                                         no SNR argument -- the non-JAX helper's rule
-#                                         keys on SNR and does not transfer -- and, by
-#                                         AST on the DRIVER SOURCE, that the chooser is
-#                                         actually assigned to opts.adapt_weight_exponent
+#                                         keys on SNR and does not transfer -- that the
+#                                         chooser RETURNS the exponent rather than
+#                                         writing it back to opts (writing it made
+#                                         event 1 of a batch read event 0's choice),
 #                                         and that the degenerate-export guard RAISES
 #                                         rather than warns.  Includes a RETIRED-claim
 #                                         guard asserting the SNR rule has not crept
 #                                         back into the driver.  Needs no lal, no GPU
 #                                         and no flowMC.
+#   test_interp_choices.py             3  #190: --interp cubic is reachable from the
+#                                         CLI and selects _gather_cubic.  Merged in
+#                                         from rift_O4d, which added it to FILES
+#                                         without a count in this ledger; recorded
+#                                         here so the block stays a complete
+#                                         accounting of EXPECTED_TESTS.
 #   test_tvals_grid_convention.py     13  issue #146: the time-marginalization window
 #                                         grid the JAX wrapper and
 #                                         bin/integrate_likelihood_extrinsic_batchmode
@@ -147,6 +163,7 @@ FILES=(
   "${JAXDIR}/test_jax_fairdraw_export.py"
   "${JAXDIR}/test_jax_tempering_chooser.py"
   "${JAXDIR}/test_tvals_grid_convention.py"
+  "${JAXDIR}/test_interp_choices.py"
 )
 
 # EXCLUDED: files in JAXDIR matching test_*.py that are deliberately NOT gated.  The
@@ -175,10 +192,10 @@ if [ "${manifest_rc}" -ne 0 ]; then
   exit 1
 fi
 
-# Sum of the per-file counts above (48 + 31 from test_jax_tempering_chooser.py).
+# Sum of the per-file counts above.
 # Pinned deliberately: a bare `pytest test/jax/`
 # that collected 0 would exit 5, and a partial loss (say 14 -> 3) would still exit 0.
-EXPECTED_TESTS=79
+EXPECTED_TESTS=95
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${FILES[@]}" 2>&1)"

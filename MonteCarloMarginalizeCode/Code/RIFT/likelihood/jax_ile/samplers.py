@@ -1549,8 +1549,12 @@ def smc_puffball_sample(like, d_min, d_max, n_walkers=2000, seed=0,
     collapse).  This is the SMC analogue of RIFT-AV's "sample -> puffball -> sample"
     and of nested sampling's hill-climb; robust at LISA-loud SNR.
 
-    Returns the same dict shape as :func:`flowmc_sample_phimarg`.  Evidence is the
-    standard SMC normalizing-constant estimator logZ = sum_t logmeanexp(dbeta_t lnL).
+    Returns the same dict shape as :func:`flowmc_sample_phimarg`, plus ``inv_T``:
+    the tempering exponent the ladder ACTUALLY reached (< 1 when it stopped at
+    ``max_stages``), with ``post_weight`` the matching ``L**(1-inv_T)`` correction
+    to the posterior.  Evidence is the standard SMC normalizing-constant estimator
+    logZ = sum_t logmeanexp(dbeta_t lnL) -- which is log Z(inv_T), not log Z, on a
+    ladder that stopped short.
     """
     _param_order = getattr(like, "ANGULAR_PARAM_ORDER", ("ra", "dec", "psi", "incl"))
     n_dim = len(_param_order)
@@ -1595,7 +1599,11 @@ def smc_puffball_sample(like, d_min, d_max, n_walkers=2000, seed=0,
             return (s * s) / np.sum(w * w) if s > 0 else 0.0
 
         target = float(ess_frac) * W
-        hi_db = min(1.0 - inv_T, float(max_dbeta))
+        # Largest rung allowed here: never past inv_T == 1, and never past the
+        # per-stage cap (max_dbeta <= 0 disables that cap, as on the flowMC path).
+        hi_db = 1.0 - inv_T
+        if float(max_dbeta) > 0:
+            hi_db = min(hi_db, float(max_dbeta))
         if _ess(hi_db) >= target:
             db = hi_db
         else:
@@ -1606,7 +1614,13 @@ def smc_puffball_sample(like, d_min, d_max, n_walkers=2000, seed=0,
                     a = mid
                 else:
                     b = mid
-            db = max(a, 1e-4)
+            # The floor keeps a stalled bisection moving, but it must never
+            # carry the rung PAST the rung cap: db > hi_db advances inv_T beyond
+            # 1 (or beyond max_dbeta), and the resample/Metropolis moves below
+            # then target L**inv_T with inv_T > 1 -- an OVER-tempered cloud that
+            # the final min(inv_T, 1) would report as temper=1 with uniform
+            # post_weight, i.e. exactly the mislabelling the tail guards against.
+            db = min(max(a, 1e-4), hi_db)
         # SMC evidence increment: logZ += logmeanexp(db * lnL)
         z = db * lnL
         z = z[np.isfinite(z)]
@@ -1692,9 +1706,37 @@ def smc_puffball_sample(like, d_min, d_max, n_walkers=2000, seed=0,
             if verbose:
                 print("  [smc-IS-Z] failed (%r); keeping SMC logZ" % e)
 
+    # THE LADDER CAN STOP SHORT OF THE POSTERIOR.  The loop above also exits on
+    # ``stage == max_stages`` (and on a cloud with fewer than two finite lnL), and
+    # the cloud then still targets ``L**inv_T * prior`` with ``inv_T < 1``.
+    # Reporting ``temper=1.0`` with uniform ``post_weight`` in that case handed the
+    # caller a TEMPERED cloud labelled as a posterior draw.  Report the exponent
+    # actually reached, plus the correction weight ``L**(1-inv_T)`` that carries
+    # the cloud to the posterior -- the same contract flowmc_sample_phimarg uses.
+    # The weight is identically uniform once inv_T == 1, so the converged path is
+    # unchanged.  Each rung is capped at the distance left to 1, so the clip
+    # below only absorbs the rounding of the accumulated sum -- it must never be
+    # covering for a ladder that genuinely ran past 1 (see the ``db`` cap above).
+    lnL = np.asarray(lnL, dtype=float)
+    inv_T_final = float(min(inv_T, 1.0))
+    if len(lnL) and inv_T_final < 1.0:
+        lw = (1.0 - inv_T_final) * lnL
+        lw = np.where(np.isfinite(lw), lw, -np.inf)
+        mx = np.max(lw)
+        # All -inf stays all-zero: a cloud whose correction cannot be normalised
+        # must be REFUSED by the caller, not quietly restored to uniform weights,
+        # which is the mislabelling this block exists to prevent.
+        post_weight = np.exp(lw - mx) if np.isfinite(mx) else np.zeros(len(lnL))
+        s = post_weight.sum()
+        if s > 0:
+            post_weight = post_weight / s
+    else:
+        post_weight = np.ones(W) / W
     return dict(theta=cloud, lnL=lnL, logZ=float(logZ),
                 sigma_over_Z=float(sigma_over_Z), neff=float(neff),
-                flow_state=None, post_weight=np.ones(W) / W, temper=1.0,
+                flow_state=None, post_weight=post_weight, inv_T=inv_T_final,
+                temper=(float(1.0 / inv_T_final) if inv_T_final > 0
+                        else float("inf")),
                 logZ_laplace=float(logZ_smc),
                 lnL_map=float(np.max(lnL)) if len(lnL) else np.nan)
 
