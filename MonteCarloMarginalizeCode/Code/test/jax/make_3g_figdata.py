@@ -98,8 +98,9 @@ def run_one(src, net, target_snr, want_samples=False):
     # response so truth is the exact global maximum -- combined with an adequately
     # OVERSAMPLED rholm this removes the cubic-interpolation timing systematic that
     # otherwise displaces the razor-sharp high-SNR sky posterior.  The oversampling is
-    # slowrot_fs_lib's own knob (deltaT = 1/(2*oversample*fmax), default oversample=4);
-    # raising fmax does not do it.  Measured ladders (offset vs oversample, and the
+    # slowrot_fs_lib's own knob (deltaT = 1/(2*oversample*fmax), defaulted by that
+    # library's OVERSAMPLE); raising fmax does not do it, and at equal sample rate the
+    # narrower band is the better one.  Measured ladders (offset vs oversample, and the
     # stencil sweep): analyses/slowrot_finite-size/DESIGN_sampling.md in the paper repo.
     sc = os.environ.get("SLOWROT_SELFCONSISTENT")
     data_dict, psd_dict, arm_dict, meta = fslib.build_finite_size_data(
@@ -175,11 +176,13 @@ def main():
     incl = float(os.environ.get("SLOWROT_INCL", "0.4"))
     # fmax is the ANALYSIS BAND LIMIT only: since paper-repo commit 2445905 the rholm
     # sampling is set independently by slowrot_fs_lib's oversample (deltaT =
-    # 1/(2*oversample*fmax), default 4 -> srate 8192 here), so raising fmax no longer
-    # refines the time series.  1024 stays as the band choice for this BNS, and at equal
-    # sample rate the narrower band is marginally the better one.  SLOWROT_OVERSAMPLE
-    # overrides the sampling; 1 reproduces pre-2026-08-26 archived runs bit-for-bit, and
-    # is only passed when set so the script still runs against the older library.
+    # 1/(2*oversample*fmax), currently defaulting to 4, so srate = 8192 at fmax=1024),
+    # and raising fmax no longer refines the time series.  1024 stays as the band choice
+    # for this BNS: DESIGN_sampling.md measures the narrower band as marginally better at
+    # equal sample rate.  SLOWROT_OVERSAMPLE overrides the sampling; 1 restores the
+    # pre-2026-08-26 setting, which rebuilds the archived data bit-for-bit (the sampler
+    # on top of it is not deterministic).  It is passed only when set, so the script
+    # still runs against a paper-repo checkout older than the fix.
     fmax = float(os.environ.get("SLOWROT_FMAX", "1024.0"))
     _ovs = os.environ.get("SLOWROT_OVERSAMPLE")
     src_kw = {"oversample": int(_ovs)} if _ovs else {}
