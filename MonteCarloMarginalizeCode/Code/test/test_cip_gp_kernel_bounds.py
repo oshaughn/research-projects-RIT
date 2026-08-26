@@ -43,6 +43,14 @@ Coverage:
     coordinate" sentinel is ``-1``, which indexes the last column instead of
     failing.  The scan must decline to run rather than mislabel a coordinate.
 
+``test_peak_index_comes_from_the_fitted_coordinate_basis`` /
+``test_fit_gp_derives_the_peak_index_from_coord_names``
+    The scan labels its answer "chirp mass", so the column it scans must be the
+    chirp-mass column of the array actually fitted.  CIP keeps two coordinate
+    lists -- coord_names (fitted) and low_level_coord_names (sampled) -- which
+    diverge under ``--parameter-implied`` / ``--parameter-nofit``, so an index
+    taken in the wrong list reports some other coordinate's peak as mc.
+
 ``test_peak_scan_is_bounded_in_points_and_batched`` /
 ``test_batched_scan_finds_the_same_peak_as_a_single_pass``
     The scan is an outer-product grid and ``gp.predict`` forms a
@@ -238,6 +246,43 @@ def test_peak_scan_requires_a_valid_coordinate_index():
             "peak_index=%r must not be scanned as a coordinate" % (bad,))
     rec = ns["report_gp_kernel"](gp, x, y, peak_index=1, peak_max_points=256)
     assert rec["surface_peak"]["coord_index"] == 1
+
+
+def test_peak_index_comes_from_the_fitted_coordinate_basis():
+    """The mc column is looked up in the list x is built from, or not at all."""
+    ns = _load_functions("_mc_index_in")
+    assert ns["_mc_index_in"](['mc', 'delta_mc', 'xi']) == 0
+    assert ns["_mc_index_in"](['delta_mc', 'mc']) == 1
+    # --parameter delta_mc --parameter-implied mu1 --parameter-implied mu2
+    # --parameter-nofit mc : mc is sampled but NOT fitted, so column 1 is mu1.
+    # Returning 1 here (the position of mc in the sampling list) would report
+    # the mu1 peak as chirp mass; the scan must be declined instead.
+    assert ns["_mc_index_in"](['delta_mc', 'mu1', 'mu2']) == -1
+
+
+def test_fit_gp_derives_the_peak_index_from_coord_names():
+    """fit_gp's x has coord_names columns, so mc_index must not index it.
+
+    Asserted on the source rather than by running fit_gp, which needs parsed
+    argv and a full data load; the wiring is what regressed, and it is visible
+    in the call itself.
+    """
+    fit_gp = next(n for n in CIP_TREE.body
+                  if isinstance(n, ast.FunctionDef) and n.name == "fit_gp")
+    calls = [n for n in ast.walk(fit_gp)
+             if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+             and n.func.id == "report_gp_kernel"]
+    assert calls, "fit_gp no longer reports its kernel"
+    for call in calls:
+        passed = [k.value for k in call.keywords if k.arg == "peak_index"]
+        assert passed, "the peak index must be passed explicitly"
+        arg = passed[0]
+        assert not (isinstance(arg, ast.Name) and arg.id == "mc_index"), (
+            "mc_index indexes low_level_coord_names, not the fitted columns")
+        assert (isinstance(arg, ast.Call) and isinstance(arg.func, ast.Name)
+                and arg.func.id == "_mc_index_in"), (
+            "the peak index must be derived from the fitted coordinate list")
+        assert [a.id for a in arg.args if isinstance(a, ast.Name)] == ["coord_names"]
 
 
 def test_peak_scan_is_bounded_in_points_and_batched():

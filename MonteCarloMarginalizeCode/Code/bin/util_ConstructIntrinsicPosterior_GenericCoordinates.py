@@ -1378,6 +1378,22 @@ def _gp_bounds_opt(spec):
     return (lo, hi)
 
 
+def _mc_index_in(names):
+    """Index of chirp mass in a coordinate list, or -1 if it is not in it.
+
+    The peak scan reports a *physical* coordinate, so its index must be taken in
+    the basis the fitted array is actually built in: the columns of x follow
+    coord_names.  The global mc_index indexes low_level_coord_names instead, and
+    the two lists diverge exactly when --parameter-implied / --parameter-nofit
+    are used -- e.g. "--parameter delta_mc --parameter-implied mu1
+    --parameter-implied mu2 --parameter-nofit mc" fits [delta_mc, mu1, mu2]
+    while mc_index is 1, so scanning column 1 would report the mu1 peak as
+    chirp mass.  -1 is the "not a fitted coordinate" sentinel that
+    report_gp_kernel declines to scan.
+    """
+    return list(names).index('mc') if 'mc' in names else -1
+
+
 def report_gp_kernel(gp, x, y, tol=1e-3, holdout_folds=0, kernel_proto=None,
                      alpha_proto=None, peak_index=None, peak_grid=240,
                      peak_max_points=200000, peak_block_elements=5000000):
@@ -1525,7 +1541,8 @@ def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False,
 
         gp.fit(x,y)
         report_gp_kernel(gp, x, y, holdout_folds=opts.fit_gp_holdout_folds,
-                         kernel_proto=kernel, alpha_proto=alpha, peak_index=mc_index)
+                         kernel_proto=kernel, alpha_proto=alpha,
+                         peak_index=_mc_index_in(coord_names))
 
         print(" Fit: std: ", np.std(y - gp.predict(x)),  "using number of features ", len(y))
 
