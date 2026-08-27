@@ -147,7 +147,7 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         wrapper against the production driver, and
 #                                         because 16384 is the rate test_jax_endtoend
 #                                         (4096) structurally cannot cover.
-#   test_angle_marg_exact.py          29  the exact (phi_ref, psi) marginalization
+#   test_angle_marg_exact.py          30  the exact (phi_ref, psi) marginalization
 #                                         schemes (RIFT.likelihood.jax_ile.anglemarg)
 #                                         and their selector.  Pins the analytic
 #                                         harmonic-content invariant of the factored
@@ -190,7 +190,16 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         cannot under-resolve the quadrature
 #                                         (which measurably bit, -1.04 nats, before
 #                                         the fix) and that amp_sizing has NO
-#                                         default.
+#                                         default.  A second review round added the
+#                                         series/Laplace branch-window pin (value +
+#                                         gradient sign across the C^1 blend band,
+#                                         NOT filtered out), hardened the driver AST
+#                                         guard to the keyword's VALUE node (the
+#                                         angle_marg="grid" inert-flag mutant now
+#                                         fails it), and pinned the amplitude
+#                                         estimator against an independent dense
+#                                         reference with its reconstruction grid
+#                                         derived-and-asserted from m_max.
 #                                         Synthetic packed data; no lal frames, no
 #                                         GPU, no flowMC.  ~550 s local.
 #
@@ -282,7 +291,7 @@ fi
 # Sum of the per-file counts above.
 # Pinned deliberately: a bare `pytest test/jax/`
 # that collected 0 would exit 5, and a partial loss (say 14 -> 3) would still exit 0.
-EXPECTED_TESTS=168
+EXPECTED_TESTS=169
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"
