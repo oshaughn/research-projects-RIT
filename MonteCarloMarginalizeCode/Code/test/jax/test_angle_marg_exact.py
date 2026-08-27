@@ -443,6 +443,18 @@ def test_laplace_kernel_error_law():
     assert errs[2000.0] < errs[200.0]
 
 
+def test_dense_size_rule_pinned():
+    """The dense-reconstruction sizing rule is a CALIBRATED constant, not a
+    knob (see the derivation note in anglemarg.py): pin its values at the
+    crossover amplitude and its floors, and that it can only grow with the
+    amplitude it must cover."""
+    assert AM._dense_grid_sizes(AM.ANGLE_MARG_CROSSOVER_AMPLITUDE) == (352, 176)
+    assert AM._dense_grid_sizes(1.0) == (128, 64)         # floors bind
+    n_lo = AM._dense_grid_sizes(AM.ANGLE_MARG_CROSSOVER_AMPLITUDE)
+    n_hi = AM._dense_grid_sizes(4 * AM.ANGLE_MARG_CROSSOVER_AMPLITUDE)
+    assert n_hi[0] >= 2 * n_lo[0] - 16 and n_hi[1] >= 2 * n_lo[1] - 16
+
+
 # ---------------------------------------------------------------------------
 # 8. the selector
 # ---------------------------------------------------------------------------

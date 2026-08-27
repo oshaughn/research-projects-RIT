@@ -147,6 +147,34 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         wrapper against the production driver, and
 #                                         because 16384 is the rate test_jax_endtoend
 #                                         (4096) structurally cannot cover.
+#   test_angle_marg_exact.py          24  the exact (phi_ref, psi) marginalization
+#                                         schemes (RIFT.likelihood.jax_ile.anglemarg)
+#                                         and their selector.  Pins the analytic
+#                                         harmonic-content invariant of the factored
+#                                         lnL (a bivariate trig polynomial at fixed
+#                                         time+distance -- decomposed UNMARGINALIZED,
+#                                         because time log-sum-exp manufactures fake
+#                                         high harmonics), the Nyquist-derived sample
+#                                         sizing (asserted, not settable -- the
+#                                         historical defect was a settable npsi=8),
+#                                         the coefficient tables against the direct
+#                                         likelihood OFF the sample grid, both schemes
+#                                         against a brute-force dense reference and
+#                                         the converged legacy grid (shared
+#                                         normalization), the nphi=8 Nyquist aliasing
+#                                         of the n=4 phi harmonic (DFT and marginal
+#                                         level), exact/laplace agreement in the
+#                                         selector's overlap region, AD gradients
+#                                         (exact vs finite differences; laplace vs the
+#                                         exact scheme's AD, kernel vs FD), the
+#                                         O(1/b) Laplace error law, the wrapper's
+#                                         grid default being unchanged, and -- by AST
+#                                         over the driver source -- that
+#                                         --angle-marg-scheme reaches the wrapper and
+#                                         the RESOLVED scheme is printed (this
+#                                         pipeline's silently-inert-flag history).
+#                                         Synthetic packed data; no lal frames, no
+#                                         GPU, no flowMC.  ~130 s local.
 #
 # DELIBERATELY EXCLUDED (measured on ldas-pcdev11, JAX_PLATFORMS=cpu, OMP_NUM_THREADS=1):
 #
@@ -188,6 +216,7 @@ FILES=(
   "${JAXDIR}/test_interp_choices.py"
   "${JAXDIR}/test_jax_stencil_parity.py"
   "${JAXDIR}/test_flow_reuse_default.py"
+  "${JAXDIR}/test_angle_marg_exact.py"
 )
 
 # EXCLUDED: files in JAXDIR matching test_*.py that are deliberately NOT gated.  The
@@ -235,7 +264,7 @@ fi
 # Sum of the per-file counts above.
 # Pinned deliberately: a bare `pytest test/jax/`
 # that collected 0 would exit 5, and a partial loss (say 14 -> 3) would still exit 0.
-EXPECTED_TESTS=139
+EXPECTED_TESTS=163
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"

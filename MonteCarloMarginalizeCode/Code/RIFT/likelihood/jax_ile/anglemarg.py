@@ -88,15 +88,24 @@ __all__ = [
 # Selector crossover and dense-grid sizing constants.
 #
 # Calibrated 2026-08-27 on the SEOBNRv4 35+30 Msun HLV injection harness
-# (the same configuration behind the measured production-grid errors quoted
-# in the module docstring), against a brute-force dense (phi,psi) reference
-# grid: see the PR that adds this module for the ladder.  The Laplace error
-# falls like 1/A (A = rho^2/2); it is already < 1e-3 nats by A ~ 200 and the
-# exact scheme's dense-grid truncation error at the sizes below is < 1e-6
-# nats up to the crossover.  The crossover is placed where BOTH schemes are
-# accurate (< 1e-3 nats), so the auto selector's switch is validated at
-# runtime by construction -- tests evaluate both schemes in the overlap
-# region and assert agreement, and either branch alone is accurate there.
+# (the configuration behind the measured production-grid errors quoted in the
+# module docstring), on the full distance+phi+psi-marginalized lnL, against a
+# brute-force dense product-grid reference (which agrees with the exact
+# scheme to ~2e-12 wherever it is affordable).  Measured errors in nats:
+#
+#     SNR   A=rho^2/2   exact(self-conv)  laplace-exact   grid 32x8   grid 8x8
+#      10        50          7e-15          -1.1e-03       -5.9e-02   -9.5e-02
+#      20       200          0              -1.8e-04       -8.8e-01   -1.7e+00
+#      40       800          2.4e-09        -1.6e-05       -5.6e+00   -1.1e+01
+#      80      3200          4.6e-13        -2.8e-06       -2.7e+01   -5.1e+01
+#
+# The Laplace error falls FASTER than 1/A here; the isolated-kernel error law
+# is ~0.1/b nats (pinned in test_angle_marg_exact.py).  The crossover sits
+# where BOTH schemes are deep in their accurate regimes (laplace ~1e-4,
+# exact ~machine), so the switch is insensitive to a factor ~2-3 error in the
+# SNR estimate that drives it, and tests evaluate both schemes in the overlap
+# region and assert agreement -- the crossover is a validated constant, not a
+# tuning knob.
 # ---------------------------------------------------------------------------
 ANGLE_MARG_CROSSOVER_AMPLITUDE = 450.0     # A = rho^2/2; rho = 30
 # Dense-size rule N = ceil(K * sqrt(A)) points, from the trapezoid aliasing
@@ -295,7 +304,7 @@ def _pad_chunks(values, chunk):
 def fused_log_likelihood_distphipsimarg_exact(
         data, ra, dec, incl, x_grid, log_w_grid,
         interp=JAX_INTERP_DEFAULT, amp_sizing=None,
-        dense_chunk=16, grid_block=64):
+        dense_chunk=8, grid_block=32):
     """Distance-, phi_ref- AND psi-marginalized lnL: exact-coefficient scheme.
 
     Drop-in replacement for :func:`core.fused_log_likelihood_distphipsimarg`
@@ -308,7 +317,10 @@ def fused_log_likelihood_distphipsimarg_exact(
     crossover).  Honors JAX_ILE_DISTMARG_GH exactly as the grid path does.
 
     Memory is bounded by ``dense_chunk`` (points per scan step), never by the
-    dense grid size.
+    dense grid size: the largest transient is the inner distance-quadrature
+    slab (dense_chunk * S, npts, grid_block), ~0.8 GB f64 at the defaults for
+    a batched S=64, npts=614 call -- these two are COST/MEMORY knobs only,
+    with no effect on the result.
     """
     x_grid = jnp.asarray(x_grid, dtype=jnp.float64)
     log_w_grid = jnp.asarray(log_w_grid, dtype=jnp.float64)
