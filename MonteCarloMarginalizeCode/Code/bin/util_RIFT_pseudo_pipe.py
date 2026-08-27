@@ -1303,11 +1303,35 @@ if opts.use_ini:
 else:
     cmd += " --calibration-version " + opts.calibration 
 if opts.use_online_psd_file:
-    # Get IFO list from ini file
-##    import ConfigParser
-#    config = ConfigParser.ConfigParser()
-#    config.read(opts.use_ini)
-    ifo_list = eval(config.get('analysis','ifos'))
+    # Which instruments does that PSD file cover?
+    #
+    # This used to read the ini's [analysis] ifos unconditionally, but `config`
+    # only exists on the --use-ini path, so --use-online-psd-file without an ini
+    # -- the natural way to run a synthetic injection -- died with
+    # "NameError: name 'config' is not defined".
+    #
+    # Prefer the ini when there is one (it is the run's declared instrument
+    # list), then an explicit --manual-ifo-list, and otherwise ask the PSD file
+    # itself, which names its own instruments and cannot disagree with itself.
+    ifo_list = None
+    if opts.use_ini:
+        ifo_list = eval(config.get('analysis','ifos'))
+    elif opts.manual_ifo_list:
+        ifo_list = eval(opts.manual_ifo_list)
+    else:
+        try:
+            import lal.series
+            from igwn_ligolw import utils as _ligolw_utils, ligolw as _ligolw
+            _xmldoc = _ligolw_utils.load_filename(
+                opts.use_online_psd_file, contenthandler=lal.series.PSDContentHandler)
+            ifo_list = sorted(lal.series.read_psd_xmldoc(_xmldoc).keys())
+            print(" pseudo_pipe: instruments read from {}: {}".format(
+                opts.use_online_psd_file, ifo_list))
+        except Exception as exc:
+            print(" pseudo_pipe: --use-online-psd-file needs an instrument list, and "
+                  "neither --use-ini nor --manual-ifo-list was given, and the PSD file "
+                  "could not be read ({}) ".format(exc))
+            sys.exit(1)
     # Create command line arguments for those IFOs, so helper can correctly pass then downward
     for ifo in ifo_list:
         cmd+= " --psd-file {}={}".format(ifo,opts.use_online_psd_file)
@@ -1362,6 +1386,26 @@ if opts.use_ini:
         cmd += " --cache local.cache --fake-data  "
 if opts.fake_data_cache:
     cmd += " --cache {} --fake-data  ".format(opts.fake_data_cache)
+    # event_dict["IFOs"] is populated on the --use-ini path (and by the gracedb
+    # lookup), but NOT by --event-time + --fake-data-cache, which is the natural
+    # way to set up a synthetic injection.  That combination used to die here
+    # with KeyError: 'IFOs'.  Resolve it from --manual-ifo-list, or from the
+    # instruments already read off the PSD file, and store it so the later
+    # consumers of event_dict["IFOs"] see it too.
+    _ifos = event_dict.get("IFOs")
+    if not _ifos and opts.manual_ifo_list:
+        _ifos = eval(opts.manual_ifo_list)
+    if not _ifos:
+        try:
+            _ifos = list(ifo_list)
+        except NameError:
+            _ifos = None
+    if not _ifos:
+        print(" pseudo_pipe: --fake-data-cache needs an instrument list.  Give "
+              "--manual-ifo-list \"['H1','L1']\", or --use-online-psd-file whose "
+              "instruments can be read. ")
+        sys.exit(1)
+    event_dict["IFOs"] = list(_ifos)
     if len(event_dict["IFOs"]) >0 :
         short_list = " {} ".format(event_dict['IFOs'])        
         cmd += " --manual-ifo-list {} ".format(short_list.replace(' ',''))
@@ -2102,7 +2146,7 @@ if opts.pipeline_builder:  # explicit override wins, for clean side-by-side A/B 
         print(" WARNING: --pipeline-builder {} overrides --use-subdags routing; AMR/subdag runs require AlternateIteration ".format(opts.pipeline_builder))
     cepp = "create_event_parameter_pipeline_" + opts.pipeline_builder
 print(" Pipeline builder (create_event_parameter_pipeline_*): ", cepp)
-cmd =cepp+ "  --ile-n-events-to-analyze {} --input-grid proposed-grid.{} --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args `pwd`/args_ile.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP {} --request-memory-ILE {} --n-samples-per-job ".format(n_jobs_per_worker,grid_suffix_pp,cip_mem,ile_mem) + str(npts_it) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + " --n-iterations-subdag-max {} ".format(opts.internal_n_iterations_subdag_max) + "  --n-copies {} ".format(opts.ile_copies) + "   --ile-retries "+ str(opts.ile_retries) + " --general-retries " + str(opts.general_retries)
+cmd =cepp+ "  --ile-n-events-to-analyze {} --input-grid proposed-grid.{} --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args `pwd`/args_ile.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP {} --request-memory-ILE {} --n-samples-per-job ".format(n_jobs_per_worker,grid_suffix_pp,cip_mem,ile_mem) + str(npts_it) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + ("" if use_multiapprox else " --n-iterations-subdag-max {} ".format(opts.internal_n_iterations_subdag_max)) + "  --n-copies {} ".format(opts.ile_copies) + "   --ile-retries "+ str(opts.ile_retries) + " --general-retries " + str(opts.general_retries)
 if use_multiapprox:
     # Every model on the SAME grid.  --approx is the primary; --approx-extra the
     # rest.  The builder marginalizes over them point by point in the loop and
@@ -2274,10 +2318,19 @@ if opts.ile_xpu:
     cmd += " --request-xpu-ILE "
 if opts.add_extrinsic:
     cmd += " --last-iteration-extrinsic --last-iteration-extrinsic-nsamples {} ".format(opts.n_output_samples_last)
-    if opts.internal_last_iteration_extrinsic_samples_per_ile:
-        cmd += " --last-iteration-extrinsic-samples-per-ile {}".format(opts.internal_last_iteration_extrinsic_samples_per_ile)
-    if opts.internal_last_iteration_extrinsic_samples_per_ile_internal:
-        cmd += " --last-iteration-extrinsic-samples-per-ile-internal {}".format(opts.internal_last_iteration_extrinsic_samples_per_ile_internal)        
+    if use_multiapprox:
+        # BasicMultiApproxIteration implements the terminal extrinsic stage but
+        # not these per-ILE sample controls; its own defaults apply.  Said out
+        # loud rather than dropped quietly, since they change how many samples
+        # the extrinsic stage draws.
+        print(" pseudo_pipe: BasicMultiApproxIteration does not implement "
+              "--last-iteration-extrinsic-samples-per-ile[-internal]; using the "
+              "builder's defaults for the extrinsic stage.")
+    else:
+        if opts.internal_last_iteration_extrinsic_samples_per_ile:
+            cmd += " --last-iteration-extrinsic-samples-per-ile {}".format(opts.internal_last_iteration_extrinsic_samples_per_ile)
+        if opts.internal_last_iteration_extrinsic_samples_per_ile_internal:
+            cmd += " --last-iteration-extrinsic-samples-per-ile-internal {}".format(opts.internal_last_iteration_extrinsic_samples_per_ile_internal)        
     if opts.add_extrinsic_time_resampling:
         cmd+= " --last-iteration-extrinsic-time-resampling "
 if opts.batch_extrinsic:
@@ -2441,12 +2494,18 @@ if opts.export_distance_slices and opts.export_distance_slices > 0:
         cmd += " --last-iteration-export-distance-slices-skip-threshold {} ".format(opts.export_distance_slices_skip_threshold)
 
 print(cmd)
-os.system(cmd)
+_rc = os.system(cmd)
+if _rc != 0:
+    # A failed builder used to leave pseudo_pipe reporting success with no DAG in
+    # the run directory -- the args_*.txt are all there, so it looks finished.
+    print(" pseudo_pipe: the pipeline builder FAILED (exit {}); no DAG was written. "
+          "See the output above.".format(_rc >> 8 if _rc > 255 else _rc))
+    sys.exit(1)
 
 if opts.internal_ile_check_good_enough:
     # Populate 'ile_check_good_enough' through all subdirectories
     cmd_enough = r"find . -name 'iter*ile' -type d -exec touch {}/ile_good_enough \; "
-    os.system(cmd)
+    os.system(cmd_enough)   # was os.system(cmd): re-ran the pipeline builder
 
 if opts.use_osg_file_transfer and opts.internal_truncate_files_for_osg_file_transfer:
     if opts.fake_data_cache:
