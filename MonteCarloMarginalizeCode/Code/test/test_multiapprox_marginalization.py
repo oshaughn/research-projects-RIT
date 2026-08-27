@@ -280,6 +280,12 @@ def multiapprox_rundir(tmp_path_factory):
         "1   --no-plots --fit-method rf --parameter mc --parameter delta_mc --n-output-samples 5\n"
         "1   --no-plots --fit-method rf --parameter mc --parameter delta_mc --n-output-samples 5\n")
     (rundir / "args_test.txt").write_text("--method lame --parameter mc --always-succeed\n")
+    # Plotting ON.  It is off by default, which is why an unresolved
+    # $(macroapprox) sat in the plot job's log paths through a whole review
+    # cycle: the plot job is model-independent and its node binds only the
+    # iteration macros, so a model-tagged log path can never resolve.  A stage
+    # that is not built is a stage no assertion can check.
+    (rundir / "args_plot.txt").write_text("--parameter mc --parameter eta\n")
 
     grid = _run(["-c",
                  "import RIFT.lalsimutils as u;"
@@ -303,7 +309,8 @@ def multiapprox_rundir(tmp_path_factory):
                   "--working-directory", str(rundir),
                   "--n-iterations", "2", "--n-copies", "1",
                   "--last-iteration-extrinsic",
-                  "--last-iteration-extrinsic-nsamples", "4"], rundir)
+                  "--last-iteration-extrinsic-nsamples", "4",
+                  "--plot-args", str(rundir / "args_plot.txt")], rundir)
     if build.returncode:
         pytest.fail("builder failed:\n{}".format(build.stdout[-3000:]))
     return rundir

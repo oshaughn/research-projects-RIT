@@ -182,6 +182,7 @@ if model_mode:
 n_partial = 0
 n_dropped_partial = 0
 n_points = 0
+model_spread = []   # between-model scatter, reported but NOT put in sigmaOverL
 
 for key in data_at_intrinsic:
     lnL, sigmaOverL, ntot,neff =   np.transpose(data_at_intrinsic[key])
@@ -222,16 +223,25 @@ for key in data_at_intrinsic:
         # reported and --require-all-models exists.
         w_m = w_m/np.sum(w_m)
         Lbar = np.sum(w_m*L_m)
-        sigma_prop = np.sqrt(np.sum((w_m*sig_m*L_m)**2))/Lbar
+        # ACROSS MODELS, report ONLY the propagated integration uncertainty.
+        #
+        # An earlier version also took the between-model scatter, reasoning that
+        # it is the waveform-systematic contribution and should widen the
+        # downstream fit.  It does the opposite.  sigmaOverL is an INTEGRATION
+        # error, and CIP drops every row above --sigma-cut (default 0.6,
+        # util_ConstructIntrinsicPosterior_GenericCoordinates.py).  Model
+        # disagreement large enough to matter therefore exceeds the cut and
+        # DELETES precisely the intrinsic points where the models disagree --
+        # exactly the points this workflow exists to fit.
+        #
+        # The model variation is already carried by Lbar, which is the
+        # marginalized likelihood.  It does not belong in the error bar too.
+        sigmaNetOverL = np.sqrt(np.sum((w_m*sig_m*L_m)**2))/Lbar
         M = len(present)
         if M > 1:
-            # Between-model scatter IS the waveform-systematic contribution at
-            # this point, not a nuisance: carrying it in sigma is what lets the
-            # downstream fit widen where the models disagree.
-            sigma_scatter = np.sqrt( np.sum(w_m**2 * (L_m - Lbar)**2) * M/(M-1.) )/Lbar
-        else:
-            sigma_scatter = 0.
-        sigmaNetOverL = max(sigma_prop, sigma_scatter)
+            # kept as a diagnostic only -- never folded into sigmaNetOverL
+            spread = np.sqrt( np.sum(w_m**2 * (L_m - Lbar)**2) * M/(M-1.) )/Lbar
+            model_spread.append(spread)
 
     n_points += 1
     lnLmeanMinusLmax = np.log(Lbar)
@@ -253,6 +263,12 @@ if model_mode:
             "util_CleanILE: DROPPED {} intrinsic points not evaluated under all "
             "{} models (--require-all-models)\n".format(
                 n_dropped_partial, len(models_seen)))
+    if model_spread:
+        sys.stderr.write(
+            "util_CleanILE: between-model scatter (diagnostic only, NOT folded "
+            "into sigmaOverL): median {:.4f}, max {:.4f} over {} multi-model "
+            "points\n".format(float(np.median(model_spread)),
+                              float(np.max(model_spread)), len(model_spread)))
     if n_partial:
         sys.stderr.write(
             "util_CleanILE: WARNING: {} of {} intrinsic points were evaluated "

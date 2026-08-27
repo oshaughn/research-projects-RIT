@@ -548,7 +548,9 @@ for indx in np.arange(it_start,opts.n_iterations+1):
         mkdir(test_dir); mkdir(test_dir+'/logs')
         
     if opts.plot_args:  # Overkill: currently only making plots on last iteration
-        plot_dir = opts.working_directory+"/approx_{}_iteration_".format(approx)+str(indx)+"_plot"
+        # model-independent, like the plot node itself: it summarises the run
+        # once, and its node binds only the iteration macros
+        plot_dir = opts.working_directory+"/iteration_"+str(indx)+"_plot"
         mkdir(plot_dir); mkdir(plot_dir+'/logs')
 
 
@@ -769,9 +771,26 @@ if not(opts.cip_explode_jobs is None):
 #   deliverables, and they are what the final combination is weighted by.
 #   Combining at the end rather than the middle keeps each model's posterior
 #   inspectable, which is what a systematics study actually wants to look at.
+# Which CIP arguments did the run actually FINISH on?
+#
+# `cip_args` is cip_args_lines[0], but the iteration loop advances through the
+# list via cip_job_list, so with a multi-line --cip-args-list the last iteration
+# uses a later entry.  Building the terminal fit from cip_args would give the
+# per-model posterior and evidence different coordinates, fit method or
+# resolution than the iteration that produced the grid they are fitting -- and
+# the evidences are what the final mixture is weighted by.
+cip_args_terminal = cip_args
+if cip_args_lines is not None:
+    _per_iteration = []
+    for _i in np.arange(len(cip_args_lines)):
+        _per_iteration += int(cip_args_n[_i])*[cip_args_lines[_i]]
+    if _per_iteration:
+        _last = min(int(opts.n_iterations), len(_per_iteration)) - 1
+        cip_args_terminal = _per_iteration[_last]
+
 cip_terminal_job = None
 if opts.last_iteration_extrinsic:
-    cip_terminal_job, cip_terminal_job_name = dag_utils.write_CIP_sub(tag='CIP_terminal',log_dir=None,arg_str=cip_args,request_memory=opts.request_memory_CIP,input_net=opts.working_directory+'/approx_$(macroapprox)_all.net',output='approx_$(macroapprox)_overlap-grid-$(macroiterationnext)',out_dir=opts.working_directory,exe=opts.cip_exe,universe=local_worker_universe)
+    cip_terminal_job, cip_terminal_job_name = dag_utils.write_CIP_sub(tag='CIP_terminal',log_dir=None,arg_str=cip_args_terminal,request_memory=opts.request_memory_CIP,input_net=opts.working_directory+'/approx_$(macroapprox)_all.net',output='approx_$(macroapprox)_overlap-grid-$(macroiterationnext)',out_dir=opts.working_directory,exe=opts.cip_exe,universe=local_worker_universe)
     cip_terminal_job.add_condor_cmd("initialdir",opts.working_directory+"/approx_$(macroapprox)_iteration_$(macroiteration)_cip")
     cip_terminal_job.set_log_file(opts.working_directory+"/approx_$(macroapprox)_iteration_$(macroiteration)_cip/logs/cipterm-$(cluster)-$(process).log")
     cip_terminal_job.set_stderr_file(opts.working_directory+"/approx_$(macroapprox)_iteration_$(macroiteration)_cip/logs/cipterm-$(cluster)-$(process).err")
@@ -897,9 +916,9 @@ if opts.plot_args and opts.test_args:
     # User will be responsible for passing argument strings.  We are not hardcoding in the argument format
     samples_files =[]
     plot_job, plot_job_name = dag_utils.write_plot_sub(tag='plot',log_dir=None,arg_str=plot_args,samples_files=samples_files,out_dir=opts.working_directory,exe=opts.plot_exe,universe=local_worker_universe)
-    plot_job.set_log_file(opts.working_directory+"/approx_$(macroapprox)_iteration_$(macroiteration)_plot/logs/test-$(cluster)-$(process).log")
-    plot_job.set_stderr_file(opts.working_directory+"/approx_$(macroapprox)_iteration_$(macroiteration)_plot/logs/test-$(cluster)-$(process).err")
-    plot_job.set_stdout_file(opts.working_directory+"/approx_$(macroapprox)_iteration_$(macroiteration)_plot/logs/test-$(cluster)-$(process).out")
+    plot_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_plot/logs/test-$(cluster)-$(process).log")
+    plot_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_plot/logs/test-$(cluster)-$(process).err")
+    plot_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_plot/logs/test-$(cluster)-$(process).out")
     plot_job.write_sub_file()
 
 
