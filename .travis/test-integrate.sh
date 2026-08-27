@@ -45,6 +45,15 @@ python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_mcsampler_ensemble_
 python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_nal_io.py \
                    MonteCarloMarginalizeCode/Code/test/test_supplementary_likelihood_hook.py
 
+# Time-marginalization quadrature.  The historical rule integrates exp(lnL(t)) with Simpson at
+# the FIXED spacing deltaT=1/srate, while the integrand's width sigma_t = 1/(2 pi rho sigma_f) is
+# set by the SIGNAL and shrinks as 1/rho -- so production under-resolves its own integrand, worse
+# at higher SNR (measured: the reported lnL moves 1.649 nats when the grid phase is scanned over
+# 2*deltaT at srate 4096, rho=40).  This gate covers the opt-in band-limited quadrature against an
+# ANALYTIC continuous reference, plus its fail-closed guards and -- the part that matters most
+# here -- that the option actually reaches the shipped likelihood rather than being inert.
+python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_time_marginalization_quadrature.py
+
 python MonteCarloMarginalizeCode/Code/test/test_mcsamplerEnsemble_extended.py --as-test --n-max 100000
 
 python MonteCarloMarginalizeCode/Code/test/test_mcsamplerEnsemble_extended.py --as-test --n-max 100000 --use-lnL

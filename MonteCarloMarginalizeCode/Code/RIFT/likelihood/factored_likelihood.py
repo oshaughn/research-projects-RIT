@@ -63,6 +63,17 @@ from scipy import special
 from itertools import product, combinations
 import math
 
+from . import time_marginalization_quadrature as time_quadrature_module
+from .time_marginalization_quadrature import TIME_QUADRATURE_CHOICES
+
+#: Time-marginalization quadrature used when a caller does not pass
+#: ``time_quadrature`` explicitly.  'simpson' is the historical fixed-deltaT
+#: Simpson rule and remains the DEFAULT; 'bandlimited' refines the time grid to
+#: the integrand actually present, using only the samples already computed (see
+#: RIFT.likelihood.time_marginalization_quadrature).  Drivers set this once from
+#: their CLI so every call site inherits it; tests pass the kwarg directly.
+TIME_QUADRATURE_DEFAULT = 'simpson'
+
 from .vectorized_lal_tools import ComputeDetAMResponse,TimeDelayFromEarthCenter
 
 import os
@@ -2419,7 +2430,7 @@ def _nearest_Q_window_numpy(Q_block, start_indices, npts, xpy=np):
     return Qlms
 
 
-def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=np, loglikelihood=_factored_lnL_helper,return_lnLt=False,phase_marginalization=False,n_cal=1,cal_method='loop',cal_distmarg=None,cal_log_weights=None,return_cal_components=False,time_interp='nearest',ctUArrayDict_cal=None,ctVArrayDict_cal=None):
+def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=np, loglikelihood=_factored_lnL_helper,return_lnLt=False,phase_marginalization=False,n_cal=1,cal_method='loop',cal_distmarg=None,cal_log_weights=None,return_cal_components=False,time_interp='nearest',ctUArrayDict_cal=None,ctVArrayDict_cal=None,time_quadrature=None):
     """
     DiscreteFactoredLogLikelihoodViaArray uses the array-ized data structures to compute the log likelihood,
     either as an array vs time *or* marginalized in time.
@@ -2493,12 +2504,51 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         --interpolate-time value maps to.  Ask for a stencil explicitly if you want one.
         All three stencils have CPU and GPU implementations.  See _sinc_Q_window_numpy and
         RIFT/likelihood/DESIGN_q_window_stencil.md for the measured tables.
+
+    time_quadrature : {'simpson', 'bandlimited'} or None
+        Rule used for the time integral.  None (the default) defers to the
+        module-level ``TIME_QUADRATURE_DEFAULT``, which is 'simpson'.
+
+        'simpson' is the historical rule: Simpson's rule at the FIXED spacing
+        deltaT=1/srate.  The integrand's width, however, is set by the signal --
+        sigma_t = 1/(2 pi rho sigma_f) -- not by the data's sample rate, so this
+        under-resolves its own integrand at high SNR, and Simpson's (4T_h-T_2h)/3
+        form makes an under-resolved peak worse than trapezoid rather than better.
+
+        'bandlimited' refines the grid to the integrand using ONLY the samples
+        already computed: kappa(t) is band-limited below Nyquist by construction
+        and rho_sq is time-independent on this path, so the continuous lnL(t) is
+        recovered exactly by a zero-padded FFT per row.  The refinement factor is
+        DERIVED from the measured peak width and re-asserted on the refined grid;
+        it is not a settable accuracy knob.  Restricted to n_cal==1 and to the
+        integrated (not return_lnLt / return_cal_components) outputs; anything
+        else raises rather than quietly falling back.  Rationale, measured
+        before/after and the exclusions: RIFT.likelihood.time_marginalization_quadrature.
     """
     global distMpcRef
 
     validate_time_interp(time_interp, on_gpu=not (xpy is np))
     if time_interp != 'nearest' and cal_method == 'fused':
         raise NotImplementedError("time_interp='{}' is not implemented for cal_method='fused'".format(time_interp))
+
+    if time_quadrature is None:
+        time_quadrature = TIME_QUADRATURE_DEFAULT
+    time_quadrature_module.validate_time_quadrature(time_quadrature)
+    if time_quadrature == 'bandlimited':
+        # Refuse loudly wherever the band-limited argument does not hold, rather
+        # than falling back to Simpson: a silently inert accuracy option is worse
+        # than an unavailable one.
+        if n_cal != 1:
+            raise NotImplementedError(
+                "time_quadrature='bandlimited' is not implemented for calibration "
+                "marginalization (n_cal=%d).  The cal reduction sums exp() over "
+                "realizations, so each realization's kappa row must be refined and the "
+                "derived factor reconciled across them; that is untested." % n_cal)
+        if return_lnLt or return_cal_components:
+            raise NotImplementedError(
+                "time_quadrature='bandlimited' changes the time INTEGRAL; it has no "
+                "meaning for return_lnLt / return_cal_components, which hand back "
+                "per-time or per-realization quantities on the original grid.")
 
     detectors = rholmsArrayDict.keys()
     npts = len(tvals)
@@ -2783,6 +2833,19 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         lnLmax  = xpy.max(lnL_t)
         if return_lnLt:
           return lnL_t  #- lnLmax    # we want the verbatim lnL_t values, no shift
+
+        if time_quadrature == 'bandlimited':
+            # Same integrand and the same closed domain [tvals[0], tvals[-1]] --
+            # ONLY the resolution and the rule change, so a before/after difference
+            # is attributable to the quadrature and to nothing else.  (The internal
+            # log-sum-exp offset does differ: it must be taken on the refined grid,
+            # whose maximum can exceed the coarse one by hundreds of nats.  That is
+            # a numerical detail of an offset-invariant expression, not a second
+            # change of estimator.)
+            return time_quadrature_module.time_marginalize_bandlimited(
+                kappa_sq, rho_sq_here, float(deltaT), loglikelihood,
+                phase_marginalization=phase_marginalization, xpy=xpy)
+
         L_t = xpy.exp(lnL_t - lnLmax, out=lnL_t)
 
         L = simps(L_t, dx=deltaT, axis=-1)
