@@ -3320,7 +3320,7 @@ def write_extrconsolidate_sub(tag='extrconsolidate', exe=None, log_dir=None, uni
     return job, sub_name
 
 
-def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,universe="vanilla",arg_str=None,log_dir=None, use_eos=False,ncopies=1,no_grid=False, max_runtime_minutes=60,extra_text='',**kwargs):
+def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,universe="vanilla",arg_str=None,log_dir=None, use_eos=False,ncopies=1,no_grid=False, max_runtime_minutes=60,extra_text='',script_name=None,glob_pattern='*.composite',**kwargs):
     """
     Write a submit file for launching a consolidation job
        util_ILEdagPostprocess.sh   # suitable for ILE consolidation.  
@@ -3342,20 +3342,24 @@ def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,universe
     # Write unify.sh
     #    - problem of globbing inside condor commands
     #    - problem that *.composite files from intermediate results will generally NOT be present 
-    cmdname ='unify.sh'
+    # script_name: a workflow with more than one unify job (e.g. a pooled
+    # cross-model net AND a per-model net) needs a distinct script per job,
+    # or the second write clobbers the first.
+    cmdname = script_name if script_name else 'unify.sh'
     base_str = ''
     if not (base is None):
         base_str = ' ' + base +"/"
+    glob_str = base_str + glob_pattern
     with open(cmdname,'w') as f:        
         f.write("#! /usr/bin/env bash\n")
         if len(extra_text) > 0:
             f.write(extra_text+"\n")
-        f.write( "ls " + base_str+"*.composite  1>&2 \n")  # write filenames being concatenated to stderr
+        f.write( "ls " + glob_str+"  1>&2 \n")  # write filenames being concatenated to stderr
         # Sometimes we need to pass --eccentricity or --tabular-eos-file etc to util_CleanILE.py
         extra_args = ''
         if arg_str:
             extra_args = arg_str
-        f.write( exe + extra_args+ base_str+ "*.composite \n")
+        f.write( exe + extra_args+ glob_str+ " \n")
         # Backstop code for untify.sh
         f.write("""ret_value=$?
 if [ $ret_value -eq 0 ]; then
@@ -3363,7 +3367,7 @@ if [ $ret_value -eq 0 ]; then
 else
   cat {}
 fi
-""".format(base_str+"*.composite"))
+""".format(glob_str))
     st = os.stat(cmdname)
     import stat
     os.chmod(cmdname, st.st_mode | stat.S_IEXEC)
@@ -3443,7 +3447,10 @@ def write_convert_sub(tag='convert', exe=None, file_input=None,file_output=None,
         arg_str = arg_str.lstrip('-')
         ile_job.add_opt(arg_str,'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
 #        ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
-    ile_job.add_arg(file_input)
+    if file_input is not None:
+        # a tool whose inputs are all named options has no trailing positional;
+        # adding one unguarded appends the literal string "None" to the command
+        ile_job.add_arg(file_input)
     
     #
     # Logging options

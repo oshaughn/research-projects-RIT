@@ -14,10 +14,13 @@ from igwn_ligolw import lsctables, table, utils
 import numpy as np
 import RIFT.misc.weight_simulations as weight_simulations
 
+import re
 import fileinput
 #import StringIO
 
 data_at_intrinsic = {}
+models_at_intrinsic = {}   # same keys; parallel list of model labels, model-aware mode only
+models_seen = []
 
 my_digits=5  # safety for high-SNR BNS
 
@@ -30,7 +33,22 @@ parser.add_argument("--eccentricity", action="store_true")
 parser.add_argument("--meanPerAno", action="store_true")
 #Askold: adding specification for tabular eos file
 parser.add_argument("--tabular-eos-file", action="store_true") 
+parser.add_argument("--model-group-regex", default=None, help="Regex matched against each input file's BASENAME; capture group 1 is the waveform-model label.  Enables model-aware combination: replicas are averaged within a model, then models are marginalized over with --model-prior weights.  Without this flag every evaluation at a given intrinsic point is pooled flat, which is correct for replicas of ONE model and wrong across models.")
+parser.add_argument("--model-prior", action="append", default=None, help="LABEL=WEIGHT prior weight for one model (repeatable).  Default: uniform over the labels actually seen.  Weights are renormalized over the models present at each intrinsic point.")
+parser.add_argument("--require-all-models", action="store_true", help="Drop intrinsic points not evaluated under EVERY model.  Without it, a point covered by a subset is marginalized over that subset, which silently changes the estimator point by point.")
 opts = parser.parse_args()
+
+model_mode = opts.model_group_regex is not None
+model_rx = re.compile(opts.model_group_regex) if model_mode else None
+model_prior_arg = {}
+if opts.model_prior:
+    for item in opts.model_prior:
+        if "=" not in item:
+            sys.exit("--model-prior wants LABEL=WEIGHT, got {}".format(item))
+        label, _, wt = item.partition("=")
+        model_prior_arg[label.strip()] = float(wt)
+    if any(w < 0 for w in model_prior_arg.values()):
+        sys.exit("--model-prior weights must be non-negative")
 
 
 def expected_row_lengths(opts):
@@ -80,6 +98,16 @@ for fname in opts.fname[0]: #sys.argv[1:]:
     if os.stat(fname).st_size==0:  # skip files of zero length
         continue
     sys.stderr.write(str(fname)+"\n")
+    this_model = None
+    if model_mode:
+        match = model_rx.search(os.path.basename(str(fname)))
+        if match is None:
+            sys.exit("--model-group-regex {!r} does not match {}; refusing to "
+                     "pool it as an unlabelled model".format(
+                         opts.model_group_regex, os.path.basename(str(fname))))
+        this_model = match.group(1)
+        if this_model not in models_seen:
+            models_seen.append(this_model)
 #    data = np.loadtxt(fname)  # this will FAIL if we have a heterogeneous data source!  BE CAREFUL
     data = np.genfromtxt(fname,invalid_raise=False)  #  Protect against inhomogeneous data
     if len(data.shape) ==1:
@@ -99,45 +127,139 @@ for fname in opts.fname[0]: #sys.argv[1:]:
         if tuple(line[1:col_intrinsic]) in data_at_intrinsic:
 #            print " repeated occurrence ", line[1:9]
             data_at_intrinsic[tuple(line[1:col_intrinsic])].append(line[col_intrinsic:])
+            models_at_intrinsic[tuple(line[1:col_intrinsic])].append(this_model)
         else:
 #            print " new key ", line[1:9]
             data_at_intrinsic[tuple(line[1:col_intrinsic])] = [line[col_intrinsic:]]
+            models_at_intrinsic[tuple(line[1:col_intrinsic])] = [this_model]
       except Exception as exc:
           sys.stderr.write("Skipping malformed ILE row in {}: {}\n".format(fname, exc))
           continue
+
+def _pool_linear(lnL, sigmaOverL, ntot, lnLmax, weights=None):
+    """Combine evaluations of the SAME quantity by their weighted linear mean in L.
+
+    Returns (Lbar, sigmaOverL) with L measured relative to exp(lnLmax).
+
+    DO NOT inverse-variance weight with the reported sigmas: each sigma is
+    computed from the same importance weights as its lnL, so a replica that
+    silently missed the likelihood peak reports BOTH a low lnL AND a small
+    sigma -- 1/sigma^2 weighting then overweights the worst replica, giving a
+    systematically low combined lnL with an overconfident combined error.
+    The pooled (ntot-weighted) linear mean is unbiased in L regardless.
+
+    Error: max(propagated per-run sigmas, between-replica scatter).  Only the
+    scatter term can see the replica lottery (correlated underreporting); with
+    K replicas it has K-1 dof, so treat the result as a t-interval downstream.
+    """
+    L = np.exp(lnL - lnLmax)
+    K = len(lnL)
+    if weights is None:
+        wts = np.asarray(ntot, dtype=float)
+        if np.any(wts <= 0) or not np.all(np.isfinite(wts)):
+            wts = np.ones(K)
+    else:
+        wts = np.asarray(weights, dtype=float)
+    wts = wts/np.sum(wts)
+    Lbar = np.sum(wts*L)
+    sigma_prop = np.sqrt(np.sum((wts*sigmaOverL*L)**2))/Lbar
+    if K > 1:
+        sigma_scatter = np.sqrt( np.sum(wts**2 * (L - Lbar)**2) * K/(K-1.) )/Lbar
+    else:
+        sigma_scatter = 0.
+    return Lbar, max(sigma_prop, sigma_scatter)
+
+
+if model_mode:
+    if model_prior_arg:
+        missing = [m for m in models_seen if m not in model_prior_arg]
+        if missing:
+            sys.exit("--model-prior given but missing weights for {}; specify "
+                     "every model or none".format(missing))
+    sys.stderr.write("util_CleanILE: model-aware combination over {} models: {}\n".format(
+        len(models_seen), ", ".join(models_seen)))
+
+n_partial = 0
+n_dropped_partial = 0
+n_points = 0
 
 for key in data_at_intrinsic:
     lnL, sigmaOverL, ntot,neff =   np.transpose(data_at_intrinsic[key])
     lnL = np.atleast_1d(lnL); sigmaOverL = np.atleast_1d(sigmaOverL); ntot = np.atleast_1d(ntot); neff = np.atleast_1d(neff)
     sigmaOverL = np.maximum(sigmaOverL, 1e-7*np.ones(len(lnL)))   # prevent accidental underflow during debugging/using synthetic data with no error
     lnLmax = np.max(lnL)
-    L = np.exp(lnL - lnLmax)  # remove overall Lmax factor, which factors out of the combination
-    K = len(lnL)
-    # Combine repeated evaluations by their SAMPLE-COUNT-weighted LINEAR mean.
-    # DO NOT inverse-variance weight with the reported sigmas: each sigma is
-    # computed from the same importance weights as its lnL, so a replica that
-    # silently missed the likelihood peak reports BOTH a low lnL AND a small
-    # sigma -- 1/sigma^2 weighting then overweights the worst replica, giving a
-    # systematically low combined lnL with an overconfident combined error.
-    # The pooled (ntot-weighted) linear mean is unbiased in L regardless.
-    wts = np.asarray(ntot, dtype=float)
-    if np.any(wts <= 0) or not np.all(np.isfinite(wts)):
-        wts = np.ones(K)
-    wts = wts/np.sum(wts)
-    Lbar = np.sum(wts*L)
-    lnLmeanMinusLmax = np.log(Lbar)
-    # Error: max(propagated per-run sigmas, between-replica scatter).  Only the
-    # scatter term can see the replica lottery (correlated underreporting); with
-    # K replicas it has K-1 dof, so treat the result as a t-interval downstream.
-    sigma_prop = np.sqrt(np.sum((wts*sigmaOverL*L)**2))/Lbar
-    if K > 1:
-        sigma_scatter = np.sqrt( np.sum(wts**2 * (L - Lbar)**2) * K/(K-1.) )/Lbar
+
+    if not model_mode:
+        # One model (or replicas of one model): pool everything flat.
+        Lbar, sigmaNetOverL = _pool_linear(lnL, sigmaOverL, ntot, lnLmax)
     else:
-        sigma_scatter = 0.
-    sigmaNetOverL = max(sigma_prop, sigma_scatter)
+        # Two levels, because replicas and models are not the same thing.
+        # Within a model, replicas estimate ONE number -> ntot-weighted mean.
+        # Across models, the quantity itself differs -> marginalize,
+        #   L_marg(lambda) = sum_m p(m) L_m(lambda),
+        # which is linear in L, not in lnL.  Averaging lnL instead would give
+        # the geometric mean (a logarithmic opinion pool), which is not
+        # Bayesian model marginalization.
+        labels = models_at_intrinsic[key]
+        present = [m for m in models_seen if m in labels]
+        if len(present) < len(models_seen):
+            if opts.require_all_models:
+                n_dropped_partial += 1
+                continue
+            n_partial += 1
+        L_m = []; sig_m = []; w_m = []
+        for m in present:
+            sel = np.array([lab == m for lab in labels])
+            Lm, sm = _pool_linear(lnL[sel], sigmaOverL[sel], ntot[sel], lnLmax)
+            L_m.append(Lm); sig_m.append(sm)
+            w_m.append(model_prior_arg[m] if model_prior_arg else 1.0)
+        L_m = np.atleast_1d(np.array(L_m)); sig_m = np.atleast_1d(np.array(sig_m))
+        w_m = np.atleast_1d(np.array(w_m, dtype=float))
+        if np.sum(w_m) <= 0:
+            w_m = np.ones(len(present))
+        # Renormalized over the models PRESENT here: with partial coverage the
+        # estimator is a marginal over a subset, which is why n_partial is
+        # reported and --require-all-models exists.
+        w_m = w_m/np.sum(w_m)
+        Lbar = np.sum(w_m*L_m)
+        sigma_prop = np.sqrt(np.sum((w_m*sig_m*L_m)**2))/Lbar
+        M = len(present)
+        if M > 1:
+            # Between-model scatter IS the waveform-systematic contribution at
+            # this point, not a nuisance: carrying it in sigma is what lets the
+            # downstream fit widen where the models disagree.
+            sigma_scatter = np.sqrt( np.sum(w_m**2 * (L_m - Lbar)**2) * M/(M-1.) )/Lbar
+        else:
+            sigma_scatter = 0.
+        sigmaNetOverL = max(sigma_prop, sigma_scatter)
+
+    n_points += 1
+    lnLmeanMinusLmax = np.log(Lbar)
 
 
     # The key already holds every intrinsic column that was present in the
     # input rows, in input order, so the composite preserves whatever
     # combination of advanced-physics groups the run enabled.
     print(-1, *key, lnLmeanMinusLmax+lnLmax, sigmaNetOverL, np.sum(ntot), -1)
+
+
+# Coverage report.  stdout is the data stream, so this goes to stderr.
+if model_mode:
+    sys.stderr.write(
+        "util_CleanILE: {} intrinsic points written, {} models\n".format(
+            n_points, len(models_seen)))
+    if n_dropped_partial:
+        sys.stderr.write(
+            "util_CleanILE: DROPPED {} intrinsic points not evaluated under all "
+            "{} models (--require-all-models)\n".format(
+                n_dropped_partial, len(models_seen)))
+    if n_partial:
+        sys.stderr.write(
+            "util_CleanILE: WARNING: {} of {} intrinsic points were evaluated "
+            "under only a SUBSET of the {} models, and were marginalized over "
+            "that subset.  The estimator therefore differs point to point -- a "
+            "model-dependent, lambda-dependent change in the effective prior. "
+            "Common causes: the sigmaOverL>0.9 resolution cut firing for one "
+            "model but not another, or a model's ILE job failing. Use "
+            "--require-all-models to drop these instead.\n".format(
+                n_partial, n_points, len(models_seen)))
