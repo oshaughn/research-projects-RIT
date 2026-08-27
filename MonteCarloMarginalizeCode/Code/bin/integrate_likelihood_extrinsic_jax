@@ -434,7 +434,23 @@ def build_parser():
                  help="psi (polarization) grid size for --mode flowmc-phipsimarg "
                       "(default 8; spin-2 -> exponential convergence, ~8 exact for "
                       "l_max=2).  Keep nphi*npsi small (~64) -- the (phi,psi) scan "
-                      "cost scales with it.")
+                      "cost scales with it.  CAVEAT: 'exact' above holds for "
+                      "SAMPLING the trig polynomial lnL, not for the quadrature "
+                      "of exp(lnL), whose peak width is ~1/SNR -- the grid "
+                      "scheme's marginalization error grows without bound with "
+                      "SNR (measured ~1e2 nats at SNR 40 for npsi=8).  See "
+                      "--angle-marg-scheme for the fix.")
+    g.add_option("--angle-marg-scheme", type=str, default="grid",
+                 help="(phi_ref, psi) marginalization scheme for --mode "
+                      "flowmc-phipsimarg: 'grid' (DEFAULT: the historical "
+                      "--n-phi x --n-psi quadrature, kept so existing runs "
+                      "reproduce), 'exact' (Fourier-coefficient bootstrap + "
+                      "dense reconstruction; expensive likelihood calls fixed "
+                      "by MODE CONTENT, never by SNR), 'laplace' (analytic "
+                      "Laplace in psi + dense phi; error O(1/SNR^2), best at "
+                      "high SNR), or 'auto' (select exact/laplace from the "
+                      "run's SNR estimate).  The scheme that actually ran is "
+                      "printed.  See RIFT.likelihood.jax_ile.anglemarg.")
     # flowMC tuning (modes flowmc / flowmc-phimarg).  Defaults match
     # samplers.flowmc_sample*; exposed so pipeline Makefiles can tune them.
     g.add_option("--n-training-loops", type=int, default=4,
@@ -1472,12 +1488,20 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
         from RIFT.likelihood.jax_ile.wrapper import JAXDistPhiPsiMargLikelihood
         nphi = getattr(opts, "n_phi", 32)
         npsi = getattr(opts, "n_psi", 16)
+        angle_marg = getattr(opts, "angle_marg_scheme", "grid")
         print("Distance + phi_ref + psi marginalization: ON (grid=%d, nphi=%d, npsi=%d, d in [%g,%g] Mpc)"
               % (opts.distance_grid_points, nphi, npsi, opts.d_min, opts.d_max))
         like = JAXDistPhiPsiMargLikelihood(
             like_data, opts.d_min, opts.d_max, nphi=nphi, npsi=npsi,
             n_grid=opts.distance_grid_points, interp=opts.interp,
-            guess_snr=extras["guess_snr"])
+            guess_snr=extras["guess_snr"], angle_marg=angle_marg)
+        # ALWAYS report the resolved scheme (requested may be 'auto'; this
+        # pipeline has a documented history of silently-inert flags).
+        print("  angle-marg scheme: %s (requested %s): %s"
+              % (like.angle_marg_scheme, angle_marg,
+                 "; ".join("%s=%s" % kv for kv in
+                           sorted(like.angle_marg_info.items())
+                           if kv[0] not in ("scheme", "requested"))))
         if getattr(like, "dist_grid_info", {}).get("mode") == "adaptive":
             gi = like.dist_grid_info
             print("  distance grid: ADAPTIVE  d_peak=%.3g Mpc  sigma_d=%.3g Mpc  npts=%d"
