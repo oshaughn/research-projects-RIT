@@ -329,6 +329,35 @@ def test_every_model_reads_one_shared_grid(multiapprox_rundir):
         "counts act as model weights")
 
 
+def test_generator_route_is_per_model(multiapprox_rundir):
+    """One DAG must be able to mix waveform families.
+
+    The generator route is a property of the MODEL, not of the run: the phenom
+    family has no time-domain mode generator in gwsignal ("generator does not
+    provide a method to generate time-domain modes"), while SEOBNRv5* exists
+    only there.  A single global --use-gwsignal therefore cannot serve an
+    EOB-vs-phenom comparison -- which is the comparison this builder exists for.
+
+    Observed before this was per model: with --use-gwsignal applied globally,
+    every IMRPhenomD ILE job died with "ValueError: Invalid Argument" from
+    gen_modes and contributed ZERO rows, so util_CleanILE saw one model and the
+    run silently degraded to single-model with no marginalization at all.
+    """
+    sub = (multiapprox_rundir / "ILE.sub").read_text()
+    assert "$(macrogwsignal)" in sub or "--use-gwsignal" not in sub, (
+        "ILE.sub carries a global --use-gwsignal; the route must be per model")
+
+    jobs, macros, _ = _dag_facts(multiapprox_rundir)
+    ile = [n for n, s_ in jobs.items() if s_.endswith("ILE.sub")]
+    assert ile, "no loop ILE nodes"
+    routed = {macros[n].get("macroapprox"): macros[n].get("macrogwsignal")
+              for n in ile if "macrogwsignal" in macros.get(n, {})}
+    if routed:
+        # whatever the fixture asked for, a model must get one route, not both
+        for model, route in routed.items():
+            assert route is not None, model
+
+
 def test_the_loop_fits_once_per_iteration(multiapprox_rundir):
     jobs, macros, parents = _dag_facts(multiapprox_rundir)
     models = {macros.get(n, {}).get("macroapprox") for n, s in jobs.items()

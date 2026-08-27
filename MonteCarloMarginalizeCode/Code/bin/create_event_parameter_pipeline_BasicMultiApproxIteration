@@ -177,6 +177,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--working-directory",default="./")
 parser.add_argument("--approx",default=None,action='append',help="add multiple --approx options to analyze many approximants.  Every approximant is evaluated on the SAME intrinsic grid, and their likelihoods are marginalized over at each grid point; see RIFT/misc/DESIGN_multiapprox_marginalization.md")
 parser.add_argument("--approx-prior",default=None,action='append',help="APPROX=WEIGHT prior weight for one waveform model (repeatable).  Default: uniform.  These are the p(m) in L_marg(lambda) = sum_m p(m) L_m(lambda); they are NOT sampling weights.")
+parser.add_argument("--approx-gwsignal",default=None,action='append',help="Waveform model that must be generated through gwsignal rather than lalsim (repeatable).  The generator route is PER MODEL: the phenom family has no time-domain mode generator in gwsignal ('generator does not provide a method to generate time-domain modes'), while SEOBNRv5* is only available there.  A single global --use-gwsignal therefore cannot serve an EOB-vs-phenom comparison, which is the comparison this builder exists for.")
 parser.add_argument("--require-all-approx",action='store_true',help="Drop intrinsic points not successfully evaluated under EVERY approximant.  Without it, such points are marginalized over whichever subset survived, which changes the estimator point by point.")
 parser.add_argument("--input-grid",default="overlap-grid.xml.gz")
 parser.add_argument("--cip-args",default=None,help="filename of args_cip.txt file  which holds CIP arguments.  Should NOT conflict with arguments auto-set by this DAG ... in particular, i/o arguments will be modified. ")
@@ -524,6 +525,17 @@ if opts.use_bw_psd:
     convert_psd_job.write_sub_file()
 
 
+
+# Which generator route does each model need?  Empty string for lalsim models,
+# " --use-gwsignal " for the ones that only exist there.  Bound as a macro on
+# every node that carries macroapprox, so one DAG can mix families.
+_gwsignal_set = set(opts.approx_gwsignal or [])
+for _m in _gwsignal_set:
+    if _m not in opts.approx:
+        print(" --approx-gwsignal names {}, which is not among --approx {}".format(_m, opts.approx)); sys.exit(1)
+def gwsignal_macro(approx):
+    return " --use-gwsignal " if approx in _gwsignal_set else " "
+
 # Make directories for all iterations.
 #   The CIP stage is model-INDEPENDENT inside the loop -- one fit over the
 #   cross-model marginalized net -- so its directory is not approximant-tagged.
@@ -569,7 +581,14 @@ if opts.use_singularity or opts.use_osg:
     transfer_file_names.append("../input-grid-$(macroiteration).xml.gz")
     #output_file_names = ','.join(["CME_out-$(macroevent)-$(cluster)-$(process).xml_{0}_.dat".format(x) for x in np.arange(opts.ile_n_events_to_analyze)])
     #print "OUTPUT FILES ", output_file_names
-ile_args += " --approx $(macroapprox) "
+# The generator route is per MODEL, not per run.  A global --use-gwsignal (as
+# util_RIFT_pseudo_pipe.py emits) sends every model through gwsignal, and the
+# phenom family cannot be generated there at all -- its ILE jobs die with
+# "ValueError: Invalid Argument" from gen_modes and contribute ZERO rows, so the
+# run silently degrades to single-model.  Strip it and bind it per node instead.
+if opts.approx_gwsignal:
+    ile_args = ile_args.replace("--use-gwsignal", " ")
+ile_args += " --approx $(macroapprox) $(macrogwsignal) "
 ile_job, ile_job_name = dag_utils.write_ILE_sub_simple(tag='ILE',log_dir=None,arg_str=ile_args,output_file="CME_out.xml",ncopies=opts.n_copies,exe=ile_exe,transfer_files=transfer_file_names,transfer_output_files=output_file_names,request_memory=opts.request_memory_ILE,request_gpu=opts.request_gpu_ILE,use_singularity=opts.use_singularity,singularity_image=singularity_image,use_osg=opts.use_osg,simple_osg_requirements=opts.use_osg_simple_requirements,frames_dir=opts.frames_dir,cache_file=opts.cache_file,use_cvmfs_frames=opts.use_cvmfs_frames,max_runtime_minutes=opts.ile_runtime_max_minutes)
 # Modify: create macro for iteration 
 #   - added on a per-node basis
@@ -1029,6 +1048,7 @@ for it in np.arange(it_start,opts.n_iterations):
         ile_node.set_retry(opts.ile_retries)
         ile_node.add_macro("macroevent", event*n_group)
         ile_node.add_macro("macroapprox",approx)
+        ile_node.add_macro("macrogwsignal", gwsignal_macro(approx))
         ile_node.add_macro("macroiteration", it)
         if not(parent_fit_node is None):
             ile_node.add_parent(parent_fit_node)
@@ -1046,6 +1066,7 @@ for it in np.arange(it_start,opts.n_iterations):
             ile_node.set_retry(opts.ile_retries)
             ile_node.add_macro("macroevent", event*n_group)
             ile_node.add_macro("macroapprox",approx)
+            ile_node.add_macro("macrogwsignal", gwsignal_macro(approx))
             ile_node.add_macro("macroiteration", it)
             if not(parent_fit_node is None):
                 ile_node.add_parent(parent_fit_node)
@@ -1197,6 +1218,7 @@ if opts.last_iteration_extrinsic:
             ile_node.add_macro("macroevent", event*n_group)
             ile_node.add_macro("macroiteration", it)
             ile_node.add_macro("macroapprox", approx)
+            ile_node.add_macro("macrogwsignal", gwsignal_macro(approx))
             ile_node.add_parent(cipterm_node)
             dag.add_node(ile_node)
 
