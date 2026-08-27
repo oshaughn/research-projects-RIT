@@ -66,12 +66,15 @@ INTERP = "sinc"
 # ---------------------------------------------------------------------------
 
 def make_synth(scale=1.0, seed=3, modes=((2, 2), (2, -2)), npts=32,
-               deltaT=1.0 / 1024):
+               deltaT=1.0 / 1024, kappa_boost=1.0):
     """Structurally-faithful synthetic packed data (cf. test_jax_likelihood).
 
     U is Hermitian positive definite and V complex symmetric, as the real
     precompute produces; ``scale`` sets the overall amplitude (lnL ~ scale^2),
-    standing in for SNR.
+    standing in for SNR.  ``kappa_boost`` multiplies the rholm timeseries
+    ONLY (not U/V), producing a target with a large coherent (phi,psi)
+    amplitude A -- the regime where an undersized dense grid measurably
+    biases the marginal (used by the sizing regression tests).
     """
     rng = np.random.default_rng(seed)
     tw = npts * deltaT / 2.0
@@ -89,7 +92,7 @@ def make_synth(scale=1.0, seed=3, modes=((2, 2), (2, -2)), npts=32,
         rho = np.stack([np.convolve(white[k].real, kern, "same")
                         + 1j * np.convolve(white[k].imag, kern, "same")
                         for k in range(K)]).astype(np.complex128)
-        rho *= np.sqrt(len(kx)) * scale
+        rho *= np.sqrt(len(kx)) * scale * kappa_boost
         M = rng.standard_normal((K, K)) + 1j * rng.standard_normal((K, K))
         U = (M @ M.conj().T + 3 * np.eye(K)) * scale ** 2
         B = rng.standard_normal((K, K)) + 1j * rng.standard_normal((K, K))
@@ -246,7 +249,7 @@ def test_exact_scheme_vs_bruteforce():
     ref = brute_marginal(data, x_grid, log_w, 96, 48)
     ex = np.asarray(AM.fused_log_likelihood_distphipsimarg_exact(
         data, jnp.asarray(RA), jnp.asarray(DEC), jnp.asarray(INCL),
-        x_grid, log_w, interp=INTERP))
+        x_grid, log_w, interp=INTERP, amp_sizing=AM.ANGLE_MARG_CROSSOVER_AMPLITUDE))
     assert np.abs(ex - ref).max() < 1e-10
 
 
@@ -260,7 +263,7 @@ def test_exact_matches_legacy_grid_where_converged():
         x_grid, log_w, phi_ref_grid(32), psi_grid(8), interp=INTERP))
     ex = np.asarray(AM.fused_log_likelihood_distphipsimarg_exact(
         data, jnp.asarray(RA), jnp.asarray(DEC), jnp.asarray(INCL),
-        x_grid, log_w, interp=INTERP))
+        x_grid, log_w, interp=INTERP, amp_sizing=AM.ANGLE_MARG_CROSSOVER_AMPLITUDE))
     # legacy 32x8 truncation at this amplitude measured 2.2e-8; the bound
     # pins the shared normalization convention, not the grid's residual
     assert np.abs(ex - leg).max() < 1e-6
@@ -277,7 +280,7 @@ def test_laplace_high_amplitude_accuracy_and_trend():
         ref = brute_marginal(data, x_grid, log_w, 192, 96)
         lp = np.asarray(AM.fused_log_likelihood_distphipsimarg_laplace(
             data, jnp.asarray(RA), jnp.asarray(DEC), jnp.asarray(INCL),
-            x_grid, log_w, interp=INTERP))
+            x_grid, log_w, interp=INTERP, amp_sizing=AM.ANGLE_MARG_CROSSOVER_AMPLITUDE))
         errs.append(np.abs(lp - ref).max())
     # measured on this configuration: 0.055 at scale 50, 0.028 at scale 100.
     # NOTE this synthetic target is Laplace's WORST case (noise-like data, no
@@ -298,9 +301,9 @@ def test_overlap_agreement_exact_vs_laplace():
     args = (data, jnp.asarray(RA), jnp.asarray(DEC), jnp.asarray(INCL),
             x_grid, log_w)
     ex = np.asarray(AM.fused_log_likelihood_distphipsimarg_exact(
-        *args, interp=INTERP))
+        *args, interp=INTERP, amp_sizing=AM.ANGLE_MARG_CROSSOVER_AMPLITUDE))
     lp = np.asarray(AM.fused_log_likelihood_distphipsimarg_laplace(
-        *args, interp=INTERP))
+        *args, interp=INTERP, amp_sizing=AM.ANGLE_MARG_CROSSOVER_AMPLITUDE))
     assert np.abs(ex - lp).max() < 0.06
 
 
@@ -337,7 +340,7 @@ def test_nphi8_marginal_regression():
         x_grid, log_w, phi_ref_grid(8), psi_grid(8), interp=INTERP))
     ex = np.asarray(AM.fused_log_likelihood_distphipsimarg_exact(
         data, jnp.asarray(RA), jnp.asarray(DEC), jnp.asarray(INCL),
-        x_grid, log_w, interp=INTERP))
+        x_grid, log_w, interp=INTERP, amp_sizing=AM.ANGLE_MARG_CROSSOVER_AMPLITUDE))
     assert np.abs(leg8 - ref).max() > 1e-3       # the defect (measured 4.5e-2)
     assert np.abs(ex - ref).max() < 1e-9         # the fix
 
@@ -353,7 +356,7 @@ def test_exact_gradient_matches_finite_differences():
     def scalar(theta):
         return AM.fused_log_likelihood_distphipsimarg_exact(
             data, theta[0:1], theta[1:2], theta[2:3],
-            x_grid, log_w, interp=INTERP)[0]
+            x_grid, log_w, interp=INTERP, amp_sizing=AM.ANGLE_MARG_CROSSOVER_AMPLITUDE)[0]
 
     theta0 = jnp.asarray([RA[0], DEC[0], INCL[0]])
     v, g = jax.jit(jax.value_and_grad(scalar))(theta0)
@@ -385,7 +388,7 @@ def test_laplace_gradient_matches_exact_scheme():
                       AM.fused_log_likelihood_distphipsimarg_laplace)):
         def scalar(theta, fn=fn):
             return fn(data, theta[0:1], theta[1:2], theta[2:3],
-                      x_grid, log_w, interp=INTERP)[0]
+                      x_grid, log_w, interp=INTERP, amp_sizing=AM.ANGLE_MARG_CROSSOVER_AMPLITUDE)[0]
         v, g = jax.jit(jax.value_and_grad(scalar))(theta0)
         grads[name] = np.asarray(g)
         assert np.all(np.isfinite(grads[name])), \
@@ -460,17 +463,22 @@ def test_dense_size_rule_pinned():
 # ---------------------------------------------------------------------------
 
 def test_choose_angle_marg_scheme():
-    cross_snr = np.sqrt(2 * AM.ANGLE_MARG_CROSSOVER_AMPLITUDE)
-    s, info = AM.choose_angle_marg_scheme(cross_snr * 0.9, gh_enabled=False)
+    cross = AM.ANGLE_MARG_CROSSOVER_AMPLITUDE
+    s, info = AM.choose_angle_marg_scheme(cross * 0.9, gh_enabled=False)
     assert s == "exact"
-    s, info = AM.choose_angle_marg_scheme(cross_snr * 1.1, gh_enabled=False)
+    s, info = AM.choose_angle_marg_scheme(cross * 1.1, gh_enabled=False)
     assert s == "laplace"
-    assert info["crossover"] == AM.ANGLE_MARG_CROSSOVER_AMPLITUDE
-    # no SNR estimate: exact (valid at all amplitudes), reason recorded
+    assert info["crossover"] == cross
+    # the selector keys on the MEASURED amplitude bound, never on an SNR
+    # guess: its signature must not accept one (external-review defect 2)
+    import inspect
+    assert "guess_snr" not in inspect.signature(
+        AM.choose_angle_marg_scheme).parameters
+    # no amplitude available: exact (the conservative branch)
     s, info = AM.choose_angle_marg_scheme(None)
-    assert s == "exact" and "no SNR estimate" in info["reason"]
+    assert s == "exact" and "no amplitude" in info["reason"]
     # adaptive distance quadrature forces the exact branch
-    s, info = AM.choose_angle_marg_scheme(cross_snr * 10, gh_enabled=True)
+    s, info = AM.choose_angle_marg_scheme(cross * 100, gh_enabled=True)
     assert s == "exact" and "DISTMARG_GH" in info["reason"]
 
 
@@ -484,7 +492,7 @@ def test_laplace_refuses_gh_env(monkeypatch):
     with pytest.raises(ValueError, match="DISTMARG_GH"):
         AM.fused_log_likelihood_distphipsimarg_laplace(
             data, jnp.asarray(RA), jnp.asarray(DEC), jnp.asarray(INCL),
-            x_grid, log_w, interp=INTERP)
+            x_grid, log_w, interp=INTERP, amp_sizing=AM.ANGLE_MARG_CROSSOVER_AMPLITUDE)
 
 
 def test_exact_supports_gh_env(monkeypatch):
@@ -499,7 +507,7 @@ def test_exact_supports_gh_env(monkeypatch):
     monkeypatch.setattr(core_mod, "_DISTMARG_GH_N", 33)
     gh_exact = np.asarray(AM.fused_log_likelihood_distphipsimarg_exact(
         data, jnp.asarray(RA), jnp.asarray(DEC), jnp.asarray(INCL),
-        x_grid, log_w, interp=INTERP))
+        x_grid, log_w, interp=INTERP, amp_sizing=AM.ANGLE_MARG_CROSSOVER_AMPLITUDE))
     gh_legacy = np.asarray(fused_log_likelihood_distphipsimarg(
         data, jnp.asarray(RA), jnp.asarray(DEC), jnp.asarray(INCL),
         x_grid, log_w, phi_ref_grid(64), psi_grid(32), interp=INTERP))
@@ -526,15 +534,18 @@ def test_wrapper_default_is_grid_and_matches_legacy():
 
 
 def test_wrapper_auto_selects_and_records():
-    data = make_synth(scale=2.0)
-    lo = JAXDistPhiPsiMargLikelihood(data, 30.0, 3000.0, n_grid=64,
-                                     interp=INTERP, guess_snr=10.0,
-                                     angle_marg="auto")
+    """Auto selection keys on the DATA (measured amplitude bound), not on
+    guess_snr: a quiet target selects exact regardless of a huge claimed
+    SNR, a loud target selects laplace regardless of a missing one."""
+    lo = JAXDistPhiPsiMargLikelihood(make_synth(scale=2.0), 30.0, 3000.0,
+                                     n_grid=64, interp=INTERP,
+                                     guess_snr=1000.0, angle_marg="auto")
     assert lo.angle_marg_scheme == "exact"
-    hi = JAXDistPhiPsiMargLikelihood(data, 30.0, 3000.0, n_grid=64,
-                                     interp=INTERP, guess_snr=100.0,
-                                     angle_marg="auto")
+    hi = JAXDistPhiPsiMargLikelihood(make_synth(scale=2.0, kappa_boost=200.0),
+                                     30.0, 3000.0, n_grid=64, interp=INTERP,
+                                     guess_snr=None, angle_marg="auto")
     assert hi.angle_marg_scheme == "laplace"
+    assert hi.angle_marg_info["amplitude"] > AM.ANGLE_MARG_CROSSOVER_AMPLITUDE
     for like in (lo, hi):
         info = like.angle_marg_info
         assert info["requested"] == "auto"
@@ -543,8 +554,8 @@ def test_wrapper_auto_selects_and_records():
         assert info["amp_sizing"] >= AM.ANGLE_MARG_CROSSOVER_AMPLITUDE
         assert info["sample_grid"] == (16, 8)
     with pytest.raises(ValueError):
-        JAXDistPhiPsiMargLikelihood(data, 30.0, 3000.0, n_grid=64,
-                                    angle_marg="bogus")
+        JAXDistPhiPsiMargLikelihood(make_synth(scale=2.0), 30.0, 3000.0,
+                                    n_grid=64, angle_marg="bogus")
 
 
 def test_wrapper_exact_scheme_end_to_end():
@@ -608,3 +619,140 @@ def test_driver_passes_scheme_to_wrapper_and_reports_it():
         "driver must print the RESOLVED scheme (silently-inert-flag history)"
     # the print uses the wrapper's resolved attribute, not the raw option
     assert "angle_marg_scheme" in src and "angle_marg_info" in src
+
+
+# ---------------------------------------------------------------------------
+# 11. external-review defect 1: ALL maxima must be enumerated
+# ---------------------------------------------------------------------------
+
+def _kernel_truth(a, c1, c2, n=400001):
+    u = np.linspace(0, 2 * np.pi, n)
+    f = a + (c1 * np.exp(1j * u)).real + (c2 * np.exp(2j * u)).real
+    fm = f.max()
+    return fm + np.log(np.trapezoid(np.exp(f - fm), u) / (2 * np.pi))
+
+
+def test_laplace_kernel_first_harmonic_cancellation():
+    """The review's counterexample: c1 = 0, c2 = -d (delta = pi), d > 0.5.
+    f = -d cos(2u): the extrema of the FIRST harmonic are u = 0, pi -- both
+    MINIMA of f -- so the historical two-seed Newton rejected everything and
+    returned -inf for a finite integral.  The maxima are at u = pi/2, 3pi/2
+    and must both be found (finding only one loses ln 2)."""
+    for dd in (0.7, 5.0, 50.0, 500.0):
+        val = float(AM._laplace_psi_lnI(jnp.asarray(0.0),
+                                        jnp.asarray(0.0 + 0.0j),
+                                        jnp.asarray(-dd + 0.0j)))
+        assert np.isfinite(val), "d=%g: kernel returned %r" % (dd, val)
+        truth = _kernel_truth(0.0, 0.0, -dd)
+        # Laplace error O(1/d) (measured: 0.16 at d=0.7 down to 2.5e-4 at
+        # d=500); ln 2 = 0.69 would signal a missed second maximum
+        assert abs(val - truth) < 0.5 / dd + 0.05, \
+            "d=%g: err %g" % (dd, val - truth)
+    # gradient is finite and FD-exact at the degenerate b=0 point
+    p0 = jnp.asarray([0.0, 0.0, 0.0, -5.0, 0.0])
+    g = np.asarray(jax.grad(_kernel)(p0))
+    assert np.all(np.isfinite(g))
+    h = 1e-6
+    for i in range(5):
+        fd = (float(_kernel(p0.at[i].add(h)))
+              - float(_kernel(p0.at[i].add(-h)))) / (2 * h)
+        assert abs(fd - g[i]) < 1e-6 * max(1.0, abs(fd))
+
+
+def test_laplace_kernel_randomized_sweep():
+    """Randomized (b, d, beta, delta) sweep against brute-force quadrature,
+    log-uniform in d and in b/d INCLUDING b << d -- the failure region a
+    hand-picked example set misses (review's explicit request).  Measured on
+    200 draws: worst |err|*(b+d) = 1.75, i.e. the O(1/A) law holds across
+    the whole admissible coefficient region."""
+    rng = np.random.default_rng(42)
+    checked = 0
+    for _ in range(60):
+        dd = 10 ** rng.uniform(-0.5, 2.5)
+        b = dd * 10 ** rng.uniform(-3, 1.5)
+        beta = rng.uniform(0, 2 * np.pi)
+        delta = rng.uniform(0, 2 * np.pi)
+        a = rng.uniform(-1, 1)
+        if b + 2 * dd < 0.6:      # series region, pinned elsewhere
+            continue
+        c1 = b * np.exp(-1j * beta)
+        c2 = dd * np.exp(-1j * delta)
+        val = float(AM._laplace_psi_lnI(jnp.asarray(a), jnp.asarray(c1),
+                                        jnp.asarray(c2)))
+        truth = _kernel_truth(a, c1, c2, n=200001)
+        assert np.isfinite(val)
+        assert abs(val - truth) < 4.0 / (b + dd) + 1e-3, \
+            "b=%g d=%g beta=%g delta=%g: err %g" % (b, dd, beta, delta,
+                                                    val - truth)
+        checked += 1
+    assert checked >= 40      # the filter must not hollow the sweep out
+
+
+# ---------------------------------------------------------------------------
+# 12. external-review defect 2: sizing must come from the data, not guess_snr
+# ---------------------------------------------------------------------------
+
+def test_estimate_angle_amplitude_tracks_the_data():
+    from RIFT.likelihood.jax_ile.core import make_distance_grid
+    quiet = make_synth(scale=2.0)
+    xg, _ = make_distance_grid(30.0, 3000.0, 64, distMpcRef=quiet.distMpcRef)
+    a_quiet = AM.estimate_angle_amplitude(quiet, xg)
+    # quiet target: bound well below the crossover (UNfloored -- the selector
+    # needs the raw value, or every quiet target would select laplace; the
+    # wrapper floors the SIZING separately)
+    assert 0.0 <= a_quiet < AM.ANGLE_MARG_CROSSOVER_AMPLITUDE
+    loud = make_synth(scale=2.0, kappa_boost=200.0)
+    a_loud = AM.estimate_angle_amplitude(loud, xg)
+    louder = make_synth(scale=2.0, kappa_boost=400.0)
+    a_louder = AM.estimate_angle_amplitude(louder, xg)
+    assert a_loud > 20 * AM.ANGLE_MARG_CROSSOVER_AMPLITUDE   # measured ~34e3
+    assert a_louder > 1.5 * a_loud                            # monotone
+
+
+def test_amp_sizing_is_required():
+    """No default: a silently-undersized dense grid is the module's own
+    defect class (review: 'a number that is too small, with nothing that
+    notices')."""
+    data = make_synth(scale=2.0)
+    x_grid, log_w = _dist_grid(data)
+    for fn in (AM.fused_log_likelihood_distphipsimarg_exact,
+               AM.fused_log_likelihood_distphipsimarg_laplace):
+        with pytest.raises(ValueError, match="amp_sizing"):
+            fn(data, jnp.asarray(RA), jnp.asarray(DEC), jnp.asarray(INCL),
+               x_grid, log_w, interp=INTERP)
+
+
+def test_wrapper_sizing_survives_missing_or_low_guess_snr():
+    """THE defect-2 regression.  On a target whose true angular amplitude is
+    ~1.7e4 (kappa_boost=200; the crossover-floor grid is off by -1.04 nats,
+    measured), the wrapper must produce the correctly-sized answer whether
+    guess_snr is None or underestimated 10x -- because sizing and selection
+    key on the coefficient tables, not on the caller's estimate.  Both
+    sub-cases FAILED against the pre-review implementation (which pinned
+    amp_sizing = 450 whenever guess_snr was absent or small)."""
+    data = make_synth(scale=2.0, kappa_boost=200.0)
+    like0 = JAXDistPhiPsiMargLikelihood(data, 30.0, 3000.0, n_grid=64,
+                                        interp=INTERP, guess_snr=None,
+                                        angle_marg="exact")
+    amp_data = like0.angle_marg_info["amp_sizing"]
+    assert amp_data > 20 * AM.ANGLE_MARG_CROSSOVER_AMPLITUDE
+    # reference: exact scheme sized ABOVE the wrapper's own bound
+    ref = np.asarray(AM.fused_log_likelihood_distphipsimarg_exact(
+        data, jnp.asarray(RA), jnp.asarray(DEC), jnp.asarray(INCL),
+        like0.x_grid, like0.log_w_grid, interp=INTERP,
+        amp_sizing=2 * amp_data))
+    # the bite: the old floor-sized grid is measurably wrong here
+    floor = np.asarray(AM.fused_log_likelihood_distphipsimarg_exact(
+        data, jnp.asarray(RA), jnp.asarray(DEC), jnp.asarray(INCL),
+        like0.x_grid, like0.log_w_grid, interp=INTERP,
+        amp_sizing=AM.ANGLE_MARG_CROSSOVER_AMPLITUDE))
+    assert np.abs(floor - ref).max() > 0.1, \
+        "the regression no longer bites; the target needs a larger boost"
+    for guess in (None, np.sqrt(2 * amp_data) / 10.0):   # missing, 10x low
+        like = JAXDistPhiPsiMargLikelihood(data, 30.0, 3000.0, n_grid=64,
+                                           interp=INTERP, guess_snr=guess,
+                                           angle_marg="exact")
+        got = np.asarray(like.log_likelihood(RA, DEC, INCL))
+        assert np.abs(got - ref).max() < 1e-6, \
+            "guess_snr=%r: wrapper answer off by %g" % (
+                guess, np.abs(got - ref).max())

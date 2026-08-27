@@ -39,11 +39,11 @@ TWO MARGINALIZATION SCHEMES (plus a selector, see the wrapper/driver)
 ---------------------------------------------------------------------
 exact   : reconstruct lnL_t on a dense (phi, u) product grid from the
           coefficient tables and average exp(.) over it.  The dense grid is
-          free (no likelihood calls); its size is derived from the amplitude
-          the branch must cover (see :func:`_dense_grid_sizes`) and, in the
-          auto selector, is floored at the crossover amplitude so a wrong
-          (low) SNR estimate can only ever OVERSIZE it.  Best at
-          low/moderate amplitude.
+          free (no likelihood calls); its size is derived from a DATA-DERIVED
+          amplitude bound (:func:`estimate_angle_amplitude`, computed from
+          the coefficient tables themselves -- never from a caller's SNR
+          estimate) via :func:`_dense_grid_sizes`, floored at the crossover
+          amplitude.  Best at low/moderate amplitude.
 laplace : marginalize psi ANALYTICALLY by Laplace's method at every
           (phi, distance-node, time) point -- at fixed (phi, x, t) the
           u-exponent is exactly a + b cos(u-beta) + d cos(2u-delta), whose
@@ -77,6 +77,7 @@ from .core import (JAX_INTERP_DEFAULT, _accumulate_unit, _time_marginalize,
 __all__ = [
     "angle_sample_grid_sizes",
     "angle_coefficient_tables",
+    "estimate_angle_amplitude",
     "fused_log_likelihood_distphipsimarg_exact",
     "fused_log_likelihood_distphipsimarg_laplace",
     "choose_angle_marg_scheme",
@@ -102,10 +103,10 @@ __all__ = [
 # The Laplace error falls FASTER than 1/A here; the isolated-kernel error law
 # is ~0.1/b nats (pinned in test_angle_marg_exact.py).  The crossover sits
 # where BOTH schemes are deep in their accurate regimes (laplace ~1e-4,
-# exact ~machine), so the switch is insensitive to a factor ~2-3 error in the
-# SNR estimate that drives it, and tests evaluate both schemes in the overlap
-# region and assert agreement -- the crossover is a validated constant, not a
-# tuning knob.
+# exact ~machine), so the switch is insensitive to the O(1) slack in the
+# measured amplitude bound that drives it, and tests evaluate both schemes in
+# the overlap region and assert agreement -- the crossover is a validated
+# constant, not a tuning knob.
 # ---------------------------------------------------------------------------
 ANGLE_MARG_CROSSOVER_AMPLITUDE = 450.0     # A = rho^2/2; rho = 30
 # Dense-size rule N = ceil(K * sqrt(A)) points, from the trapezoid aliasing
@@ -256,9 +257,9 @@ def _dense_grid_sizes(amp):
 
     Derived from the trapezoid aliasing error of exp(trig poly of amplitude
     A): N = K*sqrt(A) with the calibrated constants above (>= 2x margin), and
-    hard floors.  This is NOT a settable knob; callers pass the amplitude the
-    branch must cover (auto selection floors it at the crossover, so a wrong
-    SNR estimate can only oversize the grid).
+    hard floors.  This is NOT a settable knob; callers pass the DATA-DERIVED
+    amplitude bound from :func:`estimate_angle_amplitude` (which is floored
+    at the crossover).
     """
     amp = max(float(amp), 25.0)
     n_u = max(_DENSE_FLOOR_U, int(np.ceil(_DENSE_K_U * np.sqrt(amp))))
@@ -267,6 +268,78 @@ def _dense_grid_sizes(amp):
     n_u = ((n_u + 15) // 16) * 16
     n_phi = ((n_phi + 15) // 16) * 16
     return n_phi, n_u
+
+
+ANGLE_AMP_SKY_POINTS = 64     # sky/inclination draws for the amplitude bound
+ANGLE_AMP_MARGIN = 2.0        # covers the finite sky sample: the amplitude is
+                              # a smooth O(1)-varying function of sky position,
+                              # and the sizing error enters only through
+                              # sqrt(amp), so a 2x margin in amplitude is a
+                              # 1.4x margin in grid size
+
+
+def estimate_angle_amplitude(data, x_grid, interp=JAX_INTERP_DEFAULT,
+                             n_sky=ANGLE_AMP_SKY_POINTS, seed=0,
+                             margin=ANGLE_AMP_MARGIN):
+    """DATA-DERIVED upper bound on the (phi, psi)-exponent amplitude A.
+
+    This is the number that sizes the dense reconstruction grids, and it is
+    computed from the very function being integrated -- NOT from a caller's
+    SNR estimate.  (External review, correctly: sizing from ``guess_snr``
+    meant a missing or underestimated SNR silently under-resolved the dense
+    quadrature, quietly reintroducing exactly the failure mode this module
+    exists to remove -- the n_psi=8 defect again, one level up.)
+
+    Method: evaluate the coefficient tables EAGERLY (concrete numpy inputs,
+    build time -- grid sizes must be static under jit, so this cannot run
+    inside the traced likelihood) at ``n_sky`` random sky/inclination points;
+    bound the exponent's angular variation at every (sky, time, x-node) by
+
+        amp(t, x) = x * M_A(t) - x^2/2 * B0(t),
+        M_A = sum_kp,ks w_kp |C_A[kp,ks]|   (bounds |A(phi,u)| pointwise)
+        B0  = angular mean of B >= 0        (C_B[0, ks=0])
+
+    maximized over the ACTUAL distance nodes (an x the quadrature never
+    visits cannot matter), then apply ``margin``.  Since |B's harmonics| <=
+    B0 for a nonnegative B, the reachable exponent variation exceeds this
+    bound by at most an O(1) factor absorbed in the calibrated dense-size
+    constants and the margin.
+
+    Returns the margined bound UNfloored: the auto selector compares it to
+    the crossover (a floor here would push every quiet target into the
+    laplace branch); the WRAPPER floors the SIZING amplitude at the
+    crossover separately, so grids are never sized below the calibration
+    point.
+    """
+    rng = np.random.default_rng(seed)
+    ra = rng.uniform(0.0, 2.0 * np.pi, n_sky)
+    dec = np.arcsin(rng.uniform(-1.0, 1.0, n_sky))
+    incl = np.arccos(rng.uniform(-1.0, 1.0, n_sky))
+    C_A, C_B, meta = angle_coefficient_tables(data, ra, dec, incl,
+                                              interp=interp)
+    C_A = np.asarray(C_A)
+    C_B = np.asarray(C_B)
+    w = np.ones(C_A.shape[0])
+    w[1:] = 2.0
+    M_A = np.einsum("k,kqst->st", w, np.abs(C_A))          # (n_sky, npts)
+    ks0 = (C_B.shape[1] - 1) // 2
+    B0 = np.maximum(C_B[0, ks0].real, 0.0)                 # (n_sky, npts)
+    x = np.asarray(x_grid)
+    expo = (x[:, None, None] * M_A[None]
+            - 0.5 * np.square(x)[:, None, None] * B0[None])
+    amp = float(np.clip(expo, 0.0, None).max())
+    return margin * amp
+
+
+def _require_amp_sizing(amp_sizing):
+    if amp_sizing is None:
+        raise ValueError(
+            "amp_sizing is required: pass a sound UPPER bound on the "
+            "(phi,psi)-exponent amplitude A ~ rho^2/2, e.g. "
+            "estimate_angle_amplitude(data, x_grid).  There is deliberately "
+            "no default: a too-small value silently under-resolves the dense "
+            "quadrature, which is the defect this module exists to fix.")
+    return float(amp_sizing)
 
 
 def _lse_update(m, s, e, axis=0):
@@ -312,9 +385,12 @@ def fused_log_likelihood_distphipsimarg_exact(
     convention: uniform priors dphi/2pi, dpsi/pi).  The expensive likelihood
     is sampled ONLY on the Nyquist grid fixed by mode content; the (phi, psi)
     quadrature runs on a dense reconstruction whose size follows
-    :func:`_dense_grid_sizes` for ``amp_sizing`` (peak-amplitude bound
-    A ~ rho^2/2 this call must cover; the wrapper floors it at the auto
-    crossover).  Honors JAX_ILE_DISTMARG_GH exactly as the grid path does.
+    :func:`_dense_grid_sizes` for ``amp_sizing`` -- a REQUIRED upper bound on
+    the exponent amplitude A ~ rho^2/2, obtained from
+    :func:`estimate_angle_amplitude` (the wrapper does this automatically).
+    There is no default: a silently-undersized grid is the defect this
+    module exists to fix.  Honors JAX_ILE_DISTMARG_GH exactly as the grid
+    path does.
 
     Memory is bounded by ``dense_chunk`` (points per scan step), never by the
     dense grid size: the largest transient is the inner distance-quadrature
@@ -328,8 +404,7 @@ def fused_log_likelihood_distphipsimarg_exact(
     S = ra.shape[0]
     npts = data.npts
 
-    if amp_sizing is None:
-        amp_sizing = ANGLE_MARG_CROSSOVER_AMPLITUDE
+    amp_sizing = _require_amp_sizing(amp_sizing)
     nphi_d, nu_d = _dense_grid_sizes(amp_sizing)
     phi_d = np.linspace(0.0, 2.0 * np.pi, nphi_d, endpoint=False)
     u_d = np.linspace(0.0, 2.0 * np.pi, nu_d, endpoint=False)   # u = 2 psi
@@ -375,101 +450,157 @@ def fused_log_likelihood_distphipsimarg_exact(
 # ---------------------------------------------------------------------------
 
 _LAPLACE_SERIES_CUT = 0.5     # b + 2 d below this: small-amplitude Bessel series
+_LAPLACE_BRACKET_CELLS = 24   # sign-scan cells for the stationary points of
+                              # f(u): f' is a degree-2 trig polynomial, so it
+                              # has AT MOST 4 transversal zeros on the circle
+                              # (its resultant quartic 2d e^{-i delta} z^4 +
+                              # b e^{-i beta} z^3 - b e^{i beta} z -
+                              # 2d e^{i delta} = 0, z = e^{iu}); 24 cells
+                              # (width 0.26) place adjacent zeros in distinct
+                              # cells except for a MERGING max-min pair
+                              # (f' = f'' = 0), which cannot contain the
+                              # global maximum and carries negligible weight.
+_LAPLACE_MAX_ROOTS = 4
 
 
 def _laplace_psi_lnI(a, c1, c2):
     """log[(1/pi) int_0^pi exp(a + Re(c1 e^{iu}) + Re(c2 e^{2iu})) dpsi], u = 2 psi.
 
-    Writes the exponent as a + b cos(u - beta) + d cos(2u - delta) with
-    b = |c1|, beta = -arg(c1), d = |c2|, delta = -arg(c2).  Maxima are found
-    by Newton from u0 = beta and beta + pi (b >> d in practice, so both
-    branches converge in a few elementary iterations); the Laplace factor is
-    closed-form.  Below b + 2d < _LAPLACE_SERIES_CUT the truncated Bessel
-    series log[I0(b) I0(d) + 2 I2(b) I1(d) cos(2 beta - delta)] (small-argument
-    polynomial I_k) is used instead -- Laplace degenerates as the curvature
-    vanishes, the series is accurate exactly there, and such bins carry
-    e^{-O(A)} relative weight in the high-amplitude regime this scheme serves.
+    Laplace's method with ALL maxima enumerated.  An earlier revision seeded
+    Newton only at the extrema of the FIRST harmonic (u0 = beta, beta+pi with
+    beta = -arg c1); that assumes b >> d and fails outright when the first
+    harmonic cancels: for c1 = 0, c2 = -d, d > 0.5 both seeds land on MINIMA
+    and the routine returned -inf for a finite integral (found in external
+    review).  This version brackets every transversal zero of f' by a sign
+    scan over _LAPLACE_BRACKET_CELLS cells (interval-based, so coincident
+    roots cannot be double-counted), bisects under stop_gradient, applies one
+    differentiable Newton polish step (Newton is a contraction, so a single
+    step from the converged point carries the correct implicit derivative
+    without a deep 1/H^2 gradient chain), keeps roots with curvature H below
+    a small POSITIVE tolerance (so a near-degenerate maximum contributes with
+    the floored curvature instead of being dropped), and sums the Laplace
+    factors.  Everything is angle-free -- f, f', f'' are evaluated directly
+    from c1, c2, so arg(0) never appears and b = 0 is a regular point.
 
-    Elementary functions only (no scipy Bessels); differentiable; any input
-    shape (applied elementwise over broadcasted a, c1, c2).
+    Below b + 2d < _LAPLACE_SERIES_CUT the truncated Bessel series
+    I0(b) I0(d) + 2 I2(b) I1(d) cos(2 beta - delta) is used instead (Laplace
+    degenerates as the curvature vanishes; the series is accurate exactly
+    there), with the cross term computed division-free via
+    Re(c2 conj(c1)^2) = b^2 d cos(2 beta - delta).
+
+    Elementary functions only (no scipy Bessels, no eigensolvers);
+    differentiable; any input shape (elementwise over broadcast a, c1, c2).
     """
-    # |.| via sqrt(re^2 + im^2 + tiny): jnp.abs of an exactly-zero complex has
-    # a NaN gradient, and c2 vanishes identically for special geometries.
     mag1 = jnp.square(c1.real) + jnp.square(c1.imag)
     mag2 = jnp.square(c2.real) + jnp.square(c2.imag)
     b = jnp.sqrt(mag1 + 1e-300)
     d = jnp.sqrt(mag2 + 1e-300)
-    # angle() of an exactly-zero complex has a NaN gradient; mask those bins
-    # ON THE UNFLOORED MAGNITUDE (b, d are floored by construction, so a mask
-    # on them would never trigger).  Their cos term is ~0-weighted anyway.
-    c1m = jnp.where(mag1 > 1e-280, c1, 1.0 + 0.0j)
-    c2m = jnp.where(mag2 > 1e-280, c2, 1.0 + 0.0j)
-    beta = -jnp.angle(c1m)
-    delta = -jnp.angle(c2m)
 
     use_series = b + 2.0 * d < _LAPLACE_SERIES_CUT
     # jnp.where's VJP sends a ZERO cotangent through the unselected branch,
-    # and 0 * inf = nan: the Laplace branch must therefore have BOUNDED
-    # gradients even on the bins the series branch serves.  Feed it safe
-    # dummy amplitudes there (the result is discarded by the where below),
-    # and floor the curvature RELATIVE to the amplitude scale everywhere.
-    bl = jnp.where(use_series, 1.0, b)
-    dl = jnp.where(use_series, 0.1, d)
+    # and 0 * inf = nan: the Laplace branch must have BOUNDED derivatives
+    # (including second, for .fisher()) even on the bins the series branch
+    # serves.  Feed it safe dummy amplitudes there (discarded by the final
+    # where) and floor the curvature RELATIVE to the amplitude scale.
+    c1l = jnp.where(use_series, 1.0 + 0.0j, c1)
+    c2l = jnp.where(use_series, 0.05 + 0.0j, c2)
+    bl = jnp.sqrt(jnp.square(c1l.real) + jnp.square(c1l.imag) + 1e-300)
+    dl = jnp.sqrt(jnp.square(c2l.real) + jnp.square(c2l.imag) + 1e-300)
     h_floor = 1e-6 * (bl + 4.0 * dl)
 
     def fval(u):
-        return bl * jnp.cos(u - beta) + dl * jnp.cos(2.0 * u - delta)
+        eiu = jnp.exp(1j * u)
+        return (c1l * eiu).real + (c2l * eiu * eiu).real
 
     def fp(u):
-        return -bl * jnp.sin(u - beta) - 2.0 * dl * jnp.sin(2.0 * u - delta)
+        eiu = jnp.exp(1j * u)
+        return -(c1l * eiu).imag - 2.0 * (c2l * eiu * eiu).imag
 
     def fpp(u):
-        return -bl * jnp.cos(u - beta) - 4.0 * dl * jnp.cos(2.0 * u - delta)
+        eiu = jnp.exp(1j * u)
+        return -(c1l * eiu).real - 4.0 * (c2l * eiu * eiu).real
 
     def _guard(H):
         # sign-preserving denominator floor
         return jnp.where(jnp.abs(H) >= h_floor, H,
                          jnp.where(H >= 0, h_floor, -h_floor))
 
+    # ---- bracket every transversal zero of f' (at most 4; see the constant)
+    # Signs are taken one grid node at a time so the transient stays one
+    # X-sized array; roots are assigned to at most _LAPLACE_MAX_ROOTS slot
+    # registers in encounter order.  Interval-based bracketing cannot yield
+    # duplicate roots: the sign sequence flips exactly once per transversal
+    # crossing, including a crossing that sits exactly on a grid node.
+    N = _LAPLACE_BRACKET_CELLS
+    ug = np.linspace(0.0, 2.0 * np.pi, N + 1)
+    cell = ug[1] - ug[0]
+    zero_f = jnp.zeros_like(b)
+    false_x = jnp.zeros_like(b, dtype=bool)
+    s_prev = fp(jnp.asarray(ug[0])) >= 0
+    count = zero_f
+    los = [zero_f for _ in range(_LAPLACE_MAX_ROOTS)]
+    s_los = [false_x for _ in range(_LAPLACE_MAX_ROOTS)]
+    filled = [false_x for _ in range(_LAPLACE_MAX_ROOTS)]
+    for k in range(N):
+        s_next = fp(jnp.asarray(ug[k + 1])) >= 0
+        flip = s_prev != s_next
+        for j in range(_LAPLACE_MAX_ROOTS):
+            take = flip & (count == j)
+            los[j] = jnp.where(take, ug[k], los[j])
+            s_los[j] = jnp.where(take, s_prev, s_los[j])
+            filled[j] = filled[j] | take
+        count = count + flip.astype(count.dtype)
+        s_prev = s_next
+
+    # ---- per-slot bisection (value-only) + one differentiable polish step
     terms = []
-    for u0 in (beta, beta + jnp.pi):
-        # value-only Newton (fixed count: quadratic convergence, not a knob)
-        # under stop_gradient, then ONE differentiable polish step -- Newton is
-        # a contraction, so a single step from the converged point carries the
-        # correct implicit derivative without an 8-deep 1/H^2 gradient chain.
-        u = u0
-        for _ in range(8):
-            u = u - fp(u) / _guard(fpp(u))
-        u = jax.lax.stop_gradient(u)
-        u = u - fp(u) / _guard(fpp(u))
+    for j in range(_LAPLACE_MAX_ROOTS):
+        lo = los[j]
+        hi = lo + cell
+        slo = s_los[j]
+        for _ in range(20):           # cell/2^20 ~ 2.5e-7, then Newton
+            mid = 0.5 * (lo + hi)
+            go_right = (fp(mid) >= 0) == slo
+            lo = jnp.where(go_right, mid, lo)
+            hi = jnp.where(go_right, hi, mid)
+        u0 = jax.lax.stop_gradient(0.5 * (lo + hi))
+        u = u0 - fp(u0) / _guard(fpp(u0))
         H = fpp(u)
-        ok = H < 0
-        Hm = jnp.minimum(H, -h_floor)              # bounded away from 0
+        # tolerant acceptance: a maximum with H in [-h_floor, +h_floor) is a
+        # (near-)degenerate flat top; drop it and a finite integral could
+        # come back -inf, so keep it with the floored curvature instead
+        # (its Laplace weight is then merely inaccurate, never absent).
+        ok = filled[j] & (H < h_floor)
+        Hm = jnp.minimum(H, -h_floor)
         t = jnp.where(ok,
                       a + fval(u)
                       + 0.5 * jnp.log(2.0 * jnp.pi / (-Hm))
                       - jnp.log(2.0 * jnp.pi),      # (1/2 du/dpsi) * (1/pi)
                       -jnp.inf)
         terms.append(t)
-    # guarded log-add-exp: jnp.logaddexp(-inf, -inf) has a NaN backward pass
-    # (exp(t - ans) with t = ans = -inf), and bins where BOTH stationary
-    # points are rejected do occur; the NaN then leaks through jnp.where's
-    # chain rule into every gradient.
-    t0, t1 = terms
-    mt = jnp.maximum(t0, t1)
+
+    # guarded log-add-exp over the root slots: an all--inf slot set has a NaN
+    # backward pass under the naive form, and the NaN leaks through jnp.where.
+    mt = terms[0]
+    for t in terms[1:]:
+        mt = jnp.maximum(mt, t)
     mts = jnp.where(jnp.isfinite(mt), mt, 0.0)
-    ssum = jnp.exp(t0 - mts) + jnp.exp(t1 - mts)
+    ssum = zero_f
+    for t in terms:
+        ssum = ssum + jnp.exp(t - mts)
     ln_laplace = jnp.where(ssum > 0,
                            mts + jnp.log(jnp.maximum(ssum, 1e-300)),
                            -jnp.inf)
 
     # small-amplitude branch: I0(z) ~ 1 + z^2/4 + z^4/64, I1 ~ z/2 + z^3/16,
-    # I2 ~ z^2/8 (arguments < 0.5 here, truncation < 1e-5)
+    # I2 ~ z^2/8 + z^4/96 (arguments < 0.5 here, truncation < 1e-5); the
+    # cross term 2 I2(b) I1(d) cos(2 beta - delta) reduces division-free to
+    # 2 (1/8 + b^2/96)(1/2 + d^2/16) Re(c2 conj(c1)^2).
     i0b = 1.0 + b * b / 4.0 + b ** 4 / 64.0
     i0d = 1.0 + d * d / 4.0 + d ** 4 / 64.0
-    i2b = b * b / 8.0
-    i1d = d / 2.0 + d ** 3 / 16.0
-    series = i0b * i0d + 2.0 * i2b * i1d * jnp.cos(2.0 * beta - delta)
+    wq = (c2 * jnp.conj(c1) ** 2).real
+    cross = 2.0 * (0.125 + b * b / 96.0) * (0.5 + d * d / 16.0) * wq
+    series = i0b * i0d + cross
     ln_series = a + jnp.log(jnp.maximum(series, 1e-300))
 
     return jnp.where(use_series, ln_series, ln_laplace)
@@ -513,8 +644,7 @@ def fused_log_likelihood_distphipsimarg_laplace(
     S = ra.shape[0]
     npts = data.npts
 
-    if amp_sizing is None:
-        amp_sizing = ANGLE_MARG_CROSSOVER_AMPLITUDE
+    amp_sizing = _require_amp_sizing(amp_sizing)
     nphi_d, _ = _dense_grid_sizes(amp_sizing)
     phi_d = np.linspace(0.0, 2.0 * np.pi, nphi_d, endpoint=False)
     c = int(phi_chunk)
@@ -572,36 +702,42 @@ def fused_log_likelihood_distphipsimarg_laplace(
     return _time_marginalize(lnL_t, data.w_t)
 
 
-def choose_angle_marg_scheme(guess_snr, gh_enabled=None):
-    """Select 'exact' or 'laplace' from the run's SNR estimate.
+def choose_angle_marg_scheme(amplitude, gh_enabled=None):
+    """Select 'exact' or 'laplace' from a measured amplitude bound.
 
-    The crossover is the amplitude A = rho^2/2 = ANGLE_MARG_CROSSOVER_AMPLITUDE
-    where both schemes are accurate (see the constant's derivation note): the
-    exact scheme's dense grid is sized to cover exactly up to the crossover
-    (so its cost is bounded and its accuracy guaranteed on its branch), and
-    the Laplace O(1/A) error is already negligible there and shrinks upward.
+    ``amplitude`` is the DATA-DERIVED bound from
+    :func:`estimate_angle_amplitude` (A ~ rho^2/2 scale) -- deliberately not
+    an SNR guess: selection and dense-grid sizing both key on the measured
+    coefficient tables, so a missing or wrong external SNR estimate can
+    affect neither (external-review defect 2).
 
-    Returns ``(scheme, info)`` where ``info`` is a provenance dict the caller
-    MUST surface in the run log (this pipeline has a documented history of
+    The crossover ANGLE_MARG_CROSSOVER_AMPLITUDE sits where BOTH schemes are
+    deep in their accurate regimes (see the constant's derivation note):
+    laplace error ~1e-4 nats and falling, exact at machine precision with the
+    crossover-sized dense grid.  The switch therefore tolerates the O(1)
+    slack in the amplitude bound, and tests evaluate both schemes in the
+    overlap region and assert agreement -- a validated constant, not a
+    tuning knob.
+
+    Returns ``(scheme, info)``; ``info`` is a provenance dict the caller MUST
+    surface in the run log (this pipeline has a documented history of
     silently-inert flags).
     """
     if gh_enabled is None:
         gh_enabled = _core._DISTMARG_GH_N > 0
-    if guess_snr is None:
-        return "exact", dict(reason="no SNR estimate; exact scheme is valid "
-                                    "at all amplitudes (grid sized for the "
-                                    "crossover)", guess_snr=None,
+    if amplitude is None:
+        return "exact", dict(reason="no amplitude bound available; exact "
+                                    "scheme is the conservative branch",
                              amplitude=None,
                              crossover=ANGLE_MARG_CROSSOVER_AMPLITUDE)
-    amp = 0.5 * float(guess_snr) ** 2
+    amp = float(amplitude)
     if gh_enabled:
         return "exact", dict(reason="JAX_ILE_DISTMARG_GH set: laplace does "
                                     "not support the adaptive distance "
-                                    "quadrature", guess_snr=float(guess_snr),
-                             amplitude=amp,
+                                    "quadrature", amplitude=amp,
                              crossover=ANGLE_MARG_CROSSOVER_AMPLITUDE)
     scheme = "laplace" if amp >= ANGLE_MARG_CROSSOVER_AMPLITUDE else "exact"
-    return scheme, dict(reason="amplitude %s crossover"
+    return scheme, dict(reason="measured amplitude bound %s crossover"
                                % ("above" if scheme == "laplace" else "below"),
-                        guess_snr=float(guess_snr), amplitude=amp,
+                        amplitude=amp,
                         crossover=ANGLE_MARG_CROSSOVER_AMPLITUDE)
