@@ -796,8 +796,51 @@ def test_estimate_angle_amplitude_tracks_the_data():
     a_loud = AM.estimate_angle_amplitude(loud, xg)
     louder = make_synth(scale=2.0, kappa_boost=400.0)
     a_louder = AM.estimate_angle_amplitude(louder, xg)
-    assert a_loud > 20 * AM.ANGLE_MARG_CROSSOVER_AMPLITUDE   # measured ~34e3
+    assert a_loud > 20 * AM.ANGLE_MARG_CROSSOVER_AMPLITUDE
     assert a_louder > 1.5 * a_loud                            # monotone
+    # The estimator must reproduce an INDEPENDENTLY-computed 512x128
+    # reference to < 2% (band-limited content, default grid ~6x Nyquist).
+    # The reference deliberately does NOT call estimate_angle_amplitude with
+    # a finer grid: a mutant gutting the estimator's internals would gut
+    # such a reference identically (common-mode blindness -- an earlier
+    # revision of this pin let exactly that mutant survive).  White-box
+    # coupling: the sky draws replicate the estimator's documented
+    # rng(seed=0) construction.
+    rng = np.random.default_rng(0)
+    n_sky = AM.ANGLE_AMP_SKY_POINTS
+    ra_s = rng.uniform(0.0, 2 * np.pi, n_sky)
+    dec_s = np.arcsin(rng.uniform(-1.0, 1.0, n_sky))
+    incl_s = np.arccos(rng.uniform(-1.0, 1.0, n_sky))
+    C_A, C_B, _meta = AM.angle_coefficient_tables(loud, ra_s, dec_s, incl_s)
+    C_A, C_B = np.asarray(C_A), np.asarray(C_B)
+    PH, UU = np.meshgrid(np.linspace(0, 2 * np.pi, 512, endpoint=False),
+                         np.linspace(0, 2 * np.pi, 128, endpoint=False),
+                         indexing="ij")
+    phis, us = PH.ravel(), UU.ravel()
+
+    def _mat(C):
+        kp = np.arange(C.shape[0])
+        ks = np.arange(-(C.shape[1] - 1) // 2, (C.shape[1] - 1) // 2 + 1)
+        E = np.exp(1j * (phis[:, None, None] * kp[None, :, None]
+                         + us[:, None, None] * ks[None, None, :]))
+        w = np.ones(C.shape[0])
+        w[1:] = 2.0
+        return (E * w[None, :, None]).reshape(len(phis), -1)
+
+    E_A, E_B = _mat(C_A), _mat(C_B)
+    xv = np.asarray(xg)
+    x_min, x_max = float(xv.min()), float(xv.max())
+    a_ref = 0.0
+    for j in range(n_sky):
+        A_g = (E_A @ C_A[:, :, j].reshape(-1, C_A.shape[-1])).real
+        B_g = np.maximum((E_B @ C_B[:, :, j].reshape(-1, C_B.shape[-1])).real,
+                         0.0)
+        x_hat = np.clip(A_g / np.maximum(B_g, 1e-300), x_min, x_max)
+        a_ref = max(a_ref, float((x_hat * A_g
+                                  - 0.5 * np.square(x_hat) * B_g).max()))
+    a_ref *= AM.ANGLE_AMP_MARGIN
+    assert a_loud > 0.98 * a_ref
+    assert a_loud <= a_ref * (1 + 1e-9)      # grid max cannot EXCEED the max
 
 
 def test_amp_sizing_is_required():

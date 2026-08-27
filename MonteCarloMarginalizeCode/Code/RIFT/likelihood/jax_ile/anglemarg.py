@@ -285,7 +285,8 @@ ANGLE_AMP_MARGIN = 2.0        # covers the finite sky sample: the amplitude is
 
 def estimate_angle_amplitude(data, x_grid, interp=JAX_INTERP_DEFAULT,
                              n_sky=ANGLE_AMP_SKY_POINTS, seed=0,
-                             margin=ANGLE_AMP_MARGIN):
+                             margin=ANGLE_AMP_MARGIN,
+                             _n_phi_e=None, _n_u_e=24):
     """DATA-DERIVED bound on the (phi, psi)-exponent amplitude A.
 
     This is the number that sizes the dense reconstruction grids, and it is
@@ -343,7 +344,22 @@ def estimate_angle_amplitude(data, x_grid, interp=JAX_INTERP_DEFAULT,
         w[1:] = 2.0
         return (E * w[None, :, None]).reshape(len(phis), -1)   # (n_ang, KP*KS)
 
-    n_phi_e, n_u_e = 96, 24
+    # The reconstruction grid is DERIVED from the mode content and ASSERTED,
+    # exactly like the sample grid (fail-closed): sampled at >= 8x per
+    # highest harmonic, a band-limited trig polynomial's grid max under-reads
+    # its continuum max by < 1% (absorbed in `margin`), while a coarser grid
+    # can miss an adversarially-phased n = 2*m_max harmonic entirely -- so a
+    # too-small grid is refused, not trusted.  _n_phi_e/_n_u_e are test
+    # hooks; production callers take the derived defaults.
+    m_max_e = meta["m_max"]
+    if _n_phi_e is None:
+        _n_phi_e = max(96, 16 * (2 * m_max_e))
+    n_phi_e, n_u_e = int(_n_phi_e), int(_n_u_e)
+    assert n_phi_e >= 8 * (2 * m_max_e), \
+        "estimator phi grid %d under-samples 2*m_max=%d content" \
+        % (n_phi_e, 2 * m_max_e)
+    assert n_u_e >= 8 * 2, \
+        "estimator u grid %d under-samples order-2 content" % (n_u_e,)
     PH, UU = np.meshgrid(np.linspace(0, 2 * np.pi, n_phi_e, endpoint=False),
                          np.linspace(0, 2 * np.pi, n_u_e, endpoint=False),
                          indexing="ij")
