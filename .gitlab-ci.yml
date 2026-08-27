@@ -47,6 +47,15 @@ import_check:
   script:
     - python .travis/test-all-mod.py
 
+unit_tests:
+  stage: system tests
+  script:
+    # Nothing else in this file runs pytest, so a test file that is not NAMED
+    # here never runs at all.  The collect-only line is a guard: a collection
+    # error yields zero tests, and "0 tests" must not read as a pass.
+    - python -m pytest --collect-only -q MonteCarloMarginalizeCode/Code/test/test_time_marginalization_quadrature.py MonteCarloMarginalizeCode/Code/test/test_time_marginalization_wiring.py MonteCarloMarginalizeCode/Code/test/test_time_marginalization_cli.py | grep -E '^[0-9]+ tests? collected'
+    - python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_time_marginalization_quadrature.py MonteCarloMarginalizeCode/Code/test/test_time_marginalization_wiring.py MonteCarloMarginalizeCode/Code/test/test_time_marginalization_cli.py
+
 test_run:
   stage: system tests
   script:
