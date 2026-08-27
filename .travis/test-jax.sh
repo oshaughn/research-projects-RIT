@@ -147,7 +147,7 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         wrapper against the production driver, and
 #                                         because 16384 is the rate test_jax_endtoend
 #                                         (4096) structurally cannot cover.
-#   test_angle_marg_exact.py          24  the exact (phi_ref, psi) marginalization
+#   test_angle_marg_exact.py          29  the exact (phi_ref, psi) marginalization
 #                                         schemes (RIFT.likelihood.jax_ile.anglemarg)
 #                                         and their selector.  Pins the analytic
 #                                         harmonic-content invariant of the factored
@@ -173,8 +173,26 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         --angle-marg-scheme reaches the wrapper and
 #                                         the RESOLVED scheme is printed (this
 #                                         pipeline's silently-inert-flag history).
+#                                         Also pins the two defects an external
+#                                         adversarial review found before merge:
+#                                         (1) the psi-Laplace stationary points are
+#                                         ENUMERATED (bracketing all <= 4 zeros of
+#                                         the degree-2 trig polynomial f'), pinned
+#                                         by the first-harmonic-cancellation family
+#                                         (c1=0, c2=-d: the historical two-seed
+#                                         Newton returned -inf for a finite
+#                                         integral) and a randomized (b,d,beta,
+#                                         delta) sweep vs brute quadrature; (2) the
+#                                         dense-grid sizing is DATA-DERIVED
+#                                         (estimate_angle_amplitude from the
+#                                         coefficient tables), pinned by regressions
+#                                         that a missing or 10x-low guess_snr
+#                                         cannot under-resolve the quadrature
+#                                         (which measurably bit, -1.04 nats, before
+#                                         the fix) and that amp_sizing has NO
+#                                         default.
 #                                         Synthetic packed data; no lal frames, no
-#                                         GPU, no flowMC.  ~130 s local.
+#                                         GPU, no flowMC.  ~550 s local.
 #
 # DELIBERATELY EXCLUDED (measured on ldas-pcdev11, JAX_PLATFORMS=cpu, OMP_NUM_THREADS=1):
 #
@@ -264,7 +282,7 @@ fi
 # Sum of the per-file counts above.
 # Pinned deliberately: a bare `pytest test/jax/`
 # that collected 0 would exit 5, and a partial loss (say 14 -> 3) would still exit 0.
-EXPECTED_TESTS=163
+EXPECTED_TESTS=168
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"
