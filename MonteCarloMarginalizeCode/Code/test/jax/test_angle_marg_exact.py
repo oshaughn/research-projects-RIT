@@ -412,7 +412,8 @@ def test_laplace_kernel_gradient_finite_differences():
     """On smooth inputs (away from the branch boundaries) the kernel gradient
     is FD-exact -- both the Laplace branch and the small-amplitude series."""
     for p0 in ([0.3, 40.0, -25.0, 3.0, 1.5],      # Laplace branch, b ~ 47
-               [0.1, 0.12, 0.08, 0.03, -0.02]):   # series branch
+               [0.1, 0.12, 0.08, 0.03, -0.02],    # series branch
+               [0.2, 4.0, 2.0, 1.0, -0.5]):       # blend band, b+2d ~ 6.7
         p0 = jnp.asarray(p0)
         g = np.asarray(jax.grad(_kernel)(p0))
         assert np.all(np.isfinite(g))
@@ -606,15 +607,30 @@ def test_driver_flag_exists_with_grid_default():
 
 
 def test_driver_passes_scheme_to_wrapper_and_reports_it():
+    """External review, item 3: an earlier version of this guard only checked
+    that SOME angle_marg= keyword is passed, so the inert-flag mutant
+    ``angle_marg="grid"`` (flag parsed, help present, print present, value
+    ignored) passed the whole suite -- exactly this repo's documented
+    silent-no-op pattern.  The guard now pins the keyword's VALUE node: it
+    must be the local variable ``angle_marg`` (which test_driver_flag_exists
+    ties to the option), not a constant."""
     src = _driver_source()
     tree = ast.parse(src)
     passed = False
     for node in ast.walk(tree):
         if (isinstance(node, ast.Call)
                 and getattr(node.func, "id", "") == "JAXDistPhiPsiMargLikelihood"):
-            if any(k.arg == "angle_marg" for k in node.keywords):
-                passed = True
+            for k in node.keywords:
+                if k.arg == "angle_marg":
+                    assert isinstance(k.value, ast.Name) \
+                        and k.value.id == "angle_marg", \
+                        "angle_marg= is passed a %r, not the angle_marg " \
+                        "variable: the flag would be silently inert" \
+                        % (ast.dump(k.value),)
+                    passed = True
     assert passed, "driver builds JAXDistPhiPsiMargLikelihood without angle_marg="
+    # and the variable itself must be read from the option, not re-hardcoded
+    assert 'angle_marg = getattr(opts, "angle_marg_scheme", "grid")' in src
     assert "angle-marg scheme:" in src, \
         "driver must print the RESOLVED scheme (silently-inert-flag history)"
     # the print uses the wrapper's resolved attribute, not the raw option
@@ -662,30 +678,105 @@ def test_laplace_kernel_first_harmonic_cancellation():
 def test_laplace_kernel_randomized_sweep():
     """Randomized (b, d, beta, delta) sweep against brute-force quadrature,
     log-uniform in d and in b/d INCLUDING b << d -- the failure region a
-    hand-picked example set misses (review's explicit request).  Measured on
-    200 draws: worst |err|*(b+d) = 1.75, i.e. the O(1/A) law holds across
-    the whole admissible coefficient region."""
+    hand-picked example set misses (review's explicit request) -- and with
+    NO low-amplitude filter: an earlier revision skipped b + 2d < 0.6,
+    which is exactly where the review then found a 0.5-nat window with a
+    sign-inverted gradient (review item 2).  Below the blend band the
+    extended Bessel series is machine-exact; above it the O(1/A) Laplace
+    law applies (measured worst |err|*(b+d) = 1.75 over 200 draws)."""
     rng = np.random.default_rng(42)
-    checked = 0
     for _ in range(60):
         dd = 10 ** rng.uniform(-0.5, 2.5)
         b = dd * 10 ** rng.uniform(-3, 1.5)
         beta = rng.uniform(0, 2 * np.pi)
         delta = rng.uniform(0, 2 * np.pi)
         a = rng.uniform(-1, 1)
-        if b + 2 * dd < 0.6:      # series region, pinned elsewhere
-            continue
         c1 = b * np.exp(-1j * beta)
         c2 = dd * np.exp(-1j * delta)
         val = float(AM._laplace_psi_lnI(jnp.asarray(a), jnp.asarray(c1),
                                         jnp.asarray(c2)))
         truth = _kernel_truth(a, c1, c2, n=200001)
         assert np.isfinite(val)
-        assert abs(val - truth) < 4.0 / (b + dd) + 1e-3, \
-            "b=%g d=%g beta=%g delta=%g: err %g" % (b, dd, beta, delta,
-                                                    val - truth)
-        checked += 1
-    assert checked >= 40      # the filter must not hollow the sweep out
+        if b + 2 * dd < AM._LAPLACE_BLEND_LO:
+            tol = 1e-10                       # pure extended series
+        else:
+            tol = 4.0 / (b + dd) + 1e-3       # Laplace O(1/A) law
+        assert abs(val - truth) < tol, \
+            "b=%g d=%g beta=%g delta=%g: err %g (tol %g)" % (
+                b, dd, beta, delta, val - truth, tol)
+
+
+def test_laplace_kernel_branch_window():
+    """Review item 2's regression, pinned WITHOUT filtering the window out.
+
+    The original defect: a hard series/Laplace switch at b + 2d = 0.5 left
+    0.27-0.53 nats of value error and a SIGN-INVERTED |c2| gradient across
+    b + 2d in [0.5, ~5].  After the fix (extended Bessel series to k = 8,
+    C^1 blend over [_LAPLACE_BLEND_LO, _LAPLACE_BLEND_HI] = [10, 16]):
+    machine precision through t = 10 -- the review's probe points 0.5001 and
+    2.0 exact in value and gradient -- and O(1/A)-bounded, sign-correct
+    behaviour through the band (worst measured over 16 draws/t: 0.17 val /
+    0.47 grad at t = 15) and above it.  Bins in the band carry psi-variation
+    ~10-16 nats, so in any marginal the laplace branch actually serves
+    (amplitude >= the crossover) they are exp(-(A - 16))-subdominant; the
+    band tolerances below pin boundedness, not the operating error.
+    """
+    rng = np.random.default_rng(5)
+    val_tol = {0.5001: 1e-12, 2.0: 1e-12, 5.0: 1e-12, 10.0: 1e-11,
+               13.0: 0.5, 15.0: 0.5, 16.0: 0.5, 26.0: 0.1}
+    for t, vtol in val_tol.items():
+        in_band = AM._LAPLACE_BLEND_LO < t <= AM._LAPLACE_BLEND_HI
+        for _ in range(4):
+            frac = rng.uniform(0.1, 0.9)
+            b = t * frac
+            dd = t * (1 - frac) / 2
+            beta = rng.uniform(0, 2 * np.pi)
+            delta = rng.uniform(0, 2 * np.pi)
+            c1 = b * np.exp(-1j * beta)
+            c2 = dd * np.exp(-1j * delta)
+            val = float(AM._laplace_psi_lnI(jnp.asarray(0.2),
+                                            jnp.asarray(c1),
+                                            jnp.asarray(c2)))
+            truth = _kernel_truth(0.2, c1, c2, n=200001)
+            assert abs(val - truth) < vtol, \
+                "t=%g: val err %g (tol %g)" % (t, val - truth, vtol)
+            # |c2|-direction gradient: bounded everywhere, machine-exact
+            # below the band, sign-correct wherever the sign is resolved
+            e2 = np.exp(-1j * delta)
+            g_ad = float(jax.grad(
+                lambda dv: AM._laplace_psi_lnI(jnp.asarray(0.2),
+                                               jnp.asarray(c1),
+                                               dv * e2))(jnp.asarray(dd)))
+            h = 1e-5
+            g_tr = (_kernel_truth(0.2, c1, (dd + h) * e2, n=200001)
+                    - _kernel_truth(0.2, c1, (dd - h) * e2, n=200001)) / (2 * h)
+            if t <= AM._LAPLACE_BLEND_LO:
+                gtol = 1e-8
+            elif in_band:
+                gtol = 0.8 + 0.2 * abs(g_tr)
+            else:
+                gtol = 0.15 + 0.1 * abs(g_tr)
+            assert abs(g_ad - g_tr) < gtol, \
+                "t=%g: grad AD %+g vs truth %+g (tol %g)" % (t, g_ad, g_tr,
+                                                             gtol)
+            if abs(g_tr) > 0.5:
+                assert np.sign(g_ad) == np.sign(g_tr), \
+                    "t=%g: gradient SIGN inverted (AD %+g, truth %+g)" % (
+                        t, g_ad, g_tr)
+    # C^1 blend: no value jumps across the band (the hard switch stepped by
+    # ~0.5 nats); scan a fixed direction through it (measured max
+    # step-to-step jump 2.4e-4 at this resolution)
+    prev = None
+    for t in np.linspace(AM._LAPLACE_BLEND_LO - 0.2,
+                         AM._LAPLACE_BLEND_HI + 0.2, 45):
+        c1 = 0.6 * t * np.exp(-1j * 1.1)
+        c2 = 0.2 * t * np.exp(-1j * 2.3)
+        v = float(AM._laplace_psi_lnI(jnp.asarray(0.0), jnp.asarray(c1),
+                                      jnp.asarray(c2))) \
+            - _kernel_truth(0.0, c1, c2, n=200001)
+        if prev is not None:
+            assert abs(v - prev) < 5e-3
+        prev = v
 
 
 # ---------------------------------------------------------------------------
