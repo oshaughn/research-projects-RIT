@@ -1760,14 +1760,16 @@ class DualCondorRunQueue(RunQueue):
                                    them); the allowlist is the OSG-blessed
                                    alternative. Pass getenv='True'
                                    explicitly only on sites that allow it.
-        container_image  : str  -- image reference for HTCondor's
-                                   container universe (`osdf://`,
-                                   `docker://`, a local .sif). Setting it
-                                   switches the job from vanilla to
-                                   `universe = container`. Mutually
-                                   exclusive with use_singularity, which
-                                   is the legacy +SingularityImage form.
-        when_to_transfer_output: str -- one of ON_EXIT (default),
+        container_image  : str  -- KEYWORD-ONLY. Image reference for
+                                   HTCondor's container universe
+                                   (`osdf://`, `docker://`, a local
+                                   .sif). Setting it switches the job
+                                   from vanilla to `universe =
+                                   container`. Mutually exclusive with
+                                   use_singularity, which is the legacy
+                                   +SingularityImage form.
+        when_to_transfer_output: str -- KEYWORD-ONLY. One of ON_EXIT
+                                   (default),
                                    ON_EXIT_OR_EVICT, ON_SUCCESS, NEVER.
                                    ON_EXIT discards the sandbox on
                                    eviction, so a preemptable pool loses
@@ -1860,8 +1862,6 @@ class DualCondorRunQueue(RunQueue):
                  accounting_group: Optional[str] = None,
                  accounting_group_user: Optional[str] = None,
                  getenv: Optional[str] = None,
-                 container_image: Optional[str] = None,
-                 when_to_transfer_output: Optional[str] = None,
                  use_singularity: bool = False,
                  singularity_image: Optional[str] = None,
                  extra_condor_cmds: Optional[Dict[str, str]] = None,
@@ -1876,6 +1876,16 @@ class DualCondorRunQueue(RunQueue):
                  oom_memory_factor: float = 1.5,
                  subdag_factory: Optional[Callable[[Any, str, int], str]] = None,
                  submit_mode: str = "submit",
+                 # Keyword-only, and last: these arrived after the
+                 # positional sequence above was already in use. Splicing
+                 # them in next to use_singularity, where they belong by
+                 # topic, would have rebound every positional argument
+                 # from that point on — a caller's positional True for
+                 # use_singularity would land in container_image and
+                 # raise TypeError from its validator.
+                 *,
+                 container_image: Optional[str] = None,
+                 when_to_transfer_output: Optional[str] = None,
                  **submit_kwargs: Any):
         self.run_pool = run_pool
         self.run_collector = run_collector

@@ -23,6 +23,7 @@ Run with the RIFT-importable interpreter, e.g.:
 
 from __future__ import annotations
 
+import inspect
 import shutil
 import subprocess
 
@@ -267,7 +268,7 @@ def test_condor_accepts_every_shape(archive, tmp_path, kwargs):
     path = tmp_path / "c.sub"
     path.write_text(_build(archive, DualCondorRunQueue(**kwargs)))
     out = tmp_path / "c.dry"
-    proc = subprocess.run([condor_submit, "-dry-run", str(out), str(path)],
+    proc = subprocess.run([condor_submit, "-dry-run:oauth=1", str(out), str(path)],
                           capture_output=True, text=True)
     assert proc.returncode == 0, proc.stderr
     # rc=0 only proves the file parses -- condor accepts a garbage image
@@ -319,6 +320,30 @@ def test_an_image_that_would_corrupt_the_submit_file_is_refused(bad):
     submit file to explain it."""
     with pytest.raises(ValueError):
         DualCondorRunQueue(container_image=bad)
+
+
+def test_the_new_arguments_did_not_move_the_old_ones():
+    """Both arrived after the constructor's positional sequence was in
+    use. An earlier draft spliced them in next to use_singularity, where
+    they belong by topic -- which rebound every positional argument from
+    that point on, so a caller's positional True for use_singularity
+    reached the container_image validator and raised TypeError. They are
+    keyword-only and last instead."""
+    q = DualCondorRunQueue(None, None, 4096, "4G", None, None, None,
+                           True, "/cvmfs/x.sif")
+    assert q.use_singularity is True
+    assert q.singularity_image == "/cvmfs/x.sif"
+    assert q.container_image == ""
+    assert q.when_to_transfer_output == "ON_EXIT"
+    params = inspect.signature(DualCondorRunQueue.__init__).parameters
+    for name in ("container_image", "when_to_transfer_output"):
+        assert params[name].kind is inspect.Parameter.KEYWORD_ONLY
+    positional = [n for n, p in params.items()
+                  if p.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD]
+    assert positional[:10] == [
+        "self", "run_pool", "run_collector", "request_memory",
+        "request_disk", "accounting_group", "accounting_group_user",
+        "getenv", "use_singularity", "singularity_image"]
 
 
 def test_universe_is_not_protected(archive):

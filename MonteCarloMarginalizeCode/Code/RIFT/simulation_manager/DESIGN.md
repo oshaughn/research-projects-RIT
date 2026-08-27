@@ -617,9 +617,13 @@ one fewer thing to state, not because stating it twice is dangerous:
 ```python
 DualCondorRunQueue(
     container_image="osdf:///ospool/ap41/data/<user>/supernu-v2.sif",
-    when_to_transfer_output="ON_EXIT_OR_EVICT",
+    when_to_transfer_output="ON_SUCCESS",
 )
 ```
+
+Both are keyword-only, and last in the signature: they arrived after the
+constructor's positional sequence was already in use, and inserting them
+in the middle would have rebound every positional argument after them.
 
 The reference is not resolved or fetched. An `osdf://` or `docker://` URL
 is not readable from the submit host, so requiring that would refuse the
