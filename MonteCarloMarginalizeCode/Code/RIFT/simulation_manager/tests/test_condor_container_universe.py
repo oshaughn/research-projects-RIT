@@ -311,6 +311,52 @@ def test_assigning_either_one_late_is_still_refused(archive):
         q.submit(archive, [name])
 
 
+@pytest.mark.parametrize("value", [v for v in WHEN_TO_TRANSFER_OUTPUT
+                                   if v != "ON_EXIT"])
+def test_a_transfer_timing_and_a_subdag_are_refused_together(value):
+    """The timing is emitted by build_worker too, so the sub-DAG's nodes
+    would transfer at the default ON_EXIT and the request would vanish.
+    ON_EXIT_OR_EVICT is worse than dropped: build_worker is also where it
+    is REFUSED, so this path routed the one value the queue rejects
+    around its own rejection."""
+    with pytest.raises(ValueError, match="when_to_transfer_output"):
+        DualCondorRunQueue(when_to_transfer_output=value,
+                           subdag_factory=lambda a, s, l: "/tmp/x")
+
+
+@pytest.mark.parametrize("value", [v for v in WHEN_TO_TRANSFER_OUTPUT
+                                   if v != "ON_EXIT"])
+def test_assigning_the_timing_late_is_still_refused(archive, value):
+    """Same plain-attribute hole as the image, in both orders."""
+    name = archive.register({"x": 1}, target_level=1)
+
+    q = DualCondorRunQueue(when_to_transfer_output=value, submit_mode="embed")
+    q.subdag_factory = lambda a, s, l: "/tmp/x"
+    with pytest.raises(ValueError, match="when_to_transfer_output"):
+        q.submit(archive, [name])
+
+    q = DualCondorRunQueue(submit_mode="embed",
+                           subdag_factory=lambda a, s, l: "/tmp/x")
+    q.when_to_transfer_output = value
+    with pytest.raises(ValueError, match="when_to_transfer_output"):
+        q.submit(archive, [name])
+
+
+def test_the_default_timing_still_composes_with_a_subdag(archive, tmp_path):
+    """The refusal is of a NON-default policy that would be dropped, not
+    of sub-DAGs: a backend whose work unit is itself a DAG (GW PE via
+    util_RIFT_pseudo_pipe) never asked for a timing and must still
+    submit."""
+    made = tmp_path / "child.dag"
+    made.write_text("# noop\n")
+    q = DualCondorRunQueue(submit_mode="embed",
+                           subdag_factory=lambda a, s, l: str(made))
+    name = archive.register({"x": 1}, target_level=1)
+    q.submit(archive, [name])
+    wrapper = open(q.last_wrapper_dag_path).read()
+    assert "SUBDAG EXTERNAL {}_lvl1 {}".format(name, made) in wrapper
+
+
 @pytest.mark.parametrize("bad", ["osdf:///x.sif \\", "osdf:///x.sif\x00"])
 def test_an_image_that_would_corrupt_the_submit_file_is_refused(bad):
     """A trailing backslash is a submit-file line continuation: it

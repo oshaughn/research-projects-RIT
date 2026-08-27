@@ -1774,6 +1774,12 @@ class DualCondorRunQueue(RunQueue):
                                    ON_EXIT discards the sandbox on
                                    eviction, so a preemptable pool loses
                                    whatever the job had already written.
+                                   Like container_image and the transfer
+                                   extras, this is emitted by build_worker
+                                   and so is refused together with
+                                   subdag_factory: a sub-DAG writes its own
+                                   submit descriptions, and its nodes would
+                                   transfer at the default instead.
         use_singularity  : bool
         singularity_image: str   -- required if use_singularity=True
         oom_hold_codes   : seq  -- hold codes this site reports when a
@@ -1892,6 +1898,10 @@ class DualCondorRunQueue(RunQueue):
         self.extra_transfer_input_files = extra_transfer_input_files
         self.extra_transfer_output_files = extra_transfer_output_files
         self.container_image = container_image
+        # Assigned before the guards below, which read it: the setter
+        # normalises None to the ON_EXIT default, and what the guard asks
+        # is whether a NON-default policy was requested.
+        self.when_to_transfer_output = when_to_transfer_output
         if (self.extra_transfer_input_files or self.extra_transfer_output_files
                 or self.container_image) and subdag_factory is not None:
             # Fail early for the common case. submit() re-checks, because
@@ -1903,6 +1913,21 @@ class DualCondorRunQueue(RunQueue):
                 "subdag_factory is set: the sub-DAG owns its own submit "
                 "descriptions. Put them in the sub-DAG the factory generates "
                 "instead.")
+        if (self.when_to_transfer_output != DEFAULT_WHEN_TO_TRANSFER_OUTPUT
+                and subdag_factory is not None):
+            # Same bypass, and worse than merely dropped: build_worker is
+            # also where ON_EXIT_OR_EVICT is REFUSED, so accepting it here
+            # would route the one value this queue rejects around its own
+            # rejection while the sub-DAG's nodes ran under the default.
+            raise ValueError(
+                "when_to_transfer_output={0} is applied by build_worker, "
+                "which is bypassed when subdag_factory is set: the sub-DAG "
+                "owns its own submit descriptions, so its nodes would "
+                "transfer at the default {1} with nothing to show the "
+                "request was dropped. Set the timing in the sub-DAG the "
+                "factory generates instead.".format(
+                    self.when_to_transfer_output,
+                    DEFAULT_WHEN_TO_TRANSFER_OUTPUT))
         self.request_memory = int(request_memory)
         self.request_disk = request_disk
         self.accounting_group = accounting_group or os.environ.get("LIGO_ACCOUNTING")
@@ -1912,7 +1937,6 @@ class DualCondorRunQueue(RunQueue):
             self.getenv = getenv
         else:
             self.getenv = os.environ.get("RIFT_GETENV", DEFAULT_GETENV_ALLOWLIST)
-        self.when_to_transfer_output = when_to_transfer_output
         self.use_singularity = use_singularity
         self.singularity_image = singularity_image
         self.extra_condor_cmds = extra_condor_cmds or {}
@@ -2472,6 +2496,22 @@ class DualCondorRunQueue(RunQueue):
                             "would run outside the container. Set the container "
                             "in the DAG the factory generates, or clear "
                             "subdag_factory.")
+                    # And the transfer timing, which build_worker both
+                    # emits and polices. Silently ignoring it here loses a
+                    # deliberate ON_SUCCESS, and lets ON_EXIT_OR_EVICT --
+                    # the one value build_worker refuses outright -- reach
+                    # a submit with no complaint from either end.
+                    if (self.when_to_transfer_output
+                            != DEFAULT_WHEN_TO_TRANSFER_OUTPUT):
+                        raise ValueError(
+                            "when_to_transfer_output={0} is applied by "
+                            "build_worker, which this sub-DAG path bypasses, "
+                            "so the sub-DAG's nodes would transfer at the "
+                            "default {1} instead. Set the timing in the DAG "
+                            "the factory generates, or clear "
+                            "subdag_factory.".format(
+                                self.when_to_transfer_output,
+                                DEFAULT_WHEN_TO_TRANSFER_OUTPUT))
                     work_path = self.subdag_factory(archive, sim, lvl)
                     nodes.append((sim, lvl, work_path, True))
                 else:

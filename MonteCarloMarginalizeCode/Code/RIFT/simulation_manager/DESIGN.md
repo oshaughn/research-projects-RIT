@@ -657,6 +657,17 @@ names only paths created early — a working directory, say — can use it
 safely. This queue cannot, because it always leads that list with the
 level marker. If that ever changes, this refusal should lift with it.
 
+`container_image`, a non-default `when_to_transfer_output`, and the
+`extra_transfer_*` lists are all emitted by `build_worker` — which
+`submit()` bypasses when `subdag_factory` is set, because the sub-DAG
+writes its own submit descriptions. Combining any of them with a factory
+is therefore **refused**, in the constructor and again in `submit()`
+(both are plain attributes, so a constructor-only check is walked past by
+assigning either one afterwards). Put the setting in the DAG the factory
+generates. For `ON_EXIT_OR_EVICT` the refusal does double duty: the
+sub-DAG path never reaches the check in `build_worker`, so accepting it
+would route the one value this queue rejects around its own rejection.
+
 `extra_periodic_release` takes a single-line ClassAd expression for
 sites whose pool holds jobs for reasons the queue does not model — an
 opportunistic pool produces transient holds a dedicated cluster never
