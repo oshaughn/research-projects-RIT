@@ -647,6 +647,12 @@ is easy to fill. To preserve partial work, use HTCondor
 self-checkpointing (`checkpoint_exit_code` / `transfer_checkpoint_files`),
 which does not require the final outputs to exist.
 
+The trap is specific to **listing an output that only exists on success**,
+not to `ON_EXIT_OR_EVICT` itself. A submitter whose `transfer_output_files`
+names only paths created early — a working directory, say — can use it
+safely. This queue cannot, because it always leads that list with the
+level marker. If that ever changes, this refusal should lift with it.
+
 `extra_periodic_release` takes a single-line ClassAd expression for
 sites whose pool holds jobs for reasons the queue does not model — an
 opportunistic pool produces transient holds a dedicated cluster never
