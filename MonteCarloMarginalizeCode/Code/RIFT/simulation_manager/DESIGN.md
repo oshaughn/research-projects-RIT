@@ -597,6 +597,76 @@ append-only alternative:
 | `transfer_output_files` | `extra_transfer_output_files` (appended, `{level}`/`{sim_name}` substituted) |
 | `periodic_release` | `extra_periodic_release` (OR'd in) |
 | `request_memory` | the `request_memory` argument, or `Archive.set_resources` per sim |
+| `container_image` | the `container_image` argument |
+| `when_to_transfer_output` | the `when_to_transfer_output` argument |
+
+`universe` is **not** refused. Setting `container_image` selects the
+container universe for you, but declaring `universe` yourself is legal
+and sometimes necessary (`local`, `scheduler`, `grid`).
+
+### Containers
+
+`container_image` selects HTCondor's container universe and supplies the
+image in one argument. Not because the two can disagree — measured
+against condor 25.13.1, `vanilla` + `container_image`, `container` +
+`container_image`, and declaring no universe at all produce byte-identical
+job ads, and the JDL says `universe` "can either be optionally set to
+`container` or not declared at all". It is one argument because that is
+one fewer thing to state, not because stating it twice is dangerous:
+
+```python
+DualCondorRunQueue(
+    container_image="osdf:///ospool/ap41/data/<user>/supernu-v2.sif",
+    when_to_transfer_output="ON_SUCCESS",
+)
+```
+
+Both are keyword-only, and last in the signature: they arrived after the
+constructor's positional sequence was already in use, and inserting them
+in the middle would have rebound every positional argument after them.
+
+The reference is not resolved or fetched. An `osdf://` or `docker://` URL
+is not readable from the submit host, so requiring that would refuse the
+ordinary OSG case; only a value that could corrupt the submit file is
+rejected.
+
+`use_singularity` / `singularity_image` remain, for sites that honour only
+the legacy `+SingularityImage` form. Setting **both** is refused: emitted
+together, which one takes effect is decided by the site.
+
+`when_to_transfer_output` takes HTCondor's three legal values —
+`ON_EXIT` (default), `ON_EXIT_OR_EVICT`, `ON_SUCCESS`. `NEVER` is **not**
+one of them: condor accepts it with rc=0 and silently materialises
+`ON_EXIT`, so a caller setting it to suppress transfer gets transfer.
+
+`ON_EXIT_OR_EVICT` is **refused by this queue**, and the refusal explains
+why. HTCondor: *"If a file listed in transfer_output_files does not exist
+at eviction time, the job will go on hold."* This queue always emits an
+explicit `transfer_output_files` led by `level_<N>.json`, which the
+bootstrap writes only after the generator returns — so every mid-run
+eviction would hold the job rather than reschedule it, which is worse
+than the `ON_EXIT` behaviour the setting gets reached for. It also spools
+the evicted sandbox to the access point's `SPOOL`, a shared volume that
+is easy to fill. To preserve partial work, use HTCondor
+self-checkpointing (`checkpoint_exit_code` / `transfer_checkpoint_files`),
+which does not require the final outputs to exist.
+
+The trap is specific to **listing an output that only exists on success**,
+not to `ON_EXIT_OR_EVICT` itself. A submitter whose `transfer_output_files`
+names only paths created early — a working directory, say — can use it
+safely. This queue cannot, because it always leads that list with the
+level marker. If that ever changes, this refusal should lift with it.
+
+`container_image`, a non-default `when_to_transfer_output`, and the
+`extra_transfer_*` lists are all emitted by `build_worker` — which
+`submit()` bypasses when `subdag_factory` is set, because the sub-DAG
+writes its own submit descriptions. Combining any of them with a factory
+is therefore **refused**, in the constructor and again in `submit()`
+(both are plain attributes, so a constructor-only check is walked past by
+assigning either one afterwards). Put the setting in the DAG the factory
+generates. For `ON_EXIT_OR_EVICT` the refusal does double duty: the
+sub-DAG path never reaches the check in `build_worker`, so accepting it
+would route the one value this queue rejects around its own rejection.
 
 `extra_periodic_release` takes a single-line ClassAd expression for
 sites whose pool holds jobs for reasons the queue does not model — an
