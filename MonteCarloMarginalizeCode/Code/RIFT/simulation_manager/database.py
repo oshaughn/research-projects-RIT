@@ -286,12 +286,14 @@ def _validate_subcode_exclusions(value: Any, *, what: str
     return out
 
 
-#: HTCondor's `when_to_transfer_output` vocabulary. A closed set, so a
-#: typo is caught here rather than by the schedd -- by then the archive
-#: has recorded the sim as dispatched, and the failure presents as a
-#: stuck simulation rather than as the configuration error it is.
-WHEN_TO_TRANSFER_OUTPUT = ("ON_EXIT", "ON_EXIT_OR_EVICT", "ON_SUCCESS",
-                           "NEVER")
+#: HTCondor's `when_to_transfer_output` vocabulary, as the JDL defines
+#: it. Three values, not four: NEVER is NOT one of them, and condor does
+#: not say so -- measured against condor 25.13.1, `NEVER` submits with
+#: rc=0 and materialises as `WhenToTransferOutput="ON_EXIT"`, silently.
+#: A caller setting it to suppress transfer gets transfer. `BANANA` is
+#: rejected loudly, so listing NEVER blessed the one value condor
+#: discards while catching nothing condor would not have caught.
+WHEN_TO_TRANSFER_OUTPUT = ("ON_EXIT", "ON_EXIT_OR_EVICT", "ON_SUCCESS")
 DEFAULT_WHEN_TO_TRANSFER_OUTPUT = "ON_EXIT"
 
 def _validate_when_to_transfer(value: Any) -> str:
@@ -332,6 +334,18 @@ def _validate_container_image(value: Any) -> str:
             "container_image must be a single line: a newline would end "
             "the submit command and let the rest be read as further "
             "commands")
+    if text.endswith("\\"):
+        # A trailing backslash is a submit-file line continuation, so the
+        # NEXT command is swallowed into this value. Measured: it eats
+        # `arguments`, condor_submit returns 0, and every worker then
+        # runs the bootstrap with no --sim-name/--level, exiting 2 with
+        # nothing in the submit file to explain it.
+        raise ValueError(
+            "container_image must not end in a backslash: the submit "
+            "parser reads it as a line continuation and swallows the "
+            "next command")
+    if "\x00" in text:
+        raise ValueError("container_image must not contain a NUL byte")
     return text
 
 
@@ -457,12 +471,19 @@ _PROTECTED_SUBMIT_COMMANDS = frozenset({
     # than losing the release arm. Per-sim sizes go through
     # Archive.set_resources, which composes rather than substitutes.
     "request_memory",
-    # Composed by the queue since container support landed. Setting these
-    # through extra_condor_cmds was how a backend reached the container
-    # universe before there was an argument for it; leaving the path open
-    # beside the argument means the next one finds it first, and a
-    # universe set twice is decided by whichever line condor reads last.
-    "universe",
+    # Composed by the queue since container support landed, and each has
+    # an argument now, so extra_condor_cmds would silently replace a line
+    # the queue had already written.
+    #
+    # `universe` is deliberately NOT here. An earlier draft protected it
+    # on the claim that a container_image under a vanilla universe is
+    # ignored by condor. Measured against condor 25.13.1 that is false:
+    # vanilla+container_image, container+container_image, and declaring
+    # no universe at all produce byte-identical job ads, and the JDL says
+    # universe "can either be optionally set to container or not declared
+    # at all". Protecting it would be a breaking change with no defect
+    # behind it, and would leave no route to `local`, `scheduler` or
+    # `grid` at all.
     "container_image",
     "when_to_transfer_output",
 })
@@ -479,8 +500,6 @@ _PROTECTED_ALTERNATIVES = {
                         "expression instead of replacing it",
     "request_memory": "the request_memory argument, or "
                       "Archive.set_resources for a per-sim override",
-    "universe": "the container_image argument, which selects the "
-                "container universe for you",
     "container_image": "the container_image argument",
     "when_to_transfer_output": "the when_to_transfer_output argument",
 }
@@ -1862,16 +1881,18 @@ class DualCondorRunQueue(RunQueue):
         self.run_collector = run_collector
         self.extra_transfer_input_files = extra_transfer_input_files
         self.extra_transfer_output_files = extra_transfer_output_files
-        if (self.extra_transfer_input_files or self.extra_transfer_output_files) \
-                and subdag_factory is not None:
+        self.container_image = container_image
+        if (self.extra_transfer_input_files or self.extra_transfer_output_files
+                or self.container_image) and subdag_factory is not None:
             # Fail early for the common case. submit() re-checks, because
             # both of these are plain attributes and assigning either after
             # construction reaches the same silently-ignoring path.
             raise ValueError(
-                "extra_transfer_{input,output}_files are applied by "
-                "build_worker, which is bypassed when subdag_factory is set: "
-                "the sub-DAG owns its own submit descriptions. Put the extra "
-                "entries in the sub-DAG the factory generates instead.")
+                "extra_transfer_{input,output}_files and container_image are "
+                "applied by build_worker, which is bypassed when "
+                "subdag_factory is set: the sub-DAG owns its own submit "
+                "descriptions. Put them in the sub-DAG the factory generates "
+                "instead.")
         self.request_memory = int(request_memory)
         self.request_disk = request_disk
         self.accounting_group = accounting_group or os.environ.get("LIGO_ACCOUNTING")
@@ -1881,7 +1902,6 @@ class DualCondorRunQueue(RunQueue):
             self.getenv = getenv
         else:
             self.getenv = os.environ.get("RIFT_GETENV", DEFAULT_GETENV_ALLOWLIST)
-        self.container_image = container_image
         self.when_to_transfer_output = when_to_transfer_output
         self.use_singularity = use_singularity
         self.singularity_image = singularity_image
@@ -2203,9 +2223,32 @@ class DualCondorRunQueue(RunQueue):
         if transfer_in:
             lines.append("transfer_input_files    = {}".format(",".join(transfer_in)))
         lines.append("should_transfer_files   = YES")
-        # ON_EXIT discards the sandbox when a job is evicted, which on a
-        # preemptable pool throws away partial output the backend may
-        # have checkpointed. ON_EXIT_OR_EVICT keeps it.
+        if self.when_to_transfer_output == "ON_EXIT_OR_EVICT":
+            # Refused, not emitted. HTCondor: "If a file listed in
+            # transfer_output_files does not exist at eviction time, the
+            # job will go on hold." This queue ALWAYS writes an explicit
+            # transfer_output_files led by level_<N>.json, and the
+            # bootstrap writes that marker only after run() returns -- so
+            # every mid-run eviction would hold the job instead of
+            # rescheduling it. That is strictly worse than the ON_EXIT
+            # behaviour the setting gets reached for.
+            #
+            # It also spools the evicted sandbox to the AP. On the access
+            # point this was developed against, /var/lib/condor/spool is
+            # 100% full with 28 MB free and shared by every user; filling
+            # it has caused a campaign-wide outage before.
+            #
+            # What does preserve partial work is HTCondor
+            # self-checkpointing, which does not require the final
+            # outputs to exist. That is an archive-design change, not a
+            # knob, so this raises rather than pretending to offer it.
+            raise ValueError(
+                "when_to_transfer_output=ON_EXIT_OR_EVICT cannot be used "
+                "with this queue: it emits transfer_output_files led by "
+                "level_<N>.json, which does not exist until the job "
+                "succeeds, and HTCondor holds a job whose listed output "
+                "is missing at eviction. Use checkpoint_exit_code / "
+                "transfer_checkpoint_files to preserve partial work.")
         lines.append("when_to_transfer_output = {}".format(
             self.when_to_transfer_output))
         # Backend-supplied products, beyond the level_<N>.json marker.
@@ -2405,6 +2448,19 @@ class DualCondorRunQueue(RunQueue):
                             "build_worker, which this sub-DAG path bypasses: the "
                             "sub-DAG owns its own submit descriptions. Put the "
                             "entries in the DAG the factory generates, or clear "
+                            "subdag_factory.")
+                    # Same reasoning, same path. Without this a queue
+                    # configured with a container image submits a sub-DAG
+                    # whose nodes run the science OUTSIDE the container,
+                    # with no error and nothing in the submit files to
+                    # show it -- the exact silent substitution the
+                    # container argument exists to remove.
+                    if self.container_image:
+                        raise ValueError(
+                            "container_image is applied by build_worker, which "
+                            "this sub-DAG path bypasses, so the sub-DAG's nodes "
+                            "would run outside the container. Set the container "
+                            "in the DAG the factory generates, or clear "
                             "subdag_factory.")
                     work_path = self.subdag_factory(archive, sim, lvl)
                     nodes.append((sim, lvl, work_path, True))

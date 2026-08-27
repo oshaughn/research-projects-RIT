@@ -143,16 +143,47 @@ def test_the_default_transfer_timing_is_unchanged(archive):
                     "when_to_transfer_output") == "ON_EXIT"
 
 
-@pytest.mark.parametrize("value", WHEN_TO_TRANSFER_OUTPUT)
-def test_every_legal_value_is_emitted(archive, value):
+@pytest.mark.parametrize("value", [v for v in WHEN_TO_TRANSFER_OUTPUT
+                                   if v != "ON_EXIT_OR_EVICT"])
+def test_every_usable_value_is_emitted(archive, value):
     sub = _build(archive, DualCondorRunQueue(when_to_transfer_output=value))
     assert _command(sub, "when_to_transfer_output") == value
 
 
+def test_the_vocabulary_is_condors(archive):
+    """Guards the set itself. It drifted once already -- NEVER was in it,
+    and no test noticed because every test read the emitted text rather
+    than asking condor."""
+    assert set(WHEN_TO_TRANSFER_OUTPUT) == {
+        "ON_EXIT", "ON_EXIT_OR_EVICT", "ON_SUCCESS"}
+
+
 def test_it_is_normalised_not_passed_through(archive):
     sub = _build(archive,
-                 DualCondorRunQueue(when_to_transfer_output=" on_exit_or_evict "))
-    assert _command(sub, "when_to_transfer_output") == "ON_EXIT_OR_EVICT"
+                 DualCondorRunQueue(when_to_transfer_output=" on_success "))
+    assert _command(sub, "when_to_transfer_output") == "ON_SUCCESS"
+
+
+def test_never_is_refused_because_condor_discards_it(archive):
+    """NEVER is not in the JDL. Measured against condor 25.13.1 it
+    submits rc=0 and materialises as ON_EXIT -- so a caller setting it to
+    suppress transfer gets transfer, silently. An illegal value like
+    BANANA condor rejects loudly on its own, so accepting NEVER was the
+    only thing this validator actually changed, in the wrong direction."""
+    with pytest.raises(ValueError, match="when_to_transfer_output"):
+        DualCondorRunQueue(when_to_transfer_output="NEVER")
+
+
+def test_on_exit_or_evict_is_refused_by_this_queue(archive):
+    """HTCondor holds a job whose listed output is missing at eviction,
+    and this queue always lists level_<N>.json, which exists only after
+    the job succeeds. Every mid-run eviction would hold rather than
+    reschedule -- worse than the ON_EXIT it is reached for. Constructing
+    is allowed; building the submit description is where it raises, so
+    the message lands with the job that would have been broken."""
+    q = DualCondorRunQueue(when_to_transfer_output="ON_EXIT_OR_EVICT")
+    with pytest.raises(ValueError, match="checkpoint_exit_code"):
+        _build(archive, q)
 
 
 @pytest.mark.parametrize("bad", ["ON_EVICT", "always", "", "ON_EXIT_OR_EVIC"])
@@ -175,7 +206,6 @@ def test_a_non_string_timing_is_refused(bad):
 # --------------------------------------------------------------------
 
 @pytest.mark.parametrize("key,expected", [
-    ("universe", "container_image"),
     ("container_image", "container_image"),
     ("when_to_transfer_output", "when_to_transfer_output"),
 ])
@@ -209,7 +239,7 @@ def test_the_policy_survives_the_manifest(tmp_path):
         name="container_manifest", request_queue_kind="condor",
         run_queue_kind="condor",
         run_queue_extra={"container_image": IMAGE,
-                         "when_to_transfer_output": "ON_EXIT_OR_EVICT"})
+                         "when_to_transfer_output": "ON_SUCCESS"})
     Archive(base_location=tmp_path / "arch", manifest=manifest,
             generator_spec={"module_path": str(code / "generator.py"),
                             "entrypoint": "generator:run"})
@@ -218,14 +248,14 @@ def test_the_policy_survives_the_manifest(tmp_path):
     assert run_queue.container_image == IMAGE
     sub = _build(reopened, run_queue)
     assert _command(sub, "universe") == "container"
-    assert _command(sub, "when_to_transfer_output") == "ON_EXIT_OR_EVICT"
+    assert _command(sub, "when_to_transfer_output") == "ON_SUCCESS"
 
 
 @pytest.mark.parametrize("kwargs", [
     {},
     {"container_image": IMAGE},
-    {"when_to_transfer_output": "ON_EXIT_OR_EVICT"},
-    {"container_image": IMAGE, "when_to_transfer_output": "ON_EXIT_OR_EVICT"},
+    {"when_to_transfer_output": "ON_SUCCESS"},
+    {"container_image": IMAGE, "when_to_transfer_output": "ON_SUCCESS"},
     {"use_singularity": True, "singularity_image": "/cvmfs/x.sif"},
 ])
 def test_condor_accepts_every_shape(archive, tmp_path, kwargs):
@@ -240,6 +270,63 @@ def test_condor_accepts_every_shape(archive, tmp_path, kwargs):
     proc = subprocess.run([condor_submit, "-dry-run", str(out), str(path)],
                           capture_output=True, text=True)
     assert proc.returncode == 0, proc.stderr
-    materialised = out.read_text()
+    # rc=0 only proves the file parses -- condor accepts a garbage image
+    # string with rc=0, and silently rewrites values it dislikes. Read
+    # the materialised ad back and compare it to what was asked for.
+    ad = {}
+    for line in out.read_text().splitlines():
+        if "=" in line:
+            k, v = line.split("=", 1)
+            ad[k.strip().lower()] = v.strip().strip('"')
+    assert ad.get("whentotransferoutput") == kwargs.get(
+        "when_to_transfer_output", "ON_EXIT")
     if kwargs.get("container_image"):
-        assert "ContainerImage" in materialised
+        assert ad.get("wantcontainer") == "true", ad.get("wantcontainer")
+        assert IMAGE.rsplit("/", 1)[-1] in out.read_text()
+
+
+# --------------------------------------------------------------------
+# the sub-DAG path bypasses build_worker entirely
+# --------------------------------------------------------------------
+
+def test_a_container_and_a_subdag_are_refused_together():
+    """submit() bypasses build_worker when subdag_factory is set, so the
+    image would never be emitted and the sub-DAG's nodes would run the
+    science OUTSIDE the container -- no error, nothing in the submit
+    files to show it. The transfer extras are guarded on this path for
+    the same reason; the image was not."""
+    with pytest.raises(ValueError, match="container_image"):
+        DualCondorRunQueue(container_image=IMAGE,
+                           subdag_factory=lambda a, s, l: "/tmp/x")
+
+
+def test_assigning_either_one_late_is_still_refused(archive):
+    """Both are plain attributes, so a constructor-only check is
+    bypassed by assignment -- which is why submit() re-checks."""
+    q = DualCondorRunQueue(container_image=IMAGE)
+    q.subdag_factory = lambda a, s, l: "/tmp/x"
+    name = archive.register({"x": 1}, target_level=1)
+    with pytest.raises(ValueError, match="container_image"):
+        q.submit(archive, [name])
+
+
+@pytest.mark.parametrize("bad", ["osdf:///x.sif \\", "osdf:///x.sif\x00"])
+def test_an_image_that_would_corrupt_the_submit_file_is_refused(bad):
+    """A trailing backslash is a submit-file line continuation: it
+    swallows the next command, which is `arguments`. Measured before the
+    fix -- condor_submit returned 0 and the workers ran the bootstrap
+    with no --sim-name/--level, exiting 2 forever with nothing in the
+    submit file to explain it."""
+    with pytest.raises(ValueError):
+        DualCondorRunQueue(container_image=bad)
+
+
+def test_universe_is_not_protected(archive):
+    """Deliberate. An earlier draft protected it, on the claim that a
+    container_image under a vanilla universe is ignored by condor.
+    Measured: vanilla+image, container+image and no universe at all give
+    byte-identical ads. Protecting it would be a breaking change with no
+    defect behind it, and would leave no route to local/scheduler/grid."""
+    sub = _build(archive, DualCondorRunQueue(
+        extra_condor_cmds={"universe": "scheduler"}))
+    assert "scheduler" in sub

@@ -597,15 +597,22 @@ append-only alternative:
 | `transfer_output_files` | `extra_transfer_output_files` (appended, `{level}`/`{sim_name}` substituted) |
 | `periodic_release` | `extra_periodic_release` (OR'd in) |
 | `request_memory` | the `request_memory` argument, or `Archive.set_resources` per sim |
-| `universe`, `container_image` | the `container_image` argument |
+| `container_image` | the `container_image` argument |
 | `when_to_transfer_output` | the `when_to_transfer_output` argument |
+
+`universe` is **not** refused. Setting `container_image` selects the
+container universe for you, but declaring `universe` yourself is legal
+and sometimes necessary (`local`, `scheduler`, `grid`).
 
 ### Containers
 
 `container_image` selects HTCondor's container universe and supplies the
-image in one argument — `universe = container` follows from it, because a
-`container_image` under a vanilla universe is silently ignored by condor
-and a backend asked to remember both will eventually forget one:
+image in one argument. Not because the two can disagree — measured
+against condor 25.13.1, `vanilla` + `container_image`, `container` +
+`container_image`, and declaring no universe at all produce byte-identical
+job ads, and the JDL says `universe` "can either be optionally set to
+`container` or not declared at all". It is one argument because that is
+one fewer thing to state, not because stating it twice is dangerous:
 
 ```python
 DualCondorRunQueue(
@@ -623,10 +630,22 @@ rejected.
 the legacy `+SingularityImage` form. Setting **both** is refused: emitted
 together, which one takes effect is decided by the site.
 
-`when_to_transfer_output` defaults to `ON_EXIT`, which discards the
-sandbox when a job is evicted. On a preemptable pool that throws away
-whatever the job had already written, so a backend whose science *is*
-output files wants `ON_EXIT_OR_EVICT`.
+`when_to_transfer_output` takes HTCondor's three legal values —
+`ON_EXIT` (default), `ON_EXIT_OR_EVICT`, `ON_SUCCESS`. `NEVER` is **not**
+one of them: condor accepts it with rc=0 and silently materialises
+`ON_EXIT`, so a caller setting it to suppress transfer gets transfer.
+
+`ON_EXIT_OR_EVICT` is **refused by this queue**, and the refusal explains
+why. HTCondor: *"If a file listed in transfer_output_files does not exist
+at eviction time, the job will go on hold."* This queue always emits an
+explicit `transfer_output_files` led by `level_<N>.json`, which the
+bootstrap writes only after the generator returns — so every mid-run
+eviction would hold the job rather than reschedule it, which is worse
+than the `ON_EXIT` behaviour the setting gets reached for. It also spools
+the evicted sandbox to the access point's `SPOOL`, a shared volume that
+is easy to fill. To preserve partial work, use HTCondor
+self-checkpointing (`checkpoint_exit_code` / `transfer_checkpoint_files`),
+which does not require the final outputs to exist.
 
 `extra_periodic_release` takes a single-line ClassAd expression for
 sites whose pool holds jobs for reasons the queue does not model — an
