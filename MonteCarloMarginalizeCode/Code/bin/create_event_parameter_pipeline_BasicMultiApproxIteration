@@ -231,7 +231,39 @@ parser.add_argument('--neff-threshold',default=800,type=int,help="Number of samp
 parser.add_argument("--workflow",default='single',help="[single|fit+posterior|full] describes workflow layout used.  'Single' is a single node, running the fit and posterior for each iteration; 'full' produces many followup jobs to produce a reliable posterior")
 parser.add_argument("--n-post-jobs",default=1,type=int,help="Number of posterior jobs. Used in posterior and fit+posterior workflows")
 parser.add_argument("--use-bw-psd",action='store_true',help="Use BW PSD, attempting to use fiducial arguments as in LI for placement (i.e., signal at seglen -2). Assumes LI style data convention.  Necessary BW will be parsed out of ile-args.txt (required)")
+# ---------------------------------------------------------------------------
+# API compatibility with util_RIFT_pseudo_pipe.py.
+#
+# pseudo_pipe emits ONE command line, shaped for BasicIteration's option surface,
+# which is far wider than this builder's: this workflow implements cross-model
+# marginalization, not every feature of the single-model pipeline.
+#
+# These options are ACCEPTED so a pseudo_pipe command line parses, and REFUSED
+# below if one is actually used.  They are never silently ignored -- a flag that
+# parses and does nothing changes a run without saying so, and is invisible in a
+# config diff.  test_multiapprox_pseudo_pipe.py re-derives these lists from the
+# two builders' argparse surfaces so they cannot drift.
+_API_ONLY_FLAGS = ['--calibration-reweighting', '--calibration-reweighting-osg', '--calmarg-pilot', '--cip-explode-jobs-dag', '--cip-explode-jobs-subdag', '--comov-distance-reweighting', '--condor-containerize-nonworker', '--condor-local-nonworker-igwn-prefix', '--condor-nogrid-nonworker', '--extrinsic-handoff', '--first-iteration-jumpstart', '--frame-rotation', '--ile-group-subdag', '--ile-group-subdag-check-work', '--last-iteration-export-distance-slices-all-fresh', '--last-iteration-export-distance-slices-randomize', '--last-iteration-extrinsic-batched-convert', '--last-iteration-extrinsic-time-resampling', '--search-reflected-sky-mode', '--use-eccentricity', '--use-eccentricity-squared-sampling', '--use-full-submit-paths', '--use-hyperbolic', '--use-osg-cip', '--use-tabular-eos-file']
+_API_ONLY_VALUED = ['--bilby-ini-file', '--bilby-pickle-exe', '--bilby-pickle-file', '--cal-request-disk', '--calibration-reweighting-batchsize', '--calibration-reweighting-count', '--calibration-reweighting-exe', '--calibration-reweighting-extra-args', '--calibration-reweighting-initial-extra-args', '--calmarg-pilot-cadence', '--calmarg-pilot-max-it', '--calmarg-pilot-max-points', '--calmarg-pilot-top-fraction', '--cip-explode-jobs-last', '--cip-post-exe', '--cip-request-disk', '--comov-distance-reweighting-exe', '--convert-ascii2h5-exe', '--extrinsic-handoff-select', '--fetch-ext-grid-args', '--fetch-ext-grid-exe', '--general-request-disk', '--ile-condor-commands', '--ile-gpu-fanout', '--ile-n-events-to-analyze-first', '--ile-post-exe', '--ile-request-disk', '--last-iteration-export-distance-slices-wing-neff', '--last-iteration-export-distance-slices-wing-nmax', '--last-iteration-extrinsic-samples-per-ile', '--last-iteration-extrinsic-samples-per-ile-internal', '--lisa-reference-time', '--n-eff', '--n-iterations-subdag-max', '--n-samples-per-job-threshold', '--reflected-sky-mode-exe', '--search-reflected-sky-mode-iteration', '--use-oauth-files']
+for _flag in _API_ONLY_FLAGS:
+    parser.add_argument(_flag, action='store_true', help=argparse.SUPPRESS)
+for _flag in _API_ONLY_VALUED:
+    parser.add_argument(_flag, default=None, help=argparse.SUPPRESS)
+# ---------------------------------------------------------------------------
 opts=  parser.parse_args()
+
+# Refuse the API-only options if any was actually requested (see above).
+_requested = [f for f in _API_ONLY_FLAGS if getattr(opts, f[2:].replace('-', '_'), False)]
+_requested += [f for f in _API_ONLY_VALUED if getattr(opts, f[2:].replace('-', '_'), None) is not None]
+if _requested:
+    print(" create_event_parameter_pipeline_BasicMultiApproxIteration accepts the")
+    print(" following for API compatibility with util_RIFT_pseudo_pipe.py, but does")
+    print(" NOT implement them: " + ", ".join(sorted(_requested)))
+    print(" Refusing rather than ignoring: a flag that parses and does nothing")
+    print(" changes a run without saying so.  Run those settings single-model, or")
+    print(" implement the option here.")
+    sys.exit(1)
+
 
 
 local_worker_universe="vanilla"

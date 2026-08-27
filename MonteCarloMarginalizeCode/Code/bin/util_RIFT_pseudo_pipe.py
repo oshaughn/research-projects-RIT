@@ -358,7 +358,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--skip-reproducibility",action='store_true')
 parser.add_argument("--use-production-defaults",action='store_true',help="Use production defaults. Intended for use with tools like asimov or by nonexperts who just want something to run on a real event.  Will require manual setting of other arguments!")
 parser.add_argument("--use-subdags",action='store_true',help="Use CEPP_Alternate instead of CEPP_BasicIteration. Note this writes an adaptively-sized DAG each iteration, but doesn't otherwise optimize yet.")
-parser.add_argument("--pipeline-builder",default=None,choices=["BasicIteration","AlternateIteration"],help="Explicitly select the create_event_parameter_pipeline_* iteration builder, as a drop-in hot-swap for side-by-side A/B testing. Overrides the implicit --use-subdags routing. If unset, the builder is chosen by --use-subdags (Alternate) vs. the default (Basic).")
+parser.add_argument("--pipeline-builder",default=None,choices=["BasicIteration","AlternateIteration","BasicMultiApproxIteration"],help="Explicitly select the create_event_parameter_pipeline_* iteration builder, as a drop-in hot-swap for side-by-side A/B testing. Overrides the implicit --use-subdags routing. If unset, the builder is chosen by --use-subdags (Alternate) vs. the default (Basic).")
 parser.add_argument("--use-ile-subdags",action='store_true',help="Use ILE subdag system (new)")
 parser.add_argument("--bilby-ini-file",default=None,type=str,help="Pass ini file for parsing. Intended to use for calibration reweighting. Full path recommended")
 parser.add_argument("--bilby-pickle-file",default=None,type=str,help="Bilby Pickle file with event settings. Intended to use for calibration reweighting. Full path recommended")
@@ -426,6 +426,9 @@ parser.add_argument("--lisa-zero-likelihood",action='store_true',help="With --li
 parser.add_argument("--calibration",default="C00",type=str)
 parser.add_argument("--playground-data",action='store_true', help="Passed through to helper_LDG_events, and changes name prefix")
 parser.add_argument("--approx",default=None,type=str,help="Approximant. REQUIRED")
+parser.add_argument("--approx-extra",default=None,action='append',help="Additional waveform model, repeatable.  Selects the cross-model workflow: every model is evaluated on ONE shared intrinsic grid and marginalized over point by point, and the terminal stage forks to give each model its own posterior and evidence.  Implies --pipeline-builder BasicMultiApproxIteration.  See RIFT/misc/DESIGN_multiapprox_marginalization.md")
+parser.add_argument("--approx-prior",default=None,action='append',help="APPROX=WEIGHT prior p(m) over waveform models, repeatable.  Default uniform.  NOT sampling weights.")
+parser.add_argument("--require-all-approx",action='store_true',help="Drop intrinsic points not successfully evaluated under EVERY model, instead of marginalizing over whichever subset survived.")
 parser.add_argument("--use-gwsurrogate",action='store_true',help="Attempt to use gwsurrogate instead of lalsuite.")
 parser.add_argument("--use-gwsignal",action='store_true',help="Attempt to use gwsignal interface.")
 parser.add_argument("--l-max",default=2,type=int)
@@ -2083,6 +2086,16 @@ if opts.internal_cip_request_memory:
 cepp = "create_event_parameter_pipeline_BasicIteration"
 if opts.use_subdags:
     cepp = "create_event_parameter_pipeline_AlternateIteration"
+if opts.approx_extra and not opts.pipeline_builder:
+    # asking for more than one waveform model IS asking for the cross-model
+    # builder; make the user say it twice only if they disagree
+    opts.pipeline_builder = "BasicMultiApproxIteration"
+use_multiapprox = (opts.pipeline_builder == "BasicMultiApproxIteration")
+if use_multiapprox and not opts.approx_extra:
+    print(" --pipeline-builder BasicMultiApproxIteration needs at least one --approx-extra ")
+    sys.exit(1)
+# The builder itself accepts pseudo_pipe's option surface and refuses the parts
+# it does not implement, so there is no allow-list to maintain here.
 if opts.pipeline_builder:  # explicit override wins, for clean side-by-side A/B testing of the two builders
     if opts.use_subdags and opts.pipeline_builder != "AlternateIteration":
         # use_subdags is set either by the user or force-set by --internal-use-amr (which REQUIRES the Alternate builder)
@@ -2090,6 +2103,16 @@ if opts.pipeline_builder:  # explicit override wins, for clean side-by-side A/B 
     cepp = "create_event_parameter_pipeline_" + opts.pipeline_builder
 print(" Pipeline builder (create_event_parameter_pipeline_*): ", cepp)
 cmd =cepp+ "  --ile-n-events-to-analyze {} --input-grid proposed-grid.{} --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args `pwd`/args_ile.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP {} --request-memory-ILE {} --n-samples-per-job ".format(n_jobs_per_worker,grid_suffix_pp,cip_mem,ile_mem) + str(npts_it) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + " --n-iterations-subdag-max {} ".format(opts.internal_n_iterations_subdag_max) + "  --n-copies {} ".format(opts.ile_copies) + "   --ile-retries "+ str(opts.ile_retries) + " --general-retries " + str(opts.general_retries)
+if use_multiapprox:
+    # Every model on the SAME grid.  --approx is the primary; --approx-extra the
+    # rest.  The builder marginalizes over them point by point in the loop and
+    # forks per model at the terminal stage.
+    for _ap in [opts.approx] + list(opts.approx_extra):
+        cmd += " --approx {} ".format(_ap)
+    for _pr in (opts.approx_prior or []):
+        cmd += " --approx-prior '{}' ".format(_pr)
+    if opts.require_all_approx:
+        cmd += " --require-all-approx "
 if opts.ile_jobs_per_worker_first:
     cmd += " --ile-n-events-to-analyze-first {} ".format(opts.ile_jobs_per_worker_first)
 if opts.assume_matter or opts.assume_eccentric or opts.assume_hyperbolic:

@@ -216,7 +216,8 @@ jobs:
             MonteCarloMarginalizeCode/Code/test/test_cip_priors.py \
             MonteCarloMarginalizeCode/Code/test/test_cip_gp_kernel_bounds.py \
             MonteCarloMarginalizeCode/Code/test/test_cosmology_single_source.py \
-            MonteCarloMarginalizeCode/Code/test/test_multiapprox_marginalization.py
+            MonteCarloMarginalizeCode/Code/test/test_multiapprox_marginalization.py \
+            MonteCarloMarginalizeCode/Code/test/test_multiapprox_pseudo_pipe.py
 
   q-window-stencil-check:
     needs: install
