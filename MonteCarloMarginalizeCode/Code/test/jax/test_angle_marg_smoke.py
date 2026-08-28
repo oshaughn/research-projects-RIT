@@ -193,10 +193,25 @@ def brute_marginal(data, x_grid, log_w, nphi, npsi):
 
 
 # ---------------------------------------------------------------------------
-# NUMERICAL execution of BOTH schemes.  Everything above this line checks
-# selection, sizing and wiring -- none of it would catch a mutation that returns
-# a WRONG MARGINAL or breaks the Laplace stationary-point enumeration.  These
-# two do, at the smallest scale that still discriminates.
+# NUMERICAL execution.  Everything above this line checks selection, sizing and
+# source wiring -- none of it would catch a mutation that returns a WRONG
+# MARGINAL or breaks the Laplace stationary-point enumeration.  These two do, at
+# the smallest scale that still discriminates.
+#
+# COVERAGE LIMIT, stated so this file is not mistaken for end-to-end coverage:
+#   * the EXACT scheme is exercised END TO END, through
+#     fused_log_likelihood_distphipsimarg_exact -- phi, psi, distance and time
+#     marginalization included -- against a direct product-grid reference.
+#   * the LAPLACE scheme is exercised only at its KERNEL, _laplace_psi_lnI.
+#     fused_log_likelihood_distphipsimarg_laplace and its phi/distance/time
+#     marginalization are NOT run here.
+#
+# That asymmetry is a deliberate CI-cost tradeoff, not an oversight: the fused
+# Laplace path is covered in test_angle_marg_exact.py, which is EXCLUDED from
+# the per-PR gate (it exceeds 20 minutes on 2 cores) and must be run by hand
+# when touching anglemarg.py -- the command is in .travis/test-jax.sh next to
+# the exclusion.  A cheap fused-Laplace finiteness smoke test would close the
+# gap and is worth adding if someone finds a configuration that stays fast.
 # ---------------------------------------------------------------------------
 
 def test_exact_scheme_matches_a_direct_reference_small_scale():
