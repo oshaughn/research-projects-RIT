@@ -1004,7 +1004,8 @@ def angle_grid_suspect_note(scheme=None):
     return ""
 
 
-def write_dat(opts, P, out_index, event_id, logZ, sigma_over_Z, ntotal, neff):
+def write_dat(opts, P, out_index, event_id, logZ, sigma_over_Z, ntotal, neff,
+              angle_note=""):
     if not opts.output_file:
         return
     m1, m2 = P.m1 / MSUN, P.m2 / MSUN
@@ -1016,9 +1017,8 @@ def write_dat(opts, P, out_index, event_id, logZ, sigma_over_Z, ntotal, neff):
     # write_samples() early-returns without --save-samples/--output-file, so a
     # run with export disabled would otherwise publish a numeric evidence row
     # indistinguishable from a clean integration.
-    _note = angle_grid_suspect_note()
-    if _note:
-        hdr += "\n" + _note
+    if angle_note:
+        hdr += "\n" + angle_note
     np.savetxt(fname, row, header=hdr)
     print("Wrote %s" % fname)
 
@@ -1353,7 +1353,8 @@ def _remove_stale_artifact(path, what="export"):
               % (what, path), file=sys.stderr)
 
 
-def write_samples(opts, out_index, theta, lnL, with_distance, logw=None):
+def write_samples(opts, out_index, theta, lnL, with_distance, logw=None,
+                  angle_note=""):
     """Write the exported extrinsic samples.
 
     ``logw`` are per-sample LOG IMPORTANCE WEIGHTS ``ln(L p / p_s)`` for the
@@ -1452,9 +1453,8 @@ def write_samples(opts, out_index, theta, lnL, with_distance, logw=None):
             print("  fairdraw: exporting %d of %d rows (requested count)"
                   % (int(n_req), n_before))
     provenance = "fairdraw: %s n_out=%d" % (note, len(theta))
-    _note = angle_grid_suspect_note()
-    if _note:
-        provenance += " " + _note
+    if angle_note:
+        provenance += " " + angle_note
 
     ndim = theta.shape[1] if theta.ndim == 2 else len(theta)
     if with_distance:
@@ -1759,8 +1759,14 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
     # independently of --save-samples/--output-file, since write_samples()
     # early-returns when export is off and a run with export disabled would
     # otherwise get no warning and no persistent label at all.
-    _ev_note = angle_grid_suspect_note()
-    if _ev_note:
+    # Compute ONCE from the RESOLVED scheme and hand the same string to both
+    # writers.  Recomputing inside each writer with no argument left `scheme`
+    # None, so the standing BEST-EFFORT label never emitted and every artifact
+    # stayed silent -- an inert guard, which is the exact failure mode this
+    # label exists to prevent.
+    _scheme = getattr(like, "angle_marg_scheme", None)
+    _ev_note = angle_grid_suspect_note(_scheme)
+    if _ev_note.startswith("SUSPECT-ANGLE-GRID"):
         sys.stderr.write(
             "WARNING integrate_likelihood_extrinsic_jax: angle-marginalization "
             "dense grids were UNDERSIZED at some evaluated points this event "
@@ -1768,9 +1774,16 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
             "rebuild with a larger amp_sizing before using them.  The run was "
             "NOT aborted and no points were discarded -- discarding would excise "
             "exactly the region the estimator missed.\n" % _ev_note)
-    write_samples(opts, out_index, theta, lnL, with_distance,
+    elif _ev_note:
+        # BEST-EFFORT: nothing detected.  Say so WITHOUT claiming a clean run --
+        # announcing "UNDERSIZED" here would be a false alarm, and saying
+        # nothing would let silence read as verification.
+        sys.stderr.write(
+            "NOTE integrate_likelihood_extrinsic_jax: %s\n" % _ev_note)
+    write_samples(opts, out_index, theta, lnL, with_distance, angle_note=_ev_note,
                   logw=logw_export)
-    write_dat(opts, P, out_index, event_id, logZ, sig, ntot, neff)
+    write_dat(opts, P, out_index, event_id, logZ, sig, ntot, neff,
+              angle_note=_ev_note)
     return logZ, out_flow_state
 
 

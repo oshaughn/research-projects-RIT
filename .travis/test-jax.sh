@@ -147,7 +147,7 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         wrapper against the production driver, and
 #                                         because 16384 is the rate test_jax_endtoend
 #                                         (4096) structurally cannot cover.
-#   test_angle_marg_smoke.py          6  CHEAP mutation-bearing floor for the whole
+#   test_angle_marg_smoke.py          8  CHEAP mutation-bearing floor for the whole
 #                                         angle-marg feature: scheme selection (a
 #                                         previous head could never return 'exact'),
 #                                         both dense-sizing levers, required
@@ -285,7 +285,7 @@ fi
 # collection" must mean collection IN THE GATE'S ENVIRONMENT -- a local count has
 # tripped this floor twice.  When in doubt, take the number from a CI log line
 # ("collected N tests from M files") rather than from your shell.
-EXPECTED_TESTS=146
+EXPECTED_TESTS=148
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"
