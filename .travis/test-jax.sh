@@ -172,6 +172,20 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         cap must stay WIRED in samplers and the
 #                                         driver.  Each fails under a verified
 #                                         mutation (see the PR).  Seconds.
+#   test_angle_marg_block_dispatch.py 4  the laplace path's EXECUTION-cost
+#                                         structure (2026-08-28: with compilation
+#                                         fixed, the kernel executed ~2,950x the
+#                                         grid scheme because BOTH blend branches
+#                                         ran at every lattice point, the 320-pt
+#                                         quadrature everywhere included the 99.5%
+#                                         of points needing N ~ 32-96).  Pins the
+#                                         lax.switch block dispatch: the N ladder
+#                                         keeps the shipped aliasing exponent, the
+#                                         dispatcher matches the undispatched
+#                                         kernel in every branch, and the fused
+#                                         driver actually CALLS the dispatcher
+#                                         (wiring).  Each fails under a verified
+#                                         mutation (see the PR).  Seconds.
 #   test_angle_marg_sizing_rule.py    1  the m_max-aware dense phi sizing rule.
 #                                         Pure numpy, milliseconds, closed-form I0
 #                                         reference.  FAILS under the old m_max-blind
@@ -222,6 +236,7 @@ FILES=(
   "${JAXDIR}/test_angle_marg_sizing_rule.py"
   "${JAXDIR}/test_angle_marg_smoke.py"
   "${JAXDIR}/test_angle_marg_compile_cost.py"
+  "${JAXDIR}/test_angle_marg_block_dispatch.py"
 )
 
 # EXCLUDED: files in JAXDIR matching test_*.py that are deliberately NOT gated.  The
@@ -301,7 +316,7 @@ fi
 # collection" must mean collection IN THE GATE'S ENVIRONMENT -- a local count has
 # tripped this floor twice.  When in doubt, take the number from a CI log line
 # ("collected N tests from M files") rather than from your shell.
-EXPECTED_TESTS=153
+EXPECTED_TESTS=157
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"
