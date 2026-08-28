@@ -968,6 +968,23 @@ def samples_path(opts, out_index):
     return opts.output_file + "_" + str(out_index) + "_samples.dat"
 
 
+def angle_grid_suspect_note():
+    """One-line label if the angle grids were undersized anywhere this event.
+
+    Empty string when clean.  Read through amp_failsafe_state(), which barriers
+    queued callbacks first.  Best-effort: debug callbacks may be dropped under
+    transformation, so a clean read is NOT proof of adequacy -- it is a label,
+    not a gate.
+    """
+    st = _anglemarg.amp_failsafe_state()
+    if not st.get("tripped"):
+        return ""
+    return ("SUSPECT-ANGLE-GRID amp_failsafe=TRIPPED worst_amp=%.6g "
+            "amp_sizing=%.6g scheme=%s"
+            % (st.get("worst_amp", float("nan")),
+               st.get("amp_sizing", float("nan")), st.get("scheme")))
+
+
 def write_dat(opts, P, out_index, event_id, logZ, sigma_over_Z, ntotal, neff):
     if not opts.output_file:
         return
@@ -975,8 +992,15 @@ def write_dat(opts, P, out_index, event_id, logZ, sigma_over_Z, ntotal, neff):
     fname = dat_path(opts, out_index)
     row = np.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y,
                      P.s2z, logZ, sigma_over_Z, ntotal, neff]])
-    np.savetxt(fname, row,
-               header="event_id m1 m2 s1x s1y s1z s2x s2y s2z lnL sigma_lnL ntotal neff")
+    hdr = "event_id m1 m2 s1x s1y s1z s2x s2y s2z lnL sigma_lnL ntotal neff"
+    # The EVIDENCE artifact must carry the label independently of sample export:
+    # write_samples() early-returns without --save-samples/--output-file, so a
+    # run with export disabled would otherwise publish a numeric evidence row
+    # indistinguishable from a clean integration.
+    _note = angle_grid_suspect_note()
+    if _note:
+        hdr += "\n" + _note
+    np.savetxt(fname, row, header=hdr)
     print("Wrote %s" % fname)
 
 
@@ -1409,27 +1433,9 @@ def write_samples(opts, out_index, theta, lnL, with_distance, logw=None):
             print("  fairdraw: exporting %d of %d rows (requested count)"
                   % (int(n_req), n_before))
     provenance = "fairdraw: %s n_out=%d" % (note, len(theta))
-    # If the dense (phi,psi) grids were ever undersized during this event, the
-    # numbers are suspect but NOT discarded -- the operator is told, in the
-    # artifact itself, rather than the region being silently excised (see
-    # anglemarg._runtime_amp_failsafe).
-    _st = _anglemarg.amp_failsafe_state()
-    if _st.get("tripped"):
-        provenance += (" SUSPECT-ANGLE-GRID amp_failsafe=TRIPPED worst_amp=%.6g"
-                       " amp_sizing=%.6g scheme=%s"
-                       % (_st.get("worst_amp", float("nan")),
-                          _st.get("amp_sizing", float("nan")),
-                          _st.get("scheme")))
-        sys.stderr.write(
-            "WARNING integrate_likelihood_extrinsic_jax: the angle-marginalization "
-            "dense grids were UNDERSIZED at some evaluated points (worst amplitude "
-            "%.6g vs amp_sizing %.6g, scheme %s).  The exported samples and evidence "
-            "for this event are LABELLED SUSPECT in their provenance line and should "
-            "not be used without rebuilding at a larger amp_sizing.  The run was NOT "
-            "aborted and the points were NOT discarded, deliberately: discarding "
-            "would excise exactly the region the estimator missed.\n"
-            % (_st.get("worst_amp", float("nan")),
-               _st.get("amp_sizing", float("nan")), _st.get("scheme")))
+    _note = angle_grid_suspect_note()
+    if _note:
+        provenance += " " + _note
 
     ndim = theta.shape[1] if theta.ndim == 2 else len(theta)
     if with_distance:
@@ -1730,6 +1736,19 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
     # Passing the shared `rng` here -- which also feeds run_laplace_is /
     # run_prior_mc and the samplers -- made --save-samples, an OUTPUT flag,
     # change the lnL/logZ of every later event in the batch.
+    # Report ONCE per event, here, BEFORE either artifact is written -- and
+    # independently of --save-samples/--output-file, since write_samples()
+    # early-returns when export is off and a run with export disabled would
+    # otherwise get no warning and no persistent label at all.
+    _ev_note = angle_grid_suspect_note()
+    if _ev_note:
+        sys.stderr.write(
+            "WARNING integrate_likelihood_extrinsic_jax: angle-marginalization "
+            "dense grids were UNDERSIZED at some evaluated points this event "
+            "(%s).  Samples and evidence are LABELLED SUSPECT in their headers; "
+            "rebuild with a larger amp_sizing before using them.  The run was "
+            "NOT aborted and no points were discarded -- discarding would excise "
+            "exactly the region the estimator missed.\n" % _ev_note)
     write_samples(opts, out_index, theta, lnL, with_distance,
                   logw=logw_export)
     write_dat(opts, P, out_index, event_id, logZ, sig, ntot, neff)

@@ -466,18 +466,36 @@ _AMP_FAILSAFE = {"tripped": False, "n_calls": 0, "worst_amp": 0.0,
 
 
 def reset_amp_failsafe():
-    """Clear the undersizing record (call once per event, before sampling)."""
+    """Clear the undersizing record (call once per event, before sampling).
+
+    Barriers first: an in-flight callback from the PREVIOUS event must not land
+    after the reset and mislabel this one.
+    """
+    try:
+        jax.effects_barrier()
+    except Exception:
+        pass
     _AMP_FAILSAFE.update(tripped=False, n_calls=0, worst_amp=0.0,
                          amp_sizing=None, scheme=None)
 
 
-def amp_failsafe_state():
+def amp_failsafe_state(barrier=True):
     """Host-side record of whether the dense grids were ever undersized.
+
+    ``barrier=True`` calls :func:`jax.effects_barrier` first, so queued debug
+    callbacks have landed before the record is read.  Without it a caller can
+    read CLEAN while a tripped callback is still in flight, or reset for the
+    next event before the previous event's callback arrives.
 
     Returns a dict; ``tripped`` is the load-bearing field.  Consumers should
     LABEL their output rather than discard it -- see the note in
     :func:`_runtime_amp_failsafe` about why this is not fatal and not a NaN.
     """
+    if barrier:
+        try:
+            jax.effects_barrier()
+        except Exception:
+            pass
     return dict(_AMP_FAILSAFE)
 
 
@@ -556,9 +574,25 @@ def _runtime_amp_failsafe(C_A, C_B, x_grid, amp_sizing, scheme_name):
     # recorded on the HOST so the driver can LABEL the result as suspect in its
     # provenance.  A labelled result an operator can judge beats both a vanished
     # region and a dead run.
-    jax.debug.callback(_record_amp_failsafe,
-                       amp_call > 2.0 * amp_sizing, amp_call,
-                       jnp.asarray(amp_sizing, dtype=jnp.float64), scheme_name)
+    # The callback sits INSIDE lax.cond so the ORDINARY path has no host
+    # callback at all.  An unconditional callback fires once per likelihood
+    # evaluation -- once per MALA/flowMC proposal, per chain -- transferring to
+    # the host and destroying accelerator throughput even when undersizing never
+    # happens.  Only the rare tripped branch pays.
+    #
+    # Reliability caveat, stated because it bounds what this record can be used
+    # for: jax.debug.callback effects may be dropped, duplicated or reordered
+    # under transformation, and may land AFTER the result is ready.  So this is
+    # a best-effort DIAGNOSTIC LABEL, not a correctness gate -- consumers must
+    # call jax.effects_barrier() before reading or resetting the state, and must
+    # not treat a clean read as proof of adequacy.
+    jax.lax.cond(
+        amp_call > 2.0 * amp_sizing,
+        lambda a_: jax.debug.callback(
+            _record_amp_failsafe, True, a_,
+            jnp.asarray(amp_sizing, dtype=jnp.float64), scheme_name),
+        lambda a_: None,
+        amp_call)
 
 
 def _require_amp_sizing(amp_sizing):

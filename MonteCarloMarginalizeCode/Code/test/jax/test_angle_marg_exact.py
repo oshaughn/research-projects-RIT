@@ -1053,12 +1053,24 @@ def test_driver_labels_a_suspect_angle_grid_in_provenance():
     assert "_anglemarg.reset_amp_failsafe()" in src, "must reset per event"
     assert "_anglemarg.amp_failsafe_state()" in src
     assert "SUSPECT-ANGLE-GRID" in src, "the artifact must carry the label"
-    # the label must attach to the provenance that is WRITTEN, not to a discarded local
-    assert _re.search(r'provenance \+= \(\s*" SUSPECT-ANGLE-GRID', src), (
-        "the label must be appended to the provenance string write_samples uses")
+    # The EVIDENCE row must be labelled too, not only the sample file:
+    # write_samples() early-returns without --save-samples, so a run with export
+    # disabled would otherwise publish a numeric .dat indistinguishable from a
+    # clean integration.
+    assert "def angle_grid_suspect_note()" in src
+    wd = src[src.index("def write_dat("):]
+    wd = wd[:wd.index("\ndef ")]
+    assert "angle_grid_suspect_note()" in wd, (
+        "write_dat must label the evidence artifact independently of sample export")
+    # and the warning must fire per event, not only on the export path
+    ao = src[src.index("def analyze_one("):]
+    assert "_ev_note = angle_grid_suspect_note()" in ao, (
+        "analyze_one must report once per event regardless of export settings")
     # and must not sit behind a bare except that degrades a tripped run to clean
     assert '_st = {"tripped": False}' not in src, (
         "a swallowed exception would silently report a tripped run as clean")
+
+
 
 
 def test_dense_phi_sizing_must_scale_with_m_max():
@@ -1110,3 +1122,36 @@ def test_dense_phi_sizing_must_scale_with_m_max():
         "this test no longer BITES: the m_max-blind rule errs only %.3e at "
         "n=%d, so a revert would pass.  Re-tune (b, m_max) until it does."
         % (err_old, n_old))
+
+
+def test_failsafe_callback_is_cond_guarded_and_reads_are_barriered():
+    """Throughput and reliability constraints on the undersizing record.
+
+    An UNCONDITIONAL jax.debug.callback fires once per likelihood evaluation --
+    once per MALA/flowMC proposal, per chain -- transferring to the host and
+    destroying accelerator throughput even when undersizing never happens.  It
+    must sit inside lax.cond so the ordinary path pays nothing.
+
+    And because debug-callback effects may be dropped, duplicated, reordered, or
+    land AFTER the result is ready, every read/reset of the host record must
+    barrier first -- otherwise a caller reads clean while a tripped callback is
+    in flight, or resets before the previous event's callback arrives.
+    """
+    import inspect as _inspect
+    from RIFT.likelihood.jax_ile import anglemarg as _AMmod
+
+    src = _inspect.getsource(_AMmod._runtime_amp_failsafe)
+    i_cond = src.find("lax.cond")
+    i_cb = src.find("debug.callback")
+    assert i_cond != -1 and i_cb != -1
+    assert i_cond < i_cb, (
+        "jax.debug.callback must be INSIDE lax.cond; an unconditional callback "
+        "fires on every likelihood evaluation")
+
+    for fn in (_AMmod.amp_failsafe_state, _AMmod.reset_amp_failsafe):
+        assert "effects_barrier" in _inspect.getsource(fn), (
+            "%s must barrier queued callbacks before touching the record" % fn.__name__)
+
+    # and it still works end to end
+    _AMmod.reset_amp_failsafe()
+    assert _AMmod.amp_failsafe_state()["tripped"] is False
