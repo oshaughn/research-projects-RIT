@@ -1040,11 +1040,79 @@ def test_driver_does_not_refuse_an_ordinary_default_run():
         assert 'Time-marginalization quadrature: simpson' in out, (args, out[-2000:])
 
 
+def _quadrature_banner(out):
+    """The quadrature banner line, matched SPECIFICALLY.
+
+    The pre-existing `--interpolate-time` banner carries the identical phrase
+    "honoured by this configuration", so a bare substring test matches whichever
+    line happens to say what you were hoping for.  A mutation making the
+    quadrature banner claim `True` unconditionally survived exactly that way:
+    the stencil line still said `False` and the assertion passed.
+    """
+    import re
+    m = re.search(r'^\s*Time-marginalization quadrature: (\S+) '
+                  r'\(from --time-marginalization-quadrature (.+?)\); '
+                  r'honoured by this configuration: (True|False)\s*$',
+                  out, re.MULTILINE)
+    assert m is not None, "no quadrature banner line found:\n" + out[-3000:]
+    return m.group(1), m.group(3)
+
+
 def test_driver_banner_does_not_claim_to_honour_what_it_cannot():
-    rc, out = _run_driver(['--time-marginalization'])
-    assert 'honoured by this configuration: False' in out, out[-2000:]
-    rc, out = _run_driver(_HONOURED)
-    assert 'honoured by this configuration: True' in out, out[-2000:]
+    quad, honoured = _quadrature_banner(_run_driver(['--time-marginalization'])[1])
+    assert (quad, honoured) == ('simpson', 'False')
+    quad, honoured = _quadrature_banner(_run_driver(_HONOURED)[1])
+    assert (quad, honoured) == ('simpson', 'True')
+    quad, honoured = _quadrature_banner(
+        _run_driver(['--time-marginalization-quadrature', 'bandlimited'] + _HONOURED)[1])
+    assert (quad, honoured) == ('bandlimited', 'True')
+
+
+def test_the_edge_guard_band_is_exactly_the_outer_fraction():
+    """Pin both boundaries to the sample, not merely "near the edge".
+
+    An off-by-one in the upper term -- `jmax > npts - guard` instead of
+    `npts - 1 - guard` -- leaves exactly one row's worth of the right guard band
+    open, and every peak-placement fixture is far enough inside that both spellings
+    agree.  Driving the argmax to a chosen bin makes the boundary itself the
+    subject.
+    """
+    guard = max(1, int(NPTS * tmq.EDGE_GUARD_FRACTION))
+
+    def row_peaking_at(j):
+        t = np.arange(NPTS, dtype=float)
+        return (np.exp(-0.5 * ((t - j) / 0.35) ** 2) * 40.0).astype(complex)
+
+    # The last EXPOSED index and the first ACCEPTED one, at both ends.  These four
+    # are what an off-by-one in either term moves, and every peak-placement
+    # fixture elsewhere is far enough inside that both spellings agree.
+    for j, expect_exposed in ((guard - 1, True), (guard, False),
+                              (NPTS - 1 - guard, False), (NPTS - guard, True)):
+        k = row_peaking_at(j)[None, :]
+        r = np.full(k.shape, RHO_SQ)
+        sigma, jmax, meas = tmq.peak_width_from_lnL(_lnL(k.real, r), DELTAT)
+        assert int(jmax[0]) == j and np.isfinite(sigma[0]), (j, jmax, sigma)
+        tmq.time_marginalize_bandlimited(k, r, DELTAT, _lnL)
+        rep = tmq.last_report()
+        assert (rep['n_wrap_exposed_rows'] == 1) == expect_exposed, (j, guard, rep)
+        # accepted rows here are sharp enough to be refined, so the guard is
+        # deciding something rather than being masked by a factor of 1
+        assert (rep['n_refined_rows'] == 1) == (not expect_exposed), (j, rep)
+
+    # A peak on the very first or last SAMPLE is a documented corner: the
+    # curvature stencil is clipped inward, so it measures a positive second
+    # difference and the row classifies as FLAT rather than wrap-exposed.  That
+    # under-states the window-centring problem in the diagnostic, but it is safe
+    # -- what matters is that such a row is never refined, so it gets the
+    # historical value either way.
+    for j in (0, NPTS - 1):
+        k = row_peaking_at(j)[None, :]
+        r = np.full(k.shape, RHO_SQ)
+        out = tmq.time_marginalize_bandlimited(k, r, DELTAT, _lnL)
+        rep = tmq.last_report()
+        assert rep['n_refined_rows'] == 0, (j, rep)
+        assert rep['n_flat_rows'] == 1, (j, rep)
+        assert float(out[0]) == _simpson_value(k[0]), j
 
 
 if __name__ == '__main__':
