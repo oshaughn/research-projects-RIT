@@ -830,87 +830,103 @@ def _laplace_psi_lnI(a, c1, c2):
     # registers in encounter order.  Interval-based bracketing cannot yield
     # duplicate roots: the sign sequence flips exactly once per transversal
     # crossing, including a crossing that sits exactly on a grid node.
+    #
+    # STRUCTURE, not mathematics: the cell walk is a lax.scan and the slot
+    # registers are one stacked (_LAPLACE_MAX_ROOTS, X) array rather than a
+    # Python loop over cells and slots.  The elementwise updates are the
+    # same; the Python version unrolled ~24 x 4 select chains into the traced
+    # graph, and this kernel is instantiated once per distance block, which
+    # multiplied that unroll into an XLA graph that took over an hour (and
+    # >20 GiB) to compile at production sizes.  Same fix pattern below for
+    # the bisection and the fixed-N quadrature.
     N = _LAPLACE_BRACKET_CELLS
     ug = np.linspace(0.0, 2.0 * np.pi, N + 1)
     cell = ug[1] - ug[0]
     zero_f = jnp.zeros_like(b)
     false_x = jnp.zeros_like(b, dtype=bool)
-    s_prev = fp(jnp.asarray(ug[0])) >= 0
-    count = zero_f
-    los = [zero_f for _ in range(_LAPLACE_MAX_ROOTS)]
-    s_los = [false_x for _ in range(_LAPLACE_MAX_ROOTS)]
-    filled = [false_x for _ in range(_LAPLACE_MAX_ROOTS)]
-    for k in range(N):
-        s_next = fp(jnp.asarray(ug[k + 1])) >= 0
+    nR = _LAPLACE_MAX_ROOTS
+    slot_ids = jnp.arange(nR, dtype=zero_f.dtype).reshape(
+        (nR,) + (1,) * zero_f.ndim)
+    s_prev0 = fp(jnp.asarray(ug[0])) >= 0
+    los0 = jnp.stack([zero_f] * nR)
+    s_los0 = jnp.stack([false_x] * nR)
+    filled0 = jnp.stack([false_x] * nR)
+
+    def _bracket_step(carry, edges):
+        s_prev, count, los, s_los, filled = carry
+        u_left, u_right = edges
+        s_next = fp(u_right) >= 0
         flip = s_prev != s_next
-        for j in range(_LAPLACE_MAX_ROOTS):
-            take = flip & (count == j)
-            los[j] = jnp.where(take, ug[k], los[j])
-            s_los[j] = jnp.where(take, s_prev, s_los[j])
-            filled[j] = filled[j] | take
+        take = flip[None] & (count[None] == slot_ids)
+        los = jnp.where(take, u_left, los)
+        s_los = jnp.where(take, s_prev[None], s_los)
+        filled = filled | take
         count = count + flip.astype(count.dtype)
-        s_prev = s_next
+        return (s_next, count, los, s_los, filled), None
+
+    (_, _, los, s_los, filled), _ = jax.lax.scan(
+        _bracket_step, (s_prev0, zero_f, los0, s_los0, filled0),
+        (jnp.asarray(ug[:-1]), jnp.asarray(ug[1:])))
 
     # ---- per-slot bisection (value-only) + one differentiable polish step
-    terms = []
-    for j in range(_LAPLACE_MAX_ROOTS):
-        lo = los[j]
-        hi = lo + cell
-        slo = s_los[j]
-        for _ in range(20):           # cell/2^20 ~ 2.5e-7, then Newton
-            mid = 0.5 * (lo + hi)
-            go_right = (fp(mid) >= 0) == slo
-            lo = jnp.where(go_right, mid, lo)
-            hi = jnp.where(go_right, hi, mid)
-        u0 = jax.lax.stop_gradient(0.5 * (lo + hi))
-        u = u0 - fp(u0) / _guard(fpp(u0))
-        H = fpp(u)
-        # tolerant acceptance: a maximum with H in [-h_floor, +h_floor) is a
-        # (near-)degenerate flat top; drop it and a finite integral could
-        # come back -inf, so keep it with the floored curvature instead
-        # (its Laplace weight is then merely inaccurate, never absent).
-        ok = filled[j] & (H < h_floor)
-        Hm = jnp.minimum(H, -h_floor)
-        # Peak width: the Gaussian factor sqrt(2 pi/|H|) OVERESTIMATES a
-        # near-degenerate (quartic-flat) maximum by nats -- at the exactly
-        # aligned b = 4d configuration the floored-curvature form was ~5
-        # nats high (review 3's local-error standard).  The quartic width
-        # int exp(f4 u^4/24) du = Gamma(1/4)/2 * (24/|f4|)^(1/4) is closed
-        # form (f'''' is elementary for a trig polynomial).  The widths are
-        # combined as W = W_g (1 + rho)^-1/2 with rho = (W_g/W_q)^2 -- exact
-        # at both ends and at most 0.083 nats off on the scale-free
-        # Gaussian x quartic family (vs 0.26 for min() and ~5 for the
-        # floored Gaussian alone) -- but GATED on rho: for a REGULAR
-        # maximum rho ~ 1/sqrt(b) and the ungated correction would inject
-        # an O(1/sqrt(A)) systematic where plain Laplace errs only O(1/A)
-        # (measured: sweep worst at t = 1000 rose 3.7e-3 -> 4.6e-2
-        # ungated).  The gate turns the correction on smoothly over
-        # rho in [0.2, 0.8], i.e. only where the peak is genuinely
-        # quartic-contaminated.
-        F4 = fpppp(u)
-        f4_floor = 1e-6 * (bl + 16.0 * dl)
-        F4m = jnp.minimum(F4, -f4_floor)
-        lnW_gauss = 0.5 * jnp.log(2.0 * jnp.pi / (-Hm))
-        lnW_quart = 0.5949217316 + 0.25 * jnp.log(24.0 / (-F4m))
-        rho = jnp.exp(jnp.clip(2.0 * (lnW_gauss - lnW_quart), -50.0, 50.0))
-        g8 = jnp.clip((rho - 0.2) / 0.6, 0.0, 1.0)
-        g8 = g8 * g8 * (3.0 - 2.0 * g8)
-        lnW = lnW_gauss - 0.5 * jnp.log1p(rho * g8)
-        t = jnp.where(ok,
+    # (batched over the slot axis; the 20 halvings are a fori_loop)
+    slo = s_los
+    def _bisect_step(_, lohi):        # cell/2^20 ~ 2.5e-7, then Newton
+        lo, hi = lohi
+        mid = 0.5 * (lo + hi)
+        go_right = (fp(mid) >= 0) == slo
+        return (jnp.where(go_right, mid, lo), jnp.where(go_right, hi, mid))
+    lo, hi = jax.lax.fori_loop(0, 20, _bisect_step, (los, los + cell))
+    u0 = jax.lax.stop_gradient(0.5 * (lo + hi))
+    u = u0 - fp(u0) / _guard(fpp(u0))
+    H = fpp(u)
+    # tolerant acceptance: a maximum with H in [-h_floor, +h_floor) is a
+    # (near-)degenerate flat top; drop it and a finite integral could
+    # come back -inf, so keep it with the floored curvature instead
+    # (its Laplace weight is then merely inaccurate, never absent).
+    ok = filled & (H < h_floor)
+    Hm = jnp.minimum(H, -h_floor)
+    # Peak width: the Gaussian factor sqrt(2 pi/|H|) OVERESTIMATES a
+    # near-degenerate (quartic-flat) maximum by nats -- at the exactly
+    # aligned b = 4d configuration the floored-curvature form was ~5
+    # nats high (review 3's local-error standard).  The quartic width
+    # int exp(f4 u^4/24) du = Gamma(1/4)/2 * (24/|f4|)^(1/4) is closed
+    # form (f'''' is elementary for a trig polynomial).  The widths are
+    # combined as W = W_g (1 + rho)^-1/2 with rho = (W_g/W_q)^2 -- exact
+    # at both ends and at most 0.083 nats off on the scale-free
+    # Gaussian x quartic family (vs 0.26 for min() and ~5 for the
+    # floored Gaussian alone) -- but GATED on rho: for a REGULAR
+    # maximum rho ~ 1/sqrt(b) and the ungated correction would inject
+    # an O(1/sqrt(A)) systematic where plain Laplace errs only O(1/A)
+    # (measured: sweep worst at t = 1000 rose 3.7e-3 -> 4.6e-2
+    # ungated).  The gate turns the correction on smoothly over
+    # rho in [0.2, 0.8], i.e. only where the peak is genuinely
+    # quartic-contaminated.
+    F4 = fpppp(u)
+    f4_floor = 1e-6 * (bl + 16.0 * dl)
+    F4m = jnp.minimum(F4, -f4_floor)
+    lnW_gauss = 0.5 * jnp.log(2.0 * jnp.pi / (-Hm))
+    lnW_quart = 0.5949217316 + 0.25 * jnp.log(24.0 / (-F4m))
+    rho = jnp.exp(jnp.clip(2.0 * (lnW_gauss - lnW_quart), -50.0, 50.0))
+    g8 = jnp.clip((rho - 0.2) / 0.6, 0.0, 1.0)
+    g8 = g8 * g8 * (3.0 - 2.0 * g8)
+    lnW = lnW_gauss - 0.5 * jnp.log1p(rho * g8)
+    terms = jnp.where(ok,
                       a + fval(u) + lnW
                       - jnp.log(2.0 * jnp.pi),      # (1/2 du/dpsi) * (1/pi)
-                      -jnp.inf)
-        terms.append(t)
+                      -jnp.inf)                     # (nR,) + X
 
     # guarded log-add-exp over the root slots: an all--inf slot set has a NaN
     # backward pass under the naive form, and the NaN leaks through jnp.where.
+    # Explicit left fold (not jnp.max/sum) preserves the pre-restructure
+    # accumulation order bit for bit.
     mt = terms[0]
-    for t in terms[1:]:
-        mt = jnp.maximum(mt, t)
+    for j in range(1, nR):
+        mt = jnp.maximum(mt, terms[j])
     mts = jnp.where(jnp.isfinite(mt), mt, 0.0)
     ssum = zero_f
-    for t in terms:
-        ssum = ssum + jnp.exp(t - mts)
+    for j in range(nR):
+        ssum = ssum + jnp.exp(terms[j] - mts)
     ln_laplace = jnp.where(ssum > 0,
                            mts + jnp.log(jnp.maximum(ssum, 1e-300)),
                            -jnp.inf)
@@ -918,18 +934,29 @@ def _laplace_psi_lnI(a, c1, c2):
     # ---- fixed-N u-quadrature branch: mean of exp(f) over a uniform u grid
     # equals (1/pi) int dpsi.  Uses the TRUE c1, c2 (no dummies needed: no
     # divisions, and the running-max log-sum-exp keeps exp() in range even
-    # for the huge-t bins whose blend weight is 0).  Chunked so the
-    # transient stays a few X-sized arrays.
+    # for the huge-t bins whose blend weight is 0).  Chunked (as a lax.scan
+    # over precomputed host phase tables, one traced body instead of
+    # _LAPLACE_QUAD_N unrolled evaluations) so the transient stays a few
+    # X-sized arrays.
     uq = np.linspace(0.0, 2.0 * np.pi, _LAPLACE_QUAD_N, endpoint=False)
-    mq = jnp.full_like(b, -jnp.inf)
-    sq = jnp.zeros_like(b)
     QCH = 16
-    for s0 in range(0, _LAPLACE_QUAD_N, QCH):
-        blk = []
-        for u_val in uq[s0:s0 + QCH]:
-            eiu = np.exp(1j * u_val)          # host scalar phase
-            blk.append((c1 * eiu).real + (c2 * (eiu * eiu)).real)
-        mq, sq = _lse_update(mq, sq, jnp.stack(blk, axis=0), axis=0)
+    e1 = np.exp(1j * uq)                       # host phases, as before
+    e2 = e1 * e1                               # == eiu * eiu elementwise
+    p1 = jnp.asarray(e1.reshape(-1, QCH))      # (nq, QCH)
+    p2 = jnp.asarray(e2.reshape(-1, QCH))
+    bshape = jnp.broadcast_shapes(jnp.shape(c1), jnp.shape(c2))
+    pshape = (QCH,) + (1,) * len(bshape)
+
+    def _quad_step(carry, phases):
+        mq, sq = carry
+        p1k, p2k = phases                      # (QCH,) complex
+        blk = ((c1[None] * p1k.reshape(pshape)).real
+               + (c2[None] * p2k.reshape(pshape)).real)
+        return _lse_update(mq, sq, blk, axis=0), None
+
+    mq0 = jnp.full(bshape, -jnp.inf, dtype=b.dtype)
+    sq0 = jnp.zeros(bshape, dtype=b.dtype)
+    (mq, sq), _ = jax.lax.scan(_quad_step, (mq0, sq0), (p1, p2))
     ln_quad = (a + mq + jnp.log(jnp.maximum(sq, 1e-300))
                - jnp.log(float(_LAPLACE_QUAD_N)))
 
@@ -995,6 +1022,26 @@ def fused_log_likelihood_distphipsimarg_laplace(
     kpB = jnp.arange(2 * m_max + 1, dtype=jnp.float64)
     G = x_grid.shape[0]
     blk = int(dist_block)
+    # Distance nodes packed into (n_dblk, blk) for the lax.scan below; the
+    # tail block (if G % blk) is edge-padded with -inf log-weights, exactly
+    # the _pad_chunks convention, so padded nodes contribute exactly 0 to the
+    # running log-sum-exp.  A Python loop here instantiated the FULL
+    # _laplace_psi_lnI kernel once per distance block inside the (already
+    # checkpointed) phi scan body -- at the production n_grid=256, blk=4 that
+    # is 64 copies of an already-large kernel, and XLA compile time/memory on
+    # the resulting graph was the >1 h, >20 GiB wall the 2026-08-28 bake-off
+    # hit.  The scan traces the kernel ONCE.  Numerics are unchanged.
+    n_dblk = (G + blk - 1) // blk
+    pad_d = n_dblk * blk - G
+    if pad_d:
+        x_pad = jnp.concatenate(
+            [x_grid, jnp.broadcast_to(x_grid[-1], (pad_d,))])
+        lw_pad = jnp.concatenate(
+            [log_w_grid, jnp.full((pad_d,), -jnp.inf, dtype=jnp.float64)])
+    else:
+        x_pad, lw_pad = x_grid, log_w_grid
+    xg_blk = x_pad.reshape(n_dblk, blk)
+    lwg_blk = lw_pad.reshape(n_dblk, blk)
 
     def _step(carry, x):
         m, s = carry
@@ -1017,18 +1064,22 @@ def fused_log_likelihood_distphipsimarg_laplace(
         B2 = MB(4) + jnp.conj(MB(0))
 
         # distance quadrature: blocked, vectorized over the block (AD-fast),
-        # running log-sum-exp across blocks
-        mx = jnp.full((c, S, npts), -jnp.inf, dtype=jnp.float64)
-        sx = jnp.zeros((c, S, npts), dtype=jnp.float64)
-        for start in range(0, G, blk):
-            sl = slice(start, min(start + blk, G))
-            xg = x_grid[sl][:, None, None, None]              # (g,1,1,1)
-            lwg = log_w_grid[sl][:, None, None, None]
+        # running log-sum-exp across blocks (a lax.scan; see the packing note
+        # above -- one traced kernel instead of G/blk unrolled copies)
+        def _dist_step(carry, xw):
+            mx, sx = carry
+            xgb, lwgb = xw                                    # (blk,)
+            xg = xgb[:, None, None, None]                     # (g,1,1,1)
+            lwg = lwgb[:, None, None, None]
             av = xg * A0[None] - 0.5 * jnp.square(xg) * B0[None]
             c1 = xg * A1[None] - 0.5 * jnp.square(xg) * B1[None]
             c2 = -0.5 * jnp.square(xg) * B2[None]
             e = _laplace_psi_lnI(av, c1, c2) + lwg            # (g,c,S,npts)
-            mx, sx = _lse_update(mx, sx, e, axis=0)
+            return _lse_update(mx, sx, e, axis=0), None
+
+        mx0 = jnp.full((c, S, npts), -jnp.inf, dtype=jnp.float64)
+        sx0 = jnp.zeros((c, S, npts), dtype=jnp.float64)
+        (mx, sx), _ = jax.lax.scan(_dist_step, (mx0, sx0), (xg_blk, lwg_blk))
         lnI = (mx + jnp.where(sx > 0, jnp.log(jnp.maximum(sx, 1e-300)), -jnp.inf)
                + lww[:, None, None])                          # (c,S,npts)
         m_new, s_new = _lse_update(m, s, lnI, axis=0)

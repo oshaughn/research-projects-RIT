@@ -157,6 +157,17 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         passes a weaker guard), and that BOTH
 #                                         artifacts are labelled and never imply
 #                                         verification.  Seconds, not minutes.
+#   test_angle_marg_compile_cost.py   3  the laplace path's COMPILE-COST structure
+#                                         (2026-08-28: an unrolled kernel x 64
+#                                         distance blocks put a production SNR-40 run
+#                                         >88 min / 22 GiB into XLA compilation).
+#                                         Trace-only where possible: the traced graph
+#                                         must not grow with the distance grid, the
+#                                         kernel must stay rolled (lax.scan/fori_loop,
+#                                         equation-count ceiling), and the distance
+#                                         tail padding must be exactly-zero-weight.
+#                                         Each fails under a verified mutation (see
+#                                         the PR).  Seconds.
 #   test_angle_marg_sizing_rule.py    1  the m_max-aware dense phi sizing rule.
 #                                         Pure numpy, milliseconds, closed-form I0
 #                                         reference.  FAILS under the old m_max-blind
@@ -206,6 +217,7 @@ FILES=(
   "${JAXDIR}/test_flow_reuse_default.py"
   "${JAXDIR}/test_angle_marg_sizing_rule.py"
   "${JAXDIR}/test_angle_marg_smoke.py"
+  "${JAXDIR}/test_angle_marg_compile_cost.py"
 )
 
 # EXCLUDED: files in JAXDIR matching test_*.py that are deliberately NOT gated.  The
@@ -285,7 +297,7 @@ fi
 # collection" must mean collection IN THE GATE'S ENVIRONMENT -- a local count has
 # tripped this floor twice.  When in doubt, take the number from a CI log line
 # ("collected N tests from M files") rather than from your shell.
-EXPECTED_TESTS=148
+EXPECTED_TESTS=151
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"
