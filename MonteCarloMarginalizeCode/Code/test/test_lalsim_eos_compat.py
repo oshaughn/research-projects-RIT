@@ -1,5 +1,6 @@
 import json
 
+import lal
 import numpy as np
 import pytest
 
@@ -90,6 +91,13 @@ class MultibranchLALSimulation:
         return 100.0 * branch_id + mass
 
 
+class StellarMassMultibranchLALSimulation(MultibranchLALSimulation):
+    bounds = tuple(
+        (lower * lal.MSUN_SI, upper * lal.MSUN_SI)
+        for lower, upper in MultibranchLALSimulation.bounds
+    )
+
+
 def test_released_lalsimulation_uses_one_argument_family_api():
     lalsim = LegacyLALSimulation()
     family = LALSimNeutronStarFamilyAdapter(
@@ -160,6 +168,44 @@ def test_eosmanager_smoke_with_installed_released_lalsimulation():
     assert np.isfinite(eos.lambda_from_m(1.4))
 
 
+def test_kedia_parametric_eos_scalar_interfaces_remain_compatible():
+    from RIFT.physics import EOSManager
+
+    spectral = EOSManager.EOSLindblomSpectral(
+        name="contract-spectral",
+        spec_params=dict(gamma1=1.0, gamma2=1.0, gamma3=0.0, gamma4=0.0),
+        use_lal_spec_eos=True,
+    )
+    piecewise = EOSManager.EOSPiecewisePolytrope(
+        name="contract-piecewise",
+        param_dict=dict(
+            logP1=34.269, gamma1=2.830, gamma2=3.445, gamma3=3.348
+        ),
+    )
+
+    assert np.isfinite(spectral.lambda_from_m(1.4))
+    assert np.isfinite(piecewise.lambda_from_m(1.4))
+
+
+def test_selected_branch_view_preserves_legacy_scalar_consumer_api(monkeypatch):
+    from RIFT.physics import EOSManager
+
+    fake_lalsim = StellarMassMultibranchLALSimulation()
+    monkeypatch.setattr(EOSManager, "lalsim", fake_lalsim)
+    eos = EOSManager.EOSLALSimulationFromFile("twin-star.dat")
+
+    primary = eos.for_branch(0)
+    secondary = eos.for_branch(1)
+    assert primary.mMaxMsun == pytest.approx(2.0)
+    assert secondary.mMaxMsun == pytest.approx(3.0)
+    assert secondary.branches_for_m(1.75) == [1]
+    assert secondary.radius_from_m(1.75) == pytest.approx(
+        10.0 + 1.75 * lal.MSUN_SI
+    )
+    assert np.isfinite(secondary.lambda_from_m(1.75))
+    assert primary.lambda_from_m(2.5) == pytest.approx(1e-8)
+
+
 def test_nmb_sequence_dispatch_and_accessors_remain_compatible(tmp_path):
     h5py = pytest.importorskip("h5py")
     from RIFT.physics import EOSManager
@@ -184,3 +230,35 @@ def test_nmb_sequence_dispatch_and_accessors_remain_compatible(tmp_path):
     assert eos_sequence.m_max_of_indx(0) == pytest.approx(2.0)
     assert eos_sequence.R_of_m_indx(1.4, 0) == pytest.approx(11.5)
     assert eos_sequence.lambda_of_m_indx(1.4, 0) == pytest.approx(300.0)
+
+
+def test_nmb_primary_branch_contract_does_not_mix_disconnected_branches(tmp_path):
+    h5py = pytest.importorskip("h5py")
+    from RIFT.physics import EOSManager
+
+    path = tmp_path / "nmb-twin-sequence.h5"
+    fields = ["hc", "M", "R", "Lambda", "stable"]
+    sequence = np.array(
+        [[[0.1, 1.0, 13.0, 600.0, 1.0],
+          [0.2, 2.0, 11.0, 100.0, 1.0],
+          [0.3, 1.8, 10.8, 80.0, 0.0],
+          [0.4, 1.6, 10.0, 60.0, 1.0],
+          [0.5, 2.1, 9.0, 20.0, 1.0]]]
+    )
+    with h5py.File(path, "w") as stream:
+        stream.attrs["representation"] = "tabular_hc/1"
+        stream.attrs["schema_version"] = "nmbackend.nss/1"
+        stream.attrs["fields"] = json.dumps(fields)
+        stream.create_dataset("sequence", data=sequence)
+
+    eos_sequence = EOSManager.EOSSequenceFromFile(
+        fname=str(path), load_ns=True, no_sort=True
+    )
+    assert eos_sequence.stable_branch_counts[0] == 2
+    assert eos_sequence.m_max_of_indx(0) == pytest.approx(2.0)
+    expected_primary_radius = np.exp(
+        np.interp(1.8, [1.0, 2.0], np.log([13.0, 11.0]))
+    )
+    assert eos_sequence.R_of_m_indx(1.8, 0) == pytest.approx(
+        expected_primary_radius
+    )

@@ -101,6 +101,19 @@ class EOSConcrete:
             m = m * lal.MSUN_SI
         return self._get_lalsim_family_adapter().branches_for_mass(m)
 
+    def for_branch(self, branch_id):
+        """Return a legacy-scalar view restricted to one stable LAL branch.
+
+        Existing RIFT consumers call ``lambda_from_m(m)`` without a branch
+        keyword.  The view preserves that API while making the branch choice
+        explicit at construction time.
+        """
+        if getattr(self, "_lalsim_family_adapter", None) is None:
+            raise TypeError(
+                "branch selection requires a LALSimulation-backed EOS family"
+            )
+        return EOSBranchView(self, branch_id)
+
     def radius_from_m(self, m, branch_id=None):
         """Return radius in metres; require ``branch_id`` for twin stars."""
         if m < 10**15:
@@ -259,6 +272,49 @@ class EOSConcrete:
             if rosDebug:
                 print(h[indx], vs_internal[indx])
         return not np.any(vs_internal>1.1)   # allow buffer, so we have some threshold
+
+
+class EOSBranchView:
+    """A selected stable-family branch with the historical scalar EOS surface.
+
+    This wrapper is deliberately small: attributes not related to the stellar
+    family are delegated to the source EOS, while all mass-radius-tidal queries
+    are pinned to ``branch_id``.  It is the compatibility bridge for callers
+    such as CIP and hyperpipe that cannot pass a branch keyword on every lookup.
+    """
+
+    def __init__(self, source, branch_id):
+        self.source = source
+        self.branch_id = int(branch_id)
+        adapter = source._get_lalsim_family_adapter()
+        adapter._validate_branch_id(self.branch_id)
+        self.name = "{}[branch={}]".format(source.name, self.branch_id)
+        self.eos = source.eos
+        self.eos_fam = source.eos_fam
+        self.mMaxMsun = (
+            adapter.maximum_mass(self.branch_id) / lal.MSUN_SI
+        )
+
+    def branches_for_m(self, m):
+        available = self.source.branches_for_m(m)
+        return [self.branch_id] if self.branch_id in available else []
+
+    def radius_from_m(self, m):
+        return self.source.radius_from_m(m, branch_id=self.branch_id)
+
+    def lambda_from_m(self, m):
+        m_msun = m / lal.MSUN_SI if m > 10**15 else m
+        if m_msun > 0.999 * self.mMaxMsun:
+            return 1e-8
+        return self.source.lambda_from_m(m, branch_id=self.branch_id)
+
+    def lambda_from_m_vector(self, m):
+        if not isinstance(m, np.ndarray):
+            return self.lambda_from_m(m)
+        return np.array([self.lambda_from_m(m_here) for m_here in m])
+
+    def __getattr__(self, name):
+        return getattr(self.source, name)
 
 ###
 ### SERVICE 1: lalsimutils structure
@@ -1623,15 +1679,44 @@ class EOSSequenceNMB(EOSSequenceLandry):
     """
 
     @staticmethod
-    def _stable_rising(M, R, Lam, stable):
-        ok = np.isfinite(M) & (M > 0)
-        M, R, Lam, st = M[ok], R[ok], Lam[ok], stable[ok] > 0.5
-        if M.size < 2:
-            return M, R, Lam
-        imax = int(np.argmax(np.where(st, M, -np.inf)))
-        M, R, Lam = M[:imax + 1], R[:imax + 1], Lam[:imax + 1]
-        o = np.argsort(M)
-        return M[o], R[o], Lam[o]
+    def _stable_branches(M, R, Lam, stable):
+        """Split an h_c-ordered sequence into stable, mass-rising branches.
+
+        ``NSSequence`` stores central-enthalpy order.  Filtering only at the
+        global maximum silently mixed disconnected stable branches with the
+        unstable interval between them.  Runs are therefore split whenever the
+        stored stability flag is false or mass ceases to rise.
+        """
+        M = np.asarray(M); R = np.asarray(R); Lam = np.asarray(Lam)
+        valid = (np.isfinite(M) & np.isfinite(R) & np.isfinite(Lam)
+                 & (M > 0) & (np.asarray(stable) > 0.5))
+        branches = []
+        start = None
+        for k in range(len(M)):
+            continues = (valid[k] and start is not None
+                         and k > 0 and valid[k - 1] and M[k] > M[k - 1])
+            if valid[k] and start is None:
+                start = k
+            elif valid[k] and not continues:
+                if k - start >= 2:
+                    branches.append((M[start:k], R[start:k], Lam[start:k]))
+                start = k
+            elif not valid[k] and start is not None:
+                if k - start >= 2:
+                    branches.append((M[start:k], R[start:k], Lam[start:k]))
+                start = None
+        if start is not None and len(M) - start >= 2:
+            branches.append((M[start:], R[start:], Lam[start:]))
+        return branches
+
+    @classmethod
+    def _stable_rising(cls, M, R, Lam, stable):
+        """Return the primary stable branch used by the NMB v1 RIFT contract."""
+        branches = cls._stable_branches(M, R, Lam, stable)
+        if branches:
+            return branches[0]
+        empty = np.array([], dtype=float)
+        return empty, empty.copy(), empty.copy()
 
     def __init__(self, name=None, fname=None, load_eos=False, load_ns=True,
                  oned_order_name=None, oned_order_mass=None, no_sort=True,
@@ -1667,8 +1752,14 @@ class EOSSequenceNMB(EOSSequenceLandry):
         self.eos_names = np.array(["eos_{}".format(k) for k in range(n_eos)], dtype=str)
         self.eos_ids = list(range(n_eos))
         self.eos_ns_tov = {}
+        self.stable_branch_counts = np.zeros(n_eos, dtype=int)
         for k in range(n_eos):
             s = seq[k]
+            branches = self._stable_branches(
+                s[:, col["M"]], s[:, col["R"]],
+                s[:, col["Lambda"]], s[:, col["stable"]]
+            )
+            self.stable_branch_counts[k] = len(branches)
             M, R, Lam = self._stable_rising(s[:, col["M"]], s[:, col["R"]],
                                             s[:, col["Lambda"]], s[:, col["stable"]])
             rec = np.zeros(M.size, dtype=[("M", "f8"), ("R", "f8"), ("Lambda", "f8")])
@@ -1737,10 +1828,14 @@ class EOSSequencePCA(EOSSequenceNMB):
         self.eos_names = np.array(["eos_{}".format(k) for k in range(n_eos)], dtype=str)
         self.eos_ids = list(range(n_eos))
         self.eos_ns_tov = {}
+        self.stable_branch_counts = np.zeros(n_eos, dtype=int)
         for k in range(n_eos):
             rec_curves = mean + np.einsum("ck,ckp->cp", coeffs[k], comps)
             M, R, Lam = rec_curves[iM], rec_curves[iR], np.exp(rec_curves[iL])
             stable = np.concatenate([[True], np.diff(M) > 0])
+            self.stable_branch_counts[k] = len(
+                self._stable_branches(M, R, Lam, stable.astype(float))
+            )
             Mb, Rb, Lb = self._stable_rising(M, R, Lam, stable.astype(float))
             rec = np.zeros(Mb.size, dtype=[("M", "f8"), ("R", "f8"), ("Lambda", "f8")])
             rec["M"], rec["R"], rec["Lambda"] = Mb, Rb, Lb
