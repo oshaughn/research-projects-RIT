@@ -693,9 +693,16 @@ if opts._time_quadrature != 'simpson' and _tq_missing:
         % (opts._time_quadrature, "; ".join(_tq_missing)))
 # One assignment, inherited by every DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop call site.
 factored_likelihood.TIME_QUADRATURE_DEFAULT = opts._time_quadrature
+# Announce the value READ BACK OUT of the module, not the one parsed from the
+# command line.  Those are the same string only if the assignment above actually
+# happened, and a banner built from `opts` reports what was ASKED FOR rather than
+# what is in force -- so deleting the assignment leaves the flag inert while the
+# banner still says it is honoured.  Reading back is what makes the printed line,
+# and the tests that assert on it, load-bearing.
 print(" Time-marginalization quadrature: {} (from --time-marginalization-quadrature {!r}); "
       "honoured by this configuration: {}".format(
-          opts._time_quadrature, opts.time_marginalization_quadrature, not _tq_missing))
+          factored_likelihood.TIME_QUADRATURE_DEFAULT,
+          opts.time_marginalization_quadrature, not _tq_missing))
 
 print(" Q_lm sub-sample time stencil: {} (from --interpolate-time {!r}); honoured by this "
       "configuration: {} [time_marginalization={} vectorized={} gpu={} rotation_slow={} "

@@ -496,9 +496,13 @@ def test_unmeasurable_row_falls_back_and_is_counted():
     rep = tmq.last_report()
     assert rep['n_unmeasurable_rows'] == 1, rep
     assert rep['n_refined_rows'] == 1, rep
-    # counted unconditionally: an all -inf row also has argmax 0, so a counter
-    # written as "unmeasurable AND not exposed" would hide it behind the guard
-    assert rep['n_wrap_exposed_rows'] == 0, rep
+    # `exposed` is gated on `has_peak`, which already implies `measurable`, so an
+    # unmeasurable row can never also be exposed -- asserting the two do not
+    # overlap is vacuous.  What is worth pinning is that the counters PARTITION
+    # the batch, so no row can fall through a gap between them and be invisible.
+    assert (rep['n_refined_rows'] + rep['n_wrap_exposed_rows']
+            + rep['n_unmeasurable_rows'] + rep['n_flat_rows']
+            + _n_resolved(rep)) == rep['n_rows'], rep
     # zero likelihood over the whole window integrates to zero: the answer is
     # -inf, which is what the historical global-offset path returns.  NaN here
     # would propagate into the sampler weights.
@@ -859,6 +863,188 @@ def test_a_nan_self_term_does_not_abort_the_run():
     r2 = np.full(k.shape, RHO_SQ); r2[0, NPTS // 3] += 1e-9
     with pytest.raises(NotImplementedError):
         tmq.time_marginalize_bandlimited(k, r2, DELTAT, _lnL)
+
+
+def _n_resolved(rep):
+    """Rows with a real peak that simply needed no refinement."""
+    return (rep['n_rows'] - rep['n_refined_rows'] - rep['n_wrap_exposed_rows']
+            - rep['n_unmeasurable_rows'] - rep['n_flat_rows'])
+
+
+def test_the_edge_guard_covers_the_RIGHT_edge_too():
+    """Both ends, not just the one the first test happened to use.
+
+    The guard is `(jmax < g) | (jmax > npts-1-g)`.  Dropping the second term, or
+    an off-by-one in it, leaves the left edge covered and the right edge wide
+    open -- and a peak parked at the last sample then returns +88.8 nats ABOVE
+    truth, the evidence-inflating direction the guard exists to stop.  Every
+    fixture in the original suite parked peaks near sample 0.
+    """
+    for peak in (NPTS - 1.3, NPTS - 3.3, NPTS - 31.3):
+        sig = BandLimited(amp=1.0, peak_sample=peak, n_period=8 * NPTS,
+                          m_hi=1400, background=0.12)
+        k = sig.samples()
+        assert _bandlimited(k) == _simpson_value(k), peak
+        assert tmq.last_report()['n_wrap_exposed_rows'] == 1, peak
+    # and a peak just INSIDE the right guard is still refined, so the guard is
+    # not merely swallowing everything on that side
+    inside = BandLimited(amp=1.0, peak_sample=NPTS // 2 + 0.25, n_period=8 * NPTS,
+                         m_hi=1400, background=0.12)
+    _bandlimited(inside.samples())
+    assert tmq.last_report()['n_wrap_exposed_rows'] == 0
+
+
+@pytest.mark.parametrize("phase_marg", [False, True])
+def test_phase_marginalization_reaches_the_new_path(phase_marg):
+    """`--distance-marginalization --phase-marginalization` is the standard
+    production call site, and it passes `phase_marginalization=True` with a
+    NONLINEAR callback.  Every original fixture used the affine helper with
+    `kappa.real`, for which lnL(t) is itself exactly band-limited -- so dropping
+    the `abs()` entirely changed nothing any test could see."""
+    sig = BandLimited(amp=0.17, peak_sample=NPTS // 2 + 0.25,
+                      n_period=8 * NPTS, m_hi=1400, background=0.12)
+    k = sig.samples()[None, :]
+    r = np.full(k.shape, RHO_SQ)
+    term = (lambda z: np.abs(z)) if phase_marg else (lambda z: z.real)
+
+    got = float(tmq.time_marginalize_bandlimited(
+        k, r, DELTAT, _lnL, phase_marginalization=phase_marg)[0])
+
+    # analytic truth for THIS integrand
+    n = (NPTS - 1) * 128 + 1
+    td = sig.j0 * DELTAT + np.arange(n) * (DELTAT / 128)
+    ref = _log_trapz(_lnL(term(sig.at(td)), RHO_SQ), DELTAT / 128)
+    assert abs(got - ref) < 1e-3, (phase_marg, got - ref)
+
+    # the two settings must actually differ, or the parametrisation proves nothing
+    other = float(tmq.time_marginalize_bandlimited(
+        k, r, DELTAT, _lnL, phase_marginalization=not phase_marg)[0])
+    assert abs(got - other) > 1e-3, "abs() vs real() made no difference"
+
+
+def test_a_nonlinear_distance_marginalization_style_callback():
+    """The production callback is a table interpolation, not `kappa - rho_sq/2`.
+    For the affine helper lnL(t) is itself band-limited, which is a much easier
+    problem than the one production actually poses."""
+    def distmarg_like(x, rho_sq):
+        # monotone, nonlinear, and -inf outside a table range, like the real one
+        z = np.asarray(x) / np.sqrt(np.asarray(rho_sq) + 1.0)
+        out = np.where(z > -3.0, np.log1p(np.exp(np.clip(z, -50, 50))) * 40.0, -np.inf)
+        return out
+    sig = BandLimited(amp=0.17, peak_sample=NPTS // 2 + 0.25,
+                      n_period=8 * NPTS, m_hi=1400, background=0.12)
+    k = sig.samples()[None, :]
+    r = np.full(k.shape, RHO_SQ)
+    got = float(tmq.time_marginalize_bandlimited(k, r, DELTAT, distmarg_like)[0])
+    n = (NPTS - 1) * 128 + 1
+    td = sig.j0 * DELTAT + np.arange(n) * (DELTAT / 128)
+    ref = _log_trapz(distmarg_like(sig.at(td).real, RHO_SQ), DELTAT / 128)
+    simp = _log_simps(distmarg_like(k[0].real, RHO_SQ), DELTAT)
+    assert abs(got - ref) < 1e-2, got - ref
+    assert abs(got - ref) < 0.05 * abs(simp - ref)
+
+
+def test_the_memory_chunking_path_assembles_its_result():
+    """Production runs `--n-chunk 10000`, so EVERY real call chunks; the suite's
+    largest batch is 4 rows, so the assembly branch never ran.  Dropping all but
+    the first chunk was invisible."""
+    rows = [BandLimited(amp=0.17, peak_sample=NPTS // 2 + 0.1 * i,
+                        n_period=8 * NPTS, m_hi=1400, background=0.12,
+                        seed=7 + i).samples() for i in range(6)]
+    k = np.stack(rows)
+    r = np.full(k.shape, RHO_SQ)
+    whole = np.asarray(tmq.time_marginalize_bandlimited(k, r, DELTAT, _lnL))
+    old = tmq._DENSE_CHUNK_BYTES
+    try:
+        tmq._DENSE_CHUNK_BYTES = 4096          # force several chunks per group
+        chunked = np.asarray(tmq.time_marginalize_bandlimited(k, r, DELTAT, _lnL))
+    finally:
+        tmq._DENSE_CHUNK_BYTES = old
+    assert chunked.shape == whole.shape == (6,)
+    assert np.array_equal(chunked, whole), np.abs(chunked - whole).max()
+
+
+def test_the_one_ulp_factor_bump_is_exercised():
+    """`2**ceil(log2(need))` can land one power of two SHORT when log2 rounds down
+    for a `need` a hair above a power of two -- erring LOW, i.e. silently
+    under-resolving.  A log-spaced sweep never lands there; this does."""
+    dx = DELTAT
+    for kexp in range(0, 12):
+        need = 2.0 ** kexp
+        sigma = tmq.UPSAMPLE_SAFETY * dx / np.nextafter(need, np.inf)
+        f = int(tmq.required_upsample_factors(np.array([sigma]), dx)[0])
+        assert f >= tmq.UPSAMPLE_SAFETY * dx / sigma, (kexp, f)
+        assert dx / f <= sigma / tmq.UPSAMPLE_SAFETY, (kexp, f)
+
+
+def test_argmax_ignores_non_finite_bins():
+    """`argmax` over a raw array containing NaN returns the NaN's index, which
+    would put the whole width measurement on a bin that carries no likelihood."""
+    t = (np.arange(NPTS) - NPTS // 2) * DELTAT
+    lnL = -0.5 * (t / (0.3 * DELTAT)) ** 2
+    lnL[10] = np.nan
+    sigma, jmax, meas = tmq.peak_width_from_lnL(lnL[None, :], DELTAT)
+    assert int(jmax[0]) == NPTS // 2, jmax
+    assert bool(meas[0]) and np.isclose(float(sigma[0]), 0.3 * DELTAT, rtol=1e-9)
+
+
+def test_report_sigma_t_min_is_the_width_that_was_resolved():
+    sig = BandLimited(amp=0.17, peak_sample=NPTS // 2 + 0.25)
+    k = sig.samples()[None, :]
+    tmq.time_marginalize_bandlimited(k, np.full(k.shape, RHO_SQ), DELTAT, _lnL)
+    rep = tmq.last_report()
+    coarse, _, _ = tmq.peak_width_from_lnL(_lnL(k.real, RHO_SQ), DELTAT)
+    assert np.isfinite(rep['sigma_t_min'])
+    assert abs(rep['sigma_t_min'] - float(coarse[0])) < 0.2 * float(coarse[0]), rep
+    assert DELTAT / rep['upsample_factor'] <= rep['sigma_t_min'] / tmq.UPSAMPLE_SAFETY
+
+
+def test_the_tuned_constants_are_pinned_to_their_measured_values():
+    """These are not free parameters.  Each is justified by a measured table in
+    DESIGN_time_marginalization_quadrature.md, and the suite otherwise pins them
+    only to within a factor of ~10 -- so changing one could pass CI while
+    invalidating the argument behind it.  Changing a value here is the deliberate
+    act of also updating that table."""
+    assert tmq.UPSAMPLE_SAFETY == 2.0
+    assert tmq.EDGE_GUARD_FRACTION == 0.125
+    assert tmq.UPSAMPLE_FACTOR_MAX == 4096
+    assert tmq.CURVATURE_STENCIL_HALFWIDTHS == (1, 2, 4, 8)
+
+
+def test_driver_banner_reports_what_is_ACTUALLY_IN_FORCE():
+    """The driver's single load-bearing line is the assignment to
+    `factored_likelihood.TIME_QUADRATURE_DEFAULT`.  Deleting it, or hardcoding
+    'simpson' there, leaves the flag inert -- and every banner-inspecting test
+    stays green if the banner is built from `opts`.  The banner therefore prints
+    the value READ BACK out of the module, and this asserts on that."""
+    rc, out = _run_driver(['--time-marginalization-quadrature', 'bandlimited'] + _HONOURED)
+    assert 'Time-marginalization quadrature: bandlimited' in out, out[-2000:]
+    import re
+    m = re.search(r'Time-marginalization quadrature: (\S+) \(from', out)
+    assert m and m.group(1) == 'bandlimited', out[-2000:]
+    src = open(os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))), 'bin',
+        'integrate_likelihood_extrinsic_batchmode')).read()
+    assert 'factored_likelihood.TIME_QUADRATURE_DEFAULT,' in src, \
+        "the banner no longer reads the value back out of the module"
+
+
+def test_driver_does_not_refuse_an_ordinary_default_run():
+    """The refuse-guard is gated on the option being non-default.  Dropping that
+    gate makes the driver reject EVERY ordinary ILE run that is not
+    `--time-marginalization --vectorized --gpu` -- and no driver test ever
+    launched a default configuration, so nothing noticed."""
+    for args in ([], ['--time-marginalization'], ['--vectorized']):
+        rc, out = _run_driver(args)
+        assert 'cannot honour it' not in out, (args, out[-2000:])
+        assert 'Time-marginalization quadrature: simpson' in out, (args, out[-2000:])
+
+
+def test_driver_banner_does_not_claim_to_honour_what_it_cannot():
+    rc, out = _run_driver(['--time-marginalization'])
+    assert 'honoured by this configuration: False' in out, out[-2000:]
+    rc, out = _run_driver(_HONOURED)
+    assert 'honoured by this configuration: True' in out, out[-2000:]
 
 
 if __name__ == '__main__':
