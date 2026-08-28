@@ -961,7 +961,16 @@ def test_the_memory_chunking_path_assembles_its_result():
     finally:
         tmq._DENSE_CHUNK_BYTES = old
     assert chunked.shape == whole.shape == (6,)
-    assert np.array_equal(chunked, whole), np.abs(chunked - whole).max()
+    # NOT bit-identity.  The batch shape reaches numpy's FFT and its pairwise
+    # summation, so a differently-chunked run reassociates and can differ in the
+    # last bit or two -- the companion peak-local implementation measured 0, 0
+    # and 2 ULPs on the equivalent test.  This fixture happens to come out
+    # bit-identical, which is exactly why asserting it would be a latent flake:
+    # it would pass here and fail on a different row count or chunk boundary.
+    # Assert what is actually guaranteed, at a bound far below anything that
+    # could hide a real assembly bug (dropping a chunk moves rows by nats).
+    tol = 64 * np.spacing(np.abs(whole).max())
+    assert np.allclose(chunked, whole, rtol=0, atol=tol), np.abs(chunked - whole).max()
 
 
 def test_the_one_ulp_factor_bump_is_exercised():

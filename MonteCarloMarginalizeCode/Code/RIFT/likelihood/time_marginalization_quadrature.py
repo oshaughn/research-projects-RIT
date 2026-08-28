@@ -228,9 +228,16 @@ EDGE_GUARD_FRACTION = 0.125
 #: given the historical value.
 CURVATURE_STENCIL_HALFWIDTHS = (1, 2, 4, 8)
 
-#: Working-set budget for one dense temporary, in bytes.  Purely an internal
+#: Working-set budget for one dense temporary, in bytes.  An internal
 #: memory-chunking parameter: it changes how many extrinsic rows are processed at
-#: a time and cannot change the answer.
+#: a time.  Rows are independent, so it cannot change the answer BEYOND
+#: FLOATING-POINT REASSOCIATION -- the batch shape reaches numpy's FFT and its
+#: pairwise summation, so a differently-chunked run can differ in the last
+#: bit or two.  Measured on the companion peak-local implementation, which
+#: inherited this same wording and then failed a bit-identity test that was
+#: written to it: 0, 0 and 2 ULPs.  "Cannot change the answer" was too strong;
+#: the honest statement is that it cannot change the answer at any scale that
+#: is not floating-point noise.
 _DENSE_CHUNK_BYTES = 128 * 1024 * 1024
 
 _LAST_REPORT = {}
