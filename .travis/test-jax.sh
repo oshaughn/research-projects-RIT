@@ -147,6 +147,16 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         wrapper against the production driver, and
 #                                         because 16384 is the rate test_jax_endtoend
 #                                         (4096) structurally cannot cover.
+#   test_angle_marg_smoke.py          6  CHEAP mutation-bearing floor for the whole
+#                                         angle-marg feature: scheme selection (a
+#                                         previous head could never return 'exact'),
+#                                         both dense-sizing levers, required
+#                                         amp_sizing, the host failsafe record and
+#                                         its cond-guard, the driver AST guard on the
+#                                         VALUE node (hardcoding angle_marg="grid"
+#                                         passes a weaker guard), and that BOTH
+#                                         artifacts are labelled and never imply
+#                                         verification.  Seconds, not minutes.
 #   test_angle_marg_sizing_rule.py    1  the m_max-aware dense phi sizing rule.
 #                                         Pure numpy, milliseconds, closed-form I0
 #                                         reference.  FAILS under the old m_max-blind
@@ -195,6 +205,7 @@ FILES=(
   "${JAXDIR}/test_jax_stencil_parity.py"
   "${JAXDIR}/test_flow_reuse_default.py"
   "${JAXDIR}/test_angle_marg_sizing_rule.py"
+  "${JAXDIR}/test_angle_marg_smoke.py"
 )
 
 # EXCLUDED: files in JAXDIR matching test_*.py that are deliberately NOT gated.  The
@@ -269,7 +280,12 @@ fi
 # Sum of the per-file counts above.
 # Pinned deliberately: a bare `pytest test/jax/`
 # that collected 0 would exit 5, and a partial loss (say 14 -> 3) would still exit 0.
-EXPECTED_TESTS=141
+# NOTE: this environment collects ONE MORE test than the CI runner does (local
+# 147 vs CI 146; the delta was 3 earlier in this branch's life).  So "recount by
+# collection" must mean collection IN THE GATE'S ENVIRONMENT -- a local count has
+# tripped this floor twice.  When in doubt, take the number from a CI log line
+# ("collected N tests from M files") rather than from your shell.
+EXPECTED_TESTS=146
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"

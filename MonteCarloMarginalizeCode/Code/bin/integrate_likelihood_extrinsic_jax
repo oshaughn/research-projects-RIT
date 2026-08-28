@@ -968,21 +968,40 @@ def samples_path(opts, out_index):
     return opts.output_file + "_" + str(out_index) + "_samples.dat"
 
 
-def angle_grid_suspect_note():
-    """One-line label if the angle grids were undersized anywhere this event.
+def angle_grid_suspect_note(scheme=None):
+    """Label describing the angle-grid amplitude check for this event.
 
-    Empty string when clean.  Read through amp_failsafe_state(), which barriers
-    queued callbacks first.  Best-effort: debug callbacks may be dropped under
-    transformation, so a clean read is NOT proof of adequacy -- it is a label,
-    not a gate.
+    Returns one of three things, and the THIRD is the point:
+
+      ""                              -- the grid schemes were not used
+      "SUSPECT-ANGLE-GRID ..."        -- undersizing was DETECTED
+      "ANGLE-GRID-CHECK=BEST-EFFORT"  -- schemes used, nothing detected
+
+    The third case exists because absence of a detection is NOT evidence of
+    adequacy.  The detector is a jax.debug.callback, and JAX explicitly permits
+    such callbacks to be dropped under transformation -- in which case the host
+    state stays clean, effects_barrier has nothing to wait for, and the artifact
+    would otherwise be published looking verified.  That is a scientific false
+    negative, and calling it "best effort" in a docstring does not fix it for a
+    consumer reading the file six months later.
+
+    So every artifact produced by the exact/laplace schemes carries a standing
+    statement that this check CANNOT distinguish an adequate grid from an
+    undetected undersizing.  A reader is then never entitled to infer
+    verification from silence.  The honest recourse, named in the artifact, is
+    to rebuild at a larger amp_sizing if the result matters.
     """
     st = _anglemarg.amp_failsafe_state()
-    if not st.get("tripped"):
-        return ""
-    return ("SUSPECT-ANGLE-GRID amp_failsafe=TRIPPED worst_amp=%.6g "
-            "amp_sizing=%.6g scheme=%s"
-            % (st.get("worst_amp", float("nan")),
-               st.get("amp_sizing", float("nan")), st.get("scheme")))
+    if st.get("tripped"):
+        return ("SUSPECT-ANGLE-GRID amp_failsafe=TRIPPED worst_amp=%.6g "
+                "amp_sizing=%.6g scheme=%s"
+                % (st.get("worst_amp", float("nan")),
+                   st.get("amp_sizing", float("nan")), st.get("scheme")))
+    if scheme in ("exact", "laplace"):
+        return ("ANGLE-GRID-CHECK=BEST-EFFORT (no undersizing detected; the "
+                "detector may be dropped under jax transformation, so this is "
+                "NOT a verification -- rebuild at larger amp_sizing if it matters)")
+    return ""
 
 
 def write_dat(opts, P, out_index, event_id, logZ, sigma_over_Z, ntotal, neff):
