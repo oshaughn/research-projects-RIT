@@ -1,3 +1,9 @@
+0.0.17.13 compatibility backstop
+--------------------------------
+  - EOSManager supports released and reviewed multipart/multibranch LALSimulation
+    family interfaces while retaining the existing scalar and NuclearMatter-Backend
+    sequence contracts. See ``docs/eos-interface-contract.md``.
+
 0.0.17.13
 ---------
 MR https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/55  , for ln(e) parameter access in pipeline
