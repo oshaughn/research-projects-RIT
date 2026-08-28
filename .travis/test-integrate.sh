@@ -64,18 +64,23 @@ if [ "$_TMARG_FOUND" -ne "$_TMARG_EXPECTED" ]; then
     exit 1
 fi
 # SKIP guard.  `pytest -q` exits 0 with skips, so a test that quietly stops
-# running reads as green -- and the count guard above catches DESELECTION, not
-# SKIPPING.  The GPU-parity test is expected to skip on a CPU runner (exactly 1);
-# anything else skipping means an importorskip started firing and a gate is
-# reporting green having never executed what it names.  On a GPU runner
-# RIFT_CI_REQUIRE_GPU=1 makes that test FAIL rather than skip, so expect 0.
-if [[ "${RIFT_CI_REQUIRE_GPU:-0}" == "1" ]]; then _TMARG_EXPECT_SKIP=0; else _TMARG_EXPECT_SKIP=1; fi
+# running reads as green, and the count guard above catches DESELECTION, not
+# SKIPPING.
+#
+# This IDENTIFIES rather than COUNTS, which an earlier version of it did not.
+# Counting is wrong twice over: a compensating pair (one importorskip starts
+# firing while the GPU test stops) keeps the total unchanged, and the expected
+# total is a property of the RUNNER, not of the code -- on a GPU-equipped runner
+# that does not set RIFT_CI_REQUIRE_GPU=1 the cupy test legitimately stops
+# skipping, and a count guard then fails a perfectly good run.  So: allow skips
+# whose REASON names cupy/GPU, and fail on any other skip whatever the total.
 _TMARG_OUT=$(python -m pytest -q -rs "$_TMARG_TESTS" 2>&1) || { echo "$_TMARG_OUT"; exit 1; }
 echo "$_TMARG_OUT" | tail -20
-_TMARG_SKIPPED=$(echo "$_TMARG_OUT" | grep -oE '[0-9]+ skipped' | grep -oE '^[0-9]+' || true)
-_TMARG_SKIPPED=${_TMARG_SKIPPED:-0}
-if [ "$_TMARG_SKIPPED" -ne "$_TMARG_EXPECT_SKIP" ]; then
-    echo "time-marginalization gate: $_TMARG_SKIPPED tests skipped, expected $_TMARG_EXPECT_SKIP" >&2
+_TMARG_BAD=$(echo "$_TMARG_OUT" | grep -E '^SKIPPED' | grep -vciE 'cupy|gpu|cuda' || true)
+_TMARG_BAD=${_TMARG_BAD:-0}
+if [ "$_TMARG_BAD" -ne 0 ]; then
+    echo "time-marginalization gate: $_TMARG_BAD test(s) skipped for a reason other than an absent GPU:" >&2
+    echo "$_TMARG_OUT" | grep -E '^SKIPPED' | grep -viE 'cupy|gpu|cuda' >&2
     exit 1
 fi
 
