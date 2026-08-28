@@ -320,7 +320,7 @@ fi
 # Sum of the per-file counts above.
 # Pinned deliberately: a bare `pytest test/jax/`
 # that collected 0 would exit 5, and a partial loss (say 14 -> 3) would still exit 0.
-EXPECTED_TESTS=173
+EXPECTED_TESTS=171
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"

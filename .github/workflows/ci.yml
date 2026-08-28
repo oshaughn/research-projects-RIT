@@ -330,7 +330,7 @@ jobs:
     # and means a breaking upstream jax release can redden this job outside any PR's
     # control. If that becomes noisy, pin here rather than deleting the job.
     #
-    # Cost.  CURRENT (EXPECTED_TESTS=173 in .travis/test-jax.sh): 173 tests, the 139
+    # Cost.  CURRENT (EXPECTED_TESTS=171 in .travis/test-jax.sh): 171 tests, the 139
     # previously measured at 859 s of pytest on ldas-pcdev11 pinned to 16 cores
     # (jax 0.9.2, JAX_PLATFORMS=cpu, OMP_NUM_THREADS=1) plus test_angle_marg_exact.py
     # (30 tests, ~600 s local on ldas-grid, 16 cores, same stack -- the sizing

@@ -488,6 +488,14 @@ def _runtime_amp_failsafe(C_A, C_B, x_grid, amp_sizing, scheme_name):
     amp_call = jnp.max(jnp.clip(
         x_hat * M_A - 0.5 * jnp.square(x_hat) * B0, 0.0, None))
     amp_call = jax.lax.stop_gradient(amp_call)
+    # FAIL CLOSED.  A warning printed from inside jit does not stop anything:
+    # a production run would finish and publish biased likelihoods, samples and
+    # evidence while the "fail-safe" scrolled past in a log.  So in addition to
+    # the message we return a POISON term the caller ADDS to its result, making
+    # the output non-finite.  A NaN lnL cannot be silently consumed -- samplers
+    # reject or abort on it -- whereas an under-resolved finite number is
+    # indistinguishable from a good one.  Kept under stop_gradient so the check
+    # never enters the AD graph.
     jax.lax.cond(
         amp_call > 2.0 * amp_sizing,
         lambda a_: jax.debug.print(
@@ -500,6 +508,7 @@ def _runtime_amp_failsafe(C_A, C_B, x_grid, amp_sizing, scheme_name):
             "likelihood with amp_sizing >= the reported amplitude.", a=a_),
         lambda a_: None,
         amp_call)
+    return jnp.where(amp_call > 2.0 * amp_sizing, jnp.nan, 0.0)
 
 
 def _require_amp_sizing(amp_sizing):
@@ -576,7 +585,7 @@ def fused_log_likelihood_distphipsimarg_exact(
     npts = data.npts
 
     amp_sizing = _require_amp_sizing(amp_sizing)
-    _runtime_amp_failsafe(C_A, C_B, x_grid, amp_sizing, "exact")
+    _amp_poison = _runtime_amp_failsafe(C_A, C_B, x_grid, amp_sizing, "exact")
     nphi_d, nu_d = _dense_grid_sizes(amp_sizing, m_max=meta["m_max"])
     phi_d = np.linspace(0.0, 2.0 * np.pi, nphi_d, endpoint=False)
     u_d = np.linspace(0.0, 2.0 * np.pi, nu_d, endpoint=False)   # u = 2 psi
@@ -614,7 +623,7 @@ def fused_log_likelihood_distphipsimarg_exact(
     (m, s), _ = jax.lax.scan(jax.checkpoint(_step), (m0, s0),
                              (phi_x, u_x, lw_x))
     lnL_t = m + jnp.log(s) - jnp.log(float(n_dense))
-    return _time_marginalize(lnL_t, data.w_t)
+    return _time_marginalize(lnL_t, data.w_t) + _amp_poison
 
 
 # ---------------------------------------------------------------------------
@@ -890,7 +899,7 @@ def fused_log_likelihood_distphipsimarg_laplace(
     npts = data.npts
 
     amp_sizing = _require_amp_sizing(amp_sizing)
-    _runtime_amp_failsafe(C_A, C_B, x_grid, amp_sizing, "laplace")
+    _amp_poison = _runtime_amp_failsafe(C_A, C_B, x_grid, amp_sizing, "laplace")
     nphi_d, _ = _dense_grid_sizes(amp_sizing, m_max=m_max)
     phi_d = np.linspace(0.0, 2.0 * np.pi, nphi_d, endpoint=False)
     c = int(phi_chunk)
@@ -945,7 +954,7 @@ def fused_log_likelihood_distphipsimarg_laplace(
     s0 = jnp.zeros((S, npts), dtype=jnp.float64)
     (m, s), _ = jax.lax.scan(jax.checkpoint(_step), (m0, s0), (phi_x, lw_x))
     lnL_t = m + jnp.log(s) - jnp.log(float(nphi_d))
-    return _time_marginalize(lnL_t, data.w_t)
+    return _time_marginalize(lnL_t, data.w_t) + _amp_poison
 
 
 def choose_angle_marg_scheme(amplitude, gh_enabled=None):
