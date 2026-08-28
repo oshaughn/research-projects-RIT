@@ -158,6 +158,12 @@ def test_eosmanager_file_loader_routes_reviewed_phase_transition_api(monkeypatch
     assert eos.eos == "dirty-eos"
     assert eos._get_lalsim_family_adapter().number_of_branches == 2
 
+    extended = EOSManager.EOSLALSimulationFromFile(
+        "extended-format.dat", minimal_family=False
+    )
+    assert fake_lalsim.file_calls[-1] == ("extended-format.dat", 0)
+    assert fake_lalsim.create_calls[-1] == ("clean-eos", 0)
+
 
 def test_eosmanager_smoke_with_installed_released_lalsimulation():
     from RIFT.physics import EOSManager

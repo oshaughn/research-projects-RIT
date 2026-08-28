@@ -25,6 +25,13 @@ The fixed-EOS CIP driver exposes the same operation as:
 --using-eos lal_<name> --using-eos-branch <integer>
 ```
 
+Reviewed two- or nine-column tables use:
+
+```text
+--using-eos lalsim_file:<path> [--using-eos-dirty-phase-transitions]
+    [--using-eos-extended-family] [--using-eos-branch <integer>]
+```
+
 For pseudo-pipe workflows, forward the flag with
 `--manual-extra-cip-args`.  On O4d, Hydra hyperpipe configurations can put it
 in the post driver's `extra-args` when that driver is the fixed-EOS CIP
