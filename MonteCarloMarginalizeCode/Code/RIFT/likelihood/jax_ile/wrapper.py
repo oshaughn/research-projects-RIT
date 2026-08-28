@@ -478,13 +478,30 @@ class JAXDistPhiPsiMargLikelihood:
     ANGULAR_PARAM_ORDER = ("ra", "dec", "incl")
 
     def __init__(self, data, d_min, d_max, nphi=32, npsi=16, n_grid=256,
-                 d_prior="euclidean", interp=JAX_INTERP_DEFAULT, guess_snr=None):
+                 d_prior="euclidean", interp=JAX_INTERP_DEFAULT, guess_snr=None,
+                 angle_marg="grid"):
         self.data = data
         self.interp = interp   # the instance's stencil; sample_phi_ref defaults to it
         self.nphi = int(nphi)
         self.npsi = int(npsi)
         self._phi_grid = phi_ref_grid(self.nphi)
         self._psi_grid = psi_grid(self.npsi)
+        # (phi_ref, psi) marginalization scheme.  "grid" is the historical
+        # nphi x npsi quadrature, kept as the DEFAULT so existing command
+        # lines reproduce existing runs; "exact" / "laplace" are the
+        # exact-coefficient schemes of RIFT.likelihood.jax_ile.anglemarg
+        # (which fix the grid path's SNR-unbounded quadrature error and its
+        # nphi=8 Nyquist aliasing); "auto" selects between them.  Both the
+        # selection and the dense-grid sizing key on a DATA-DERIVED amplitude
+        # bound (estimate_angle_amplitude, computed below once the distance
+        # grid exists) -- never on guess_snr: an absent or underestimated SNR
+        # must not be able to silently under-resolve the quadrature
+        # (external-review defect 2).  self.angle_marg_info records what
+        # actually ran -- callers must surface it in the run log.
+        if angle_marg not in ("grid", "exact", "laplace", "auto"):
+            raise ValueError("angle_marg must be one of grid/exact/laplace/"
+                             "auto, got %r" % (angle_marg,))
+        from . import anglemarg as _anglemarg
         if int(os.environ.get("JAX_ILE_DISTGRID_ADAPTIVE", "0")) and guess_snr:
             # interp= must be forwarded: this sizes the distance grid the likelihood then
             # integrates on, so leaving it at the module default silently mixes stencils --
@@ -504,15 +521,57 @@ class JAXDistPhiPsiMargLikelihood:
         xg, lwg, pg, sg = (self.x_grid, self.log_w_grid,
                            self._phi_grid, self._psi_grid)
 
+        if angle_marg == "grid":
+            scheme, sel_info = "grid", dict(reason="default grid quadrature")
+            amp_sizing = None
+        else:
+            # Eager, build-time (grid sizes must be static under jit): bound
+            # the exponent amplitude from the coefficient tables themselves,
+            # over a sky sample and the ACTUAL distance nodes.
+            amp_data = _anglemarg.estimate_angle_amplitude(
+                data, self.x_grid, interp=interp)
+            if angle_marg == "auto":
+                scheme, sel_info = _anglemarg.choose_angle_marg_scheme(
+                    amp_data)
+            else:
+                scheme, sel_info = angle_marg, dict(
+                    reason="forced by caller", amplitude=amp_data,
+                    crossover=_anglemarg.ANGLE_MARG_CROSSOVER_AMPLITUDE)
+            # sizing is FLOORED at the crossover (never below the
+            # calibration point); the SELECTION above used the unfloored
+            # bound, so quiet targets stay on the exact branch
+            amp_sizing = max(amp_data,
+                             _anglemarg.ANGLE_MARG_CROSSOVER_AMPLITUDE)
+        self.angle_marg_scheme = scheme
+        self.angle_marg_info = dict(sel_info, requested=angle_marg,
+                                    scheme=scheme)
+        if scheme in ("exact", "laplace"):
+            self.angle_marg_info["amp_sizing"] = amp_sizing
+            self.angle_marg_info["sample_grid"] = tuple(
+                _anglemarg.angle_sample_grid_sizes(
+                    _anglemarg._data_m_max(data)))
+
+        if scheme == "grid":
+            def _fused(data_, ra, dec, incl):
+                return fused_log_likelihood_distphipsimarg(
+                    data_, ra, dec, incl, xg, lwg, pg, sg, interp=interp)
+        elif scheme == "exact":
+            def _fused(data_, ra, dec, incl):
+                return _anglemarg.fused_log_likelihood_distphipsimarg_exact(
+                    data_, ra, dec, incl, xg, lwg, interp=interp,
+                    amp_sizing=amp_sizing)
+        else:   # laplace
+            def _fused(data_, ra, dec, incl):
+                return _anglemarg.fused_log_likelihood_distphipsimarg_laplace(
+                    data_, ra, dec, incl, xg, lwg, interp=interp,
+                    amp_sizing=amp_sizing)
+
         def _batched(ra, dec, incl):
-            return fused_log_likelihood_distphipsimarg(
-                data, ra, dec, incl, xg, lwg, pg, sg, interp=interp)
+            return _fused(data, ra, dec, incl)
         self._batched = jax.jit(_batched)
 
         def _scalar(theta3):
-            v = fused_log_likelihood_distphipsimarg(
-                data, theta3[0:1], theta3[1:2], theta3[2:3],
-                xg, lwg, pg, sg, interp=interp)
+            v = _fused(data, theta3[0:1], theta3[1:2], theta3[2:3])
             return v[0]
         self._scalar = _scalar
         self._value_and_grad = jax.jit(jax.value_and_grad(_scalar))
