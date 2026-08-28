@@ -94,6 +94,35 @@ if [ "$_TMARG_BAD" -ne 0 ]; then
     exit 1
 fi
 
+# Peak-local time-marginalization quadrature.  Same defect, same derived-resolution
+# discipline; what changes is WHERE the refined grid is placed -- around the enumerated
+# peaks of a band-limited kappa rather than over the whole window, so the cost stops
+# growing with SNR.  What this gate has to protect, beyond accuracy: that the intervals
+# are MERGED (the un-merged variant double-counts the overlap, +1.6 nats at rho~6), that
+# the omitted mass is BOUNDED rather than assumed (a deliberately sabotaged enumeration
+# must be caught and sent to the dense path), that the local evaluator reconstructs the
+# same interpolant the dense FFT does at every production npts including the odd ones,
+# and that the option reaches the shipped likelihood instead of being inert.
+_TMARG_PL_TESTS=MonteCarloMarginalizeCode/Code/test/test_time_marginalization_peak_local.py
+# Raise EXPECTED by RUNNING collection, never by arithmetic.
+_TMARG_PL_EXPECTED=72
+_TMARG_PL_FOUND=$(python -m pytest -q --collect-only "$_TMARG_PL_TESTS" 2>/dev/null | grep -c '::' || true)
+if [ "$_TMARG_PL_FOUND" -ne "$_TMARG_PL_EXPECTED" ]; then
+    echo "peak-local gate: collected $_TMARG_PL_FOUND tests, expected $_TMARG_PL_EXPECTED" >&2
+    exit 1
+fi
+# SKIP guard: exactly the GPU-parity test skips on a CPU runner, and nothing else may.
+# On a GPU runner RIFT_CI_REQUIRE_GPU=1 makes it FAIL rather than skip, so expect 0.
+if [[ "${RIFT_CI_REQUIRE_GPU:-0}" == "1" ]]; then _TMARG_PL_EXPECT_SKIP=0; else _TMARG_PL_EXPECT_SKIP=1; fi
+_TMARG_PL_OUT=$(python -m pytest -q -rs "$_TMARG_PL_TESTS" 2>&1) || { echo "$_TMARG_PL_OUT"; exit 1; }
+echo "$_TMARG_PL_OUT" | tail -20
+_TMARG_PL_SKIPPED=$(echo "$_TMARG_PL_OUT" | grep -oE '[0-9]+ skipped' | grep -oE '^[0-9]+' || true)
+_TMARG_PL_SKIPPED=${_TMARG_PL_SKIPPED:-0}
+if [ "$_TMARG_PL_SKIPPED" -ne "$_TMARG_PL_EXPECT_SKIP" ]; then
+    echo "peak-local gate: $_TMARG_PL_SKIPPED tests skipped, expected $_TMARG_PL_EXPECT_SKIP" >&2
+    exit 1
+fi
+
 python MonteCarloMarginalizeCode/Code/test/test_mcsamplerEnsemble_extended.py --as-test --n-max 100000
 
 python MonteCarloMarginalizeCode/Code/test/test_mcsamplerEnsemble_extended.py --as-test --n-max 100000 --use-lnL
