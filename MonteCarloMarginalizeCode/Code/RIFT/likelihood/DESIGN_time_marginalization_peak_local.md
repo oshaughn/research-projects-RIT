@@ -347,6 +347,85 @@ Merging is also what makes this ONE algorithm rather than a regime switch: isola
 peaks give a tiny union, crowded peaks grow the union to the whole window and the
 method degenerates continuously into the dense grid.  No threshold anywhere.
 
+## Round 4: the class was still open, at two more doors
+
+### Door 1 — the parabolic vertex obeys the SAME `(delta/sigma)^2` law
+
+`_parabolic_vertex_height` was introduced to fix G1 and its docstring claimed the vertex
+is the crest "EXACTLY for a Gaussian peak, at any spacing".  That is true only if `lnL`
+is quadratic across the whole `+/-h_enum` stencil.  It is band-limited `q(t)`; the
+quartic term survives.  Under-read of the crest at half-cell phase, in nats:
+
+| `sigma_t/deltaT` | factor | sample | **vertex** |
+|---|---|---|---|
+| 0.004934 | 512 | −108.75 | −1.17 |
+| 0.002467 | 1024 | −434.98 | −4.66 |
+| 0.001233 | 2048 | −1739.93 | −18.66 |
+| 0.000617 | 4096 | −6959.72 | **−74.63** |
+
+`UPSAMPLE_FACTOR_MAX = 4096` permits down to `sigma_t/deltaT = 0.000488`, so the last row
+is a LEGAL configuration, and end-to-end against the exact interpolant at 16384x it
+reproduced **−0.693147** — `−log 2`, one of two equal peaks deleted — with both defences
+silent.  Roughly an 8x improvement in reach over comparing samples, not a fix.
+
+**The lesson, and the reason this was a third round on one class: every approximation
+substituted for the crest fails the same way one octave further out.**  So the keep
+decision is now taken in two stages, and neither treats an estimate as the answer:
+
+1. a CONSERVATIVE PRE-FILTER, whose only job is to bound how many peaks reach
+   localisation.  It compares an UPPER bound on each crest — the sample plus the
+   worst-case correction `(h_enum/2)^2/(2 sigma^2)` — against a LOWER bound on the
+   highest crest — the largest sample, which cannot exceed its own crest.  It can only
+   ever keep too many;
+2. after localisation, the EXACT filter on `lnL_star`, which is the crest by
+   construction rather than to second order.
+
+Verified on the reviewer's own probe at every legal factor: **+0.000000 with
+`n_peaks_total = 2` at factor 1024, 2048 and 4096, at offsets 0, 0.25 and 0.5.**
+
+### Door 2 — both estimators degraded to the raw sample at the array ends
+
+At `cols_p == 0` the whole left half of the curvature stencil is out of range at EVERY
+half-width, so `d2` was NaN throughout and `sigma = inf`; the vertex height fell back to
+`y0`, i.e. pre-G1 behaviour.  Revision 2's "mask instead of clip" change looked more
+principled than the `maxd`-clipping it replaced and was worse exactly at the two indices
+its own justification named.
+
+Fixed by shifting the stencil centre inward by the MINIMUM needed for a three-point
+stencil to exist — one sample — which is a genuine one-sided fit at an endpoint, not a
+compromise.  The localiser's bracket is also clamped to `[0, t_last]` and a peak pinned
+at a window boundary counts as converged.
+
+**Partially closed, and measured as such.**  Against the reviewer's `f2_edge_sigma`,
+comparing `761cafb3` with the fix, same fixtures:
+
+| case | before | after |
+|---|---|---|
+| `sigma@edge = inf`, dH 2.0 / 1.0 / 0.5 / 0.2 | −0.126 / −0.312 / −0.473 / −0.598 | **+0.000 / −0.000 / +0.000 / +0.000** |
+| `sigma@edge` finite, `sig2/sig1 = 0.58` | −6.001 | −6.001 (unchanged) |
+| `sigma@edge` finite, `sig2/sig1 = 0.41` | −0.335 | −0.335 (unchanged) |
+
+So the family Door 2 describes — no finite width obtainable at an endpoint — is closed
+with no regression anywhere.  **A residual family remains and is NOT that mechanism**:
+those rows already had a finite edge sigma at `761cafb3` and are byte-identical after the
+fix, up to **−6.0 nats**, accepted, with `tail_bound_worst = -inf` (the intervals cover
+the whole window, so the bound is vacuous there).  `bandlimited` is exact on the same
+rows.  **This is an open, measured defect that I have not diagnosed**, and the
+quantisation class should not be called closed on my say-so.
+
+### The `W_SIGMA` coupling is now asserted
+
+The sampled `q_out_max` survived a determined attempt to break it (24 accepted rows,
+honest supremum on a 4096x grid, worst honest margin −63.42 against `TAIL_LOG_TOL =
+-23`).  But the reason is structural slack, not adequate sampling: the outside supremum
+sits at an interval edge, already `W_SIGMA**2/2 = 72` nats below the crest.  Dropping
+`W_SIGMA` below ~8–9 would silently invalidate the bound.  The inequality
+
+    W_SIGMA**2 / 2  >  |TAIL_LOG_TOL| + log(T_out / (sqrt(2 pi) sigma_min))
+
+is now asserted, tying `W_SIGMA` to `TAIL_LOG_TOL` and `UPSAMPLE_FACTOR_MAX` so none can
+move alone.
+
 ## Mutation sweep
 
 25 mutations against the post-G-fix code (`244e7cca`), baseline **90 passed / 4
@@ -393,10 +472,34 @@ the shape it targets, comparing values AND report counters against pristine:
 |---|---|---|
 | L4 widen the Newton bracket | **no** — identical on all 6 | no-op: Newton converges well inside `+/-h_enum`, so widening is unobservable |
 | G4 gate interval not a superset | **no** — identical on all 6 | no-op here; cost-only by construction (a row it wrongly keeps is still computed correctly) |
-| E1 re-exclude endpoints | **no** — identical on all 6 | no-op: no fixture puts a discrete maximum exactly at index 0 or last |
-| E5 drop interval clipping | **no** — identical on all 6 | no-op: no fixture produces `lo < 0` or `hi > t_last` |
+| E1 re-exclude endpoints | **no** — identical on all 6 | no-op **over dead code** — see the correction below |
+| E5 drop interval clipping | **no** — identical on all 6 | no-op, but the stated reason was wrong — see below |
 | E6 curvature ladder → d=1 | **no** — identical on all 6 | no-op: no fixture has a `-inf` hole at d=1 on the enumeration grid |
-| G5 re-clip the stencil centre | values, at **1e-12** | effectively a no-op; see below |
+| G5 re-clip the stencil centre | values, at **1e-12** | right observation, WRONG mechanism — see below |
+
+### Four of those reasons were wrong, and a right verdict on a false premise is how the next bug hides
+
+An independent check reproduced all five no-op VERDICTS on a wider battery. Four of the
+reasons I gave for them did not survive:
+
+* **E1.** I wrote "no fixture puts a maximum exactly at index 0 or last". False — their
+  battery has 22. The true reason is stronger and much worse: at revision `761cafb3` an
+  endpoint maximum could never obtain a finite `sigma` (both estimators degrade at the
+  array ends, see Door 2 below), so it was dropped before anything else ran. **Revision
+  2's endpoint enumeration was dead code**: 22 endpoint maxima enumerated, zero usable.
+  The mutation was a no-op over a feature that did nothing.
+* **E5.** I wrote "no fixture produces `lo < 0` or `hi > t_last`". False — the clip fires
+  for 138 of 2682 peaks. It remains a no-op only because the clipped region carries
+  `e^-72`. But the clip is what makes the integration domain exactly `[0, t_last]`,
+  identical to the dense path's, and that invariant was unasserted.
+* **G5.** Right that the fixtures do not exercise it, wrong about why: the near-edge peak
+  is dropped because `sigma = inf` at index 0, not because it is below
+  `PEAK_KEEP_NATS`. Their secondary crest is 1.003 nats down and still dropped.
+  "Unexercised" and "the fix is inoperative there" are different bugs, and it was the
+  second.
+* **C8.** Diagnosis right, and now sharper: 4 of 21 rows have final interval count >
+  provisional, so the final check is genuinely non-redundant — it is **untested, not
+  unreachable**, and a fixture in the band `prov <= 32 < final` is constructible.
 | C5 one extra covered sample per end | counters only | genuine gap, diagnostics only |
 | C8 disable the final `MAX_INTERVALS` check | counters only | genuine gap, precisely diagnosed below |
 

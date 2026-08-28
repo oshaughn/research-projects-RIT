@@ -1026,6 +1026,35 @@ def test_the_keep_threshold_is_justified_without_the_tail_bound():
     assert pl.PEAK_KEEP_NATS > -pl.TAIL_LOG_TOL
 
 
+def test_W_SIGMA_gives_the_tail_bound_its_structural_slack():
+    """WHY the sampled tail bound holds, rather than "we could not break it".
+
+    An independent attempt to break `q_out_max` -- 24 accepted rows, honest supremum
+    recomputed on a 4096x grid -- failed, worst honest margin -63.42 against
+    `TAIL_LOG_TOL = -23`.  But the reason is NOT that the sampling is adequate: it is
+    that the outside supremum sits at an interval EDGE, already `W_SIGMA**2/2 = 72` nats
+    below the crest, which leaves ~40 nats of structural slack.  Drop `W_SIGMA` below
+    ~8-9 and that slack vanishes and the bound is silently invalid, with nothing
+    reporting it.
+
+    So the inequality gets the same treatment as `PEAK_KEEP_NATS` vs
+    `UPSAMPLE_FACTOR_MAX`: asserted, not admired.  Requiring
+
+        W_SIGMA**2 / 2  >  |TAIL_LOG_TOL| + log(T_out / (sqrt(2 pi) sigma_min))
+
+    ties `W_SIGMA` to `TAIL_LOG_TOL` and to `UPSAMPLE_FACTOR_MAX`, and none of the three
+    can now be moved alone.
+    """
+    t_window = 0.075
+    sigma_min = DELTAT / tmq.UPSAMPLE_FACTOR_MAX
+    need = -pl.TAIL_LOG_TOL + np.log(t_window / (np.sqrt(2 * np.pi) * sigma_min))
+    have = pl.W_SIGMA ** 2 / 2.0
+    assert have > need, ("W_SIGMA no longer gives the tail bound its slack", have, need)
+    # the margin is large, but assert the inequality rather than the margin: it is the
+    # inequality that a future edit has to preserve
+    assert have - need > 10.0, (have, need)
+
+
 def test_the_localised_crest_stays_inside_its_bracket():
     """G4/M4.  `localise_peaks` brackets at +/- h_enum and accepts anything strictly
     inside, so the displacement bound is h_enum, NOT h_enum/2 -- and it is approached:
@@ -1294,6 +1323,136 @@ def test_the_report_sub_counts_reconcile():
             + r['n_dense_fallback_containment'] + r['n_dense_fallback_nopeak'])
     assert subs == r['n_dense_fallback_rows'], (subs, r)
     assert r['n_peak_local_rows'] + r['n_dense_fallback_rows'] == r['n_refined_rows'], r
+
+
+def _two_equal_kernels(H, off, m0=120.0):
+    """Two kernels of IDENTICAL height, one on an enumeration sample and one displaced
+    by `off` cells.  The asymmetry is the point: it is the shape that three rounds of
+    review kept finding, and that fixtures moving both peaks by similar amounts cannot
+    produce.  Built directly in the spectrum so the sharpness is set by H alone."""
+    M = (NPTS - 1) // 2
+    ms = np.arange(1, M + 1)
+    h = DELTAT / pl.PEAK_ENUM_FACTOR
+    e = np.exp(-0.5 * (ms / m0) ** 2)
+    S = 2 * e.sum()
+    c = 2.0 * e * ((H / S) * np.exp(-2j * np.pi * ms * (204 * DELTAT) / (NPTS * DELTAT))
+                   + (H / S) * np.exp(-2j * np.pi * ms
+                                      * (409 * DELTAT + off * h) / (NPTS * DELTAT)))
+    return (np.exp(2j * np.pi * np.outer(np.arange(NPTS), ms) / NPTS) @ c)[None, :]
+
+
+def _exact_reference(kappa, refine=16384):
+    """The integral of the exact band-limited interpolant -- the same object the module
+    integrates -- at a refinement far beyond any factor the module will derive."""
+    up = tmq.bandlimited_upsample(kappa, refine)[0, :(NPTS - 1) * refine + 1].real
+    m = up.max()
+    w = np.ones(up.size)
+    w[0] = w[-1] = 0.5
+    return m + np.log(np.sum(np.exp(up - m) * w)) + np.log(DELTAT / refine)
+
+
+@pytest.mark.parametrize("H,want_factor", [(160000.0, 1024), (2.56e6, 4096)])
+@pytest.mark.parametrize("off", [0.0, 0.25, 0.5])
+def test_the_keep_decision_is_exact_at_the_sharpest_legal_rows(H, want_factor, off):
+    """THE THIRD ROUND ON ONE CLASS, pinned at the sharp end of the LEGAL range.
+
+    Comparing SAMPLES dropped a peak once `(delta/sigma)^2/2 > PEAK_KEEP_NATS`.  The
+    parabolic vertex that replaced them bought about 8x in `sigma_t/deltaT` and then
+    failed the same way: its under-read of the crest at half-cell phase is 1.17 / 4.66 /
+    18.66 / **74.63** nats at factors 512 / 1024 / 2048 / 4096, and
+    `UPSAMPLE_FACTOR_MAX = 4096` makes the last one LEGAL.  End-to-end that was
+    **-0.693147** -- `-log 2`, one of two equal peaks deleted -- with the tail bound and
+    the containment check both silent.
+
+    The lesson this test exists to pin: **every approximation substituted for the crest
+    fails the same way one octave further out.**  The keep decision is now taken on
+    `lnL_star`, which is the crest by construction, so the reach of the fix is not a
+    function of sharpness at all -- which is exactly what this parametrisation checks.
+    """
+    kappa = _two_equal_kernels(H, off)
+    rho = np.zeros_like(kappa.real)
+    sigma, _, _ = tmq.peak_width_from_lnL(_lnL(kappa.real, rho), DELTAT)
+    factor = int(tmq.required_upsample_factors(sigma, DELTAT)[0])
+    assert factor == want_factor, (factor, want_factor, float(sigma[0]) / DELTAT)
+
+    got = float(pl.time_marginalize_peak_local(kappa, rho, DELTAT, _lnL)[0])
+    rep = pl.last_report()
+    assert abs(got - _exact_reference(kappa)) < 1e-3, (H, off, rep)
+    # and BOTH crests were kept -- the value alone cannot distinguish "both peaks" from
+    # "one peak plus a compensating error"
+    assert rep['n_peaks_total'] == 2, (H, off, rep)
+    assert rep['n_peak_local_rows'] == 1, (H, off, rep)
+
+
+def test_an_endpoint_maximum_can_obtain_a_finite_width():
+    """Door 2, asserted on the MECHANISM rather than on a value.
+
+    Both crest estimators read `stencil[m-d]` and `stencil[m+d]`; with the centre left
+    at `cols_p == 0` the entire left half is out of range at every half-width, `d2` is
+    NaN throughout and `sigma = inf`, so the peak is dropped before anything else runs.
+    That made revision 2's endpoint enumeration DEAD CODE -- 22 endpoint maxima
+    enumerated, zero able to obtain a width -- and it is invisible to any test that only
+    checks the returned value, because the dense fallback supplies a correct answer.
+
+    A value test is exactly what I wrote the first time, and it passed while the feature
+    did nothing.  This one asks the estimator directly.
+    """
+    n_enum = 64
+    h = DELTAT / pl.PEAK_ENUM_FACTOR
+    # a clean quadratic maximum sitting ON index 0, decaying to the right
+    idx = np.arange(n_enum, dtype=float)
+    q = (-0.5 * (idx / 3.0) ** 2)[None, :]
+
+    mask = pl.enumerate_peak_indices(q)
+    assert bool(mask[0, 0]), "an endpoint maximum must be enumerated at all"
+
+    maxd = max(tmq.CURVATURE_STENCIL_HALFWIDTHS)
+    cols = np.array([0])
+    c_st = np.clip(cols, 1, n_enum - 2)
+    take = c_st[:, None] + np.arange(-maxd, maxd + 1)[None, :]
+    valid = (take >= 0) & (take < n_enum)
+    st = np.where(valid, q[0][np.clip(take, 0, n_enum - 1)], np.nan)
+    sigma = pl._peak_curvature_sigma(st, h)
+    assert np.isfinite(sigma[0]) and sigma[0] > 0, (
+        "an endpoint maximum still cannot obtain a finite width", sigma)
+
+
+def test_the_integration_domain_is_exactly_the_analysis_window():
+    """The clip to `[0, t_last]` is not cosmetic: the evaluator is PERIODIC, so an
+    interval running past either end returns values from the opposite end of the window,
+    wrapping mass from outside the integration domain into the answer.
+
+    It fires for 138 of 2682 peaks on a realistic block -- I previously recorded it as
+    "no fixture reaches it", which was false -- and it is what makes this path's domain
+    exactly the dense path's.  Asserted on the intervals themselves, not on a value:
+    the clipped region carries `e^-72`, so a value test cannot see it.
+    """
+    t_last = (NPTS - 1) * DELTAT
+    # The clip fires for a SECONDARY peak near an edge in a row whose DOMINANT peak is
+    # mid-window.  A row whose own argmax is near an edge is wrap-exposed and never
+    # reaches this code at all -- which is what a first version of this fixture produced,
+    # and the vacuity guard below caught it.  Moderate sharpness, so W_SIGMA*sigma is a
+    # fraction of a sample rather than a thousandth of one.
+    # Measured, not guessed: these three reach the clip (`overhang = 1` each), while a
+    # secondary peak at `rel = 0.9` is dropped by the keep filter and a broad row is
+    # declined on cost, so neither reaches this code at all.
+    rows = [BandLimited(amp=5.0, peak_sample=NPTS // 2 + 0.3125,
+                        extra_peaks=[(e, rel)]).samples()
+            for e, rel in ((0.2, 0.95), (0.5, 0.95), (0.5, 0.99))]
+    k = np.stack(rows)
+    _, peaks = pl.time_marginalize_peak_local(
+        k, np.full(k.shape, RHO_SQ), DELTAT, _lnL, return_peaks=True)
+    seen = 0
+    for pk in peaks:
+        if pk is None:
+            continue
+        t_star, sigma = pk
+        half = pl.W_SIGMA * sigma + pl.LOCALISE_SAFETY * sigma
+        lo = np.maximum(t_star - half, 0.0)
+        hi = np.minimum(t_star + half, t_last)
+        assert np.all(lo >= 0.0) and np.all(hi <= t_last)
+        seen += int(np.sum((t_star - half < 0.0) | (t_star + half > t_last)))
+    assert seen > 0, "fixture no longer reaches the clip; the assertion is vacuous"
 
 
 # --------------------------------------------------------------- the wiring

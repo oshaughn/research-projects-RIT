@@ -482,7 +482,7 @@ def _cat_last(*parts, **kw):
 
 
 def localise_peaks(Xw, fk, rows, t_grid, h_enum, tol, period, xpy=np,
-                   peak_chunk=4096):
+                   peak_chunk=4096, t_last=None):
     """Newton on the band-limited interpolant: turn a grid INDEX into a LOCATION.
 
     ``t_grid`` are the enumeration-grid times of the enumerated maxima and ``rows`` says
@@ -530,6 +530,12 @@ def localise_peaks(Xw, fk, rows, t_grid, h_enum, tol, period, xpy=np,
             step = xpy.where(safe, -q1 / xpy.where(safe, q2, -1.0), 0.0)
             step = xpy.clip(step, -h_enum, h_enum)
             t_new = xpy.clip(t + step, tg - h_enum, tg + h_enum)
+            if t_last is not None:
+                # The crest of a peak enumerated at an endpoint can lie OUTSIDE the
+                # window; within it the maximum is then the boundary itself.  Clamping
+                # here keeps the reported crest inside the integration domain, which is
+                # what the interval is built around.
+                t_new = xpy.clip(t_new, 0.0, t_last)
             step = t_new - t
             t = t_new
             if bool(xpy.all(xpy.abs(step) <= tol_c)):
@@ -537,10 +543,16 @@ def localise_peaks(Xw, fk, rows, t_grid, h_enum, tol, period, xpy=np,
         E = Xr * xpy.exp(w[None, :] * t[:, None])
         q0 = xpy.sum(E, axis=-1).real
         q2 = xpy.sum(E * (w * w)[None, :], axis=-1).real
-        inside = xpy.abs(t - tg) < h_enum        # strictly inside the bracket
+        inside = xpy.abs(t - tg) <= h_enum
+        if t_last is not None:
+            pinned = (t <= 0.0) | (t >= t_last)
+        else:
+            pinned = xpy.zeros(t.shape, dtype=bool)
         t_out[a:b] = t
         q_out[a:b] = q0
-        ok_out[a:b] = (xpy.abs(step) <= tol_c) & (q2 < 0) & inside
+        # A peak pinned at a window boundary is CONVERGED -- the maximum over the
+        # integration domain is the boundary -- and need not be concave there.
+        ok_out[a:b] = inside & (((xpy.abs(step) <= tol_c) & (q2 < 0)) | pinned)
     return t_out, q_out, ok_out
 
 
@@ -582,29 +594,6 @@ def merge_intervals_by_row(rows, lo, hi, span):
 
 
 # ------------------------------------------------------------------ the rule
-
-def _parabolic_vertex_height(lnL_stencil, xpy=np):
-    """Crest value of the parabola through the three central stencil points.
-
-    For a Gaussian peak ``lnL`` is exactly quadratic near its maximum, so three samples
-    determine it and the vertex height is the crest value EXACTLY -- at any spacing and
-    any peak-vs-grid phase.  That is the same property
-    :func:`time_marginalization_quadrature.peak_width_from_lnL` uses for the second
-    moment; this is the zeroth.
-
-    Falls back to the centre sample where the three points do not describe a maximum
-    (non-negative curvature, or a non-finite neighbour): the estimate is then not
-    justified, and the centre sample is the conservative answer because it UNDERSTATES
-    the crest, so a peak is dropped rather than wrongly kept.
-    """
-    m = (lnL_stencil.shape[-1] - 1) // 2
-    ym1, y0, yp1 = lnL_stencil[:, m - 1], lnL_stencil[:, m], lnL_stencil[:, m + 1]
-    with np.errstate(invalid='ignore', divide='ignore'):
-        denom = ym1 - 2.0 * y0 + yp1
-        vertex = y0 - (yp1 - ym1) ** 2 / (8.0 * denom)
-    good = xpy.isfinite(vertex) & (denom < 0)
-    return xpy.where(good, vertex, y0)
-
 
 def _peak_curvature_sigma(lnL_stencil, h, xpy=np):
     """``sigma`` per peak from a widening centred second difference of ``lnL``.
@@ -890,21 +879,33 @@ def _peak_local_chunk(kappa_rows, rho_col_rows, factors, npts, deltaT, period,
     maxd = max(CURVATURE_STENCIL_HALFWIDTHS)
     if 2 * maxd >= n_enum:
         return values, ok, peaks
-    # The stencil stays CENTRED on the peak and out-of-range half-widths are masked
-    # off, rather than the centre being clipped inward to make room.  Clipping measured
-    # a different point's curvature: a peak within `maxd` samples of either end had its
-    # width taken up to 8 enumeration samples away, which returned sigma = inf at index
-    # 0 and dropped the peak for "no resolvable curvature" -- before localisation could
-    # help it.  Masking keeps the narrower half-widths, which are the ones that fit.
+    # The stencil centre is shifted inward by the MINIMUM needed for a three-point
+    # stencil to exist -- one sample -- and out-of-range half-widths are masked off.
+    #
+    # Two wrong versions preceded this.  The first clipped the centre by `maxd = 8`,
+    # which measured a point up to 8 enumeration samples away.  The second stopped
+    # clipping entirely and masked instead, which looks more principled and is worse at
+    # the two indices that matter: at `cols_p == 0` the whole left half of the stencil
+    # is out of range at EVERY half-width, so `d2` is NaN throughout, `sigma = inf`, and
+    # the peak is dropped for "no resolvable curvature" before anything else runs.  The
+    # vertex height degrades the same way, falling back to the raw sample.  Measured:
+    # indices 0 and n_enum-1 dropped, 1 / 7 / 8 / n-2 kept -- so revision 2's endpoint
+    # enumeration was DEAD CODE (22 endpoint maxima enumerated, zero able to obtain a
+    # finite width), and the near-edge defect it was meant to fix re-ran byte-identical.
+    #
+    # Shifting by one gives a genuine ONE-SIDED fit at an endpoint -- the parabola
+    # through (0,1,2) -- which is the correct estimator there, not a compromise.
     offs = xpy.arange(-maxd, maxd + 1)
-    take_raw = cols_p[:, None] + offs[None, :]
+    c_st = xpy.clip(cols_p, 1, n_enum - 2)
+    take_raw = c_st[:, None] + offs[None, :]
     st_valid = (take_raw >= 0) & (take_raw < n_enum)
     q_st = q_up[rows_p[:, None], xpy.clip(take_raw, 0, n_enum - 1)]
     lnL_st = loglikelihood(q_st, xpy.broadcast_to(rho_col_rows[rows_p], q_st.shape))
     lnL_st = xpy.where(st_valid, lnL_st, np.nan)
     sigma_pk = _peak_curvature_sigma(lnL_st, h_enum, xpy=xpy)
 
-    # G1: the KEEP filter must compare CRESTS, not samples.
+    # G1/Door 1: the KEEP filter must compare CRESTS, not samples -- and not estimates
+    # of crests either.  See the two-stage note below.
     #
     # This is the same defect as the interval-centring bug, at a different site, and it
     # is the reason to grep for every consumer of the enumeration index rather than fix
@@ -916,22 +917,54 @@ def _peak_local_chunk(kappa_rows, rho_col_rows, factors, npts, deltaT, period,
     # past PEAK_KEEP_NATS -- so one of two equal peaks was deleted and the answer came
     # back exactly -log(2) = -0.693147 low.
     #
-    # The vertex height of the parabola through the three stencil points is the crest
-    # value EXACTLY for a Gaussian peak, at any spacing and any peak-vs-grid phase --
-    # the same property that makes the width estimator exact, used for the other moment.
-    # It costs nothing: the stencil is already gathered.
-    lnL_pk = _parabolic_vertex_height(lnL_st, xpy=xpy)
+    # THE PARABOLIC VERTEX IS NOT THE CREST, and believing it was is how this class of
+    # defect survived a second round.  The vertex is exact only if `lnL` is quadratic
+    # across the whole stencil; it is band-limited `q(t)`, so the quartic term survives
+    # and the vertex obeys the SAME `(delta/sigma)^2` law as the sample, just smaller.
+    # MEASURED at half-cell phase -- under-read of the crest, in nats:
+    #
+    #   sigma_t/deltaT   factor    sample     vertex
+    #     0.004934         512     -108.75     -1.17
+    #     0.002467        1024     -434.98     -4.66
+    #     0.001233        2048    -1739.93    -18.66
+    #     0.000617        4096    -6959.72    -74.63   <-- past PEAK_KEEP_NATS
+    #
+    # `UPSAMPLE_FACTOR_MAX = 4096` permits sigma_t/deltaT down to 0.000488, so that last
+    # row is a LEGAL configuration, and end-to-end it reproduced -log(2) exactly with
+    # both defences silent.  Every approximation substituted for the crest fails the
+    # same way one octave further out.
+    #
+    # So the keep decision is taken TWICE, and neither stage uses an estimate as if it
+    # were the answer:
+    #
+    #  1. here, a CONSERVATIVE PRE-FILTER whose only job is to bound the number of peaks
+    #     carried into localisation.  It compares an UPPER bound on each crest against a
+    #     LOWER bound on the highest crest, so it can only ever keep too many.  The upper
+    #     bound is the worst-case quantisation correction `(h_enum/2)^2 / (2 sigma^2)`;
+    #     the lower bound is the sample itself, which cannot exceed its own crest.
+    #  2. after localisation, the EXACT filter on `lnL_star` -- exact by construction
+    #     rather than exact-to-second-order.
+    lnL_sample = lnL_st[:, maxd]
+    with np.errstate(divide='ignore', invalid='ignore'):
+        crest_upper = lnL_sample + (0.5 * h_enum) ** 2 / (2.0 * sigma_pk ** 2)
+    crest_upper = xpy.where(xpy.isfinite(crest_upper), crest_upper, lnL_sample)
+    lnL_pk = crest_upper
 
     rows_np = _host(rows_p, xpy)
     cols_np = _host(cols_p, xpy)
     sig_np = _host(sigma_pk, xpy)
-    val_np = _host(lnL_pk, xpy)
+    val_np = _host(lnL_pk, xpy)              # UPPER bound on each crest
+    low_np = _host(lnL_sample, xpy)          # LOWER bound (the raw sample)
 
     # ---- drop peaks that cannot carry representable mass, and peaks with no
     # resolvable curvature.  Both drops are SAFE rather than hopeful: what is dropped
     # then lies outside the intervals and so enters the tail bound below.
+    # LOWER bound on the row's highest crest: the largest SAMPLE value, which can never
+    # exceed the crest it sits under.  Compared against each peak's UPPER bound, so a
+    # peak is discarded only when it cannot be within PEAK_KEEP_NATS however the
+    # quantisation falls.
     row_best = np.full(n_rows, -np.inf)
-    np.maximum.at(row_best, rows_np, val_np)
+    np.maximum.at(row_best, rows_np, low_np)
     keep = np.isfinite(sig_np) & (val_np > row_best[rows_np] - PEAK_KEEP_NATS)
     rows_np, cols_np, sig_np = rows_np[keep], cols_np[keep], sig_np[keep]
     if rows_np.size == 0:
@@ -998,7 +1031,7 @@ def _peak_local_chunk(kappa_rows, rho_col_rows, factors, npts, deltaT, period,
     Xw, fk = bandlimited_spectrum(kappa_rows, xpy=xpy)
     t_star, q_star, loc_ok = localise_peaks(
         Xw, fk, xpy.asarray(rows_np), xpy.asarray(t_grid_np), h_enum,
-        xpy.asarray(tol_np), period, xpy=xpy)
+        xpy.asarray(tol_np), period, xpy=xpy, t_last=t_last)
     t_np = _host(t_star, xpy)
     lnL_star = _host(loglikelihood(q_star, rho_col_rows[xpy.asarray(rows_np), 0]), xpy)
     loc_ok_np = _host(loc_ok, xpy).astype(bool)
@@ -1007,14 +1040,34 @@ def _peak_local_chunk(kappa_rows, rho_col_rows, factors, npts, deltaT, period,
     # to the dense path.  Fail closed: an unplaced crest is exactly the condition that
     # produced the bias.
     bad_loc = np.zeros(n_rows, dtype=bool)
-    bad_loc[rows_np[~loc_ok_np]] = True
-    stats['n_dense_fallback_localise'] += int(np.sum(bad_loc))
+
+    # ---- KEEP, stage 2: EXACT, on the localised crest values.
+    #
+    # This is the decision that matters, and it is taken here rather than before
+    # localisation for one reason: `lnL_star` is the crest, not an estimate of it.  The
+    # pre-filter above only bounded how many peaks reached this point, and it errs
+    # toward keeping, so nothing that matters has been discarded on an approximation.
+    row_top = np.full(n_rows, -np.inf)
+    np.maximum.at(row_top, rows_np, lnL_star)
+    exact_keep = lnL_star > row_top[rows_np] - PEAK_KEEP_NATS
+    if not exact_keep.all():
+        rows_np, cols_np = rows_np[exact_keep], cols_np[exact_keep]
+        sig_np, tol_np = sig_np[exact_keep], tol_np[exact_keep]
+        t_np, lnL_star = t_np[exact_keep], lnL_star[exact_keep]
+        loc_ok_np = loc_ok_np[exact_keep]
+        if rows_np.size == 0:
+            return values, ok, peaks
 
     # The interval is centred on the crest and widened by the localisation residual, so
     # containment does not depend on the crest happening to sit near a grid sample.
     half_np = W_SIGMA * sig_np + tol_np
     lo_np = np.maximum(t_np - half_np, 0.0)
     hi_np = np.minimum(t_np + half_np, t_last)
+
+    # Localisation failure is judged on the peaks that SURVIVED the exact filter: a peak
+    # about to be discarded as immaterial should not condemn its row.
+    bad_loc[rows_np[~loc_ok_np]] = True
+    stats['n_dense_fallback_localise'] += int(np.sum(bad_loc))
 
     # Per-row crest value, for the a-posteriori containment check after integration.
     row_star = np.full(n_rows, -np.inf)
