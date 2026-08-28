@@ -213,8 +213,19 @@ MAX_INTERVALS = 32
 #: cannot change the answer beyond rounding and is not a tunable.
 _RECURRENCE_REANCHOR = 64
 
-#: Working-set budget for one dense temporary, in bytes.  Internal memory chunking
-#: over the extrinsic axis; rows are independent, so it cannot change the answer.
+#: Working-set budget for one dense temporary, in bytes.  Internal memory chunking over
+#: the extrinsic axis.  Rows are independent and the per-row plan -- interval count and
+#: point count, which is bucketed to a power of two -- depends only on that row, so this
+#: cannot change WHICH rule a row gets or how finely it is integrated.
+#:
+#: It does move the last bits, and saying otherwise would be an overclaim: chunking
+#: changes the leading dimension of the FFT and of the reduction inside
+#: :func:`eval_bandlimited_uniform`, and both numpy's FFT and its pairwise summation
+#: reassociate with batch shape.  MEASURED at one row per chunk versus all rows at once,
+#: on a three-row block spanning rho ~ 100 to 700: 0, 0 and 2 ULPs.
+#: ``test_the_memory_chunking_path_assembles_its_result`` pins that, at a bar sharp
+#: enough that a dropped or mis-ordered chunk -- which moves a row by nats -- cannot hide
+#: behind it.
 _CHUNK_BYTES = 128 * 1024 * 1024
 
 _LAST_REPORT = {}

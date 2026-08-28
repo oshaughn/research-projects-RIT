@@ -126,6 +126,22 @@ to 2e-14 … 4e-13 relative, at every production `npts` — 153, 307, 613, 614, 
 rates), and the failure it invites is exact AT the samples and wrong between them, so
 it is parametrised rather than spot-checked.
 
+### Memory chunking moves the last bits, and the docstring that said otherwise was wrong
+
+The extrinsic axis is chunked so one dense temporary stays inside a working-set budget.
+The per-row plan — which rule the row gets, how many intervals, and the point count,
+which is bucketed to a power of two — depends only on that row, so chunking cannot
+change any of it.  It DOES change the leading dimension of the FFT and of the reduction
+inside `eval_bandlimited_uniform`, and both numpy's FFT and its pairwise summation
+reassociate with batch shape.
+
+Measured, one row per chunk versus all rows at once, on a three-row block spanning
+rho ~ 100 to 700: **0, 0 and 2 ULPs** (2.4e-16 relative).  The first version of this
+module carried the inherited claim that chunking "cannot change the answer"; the test
+that asserted bit-identity failed, which is how the overclaim was found.  The test now
+pins a few ULPs — still sharp enough that a dropped or mis-ordered chunk, which moves a
+row by nats, cannot hide behind it.
+
 ## Why the truncation is rigorous and not hopeful
 
 RIFT PR #201 was caught seeding a Newton solve at guessed points, missing genuine

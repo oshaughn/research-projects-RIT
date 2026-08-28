@@ -722,18 +722,39 @@ def test_the_bandlimited_path_still_supports_phase_marginalization():
 
 
 def test_the_memory_chunking_path_assembles_its_result():
+    """The extrinsic axis is chunked so one dense temporary stays inside a working-set
+    budget.  Rows are independent, so chunking must not change the ANSWER -- and that,
+    not the physics, is what this test is for: it compares the chunked result against
+    the unchunked one on identical inputs.
+
+    Bit-identity is deliberately NOT the bar, because it is not available and asserting
+    it fails.  MEASURED on these three rows: the chunked and unchunked values differ by
+    **0, 0 and 2 ULPs** (2.4e-16 relative).  Chunking changes the leading dimension of
+    the FFT and of the reduction inside the local evaluator, and both numpy's FFT and
+    its pairwise summation reassociate with batch shape.  A tolerance of a few ULPs is
+    still an extremely sharp instrument for what this test is actually guarding --
+    a dropped, duplicated or mis-ordered chunk moves a row by nats, not by ULPs.
+
+    Comparing against an analytic truth instead would be both slower (the truth needs a
+    4096x refinement for the sharpest row) and weaker: a tolerance loose enough to
+    absorb the reference's own error is loose enough to hide an assembly bug.
+    """
+    amps = (40.0, 200.0, 2000.0)
+    k = np.stack([BandLimited(amp=a, peak_sample=NPTS // 2 + 0.25).samples()
+                  for a in amps])
+    r = np.full(k.shape, RHO_SQ)
+    whole = np.asarray(pl.time_marginalize_peak_local(k, r, DELTAT, _lnL))
+    assert pl.last_report()['n_peak_local_rows'] == len(amps)
+
     old = pl._CHUNK_BYTES
     try:
-        pl._CHUNK_BYTES = 1
-        rows = [BandLimited(amp=a, peak_sample=NPTS // 2 + 0.25).samples()
-                for a in (40.0, 200.0, 2000.0)]
-        k = np.stack(rows)
-        got = pl.time_marginalize_peak_local(k, np.full(k.shape, RHO_SQ), DELTAT, _lnL)
+        pl._CHUNK_BYTES = 1                       # forces one row per chunk
+        chunked = np.asarray(pl.time_marginalize_peak_local(k, r, DELTAT, _lnL))
     finally:
         pl._CHUNK_BYTES = old
-    for i, a in enumerate((40.0, 200.0, 2000.0)):
-        assert abs(float(got[i]) - BandLimited(amp=a, peak_sample=NPTS // 2 + 0.25)
-                   .truth(4096)) < 1e-3, i
+    ulps = np.abs(chunked - whole) / np.spacing(np.abs(whole))
+    assert np.all(ulps <= 8), (whole, chunked, ulps)
+    assert pl.last_report()['n_peak_local_rows'] == len(amps)
 
 
 def test_return_peaks_exposes_t_star_and_the_local_width():
