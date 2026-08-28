@@ -625,5 +625,241 @@ def test_driver_announces_the_quadrature_it_will_actually_use():
 
 
 
+# --------------------------------------------------------------- GPU parity
+
+def _cupy_or_skip():
+    """cupy, or skip -- unless the GPU gate demands a device, in which case FAIL.
+
+    `RIFT_CI_REQUIRE_GPU=1` is how `.travis/test-integrate.sh` says "this job runs
+    on hardware".  A skip under that flag would be a GPU gate reporting green
+    without having touched a GPU, which is the failure mode this whole file is
+    written against.
+    """
+    try:
+        import cupy
+        if cupy.cuda.runtime.getDeviceCount() < 1:
+            raise RuntimeError("cupy imported but reports zero CUDA devices")
+        return cupy
+    except Exception as exc:
+        if os.environ.get('RIFT_CI_REQUIRE_GPU') == '1':
+            pytest.fail("RIFT_CI_REQUIRE_GPU=1 but cupy/GPU unavailable: %s" % exc)
+        pytest.skip("cupy/GPU unavailable: %s" % exc)
+
+
+def test_bandlimited_runs_on_the_gpu_backend_and_matches_numpy():
+    """The backend-generic code must actually RUN on cupy, not merely look like it.
+
+    This path shipped once already having never been executed on a GPU: the
+    likelihood omitted the caller's `simps`, the module defaulted to scipy's, and
+    scipy raises `TypeError: Implicit conversion to a NumPy array is not allowed`
+    on a cupy array -- so EVERY `--vectorized --gpu` run of the option crashed
+    while all 46 CPU tests stayed green.  Reading the cupy API is not a substitute
+    for executing it.
+    """
+    cupy = _cupy_or_skip()
+    sig = BandLimited(amp=0.17, peak_sample=NPTS // 2 + 0.25,
+                      n_period=8 * NPTS, m_hi=1400, background=0.12)
+    flat = BandLimited(amp=0.002, peak_sample=NPTS // 2)
+    edge = BandLimited(amp=1.0, peak_sample=2.3, n_period=8 * NPTS,
+                       m_hi=1400, background=0.12)
+    k = np.stack([sig.samples(), flat.samples(), edge.samples(),
+                  np.zeros(NPTS, dtype=complex)])
+    r = np.full(k.shape, RHO_SQ)
+
+    simps_cpu = simpson
+    out_np = np.asarray(tmq.time_marginalize_bandlimited(k, r, DELTAT, _lnL,
+                                                         simps=simps_cpu, xpy=np))
+    rep_np = tmq.last_report()
+
+    from RIFT.likelihood import optimized_gpu_tools
+    out_cp = cupy.asnumpy(tmq.time_marginalize_bandlimited(
+        cupy.asarray(k), cupy.asarray(r), DELTAT, _lnL,
+        simps=optimized_gpu_tools.simps, xpy=cupy))
+    rep_cp = tmq.last_report()
+
+    # Same classification and the same derived factors on both backends.
+    for key in ('upsample_factor', 'factor_histogram', 'n_refined_rows',
+                'n_wrap_exposed_rows', 'n_unmeasurable_rows', 'n_flat_rows'):
+        assert rep_np[key] == rep_cp[key], (key, rep_np[key], rep_cp[key])
+    assert rep_np['n_refined_rows'] >= 1
+
+    # The REFINED rows integrate with trapezoid on the dense grid, which has no
+    # even/odd Simpson ambiguity, so the two backends must agree to round-off.
+    # (Rows that fall back use each backend's OWN Simpson rule, and those two
+    # rules genuinely differ for even npts -- see the CPU/GPU note below.)
+    # Only the REFINED rows are required to agree: they integrate with trapezoid
+    # on the dense grid, which has no even/odd Simpson ambiguity.  Rows that fall
+    # back use each backend's OWN Simpson rule, and those two rules genuinely
+    # differ for even npts -- asserting agreement over all rows would be
+    # asserting the absence of a divergence this file documents as real.
+    refined = np.array([f > 1 for f in _row_factors(k, r)])
+    assert refined.any()
+    fin = np.isfinite(out_np) & np.isfinite(out_cp) & refined
+    assert np.max(np.abs(out_np[fin] - out_cp[fin])) < 1e-6
+
+
+def test_the_likelihood_hands_the_bandlimited_path_its_own_simpson_rule():
+    """Rows that fall back must reproduce what THIS run would have returned.
+
+    `factored_likelihood` integrates with scipy on CPU and with
+    `optimized_gpu_tools.simps` on GPU, and the two are NOT interchangeable: the
+    vendored GPU copy is an old scipy with `even='avg'` while modern scipy uses
+    the Cartwright correction, so for EVEN npts -- production is 614 at srate
+    4096 -- they disagree.  A private scipy copy inside the module would be
+    bit-for-bit on CPU and quietly wrong on GPU.
+    """
+    # Behavioural, not a source grep: a non-numpy backend with no `simps` must
+    # REFUSE, because the scipy default cannot consume a device array and that
+    # default is precisely how every GPU run of this option crashed.
+    class _FakeDevice(object):
+        """Minimal stand-in for a non-numpy backend, so the guard is exercised
+        without needing a GPU."""
+        def __getattr__(self, name):
+            return getattr(np, name)
+
+    sig = BandLimited(amp=0.17, peak_sample=NPTS // 2)
+    k = sig.samples()[None, :]
+    r = np.full(k.shape, RHO_SQ)
+    with pytest.raises(ValueError):
+        tmq.time_marginalize_bandlimited(k, r, DELTAT, _lnL, xpy=_FakeDevice())
+    # ... and is satisfied once a rule is supplied
+    tmq.time_marginalize_bandlimited(k, r, DELTAT, _lnL, simps=simpson,
+                                     xpy=_FakeDevice())
+
+    # The likelihood must hand its OWN rule over.  Parse the real call, not a
+    # prefix of it: slicing at the first ')' truncates inside `float(deltaT)`.
+    import ast, inspect
+    tree = ast.parse(inspect.getsource(
+        fl.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop).lstrip())
+    calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call)
+             and getattr(n.func, 'attr', None) == 'time_marginalize_bandlimited']
+    assert calls, "the likelihood no longer calls time_marginalize_bandlimited"
+    for c in calls:
+        kw = {k2.arg: k2.value for k2 in c.keywords}
+        assert 'simps' in kw and getattr(kw['simps'], 'id', None) == 'simps', \
+            "call site does not forward the caller's Simpson rule"
+        assert 'lnL_coarse' in kw, \
+            "call site does not forward the already-computed coarse lnL"
+
+
+def _row_factors(k, r):
+    """Per-row derived factor, as the integrator computes it."""
+    lnL = _lnL(np.asarray(k).real, np.asarray(r))
+    sigma, jmax, meas = tmq.peak_width_from_lnL(lnL, DELTAT)
+    guard = max(1, int(k.shape[-1] * tmq.EDGE_GUARD_FRACTION))
+    ok = meas & np.isfinite(sigma) & (jmax >= guard) & (jmax <= k.shape[-1] - 1 - guard)
+    f = np.maximum(tmq.required_upsample_factors(sigma, DELTAT), 1)
+    return np.where(ok, f, 1)
+
+
+@pytest.mark.parametrize("n", [153, 307, 613, 614, 1228, 2457, 8, 9, 3])
+def test_upsample_is_exact_for_odd_npts_too(n):
+    """ODD npts is the COMMON case in production, not an exotic one.
+
+    `marginalization_time_grid(0.075, 1/srate)` gives npts = 153 / 307 / 614 /
+    1228 / 2457 at srate 1024 / 2048 / 4096 / 8192 / 16384 -- odd at THREE of the
+    five, including 16384, the low-mass rate.  An earlier split at `h = n//2`
+    placed the highest positive frequency at a negative frequency for odd n:
+    still exact AT the original samples (so a "reproduces the input" check passes)
+    and wrong everywhere between them, by 0.41 at n=613 and 0.54 at n=307 against
+    an analytic truth of order unity.
+    """
+    R = 4
+    rng = np.random.default_rng(1)
+    ms = np.arange(1, (n - 1) // 2 + 1)          # fill EVERY bin up to Nyquist
+    c = (rng.normal(size=ms.size) + 1j * rng.normal(size=ms.size)) / (1 + ms / 50.0)
+    t = np.arange(n) / float(n)
+    td = np.arange(n * R) / float(n * R)
+    x = np.exp(2j * np.pi * np.outer(t, ms)) @ c
+    exact = np.exp(2j * np.pi * np.outer(td, ms)) @ c
+    up = tmq.bandlimited_upsample(x[None, :], R)[0]
+    assert np.allclose(up, exact, atol=1e-9, rtol=0), np.abs(up - exact).max()
+
+
+def test_which_rows_change_relative_to_the_SHIPPED_historical_expression():
+    """The guarantee, checked against the historical GLOBAL-offset expression.
+
+    An earlier version of this test compared against a per-row-offset Simpson
+    helper -- the same expression the code under test uses for its fallback rows
+    -- so it was common-mode with the thing it was meant to check and could not
+    fail.  The shipped path offsets by a SINGLE GLOBAL maximum over the whole
+    block, so a multi-row batch with production-scale dynamic range is required
+    to see the difference at all.
+    """
+    def historical(kappa_rows, rho):
+        lnL_t = _lnL(np.asarray(kappa_rows).real, rho)
+        lnLmax = lnL_t.max()                       # GLOBAL, as the shipped path does
+        return lnLmax + np.log(simpson(np.exp(lnL_t - lnLmax), dx=DELTAT, axis=-1))
+
+    loud = BandLimited(amp=1.0, peak_sample=NPTS // 2 + 0.25, n_period=8 * NPTS,
+                       m_hi=1400, background=0.12).samples()
+    quiet = BandLimited(amp=0.002, peak_sample=NPTS // 2).samples() * 1e-3
+    k = np.stack([loud, quiet])
+    r = np.full(k.shape, RHO_SQ)
+
+    hist = historical(k, r)
+    new = np.asarray(tmq.time_marginalize_bandlimited(k, r, DELTAT, _lnL))
+    rep = tmq.last_report()
+
+    # The QUADRATURE changed for exactly the under-resolved row.
+    assert rep['n_refined_rows'] == 1, rep
+    assert _row_factors(k, r)[0] > 1 and _row_factors(k, r)[1] == 1
+
+    # The refined row moved, as intended.
+    assert abs(new[0] - hist[0]) > 1e-3
+
+    # And the documented second change: the unrefined row underflowed to -inf
+    # under the shared global offset and now comes back finite.  This is NOT
+    # "unchanged"; pin it so the PR text and the code cannot drift apart.
+    span = _lnL(k.real, r).max() - _lnL(k.real, r)[1].max()
+    assert span > 745, span               # the underflow threshold for exp()
+    assert hist[1] == -np.inf
+    assert np.isfinite(new[1])
+
+
+def test_return_lnLt_still_works_when_the_module_default_is_bandlimited():
+    """The group's standard extrinsic stage must not die at the export step.
+
+    `--add-extrinsic --add-extrinsic-time-resampling` maps to
+    `--resample-time-marginalization`, whose `resample_samples()` calls the
+    likelihood with `return_lnLt=True` and no explicit quadrature.  Raising on
+    the INHERITED default made that configuration run the entire integration and
+    then crash with no output.  `return_lnLt` returns lnL(t) on the original grid
+    and takes no time integral, so the quadrature is inapplicable, not ignored --
+    but asking for it EXPLICITLY there is still a caller error.
+    """
+    pytest.importorskip('RIFT.lalsimutils')
+    tvals = fl.marginalization_time_grid(0.075, DELTAT)
+    args = _fake_likelihood_inputs(_buffer_signal(1.0))
+    old = fl.TIME_QUADRATURE_DEFAULT
+    try:
+        fl.TIME_QUADRATURE_DEFAULT = 'bandlimited'
+        lnLt = np.asarray(_shipped(tvals, args, return_lnLt=True))
+        assert lnLt.shape[-1] == NPTS
+        with pytest.raises(NotImplementedError):
+            _shipped(tvals, args, return_lnLt=True, time_quadrature='bandlimited')
+    finally:
+        fl.TIME_QUADRATURE_DEFAULT = old
+
+
+def test_a_nan_self_term_does_not_abort_the_run():
+    """NaN rows are NORMAL -- the defensive proposal component deliberately draws
+    physically-extreme points where the likelihood is NaN, and the historical path
+    returns NaN for that row and moves on.  A bare `rho_sq == rho_sq[...,:1]`
+    tripwire makes `nan != nan` abort the whole ILE process, blaming a
+    rotating-response path that is not in use."""
+    sig = BandLimited(amp=0.17, peak_sample=NPTS // 2)
+    k = np.stack([sig.samples(), sig.samples()])
+    r = np.full(k.shape, RHO_SQ)
+    r[1, :] = np.nan
+    out = tmq.time_marginalize_bandlimited(k, r, DELTAT, _lnL)
+    assert np.isfinite(float(out[0]))
+    assert np.isnan(float(out[1]))
+    # a genuinely time-DEPENDENT self-term must still be refused
+    r2 = np.full(k.shape, RHO_SQ); r2[0, NPTS // 3] += 1e-9
+    with pytest.raises(NotImplementedError):
+        tmq.time_marginalize_bandlimited(k, r2, DELTAT, _lnL)
+
+
 if __name__ == '__main__':
     raise SystemExit(pytest.main([__file__, '-q']))

@@ -94,7 +94,7 @@ measures an infinite width, derives a factor of 1 and costs nothing.
 ``SAFETY = 2`` is not tunable and is not a compromise.  The trapezoidal rule on
 a Gaussian of width ``sigma`` at spacing ``h`` has relative error
 ``2 exp(-2 pi^2 sigma^2 / h^2)`` (Poisson summation); at ``h = sigma/2`` that is
-``2e-34``.  Even ``h = sigma`` would give ``5e-9``.
+``1.0e-34``.  Even ``h = sigma`` would give ``5.3e-9``.
 
 That bound is the DESIGN CRITERION FOR THE REFINED GRID, where ``sigma/h >= 2``
 puts us deep in the exponential regime.  It is NOT a model of the defect's
@@ -225,12 +225,21 @@ def last_report():
     ``n_flat_rows`` -- finite ``lnL(t)`` with no resolvable curvature: an
     extrinsic sample with no signal in it.  Nothing is wrong and nothing is paid.
 
-    ``n_refined_rows`` is the count that matters for auditing a change: a row's
-    returned value differs from the historical one IF AND ONLY IF it is in this
-    set.  Every other row -- exposed, unmeasurable, or already resolved -- is
-    given the historical Simpson rule (with a per-row log-sum-exp offset; see
-    :func:`_log_trapz_over_window` for why the offset cannot be the shared global
-    one on the refined path).
+    ``n_refined_rows`` is the count that matters for auditing a change: the
+    QUADRATURE RULE changes for these rows and for no others.  Every other row --
+    exposed, unmeasurable, or already resolved -- is integrated by the caller's
+    own Simpson rule over the same domain.
+
+    Read that precisely: it is a statement about the RULE, not about the returned
+    VALUE.  The log-sum-exp offset also changes, from the historical single
+    global maximum over the whole block to a per-row maximum, and that applies to
+    every row including the unrefined ones.  It is unavoidable on the refined
+    path (see :func:`_log_trapz_over_window`) and it has a visible consequence:
+    a row far enough below the block maximum that ``exp(lnL - global_max)``
+    underflowed -- which happens once a batch spans more than ~745 nats, routine
+    at rho >~ 40 -- returned ``-inf`` historically and now returns a finite
+    value, refined or not.  On rows that did not underflow the two agree to
+    floating-point rounding, not bit-for-bit.
     """
     return dict(_LAST_REPORT)
 
@@ -252,10 +261,21 @@ def bandlimited_upsample(x, factor, xpy=np):
     has ``n*factor`` columns and reproduces the input exactly at every
     ``factor``-th column.
 
-    A single Nyquist bin, when ``n`` is even, is split evenly between ``+fNyq``
-    and ``-fNyq``.  For the rholm data that bin is empty anyway -- ``fmax <=
-    fNyq`` -- so the choice is a formality kept for correctness on synthetic
-    inputs.
+    ODD ``n`` is not a special case to be waved through: an earlier version split
+    the spectrum at ``h = n//2`` unconditionally, which for odd ``n`` puts the
+    HIGHEST POSITIVE frequency at a negative frequency in the padded array.  The
+    reconstruction then stays exact at the original samples -- so "it reproduces
+    the input" still passes -- while being wrong everywhere in between.  Measured
+    against the analytic band-limited truth at ``factor=4``: max error 1.4e-12 at
+    ``n=614`` but 4.1e-1 at ``n=613``, 5.4e-1 at ``n=307`` and 6.0e-2 at
+    ``n=2457``.  That matters because ``marginalization_time_grid`` produces ODD
+    ``npts`` at three of the five production sample rates -- 153 at srate 1024,
+    307 at 2048 and 2457 at 16384 -- so the broken case was the common one.
+
+    The Nyquist bin exists only for even ``n``, and is split evenly between
+    ``+fNyq`` and ``-fNyq``.  For the rholm data it is empty anyway (the
+    two-sided weight construction never populates it), so that half is a
+    formality; the positive/negative boundary is not.
     """
     factor = int(factor)
     if factor == 1:
@@ -264,12 +284,15 @@ def bandlimited_upsample(x, factor, xpy=np):
     lead = x.shape[:-1]
     X = xpy.fft.fft(x, axis=-1)
     Xup = xpy.zeros(lead + (n * factor,), dtype=xpy.asarray(X).dtype)
-    h = n // 2
-    Xup[..., :h] = X[..., :h]
-    Xup[..., -(n - h):] = X[..., h:]
+    n_pos = (n - 1) // 2                 # DC plus n_pos strictly-positive bins
+    Xup[..., :n_pos + 1] = X[..., :n_pos + 1]
     if n % 2 == 0:
-        Xup[..., h] = 0.5 * X[..., h]
-        Xup[..., -h] = 0.5 * X[..., h]
+        nyq = X[..., n // 2]
+        Xup[..., n // 2] = 0.5 * nyq
+        Xup[..., -(n // 2)] = 0.5 * nyq
+        Xup[..., -n_pos:] = X[..., n // 2 + 1:]
+    else:
+        Xup[..., -n_pos:] = X[..., n_pos + 1:]
     return xpy.fft.ifft(Xup, axis=-1) * factor
 
 
@@ -339,6 +362,13 @@ def required_upsample_factors(sigma, dx, xpy=np):
     # remove.  The criterion is `factor >= need`, so test exactly that and bump.
     # (The margin can only ever be one ulp, so a single bump closes it.)
     factor = xpy.where(factor < need, 2.0 * factor, factor)
+    # Clamp BEFORE the cast.  A float factor above 2**63 wraps to a large
+    # NEGATIVE int64, which downstream `maximum(factors, 1)` turns into 1 -- so an
+    # unresolvably sharp row would be classified "nothing to refine" and silently
+    # given the coarse value, which is the failure this module exists to remove.
+    # Saturating at the ceiling instead sends it into the loop, which raises.
+    factor = xpy.where(factor > UPSAMPLE_FACTOR_MAX,
+                       float(2 * UPSAMPLE_FACTOR_MAX), factor)
     return factor.astype(np.int64)
 
 
@@ -397,7 +427,7 @@ def _log_trapz_over_window(lnL_dense, dx_dense, npts_coarse, factor, xpy=np):
 
 def time_marginalize_bandlimited(kappa, rho_sq, deltaT, loglikelihood,
                                  phase_marginalization=False, simps=None,
-                                 xpy=np):
+                                 lnL_coarse=None, xpy=np):
     """``log \\int dt exp(lnL(t))`` with the time grid refined to the integrand.
 
     Parameters
@@ -414,13 +444,31 @@ def time_marginalize_bandlimited(kappa, rho_sq, deltaT, loglikelihood,
         the coarse path (default helper, phase- or distance-marginalized).
     simps : callable, optional
         The caller's Simpson rule, ``simps(y, dx=..., axis=-1)``, used for rows
-        that fall back to the historical path.  Defaults to scipy's.
+        that fall back to the historical path.  Defaults to scipy's -- which
+        RAISES on a cupy array, so the GPU caller must supply its own.
+    lnL_coarse : array, optional
+        ``loglikelihood`` already evaluated on the coarse grid.  The caller
+        normally has it; passing it avoids re-evaluating the callback over
+        ``n_extrinsic * npts`` points, which for the distance-marginalized
+        callback is a table interpolation over millions of points and is the
+        difference between "no extra likelihood evaluations" being true and
+        being nearly true.
 
     Returns
     -------
     lnL : (n_extrinsic,) float
     """
     if simps is None:
+        # Default ONLY for the numpy backend.  scipy's simpson raises
+        # `TypeError: Implicit conversion to a NumPy array is not allowed` on a
+        # cupy array, and that default is exactly how every --vectorized --gpu run
+        # of this option crashed.  Refuse rather than leave the trap armed.
+        if xpy is not np:
+            raise ValueError(
+                "time_marginalize_bandlimited: `simps` must be supplied for a "
+                "non-numpy backend -- scipy's Simpson rule cannot consume a device "
+                "array, and the fallback rows must use the rule the caller's own "
+                "likelihood uses (on GPU, optimized_gpu_tools.simps).")
         from scipy import integrate
         simps = getattr(integrate, 'simpson', None) or integrate.simps
 
@@ -435,13 +483,21 @@ def time_marginalize_bandlimited(kappa, rho_sq, deltaT, loglikelihood,
     # slow-rotation response) would make the upsampled lnL wrong in a way no
     # downstream check would catch.
     rho_col = rho_sq[..., :1]
-    if not bool(xpy.all(rho_sq == rho_col)):
+    # Compare only where both sides are finite.  A NaN self-term is NORMAL: the
+    # defensive proposal component deliberately draws physically-extreme points
+    # where the likelihood is NaN, and the historical path just returns NaN for
+    # that row and lets the sampler move on.  A bare `==` makes `nan != nan` trip
+    # this tripwire and abort the whole ILE process, blaming a rotating-response
+    # path that is not even in use.
+    _cmp = xpy.isfinite(rho_sq) & xpy.isfinite(xpy.broadcast_to(rho_col, rho_sq.shape))
+    if not bool(xpy.all(xpy.where(_cmp, rho_sq == rho_col, True))):
         raise NotImplementedError(
             "band-limited time marginalization requires a time-independent rho_sq; "
             "the supplied self-term varies with time (banded / rotating-response path)")
 
     _term = (lambda k: xpy.abs(k)) if phase_marginalization else (lambda k: k.real)
-    lnL_coarse = loglikelihood(_term(kappa), rho_sq)
+    if lnL_coarse is None:
+        lnL_coarse = loglikelihood(_term(kappa), rho_sq)
 
     sigma, jmax, measurable = peak_width_from_lnL(lnL_coarse, deltaT, xpy=xpy)
 
@@ -465,9 +521,11 @@ def time_marginalize_bandlimited(kappa, rho_sq, deltaT, loglikelihood,
     # A row is REFINED only if it has a trustworthy peak AND the derivation
     # actually asks for a finer grid.  Everything else -- wrap-exposed,
     # unmeasurable, or simply already resolved -- gets the historical Simpson
-    # value.  That is the whole rule, and it is what makes the guarantee exact
-    # rather than argued: a row's value changes if and only if its integrand was
-    # under-resolved.  The alternative, letting an unrefined row fall through to
+    # value.  That is the whole rule: the QUADRATURE changes for under-resolved
+    # rows and for no others.  (The log-sum-exp offset changes for every row --
+    # see last_report() -- so this is a statement about the rule, not a promise
+    # that unrefined rows come back bit-identical.)
+    # The alternative, letting an unrefined row fall through to
     # a coarse TRAPEZOID, is numerically a non-event but silently changes the
     # rule for rows this option was never meant to touch, and costs the property
     # a reviewer can actually check.  (Trapezoid is in fact slightly the better

@@ -2531,6 +2531,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
     if time_interp != 'nearest' and cal_method == 'fused':
         raise NotImplementedError("time_interp='{}' is not implemented for cal_method='fused'".format(time_interp))
 
+    _time_quadrature_explicit = time_quadrature is not None
     if time_quadrature is None:
         time_quadrature = TIME_QUADRATURE_DEFAULT
     time_quadrature_module.validate_time_quadrature(time_quadrature)
@@ -2544,11 +2545,24 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
                 "marginalization (n_cal=%d).  The cal reduction sums exp() over "
                 "realizations, so each realization's kappa row must be refined and the "
                 "derived factor reconciled across them; that is untested." % n_cal)
-        if return_lnLt or return_cal_components:
+        if return_cal_components:
             raise NotImplementedError(
-                "time_quadrature='bandlimited' changes the time INTEGRAL; it has no "
-                "meaning for return_lnLt / return_cal_components, which hand back "
-                "per-time or per-realization quantities on the original grid.")
+                "time_quadrature='bandlimited' is not implemented for "
+                "return_cal_components, which takes a per-realization time integral.")
+        if return_lnLt and _time_quadrature_explicit:
+            # Explicitly ASKING for a quadrature on a call that takes no integral is
+            # a caller error and is refused.  Merely INHERITING the module default is
+            # not: return_lnLt hands back lnL(t) on the original grid and never
+            # integrates, so the quadrature is inapplicable rather than ignored.
+            # Raising on the inherited default instead broke the group's standard
+            # extrinsic stage -- --add-extrinsic --add-extrinsic-time-resampling maps
+            # to --resample-time-marginalization, whose resample_samples() calls this
+            # function with return_lnLt=True and no explicit quadrature -- so enabling
+            # the option ran the whole integration and then died at the export step.
+            raise NotImplementedError(
+                "time_quadrature='bandlimited' was requested explicitly on a "
+                "return_lnLt call, which returns lnL(t) on the original grid and takes "
+                "no time integral.  Drop the argument.")
 
     detectors = rholmsArrayDict.keys()
     npts = len(tvals)
@@ -2842,9 +2856,19 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
             # whose maximum can exceed the coarse one by hundreds of nats.  That is
             # a numerical detail of an offset-invariant expression, not a second
             # change of estimator.)
+            # Hand over THIS path's Simpson rule, not a private copy.  On GPU
+            # that is optimized_gpu_tools.simps and on CPU it is scipy's, and the
+            # two are NOT interchangeable: the vendored GPU copy is an old scipy
+            # with even='avg' while modern scipy uses the Cartwright correction,
+            # so for EVEN npts (production is 614 at srate 4096) they disagree --
+            # by 0.405 nats on an under-resolved peak.  Rows that fall back must
+            # reproduce what the run they are in would have returned.  Omitting
+            # this also made the module default to scipy, which RAISES on a cupy
+            # array: every --vectorized --gpu run of this option crashed.
             return time_quadrature_module.time_marginalize_bandlimited(
                 kappa_sq, rho_sq_here, float(deltaT), loglikelihood,
-                phase_marginalization=phase_marginalization, xpy=xpy)
+                phase_marginalization=phase_marginalization, simps=simps,
+                lnL_coarse=lnL_t, xpy=xpy)
 
         L_t = xpy.exp(lnL_t - lnLmax, out=lnL_t)
 
