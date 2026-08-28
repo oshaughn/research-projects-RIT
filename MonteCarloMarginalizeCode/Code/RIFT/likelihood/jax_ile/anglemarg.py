@@ -257,18 +257,28 @@ def _reconstruct_field(C, phi, u):
     return jnp.einsum("ckq,kqst->cst", E, C).real
 
 
-def _dense_grid_sizes(amp):
-    """(nphi_d, nu_d) dense reconstruction sizes adequate for amplitude ``amp``.
+def _dense_grid_sizes(amp, m_max=2):
+    """(nphi_d, nu_d) dense reconstruction sizes adequate for amplitude ``amp``
+    and mode content ``m_max``.
 
     Derived from the trapezoid aliasing error of exp(trig poly of amplitude
-    A): N = K*sqrt(A) with the calibrated constants above (>= 2x margin), and
-    hard floors.  This is NOT a settable knob; callers pass the DATA-DERIVED
-    amplitude bound from :func:`estimate_angle_amplitude` (which is floored
-    at the crossover).
+    A): N = K*sqrt(A) with the calibrated constants above (>= 2x margin,
+    calibrated at m_max = 2) and hard floors.  The phi axis ADDITIONALLY
+    scales linearly with m_max: the exponent's phi content extends to
+    harmonic ~(2*m_max)*sqrt(A)-ish, so amplitude alone under-resolves
+    higher modes (external review 3, P1: a pure order-8 term at A = 450 was
+    phase-dependently wrong by ~0.037 nats, order 16 by up to 1.2 nats,
+    under the amplitude-only rule).  The u axis never scales with m_max --
+    psi enters at spin-2 for every mode.  This is NOT a settable knob;
+    callers pass the DATA-DERIVED amplitude bound from
+    :func:`estimate_angle_amplitude` (floored at the crossover) and the
+    data's m_max.
     """
     amp = max(float(amp), 25.0)
+    m_scale = max(1.0, float(m_max) / 2.0)     # calibration point is m_max=2
     n_u = max(_DENSE_FLOOR_U, int(np.ceil(_DENSE_K_U * np.sqrt(amp))))
-    n_phi = max(_DENSE_FLOOR_PHI, int(np.ceil(_DENSE_K_PHI * np.sqrt(amp))))
+    n_phi = max(int(np.ceil(_DENSE_FLOOR_PHI * m_scale)),
+                int(np.ceil(_DENSE_K_PHI * m_scale * np.sqrt(amp))))
     # round up to multiples of 16 so chunking stays regular
     n_u = ((n_u + 15) // 16) * 16
     n_phi = ((n_phi + 15) // 16) * 16
@@ -308,13 +318,31 @@ def estimate_angle_amplitude(data, x_grid, interp=JAX_INTERP_DEFAULT,
     form: B >= 0 makes x*A - x^2/2*B concave in x, so the max over the
     ACTUAL x support is at clip(A/B, x_min, x_max).
 
-    A second, analytic bound max_x (x*M_A - x^2/2*B0)+ (M_A = sum w|C_A|
-    pointwise-bounds |A|; B0 = angular mean of B) is kept as a runtime
-    CROSS-CHECK: it pairs the max of A with the MEAN of B, which review
-    item 5 correctly noted is heuristic (B can dip below its mean where A
-    peaks).  Empirically it over-bounds by 1.5-1.9x; if it ever reads BELOW
-    the empirical max, the disagreement is printed and the larger value is
-    used -- the failure is never silent in the too-small direction.
+    THIS IS AN ESTIMATOR, NOT A PROVEN BOUND (review 3, P2): the sky
+    maximum is located by sampling, and no finite sample proves a maximum
+    was not missed.  Three mechanisms stand behind it instead of a
+    bound-shaped claim:
+
+    1. the sky sample is random draws PLUS deterministic extremes (the
+       inclination poles and a coarse uniform sky grid, which cover the
+       known response maximizers);
+    2. a split-half convergence check: if the second half of the sample
+       moves the running maximum by more than 20%, the sample is doubled
+       (up to twice) and the growth is printed -- an under-sampled sky
+       variation is detected empirically rather than assumed away;
+    3. a RUNTIME fail-safe in the fused functions: every jitted likelihood
+       call recomputes the amplitude its own coefficient tables reach and
+       prints a loud warning if it exceeds the amp_sizing the dense grids
+       were built for -- so an underestimate is DETECTED at the point of
+       use, with the recourse (rebuild with the reported amplitude) named
+       in the message.  The failure mode is never silent.
+
+    A second, analytic expression max_x (x*M_A - x^2/2*B0)+ (M_A = sum
+    w|C_A| pointwise-bounds |A|; B0 = angular mean of B) is kept as a
+    build-time cross-check: it pairs the max of A with the MEAN of B, which
+    review 2 already noted is heuristic (B can dip below its mean where A
+    peaks); empirically it over-reads by 1.5-1.9x, and if it ever reads
+    BELOW the empirical max the disagreement is printed.
 
     Returns ``margin`` times the empirical max, UNfloored: the auto selector
     compares it to the crossover (a floor here would push every quiet target
@@ -322,62 +350,101 @@ def estimate_angle_amplitude(data, x_grid, interp=JAX_INTERP_DEFAULT,
     crossover separately, so grids are never sized below the calibration
     point.
     """
-    rng = np.random.default_rng(seed)
-    ra = rng.uniform(0.0, 2.0 * np.pi, n_sky)
-    dec = np.arcsin(rng.uniform(-1.0, 1.0, n_sky))
-    incl = np.arccos(rng.uniform(-1.0, 1.0, n_sky))
-    C_A, C_B, meta = angle_coefficient_tables(data, ra, dec, incl,
-                                              interp=interp)
-    C_A = np.asarray(C_A)
-    C_B = np.asarray(C_B)
     x = np.asarray(x_grid)
     x_min, x_max = float(x.min()), float(x.max())
 
-    # dense angular reconstruction matrices (numpy mirror of
-    # _reconstruct_field; content <= (2*m_max, 2) so 96 x 24 is ~6x Nyquist)
-    def _recon_matrix(KP, KS, phis, us):
-        kp = np.arange(KP)
-        ks = np.arange(-KS, KS + 1)
-        E = np.exp(1j * (phis[:, None, None] * kp[None, :, None]
-                         + us[:, None, None] * ks[None, None, :]))
-        w = np.ones(KP)
-        w[1:] = 2.0
-        return (E * w[None, :, None]).reshape(len(phis), -1)   # (n_ang, KP*KS)
+    def _per_sky_amps(ra, dec, incl):
+        """Per-sky-point empirical amplitude maxima from exact reconstruction."""
+        C_A, C_B, meta = angle_coefficient_tables(data, ra, dec, incl,
+                                                  interp=interp)
+        C_A = np.asarray(C_A)
+        C_B = np.asarray(C_B)
+        # dense angular reconstruction matrices (numpy mirror of
+        # _reconstruct_field).  The grid is DERIVED from the mode content
+        # and ASSERTED, exactly like the sample grid (fail-closed): sampled
+        # at >= 8x per highest harmonic, a band-limited trig polynomial's
+        # grid max under-reads its continuum max by < 1% (absorbed in
+        # `margin`), while a coarser grid can miss an adversarially-phased
+        # n = 2*m_max harmonic entirely -- so a too-small grid is refused,
+        # not trusted.  _n_phi_e/_n_u_e are test hooks; production callers
+        # take the derived defaults.
+        m_max_e = meta["m_max"]
+        n_phi_e = int(_n_phi_e) if _n_phi_e is not None \
+            else max(96, 16 * (2 * m_max_e))
+        n_u_e_ = int(_n_u_e)
+        assert n_phi_e >= 8 * (2 * m_max_e), \
+            "estimator phi grid %d under-samples 2*m_max=%d content" \
+            % (n_phi_e, 2 * m_max_e)
+        assert n_u_e_ >= 8 * 2, \
+            "estimator u grid %d under-samples order-2 content" % (n_u_e_,)
+        PH, UU = np.meshgrid(
+            np.linspace(0, 2 * np.pi, n_phi_e, endpoint=False),
+            np.linspace(0, 2 * np.pi, n_u_e_, endpoint=False),
+            indexing="ij")
+        phis, us = PH.ravel(), UU.ravel()
 
-    # The reconstruction grid is DERIVED from the mode content and ASSERTED,
-    # exactly like the sample grid (fail-closed): sampled at >= 8x per
-    # highest harmonic, a band-limited trig polynomial's grid max under-reads
-    # its continuum max by < 1% (absorbed in `margin`), while a coarser grid
-    # can miss an adversarially-phased n = 2*m_max harmonic entirely -- so a
-    # too-small grid is refused, not trusted.  _n_phi_e/_n_u_e are test
-    # hooks; production callers take the derived defaults.
-    m_max_e = meta["m_max"]
-    if _n_phi_e is None:
-        _n_phi_e = max(96, 16 * (2 * m_max_e))
-    n_phi_e, n_u_e = int(_n_phi_e), int(_n_u_e)
-    assert n_phi_e >= 8 * (2 * m_max_e), \
-        "estimator phi grid %d under-samples 2*m_max=%d content" \
-        % (n_phi_e, 2 * m_max_e)
-    assert n_u_e >= 8 * 2, \
-        "estimator u grid %d under-samples order-2 content" % (n_u_e,)
-    PH, UU = np.meshgrid(np.linspace(0, 2 * np.pi, n_phi_e, endpoint=False),
-                         np.linspace(0, 2 * np.pi, n_u_e, endpoint=False),
-                         indexing="ij")
-    phis, us = PH.ravel(), UU.ravel()
-    E_A = _recon_matrix(C_A.shape[0], (C_A.shape[1] - 1) // 2, phis, us)
-    E_B = _recon_matrix(C_B.shape[0], (C_B.shape[1] - 1) // 2, phis, us)
+        def _recon_matrix(KP, KS):
+            kp = np.arange(KP)
+            ks = np.arange(-KS, KS + 1)
+            E = np.exp(1j * (phis[:, None, None] * kp[None, :, None]
+                             + us[:, None, None] * ks[None, None, :]))
+            w = np.ones(KP)
+            w[1:] = 2.0
+            return (E * w[None, :, None]).reshape(len(phis), -1)
 
-    amp_emp = 0.0
-    for j in range(n_sky):          # per-sky loop bounds the transient
-        A_g = (E_A @ C_A[:, :, j].reshape(-1, C_A.shape[-1])).real
-        B_g = np.maximum((E_B @ C_B[:, :, j].reshape(-1, C_B.shape[-1])).real,
-                         0.0)                                  # (n_ang, npts)
-        x_hat = np.clip(A_g / np.maximum(B_g, 1e-300), x_min, x_max)
-        val = x_hat * A_g - 0.5 * np.square(x_hat) * B_g
-        amp_emp = max(amp_emp, float(val.max()))
-    amp_emp = max(amp_emp, 0.0)
+        E_A = _recon_matrix(C_A.shape[0], (C_A.shape[1] - 1) // 2)
+        E_B = _recon_matrix(C_B.shape[0], (C_B.shape[1] - 1) // 2)
+        amps = []
+        for j in range(C_A.shape[2]):      # per-sky loop bounds the transient
+            A_g = (E_A @ C_A[:, :, j].reshape(-1, C_A.shape[-1])).real
+            B_g = np.maximum(
+                (E_B @ C_B[:, :, j].reshape(-1, C_B.shape[-1])).real, 0.0)
+            # B >= 0 makes x*A - x^2/2*B concave in x: the max over the
+            # actual support is at the clipped stationary point
+            x_hat = np.clip(A_g / np.maximum(B_g, 1e-300), x_min, x_max)
+            val = x_hat * A_g - 0.5 * np.square(x_hat) * B_g
+            amps.append(max(float(val.max()), 0.0))
+        return np.array(amps), C_A, C_B
 
-    # analytic cross-check (heuristic direction documented above)
+    def _draw(n, rng):
+        ra = rng.uniform(0.0, 2.0 * np.pi, n)
+        dec = np.arcsin(rng.uniform(-1.0, 1.0, n))
+        incl = np.arccos(rng.uniform(-1.0, 1.0, n))
+        return ra, dec, incl
+
+    rng = np.random.default_rng(seed)
+    ra, dec, incl = _draw(n_sky, rng)
+    # deterministic extremes: face-on/face-off inclinations over a coarse
+    # uniform sky grid (the known maximizers of the response amplitude)
+    g_ra, g_dec = np.meshgrid(np.linspace(0, 2 * np.pi, 6, endpoint=False),
+                              np.array([-1.0, -0.35, 0.35, 1.0]),
+                              indexing="ij")
+    for i0_ in (0.0, np.pi):
+        ra = np.concatenate([ra, g_ra.ravel()])
+        dec = np.concatenate([dec, g_dec.ravel()])
+        incl = np.concatenate([incl, np.full(g_ra.size, i0_)])
+
+    amps, C_A, C_B = _per_sky_amps(ra, dec, incl)
+    # split-half convergence check (mechanism 2 of the docstring): compare
+    # the max WITHOUT the second half of the random draws against the max
+    # with them; growth > 20% means the sky variation is under-sampled, so
+    # draw again (at most twice) and say so.
+    half = np.concatenate([amps[: n_sky // 2], amps[n_sky:]])   # + extremes
+    amp_emp = float(amps.max())
+    amp_ref = float(half.max())
+    grows = amp_emp > 1.2 * amp_ref + 1e-12
+    n_extra = 0
+    while grows and n_extra < 2 * n_sky:
+        print("estimate_angle_amplitude: sky maximum still growing "
+              "(%.4g -> %.4g); doubling the sample." % (amp_ref, amp_emp))
+        ra2, dec2, incl2 = _draw(n_sky, rng)
+        amps2, _, _ = _per_sky_amps(ra2, dec2, incl2)
+        amp_ref = amp_emp
+        amp_emp = max(amp_emp, float(amps2.max()))
+        grows = amp_emp > 1.2 * amp_ref + 1e-12
+        n_extra += n_sky
+
+    # analytic cross-check (mechanism documented above; heuristic direction)
     w = np.ones(C_A.shape[0])
     w[1:] = 2.0
     M_A = np.einsum("k,kqst->st", w, np.abs(C_A))
@@ -387,14 +454,52 @@ def estimate_angle_amplitude(data, x_grid, interp=JAX_INTERP_DEFAULT,
             - 0.5 * np.square(x)[:, None, None] * B0[None])
     amp_analytic = float(np.clip(expo, 0.0, None).max())
     if amp_analytic < amp_emp * (1.0 - 1e-9):
-        # The analytic expression should over-bound (measured 1.5-1.9x); if
-        # it reads below the near-exact empirical max, say so LOUDLY -- the
-        # empirical value stands either way, so the too-small failure mode
-        # cannot occur silently.
-        print("estimate_angle_amplitude: analytic bound %.6g fell BELOW the "
-              "empirical max %.6g (the review-flagged heuristic direction); "
-              "the empirical value governs." % (amp_analytic, amp_emp))
+        print("estimate_angle_amplitude: analytic cross-check %.6g fell "
+              "BELOW the empirical max %.6g (the review-flagged heuristic "
+              "direction); the empirical value governs." % (amp_analytic,
+                                                            amp_emp))
     return margin * amp_emp
+
+
+def _runtime_amp_failsafe(C_A, C_B, x_grid, amp_sizing, scheme_name):
+    """Mechanism 3 of :func:`estimate_angle_amplitude`'s contract: DETECT, at
+    the point of use, a call whose coefficient tables reach amplitudes the
+    dense grids were not sized for (i.e. the build-time estimator missed a
+    hotter sky region -- it is an estimator, not a proven bound).
+
+    Uses the cheap analytic expression max over (S, t) of the concave-in-x
+    maximum of x*M_A - x^2/2*B0 (closed form, no distance-grid axis).  That
+    expression OVER-reads the true amplitude by a measured 1.5-1.9x, so the
+    trigger threshold is 2*amp_sizing: it fires when the true local
+    amplitude exceeds ~1.3-2x the sizing bound -- comfortably BEFORE the
+    dense grids actually degrade (their calibrated constants carry a 2x
+    margin in N, i.e. 4x in amplitude).  The warning prints from inside jit
+    via jax.debug.print (no value is altered; the recourse is named in the
+    message).  Everything under stop_gradient: the check must not appear in
+    the AD graph.
+    """
+    w = _kp_weights(C_A.shape[0])
+    M_A = jnp.einsum("k,kqst->st", jnp.asarray(w), jnp.abs(C_A))
+    ks0 = (C_B.shape[1] - 1) // 2
+    B0 = jnp.maximum(C_B[0, ks0].real, 0.0)
+    x_min = jnp.min(x_grid)
+    x_max = jnp.max(x_grid)
+    x_hat = jnp.clip(M_A / jnp.maximum(B0, 1e-300), x_min, x_max)
+    amp_call = jnp.max(jnp.clip(
+        x_hat * M_A - 0.5 * jnp.square(x_hat) * B0, 0.0, None))
+    amp_call = jax.lax.stop_gradient(amp_call)
+    jax.lax.cond(
+        amp_call > 2.0 * amp_sizing,
+        lambda a_: jax.debug.print(
+            "WARNING anglemarg/" + scheme_name + ": this call's coefficient "
+            "tables reach an amplitude scale ~{a:.4g} (analytic over-reading "
+            "expression), above 2x the amp_sizing=" + "%.4g" % amp_sizing
+            + " the dense (phi,psi) grids were built for.  "
+            "estimate_angle_amplitude underestimated the sky maximum; the "
+            "marginal may be under-resolved at such points.  Rebuild the "
+            "likelihood with amp_sizing >= the reported amplitude.", a=a_),
+        lambda a_: None,
+        amp_call)
 
 
 def _require_amp_sizing(amp_sizing):
@@ -471,7 +576,8 @@ def fused_log_likelihood_distphipsimarg_exact(
     npts = data.npts
 
     amp_sizing = _require_amp_sizing(amp_sizing)
-    nphi_d, nu_d = _dense_grid_sizes(amp_sizing)
+    _runtime_amp_failsafe(C_A, C_B, x_grid, amp_sizing, "exact")
+    nphi_d, nu_d = _dense_grid_sizes(amp_sizing, m_max=meta["m_max"])
     phi_d = np.linspace(0.0, 2.0 * np.pi, nphi_d, endpoint=False)
     u_d = np.linspace(0.0, 2.0 * np.pi, nu_d, endpoint=False)   # u = 2 psi
     PH, UU = np.meshgrid(phi_d, u_d, indexing="ij")
@@ -515,27 +621,36 @@ def fused_log_likelihood_distphipsimarg_exact(
 # Analytic psi Laplace
 # ---------------------------------------------------------------------------
 
-# Series/Laplace handover (external review, item 2: a hard switch at
-# b + 2d = 0.5 left a WIDE bad window just above the cut -- the truncated
-# 2-term series stopped exactly where Laplace is still O(1)-wrong, giving
-# 0.27-0.53 nats of value error and a SIGN-INVERTED |c2| gradient across
-# b + 2d in [0.5, ~5]).  The series now carries Bessel cross terms to k = 5
-# (each I_n as a truncated power series -- elementary ops, no scipy) and is
-# accurate through b + 2d ~ 6, Laplace is accurate above ~5, and the two are
-# blended C^1-smoothly over [LO, HI] so no bin ever crosses a hard branch
-# boundary as (ra, dec, incl) move.
-# Band placement: the blended value is C^1, but its gradient carries
-# dw/dtheta * (series - laplace), i.e. the blend-weight slope times the local
-# BRANCH DISAGREEMENT (= Laplace's O(1/A) error, worst ~1.75/(b+d)).  Placing
-# the band at [10, 16] keeps that term <= ~0.2 in the worst draw and a few
-# 1e-2 typically, with the series machine-exact through t = 10.
-_LAPLACE_BLEND_LO = 10.0      # pure series below this in t = b + 2d
-_LAPLACE_BLEND_HI = 16.0      # pure Laplace above this
-_LAPLACE_SERIES_TERMS = 26    # power-series length per Bessel; at the series
-                              # clamp b <= 16 the last term is ~1e-9 relative
-_LAPLACE_SERIES_KMAX = 8      # cross-term order; verified to 1e-10 against
-                              # quadrature across t <= BLEND_LO by the sweep
-                              # tests (worst split b = 8, d = 4)
+# Quadrature/Laplace handover (external reviews, items 2 and P2-local).
+#
+# HISTORY, because two revisions got this boundary wrong in two different
+# ways: a hard series/Laplace switch at b + 2d = 0.5 left a wide window of
+# 0.27-0.53 nats value error with a SIGN-INVERTED |c2| gradient just above
+# the cut (review 2, item 2); a truncated-Bessel-series fix moved the
+# handover to b + 2d ~ 16, but a third review showed the subdominance
+# argument used to tolerate the remaining O(0.25)-nat worst-phase Laplace
+# error near the handover is GLOBAL while the kernel is evaluated at every
+# proposed sky position -- at a low-response proposal such bins are locally
+# dominant (counterexample: b = 11.887, d = 3.516, beta = -1.890,
+# delta = -0.650 -> +0.251 nats).
+#
+# The resolution: below the handover the u-integral is done by FIXED-N
+# trapezoid quadrature of exp(f) -- for a periodic band-limited exponent the
+# trapezoid rule converges super-exponentially, so with N = 320 the branch
+# is machine-accurate for every t = b + 2d <= BLEND_HI = 300 (aliasing
+# ~ I_{N/2}(t)/I_0(t) ~ e^-40 at the band edge; the counterexample bin is
+# now exact).  N is fixed by the HANDOVER amplitude, not by the data, so
+# the laplace scheme keeps its ~sqrt(A) cost scaling.  Above the band the
+# enumerated-maxima Laplace applies, where its worst-phase error
+# (~3.9/(b+d), adversarial constant from review 3) is <= ~0.026 and typical
+# error is ~1e-3, falling as 1/A.  The two are blended C^1-smoothly over
+# [BLEND_LO, BLEND_HI]: the blend gradient carries dw * (quad - laplace),
+# i.e. the branch disagreement, which the band placement bounds.
+_LAPLACE_BLEND_LO = 220.0     # pure quadrature below this in t = b + 2d
+_LAPLACE_BLEND_HI = 300.0     # pure Laplace above this
+_LAPLACE_QUAD_N = 320         # u-quadrature points; content of exp(f) extends
+                              # to ~2*5.25*sqrt(t/2) harmonics (d-dominated
+                              # worst case) = 128 at t = 300, Nyquist 160
 _LAPLACE_BRACKET_CELLS = 24   # sign-scan cells for the stationary points of
                               # f(u): f' is a degree-2 trig polynomial, so it
                               # has AT MOST 4 transversal zeros on the circle
@@ -549,58 +664,33 @@ _LAPLACE_BRACKET_CELLS = 24   # sign-scan cells for the stationary points of
 _LAPLACE_MAX_ROOTS = 4
 
 
-def _scaled_iv(n, x, terms=None):
-    """I_n(z) / z^n as a fixed-length power series in x = z^2 (Horner).
-
-    I_n(z)/z^n = (1/2^n) sum_m (z^2/4)^m / (m! (m+n)!) -- entire in x, all
-    coefficients positive, so the truncation error is bounded by the first
-    dropped term: ~1e-14 relative at the series clamp z <= 6 with the
-    default length.  Elementary ops only (the kernel may not touch scipy).
-    """
-    import math
-    if terms is None:
-        terms = _LAPLACE_SERIES_TERMS
-    q = x / 4.0
-    coefs = [1.0 / (math.factorial(m) * math.factorial(m + n))
-             for m in range(terms)]
-    acc = jnp.zeros_like(q) + coefs[-1]
-    for cm in reversed(coefs[:-1]):
-        acc = acc * q + cm
-    return acc / (2.0 ** n)
-
-
 def _laplace_psi_lnI(a, c1, c2):
     """log[(1/pi) int_0^pi exp(a + Re(c1 e^{iu}) + Re(c2 e^{2iu})) dpsi], u = 2 psi.
 
-    Laplace's method with ALL maxima enumerated.  An earlier revision seeded
-    Newton only at the extrema of the FIRST harmonic (u0 = beta, beta+pi with
-    beta = -arg c1); that assumes b >> d and fails outright when the first
-    harmonic cancels: for c1 = 0, c2 = -d, d > 0.5 both seeds land on MINIMA
-    and the routine returned -inf for a finite integral (found in external
-    review).  This version brackets every transversal zero of f' by a sign
-    scan over _LAPLACE_BRACKET_CELLS cells (interval-based, so coincident
-    roots cannot be double-counted), bisects under stop_gradient, applies one
-    differentiable Newton polish step (Newton is a contraction, so a single
-    step from the converged point carries the correct implicit derivative
-    without a deep 1/H^2 gradient chain), keeps roots with curvature H below
-    a small POSITIVE tolerance (so a near-degenerate maximum contributes with
-    the floored curvature instead of being dropped), and sums the Laplace
-    factors.  Everything is angle-free -- f, f', f'' are evaluated directly
-    from c1, c2, so arg(0) never appears and b = 0 is a regular point.
+    Two regimes, C^1-blended on t = b + 2d (b = |c1|, d = |c2|); see the
+    constants block above for the placement rationale and review history.
 
-    At small-to-moderate amplitude the EXACT Bessel expansion
-    (1/pi) int = e^a [I0(b) I0(d) + 2 sum_k I_2k(b) I_k(d) cos(k(2beta-delta))]
-    is used instead, truncated at k = _LAPLACE_SERIES_KMAX with each I_n a
-    fixed-length power series (Laplace degenerates as the curvature
-    vanishes; the series converges fastest exactly there).  The phases are
-    division-free: with w = c2 conj(c1)^2, cos(k(2beta-delta)) Bessel
-    prefactors combine to polynomial coefficients times Re(w^k).  The two
-    branches are blended C^1-smoothly over b + 2d in [_LAPLACE_BLEND_LO,
-    _LAPLACE_BLEND_HI] -- a hard switch put sign-inverted gradients in the
-    window just above the old cut (external review, item 2).
+    t < BLEND_HI: fixed-N trapezoid quadrature of exp(f) over u -- machine-
+    accurate for a periodic band-limited exponent up to the handover, which
+    is what makes the kernel's LOCAL error small at every reachable bin (a
+    global-amplitude subdominance argument is not available: the kernel runs
+    at every proposed sky position, review 3).
 
-    Elementary functions only (no scipy Bessels, no eigensolvers);
-    differentiable; any input shape (elementwise over broadcast a, c1, c2).
+    t > BLEND_LO: Laplace's method with ALL maxima enumerated.  An early
+    revision seeded Newton only at the extrema of the FIRST harmonic, which
+    fails outright when that harmonic cancels (c1 = 0, c2 = -d: both seeds
+    are minima; -inf was returned for a finite integral -- review 1).  Every
+    transversal zero of f' is bracketed by a sign scan (interval-based, so
+    coincident roots cannot be double-counted), bisected under
+    stop_gradient, polished by one differentiable Newton step (a contraction
+    step from the converged point carries the implicit derivative without a
+    deep 1/H^2 gradient chain); near-degenerate maxima are kept with floored
+    curvature rather than dropped, so -inf is impossible for a finite
+    integral.  Angle-free throughout: f, f', f'' are evaluated directly from
+    c1, c2, so arg(0) never appears and b = 0 is a regular point.
+
+    Elementary functions only (no scipy, no eigensolvers); differentiable;
+    any input shape (elementwise over broadcast a, c1, c2).
     """
     mag1 = jnp.square(c1.real) + jnp.square(c1.imag)
     mag2 = jnp.square(c2.real) + jnp.square(c2.imag)
@@ -611,9 +701,9 @@ def _laplace_psi_lnI(a, c1, c2):
     lap_dummy = t_amp < _LAPLACE_BLEND_LO      # blend weight is exactly 1 here
     # jnp.where's VJP sends a ZERO cotangent through the unselected branch,
     # and 0 * inf = nan: the Laplace branch must have BOUNDED derivatives
-    # (including second, for .fisher()) even on the pure-series bins.  Feed
-    # it safe dummy amplitudes there (their contribution is weighted 0 by
-    # the blend) and floor the curvature RELATIVE to the amplitude scale.
+    # (including second, for .fisher()) even on the pure-quadrature bins.
+    # Feed it safe dummy amplitudes there (their contribution is weighted 0
+    # by the blend) and floor the curvature RELATIVE to the amplitude scale.
     c1l = jnp.where(lap_dummy, 5.0 + 0.0j, c1)
     c2l = jnp.where(lap_dummy, 0.25 + 0.0j, c2)
     bl = jnp.sqrt(jnp.square(c1l.real) + jnp.square(c1l.imag) + 1e-300)
@@ -631,6 +721,10 @@ def _laplace_psi_lnI(a, c1, c2):
     def fpp(u):
         eiu = jnp.exp(1j * u)
         return -(c1l * eiu).real - 4.0 * (c2l * eiu * eiu).real
+
+    def fpppp(u):
+        eiu = jnp.exp(1j * u)
+        return (c1l * eiu).real + 16.0 * (c2l * eiu * eiu).real
 
     def _guard(H):
         # sign-preserving denominator floor
@@ -684,9 +778,33 @@ def _laplace_psi_lnI(a, c1, c2):
         # (its Laplace weight is then merely inaccurate, never absent).
         ok = filled[j] & (H < h_floor)
         Hm = jnp.minimum(H, -h_floor)
+        # Peak width: the Gaussian factor sqrt(2 pi/|H|) OVERESTIMATES a
+        # near-degenerate (quartic-flat) maximum by nats -- at the exactly
+        # aligned b = 4d configuration the floored-curvature form was ~5
+        # nats high (review 3's local-error standard).  The quartic width
+        # int exp(f4 u^4/24) du = Gamma(1/4)/2 * (24/|f4|)^(1/4) is closed
+        # form (f'''' is elementary for a trig polynomial).  The widths are
+        # combined as W = W_g (1 + rho)^-1/2 with rho = (W_g/W_q)^2 -- exact
+        # at both ends and at most 0.083 nats off on the scale-free
+        # Gaussian x quartic family (vs 0.26 for min() and ~5 for the
+        # floored Gaussian alone) -- but GATED on rho: for a REGULAR
+        # maximum rho ~ 1/sqrt(b) and the ungated correction would inject
+        # an O(1/sqrt(A)) systematic where plain Laplace errs only O(1/A)
+        # (measured: sweep worst at t = 1000 rose 3.7e-3 -> 4.6e-2
+        # ungated).  The gate turns the correction on smoothly over
+        # rho in [0.2, 0.8], i.e. only where the peak is genuinely
+        # quartic-contaminated.
+        F4 = fpppp(u)
+        f4_floor = 1e-6 * (bl + 16.0 * dl)
+        F4m = jnp.minimum(F4, -f4_floor)
+        lnW_gauss = 0.5 * jnp.log(2.0 * jnp.pi / (-Hm))
+        lnW_quart = 0.5949217316 + 0.25 * jnp.log(24.0 / (-F4m))
+        rho = jnp.exp(jnp.clip(2.0 * (lnW_gauss - lnW_quart), -50.0, 50.0))
+        g8 = jnp.clip((rho - 0.2) / 0.6, 0.0, 1.0)
+        g8 = g8 * g8 * (3.0 - 2.0 * g8)
+        lnW = lnW_gauss - 0.5 * jnp.log1p(rho * g8)
         t = jnp.where(ok,
-                      a + fval(u)
-                      + 0.5 * jnp.log(2.0 * jnp.pi / (-Hm))
+                      a + fval(u) + lnW
                       - jnp.log(2.0 * jnp.pi),      # (1/2 du/dpsi) * (1/pi)
                       -jnp.inf)
         terms.append(t)
@@ -704,36 +822,33 @@ def _laplace_psi_lnI(a, c1, c2):
                            mts + jnp.log(jnp.maximum(ssum, 1e-300)),
                            -jnp.inf)
 
-    # ---- Bessel-series branch (exact expansion, truncated): inputs are
-    # CLAMPED to the largest amplitudes the blend can weight (b <= 16,
-    # d <= 8; magnitude-only scaling preserves the phases) so the fixed
-    # power series never overflows on the pure-Laplace bins it is weighted
-    # 0 on -- an unclamped b ~ 1e4 would overflow to inf and the inf leaks
-    # through the blend's chain rule as 0 * inf = nan.
-    b_s = jnp.minimum(b, 16.0)
-    d_s = jnp.minimum(d, 8.0)
-    c1_s = c1 * (b_s / b)
-    c2_s = c2 * (d_s / d)
-    x_b = b_s * b_s
-    x_d = d_s * d_s
-    w1 = c2_s * jnp.conj(c1_s) ** 2            # |w1| = b_s^2 d_s, arg = 2b-d
-    series = _scaled_iv(0, x_b) * _scaled_iv(0, x_d)
-    wk = w1
-    for k in range(1, _LAPLACE_SERIES_KMAX + 1):
-        series = series + (2.0 * _scaled_iv(2 * k, x_b)
-                           * _scaled_iv(k, x_d) * wk.real)
-        wk = wk * w1
-    ln_series = a + jnp.log(jnp.maximum(series, 1e-300))
+    # ---- fixed-N u-quadrature branch: mean of exp(f) over a uniform u grid
+    # equals (1/pi) int dpsi.  Uses the TRUE c1, c2 (no dummies needed: no
+    # divisions, and the running-max log-sum-exp keeps exp() in range even
+    # for the huge-t bins whose blend weight is 0).  Chunked so the
+    # transient stays a few X-sized arrays.
+    uq = np.linspace(0.0, 2.0 * np.pi, _LAPLACE_QUAD_N, endpoint=False)
+    mq = jnp.full_like(b, -jnp.inf)
+    sq = jnp.zeros_like(b)
+    QCH = 16
+    for s0 in range(0, _LAPLACE_QUAD_N, QCH):
+        blk = []
+        for u_val in uq[s0:s0 + QCH]:
+            eiu = np.exp(1j * u_val)          # host scalar phase
+            blk.append((c1 * eiu).real + (c2 * (eiu * eiu)).real)
+        mq, sq = _lse_update(mq, sq, jnp.stack(blk, axis=0), axis=0)
+    ln_quad = (a + mq + jnp.log(jnp.maximum(sq, 1e-300))
+               - jnp.log(float(_LAPLACE_QUAD_N)))
 
-    # ---- C^1 blend: pure series below LO, pure Laplace above HI
+    # ---- C^1 blend: pure quadrature below LO, pure Laplace above HI
     r = jnp.clip((_LAPLACE_BLEND_HI - t_amp)
                  / (_LAPLACE_BLEND_HI - _LAPLACE_BLEND_LO), 0.0, 1.0)
     wgt = r * r * (3.0 - 2.0 * r)               # smoothstep
     # ln_laplace cannot be -inf for t_amp >= LO (a periodic f' has >= 2 sign
     # flips and the tolerant acceptance keeps the global maximum), but guard
     # the 0-weight product against a hypothetical -inf anyway.
-    ln_lap = jnp.where(jnp.isfinite(ln_laplace), ln_laplace, ln_series)
-    return wgt * ln_series + (1.0 - wgt) * ln_lap
+    ln_lap = jnp.where(jnp.isfinite(ln_laplace), ln_laplace, ln_quad)
+    return wgt * ln_quad + (1.0 - wgt) * ln_lap
 
 
 def fused_log_likelihood_distphipsimarg_laplace(
@@ -775,7 +890,8 @@ def fused_log_likelihood_distphipsimarg_laplace(
     npts = data.npts
 
     amp_sizing = _require_amp_sizing(amp_sizing)
-    nphi_d, _ = _dense_grid_sizes(amp_sizing)
+    _runtime_amp_failsafe(C_A, C_B, x_grid, amp_sizing, "laplace")
+    nphi_d, _ = _dense_grid_sizes(amp_sizing, m_max=m_max)
     phi_d = np.linspace(0.0, 2.0 * np.pi, nphi_d, endpoint=False)
     c = int(phi_chunk)
     phi_x, lw_x = _pad_chunks([phi_d], c)

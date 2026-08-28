@@ -411,9 +411,10 @@ def _kernel(p):
 def test_laplace_kernel_gradient_finite_differences():
     """On smooth inputs (away from the branch boundaries) the kernel gradient
     is FD-exact -- both the Laplace branch and the small-amplitude series."""
-    for p0 in ([0.3, 40.0, -25.0, 3.0, 1.5],      # Laplace branch, b ~ 47
-               [0.1, 0.12, 0.08, 0.03, -0.02],    # series branch
-               [0.2, 4.0, 2.0, 1.0, -0.5]):       # blend band, b+2d ~ 6.7
+    for p0 in ([0.3, 400.0, -250.0, 30.0, 15.0],  # Laplace branch, t ~ 540
+               [0.1, 0.12, 0.08, 0.03, -0.02],    # tiny amplitude (quad)
+               [0.3, 40.0, -25.0, 3.0, 1.5],      # moderate (quad), b ~ 47
+               [0.2, 150.0, 80.0, 30.0, -20.0]):  # blend band, t ~ 242
         p0 = jnp.asarray(p0)
         g = np.asarray(jax.grad(_kernel)(p0))
         assert np.all(np.isfinite(g))
@@ -428,9 +429,10 @@ def test_laplace_kernel_error_law():
     """Kernel error vs a dense trapezoid truth follows ~0.1/b nats and
     SHRINKS with amplitude -- including the two-maxima regime (d ~ b/2).
     Measured: 7.7e-4 at b=200, 3.3e-5 at b=2000, 4.6e-6 at b=20000."""
-    cases = ((200.0, 0.7, 12.0, -0.4, 1.0),
-             (2000.0, -1.2, 80.0, 0.9, 0.0),
-             (50.0, 1.0, 30.0, 2.0, 0.0))         # two-maxima regime
+    cases = ((200.0, 0.7, 12.0, -0.4, 1.0),       # blend band now (t = 224)
+             (2000.0, -1.2, 80.0, 0.9, 0.0),      # pure Laplace
+             (20000.0, 0.3, 700.0, -2.0, 0.0),    # pure Laplace, decade up
+             (50.0, 1.0, 30.0, 2.0, 0.0))         # two-maxima; quadrature now
     errs = {}
     for b, beta, d, delta, a in cases:
         c1 = b * np.exp(-1j * beta)
@@ -444,7 +446,10 @@ def test_laplace_kernel_error_law():
         errs[b] = abs(val - truth)
         assert errs[b] < 0.5 / b, "b=%g: err %g exceeds the O(1/b) law" % (
             b, errs[b])
-    assert errs[2000.0] < errs[200.0]
+    # the decay comparison must pair two PURE-Laplace points: the smaller
+    # cases now route through the (near-exact) quadrature/blend branches, so
+    # their errors sit far BELOW the Laplace law rather than on it
+    assert errs[20000.0] < errs[2000.0]
 
 
 def test_dense_size_rule_pinned():
@@ -457,6 +462,18 @@ def test_dense_size_rule_pinned():
     n_lo = AM._dense_grid_sizes(AM.ANGLE_MARG_CROSSOVER_AMPLITUDE)
     n_hi = AM._dense_grid_sizes(4 * AM.ANGLE_MARG_CROSSOVER_AMPLITUDE)
     assert n_hi[0] >= 2 * n_lo[0] - 16 and n_hi[1] >= 2 * n_lo[1] - 16
+    # review 3 (P1): the phi axis must additionally scale with the mode
+    # content -- amplitude alone under-resolves higher modes (a pure order-8
+    # term at A = 450 was phase-dependently ~0.037 nats wrong, order 16 up
+    # to 1.2 nats, under the amplitude-only rule).  The u axis never scales:
+    # psi enters at spin-2 for every mode.
+    m4 = AM._dense_grid_sizes(AM.ANGLE_MARG_CROSSOVER_AMPLITUDE, m_max=4)
+    assert m4[0] >= 2 * n_lo[0] - 16      # phi doubles at m_max = 4
+    assert m4[1] == n_lo[1]               # u unchanged
+    m8 = AM._dense_grid_sizes(AM.ANGLE_MARG_CROSSOVER_AMPLITUDE, m_max=8)
+    assert m8 == (1360, 176)     # 16 * 4 * sqrt(450) -> 1360 after rounding;
+    # (4 * the ROUNDED m_max=2 value would be 1408 -- the scaling applies to
+    # the unrounded rule, so pin the exact derived number instead)
 
 
 # ---------------------------------------------------------------------------
@@ -680,10 +697,9 @@ def test_laplace_kernel_randomized_sweep():
     log-uniform in d and in b/d INCLUDING b << d -- the failure region a
     hand-picked example set misses (review's explicit request) -- and with
     NO low-amplitude filter: an earlier revision skipped b + 2d < 0.6,
-    which is exactly where the review then found a 0.5-nat window with a
-    sign-inverted gradient (review item 2).  Below the blend band the
-    extended Bessel series is machine-exact; above it the O(1/A) Laplace
-    law applies (measured worst |err|*(b+d) = 1.75 over 200 draws)."""
+    which is exactly where review 2 then found a 0.5-nat window with a
+    sign-inverted gradient.  Below the blend band the fixed-N u-quadrature
+    is machine-exact; above it the O(1/A) Laplace law applies."""
     rng = np.random.default_rng(42)
     for _ in range(60):
         dd = 10 ** rng.uniform(-0.5, 2.5)
@@ -698,7 +714,7 @@ def test_laplace_kernel_randomized_sweep():
         truth = _kernel_truth(a, c1, c2, n=200001)
         assert np.isfinite(val)
         if b + 2 * dd < AM._LAPLACE_BLEND_LO:
-            tol = 1e-10                       # pure extended series
+            tol = 1e-10                       # pure fixed-N quadrature
         else:
             tol = 4.0 / (b + dd) + 1e-3       # Laplace O(1/A) law
         assert abs(val - truth) < tol, \
@@ -707,55 +723,56 @@ def test_laplace_kernel_randomized_sweep():
 
 
 def test_laplace_kernel_branch_window():
-    """Review item 2's regression, pinned WITHOUT filtering the window out.
+    """Reviews 2 and 3 (P2-local), pinned WITHOUT filtering the window out.
 
-    The original defect: a hard series/Laplace switch at b + 2d = 0.5 left
-    0.27-0.53 nats of value error and a SIGN-INVERTED |c2| gradient across
-    b + 2d in [0.5, ~5].  After the fix (extended Bessel series to k = 8,
-    C^1 blend over [_LAPLACE_BLEND_LO, _LAPLACE_BLEND_HI] = [10, 16]):
-    machine precision through t = 10 -- the review's probe points 0.5001 and
-    2.0 exact in value and gradient -- and O(1/A)-bounded, sign-correct
-    behaviour through the band (worst measured over 16 draws/t: 0.17 val /
-    0.47 grad at t = 15) and above it.  Bins in the band carry psi-variation
-    ~10-16 nats, so in any marginal the laplace branch actually serves
-    (amplitude >= the crossover) they are exp(-(A - 16))-subdominant; the
-    band tolerances below pin boundedness, not the operating error.
+    History: a hard series/Laplace switch at b + 2d = 0.5 gave 0.27-0.53
+    nats and a SIGN-INVERTED |c2| gradient just above the cut (review 2); a
+    Bessel-series fix moved the handover to ~16 but relied on a GLOBAL
+    subdominance argument, and review 3 exhibited a locally-dominant bin at
+    t = 18.9 with +0.251 nats.  The kernel now integrates u by fixed-N
+    quadrature below the handover -- machine-exact for every t <= 220
+    including that counterexample -- hands over to enumerated-maxima
+    Laplace across a C^1 blend [220, 300], and its worst LOCAL error
+    anywhere is bounded: measured 4e-3 on random draws above the band and
+    <= ~0.45 nats at the measure-tiny degenerate-curvature alignment
+    (b = 4d, phases aligned; was ~5 nats before the gated quartic-width
+    correction), decaying with t.
     """
+    # review 3's exact counterexample: must be machine-exact now
+    b, dd, beta, delta = 11.8866, 3.5163, -1.8900, -0.6497
+    c1 = b * np.exp(-1j * beta)
+    c2 = dd * np.exp(-1j * delta)
+    val = float(AM._laplace_psi_lnI(jnp.asarray(0.0), jnp.asarray(c1),
+                                    jnp.asarray(c2)))
+    assert abs(val - _kernel_truth(0.0, c1, c2)) < 1e-12
+
     rng = np.random.default_rng(5)
-    val_tol = {0.5001: 1e-12, 2.0: 1e-12, 5.0: 1e-12, 10.0: 1e-11,
-               13.0: 0.5, 15.0: 0.5, 16.0: 0.5, 26.0: 0.1}
+    val_tol = {0.5001: 1e-12, 2.0: 1e-12, 19.0: 1e-12, 120.0: 1e-12,
+               220.0: 1e-11, 260.0: 0.02, 300.0: 0.02, 500.0: 0.03}
     for t, vtol in val_tol.items():
-        in_band = AM._LAPLACE_BLEND_LO < t <= AM._LAPLACE_BLEND_HI
-        for _ in range(4):
-            frac = rng.uniform(0.1, 0.9)
-            b = t * frac
-            dd = t * (1 - frac) / 2
-            beta = rng.uniform(0, 2 * np.pi)
-            delta = rng.uniform(0, 2 * np.pi)
-            c1 = b * np.exp(-1j * beta)
-            c2 = dd * np.exp(-1j * delta)
+        for _ in range(3):
+            frac = rng.uniform(0.05, 0.95)
+            bb = t * frac
+            d2 = t * (1 - frac) / 2
+            c1 = bb * np.exp(-1j * rng.uniform(0, 2 * np.pi))
+            c2 = d2 * np.exp(-1j * rng.uniform(0, 2 * np.pi))
             val = float(AM._laplace_psi_lnI(jnp.asarray(0.2),
                                             jnp.asarray(c1),
                                             jnp.asarray(c2)))
             truth = _kernel_truth(0.2, c1, c2, n=200001)
             assert abs(val - truth) < vtol, \
                 "t=%g: val err %g (tol %g)" % (t, val - truth, vtol)
-            # |c2|-direction gradient: bounded everywhere, machine-exact
-            # below the band, sign-correct wherever the sign is resolved
-            e2 = np.exp(-1j * delta)
+            # |c2|-direction gradient: machine-exact below the band,
+            # bounded and sign-correct wherever resolved above it
+            e2 = c2 / max(abs(c2), 1e-300)
             g_ad = float(jax.grad(
                 lambda dv: AM._laplace_psi_lnI(jnp.asarray(0.2),
                                                jnp.asarray(c1),
-                                               dv * e2))(jnp.asarray(dd)))
+                                               dv * e2))(jnp.asarray(d2)))
             h = 1e-5
-            g_tr = (_kernel_truth(0.2, c1, (dd + h) * e2, n=200001)
-                    - _kernel_truth(0.2, c1, (dd - h) * e2, n=200001)) / (2 * h)
-            if t <= AM._LAPLACE_BLEND_LO:
-                gtol = 1e-8
-            elif in_band:
-                gtol = 0.8 + 0.2 * abs(g_tr)
-            else:
-                gtol = 0.15 + 0.1 * abs(g_tr)
+            g_tr = (_kernel_truth(0.2, c1, (d2 + h) * e2, n=200001)
+                    - _kernel_truth(0.2, c1, (d2 - h) * e2, n=200001)) / (2 * h)
+            gtol = 1e-7 if t <= AM._LAPLACE_BLEND_LO else 0.1 + 0.1 * abs(g_tr)
             assert abs(g_ad - g_tr) < gtol, \
                 "t=%g: grad AD %+g vs truth %+g (tol %g)" % (t, g_ad, g_tr,
                                                              gtol)
@@ -763,12 +780,24 @@ def test_laplace_kernel_branch_window():
                 assert np.sign(g_ad) == np.sign(g_tr), \
                     "t=%g: gradient SIGN inverted (AD %+g, truth %+g)" % (
                         t, g_ad, g_tr)
-    # C^1 blend: no value jumps across the band (the hard switch stepped by
-    # ~0.5 nats); scan a fixed direction through it (measured max
-    # step-to-step jump 2.4e-4 at this resolution)
+    # degenerate-curvature alignment (b = 4d, delta = pi): the quartic-flat
+    # global maximum where the floored-Gaussian Laplace was ~5 nats high;
+    # the gated quartic-width correction bounds it (measured <= 0.45)
+    for t in (320.0, 600.0):
+        for eps in (-0.05, 0.0, 0.05):
+            d2 = t / 6.0
+            bb = 4 * d2 * (1 + eps)
+            val = float(AM._laplace_psi_lnI(jnp.asarray(0.0),
+                                            jnp.asarray(bb + 0.0j),
+                                            jnp.asarray(-d2 + 0.0j)))
+            truth = _kernel_truth(0.0, bb + 0.0j, -d2 + 0.0j, n=400001)
+            assert abs(val - truth) < 0.6, \
+                "degenerate t=%g eps=%g: err %g" % (t, eps, val - truth)
+    # C^1 blend: no value jumps across the band (a hard switch stepped by
+    # ~0.5 nats; measured max step 3.2e-5 at this resolution)
     prev = None
-    for t in np.linspace(AM._LAPLACE_BLEND_LO - 0.2,
-                         AM._LAPLACE_BLEND_HI + 0.2, 45):
+    for t in np.linspace(AM._LAPLACE_BLEND_LO - 5.0,
+                         AM._LAPLACE_BLEND_HI + 5.0, 30):
         c1 = 0.6 * t * np.exp(-1j * 1.1)
         c2 = 0.2 * t * np.exp(-1j * 2.3)
         v = float(AM._laplace_psi_lnI(jnp.asarray(0.0), jnp.asarray(c1),
@@ -811,6 +840,13 @@ def test_estimate_angle_amplitude_tracks_the_data():
     ra_s = rng.uniform(0.0, 2 * np.pi, n_sky)
     dec_s = np.arcsin(rng.uniform(-1.0, 1.0, n_sky))
     incl_s = np.arccos(rng.uniform(-1.0, 1.0, n_sky))
+    g_ra, g_dec = np.meshgrid(np.linspace(0, 2 * np.pi, 6, endpoint=False),
+                              np.array([-1.0, -0.35, 0.35, 1.0]),
+                              indexing="ij")
+    for i0_ in (0.0, np.pi):
+        ra_s = np.concatenate([ra_s, g_ra.ravel()])
+        dec_s = np.concatenate([dec_s, g_dec.ravel()])
+        incl_s = np.concatenate([incl_s, np.full(g_ra.size, i0_)])
     C_A, C_B, _meta = AM.angle_coefficient_tables(loud, ra_s, dec_s, incl_s)
     C_A, C_B = np.asarray(C_A), np.asarray(C_B)
     PH, UU = np.meshgrid(np.linspace(0, 2 * np.pi, 512, endpoint=False),
@@ -831,7 +867,7 @@ def test_estimate_angle_amplitude_tracks_the_data():
     xv = np.asarray(xg)
     x_min, x_max = float(xv.min()), float(xv.max())
     a_ref = 0.0
-    for j in range(n_sky):
+    for j in range(len(ra_s)):
         A_g = (E_A @ C_A[:, :, j].reshape(-1, C_A.shape[-1])).real
         B_g = np.maximum((E_B @ C_B[:, :, j].reshape(-1, C_B.shape[-1])).real,
                          0.0)
@@ -890,3 +926,82 @@ def test_wrapper_sizing_survives_missing_or_low_guess_snr():
         assert np.abs(got - ref).max() < 1e-6, \
             "guess_snr=%r: wrapper answer off by %g" % (
                 guess, np.abs(got - ref).max())
+
+
+# ---------------------------------------------------------------------------
+# 13. review 3: higher modes in the FINAL marginal, and the runtime fail-safe
+# ---------------------------------------------------------------------------
+
+MODES_M4 = ((2, 2), (2, -2), (3, 3), (3, -3), (4, 4), (4, -4))
+
+
+def test_higher_mode_marginal_vs_bruteforce():
+    """Review 3, P1: 'test the FINAL MARGINAL for higher-mode inputs, not
+    just the estimator's reconstruction' -- the earlier coverage stopped at
+    the reconstruction step, which is exactly why the amplitude-only dense
+    sizing survived.  m_max = 4 end to end at cheap scale: sample grid
+    (24, 8), coefficient tables with KPA = 5 / KPB = 9, and the full
+    marginal against an independent brute force.  Measured 1.8e-15."""
+    data = make_synth(scale=4.0, modes=MODES_M4)
+    assert AM._data_m_max(data) == 4
+    assert AM.angle_sample_grid_sizes(4) == (24, 8)
+    x_grid, log_w = _dist_grid(data)
+    ref = brute_marginal(data, x_grid, log_w, 96, 48)
+    ex = np.asarray(AM.fused_log_likelihood_distphipsimarg_exact(
+        data, jnp.asarray(RA), jnp.asarray(DEC), jnp.asarray(INCL),
+        x_grid, log_w, interp=INTERP,
+        amp_sizing=AM.ANGLE_MARG_CROSSOVER_AMPLITUDE))
+    assert np.abs(ex - ref).max() < 1e-10
+    # and the harmonic-content invariant extends to n = 8, machine-zero above
+    n = 64
+    phis = np.linspace(0, 2 * np.pi, n, endpoint=False)
+    f = _lnL_t_fixed_time(data, phis, np.full(n, 0.6), 0.8, 10)
+    C = np.abs(np.fft.rfft(f) / n)
+    assert C[:9].max() > 0
+    assert C[9:].max() < 1e-12 * C.max()
+
+
+def test_higher_mode_dense_sizing_self_convergence():
+    """Review 3, P1 at the sizing level: on an m_max = 4 target loud enough
+    that the dense grid actually works (amp ~ few hundred), the marginal
+    must be converged in the dense sizes -- quadrupling amp_sizing (which
+    doubles every dense axis) must not move it.  Under the amplitude-only
+    rule this bites at the ~0.03-nat level (review 3 measured +-0.037 for a
+    pure order-8 term at A = 450); with the m_max-scaled rule it is
+    ~machine (measured 0.0)."""
+    data = make_synth(scale=2.0, modes=MODES_M4, kappa_boost=14.0)
+    x_grid, log_w = _dist_grid(data)
+    amp = AM.estimate_angle_amplitude(data, x_grid)
+    assert amp > 50.0          # genuinely loud, or the test proves nothing
+    args = (data, jnp.asarray(RA), jnp.asarray(DEC), jnp.asarray(INCL),
+            x_grid, log_w)
+    a_sz = max(amp, AM.ANGLE_MARG_CROSSOVER_AMPLITUDE)
+    v1 = np.asarray(AM.fused_log_likelihood_distphipsimarg_exact(
+        *args, interp=INTERP, amp_sizing=a_sz))
+    v4 = np.asarray(AM.fused_log_likelihood_distphipsimarg_exact(
+        *args, interp=INTERP, amp_sizing=4 * a_sz))
+    assert np.abs(v1 - v4).max() < 1e-6
+
+
+def test_runtime_amp_failsafe_warns(capfd):
+    """Review 3, P2: the amplitude is an ESTIMATOR, so the fused functions
+    carry a runtime fail-safe -- a call whose own coefficient tables exceed
+    2x the amp_sizing the grids were built for prints a loud warning from
+    inside jit (never silent), and a correctly-sized call prints nothing."""
+    data = make_synth(scale=2.0, kappa_boost=200.0)
+    x_grid, log_w = _dist_grid(data)
+    args = (data, jnp.asarray(RA), jnp.asarray(DEC), jnp.asarray(INCL),
+            x_grid, log_w)
+    # deliberately undersized: the warning must fire
+    v = AM.fused_log_likelihood_distphipsimarg_exact(
+        *args, interp=INTERP, amp_sizing=AM.ANGLE_MARG_CROSSOVER_AMPLITUDE)
+    jax.block_until_ready(v)
+    out = capfd.readouterr()
+    assert "WARNING anglemarg/exact" in out.out + out.err
+    # correctly sized: silence
+    amp = AM.estimate_angle_amplitude(data, x_grid)
+    v = AM.fused_log_likelihood_distphipsimarg_exact(
+        *args, interp=INTERP, amp_sizing=amp)
+    jax.block_until_ready(v)
+    out = capfd.readouterr()
+    assert "WARNING anglemarg" not in out.out + out.err
