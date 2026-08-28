@@ -380,6 +380,15 @@ jobs:
           OMP_NUM_THREADS: 1
         run: bash .travis/test-jax.sh
 
+  # CPU ONLY.  GitHub runners have no GPU and no cupy, so this lane cannot
+  # exercise the cupy branch of RIFT/likelihood/SphericalHarmonics_gpu.py -- the
+  # branch that used to break every LISA likelihood evaluation on a GPU host
+  # while passing here.  The tests it runs therefore assert on the BACKEND
+  # ARGUMENT rather than only on the outcome (test_spherical_harmonics_backend.py
+  # fakes the GPU module; test_lisa_operational_synthetic.py spies on the call
+  # site), so this lane does catch that class of defect without a device.  The
+  # real-cupy run lives in .travis/test-lisa-gpu.sh, driven by the gpu_integration
+  # job in .gitlab-ci.yml.
   lisa-check:
     needs: install
     runs-on: ubuntu-latest
