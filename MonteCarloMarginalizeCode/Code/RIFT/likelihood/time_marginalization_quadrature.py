@@ -177,7 +177,13 @@ __all__ = [
     "last_report",
 ]
 
-TIME_QUADRATURE_CHOICES = ("simpson", "bandlimited")
+TIME_QUADRATURE_CHOICES = ("simpson", "bandlimited", "peak-local")
+
+#: 'peak-local' lives in RIFT.likelihood.time_marginalization_peak_local and
+#: reuses this module's helpers wholesale (width estimator, derived factor, row
+#: classification, edge guard, Simpson hand-over).  It is named here rather than
+#: there so that validate_time_quadrature stays the single place a quadrature name
+#: is checked; the import runs the other way, so there is no cycle.
 
 #: ``h_dense <= sigma_t / UPSAMPLE_SAFETY``.  See the module docstring: at this
 #: value the trapezoidal rule's Poisson-summation error on a Gaussian peak is
@@ -636,6 +642,50 @@ def required_upsample_factors(sigma, dx, xpy=np):
     return factor.astype(np.int64)
 
 
+def _default_simps(simps, xpy):
+    """The caller's Simpson rule, defaulting to scipy's ONLY on the numpy backend.
+
+    scipy's ``simpson`` raises ``TypeError: Implicit conversion to a NumPy array is
+    not allowed`` on a cupy array, and that default is exactly how every
+    ``--vectorized --gpu`` run of this option crashed.  Refuse rather than leave the
+    trap armed -- and note the two rules are not interchangeable even where both run
+    (the vendored GPU copy is an old scipy with ``even='avg'``), so a fallback row
+    must be integrated by the rule the caller's own likelihood uses.
+    """
+    if simps is not None:
+        return simps
+    if xpy is not np:
+        raise ValueError(
+            "time marginalization: `simps` must be supplied for a non-numpy backend "
+            "-- scipy's Simpson rule cannot consume a device array, and the fallback "
+            "rows must use the rule the caller's own likelihood uses (on GPU, "
+            "optimized_gpu_tools.simps).")
+    from scipy import integrate
+    return getattr(integrate, 'simpson', None) or integrate.simps
+
+
+def _require_time_independent_rho_sq(rho_sq, xpy=np, rule='band-limited'):
+    """Verify the load-bearing precondition rather than trusting the caller.
+
+    A time-dependent self-term (the banded / slow-rotation response) would make the
+    refined ``lnL`` wrong in a way no downstream check would catch.
+
+    Compare only where both sides are finite.  A NaN self-term is NORMAL: the
+    defensive proposal component deliberately draws physically-extreme points where
+    the likelihood is NaN, and the historical path just returns NaN for that row and
+    lets the sampler move on.  A bare ``==`` makes ``nan != nan`` trip this tripwire
+    and abort the whole ILE process, blaming a rotating-response path that is not
+    even in use.
+    """
+    rho_col = rho_sq[..., :1]
+    _cmp = xpy.isfinite(rho_sq) & xpy.isfinite(xpy.broadcast_to(rho_col, rho_sq.shape))
+    if not bool(xpy.all(xpy.where(_cmp, rho_sq == rho_col, True))):
+        raise NotImplementedError(
+            "%s time marginalization requires a time-independent rho_sq; the supplied "
+            "self-term varies with time (banded / rotating-response path)" % rule)
+    return rho_col
+
+
 def _safe_offset(off, xpy=np):
     """Log-sum-exp offset, guarded for a row that is ``-inf`` everywhere.
 
@@ -825,19 +875,7 @@ def time_marginalize_bandlimited(kappa, rho_sq, deltaT, loglikelihood,
         With ``return_time_draw=True``, returns
         ``(lnL, time_draw, lnL_at_draw)``.
     """
-    if simps is None:
-        # Default ONLY for the numpy backend.  scipy's simpson raises
-        # `TypeError: Implicit conversion to a NumPy array is not allowed` on a
-        # cupy array, and that default is exactly how every --vectorized --gpu run
-        # of this option crashed.  Refuse rather than leave the trap armed.
-        if xpy is not np:
-            raise ValueError(
-                "time_marginalize_bandlimited: `simps` must be supplied for a "
-                "non-numpy backend -- scipy's Simpson rule cannot consume a device "
-                "array, and the fallback rows must use the rule the caller's own "
-                "likelihood uses (on GPU, optimized_gpu_tools.simps).")
-        from scipy import integrate
-        simps = getattr(integrate, 'simpson', None) or integrate.simps
+    simps = _default_simps(simps, xpy)
 
     kappa = xpy.asarray(kappa)
     rho_sq = xpy.asarray(rho_sq)
@@ -845,22 +883,8 @@ def time_marginalize_bandlimited(kappa, rho_sq, deltaT, loglikelihood,
     n_rows = kappa.shape[0]
     deltaT = float(deltaT)
 
-    # rho_sq time-independence is the load-bearing precondition, so verify it
-    # rather than trusting the caller: a time-dependent self-term (the banded /
-    # slow-rotation response) would make the upsampled lnL wrong in a way no
-    # downstream check would catch.
+    _require_time_independent_rho_sq(rho_sq, xpy=xpy, rule='band-limited')
     rho_col = rho_sq[..., :1]
-    # Compare only where both sides are finite.  A NaN self-term is NORMAL: the
-    # defensive proposal component deliberately draws physically-extreme points
-    # where the likelihood is NaN, and the historical path just returns NaN for
-    # that row and lets the sampler move on.  A bare `==` makes `nan != nan` trip
-    # this tripwire and abort the whole ILE process, blaming a rotating-response
-    # path that is not even in use.
-    _cmp = xpy.isfinite(rho_sq) & xpy.isfinite(xpy.broadcast_to(rho_col, rho_sq.shape))
-    if not bool(xpy.all(xpy.where(_cmp, rho_sq == rho_col, True))):
-        raise NotImplementedError(
-            "band-limited time marginalization requires a time-independent rho_sq; "
-            "the supplied self-term varies with time (banded / rotating-response path)")
 
     _term = (lambda k: xpy.abs(k)) if phase_marginalization else (lambda k: k.real)
     if lnL_coarse is None:
