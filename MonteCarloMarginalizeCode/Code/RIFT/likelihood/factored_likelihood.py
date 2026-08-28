@@ -63,6 +63,7 @@ from itertools import product, combinations
 import math
 
 from .vectorized_lal_tools import ComputeDetAMResponse,TimeDelayFromEarthCenter
+from . import time_marginalization_quadrature as time_quad
 
 import os
 if 'PROFILE' not in os.environ:
@@ -1805,7 +1806,7 @@ def _factored_lnL_helper(kappa_sq, rho_sq):
     return kappa_sq - 0.5 * rho_sq
 
 
-def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=np, loglikelihood=_factored_lnL_helper,return_lnLt=False,phase_marginalization=False):
+def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=np, loglikelihood=_factored_lnL_helper,return_lnLt=False,phase_marginalization=False,time_quadrature='simpson'):
     """
     DiscreteFactoredLogLikelihoodViaArray uses the array-ized data structures to compute the log likelihood,
     either as an array vs time *or* marginalized in time. 
@@ -1813,8 +1814,38 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
     The timeseries quantities are computed via discrete shifts of an existing grid
     Note 'P' must have the *sampling rate* set to correctly interpret the event time.
      Note arguments passed are NOW ARRAYS, in contrast to similar function which does not have 'Vector' postfix
+
+    time_quadrature : {'simpson', 'bandlimited'}
+        How the time-marginalization integral is evaluated.
+
+        'simpson' (DEFAULT, and the historical behavior) applies Simpson's rule
+        at the fixed spacing dx=deltaT.  That spacing is tied to the data
+        sample rate, while the integrand exp(lnL(t)) is a peak of width
+        sigma_t = 1/(2 pi rho sigma_f), which SHRINKS like 1/rho -- so this
+        path under-resolves its own integrand, and worse the louder the event.
+        Simpson is additionally the wrong rule once under-resolved: it is
+        (4 T_h - T_2h)/3, so it carries an alias of period 2h and the answer
+        depends on where the peak happens to fall between samples.
+
+        'bandlimited' recovers the continuous integrand from the samples the
+        code has ALREADY computed -- kappa(t) is band-limited and rho_sq is
+        time-independent on this path, so one zero-padded FFT per row is exact
+        -- re-applies THIS loglikelihood callback on the dense grid, and
+        integrates with the trapezoid rule, whose error on a Gaussian peak
+        falls as 2 exp(-2 pi^2 (sigma_t/h)^2).  The upsampling factor is
+        DERIVED from the measured peak width and then re-verified on the dense
+        grid; there is deliberately no accuracy-versus-cost knob for a caller
+        to set too small.  No extra likelihood evaluations, no extra
+        precompute, and the integration domain is unchanged.
+
+        This argument defaults to 'simpson' and the batch-mode CLI's
+        --time-marginalization-quadrature defaults to 'simpson', so omitting
+        either reproduces the historical numbers exactly.  Details and the
+        error model: RIFT/likelihood/time_marginalization_quadrature.py.
     """
     global distMpcRef
+
+    time_quad.validate_time_quadrature(time_quadrature)
 
     detectors = rholmsArrayDict.keys()
     npts = len(tvals)
@@ -2033,6 +2064,20 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
     lnLmax  = xpy.max(lnL_t)
     if return_lnLt:
       return lnL_t  #- lnLmax    # we want the verbatim lnL_t values, no shift
+
+    if time_quadrature == 'bandlimited':
+        # Hand over the coarse lnL_t just built (so the callback is not
+        # re-evaluated) and deltaT -- the spacing the gather actually steps by.
+        # NOT tvals[1]-tvals[0]: on this line the window grid is a
+        # closed-interval linspace whose spacing is deltaT*npts/(npts-1).
+        # simps and lnLmax are handed over so that wrap-exposed rows fall back
+        # to THIS path's Simpson value bit-for-bit (the GPU build uses
+        # optimized_gpu_tools.simps, which the quadrature module must not import).
+        return time_quad.time_marginalize_bandlimited(
+            kappa_sq, rho_sq, deltaT, loglikelihood,
+            phase_marginalization=phase_marginalization, lnL_t=lnL_t,
+            simps=simps, lnLmax=lnLmax, xpy=xpy)
+
     L_t = xpy.exp(lnL_t - lnLmax, out=lnL_t)
 
     L = simps(L_t, dx=deltaT, axis=-1)
