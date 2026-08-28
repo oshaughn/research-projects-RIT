@@ -672,7 +672,7 @@ if opts._noloop_time_interp != 'nearest' and not _stencil_is_honoured:
 # above, and for the same reason -- an accuracy option that silently does nothing is worse than
 # one that is unavailable, because a comparison campaign can be run against it and believed.
 opts._time_quadrature = str(opts.time_marginalization_quadrature).strip().lower()
-factored_likelihood.time_marginalization_quadrature.validate_time_quadrature(opts._time_quadrature)
+factored_likelihood.time_quadrature_module.validate_time_quadrature(opts._time_quadrature)
 _tq_prereqs = (
     ('--time-marginalization', bool(opts.time_marginalization)),
     ('--vectorized', bool(opts.vectorized)),

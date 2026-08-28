@@ -19,14 +19,18 @@ rate, does not meet.  Simpson makes the under-resolved case worse rather than
 better: ``simpson = (4 T_h - T_2h)/3`` carries the coarser trapezoid ``T_2h``,
 so it inherits an alias with period ``2h``.
 
-Measured on the reference 35+30 Msun SEOBNRv4 H1L1V1 injection at rho=40
-(sigma_t = 61.2 us, a property of the signal and so srate-independent), rigidly
-scanning the grid phase over 2*deltaT moves the reported lnL by
+Measured on a 35+30 Msun SEOBNRv4 H1L1V1 injection at rho=40 (sigma_t = 61.2 us,
+a property of the signal and so srate-independent), rigidly scanning the grid
+phase over 2*deltaT moves the reported lnL by
 
     srate 4096: 1.649 nats     8192: 0.385 nats     16384: 0.0095 nats
 
 i.e. the answer depends on where the sample grid happens to fall relative to the
-peak, by over a nat at the production sample rate.
+peak, by over a nat at the production sample rate.  (Those three numbers were
+taken on the JAX mirror of this quadrature, which integrates the SAME grid with
+the SAME fixed Simpson weights; they are quoted as the physical scale of the
+defect.  The numbers for THIS path are the synthetic ones below, which are
+against an analytic truth rather than against another estimate.)
 
 WHY THE EXISTING SAMPLES ALREADY CONTAIN THE ANSWER
 ---------------------------------------------------
@@ -41,12 +45,37 @@ recoverable on an arbitrarily fine grid from the samples in hand -- one
 zero-padded FFT per row, no extra likelihood evaluations, no extra precompute
 and no extra accumulator passes.
 
-Measured against a converged dense reference built by re-gathering the rholms at
-shifted window offsets (the expensive, independent construction), at srate 4096,
-rho=40, on the same injection:
+Two independent checks of that claim.  On the real injection above, against a
+converged dense reference built by re-gathering the rholms at shifted window
+offsets -- the expensive, genuinely independent construction -- at srate 4096,
+rho=40:
 
     band-limited upsampling:  -0.007 nats
     Simpson at deltaT      :  +0.745 nats
+
+And for this path specifically, against an ANALYTIC truth rather than another
+numerical estimate (see test_time_marginalization_quadrature.py: kappa is built
+as a sum of complex exponentials below Nyquist, so the continuous function is
+known in closed form).  srate 4096, npts 614, error in nats at three grid phases:
+
+    sigma_t/deltaT   Simpson                         band-limited   factor
+      2.27-2.61      +5e-6  ..  +0e0                 0              1
+      0.72-0.83      +2.5e-3 .. -1.1e-4              0              4
+      0.25-0.28      +0.844 / +0.242 / -1.101        0              16
+      0.10-0.12      +1.742 / -1.833 / -11.68        0              32
+      0.046-0.052    +2.548 / -15.33 / -66.18        0              64
+      0.016-0.019    +3.589 / -139.4 / -549.0        0              256
+      0.007-0.008    +4.393 / -710.6 / -2760.4       0              512
+
+Two things to read off that table.  The first row is the reassuring one: where
+the integrand is already resolved the historical rule is fine, the derivation
+returns a factor of 1 and nothing is paid.  The row at sigma_t/deltaT = 0.25
+spans 1.95 nats across grid phase, which is the same scale as the 1.649 nats
+measured on the real injection at the same ratio -- the synthetic reproduces the
+defect's magnitude rather than a caricature of it.  On a window cut from a longer
+band-limited signal (so the periodic interpolant genuinely rings at the wrap, the
+realistic case) the band-limited error stays at or below 5e-5 nats where Simpson
+is off by up to 420.
 
 RESOLUTION IS DERIVED, NOT CONFIGURED
 -------------------------------------
@@ -65,7 +94,14 @@ measures an infinite width, derives a factor of 1 and costs nothing.
 ``SAFETY = 2`` is not tunable and is not a compromise.  The trapezoidal rule on
 a Gaussian of width ``sigma`` at spacing ``h`` has relative error
 ``2 exp(-2 pi^2 sigma^2 / h^2)`` (Poisson summation); at ``h = sigma/2`` that is
-``2e-34``.  Even ``h = sigma`` would give ``5e-9``.  The quadrature on the dense
+``2e-34``.  Even ``h = sigma`` would give ``5e-9``.
+
+That bound is the DESIGN CRITERION FOR THE REFINED GRID, where ``sigma/h >= 2``
+puts us deep in the exponential regime.  It is NOT a model of the defect's
+magnitude, and checking it against the measured Simpson errors above will not
+work: at ``sigma/h ~ 0.1-0.4`` the peak is barely sampled at all, the asymptotic
+alias picture has not engaged, and the observed spans scale roughly as ``h^2``.
+Both statements are correct about different regimes.  The quadrature on the dense
 grid is TRAPEZOID, not Simpson: for a peak that decays to nothing inside the
 window every Euler-Maclaurin boundary term vanishes, so the trapezoidal rule is
 spectrally accurate there, while Simpson would reintroduce the ``2h`` alias that
@@ -90,9 +126,10 @@ __all__ = [
     "TIME_QUADRATURE_CHOICES",
     "UPSAMPLE_SAFETY",
     "UPSAMPLE_FACTOR_MAX",
+    "EDGE_GUARD_FRACTION",
     "bandlimited_upsample",
     "peak_width_from_lnL",
-    "required_upsample_factor",
+    "required_upsample_factors",
     "validate_time_quadrature",
     "time_marginalize_bandlimited",
     "last_report",
@@ -107,8 +144,8 @@ UPSAMPLE_SAFETY = 2.0
 
 #: Fail-closed ceiling.  The band limit bounds the useful factor: with
 #: ``sigma_t >= deltaT / (pi rho)`` the derivation cannot legitimately ask for
-#: more than ``~2 rho`` here.  Exceeding this raises rather than silently
-#: truncating the resolution.
+#: more than ``~2 rho``.  Exceeding this raises rather than silently truncating
+#: the resolution.
 UPSAMPLE_FACTOR_MAX = 4096
 
 #: Fraction of the window at EACH end within which a row's peak is treated as
@@ -130,18 +167,33 @@ UPSAMPLE_FACTOR_MAX = 4096
 #:   band-limited              5e-6   4.6e-3  5.2e-2  5.6e-2  -3.3    +88.8
 #:   Simpson (for scale)      -29.2   -29.9   -29.3   -29.4   -29.7   -29.9
 #:
-#: 1/8 of the window is 77 samples at the production npts=614, i.e. the region
-#: where the deviation stays at or below ~5e-3 nats.  In a well-posed run nothing
-#: comes close: the grid is centred on the trigger's geocentre time, so the peak
-#: sits within the trigger timing uncertainty (a few ms, tens of samples) of the
-#: CENTRE, not of an edge.  A row that does violate this has a mis-centred
-#: window, which truncates its integral under EITHER rule; it is handed back the
-#: historical Simpson value and counted in ``last_report()``, so the option can
-#: never make a row worse than the status quo it replaces.  (The route to
-#: supporting such rows properly is to widen the GATHER so the wrap sits outside
-#: the integration domain -- deliberately not done here, since it touches the
-#: GPU kernel and the buffer-margin assumptions.)
+#: The +88.8 is the reason this is a guard and not just a report: it is wrong in
+#: the DANGEROUS direction, and a spuriously high lnL importance-weights that
+#: sample into dominance.  1/8 of the window is 77 samples at the production
+#: npts=614, i.e. the region where the deviation stays at or below ~5e-3 nats.
+#: In a well-posed run nothing comes close: the grid is centred on the trigger's
+#: geocentre time, so the peak sits within the trigger timing uncertainty (a few
+#: ms, tens of samples) of the CENTRE, not of an edge.  A row that does violate
+#: this has a mis-centred window, which truncates its integral under EITHER rule;
+#: it is given the historical Simpson value and counted in ``last_report()``.
+#: (The route to supporting such rows properly is to widen the GATHER so the wrap
+#: sits outside the integration domain -- deliberately not done here, since it
+#: touches the GPU kernel and the buffer-margin assumptions.)
 EDGE_GUARD_FRACTION = 0.125
+
+#: Half-widths, in coarse samples, tried in turn for the curvature stencil.  A
+#: centred three-point stencil at the peak is the natural choice, but ``lnL_t``
+#: genuinely contains ``-inf`` in production -- the distance-marginalization
+#: callback returns ``-inf`` outside its interpolation table -- and
+#: ``(-inf) - 2*(-inf) + (-inf)`` is NaN, while ``NaN < 0`` is False.  A row whose
+#: stencil straddles the table edge would therefore report "no resolvable peak",
+#: derive a factor of 1, and be SILENTLY UNDER-RESOLVED: no raise, no warning,
+#: and the exact failure this whole change exists to remove.  Widening the
+#: stencil steps over the hole, and costs nothing in accuracy because the second
+#: difference of a parabola is its second derivative at ANY spacing.  A row where
+#: no half-width yields a finite curvature is not guessed at: it is counted and
+#: given the historical value.
+CURVATURE_STENCIL_HALFWIDTHS = (1, 2, 4, 8)
 
 #: Working-set budget for one dense temporary, in bytes.  Purely an internal
 #: memory-chunking parameter: it changes how many extrinsic rows are processed at
@@ -149,18 +201,30 @@ EDGE_GUARD_FRACTION = 0.125
 _DENSE_CHUNK_BYTES = 128 * 1024 * 1024
 
 _LAST_REPORT = {}
-_SIMPSON_WEIGHT_CACHE = {}
 
 
 def last_report():
     """Diagnostics from the most recent :func:`time_marginalize_bandlimited` call.
 
-    Keys: ``upsample_factor``, ``n_refinements``, ``sigma_t_min``,
-    ``dense_npts``, ``n_rows``, ``n_wrap_exposed_rows``.  The last counts rows
-    whose integrand peaks inside ``EDGE_GUARD_FRACTION`` of a window edge; those
-    rows were handed the historical Simpson value instead of a refined one.  A
-    nonzero count is a statement about the WINDOW being mis-centred for those
-    samples, not about this quadrature.
+    Keys: ``upsample_factor`` (the largest used), ``factor_histogram``
+    (factor -> row count, over the rows that were refined), ``n_refinements``,
+    ``sigma_t_min``, ``n_rows``, ``n_wrap_exposed_rows``, ``n_unmeasurable_rows``,
+    ``n_flat_rows``, ``n_fallback_rows``.
+
+    The three row counts are deliberately kept apart, because they mean different
+    things and only two of them are ever worth acting on:
+
+    ``n_wrap_exposed_rows`` -- a resolvable peak sitting inside
+    ``EDGE_GUARD_FRACTION`` of a window edge.  This is a statement that the
+    WINDOW is mis-centred for those samples, which truncates their integral under
+    either rule.  Given the historical Simpson value.
+
+    ``n_unmeasurable_rows`` -- ``lnL(t)`` non-finite around its maximum at every
+    stencil half-width, so no width can be justified.  Given the historical value.
+
+    ``n_flat_rows`` -- finite ``lnL(t)`` with no resolvable curvature: an
+    extrinsic sample with no signal in it.  Nothing is wrong and nothing is paid;
+    these derive a factor of 1 and are integrated on the coarse grid.
     """
     return dict(_LAST_REPORT)
 
@@ -183,10 +247,9 @@ def bandlimited_upsample(x, factor, xpy=np):
     ``factor``-th column.
 
     A single Nyquist bin, when ``n`` is even, is split evenly between ``+fNyq``
-    and ``-fNyq``; the alternative (dumping it entirely into one) is the standard
-    way to make a real-input upsample come out complex.  For the rholm data this
-    bin is empty anyway -- ``fmax <= fNyq`` -- so the choice is a formality kept
-    for correctness on synthetic inputs.
+    and ``-fNyq``.  For the rholm data that bin is empty anyway -- ``fmax <=
+    fNyq`` -- so the choice is a formality kept for correctness on synthetic
+    inputs.
     """
     factor = int(factor)
     if factor == 1:
@@ -207,93 +270,94 @@ def bandlimited_upsample(x, factor, xpy=np):
 def peak_width_from_lnL(lnL_t, dx, xpy=np):
     """Per-row Gaussian width ``sigma_t`` of ``exp(lnL_t)``, from its peak curvature.
 
-    Uses the three-point second difference of ``lnL`` (not of ``exp lnL``) about
-    the peak sample.  For a Gaussian ``lnL`` this returns ``sigma`` EXACTLY at any
-    spacing and any peak-vs-grid phase, because the second difference of a
-    parabola is its second derivative; that is what lets an under-resolved peak
-    still report its own width honestly.  Rows with non-negative curvature
-    (flat, monotone, or peaked at the window edge) return ``inf``: no upsampling
-    is warranted or possible for them.
+    Uses a centred second difference of ``lnL`` (not of ``exp lnL``) about the
+    peak sample.  For a Gaussian ``lnL`` this returns ``sigma`` EXACTLY at any
+    spacing, any peak-vs-grid phase, and any stencil half-width, because the
+    second difference of a parabola is its second derivative; that is what lets an
+    under-resolved peak still report its own width honestly, and it is why
+    stepping the stencil out over a ``-inf`` hole costs nothing.
 
-    Returns ``(sigma_t, argmax_index)``, both shape ``lnL_t.shape[:-1]``.
+    Returns ``(sigma_t, jmax, measurable)``.  ``sigma_t`` is ``inf`` for a row
+    with non-negative curvature -- flat or monotone, where no refinement is
+    warranted.  ``measurable`` distinguishes that legitimate case from a row whose
+    curvature could not be evaluated at all; the caller must not treat the two
+    alike, since "flat" means no refinement is NEEDED while "unmeasurable" means
+    none can be JUSTIFIED.
     """
     n = lnL_t.shape[-1]
     if n < 3:
         raise ValueError("need at least 3 time samples to measure a peak width")
-    jmax = xpy.argmax(lnL_t, axis=-1)
-    jc = xpy.clip(jmax, 1, n - 2)
+    jmax = xpy.argmax(xpy.where(xpy.isfinite(lnL_t), lnL_t, -np.inf), axis=-1)
     take = lambda j: xpy.take_along_axis(lnL_t, j[..., None], axis=-1)[..., 0]
-    d2 = (take(jc - 1) - 2.0 * take(jc) + take(jc + 1)) / (dx * dx)
-    # Guard: -inf entries (e.g. a distance-marginalization table edge) make d2
-    # nan; treat those rows as unresolvable rather than letting nan propagate
-    # into the factor derivation.
-    bad = ~xpy.isfinite(d2)
-    d2 = xpy.where(bad, 0.0, d2)
-    sigma = xpy.where(d2 < 0, 1.0 / xpy.sqrt(xpy.where(d2 < 0, -d2, 1.0)), np.inf)
-    return sigma, jmax
+
+    sigma = xpy.full(jmax.shape, np.inf, dtype=np.float64)
+    measurable = xpy.zeros(jmax.shape, dtype=bool)
+    for d in CURVATURE_STENCIL_HALFWIDTHS:
+        if 2 * d >= n:
+            break
+        jc = xpy.clip(jmax, d, n - 1 - d)
+        with np.errstate(invalid='ignore'):
+            # inf - inf is exactly the case being handled; the NaN it produces is
+            # the signal that this half-width straddles a hole, not an anomaly.
+            d2 = (take(jc - d) - 2.0 * take(jc) + take(jc + d)) / float(d * dx) ** 2
+        fresh = xpy.isfinite(d2) & (~measurable)
+        if not bool(xpy.any(fresh)):
+            continue
+        neg = fresh & (d2 < 0)
+        sigma = xpy.where(neg, 1.0 / xpy.sqrt(xpy.where(neg, -d2, 1.0)), sigma)
+        measurable = measurable | fresh
+        if bool(xpy.all(measurable)):
+            break
+    return sigma, jmax, measurable
 
 
-def required_upsample_factor(lnL_t, dx, xpy=np, sigma=None):
-    """Smallest power-of-two factor with ``dx/factor <= sigma_t/UPSAMPLE_SAFETY``.
+def required_upsample_factors(sigma, dx, xpy=np):
+    """Per-row power-of-two factor with ``dx/factor <= sigma/UPSAMPLE_SAFETY``.
 
-    Derived from the narrowest peak present, so one factor serves the whole
-    block.  ``sigma`` may be supplied to reuse an already-measured width array
-    (or to mask rows out of the derivation by setting theirs to ``inf``).
-    Returns ``(factor, sigma_t_min)``.
+    PER ROW, deliberately.  A single block-wide factor is correct but ruinous:
+    the handful of rows near the source impose their resolution on every other
+    row in the batch, and the cost is dominated by the likelihood callback and
+    ``exp`` over ``n_rows * npts * factor`` points.  Measured on the companion
+    O4c line at ``--n-chunk 10000``, srate 4096, one block-wide factor cost 18x
+    the Simpson likelihood call at rho=40 and 39x at rho=80 -- in the ILE inner
+    loop.  Grouping by the derived factor leaves every row meeting its own
+    criterion while the broad majority stop paying for the sharpest few.
     """
-    if sigma is None:
-        sigma, _ = peak_width_from_lnL(lnL_t, dx, xpy=xpy)
-    sigma_min = float(xpy.min(sigma))
-    if not np.isfinite(sigma_min) or sigma_min <= 0:
-        return 1, sigma_min
-    need = UPSAMPLE_SAFETY * dx / sigma_min
-    if need <= 1.0:
-        return 1, sigma_min
-    factor = int(2 ** int(np.ceil(np.log2(need))))
-    return factor, sigma_min
+    need = UPSAMPLE_SAFETY * float(dx) / xpy.where(xpy.isfinite(sigma) & (sigma > 0),
+                                                   sigma, np.inf)
+    need = xpy.where(need > 1.0, need, 1.0)
+    factor = xpy.exp2(xpy.ceil(xpy.log2(need)))
+    # 2**ceil(log2(need)) can land one power of two SHORT when log2 rounds down
+    # for a `need` a hair above a power of two -- erring LOW, i.e. silently
+    # under-resolving, which is the failure mode this whole module exists to
+    # remove.  The criterion is `factor >= need`, so test exactly that and bump.
+    # (The margin can only ever be one ulp, so a single bump closes it.)
+    factor = xpy.where(factor < need, 2.0 * factor, factor)
+    return factor.astype(np.int64)
 
 
-def _simpson_weights(n, dx, xpy=np):
-    """Weight vector w with ``sum(w*f) == scipy.integrate.simpson(f, dx=dx)``.
+def _safe_offset(off, xpy=np):
+    """Log-sum-exp offset, guarded for a row that is ``-inf`` everywhere.
 
-    Simpson's rule is linear in the samples, so its weights are exactly its
-    action on the identity.  Building them explicitly lets the wrap-exposed
-    fallback below reproduce the historical value with a PER-ROW log-sum-exp
-    offset instead of the shared global one, which is what keeps a row far below
-    the block maximum from underflowing to ``log(0)``.
+    Such a row has zero likelihood over the whole window, and the historical path
+    returns ``-inf`` for it (its GLOBAL offset is finite, so every term underflows
+    to zero and ``log(0)`` follows).  A per-row offset would instead compute
+    ``-inf - (-inf) = NaN`` and hand back a NaN that propagates into the sampler
+    weights.  Substituting a finite offset reproduces ``-inf`` exactly.
     """
-    key = (int(n), float(dx))
-    w = _SIMPSON_WEIGHT_CACHE.get(key)
-    if w is None:
-        from scipy import integrate
-        simpson = getattr(integrate, 'simpson', None) or integrate.simps
-        w = simpson(np.eye(int(n), dtype=np.float64), dx=float(dx), axis=-1)
-        _SIMPSON_WEIGHT_CACHE.clear()   # one shape per run; do not grow unbounded
-        _SIMPSON_WEIGHT_CACHE[key] = w
-    return xpy.asarray(w)
+    return xpy.where(xpy.isfinite(off), off, 0.0)
 
 
-def _log_simps_rows(lnL_t, dx, xpy=np):
-    """``log \\int exp(lnL) dt`` by the HISTORICAL Simpson rule, per row."""
-    w = _simpson_weights(lnL_t.shape[-1], dx, xpy=xpy)
-    off = xpy.max(lnL_t, axis=-1, keepdims=True)
-    return off[..., 0] + xpy.log(xpy.sum(xpy.exp(lnL_t - off) * w, axis=-1))
+def _log_simps_rows(lnL_t, dx, simps, xpy=np):
+    """``log \\int exp(lnL) dt`` by the caller's Simpson rule, per row.
 
-
-def _apply_exposed_fallback(out, exposed, n_exposed, lnL_coarse, deltaT, xpy=np):
-    """Overwrite wrap-exposed rows with the historical Simpson value.
-
-    Applied on BOTH return paths, including the one where the derived factor is 1
-    and no interpolation happened.  It has to be: with every row exposed the
-    factor derivation sees no usable width and returns 1, and silently handing
-    those rows a coarse TRAPEZOID instead would still be a change of rule for
-    them -- measurably worse than Simpson on some under-resolved peaks -- which
-    would break the property that enabling this option can never make a row worse
-    than the status quo.
+    The caller's rule, not a private copy: on GPU the likelihood integrates with
+    ``optimized_gpu_tools.simps``, so a scipy copy here would agree on CPU and
+    quietly disagree on the device -- and the whole point of this path is to
+    reproduce what the historical code would have returned for these rows.
     """
-    if not n_exposed:
-        return out
-    return xpy.where(exposed, _log_simps_rows(lnL_coarse, deltaT, xpy=xpy), out)
+    off = _safe_offset(xpy.max(lnL_t, axis=-1, keepdims=True), xpy=xpy)
+    return off[..., 0] + xpy.log(simps(xpy.exp(lnL_t - off), dx=float(dx), axis=-1))
 
 
 def _log_trapz_over_window(lnL_dense, dx_dense, npts_coarse, factor, xpy=np):
@@ -302,17 +366,17 @@ def _log_trapz_over_window(lnL_dense, dx_dense, npts_coarse, factor, xpy=np):
     The dense grid returned by the FFT upsample is periodic on
     ``[t_0, t_0 + npts*deltaT)``, i.e. it carries ``factor-1`` samples PAST the
     last coarse sample.  Those lie across the periodic wrap and are dropped, so
-    the integration domain is exactly ``[t_0, t_{npts-1}]`` -- byte-identical to
-    the domain Simpson used.  Changing the domain would have been a second,
+    the integration domain is exactly ``[t_0, t_{npts-1}]`` -- identical to the
+    domain Simpson used.  Changing the domain would have been a second,
     confounded change.
 
     The log-sum-exp offset is PER ROW and taken on the DENSE grid, not the single
     global coarse maximum the Simpson path uses.  It has to be: the whole point of
     refining the grid is that the true peak sits between coarse samples, so the
     dense maximum can exceed the coarse one -- by thousands of nats for a sharp
-    peak -- and offsetting by the coarse maximum overflows exp() precisely in the
-    regime this quadrature exists to serve.  (A per-row offset also avoids the
-    underflow-to-``log(0) = -inf`` the shared global offset gives rows far below
+    peak -- and offsetting by the coarse maximum overflows ``exp()`` precisely in
+    the regime this quadrature exists to serve.  (A per-row offset also avoids the
+    underflow-to-``log(0) = -inf`` that a shared global offset gives rows far below
     the block maximum.)  The result is offset-invariant, so this is a numerical
     choice and not a change of estimator.
     """
@@ -321,12 +385,13 @@ def _log_trapz_over_window(lnL_dense, dx_dense, npts_coarse, factor, xpy=np):
     w = xpy.full(v.shape[-1], dx_dense, dtype=np.float64)
     w[0] *= 0.5
     w[-1] *= 0.5
-    off = xpy.max(v, axis=-1, keepdims=True)
+    off = _safe_offset(xpy.max(v, axis=-1, keepdims=True), xpy=xpy)
     return off[..., 0] + xpy.log(xpy.sum(xpy.exp(v - off) * w, axis=-1))
 
 
 def time_marginalize_bandlimited(kappa, rho_sq, deltaT, loglikelihood,
-                                 phase_marginalization=False, xpy=np):
+                                 phase_marginalization=False, simps=None,
+                                 xpy=np):
     """``log \\int dt exp(lnL(t))`` with the time grid refined to the integrand.
 
     Parameters
@@ -341,15 +406,23 @@ def time_marginalize_bandlimited(kappa, rho_sq, deltaT, loglikelihood,
     loglikelihood : callable
         ``f(kappa_term, rho_sq) -> lnL``, the same callback the caller passes to
         the coarse path (default helper, phase- or distance-marginalized).
+    simps : callable, optional
+        The caller's Simpson rule, ``simps(y, dx=..., axis=-1)``, used for rows
+        that fall back to the historical path.  Defaults to scipy's.
 
     Returns
     -------
     lnL : (n_extrinsic,) float
     """
+    if simps is None:
+        from scipy import integrate
+        simps = getattr(integrate, 'simpson', None) or integrate.simps
+
     kappa = xpy.asarray(kappa)
     rho_sq = xpy.asarray(rho_sq)
     npts = kappa.shape[-1]
     n_rows = kappa.shape[0]
+    deltaT = float(deltaT)
 
     # rho_sq time-independence is the load-bearing precondition, so verify it
     # rather than trusting the caller: a time-dependent self-term (the banded /
@@ -364,46 +437,82 @@ def time_marginalize_bandlimited(kappa, rho_sq, deltaT, loglikelihood,
     _term = (lambda k: xpy.abs(k)) if phase_marginalization else (lambda k: k.real)
     lnL_coarse = loglikelihood(_term(kappa), rho_sq)
 
-    sigma, jmax = peak_width_from_lnL(lnL_coarse, float(deltaT), xpy=xpy)
+    sigma, jmax, measurable = peak_width_from_lnL(lnL_coarse, deltaT, xpy=xpy)
 
-    # Wrap-exposed rows: peak too close to the window edge for the periodic
-    # interpolant to be trusted there (see EDGE_GUARD_FRACTION).  They are
-    # excluded from the factor derivation too -- otherwise a single mis-centred
-    # row could inflate the refinement everyone else pays for -- and are handed
-    # the historical Simpson value at the end.
+    # Classify the rows.  The edge guard must apply only to rows that HAVE a
+    # resolvable peak: a row whose lnL(t) is constant -- an extrinsic sample in an
+    # antenna null, where kappa is numerically zero -- has an argmax of 0 by
+    # convention and would otherwise be reported as wrap-exposed.  That is
+    # harmless numerically (Simpson is exact on a constant) but it makes the
+    # diagnostic lie: measured on a random-sky batch of 4000, it reported 810
+    # "wrap-exposed" rows, which in a production log reads as a mis-centred
+    # window rather than as 810 rows with no signal in them.
     guard = max(1, int(npts * EDGE_GUARD_FRACTION))
-    exposed = (jmax < guard) | (jmax > npts - 1 - guard)
-    n_exposed = int(xpy.sum(exposed))
+    has_peak = measurable & xpy.isfinite(sigma)
+    flat = measurable & (~xpy.isfinite(sigma))
+    exposed = has_peak & ((jmax < guard) | (jmax > npts - 1 - guard))
+    # Counted unconditionally, NOT `& ~exposed`: an all -inf row also has an
+    # argmax of 0, so a conditional counter would hide it behind the edge guard.
+    unmeasurable = ~measurable
+    fallback = exposed | unmeasurable
 
-    factor, sigma_min = required_upsample_factor(
-        lnL_coarse, float(deltaT), xpy=xpy,
-        sigma=xpy.where(exposed, np.inf, sigma))
+    factors = required_upsample_factors(sigma, deltaT, xpy=xpy)
+    factors = xpy.where(fallback, 1, factors)
 
-    if factor == 1:
-        # Nothing to resolve: the peak (if any) is already wide compared with
-        # deltaT, so the coarse samples already meet the criterion.  Integrate on
-        # the coarse grid with the same trapezoid rule, so the two branches of
-        # this function agree with each other rather than one of them silently
-        # reverting to Simpson.
-        out = _log_trapz_over_window(lnL_coarse, float(deltaT), npts, 1, xpy=xpy)
-        out = _apply_exposed_fallback(out, exposed, n_exposed, lnL_coarse,
-                                      float(deltaT), xpy=xpy)
-        _LAST_REPORT.update(upsample_factor=1, n_refinements=0,
-                            sigma_t_min=sigma_min, dense_npts=npts,
-                            n_rows=n_rows, n_wrap_exposed_rows=n_exposed)
-        return out
+    # Rows that fall back get the historical value; the rest are processed in
+    # groups sharing a derived factor, each at its own resolution.
+    out = _log_simps_rows(lnL_coarse, deltaT, simps, xpy=xpy)
 
+    hist = {}
+    n_refine_total = 0
+    sigma_seen = np.inf
+    todo = ~fallback
+    for f in xpy.unique(xpy.where(todo, factors, 1)):
+        f = int(f)
+        sel = todo & (factors == f)
+        n_sel = int(xpy.sum(sel))
+        if not n_sel:
+            continue
+        idx = xpy.where(sel)[0]
+        vals, f_used, n_ref, s_min = _integrate_group(
+            kappa[idx], rho_col[idx], npts, deltaT, f, loglikelihood, _term, xpy=xpy)
+        out[idx] = vals
+        hist[int(f_used)] = hist.get(int(f_used), 0) + n_sel
+        n_refine_total += n_ref
+        sigma_seen = min(sigma_seen, s_min)
+
+    _LAST_REPORT.clear()
+    _LAST_REPORT.update(
+        upsample_factor=max(hist) if hist else 1,
+        factor_histogram=dict(hist),
+        n_refinements=n_refine_total,
+        sigma_t_min=sigma_seen,
+        n_rows=n_rows,
+        n_wrap_exposed_rows=int(xpy.sum(exposed)),
+        n_unmeasurable_rows=int(xpy.sum(unmeasurable)),
+        n_flat_rows=int(xpy.sum(flat)),
+        n_fallback_rows=int(xpy.sum(fallback)),
+    )
+    return out
+
+
+def _integrate_group(kappa_rows, rho_col_rows, npts, deltaT, factor,
+                     loglikelihood, _term, xpy=np):
+    """Refine and integrate one group of rows that share a derived factor.
+
+    Returns ``(values, factor_used, n_refinements, sigma_dense_min)``.
+    """
+    n_rows = kappa_rows.shape[0]
     n_refine = 0
     while True:
         if factor > UPSAMPLE_FACTOR_MAX:
             raise RuntimeError(
                 "band-limited time marginalization needs an upsampling factor above "
-                "the ceiling UPSAMPLE_FACTOR_MAX=%d (narrowest measured sigma_t=%.3e s, "
-                "deltaT=%.3e s).  This is far beyond what the band limit can justify: "
-                "suspect a pathological lnL(t), not an under-resolved one."
-                % (UPSAMPLE_FACTOR_MAX, sigma_min, float(deltaT)))
+                "the ceiling UPSAMPLE_FACTOR_MAX=%d (deltaT=%.3e s).  This is far "
+                "beyond what the band limit can justify: suspect a pathological "
+                "lnL(t), not an under-resolved one." % (UPSAMPLE_FACTOR_MAX, deltaT))
 
-        dx_dense = float(deltaT) / factor
+        dx_dense = deltaT / factor
         # Chunk the extrinsic axis so one dense temporary stays inside the
         # working-set budget.  Rows are independent; this cannot change results.
         per_row = npts * factor * 16 * 3
@@ -412,28 +521,22 @@ def time_marginalize_bandlimited(kappa, rho_sq, deltaT, loglikelihood,
         pieces = []
         sigma_dense_min = np.inf
         for start in range(0, n_rows, chunk):
-            k_up = bandlimited_upsample(kappa[start:start + chunk], factor, xpy=xpy)
-            rho_up = xpy.broadcast_to(rho_col[start:start + chunk], k_up.shape)
+            k_up = bandlimited_upsample(kappa_rows[start:start + chunk], factor, xpy=xpy)
+            rho_up = xpy.broadcast_to(rho_col_rows[start:start + chunk], k_up.shape)
             lnL_up = loglikelihood(_term(k_up), rho_up)
-            s_d, _ = peak_width_from_lnL(lnL_up, dx_dense, xpy=xpy)
+            s_d, _, meas = peak_width_from_lnL(lnL_up, dx_dense, xpy=xpy)
+            s_d = xpy.where(meas, s_d, np.inf)
             sigma_dense_min = min(sigma_dense_min, float(xpy.min(s_d)))
-            pieces.append(_log_trapz_over_window(lnL_up, dx_dense, npts, factor,
-                                                 xpy=xpy))
+            pieces.append(_log_trapz_over_window(lnL_up, dx_dense, npts, factor, xpy=xpy))
 
         # The assertion that turns the derivation into a guarantee: the width
         # remeasured on the grid we actually integrated on must still satisfy the
-        # criterion.  A coarse-grid width estimate can be optimistic when the
-        # peak is strongly non-Gaussian; this catches that and pays for another
-        # doubling instead of reporting a number it cannot defend.
+        # criterion.  A coarse-grid estimate can be optimistic when the peak is
+        # strongly non-Gaussian; this catches that and pays for another doubling
+        # instead of reporting a number it cannot defend.
         if (not np.isfinite(sigma_dense_min)) or dx_dense <= sigma_dense_min / UPSAMPLE_SAFETY:
-            out = _apply_exposed_fallback(xpy.concatenate(pieces), exposed,
-                                          n_exposed, lnL_coarse, float(deltaT),
-                                          xpy=xpy)
-            _LAST_REPORT.update(upsample_factor=factor, n_refinements=n_refine,
-                                sigma_t_min=sigma_dense_min,
-                                dense_npts=npts * factor, n_rows=n_rows,
-                                n_wrap_exposed_rows=n_exposed)
-            return out
+            return (xpy.concatenate(pieces) if len(pieces) > 1 else pieces[0],
+                    factor, n_refine, sigma_dense_min)
 
         factor *= 2
         n_refine += 1

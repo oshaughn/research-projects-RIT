@@ -26,6 +26,9 @@ is the failure mode this repo has been bitten by before.
 """
 from __future__ import print_function, division
 
+import os
+import sys
+
 import numpy as np
 import pytest
 from scipy import integrate
@@ -141,7 +144,8 @@ def test_peak_width_estimator_is_exact_for_a_gaussian_at_any_grid_phase():
         for phase in (0.0, 0.25, 0.5, 0.75):
             t = (np.arange(NPTS) - NPTS // 2 + phase) * DELTAT
             lnL = -0.5 * (t / sigma) ** 2
-            got, _ = tmq.peak_width_from_lnL(lnL[None, :], DELTAT)
+            got, _, meas = tmq.peak_width_from_lnL(lnL[None, :], DELTAT)
+            assert bool(meas[0])
             assert np.isclose(float(got[0]), sigma, rtol=1e-9), (sigma_over_dt, phase, got)
 
 
@@ -150,9 +154,9 @@ def test_flat_integrand_derives_no_refinement():
     factor 1 rather than paying for resolution it does not need."""
     sig = BandLimited(amp=0.002, peak_sample=NPTS // 2)
     lnL = _lnL(sig.samples().real, RHO_SQ)[None, :]
-    factor, sigma_min = tmq.required_upsample_factor(lnL, DELTAT)
-    assert sigma_min > DELTAT, sigma_min
-    assert factor == 1, (factor, sigma_min)
+    sigma, _, meas = tmq.peak_width_from_lnL(lnL, DELTAT)
+    assert bool(meas[0]) and float(sigma[0]) > DELTAT, sigma
+    assert int(tmq.required_upsample_factors(sigma, DELTAT)[0]) == 1
 
 
 # --------------------------------------------- accuracy against analytic truth
@@ -187,7 +191,7 @@ def test_beats_simpson_where_the_peak_is_under_resolved():
     that grid-phase sensitivity IS the bug, and insensitivity to it is the fix."""
     sig0 = BandLimited(amp=0.02, peak_sample=NPTS // 2,
                        n_period=8 * NPTS, m_hi=1400, background=0.12)
-    sigma, _ = tmq.peak_width_from_lnL(_lnL(sig0.samples().real, RHO_SQ)[None, :], DELTAT)
+    sigma, _, _ = tmq.peak_width_from_lnL(_lnL(sig0.samples().real, RHO_SQ)[None, :], DELTAT)
     assert 0.15 < float(sigma[0]) / DELTAT < 0.45, "not the under-resolved regime"
 
     s_err, b_err = [], []
@@ -244,8 +248,14 @@ def test_a_sharp_row_does_not_degrade_a_flat_row_sharing_its_block():
                         m_hi=1400, background=0.12)
     k = np.stack([flat.samples(), sharp.samples()])
     out = tmq.time_marginalize_bandlimited(k, np.full(k.shape, RHO_SQ), DELTAT, _lnL)
+    hist = tmq.last_report()['factor_histogram']
     assert tmq.last_report()['upsample_factor'] > 8
     assert abs(float(out[0]) - flat.truth()) < 1e-4
+    # and the flat row must NOT have been dragged onto the sharp row's grid: the
+    # factor is derived per row precisely so the broad majority stop paying for
+    # the sharpest few.
+    assert len(hist) == 2, hist
+    assert min(hist) * 8 <= max(hist), hist
 
 
 # ------------------------------------------------------------- fail-closed
@@ -336,13 +346,13 @@ def _tuned_inputs(tvals, sigma_target_over_dt=0.25):
     for _ in range(6):
         args = _fake_likelihood_inputs(_buffer_signal(amp, roll))
         lnL_t = np.asarray(_shipped(tvals, args, return_lnLt=True))
-        sigma, jmax = tmq.peak_width_from_lnL(lnL_t, DELTAT)
+        sigma, jmax, _ = tmq.peak_width_from_lnL(lnL_t, DELTAT)
         roll += int(NPTS // 2 - int(jmax[0]))
         if np.isfinite(sigma[0]):
             amp *= (float(sigma[0]) / (sigma_target_over_dt * DELTAT)) ** 2
     args = _fake_likelihood_inputs(_buffer_signal(amp, roll))
     lnL_t = np.asarray(_shipped(tvals, args, return_lnLt=True))
-    sigma, jmax = tmq.peak_width_from_lnL(lnL_t, DELTAT)
+    sigma, jmax, _ = tmq.peak_width_from_lnL(lnL_t, DELTAT)
     return args, float(sigma[0]) / DELTAT, int(jmax[0])
 
 
@@ -399,15 +409,185 @@ def test_unsupported_combinations_refuse_rather_than_silently_using_simpson():
                 tvals, P, lookupNK, rholms, ct, ct, epochs, **kw)
 
 
-def test_rotation_path_refuses_the_global_default():
-    """The slow-rotation likelihood has a time-DEPENDENT rho_sq.  Enabling the
-    option globally must make it raise, not quietly run Simpson -- otherwise the
-    exclusion is invisible at the point of use."""
-    flwr = pytest.importorskip('RIFT.likelihood.factored_likelihood_with_rotation')
-    import inspect
-    src = inspect.getsource(flwr.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation)
-    assert 'TIME_QUADRATURE_DEFAULT' in src, "the rotation path lost its refusal guard"
-    assert 'NotImplementedError' in src
+@pytest.mark.parametrize("module_name,func_name", [
+    ('RIFT.likelihood.factored_likelihood_with_rotation',
+     'DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation'),
+    ('RIFT.likelihood.factored_likelihood_freqresponse',
+     'DiscreteFactoredLogLikelihoodFreqResponseNoLoop'),
+])
+def test_excluded_paths_refuse_the_global_default(module_name, func_name):
+    """These likelihoods have a time-DEPENDENT rho_sq, so the band-limited
+    argument does not hold for them.  Enabling the option globally must make them
+    RAISE, not quietly run Simpson -- otherwise the exclusion is invisible at the
+    point of use.  Behavioural, not a source grep: the guard is the first thing
+    the function does, so junk arguments must still produce NotImplementedError
+    rather than a TypeError from further in."""
+    mod = pytest.importorskip(module_name)
+    func = getattr(mod, func_name)
+    old = fl.TIME_QUADRATURE_DEFAULT
+    try:
+        fl.TIME_QUADRATURE_DEFAULT = 'bandlimited'
+        with pytest.raises(NotImplementedError):
+            func(None, None, None, None, None, None, None, None)
+    finally:
+        fl.TIME_QUADRATURE_DEFAULT = old
+
+
+# ------------------------------------------- non-finite lnL(t) (input space)
+
+def test_minus_inf_next_to_the_peak_does_not_read_as_a_flat_integrand():
+    """``lnL_t`` genuinely contains ``-inf`` in production: the distance-
+    marginalization callback returns ``-inf`` outside its interpolation table.
+    A three-point stencil that straddles that hole computes
+    ``(-inf) - 2*(-inf) + (-inf) = NaN``, and ``NaN < 0`` is False -- so the row
+    would report "no peak", derive a factor of 1 and be SILENTLY under-resolved,
+    which is the exact failure this change exists to remove.  This cannot be
+    caught by mutating the code (it is a missing case, not a wrong constant), so
+    it is tested from the input side."""
+    t = (np.arange(NPTS) - NPTS // 2) * DELTAT
+    sigma_true = 0.05 * DELTAT
+    base = -0.5 * (t / sigma_true) ** 2
+
+    for label, hole in [("tails", (slice(0, 20), slice(-20, None))),
+                        ("adjacent to the peak", (NPTS // 2 - 1,)),
+                        ("both sides of the peak", (NPTS // 2 - 1, NPTS // 2 + 1))]:
+        lnL = base.copy()
+        for h in hole:
+            lnL[h] = -np.inf
+        sigma, _, meas = tmq.peak_width_from_lnL(lnL[None, :], DELTAT)
+        assert bool(meas[0]), label
+        assert np.isclose(float(sigma[0]), sigma_true, rtol=1e-9), (label, sigma)
+        assert int(tmq.required_upsample_factors(sigma, DELTAT)[0]) > 1, label
+
+
+def test_a_signal_free_row_is_reported_as_flat_not_as_wrap_exposed():
+    """A row with no signal in it -- an extrinsic sample in an antenna null, where
+    kappa is numerically zero -- has a constant lnL(t) and therefore an argmax of
+    0 by convention.  Applying the edge guard to it would report it as
+    wrap-exposed, which in a production log reads as a mis-centred window rather
+    than as a row with nothing in it.  The edge guard is only meaningful for rows
+    that HAVE a peak."""
+    sig = BandLimited(amp=1.0, peak_sample=NPTS // 2)
+    k = np.stack([np.zeros(NPTS, dtype=complex), sig.samples()])
+    out = tmq.time_marginalize_bandlimited(k, np.full(k.shape, RHO_SQ), DELTAT, _lnL)
+    rep = tmq.last_report()
+    assert rep['n_flat_rows'] == 1, rep
+    assert rep['n_wrap_exposed_rows'] == 0, rep
+    assert rep['n_unmeasurable_rows'] == 0, rep
+    # and it is still integrated correctly: a constant integrand over the window
+    expect = _lnL(0.0, RHO_SQ) + np.log((NPTS - 1) * DELTAT)
+    assert abs(float(out[0]) - expect) < 1e-12, (out[0], expect)
+
+
+def test_unmeasurable_row_falls_back_and_is_counted():
+    """A row whose curvature cannot be evaluated at ANY stencil half-width must be
+    counted and given the historical value -- never silently assigned factor 1,
+    which is indistinguishable from a genuinely flat integrand."""
+    sig = BandLimited(amp=1.0, peak_sample=NPTS // 2)
+    k = np.stack([np.zeros(NPTS, dtype=complex), sig.samples()])
+
+    def lnL_with_hole(kappa_term, rho_sq):
+        out = _lnL(kappa_term, rho_sq)
+        out = np.where(np.abs(np.asarray(kappa_term)) > 0, out, -np.inf)
+        return out
+
+    out = tmq.time_marginalize_bandlimited(k, np.full(k.shape, RHO_SQ), DELTAT,
+                                           lnL_with_hole)
+    rep = tmq.last_report()
+    assert rep['n_unmeasurable_rows'] == 1, rep
+    assert rep['n_fallback_rows'] == 1, rep
+    # counted unconditionally: an all -inf row also has argmax 0, so a counter
+    # written as "unmeasurable AND not exposed" would hide it behind the guard
+    assert rep['n_wrap_exposed_rows'] == 0, rep
+    # zero likelihood over the whole window integrates to zero: the answer is
+    # -inf, which is what the historical global-offset path returns.  NaN here
+    # would propagate into the sampler weights.
+    assert float(out[0]) == -np.inf, out[0]
+    assert abs(float(out[1]) - sig.truth()) < 1e-6
+
+
+def test_remeasure_on_the_dense_grid_repairs_an_under_derived_factor():
+    """The remeasure-and-double step is what makes the derivation an assertion
+    rather than a guess.  Force the derivation to hand back a factor that is far
+    too small and require the refinement loop to notice on the dense grid and
+    recover the right answer anyway."""
+    sig = BandLimited(amp=5.0, peak_sample=NPTS // 2 + 0.25)
+    k = sig.samples()[None, :]
+    rho = np.full(k.shape, RHO_SQ)
+    honest = tmq.time_marginalize_bandlimited(k, rho, DELTAT, _lnL)
+    honest_factor = tmq.last_report()['upsample_factor']
+    assert honest_factor >= 16
+
+    real = tmq.required_upsample_factors
+    tmq.required_upsample_factors = lambda sigma, dx, xpy=np: real(sigma, dx, xpy=xpy) // 8
+    try:
+        got = tmq.time_marginalize_bandlimited(k, rho, DELTAT, _lnL)
+    finally:
+        tmq.required_upsample_factors = real
+    rep = tmq.last_report()
+    assert rep['n_refinements'] > 0, rep
+    assert rep['upsample_factor'] == honest_factor, rep
+    assert abs(float(got[0]) - float(honest[0])) < 1e-9
+    assert abs(float(got[0]) - sig.truth()) < 1e-6
+
+
+
+
+# ------------------------------------------------------- the driver CLI
+
+def _run_driver(extra_args):
+    """Invoke the ILE driver and return (returncode, combined output).
+
+    A subprocess, deliberately.  The option's whole job is to travel from a
+    command line into the likelihood, and the guard that stops it being silently
+    inert lives in the driver's startup, not in the library -- so a test that
+    imports the library cannot see it.  The driver exits long before any data is
+    needed, so this costs one interpreter start.
+    """
+    import subprocess
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    driver = os.path.join(root, 'bin', 'integrate_likelihood_extrinsic_batchmode')
+    env = dict(os.environ)
+    env['PYTHONPATH'] = root + os.pathsep + env.get('PYTHONPATH', '')
+    env['OMP_NUM_THREADS'] = '1'
+    proc = subprocess.run([sys.executable, driver] + extra_args, env=env,
+                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                          timeout=900)
+    return proc.returncode, proc.stdout.decode('utf-8', 'replace')
+
+
+_HONOURED = ['--time-marginalization', '--vectorized', '--gpu', '--force-xpy']
+
+
+def test_driver_rejects_a_misspelled_quadrature_name():
+    """A misspelled stencil name was once absorbed as "not truthy" and silently
+    ran a different likelihood here.  A typo in this option has to be loud."""
+    rc, out = _run_driver(['--time-marginalization-quadrature', 'bandlimted'])
+    assert rc != 0
+    assert 'bandlimted' in out and 'simpson' in out
+
+
+def test_driver_refuses_configurations_that_cannot_honour_the_option():
+    """Refuse, do not ignore.  Each of these would otherwise run the historical
+    Simpson quadrature while the startup banner said otherwise -- which is how a
+    comparison campaign gets run against an inert flag."""
+    for missing in ([], ['--time-marginalization'],
+                    ['--time-marginalization', '--vectorized'],
+                    _HONOURED + ['--rotation-slow'],
+                    _HONOURED + ['--freqresponse']):
+        rc, out = _run_driver(['--time-marginalization-quadrature', 'bandlimited'] + missing)
+        assert rc != 0, (missing, out[-2000:])
+        assert 'cannot honour it' in out, (missing, out[-2000:])
+
+
+def test_driver_announces_the_quadrature_it_will_actually_use():
+    rc, out = _run_driver(['--time-marginalization-quadrature', 'bandlimited'] + _HONOURED)
+    assert 'Time-marginalization quadrature: bandlimited' in out
+    assert 'honoured by this configuration: True' in out
+    # and the default stays put when the option is not given
+    rc, out = _run_driver(_HONOURED)
+    assert 'Time-marginalization quadrature: simpson' in out
+
 
 
 if __name__ == '__main__':
