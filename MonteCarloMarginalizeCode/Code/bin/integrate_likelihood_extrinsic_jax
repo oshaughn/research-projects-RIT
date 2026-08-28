@@ -71,6 +71,7 @@ import lalsimulation as lalsim
 
 import RIFT.lalsimutils as lalsimutils
 from RIFT.likelihood.jax_ile import build_data_from_precompute
+from RIFT.likelihood.jax_ile import anglemarg as _anglemarg
 from RIFT.likelihood.jax_ile.core import _GATHERERS as _JAX_GATHERERS, JAX_INTERP_DEFAULT
 _JAX_GATHERER_NAMES = tuple(_JAX_GATHERERS)
 from RIFT.likelihood.jax_ile.wrapper import (
@@ -434,7 +435,23 @@ def build_parser():
                  help="psi (polarization) grid size for --mode flowmc-phipsimarg "
                       "(default 8; spin-2 -> exponential convergence, ~8 exact for "
                       "l_max=2).  Keep nphi*npsi small (~64) -- the (phi,psi) scan "
-                      "cost scales with it.")
+                      "cost scales with it.  CAVEAT: 'exact' above holds for "
+                      "SAMPLING the trig polynomial lnL, not for the quadrature "
+                      "of exp(lnL), whose peak width is ~1/SNR -- the grid "
+                      "scheme's marginalization error grows without bound with "
+                      "SNR (measured ~1e2 nats at SNR 40 for npsi=8).  See "
+                      "--angle-marg-scheme for the fix.")
+    g.add_option("--angle-marg-scheme", type=str, default="grid",
+                 help="(phi_ref, psi) marginalization scheme for --mode "
+                      "flowmc-phipsimarg: 'grid' (DEFAULT: the historical "
+                      "--n-phi x --n-psi quadrature, kept so existing runs "
+                      "reproduce), 'exact' (Fourier-coefficient bootstrap + "
+                      "dense reconstruction; expensive likelihood calls fixed "
+                      "by MODE CONTENT, never by SNR), 'laplace' (analytic "
+                      "Laplace in psi + dense phi; error O(1/SNR^2), best at "
+                      "high SNR), or 'auto' (select exact/laplace from the "
+                      "run's SNR estimate).  The scheme that actually ran is "
+                      "printed.  See RIFT.likelihood.jax_ile.anglemarg.")
     # flowMC tuning (modes flowmc / flowmc-phimarg).  Defaults match
     # samplers.flowmc_sample*; exposed so pipeline Makefiles can tune them.
     g.add_option("--n-training-loops", type=int, default=4,
@@ -951,15 +968,58 @@ def samples_path(opts, out_index):
     return opts.output_file + "_" + str(out_index) + "_samples.dat"
 
 
-def write_dat(opts, P, out_index, event_id, logZ, sigma_over_Z, ntotal, neff):
+def angle_grid_suspect_note(scheme=None):
+    """Label describing the angle-grid amplitude check for this event.
+
+    Returns one of three things, and the THIRD is the point:
+
+      ""                              -- the grid schemes were not used
+      "SUSPECT-ANGLE-GRID ..."        -- undersizing was DETECTED
+      "ANGLE-GRID-CHECK=BEST-EFFORT"  -- schemes used, nothing detected
+
+    The third case exists because absence of a detection is NOT evidence of
+    adequacy.  The detector is a jax.debug.callback, and JAX explicitly permits
+    such callbacks to be dropped under transformation -- in which case the host
+    state stays clean, effects_barrier has nothing to wait for, and the artifact
+    would otherwise be published looking verified.  That is a scientific false
+    negative, and calling it "best effort" in a docstring does not fix it for a
+    consumer reading the file six months later.
+
+    So every artifact produced by the exact/laplace schemes carries a standing
+    statement that this check CANNOT distinguish an adequate grid from an
+    undetected undersizing.  A reader is then never entitled to infer
+    verification from silence.  The honest recourse, named in the artifact, is
+    to rebuild at a larger amp_sizing if the result matters.
+    """
+    st = _anglemarg.amp_failsafe_state()
+    if st.get("tripped"):
+        return ("SUSPECT-ANGLE-GRID amp_failsafe=TRIPPED worst_amp=%.6g "
+                "amp_sizing=%.6g scheme=%s"
+                % (st.get("worst_amp", float("nan")),
+                   st.get("amp_sizing", float("nan")), st.get("scheme")))
+    if scheme in ("exact", "laplace"):
+        return ("ANGLE-GRID-CHECK=BEST-EFFORT (no undersizing detected; the "
+                "detector may be dropped under jax transformation, so this is "
+                "NOT a verification -- rebuild at larger amp_sizing if it matters)")
+    return ""
+
+
+def write_dat(opts, P, out_index, event_id, logZ, sigma_over_Z, ntotal, neff,
+              angle_note=""):
     if not opts.output_file:
         return
     m1, m2 = P.m1 / MSUN, P.m2 / MSUN
     fname = dat_path(opts, out_index)
     row = np.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y,
                      P.s2z, logZ, sigma_over_Z, ntotal, neff]])
-    np.savetxt(fname, row,
-               header="event_id m1 m2 s1x s1y s1z s2x s2y s2z lnL sigma_lnL ntotal neff")
+    hdr = "event_id m1 m2 s1x s1y s1z s2x s2y s2z lnL sigma_lnL ntotal neff"
+    # The EVIDENCE artifact must carry the label independently of sample export:
+    # write_samples() early-returns without --save-samples/--output-file, so a
+    # run with export disabled would otherwise publish a numeric evidence row
+    # indistinguishable from a clean integration.
+    if angle_note:
+        hdr += "\n" + angle_note
+    np.savetxt(fname, row, header=hdr)
     print("Wrote %s" % fname)
 
 
@@ -1293,7 +1353,8 @@ def _remove_stale_artifact(path, what="export"):
               % (what, path), file=sys.stderr)
 
 
-def write_samples(opts, out_index, theta, lnL, with_distance, logw=None):
+def write_samples(opts, out_index, theta, lnL, with_distance, logw=None,
+                  angle_note=""):
     """Write the exported extrinsic samples.
 
     ``logw`` are per-sample LOG IMPORTANCE WEIGHTS ``ln(L p / p_s)`` for the
@@ -1392,6 +1453,9 @@ def write_samples(opts, out_index, theta, lnL, with_distance, logw=None):
             print("  fairdraw: exporting %d of %d rows (requested count)"
                   % (int(n_req), n_before))
     provenance = "fairdraw: %s n_out=%d" % (note, len(theta))
+    if angle_note:
+        provenance += " " + angle_note
+
     ndim = theta.shape[1] if theta.ndim == 2 else len(theta)
     if with_distance:
         # 6-D: ra, dec, psi, incl, phiref, dist
@@ -1434,6 +1498,9 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
     Returns ``(value, flow_state)`` where ``flow_state`` is the trained-flow
     state to bootstrap the next event (``--mode flowmc`` only; ``None`` else).
     """
+    # Per-EVENT state: a batch run analyzes several events in one process, and
+    # an undersizing on event 0 must not label event 1.
+    _anglemarg.reset_amp_failsafe()
     print("Building JAX likelihood (PrecomputeLikelihoodTerms + pack)...")
     like_data, extras = build_data_from_precompute(
         P.copy(), data_dict, psd_dict, fiducial_epoch,
@@ -1472,12 +1539,20 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
         from RIFT.likelihood.jax_ile.wrapper import JAXDistPhiPsiMargLikelihood
         nphi = getattr(opts, "n_phi", 32)
         npsi = getattr(opts, "n_psi", 16)
+        angle_marg = getattr(opts, "angle_marg_scheme", "grid")
         print("Distance + phi_ref + psi marginalization: ON (grid=%d, nphi=%d, npsi=%d, d in [%g,%g] Mpc)"
               % (opts.distance_grid_points, nphi, npsi, opts.d_min, opts.d_max))
         like = JAXDistPhiPsiMargLikelihood(
             like_data, opts.d_min, opts.d_max, nphi=nphi, npsi=npsi,
             n_grid=opts.distance_grid_points, interp=opts.interp,
-            guess_snr=extras["guess_snr"])
+            guess_snr=extras["guess_snr"], angle_marg=angle_marg)
+        # ALWAYS report the resolved scheme (requested may be 'auto'; this
+        # pipeline has a documented history of silently-inert flags).
+        print("  angle-marg scheme: %s (requested %s): %s"
+              % (like.angle_marg_scheme, angle_marg,
+                 "; ".join("%s=%s" % kv for kv in
+                           sorted(like.angle_marg_info.items())
+                           if kv[0] not in ("scheme", "requested"))))
         if getattr(like, "dist_grid_info", {}).get("mode") == "adaptive":
             gi = like.dist_grid_info
             print("  distance grid: ADAPTIVE  d_peak=%.3g Mpc  sigma_d=%.3g Mpc  npts=%d"
@@ -1680,9 +1755,35 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
     # Passing the shared `rng` here -- which also feeds run_laplace_is /
     # run_prior_mc and the samplers -- made --save-samples, an OUTPUT flag,
     # change the lnL/logZ of every later event in the batch.
-    write_samples(opts, out_index, theta, lnL, with_distance,
+    # Report ONCE per event, here, BEFORE either artifact is written -- and
+    # independently of --save-samples/--output-file, since write_samples()
+    # early-returns when export is off and a run with export disabled would
+    # otherwise get no warning and no persistent label at all.
+    # Compute ONCE from the RESOLVED scheme and hand the same string to both
+    # writers.  Recomputing inside each writer with no argument left `scheme`
+    # None, so the standing BEST-EFFORT label never emitted and every artifact
+    # stayed silent -- an inert guard, which is the exact failure mode this
+    # label exists to prevent.
+    _scheme = getattr(like, "angle_marg_scheme", None)
+    _ev_note = angle_grid_suspect_note(_scheme)
+    if _ev_note.startswith("SUSPECT-ANGLE-GRID"):
+        sys.stderr.write(
+            "WARNING integrate_likelihood_extrinsic_jax: angle-marginalization "
+            "dense grids were UNDERSIZED at some evaluated points this event "
+            "(%s).  Samples and evidence are LABELLED SUSPECT in their headers; "
+            "rebuild with a larger amp_sizing before using them.  The run was "
+            "NOT aborted and no points were discarded -- discarding would excise "
+            "exactly the region the estimator missed.\n" % _ev_note)
+    elif _ev_note:
+        # BEST-EFFORT: nothing detected.  Say so WITHOUT claiming a clean run --
+        # announcing "UNDERSIZED" here would be a false alarm, and saying
+        # nothing would let silence read as verification.
+        sys.stderr.write(
+            "NOTE integrate_likelihood_extrinsic_jax: %s\n" % _ev_note)
+    write_samples(opts, out_index, theta, lnL, with_distance, angle_note=_ev_note,
                   logw=logw_export)
-    write_dat(opts, P, out_index, event_id, logZ, sig, ntot, neff)
+    write_dat(opts, P, out_index, event_id, logZ, sig, ntot, neff,
+              angle_note=_ev_note)
     return logZ, out_flow_state
 
 

@@ -147,9 +147,25 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         wrapper against the production driver, and
 #                                         because 16384 is the rate test_jax_endtoend
 #                                         (4096) structurally cannot cover.
-#
-# DELIBERATELY EXCLUDED (measured on ldas-pcdev11, JAX_PLATFORMS=cpu, OMP_NUM_THREADS=1):
-#
+#   test_angle_marg_smoke.py          8  CHEAP mutation-bearing floor for the whole
+#                                         angle-marg feature: scheme selection (a
+#                                         previous head could never return 'exact'),
+#                                         both dense-sizing levers, required
+#                                         amp_sizing, the host failsafe record and
+#                                         its cond-guard, the driver AST guard on the
+#                                         VALUE node (hardcoding angle_marg="grid"
+#                                         passes a weaker guard), and that BOTH
+#                                         artifacts are labelled and never imply
+#                                         verification.  Seconds, not minutes.
+#   test_angle_marg_sizing_rule.py    1  the m_max-aware dense phi sizing rule.
+#                                         Pure numpy, milliseconds, closed-form I0
+#                                         reference.  FAILS under the old m_max-blind
+#                                         rule (0.498 nats vs 1.17e-10), which every
+#                                         low-scale brute-force test passes -- so this
+#                                         is the only gated check that distinguishes
+#                                         the corrected sizing.  The rest of the
+#                                         angle-marg suite is EXCLUDED; see below.
+
 #   test_nuts_phimarg_injection.py  Not a pytest file at all: it runs the whole study at
 #                                 module scope and calls sys.exit() there.  WITHOUT numpyro
 #                                 that surfaces as a fast COLLECTION ERROR; WITH numpyro --
@@ -209,6 +225,8 @@ FILES=(
   "${JAXDIR}/test_interp_choices.py"
   "${JAXDIR}/test_jax_stencil_parity.py"
   "${JAXDIR}/test_flow_reuse_default.py"
+  "${JAXDIR}/test_angle_marg_sizing_rule.py"
+  "${JAXDIR}/test_angle_marg_smoke.py"
 )
 
 # EXCLUDED: files in JAXDIR matching test_*.py that are deliberately NOT gated.  The
@@ -219,6 +237,33 @@ DESELECTED_TESTS=(
   "${JAXDIR}/test_jax_stencil_parity.py::test_gpu_gather_parity_against_numpy_window"
 )
 EXCLUDED=(
+  # test_angle_marg_exact.py -- the angle-marginalization VALIDATION suite.
+  #
+  # NOT gated per-PR, and this is a deliberate, measured decision rather than a
+  # convenience.  It is a development check in the same sense that full RIFT
+  # analysis runs are: it establishes the schemes' ERROR LAW at production
+  # amplitude, a property of the mathematics that does not change commit to
+  # commit.  Three separate CI failures forced the split, each a different
+  # symptom of the same cost: the 169-test gate was CANCELLED at the job's
+  # 60-minute cap; a later head OOM-killed the runner at 19 min; and the run
+  # after that reached 83% and then died with "the runner has received a
+  # shutdown signal" (exit 143).  The 139-test baseline ran in 13m53s.
+  #
+  # What remains GATED is the coverage that actually bites:
+  # test_angle_marg_sizing_rule.py pins the m_max-aware dense sizing with a
+  # pure-numpy, millisecond test against a closed-form I0 reference, and FAILS
+  # under the old m_max-blind rule (0.498 nats vs 1.17e-10).  The low-scale
+  # brute-force comparisons in the excluded file prove exactness but do NOT
+  # distinguish the sizing rule -- the broken rule passes them all -- which is
+  # why extracting that one test was necessary before excluding the rest.
+  #
+  # RUN IT BY HAND when touching anglemarg.py, on a quiet host with >=16 cores:
+  #   PYTHONPATH=<tree>/MonteCarloMarginalizeCode/Code JAX_PLATFORMS=cpu \
+  #   JAX_ENABLE_X64=1 OMP_NUM_THREADS=1 JAX_COMPILATION_CACHE_DIR="" \
+  #   taskset -c 0-15 python -m pytest -q \
+  #     <tree>/MonteCarloMarginalizeCode/Code/test/jax/test_angle_marg_exact.py
+  # and record the numbers in the PR, per records-protocol.
+  "${JAXDIR}/test_angle_marg_exact.py"
   "${JAXDIR}/test_nuts_phimarg_injection.py"
   "${JAXDIR}/test_flow_reuse.py"
 )
@@ -256,7 +301,12 @@ fi
 # Sum of the per-file counts above.
 # Pinned deliberately: a bare `pytest test/jax/`
 # that collected 0 would exit 5, and a partial loss (say 14 -> 3) would still exit 0.
-EXPECTED_TESTS=144
+# NOTE: this environment collects ONE MORE test than the CI runner does (local
+# 147 vs CI 146; the delta was 3 earlier in this branch's life).  So "recount by
+# collection" must mean collection IN THE GATE'S ENVIRONMENT -- a local count has
+# tripped this floor twice.  When in doubt, take the number from a CI log line
+# ("collected N tests from M files") rather than from your shell.
+EXPECTED_TESTS=153
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"
