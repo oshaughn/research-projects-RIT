@@ -173,7 +173,28 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #   demo_*.py, debug_*.py,        Demos, debugging scripts and a figure generator, not
 #   benchmark_snr_sequence.py,    assertions.  None defines a test_* function and none
 #   make_3g_figdata.py            is intended as a gate.
+#   test_jax_time_quadrature.py       5  band-limited time marginalization.  The
+#                                         stock path integrates exp(lnL_t) with fixed
+#                                         Simpson weights at the DATA spacing while the
+#                                         integrand width sigma_t = 1/(2 pi rho sigma_f)
+#                                         SHRINKS with SNR -- 61.2 us against grid
+#                                         spacings of 244/122/61 us at srate
+#                                         4096/8192/16384 on a 35+30 HLV injection at
+#                                         rho=40.  Simpson is not a safeguard: it is
+#                                         (4 T_h - T_2h)/3, so it carries the coarser
+#                                         T_2h alias and is WORSE than trapezoid when
+#                                         under-resolved.  Pins that upsampling is EXACT
+#                                         (sampling theorem, not an approximation), that
+#                                         the Nyquist bin is split rather than dumped,
+#                                         that the band-limited result is grid-phase
+#                                         INDEPENDENT where stock Simpson swings 4.26
+#                                         nats, convergence in the free upsample factor,
+#                                         and that an unknown time_quad RAISES instead of
+#                                         silently giving the old behaviour.  Pure numpy
+#                                         and jax, no lal, no GPU.
+
 FILES=(
+  "${JAXDIR}/test_jax_time_quadrature.py"
   "${JAXDIR}/test_jax_likelihood.py"
   "${JAXDIR}/test_jax_endtoend.py"
   "${JAXDIR}/test_jax_slowrot_coeffs.py"
@@ -235,7 +256,7 @@ fi
 # Sum of the per-file counts above.
 # Pinned deliberately: a bare `pytest test/jax/`
 # that collected 0 would exit 5, and a partial loss (say 14 -> 3) would still exit 0.
-EXPECTED_TESTS=139
+EXPECTED_TESTS=144
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"
