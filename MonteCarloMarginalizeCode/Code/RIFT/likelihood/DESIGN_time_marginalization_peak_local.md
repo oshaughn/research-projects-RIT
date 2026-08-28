@@ -100,6 +100,61 @@ now checked before the cost gate.  The old test only passed because it set
 `UPSAMPLE_FACTOR_MAX = 2`, broad enough that the *cost* gate declined the row first; the
 ceiling was never what routed it.
 
+## G-class: the defect was a CLASS, and fixing one site was not enough
+
+A third review, after the localisation fix, found the same quantisation error at three
+more consumers of the enumeration index.  The audit that finds them is one grep:
+`cols_p` / `q_up[`.  Every quantity computed from `q_up[rows_p, cols_p]` inherits it;
+the index is legitimate only as a Newton SEED and bracket centre, never as a value.
+
+**G1 (critical).** `PEAK_KEEP_NATS` was applied to the SAMPLE value, before
+localisation.  A crest `d` from its sample reads `(d/sigma)^2/2` nats low, so a peak
+between samples was compared against a peak on a sample and dropped.  On the two-peak
+fixture at rho ~ 700, shipped code, no monkeypatching:
+
+| B offset (h_enum) | peak-local − truth | n_peaks_total |
+|---|---|---|
+| 0.00 | +0.000000 | 2 |
+| 0.25 | **−0.693147** | 1 |
+| 0.50 | **−0.693147** | 1 |
+
+`−log 2` exactly: one of two equal peaks deleted.  The secondary crest was 1.003 nats
+below the dominant crest while its SAMPLE was 70.99 nats below.  Fixed by comparing
+crests: the vertex height of the parabola through the three stencil points is the crest
+value exactly for a Gaussian peak, at any spacing — the same property the width
+estimator uses, applied to the zeroth moment instead of the second.  It costs nothing.
+After: 2 peaks kept and +0.000000 at every offset.
+
+**G2.** The claim that a dropped peak is "safe because it enters the tail bound" was
+vacuous.  Since `q_out_max` is at least the dropped peak's own sample, the bound accepts
+the row unless `sigma_t < 2.6e-18 s`, while `UPSAMPLE_FACTOR_MAX` bounds the sharpest
+legal row at `3.0e-08 s` — ten orders of magnitude away.  For EVERY legal row a
+keep-filter drop is automatically accepted.  The claim is removed; the filter now rests
+on a direct magnitude argument tying `PEAK_KEEP_NATS` to `UPSAMPLE_FACTOR_MAX`, and that
+inequality is asserted.
+
+**G3.** The containment check's scope is narrower than it looked: `row_star` is a per-row
+maximum over KEPT peaks, so it verifies the dominant crest only and a dropped peak can
+never enter it.  Documented, not widened.
+
+**G4.** The "conservative superset" was not conservative: `localise_peaks` brackets at
+`+/- h_enum` and accepts anything strictly inside, so `|t* - t_grid|` is bounded by
+`h_enum`, not half of it — and the bound is approached (0.959 `h_enum` observed over
+14,182 peaks).  Widened to `+ h_enum`.  Narrowing the bracket instead would be wrong: an
+asymmetric peak's crest genuinely can sit more than half a cell from its sample.
+
+**G5.** The curvature stencil CENTRE was clipped inward by `maxd = 8`, so a peak within 8
+enumeration samples of an end had its width measured elsewhere, returning `sigma = inf`
+at index 0 and dropping the peak before localisation could help.  Now the centre stays
+put and out-of-range half-widths are masked.
+
+**G6 — why the suite missed G1.** Every multi-peak fixture ran at `amp = 200`
+(`sigma_t/deltaT = 0.0072`, just above the 0.0057 threshold); every sharp fixture was
+single-peak; and the updated F1 tests moved BOTH peaks off-grid by similar amounts, so
+the deficits cancelled.  **The defect needs asymmetry** — one peak near a sample, one
+between — and the suite never crossed "more than one peak" with "sharp".  That cell now
+exists.
+
 ## What this changes
 
 The dense band-limited rule refines the WHOLE window to a peak whose width shrinks as
@@ -291,6 +346,79 @@ accuracy test stays green when the merge is deleted.
 Merging is also what makes this ONE algorithm rather than a regime switch: isolated
 peaks give a tiny union, crowded peaks grow the union to the whole window and the
 method degenerates continuously into the dense grid.  No threshold anywhere.
+
+## Mutation sweep
+
+25 mutations against the post-G-fix code (`244e7cca`), baseline **90 passed / 4
+deselected** (the 4 driver subprocess tests, which no numerical mutation can reach;
+full suite 94).  Restores from `git show HEAD:` — a pristine source, never a
+reverse-edit, never a snapshot taken while a mutation was live — with every anchor
+required to match exactly once so a stale anchor reports a HARNESS FAILURE rather than a
+false survivor.  Run on `ldas-pcdev13` with the intended branch verified live.
+
+**17 killed, 8 survived.**  Killed, with the test that did it:
+
+| mutation | killed by |
+|---|---|
+| L1 skip localisation | uniform-arrival block, return_peaks, ceiling |
+| L2 one Newton step | 12 tests |
+| L3 drop the convergence assertion | localiser-reports-non-convergence |
+| L5 drop the tol widening | tail-bound recomputation |
+| G1 keep filter on the SAMPLE value | secondary-crest-between-samples |
+| C1 containment always passes | containment-catches-mis-placed-interval |
+| **C2 containment vs the enumeration SAMPLE** | containment-catches-mis-placed-interval |
+| C3 `T_outside` from grid indices | tail-bound recomputation |
+| C4 tail bound drops `log(T_outside)` | tail-bound recomputation |
+| C6 ceiling after the cost gate | ceiling-fails-closed-for-sharpest |
+| C7 disable the pre-enumeration gate | pre-enumeration-gate-actually-fires |
+| C9 `LOCALISE_SAFETY` breaks the relation | tuned-constants |
+| E2/E3 plateau asymmetry, both ways | plateau-yields-exactly-one-maximum |
+| E4 merge running maximum | merge-keeps-contained-interval |
+| E7 drop trapezoid half-weights | local-trapezoid-half-weights |
+| **W1 shipped branch delegates to bandlimited** | option-reaches-the-shipped-likelihood |
+
+C2 and W1 are the two that had to die.  W1 makes the option INERT — same signature, same
+numbers, entire cost benefit gone — and it was invisible until `last_report()` was
+asserted, because peak-local is *designed* to agree with bandlimited so no value
+comparison can distinguish them.  C2 is the check comparing against the sample instead of
+the localised crest, which passes precisely in the case it must catch.
+
+### The 8 survivors, and which of them are evidence
+
+A mutation that does not change behaviour is a harness artifact, not a coverage gap.
+Each survivor was re-applied and run over a battery of six fixture families chosen to hit
+the shape it targets, comparing values AND report counters against pristine:
+
+| survivor | changes behaviour? | verdict |
+|---|---|---|
+| L4 widen the Newton bracket | **no** — identical on all 6 | no-op: Newton converges well inside `+/-h_enum`, so widening is unobservable |
+| G4 gate interval not a superset | **no** — identical on all 6 | no-op here; cost-only by construction (a row it wrongly keeps is still computed correctly) |
+| E1 re-exclude endpoints | **no** — identical on all 6 | no-op: no fixture puts a discrete maximum exactly at index 0 or last |
+| E5 drop interval clipping | **no** — identical on all 6 | no-op: no fixture produces `lo < 0` or `hi > t_last` |
+| E6 curvature ladder → d=1 | **no** — identical on all 6 | no-op: no fixture has a `-inf` hole at d=1 on the enumeration grid |
+| G5 re-clip the stencil centre | values, at **1e-12** | effectively a no-op; see below |
+| C5 one extra covered sample per end | counters only | genuine gap, diagnostics only |
+| C8 disable the final `MAX_INTERVALS` check | counters only | genuine gap, precisely diagnosed below |
+
+So **five of the eight are not evidence at all**, and reporting them as coverage gaps
+would be the sweep lying to itself.  What remains:
+
+* **G5** changes the answer only at 1e-12 on the fixtures available, because on every
+  one of them the near-edge peak is more than `PEAK_KEEP_NATS` below the dominant crest
+  and is dropped before the stencil ever runs (`n_peaks_total == 1`).  Making a peak both
+  near-edge and within 60 nats puts the row in a regime where it is declined on cost
+  instead, so **the shape is not reachable through the public entry point with these
+  fixtures.**  The fix is applied and is strictly better; the test that claimed to cover
+  it did not, and has been renamed to say what it actually checks.  The reviewer measured
+  the defect directly (`e2_edgepeak`, −0.3124 nats).  **Open gap.**
+* **C8** is killed by the PROVISIONAL structure gate, not the final one — disabling only
+  the final `too_much` check leaves the suite green because the provisional gate declines
+  the row first.  The final check is kept (the final interval count *can* exceed the
+  provisional one, since narrower intervals merge less readily) but no fixture reaches
+  it.  **Open gap, precisely located.**
+* **C5** perturbs `covered` near an interval edge; with `T_outside` now exact geometry
+  this moves only `q_out_max`, and only when the outside maximum sits adjacent to an
+  edge, which no fixture arranges.  **Open gap, diagnostics only.**
 
 ## Not done in this draft
 

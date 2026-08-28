@@ -1048,12 +1048,23 @@ def test_the_localised_crest_stays_inside_its_bracket():
     assert 1.0 * h_enum >= worst * h_enum
 
 
-def test_a_peak_near_the_window_edge_still_gets_its_own_curvature():
-    """G5.  The stencil centre used to be clipped inward by `maxd = 8`, so a peak within
-    8 enumeration samples of either end had its width measured somewhere else entirely
-    -- returning sigma = inf at index 0, which dropped the peak for "no resolvable
-    curvature" BEFORE localisation could help. Endpoint enumeration does not fix that;
-    masking the out-of-range half-widths instead of moving the centre does."""
+def test_a_row_with_a_near_edge_secondary_peak_is_answered_correctly():
+    """Near-edge secondary peaks, end to end.
+
+    NAMED FOR WHAT IT ACTUALLY CHECKS.  An earlier version of this was called
+    `..._still_gets_its_own_curvature` and claimed to cover the G5 stencil-centre fix.
+    It does not, and the mutation sweep said so: re-clipping the stencil centre leaves
+    every assertion here green, changing the answer only at the 1e-12 level.  The reason
+    is that on these fixtures the edge peak is >`PEAK_KEEP_NATS` below the dominant
+    crest and is dropped by the keep filter regardless (`n_peaks_total == 1`), so the
+    stencil never runs on it.  Making an edge peak both near-edge AND within 60 nats
+    needs an amplitude regime where the row is declined on cost instead -- so the shape
+    is not reachable through the public entry point with the fixtures available here.
+
+    That gap is recorded in DESIGN_time_marginalization_peak_local.md rather than
+    papered over. The reviewer who found G5 measured it directly (-0.3124 nats), and
+    the fix is applied; what is missing is a test of mine that exercises it.
+    """
     for edge in (0.05, 0.3, 1.0):
         sig = BandLimited(amp=40.0, peak_sample=NPTS // 2 + 0.3125,
                           extra_peaks=[(edge, 0.9)])
@@ -1208,6 +1219,13 @@ def test_a_row_with_more_structure_than_MAX_INTERVALS_is_declined():
         rep = pl.last_report()
     finally:
         pl.MAX_INTERVALS = old_max
+    # NOTE, from the mutation sweep: this is killed by the PROVISIONAL structure gate,
+    # not the final one.  Disabling the final `too_much` check alone leaves this green,
+    # because the provisional gate declines the row first.  The final check is therefore
+    # a belt-and-braces guard that no fixture here reaches -- it is kept because the
+    # final interval count CAN exceed the provisional one (narrower intervals merge less
+    # readily), but that shape is not exercised, and saying so is more useful than a
+    # contrived fixture that pretends otherwise.
     assert rep['n_dense_fallback_structure'] == 1, rep
     assert rep['n_peak_local_rows'] == 0, rep
     assert got == _bandlimited(k)
