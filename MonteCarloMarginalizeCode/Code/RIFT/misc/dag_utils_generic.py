@@ -3349,7 +3349,13 @@ def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,universe
     base_str = ''
     if not (base is None):
         base_str = ' ' + base +"/"
-    glob_str = base_str + glob_pattern
+    # A condor macro CANNOT be interpolated into this shell script: inside bash,
+    # $(macroapprox) is COMMAND SUBSTITUTION, so it runs a nonexistent command,
+    # expands to the empty string, and the glob silently matches nothing.  When
+    # the pattern carries a macro, pass it as an ARGUMENT ($1) and let condor
+    # expand it in the submit file -- which is how join_grids.sh already works.
+    pattern_is_macro = "$(" in glob_pattern
+    glob_str = base_str + ("$1" if pattern_is_macro else glob_pattern)
     with open(cmdname,'w') as f:        
         f.write("#! /usr/bin/env bash\n")
         if len(extra_text) > 0:
@@ -3374,6 +3380,8 @@ fi
 
 
     ile_job = CondorDAGJob(universe=universe, executable=base_str+cmdname) # force full prefix
+    if pattern_is_macro:
+        ile_job.add_arg(glob_pattern)   # condor expands the macro here, not bash
     requirements=[]
     if universe=='local':
         requirements.append("IS_GLIDEIN=?=undefined")
@@ -4117,10 +4125,16 @@ def write_cat_sub(tag='cat', exe=None, file_prefix=None,file_postfix=None,file_o
     exe_switch = which("switcheroo")  # tool for patterend search-replace, to fix first line of output file
 
     cmdname = 'catjob.sh'
+    # As in write_unify_sub_simple: a condor macro cannot appear in the script.
+    # bash reads $(macroapprox) as COMMAND SUBSTITUTION, so a per-model output
+    # name collapses to the same file for every model and they overwrite each
+    # other.  Pass it as $1 and let condor expand it in the .sub.
+    output_is_macro = file_output is not None and "$(" in file_output
+    out_str = "$1" if output_is_macro else file_output
     with open(cmdname,'w') as f:
         f.write("#! /bin/bash\n")
-        f.write(exe+"  . -name '"+file_prefix+"*"+file_postfix+r"' -exec cat {} \; | sort -r | uniq > "+file_output+";\n")
-        f.write(exe_switch + " 'm1 ' '# m1 ' "+file_output)  # add standard prefix
+        f.write(exe+"  . -name '"+file_prefix+"*"+file_postfix+r"' -exec cat {} \; | sort -r | uniq > "+out_str+";\n")
+        f.write(exe_switch + " 'm1 ' '# m1 ' "+out_str)  # add standard prefix
         os.system("chmod a+x "+cmdname)
 
     ile_job = CondorDAGJob(universe=universe, executable='catjob.sh')
@@ -4142,6 +4156,8 @@ def write_cat_sub(tag='cat', exe=None, file_prefix=None,file_postfix=None,file_o
 
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
+    if output_is_macro:
+        ile_job.add_arg(file_output)   # condor expands the macro here, not bash
 
 
 #    ile_job.add_arg(" . -name '" + file_prefix + "*" +file_postfix+"' -exec cat {} \; ")

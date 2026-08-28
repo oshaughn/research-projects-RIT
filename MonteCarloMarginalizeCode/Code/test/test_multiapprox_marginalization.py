@@ -413,6 +413,34 @@ def test_extrinsic_stage_reads_the_grid_the_run_finished_on(multiapprox_rundir):
     assert next(iter(extrinsic)) == max(written, key=int)
 
 
+def test_no_condor_macro_survives_into_a_shell_script(multiapprox_rundir):
+    """A $(macro) in a .sh is command substitution, not a condor macro.
+
+    Inside bash, $(macroapprox) RUNS a command named macroapprox, which does not
+    exist, so it expands to the empty string and any glob built from it silently
+    matches nothing.  Condor never sees it: macros are expanded in the SUBMIT
+    file, not in the script the submit file invokes.
+
+    This has now bitten twice in this builder -- join_grids.sh globbing
+    approx__overlap-grid-*, and unify_model.sh globbing approx__*.composite,
+    which produced empty per-model nets and killed the terminal CIP with
+    "IndexError: too many indices for array".  Both failures are silent at build
+    time and only appear as missing files at run time, which is why this is a
+    build-time assertion.
+
+    The fix in both cases is to pass the pattern as an ARGUMENT and let condor
+    expand the macro in the .sub.
+    """
+    offenders = []
+    for script in sorted(multiapprox_rundir.glob("*.sh")):
+        for lineno, line in enumerate(script.read_text().splitlines(), 1):
+            if re.search(r"\$\(macro\w+\)", line):
+                offenders.append("{}:{}: {}".format(script.name, lineno, line.strip()))
+    assert not offenders, (
+        "condor macros interpolated into shell scripts, where bash treats them "
+        "as command substitution:\n  " + "\n  ".join(offenders))
+
+
 def test_every_job_directory_exists(multiapprox_rundir):
     """A submit file naming a directory the builder never created holds the job
     on the execute node, and no DAG-shape assertion sees it.  An unresolved
