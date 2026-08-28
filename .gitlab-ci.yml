@@ -91,6 +91,7 @@ import_check:
     - python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_lisa_lalsimutils_compat.py
     - python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_lisa_operational_synthetic.py
     - python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_lisa_helper_contract.py
+    - python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_spherical_harmonics_backend.py
 
 dependency_compat_check:
   stage: system tests
@@ -160,7 +161,7 @@ gpu_integration:
       --env GW_SURROGATE="$GW_SURROGATE"
       --env RIFT_CI_REQUIRE_GPU="$RIFT_CI_REQUIRE_GPU"
       "$RIFT_CI_APPTAINER_IMAGE"
-      bash -lc 'cd "$CI_PROJECT_DIR" && export PYTHONPATH="$CI_PROJECT_DIR/MonteCarloMarginalizeCode/Code${PYTHONPATH:+:$PYTHONPATH}" && bash .travis/test-integrate.sh && bash .travis/test-calmarg-gpu.sh'
+      bash -lc 'cd "$CI_PROJECT_DIR" && export PYTHONPATH="$CI_PROJECT_DIR/MonteCarloMarginalizeCode/Code${PYTHONPATH:+:$PYTHONPATH}" && bash .travis/test-integrate.sh && bash .travis/test-calmarg-gpu.sh && bash .travis/test-lisa-gpu.sh'
   rules:
     - if: '$CI_PIPELINE_SOURCE == "web"'
       when: manual
