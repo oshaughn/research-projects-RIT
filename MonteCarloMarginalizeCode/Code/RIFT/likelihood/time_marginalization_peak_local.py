@@ -248,6 +248,13 @@ LOCALISE_MAX_ITER = 16
 #: sample.  Comparing against the sample cannot work and it is worth saying why: when
 #: the crest sits off-grid the sample is already tens of nats below it, so a check
 #: against the sample passes precisely in the case it is meant to catch.
+#:
+#: SCOPE, stated because it is narrower than it looks: ``row_star`` is a per-row MAXIMUM
+#: over the peaks that survived the keep filter.  So this verifies that the DOMINANT
+#: crest was reached; it does not independently verify each secondary crest, and a peak
+#: dropped by the keep filter can never enter it at all.  That is tolerable only because
+#: the keep filter now compares crests (G1) and its own magnitude argument stands on its
+#: own -- not because this check covers it.
 CONTAINMENT_SLACK_NATS = 0.5
 
 #: Local interval half-width, in units of the peak's own ``sigma_t``.  A Gaussian
@@ -267,12 +274,25 @@ CONTAINMENT_SLACK_NATS = 0.5
 #: dangerous move it used to be.
 W_SIGMA = 12.0
 
-#: Enumerated peaks more than this far below a row's highest peak are dropped before
-#: intervals are built.  ``exp(-60) = 8.8e-27`` relative, so such a peak cannot carry
-#: representable mass.  Dropping is safe rather than hopeful for the same reason a
-#: missed peak is: a dropped peak's neighbourhood is then OUTSIDE the intervals, so
-#: it enters the tail bound, and a row where the drop mattered fails the bound and
-#: goes dense.
+#: Enumerated peaks more than this far below a row's highest CREST -- not its highest
+#: sample; see the G1 note in ``_peak_local_chunk`` -- are dropped before intervals are
+#: built.
+#:
+#: The justification is DIRECT and does not go through the tail bound.  An earlier
+#: version of this docstring said a dropped peak was safe "because it enters the tail
+#: bound", and that claim is vacuous: since ``q_out_max`` is at least the dropped peak's
+#: own sample, the bound accepts the row unless ``log(T_out / 2.5 sigma) >= 37``, i.e.
+#: ``sigma_t < 2.6e-18 s``, while ``UPSAMPLE_FACTOR_MAX`` bounds the sharpest legal row
+#: at ``sigma_t = 3.0e-08 s`` -- ten orders of magnitude away.  For EVERY row this
+#: module can legally handle, a keep-filter drop is automatically accepted by the bound.
+#: The bound cannot backstop this filter and must not be cited as if it could.
+#:
+#: What justifies it instead is magnitude, crest to crest: a peak ``PEAK_KEEP_NATS``
+#: below the highest crest contributes ``exp(-60) = 8.8e-27`` of its mass per unit
+#: width, and the widest window-to-sigma ratio this module can reach is ``T/sigma_min
+#: = 2.5e6`` (again from ``UPSAMPLE_FACTOR_MAX``), so the omitted relative mass is below
+#: ``2e-20`` -- under double precision.  That inequality is asserted in the suite,
+#: because it ties this constant to ``UPSAMPLE_FACTOR_MAX`` and neither is free.
 PEAK_KEEP_NATS = 60.0
 
 #: A row is accepted only if ``log(T_outside) + max_{outside} lnL - result`` is below
@@ -325,9 +345,13 @@ def last_report():
 
     ``n_peak_local_rows``  rows actually integrated by this module's rule.
     ``n_dense_fallback_rows``  refined rows handed to the dense band-limited path.
-    ``n_dense_fallback_cost``  of those, how many went for the COST estimate (the
-        local grid would have been more work than the dense one -- the low-rho end,
-        where this method is expected to lose).
+    ``n_dense_fallback_cost_pregate`` / ``n_dense_fallback_cost``  cost declines, split
+        by WHICH gate fired: before enumeration (from a point-count floor) and after it
+        (from the merged intervals).  Kept apart because only the first can prevent work
+        being done, and a single shared counter made the pre-gate removable without any
+        test noticing.
+    ``n_dense_fallback_nopeak``  rows that passed the gates but enumerated no usable
+        peak.  Exists so the sub-counts RECONCILE with ``n_dense_fallback_rows``.
     ``n_dense_fallback_tail``  of those, how many went because the omitted-mass
         bound was not small enough.  **This is the count to watch**: it is the
         method admitting it could not justify its own truncation, and a run where it
@@ -559,6 +583,29 @@ def merge_intervals_by_row(rows, lo, hi, span):
 
 # ------------------------------------------------------------------ the rule
 
+def _parabolic_vertex_height(lnL_stencil, xpy=np):
+    """Crest value of the parabola through the three central stencil points.
+
+    For a Gaussian peak ``lnL`` is exactly quadratic near its maximum, so three samples
+    determine it and the vertex height is the crest value EXACTLY -- at any spacing and
+    any peak-vs-grid phase.  That is the same property
+    :func:`time_marginalization_quadrature.peak_width_from_lnL` uses for the second
+    moment; this is the zeroth.
+
+    Falls back to the centre sample where the three points do not describe a maximum
+    (non-negative curvature, or a non-finite neighbour): the estimate is then not
+    justified, and the centre sample is the conservative answer because it UNDERSTATES
+    the crest, so a peak is dropped rather than wrongly kept.
+    """
+    m = (lnL_stencil.shape[-1] - 1) // 2
+    ym1, y0, yp1 = lnL_stencil[:, m - 1], lnL_stencil[:, m], lnL_stencil[:, m + 1]
+    with np.errstate(invalid='ignore', divide='ignore'):
+        denom = ym1 - 2.0 * y0 + yp1
+        vertex = y0 - (yp1 - ym1) ** 2 / (8.0 * denom)
+    good = xpy.isfinite(vertex) & (denom < 0)
+    return xpy.where(good, vertex, y0)
+
+
 def _peak_curvature_sigma(lnL_stencil, h, xpy=np):
     """``sigma`` per peak from a widening centred second difference of ``lnL``.
 
@@ -713,6 +760,7 @@ def time_marginalize_peak_local(kappa, rho_sq, deltaT, loglikelihood,
     peaks_out = [None] * n_rows if return_peaks else None
 
     stats = dict(n_peak_local_rows=0, n_dense_fallback_cost=0,
+                 n_dense_fallback_cost_pregate=0, n_dense_fallback_nopeak=0,
                  n_dense_fallback_tail=0, n_dense_fallback_structure=0,
                  n_dense_fallback_ceiling=0, n_dense_fallback_localise=0,
                  n_dense_fallback_containment=0,
@@ -811,7 +859,12 @@ def _peak_local_chunk(kappa_rows, rho_col_rows, factors, npts, deltaT, period,
     over_ceiling = factors_np > _tmq.UPSAMPLE_FACTOR_MAX
     viable = (c_lo < c_dn) & (~over_ceiling)
     stats['n_dense_fallback_ceiling'] += int(np.sum(over_ceiling))
-    stats['n_dense_fallback_cost'] += int(np.sum((~viable) & (~over_ceiling)))
+    # Counted SEPARATELY from the post-enumeration gate.  Both are cost decisions, but
+    # only this one runs before any work is done for the row, and it is the one credited
+    # with removing the regression where this rule came out slower than the path it
+    # delegates to.  A single shared counter made it removable with the suite green:
+    # nothing could tell which gate had fired.
+    stats['n_dense_fallback_cost_pregate'] += int(np.sum((~viable) & (~over_ceiling)))
     if not viable.any():
         return values, ok, peaks
 
@@ -837,12 +890,37 @@ def _peak_local_chunk(kappa_rows, rho_col_rows, factors, npts, deltaT, period,
     maxd = max(CURVATURE_STENCIL_HALFWIDTHS)
     if 2 * maxd >= n_enum:
         return values, ok, peaks
-    centre = xpy.clip(cols_p, maxd, n_enum - 1 - maxd)
-    take = centre[:, None] + xpy.arange(-maxd, maxd + 1)[None, :]
-    q_st = q_up[rows_p[:, None], take]
+    # The stencil stays CENTRED on the peak and out-of-range half-widths are masked
+    # off, rather than the centre being clipped inward to make room.  Clipping measured
+    # a different point's curvature: a peak within `maxd` samples of either end had its
+    # width taken up to 8 enumeration samples away, which returned sigma = inf at index
+    # 0 and dropped the peak for "no resolvable curvature" -- before localisation could
+    # help it.  Masking keeps the narrower half-widths, which are the ones that fit.
+    offs = xpy.arange(-maxd, maxd + 1)
+    take_raw = cols_p[:, None] + offs[None, :]
+    st_valid = (take_raw >= 0) & (take_raw < n_enum)
+    q_st = q_up[rows_p[:, None], xpy.clip(take_raw, 0, n_enum - 1)]
     lnL_st = loglikelihood(q_st, xpy.broadcast_to(rho_col_rows[rows_p], q_st.shape))
+    lnL_st = xpy.where(st_valid, lnL_st, np.nan)
     sigma_pk = _peak_curvature_sigma(lnL_st, h_enum, xpy=xpy)
-    lnL_pk = loglikelihood(q_up[rows_p, cols_p], rho_col_rows[rows_p, 0])
+
+    # G1: the KEEP filter must compare CRESTS, not samples.
+    #
+    # This is the same defect as the interval-centring bug, at a different site, and it
+    # is the reason to grep for every consumer of the enumeration index rather than fix
+    # the one that was reported.  `q_up[rows_p, cols_p]` is the SAMPLE value; a crest a
+    # distance d from its sample reads (d/sigma)^2/2 nats low, which for a sharp row is
+    # tens of nats.  Comparing a between-samples peak against an on-sample peak then
+    # drops the former.  MEASURED on the two-peak fixture at rho ~ 700: the secondary
+    # crest is 1.003 nats below the dominant crest, but its SAMPLE is 70.99 nats below,
+    # past PEAK_KEEP_NATS -- so one of two equal peaks was deleted and the answer came
+    # back exactly -log(2) = -0.693147 low.
+    #
+    # The vertex height of the parabola through the three stencil points is the crest
+    # value EXACTLY for a Gaussian peak, at any spacing and any peak-vs-grid phase --
+    # the same property that makes the width estimator exact, used for the other moment.
+    # It costs nothing: the stencil is already gathered.
+    lnL_pk = _parabolic_vertex_height(lnL_st, xpy=xpy)
 
     rows_np = _host(rows_p, xpy)
     cols_np = _host(cols_p, xpy)
@@ -858,6 +936,13 @@ def _peak_local_chunk(kappa_rows, rho_col_rows, factors, npts, deltaT, period,
     rows_np, cols_np, sig_np = rows_np[keep], cols_np[keep], sig_np[keep]
     if rows_np.size == 0:
         return values, ok, peaks
+
+    # ---- rows that survived every gate but enumerated no usable peak.  Counted, so the
+    # sub-counts of last_report() RECONCILE against n_dense_fallback_rows: an operator
+    # reading the columns should not find an unexplained residual.
+    _has_peak = np.zeros(n_rows, dtype=bool)
+    _has_peak[rows_np] = True
+    stats['n_dense_fallback_nopeak'] += int(np.sum(viable & (~_has_peak)))
 
     # ---- gate 2, on a CONSERVATIVE SUPERSET of the intervals, BEFORE localising.
     # Localisation is the expensive step (Newton over the spectrum, per peak), and a
@@ -875,7 +960,14 @@ def _peak_local_chunk(kappa_rows, rho_col_rows, factors, npts, deltaT, period,
     # of 12M, so the row is kept with four orders of magnitude to spare.
     tol_np = LOCALISE_SAFETY * sig_np
     t_grid_np = cols_np * h_enum
-    prov_half = W_SIGMA * sig_np + tol_np + 0.5 * h_enum
+    # h_enum, NOT h_enum/2.  The bracket in `localise_peaks` is +/- h_enum and accepts
+    # anything strictly inside it, so |t_star - t_grid| is bounded by h_enum and not by
+    # half of it -- and that bound is reached: over 14,182 localised peaks the largest
+    # observed displacement was 0.959 * h_enum, and 2.62% of intervals were NOT
+    # contained by a half-cell margin.  Narrowing the bracket instead would be wrong:
+    # an asymmetric peak's crest genuinely can sit more than half a cell from its
+    # sample, which is what that 0.959 measures.
+    prov_half = W_SIGMA * sig_np + tol_np + h_enum
     p_order, p_gid, pg_row, pg_lo, pg_hi = merge_intervals_by_row(
         rows_np, np.maximum(t_grid_np - prov_half, 0.0),
         np.minimum(t_grid_np + prov_half, t_last), t_last)

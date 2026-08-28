@@ -977,6 +977,307 @@ def test_peak_local_is_a_recognised_quadrature_name():
         tmq.validate_time_quadrature('peak_local')         # sic
 
 
+def test_a_secondary_crest_between_samples_is_not_dropped_by_the_keep_filter():
+    """G1 REGRESSION -- the same defect as F1, at a different site.
+
+    The keep filter compared `q_up[rows_p, cols_p]`, the SAMPLE value, against the
+    highest sample.  A crest a distance d from its sample reads `(d/sigma)^2/2` nats
+    low, so a peak between samples was measured against a peak on a sample and dropped.
+    MEASURED on this fixture at rho ~ 700: the secondary crest is 1.003 nats below the
+    dominant crest but its SAMPLE is 70.99 nats below, past `PEAK_KEEP_NATS = 60`, and
+    the answer came back **exactly -log(2) = -0.693147** low: one of two equal peaks
+    silently deleted, with no fallback triggered and `tail_bound_worst = -120`.
+
+    THE ASYMMETRY IS THE POINT, and it is the cell the suite was missing.  Every
+    multi-peak fixture here ran at `amp=200` (just above the threshold), every sharp
+    fixture was single-peak, and the updated F1 tests moved BOTH peaks off-grid by
+    similar amounts -- so the two deficits cancelled.  The defect needs one peak near a
+    sample and one between, which is the generic production case.
+    """
+    F = pl.PEAK_ENUM_FACTOR
+    for off in (0.0, 0.25, 0.5, 0.75):
+        sig = BandLimited(amp=2000.0, peak_sample=NPTS // 3,
+                          extra_peaks=[(2 * NPTS // 3 + off / F, 1.0)])
+        k = sig.samples()
+        assert abs(_peak_local(k) - _bandlimited(k)) < 1e-3, off
+        rep = pl.last_report()
+        assert rep['n_peaks_total'] == 2, (off, rep)      # neither peak dropped
+        assert rep['n_peak_local_rows'] == 1, (off, rep)  # and not rescued by fallback
+
+
+def test_the_keep_threshold_is_justified_without_the_tail_bound():
+    """G2.  `PEAK_KEEP_NATS` and `TAIL_LOG_TOL` are NOT independent, and the docstring
+    that said a dropped peak "enters the tail bound" was vacuous: since `q_out_max` is
+    at least the dropped peak's own sample, the bound accepts the row unless
+    `sigma_t < 2.6e-18 s`, while `UPSAMPLE_FACTOR_MAX` bounds the sharpest legal row ten
+    orders of magnitude above that. For every row this module can legally handle, a
+    keep-filter drop is automatically accepted.
+
+    So the filter has to stand on its own magnitude argument, and that argument ties it
+    to `UPSAMPLE_FACTOR_MAX`. Assert the inequality, not the constants.
+    """
+    t_window = 0.075
+    sigma_min = DELTAT / tmq.UPSAMPLE_FACTOR_MAX
+    log_rel_mass = -pl.PEAK_KEEP_NATS + np.log(t_window / sigma_min)
+    assert log_rel_mass < np.log(1e-16), (
+        "a dropped peak's relative mass is not below double precision", log_rel_mass)
+    # and the relation that makes the tail bound unable to backstop it, recorded so a
+    # future change to either constant has to confront it
+    assert pl.PEAK_KEEP_NATS > -pl.TAIL_LOG_TOL
+
+
+def test_the_localised_crest_stays_inside_its_bracket():
+    """G4/M4.  `localise_peaks` brackets at +/- h_enum and accepts anything strictly
+    inside, so the displacement bound is h_enum, NOT h_enum/2 -- and it is approached:
+    0.959*h_enum was observed over 14,182 peaks. The gate interval must therefore widen
+    by h_enum, and an escaped iterate must not be accepted."""
+    rng = np.random.default_rng(7)
+    k = np.stack([BandLimited(amp=2000.0, peak_sample=NPTS // 2 + x).samples()
+                  for x in rng.uniform(0, 1, 24)])
+    r = np.full(k.shape, RHO_SQ)
+    _, peaks = pl.time_marginalize_peak_local(k, r, DELTAT, _lnL, return_peaks=True)
+    h_enum = DELTAT / pl.PEAK_ENUM_FACTOR
+    worst = 0.0
+    for pk in peaks:
+        if pk is None:
+            continue
+        d = np.abs(pk[0] / h_enum - np.round(pk[0] / h_enum))
+        worst = max(worst, float(np.max(d)))
+    assert worst <= 1.0, worst           # the bracket really does bound it
+    # ...and the gate's widening must cover that bound, or its "superset" claim is false
+    assert 1.0 * h_enum >= worst * h_enum
+
+
+def test_a_peak_near_the_window_edge_still_gets_its_own_curvature():
+    """G5.  The stencil centre used to be clipped inward by `maxd = 8`, so a peak within
+    8 enumeration samples of either end had its width measured somewhere else entirely
+    -- returning sigma = inf at index 0, which dropped the peak for "no resolvable
+    curvature" BEFORE localisation could help. Endpoint enumeration does not fix that;
+    masking the out-of-range half-widths instead of moving the centre does."""
+    for edge in (0.05, 0.3, 1.0):
+        sig = BandLimited(amp=40.0, peak_sample=NPTS // 2 + 0.3125,
+                          extra_peaks=[(edge, 0.9)])
+        k = sig.samples()
+        assert abs(_peak_local(k) - _bandlimited(k)) < 1e-3, edge
+
+
+def test_the_reported_tail_bound_matches_an_independent_recomputation():
+    """R2-F2.  Asserting only `bound < TAIL_LOG_TOL` pins nothing: the measured margins
+    are -440 / -1791 / -4495 against a tolerance of -23, so any error in the bound
+    smaller than ~400 nats is invisible, and deleting `log(T_outside)` entirely, or
+    marking extra samples covered, both survived. Recompute the bound from the module's
+    own reported peaks and require agreement."""
+    sig = BandLimited(amp=2000.0, peak_sample=NPTS // 2 + 0.3125)
+    k = sig.samples()[None, :]
+    r = np.full(k.shape, RHO_SQ)
+    out, peaks = pl.time_marginalize_peak_local(k, r, DELTAT, _lnL, return_peaks=True)
+    rep = pl.last_report()
+    assert rep['n_peak_local_rows'] == 1 and peaks[0] is not None
+
+    F = pl.PEAK_ENUM_FACTOR
+    h_enum = DELTAT / F
+    t_last = (NPTS - 1) * DELTAT
+    t_star, sigma = peaks[0]
+    half = pl.W_SIGMA * sigma + pl.LOCALISE_SAFETY * sigma
+    lo = np.maximum(t_star - half, 0.0)
+    hi = np.minimum(t_star + half, t_last)
+    starts, stops, _ = (lambda o: (o[3], o[4], o[1]))(
+        pl.merge_intervals_by_row(np.zeros(len(lo), dtype=np.int64), lo, hi, t_last))
+
+    up = tmq.bandlimited_upsample(k, F)[0][:(NPTS - 1) * F + 1].real
+    covered = np.zeros(up.size, dtype=bool)
+    for a, b in zip(starts, stops):
+        i0, i1 = int(np.ceil(a / h_enum)), int(np.floor(b / h_enum))
+        if i1 >= i0:
+            covered[max(i0, 0):i1 + 1] = True
+    T_out = t_last - float(np.sum(stops - starts))
+    want = np.log(T_out) + _lnL(np.max(up[~covered]), RHO_SQ) - float(out[0])
+    assert abs(rep['tail_bound_worst'] - want) < 1e-6, (rep['tail_bound_worst'], want)
+
+
+def test_merge_keeps_a_fully_contained_interval_inside_its_enclosure():
+    """R2-F3.  The running maximum in `merge_intervals_by_row` is what stops a CONTAINED
+    interval truncating the one enclosing it: [0,10] then [1,3] must give [0,10], and
+    with a plain `hi_s` it gives [0,3], silently dropping (3,10]. The row-boundary half
+    of that trick is covered elsewhere; this is the containment half, and it is a unit
+    test so it does not depend on a fixture reaching the code."""
+    rows = np.array([0, 0, 0], dtype=np.int64)
+    lo = np.array([0.0, 1.0, 2.0])
+    hi = np.array([10.0, 3.0, 4.0])
+    _, _, g_row, g_lo, g_hi = pl.merge_intervals_by_row(rows, lo, hi, 100.0)
+    assert g_row.size == 1, (g_row, g_lo, g_hi)
+    assert g_lo[0] == 0.0 and g_hi[0] == 10.0, (g_lo, g_hi)
+
+    # two rows, each with a nested pair, to keep the row-reset and the running maximum
+    # exercised together rather than one masking the other
+    rows = np.array([0, 0, 1, 1], dtype=np.int64)
+    lo = np.array([0.0, 1.0, 5.0, 6.0])
+    hi = np.array([10.0, 3.0, 20.0, 7.0])
+    _, _, g_row, g_lo, g_hi = pl.merge_intervals_by_row(rows, lo, hi, 100.0)
+    assert list(g_row) == [0, 1] and list(g_hi) == [10.0, 20.0], (g_row, g_lo, g_hi)
+
+
+def test_intervals_are_clipped_to_the_integration_domain():
+    """R2-F4.  Without the clip an interval can start below 0 or end past t_last, and
+    the evaluator is PERIODIC -- it returns the value from the opposite end of the
+    window, wrapping mass from outside the integration domain into the answer. More
+    reachable since endpoints became enumerable, not less."""
+    t_last = (NPTS - 1) * DELTAT
+    sig = BandLimited(amp=5.0, peak_sample=NPTS // 2 + 0.3125,
+                      extra_peaks=[(0.2, 0.98), (NPTS - 1.2, 0.98)])
+    k = sig.samples()
+    assert abs(_peak_local(k) - _bandlimited(k)) < 1e-3
+    _, peaks = pl.time_marginalize_peak_local(
+        k[None, :], np.full((1, NPTS), RHO_SQ), DELTAT, _lnL, return_peaks=True)
+    if peaks[0] is not None:
+        t_star, sigma = peaks[0]
+        half = pl.W_SIGMA * sigma + pl.LOCALISE_SAFETY * sigma
+        assert np.all(np.maximum(t_star - half, 0.0) >= 0.0)
+        assert np.all(np.minimum(t_star + half, t_last) <= t_last)
+
+
+def test_a_plateau_yields_exactly_one_enumerated_maximum():
+    """R2-F5.  The `>=` / `>` asymmetry is stated as a deliberate property in the
+    docstring and had no detector: swapping one way gives a plateau NO peak, the other
+    gives it EVERY sample. Both are wrong and both were invisible."""
+    q = np.array([[0.0, 1.0, 1.0, 1.0, 0.0]])
+    m = pl.enumerate_peak_indices(q)
+    assert int(np.sum(m)) == 1, m
+    assert int(np.where(m[0])[0][0]) == 3, m          # the LAST index of the plateau
+
+    q = np.array([[0.0, 1.0, 0.0, 2.0, 0.0]])         # two isolated maxima
+    assert int(np.sum(pl.enumerate_peak_indices(q))) == 2
+
+
+def test_the_local_trapezoid_uses_endpoint_half_weights():
+    """R2-F6.  Benign at `W_SIGMA = 12`, where the endpoints are `exp(-72)` relative --
+    but the "trapezoid, not Simpson" argument had no detector at all, and it stops being
+    benign the moment `W_SIGMA` moves. Pinned on a constant integrand, where the
+    trapezoid rule is exact and the half-weights are the whole difference."""
+    n, h = 11, 0.25
+    lnL = np.zeros((1, n))
+    got = float(pl._log_trapz_local(lnL, np.array([h]))[0])
+    assert abs(np.exp(got) - (n - 1) * h) < 1e-12, (np.exp(got), (n - 1) * h)
+
+
+def test_the_pre_enumeration_cost_gate_actually_fires():
+    """R2-F7.  Gate 1 is the fix this PR credits with removing a 0.43x regression, and
+    it was removable with the suite green because both gates shared one counter --
+    nothing could tell which had fired. Split, and asserted here on a broad row that
+    must be declined BEFORE any enumeration is done for it."""
+    sig = BandLimited(amp=0.02, peak_sample=NPTS // 2 + 0.3125)     # broad, factor ~4
+    k = sig.samples()
+    assert _peak_local(k) == _bandlimited(k)
+    rep = pl.last_report()
+    assert rep['n_dense_fallback_cost_pregate'] == 1, rep
+    assert rep['n_peak_local_rows'] == 0, rep
+
+    # control: a sharp row must NOT be declined by the pre-gate, or the gate is simply
+    # rejecting everything and the assertion above means nothing
+    sharp = BandLimited(amp=2000.0, peak_sample=NPTS // 2 + 0.3125)
+    _peak_local(sharp.samples())
+    assert pl.last_report()['n_dense_fallback_cost_pregate'] == 0
+    assert pl.last_report()['n_peak_local_rows'] == 1
+
+
+def test_a_row_with_more_structure_than_MAX_INTERVALS_is_declined():
+    """R2-F7.  `MAX_INTERVALS` is a fail-closed guard and was removable with the suite
+    green.
+
+    Tested by lowering the constant rather than by building a 33-peak fixture, and the
+    reason is worth stating: a comb of nearly-equal peaks does not survive contact with
+    the rest of the algorithm -- at any amplitude tried, interference between the bumps
+    spread their crests by more than `PEAK_KEEP_NATS`, so all but one were dropped and
+    the row arrived at the guard with a single interval. Lowering the constant tests the
+    ROUTING, which is what the guard is; the control below shows the same row is handled
+    by peak-local when the guard is not in the way, so the assertion is not vacuous.
+    """
+    sig = BandLimited(amp=2000.0, peak_sample=NPTS // 3 + 0.3125,
+                      extra_peaks=[(2 * NPTS // 3 + 0.25 / pl.PEAK_ENUM_FACTOR, 1.0)])
+    k = sig.samples()
+
+    # control: two intervals, handled
+    assert abs(_peak_local(k) - _bandlimited(k)) < 1e-3
+    assert pl.last_report()['n_intervals_total'] == 2, pl.last_report()
+    assert pl.last_report()['n_peak_local_rows'] == 1
+
+    old_max = pl.MAX_INTERVALS
+    try:
+        pl.MAX_INTERVALS = 1
+        got = _peak_local(k)
+        rep = pl.last_report()
+    finally:
+        pl.MAX_INTERVALS = old_max
+    assert rep['n_dense_fallback_structure'] == 1, rep
+    assert rep['n_peak_local_rows'] == 0, rep
+    assert got == _bandlimited(k)
+
+
+def test_the_curvature_stencil_widens_over_a_hole_on_the_ENUMERATION_grid():
+    """R2-F7.  The widening ladder is tested for the coarse-grid width estimator but was
+    untested for the peak stencil, where the callback's `-inf` domain edge also lands.
+    A hole at the immediate neighbours must be stepped over, not read as "no curvature"
+    -- which would drop the peak."""
+    sig = BandLimited(amp=200.0, peak_sample=NPTS // 2 + 0.3125)
+    k = sig.samples()[None, :]
+    r = np.full(k.shape, RHO_SQ)
+    ref = float(pl.time_marginalize_peak_local(k, r, DELTAT, _lnL)[0])
+    n_ref = pl.last_report()['n_peak_local_rows']
+
+    peak_q = np.max(k.real)
+
+    def holed_near_the_crest(term, rho):
+        v = _lnL(term, rho)
+        # blank a thin shell just inside the crest: the d=1 stencil straddles it, the
+        # wider half-widths step over it
+        band = (term < peak_q * 0.99999) & (term > peak_q * 0.9999)
+        return np.where(band, -np.inf, v)
+
+    got = float(pl.time_marginalize_peak_local(k, r, DELTAT, holed_near_the_crest)[0])
+    assert np.isfinite(got)
+    assert pl.last_report()['n_peak_local_rows'] == n_ref, pl.last_report()
+
+
+def test_the_localiser_reports_non_convergence_when_it_does_not_converge():
+    """M3 (my own sweep).  Dropping the convergence test from `localise_peaks` survived,
+    because the only test of the flag monkeypatched the localiser and so exercised the
+    CONSUMER, never the producer. Starve the iteration count instead: the real localiser
+    must then report not-converged, and the row must fall back rather than be accepted
+    on an unconverged crest."""
+    sig = BandLimited(amp=2000.0, peak_sample=NPTS // 2 + 0.4)
+    k = sig.samples()[None, :]
+    r = np.full(k.shape, RHO_SQ)
+    old_iter, old_tol = pl.LOCALISE_MAX_ITER, pl.LOCALISE_SAFETY
+    try:
+        pl.LOCALISE_MAX_ITER = 1
+        pl.LOCALISE_SAFETY = 1e-12          # unreachable in one step
+        got = float(pl.time_marginalize_peak_local(k, r, DELTAT, _lnL)[0])
+        rep = pl.last_report()
+    finally:
+        pl.LOCALISE_MAX_ITER, pl.LOCALISE_SAFETY = old_iter, old_tol
+    assert rep['n_dense_fallback_localise'] == 1, rep
+    assert rep['n_peak_local_rows'] == 0, rep
+    assert got == _bandlimited(k[0])
+
+
+def test_the_report_sub_counts_reconcile():
+    """R2-F9.  An operator reading `last_report()` should not find an unexplained
+    residual: every declined row must appear in exactly one sub-count."""
+    rows = [np.zeros(NPTS, dtype=complex),
+            BandLimited(amp=0.02, peak_sample=NPTS // 2 + 0.3125).samples(),
+            BandLimited(amp=0.5, peak_sample=NPTS // 2 + 0.3125).samples(),
+            BandLimited(amp=2000.0, peak_sample=NPTS // 2 + 0.3125).samples()]
+    k = np.stack(rows)
+    pl.time_marginalize_peak_local(k, np.full(k.shape, RHO_SQ), DELTAT, _lnL)
+    r = pl.last_report()
+    subs = (r['n_dense_fallback_cost_pregate'] + r['n_dense_fallback_cost']
+            + r['n_dense_fallback_tail'] + r['n_dense_fallback_structure']
+            + r['n_dense_fallback_ceiling'] + r['n_dense_fallback_localise']
+            + r['n_dense_fallback_containment'] + r['n_dense_fallback_nopeak'])
+    assert subs == r['n_dense_fallback_rows'], (subs, r)
+    assert r['n_peak_local_rows'] + r['n_dense_fallback_rows'] == r['n_refined_rows'], r
+
+
 # --------------------------------------------------------------- the wiring
 
 N_BUFFER = 4096
@@ -1063,6 +1364,24 @@ def test_the_option_reaches_the_shipped_likelihood_and_changes_the_answer():
     assert abs(new - base) > 1e-3, (base, new)
     dense = float(np.asarray(_shipped(tvals, args, time_quadrature='bandlimited'))[0])
     assert abs(new - dense) < 1e-3, (new, dense)
+
+    # AND THAT IT WAS THIS RULE THAT PRODUCED IT.  The assertion above cannot tell:
+    # peak-local is DESIGNED to agree with bandlimited, so rewiring the branch in the
+    # shipped likelihood to call `time_marginalize_bandlimited` instead leaves every
+    # number in this file unchanged and the whole suite green -- while the entire cost
+    # benefit, the only reason this PR exists, silently disappears.  That is exactly the
+    # "a comparison campaign has been run against an inert option here before" hazard.
+    # `_LAST_REPORT` is a module global that ONLY the peak-local module writes, so it
+    # distinguishes the two rules where the returned value provably cannot.
+    pl._LAST_REPORT.clear()
+    fl.TIME_QUADRATURE_DEFAULT = 'peak-local'
+    try:
+        _shipped(tvals, args)
+    finally:
+        fl.TIME_QUADRATURE_DEFAULT = old
+    rep_ = pl.last_report()
+    assert rep_.get('n_peak_local_rows', 0) >= 1, (
+        "the shipped branch did not reach time_marginalize_peak_local", rep_)
 
     kw = float(np.asarray(_shipped(tvals, args, time_quadrature='peak-local'))[0])
     assert kw == new
