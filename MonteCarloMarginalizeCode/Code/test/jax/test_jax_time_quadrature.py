@@ -12,6 +12,7 @@ The fix costs no likelihood evaluations: kappa(t) is band-limited, so the
 samples already computed determine the continuous integrand exactly.
 """
 import numpy as np
+import pytest
 import jax
 import jax.numpy as jnp
 
@@ -19,7 +20,7 @@ jax.config.update("jax_enable_x64", True)
 
 from RIFT.likelihood.jax_ile.core import (
     _upsample_bandlimited, _time_marginalize, _time_marginalize_bandlimited,
-    _simpson_weights)
+    _simpson_weights, _norm_is_arrival_time_dependent, fused_log_likelihood)
 
 
 def test_upsampling_is_exact_for_a_band_limited_signal():
@@ -112,6 +113,55 @@ def test_bandlimited_converges_in_the_upsample_factor():
            for f in (8, 16, 32)]
     assert abs(got[2] - got[1]) < 1e-3, (
         "not converged in the upsample factor: %r" % got)
+
+
+def test_bandlimited_integrates_the_same_interval_as_simpson():
+    """A CONSTANT integrand isolates the interval: the answer is then exactly
+    log(length), with no reconstruction error of any kind to hide behind.
+
+    The upsampled array holds n*factor points spanning (n - 1/factor)*deltaT,
+    while the likelihood's window is (n-1)*deltaT -- the trailing factor-1
+    samples are the periodic FFT continuation past the last data sample.
+    Integrating them renormalizes every lnL by log((n - 1/factor)/(n - 1)),
+    which is 0.0138 nats at n=64, factor=8: invisible in a self-consistency
+    scan, fatal when comparing against the stock quadrature.
+    """
+    n, deltaT, c = 64, 1.0 / 4096, 3.0
+    k = jnp.asarray(np.full((1, n), c) + 0j)
+    rho = jnp.zeros((1, n))
+    exact = c + np.log((n - 1) * deltaT)
+    for factor in (1, 4, 8, 16):
+        got = float(_time_marginalize_bandlimited(k, rho, deltaT, factor)[0])
+        assert abs(got - exact) < 1e-12, (
+            "factor %d integrates the wrong window: %.12f vs %.12f, a %+.4f-nat "
+            "normalization shift" % (factor, got, exact, got - exact))
+    # ... and that is the interval the stock Simpson path uses, so the two agree
+    # on a constant instead of differing by a fixed offset.
+    w = jnp.asarray(_simpson_weights(n, deltaT))
+    assert abs(float(_time_marginalize(k.real, w)[0]) - exact) < 1e-12
+
+
+def test_bandlimited_refuses_arrival_time_dependent_norms():
+    """The band-limited quadrature reconstructs kappa alone and uses the model
+    norm at a single time bin.  That is the whole norm for the baseline and
+    finite-size accumulators, but the slow-rotation post-phase makes <h|h>
+    arrival-time dependent, where the first bin would be a different likelihood
+    rather than a better-integrated one.  It must be refused, not approximated.
+    """
+    class _StubData(object):
+        def __init__(self, feature):
+            self.feature = feature
+
+    assert _norm_is_arrival_time_dependent(_StubData("rotation"))
+    assert not _norm_is_arrival_time_dependent(_StubData("freqresponse"))
+    assert not _norm_is_arrival_time_dependent(_StubData(None))
+
+    # The screen must run BEFORE anything touches the data, both so the stub
+    # suffices here and so the caller is not made to pay a full trace to be told
+    # the option is unavailable.
+    with pytest.raises(ValueError, match="arrival time"):
+        fused_log_likelihood(_StubData("rotation"), 0.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+                             time_quad="bandlimited")
 
 
 def test_unknown_time_quad_raises_rather_than_silently_defaulting():

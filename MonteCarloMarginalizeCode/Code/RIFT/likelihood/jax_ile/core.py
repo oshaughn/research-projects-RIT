@@ -478,6 +478,22 @@ def _accumulate_unit(data, ra, dec, psi, incl, phiref, interp,
     return kappa_unit, rho_sq_unit
 
 
+def _norm_is_arrival_time_dependent(data):
+    """True when the model norm ``<h|h>`` depends on the template's arrival time.
+
+    Only the slow-rotation bank has that dependence: its post-phase
+    ``C~_a(t) = C_a exp(i n_a Omega (t - tref))`` multiplies the data term AND the
+    norm, so :func:`_accumulate_unit_banded` returns a genuinely ``(S, npts)``
+    ``rho_sq`` there.  The baseline accumulator (static ``F``) and the finite-size
+    ``freqresponse`` bank (no sidereal modulation) both return a norm that is
+    constant along the time axis, broadcast into the ``(S, npts)`` contract.
+
+    One definition on purpose: the quadratures that hold the norm fixed refuse
+    exactly the data this predicate flags, so the two must not drift apart.
+    """
+    return getattr(data, "feature", None) == "rotation"
+
+
 def _banded_coefficients(data, det, ra, dec, psi):
     """Per-sample response coefficients ``C`` of shape (A, S) for detector ``det``.
 
@@ -579,7 +595,7 @@ def _accumulate_unit_banded(data, ra, dec, psi, incl, phiref, interp,
     # Arrival-time post-phase: rotation only (see the docstring).  Honour the bank
     # convention flag rather than assuming it, so a future change fails loudly.
     band = data.band
-    post_phase = (data.feature == "rotation")
+    post_phase = _norm_is_arrival_time_dependent(data)
     if post_phase:
         if not bool(band.get("post_phase_required", False)):
             raise ValueError(
@@ -750,14 +766,32 @@ def _time_marginalize_bandlimited(kappa_t, rho_sq, deltaT, factor,
 
     The fix costs no new likelihood evaluations.  kappa(t) is band-limited (it
     is a cross-correlation of band-limited data with a band-limited template),
-    and rho_sq is time-independent on this path, so the kappa samples ALREADY
+    and rho_sq is time-independent (the PRECONDITION below), so the samples ALREADY
     COMPUTED determine the continuous integrand exactly.  One zero-padded FFT
     per row recovers it; the quadrature then runs on the reconstruction.
 
     Measured against a converged window-shift reference: -0.007 nats, versus
     +0.745 nats for stock Simpson at the same grid phase.
+
+    PRECONDITION on ``rho_sq``: the model norm must NOT depend on arrival time.
+    Only ``rho_sq[..., :1]`` is used here, because the reconstruction is of kappa
+    alone.  That is the complete norm for the baseline and finite-size
+    accumulators, whose ``rho_sq`` is a constant column broadcast along time, but
+    the slow-rotation post-phase makes ``rho_sq`` a genuine function of the
+    arrival bin (:func:`_accumulate_unit_banded`), and taking its first bin there
+    would evaluate a DIFFERENT likelihood.  Callers must screen such data with
+    :func:`_norm_is_arrival_time_dependent`; :func:`fused_log_likelihood` does.
     """
     kappa_f = _upsample_bandlimited(kappa_t, factor, axis=-1)
+    # Integrate the ORIGINAL interval (n-1)*deltaT.  The upsampled array carries
+    # n*factor points, i.e. (n - 1/factor)*deltaT: its trailing factor-1 samples
+    # lie PAST the last data sample and are the periodic FFT continuation wrapping
+    # back toward sample 0, not part of the window `_time_marginalize` covers.
+    # Integrating them rescales the result -- for a constant integrand by exactly
+    # log((n - 1/factor)/(n - 1)) -- against every other quadrature in the module.
+    # (n-1)*factor+1 points end exactly on the original last endpoint.
+    n_keep = (kappa_f.shape[-1] // factor - 1) * factor + 1
+    kappa_f = kappa_f[..., :n_keep]
     if phase_marginalization:
         lnL_f = jnp.abs(kappa_f) - 0.5 * rho_sq[..., :1]
     else:
@@ -791,17 +825,20 @@ def fused_log_likelihood(data, ra, dec, psi, incl, phiref, distMpc,
         Time-interpolation of the rholm timeseries (see module docstring).
     phase_marginalization : bool
         Marginalize the coalescence phase via ``|kappa|``.
+    time_quad : {"simpson", "bandlimited"}
+        Time quadrature.  ``"simpson"`` (default) is the unchanged behaviour.
+        ``"bandlimited"`` integrates a band-limited reconstruction of kappa(t)
+        over the SAME interval; it holds the model norm fixed in time and is
+        therefore refused for slow-rotation data, whose ``<h|h>`` depends on the
+        template arrival time (see :func:`_time_marginalize_bandlimited`).
+    time_upsample : int
+        Reconstruction factor for ``time_quad="bandlimited"``; costs no
+        likelihood evaluations, so raise it until the answer stops moving.
 
     Returns
     -------
     lnL : array_like, shape (S,)
     """
-    distMpc = jnp.asarray(distMpc, dtype=jnp.float64)
-    invDist = data.distMpcRef / distMpc
-    kappa_unit, rho_sq_unit = _accumulate_unit(
-        data, ra, dec, psi, incl, phiref, interp, phase_marginalization)
-    kappa_sq = kappa_unit * invDist[:, None]
-    rho_sq = rho_sq_unit * jnp.square(invDist)[:, None]
     if time_quad not in _TIME_QUAD_CHOICES:
         # Fail on an unrecognised value rather than silently falling through to
         # the default: a typo'd quadrature name that quietly gives you the OLD
@@ -809,6 +846,22 @@ def fused_log_likelihood(data, ra, dec, psi, incl, phiref, distMpc,
         # getting bitten by.
         raise ValueError("time_quad must be one of %r, got %r"
                          % (_TIME_QUAD_CHOICES, time_quad))
+    if time_quad == "bandlimited" and _norm_is_arrival_time_dependent(data):
+        # Same reason, other direction: the band-limited quadrature reconstructs
+        # kappa(t) and holds the model norm at one time bin, so on data whose
+        # <h|h> depends on the arrival time it would quietly return a DIFFERENT
+        # likelihood rather than a better-integrated one.  Refuse it here instead.
+        raise ValueError(
+            "time_quad='bandlimited' holds the model norm fixed in time, but this "
+            "likelihood data carries the slow-rotation post-phase, whose <h|h> "
+            "depends on the template arrival time; use time_quad='simpson' for "
+            "rotation data.")
+    distMpc = jnp.asarray(distMpc, dtype=jnp.float64)
+    invDist = data.distMpcRef / distMpc
+    kappa_unit, rho_sq_unit = _accumulate_unit(
+        data, ra, dec, psi, incl, phiref, interp, phase_marginalization)
+    kappa_sq = kappa_unit * invDist[:, None]
+    rho_sq = rho_sq_unit * jnp.square(invDist)[:, None]
     if time_quad == "bandlimited":
         return _time_marginalize_bandlimited(
             kappa_sq, rho_sq, data.deltaT, int(time_upsample),

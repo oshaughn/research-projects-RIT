@@ -189,7 +189,7 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #   demo_*.py, debug_*.py,        Demos, debugging scripts and a figure generator, not
 #   benchmark_snr_sequence.py,    assertions.  None defines a test_* function and none
 #   make_3g_figdata.py            is intended as a gate.
-#   test_jax_time_quadrature.py       5  band-limited time marginalization.  The
+#   test_jax_time_quadrature.py       7  band-limited time marginalization.  The
 #                                         stock path integrates exp(lnL_t) with fixed
 #                                         Simpson weights at the DATA spacing while the
 #                                         integrand width sigma_t = 1/(2 pi rho sigma_f)
@@ -206,7 +206,17 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         INDEPENDENT where stock Simpson swings 4.26
 #                                         nats, convergence in the free upsample factor,
 #                                         and that an unknown time_quad RAISES instead of
-#                                         silently giving the old behaviour.  Pure numpy
+#                                         silently giving the old behaviour.  Also pins
+#                                         the two ways the reconstruction can silently
+#                                         change the ANSWER rather than the resolution:
+#                                         that it integrates the ORIGINAL (n-1)*deltaT
+#                                         window and not the periodic FFT continuation
+#                                         past the last sample (a constant integrand
+#                                         makes that a pure normalization shift), and
+#                                         that it REFUSES data whose <h|h> depends on
+#                                         arrival time (the slow-rotation post-phase),
+#                                         where holding the norm at one bin would be a
+#                                         different likelihood.  Pure numpy
 #                                         and jax, no lal, no GPU.
 
 FILES=(
@@ -306,7 +316,11 @@ fi
 # collection" must mean collection IN THE GATE'S ENVIRONMENT -- a local count has
 # tripped this floor twice.  When in doubt, take the number from a CI log line
 # ("collected N tests from M files") rather than from your shell.
-EXPECTED_TESTS=153
+# Raised 153 -> 155 by the two new test_jax_time_quadrature.py pins (original
+# integration window; refusal of arrival-time-dependent norms).  Raising the floor
+# by exactly the number of tests ADDED is safe whatever the environment delta above,
+# since it preserves the margin the previous floor already had.
+EXPECTED_TESTS=155
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"
