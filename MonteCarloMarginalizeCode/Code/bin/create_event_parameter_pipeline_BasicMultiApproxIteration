@@ -848,7 +848,12 @@ if opts.last_iteration_extrinsic:
 
 ##   puffball job: default case
 if puff_args and puff_cadence:
-    puff_job, puff_job_name = dag_utils.write_puff_sub(tag='PUFF',log_dir=None,arg_str=puff_args,request_memory=opts.request_memory_ILE,input_net=opts.working_directory+'/input-grid-$(macroiterationnext).xml.gz',output=opts.working_directory+'/puffball-$(macroiterationnext)',out_dir=opts.working_directory,exe=opts.puff_exe,universe=local_worker_universe)
+    # The puffball perturbs the grid the CIP just wrote.  This read
+    # 'input-grid-N.xml.gz', a name nothing in this workflow produces, so the
+    # puffball could never run -- it dies with FileNotFoundError as soon as the
+    # iteration count is high enough to reach it.  BasicIteration uses
+    # overlap-grid-N, which is what CIP actually writes.
+    puff_job, puff_job_name = dag_utils.write_puff_sub(tag='PUFF',log_dir=None,arg_str=puff_args,request_memory=opts.request_memory_ILE,input_net=opts.working_directory+'/overlap-grid-$(macroiterationnext).xml.gz',output=opts.working_directory+'/puffball-$(macroiterationnext)',out_dir=opts.working_directory,exe=opts.puff_exe,universe=local_worker_universe)
     # Modify: set 'initialdir' to CIP WORKING DIR 
     puff_job.add_condor_cmd("initialdir",opts.working_directory)
     # Modify output argument: change logs and working directory to be subdirectory for the run

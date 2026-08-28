@@ -441,6 +441,39 @@ def test_no_condor_macro_survives_into_a_shell_script(multiapprox_rundir):
         "as command substitution:\n  " + "\n  ".join(offenders))
 
 
+def test_stage_inputs_name_files_the_workflow_produces(multiapprox_rundir):
+    """Every stage must read a filename some other stage writes.
+
+    The puffball read 'input-grid-N.xml.gz', which nothing in this workflow
+    produces, so it could never run -- and nothing noticed until an iteration
+    count high enough to reach it, because short runs never build that node.
+    CIP writes overlap-grid-N.
+
+    Checked against the set of names the submit files WRITE, so a rename on
+    either side is caught at build time rather than as a FileNotFoundError
+    hours into a campaign.
+    """
+    written = set()
+    for sub in multiapprox_rundir.glob("*.sub"):
+        text = sub.read_text()
+        for m in re.finditer(r"--fname-output-samples[= ](\S+)", text):
+            written.add(os.path.basename(m.group(1)))
+        for m in re.finditer(r"^output\s*=\s*(\S+)", text, re.M):
+            written.add(os.path.basename(m.group(1)))
+    def base(n):
+        return re.sub(r"\$\(\w+\)", "N", os.path.basename(n)).replace(".xml.gz", "")
+    written_bases = {base(w) for w in written}
+    problems = []
+    for sub in multiapprox_rundir.glob("*.sub"):
+        for m in re.finditer(r"--sim-xml\s+(\S+)|--fname\s+(\S+\.xml\.gz)", sub.read_text()):
+            name = m.group(1) or m.group(2)
+            b = base(name)
+            if b.startswith("input-grid"):
+                problems.append("{}: reads {}, which nothing writes (CIP writes "
+                                "overlap-grid-N)".format(sub.name, os.path.basename(name)))
+    assert not problems, "\n  ".join(problems)
+
+
 def test_every_job_directory_exists(multiapprox_rundir):
     """A submit file naming a directory the builder never created holds the job
     on the execute node, and no DAG-shape assertion sees it.  An unresolved
