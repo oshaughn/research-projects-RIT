@@ -35,7 +35,8 @@ from RIFT.likelihood.time_interp_choice import (
 # Same leaf-module reasoning, and IMPORTED rather than re-typed: a second hand-written
 # copy of the choice tuple is how a typo becomes a silently different likelihood.
 from RIFT.likelihood.time_marginalization_quadrature import (
-    TIME_QUADRATURE_CHOICES, validate_time_quadrature, time_quadrature_pipeline_prereqs)
+    TIME_QUADRATURE_CHOICES, validate_time_quadrature,
+    refuse_unless_time_quadrature_emitted)
 lalapps_path2cache = which('lal_path2cache')
 ligolw_add = 'igwn_ligolw_add'
 if not(which(ligolw_add)):
@@ -1227,7 +1228,22 @@ if time_quadrature_choice is not None:
     print("  ==> Time-marginalization quadrature: '{}' (emitted as --time-marginalization-quadrature; "
           "the ILE driver refuses rather than ignores if its configuration cannot honour it)".format(
               time_quadrature_choice))
-    helper_ile_args += " --time-marginalization-quadrature " + time_quadrature_choice + " "
+    if time_quadrature_choice != 'simpson':
+        # F12: the flag reaches ILE_extr.sub, but it does not do the same job there.  The
+        # standard extrinsic stage (--add-extrinsic --add-extrinsic-time-resampling ->
+        # --resample-time-marginalization) calls the likelihood with return_lnLt=True, which
+        # returns lnL(t) on the ORIGINAL grid and never reaches the quadrature branch.  So the
+        # extrinsic INTEGRAL is refined but the drawn t_ref stays quantised at 1/srate.  Say so
+        # at build time rather than letting "it reaches ILE_extr.sub" be read as more than it is.
+        print("      NOTE: on the extrinsic/fairdraw stage the drawn t_ref is still quantised "
+              "at deltaT=1/srate -- --resample-time-marginalization asks for lnL(t) on the "
+              "original grid (return_lnLt), which never reaches this quadrature.  The "
+              "marginalized lnL is refined; the exported time sample is not.")
+    # rstrip() so the separator does not depend on whatever the PREVIOUS append left
+    # behind: the flag gluing onto its neighbour would produce an args_ile.txt in which
+    # the quadrature is not a token at all, and the emission guard below is what would
+    # then have to catch it.  Make it structurally impossible instead.
+    helper_ile_args = helper_ile_args.rstrip() + " --time-marginalization-quadrature " + time_quadrature_choice + " "
 
 if opts.internal_ile_auto_logarithm_offset and not opts.internal_ile_use_lnL:
     helper_ile_args += " --auto-logarithm-offset "
@@ -1933,15 +1949,11 @@ if opts.propose_fit_strategy:
 # (--propose-ile-convergence-options), not on any single flag.  util_RIFT_pseudo_pipe.py repeats
 # it over the FINAL args_ile.txt, which is the only place calibration marginalization and
 # --manual-extra-ile-args are visible.
-if time_quadrature_choice is not None:
-    _tq_missing = time_quadrature_pipeline_prereqs(time_quadrature_choice, helper_ile_args)
-    if _tq_missing:
-        raise ValueError(
-            "--internal-ile-time-marginalization-quadrature {!r} was requested, but the ILE "
-            "arguments this helper is about to write cannot honour it: {}.  Refusing at "
-            "workflow-build time rather than emitting a flag that the ILE driver would reject "
-            "on its first job (or, worse, that a future driver might ignore).".format(
-                time_quadrature_choice, "; ".join(_tq_missing)))
+# Checks the BYTES about to be written, not the parsed option, so it also catches the
+# emission being dropped or duplicated -- not only an unhonourable configuration.  The
+# raise lives in the library function so that it is executable in a unit test.
+refuse_unless_time_quadrature_emitted(
+    time_quadrature_choice, helper_ile_args, "helper_ile_args.txt")
 
 # editing ILE args based on strategy above, so only writing now
 with open("helper_ile_args.txt",'w') as f:

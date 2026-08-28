@@ -63,7 +63,7 @@ MonteCarloMarginalizeCode/Code/test/test_time_marginalization_quadrature_pipelin
 # catches a total collection failure (pytest exits 5), but a silent shrink from 60
 # tests to 3 -- a rename, a stale -k, a decorator that stops matching -- reads as
 # green.  Raise EXPECTED by RUNNING collection, never by arithmetic.
-_TMARG_EXPECTED=97
+_TMARG_EXPECTED=127
 _TMARG_FOUND=$(python -m pytest -q --collect-only $_TMARG_TESTS 2>/dev/null | grep -c '::' || true)
 if [ "$_TMARG_FOUND" -ne "$_TMARG_EXPECTED" ]; then
     echo "time-marginalization gate: collected $_TMARG_FOUND tests, expected $_TMARG_EXPECTED" >&2

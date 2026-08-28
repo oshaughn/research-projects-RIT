@@ -63,7 +63,8 @@ from RIFT.likelihood.time_interp_choice import (
 # likelihood -- the pipeline would accept 'bandlimted', forward it, and the mistake
 # would only surface when the first ILE job died.
 from RIFT.likelihood.time_marginalization_quadrature import (
-    TIME_QUADRATURE_CHOICES, validate_time_quadrature, time_quadrature_pipeline_prereqs)
+    TIME_QUADRATURE_CHOICES, validate_time_quadrature,
+    refuse_unhonourable_time_quadrature, refuse_unless_time_quadrature_emitted)
 ligolw_prefix = 'igwn_'
 if not(which(ligolw_prefix + "ligolw_add")):
     ligolw_prefix = ''
@@ -647,11 +648,6 @@ opts=  parser.parse_args()
 # the call is for its validation side effect; the helper resolves it again for the emission.
 resolve_interpolate_time_request(opts.internal_ile_interpolate_time)
 
-# Same discipline for the time-marginalization quadrature.  argparse `choices` already rejects
-# a typo, but validate through the LIBRARY function too, so this script and the ILE driver can
-# never disagree about what the legal set is.
-if opts.internal_ile_time_marginalization_quadrature is not None:
-    validate_time_quadrature(opts.internal_ile_time_marginalization_quadrature)
 
 # Multi-GPU ILE fan-out: --ile-gpu-fanout funnels through RIFT_ILE_GPU_FANOUT, which
 # create_event_parameter_pipeline_BasicIteration (run via os.system, inheriting this
@@ -734,6 +730,40 @@ if (opts.use_ini):
 # size request_GPUs/CPUs and bake the value into ile_pre.sh.
 if opts.ile_gpu_fanout is not None:
     os.environ['RIFT_ILE_GPU_FANOUT'] = str(opts.ile_gpu_fanout)
+
+# TIME-MARGINALIZATION QUADRATURE, part 1 of 2: everything refusable WITHOUT running the
+# helper.  Deliberately placed AFTER the --use-ini block above: the ini parser OVERRIDES the
+# command line for non-boolean options, so a validate above it checks a value that the ini is
+# about to replace, and a bad ini value would surface downstream as "helper call failed to
+# generate required file" instead of as a quadrature diagnostic.
+if opts.internal_ile_time_marginalization_quadrature is not None:
+    # Validate through the LIBRARY function as well as argparse `choices`, so this script and
+    # the ILE driver can never disagree about what the legal set is.
+    validate_time_quadrature(opts.internal_ile_time_marginalization_quadrature)
+    if opts.lisa_known_sky:
+        # --lisa-known-sky exits below, before both the forward to the helper and the
+        # args_ile.txt guard, and builds its own ILE arguments through helper_LISA_Events.py
+        # which does not know this option.  Refuse rather than silently dropping it.
+        raise ValueError(
+            "--internal-ile-time-marginalization-quadrature is not supported on the "
+            "--lisa-known-sky path: that path builds args_ile.txt through "
+            "helper_LISA_Events.py, which does not carry the option, so the request would be "
+            "silently dropped.")
+    # What this script knows before the helper runs: calibration marginalization is added HERE,
+    # not by the helper, and --manual-extra-ile-args can carry any ILE flag at all.
+    _tq_early = ""
+    if opts.calmarg_envelope_directory:
+        _tq_early += " --calibration-envelope-directory " + str(opts.calmarg_envelope_directory)
+    if opts.manual_extra_ile_args:
+        _tq_early += " " + str(opts.manual_extra_ile_args)
+    if _tq_early:
+        # Only the EXCLUSIONS are checkable this early -- the required flags are added by the
+        # helper -- so append the requirements to keep the message about what is actually wrong.
+        refuse_unhonourable_time_quadrature(
+            opts.internal_ile_time_marginalization_quadrature,
+            "--time-marginalization --vectorized --gpu " + _tq_early,
+            "this pipeline's own options (checked before the helper runs, so the failure is "
+            "immediate rather than after a workflow has been built)")
 
 if opts.lisa_known_sky:
     run_lisa_known_sky_surface(opts)
@@ -1643,22 +1673,24 @@ if opts.extrinsic_handoff:
     else:
         line += " --extrinsic-proposal-breadcrumb {}/extr_consolidated_$(macroiterationprev).npz ".format(os.getcwd())
 
-# LAST CHANCE TO REFUSE, and the only place with the whole picture: calibration marginalization
-# and --manual-extra-ile-args are added to `line` HERE, after helper_LDG_Events.py has already
-# done its own (necessarily partial) check.  A campaign that dies at DAG build costs minutes; one
-# that dies at the first ILE job costs a queue-slot cycle -- and the ILE driver's own guard is the
-# only thing standing between a silently-inert accuracy option and a comparison campaign run
-# against it.  Read from `line`, i.e. from the bytes about to be written, so anything that edits
-# the string after this point is out of scope by construction.
-if opts.internal_ile_time_marginalization_quadrature is not None:
-    _tq_missing = time_quadrature_pipeline_prereqs(
-        opts.internal_ile_time_marginalization_quadrature, line)
-    if _tq_missing:
-        raise ValueError(
-            "--internal-ile-time-marginalization-quadrature {!r} was requested, but this workflow "
-            "cannot honour it: {}.  Refusing at DAG-build time rather than submitting a campaign "
-            "whose first ILE job will reject it.".format(
-                opts.internal_ile_time_marginalization_quadrature, "; ".join(_tq_missing)))
+# TIME-MARGINALIZATION QUADRATURE, part 2 of 2: the LAST chance to refuse, and the only place
+# with the whole picture.  This checks the BYTES about to be written, not the parsed options --
+# an earlier version keyed the guard on `opts` and read only the PREREQUISITES from `line`, so it
+# happily approved an args_ile.txt that had never received the flag at all.  Three ways that
+# happens, all ending in a silent fall back to Simpson while the pipeline logs the opposite:
+#
+#   * the helper is invoked by NAME through PATH and its exit status is discarded (os.system
+#     above), the only check being file existence -- so an older helper argparse-errors on the
+#     new option and, in a re-used run directory, the STALE helper_ile_args.txt is read instead;
+#   * --manual-extra-ile-args is appended AFTER the helper's arguments and optparse takes the
+#     LAST occurrence, so a hand-passed 'simpson' silently overrides the requested value while
+#     the .sub file still shows both;
+#   * any future refactor that drops the emission.
+#
+# It also holds a hand-passed quadrature (manual args, ini) to the same standard, which the
+# opts-keyed version skipped entirely.  Called unconditionally for that reason.
+refuse_unless_time_quadrature_emitted(
+    opts.internal_ile_time_marginalization_quadrature, line, "args_ile.txt")
 
 with open('args_ile.txt','w') as f:
         f.write(line)
