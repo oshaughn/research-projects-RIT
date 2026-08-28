@@ -10,6 +10,96 @@ Everything here was measured on `ldas-pcdev` class CPU (CIT), CVMFS IGWN python 
 `rift_O4d_tmarg_bandlimited`, PR #203).  Harnesses: `~/tmarg_harness/` for the
 prototypes, `~/pl_work/` for the measurements below.
 
+## THE BUG THIS SHIPPED WITH, and the requirement that was missing
+
+An adversarial review of PR #205 found a critical correctness bug.  It is recorded
+first because the design statement below was *wrong*, not merely incomplete, and the
+shape of the error is the reusable lesson.
+
+The design named TWO resolution requirements.  **There are three.**  Enumeration
+returns a grid INDEX, and an index is not a location: the true crest can lie
+`h_enum/2` from the sample that reports it.  Localising it to a fraction of `sigma_t`
+is a third requirement, it is SNR-DEPENDENT, and it belonged to neither of the two
+named mechanisms — so it was assigned to neither and simply did not happen.  The
+interval was built around `cols_np * h_enum`, the grid sample.  Whenever
+
+    W_SIGMA * sigma_t  <  h_enum / 2      i.e.  sigma_t/deltaT < 0.0052
+
+— any row with a derived factor of 512 or more — **the peak lay entirely outside its
+own interval**.  Measured on the synthetic fixture at `sigma_t/deltaT = 0.0024`, error
+against the dense path as the crest is walked off the enumeration grid:
+
+| crest offset from the sample | 0 | h_enum/4 | h_enum/2 |
+|---|---|---|---|
+| peak-local − reference | +0.000000 | **−6.52** | **−164.93** |
+
+Always negative: it deletes mass, never adds it.  At production scale (64 rows,
+arrival times uniform w.r.t. the sample grid, `sigma_t/deltaT = 0.0023`): **median
+−1.15 nats, worst −131 nats, 56% of rows wrong by >0.01 nats, and every one of them
+ACCEPTED.**  A bias, not noise, silently deleting extrinsic samples.
+
+**Why the suite was blind, which is the part worth internalising.**  Every sharp
+fixture used `peak_sample = NPTS//2 + 0.25`, and the phase sweep in
+`test_exact_on_a_periodic_window` was `[0.0, 0.25, 0.5]`.  All are exact multiples of
+`1/PEAK_ENUM_FACTOR = 1/8`, so the crest landed EXACTLY on an enumeration sample in
+every single test.  A bug that only exists *between* samples was invisible to all of
+them.  That test's own docstring already said the phase is swept because "a fixture
+pinned to one phase can be exactly wrong and look exactly right" — it was pinned, in
+the only sense this module cares about.  **One added phase of 0.3125 catches all of
+it.**  Sweeping a parameter is not the same as sweeping it over the quantisation that
+matters.
+
+Two further holes the same review found, both fixed:
+
+* the tail bound could not catch this, because `q_out_max` is a maximum over
+  *enumeration-grid samples* — the same grid that failed.  In the worst case it
+  reported `tail_bound_worst = -275` (claiming `e^-275` of omitted mass) while dropping
+  164.9 nats.  `T_outside` was also counted in grid indices, so a gap narrower than
+  `h_enum` contributed to neither the length nor the maximum;
+* `enumerate_peak_indices` excluded endpoints on the justification that the edge guard
+  had already routed such rows away.  That is false: `exposed` keys on the row's
+  GLOBAL coarse argmax, so a row with a mid-window dominant peak and a secondary peak
+  hard against an edge was refined with the secondary peak never enumerated.
+
+### The fix
+
+1. **`localise_peaks`** — Newton on the spectral interpolant, seeded at the enumerated
+   sample and confined to the bracket `[t_i - h_enum, t_i + h_enum]` that the
+   enumeration already established.  It places peaks; it cannot find or lose one, which
+   is what distinguishes it from the seed-and-hope that sank RIFT PR #201.  Quadratic
+   convergence, so the SNR-dependence of this step is logarithmic: 2–4 iterations
+   across the whole production range.  Convergence to `LOCALISE_SAFETY * sigma_t` is
+   ASSERTED, the interval is widened by that residual, and a peak that misses it sends
+   its row to the dense path.
+2. **An a-posteriori containment check** — the local integration grids must ATTAIN the
+   localised crest's `lnL` to within `CONTAINMENT_SLACK_NATS`.  Free (that maximum is
+   already computed for the log-sum-exp offset) and it is what actually catches a
+   mis-placed interval.  It compares against the LOCALISED crest, not the enumeration
+   sample: against the sample it would pass precisely in the case it must catch, since
+   an off-grid crest leaves the sample tens of nats low.
+3. **Exact `T_outside`** from interval geometry rather than a grid-index count.
+4. **Endpoints enumerated**, and the false justification deleted.
+5. **The ceiling checked before the cost gate** (see below).
+
+After the fix, the same sweeps: **0.000000 at every crest offset**, and at production
+scale median +0.000000, worst +0.000000, 0/64 rows outside 1e-3.
+
+`W_SIGMA`'s `erfc(W/sqrt2)` argument is a statement about a Gaussian truncated about
+its CREST, so centring on the sample carried an unstated precondition
+`W_SIGMA * sigma_t >= h_enum/2`, coupling `W_SIGMA` to `PEAK_ENUM_FACTOR` and nowhere
+asserted — note that raising `PEAK_ENUM_FACTOR`, the intuitively safer move, would have
+made it *worse*.  Localisation discharges the precondition rather than asserting it.
+
+### F3: the ceiling was bypassed for exactly the sharpest rows
+
+`viable = c_lo < c_dn` compares against the dense cost, so the sharper the row the more
+certainly peak-local kept it — and a row past `UPSAMPLE_FACTOR_MAX` is the sharpest kind
+there is.  At a derived factor of 8192 the dense path RAISED, as designed, while
+peak-local returned −24451 nats and reported `tail_bound_worst = -2721`.  The ceiling is
+now checked before the cost gate.  The old test only passed because it set
+`UPSAMPLE_FACTOR_MAX = 2`, broad enough that the *cost* gate declined the row first; the
+ceiling was never what routed it.
+
 ## What this changes
 
 The dense band-limited rule refines the WHOLE window to a peak whose width shrinks as
@@ -45,16 +135,33 @@ rules (`~/pl_work/cost_pl.py`, an extension of `~/tmarg_harness/cost_e2e.py`):
 
 | `sigma_t/deltaT*` | simpson | bandlimited | **peak-local** | bandlimited / peak-local | rows peak-local handled |
 |---|---|---|---|---|---|
-| 1.735 | 0.215 s | 0.210 s | 0.201 s | 1.04x | 0 / 20 |
-| 0.549 | 0.284 s | 0.688 s | 0.714 s | 0.96x | 0 / 2345 |
-| 0.174 | 0.288 s | 2.549 s | 2.754 s | 0.93x | 0 / 3486 |
-| 0.055 | 0.258 s | 6.709 s | 3.305 s | **2.03x** | 1873 / 3834 |
-| 0.017 | 0.269 s | 18.421 s | 2.369 s | **7.78x** | 3338 / 3950 |
+| 1.735 | 0.519 s | 0.559 s | 0.549 s | 1.02x | 0 / 20 |
+| 0.549 | 0.536 s | 1.456 s | 1.535 s | 0.95x | 0 / 2345 |
+| 0.174 | 0.569 s | 5.583 s | 7.465 s | 0.75x | 0 / 3486 |
+| 0.055 | 0.550 s | 19.493 s | 9.328 s | **2.09x** | 1866 / 3834 |
+| 0.017 | 0.569 s | 46.011 s | 6.005 s | **7.66x** | 3335 / 3950 |
+
+All five rows are on `ldas-pcdev13`, re-measured AFTER the localisation fix.  An earlier
+table in this file was taken on a different, faster host (Simpson baseline 0.18–0.30 s
+rather than 0.55 s) and has been replaced rather than merged: seconds are not comparable
+across hosts and mixing them would invent a trend.  Read the RATIOS.
+
+What the fix cost: at the sharp end essentially nothing (7.78x → 7.66x, 2.03x → 2.09x,
+measured before/after on their respective hosts), and about 19% at `sigma_t/deltaT =
+0.17` (0.93x → 0.75x), which is a regime where this rule has nothing to offer anyway and
+delegates every row.
 
 Read against Simpson instead, the same table says peak-local costs 0.9x / 2.5x / 9.6x /
 12.8x / 8.8x the historical rule, where the dense rule costs 1.0x / 2.4x / 8.8x /
 26.0x / 68.5x — i.e. **peak-local's cost stops growing with rho and the dense rule's
 does not**, which is the structural claim, and is visible in the last two rows.
+
+A first attempt at the fix ran the localiser BEFORE the gate that discards the row,
+which is the same error as the one recorded below and cost far more: **0.14x** at
+`sigma_t/deltaT = 0.17`, i.e. 7x slower than the path it delegates to, on a block where
+every single row fell back.  The gate now runs first, on intervals built about the
+sample and widened by `h_enum/2` — a CONSERVATIVE SUPERSET of whatever localisation will
+produce, so a gate on it can only decline rows, never wrongly keep one.
 
 `sigma_t/deltaT*` is the sharpest row in the block.  The Simpson baseline is
 rho-independent by construction; a run where it moves with rho is contaminated.
@@ -196,6 +303,15 @@ method degenerates continuously into the dense grid.  No threshold anywhere.
   the dense path's own real-injection comparison has not been repeated for this rule.
 * **`MAX_INTERVALS`, `PEAK_KEEP_NATS`** are fail-closed guards with an argument behind
   them but no sweep behind the specific values.
+* **The tail bound is still a sampled maximum, not a supremum.**  `q_out_max` is the
+  largest `Re kappa` over enumeration-grid points outside the intervals; between those
+  points it is not bounded rigorously.  `T_outside` is now exact and endpoints are now
+  enumerated, and the containment check covers the failure mode that mattered, but a
+  Bernstein-type bound on the interpolant between samples would make this a proof rather
+  than a strong check.  Not attempted.
+* **No re-measure-and-double loop.**  The dense path ENFORCES its resolution criterion;
+  this path derives the spacing and then verifies the outcome two other ways.  Both are
+  checked; they are not the same criterion, and this file no longer claims they are.
 * **Phase marginalization is REFUSED**, at the library and at driver startup — a
   deliberate scope cut, not an omission.  Production marginalizes over distance, not
   phase, and under phase marginalization the time peak's Laplace width picks up an

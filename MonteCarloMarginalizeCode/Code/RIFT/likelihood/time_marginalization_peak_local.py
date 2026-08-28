@@ -13,12 +13,22 @@ WHAT IS WRONG WITH REFINING THE WHOLE WINDOW
 The dense strategy refines the entire window to the peak's width, so its cost
 grows as ``rho`` while the peak it is resolving gets NARROWER as ``1/rho``: the
 work grows exactly where it is least needed.  It conflates two resolution
-requirements that are not the same requirement:
+requirements that are not the same requirement.  There are in fact THREE, and the
+first version of this module named only two -- which is exactly where its one
+correctness bug lived:
 
 * Resolving ``kappa(t)`` enough to **enumerate its extrema**.  ``kappa`` is
   band-limited at Nyquist by construction, so the narrowest feature it can have is
   a half-cycle of width ``deltaT``.  Enumerating its extrema therefore needs a
   small FIXED factor and is **SNR-INDEPENDENT**.
+* **Localising** each enumerated extremum to a fraction of ``sigma_t``.  Enumeration
+  returns a grid INDEX, and an index is not a location: the crest can lie
+  ``h_enum/2`` from the sample that reports it.  This requirement is
+  **SNR-DEPENDENT**, and it belongs to neither of the other two -- which is why it
+  went missing.  Building the interval around the sample instead drops the peak
+  entirely once ``W_SIGMA * sigma_t < h_enum/2`` and cost up to **165 nats**; see
+  :data:`LOCALISE_SAFETY`.  It is met by Newton on the spectral interpolant, which
+  converges quadratically, so its cost is logarithmic in rho rather than linear.
 * Resolving ``exp(lnL(t))`` well enough to integrate it.  That is the rho-dependent
   part, and it is only needed over a few ``sigma_t`` around each enumerated peak.
 
@@ -100,8 +110,19 @@ point and, crucially, **independent of rho**: the number of local points is set 
 callback and an ``exp`` over every one of those points.  So the two cross over, this
 one wins by more as rho grows, and it LOSES at low rho -- which is why a row whose
 estimated local cost exceeds its estimated dense cost is given the dense path.  That
-switch is a cost decision only: both branches satisfy the same derived resolution
-criterion, so it cannot trade accuracy for speed.
+switch is a cost decision only -- it never substitutes an approximation for a value, it
+chooses which of two paths computes it.
+
+Be precise about the sense in which the two branches agree, because the looser statement
+this module used to make was false.  The dense path ENFORCES its criterion: it remeasures
+the width on the grid it actually integrated and doubles until the criterion holds there.
+This path has no such loop.  It DERIVES the local spacing from the coarse width and then
+verifies the outcome two other ways -- the localisation must converge to
+``LOCALISE_SAFETY * sigma_t``, and the local grids must ATTAIN the localised crest's
+``lnL`` to within ``CONTAINMENT_SLACK_NATS``.  Those are a-posteriori checks rather than
+an enforcement loop, and a row failing either goes to the dense path.  So both branches
+are checked and neither returns a number it cannot defend, but they are NOT the same
+criterion and this module should not say they are.
 
 A chirp-z (Bluestein) evaluation would reduce the local evaluation from
 ``O(npts * M)`` to ``O((npts + M) log(npts + M))`` and is the obvious next step; it
@@ -130,6 +151,7 @@ unavailable.
 
 import numpy as np
 
+from . import time_marginalization_quadrature as _tmq
 from .time_marginalization_quadrature import (
     UPSAMPLE_SAFETY,
     EDGE_GUARD_FRACTION,
@@ -151,6 +173,9 @@ __all__ = [
     "TAIL_LOG_TOL",
     "MAX_INTERVALS",
     "MIN_LOCAL_POINTS",
+    "LOCALISE_SAFETY",
+    "CONTAINMENT_SLACK_NATS",
+    "localise_peaks",
     "bandlimited_spectrum",
     "eval_bandlimited_uniform",
     "enumerate_peak_indices",
@@ -173,14 +198,73 @@ __all__ = [
 #: every row of the accuracy sweep (see DESIGN_time_marginalization_peak_local.md).
 PEAK_ENUM_FACTOR = 8
 
+#: Localise each enumerated crest to this fraction of its own ``sigma_t``, and widen
+#: its interval by the same amount.
+#:
+#: THIS IS THE THIRD RESOLUTION REQUIREMENT, and the first version of this module did
+#: not have it.  The design names two -- resolve ``kappa`` to ENUMERATE, resolve
+#: ``exp(lnL)`` to INTEGRATE -- but enumeration returns a grid INDEX, and an index is
+#: not a location.  The true crest can be up to ``h_enum/2`` from the sample that
+#: reports it, while the interval half-width is ``W_SIGMA * sigma_t``, so whenever
+#:
+#:     W_SIGMA * sigma_t  <  h_enum / 2
+#:
+#: the peak falls entirely OUTSIDE its own interval.  At ``PEAK_ENUM_FACTOR = 8`` and
+#: ``W_SIGMA = 12`` that is ``sigma_t/deltaT < 0.0052``, i.e. any row whose derived
+#: factor reaches 512.  MEASURED on the synthetic fixture at ``sigma_t/deltaT =
+#: 0.0024``, error against the dense path as the crest is walked off the enumeration
+#: grid: **0.00 nats at offset 0, -6.52 at h_enum/4, -164.93 at h_enum/2**.  Always
+#: negative -- it silently deletes mass -- and the old tail bound reported -275 nats
+#: while dropping 165.
+#:
+#: Unlike the other two requirements this one is SNR-DEPENDENT: the crest must be found
+#: to a fraction of ``sigma_t``, and ``sigma_t`` shrinks as ``1/rho``.  It is met by
+#: Newton on the spectral interpolant (see :func:`localise_peaks`), which converges
+#: quadratically, so its cost grows only logarithmically.
+#:
+#: Value: 0.25 puts the residual at ``sigma/4``, so widening by it costs 2% of the
+#: interval, while the trapezoid error it can induce is ``exp(-(12)^2/2)``-scale --
+#: nothing.  It is not an accuracy knob that can be set too small: convergence to this
+#: tolerance is ASSERTED, and a row that misses it goes to the dense path.
+LOCALISE_SAFETY = 0.25
+
+#: Newton iterations allowed per peak.  From a parabolic seed the initial error is a few
+#: percent of ``h_enum`` and convergence is quadratic, so 2-4 is typical; the cap exists
+#: so a pathological row FAILS (and is handed to the dense path) rather than spinning.
+LOCALISE_MAX_ITER = 16
+
+#: A row is accepted only if its local integration grids actually ATTAIN the localised
+#: crest value, to within this many nats.  The a-posteriori half of the F1 fix, and it
+#: costs nothing -- the maximum over each local grid is already computed for the
+#: log-sum-exp offset.
+#:
+#: Why the slack is safe and why it is small: the local spacing is at most
+#: ``sigma/UPSAMPLE_SAFETY = sigma/2``, so the grid's nearest point to the crest is
+#: within ``sigma/4``, i.e. its ``lnL`` is within ``1/32`` of the crest's.  0.5 nats is
+#: a 16x margin on that, and is still 13x smaller than the smallest miss F1 produced
+#: (-6.52 nats).
+#:
+#: NOTE this compares against ``lnL`` at the LOCALISED crest, not at the enumeration
+#: sample.  Comparing against the sample cannot work and it is worth saying why: when
+#: the crest sits off-grid the sample is already tens of nats below it, so a check
+#: against the sample passes precisely in the case it is meant to catch.
+CONTAINMENT_SLACK_NATS = 0.5
+
 #: Local interval half-width, in units of the peak's own ``sigma_t``.  A Gaussian
 #: peak truncated at ``W_SIGMA`` sigma omits ``erfc(W/sqrt2) ~ exp(-W^2/2)`` of its
 #: mass: ``exp(-72) = 5.4e-32`` here, which is below double precision against the
 #: largest window-to-sigma dynamic range this path can see (``UPSAMPLE_FACTOR_MAX``
-#: bounds it at ~1e4).  Not a knob that can be set too small: the omitted mass is
-#: BOUNDED per row by the tail check below, so shrinking this widens the intervals
-#: the check demands or sends the row to the dense path -- it cannot silently buy
-#: speed with accuracy.
+#: bounds it at ~1e4).
+#:
+#: ``erfc(W/sqrt2)`` is a statement about a Gaussian truncated symmetrically ABOUT ITS
+#: CREST, so it is only a truncation bound if the interval is actually centred there.
+#: The first version of this module centred on the enumeration SAMPLE, which left an
+#: unstated precondition ``W_SIGMA * sigma_t >= h_enum/2`` -- coupling ``W_SIGMA`` to
+#: ``PEAK_ENUM_FACTOR``, violated by every sharp row, and nowhere asserted.  It is
+#: discharged, not asserted: :func:`localise_peaks` finds the crest to
+#: ``LOCALISE_SAFETY * sigma_t`` and the interval is widened by that residual, so the
+#: two constants are decoupled and raising ``PEAK_ENUM_FACTOR`` is no longer the
+#: dangerous move it used to be.
 W_SIGMA = 12.0
 
 #: Enumerated peaks more than this far below a row's highest peak are dropped before
@@ -353,11 +437,87 @@ def enumerate_peak_indices(q, xpy=np):
     The two comparisons are deliberately asymmetric (``>=`` left, ``>`` right): a
     plateau then yields exactly one index, its last, instead of none or all of them.
 
-    Endpoints are excluded because a maximum AT the window edge is a statement that
-    the window is mis-centred, which the inherited edge guard has already routed to
-    the historical rule before this is ever called.
+    ENDPOINTS ARE INCLUDED, and the reason is worth recording because an earlier version
+    excluded them on a justification that was simply false.  That version said a maximum
+    at the window edge means the window is mis-centred and the inherited edge guard has
+    already routed such rows away.  It has not: ``exposed`` keys on the row's GLOBAL
+    coarse argmax, so a row whose dominant peak sits comfortably mid-window is refined
+    even when it also carries a SECONDARY maximum hard against an edge.  That secondary
+    peak was then never enumerated, never covered, and -- because the outside maximum is
+    sampled on this same grid -- under-represented in the tail bound too.
     """
-    return (q[..., 1:-1] >= q[..., :-2]) & (q[..., 1:-1] > q[..., 2:])
+    interior = (q[..., 1:-1] >= q[..., :-2]) & (q[..., 1:-1] > q[..., 2:])
+    left = (q[..., :1] > q[..., 1:2])
+    right = (q[..., -1:] > q[..., -2:-1])
+    return _cat_last(left, interior, right, xpy=xpy)
+
+
+def _cat_last(*parts, **kw):
+    xpy = kw.get('xpy', np)
+    return xpy.concatenate(parts, axis=-1)
+
+
+def localise_peaks(Xw, fk, rows, t_grid, h_enum, tol, period, xpy=np,
+                   peak_chunk=4096):
+    """Newton on the band-limited interpolant: turn a grid INDEX into a LOCATION.
+
+    ``t_grid`` are the enumeration-grid times of the enumerated maxima and ``rows`` says
+    which row each belongs to.  Returns ``(t_star, q_star, converged)``.
+
+    An enumerated extremum is a grid index, and the crest it stands for can be anywhere
+    within ``+/- h_enum/2`` of it.  Building the integration interval around the index
+    instead of the crest is what made this module drop up to 165 nats -- see
+    :data:`LOCALISE_SAFETY` for the measured table.  This is the missing step.
+
+    It is NOT a seeded root-finder in the sense that sank RIFT PR #201.  That failure
+    was Newton seeded at GUESSED points, used to FIND extrema, so the ones it did not
+    guess were never found.  Here every extremum has already been enumerated, and Newton
+    only refines a location inside the bracket ``[t_grid - h_enum, t_grid + h_enum]``
+    that the enumeration already established.  It cannot discover or lose a peak; it can
+    only place one.  An iterate that leaves the bracket, or a peak that does not reach
+    ``tol``, is reported as NOT converged and its row goes to the dense path.
+
+    ``q``, ``q'`` and ``q''`` come from the spectral representation directly --
+    ``q(t) = Re sum_j Xw_j exp(w_j t)`` with ``w_j = 2 pi i f_j / T``, so the
+    derivatives are the same sum with ``w_j`` and ``w_j^2`` folded in and cost one
+    exponential array between them.  Convergence is quadratic, so the SNR-dependence of
+    this step is logarithmic: 2-4 iterations over the whole production range.
+    """
+    n_pk = int(t_grid.shape[0])
+    w = (2j * np.pi / float(period)) * fk
+    t_out = xpy.zeros(n_pk, dtype=np.float64)
+    q_out = xpy.zeros(n_pk, dtype=np.float64)
+    ok_out = xpy.zeros(n_pk, dtype=bool)
+
+    for a in range(0, n_pk, peak_chunk):
+        b = min(a + peak_chunk, n_pk)
+        Xr = Xw[rows[a:b]]                      # (P, nf)
+        tg = t_grid[a:b]
+        tol_c = tol[a:b]
+        t = tg.copy()
+        step = xpy.zeros(t.shape, dtype=np.float64)
+        for _ in range(LOCALISE_MAX_ITER):
+            E = Xr * xpy.exp(w[None, :] * t[:, None])
+            q1 = xpy.sum(E * w[None, :], axis=-1).real
+            q2 = xpy.sum(E * (w * w)[None, :], axis=-1).real
+            # Only a strictly concave point is a maximum to walk towards.  A
+            # non-concave iterate is left where it is and reported unconverged.
+            safe = q2 < 0
+            step = xpy.where(safe, -q1 / xpy.where(safe, q2, -1.0), 0.0)
+            step = xpy.clip(step, -h_enum, h_enum)
+            t_new = xpy.clip(t + step, tg - h_enum, tg + h_enum)
+            step = t_new - t
+            t = t_new
+            if bool(xpy.all(xpy.abs(step) <= tol_c)):
+                break
+        E = Xr * xpy.exp(w[None, :] * t[:, None])
+        q0 = xpy.sum(E, axis=-1).real
+        q2 = xpy.sum(E * (w * w)[None, :], axis=-1).real
+        inside = xpy.abs(t - tg) < h_enum        # strictly inside the bracket
+        t_out[a:b] = t
+        q_out[a:b] = q0
+        ok_out[a:b] = (xpy.abs(step) <= tol_c) & (q2 < 0) & inside
+    return t_out, q_out, ok_out
 
 
 def merge_intervals_by_row(rows, lo, hi, span):
@@ -434,10 +594,14 @@ def _peak_curvature_sigma(lnL_stencil, h, xpy=np):
 
 #: Fewest local points any row can ever need: one interval of half-width
 #: ``W_SIGMA * sigma`` at spacing ``sigma / UPSAMPLE_SAFETY`` is
-#: ``2 * W_SIGMA * UPSAMPLE_SAFETY`` sub-intervals however large ``sigma`` is, and
-#: merging or a coarser-capped spacing can only ADD points.  So this is a genuine
-#: lower bound, which is what lets it be used to reject a row BEFORE any work is
-#: done for it -- not an estimate.
+#: ``2 * W_SIGMA * UPSAMPLE_SAFETY`` sub-intervals however large ``sigma`` is.  Used to
+#: reject a row BEFORE any work is done for it.
+#:
+#: It is NOT a strict lower bound, and calling it one was wrong: an interval clipped by a
+#: window end carries fewer points than this.  Such a row is wrap-exposed or nearly so and
+#: has almost always been routed away by the edge guard already -- but "almost always" is
+#: not "always", so this is a COST heuristic and nothing more.  It cannot affect a
+#: returned value: a row it wrongly declines is computed by the dense path instead.
 MIN_LOCAL_POINTS = int(2 * W_SIGMA * UPSAMPLE_SAFETY) + 1
 
 
@@ -550,6 +714,8 @@ def time_marginalize_peak_local(kappa, rho_sq, deltaT, loglikelihood,
 
     stats = dict(n_peak_local_rows=0, n_dense_fallback_cost=0,
                  n_dense_fallback_tail=0, n_dense_fallback_structure=0,
+                 n_dense_fallback_ceiling=0, n_dense_fallback_localise=0,
+                 n_dense_fallback_containment=0,
                  n_intervals_total=0, n_local_points_total=0, n_peaks_total=0,
                  tail_bound_worst=-np.inf)
     idx_all = np.asarray(xpy.where(refined)[0] if xpy is np
@@ -634,8 +800,18 @@ def _peak_local_chunk(kappa_rows, rho_col_rows, factors, npts, deltaT, period,
     # makes the method slower than the path it delegates to, which is the opposite
     # of the point.
     c_lo, c_dn = _estimated_costs(MIN_LOCAL_POINTS, npts, factors_np)
-    viable = c_lo < c_dn
-    stats['n_dense_fallback_cost'] += int(np.sum(~viable))
+    # THE CEILING FIRST.  `required_upsample_factors` saturates a row it cannot justify
+    # at 2*UPSAMPLE_FACTOR_MAX precisely so the dense path will RAISE on it -- that is
+    # the fail-closed behaviour of the whole option.  The cost gate below compares
+    # against the dense cost, so the sharper the row the more certainly this rule keeps
+    # it, and a row past the ceiling is the sharpest kind there is: it would be handled
+    # here and silently returned instead of raising.  Measured before this check: at a
+    # derived factor of 8192 the dense path raised (as designed) while peak-local
+    # returned -24451 nats and reported tail_bound_worst = -2721.
+    over_ceiling = factors_np > _tmq.UPSAMPLE_FACTOR_MAX
+    viable = (c_lo < c_dn) & (~over_ceiling)
+    stats['n_dense_fallback_ceiling'] += int(np.sum(over_ceiling))
+    stats['n_dense_fallback_cost'] += int(np.sum((~viable) & (~over_ceiling)))
     if not viable.any():
         return values, ok, peaks
 
@@ -649,8 +825,7 @@ def _peak_local_chunk(kappa_rows, rho_col_rows, factors, npts, deltaT, period,
 
     mask = enumerate_peak_indices(q_up, xpy=xpy)
     mask = mask & xpy.asarray(viable)[:, None]
-    rows_p, cols_p = xpy.where(mask)
-    cols_p = cols_p + 1                       # the mask covers interior points only
+    rows_p, cols_p = xpy.where(mask)          # full-width mask: index is the sample
     if int(rows_p.shape[0]) == 0:
         return values, ok, peaks
 
@@ -684,9 +859,74 @@ def _peak_local_chunk(kappa_rows, rho_col_rows, factors, npts, deltaT, period,
     if rows_np.size == 0:
         return values, ok, peaks
 
-    t_np = cols_np * h_enum
-    lo_np = np.maximum(t_np - W_SIGMA * sig_np, 0.0)
-    hi_np = np.minimum(t_np + W_SIGMA * sig_np, t_last)
+    # ---- gate 2, on a CONSERVATIVE SUPERSET of the intervals, BEFORE localising.
+    # Localisation is the expensive step (Newton over the spectrum, per peak), and a
+    # broad row has many peaks, so running it before the gate that discards the row is
+    # pure waste -- the same mistake that once made this rule slower than the path it
+    # delegates to, and it cost 7x here before this gate was added (0.14x vs the dense
+    # path at sigma_t/deltaT = 0.17, on a block where every row fell back anyway).
+    #
+    # The crest is somewhere within h_enum/2 of its sample, so an interval built about
+    # the sample and widened by h_enum/2 CONTAINS the interval that localisation will
+    # produce, whatever the answer turns out to be.  Its point count is therefore an
+    # over-estimate, and a gate on an over-estimate can only decline rows -- never keep
+    # one it should have declined.  Where this rule actually wins the conservatism is
+    # irrelevant: at sigma_t/deltaT ~ 0.002 the superset costs 66k against a dense cost
+    # of 12M, so the row is kept with four orders of magnitude to spare.
+    tol_np = LOCALISE_SAFETY * sig_np
+    t_grid_np = cols_np * h_enum
+    prov_half = W_SIGMA * sig_np + tol_np + 0.5 * h_enum
+    p_order, p_gid, pg_row, pg_lo, pg_hi = merge_intervals_by_row(
+        rows_np, np.maximum(t_grid_np - prov_half, 0.0),
+        np.minimum(t_grid_np + prov_half, t_last), t_last)
+    p_smin = np.full(pg_row.size, np.inf)
+    np.minimum.at(p_smin, p_gid, sig_np[p_order])
+    p_nloc = np.maximum(3, np.ceil(
+        (pg_hi - pg_lo) / np.minimum(p_smin / UPSAMPLE_SAFETY, h_enum)
+    ).astype(np.int64) + 1)
+    p_niv_row = np.bincount(pg_row, minlength=n_rows)
+    p_cl, p_cd = _estimated_costs(np.bincount(pg_row, weights=p_nloc,
+                                              minlength=n_rows), npts, factors_np)
+    p_much = p_niv_row > MAX_INTERVALS
+    p_slow = (~p_much) & (p_niv_row > 0) & (p_cl >= p_cd)
+    stats['n_dense_fallback_structure'] += int(np.sum(p_much))
+    stats['n_dense_fallback_cost'] += int(np.sum(p_slow))
+    prov_keep = (p_niv_row > 0) & (~p_much) & (~p_slow)
+    sel_pk = prov_keep[rows_np]
+    if not sel_pk.any():
+        return values, ok, peaks
+    rows_np, cols_np = rows_np[sel_pk], cols_np[sel_pk]
+    sig_np, tol_np = sig_np[sel_pk], tol_np[sel_pk]
+    t_grid_np = t_grid_np[sel_pk]
+
+    # ---- LOCALISE.  An enumerated extremum is a grid INDEX; the interval has to be
+    # built around the CREST.  Centring on the index instead cost up to 165 nats, always
+    # negative -- see LOCALISE_SAFETY.  Newton is confined to the bracket the
+    # enumeration already established, so it places peaks, it cannot find or lose them.
+    Xw, fk = bandlimited_spectrum(kappa_rows, xpy=xpy)
+    t_star, q_star, loc_ok = localise_peaks(
+        Xw, fk, xpy.asarray(rows_np), xpy.asarray(t_grid_np), h_enum,
+        xpy.asarray(tol_np), period, xpy=xpy)
+    t_np = _host(t_star, xpy)
+    lnL_star = _host(loglikelihood(q_star, rho_col_rows[xpy.asarray(rows_np), 0]), xpy)
+    loc_ok_np = _host(loc_ok, xpy).astype(bool)
+
+    # A row with ANY peak the localiser could not place is not approximated -- it goes
+    # to the dense path.  Fail closed: an unplaced crest is exactly the condition that
+    # produced the bias.
+    bad_loc = np.zeros(n_rows, dtype=bool)
+    bad_loc[rows_np[~loc_ok_np]] = True
+    stats['n_dense_fallback_localise'] += int(np.sum(bad_loc))
+
+    # The interval is centred on the crest and widened by the localisation residual, so
+    # containment does not depend on the crest happening to sit near a grid sample.
+    half_np = W_SIGMA * sig_np + tol_np
+    lo_np = np.maximum(t_np - half_np, 0.0)
+    hi_np = np.minimum(t_np + half_np, t_last)
+
+    # Per-row crest value, for the a-posteriori containment check after integration.
+    row_star = np.full(n_rows, -np.inf)
+    np.maximum.at(row_star, rows_np, lnL_star)
     bounds = np.searchsorted(rows_np, np.arange(n_rows + 1))
 
     # ---- merge, and derive each merged interval's own spacing.  All rows at once:
@@ -706,11 +946,15 @@ def _peak_local_chunk(kappa_rows, rho_col_rows, factors, npts, deltaT, period,
     n_loc_row = np.bincount(g_row, weights=n_loc, minlength=n_rows)
     c_local, c_dense = _estimated_costs(n_loc_row, npts, factors_np)
 
+    # These can only catch what the provisional pass could not.  The localised intervals
+    # are contained in the provisional ones, so their point count -- and hence the cost
+    # test -- can only have improved; the INTERVAL COUNT can go up, though, because
+    # narrower intervals merge less readily, so the structure test is not redundant.
     too_much = n_iv_row > MAX_INTERVALS
     too_slow = (~too_much) & (n_iv_row > 0) & (c_local >= c_dense)
     stats['n_dense_fallback_structure'] += int(np.sum(too_much))
     stats['n_dense_fallback_cost'] += int(np.sum(too_slow))
-    keep_row = (n_iv_row > 0) & (~too_much) & (~too_slow)
+    keep_row = (n_iv_row > 0) & (~too_much) & (~too_slow) & (~bad_loc)
 
     gbounds = np.searchsorted(g_row, np.arange(n_rows + 1))
     plan = []
@@ -722,12 +966,12 @@ def _peak_local_chunk(kappa_rows, rho_col_rows, factors, npts, deltaT, period,
     if not plan:
         return values, ok, peaks
 
-    Xw, fk = bandlimited_spectrum(kappa_rows, xpy=xpy)
-
     # ---- batched evaluation.  Rows are grouped by (interval count, point-count
     # bucket) so padding to a common shape can waste at most a factor of two, and
     # every interval slot of a group is one batched call.
     covered = np.zeros((n_rows, n_enum), dtype=bool)
+    covered_len = np.zeros(n_rows)
+    attained = np.full(n_rows, -np.inf)
     parts = xpy.full((n_rows, MAX_INTERVALS), -np.inf, dtype=np.float64)
     buckets = {}
     for entry in plan:
@@ -742,21 +986,36 @@ def _peak_local_chunk(kappa_rows, rho_col_rows, factors, npts, deltaT, period,
             b_h = np.array([m[2][j] for m in members], dtype=np.float64)
             h_h = (b_h - a_h) / float(m_pad - 1)
             # A zero-length merged interval (a peak pinned against a window end)
-            # would give h=0 and a degenerate grid; give it the enumeration spacing
-            # so the trapezoid has a domain.  Whatever it then misses is bounded by
-            # the tail check like everything else.
+            # would give h=0 and a degenerate grid; give it the enumeration spacing so
+            # the trapezoid has a domain.  Note which way the risk runs: this makes the
+            # integration domain EXCEED the merged interval, so the hazard is
+            # double-counting against a neighbour, not missing mass.  Unreachable as
+            # written -- a zero-length interval needs a peak exactly at a window end,
+            # which the edge guard has already routed away -- but the thing to check is
+            # over-coverage.
             h_h = np.where(h_h > 0, h_h, h_enum)
             k_loc = eval_bandlimited_uniform(Xw[rr_x], fk, xpy.asarray(a_h),
                                              xpy.asarray(h_h), m_pad, period, xpy=xpy)
             lnL_loc = loglikelihood(
                 _term(k_loc), xpy.broadcast_to(rho_col_rows[rr_x], k_loc.shape))
             parts[rr_x, j] = _log_trapz_local(lnL_loc, xpy.asarray(h_h), xpy=xpy)
+            # Highest lnL the integration grid actually REACHED, for the containment
+            # check below.  Free: the same maximum is already taken for the offset.
+            attained[rr] = np.maximum(attained[rr],
+                                      _host(xpy.max(lnL_loc, axis=-1), xpy))
             stats['n_local_points_total'] += int(rr.size) * m_pad
             for i_m, m in enumerate(members):
                 lo_i = int(np.ceil(a_h[i_m] / h_enum))
                 hi_i = int(np.floor(b_h[i_m] / h_enum))
                 if hi_i >= lo_i:
                     covered[m[0], max(lo_i, 0):hi_i + 1] = True
+                # EXACT covered length, not a count of grid indices.  A merged interval
+                # narrower than h_enum, or a gap between two of them that happens to
+                # contain no integer index, contributes nothing to the index count -- so
+                # a T_outside built from that count omits real, uncovered time.  Measured
+                # on a comb-like row before this change: 4.8% of the true mass sat in
+                # such gaps, worth -0.050 nats, while the bound reported -43.
+                covered_len[m[0]] += float(b_h[i_m] - a_h[i_m])
         stats['n_intervals_total'] += int(rr.size) * n_iv
 
     result = _logaddexp_reduce(parts, xpy=xpy)
@@ -768,17 +1027,28 @@ def _peak_local_chunk(kappa_rows, rho_col_rows, factors, npts, deltaT, period,
     # with a caveat: it goes to the dense path.
     cov_x = xpy.asarray(covered)
     q_out_max = xpy.max(xpy.where(cov_x, -np.inf, q_up), axis=-1)
-    n_out = _host(xpy.sum(~cov_x, axis=-1), xpy).astype(np.float64)
+    T_out = np.maximum(t_last - covered_len, 0.0)
     lnL_out = loglikelihood(q_out_max, rho_col_rows[:, 0])
     with np.errstate(divide='ignore', invalid='ignore'):
-        bound = np.where(n_out > 0, np.log(np.maximum(n_out * h_enum, 1e-300))
+        bound = np.where(T_out > 0, np.log(np.maximum(T_out, 1e-300))
                          + _host(lnL_out, xpy), -np.inf)
         margin = bound - _host(result, xpy)
 
     planned = np.array([m[0] for m in plan])
-    accepted = planned[margin[planned] < TAIL_LOG_TOL]
-    rejected = planned[~(margin[planned] < TAIL_LOG_TOL)]
-    stats['n_dense_fallback_tail'] += int(rejected.size)
+    # TWO conditions, and they fail differently on purpose.  The tail bound is a
+    # statement about mass OUTSIDE the intervals, computed from a sampled maximum, so it
+    # is only as good as the grid it samples -- which is the grid that produced F1.  The
+    # containment check is a statement about the crest being INSIDE, verified from the
+    # integration grid's own values, and it is what actually catches a mis-placed
+    # interval.  Neither subsumes the other and a row must satisfy both.
+    contained = attained >= row_star - CONTAINMENT_SLACK_NATS
+    good_mask = (margin[planned] < TAIL_LOG_TOL) & contained[planned]
+    accepted = planned[good_mask]
+    rejected = planned[~good_mask]
+    stats['n_dense_fallback_tail'] += int(np.sum(
+        ~(margin[planned] < TAIL_LOG_TOL)))
+    stats['n_dense_fallback_containment'] += int(np.sum(
+        (margin[planned] < TAIL_LOG_TOL) & (~contained[planned])))
     if accepted.size:
         acc_x = xpy.asarray(accepted)
         values[acc_x] = result[acc_x]
@@ -791,6 +1061,8 @@ def _peak_local_chunk(kappa_rows, rho_col_rows, factors, npts, deltaT, period,
     if want_peaks:
         for r, starts, stops, m_max, a, b in plan:
             if ok[r]:
+                # t_np is the LOCALISED crest, not the enumeration sample -- which is the
+                # whole point of exposing it for a time-first reordering.
                 peaks[r] = (t_np[a:b].copy(), sig_np[a:b].copy())
 
     return values, ok, peaks

@@ -244,7 +244,7 @@ def test_local_evaluator_honours_a_per_row_grid():
 # --------------------------------------------- accuracy against analytic truth
 
 @pytest.mark.parametrize("amp,refine", [(1.0, 256), (5.0, 512)])
-@pytest.mark.parametrize("phase", [0.0, 0.25, 0.5])
+@pytest.mark.parametrize("phase", [0.0, 0.25, 0.5, 0.3125, 0.28125])
 def test_exact_on_a_periodic_window(amp, phase, refine):
     """Against a CLOSED-FORM truth, not against the dense path.
 
@@ -252,6 +252,13 @@ def test_exact_on_a_periodic_window(amp, phase, refine):
     exists to remove is that the answer depends on where the sample grid happens to
     fall relative to the peak, so a fixture pinned to one phase can be exactly wrong
     and look exactly right.
+
+    THE PHASES ABOVE ARE NOT ALL MULTIPLES OF 1/PEAK_ENUM_FACTOR, and that is the whole
+    point.  The first version of this suite swept 0.0 / 0.25 / 0.5 only -- all exact
+    multiples of 1/8 -- so the crest landed EXACTLY on an enumeration sample in every
+    single test, and a bug that only appears between samples was invisible to all of
+    them.  The docstring above was already there when that happened.  0.3125 puts the
+    crest at half a sample; it is the phase that found the bug.
     """
     sig = BandLimited(amp=amp, peak_sample=NPTS // 2 + phase)
     got, want = _peak_local(sig.samples()), sig.truth(refine)
@@ -296,6 +303,118 @@ def test_beats_simpson_where_the_peak_is_under_resolved():
     ref = sig.truth(2048)
     assert abs(_peak_local(k) - ref) < 1e-4
     assert abs(_simpson_value(k) - ref) > 1.0
+
+
+def test_the_crest_is_localised_between_enumeration_samples():
+    """F1 REGRESSION -- the bug this module shipped with, and the sharpest test here.
+
+    An enumerated extremum is a grid INDEX.  The crest it stands for can be up to
+    ``h_enum/2`` away, while the interval half-width is ``W_SIGMA * sigma_t``, so once
+    ``W_SIGMA * sigma_t < h_enum/2`` -- any row with a derived factor of 512 or more --
+    the peak falls entirely OUTSIDE its own interval and its mass is silently dropped.
+
+    Centring on the sample instead of the crest measured, on this fixture at
+    ``sigma_t/deltaT = 0.0024``: **0.00 nats at offset 0, -6.52 at h_enum/4, -164.93 at
+    h_enum/2**, always negative.  The sweep below walks the crest across a full
+    enumeration cell, so the worst case is inside it by construction rather than by
+    luck, and the reference is the dense path (exact here, and independently checked
+    against a closed-form truth in the control at the end).
+    """
+    F = pl.PEAK_ENUM_FACTOR
+    ref_sig = BandLimited(amp=2000.0, peak_sample=NPTS // 2)
+    k0 = ref_sig.samples()[None, :]
+    sigma, _, _ = tmq.peak_width_from_lnL(_lnL(k0.real, RHO_SQ), DELTAT)
+    assert pl.W_SIGMA * float(sigma[0]) < 0.5 * DELTAT / F, (
+        "fixture is not in the regime this test exists for", float(sigma[0]) / DELTAT)
+
+    for off in np.linspace(0.0, 1.0, 9):            # a full enumeration cell
+        phase = off / F
+        sig = BandLimited(amp=2000.0, peak_sample=NPTS // 2 + phase)
+        k = sig.samples()
+        assert abs(_peak_local(k) - _bandlimited(k)) < 1e-3, (off, phase)
+
+    # control: at the phase that produced -164.93, both paths hit the analytic truth
+    sig = BandLimited(amp=2000.0, peak_sample=NPTS // 2 + 0.5 / F)
+    k, want = sig.samples(), None
+    want = sig.truth(2048)
+    assert abs(_peak_local(k) - want) < 1e-3
+    assert abs(_bandlimited(k) - want) < 1e-3
+
+
+def test_a_block_with_uniform_arrival_times_is_unbiased():
+    """The production statement of the same thing, and the one that matters.
+
+    A real block's arrival times bear no relation to the sample grid, so the
+    grid-quantisation error is drawn uniformly across an enumeration cell.  Before the
+    localisation fix this block measured **median -1.15 nats, worst -131 nats, 56% of
+    rows wrong by more than 0.01 nats, and all of them ACCEPTED** -- a bias, not noise,
+    because the sign is always negative: mass is dropped, never added.
+
+    Asserted on the WHOLE distribution rather than on a summary, because a median-only
+    check passes while a tail deletes extrinsic samples from the marginalization.
+    """
+    rng = np.random.default_rng(20260828)
+    phases = rng.uniform(0.0, 1.0, 48)
+    k = np.stack([BandLimited(amp=2000.0, peak_sample=NPTS // 2 + p).samples()
+                  for p in phases])
+    r = np.full(k.shape, RHO_SQ)
+    got = np.asarray(pl.time_marginalize_peak_local(k, r, DELTAT, _lnL))
+    ref = np.asarray(tmq.time_marginalize_bandlimited(k, r, DELTAT, _lnL))
+    d = got - ref
+    assert np.max(np.abs(d)) < 1e-3, (np.median(d), d[np.argmax(np.abs(d))])
+    assert abs(np.median(d)) < 1e-6, np.median(d)
+    assert pl.last_report()['n_peak_local_rows'] == len(phases)
+
+
+def test_a_failed_localisation_sends_the_row_to_the_dense_path(monkeypatch):
+    """Fail closed.  If the crest cannot be PLACED, the row is not approximated.
+
+    Sabotaged by making the localiser report non-convergence, which is what a
+    pathological integrand would do.  The value must still be right -- it comes from
+    the dense path -- and the row must be counted, not silently absorbed.
+    """
+    sig = BandLimited(amp=2000.0, peak_sample=NPTS // 2 + 0.3125)
+    k = sig.samples()
+    real = pl.localise_peaks
+
+    def never_converges(*a, **kw):
+        t, q, ok = real(*a, **kw)
+        return t, q, np.zeros_like(ok)
+
+    monkeypatch.setattr(pl, 'localise_peaks', never_converges)
+    got = _peak_local(k)
+    rep = pl.last_report()
+    assert rep['n_dense_fallback_localise'] == 1, rep
+    assert rep['n_peak_local_rows'] == 0, rep
+    assert got == _bandlimited(k)
+
+
+def test_the_containment_check_catches_a_mis_placed_interval(monkeypatch):
+    """The a-posteriori half of the F1 fix, tested by re-introducing F1 exactly.
+
+    Forcing the crest back onto the enumeration sample is precisely the old behaviour.
+    The interval then misses the peak, and the run must NOT report the truncated value:
+    the local grid fails to attain the localised crest's ``lnL`` and the row is handed
+    to the dense path.
+
+    Note the check compares against ``lnL`` at the LOCALISED crest.  Against the
+    enumeration SAMPLE it would pass here -- the sample is already ~87 nats below the
+    crest in this configuration -- which is why the sample cannot be the reference.
+    """
+    sig = BandLimited(amp=2000.0, peak_sample=NPTS // 2 + 0.5 / pl.PEAK_ENUM_FACTOR)
+    k = sig.samples()
+    real = pl.localise_peaks
+
+    def snap_back_to_the_grid(Xw, fk, rows, t_grid, h_enum, tol, period, **kw):
+        t, q, ok = real(Xw, fk, rows, t_grid, h_enum, tol, period, **kw)
+        return t_grid, q, ok            # crest value kept, position quantised: old bug
+
+    monkeypatch.setattr(pl, 'localise_peaks', snap_back_to_the_grid)
+    got = _peak_local(k)
+    rep = pl.last_report()
+    assert rep['n_dense_fallback_containment'] == 1, rep
+    assert rep['n_peak_local_rows'] == 0, rep
+    assert got == _bandlimited(k)
 
 
 def test_a_nonlinear_distance_marginalization_style_callback():
@@ -415,8 +534,8 @@ def test_two_separated_peaks_are_both_found():
     them and reports roughly half the integral, i.e. ``log 2 = 0.69`` nats low.  The
     tolerance is far tighter than that, so this cannot pass by luck.
     """
-    sig = BandLimited(amp=200.0, peak_sample=NPTS // 3,
-                      extra_peaks=[(2 * NPTS // 3, 1.0)])
+    sig = BandLimited(amp=200.0, peak_sample=NPTS // 3 + 0.3125,
+                      extra_peaks=[(2 * NPTS // 3 + 0.40625, 1.0)])
     k = sig.samples()
     got, want = _peak_local(k), sig.truth(1024)
     assert abs(got - want) < 1e-3, (got, want)
@@ -437,8 +556,12 @@ def test_a_sabotaged_enumeration_is_caught_by_the_tail_bound(monkeypatch):
 
     If this test fails, the whole rigour claim in the module docstring is void.
     """
-    sig = BandLimited(amp=200.0, peak_sample=NPTS // 3,
-                      extra_peaks=[(2 * NPTS // 3, 1.0)])
+    # OFF-GRID on purpose.  Both peaks previously sat at NPTS//3 and 2*NPTS//3, which
+    # are exact enumeration samples -- so the outside maximum was sampled right on the
+    # discarded crest and the bound worked for a reason that does not generalise.  Move
+    # them off the grid and the bound has to work on its own merits.
+    sig = BandLimited(amp=200.0, peak_sample=NPTS // 3 + 0.3125,
+                      extra_peaks=[(2 * NPTS // 3 + 0.40625, 1.0)])
     k = sig.samples()
     truth = sig.truth(1024)
 
@@ -499,8 +622,12 @@ def test_peak_positions_do_not_depend_on_distance_or_callback():
     callbacks = [_lnL, _lnL_distmarg_like, lambda x, r: np.cbrt(x - 0.5 * r)]
     for one_over_d in (0.05, 1.0, 40.0):
         for cb in callbacks:
+            # Through the SHIPPED enumerator on both sides.  A hand-inlined copy of the
+            # comparison here silently stopped matching when the enumerator started
+            # including endpoints, which made this test fail for a reason that had
+            # nothing to do with the invariant it is about.
             v = cb(one_over_d * up.real, RHO_SQ)
-            got = np.where((v[1:-1] >= v[:-2]) & (v[1:-1] > v[2:]))[0]
+            got = np.where(pl.enumerate_peak_indices(v[None, :])[0])[0]
             assert np.array_equal(got, ref), (one_over_d, cb)
 
 
@@ -520,9 +647,14 @@ def test_the_enumeration_factor_finds_the_same_peaks_as_a_much_finer_grid():
         i = i[up[i] > up[i].max() - pl.PEAK_KEEP_NATS]
         return np.sort(i * (DELTAT / F))
 
+    # To within one ENUMERATION sample, not one coarse sample.  The old bound was
+    # `DELTAT` = 8 * h_enum, ~290x the interval half-width it was meant to justify, so
+    # it would have accepted an enumeration that missed by far more than the interval
+    # is wide.
     coarse, fine = peaks_at(pl.PEAK_ENUM_FACTOR), peaks_at(64)
+    h_enum = DELTAT / pl.PEAK_ENUM_FACTOR
     for t in fine:
-        assert np.min(np.abs(coarse - t)) <= DELTAT, (t, coarse)
+        assert np.min(np.abs(coarse - t)) <= h_enum, (t, coarse)
 
 
 # ------------------------------------------- inherited invariants (PR #203)
@@ -646,19 +778,40 @@ def test_simps_is_required_for_a_non_numpy_backend():
                                        xpy=FakeXpy())
 
 
-def test_the_ceiling_still_fails_closed_through_the_fallback():
-    """A row too sharp for the derivation is not silently under-resolved.  Here the
-    peak-local rule declines it on cost and hands it to the dense path, which raises
-    at its ceiling -- so the fail-closed behaviour survives the delegation."""
-    old = tmq.UPSAMPLE_FACTOR_MAX
+def test_the_ceiling_fails_closed_for_the_SHARPEST_rows_not_just_broad_ones():
+    """A row whose derived factor exceeds the ceiling must RAISE, and the route to that
+    must not depend on the cost gate declining it.
+
+    This is F3, and it was fail-OPEN.  The cost gate compares the local cost against the
+    dense cost, so the sharper the row the more certainly peak-local keeps it -- and a
+    row past the ceiling is the sharpest kind there is.  At a derived factor of 8192 the
+    dense path raised, as designed, while peak-local returned -24451 nats and reported
+    ``tail_bound_worst = -2721``.
+
+    The earlier version of this test only passed because it set
+    ``UPSAMPLE_FACTOR_MAX = 2``, which is broad enough that the COST gate declined the
+    row first; the ceiling was never what routed it.  Here the ceiling is lowered but
+    left well inside the regime where the cost gate would happily keep the row, so the
+    ceiling check is the only thing that can produce the raise -- and the control below
+    confirms the row is one peak-local would otherwise have taken.
+    """
+    sig = BandLimited(amp=2000.0, peak_sample=NPTS // 2 + 0.3125)
+    k = sig.samples()[None, :]
+    r = np.full(k.shape, RHO_SQ)
+
+    # control: at the shipped ceiling this row is handled by peak-local
+    pl.time_marginalize_peak_local(k, r, DELTAT, _lnL)
+    assert pl.last_report()['n_peak_local_rows'] == 1
+
+    old_max = tmq.UPSAMPLE_FACTOR_MAX
     try:
-        tmq.UPSAMPLE_FACTOR_MAX = 2
-        k = BandLimited(amp=2000.0, peak_sample=NPTS // 2).samples()[None, :]
-        r = np.full(k.shape, RHO_SQ)
+        tmq.UPSAMPLE_FACTOR_MAX = 256
+        sigma, _, _ = tmq.peak_width_from_lnL(_lnL(k.real, r), DELTAT)
+        assert int(tmq.required_upsample_factors(sigma, DELTAT)[0]) > 256
         with pytest.raises(RuntimeError):
             pl.time_marginalize_peak_local(k, r, DELTAT, _lnL)
     finally:
-        tmq.UPSAMPLE_FACTOR_MAX = old
+        tmq.UPSAMPLE_FACTOR_MAX = old_max
 
 
 def test_a_cost_fallback_row_gets_the_DENSE_value_not_an_approximation():
@@ -762,14 +915,24 @@ def test_return_peaks_exposes_t_star_and_the_local_width():
     temporaries.  They are distance- and callback-independent (see the invariance
     test above), which is what a time-first reordering of the marginalizations would
     need, so they are exposed deliberately rather than incidentally."""
-    sig = BandLimited(amp=2000.0, peak_sample=NPTS // 2 + 0.25)
+    # OFF the enumeration grid, and with no background, so the true crest is known in
+    # closed form: this fixture's kernel is symmetric about `peak_sample`.
+    peak_sample = NPTS // 2 + 0.3125
+    sig = BandLimited(amp=2000.0, peak_sample=peak_sample)
     k = sig.samples()[None, :]
     out, peaks = pl.time_marginalize_peak_local(
         k, np.full(k.shape, RHO_SQ), DELTAT, _lnL, return_peaks=True)
     assert peaks[0] is not None
     t_star, sigma_star = peaks[0]
-    j = int(np.argmax(_lnL(k[0].real, RHO_SQ)))
-    assert np.min(np.abs(t_star - j * DELTAT)) < DELTAT
+
+    # Against the TRUE crest, not against the coarse argmax.  Measuring the distance to
+    # the nearest coarse sample tests nothing -- it is 0.3125*deltaT here by
+    # construction, whether or not any localisation happened.  The bar is a small
+    # fraction of the ENUMERATION spacing, which is what "sub-sample" has to mean when
+    # this is offered as the t_star a time-first reordering would build on.
+    h_enum = DELTAT / pl.PEAK_ENUM_FACTOR
+    err = np.min(np.abs(t_star - peak_sample * DELTAT))
+    assert err < 0.01 * h_enum, (err / h_enum, "localisation is not sub-sample")
     assert np.all(sigma_star > 0) and np.all(np.isfinite(sigma_star))
 
 
@@ -785,6 +948,21 @@ def test_the_tuned_constants_are_pinned_to_their_measured_values():
     assert pl.TAIL_LOG_TOL == -23.0
     assert pl.MAX_INTERVALS == 32
     assert pl._RECURRENCE_REANCHOR == 64
+    assert pl.LOCALISE_SAFETY == 0.25
+    assert pl.LOCALISE_MAX_ITER == 16
+    assert pl.CONTAINMENT_SLACK_NATS == 0.5
+
+    # The relation that USED to be an unstated precondition.  `erfc(W/sqrt2)` bounds the
+    # truncation of a Gaussian about its CREST, so centring on the enumeration sample
+    # silently required `W_SIGMA * sigma_t >= h_enum/2` -- which couples W_SIGMA to
+    # PEAK_ENUM_FACTOR, is violated by every sharp row, and was nowhere asserted.
+    # Localisation discharges it: the interval is centred on the crest and widened by
+    # the localisation residual, so what has to hold is only that the residual is small
+    # against the half-width.  That is checkable, so check it.
+    assert pl.LOCALISE_SAFETY < 0.1 * pl.W_SIGMA, (
+        "the localisation residual must be negligible against the interval half-width")
+    assert pl.CONTAINMENT_SLACK_NATS < 1.0, (
+        "the containment slack must be far below the smallest miss F1 produced (6.5 nats)")
     # inherited, and the peak-local path derives its LOCAL spacing from this one
     assert tmq.UPSAMPLE_SAFETY == 2.0
     assert tmq.EDGE_GUARD_FRACTION == 0.125
