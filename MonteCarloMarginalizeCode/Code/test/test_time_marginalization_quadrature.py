@@ -495,7 +495,7 @@ def test_unmeasurable_row_falls_back_and_is_counted():
                                            lnL_with_hole)
     rep = tmq.last_report()
     assert rep['n_unmeasurable_rows'] == 1, rep
-    assert rep['n_fallback_rows'] == 1, rep
+    assert rep['n_refined_rows'] == 1, rep
     # counted unconditionally: an all -inf row also has argmax 0, so a counter
     # written as "unmeasurable AND not exposed" would hide it behind the guard
     assert rep['n_wrap_exposed_rows'] == 0, rep
@@ -504,6 +504,41 @@ def test_unmeasurable_row_falls_back_and_is_counted():
     # would propagate into the sampler weights.
     assert float(out[0]) == -np.inf, out[0]
     assert abs(float(out[1]) - sig.truth()) < 1e-6
+
+
+def test_a_row_changes_if_and_only_if_it_was_under_resolved():
+    """The guarantee, stated so it can be checked rather than argued.
+
+    Every row that is NOT refined -- wrap-exposed, unmeasurable, or already
+    resolved -- must come back with the historical Simpson value, so enabling
+    this option cannot make any row worse than the status quo.  Letting an
+    unrefined row fall through to a coarse trapezoid instead is numerically a
+    non-event, but it changes the rule for rows this option was never meant to
+    touch and forfeits exactly this property.
+    """
+    rows, expect_refined = [], []
+    # resolved (no refinement warranted)
+    rows.append(BandLimited(amp=0.002, peak_sample=NPTS // 2).samples()); expect_refined.append(False)
+    # signal-free
+    rows.append(np.zeros(NPTS, dtype=complex)); expect_refined.append(False)
+    # wrap-exposed
+    rows.append(BandLimited(amp=1.0, peak_sample=2.3, n_period=8 * NPTS,
+                            m_hi=1400, background=0.12).samples()); expect_refined.append(False)
+    # genuinely under-resolved
+    rows.append(BandLimited(amp=1.0, peak_sample=NPTS // 2 + 0.25, n_period=8 * NPTS,
+                            m_hi=1400, background=0.12).samples()); expect_refined.append(True)
+
+    k = np.stack(rows)
+    out = tmq.time_marginalize_bandlimited(k, np.full(k.shape, RHO_SQ), DELTAT, _lnL)
+    rep = tmq.last_report()
+    assert rep['n_refined_rows'] == sum(expect_refined), rep
+
+    for i, should_change in enumerate(expect_refined):
+        historical = _simpson_value(rows[i])
+        if should_change:
+            assert float(out[i]) != historical, i
+        else:
+            assert float(out[i]) == historical, (i, out[i], historical)
 
 
 def test_remeasure_on_the_dense_grid_repairs_an_under_derived_factor():

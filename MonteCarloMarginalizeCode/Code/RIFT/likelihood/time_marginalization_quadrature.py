@@ -209,7 +209,7 @@ def last_report():
     Keys: ``upsample_factor`` (the largest used), ``factor_histogram``
     (factor -> row count, over the rows that were refined), ``n_refinements``,
     ``sigma_t_min``, ``n_rows``, ``n_wrap_exposed_rows``, ``n_unmeasurable_rows``,
-    ``n_flat_rows``, ``n_fallback_rows``.
+    ``n_flat_rows``, ``n_refined_rows``.
 
     The three row counts are deliberately kept apart, because they mean different
     things and only two of them are ever worth acting on:
@@ -223,8 +223,14 @@ def last_report():
     stencil half-width, so no width can be justified.  Given the historical value.
 
     ``n_flat_rows`` -- finite ``lnL(t)`` with no resolvable curvature: an
-    extrinsic sample with no signal in it.  Nothing is wrong and nothing is paid;
-    these derive a factor of 1 and are integrated on the coarse grid.
+    extrinsic sample with no signal in it.  Nothing is wrong and nothing is paid.
+
+    ``n_refined_rows`` is the count that matters for auditing a change: a row's
+    returned value differs from the historical one IF AND ONLY IF it is in this
+    set.  Every other row -- exposed, unmeasurable, or already resolved -- is
+    given the historical Simpson rule (with a per-row log-sum-exp offset; see
+    :func:`_log_trapz_over_window` for why the offset cannot be the shared global
+    one on the refined path).
     """
     return dict(_LAST_REPORT)
 
@@ -454,22 +460,32 @@ def time_marginalize_bandlimited(kappa, rho_sq, deltaT, loglikelihood,
     # Counted unconditionally, NOT `& ~exposed`: an all -inf row also has an
     # argmax of 0, so a conditional counter would hide it behind the edge guard.
     unmeasurable = ~measurable
-    fallback = exposed | unmeasurable
 
-    factors = required_upsample_factors(sigma, deltaT, xpy=xpy)
-    factors = xpy.where(fallback, 1, factors)
+    factors = xpy.maximum(required_upsample_factors(sigma, deltaT, xpy=xpy), 1)
+    # A row is REFINED only if it has a trustworthy peak AND the derivation
+    # actually asks for a finer grid.  Everything else -- wrap-exposed,
+    # unmeasurable, or simply already resolved -- gets the historical Simpson
+    # value.  That is the whole rule, and it is what makes the guarantee exact
+    # rather than argued: a row's value changes if and only if its integrand was
+    # under-resolved.  The alternative, letting an unrefined row fall through to
+    # a coarse TRAPEZOID, is numerically a non-event but silently changes the
+    # rule for rows this option was never meant to touch, and costs the property
+    # a reviewer can actually check.  (Trapezoid is in fact slightly the better
+    # rule on a resolved integrand -- 5e-6 nats against an analytic truth, versus
+    # Simpson's 5e-6 the other way -- so this trades nothing measurable for an
+    # auditable claim.)
+    refined = (~(exposed | unmeasurable)) & (factors > 1)
 
-    # Rows that fall back get the historical value; the rest are processed in
-    # groups sharing a derived factor, each at its own resolution.
     out = _log_simps_rows(lnL_coarse, deltaT, simps, xpy=xpy)
 
     hist = {}
     n_refine_total = 0
     sigma_seen = np.inf
-    todo = ~fallback
-    for f in xpy.unique(xpy.where(todo, factors, 1)):
+    for f in xpy.unique(xpy.where(refined, factors, 1)):
         f = int(f)
-        sel = todo & (factors == f)
+        if f == 1:
+            continue
+        sel = refined & (factors == f)
         n_sel = int(xpy.sum(sel))
         if not n_sel:
             continue
@@ -491,7 +507,7 @@ def time_marginalize_bandlimited(kappa, rho_sq, deltaT, loglikelihood,
         n_wrap_exposed_rows=int(xpy.sum(exposed)),
         n_unmeasurable_rows=int(xpy.sum(unmeasurable)),
         n_flat_rows=int(xpy.sum(flat)),
-        n_fallback_rows=int(xpy.sum(fallback)),
+        n_refined_rows=int(xpy.sum(refined)),
     )
     return out
 
