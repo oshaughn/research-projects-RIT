@@ -32,6 +32,10 @@ from RIFT.misc.dag_utils_generic import which
 # leaf module: numpy only, so this does not drag numba/cupy into the helper
 from RIFT.likelihood.time_interp_choice import (
     BARE_FLAG_SENTINEL, CROSSOVER_GUIDANCE, resolve_interpolate_time_request)
+# Same leaf-module reasoning, and IMPORTED rather than re-typed: a second hand-written
+# copy of the choice tuple is how a typo becomes a silently different likelihood.
+from RIFT.likelihood.time_marginalization_quadrature import (
+    TIME_QUADRATURE_CHOICES, validate_time_quadrature, time_quadrature_pipeline_prereqs)
 lalapps_path2cache = which('lal_path2cache')
 ligolw_add = 'igwn_ligolw_add'
 if not(which(ligolw_add)):
@@ -231,6 +235,7 @@ parser.add_argument("--internal-ile-auto-logarithm-offset",action='store_true',h
 parser.add_argument("--internal-ile-use-lnL",action='store_true',help="Passthrough to ILE.  Will DISABLE auto-logarithm-offset and manual-logarithm-offset")
 parser.add_argument("--internal-ile-n-chunk",default=None,type=int,help="Override the extrinsic chunk size (--n-chunk) passed to ILE. Default: 40000, scaled linearly with SNR above 40 and capped at 160000. Rationale: at high SNR the posterior is a vanishing fraction of the prior volume, so a small chunk gives few informative samples per adaptation step; measured collapse on a truth-known SNR ladder falls 88%%->50%% (SNR160) and 69%%->25%% (SNR80) going 1e4->1.6e5, and the gain survives at fixed budget. Larger chunks cost GPU memory, so raise the ILE memory request if you raise this a lot.")
 parser.add_argument("--internal-ile-interpolate-time",nargs='?',const=BARE_FLAG_SENTINEL,default=None,type=str,help="Evaluate Q_lm at FRACTIONAL detector times instead of snapping to the nearest sample bin, in the maintained NoLoop likelihood (needs --time-marginalization --vectorized and one of --gpu/--rotation-slow/--freqresponse; the driver REFUSES rather than ignores otherwise). REQUIRES AN EXPLICIT STENCIL: nearest|cubic|sinc -- automatic selection was removed as measurably unreliable, and a bare flag is rejected rather than silently doing nothing. MEASURED GUIDANCE (SEOBNRv4, an IMR model): %s. 'nearest' is never competitive and is already unusable at O4 SNRs. Error grows as SNR^2, so this matters more at 3G. Cost: sinc is ~4.2-4.5x cubic on CPU, ~1.6-3.0x on GPU. Full tables, limitations and provenance: RIFT/likelihood/DESIGN_q_window_stencil.md. Default off." % CROSSOVER_GUIDANCE)
+parser.add_argument("--internal-ile-time-marginalization-quadrature",default=None,type=str,choices=list(TIME_QUADRATURE_CHOICES),help="Rule for the TIME integral of the marginalized likelihood: %s. Default None = emit nothing, so ILE keeps its own default ('simpson', the historical fixed-deltaT Simpson rule) and args_ile.txt is byte-identical to today. 'bandlimited' resolves the INTEGRAND rather than the data: exp(lnL(t)) is a peak of width sigma_t = 1/(2 pi rho sigma_f), which shrinks as 1/rho, while deltaT=1/srate is fixed -- so production under-resolves its own integrand, worse at higher SNR (measured: scanning the grid phase moves the reported lnL by 1.649 nats at srate 4096, rho=40). Emitted as --time-marginalization-quadrature on the ILE command line, so a completed run's quadrature is readable off the .sub file. Requires --time-marginalization --vectorized --gpu and excludes --rotation-slow / --freqresponse / calibration marginalization; this helper REFUSES rather than emitting an inert flag. INI OVERRIDE: the RIFT ini parser overrides the command line for non-boolean options, so never set this string option in an ini that a Makefile also sets. Rationale and measured tables: RIFT/likelihood/DESIGN_time_marginalization_quadrature.md." % ("|".join(TIME_QUADRATURE_CHOICES),))
 parser.add_argument("--internal-cip-use-lnL",action='store_true')
 parser.add_argument("--ile-n-eff",default=50,type=int,help="Target n_eff passed to ILE.  Try to keep above 2")
 parser.add_argument("--test-convergence",action='store_true',help="If present, the code will terminate if the convergence test  passes. WARNING: if you are using a low-dimensional model the code may terminate during the low-dimensional model!")
@@ -281,6 +286,13 @@ opts=  parser.parse_args()
 # fails here rather than after a whole workflow has been built and submitted.  Returns None when
 # the feature is off; a canonical stencil name otherwise.
 time_interp_choice = resolve_interpolate_time_request(opts.internal_ile_interpolate_time)
+
+# Same, for the time quadrature: argparse `choices` already rejects a typo, but validate through
+# the LIBRARY function too so this helper and the ILE driver can never disagree about the legal
+# set.  None means "emit nothing", which is the byte-identical default path.
+time_quadrature_choice = opts.internal_ile_time_marginalization_quadrature
+if time_quadrature_choice is not None:
+    validate_time_quadrature(time_quadrature_choice)
 
 # Ensure --assume-hyperbolic is set when using any --force-X-grids option
 # Ensure only ONE of the --force-X-grids options is set
@@ -1204,6 +1216,19 @@ if time_interp_choice is not None:
     # the reverse pairing is safe.  Pair this pipeline with an ILE from the same checkout.
     helper_ile_args += " --interpolate-time " + time_interp_choice + " "
 
+if time_quadrature_choice is not None:
+    # Validated at parse time, so by here it is one of TIME_QUADRATURE_CHOICES.  The name goes on
+    # the ILE command line verbatim, so a completed run's quadrature is readable off the .sub file.
+    #
+    # VERSION SKEW: an ILE predating this option rejects the unknown flag outright (optparse errors
+    # on an unrecognised option), so an old ILE driven by this helper FAILS LOUDLY rather than
+    # silently running Simpson.  That is the safe direction; still, pair this pipeline with an ILE
+    # from the same checkout.
+    print("  ==> Time-marginalization quadrature: '{}' (emitted as --time-marginalization-quadrature; "
+          "the ILE driver refuses rather than ignores if its configuration cannot honour it)".format(
+              time_quadrature_choice))
+    helper_ile_args += " --time-marginalization-quadrature " + time_quadrature_choice + " "
+
 if opts.internal_ile_auto_logarithm_offset and not opts.internal_ile_use_lnL:
     helper_ile_args += " --auto-logarithm-offset "
     rescaled_base_ile = True
@@ -1900,6 +1925,23 @@ if opts.propose_fit_strategy:
 #        for indx in np.arange(len(helper_cip_arg_list))[1:]:
 #            helper_cip_arg_list[indx] += " --lnL-offset 20 "  # enforce lnL cutoff past the first iteration. Focuses fit on high-likelihood points as in O1/O2
 
+
+# REFUSE AT WORKFLOW-BUILD TIME, not at first-job time.  The ILE driver already refuses this
+# combination, but that costs a whole queue-slot cycle to discover; the arguments are all in hand
+# here.  The check reads the ASSEMBLED string rather than the opts, because whether
+# --time-marginalization/--vectorized/--gpu are present depends on the strategy branches above
+# (--propose-ile-convergence-options), not on any single flag.  util_RIFT_pseudo_pipe.py repeats
+# it over the FINAL args_ile.txt, which is the only place calibration marginalization and
+# --manual-extra-ile-args are visible.
+if time_quadrature_choice is not None:
+    _tq_missing = time_quadrature_pipeline_prereqs(time_quadrature_choice, helper_ile_args)
+    if _tq_missing:
+        raise ValueError(
+            "--internal-ile-time-marginalization-quadrature {!r} was requested, but the ILE "
+            "arguments this helper is about to write cannot honour it: {}.  Refusing at "
+            "workflow-build time rather than emitting a flag that the ILE driver would reject "
+            "on its first job (or, worse, that a future driver might ignore).".format(
+                time_quadrature_choice, "; ".join(_tq_missing)))
 
 # editing ILE args based on strategy above, so only writing now
 with open("helper_ile_args.txt",'w') as f:

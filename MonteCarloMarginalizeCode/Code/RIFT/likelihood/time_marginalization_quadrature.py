@@ -167,6 +167,7 @@ __all__ = [
     "peak_width_from_lnL",
     "required_upsample_factors",
     "validate_time_quadrature",
+    "time_quadrature_pipeline_prereqs",
     "time_marginalize_bandlimited",
     "last_report",
 ]
@@ -293,6 +294,60 @@ def validate_time_quadrature(time_quadrature):
             "time_quadrature must be one of {}, got {!r}".format(
                 TIME_QUADRATURE_CHOICES, time_quadrature))
     return time_quadrature
+
+
+#: Flags in an assembled ILE argument string that the band-limited path REQUIRES,
+#: and flags whose presence EXCLUDES it.  This is the pipeline-side mirror of the
+#: ``_tq_prereqs`` block in ``bin/integrate_likelihood_extrinsic_batchmode``: the
+#: driver refuses at first-job time, which costs a queue-slot cycle, so the
+#: workflow builder refuses at DAG-BUILD time on the same conditions.  Kept here
+#: rather than re-typed in the pipeline scripts for the reason the whole option is
+#: validated through this module -- one list, one place to change it.
+_PIPELINE_REQUIRED_ILE_FLAGS = (
+    ('--time-marginalization',
+     'without it ILE takes the non-time-marginalized branch, which has no time quadrature at all'),
+    ('--vectorized',
+     'without it ILE calls the SCALAR time-marginalized likelihood, which has no quadrature argument'),
+    ('--gpu',
+     'the band-limited path lives in the maintained NoLoop likelihood; --force-xpy runs it on numpy'),
+)
+_PIPELINE_EXCLUDING_ILE_FLAGS = (
+    ('--rotation-slow',
+     'time-DEPENDENT rho_sq: the band-limited argument does not hold'),
+    ('--freqresponse',
+     'separate likelihood, not audited for this'),
+    ('--calibration-envelope-directory',
+     'calibration marginalization: the reduction sums exp over realizations, untested here'),
+)
+
+
+def time_quadrature_pipeline_prereqs(time_quadrature, ile_args):
+    """Missing/violated prerequisites for ``time_quadrature`` in an ILE argument string.
+
+    ``ile_args`` is the assembled ILE command line the workflow is about to write
+    (``args_ile.txt``).  Returns a list of human-readable reasons; empty means the
+    configuration can honour the request.  ``'simpson'`` -- the default -- always
+    returns an empty list, since it is what ILE does anyway.
+
+    Refusing rather than ignoring is the point: a silently-inert accuracy option is
+    worse than an unavailable one, because a comparison campaign can be run against
+    it and believed.
+    """
+    validate_time_quadrature(time_quadrature)
+    if time_quadrature == 'simpson':
+        return []
+    # Token match, not substring: '--gpu' must not be satisfied by '--no-gpu', and
+    # '--time-marginalization' must not be satisfied by
+    # '--time-marginalization-quadrature'.
+    tokens = set(str(ile_args).split())
+    missing = []
+    for flag, why in _PIPELINE_REQUIRED_ILE_FLAGS:
+        if flag not in tokens:
+            missing.append("missing {} ({})".format(flag, why))
+    for flag, why in _PIPELINE_EXCLUDING_ILE_FLAGS:
+        if flag in tokens:
+            missing.append("incompatible {} ({})".format(flag, why))
+    return missing
 
 
 def bandlimited_upsample(x, factor, xpy=np):

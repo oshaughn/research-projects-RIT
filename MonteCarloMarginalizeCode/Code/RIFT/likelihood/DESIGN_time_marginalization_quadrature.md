@@ -8,7 +8,8 @@ Harnesses (host-local, `ldas-*` NFS home): `~/tmarg_harness/`.
 `probe.py` periodic-window accuracy, `wrap.py` non-periodic window, `adv.py` edge sweep and
 mixed blocks, `detrend.py` the rejected endpoint-detrend, `cost.py` quadrature-only cost,
 `cost_e2e.py` end-to-end through the shipped likelihood, `peaklocal2.py` the peak-local
-prototype below, `real_path.py` / `simps_iso.py` the GPU runs.
+prototype below, `real_path.py` / `simps_iso.py` the GPU correctness runs, `cost_gpu.py` the
+GPU cost table.
 
 ## The defect
 
@@ -166,6 +167,78 @@ End-to-end through the shipped likelihood, n_extrinsic 4000, 3 IFOs, CPU time:
 
 Host-sensitive: O4c measured the same quantity moving up to 2x between hosts.  The Simpson
 baseline is rho-independent by construction, so a run where it moves with rho is contaminated.
+
+### On GPU, which is what production actually runs
+
+The table above is CPU.  Production ILE runs `--vectorized --gpu`, and the ratio there is
+DIFFERENT and mostly WORSE, so the CPU table must not be quoted as the cost of the option.
+
+Method (`~/tmarg_harness/cost_gpu.py`, the GPU sibling of `cost_e2e.py`; same shipped
+likelihood, same synthetic band-limited kappa, n_extrinsic 4000, 3 IFOs).  `ldas-pcdev13`,
+`CUDA_VISIBLE_DEVICES=3` (GeForce RTX 2080 Ti, cc75 -- the cc120 Blackwell devices on that
+host cannot be compiled for by cupy 12), cupy 12.0.0 from the IGWN CVMFS python,
+`OMP_NUM_THREADS=1`, the GPU otherwise idle.  The two arms are INTERLEAVED within a replicate
+and the order is swapped between replicates, so a host that gets busier mid-run cannot
+masquerade as a ratio; 5 replicates on GPU, 3 on CPU; the quoted spread is min-max of the
+per-replicate ratios, not a self-reported error.  **Timing is wall clock with an explicit
+device synchronize**, NOT `process_time` as on the CPU arm: `process_time` on a cupy arm is
+launch plus synchronize-spin, which is not the quantity of interest.  The Simpson baseline is
+rho-independent by construction and is checked to move by <1.25x across each ladder; it moved
+by 1.03-1.12x, so none of these runs is contaminated.  `sigma_t/deltaT` is measured per rung,
+not assumed, and the srate-16384 amplitude ladder is scaled by 16 rather than 4 because on
+this fixture `rho_sq = 0`, so `lnL` is LINEAR in the amplitude and `sigma_t ~ 1/sqrt(amp)`.
+
+GPU, srate 4096, npts 614 (even -- median wall seconds per call):
+
+| sigma_t/deltaT | Simpson | band-limited | ratio | spread over 5 reps |
+|---|---|---|---|---|
+| 1.735 | 0.0130 s | 0.0250 s | 1.9x | 1.9-1.9 |
+| 0.549 | 0.0127 s | 0.0549 s | 4.3x | 4.2-4.4 |
+| 0.174 | 0.0128 s | 0.1429 s | 11.1x | 11.0-11.3 |
+| 0.055 | 0.0127 s | 0.4324 s | 34.1x | 33.2-35.5 |
+
+GPU, srate 16384, npts 2457 (**odd** -- the common production case, three of five rates):
+
+| sigma_t/deltaT | Simpson | band-limited | ratio | spread over 5 reps |
+|---|---|---|---|---|
+| 1.647 | 0.0172 s | 0.0282 s | 1.7x | 1.4-1.7 |
+| 0.521 | 0.0174 s | 0.0840 s | 4.8x | 4.4-5.0 |
+| 0.165 | 0.0171 s | 0.2690 s | 15.8x | 14.0-16.9 |
+| 0.052 | 0.0178 s | 0.9422 s | 56.4x | 51.1-64.6 |
+
+Same host, same script, numpy backend, as the control that ties this to the CPU table above
+(the published CPU row was taken elsewhere; this rules out a host difference masquerading as a
+backend difference):
+
+| sigma_t/deltaT | srate 4096 CPU ratio | srate 16384 CPU ratio |
+|---|---|---|
+| ~1.7 | 1.1x | 1.1x |
+| ~0.53 | 2.4x | 2.1x |
+| ~0.17 | 8.9x | 6.2x |
+| ~0.055 | 31.3x | 19.7x |
+
+The srate-4096 CPU column reproduces the published CPU table (1.1 / 2.0 / 9.7 / 26.6) within
+the documented host-to-host scatter, so the GPU/CPU difference below is a backend effect.
+
+**Read the ratio and the seconds separately, because they say opposite things.**  The GPU
+ratio is worse -- 1.9x rather than 1.1x where the integrand is already resolved, and 56x
+rather than 20x at srate 16384 -- and it gets worse with npts on GPU while it gets BETTER with
+npts on CPU.  The mechanism is the denominator, not the numerator: the GPU Simpson baseline is
+overhead-dominated and barely scales with npts (0.0127 -> 0.0172 s, 1.35x, for 4x the points),
+while on CPU it scales with the work (0.53 -> 1.83 s, 3.5x).  The refinement itself scales
+about the same on both (GPU 0.43 -> 0.94 s, CPU 17.0 -> 36.3 s).  So on GPU the option is
+measured against a baseline that is nearly free, and any added work reads as a large multiple.
+In absolute terms the GPU band-limited call at the worst rung costs 0.43 s (srate 4096) or
+0.94 s (srate 16384), against 17.0 s and 36.3 s for the CPU SIMPSON baseline on the same host
+-- i.e. GPU band-limited is still ~20-40x cheaper in seconds than CPU Simpson.
+
+That is decision-relevant in two directions.  A campaign already on GPU pays a much larger
+FACTOR than the CPU table suggests, and at 3G rates and SNRs the factor keeps growing, which
+strengthens rather than weakens the case for the peak-local follow-up below: the dense
+strategy's cost is what the ratio measures, and peak-local removes it.  But the factor is
+being taken against a baseline of ~13-18 ms, so for an ILE job whose per-call budget is
+dominated by anything else, the absolute cost may still be acceptable where the accuracy is
+needed.  Neither reading is available from the CPU table alone.
 
 ### The follow-up: enumerate peaks, integrate locally  (RO'S, 2026-08-27)
 

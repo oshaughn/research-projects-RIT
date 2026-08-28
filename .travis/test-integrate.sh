@@ -52,13 +52,19 @@ python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_nal_io.py \
 # 2*deltaT at srate 4096, rho=40).  This gate covers the opt-in band-limited quadrature against an
 # ANALYTIC continuous reference, plus its fail-closed guards and -- the part that matters most
 # here -- that the option actually reaches the shipped likelihood rather than being inert.
-_TMARG_TESTS=MonteCarloMarginalizeCode/Code/test/test_time_marginalization_quadrature.py
+# The PIPELINE file is listed alongside it deliberately: the quadrature is inert unless it
+# survives util_RIFT_pseudo_pipe.py -> helper_LDG_Events.py -> args_ile.txt ->
+# create_event_parameter_pipeline_BasicIteration -> ILE*.sub, and the last link is an
+# INHERITANCE (ile_args_extr = ile_args + ...), not an explicit forward.  An unlisted test never
+# runs in this CI, so wiring the file in is part of shipping the wiring.
+_TMARG_TESTS="MonteCarloMarginalizeCode/Code/test/test_time_marginalization_quadrature.py \
+MonteCarloMarginalizeCode/Code/test/test_time_marginalization_quadrature_pipeline.py"
 # Count guard, matching .travis/test-slowrot.sh and test-jax.sh.  `set -e` already
 # catches a total collection failure (pytest exits 5), but a silent shrink from 60
 # tests to 3 -- a rename, a stale -k, a decorator that stops matching -- reads as
 # green.  Raise EXPECTED by RUNNING collection, never by arithmetic.
-_TMARG_EXPECTED=76
-_TMARG_FOUND=$(python -m pytest -q --collect-only "$_TMARG_TESTS" 2>/dev/null | grep -c '::' || true)
+_TMARG_EXPECTED=97
+_TMARG_FOUND=$(python -m pytest -q --collect-only $_TMARG_TESTS 2>/dev/null | grep -c '::' || true)
 if [ "$_TMARG_FOUND" -ne "$_TMARG_EXPECTED" ]; then
     echo "time-marginalization gate: collected $_TMARG_FOUND tests, expected $_TMARG_EXPECTED" >&2
     exit 1
