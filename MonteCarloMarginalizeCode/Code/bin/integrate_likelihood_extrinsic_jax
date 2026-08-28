@@ -71,6 +71,7 @@ import lalsimulation as lalsim
 
 import RIFT.lalsimutils as lalsimutils
 from RIFT.likelihood.jax_ile import build_data_from_precompute
+from RIFT.likelihood.jax_ile import anglemarg as _anglemarg
 from RIFT.likelihood.jax_ile.core import _GATHERERS as _JAX_GATHERERS, JAX_INTERP_DEFAULT
 _JAX_GATHERER_NAMES = tuple(_JAX_GATHERERS)
 from RIFT.likelihood.jax_ile.wrapper import (
@@ -1408,6 +1409,28 @@ def write_samples(opts, out_index, theta, lnL, with_distance, logw=None):
             print("  fairdraw: exporting %d of %d rows (requested count)"
                   % (int(n_req), n_before))
     provenance = "fairdraw: %s n_out=%d" % (note, len(theta))
+    # If the dense (phi,psi) grids were ever undersized during this event, the
+    # numbers are suspect but NOT discarded -- the operator is told, in the
+    # artifact itself, rather than the region being silently excised (see
+    # anglemarg._runtime_amp_failsafe).
+    _st = _anglemarg.amp_failsafe_state()
+    if _st.get("tripped"):
+        provenance += (" SUSPECT-ANGLE-GRID amp_failsafe=TRIPPED worst_amp=%.6g"
+                       " amp_sizing=%.6g scheme=%s"
+                       % (_st.get("worst_amp", float("nan")),
+                          _st.get("amp_sizing", float("nan")),
+                          _st.get("scheme")))
+        sys.stderr.write(
+            "WARNING integrate_likelihood_extrinsic_jax: the angle-marginalization "
+            "dense grids were UNDERSIZED at some evaluated points (worst amplitude "
+            "%.6g vs amp_sizing %.6g, scheme %s).  The exported samples and evidence "
+            "for this event are LABELLED SUSPECT in their provenance line and should "
+            "not be used without rebuilding at a larger amp_sizing.  The run was NOT "
+            "aborted and the points were NOT discarded, deliberately: discarding "
+            "would excise exactly the region the estimator missed.\n"
+            % (_st.get("worst_amp", float("nan")),
+               _st.get("amp_sizing", float("nan")), _st.get("scheme")))
+
     ndim = theta.shape[1] if theta.ndim == 2 else len(theta)
     if with_distance:
         # 6-D: ra, dec, psi, incl, phiref, dist
@@ -1450,6 +1473,9 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
     Returns ``(value, flow_state)`` where ``flow_state`` is the trained-flow
     state to bootstrap the next event (``--mode flowmc`` only; ``None`` else).
     """
+    # Per-EVENT state: a batch run analyzes several events in one process, and
+    # an undersizing on event 0 must not label event 1.
+    _anglemarg.reset_amp_failsafe()
     print("Building JAX likelihood (PrecomputeLikelihoodTerms + pack)...")
     like_data, extras = build_data_from_precompute(
         P.copy(), data_dict, psd_dict, fiducial_epoch,

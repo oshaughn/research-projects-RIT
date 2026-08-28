@@ -983,28 +983,82 @@ def test_higher_mode_dense_sizing_self_convergence():
     assert np.abs(v1 - v4).max() < 1e-6
 
 
-def test_runtime_amp_failsafe_warns(capfd):
-    """Review 3, P2: the amplitude is an ESTIMATOR, so the fused functions
-    carry a runtime fail-safe -- a call whose own coefficient tables exceed
-    2x the amp_sizing the grids were built for prints a loud warning from
-    inside jit (never silent), and a correctly-sized call prints nothing."""
+def test_runtime_amp_failsafe_warns_and_records_without_excising(capfd):
+    """The undersizing guard must (a) warn, (b) RECORD on the host so the driver
+    can label the artifact, and (c) leave the value FINITE.
+
+    (c) is the load-bearing one and is easy to get wrong in the tempting
+    direction.  An earlier version returned NaN to "fail closed".  That was
+    worse than the warning: every consumer FILTERS non-finite lnL -- flowMC and
+    MALA reject such proposals, the SMC path drops them, write_samples discards
+    non-finite rows -- so a NaN over a hot sky region the estimator missed does
+    not halt anything, it EXCISES that region and publishes a clean-looking
+    posterior over the rest.  This test therefore asserts finiteness, and would
+    fail if anyone reintroduces the poison.
+
+    The previous version of this test asserted only that a warning printed, so
+    replacing the poison return with 0 would have passed it unchanged.
+    """
     data = make_synth(scale=2.0, kappa_boost=200.0)
     x_grid, log_w = _dist_grid(data)
     args = (data, jnp.asarray(RA), jnp.asarray(DEC), jnp.asarray(INCL),
             x_grid, log_w)
-    # deliberately undersized: the warning must fire
+
+    AM.reset_amp_failsafe()
+    assert AM.amp_failsafe_state()["tripped"] is False
+
+    # deliberately undersized
     v = AM.fused_log_likelihood_distphipsimarg_exact(
         *args, interp=INTERP, amp_sizing=AM.ANGLE_MARG_CROSSOVER_AMPLITUDE)
     jax.block_until_ready(v)
     out = capfd.readouterr()
-    assert "WARNING anglemarg/exact" in out.out + out.err
-    # correctly sized: silence
+
+    assert "WARNING anglemarg/exact" in out.out + out.err, "guard must warn"
+    st = AM.amp_failsafe_state()
+    assert st["tripped"] is True, (
+        "the guard must RECORD on the host, or the driver cannot label the "
+        "artifact and the condition dies with the log line")
+    assert st["worst_amp"] > 2.0 * AM.ANGLE_MARG_CROSSOVER_AMPLITUDE
+    assert np.all(np.isfinite(np.asarray(v))), (
+        "undersizing must NOT be signalled by a non-finite value: downstream "
+        "filters would excise exactly the region the estimator missed and "
+        "publish a clean-looking posterior over what remains")
+
+    # correctly sized: silent, and nothing recorded
+    AM.reset_amp_failsafe()
     amp = AM.estimate_angle_amplitude(data, x_grid)
-    v = AM.fused_log_likelihood_distphipsimarg_exact(
+    v2 = AM.fused_log_likelihood_distphipsimarg_exact(
         *args, interp=INTERP, amp_sizing=amp)
-    jax.block_until_ready(v)
+    jax.block_until_ready(v2)
     out = capfd.readouterr()
     assert "WARNING anglemarg" not in out.out + out.err
+    assert AM.amp_failsafe_state()["tripped"] is False
+    assert np.all(np.isfinite(np.asarray(v2)))
+
+
+def test_driver_labels_a_suspect_angle_grid_in_provenance():
+    """End-to-end-ish: the driver must LABEL a tripped event in the artifact's
+    own provenance line, and must NOT abort or drop the event.
+
+    Structural rather than a full run: asserts the driver imports the guard,
+    resets it per event (batch runs analyze several events in one process, so
+    event 0 must not label event 1), and appends SUSPECT-ANGLE-GRID to the
+    provenance string that write_samples embeds in the exported file."""
+    import re as _re
+    import pathlib as _pathlib
+    drv = (_pathlib.Path(__file__).resolve().parents[2] / "bin"
+           / "integrate_likelihood_extrinsic_jax")
+    src = drv.read_text()
+    assert "from RIFT.likelihood.jax_ile import anglemarg as _anglemarg" in src
+    assert "_anglemarg.reset_amp_failsafe()" in src, "must reset per event"
+    assert "_anglemarg.amp_failsafe_state()" in src
+    assert "SUSPECT-ANGLE-GRID" in src, "the artifact must carry the label"
+    # the label must attach to the provenance that is WRITTEN, not to a discarded local
+    assert _re.search(r'provenance \+= \(\s*" SUSPECT-ANGLE-GRID', src), (
+        "the label must be appended to the provenance string write_samples uses")
+    # and must not sit behind a bare except that degrades a tripped run to clean
+    assert '_st = {"tripped": False}' not in src, (
+        "a swallowed exception would silently report a tripped run as clean")
 
 
 def test_dense_phi_sizing_must_scale_with_m_max():

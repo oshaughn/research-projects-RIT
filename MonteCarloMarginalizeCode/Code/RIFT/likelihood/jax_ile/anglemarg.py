@@ -461,6 +461,36 @@ def estimate_angle_amplitude(data, x_grid, interp=JAX_INTERP_DEFAULT,
     return margin * amp_emp
 
 
+_AMP_FAILSAFE = {"tripped": False, "n_calls": 0, "worst_amp": 0.0,
+                 "amp_sizing": None, "scheme": None}
+
+
+def reset_amp_failsafe():
+    """Clear the undersizing record (call once per event, before sampling)."""
+    _AMP_FAILSAFE.update(tripped=False, n_calls=0, worst_amp=0.0,
+                         amp_sizing=None, scheme=None)
+
+
+def amp_failsafe_state():
+    """Host-side record of whether the dense grids were ever undersized.
+
+    Returns a dict; ``tripped`` is the load-bearing field.  Consumers should
+    LABEL their output rather than discard it -- see the note in
+    :func:`_runtime_amp_failsafe` about why this is not fatal and not a NaN.
+    """
+    return dict(_AMP_FAILSAFE)
+
+
+def _record_amp_failsafe(tripped, amp_call, amp_sizing, scheme_name):
+    """Host callback.  Runs outside the traced graph; never alters a value."""
+    _AMP_FAILSAFE["n_calls"] += 1
+    if bool(tripped):
+        _AMP_FAILSAFE["tripped"] = True
+        _AMP_FAILSAFE["worst_amp"] = max(_AMP_FAILSAFE["worst_amp"], float(amp_call))
+        _AMP_FAILSAFE["amp_sizing"] = float(amp_sizing)
+        _AMP_FAILSAFE["scheme"] = scheme_name
+
+
 def _runtime_amp_failsafe(C_A, C_B, x_grid, amp_sizing, scheme_name):
     """Mechanism 3 of :func:`estimate_angle_amplitude`'s contract: DETECT, at
     the point of use, a call whose coefficient tables reach amplitudes the
@@ -508,7 +538,27 @@ def _runtime_amp_failsafe(C_A, C_B, x_grid, amp_sizing, scheme_name):
             "likelihood with amp_sizing >= the reported amplitude.", a=a_),
         lambda a_: None,
         amp_call)
-    return jnp.where(amp_call > 2.0 * amp_sizing, jnp.nan, 0.0)
+    # DELIBERATELY NOT FATAL, AND DELIBERATELY NOT A NaN.
+    #
+    # An earlier version returned NaN to "fail closed".  That was worse than the
+    # warning it replaced: every consumer of this likelihood FILTERS non-finite
+    # values -- flowMC/MALA reject such proposals as invalid, the SMC path drops
+    # non-finite lnL, and write_samples discards non-finite rows.  So a NaN over
+    # a hot sky region the estimator missed does not stop anything; it silently
+    # EXCISES exactly that region and publishes a clean-looking posterior over
+    # what remains.  Invisible mutilation beats visible failure only from the
+    # code's point of view, never from the operator's.
+    #
+    # Aborting is also wrong here: this is a configuration estimate, and hard
+    # failure would destroy a multi-hour run over a recoverable condition.
+    #
+    # So: the value is untouched, the run completes, and the condition is
+    # recorded on the HOST so the driver can LABEL the result as suspect in its
+    # provenance.  A labelled result an operator can judge beats both a vanished
+    # region and a dead run.
+    jax.debug.callback(_record_amp_failsafe,
+                       amp_call > 2.0 * amp_sizing, amp_call,
+                       jnp.asarray(amp_sizing, dtype=jnp.float64), scheme_name)
 
 
 def _require_amp_sizing(amp_sizing):
@@ -585,7 +635,7 @@ def fused_log_likelihood_distphipsimarg_exact(
     npts = data.npts
 
     amp_sizing = _require_amp_sizing(amp_sizing)
-    _amp_poison = _runtime_amp_failsafe(C_A, C_B, x_grid, amp_sizing, "exact")
+    _runtime_amp_failsafe(C_A, C_B, x_grid, amp_sizing, "exact")
     nphi_d, nu_d = _dense_grid_sizes(amp_sizing, m_max=meta["m_max"])
     phi_d = np.linspace(0.0, 2.0 * np.pi, nphi_d, endpoint=False)
     u_d = np.linspace(0.0, 2.0 * np.pi, nu_d, endpoint=False)   # u = 2 psi
@@ -623,7 +673,7 @@ def fused_log_likelihood_distphipsimarg_exact(
     (m, s), _ = jax.lax.scan(jax.checkpoint(_step), (m0, s0),
                              (phi_x, u_x, lw_x))
     lnL_t = m + jnp.log(s) - jnp.log(float(n_dense))
-    return _time_marginalize(lnL_t, data.w_t) + _amp_poison
+    return _time_marginalize(lnL_t, data.w_t)
 
 
 # ---------------------------------------------------------------------------
@@ -899,7 +949,7 @@ def fused_log_likelihood_distphipsimarg_laplace(
     npts = data.npts
 
     amp_sizing = _require_amp_sizing(amp_sizing)
-    _amp_poison = _runtime_amp_failsafe(C_A, C_B, x_grid, amp_sizing, "laplace")
+    _runtime_amp_failsafe(C_A, C_B, x_grid, amp_sizing, "laplace")
     nphi_d, _ = _dense_grid_sizes(amp_sizing, m_max=m_max)
     phi_d = np.linspace(0.0, 2.0 * np.pi, nphi_d, endpoint=False)
     c = int(phi_chunk)
@@ -954,7 +1004,7 @@ def fused_log_likelihood_distphipsimarg_laplace(
     s0 = jnp.zeros((S, npts), dtype=jnp.float64)
     (m, s), _ = jax.lax.scan(jax.checkpoint(_step), (m0, s0), (phi_x, lw_x))
     lnL_t = m + jnp.log(s) - jnp.log(float(nphi_d))
-    return _time_marginalize(lnL_t, data.w_t) + _amp_poison
+    return _time_marginalize(lnL_t, data.w_t)
 
 
 def choose_angle_marg_scheme(amplitude, gh_enabled=None):
