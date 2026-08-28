@@ -5,7 +5,8 @@
     sequence contracts. Fixed-EOS CIP can select a LAL family with
     ``--using-eos-branch``. Native NMB/PCA files retain the ``nmbseq:`` primary-branch
     contract, with disconnected stable runs split before interpolation. The CIP
-    piecewise-polytrope constructor keyword is corrected for Kedia-style workflows.
+    piecewise-polytrope constructor keyword and four-parameter row guards are corrected
+    for Kedia-style workflows.
     See ``docs/eos-interface-contract.md``.
 
 0.0.17.13

@@ -453,7 +453,7 @@ if opts.using_eos!=None:
                 spec_params['gamma4']=spec_param_array[3]
             eos_base = EOSManager.EOSLindblomSpectral(name=eos_name,spec_params=spec_params,use_lal_spec_eos=not opts.no_use_lal_eos)
             my_eos=eos_base
-        elif opts.eos_param == 'cs_spectral' and len(spec_param_array >=4):
+        elif opts.eos_param == 'cs_spectral' and len(spec_param_array) >= 4:
             spec_params ={}
             spec_params['gamma1']=spec_param_array[0]
             spec_params['gamma2']=spec_param_array[1]
@@ -462,7 +462,7 @@ if opts.using_eos!=None:
             spec_params['gamma4']=spec_param_array[3]
             eos_base = EOSManager.EOSLindblomSpectralSoundSpeedVersusPressure(name=eos_name,spec_params=spec_params,use_lal_spec_eos=not opts.no_use_lal_eos)
             my_eos = eos_base
-        elif opts.eos_param == 'PP' and len(spec_param_array >=4):
+        elif opts.eos_param == 'PP' and len(spec_param_array) >= 4:
             spec_params ={}
             spec_params['logP1'] = spec_param_array[0]
             spec_params['gamma1'] = spec_param_array[1]
@@ -3646,4 +3646,3 @@ for indx in np.arange(len(extra_plot_coord_names)):
      print(" Failed to generate corner for ", extra_plot_coord_names[indx])
 
 sys.exit(0)
-
