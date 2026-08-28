@@ -3343,16 +3343,15 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
        # see discussion in https://git.ligo.org/lscsoft/lalsuite/-/blob/master/lalsimulation/lib/LALSimInspiral.c
        if is_precessing and fd_L_frame and P.fref:
              alpha,beta,gamma =extract_JL_angles(P,return_inverse=True)
-             # alpha0, beta==theta_JN already identified above. Missing polarization rotation factor as well
-             # zeta_pol will not be used since it is inclination-dependent and therefore depends on extrinsic choices! Also normally calling with P.incl ==0
-             _, _, _, theta_JN, alpha0, misc_phi, zeta_pol = lalsim.SimIMRPhenomXPCalculateModelParametersFromSourceFrame(P.m1,P.m2, P.fref, P.phiref, P.incl, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, extra_params)
-             # Get remaining psiJ quantity (should add to extract_JL_angles)
-             thetaJN, phiJL, theta1, theta2, phi12, chi1, chi2, psiJ  = P.extract_system_frame()
-             # theta_JN is not useful, for rotations will be close to P.incl in most cases
-             alpha+= np.pi # empirically validated sign for XPHM, comparing precessing radiation to SEOBv4PHM
-#             print(alpha, beta, gamma, zeta_pol)
-#             print(alpha0, thetaJN, np.pi - phiJL,psiJ)
-             hlmsT_alt = rotate_hlm_static(hlmsT, -gamma - np.pi/2, -beta,-alpha ,extra_polarization=psiJ)  
+             # The modes must remain intrinsic: hoft_from_hlm applies P.psi when
+             # constructing the strain.  A further alpha += pi changes odd-m
+             # modes relative to even-m modes, rather than supplying a global
+             # polarization convention.  The fixed pi/2 polarization below only
+             # cancels the historical global minus sign applied above.
+             hlmsT_alt = rotate_hlm_static(
+                 hlmsT, -gamma - np.pi/2, -beta, -alpha,
+                 extra_polarization=np.pi/2,
+             )
              hlmsT = hlmsT_alt
         # phase shift ChooseFDModes
 #       for mode in hlmsT:
@@ -4025,7 +4024,7 @@ def hoft_from_hlm(hlms,P, return_complex=False, extra_phase_shift=0):
     # Create complex strain object
     hT = lal.CreateCOMPLEX16TimeSeries("hT", h22.epoch, h22.f0,
             h22.deltaT, h22.sampleUnits, h22.data.length)
-    hT.data.data*=0  # fill with zeros
+    hT.data.data[:] = 0  # fill with zeros
 
     # create for loop over elements of the series to add it
     for mode in hlms:
@@ -5789,13 +5788,13 @@ def rotate_hlm_static(hlm,alphaA,betaA,gammaA,extra_polarization=None):
                 hCatOut[(L,M)] = lal.CreateCOMPLEX16TimeSeries("Template h(t)", 
                                                  h0.epoch, h0.f0, h0.deltaT, lsu_DimensionlessUnit, 
                                                  h0.data.length)
-                hCatOut[(L,M)].data.data *=0 # initialize
+                hCatOut[(L,M)].data.data[:] = 0 # initialize
                 lal_type=True
             elif isinstance(hlm[(L,M)] , lal.Complex16FrequencySeries):
                 hCatOut[(L,M)] =  lal.CreateCOMPLEX16FrequencySeries("Template h(t)", 
                                                                      h0.epoch, h0.f0, h0.deltaF, lsu_HertzUnit ,
                                                                      h0.data.length)
-                hCatOut[(L,M)].data.data *=0 # initialize
+                hCatOut[(L,M)].data.data[:] = 0 # initialize
                 lal_type=True
             elif isinstance(hlm[(L,M)], np.ndarray):
                 hCatOut[(L,M)] = np.zeros(h0.shape)
@@ -5834,29 +5833,27 @@ def extract_JL_angles(P,return_inverse=True,phase_factor=1):
     theta_JL, phi_JL = polar_angles_in_frame(VectorToFrame(Lhat), Jhat)
     # To make review-stable, be VERY explicit : try to use lalsuite function calls, not above
     my_cos = np.dot(Lhat, Jhat)
-    theta_JL = P.incl   # this is pretty close. Good enough if we are nearly aligned
-    if my_cos < 1-1e-5:  # but if we are even slightly misaligned, use the acos of above
-        theta_JL = np.arccos( my_cos ) #P.extract_param('beta')  # this is just Jhat.Jhat
+    theta_JL = np.arccos(np.clip(my_cos, -1., 1.))
 
     # Remaining angle:
     nhat_obs = np.array([ np.sin(P.incl)*np.cos(np.pi/2*phase_factor-P.phiref), np.sin(P.incl)*np.sin(np.pi/2*phase_factor-P.phiref), np.cos(P.incl)])  # base vector
-    vecZ = np.array([0,0,1])
-    vecY = np.array([0,1,0])
-
-    # thetaJL == beta.  However, we're noit going to use this
+    # thetaJL == beta.
 #    theta_jn, _, theta_1, theta_2, phi_12, a_1, a_2 =lalsim.SimInspiralTransformPrecessingWvf2PE(
 #            P.incl, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.m1, P.m2, P.fref, P.phiref)
 
-    # rotation from J to point along L for example
-    rot = np.matmul(rotation_matrix( vecY, -theta_JL), rotation_matrix( vecZ, -phi_JL))
-
-    # Rotation around L needed to rotate viewing direction
-    nhat_rot = np.matmul(rot, nhat_obs)
-    last_angle = np.angle( nhat_rot[0]+1j*nhat_rot[1])
+    # Rotate N by Rz(-phi_JL), then Ry(-theta_JL), following Appendix C
+    # explicitly.  rotation_matrix uses a different active/passive convention,
+    # so using it here changes the final Euler angle substantially.
+    cos_phi = np.cos(phi_JL)
+    sin_phi = np.sin(phi_JL)
+    nx_rot = nhat_obs[0]*cos_phi + nhat_obs[1]*sin_phi
+    ny_rot = -nhat_obs[0]*sin_phi + nhat_obs[1]*cos_phi
+    nx_jframe = nx_rot*np.cos(theta_JL) - nhat_obs[2]*np.sin(theta_JL)
+    last_angle = np.arctan2(ny_rot, nx_jframe)
 
     # Phase conventions as in XPHM paper https://journals.aps.org/prd/abstract/10.1103/PhysRevD.103.104056
     if return_inverse:
-        # the two np.pi factors end up producing a mode sign  (-1)^m (-1)^m'  to deal with  thetaJL < 0  , so we don't have a negative angle there.
+        # The two pi factors produce (-1)^m (-1)^m' while keeping beta positive.
         return np.pi - last_angle, theta_JL, np.pi-phi_JL
     else:
         # 
