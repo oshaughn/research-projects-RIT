@@ -72,6 +72,7 @@ import lalsimulation as lalsim
 import RIFT.lalsimutils as lalsimutils
 from RIFT.likelihood.jax_ile import build_data_from_precompute
 from RIFT.likelihood.jax_ile import anglemarg as _anglemarg
+from RIFT.likelihood.jax_ile.samplers import angle_marg_eval_chunk as _angle_marg_eval_chunk
 from RIFT.likelihood.jax_ile.core import _GATHERERS as _JAX_GATHERERS, JAX_INTERP_DEFAULT
 _JAX_GATHERER_NAMES = tuple(_JAX_GATHERERS)
 from RIFT.likelihood.jax_ile.wrapper import (
@@ -758,8 +759,12 @@ def log_prior(theta, opts, with_distance):
 def eval_lnL(like, theta, opts, with_distance):
     N = theta.shape[0]
     out = np.empty(N)
-    for i in range(0, N, opts.n_chunk):
-        sl = slice(i, min(i + opts.n_chunk, N))
+    # anglemarg schemes multiply the batch by (quad, dist_block, phi_chunk)
+    # transients; --n-chunk 8000 is sized for the grid scheme.  Independent
+    # slices, so the cap changes peak memory and nothing else.
+    chunk = _angle_marg_eval_chunk(like, opts.n_chunk)
+    for i in range(0, N, chunk):
+        sl = slice(i, min(i + chunk, N))
         cols = [theta[sl, j] for j in range(theta.shape[1])]
         out[sl] = np.asarray(like.log_likelihood(*cols))
     return out

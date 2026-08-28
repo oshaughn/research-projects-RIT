@@ -231,6 +231,37 @@ def _log_prior_jax(theta5):
 # ---------------------------------------------------------------------------
 # Batched lnL evaluation (chunked to bound memory)
 # ---------------------------------------------------------------------------
+# Largest single XLA buffer of the anglemarg laplace path, per sample per
+# time point: the (quad_chunk=16, dist_block=4, phi_chunk=16) stacked
+# quadrature block, 16*4*16*8 = 8192 bytes.  Measured 2026-08-28: at the
+# default chunk 4000 with npts=1193 XLA requested exactly 36.41 GiB for that
+# buffer and the SNR-40 acceptance run died RESOURCE_EXHAUSTED on a 25 GiB
+# cgroup -- the pre-fix code never got past COMPILATION at production size,
+# so this execution-side wall was previously unreachable.  The exact scheme's
+# dense reconstruction has the same batch-multiplied structure (smaller
+# constant); the laplace constant is used for both as the worst case.
+_ANGLE_MARG_BYTES_PER_SAMPLE_PT = 8192
+_ANGLE_MARG_BUFFER_TARGET = 4 << 30      # ~4 GiB largest single buffer
+
+
+def angle_marg_eval_chunk(like, chunk):
+    """Cap the batched-eval chunk when ``like`` runs an anglemarg scheme.
+
+    Slices of the batched eval are INDEPENDENT (lnL is elementwise in the
+    sample axis), so this changes peak memory and nothing else -- same
+    pattern as the _GH_NODES shrink above.  Grid-scheme and 4/5-param
+    likelihoods pass through unchanged.
+    """
+    if getattr(like, "angle_marg_scheme", "grid") not in ("exact", "laplace"):
+        return chunk
+    npts = int(getattr(getattr(like, "data", None), "npts", 0) or 0)
+    if npts <= 0:
+        return chunk
+    cap = max(64, _ANGLE_MARG_BUFFER_TARGET
+              // (_ANGLE_MARG_BYTES_PER_SAMPLE_PT * npts))
+    return min(chunk, cap)
+
+
 def eval_lnL(like, theta, chunk=_EVAL_CHUNK):
     """Evaluate the distance-marginalized lnL on an ``(N, 5)`` array in chunks.
 
@@ -238,6 +269,7 @@ def eval_lnL(like, theta, chunk=_EVAL_CHUNK):
     dimension inside the likelihood).
     """
     theta = np.atleast_2d(theta)
+    chunk = angle_marg_eval_chunk(like, chunk)
     N = theta.shape[0]
     out = np.empty(N)
     for i in range(0, N, chunk):
@@ -957,6 +989,7 @@ def _log_prior_4_jax(theta4):
 def eval_lnL_4(like, theta, chunk=_EVAL_CHUNK, desc="lnL"):
     """Evaluate the 4-param (phi-marginalised) lnL on an ``(N, 4)`` array."""
     theta = np.atleast_2d(theta)
+    chunk = angle_marg_eval_chunk(like, chunk)
     N = theta.shape[0]
     out = np.empty(N)
     try:
@@ -1053,6 +1086,7 @@ def _log_prior_3_jax(theta3):
 def eval_lnL_3(like, theta, chunk=_EVAL_CHUNK, desc="lnL"):
     """Evaluate the 3-param (phi+psi-marginalised) lnL on an ``(N, 3)`` array."""
     theta = np.atleast_2d(theta)
+    chunk = angle_marg_eval_chunk(like, chunk)
     N = theta.shape[0]
     out = np.empty(N)
     try:

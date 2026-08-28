@@ -170,3 +170,78 @@ def test_laplace_dist_tail_padding_exact():
         (np.asarray(v4), np.asarray(v5))
     assert np.allclose(np.asarray(v4), np.asarray(v1), rtol=0, atol=1e-12), \
         (np.asarray(v4), np.asarray(v1))
+
+
+# ---------------------------------------------------------------------------
+# Execution-side memory: the batched-eval chunk cap.
+#
+# Fixing the compile blowup exposed a SECOND wall the pre-fix code could
+# never reach: at the samplers' default eval chunk (4000) the laplace path's
+# stacked quadrature transient (quad_chunk*dist_block*phi_chunk*8 = 8192
+# bytes per sample per time point) is a single 36.41 GiB XLA buffer at
+# npts=1193, and the SNR-40 acceptance run died RESOURCE_EXHAUSTED on the
+# 25 GiB cgroup.  Eval slices are independent (lnL is elementwise in the
+# sample axis), so angle_marg_eval_chunk caps the chunk for anglemarg
+# schemes -- peak memory changes, no number changes.  These tests pin the
+# WIRING, which is where such fixes rot (helper-level tests cannot see a
+# call site that stops calling the helper).
+# ---------------------------------------------------------------------------
+
+class _RecordingLike:
+    """Minimal like object: records every batch size it is asked for."""
+    def __init__(self, scheme, npts):
+        import types as _t
+        self.angle_marg_scheme = scheme
+        self.data = _t.SimpleNamespace(npts=npts)
+        self.batches = []
+
+    def log_likelihood(self, ra, dec, incl):
+        self.batches.append(len(np.asarray(ra)))
+        return jnp.zeros(len(np.asarray(ra)))
+
+
+def test_eval_chunk_cap_wired_for_anglemarg_schemes():
+    """eval_lnL_3 must evaluate an anglemarg-scheme likelihood in capped
+    batches, and a grid-scheme one at the requested chunk.
+
+    The cap for npts=1200 is (4 GiB)//(8192*1200) = 436 samples.  Mutating
+    eval_lnL_3 to drop the angle_marg_eval_chunk call feeds the mock one
+    1000-sample batch and this fails.
+    """
+    from RIFT.likelihood.jax_ile import samplers as S
+
+    theta = np.zeros((1000, 3))
+    lap = _RecordingLike("laplace", 1200)
+    S.eval_lnL_3(lap, theta)
+    expected_cap = max(64, (4 << 30) // (8192 * 1200))
+    assert max(lap.batches) == expected_cap, lap.batches
+    assert sum(lap.batches) == 1000
+
+    grid = _RecordingLike("grid", 1200)
+    S.eval_lnL_3(grid, theta)
+    assert max(grid.batches) == 1000, (
+        "grid-scheme eval must NOT be capped (batches: %r)" % grid.batches)
+
+    # helper edge cases: unknown npts or missing data -> untouched
+    import types as _t
+    assert S.angle_marg_eval_chunk(
+        _t.SimpleNamespace(angle_marg_scheme="exact"), 4000) == 4000
+    assert S.angle_marg_eval_chunk(
+        _t.SimpleNamespace(angle_marg_scheme="exact",
+                           data=_t.SimpleNamespace(npts=0)), 4000) == 4000
+
+
+def test_driver_eval_applies_the_chunk_cap():
+    """The driver's own eval_lnL (the --n-chunk 8000 loop) must consult
+    angle_marg_eval_chunk -- the samplers-level wiring test cannot see this
+    call site.  String-level guard on the driver source, following this
+    suite's AST-guard precedent for call-site pins."""
+    import pathlib
+    drv = (pathlib.Path(__file__).resolve().parents[2] / "bin"
+           / "integrate_likelihood_extrinsic_jax")
+    src = drv.read_text()
+    assert "_angle_marg_eval_chunk(like, opts.n_chunk)" in src, (
+        "driver eval_lnL no longer caps its chunk for anglemarg schemes; "
+        "at --n-chunk 8000 the laplace path allocates ~73 GiB and dies "
+        "RESOURCE_EXHAUSTED (measured 36.41 GiB at chunk 4000, npts 1193)")
+    assert "for i in range(0, N, chunk):" in src
