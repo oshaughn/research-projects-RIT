@@ -52,7 +52,18 @@ python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_nal_io.py \
 # 2*deltaT at srate 4096, rho=40).  This gate covers the opt-in band-limited quadrature against an
 # ANALYTIC continuous reference, plus its fail-closed guards and -- the part that matters most
 # here -- that the option actually reaches the shipped likelihood rather than being inert.
-python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_time_marginalization_quadrature.py
+_TMARG_TESTS=MonteCarloMarginalizeCode/Code/test/test_time_marginalization_quadrature.py
+# Count guard, matching .travis/test-slowrot.sh and test-jax.sh.  `set -e` already
+# catches a total collection failure (pytest exits 5), but a silent shrink from 60
+# tests to 3 -- a rename, a stale -k, a decorator that stops matching -- reads as
+# green.  Raise EXPECTED by RUNNING collection, never by arithmetic.
+_TMARG_EXPECTED=60
+_TMARG_FOUND=$(python -m pytest -q --collect-only "$_TMARG_TESTS" 2>/dev/null | grep -c '::' || true)
+if [ "$_TMARG_FOUND" -ne "$_TMARG_EXPECTED" ]; then
+    echo "time-marginalization gate: collected $_TMARG_FOUND tests, expected $_TMARG_EXPECTED" >&2
+    exit 1
+fi
+python -m pytest -q "$_TMARG_TESTS"
 
 python MonteCarloMarginalizeCode/Code/test/test_mcsamplerEnsemble_extended.py --as-test --n-max 100000
 

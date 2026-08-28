@@ -107,6 +107,26 @@ window every Euler-Maclaurin boundary term vanishes, so the trapezoidal rule is
 spectrally accurate there, while Simpson would reintroduce the ``2h`` alias that
 is the original defect.
 
+WHAT "EXACTLY" IS EXACT ABOUT (read before quoting the accuracy numbers)
+-----------------------------------------------------------------------
+The reconstruction is exact for the integrand THE CODE ACTUALLY FORMS, which is
+the true ``kappa(t)`` only when ``time_interp='nearest'`` -- the default -- where
+the gathered values are exact samples of ``Q`` (on a grid offset by up to
+deltaT/2, which is a pre-existing property of that stencil).
+
+With ``time_interp='cubic'`` or ``'sinc'`` the gathered values are a fixed FIR
+filter applied to ``Q``.  That is still a band-limited sequence, so the sampling
+argument survives and the refinement is still exact -- but exact for the FILTERED
+function.  It then converges precisely to the integral of a stencil-biased
+integrand, and the stencil bias, not the quadrature, is the larger term.
+Measured at srate 4096, peak lnL ~5300, peak centred: with 'nearest' this path is
++0.0002 nats against an analytic truth where Simpson is -521; with 'sinc' it is
+-2.29 where Simpson is +1.28, and over a scan of seeds and grid phases Simpson
+wins about half the cases.  Neither number says the quadrature is wrong -- they
+say that once a stencil is in use its own error dominates, and fixing the
+quadrature exposes it rather than adding to it.  The advantages quoted above are
+for the default stencil.
+
 SCOPE
 -----
 Applies to the baseline (non-rotating) likelihood with ``n_cal == 1``.  The
@@ -170,12 +190,25 @@ UPSAMPLE_FACTOR_MAX = 4096
 #: The +88.8 is the reason this is a guard and not just a report: it is wrong in
 #: the DANGEROUS direction, and a spuriously high lnL importance-weights that
 #: sample into dominance.  1/8 of the window is 77 samples at the production
-#: npts=614, i.e. the region where the deviation stays at or below ~5e-3 nats.
+#: npts=614.  TWO HONEST CAVEATS on that choice, both measured:
+#:
+#: * The table above is at ONE amplitude.  ``lnL`` is LINEAR in ``kappa``, so the
+#:   wrap error in nats scales with it: for a row just outside the guard, at peak
+#:   ``lnL`` of 5.3e2 / 5.3e3 / 5.3e4 / 5.3e5 (rho ~ 33 / 103 / 326 / 1031), the
+#:   measured error was -8.0e-4 / -8.1e-3 / -8.1e-2 / -0.846 nats.  So the fixed
+#:   fraction is a bound on WHERE, not on HOW MUCH: adequate through O4
+#:   amplitudes, weaker in the 3G regime.
+#: * Do NOT justify the guard by saying such rows are truncated anyway.  Often
+#:   they are not -- at 20-60 samples from the edge the peak sits entirely inside
+#:   the window, yet those rows get a Simpson value measured 2.87 nats wrong where
+#:   the reconstruction would have been 0.007-0.02.  The guard is deliberately
+#:   conservative: the crossover where the reconstruction actually loses is nearer
+#:   5-10 samples, and 1/8 buys margin against the amplitude scaling above.
+#:
 #: In a well-posed run nothing comes close: the grid is centred on the trigger's
 #: geocentre time, so the peak sits within the trigger timing uncertainty (a few
-#: ms, tens of samples) of the CENTRE, not of an edge.  A row that does violate
-#: this has a mis-centred window, which truncates its integral under EITHER rule;
-#: it is given the historical Simpson value and counted in ``last_report()``.
+#: ms, tens of samples) of the CENTRE, not of an edge.  Rows that do violate it
+#: are given the historical Simpson value and counted in ``last_report()``.
 #: (The route to supporting such rows properly is to widen the GATHER so the wrap
 #: sits outside the integration domain -- deliberately not done here, since it
 #: touches the GPU kernel and the buffer-margin assumptions.)
