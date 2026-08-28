@@ -26,8 +26,9 @@ The fixed-EOS CIP driver exposes the same operation as:
 ```
 
 For pseudo-pipe workflows, forward the flag with
-`--manual-extra-cip-args`.  Hydra hyperpipe configurations can put it in the
-post driver's `extra-args` when that driver is the fixed-EOS CIP executable.
+`--manual-extra-cip-args`.  On O4d, Hydra hyperpipe configurations can put it
+in the post driver's `extra-args` when that driver is the fixed-EOS CIP
+executable.
 
 ## NuclearMatter-Backend sequences
 
