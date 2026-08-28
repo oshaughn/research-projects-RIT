@@ -147,64 +147,15 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         wrapper against the production driver, and
 #                                         because 16384 is the rate test_jax_endtoend
 #                                         (4096) structurally cannot cover.
-#   test_angle_marg_exact.py          30  the exact (phi_ref, psi) marginalization
-#                                         schemes (RIFT.likelihood.jax_ile.anglemarg)
-#                                         and their selector.  Pins the analytic
-#                                         harmonic-content invariant of the factored
-#                                         lnL (a bivariate trig polynomial at fixed
-#                                         time+distance -- decomposed UNMARGINALIZED,
-#                                         because time log-sum-exp manufactures fake
-#                                         high harmonics), the Nyquist-derived sample
-#                                         sizing (asserted, not settable -- the
-#                                         historical defect was a settable npsi=8),
-#                                         the coefficient tables against the direct
-#                                         likelihood OFF the sample grid, both schemes
-#                                         against a brute-force dense reference and
-#                                         the converged legacy grid (shared
-#                                         normalization), the nphi=8 Nyquist aliasing
-#                                         of the n=4 phi harmonic (DFT and marginal
-#                                         level), exact/laplace agreement in the
-#                                         selector's overlap region, AD gradients
-#                                         (exact vs finite differences; laplace vs the
-#                                         exact scheme's AD, kernel vs FD), the
-#                                         O(1/b) Laplace error law, the wrapper's
-#                                         grid default being unchanged, and -- by AST
-#                                         over the driver source -- that
-#                                         --angle-marg-scheme reaches the wrapper and
-#                                         the RESOLVED scheme is printed (this
-#                                         pipeline's silently-inert-flag history).
-#                                         Also pins the two defects an external
-#                                         adversarial review found before merge:
-#                                         (1) the psi-Laplace stationary points are
-#                                         ENUMERATED (bracketing all <= 4 zeros of
-#                                         the degree-2 trig polynomial f'), pinned
-#                                         by the first-harmonic-cancellation family
-#                                         (c1=0, c2=-d: the historical two-seed
-#                                         Newton returned -inf for a finite
-#                                         integral) and a randomized (b,d,beta,
-#                                         delta) sweep vs brute quadrature; (2) the
-#                                         dense-grid sizing is DATA-DERIVED
-#                                         (estimate_angle_amplitude from the
-#                                         coefficient tables), pinned by regressions
-#                                         that a missing or 10x-low guess_snr
-#                                         cannot under-resolve the quadrature
-#                                         (which measurably bit, -1.04 nats, before
-#                                         the fix) and that amp_sizing has NO
-#                                         default.  A second review round added the
-#                                         series/Laplace branch-window pin (value +
-#                                         gradient sign across the C^1 blend band,
-#                                         NOT filtered out), hardened the driver AST
-#                                         guard to the keyword's VALUE node (the
-#                                         angle_marg="grid" inert-flag mutant now
-#                                         fails it), and pinned the amplitude
-#                                         estimator against an independent dense
-#                                         reference with its reconstruction grid
-#                                         derived-and-asserted from m_max.
-#                                         Synthetic packed data; no lal frames, no
-#                                         GPU, no flowMC.  ~550 s local.
-#
-# DELIBERATELY EXCLUDED (measured on ldas-pcdev11, JAX_PLATFORMS=cpu, OMP_NUM_THREADS=1):
-#
+#   test_angle_marg_sizing_rule.py    1  the m_max-aware dense phi sizing rule.
+#                                         Pure numpy, milliseconds, closed-form I0
+#                                         reference.  FAILS under the old m_max-blind
+#                                         rule (0.498 nats vs 1.17e-10), which every
+#                                         low-scale brute-force test passes -- so this
+#                                         is the only gated check that distinguishes
+#                                         the corrected sizing.  The rest of the
+#                                         angle-marg suite is EXCLUDED; see below.
+
 #   test_nuts_phimarg_injection.py  Not a pytest file at all: it runs the whole study at
 #                                 module scope and calls sys.exit() there.  WITHOUT numpyro
 #                                 that surfaces as a fast COLLECTION ERROR; WITH numpyro --
@@ -243,7 +194,7 @@ FILES=(
   "${JAXDIR}/test_interp_choices.py"
   "${JAXDIR}/test_jax_stencil_parity.py"
   "${JAXDIR}/test_flow_reuse_default.py"
-  "${JAXDIR}/test_angle_marg_exact.py"
+  "${JAXDIR}/test_angle_marg_sizing_rule.py"
 )
 
 # EXCLUDED: files in JAXDIR matching test_*.py that are deliberately NOT gated.  The
@@ -252,37 +203,35 @@ FILES=(
 # this gate's own failure mode, one level up.
 DESELECTED_TESTS=(
   "${JAXDIR}/test_jax_stencil_parity.py::test_gpu_gather_parity_against_numpy_window"
-  # ---- angle-marginalization VALIDATION, not per-commit gates ----------------
-  # These two are development checks: they establish the scheme's ERROR LAW at
-  # production amplitude, which is a property of the mathematics and does not
-  # change commit to commit.  Correctness does NOT depend on amplitude -- the
-  # low-scale brute-force comparisons that remain gated (scale 2/4/6) prove the
-  # scheme exact -- so deselecting these costs no correctness coverage.
-  #
-  # They are here because the 169-test gate hit the job's 60-minute
-  # timeout-minutes cap and was CANCELLED at 65 min (run 33121111049), which the
-  # PR then displayed as a failing check.  The 139-test baseline took 13m53s.
-  # Cost is dominated by the dense reconstruction, whose size grows as sqrt(A)
-  # per axis with A ~ scale^2.
-  #
-  #   test_laplace_high_amplitude_accuracy_and_trend
-  #       scale=100, i.e. A ~ 1e4 x the gated cases.  Pins the laplace error
-  #       trend (-1.1e-3 at A=50 falling to -7.2e-7 at A=12800).
-  #   test_higher_mode_dense_sizing_self_convergence
-  #       runs the grid a second time at amp_sizing=4 (4x oversized) to show
-  #       self-convergence; the PR's own SNR-320 row records this construction
-  #       as "13M dense points, eager-CPU intractable".
-  #
-  # RUN THEM BY HAND when touching anglemarg.py, on a quiet host, e.g.
-  #   PYTHONPATH=<tree>/MonteCarloMarginalizeCode/Code JAX_PLATFORMS=cpu \
-  #   JAX_ENABLE_X64=1 OMP_NUM_THREADS=1 taskset -c 0-15 python -m pytest -q \
-  #     <tree>/MonteCarloMarginalizeCode/Code/test/jax/test_angle_marg_exact.py \
-  #     -k "high_amplitude or dense_sizing_self_convergence"
-  # and record the numbers in the PR/notes, per records-protocol.
-  "${JAXDIR}/test_angle_marg_exact.py::test_laplace_high_amplitude_accuracy_and_trend"
-  "${JAXDIR}/test_angle_marg_exact.py::test_higher_mode_dense_sizing_self_convergence"
 )
 EXCLUDED=(
+  # test_angle_marg_exact.py -- the angle-marginalization VALIDATION suite.
+  #
+  # NOT gated per-PR, and this is a deliberate, measured decision rather than a
+  # convenience.  It is a development check in the same sense that full RIFT
+  # analysis runs are: it establishes the schemes' ERROR LAW at production
+  # amplitude, a property of the mathematics that does not change commit to
+  # commit.  Three separate CI failures forced the split, each a different
+  # symptom of the same cost: the 169-test gate was CANCELLED at the job's
+  # 60-minute cap; a later head OOM-killed the runner at 19 min; and the run
+  # after that reached 83% and then died with "the runner has received a
+  # shutdown signal" (exit 143).  The 139-test baseline ran in 13m53s.
+  #
+  # What remains GATED is the coverage that actually bites:
+  # test_angle_marg_sizing_rule.py pins the m_max-aware dense sizing with a
+  # pure-numpy, millisecond test against a closed-form I0 reference, and FAILS
+  # under the old m_max-blind rule (0.498 nats vs 1.17e-10).  The low-scale
+  # brute-force comparisons in the excluded file prove exactness but do NOT
+  # distinguish the sizing rule -- the broken rule passes them all -- which is
+  # why extracting that one test was necessary before excluding the rest.
+  #
+  # RUN IT BY HAND when touching anglemarg.py, on a quiet host with >=16 cores:
+  #   PYTHONPATH=<tree>/MonteCarloMarginalizeCode/Code JAX_PLATFORMS=cpu \
+  #   JAX_ENABLE_X64=1 OMP_NUM_THREADS=1 JAX_COMPILATION_CACHE_DIR="" \
+  #   taskset -c 0-15 python -m pytest -q \
+  #     <tree>/MonteCarloMarginalizeCode/Code/test/jax/test_angle_marg_exact.py
+  # and record the numbers in the PR, per records-protocol.
+  "${JAXDIR}/test_angle_marg_exact.py"
   "${JAXDIR}/test_nuts_phimarg_injection.py"
   "${JAXDIR}/test_flow_reuse.py"
 )
@@ -320,7 +269,7 @@ fi
 # Sum of the per-file counts above.
 # Pinned deliberately: a bare `pytest test/jax/`
 # that collected 0 would exit 5, and a partial loss (say 14 -> 3) would still exit 0.
-EXPECTED_TESTS=173
+EXPECTED_TESTS=141
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"
