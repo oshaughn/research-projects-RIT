@@ -428,6 +428,7 @@ parser.add_argument("--playground-data",action='store_true', help="Passed throug
 parser.add_argument("--approx",default=None,type=str,help="Approximant. REQUIRED")
 parser.add_argument("--approx-extra",default=None,action='append',help="Additional waveform model, repeatable.  Selects the cross-model workflow: every model is evaluated on ONE shared intrinsic grid and marginalized over point by point, and the terminal stage forks to give each model its own posterior and evidence.  Implies --pipeline-builder BasicMultiApproxIteration.  See RIFT/misc/DESIGN_multiapprox_marginalization.md")
 parser.add_argument("--approx-prior",default=None,action='append',help="APPROX=WEIGHT prior p(m) over waveform models, repeatable.  Default uniform.  NOT sampling weights.")
+parser.add_argument("--approx-extra-gwsignal",default=None,action='append',help="An --approx-extra model that must be generated through gwsignal.  The primary --approx inherits --use-gwsignal automatically.  The generator route is PER MODEL: the phenom family has no time-domain mode generator in gwsignal, so a single global route cannot serve an EOB-vs-phenom comparison.")
 parser.add_argument("--require-all-approx",action='store_true',help="Drop intrinsic points not successfully evaluated under EVERY model, instead of marginalizing over whichever subset survived.")
 parser.add_argument("--use-gwsurrogate",action='store_true',help="Attempt to use gwsurrogate instead of lalsuite.")
 parser.add_argument("--use-gwsignal",action='store_true',help="Attempt to use gwsignal interface.")
@@ -2153,6 +2154,20 @@ if use_multiapprox:
     # forks per model at the terminal stage.
     for _ap in [opts.approx] + list(opts.approx_extra):
         cmd += " --approx {} ".format(_ap)
+    # Forward the generator ROUTE per model.  Without this the builder never sees
+    # --approx-gwsignal, so it does not strip the global --use-gwsignal and every
+    # model is sent through gwsignal -- where the phenom family cannot be
+    # generated at all, its ILE jobs contribute zero rows, and the run silently
+    # degrades to a single model.
+    _gw = []
+    if opts.use_gwsignal:
+        _gw.append(opts.approx)                      # the primary is what --use-gwsignal meant
+    _gw += list(opts.approx_extra_gwsignal or [])
+    for _m in _gw:
+        if _m not in [opts.approx] + list(opts.approx_extra):
+            print(" --approx-extra-gwsignal names {}, which is not among the models {}".format(
+                _m, [opts.approx] + list(opts.approx_extra))); sys.exit(1)
+        cmd += " --approx-gwsignal {} ".format(_m)
     for _pr in (opts.approx_prior or []):
         cmd += " --approx-prior '{}' ".format(_pr)
     if opts.require_all_approx:

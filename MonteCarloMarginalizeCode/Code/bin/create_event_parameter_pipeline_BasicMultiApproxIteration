@@ -705,6 +705,13 @@ con_job.write_sub_file()
 #   collapses to one entry, combined LINEARLY in L.  See
 #   RIFT/misc/DESIGN_multiapprox_marginalization.md.
 clean_model_args = " --model-group-regex 'approx_(.+?)_consolidated' "
+# Coverage must be judged against the models this run CONFIGURED.  A model whose
+# composites are all empty is skipped before its label is recorded, so without
+# this the pooled net silently becomes a lower-dimensional mixture and even
+# --require-all-models sees nothing wrong.  Observed live: one model's ILE jobs
+# all failed and util_CleanILE reported "combination over 1 models" as ordinary
+# status.
+clean_model_args += " --expect-models '{}' ".format(",".join(opts.approx))
 if opts.approx_prior:
     for item in opts.approx_prior:
         if "=" not in item:

@@ -35,11 +35,13 @@ parser.add_argument("--meanPerAno", action="store_true")
 parser.add_argument("--tabular-eos-file", action="store_true") 
 parser.add_argument("--model-group-regex", default=None, help="Regex matched against each input file's BASENAME; capture group 1 is the waveform-model label.  Enables model-aware combination: replicas are averaged within a model, then models are marginalized over with --model-prior weights.  Without this flag every evaluation at a given intrinsic point is pooled flat, which is correct for replicas of ONE model and wrong across models.")
 parser.add_argument("--model-prior", action="append", default=None, help="LABEL=WEIGHT prior weight for one model (repeatable).  Default: uniform over the labels actually seen.  Weights are renormalized over the models present at each intrinsic point.")
+parser.add_argument("--expect-models", default=None, help="Comma-separated list of the models this run CONFIGURED.  Coverage is judged against this list, not against the labels that happen to appear: a model whose composites are all empty or missing is skipped before its label is ever recorded, so without this a total failure of one approximant looks like a complete run and even --require-all-models accepts every point.  The builder passes its full --approx list.")
 parser.add_argument("--require-all-models", action="store_true", help="Drop intrinsic points not evaluated under EVERY model.  Without it, a point covered by a subset is marginalized over that subset, which silently changes the estimator point by point.")
 opts = parser.parse_args()
 
 model_mode = opts.model_group_regex is not None
 model_rx = re.compile(opts.model_group_regex) if model_mode else None
+expected_models = [m.strip() for m in opts.expect_models.split(",") if m.strip()] if opts.expect_models else None
 model_prior_arg = {}
 if opts.model_prior:
     for item in opts.model_prior:
@@ -171,6 +173,18 @@ def _pool_linear(lnL, sigmaOverL, ntot, lnLmax, weights=None):
 
 
 if model_mode:
+    if expected_models:
+        absent = [m for m in expected_models if m not in models_seen]
+        if absent:
+            sys.stderr.write(
+                "util_CleanILE: WARNING: configured models contributed NOTHING: {}. "
+                "Their composites were empty or missing, so they are invisible to the "
+                "per-point coverage check and this is a {}-model mixture, not a {}-model "
+                "one.\n".format(", ".join(absent), len(models_seen), len(expected_models)))
+        # judge coverage against what was CONFIGURED
+        for m in expected_models:
+            if m not in models_seen:
+                models_seen.append(m)
     if model_prior_arg:
         missing = [m for m in models_seen if m not in model_prior_arg]
         if missing:

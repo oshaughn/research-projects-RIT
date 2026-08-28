@@ -96,6 +96,42 @@ def test_pseudo_pipe_offers_and_routes_to_the_builder():
         "pseudo_pipe never emits --approx per model")
 
 
+def test_pseudo_pipe_forwards_the_generator_route():
+    """--use-gwsignal must reach the builder as a PER-MODEL route.
+
+    The builder only strips the global --use-gwsignal (and binds macrogwsignal)
+    when --approx-gwsignal is supplied.  If pseudo_pipe never supplies it,
+    "--use-gwsignal --approx PRIMARY --approx-extra LALSIM_MODEL" still sends
+    every model through gwsignal; the models that cannot be generated there
+    contribute zero rows and the run silently degrades to one model.
+    """
+    text = PSEUDO.read_text()
+    assert "--approx-gwsignal {}" in text, (
+        "pseudo_pipe never emits --approx-gwsignal, so the builder cannot route "
+        "per model")
+    assert "--approx-extra-gwsignal" in text, (
+        "no way to mark which --approx-extra models need gwsignal")
+    assert re.search(r"if opts\.use_gwsignal:\s*\n\s*_gw\.append\(opts\.approx\)", text), (
+        "the primary --approx does not inherit --use-gwsignal")
+
+
+def test_coverage_is_judged_against_the_configured_models():
+    """util_CleanILE must be told which models the run configured.
+
+    A model whose composites are all empty is skipped before its label is
+    recorded, so models_seen holds only the survivors -- and even
+    --require-all-models then accepts every point as complete.  Observed live:
+    one approximant's ILE jobs all failed and the run reported
+    "combination over 1 models" as ordinary status.
+    """
+    builder = MULTI.read_text()
+    assert "--expect-models" in builder, (
+        "the builder does not pass its approximant list to util_CleanILE")
+    clean = (BIN / "util_CleanILE.py").read_text()
+    assert "expect-models" in clean and "contributed NOTHING" in clean, (
+        "util_CleanILE does not judge coverage against the configured set")
+
+
 def test_multiapprox_without_a_second_model_is_refused():
     """The cross-model builder with one model is a misconfiguration, not a run."""
     text = PSEUDO.read_text()
