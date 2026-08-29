@@ -82,6 +82,9 @@ than the Earth-diameter light time), and the
 largest shipped interpolation stencil.  The accumulator also validates every
 guarded gather index per row; missing support produces a fail-closed likelihood
 instead of inheriting the ordinary gatherer's out-of-buffer zero fill.  The
+baseline and banded finite-size/frequency-response accumulators enforce the
+same check; rotation remains refused because its norm depends on arrival time.
+The
 curvature-derived starting fine factor is capped at 1024 and certified once at
 2048; a sharper row is refused with guidance to increase the input/rholm sample
 rate rather than allocating multi-gigabyte FFT branches.
@@ -91,7 +94,6 @@ refuse `bandlimited`.  Those nonlinear reductions generate time harmonics, so
 interpolating their already-reduced `lnL(t)` can converge to the wrong function;
 they require endpoint-specific primitive refinement before they can safely opt
 in.  They continue to use the unchanged Simpson default.
-
 The driver exposes the same public spelling as conventional ILE:
 `--time-marginalization-quadrature`.  `--interpolate-time` is an alias for the
 JAX-native `--interp` with conflict detection.  Conditional nuisance recovery

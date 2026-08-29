@@ -262,14 +262,15 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         does not).  Pure numpy
 #                                         and jax, no lal, no GPU.
 #   test_jax_terminal_time_marginalization.py
-#                                      16  adaptive primitive-field integration:
+#                                      18  adaptive primitive-field integration:
 #                                         odd/even reflection, exact normalization,
 #                                         Event-B high-SNR convergence, AD, bounded
 #                                         batch-independent dispatch, a near-Nyquist
 #                                         phase-marginalization counterexample, explicit
 #                                         nonlinear-endpoint refusal, driver wiring, and
 #                                         honest phase-marginalized sky/psi export,
-#                                         and K=14/K=88 independent guarded references.
+#                                         K=14/K=88 independent guarded references,
+#                                         and executable baseline/banded support refusal.
 
 FILES=(
   "${JAXDIR}/test_jax_time_quadrature.py"
@@ -378,11 +379,11 @@ fi
 # no default guard; the band-limited path widens the accumulation window).
 # PR #209 then adds six test_angle_marg_compile_cost.py pins, raising 160 -> 166,
 # and PR #210 adds five test_angle_marg_block_dispatch.py pins, raising 166 -> 171.
-# PR #216 adds sixteen adaptive primitive-time pins, raising 171 -> 187.
+# PR #216 adds eighteen adaptive primitive-time pins, raising 171 -> 189.
 # Raising the floor
 # by exactly the number of tests ADDED is safe whatever the environment delta above,
 # since it preserves the margin the previous floor already had.
-EXPECTED_TESTS=187
+EXPECTED_TESTS=189
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"

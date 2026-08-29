@@ -182,6 +182,39 @@ def test_all_wrappers_expose_quadrature_but_nonlinear_path_refuses_bandlimited()
     assert "jnp.nan + 0.0j" in accumulator_source
 
 
+@pytest.mark.parametrize("feature", [None, "freqresponse"])
+def test_missing_guard_support_poisoned_for_baseline_and_banded(monkeypatch, feature):
+    import types
+    monkeypatch.setattr(core, "compute_detamresponse",
+                        lambda *args: jnp.ones((1,), dtype=jnp.complex128))
+    monkeypatch.setattr(core, "time_delay_from_earth_center",
+                        lambda *args: jnp.zeros((1,)))
+    monkeypatch.setattr(core, "spherical_harmonics_vectorized",
+                        lambda *args, **kwargs: jnp.ones((1, 1), dtype=jnp.complex128))
+    monkeypatch.setattr(core, "_banded_coefficients",
+                        lambda *args: jnp.ones((1, 1), dtype=jnp.complex128))
+    common = dict(lms=[(2, 2)], l_max=2, response=np.zeros((3, 3)),
+                  location=np.zeros(3))
+    if feature is None:
+        detector = dict(common, Q=jnp.ones((4, 1), dtype=jnp.complex128),
+                        U=jnp.zeros((1, 1), dtype=jnp.complex128),
+                        V=jnp.zeros((1, 1), dtype=jnp.complex128))
+    else:
+        detector = dict(common,
+                        Q_bank=jnp.ones((1, 4, 1), dtype=jnp.complex128),
+                        U_bank=jnp.zeros((1, 1, 1, 1), dtype=jnp.complex128),
+                        V_bank=jnp.zeros((1, 1, 1, 1), dtype=jnp.complex128))
+    data = types.SimpleNamespace(
+        feature=feature, detectors={"X": detector}, detector_names=["X"],
+        band={"refl_idx": np.array([0])}, gmst=0.0, deltaT=1.0,
+        npts=3, tval0=1.0, tref_minus_epoch=lambda det: 0.0)
+    args = [jnp.zeros((1,))] * 5
+    kappa, rho = core._accumulate_unit(
+        data, *args, interp="nearest", phase_marginalization=False, guard=2)
+    assert np.all(np.isnan(np.asarray(kappa)))
+    assert np.all(np.isnan(np.asarray(rho)))
+
+
 def test_jax_driver_uses_conventional_ile_flag_names():
     import pathlib
     driver = pathlib.Path(__file__).parents[2] / "bin" / "integrate_likelihood_extrinsic_jax"

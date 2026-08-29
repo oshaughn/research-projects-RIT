@@ -657,6 +657,7 @@ def _accumulate_unit_banded(data, ra, dec, psi, incl, phiref, interp,
 
     kappa_unit = jnp.zeros((S, npts), dtype=jnp.complex128)
     rho_sq_unit = jnp.zeros((S, npts), dtype=jnp.float64)
+    support_valid = jnp.ones((S,), dtype=bool)
 
     for det in data.detector_names:
         dd = data.detectors[det]
@@ -677,6 +678,12 @@ def _accumulate_unit_banded(data, ra, dec, psi, incl, phiref, interp,
                  + time_delay_from_earth_center(dd["location"], ra, dec, gmst))
         p0 = (t_det + data.tval0) * inv_deltaT
         pos = p0[:, None] + t_offsets[None, :]              # (S, npts)
+        if guard:
+            stencil_margin = {"nearest": 1, "linear": 2, "cubic": 3,
+                              "sinc": SINC_HALFWIDTH_DEFAULT + 1}[interp]
+            support_valid = support_valid & jnp.all(
+                (pos >= stencil_margin)
+                & (pos <= Q_bank.shape[1] - 1 - stencil_margin), axis=-1)
         # None for 'nearest': it ignores u, and feeding an unused value into this trace
         # is NOT free -- it cost >60% wall on the banded slow-rotation path (measured:
         # test_rotation_path_a 69.8 s -> >113 s), which is compile-bound, not arithmetic-
@@ -744,6 +751,10 @@ def _accumulate_unit_banded(data, ra, dec, psi, incl, phiref, interp,
         rho_sq_unit = rho_sq_unit + (rho_sq_det if post_phase
                                      else rho_sq_det[:, None])
 
+    if guard:
+        kappa_unit = jnp.where(support_valid[:, None], kappa_unit,
+                               jnp.nan + 0.0j)
+        rho_sq_unit = jnp.where(support_valid[:, None], rho_sq_unit, jnp.nan)
     return kappa_unit, rho_sq_unit
 
 
