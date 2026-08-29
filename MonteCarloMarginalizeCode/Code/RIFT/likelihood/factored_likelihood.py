@@ -2430,7 +2430,7 @@ def _nearest_Q_window_numpy(Q_block, start_indices, npts, xpy=np):
     return Qlms
 
 
-def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=np, loglikelihood=_factored_lnL_helper,return_lnLt=False,phase_marginalization=False,n_cal=1,cal_method='loop',cal_distmarg=None,cal_log_weights=None,return_cal_components=False,time_interp='nearest',ctUArrayDict_cal=None,ctVArrayDict_cal=None,time_quadrature=None):
+def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=np, loglikelihood=_factored_lnL_helper,return_lnLt=False,phase_marginalization=False,n_cal=1,cal_method='loop',cal_distmarg=None,cal_log_weights=None,return_cal_components=False,time_interp='nearest',ctUArrayDict_cal=None,ctVArrayDict_cal=None,time_quadrature=None,return_time_components=False):
     """
     DiscreteFactoredLogLikelihoodViaArray uses the array-ized data structures to compute the log likelihood,
     either as an array vs time *or* marginalized in time.
@@ -2528,6 +2528,8 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
     global distMpcRef
 
     validate_time_interp(time_interp, on_gpu=not (xpy is np))
+    if return_time_components and (return_lnLt or return_cal_components):
+        raise ValueError("return_time_components is mutually exclusive with other return modes")
     if time_interp != 'nearest' and cal_method == 'fused':
         raise NotImplementedError("time_interp='{}' is not implemented for cal_method='fused'".format(time_interp))
 
@@ -2843,6 +2845,9 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         else:
             lnL_t = loglikelihood(kappa_sq.real, rho_sq_here)
 
+        if return_time_components:
+          return kappa_sq, rho_sq_here
+
         # Take exponential of the log likelihood in-place.
         lnLmax  = xpy.max(lnL_t)
         if return_lnLt:
@@ -2905,7 +2910,8 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         cal_log_w = xpy.asarray(cal_log_weights, dtype=np.float64)
     cal_log_w_norm = float(np.log(n_cal))
 
-    if cal_method == 'fused' and not return_lnLt and not return_cal_components:
+    if (cal_method == 'fused' and not return_lnLt and
+            not return_cal_components and not return_time_components):
         # ---- Option C: fused implementation (GPU CUDA kernel, or numpy on CPU) ----
         # (return_lnLt needs the per-time series, which the loop reduction produces, so
         #  the fused scalar kernel is bypassed when a timeseries is requested.)
@@ -2952,6 +2958,8 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
     # This is the cal posterior responsibility used by util_CalPilotFit to learn a
     # proposal.  (loop method only; the fused scalar path is bypassed above.)
     cal_components = xpy.zeros((npts_extrinsic, n_cal), dtype=np.float64) if return_cal_components else None
+    time_kappa_components = [] if return_time_components else None
+    time_rho_components = [] if return_time_components else None
     for c in range(n_cal):
         kappa_sq_c = xpy.zeros((npts_extrinsic, npts), dtype=np.complex128)
         for det in detectors:
@@ -2987,6 +2995,9 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
             lnL_t_c = loglikelihood(xpy.abs(kappa_sq_c), rho_sq_here)
         else:
             lnL_t_c = loglikelihood(kappa_sq_c.real, rho_sq_here)
+        if return_time_components:
+            time_kappa_components.append(kappa_sq_c)
+            time_rho_components.append(rho_sq_here)
         if return_cal_components:
             # RAW per-realization time-integrated log L (no importance weight), stable:
             #   log( simps_t exp(lnL_t,c) ) = m + log( simps_t exp(lnL_t,c - m) )
@@ -3002,6 +3013,10 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
             S *= xpy.exp(running_max - m_c)
             running_max = m_c
         S += xpy.exp(lnL_t_c - running_max)
+
+    if return_time_components:
+        return (xpy.stack(time_kappa_components, axis=1),
+                xpy.stack(time_rho_components, axis=1))
 
     if return_cal_components:
         # (npts_extrinsic, n_cal): RAW per-realization integrated log-likelihood.  The

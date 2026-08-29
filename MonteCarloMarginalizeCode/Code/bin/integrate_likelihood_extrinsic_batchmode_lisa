@@ -389,9 +389,17 @@ for pin_param in LIKELIHOOD_PINNABLE_PARAMS:
 optp.add_option_group(pinnable)
 
 opts, args = optp.parse_args()
-from RIFT.likelihood.time_posterior import resolve_time_posterior_export_mode
+from RIFT.likelihood.time_posterior import (
+    legacy_time_interpolation_enabled, resolve_time_posterior_export_mode)
+opts.interpolate_time = legacy_time_interpolation_enabled(opts.interpolate_time)
 opts._time_posterior_export = resolve_time_posterior_export_mode(
     opts.time_posterior_export, "cubic" if opts.interpolate_time else "nearest")
+if (opts.resample_time_marginalization and
+        opts._time_posterior_export == "continuous"):
+    raise NotImplementedError(
+        "continuous time-posterior export is not yet available in the LISA driver: "
+        "its likelihood does not expose the band-limited time components needed to "
+        "sample the selected interpolant faithfully; use --time-posterior-export grid")
 
 #
 # Failure modes
@@ -2779,12 +2787,6 @@ def resample_samples_LISA(my_samples, rholms, cross_terms, right_ascension, decl
   # historical fixed 1 ms LISA export grid as the explicit compatibility path.
   t_out = np.zeros(n_samples)
   lnL_out = np.zeros(n_samples)
-  if opts._time_posterior_export == "continuous":
-    from RIFT.likelihood.time_posterior import draw_continuous_time_posterior
-    t_out, lnL_out = draw_continuous_time_posterior(tvals, lnLt)
-    my_samples['t_ref'] = fiducial_epoch + t_out
-    my_samples["lnL_raw"] = lnL_out
-    return my_samples
   # identifiy max lnL(t) point, and then interpolate around that point to avoid Nan weights.
   index_max_lnLt = np.argmax(lnLt[0]).flatten()
   tval_at_max = tvals[index_max_lnLt]
@@ -2849,15 +2851,11 @@ def resample_samples(my_samples,
   # ground-based path retained in the LISA executable.
   t_out = np.zeros(n_samples)
   lnL_out = np.zeros(n_samples)
-  if opts._time_posterior_export == "continuous":
-    from RIFT.likelihood.time_posterior import draw_continuous_time_posterior
-    t_out, lnL_out = draw_continuous_time_posterior(tvals, lnLt)
-  else:
-    indx_list =np.arange(len(tvals))
-    for indx in np.arange(n_samples):
-      indx_choose = np.random.choice(indx_list, p=np.exp(lnLt[indx] - lnLt_norm[indx]))
-      t_out[indx] = tvals[indx_choose]
-      lnL_out[indx] = lnLt[indx][indx_choose]
+  indx_list =np.arange(len(tvals))
+  for indx in np.arange(n_samples):
+    indx_choose = np.random.choice(indx_list, p=np.exp(lnLt[indx] - lnLt_norm[indx]))
+    t_out[indx] = tvals[indx_choose]
+    lnL_out[indx] = lnLt[indx][indx_choose]
 #    print(' Resampled time offset {} '.format(t_out[indx])) #, lnLt[indx]-lnLt_norm[indx])
     
   my_samples['t_ref'] = fiducial_epoch+t_out # add sample time jitter from reweighting to samples

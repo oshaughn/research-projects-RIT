@@ -17,8 +17,16 @@ MODULE = os.path.join(
 SPEC = importlib.util.spec_from_file_location("time_posterior", MODULE)
 TIME_POSTERIOR = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(TIME_POSTERIOR)
+TMARG_MODULE = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "RIFT", "likelihood",
+    "time_marginalization_quadrature.py")
+TMARG_SPEC = importlib.util.spec_from_file_location(
+    "time_marginalization_quadrature", TMARG_MODULE)
+TMARG = importlib.util.module_from_spec(TMARG_SPEC)
+TMARG_SPEC.loader.exec_module(TMARG)
 draw_continuous_time_posterior = TIME_POSTERIOR.draw_continuous_time_posterior
 resolve_time_posterior_export_mode = TIME_POSTERIOR.resolve_time_posterior_export_mode
+legacy_time_interpolation_enabled = TIME_POSTERIOR.legacy_time_interpolation_enabled
 _interval_log_envelopes = TIME_POSTERIOR._interval_log_envelopes
 
 
@@ -28,6 +36,15 @@ def test_auto_contract_tracks_subsample_interpolation():
     assert resolve_time_posterior_export_mode("auto", "sinc") == "continuous"
     assert resolve_time_posterior_export_mode("grid", "cubic") == "grid"
     assert resolve_time_posterior_export_mode("continuous", "nearest") == "continuous"
+
+
+def test_lisa_legacy_interpolation_parser_does_not_treat_false_as_truthy():
+    for value in (False, "False", "false", "0", "off", "none", "nearest"):
+        assert legacy_time_interpolation_enabled(value) is False
+    for value in (True, "True", "1", "yes", "on", "cubic", "sinc"):
+        assert legacy_time_interpolation_enabled(value) is True
+    with pytest.raises(ValueError, match="unrecognised LISA value"):
+        legacy_time_interpolation_enabled("sinK")
 
 
 def test_continuous_draws_are_not_on_the_input_lattice():
@@ -81,6 +98,34 @@ def test_batched_rows_draw_from_their_own_posteriors():
     assert np.all(np.abs(draws - centers) < 0.004)
 
 
+def test_bandlimited_refinement_uses_components_and_preserves_coarse_samples():
+    n = 65
+    phase = np.linspace(-np.pi, np.pi, n)
+    # A narrow, band-limited peak whose measured curvature requires refinement.
+    kappa = (80.0 * np.cos(phase)[None, :]).astype(complex)
+    rho_sq = np.zeros(kappa.shape)
+    dense, factor = TMARG.refine_time_posterior_bandlimited(
+        kappa, rho_sq, 1.0,
+        lambda data_term, self_term: data_term - 0.5 * self_term)
+    assert factor > 1
+    np.testing.assert_allclose(dense[:, ::factor], kappa.real, rtol=0, atol=2e-12)
+    assert dense.shape[-1] == (n - 1) * factor + 1
+
+    # Calibration realizations must be reconstructed before their weighted
+    # log-sum-exp reduction, not spline-interpolated after marginalization.
+    kappa_cal = np.stack((kappa, kappa - 2.0), axis=1)
+    rho_cal = np.zeros(kappa_cal.shape)
+    weights = np.log(np.array([1.5, 0.5]))
+    dense_cal, factor_cal = TMARG.refine_time_posterior_bandlimited(
+        kappa_cal, rho_cal, 1.0,
+        lambda data_term, self_term: data_term - 0.5 * self_term,
+        cal_log_weights=weights)
+    coarse_weighted = np.log(
+        (1.5 * np.exp(kappa.real) + 0.5 * np.exp(kappa.real - 2.0)) / 2.0)
+    np.testing.assert_allclose(
+        dense_cal[:, ::factor_cal], coarse_weighted, rtol=0, atol=2e-12)
+
+
 def test_negative_infinity_knots_are_zero_mass_not_an_arbitrary_log_floor():
     from scipy.interpolate import PchipInterpolator
 
@@ -130,15 +175,25 @@ def test_pathological_rejection_cannot_hang_the_driver():
 def test_driver_wires_continuous_draw_before_legacy_grid_choice():
     with open(DRIVER) as handle:
         source = handle.read()
-    continuous = source.index("draw_continuous_time_posterior(tvals, lnLt)")
+    components = source.index("return_time_components=True")
+    refinement = source.index("refine_time_posterior_bandlimited(", components)
+    dense_labels = source.index("xpy_default.arange(n_dense)", refinement)
+    continuous = source.index("draw_continuous_time_posterior(tvals, lnLt)", dense_labels)
     grid = source.index("indx_choose = np.random.choice", continuous)
+    assert components < refinement < dense_labels < continuous < grid
     assert continuous < grid
+    assert "return_time_components=True" in source
+    assert "refine_time_posterior_bandlimited(" in source
     assert 'opts._time_posterior_export == "continuous"' in source
     assert 'opts._time_posterior_export == "grid"' in source
 
 
-def test_lisa_twin_exposes_and_uses_the_same_export_contract():
+def test_lisa_twin_refuses_continuous_mode_without_faithful_components():
     with open(LISA_DRIVER) as handle:
         source = handle.read()
     assert '"--time-posterior-export"' in source
-    assert source.count("draw_continuous_time_posterior(tvals, lnLt)") == 2
+    assert "legacy_time_interpolation_enabled(opts.interpolate_time)" in source
+    assert ("opts.resample_time_marginalization and\n"
+            "        opts._time_posterior_export == \"continuous\"") in source
+    assert "does not expose the band-limited time components" in source
+    assert "draw_continuous_time_posterior(tvals, lnLt)" not in source

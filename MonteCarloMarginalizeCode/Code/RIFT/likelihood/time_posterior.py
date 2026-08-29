@@ -18,6 +18,18 @@ from scipy.interpolate import CubicSpline, PchipInterpolator
 TIME_POSTERIOR_EXPORT_MODES = ("auto", "continuous", "grid")
 
 
+def legacy_time_interpolation_enabled(value):
+    """Parse the LISA driver's historical boolean/string interpolation flag."""
+    normalized = str(value).strip().lower()
+    if normalized in ("true", "t", "yes", "y", "1", "on", "cubic", "sinc"):
+        return True
+    if normalized in ("false", "f", "no", "n", "0", "off", "none", "nearest"):
+        return False
+    raise ValueError(
+        "--interpolate-time: unrecognised LISA value {!r}; use a boolean, "
+        "nearest, cubic, or sinc".format(value))
+
+
 def resolve_time_posterior_export_mode(requested, time_interpolation):
     """Resolve ``auto`` against the likelihood's time-interpolation mode."""
     if requested not in TIME_POSTERIOR_EXPORT_MODES:
@@ -30,7 +42,10 @@ def resolve_time_posterior_export_mode(requested, time_interpolation):
 def _interval_log_envelopes(spline, knots, log_values):
     """Return the exact maximum of a cubic spline on every knot interval."""
     maxima = np.maximum(log_values[:-1], log_values[1:]).astype(float, copy=True)
-    roots = np.asarray(spline.derivative().roots(extrapolate=False), dtype=float)
+    # SciPy 1.0's PPoly.roots() has no ``extrapolate`` keyword.  Calling it
+    # without the keyword is cross-version-safe because the in-domain test
+    # below already rejects every extrapolated root.
+    roots = np.asarray(spline.derivative().roots(), dtype=float)
     roots = roots[np.isfinite(roots)]
     if roots.size:
         interval = np.searchsorted(knots, roots, side="right") - 1
