@@ -842,8 +842,11 @@ def _laplace_psi_lnI(a, c1, c2):
     N = _LAPLACE_BRACKET_CELLS
     ug = np.linspace(0.0, 2.0 * np.pi, N + 1)
     cell = ug[1] - ug[0]
-    zero_f = jnp.zeros_like(b)
-    false_x = jnp.zeros_like(b, dtype=bool)
+    # c1 and c2 may have different but broadcast-compatible shapes.  The
+    # scan carry must start at their combined shape: lax.scan forbids the
+    # Python-loop behaviour of expanding a scalar carry on the first step.
+    zero_f = jnp.zeros_like(t_amp)
+    false_x = jnp.zeros_like(t_amp, dtype=bool)
     nR = _LAPLACE_MAX_ROOTS
     slot_ids = jnp.arange(nR, dtype=zero_f.dtype).reshape(
         (nR,) + (1,) * zero_f.ndim)

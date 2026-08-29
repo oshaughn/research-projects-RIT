@@ -157,7 +157,7 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         passes a weaker guard), and that BOTH
 #                                         artifacts are labelled and never imply
 #                                         verification.  Seconds, not minutes.
-#   test_angle_marg_compile_cost.py   5  the laplace path's COMPILE- and RUN-cost
+#   test_angle_marg_compile_cost.py   6  the laplace path's COMPILE- and RUN-cost
 #                                         structure (2026-08-28: an unrolled kernel
 #                                         x 64 distance blocks put a production
 #                                         SNR-40 run >88 min / 22 GiB into XLA
@@ -351,11 +351,11 @@ fi
 # the five guard-sample pins in the same file (periodic-seam defect on a
 # non-periodic crop; its removal by guard samples; guard is support, not window;
 # no default guard; the band-limited path widens the accumulation window).
-# PR #209 then adds five test_angle_marg_compile_cost.py pins, raising 160 -> 165.
+# PR #209 then adds six test_angle_marg_compile_cost.py pins, raising 160 -> 166.
 # Raising the floor
 # by exactly the number of tests ADDED is safe whatever the environment delta above,
 # since it preserves the margin the previous floor already had.
-EXPECTED_TESTS=165
+EXPECTED_TESTS=166
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"

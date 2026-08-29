@@ -147,6 +147,31 @@ def test_laplace_kernel_graph_is_rolled():
         "docstring." % n)
 
 
+def test_laplace_kernel_preserves_mixed_shape_broadcasting():
+    """The rolled scan must preserve the kernel's elementwise broadcast API.
+
+    A scalar c1 and vector c2 make the derivative fields vector-valued.  If
+    the scan carry and root-slot arrays are initialized from c1 alone, their
+    shapes start scalar and lax.scan fails instead of allowing the expansion
+    that the former Python loop performed.
+    """
+    a = jnp.asarray(0.0)
+    c1 = jnp.asarray(350.0 + 20.0j)
+    c2 = jnp.asarray([10.0 + 2.0j, 20.0 - 3.0j])
+
+    got = AM._laplace_psi_lnI(a, c1, c2)
+    got_jit = jax.jit(AM._laplace_psi_lnI)(a, c1, c2)
+    expected = jnp.stack([
+        AM._laplace_psi_lnI(a, c1, c2_i) for c2_i in c2
+    ])
+
+    assert got.shape == c2.shape
+    assert np.allclose(np.asarray(got), np.asarray(expected),
+                       rtol=0, atol=1e-12)
+    assert np.allclose(np.asarray(got_jit), np.asarray(expected),
+                       rtol=0, atol=1e-12)
+
+
 def test_laplace_dist_tail_padding_exact():
     """A distance grid NOT divisible by dist_block must give the same
     marginal as one evaluated without tail padding.
