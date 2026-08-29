@@ -121,6 +121,32 @@ def test_explicit_times_apply_selected_q_stencil_at_every_dense_time(stencil):
     np.testing.assert_allclose(actual, expected, rtol=2e-14, atol=2e-14)
 
 
+@pytest.mark.parametrize("stencil", ["nearest", "cubic", "sinc"])
+def test_explicit_time_stencil_chunks_the_time_axis(monkeypatch, stencil):
+    from RIFT.likelihood import factored_likelihood as fl
+
+    # Force max_cells=2: every four-time row must cross a time-chunk boundary.
+    monkeypatch.setattr(fl, "_Q_EXPLICIT_TEMP_MAX_BYTES", 2 * 3 * 16 * 3,
+                        raising=False)
+    rng = np.random.RandomState(64)
+    q = rng.normal(size=(80, 3)) + 1j * rng.normal(size=(80, 3))
+    antenna_modes = rng.normal(size=(2, 3)) + 1j * rng.normal(size=(2, 3))
+    starts = np.array([[11, 12, 13, 14], [31, 32, 33, 34]], dtype=np.int32)
+    fractions = None if stencil == "nearest" else np.array(
+        [[0.05, 0.27, 0.51, 0.89], [0.13, 0.38, 0.64, 0.92]])
+    actual = fl._q_inner_product_explicit_times(
+        q, antenna_modes, starts, fractions, stencil, xpy=np)
+    expected = np.empty(actual.shape, dtype=complex)
+    for row in range(starts.shape[0]):
+        for col in range(starts.shape[1]):
+            frac = None if fractions is None else fractions[row:row + 1, col]
+            q_one = fl._q_window_numpy_interp(
+                q, starts[row:row + 1, col], frac, 1, stencil, xpy=np)[0, 0]
+            expected[row, col] = np.einsum(
+                "j,j->", antenna_modes[row], q_one)
+    np.testing.assert_allclose(actual, expected, rtol=2e-14, atol=2e-14)
+
+
 def test_negative_infinity_knots_are_zero_mass_not_an_arbitrary_log_floor():
     from scipy.interpolate import PchipInterpolator
 
@@ -178,6 +204,7 @@ def test_driver_wires_continuous_draw_before_legacy_grid_choice():
     assert continuous < grid
     assert "explicit_time_values=True" in source
     assert "validate_time_posterior_working_set(n_samples, n_dense)" in source
+    assert "del lnLt_dense, tvals_dense, sigma_dense, measurable_dense" in source
     assert "opts.rotation_slow or opts.freqresponse" in source
     assert "refusing before the expensive integration" in source
     assert 'opts._time_posterior_export == "continuous"' in source

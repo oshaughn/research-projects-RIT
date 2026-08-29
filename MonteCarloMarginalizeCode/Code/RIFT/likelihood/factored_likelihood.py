@@ -2416,39 +2416,52 @@ def _q_inner_product_gpu(Q, A, start_indices, fractional_offsets, npts, time_int
                      % (time_interp, TIME_INTERP_CHOICES))
 
 
+_Q_EXPLICIT_TEMP_MAX_BYTES = 64 * 1024 * 1024
+
+
 def _q_inner_product_explicit_times(Q, A, start_indices, fractional_offsets,
                                     time_interp, xpy=np):
     """Evaluate a Q-window stencil at every explicitly supplied time.
 
     ``start_indices`` has shape ``(n_extrinsic, n_time)``.  Work is chunked on
-    the extrinsic axis so a large fair-draw export or many calibration
-    realizations cannot allocate the full ``n_extrinsic*n_time*n_modes`` gather
-    at once.  Each flattened entry asks the existing, tested stencil for one
-    sample; unlike the historical window gather, no implicit ``+j*deltaT`` is
-    introduced.
+    BOTH axes so neither one very finely refined row nor many fair-draw rows can
+    allocate the full ``n_extrinsic*n_time*n_modes`` gather at once.  Each
+    flattened entry asks the existing, tested stencil for one sample; unlike
+    the historical window gather, no implicit ``+j*deltaT`` is introduced.
     """
     if start_indices.ndim != 2:
         raise ValueError("explicit start_indices must have shape (n_extrinsic, n_time)")
     n_ext, n_time = start_indices.shape
     n_modes = A.shape[-1]
-    # Q gather + repeated antenna/mode row + output, kept below ~64 MiB.
-    bytes_per_ext = max(1, n_time * n_modes * 16 * 3)
-    chunk = max(1, min(n_ext, (64 * 1024 * 1024) // bytes_per_ext))
+    # Q gather + repeated antenna/mode row + interpolation workspace, kept
+    # below ~64 MiB even when n_time alone is enormous.  The previous row-only
+    # chunk had a minimum of one row, so a 2.5M-time, 21-mode row still made
+    # >800 MiB A_rows and Q_one temporaries apiece.
+    max_cells = max(1, _Q_EXPLICIT_TEMP_MAX_BYTES //
+                    max(1, n_modes * 16 * 3))
+    time_chunk = max(1, min(n_time, max_cells))
+    ext_chunk = max(1, min(n_ext, max_cells // time_chunk))
     out = xpy.empty((n_ext, n_time), dtype=np.complex128)
-    for start in range(0, n_ext, chunk):
-        stop = min(n_ext, start + chunk)
-        starts = start_indices[start:stop].reshape(-1)
-        fracs = (None if fractional_offsets is None else
-                 fractional_offsets[start:stop].reshape(-1))
-        A_rows = xpy.repeat(A[start:stop], n_time, axis=0)
-        if xpy is np:
-            Q_one = _q_window_numpy_interp(
-                Q, starts, fracs, 1, time_interp, xpy=xpy)[:, 0, :]
-            values = np.einsum("ej,ej->e", A_rows, Q_one)
-        else:
-            values = _q_inner_product_gpu(
-                Q, A_rows, starts, fracs, 1, time_interp)[:, 0]
-        out[start:stop] = values.reshape((stop - start, n_time))
+    for ext_start in range(0, n_ext, ext_chunk):
+        ext_stop = min(n_ext, ext_start + ext_chunk)
+        for time_start in range(0, n_time, time_chunk):
+            time_stop = min(n_time, time_start + time_chunk)
+            starts = start_indices[ext_start:ext_stop,
+                                    time_start:time_stop].reshape(-1)
+            fracs = (None if fractional_offsets is None else
+                     fractional_offsets[ext_start:ext_stop,
+                                        time_start:time_stop].reshape(-1))
+            width = time_stop - time_start
+            A_rows = xpy.repeat(A[ext_start:ext_stop], width, axis=0)
+            if xpy is np:
+                Q_one = _q_window_numpy_interp(
+                    Q, starts, fracs, 1, time_interp, xpy=xpy)[:, 0, :]
+                values = np.einsum("ej,ej->e", A_rows, Q_one)
+            else:
+                values = _q_inner_product_gpu(
+                    Q, A_rows, starts, fracs, 1, time_interp)[:, 0]
+            out[ext_start:ext_stop, time_start:time_stop] = values.reshape(
+                (ext_stop - ext_start, width))
     return out
 
 

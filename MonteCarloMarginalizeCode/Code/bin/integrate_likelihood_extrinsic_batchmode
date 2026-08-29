@@ -2214,6 +2214,10 @@ def resample_samples(my_samples,
       if extra == 1:
         tvals, lnLt = tvals_dense, lnLt_dense
         break
+      # The RHS of the next likelihood call is allocated before Python rebinds
+      # lnLt_dense/tvals_dense.  Drop the smaller generation explicitly so a
+      # refinement retry cannot transiently hold both full dense grids.
+      del lnLt_dense, tvals_dense, sigma_dense, measurable_dense
       time_export_refinement *= extra
     print(" Time-posterior selected-stencil refinement: {}x ".format(
           time_export_refinement))
