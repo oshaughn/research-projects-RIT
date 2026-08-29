@@ -167,6 +167,11 @@ __all__ = [
     "peak_width_from_lnL",
     "required_upsample_factors",
     "validate_time_quadrature",
+    "time_quadrature_pipeline_prereqs",
+    "ILE_TIME_QUADRATURE_FLAG",
+    "refuse_unless_time_quadrature_emitted",
+    "refuse_unhonourable_time_quadrature",
+    "find_time_quadrature_in_ile_args",
     "time_marginalize_bandlimited",
     "last_report",
 ]
@@ -293,6 +298,190 @@ def validate_time_quadrature(time_quadrature):
             "time_quadrature must be one of {}, got {!r}".format(
                 TIME_QUADRATURE_CHOICES, time_quadrature))
     return time_quadrature
+
+
+#: Flags in an assembled ILE argument string that the band-limited path REQUIRES,
+#: and flags whose presence EXCLUDES it.  This is the pipeline-side mirror of the
+#: ``_tq_prereqs`` block in ``bin/integrate_likelihood_extrinsic_batchmode``: the
+#: driver refuses at first-job time, which costs a queue-slot cycle, so the
+#: workflow builder refuses at DAG-BUILD time on the same conditions.  Kept here
+#: rather than re-typed in the pipeline scripts for the reason the whole option is
+#: validated through this module -- one list, one place to change it.
+_PIPELINE_REQUIRED_ILE_FLAGS = (
+    ('--time-marginalization',
+     'without it ILE takes the non-time-marginalized branch, which has no time quadrature at all'),
+    ('--vectorized',
+     'without it ILE calls the SCALAR time-marginalized likelihood, which has no quadrature argument'),
+    ('--gpu',
+     'the band-limited path lives in the maintained NoLoop likelihood; --force-xpy runs it on numpy'),
+)
+_PIPELINE_EXCLUDING_ILE_FLAGS = (
+    ('--rotation-slow',
+     'time-DEPENDENT rho_sq: the band-limited argument does not hold'),
+    ('--freqresponse',
+     'separate likelihood, not audited for this'),
+    ('--calibration-envelope-directory',
+     'calibration marginalization: the reduction sums exp over realizations, untested here'),
+)
+
+
+ILE_TIME_QUADRATURE_FLAG = '--time-marginalization-quadrature'
+
+def _ile_tokens(ile_args):
+    """Tokenise an ILE argument string the way optparse will see it.
+
+    Splits ``--flag=value`` (optparse accepts it, and a naive split does not) and
+    strips the quotes an ini file leaves behind.  Returns ``(flags, pairs)`` where
+    ``pairs`` is the token list with values still attached in order.
+    """
+    raw = str(ile_args).split()
+    toks = []
+    for t in raw:
+        t = t.strip().strip('"').strip("'")
+        if not t:
+            continue
+        if t.startswith('--') and '=' in t:
+            k, v = t.split('=', 1)
+            toks.append(k)
+            toks.append(v)
+        else:
+            toks.append(t)
+    return toks
+
+
+def _matches(flag, token):
+    """True if ``token`` is ``flag`` or a possible optparse abbreviation.
+
+    optparse has no fixed minimum abbreviation length: in the current ILE parser
+    ``--g`` uniquely selects ``--gpu`` and ``--vec`` selects ``--vectorized``.
+    Ambiguous prefixes are rejected by ILE itself; treating them as a match here
+    can only move that refusal to DAG-build time, while imposing an invented
+    length floor falsely rejects legal configurations.
+    """
+    if token == flag:
+        return True
+    return (flag.startswith(token) and token.startswith('--')
+            and len(token) > 2)
+
+
+def find_time_quadrature_in_ile_args(ile_args):
+    """Every value given to ``--time-marginalization-quadrature`` in ``ile_args``.
+
+    Returns a list, in order, so the caller can tell "absent" from "present once"
+    from "given twice with different values" -- optparse takes the LAST
+    occurrence, so a duplicate silently decides the quadrature.
+    """
+    toks = _ile_tokens(ile_args)
+    out = []
+    for n, t in enumerate(toks):
+        # optparse accepts unique long-option prefixes.  The exact
+        # ``--time-marginalization`` flag wins as an exact match, but anything
+        # through the following '-' is a unique prefix of the quadrature flag.
+        # Treat those spellings exactly as ILE does or a hand-passed abbreviated
+        # bandlimited request can be invisible to the prerequisite guard.
+        is_quadrature = (
+            t == ILE_TIME_QUADRATURE_FLAG
+            or (t.startswith('--time-marginalization-')
+                and ILE_TIME_QUADRATURE_FLAG.startswith(t))
+        )
+        if is_quadrature:
+            out.append(toks[n + 1] if n + 1 < len(toks) else None)
+    return out
+
+
+def time_quadrature_pipeline_prereqs(time_quadrature, ile_args):
+    """Missing/violated prerequisites for ``time_quadrature`` in an ILE argument string.
+
+    ``ile_args`` is the assembled ILE command line the workflow is about to write
+    (``args_ile.txt``).  Returns a list of human-readable reasons; empty means the
+    configuration can honour the request.  ``'simpson'`` -- the default -- always
+    returns an empty list, since it is what ILE does anyway.
+
+    Refusing rather than ignoring is the point: a silently-inert accuracy option is
+    worse than an unavailable one, because a comparison campaign can be run against
+    it and believed.
+    """
+    validate_time_quadrature(time_quadrature)
+    if time_quadrature == 'simpson':
+        return []
+    toks = _ile_tokens(ile_args)
+    missing = []
+    for flag, why in _PIPELINE_REQUIRED_ILE_FLAGS:
+        # Direction matters: a token satisfies a required flag when the FLAG starts
+        # with the TOKEN (the token is an abbreviation).  The reverse test would let
+        # '--time-marginalization-quadrature' satisfy '--time-marginalization'.
+        if not any(_matches(flag, t) for t in toks):
+            missing.append("missing {} ({})".format(flag, why))
+    for flag, why in _PIPELINE_EXCLUDING_ILE_FLAGS:
+        if any(_matches(flag, t) for t in toks):
+            missing.append("incompatible {} ({})".format(flag, why))
+    return missing
+
+
+def refuse_unhonourable_time_quadrature(time_quadrature, ile_args, where):
+    """Raise unless ``ile_args`` can honour ``time_quadrature``.
+
+    The raise lives HERE, not at the call sites, so that it is executable in a unit
+    test: both pipeline scripts are top-level scripts that need real data before
+    they reach their guard, and a guard whose only coverage is "an ast walk found a
+    call by this name" survives being turned into a print.
+    """
+    missing = time_quadrature_pipeline_prereqs(time_quadrature, ile_args)
+    if missing:
+        raise ValueError(
+            "time-marginalization quadrature {!r} was requested, but {} cannot honour it: "
+            "{}.  Refusing rather than running the historical Simpson quadrature while "
+            "reporting that you asked for something else.".format(
+                time_quadrature, where, "; ".join(missing)))
+
+
+def refuse_unless_time_quadrature_emitted(time_quadrature, ile_args, where):
+    """Raise unless the REQUESTED quadrature is the one the bytes actually carry.
+
+    The prerequisite check above reads the prerequisites in ``ile_args`` but takes
+    the INTENT from the caller's parsed options, so it approves an argument string
+    that never received the flag at all.  Three ways that happens in practice, all
+    ending in a silent fall back to Simpson while the pipeline logs the opposite:
+
+    * a helper that predates the option argparse-errors while a re-run directory
+      still holds a STALE ``helper_ile_args.txt`` (the caller now also removes the
+      generated file first and checks the helper's exit status);
+    * ``--manual-extra-ile-args`` appends a second ``--time-marginalization-quadrature``
+      after the helper's, and optparse takes the LAST occurrence;
+    * any future refactor that drops the emission.
+
+    So this checks the bytes for the flag itself.  ``time_quadrature`` of ``None``
+    means nothing was requested, in which case the flag must be ABSENT unless the
+    user put it there by hand -- and if they did, it is validated and prerequisite
+    checked like any other request.
+    """
+    found = find_time_quadrature_in_ile_args(ile_args)
+    if len(found) > 1:
+        raise ValueError(
+            "{} carries {} occurrences of {} ({!r}).  optparse takes the LAST, so the "
+            "quadrature actually used would not be the one this workflow reports -- and "
+            "the .sub file would read as though it were.  Refusing.".format(
+                where, len(found), ILE_TIME_QUADRATURE_FLAG, found))
+    if time_quadrature is None:
+        if found:
+            # Set by hand (--manual-extra-ile-args or an ini).  Not our flag, but it is
+            # about to run, so hold it to the same standard rather than none at all.
+            validate_time_quadrature(found[0])
+            refuse_unhonourable_time_quadrature(found[0], ile_args, where)
+        return
+    if not found:
+        raise ValueError(
+            "time-marginalization quadrature {!r} was requested, but {} contains no {} at "
+            "all.  The request was lost between the pipeline and the ILE arguments -- a "
+            "stale or version-skewed helper path can do exactly this.  Refusing rather "
+            "than submitting a "
+            "campaign that would silently run Simpson.".format(
+                time_quadrature, where, ILE_TIME_QUADRATURE_FLAG))
+    if found[0] != time_quadrature:
+        raise ValueError(
+            "time-marginalization quadrature {!r} was requested but {} carries {!r}.  "
+            "Refusing.".format(time_quadrature, where, found[0]))
+    refuse_unhonourable_time_quadrature(time_quadrature, ile_args, where)
 
 
 def bandlimited_upsample(x, factor, xpy=np):

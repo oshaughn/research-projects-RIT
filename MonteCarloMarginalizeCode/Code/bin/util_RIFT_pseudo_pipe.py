@@ -58,6 +58,13 @@ from RIFT.misc.cip_pipeline import flag_final_group_unique
 # leaf module: numpy only, so this does not drag numba/cupy into the pipeline script
 from RIFT.likelihood.time_interp_choice import (
     BARE_FLAG_SENTINEL, CROSSOVER_GUIDANCE, resolve_interpolate_time_request)
+# Same reason (numpy-only leaf module), and IMPORTED rather than re-typed: a second
+# hand-written copy of the choice tuple is how a typo becomes a silently different
+# likelihood -- the pipeline would accept 'bandlimted', forward it, and the mistake
+# would only surface when the first ILE job died.
+from RIFT.likelihood.time_marginalization_quadrature import (
+    TIME_QUADRATURE_CHOICES, validate_time_quadrature,
+    refuse_unhonourable_time_quadrature, refuse_unless_time_quadrature_emitted)
 ligolw_prefix = 'igwn_'
 if not(which(ligolw_prefix + "ligolw_add")):
     ligolw_prefix = ''
@@ -487,6 +494,7 @@ parser.add_argument("--add-extrinsic-time-resampling",action='store_true',help="
 parser.add_argument("--internal-ile-srate-time-resampling",default=None, help=" Adds --srate-resample-time-marginalization to ILE for  output, to provide higher-resolution time output ")
 parser.add_argument("--internal-ile-srate-internal",default=None, help=" Adds --srate-internal to ILE, modifying how calculations are performed internally to use a higher sampling rate ")
 parser.add_argument("--internal-ile-interpolate-time",nargs='?',const=BARE_FLAG_SENTINEL,default=None,type=str,help="Enable sub-sample interpolation of Q_lm at fractional detector arrival times in the maintained NoLoop likelihood. REQUIRES AN EXPLICIT STENCIL: nearest|cubic|sinc -- automatic selection was removed as measurably unreliable, and a bare flag is rejected rather than silently doing nothing. MEASURED GUIDANCE (SEOBNRv4, an IMR model): %s. Forwarded verbatim to helper_LDG_Events.py, which validates it. Full tables, limitations and provenance: RIFT/likelihood/DESIGN_q_window_stencil.md." % CROSSOVER_GUIDANCE)
+parser.add_argument("--internal-ile-time-marginalization-quadrature",default=None,type=str,choices=list(TIME_QUADRATURE_CHOICES),help="Rule for the TIME integral of the marginalized likelihood in ILE: %s. Default None = pass nothing, so the ILE default ('simpson', the historical fixed-deltaT Simpson rule) is unchanged and the emitted args_ile.txt is byte-identical to today. 'bandlimited' resolves the integrand instead of the data: exp(lnL(t)) is a peak of width sigma_t = 1/(2 pi rho sigma_f), which SHRINKS AS 1/rho, while the grid spacing deltaT=1/srate is fixed by the data -- so production under-resolves its own integrand, worse at higher SNR (measured: rigidly scanning the grid phase moves the reported lnL by 1.649 nats at srate 4096, rho=40). Forwarded verbatim to helper_LDG_Events.py, which validates it and puts --time-marginalization-quadrature on the ILE command line; from args_ile.txt it reaches every ILE*.sub INCLUDING ILE_extr.sub. REFUSED, not ignored, at DAG-BUILD TIME if this workflow cannot honour it (calibration marginalization, --rotation-slow, --freqresponse, or a configuration without --time-marginalization/--vectorized/--gpu). IMPORTANT -- INI OVERRIDE: the RIFT ini parser OVERRIDES the command line for non-boolean options, and this is a string option, so NEVER set it in a --use-ini that a Makefile or wrapper also sets on the command line; the ini value would win silently. Rationale, measured tables and exclusions: RIFT/likelihood/DESIGN_time_marginalization_quadrature.md." % ("|".join(TIME_QUADRATURE_CHOICES),))
 parser.add_argument("--internal-ile-n-chunk",default=None,type=int,help="Override the extrinsic chunk size (--n-chunk) passed to ILE, via the helper. Default behaviour (helper): 40000, scaled linearly with SNR above 40 and capped at 160000, because at high SNR the posterior is a vanishing fraction of the prior volume and a small chunk gives few informative samples per adaptation step. Larger chunks cost GPU memory but measured HOST memory (what RequestMemory governs) is flat, so no memory-request change is normally needed. EXPERTS ONLY.")
 parser.add_argument("--batch-extrinsic",action='store_true')
 parser.add_argument("--fmin",default=20,type=int,help="Mininum frequency for integration. template minimum frequency (we hope) so all modes resolved at this frequency")  # should be 23 for the BNS
@@ -640,6 +648,7 @@ opts=  parser.parse_args()
 # the call is for its validation side effect; the helper resolves it again for the emission.
 resolve_interpolate_time_request(opts.internal_ile_interpolate_time)
 
+
 # Multi-GPU ILE fan-out: --ile-gpu-fanout funnels through RIFT_ILE_GPU_FANOUT, which
 # create_event_parameter_pipeline_BasicIteration (run via os.system, inheriting this
 # environment) and dag_utils read at DAG-build time to size request_GPUs/CPUs and bake
@@ -721,6 +730,40 @@ if (opts.use_ini):
 # size request_GPUs/CPUs and bake the value into ile_pre.sh.
 if opts.ile_gpu_fanout is not None:
     os.environ['RIFT_ILE_GPU_FANOUT'] = str(opts.ile_gpu_fanout)
+
+# TIME-MARGINALIZATION QUADRATURE, part 1 of 2: everything refusable WITHOUT running the
+# helper.  Deliberately placed AFTER the --use-ini block above: the ini parser OVERRIDES the
+# command line for non-boolean options, so a validate above it checks a value that the ini is
+# about to replace, and a bad ini value would surface downstream as "helper call failed to
+# generate required file" instead of as a quadrature diagnostic.
+if opts.internal_ile_time_marginalization_quadrature is not None:
+    # Validate through the LIBRARY function as well as argparse `choices`, so this script and
+    # the ILE driver can never disagree about what the legal set is.
+    validate_time_quadrature(opts.internal_ile_time_marginalization_quadrature)
+    if opts.lisa_known_sky:
+        # --lisa-known-sky exits below, before both the forward to the helper and the
+        # args_ile.txt guard, and builds its own ILE arguments through helper_LISA_Events.py
+        # which does not know this option.  Refuse rather than silently dropping it.
+        raise ValueError(
+            "--internal-ile-time-marginalization-quadrature is not supported on the "
+            "--lisa-known-sky path: that path builds args_ile.txt through "
+            "helper_LISA_Events.py, which does not carry the option, so the request would be "
+            "silently dropped.")
+    # What this script knows before the helper runs: calibration marginalization is added HERE,
+    # not by the helper, and --manual-extra-ile-args can carry any ILE flag at all.
+    _tq_early = ""
+    if opts.calmarg_envelope_directory:
+        _tq_early += " --calibration-envelope-directory " + str(opts.calmarg_envelope_directory)
+    if opts.manual_extra_ile_args:
+        _tq_early += " " + str(opts.manual_extra_ile_args)
+    if _tq_early:
+        # Only the EXCLUSIONS are checkable this early -- the required flags are added by the
+        # helper -- so append the requirements to keep the message about what is actually wrong.
+        refuse_unhonourable_time_quadrature(
+            opts.internal_ile_time_marginalization_quadrature,
+            "--time-marginalization --vectorized --gpu " + _tq_early,
+            "this pipeline's own options (checked before the helper runs, so the failure is "
+            "immediate rather than after a workflow has been built)")
 
 if opts.lisa_known_sky:
     run_lisa_known_sky_surface(opts)
@@ -1372,6 +1415,11 @@ if resolve_interpolate_time_request(opts.internal_ile_interpolate_time) is not N
     # resolved there -- so forward the request verbatim rather than resolving it here, and let the
     # helper's log line be the single record of what was chosen.
     cmd += " --internal-ile-interpolate-time " + str(opts.internal_ile_interpolate_time) + " "
+if opts.internal_ile_time_marginalization_quadrature is not None:
+    # HELPER passthrough, exactly like the stencil above and for the same reason: the helper owns
+    # ILE argument construction, so the flag must enter args_ile.txt where every other ILE
+    # argument does.  `is not None` rather than a truthiness test -- the option takes a VALUE.
+    cmd += " --internal-ile-time-marginalization-quadrature " + str(opts.internal_ile_time_marginalization_quadrature) + " "
 if not(opts.internal_ile_n_chunk is None):
     cmd += " --internal-ile-n-chunk {} ".format(int(opts.internal_ile_n_chunk))
 # If user provides ini file *and* ini file has fake-cache field, generate a local.cache file, and pass it as argument
@@ -1411,7 +1459,17 @@ if opts.fake_data_cache:
         short_list = " {} ".format(event_dict['IFOs'])        
         cmd += " --manual-ifo-list {} ".format(short_list.replace(' ',''))
 print( cmd)
-os.system(cmd)
+if os.path.exists('helper_ile_args.txt'):
+    # This is generated output, not an input.  Remove it before invoking the
+    # helper so a failed helper cannot be mistaken for fresh success in a
+    # re-used directory.  The emitted-byte guard below cannot distinguish a
+    # stale file from a fresh one when both carry the same requested value.
+    os.unlink('helper_ile_args.txt')
+_helper_rc = os.system(cmd)
+if _helper_rc != 0:
+    print(" FAILURE: helper call exited nonzero; refusing to use any pre-existing "
+          "helper_ile_args.txt")
+    sys.exit(1)
 # we MUST make helper_ile_args.txt
 if not(os.path.exists('helper_ile_args.txt')):
     print(" FAILURE: helper call failed to generate required file helper_ile_args.txt")
@@ -1624,6 +1682,26 @@ if opts.extrinsic_handoff:
             open(_ext_ph_path, "a").close()
     else:
         line += " --extrinsic-proposal-breadcrumb {}/extr_consolidated_$(macroiterationprev).npz ".format(os.getcwd())
+
+# TIME-MARGINALIZATION QUADRATURE, part 2 of 2: the LAST chance to refuse, and the only place
+# with the whole picture.  This checks the BYTES about to be written, not the parsed options --
+# an earlier version keyed the guard on `opts` and read only the PREREQUISITES from `line`, so it
+# happily approved an args_ile.txt that had never received the flag at all.  Three ways that
+# happens, all ending in a silent fall back to Simpson while the pipeline logs the opposite:
+#
+#   * the helper is invoked by NAME through PATH, so version skew can make an older helper
+#     argparse-error on the new option.  The caller now removes stale generated output and checks
+#     the helper status; this byte check is the independent defence against a successful helper
+#     that nevertheless drops the emission;
+#   * --manual-extra-ile-args is appended AFTER the helper's arguments and optparse takes the
+#     LAST occurrence, so a hand-passed 'simpson' silently overrides the requested value while
+#     the .sub file still shows both;
+#   * any future refactor that drops the emission.
+#
+# It also holds a hand-passed quadrature (manual args, ini) to the same standard, which the
+# opts-keyed version skipped entirely.  Called unconditionally for that reason.
+refuse_unless_time_quadrature_emitted(
+    opts.internal_ile_time_marginalization_quadrature, line, "args_ile.txt")
 
 with open('args_ile.txt','w') as f:
         f.write(line)

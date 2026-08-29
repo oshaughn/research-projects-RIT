@@ -8,7 +8,8 @@ Harnesses (host-local, `ldas-*` NFS home): `~/tmarg_harness/`.
 `probe.py` periodic-window accuracy, `wrap.py` non-periodic window, `adv.py` edge sweep and
 mixed blocks, `detrend.py` the rejected endpoint-detrend, `cost.py` quadrature-only cost,
 `cost_e2e.py` end-to-end through the shipped likelihood, `peaklocal2.py` the peak-local
-prototype below, `real_path.py` / `simps_iso.py` the GPU runs.
+prototype below, `real_path.py` / `simps_iso.py` the GPU correctness runs, `cost_gpu.py` the
+GPU cost table.
 
 ## The defect
 
@@ -166,6 +167,137 @@ End-to-end through the shipped likelihood, n_extrinsic 4000, 3 IFOs, CPU time:
 
 Host-sensitive: O4c measured the same quantity moving up to 2x between hosts.  The Simpson
 baseline is rho-independent by construction, so a run where it moves with rho is contaminated.
+
+### On GPU, at production settings -- which is what the table above is not
+
+The CPU table above is `n_extrinsic = 4000` with the module's DEFAULT affine callback.
+Production ILE runs `--vectorized --gpu`, at `--n-chunk 40000` by default, and passes
+`distmarg_loglikelihood` at every call site.  All three matter, and all three make it worse.
+
+Method.  `~/tmarg_harness/cost_gpu.py` and, for everything below,
+`~/adv_tmarg_gpu_audit/adv_cost2.py` -- an independently written harness whose numbers agree
+with the first to a few percent at the shared operating point.  Same shipped
+`DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop` call, same synthetic band-limited fixture,
+3 IFOs.  `ldas-pcdev13` `CUDA_VISIBLE_DEVICES=3` (GeForce RTX 2080 Ti, cc75), cupy 12.0.0 from
+the IGWN CVMFS python, `OMP_NUM_THREADS=1`, GPU otherwise idle.  Arms INTERLEAVED within a
+replicate with the order balanced across replicates; 4-6 replicates; quoted spread is min-max
+of the per-replicate ratios.  Timing is WALL CLOCK with an explicit device synchronize, on
+both arms; CUDA events agree to <1%, and removing the sync moves the Simpson arm, so the sync
+is load-bearing and correctly placed.  Two significant figures throughout: the device-to-device
+spread below is 2.6x, which is what actually bounds these numbers.
+
+**Production configuration** -- `distmarg_loglikelihood`, `rho_sq = 100` (the affine fixture
+ships `rho_sq = 0`, which makes `x0 = kappa_sq/rho_sq` NaN for every row and refines nothing,
+so a distmarg run at `rho_sq = 0` measures pure overhead and must be discarded).  srate 4096,
+npts 614:
+
+| n_extrinsic | sigma_t/deltaT | Simpson | band-limited | ratio |
+|---|---|---|---|---|
+| 4,000 | 0.044 | 0.019 s | 0.90 s | **49x** |
+| 16,000 | 0.035 | 0.038 s | 3.34 s | **89x** |
+| **40,000 (the default `--n-chunk`)** | 0.031 | 0.084 s | **15.7 s** | **190x** |
+
+srate 16384, npts 2457 (**odd** -- three of five production rates).  `n_extrinsic = 40000` at
+this rate exceeds the 11 GB card, which is itself worth knowing:
+
+| n_extrinsic | sigma_t/deltaT | Simpson | band-limited | ratio |
+|---|---|---|---|---|
+| 4,000 | 0.130 | 0.036 s | 0.59 s | **16x** |
+| 16,000 | 0.107 | 0.121 s | 3.93 s | **32x** |
+| 40,000 | -- | out of memory on 11 GB | | |
+
+**The ratio triples between the measured 4,000 and the production 40,000, and it does so for a
+reason worth reading.**  It is not only that the GPU baseline is nearly free.  The refinement
+factor is derived ONCE PER GROUP of rows and re-doubled until the criterion holds for the
+group MINIMUM (`_integrate_group`: `sigma_dense_min = min(...)` over the chunk).  Ten times as
+many rows reach ten times deeper into the tail of that minimum, so the whole group pays an
+extra octave: the factor histogram at the worst rung moves from mostly 32 at n=4,000
+(`{16: 233, 32: 3126, 64: 235}`) to mostly 64 at n=40,000 (`{32: 610, 64: 35236, 128: 188}`).
+The cost per row therefore GROWS with the chunk size rather than staying flat.  Anyone reading
+the earlier "the baseline is nearly free, so any added work reads as a large multiple"
+explanation would expect the factor to shrink once the baseline does real work; it does the
+opposite.
+
+**The affine, n=4,000 table, kept because it is what the CPU table compares against.**  Same
+device, `--callback affine`, `rho_sq = 0`:
+
+| sigma_t/deltaT | GPU 4096 (npts 614) | GPU 16384 (npts 2457) | CPU 4096 | CPU 16384 |
+|---|---|---|---|---|
+| ~1.7 | 1.9x | 1.7x | 1.0x | 1.1x |
+| ~0.53 | 4.5x | 4.8x | 2.5x | 2.2x |
+| ~0.17 | 12x | 16x | 9.1x | 6.3x |
+| ~0.055 | 35x | 56x | 31x | 20x |
+
+The CPU columns are the same host and script as the GPU ones, so the GPU/CPU difference is a
+backend effect and not a host difference; the srate-4096 CPU column reproduces the published
+CPU table (1.1 / 2.0 / 9.7 / 26.6).
+
+#### What this costs in seconds, stated correctly
+
+An earlier draft of this section claimed GPU band-limited was "~20-40x cheaper in seconds than
+CPU Simpson".  That was wrong by about 20x: the two numbers it divided (17.0 s and 36.3 s) are
+the CPU BAND-LIMITED times, not the CPU Simpson baseline, so the quotient was "this GPU is 40x
+faster than this CPU at the same task" -- a statement about two devices, not about the option.
+Measured, same host, worst rung, affine n=4,000:
+
+| | srate 4096 | srate 16384 |
+|---|---|---|
+| CPU Simpson (the historical cost) | 0.53 s | 1.80 s |
+| CPU band-limited | 16.9 s | 36.1 s |
+| GPU band-limited | 0.43 s | 0.92 s |
+
+So GPU band-limited is **1.2x and 2.0x** cheaper than simply running Simpson on CPU -- not 20-40x.
+At production settings (distmarg, n=40,000) the GPU band-limited call is 15.7 s against a GPU
+Simpson baseline of 0.084 s, i.e. it is far more expensive than any CPU-Simpson comparison.
+
+#### Three things this table does not control for
+
+* **Device: 2.6x spread, larger than anything else here.**  Identical operating point and
+  identical refinement histograms, worst rung, affine n=4,000:
+  RTX 2080 Ti (cc75) **35x**, RTX 3080 (cc86) **58x**, A100-PCIE-40GB (cc80) **22x**.
+  The ratio divides an overhead-dominated quantity by a work-dominated one, so it substantially
+  measures the device's launch overhead.  Quote it to two figures and expect a factor of ~2.5
+  either way on unseen hardware.
+* **`_DENSE_CHUNK_BYTES = 128 MB` is a tunable constant worth 7-17% of the cost.**  Each chunk
+  forces a host sync.  At 1 GB, worst rung 35x -> 32x and the third rung 12x -> 9.6x.  It is not
+  part of the derivation and was never tuned.
+* **The rung-to-rung spread of the Simpson arm is a DRIFT MONITOR, not a control.**  The Simpson
+  arm does identical arithmetic at every rung, and the ratios are formed from paired interleaved
+  calls, so common-mode drift has already cancelled before that check runs.  It has no power
+  against n_extrinsic, callback or device, which are the confounds that actually govern this
+  table.  For scale: the published CPU table above would FAIL it (baselines 0.212 / 0.302 /
+  0.180 / 0.250 s, max/min = 1.68), so "reproduces the published CPU table" means agreement with
+  a table carrying about +-40% internal baseline noise.
+
+## Selecting it from a campaign
+
+`--internal-ile-time-marginalization-quadrature {simpson|bandlimited}` on
+`util_RIFT_pseudo_pipe.py`, default `None` meaning "emit nothing" so the default workflow is
+byte-identical.  Four hops: pseudo_pipe forwards it to `helper_LDG_Events.py`, which validates
+it and appends `--time-marginalization-quadrature` to `helper_ile_args`; that becomes
+`args_ile.txt`; and `create_event_parameter_pipeline_BasicIteration` inherits the whole
+argument string into `ILE.sub`, `ILE_extr.sub`, `ILE_puff.sub` and `ILE_fetch.sub`.
+
+* **The exclusion list lives in `time_marginalization_quadrature.py`**
+  (`_PIPELINE_REQUIRED_ILE_FLAGS` / `_PIPELINE_EXCLUDING_ILE_FLAGS`), mirroring the `_tq_prereqs`
+  block in `bin/integrate_likelihood_extrinsic_batchmode`.  Both pipeline layers import it; it is
+  never re-typed.  Matching handles optparse's equals form and unique-prefix abbreviations,
+  including short legal spellings such as `--g` for `--gpu`; there is no invented minimum
+  abbreviation length.  Exact-option precedence keeps `--time-marginalization` distinct from
+  an abbreviated `--time-marginalization-quadrature`.
+* **The guard checks the BYTES, not the parsed options.**  `refuse_unless_time_quadrature_emitted`
+  requires the flag to be present exactly once with the requested value in the argument string
+  about to be written.  A guard keyed on the options approves an `args_ile.txt` that never
+  received the flag.  The helper is invoked by name, so pseudo-pipe also removes the generated
+  `helper_ile_args.txt` before invocation and refuses a nonzero helper status; otherwise a
+  same-value stale file can satisfy even the byte guard.
+* **The extrinsic stage is only half covered.**  The flag reaches `ILE_extr.sub`, but
+  `--resample-time-marginalization` calls the likelihood with `return_lnLt=True`, which returns
+  `lnL(t)` on the original grid and never reaches the quadrature.  The marginalized `lnL` is
+  refined; the exported `t_ref` is still quantised at `deltaT = 1/srate`.  The helper prints this
+  at build time.
+* **Never set it in an ini.**  The RIFT ini parser overrides the command line for non-boolean
+  options, so an ini value silently wins over a Makefile's.
 
 ### The follow-up: enumerate peaks, integrate locally  (RO'S, 2026-08-27)
 
