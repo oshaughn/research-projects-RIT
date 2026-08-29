@@ -919,19 +919,20 @@ def _time_marginalize(lnL_t, w_t):
 
 
 def _reflected_fft_upsample(x, factor):
-    """FFT-interpolate a finite row after the literal ``[forward, backward]`` reflection.
+    """FFT-interpolate a finite row with the standard even extension.
 
-    The duplicated turning samples make the 2N periodic extension continuous at
-    both joins.  Only the forward interval, including its two endpoints, is
-    returned.  This is the JAX counterpart of
-    ``time_marginalization_quadrature.reflected_bandlimited_upsample``.
+    Periodize ``[x[0], ..., x[-1], x[-2], ..., x[1]]``.  Omitting duplicate
+    turning samples is mathematically essential at Nyquist: duplicating them
+    inserts an artificial flat pair, so ``(-1)**j`` no longer reconstructs
+    ``cos(pi*t)`` and phase marginalization can converge to the wrong integral.
+    Only the original closed forward interval is returned.
     """
     x = jnp.asarray(x)
     factor = int(factor)
     if factor == 1:
         return x
     n = x.shape[-1]
-    reflected = jnp.concatenate((x, jnp.flip(x, axis=-1)), axis=-1)
+    reflected = jnp.concatenate((x, jnp.flip(x[..., 1:-1], axis=-1)), axis=-1)
     dense = _upsample_bandlimited(reflected, factor, axis=-1)
     return dense[..., :(n - 1) * factor + 1]
 
@@ -1030,7 +1031,7 @@ def _time_marginalize_reflected_fft(lnL_t, deltaT, w_t):
             0, len(powers) - 1)
         return jax.lax.switch(index, tuple(make_branch(f) for f in powers), row)
 
-    refined = jax.lax.map(refine_one, (clean, factor))
+    refined = jax.lax.map(jax.checkpoint(refine_one), (clean, factor))
     refined = jnp.where(too_sharp, jnp.nan, refined)
     return jnp.where(finite_rows, refined, simpson)
 
@@ -1105,7 +1106,10 @@ def _time_marginalize_reflected_primitive(kappa_t, rho_sq, deltaT,
             0, len(powers) - 1)
         return jax.lax.switch(index, branches, (kappa, rho))
 
-    refined = jax.lax.map(refine_one, (clean_kappa, clean_rho, factor))
+    # Rematerialize a row's selected branch during reverse mode instead of
+    # retaining every dense abs/exp/FFT residual across the sampler batch.
+    refined = jax.lax.map(
+        jax.checkpoint(refine_one), (clean_kappa, clean_rho, factor))
     refined = jnp.where(too_sharp, jnp.nan, refined)
     return jnp.where(finite_rows, refined, jnp.nan)
 

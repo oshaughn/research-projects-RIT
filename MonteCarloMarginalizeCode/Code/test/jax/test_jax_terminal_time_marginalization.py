@@ -12,7 +12,7 @@ from RIFT.likelihood.jax_ile import anglemarg, core, wrapper
 
 
 @pytest.mark.parametrize("n", [31, 32])
-def test_literal_reflection_reproduces_odd_and_even_samples(n):
+def test_even_extension_reproduces_odd_and_even_samples(n):
     rng = np.random.default_rng(10 + n)
     x = rng.normal(size=(2, n))
     for factor in (2, 4, 8):
@@ -60,18 +60,22 @@ def test_nonfinite_row_falls_back_to_historical_simpson():
     np.testing.assert_allclose(np.asarray(got), np.asarray(want), rtol=0, atol=0)
 
 
-def test_fixed_factor_value_gradient_and_hessian_are_finite():
+def test_adaptive_primitive_value_gradient_and_hessian_are_finite_and_rematerialized():
     n, dt = 25, 1.0 / 4096
     x = jnp.arange(n, dtype=jnp.float64) - 12.2
 
     def f(scale):
-        row = (scale * jnp.exp(-0.5 * (x / 3.0) ** 2))[None, :]
-        return core._terminal_reflected_fft_at_factor(row, dt, 16)[0][0]
+        kappa = (scale * jnp.exp(-0.5 * (x / 3.0) ** 2))[None, :].astype(
+            jnp.complex128)
+        return core._time_marginalize_reflected_primitive(
+            kappa, jnp.zeros((1, n)), dt)[0]
 
     value = f(600.0)
     grad = jax.grad(f)(600.0)
     hess = jax.hessian(f)(600.0)
     assert np.all(np.isfinite(np.asarray([value, grad, hess])))
+    assert "jax.checkpoint(refine_one)" in inspect.getsource(
+        core._time_marginalize_reflected_primitive)
 
 
 def test_phase_marginalization_refines_kappa_before_abs_near_nyquist():

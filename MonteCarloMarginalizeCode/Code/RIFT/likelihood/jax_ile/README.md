@@ -48,8 +48,9 @@ All JAX likelihood wrappers accept the conventional ILE keyword
 `time_quadrature={"simpson","bandlimited"}`.  Simpson remains the default.
 The opt-in `bandlimited` path is currently supported by
 `JAXExtrinsicLikelihood`, including analytic phase marginalization.  It forms
-the literal 2N `[forward, backward]` reflection of the complex, band-limited
-`kappa(t)` primitive, FFT-interpolates it, applies the phase reduction on the
+the endpoint-nonduplicating even extension
+`[kappa[0], ..., kappa[-1], kappa[-2], ..., kappa[1]]`, FFT-interpolates it,
+applies the phase reduction on the
 fine grid, and integrates the original closed interval with a stable trapezoid
 rule.  The per-row power-of-two factor is derived from fine-grid peak curvature,
 remeasured after interpolation, and doubled until the integral agrees within
