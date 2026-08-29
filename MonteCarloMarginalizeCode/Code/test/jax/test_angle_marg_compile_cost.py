@@ -171,6 +171,27 @@ def test_laplace_kernel_preserves_mixed_shape_broadcasting():
     assert np.allclose(np.asarray(got_jit), np.asarray(expected),
                        rtol=0, atol=1e-12)
 
+    # The root-slot axis must also remain distinct from a data axis supplied
+    # only by a.  Length 3 catches the former shape error; length 4 catches
+    # the more dangerous silent collision with _LAPLACE_MAX_ROOTS.
+    c1_scalar = jnp.asarray(1000.0 + 30.0j)
+    c2_scalar = jnp.asarray(200.0 - 20.0j)
+    for n in (3, 4):
+        a_vector = jnp.arange(n, dtype=jnp.float64)
+        got = AM._laplace_psi_lnI(a_vector, c1_scalar, c2_scalar)
+        got_jit = jax.jit(AM._laplace_psi_lnI)(
+            a_vector, c1_scalar, c2_scalar)
+        expected = jnp.stack([
+            AM._laplace_psi_lnI(a_i, c1_scalar, c2_scalar)
+            for a_i in a_vector
+        ])
+
+        assert got.shape == a_vector.shape
+        assert np.allclose(np.asarray(got), np.asarray(expected),
+                           rtol=0, atol=1e-12)
+        assert np.allclose(np.asarray(got_jit), np.asarray(expected),
+                           rtol=0, atol=1e-12)
+
 
 def test_laplace_dist_tail_padding_exact():
     """A distance grid NOT divisible by dist_block must give the same

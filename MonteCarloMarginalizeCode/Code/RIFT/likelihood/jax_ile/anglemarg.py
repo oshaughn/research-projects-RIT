@@ -785,6 +785,11 @@ def _laplace_psi_lnI(a, c1, c2):
     Elementary functions only (no scipy, no eigensolvers); differentiable;
     any input shape (elementwise over broadcast a, c1, c2).
     """
+    # Materialize the documented elementwise broadcast before introducing
+    # the leading root-slot axis.  Otherwise a data axis contributed only by
+    # ``a`` can collide with the four-root axis (silently when its length is
+    # four, or as a shape error for any other length).
+    a, c1, c2 = jnp.broadcast_arrays(a, c1, c2)
     mag1 = jnp.square(c1.real) + jnp.square(c1.imag)
     mag2 = jnp.square(c2.real) + jnp.square(c2.imag)
     b = jnp.sqrt(mag1 + 1e-300)
@@ -842,7 +847,7 @@ def _laplace_psi_lnI(a, c1, c2):
     N = _LAPLACE_BRACKET_CELLS
     ug = np.linspace(0.0, 2.0 * np.pi, N + 1)
     cell = ug[1] - ug[0]
-    # c1 and c2 may have different but broadcast-compatible shapes.  The
+    # a, c1 and c2 may have different but broadcast-compatible shapes.  The
     # scan carry must start at their combined shape: lax.scan forbids the
     # Python-loop behaviour of expanding a scalar carry on the first step.
     zero_f = jnp.zeros_like(t_amp)
