@@ -400,6 +400,17 @@ if opts.test_args:
     test_args = test_args.replace('[', ' \'[')
     test_args = test_args.replace(']', ']\'')
     test_args=test_args.rstrip()
+    # A convergence success is reported as exit status 1 so DAGMan can stop
+    # scheduling later intrinsic iterations.  That is incompatible with this
+    # builder's fixed terminal fork: the per-model evidence and extrinsic
+    # products are deliberately created only after the configured iteration
+    # loop.  util_RIFT_pseudo_pipe.py already adds --always-succeed whenever
+    # --add-extrinsic is requested; enforce the same contract here so direct
+    # builder callers cannot make the terminal branch unreachable.
+    if (opts.last_iteration_extrinsic and
+            re.search(r'(?<!\S)--always-succeed(?=\s|$)', test_args) is None):
+        print(" Terminal extraction: disabling early convergence termination")
+        test_args += " --always-succeed "
     print("CONVERGE", test_args)
 
 plot_args=None
@@ -1098,6 +1109,7 @@ if opts.gridinit_args:
 #    
 
 parent_fit_node = None
+test_node_list = []
 
 if opts.gridinit_args:
    grid_node = pipeline.CondorDAGNode(gridinit_job) 
@@ -1288,6 +1300,7 @@ for it in np.arange(it_start,opts.n_iterations):
         test_node.add_parent(parent_fit_node)
         test_node.set_category("CONVERGE")
         dag.add_node(test_node)
+        test_node_list.append(test_node)
 
         parent_fit_node=test_node
 
@@ -1391,3 +1404,11 @@ if plot_args:
 dag_name="marginalize_intrinsic_parameters_BasicIterationWorkflow"
 dag.set_dag_file(dag_name)
 dag.write_concrete_dag()
+
+# convergence_test_samples.py returns 1 when convergence is established.
+# Match BasicIteration: without a terminal extraction this stops the remaining
+# intrinsic loop and reports a successful DAG, rather than leaving a failed
+# convergence node that merely blocks all of its children.
+if opts.test_args:
+    for node in test_node_list:
+        dag.add_abort_on(node, exit_code=1, return_value=0)
