@@ -50,12 +50,20 @@ def legacy_time_interpolation_enabled(value):
         "nearest, cubic, or sinc".format(value))
 
 
-def resolve_time_posterior_export_mode(requested, time_interpolation):
-    """Resolve ``auto`` against the likelihood's time-interpolation mode."""
+def resolve_time_posterior_export_mode(requested, time_interpolation,
+                                       continuous_available=True):
+    """Resolve ``auto`` against interpolation and driver capabilities.
+
+    ``continuous_available=False`` affects only ``auto``: it preserves the
+    driver's historical grid export.  An explicit ``continuous`` request is
+    returned unchanged so the caller can reject it with a capability-specific
+    error instead of silently downgrading it.
+    """
     if requested not in TIME_POSTERIOR_EXPORT_MODES:
         raise ValueError("unknown time-posterior export mode %r" % (requested,))
     if requested == "auto":
-        return "continuous" if time_interpolation != "nearest" else "grid"
+        return ("continuous" if continuous_available and
+                time_interpolation != "nearest" else "grid")
     return requested
 
 

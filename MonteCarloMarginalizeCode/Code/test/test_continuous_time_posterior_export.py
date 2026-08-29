@@ -30,6 +30,13 @@ def test_auto_contract_tracks_subsample_interpolation():
     assert resolve_time_posterior_export_mode("auto", "sinc") == "continuous"
     assert resolve_time_posterior_export_mode("grid", "cubic") == "grid"
     assert resolve_time_posterior_export_mode("continuous", "nearest") == "continuous"
+    # A driver without a faithful arbitrary-time likelihood must preserve its
+    # historical auto behavior, while leaving an explicit continuous request
+    # visible for the caller's capability guard to reject.
+    assert resolve_time_posterior_export_mode(
+        "auto", "cubic", continuous_available=False) == "grid"
+    assert resolve_time_posterior_export_mode(
+        "continuous", "cubic", continuous_available=False) == "continuous"
 
 
 def test_lisa_legacy_interpolation_parser_does_not_treat_false_as_truthy():
@@ -216,6 +223,7 @@ def test_lisa_twin_refuses_continuous_mode_without_faithful_components():
         source = handle.read()
     assert '"--time-posterior-export"' in source
     assert "legacy_time_interpolation_enabled(opts.interpolate_time)" in source
+    assert "continuous_available=False" in source
     assert ("opts.resample_time_marginalization and\n"
             "        opts._time_posterior_export == \"continuous\"") in source
     assert "does not expose an explicit selected-stencil time evaluator" in source
