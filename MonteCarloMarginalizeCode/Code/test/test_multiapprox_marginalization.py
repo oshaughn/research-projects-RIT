@@ -331,8 +331,12 @@ def multiapprox_rundir(tmp_path_factory):
         "--approx placeholder\n")
     (rundir / "args_cip_list.txt").write_text(
         "1   --no-plots --fit-method rf --parameter mc --parameter delta_mc --n-output-samples 5\n"
-        "1   --no-plots --fit-method rf --parameter mc --parameter delta_mc --n-output-samples 5\n")
-    (rundir / "args_test.txt").write_text("--method lame --parameter mc --always-succeed\n")
+        "1   --no-plots --fit-method rf --parameter mc --parameter delta_mc "
+        "--n-output-samples=5 --posterior-unique-draw\n")
+    # Deliberately omit --always-succeed.  pseudo_pipe normally adds it for a
+    # terminal-extrinsic run, but the builder is also a public/direct entry
+    # point and must preserve the terminal fork itself.
+    (rundir / "args_test.txt").write_text("X --method lame --parameter mc\n")
     # Plotting ON.  It is off by default, which is why an unresolved
     # $(macroapprox) sat in the plot job's log paths through a whole review
     # cycle: the plot job is model-independent and its node binds only the
@@ -387,6 +391,37 @@ def test_every_model_reads_one_shared_grid(multiapprox_rundir):
     assert "--model-group-regex" in unify, (
         "unify.sh pools composites without --model-group-regex, so replica "
         "counts act as model weights")
+
+
+def test_terminal_extraction_cannot_be_cut_off_by_convergence(multiapprox_rundir):
+    """A successful convergence test exits 1, so terminal runs must force the
+    diagnostic-only form instead of gating their per-model terminal fork."""
+    test_sub = (multiapprox_rundir / "test.sub").read_text()
+    assert "--always-succeed" in test_sub
+
+    dag = next(multiapprox_rundir.glob("*.dag")).read_text()
+    assert "ABORT-DAG-ON" in dag, (
+        "direct multi-approximant builds without terminal extraction would "
+        "otherwise turn successful convergence into a failed DAG")
+
+
+def test_terminal_cip_grid_covers_every_scheduled_intrinsic_event(multiapprox_rundir):
+    """Iteration-CIP sample/uniqueness settings must not truncate terminal work.
+
+    Interior repeated intrinsic points are legal; the final cross-model
+    combiner, not CIP_terminal, owns exact output uniqueness.
+    """
+    cip_sub = (multiapprox_rundir / "CIP_terminal.sub").read_text()
+    assert "--posterior-unique-draw" not in cip_sub
+    counts = re.findall(r"--n-output-samples(?:=|\s+)(\d+)", cip_sub)
+    assert counts == ["4"], cip_sub
+
+    jobs, macros, _ = _dag_facts(multiapprox_rundir)
+    terminal_starts = [int(macros[node]["macroevent"])
+                       for node, sub in jobs.items()
+                       if sub.endswith("ILE_extr.sub")]
+    assert terminal_starts
+    assert max(terminal_starts) + 2 == int(counts[0])
 
 
 def test_generator_route_is_per_model(multiapprox_rundir):
