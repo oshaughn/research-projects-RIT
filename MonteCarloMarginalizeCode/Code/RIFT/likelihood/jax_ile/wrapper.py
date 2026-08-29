@@ -31,135 +31,20 @@ from .core import (build_likelihood_data, fused_log_likelihood,
                    make_distance_grid, make_distance_grid_adaptive,
                    estimate_distance_peak, phi_ref_grid, psi_grid,
                    phi_ref_conditional_lnL, DIST_MPC_REF, JAX_INTERP_DEFAULT,
-                   TIME_QUAD_DEFAULT, _TIME_QUAD_CHOICES,
-                   _TIME_ADAPTIVE_SAFETY, _TIME_ADAPTIVE_RTOL)
+                   TIME_QUAD_DEFAULT, _TIME_QUAD_CHOICES)
 
 # Parameter order used throughout the wrapper's vectorized interface.
 EXTRINSIC_PARAM_ORDER = ("ra", "dec", "psi", "incl", "phiref", "distMpc")
 
 
-def sample_time_offsets(data, lnL_t, time_quadrature=TIME_QUAD_DEFAULT,
-                        rng=None, min_srate=None, return_lnL=False):
-    """Draw conditional geocentre-time offsets on the represented quadrature grid.
-
-    ``bandlimited`` uses the same curvature criterion, literal 2N reflection,
-    trapezoid rule, and 1e-3-nat doubling check as the JAX evidence path.  The
-    optional rate is a lower bound for conventional ILE's
-    ``--srate-resample-time-marginalization``; it never reduces the factor the
-    likelihood itself requires.
-
-    Returns ``(offsets, factors)``.  Factors are per row and make the exported
-    resolution auditable.
-    """
-    from RIFT.likelihood import time_marginalization_quadrature as _tq
-
+def _validate_nonlinear_time_quadrature(time_quadrature, endpoint):
     if time_quadrature not in _TIME_QUAD_CHOICES:
         raise ValueError("time_quadrature must be one of %r" % (_TIME_QUAD_CHOICES,))
-    rng = rng or np.random.default_rng()
-    rows = np.atleast_2d(np.asarray(lnL_t, dtype=float))
-    t0 = float(np.asarray(data.tvals)[0])
-    dt = float(data.deltaT)
-    rate_factor = 1
-    if min_srate is not None and float(min_srate) > 1.0 / dt:
-        need = float(min_srate) * dt
-        rate_factor = 1 << int(np.ceil(np.log2(need)))
-
-    if not np.all(np.isfinite(rows)):
-        raise RuntimeError("cannot resample conditional time rows with non-finite bins")
-    n_rows = rows.shape[0]
-    offsets = np.empty(n_rows)
-    selected_lnL = np.empty(n_rows)
-    factors = np.full(n_rows, max(1, rate_factor), dtype=int)
     if time_quadrature == "bandlimited":
-        sigma, _, measurable = _tq.peak_width_from_lnL(rows, dt)
-        derived = _tq.required_upsample_factors(sigma, dt)
-        factors = np.maximum(factors, np.where(measurable, derived, 1)).astype(int)
-
-    pending = np.ones(n_rows, dtype=bool)
-    previous = np.full(n_rows, np.nan)
-    while np.any(pending):
-        if np.max(factors[pending]) > _tq.UPSAMPLE_FACTOR_MAX:
-            raise RuntimeError("conditional time posterior did not converge below factor %d"
-                               % _tq.UPSAMPLE_FACTOR_MAX)
-        for factor in np.unique(factors[pending]):
-            group = np.flatnonzero(pending & (factors == factor))
-            # Reflection, spectrum, dense row, and exp workspace coexist.
-            # Bound that transient independently of the number of exported rows.
-            per_row = max(1, rows.shape[-1] * int(factor) * 16 * 8)
-            chunk = max(1, int((128 * 1024 * 1024) // per_row))
-            for start in range(0, group.size, chunk):
-                idx = group[start:start + chunk]
-                if factor == 1:
-                    dense = rows[idx]
-                else:
-                    dense = np.asarray(_tq.reflected_bandlimited_upsample(
-                        rows[idx], int(factor))).real
-                dx = dt / float(factor)
-                w = np.full(dense.shape[-1], dx)
-                w[[0, -1]] *= 0.5
-                m = np.max(dense, axis=-1, keepdims=True)
-                integral = m[:, 0] + np.log(
-                    np.sum(w[None, :] * np.exp(dense - m), axis=-1))
-                sigma_d, _, meas_d = _tq.peak_width_from_lnL(dense, dx)
-                resolved = ((~meas_d) | (~np.isfinite(sigma_d))
-                            | (dx <= sigma_d / _TIME_ADAPTIVE_SAFETY))
-                if time_quadrature == "simpson":
-                    ready = np.ones(idx.size, dtype=bool)
-                else:
-                    ready = (np.isfinite(previous[idx]) & resolved
-                             & (np.abs(integral - previous[idx])
-                                <= _TIME_ADAPTIVE_RTOL))
-
-                for local in np.flatnonzero(ready):
-                    p = np.exp(dense[local] - np.max(dense[local])) * w
-                    p /= p.sum()
-                    j = int(rng.choice(dense.shape[-1], p=p))
-                    offsets[idx[local]] = t0 + j * dx
-                    selected_lnL[idx[local]] = dense[local, j]
-                done = idx[ready]
-                pending[done] = False
-                retry = idx[~ready]
-                previous[retry] = integral[~ready]
-                factors[retry] *= 2
-    if return_lnL:
-        return offsets, factors, selected_lnL
-    return offsets, factors
-
-
-def sample_phi_at_time(data, phi_grid, lnL_phi_t, time_offsets, time_factors,
-                       rng=None, return_lnL=False):
-    """Draw ``phi_ref`` conditional on already drawn refined-grid times."""
-    from RIFT.likelihood import time_marginalization_quadrature as _tq
-
-    rng = rng or np.random.default_rng()
-    cube = np.asarray(lnL_phi_t, dtype=float)  # (nphi, sample, coarse_time)
-    offsets = np.asarray(time_offsets, dtype=float)
-    factors = np.asarray(time_factors, dtype=int)
-    phi_grid = np.asarray(phi_grid, dtype=float)
-    t0 = float(np.asarray(data.tvals)[0])
-    out = np.empty(cube.shape[1])
-    selected_lnL = np.empty(cube.shape[1])
-    for s in range(cube.shape[1]):
-        f = int(factors[s])
-        j = int(round((offsets[s] - t0) / (float(data.deltaT) / f)))
-        values = np.empty(cube.shape[0])
-        # Only one fine time is retained, but FFT interpolation still needs the
-        # complete reflected row.  Chunk phi to cap the temporary.
-        per_phi = max(1, cube.shape[-1] * f * 16 * 4)
-        chunk = max(1, int((128 * 1024 * 1024) // per_phi))
-        for start in range(0, cube.shape[0], chunk):
-            rows = cube[start:start + chunk, s, :]
-            dense = (rows if f == 1 else np.asarray(
-                _tq.reflected_bandlimited_upsample(rows, f)).real)
-            values[start:start + len(rows)] = dense[:, j]
-        p = np.exp(values - np.max(values))
-        p /= p.sum()
-        k = int(rng.choice(phi_grid.size, p=p))
-        out[s] = phi_grid[k]
-        selected_lnL[s] = values[k]
-    if return_lnL:
-        return out, selected_lnL
-    return out
+        raise ValueError(
+            "time_quadrature='bandlimited' is not valid for %s: the primitive "
+            "time fields must be refined before its nonlinear marginalization; "
+            "use 'simpson'" % endpoint)
 
 
 def build_rotation_data_from_precompute(P, data_dict, psd_dict, fiducial_epoch,
@@ -385,13 +270,6 @@ class JAXExtrinsicLikelihood:
             jnp.asarray(ra), jnp.asarray(dec), jnp.asarray(psi),
             jnp.asarray(incl), jnp.asarray(phiref), jnp.asarray(distMpc))
 
-    def conditional_time_lnL(self, ra, dec, psi, incl, phiref, distMpc):
-        return fused_log_likelihood(
-            self.data, jnp.asarray(ra), jnp.asarray(dec), jnp.asarray(psi),
-            jnp.asarray(incl), jnp.asarray(phiref), jnp.asarray(distMpc),
-            interp=self.interp, phase_marginalization=self.phase_marginalization,
-            time_quadrature=self.time_quadrature, return_lnLt=True)
-
     # -- single-point AD -------------------------------------------------
     def value(self, theta6):
         return float(self._scalar(jnp.asarray(theta6, dtype=jnp.float64)))
@@ -425,8 +303,8 @@ class JAXDistanceMarginalizedLikelihood:
         self.data = data
         self.interp = interp   # the instance's stencil; sample_phi_ref defaults to it
         self.phase_marginalization = phase_marginalization
-        if time_quadrature not in _TIME_QUAD_CHOICES:
-            raise ValueError("time_quadrature must be one of %r" % (_TIME_QUAD_CHOICES,))
+        _validate_nonlinear_time_quadrature(
+            time_quadrature, "distance marginalization")
         self.time_quadrature = time_quadrature
         self.x_grid, self.log_w_grid = make_distance_grid(
             d_min, d_max, n_grid, d_prior, distMpcRef=data.distMpcRef)
@@ -456,14 +334,6 @@ class JAXDistanceMarginalizedLikelihood:
         return self._batched(
             jnp.asarray(ra), jnp.asarray(dec), jnp.asarray(psi),
             jnp.asarray(incl), jnp.asarray(phiref))
-
-    def conditional_time_lnL(self, ra, dec, psi, incl, phiref):
-        return fused_log_likelihood_distmarg(
-            self.data, jnp.asarray(ra), jnp.asarray(dec), jnp.asarray(psi),
-            jnp.asarray(incl), jnp.asarray(phiref), self.x_grid, self.log_w_grid,
-            interp=self.interp, phase_marginalization=self.phase_marginalization,
-            time_quadrature=self.time_quadrature,
-            return_lnLt=True)
 
     def value(self, theta5):
         return float(self._scalar(jnp.asarray(theta5, dtype=jnp.float64)))
@@ -502,8 +372,8 @@ class JAXDistPhiMargLikelihood:
                  *, time_quadrature=TIME_QUAD_DEFAULT):
         self.data = data
         self.interp = interp   # the instance's stencil; sample_phi_ref defaults to it
-        if time_quadrature not in _TIME_QUAD_CHOICES:
-            raise ValueError("time_quadrature must be one of %r" % (_TIME_QUAD_CHOICES,))
+        _validate_nonlinear_time_quadrature(
+            time_quadrature, "distance/phase marginalization")
         self.time_quadrature = time_quadrature
         self.nphi = int(nphi)
         self._phi_grid = phi_ref_grid(self.nphi)
@@ -553,21 +423,6 @@ class JAXDistPhiMargLikelihood:
         return self._batched(
             jnp.asarray(ra), jnp.asarray(dec),
             jnp.asarray(psi), jnp.asarray(incl))
-
-    def conditional_time_lnL(self, ra, dec, psi, incl):
-        return fused_log_likelihood_distphimarg(
-            self.data, jnp.asarray(ra), jnp.asarray(dec), jnp.asarray(psi),
-            jnp.asarray(incl), self.x_grid, self.log_w_grid, self._phi_grid,
-            interp=self.interp, time_quadrature=self.time_quadrature,
-            return_lnLt=True)
-
-    def conditional_phi_time_lnL(self, ra, dec, psi, incl):
-        """Distance-marginalized joint log likelihood on ``(phi_ref, time)``."""
-        return fused_log_likelihood_distphimarg(
-            self.data, jnp.asarray(ra), jnp.asarray(dec), jnp.asarray(psi),
-            jnp.asarray(incl), self.x_grid, self.log_w_grid, self._phi_grid,
-            interp=self.interp, time_quadrature=self.time_quadrature,
-            return_phi_lnLt=True)
 
     def value(self, theta4):
         return float(self._scalar(jnp.asarray(theta4, dtype=jnp.float64)))
@@ -657,8 +512,8 @@ class JAXDistPhiPsiMargLikelihood:
                  angle_marg="grid", *, time_quadrature=TIME_QUAD_DEFAULT):
         self.data = data
         self.interp = interp   # the instance's stencil; sample_phi_ref defaults to it
-        if time_quadrature not in _TIME_QUAD_CHOICES:
-            raise ValueError("time_quadrature must be one of %r" % (_TIME_QUAD_CHOICES,))
+        _validate_nonlinear_time_quadrature(
+            time_quadrature, "distance/phase/polarization marginalization")
         self.time_quadrature = time_quadrature
         self.nphi = int(nphi)
         self.npsi = int(npsi)
@@ -755,18 +610,12 @@ class JAXDistPhiPsiMargLikelihood:
             v = _fused(data, theta3[0:1], theta3[1:2], theta3[2:3])
             return v[0]
         self._scalar = _scalar
-        self._conditional_time = lambda ra, dec, incl: _fused(
-            data, ra, dec, incl, return_lnLt=True)
         self._value_and_grad = jax.jit(jax.value_and_grad(_scalar))
         self._hessian = jax.jit(jax.hessian(_scalar))
 
     def log_likelihood(self, ra, dec, incl):
         """lnL for arrays of 3 angular parameters (ra, dec, incl), shape (S,)."""
         return self._batched(jnp.asarray(ra), jnp.asarray(dec), jnp.asarray(incl))
-
-    def conditional_time_lnL(self, ra, dec, incl):
-        return self._conditional_time(jnp.asarray(ra), jnp.asarray(dec),
-                                      jnp.asarray(incl))
 
     def value(self, theta3):
         return float(self._scalar(jnp.asarray(theta3, dtype=jnp.float64)))
@@ -802,8 +651,8 @@ class JAXDistPsiMargLikelihood:
                  *, time_quadrature=TIME_QUAD_DEFAULT):
         self.data = data
         self.interp = interp   # the instance's stencil; sample_phi_ref defaults to it
-        if time_quadrature not in _TIME_QUAD_CHOICES:
-            raise ValueError("time_quadrature must be one of %r" % (_TIME_QUAD_CHOICES,))
+        _validate_nonlinear_time_quadrature(
+            time_quadrature, "distance/polarization marginalization")
         self.time_quadrature = time_quadrature
         self.npsi = int(npsi)
         self._psi_grid = psi_grid(self.npsi)
@@ -845,13 +694,6 @@ class JAXDistPsiMargLikelihood:
         return self._batched(
             jnp.asarray(ra), jnp.asarray(dec),
             jnp.asarray(phiref), jnp.asarray(incl))
-
-    def conditional_time_lnL(self, ra, dec, phiref, incl):
-        return fused_log_likelihood_distpsimarg(
-            self.data, jnp.asarray(ra), jnp.asarray(dec), jnp.asarray(phiref),
-            jnp.asarray(incl), self.x_grid, self.log_w_grid, self._psi_grid,
-            interp=self.interp, time_quadrature=self.time_quadrature,
-            return_lnLt=True)
 
     def value(self, theta4):
         return float(self._scalar(jnp.asarray(theta4, dtype=jnp.float64)))

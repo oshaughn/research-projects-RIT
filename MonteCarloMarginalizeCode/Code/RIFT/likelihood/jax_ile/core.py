@@ -982,9 +982,10 @@ def _terminal_reflected_fft_at_factor(lnL_t, deltaT, factor):
 def _time_marginalize_reflected_fft(lnL_t, deltaT, w_t):
     """Adaptive reflected-FFT terminal time marginalization.
 
-    A block-wide power-of-two factor is selected from the narrowest measurable
-    coarse-row curvature (static FFT shapes require one factor per compiled
-    branch).  The selected grid is remeasured and the integral is doubled until
+    A per-row power-of-two factor is selected from the coarse-row curvature.
+    ``lax.map`` keeps the switched FFT scratch row-local, so one sharp sample
+    neither changes its batchmates' result nor materializes its fine grid for
+    the whole sampler batch.  The selected grid is remeasured and doubled until
     both the width criterion and a 1e-3-nat convergence check pass.  Rows with
     any non-finite coarse bin retain the historical Simpson value; their
     sanitized values still enter traced FFT branches because JAX evaluates both
@@ -1001,7 +1002,6 @@ def _time_marginalize_reflected_fft(lnL_t, deltaT, w_t):
     need = jnp.maximum(need, 1.0)
     factor_float = jnp.exp2(jnp.ceil(jnp.log2(need)))
     factor_float = jnp.where(factor_float < need, factor_float * 2.0, factor_float)
-    factor_float = jnp.max(factor_float)
     too_sharp = (~jnp.isfinite(factor_float)) | (
         factor_float > _TIME_ADAPTIVE_FACTOR_MAX)
     # Clamp before the integer cast: inf or an out-of-range float can wrap to a
@@ -1023,20 +1023,105 @@ def _time_marginalize_reflected_fft(lnL_t, deltaT, w_t):
             return jnp.where(c1, v1, jnp.where(c2, v2, jnp.nan))
         return branch
 
-    index = jnp.clip(jnp.ceil(jnp.log2(factor.astype(jnp.float64))).astype(jnp.int32),
-                     0, len(powers) - 1)
-    refined = jax.lax.switch(index, tuple(make_branch(f) for f in powers), clean)
+    def refine_one(args):
+        row, row_factor = args
+        index = jnp.clip(
+            jnp.ceil(jnp.log2(row_factor.astype(jnp.float64))).astype(jnp.int32),
+            0, len(powers) - 1)
+        return jax.lax.switch(index, tuple(make_branch(f) for f in powers), row)
+
+    refined = jax.lax.map(refine_one, (clean, factor))
     refined = jnp.where(too_sharp, jnp.nan, refined)
     return jnp.where(finite_rows, refined, simpson)
 
 
-def _time_marginalize_terminal(lnL_t, data, time_quadrature=TIME_QUAD_DEFAULT):
+def _time_marginalize_reflected_primitive(kappa_t, rho_sq, deltaT,
+                                           phase_marginalization=False):
+    """Adaptive integral after refining the band-limited complex primitive.
+
+    This is required for phase marginalization: interpolating ``abs(kappa)``
+    cannot recover intersample structure lost to that nonlinear operation.
+    Arrival-time-dependent norms remain unsupported by the bandlimited mode.
+    """
+    kappa_t = jnp.asarray(kappa_t, dtype=jnp.complex128)
+    rho_sq = jnp.asarray(rho_sq, dtype=jnp.float64)
+    coarse = ((jnp.abs(kappa_t) if phase_marginalization else kappa_t.real)
+              - 0.5 * rho_sq)
+    finite_rows = jnp.all(jnp.isfinite(coarse), axis=-1)
+    clean_kappa = jnp.where(finite_rows[:, None], kappa_t, 0.0)
+    clean_rho = jnp.where(finite_rows[:, None], rho_sq, 0.0)
+    # Probe the primitive at half a sample before deriving curvature.  A
+    # near-Nyquist real kappa can alternate +/-A, making coarse ``abs(kappa)``
+    # exactly constant even though the continuous phase-marginalized field has
+    # a zero between every pair of samples.  No statistic of the coarse
+    # nonlinear field can detect that alias.
+    probe_kappa = _reflected_fft_upsample(clean_kappa, 2)
+    probe_rho = jnp.broadcast_to(clean_rho[:, :1], probe_kappa.shape)
+    probe = ((jnp.abs(probe_kappa) if phase_marginalization
+              else probe_kappa.real) - 0.5 * probe_rho)
+    sigma, measurable = _peak_width_from_lnL_jax(probe, deltaT / 2.0)
+    need = jnp.where(measurable & jnp.isfinite(sigma) & (sigma > 0),
+                     _TIME_ADAPTIVE_SAFETY * deltaT / sigma, 1.0)
+    need = jnp.maximum(need, 1.0)
+    factor_float = jnp.exp2(jnp.ceil(jnp.log2(need)))
+    factor_float = jnp.where(factor_float < need, factor_float * 2.0, factor_float)
+    too_sharp = (~jnp.isfinite(factor_float)) | (
+        factor_float > _TIME_ADAPTIVE_FACTOR_MAX)
+    factor = jnp.minimum(factor_float, float(_TIME_ADAPTIVE_FACTOR_MAX)).astype(
+        jnp.int32)
+    powers = tuple(1 << k for k in range(11))
+
+    def make_branch(base):
+        def at_factor(kappa, rho, f):
+            dense_kappa = _reflected_fft_upsample(kappa, f)
+            # Conventional baseline data have a time-independent model norm.
+            # Keeping the first value avoids inventing high-frequency structure
+            # in a constant primitive through roundoff.
+            dense_rho = jnp.broadcast_to(rho[0], dense_kappa.shape)
+            dense = ((jnp.abs(dense_kappa) if phase_marginalization
+                      else dense_kappa.real) - 0.5 * dense_rho)
+            value = _log_trapezoid(dense, deltaT / float(f))
+            width, measured = _peak_width_from_lnL_jax(dense, deltaT / float(f))
+            resolved = ((~measured) | (~jnp.isfinite(width))
+                        | (deltaT / float(f) <= width / _TIME_ADAPTIVE_SAFETY))
+            return value, resolved
+
+        def branch(args):
+            kappa, rho = args
+            v0, r0 = at_factor(kappa, rho, base)
+            v1, r1 = at_factor(kappa, rho, 2 * base)
+            v2, r2 = at_factor(kappa, rho, 4 * base)
+            c1 = r1 & (jnp.abs(v1 - v0) <= _TIME_ADAPTIVE_RTOL)
+            c2 = r2 & (jnp.abs(v2 - v1) <= _TIME_ADAPTIVE_RTOL)
+            return jnp.where(c1, v1, jnp.where(c2, v2, jnp.nan))
+        return branch
+
+    branches = tuple(make_branch(f) for f in powers)
+
+    def refine_one(args):
+        kappa, rho, row_factor = args
+        index = jnp.clip(
+            jnp.ceil(jnp.log2(row_factor.astype(jnp.float64))).astype(jnp.int32),
+            0, len(powers) - 1)
+        return jax.lax.switch(index, branches, (kappa, rho))
+
+    refined = jax.lax.map(refine_one, (clean_kappa, clean_rho, factor))
+    refined = jnp.where(too_sharp, jnp.nan, refined)
+    return jnp.where(finite_rows, refined, jnp.nan)
+
+
+def _time_marginalize_terminal(lnL_t, data, time_quadrature=TIME_QUAD_DEFAULT,
+                               bandlimited_safe=False):
     """Common terminal selector used by every JAX time-marginalized endpoint."""
     if time_quadrature not in _TIME_QUAD_CHOICES:
         raise ValueError("time_quadrature must be one of %r, got %r"
                          % (_TIME_QUAD_CHOICES, time_quadrature))
     if time_quadrature == "simpson":
         return _time_marginalize(lnL_t, data.w_t)
+    if not bandlimited_safe:
+        raise ValueError(
+            "bandlimited terminal interpolation is invalid after nonlinear "
+            "distance/phase/polarization marginalization; use 'simpson'")
     return _time_marginalize_reflected_fft(lnL_t, data.deltaT, data.w_t)
 
 
@@ -1099,7 +1184,7 @@ def fused_log_likelihood(data, ra, dec, psi, incl, phiref, distMpc,
     # terminal implementation.
     legacy_primitive_refinement = (time_quad == "bandlimited"
                                    and not canonical_time_api)
-    if legacy_primitive_refinement and _norm_is_arrival_time_dependent(data):
+    if time_quad == "bandlimited" and _norm_is_arrival_time_dependent(data):
         # Same reason, other direction: the band-limited quadrature reconstructs
         # kappa(t) and holds the model norm at one time bin, so on data whose
         # <h|h> depends on the arrival time it would quietly return a DIFFERENT
@@ -1134,7 +1219,12 @@ def fused_log_likelihood(data, ra, dec, psi, incl, phiref, distMpc,
         lnL_t = kappa_sq.real - 0.5 * rho_sq
     if return_lnLt:
         return lnL_t
-    return _time_marginalize_terminal(lnL_t, data, time_quad)
+    if canonical_time_api and time_quad == "bandlimited":
+        return _time_marginalize_reflected_primitive(
+            kappa_sq, rho_sq, data.deltaT,
+            phase_marginalization=phase_marginalization)
+    return _time_marginalize_terminal(
+        lnL_t, data, time_quad, bandlimited_safe=not phase_marginalization)
 
 
 def fused_log_likelihood_distmarg(data, ra, dec, psi, incl, phiref,

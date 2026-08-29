@@ -253,12 +253,10 @@ def check_critical_and_report(opts, optp):
         fatal.append("--zero-likelihood is not implemented")
     if is_set("--maximize-only"):
         fatal.append("--maximize-only is not implemented (this driver integrates)")
-    if is_set("--resample-time-marginalization") and not is_set("--save-samples"):
-        fatal.append("--resample-time-marginalization requires --save-samples")
-    if is_set("--srate-resample-time-marginalization") \
-            and not is_set("--resample-time-marginalization"):
-        fatal.append("--srate-resample-time-marginalization requires "
-                     "--resample-time-marginalization")
+    if is_set("--resample-time-marginalization"):
+        fatal.append("--resample-time-marginalization is not implemented")
+    if is_set("--srate-resample-time-marginalization"):
+        fatal.append("--srate-resample-time-marginalization is not implemented")
     if fatal:
         optp.error("Cannot run as a faithful drop-in: " + "; ".join(fatal)
                    + ".  (These would silently change the result if ignored.)")
@@ -278,8 +276,7 @@ def check_critical_and_report(opts, optp):
                    "--sim-xml", "--sim-grid", "--n-events-to-analyze",
                    "--random-event", "--distance-marginalization",
                    "--time-marginalization", "--time-marginalization-quadrature",
-                   "--resample-time-marginalization",
-                   "--srate-resample-time-marginalization", "--interpolate-time",
+                   "--interpolate-time",
                    "--vectorized", "--use-gwsignal"}
     # These are implemented PER MODE.  Listing them unconditionally would claim
     # they act under --mode laplace-is (the default), nuts, map, multistart-nuts
@@ -446,11 +443,9 @@ def build_parser():
                       "the factor is derived and rechecked from lnL(t).")
     g.add_option("--resample-time-marginalization", action="store_true",
                  default=False,
-                 help="Draw t_ref from the conditional posterior on the same "
-                      "resolved time grid and include it in saved samples.")
+                 help="Conventional ILE option; currently unsupported by JAX ILE.")
     g.add_option("--srate-resample-time-marginalization", type="int", default=None,
-                 help="Minimum output rate for conditional t_ref draws. The "
-                      "adaptive likelihood resolution may be finer.")
+                 help="Conventional ILE option; currently unsupported by JAX ILE.")
     g.add_option("--n-phi", type=int, default=32,
                  help="phi_ref grid size for --mode flowmc-phimarg (default 32; "
                       "use 64-128 for l-max>=4 or production quality).")
@@ -1399,7 +1394,7 @@ def _remove_stale_artifact(path, what="export"):
 
 
 def write_samples(opts, out_index, theta, lnL, with_distance, logw=None,
-                  angle_note="", like=None, fiducial_epoch=None):
+                  angle_note=""):
     """Write the exported extrinsic samples.
 
     ``logw`` are per-sample LOG IMPORTANCE WEIGHTS ``ln(L p / p_s)`` for the
@@ -1500,75 +1495,47 @@ def write_samples(opts, out_index, theta, lnL, with_distance, logw=None,
     provenance = "fairdraw: %s n_out=%d" % (note, len(theta))
     if angle_note:
         provenance += " " + angle_note
-
-    t_ref = None
-    time_factors = None
-    phi_ref_draw = None
-    lnL_at_t_ref = None
-    if getattr(opts, "resample_time_marginalization", False):
-        if like is None or fiducial_epoch is None:
-            raise RuntimeError("time resampling requires the constructed likelihood and epoch")
-        from RIFT.likelihood.jax_ile.wrapper import sample_time_offsets
-        args = [theta[:, j] for j in range(theta.shape[1])]
-        lnLt = np.asarray(like.conditional_time_lnL(*args))
-        t_off, time_factors, lnL_at_t_ref = sample_time_offsets(
-            like.data, lnLt, time_quadrature=like.time_quadrature, rng=rng,
-            min_srate=getattr(opts, "srate_resample_time_marginalization", None),
-            return_lnL=True)
-        t_ref = float(fiducial_epoch) + t_off
-        uniq, counts = np.unique(time_factors, return_counts=True)
-        provenance += " time_grid_factor=" + ",".join(
-            "%d:%d" % (int(f), int(n)) for f, n in zip(uniq, counts))
-        if opts.mode in ("flowmc-phimarg", "nuts-phimarg"):
-            from RIFT.likelihood.jax_ile.wrapper import sample_phi_at_time
-            joint = np.asarray(like.conditional_phi_time_lnL(*args))
-            phi_ref_draw, lnL_at_t_ref = sample_phi_at_time(
-                like.data, like._phi_grid, joint, t_off, time_factors, rng=rng,
-                return_lnL=True)
-            provenance += " phi_ref=conditional-on-refined-t_ref"
-
-    # Conventional ILE writes the non-time-marginalized likelihood at the
-    # selected conditional draw when time resampling is requested.
-    lnL_export = lnL if lnL_at_t_ref is None else lnL_at_t_ref
+    phase_marginalized = bool(getattr(opts, "phase_marginalization", False))
+    if phase_marginalized:
+        provenance += " phase=analytically-marginalized"
 
     ndim = theta.shape[1] if theta.ndim == 2 else len(theta)
     if with_distance:
         # 6-D: ra, dec, psi, incl, phiref, dist
-        cols = np.column_stack([theta[:, 0], theta[:, 1], theta[:, 5],
-                                theta[:, 3], theta[:, 2], theta[:, 4],
-                                *(([t_ref]) if t_ref is not None else []), lnL_export])
-        hdr = ("right_ascension declination distance inclination psi phi_orb "
-               + ("t_ref " if t_ref is not None else "") + "loglikelihood")
+        if phase_marginalized:
+            cols = np.column_stack([theta[:, 0], theta[:, 1], theta[:, 5],
+                                    theta[:, 3], theta[:, 2], lnL])
+            hdr = "right_ascension declination distance inclination psi loglikelihood"
+        else:
+            cols = np.column_stack([theta[:, 0], theta[:, 1], theta[:, 5],
+                                    theta[:, 3], theta[:, 2], theta[:, 4], lnL])
+            hdr = "right_ascension declination distance inclination psi phi_orb loglikelihood"
     elif ndim == 4 and opts.mode == "flowmc-dpsimarg":
         # 4-D (flowmc-dpsimarg): theta = ra, dec, phiref, incl (psi marginalised,
         # phi_ref sampled).  Write ra, dec, incl, phi_orb.
         cols = np.column_stack([theta[:, 0], theta[:, 1],
-                                theta[:, 3], theta[:, 2],
-                                *(([t_ref]) if t_ref is not None else []), lnL_export])
-        hdr = ("right_ascension declination inclination phi_orb "
-               + ("t_ref " if t_ref is not None else "") + "loglikelihood")
+                                theta[:, 3], theta[:, 2], lnL])
+        hdr = "right_ascension declination inclination phi_orb loglikelihood"
     elif ndim == 4:
         # 4-D (flowmc-phimarg): ra, dec, psi, incl (phi_ref marginalised out)
         cols = np.column_stack([theta[:, 0], theta[:, 1],
-                                theta[:, 3], theta[:, 2],
-                                *(([phi_ref_draw]) if phi_ref_draw is not None else []),
-                                *(([t_ref]) if t_ref is not None else []), lnL_export])
-        hdr = ("right_ascension declination inclination psi "
-               + ("phi_orb " if phi_ref_draw is not None else "")
-               + ("t_ref " if t_ref is not None else "") + "loglikelihood")
+                                theta[:, 3], theta[:, 2], lnL])
+        hdr = "right_ascension declination inclination psi loglikelihood"
     elif ndim == 3:
         # 3-D (flowmc-phipsimarg): ra, dec, incl (phi_ref AND psi marginalised out)
         cols = np.column_stack([theta[:, 0], theta[:, 1],
-                                theta[:, 2], *(([t_ref]) if t_ref is not None else []), lnL_export])
-        hdr = ("right_ascension declination inclination "
-               + ("t_ref " if t_ref is not None else "") + "loglikelihood")
+                                theta[:, 2], lnL])
+        hdr = "right_ascension declination inclination loglikelihood"
     else:
         # 5-D: ra, dec, psi, incl, phiref
-        cols = np.column_stack([theta[:, 0], theta[:, 1], theta[:, 3],
-                                theta[:, 2], theta[:, 4],
-                                *(([t_ref]) if t_ref is not None else []), lnL_export])
-        hdr = ("right_ascension declination inclination psi phi_orb "
-               + ("t_ref " if t_ref is not None else "") + "loglikelihood")
+        if phase_marginalized:
+            cols = np.column_stack([theta[:, 0], theta[:, 1], theta[:, 3],
+                                    theta[:, 2], lnL])
+            hdr = "right_ascension declination inclination psi loglikelihood"
+        else:
+            cols = np.column_stack([theta[:, 0], theta[:, 1], theta[:, 3],
+                                    theta[:, 2], theta[:, 4], lnL])
+            hdr = "right_ascension declination inclination psi phi_orb loglikelihood"
     # Column line FIRST (unchanged, so `head -1` parsers keep working); the
     # provenance line follows, so the artifact records how it was produced --
     # notably the export ESS, which was previously written nowhere.
@@ -1877,7 +1844,7 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
         sys.stderr.write(
             "NOTE integrate_likelihood_extrinsic_jax: %s\n" % _ev_note)
     write_samples(opts, out_index, theta, lnL, with_distance, angle_note=_ev_note,
-                  logw=logw_export, like=like, fiducial_epoch=fiducial_epoch)
+                  logw=logw_export)
     write_dat(opts, P, out_index, event_id, logZ, sig, ntot, neff,
               angle_note=_ev_note)
     return logZ, out_flow_state

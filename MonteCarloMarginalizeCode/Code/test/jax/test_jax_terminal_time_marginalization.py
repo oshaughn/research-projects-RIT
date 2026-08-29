@@ -1,4 +1,4 @@
-"""Regression tests for adaptive terminal time marginalization and t_ref export."""
+"""Regression tests for adaptive, primitive-field time marginalization."""
 import inspect
 
 import jax
@@ -42,9 +42,9 @@ def _event_b_like_row(phase=0.37):
 
 def test_event_b_scale_adaptive_integral_matches_local_dense_truth():
     row, dt, amp = _event_b_like_row()
-    w = jnp.asarray(core._simpson_weights(row.size, dt))
-    got = float(core._time_marginalize_reflected_fft(
-        jnp.asarray(row[None, :]), dt, w)[0])
+    got = float(core._time_marginalize_reflected_primitive(
+        jnp.asarray(row[None, :], dtype=jnp.complex128),
+        jnp.zeros((1, row.size)), dt)[0])
     sigma_t = 3.0 * dt / np.sqrt(amp)
     want = amp + np.log(np.sqrt(2.0 * np.pi) * sigma_t)
     assert abs(got - want) < 2e-3
@@ -74,28 +74,34 @@ def test_fixed_factor_value_gradient_and_hessian_are_finite():
     assert np.all(np.isfinite(np.asarray([value, grad, hess])))
 
 
-class _TimeData:
-    def __init__(self, n, dt):
-        self.deltaT = dt
-        self.tvals = jnp.asarray((np.arange(n) - n // 2) * dt)
+def test_phase_marginalization_refines_kappa_before_abs_near_nyquist():
+    n, dt, amp = 17, 1.0, 5.0
+    kappa = amp * (-1.0) ** np.arange(n)
+    rho = np.zeros((1, n))
+    got = float(core._time_marginalize_reflected_primitive(
+        jnp.asarray(kappa[None, :]), jnp.asarray(rho), dt,
+        phase_marginalization=True)[0])
+    # On the input grid abs(kappa) is identically amp, so interpolating the
+    # already-marginalized field returns this demonstrably wrong constant-row
+    # result.  The band-limited primitive is amp*cos(pi*t), with zeros at every
+    # half sample; integrate that independent continuous model densely.
+    wrong = amp + np.log((n - 1) * dt)
+    x = np.linspace(0.0, n - 1.0, (n - 1) * 8192 + 1)
+    y = np.exp(amp * np.abs(np.cos(np.pi * x)) - amp)
+    want = amp + np.log(np.trapz(y, x=x))
+    assert abs(got - want) < 3e-3
+    assert abs(got - wrong) > 0.5
 
 
-def test_t_ref_draws_use_converged_fine_grid_and_are_deterministic():
-    row, dt, _ = _event_b_like_row(phase=0.41)
-    rows = np.repeat(row[None, :], 16, axis=0)
-    data = _TimeData(row.size, dt)
-    a, fa = wrapper.sample_time_offsets(
-        data, rows, "bandlimited", rng=np.random.default_rng(1234))
-    b, fb = wrapper.sample_time_offsets(
-        data, rows, "bandlimited", rng=np.random.default_rng(1234))
-    np.testing.assert_array_equal(a, b)
-    np.testing.assert_array_equal(fa, fb)
-    assert np.min(fa) > 1
-    # The posterior is substantially narrower than one input sample and the
-    # draws are not quantized to the input grid.
-    assert np.std(a) < 0.2 * dt
-    coarse_phase = np.mod((a - float(data.tvals[0])) / dt, 1.0)
-    assert np.any(np.minimum(coarse_phase, 1.0 - coarse_phase) > 1e-6)
+def test_refinement_is_batch_composition_independent():
+    sharp, dt, _ = _event_b_like_row(phase=0.41)
+    broad = 20.0 * np.exp(-0.5 * ((np.arange(sharp.size) - 245.1) / 20.0) ** 2)
+    w = jnp.asarray(core._simpson_weights(sharp.size, dt))
+    alone = core._time_marginalize_reflected_fft(jnp.asarray(sharp[None, :]), dt, w)
+    paired = core._time_marginalize_reflected_fft(
+        jnp.asarray(np.stack((broad, sharp))), dt, w)
+    np.testing.assert_allclose(np.asarray(alone[0]), np.asarray(paired[1]),
+                               rtol=0, atol=1e-10)
 
 
 def test_all_terminal_kernels_expose_one_canonical_selector():
@@ -114,7 +120,7 @@ def test_all_terminal_kernels_expose_one_canonical_selector():
         assert "time_quadrature" in inspect.signature(fn).parameters, fn.__name__
 
 
-def test_all_wrappers_expose_quadrature_and_conditional_time():
+def test_all_wrappers_expose_quadrature_but_nonlinear_path_refuses_bandlimited():
     classes = [wrapper.JAXExtrinsicLikelihood,
                wrapper.JAXDistanceMarginalizedLikelihood,
                wrapper.JAXDistPhiMargLikelihood,
@@ -122,7 +128,9 @@ def test_all_wrappers_expose_quadrature_and_conditional_time():
                wrapper.JAXDistPsiMargLikelihood]
     for cls in classes:
         assert "time_quadrature" in inspect.signature(cls.__init__).parameters
-        assert hasattr(cls, "conditional_time_lnL")
+    with pytest.raises(ValueError, match="primitive time fields"):
+        wrapper._validate_nonlinear_time_quadrature(
+            "bandlimited", "distance/phase marginalization")
 
 
 def test_jax_driver_uses_conventional_ile_flag_names():
@@ -152,15 +160,19 @@ def test_driver_parses_readback_and_conflict_checks_ile_aliases():
     drv = _load_driver()
     parser = drv.build_parser()
     argv = ["--time-marginalization-quadrature", "bandlimited",
-            "--interpolate-time", "sinc", "--resample-time-marginalization",
-            "--srate-resample-time-marginalization", "65536", "--save-samples"]
+            "--interpolate-time", "sinc"]
     opts, _ = parser.parse_args(argv)
     drv.record_supplied_options(opts, argv, parser)
     drv.resolve_ile_interface_aliases(opts, parser)
     drv.check_critical_and_report(opts, parser)
     assert opts.time_marginalization_quadrature == "bandlimited"
     assert opts.interp == "sinc"
-    assert opts.srate_resample_time_marginalization == 65536
+
+    argv = ["--resample-time-marginalization"]
+    opts, _ = parser.parse_args(argv)
+    drv.record_supplied_options(opts, argv, parser)
+    with pytest.raises(SystemExit):
+        drv.check_critical_and_report(opts, parser)
 
     argv = ["--interp", "linear", "--interpolate-time", "sinc"]
     opts, _ = parser.parse_args(argv)
@@ -169,34 +181,22 @@ def test_driver_parses_readback_and_conflict_checks_ile_aliases():
         drv.resolve_ile_interface_aliases(opts, parser)
 
 
-def test_driver_exports_gps_t_ref_on_refined_grid(tmp_path):
+def test_headline_phase_marginalized_export_keeps_sky_and_psi_not_phi_or_time(tmp_path):
     import types
     drv = _load_driver()
-    n, dt = 31, 1.0 / 8192
-    x = np.arange(n) - n // 2 - 0.37
-    row = 5000.0 * np.exp(-0.5 * (x / 3.0) ** 2)
-    data = _TimeData(n, dt)
-
-    class Like:
-        time_quadrature = "bandlimited"
-        def __init__(self):
-            self.data = data
-        def conditional_time_lnL(self, *args):
-            return np.repeat(row[None, :], len(args[0]), axis=0)
-
     opts = types.SimpleNamespace(
-        output_file=str(tmp_path / "ile"), save_samples=True, seed=91,
-        mode="nuts", resample_time_marginalization=True,
-        srate_resample_time_marginalization=None)
-    theta = np.zeros((8, 6))
-    drv.write_samples(opts, 0, theta, np.zeros(8), True, like=Like(),
-                      fiducial_epoch=1000000000.25)
+        output_file=str(tmp_path / "ile"), save_samples=True, seed=19,
+        mode="nuts", phase_marginalization=True)
+    theta = np.arange(24.0).reshape(4, 6)
+    drv.write_samples(opts, 0, theta, np.arange(4.0), with_distance=True)
     path = tmp_path / "ile_0_samples.dat"
-    header = path.read_text().splitlines()
-    assert "t_ref" in header[0]
-    assert "time_grid_factor=" in header[1]
+    lines = path.read_text().splitlines()
+    assert lines[0].lstrip("# ") == (
+        "right_ascension declination distance inclination psi loglikelihood")
+    assert "phi_orb" not in lines[0]
+    assert "t_ref" not in lines[0]
+    assert "phase=analytically-marginalized" in lines[1]
     values = np.loadtxt(path)
-    t_ref = values[:, -2]
-    assert np.all(np.abs(t_ref - 1000000000.25) < n * dt)
-    fine_phase = np.mod((t_ref - 1000000000.25 - float(data.tvals[0])) / dt, 1.0)
-    assert np.any(np.minimum(fine_phase, 1.0 - fine_phase) > 1e-5)
+    np.testing.assert_array_equal(values[:, 0], theta[:, 0])
+    np.testing.assert_array_equal(values[:, 1], theta[:, 1])
+    np.testing.assert_array_equal(values[:, 4], theta[:, 2])

@@ -261,9 +261,18 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         accumulation window (while Simpson
 #                                         does not).  Pure numpy
 #                                         and jax, no lal, no GPU.
+#   test_jax_terminal_time_marginalization.py
+#                                      14  adaptive primitive-field integration:
+#                                         odd/even reflection, exact normalization,
+#                                         Event-B high-SNR convergence, AD, bounded
+#                                         batch-independent dispatch, a near-Nyquist
+#                                         phase-marginalization counterexample, explicit
+#                                         nonlinear-endpoint refusal, driver wiring, and
+#                                         honest phase-marginalized sky/psi export.
 
 FILES=(
   "${JAXDIR}/test_jax_time_quadrature.py"
+  "${JAXDIR}/test_jax_terminal_time_marginalization.py"
   "${JAXDIR}/test_jax_likelihood.py"
   "${JAXDIR}/test_jax_endtoend.py"
   "${JAXDIR}/test_jax_slowrot_coeffs.py"
@@ -368,10 +377,11 @@ fi
 # no default guard; the band-limited path widens the accumulation window).
 # PR #209 then adds six test_angle_marg_compile_cost.py pins, raising 160 -> 166,
 # and PR #210 adds five test_angle_marg_block_dispatch.py pins, raising 166 -> 171.
+# PR #216 adds fourteen adaptive primitive-time pins, raising 171 -> 185.
 # Raising the floor
 # by exactly the number of tests ADDED is safe whatever the environment delta above,
 # since it preserves the margin the previous floor already had.
-EXPECTED_TESTS=171
+EXPECTED_TESTS=185
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"
