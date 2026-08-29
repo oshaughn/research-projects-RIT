@@ -157,6 +157,21 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         passes a weaker guard), and that BOTH
 #                                         artifacts are labelled and never imply
 #                                         verification.  Seconds, not minutes.
+#   test_angle_marg_compile_cost.py   6  the laplace path's COMPILE- and RUN-cost
+#                                         structure (2026-08-28: an unrolled kernel
+#                                         x 64 distance blocks put a production
+#                                         SNR-40 run >88 min / 22 GiB into XLA
+#                                         compilation; the fix then exposed a
+#                                         36.41 GiB RESOURCE_EXHAUSTED at the
+#                                         default eval chunk).  Trace-only where
+#                                         possible: the traced graph must not grow
+#                                         with the distance grid, the kernel must
+#                                         stay rolled (equation-count ceiling), the
+#                                         distance tail padding must be exactly-
+#                                         zero-weight, and the anglemarg eval-chunk
+#                                         cap must stay WIRED in samplers and the
+#                                         driver.  Each fails under a verified
+#                                         mutation (see the PR).  Seconds.
 #   test_angle_marg_sizing_rule.py    1  the m_max-aware dense phi sizing rule.
 #                                         Pure numpy, milliseconds, closed-form I0
 #                                         reference.  FAILS under the old m_max-blind
@@ -251,6 +266,7 @@ FILES=(
   "${JAXDIR}/test_flow_reuse_default.py"
   "${JAXDIR}/test_angle_marg_sizing_rule.py"
   "${JAXDIR}/test_angle_marg_smoke.py"
+  "${JAXDIR}/test_angle_marg_compile_cost.py"
 )
 
 # EXCLUDED: files in JAXDIR matching test_*.py that are deliberately NOT gated.  The
@@ -335,10 +351,11 @@ fi
 # the five guard-sample pins in the same file (periodic-seam defect on a
 # non-periodic crop; its removal by guard samples; guard is support, not window;
 # no default guard; the band-limited path widens the accumulation window).
+# PR #209 then adds six test_angle_marg_compile_cost.py pins, raising 160 -> 166.
 # Raising the floor
 # by exactly the number of tests ADDED is safe whatever the environment delta above,
 # since it preserves the margin the previous floor already had.
-EXPECTED_TESTS=160
+EXPECTED_TESTS=166
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"
