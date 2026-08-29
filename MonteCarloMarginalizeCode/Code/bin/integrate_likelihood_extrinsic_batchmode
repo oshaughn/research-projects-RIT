@@ -244,7 +244,9 @@ optp.add_option("--psd-window-shape", type=float, default=0, help="Shape of Tuke
 optp.add_option("-m", "--time-marginalization", action="store_true", help="Perform marginalization over time via direct numerical integration. Default is false.")
 #optp.add_option("--n-fairdraw-extrinsic-samples",default=None,type=int,help="Extracts a concrete number of fair draw extrinsic samples, bounded above by n_eff")
 optp.add_option("--resample-time-marginalization",action='store_true', help="If time-marginalizaiton is true (and should almost always be true), at the end export step use resampling. REQUIRES using fairdraw-extrinsic-output")
-optp.add_option("--srate-resample-time-marginalization",type=int, default=None, help="If time-marginalizaiton is true (and should almost always be true), an opportunity to interpolate the likelihoods on the (internal) time grid and perform time resampling at a higher sampling rate, for greater nominal time resolution. Does not change underlying calculations.")
+optp.add_option("--srate-resample-time-marginalization",type=int, default=None, help="For --time-posterior-export grid, interpolate lnL(t) onto a lattice at this rate before drawing. Continuous posterior export has no output lattice and supersedes this option.")
+optp.add_option("--time-posterior-export", type="choice", choices=["auto", "continuous", "grid"], default="auto",
+                help="How --resample-time-marginalization exports geocenter time. auto (default) draws continuously from the interpolated lnL(t) posterior when --interpolate-time is active, otherwise preserves the grid; continuous always draws off-grid; grid is the explicit legacy compatibility mode.")
 optp.add_option("-d", "--distance-marginalization", action="store_true", help="Perform marginalization over distance via a look-up table. Default is false.")
 optp.add_option("-l", "--distance-marginalization-lookup-table", default=None, help="Look-up table for distance marginalization.")
 optp.add_option("--calibration-envelope-directory",default=None, help="Name of directory")
@@ -489,6 +491,9 @@ else:
 # legacy path's interpolation ON while meaning the exact opposite in NoLoop.  Derive an honest
 # boolean instead: only the two genuinely-interpolating stencils count as "interpolate".
 opts._legacy_interpolate_time = opts._noloop_time_interp in ("cubic", "sinc")
+from RIFT.likelihood.time_posterior import resolve_time_posterior_export_mode
+opts._time_posterior_export = resolve_time_posterior_export_mode(
+    opts.time_posterior_export, opts._noloop_time_interp)
 # NOTE: deliberately NOT announcing the stencil here.  opts.gpu is not resolved yet at this
 # point, so we cannot yet tell whether the stencil will actually be used -- and a banner that
 # names a stencil the run then ignores is worse than no banner, because it reads as proof.
@@ -710,6 +715,14 @@ print(" Q_lm sub-sample time stencil: {} (from --interpolate-time {!r}); honoure
           opts._noloop_time_interp, opts.interpolate_time, _stencil_is_honoured,
           bool(opts.time_marginalization), bool(opts.vectorized), bool(opts.gpu),
           bool(opts.rotation_slow), bool(opts.freqresponse), opts._legacy_interpolate_time))
+if opts.resample_time_marginalization:
+    print(" Time-posterior export: {} (from --time-posterior-export {!r})".format(
+          opts._time_posterior_export, opts.time_posterior_export))
+    if (opts._time_posterior_export == "continuous" and
+            opts.srate_resample_time_marginalization):
+        print(" Time-posterior export: continuous draws supersede "
+              "--srate-resample-time-marginalization; use "
+              "--time-posterior-export grid for the requested lattice.")
 
 manual_avoid_overflow_logarithm=opts.manual_logarithm_offset
 manual_avoid_overflow_logarithm_default =  manual_avoid_overflow_logarithm
@@ -2156,12 +2169,16 @@ def resample_samples(my_samples,
   lnLt_norm = scipy.special.logsumexp(lnLt,axis=-1)
   tvals = identity_convert(tvals) # back to CPU
 #  print(lnLt.shape, lnLt_norm.shape,tvals.shape)
-  # Loop over and resample in time, picking index according to weights
-  #   - perform higher-resolution interpolation
+  # Draw from the per-sample time posterior.  Sub-sample likelihood
+  # interpolation implies a continuous export contract by default: choosing a
+  # coarse tvals index here would throw away the resolution just requested.
   t_out = np.zeros(n_samples)
   lnL_out = np.zeros(n_samples)
-  # IF UPSAMPLING, PERFORM NOW.  (Currently on
-  if opts.srate_resample_time_marginalization and opts.srate_resample_time_marginalization > fSample:
+  if opts._time_posterior_export == "continuous":
+    from RIFT.likelihood.time_posterior import draw_continuous_time_posterior
+    t_out, lnL_out = draw_continuous_time_posterior(tvals, lnLt)
+  # Legacy/fallback grid export, including the explicit higher-rate lattice.
+  elif opts.srate_resample_time_marginalization and opts.srate_resample_time_marginalization > fSample:
     # Resample the marginalization-time grid to EXACTLY the requested rate, so
     # the exported geocenter time is quantized at 1/srate_resample seconds.  We
     # step by exactly 1/srate_resample; for the usual power-of-two rates that is
@@ -2192,11 +2209,12 @@ def resample_samples(my_samples,
     # replace, re-normalize
     tvals = tvals_denser; lnLt= lnLt_new
     lnLt_norm = scipy.special.logsumexp(lnLt,axis=-1)
-  indx_list =np.arange(len(tvals))
-  for indx in np.arange(n_samples):
-    indx_choose = np.random.choice(indx_list, p=np.exp(lnLt[indx] - lnLt_norm[indx]))
-    t_out[indx] = tvals[indx_choose]
-    lnL_out[indx] = lnLt[indx][indx_choose]
+  if opts._time_posterior_export == "grid":
+    indx_list =np.arange(len(tvals))
+    for indx in np.arange(n_samples):
+      indx_choose = np.random.choice(indx_list, p=np.exp(lnLt[indx] - lnLt_norm[indx]))
+      t_out[indx] = tvals[indx_choose]
+      lnL_out[indx] = lnLt[indx][indx_choose]
 #    print(' Resampled time offset {} '.format(t_out[indx])) #, lnLt[indx]-lnLt_norm[indx])
     
   my_samples['t_ref'] = fiducial_epoch+t_out # add sample time jitter from reweighting to samples
