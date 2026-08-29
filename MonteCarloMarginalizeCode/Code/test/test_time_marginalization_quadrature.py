@@ -120,6 +120,82 @@ def _simpson_value(kappa_row):
     return _log_simps(_lnL(np.asarray(kappa_row).real, RHO_SQ), DELTAT)
 
 
+# ------------------------------------------- continuous posterior-draw contract
+
+def test_piecewise_linear_draw_has_no_output_lattice_and_handles_flat_density():
+    lnL = np.zeros((2, 3))
+    uniforms = np.array([[0.25, 0.5], [0.75, 0.2]])
+    times, at_draw = tmq.draw_piecewise_linear_log_posterior(
+        lnL, 1.0, t0=-1.0, uniforms=uniforms)
+    # Equal interval masses: the first uniforms choose intervals 0 and 1.  A
+    # flat density has the exact uniform conditional limit inside each interval.
+    np.testing.assert_allclose(times, [-0.5, 0.2], rtol=0, atol=1e-15)
+    np.testing.assert_allclose(at_draw, [0.0, 0.0], rtol=0, atol=0)
+    phase = (times + 1.0) / 1.0
+    assert np.all(phase != np.round(phase))
+
+
+def test_piecewise_linear_draw_inverts_the_density_not_log_density():
+    # One interval with density rising linearly from 1 to 3.  At conditional
+    # quantile r=1/4, p(u)^2 = 1 + r*(9-1) = 3.
+    lnL = np.log(np.array([[1.0, 3.0]]))
+    times, at_draw = tmq.draw_piecewise_linear_log_posterior(
+        lnL, 2.0, t0=4.0, uniforms=np.array([[0.0, 0.25]]))
+    frac = (np.sqrt(3.0) - 1.0) / 2.0
+    assert times[0] == pytest.approx(4.0 + 2.0 * frac, abs=2e-15)
+    assert at_draw[0] == pytest.approx(0.5 * np.log(3.0), abs=2e-15)
+
+
+def test_bandlimited_draw_uses_the_same_validated_dense_representation():
+    sig = BandLimited(amp=0.17, peak_sample=NPTS // 2 + 0.25,
+                      n_period=8 * NPTS, m_hi=1400, background=0.12)
+    k = sig.samples()[None, :]
+    r = np.full(k.shape, RHO_SQ)
+    uniforms = np.array([[0.3712345, 0.6180339]])
+
+    integral, time_draw, lnL_draw = tmq.time_marginalize_bandlimited(
+        k, r, DELTAT, _lnL, return_time_draw=True,
+        draw_uniforms=uniforms, t0=-0.075)
+    integral_only = tmq.time_marginalize_bandlimited(k, r, DELTAT, _lnL)
+    np.testing.assert_allclose(integral, integral_only, rtol=0, atol=0)
+
+    factor = tmq.last_report()['upsample_factor']
+    assert factor > 1
+    dense_k = tmq.reflected_bandlimited_upsample(k, factor)
+    dense_lnL = _lnL(dense_k.real, RHO_SQ)
+    dx = DELTAT / factor
+    phase = (float(time_draw[0]) + 0.075) / dx
+    j = int(np.floor(phase))
+    frac = phase - j
+    density = np.exp(dense_lnL[0] - np.max(dense_lnL[0]))
+    density_at_draw = density[j] + frac * (density[j + 1] - density[j])
+    expected_lnL = np.max(dense_lnL[0]) + np.log(density_at_draw)
+    assert float(lnL_draw[0]) == pytest.approx(expected_lnL, abs=2e-10)
+    assert abs(phase - round(phase)) > 1e-6, "draw snapped to the dense FFT grid"
+
+
+def test_continuous_draw_accepts_minus_infinity_nodes_but_not_invalid_rows():
+    times, lnL = tmq.draw_piecewise_linear_log_posterior(
+        np.array([[0.0, -np.inf, -1.0]]), 1.0,
+        uniforms=np.array([[0.1, 0.4]]))
+    assert np.isfinite(times[0]) and np.isfinite(lnL[0])
+    # The exact RNG endpoint must skip a leading zero-mass plateau instead of
+    # selecting it through searchsorted's equality convention.
+    times, lnL = tmq.draw_piecewise_linear_log_posterior(
+        np.array([[-np.inf, -np.inf, 0.0]]), 1.0,
+        uniforms=np.array([[0.0, 0.0]]))
+    assert 1.0 < times[0] < 2.0
+    assert np.isfinite(lnL[0])
+    with pytest.raises(ValueError, match="no finite positive mass"):
+        tmq.draw_piecewise_linear_log_posterior(
+            np.full((1, 3), -np.inf), 1.0,
+            uniforms=np.array([[0.1, 0.4]]))
+    with pytest.raises(ValueError, match="NaN or \\+inf"):
+        tmq.draw_piecewise_linear_log_posterior(
+            np.array([[0.0, np.nan, -1.0]]), 1.0,
+            uniforms=np.array([[0.1, 0.4]]))
+
+
 # ------------------------------------------------- the band-limited identity
 
 def test_upsample_is_exact_on_a_band_limited_sequence():
@@ -466,6 +542,30 @@ def test_driver_flag_reaches_the_likelihood_and_changes_the_answer():
         assert float(np.asarray(_shipped(tvals, args, time_quadrature='simpson'))[0]) == base
     finally:
         fl.TIME_QUADRATURE_DEFAULT = old
+
+
+def test_shipped_likelihood_exposes_a_continuous_bandlimited_time_draw():
+    pytest.importorskip('RIFT.lalsimutils')
+    tvals = fl.marginalization_time_grid(0.075, DELTAT)
+    args, sigma_over_dt, _ = _tuned_inputs(tvals)
+    assert sigma_over_dt < 0.6
+    uniforms = np.array([[0.4321, 0.6789]])
+    drawn_t, drawn_lnL = _shipped(
+        tvals, args, time_quadrature='bandlimited', return_time_draw=True,
+        time_draw_uniforms=uniforms)
+    factor = tmq.last_report()['upsample_factor']
+    assert factor > 1
+    assert np.isfinite(float(drawn_t[0])) and np.isfinite(float(drawn_lnL[0]))
+    assert float(tvals[0]) <= float(drawn_t[0]) <= float(tvals[-1])
+    dense_phase = (float(drawn_t[0]) - float(tvals[0])) / (DELTAT / factor)
+    assert abs(dense_phase - round(dense_phase)) > 1e-6
+
+    with pytest.raises(ValueError, match='requires time_quadrature'):
+        _shipped(tvals, args, time_quadrature='simpson', return_time_draw=True,
+                 time_draw_uniforms=uniforms)
+    with pytest.raises(ValueError, match='mutually exclusive'):
+        _shipped(tvals, args, time_quadrature='bandlimited', return_time_draw=True,
+                 return_lnLt=True, time_draw_uniforms=uniforms)
 
 
 def test_unsupported_combinations_refuse_rather_than_silently_using_simpson():

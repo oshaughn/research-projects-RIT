@@ -172,6 +172,7 @@ __all__ = [
     "refuse_unless_time_quadrature_emitted",
     "refuse_unhonourable_time_quadrature",
     "find_time_quadrature_in_ile_args",
+    "draw_piecewise_linear_log_posterior",
     "time_marginalize_bandlimited",
     "last_report",
 ]
@@ -688,9 +689,100 @@ def _log_trapz_over_window(lnL_dense, dx_dense, npts_coarse, factor, xpy=np):
     return off[..., 0] + xpy.log(xpy.sum(xpy.exp(v - off) * w, axis=-1))
 
 
+def draw_piecewise_linear_log_posterior(lnL_t, dx, t0=0.0,
+                                        uniforms=None, xpy=np):
+    """Draw one continuous time per row from a nodal log density.
+
+    Between adjacent nodes the *density* ``exp(lnL)`` is linear.  Its interval
+    mass is therefore exactly the trapezoid used by the refined quadrature.  We
+    first choose an interval by those masses, then invert the linear-density CDF
+    analytically inside it.  The result has no output lattice: ``dx`` describes
+    the representation's knots, not the support of the returned variate.
+
+    ``uniforms`` may be supplied as shape ``(n_rows, 2)``.  The first variate
+    selects the interval and the second selects the position inside it.  This is
+    both the reproducibility seam and the way CPU/GPU tests ask the two backends
+    exactly the same question.  If omitted, numpy's global generator is used,
+    preserving the driver's existing ``--seed`` contract.
+
+    Returns ``(times, lnL_at_times)`` in the input backend.  ``-inf`` nodes are
+    supported and carry zero density.  NaN/+inf nodes and rows with no positive
+    finite mass are rejected rather than assigned an invented timestamp.
+    """
+    values = xpy.asarray(lnL_t)
+    if values.ndim == 1:
+        values = values[xpy.newaxis, :]
+    if values.ndim != 2 or values.shape[-1] < 2:
+        raise ValueError("lnL_t must have shape (n_rows, n_time>=2)")
+    if not bool(xpy.all((~xpy.isnan(values)) & (~xpy.isposinf(values)))):
+        raise ValueError("continuous time posterior contains NaN or +inf")
+
+    n_rows, n_time = values.shape
+    if uniforms is None:
+        uniforms = np.random.random((n_rows, 2))
+    uniforms = xpy.asarray(uniforms, dtype=np.float64)
+    if uniforms.shape != (n_rows, 2):
+        raise ValueError("uniforms must have shape (n_rows, 2)")
+    if not bool(xpy.all((uniforms >= 0.0) & (uniforms < 1.0))):
+        raise ValueError("uniforms must lie in [0, 1)")
+
+    finite = xpy.isfinite(values)
+    off = xpy.max(xpy.where(finite, values, -np.inf), axis=-1)
+    if not bool(xpy.all(xpy.isfinite(off))):
+        raise ValueError("time posterior has no finite positive mass")
+    density = xpy.where(finite, xpy.exp(values - off[:, xpy.newaxis]), 0.0)
+    interval_mass = 0.5 * float(dx) * (density[:, :-1] + density[:, 1:])
+    total = xpy.sum(interval_mass, axis=-1)
+    if not bool(xpy.all(xpy.isfinite(total) & (total > 0.0))):
+        raise ValueError("time posterior has no finite positive mass")
+
+    cdf = xpy.cumsum(interval_mass, axis=-1) / total[:, xpy.newaxis]
+    # `uniforms < 1` guarantees an interval, but clip defensively against a
+    # backend whose final cumsum rounds a hair below one.
+    # `<=` skips a leading/embedded zero-mass plateau even when the supplied
+    # variate is exactly zero or exactly on a cumulative boundary.  `<` would
+    # select a zero-density interval at u=0 and return lnL=-inf for a posterior
+    # that has positive mass later in the window.
+    interval = xpy.sum(cdf <= uniforms[:, :1], axis=-1).astype(np.int64)
+    interval = xpy.minimum(interval, n_time - 2)
+    row = xpy.arange(n_rows)
+    a = density[row, interval]
+    b = density[row, interval + 1]
+    delta = b - a
+    # A pseudo-random float can (very rarely) be exactly zero.  On an interval
+    # whose left endpoint has zero density, the literal inverse-CDF endpoint
+    # would then return lnL=-inf and could be silently excised downstream.  Use
+    # the centre of the lowest float64 RNG bin for that one endpoint, matching
+    # the open-interval variate required by a continuous posterior draw.
+    r = xpy.maximum(uniforms[:, 1], 0.5 * np.finfo(float).eps)
+
+    # For density p(u)=a+(b-a)u on u in [0,1], inverse-CDF sampling gives
+    # p(u)^2 = a^2 + r*(b^2-a^2).  Use the uniform limit when the interval is
+    # numerically flat to avoid cancellation in (p-a)/(b-a).
+    scale = xpy.maximum(xpy.maximum(xpy.abs(a), xpy.abs(b)), 1.0)
+    flat = xpy.abs(delta) <= 16.0 * np.finfo(float).eps * scale
+    # Scale locally before squaring.  A selected far-tail interval can have
+    # representable endpoint densities whose squares underflow; the CDF inverse
+    # must not turn that positive interval into zero density.
+    local_scale = xpy.maximum(a, b)
+    a_scaled = a / local_scale
+    b_scaled = b / local_scale
+    endpoint_density = local_scale * xpy.sqrt(xpy.maximum(
+        0.0, a_scaled * a_scaled
+        + r * (b_scaled * b_scaled - a_scaled * a_scaled)))
+    frac = xpy.where(flat, r, (endpoint_density - a) /
+                     xpy.where(flat, 1.0, delta))
+    frac = xpy.clip(frac, 0.0, 1.0)
+    drawn_density = a + delta * frac
+    times = float(t0) + (interval.astype(np.float64) + frac) * float(dx)
+    lnL_draw = off + xpy.log(drawn_density)
+    return times, lnL_draw
+
+
 def time_marginalize_bandlimited(kappa, rho_sq, deltaT, loglikelihood,
                                  phase_marginalization=False, simps=None,
-                                 lnL_coarse=None, xpy=np):
+                                 lnL_coarse=None, return_time_draw=False,
+                                 draw_uniforms=None, t0=0.0, xpy=np):
     """``log \\int dt exp(lnL(t))`` with the time grid refined to the integrand.
 
     Parameters
@@ -716,10 +808,22 @@ def time_marginalize_bandlimited(kappa, rho_sq, deltaT, loglikelihood,
         callback is a table interpolation over millions of points and is the
         difference between "no extra likelihood evaluations" being true and
         being nearly true.
+    return_time_draw : bool, optional
+        Also return one continuous conditional-posterior draw per row and its
+        instantaneous log likelihood.  Refined rows use the exact same validated
+        dense representation as the trapezoid integral.  Unrefined rows are
+        already resolved and are drawn continuously between their coarse knots.
+    draw_uniforms : array, optional
+        Shape ``(n_extrinsic, 2)`` uniforms for deterministic draws.  Omit to use
+        numpy's global RNG, matching the batch driver's ``--seed`` behavior.
+    t0 : float, optional
+        Time of the first coarse knot; returned draws are in this coordinate.
 
     Returns
     -------
     lnL : (n_extrinsic,) float
+        With ``return_time_draw=True``, returns
+        ``(lnL, time_draw, lnL_at_draw)``.
     """
     if simps is None:
         # Default ONLY for the numpy backend.  scipy's simpson raises
@@ -814,6 +918,20 @@ def time_marginalize_bandlimited(kappa, rho_sq, deltaT, loglikelihood,
     refined = has_peak & (factors > 1)
 
     out = _log_simps_rows(lnL_coarse, deltaT, simps, xpy=xpy)
+    time_draw = None
+    lnL_at_draw = None
+    if return_time_draw:
+        if draw_uniforms is None:
+            draw_uniforms = np.random.random((n_rows, 2))
+        draw_uniforms = xpy.asarray(draw_uniforms, dtype=np.float64)
+        if draw_uniforms.shape != (n_rows, 2):
+            raise ValueError("draw_uniforms must have shape (n_rows, 2)")
+        # Seed every row from the already-resolved coarse representation.  Rows
+        # refined below are overwritten with draws from their final validated
+        # dense representation; flat/already-resolved rows remain continuous
+        # rather than being snapped back to a coarse knot.
+        time_draw, lnL_at_draw = draw_piecewise_linear_log_posterior(
+            lnL_coarse, deltaT, t0=t0, uniforms=draw_uniforms, xpy=xpy)
 
     hist = {}
     n_refine_total = 0
@@ -827,9 +945,14 @@ def time_marginalize_bandlimited(kappa, rho_sq, deltaT, loglikelihood,
         if not n_sel:
             continue
         idx = xpy.where(sel)[0]
-        vals, f_used, n_ref, s_min = _integrate_group(
-            kappa[idx], rho_col[idx], npts, deltaT, f, loglikelihood, _term, xpy=xpy)
+        vals, f_used, n_ref, s_min, drawn_t, drawn_lnL = _integrate_group(
+            kappa[idx], rho_col[idx], npts, deltaT, f, loglikelihood, _term,
+            draw_uniforms_rows=(draw_uniforms[idx] if return_time_draw else None),
+            t0=t0, xpy=xpy)
         out[idx] = vals
+        if return_time_draw:
+            time_draw[idx] = drawn_t
+            lnL_at_draw[idx] = drawn_lnL
         hist[int(f_used)] = hist.get(int(f_used), 0) + n_sel
         n_refine_total += n_ref
         sigma_seen = min(sigma_seen, s_min)
@@ -846,14 +969,19 @@ def time_marginalize_bandlimited(kappa, rho_sq, deltaT, loglikelihood,
         n_flat_rows=int(xpy.sum(flat)),
         n_refined_rows=int(xpy.sum(refined)),
     )
+    if return_time_draw:
+        return out, time_draw, lnL_at_draw
     return out
 
 
 def _integrate_group(kappa_rows, rho_col_rows, npts, deltaT, factor,
-                     loglikelihood, _term, xpy=np):
+                     loglikelihood, _term, draw_uniforms_rows=None, t0=0.0,
+                     xpy=np):
     """Refine and integrate one group of rows that share a derived factor.
 
-    Returns ``(values, factor_used, n_refinements, sigma_dense_min)``.
+    Returns ``(values, factor_used, n_refinements, sigma_dense_min,
+    time_draws, lnL_at_draws)``.  The final two entries are ``None`` unless
+    ``draw_uniforms_rows`` is supplied.
     """
     n_rows = kappa_rows.shape[0]
     n_refine = 0
@@ -874,6 +1002,8 @@ def _integrate_group(kappa_rows, rho_col_rows, npts, deltaT, factor,
         chunk = max(1, min(n_rows, int(_DENSE_CHUNK_BYTES // max(per_row, 1))))
 
         pieces = []
+        draw_time_pieces = []
+        draw_lnL_pieces = []
         sigma_dense_min = np.inf
         for start in range(0, n_rows, chunk):
             k_up = reflected_bandlimited_upsample(
@@ -884,6 +1014,12 @@ def _integrate_group(kappa_rows, rho_col_rows, npts, deltaT, factor,
             s_d = xpy.where(meas, s_d, np.inf)
             sigma_dense_min = min(sigma_dense_min, float(xpy.min(s_d)))
             pieces.append(_log_trapz_over_window(lnL_up, dx_dense, npts, factor, xpy=xpy))
+            if draw_uniforms_rows is not None:
+                drawn_t, drawn_lnL = draw_piecewise_linear_log_posterior(
+                    lnL_up, dx_dense, t0=t0,
+                    uniforms=draw_uniforms_rows[start:start + chunk], xpy=xpy)
+                draw_time_pieces.append(drawn_t)
+                draw_lnL_pieces.append(drawn_lnL)
 
         # The assertion that turns the derivation into a guarantee: the width
         # remeasured on the grid we actually integrated on must still satisfy the
@@ -891,8 +1027,12 @@ def _integrate_group(kappa_rows, rho_col_rows, npts, deltaT, factor,
         # strongly non-Gaussian; this catches that and pays for another doubling
         # instead of reporting a number it cannot defend.
         if (not np.isfinite(sigma_dense_min)) or dx_dense <= sigma_dense_min / UPSAMPLE_SAFETY:
-            return (xpy.concatenate(pieces) if len(pieces) > 1 else pieces[0],
-                    factor, n_refine, sigma_dense_min)
+            values = xpy.concatenate(pieces) if len(pieces) > 1 else pieces[0]
+            drawn_t = (xpy.concatenate(draw_time_pieces) if len(draw_time_pieces) > 1
+                       else (draw_time_pieces[0] if draw_time_pieces else None))
+            drawn_lnL = (xpy.concatenate(draw_lnL_pieces) if len(draw_lnL_pieces) > 1
+                         else (draw_lnL_pieces[0] if draw_lnL_pieces else None))
+            return values, factor, n_refine, sigma_dense_min, drawn_t, drawn_lnL
 
         factor *= 2
         n_refine += 1
