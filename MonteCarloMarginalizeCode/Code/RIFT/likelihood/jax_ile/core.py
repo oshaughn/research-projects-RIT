@@ -449,6 +449,7 @@ def _accumulate_unit(data, ra, dec, psi, incl, phiref, interp,
 
     kappa_unit = jnp.zeros((S, npts), dtype=jnp.complex128)
     rho_sq_unit = jnp.zeros((S, npts), dtype=jnp.float64)
+    support_valid = jnp.ones((S,), dtype=bool)
 
     for det in data.detector_names:
         dd = data.detectors[det]
@@ -482,6 +483,12 @@ def _accumulate_unit(data, ra, dec, psi, incl, phiref, interp,
                  + time_delay_from_earth_center(dd["location"], ra, dec, gmst))
         p0 = (t_det + data.tval0) * inv_deltaT
         pos = p0[:, None] + t_offsets[None, :]
+        if guard:
+            stencil_margin = {"nearest": 1, "linear": 2, "cubic": 3,
+                              "sinc": SINC_HALFWIDTH_DEFAULT + 1}[interp]
+            support_valid = support_valid & jnp.all(
+                (pos >= stencil_margin)
+                & (pos <= Q.shape[0] - 1 - stencil_margin), axis=-1)
         # None for 'nearest': it ignores u, and feeding an unused value into this trace
         # is NOT free -- it cost >60% wall on the banded slow-rotation path (measured:
         # test_rotation_path_a 69.8 s -> >113 s), which is compile-bound, not arithmetic-
@@ -502,6 +509,10 @@ def _accumulate_unit(data, ra, dec, psi, incl, phiref, interp,
         # slow-rotation model does have that dependence -- see _accumulate_unit_banded.
         rho_sq_unit = rho_sq_unit + rho_sq_det[:, None]
 
+    if guard:
+        kappa_unit = jnp.where(support_valid[:, None], kappa_unit,
+                               jnp.nan + 0.0j)
+        rho_sq_unit = jnp.where(support_valid[:, None], rho_sq_unit, jnp.nan)
     return kappa_unit, rho_sq_unit
 
 
@@ -1011,18 +1022,14 @@ def _time_marginalize_reflected_fft(lnL_t, deltaT, w_t):
     factor = jnp.minimum(factor_float, float(_TIME_ADAPTIVE_FACTOR_MAX)).astype(
         jnp.int32)
 
-    powers = tuple(1 << k for k in range(11))  # 1 .. 1024; two rechecks reach 4096
+    powers = tuple(1 << k for k in range(11))  # q0 <= 1024; certificate <= 2048
 
     def make_branch(base):
         def branch(x):
             v0, r0 = _terminal_reflected_fft_at_factor(x, deltaT, base)
             v1, r1 = _terminal_reflected_fft_at_factor(x, deltaT, 2 * base)
-            v2, r2 = _terminal_reflected_fft_at_factor(x, deltaT, 4 * base)
             c1 = r1 & (jnp.abs(v1 - v0) <= _TIME_ADAPTIVE_RTOL)
-            c2 = r2 & (jnp.abs(v2 - v1) <= _TIME_ADAPTIVE_RTOL)
-            # A non-converged final doubling is a fail-closed NaN, not a
-            # plausible-looking under-resolved likelihood.
-            return jnp.where(c1, v1, jnp.where(c2, v2, jnp.nan))
+            return jnp.where(c1, v1, jnp.nan)
         return branch
 
     def refine_one(args):
@@ -1132,17 +1139,13 @@ def _time_marginalize_reflected_primitive(kappa_t, rho_sq, deltaT,
             kappa, rho = args
             v0, r0, b0 = at_factor(kappa, rho, base, guard)
             v1, r1, b1 = at_factor(kappa, rho, 2 * base, guard)
-            v2, r2, b2 = at_factor(kappa, rho, 4 * base, guard)
             if guard:
                 vg1, _, _ = at_factor(kappa, rho, 2 * base, inner_guard)
-                vg2, _, _ = at_factor(kappa, rho, 4 * base, inner_guard)
                 g1 = jnp.abs(v1 - vg1) <= _TIME_ADAPTIVE_RTOL
-                g2 = jnp.abs(v2 - vg2) <= _TIME_ADAPTIVE_RTOL
             else:
-                g1 = g2 = True
+                g1 = True
             c1 = r1 & b1 & g1 & (jnp.abs(v1 - v0) <= _TIME_ADAPTIVE_RTOL)
-            c2 = r2 & b2 & g2 & (jnp.abs(v2 - v1) <= _TIME_ADAPTIVE_RTOL)
-            return jnp.where(c1, v1, jnp.where(c2, v2, jnp.nan))
+            return jnp.where(c1, v1, jnp.nan)
         return branch
 
     branches = tuple(make_branch(f) for f in powers)

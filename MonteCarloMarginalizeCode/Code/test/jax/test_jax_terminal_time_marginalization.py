@@ -173,6 +173,13 @@ def test_all_wrappers_expose_quadrature_but_nonlinear_path_refuses_bandlimited()
     with pytest.raises(ValueError, match="primitive time fields"):
         wrapper._validate_nonlinear_time_quadrature(
             "bandlimited", "distance/phase marginalization")
+    required, g0, gcert = wrapper.bandlimited_storage_requirement(
+        1.0 / 4096, 0.075)
+    assert g0 == 512 and gcert == 1024
+    assert required > 0.15  # the historical 2:1 buffer is provably insufficient
+    accumulator_source = inspect.getsource(core._accumulate_unit)
+    assert "support_valid" in accumulator_source
+    assert "jnp.nan + 0.0j" in accumulator_source
 
 
 def test_jax_driver_uses_conventional_ile_flag_names():

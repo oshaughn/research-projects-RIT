@@ -35,6 +35,19 @@ from .core import (build_likelihood_data, fused_log_likelihood,
 
 # Parameter order used throughout the wrapper's vectorized interface.
 EXTRINSIC_PARAM_ORDER = ("ra", "dec", "psi", "incl", "phiref", "distMpc")
+_TIME_SUPPORT_DELAY_MARGIN = 0.03
+
+
+def bandlimited_storage_requirement(deltaT, integration_window_half):
+    """Return ``(storage_half, g0, g_certificate)`` for adaptive time support."""
+    tvals = factored_likelihood.marginalization_time_grid(
+        integration_window_half, deltaT, xpy=np)
+    g_default = default_time_guard(len(tvals))
+    g0 = 1 << int(np.ceil(np.log2(g_default)))
+    g_certificate = 2 * g0
+    storage_half = (float(integration_window_half) + g_certificate * float(deltaT)
+                    + _TIME_SUPPORT_DELAY_MARGIN + 16 * float(deltaT))
+    return storage_half, g0, g_certificate
 
 
 def _validate_nonlinear_time_quadrature(time_quadrature, endpoint):

@@ -71,6 +71,7 @@ import lalsimulation as lalsim
 
 import RIFT.lalsimutils as lalsimutils
 from RIFT.likelihood.jax_ile import build_data_from_precompute
+from RIFT.likelihood.jax_ile.wrapper import bandlimited_storage_requirement
 from RIFT.likelihood.jax_ile import anglemarg as _anglemarg
 from RIFT.likelihood.jax_ile.samplers import angle_marg_eval_chunk as _angle_marg_eval_chunk
 from RIFT.likelihood.jax_ile.core import _GATHERERS as _JAX_GATHERERS, JAX_INTERP_DEFAULT
@@ -788,7 +789,8 @@ def eval_lnL(like, theta, opts, with_distance):
             raise RuntimeError(
                 "adaptive reflected-FFT time marginalization failed its width/"
                 "doubling convergence or endpoint-mass check; no coarse "
-                "likelihood is substituted")
+                "likelihood is substituted. Increase the input/rholm sample "
+                "rate or integration/storage window.")
     return out
 
 
@@ -1554,6 +1556,18 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
     # Per-EVENT state: a batch run analyzes several events in one process, and
     # an undersizing on event 0 must not label event 1.
     _anglemarg.reset_amp_failsafe()
+    tq = opts.time_marginalization_quadrature
+    if tq == "bandlimited":
+        required, g0, gcert = bandlimited_storage_requirement(
+            P.deltaT, opts.data_integration_window_half)
+        if opts.internal_data_storage_window_half < required:
+            print("  widening rholm storage for bandlimited time support: "
+                  "%.6g -> %.6g s" %
+                  (opts.internal_data_storage_window_half, required))
+            opts.internal_data_storage_window_half = required
+        print("  precompute time support: guard_initial=%d guard_certificate=%d "
+              "samples storage_half=%.6g s" %
+              (g0, gcert, opts.internal_data_storage_window_half))
     print("Building JAX likelihood (PrecomputeLikelihoodTerms + pack)...")
     like_data, extras = build_data_from_precompute(
         P.copy(), data_dict, psd_dict, fiducial_epoch,
@@ -1563,7 +1577,6 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
         use_gwsignal=bool(getattr(opts, "use_gwsignal", False)),
         use_gwsignal_approx=(opts.approximant if getattr(opts, "use_gwsignal", False) else None))
     print("  modes:", like_data.lms, "  guessed SNR:", extras["guess_snr"])
-    tq = opts.time_marginalization_quadrature
 
     with_distance = not opts.distance_marginalization
     if opts.mode in ("flowmc-phimarg", "nuts-phimarg"):
