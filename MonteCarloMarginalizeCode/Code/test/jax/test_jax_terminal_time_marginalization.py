@@ -82,6 +82,12 @@ def test_phase_marginalization_refines_kappa_before_abs_near_nyquist():
     n, dt, amp = 17, 1.0, 5.0
     kappa = amp * (-1.0) ** np.arange(n)
     rho = np.zeros((1, n))
+    factor = 64
+    dense = np.asarray(core._reflected_fft_upsample(
+        jnp.asarray(kappa[None, :]), factor))[0].real
+    x = np.arange((n - 1) * factor + 1) / factor
+    np.testing.assert_allclose(dense, amp * np.cos(np.pi * x),
+                               rtol=0, atol=2e-12)
     got = float(core._time_marginalize_reflected_primitive(
         jnp.asarray(kappa[None, :]), jnp.asarray(rho), dt,
         phase_marginalization=True)[0])
@@ -90,11 +96,15 @@ def test_phase_marginalization_refines_kappa_before_abs_near_nyquist():
     # result.  The band-limited primitive is amp*cos(pi*t), with zeros at every
     # half sample; integrate that independent continuous model densely.
     wrong = amp + np.log((n - 1) * dt)
-    x = np.linspace(0.0, n - 1.0, (n - 1) * 8192 + 1)
-    y = np.exp(amp * np.abs(np.cos(np.pi * x)) - amp)
-    want = amp + np.log(np.trapz(y, x=x))
-    assert abs(got - want) < 3e-3
-    assert abs(got - wrong) > 0.5
+    x_truth = np.linspace(0.0, n - 1.0, (n - 1) * 8192 + 1)
+    y = np.exp(amp * np.abs(np.cos(np.pi * x_truth)) - amp)
+    want = amp + np.log(np.trapz(y, x=x_truth))
+    assert abs(want - wrong) > 0.5
+    # This adversary has likelihood maxima at both window endpoints and lies
+    # outside the documented spectral-headroom regime.  The reconstruction is
+    # mathematically correct, but the production adapter must refuse to trust
+    # a boundary condition carrying material posterior mass.
+    assert np.isnan(got)
 
 
 def test_refinement_is_batch_composition_independent():

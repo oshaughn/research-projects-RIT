@@ -742,6 +742,7 @@ _TIME_UPSAMPLE_DEFAULT = 8
 _TIME_ADAPTIVE_FACTOR_MAX = 1024
 _TIME_ADAPTIVE_SAFETY = 2.0
 _TIME_ADAPTIVE_RTOL = 1e-3
+_TIME_ENDPOINT_LOG_GAP_MIN = 15.0
 
 
 def default_time_guard(npts):
@@ -1043,6 +1044,9 @@ def _time_marginalize_reflected_primitive(kappa_t, rho_sq, deltaT,
     This is required for phase marginalization: interpolating ``abs(kappa)``
     cannot recover intersample structure lost to that nonlinear operation.
     Arrival-time-dependent norms remain unsupported by the bandlimited mode.
+    A refined row whose endpoint is within 15 nats of its peak fails closed:
+    the even-extension boundary condition is not trustworthy when the finite
+    window carries appreciable posterior mass at either turn.
     """
     kappa_t = jnp.asarray(kappa_t, dtype=jnp.complex128)
     rho_sq = jnp.asarray(rho_sq, dtype=jnp.float64)
@@ -1085,15 +1089,18 @@ def _time_marginalize_reflected_primitive(kappa_t, rho_sq, deltaT,
             width, measured = _peak_width_from_lnL_jax(dense, deltaT / float(f))
             resolved = ((~measured) | (~jnp.isfinite(width))
                         | (deltaT / float(f) <= width / _TIME_ADAPTIVE_SAFETY))
-            return value, resolved
+            peak = jnp.max(dense)
+            endpoint = jnp.maximum(dense[0], dense[-1])
+            boundary_ok = endpoint <= peak - _TIME_ENDPOINT_LOG_GAP_MIN
+            return value, resolved, boundary_ok
 
         def branch(args):
             kappa, rho = args
-            v0, r0 = at_factor(kappa, rho, base)
-            v1, r1 = at_factor(kappa, rho, 2 * base)
-            v2, r2 = at_factor(kappa, rho, 4 * base)
-            c1 = r1 & (jnp.abs(v1 - v0) <= _TIME_ADAPTIVE_RTOL)
-            c2 = r2 & (jnp.abs(v2 - v1) <= _TIME_ADAPTIVE_RTOL)
+            v0, r0, b0 = at_factor(kappa, rho, base)
+            v1, r1, b1 = at_factor(kappa, rho, 2 * base)
+            v2, r2, b2 = at_factor(kappa, rho, 4 * base)
+            c1 = r1 & b1 & (jnp.abs(v1 - v0) <= _TIME_ADAPTIVE_RTOL)
+            c2 = r2 & b2 & (jnp.abs(v2 - v1) <= _TIME_ADAPTIVE_RTOL)
             return jnp.where(c1, v1, jnp.where(c2, v2, jnp.nan))
         return branch
 

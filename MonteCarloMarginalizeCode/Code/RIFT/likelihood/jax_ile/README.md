@@ -58,6 +58,14 @@ remeasured after interpolation, and doubled until the integral agrees within
 the sampler batch.  There is deliberately no public factor knob; a row that
 cannot meet the criterion fails closed.
 
+The supported signal regime assumes spectral headroom below the sampled
+Nyquist frequency and negligible likelihood mass at both ends of the short
+integration window.  The latter is checked on the refined grid: either endpoint
+must be at least 15 natural-log units below the peak, otherwise `bandlimited`
+fails closed rather than trusting a boundary extension that can affect the
+answer.  Increase the physical time window or use Simpson when this diagnostic
+fires.
+
 Distance, phi, psi, exact-angle, and Laplace-marginalized wrappers currently
 refuse `bandlimited`.  Those nonlinear reductions generate time harmonics, so
 interpolating their already-reduced `lnL(t)` can converge to the wrong function;

@@ -787,7 +787,8 @@ def eval_lnL(like, theta, opts, with_distance):
         if like.time_quadrature == "bandlimited" and np.any(np.isnan(out[sl])):
             raise RuntimeError(
                 "adaptive reflected-FFT time marginalization failed its width/"
-                "doubling convergence check; no coarse likelihood is substituted")
+                "doubling convergence or endpoint-mass check; no coarse "
+                "likelihood is substituted")
     return out
 
 
