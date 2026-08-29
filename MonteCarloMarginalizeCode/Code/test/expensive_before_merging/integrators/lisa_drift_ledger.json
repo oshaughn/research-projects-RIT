@@ -33,6 +33,10 @@
       "decision": "NA",
       "reason": "Calibration-envelope internals; see the --calibration-* reason."
     },
+    "FUNC:_equal_weight_fairdraw_for_serialization": {
+      "decision": "PORT",
+      "reason": "Completes a sampler-side fair draw that intentionally did not fire because it would not shrink a tiny retained record, but only on the copy written to XML. LISA has the same skip-on-no-shrink and serialization boundary, so port this with --fairdraw-extrinsic-output-n-max while preserving its larger LISA default."
+    },
     "FUNC:_normalize_interpolate_time_argv": {
       "decision": "PORT",
       "reason": "Normalizes --interpolate-time argv forms. LISA exposes --interpolate-time, so the same normalization applies."
