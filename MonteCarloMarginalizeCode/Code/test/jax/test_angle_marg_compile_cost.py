@@ -173,10 +173,24 @@ def test_laplace_dist_tail_padding_exact():
     assert np.allclose(np.asarray(v4), np.asarray(v1), rtol=0, atol=1e-12), \
         (np.asarray(v4), np.asarray(v1))
 
-    # Pin the actual distance weights, not merely agreement among three
-    # blockings of the same implementation.  Adding c to every log-weight
-    # must add exactly c to a normalized log-sum-exp, including through the
-    # padded scan; its derivative with respect to c must therefore be one.
+    # Independent direct reference: evaluate each distance node alone with
+    # zero log-weight, then combine those scalar marginals with the original
+    # nonuniform weights.  This pins every weight's value, node association,
+    # and completeness; agreement among blockings alone cannot see a shared
+    # permutation or truncation bug in the packing code.
+    node_vals = []
+    for i in range(len(xg)):
+        node_vals.append(AM.fused_log_likelihood_distphipsimarg_laplace(
+            data, ra, dec, incl, xg[i:i + 1], jnp.zeros(1),
+            amp_sizing=900.0, dist_block=1)[0])
+    direct = jax.scipy.special.logsumexp(
+        jnp.stack(node_vals) + lwg, axis=0)
+    assert np.allclose(np.asarray(v4[0]), np.asarray(direct),
+                       rtol=0, atol=1e-11), (np.asarray(v4[0]), np.asarray(direct))
+
+    # Also pin AD through the padded distance fold.  Adding c to every
+    # log-weight must add exactly c to the normalized log-sum-exp, so its
+    # derivative with respect to c is one.
     c = 0.37
     def shifted(dc):
         return AM.fused_log_likelihood_distphipsimarg_laplace(
