@@ -20,6 +20,7 @@ SPEC.loader.exec_module(TIME_POSTERIOR)
 draw_continuous_time_posterior = TIME_POSTERIOR.draw_continuous_time_posterior
 resolve_time_posterior_export_mode = TIME_POSTERIOR.resolve_time_posterior_export_mode
 legacy_time_interpolation_enabled = TIME_POSTERIOR.legacy_time_interpolation_enabled
+validate_time_posterior_working_set = TIME_POSTERIOR.validate_time_posterior_working_set
 _interval_log_envelopes = TIME_POSTERIOR._interval_log_envelopes
 
 
@@ -38,6 +39,12 @@ def test_lisa_legacy_interpolation_parser_does_not_treat_false_as_truthy():
         assert legacy_time_interpolation_enabled(value) is True
     with pytest.raises(ValueError, match="unrecognised LISA value"):
         legacy_time_interpolation_enabled("sinK")
+
+
+def test_dense_working_set_is_refused_before_allocation():
+    assert validate_time_posterior_working_set(5, 5000) > 0
+    with pytest.raises(MemoryError, match="unsafe dense working set"):
+        validate_time_posterior_working_set(1000, 2510000)
 
 
 def test_continuous_draws_are_not_on_the_input_lattice():
@@ -170,6 +177,9 @@ def test_driver_wires_continuous_draw_before_legacy_grid_choice():
     assert dense_labels < explicit < continuous < grid
     assert continuous < grid
     assert "explicit_time_values=True" in source
+    assert "validate_time_posterior_working_set(n_samples, n_dense)" in source
+    assert "opts.rotation_slow or opts.freqresponse" in source
+    assert "refusing before the expensive integration" in source
     assert 'opts._time_posterior_export == "continuous"' in source
     assert 'opts._time_posterior_export == "grid"' in source
 

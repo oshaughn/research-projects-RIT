@@ -581,6 +581,10 @@ if opts.resample_time_marginalization:
   import scipy.special
 if opts.resample_time_marginalization and not(opts.fairdraw_extrinsic_output):
   raise Exception(" Resampled time output requires --fairdraw-extrinsic-output ")
+if opts.resample_time_marginalization and opts.distance_marginalization:
+  raise ValueError(
+      "--resample-time-marginalization does not support distance/phase "
+      "marginalization; refusing before the expensive integration")
 
 # Fairdraw is NOT YET IMPLEMENTED for these other integrators!
 #if opts.fairdraw_extrinsic_output:
@@ -673,6 +677,13 @@ if opts._noloop_time_interp != 'nearest' and not _stencil_is_honoured:
         "present, which keeps the identical NoLoop code path on numpy -- or drop "
         "--interpolate-time. Refusing rather than running a different likelihood than the one "
         "you asked for." % (opts._noloop_time_interp, ", ".join(_stencil_missing)))
+if (opts.resample_time_marginalization and
+        opts._time_posterior_export == "continuous" and
+        (opts.rotation_slow or opts.freqresponse)):
+    raise NotImplementedError(
+        "continuous time-posterior export is not implemented for "
+        "--rotation-slow/--freqresponse because those paths need their own "
+        "explicit-time likelihood evaluator; use --time-posterior-export grid")
 # --time-marginalization-quadrature: same refuse-don't-ignore discipline as the stencil guard
 # above, and for the same reason -- an accuracy option that silently does nothing is worse than
 # one that is unavailable, because a comparison campaign can be run against it and believed.
@@ -2181,6 +2192,8 @@ def resample_samples(my_samples,
             "continuous time export needs refinement above the supported ceiling {}"
             .format(_tm_export.UPSAMPLE_FACTOR_MAX))
       n_dense = (n_coarse_export - 1) * time_export_refinement + 1
+      from RIFT.likelihood.time_posterior import validate_time_posterior_working_set
+      validate_time_posterior_working_set(n_samples, n_dense)
       tvals_dense = (t0_export + (P.deltaT / time_export_refinement) *
                      xpy_default.arange(n_dense))
       lnLt_dense = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(

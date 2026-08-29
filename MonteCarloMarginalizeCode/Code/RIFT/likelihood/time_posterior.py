@@ -16,6 +16,26 @@ from scipy.interpolate import CubicSpline, PchipInterpolator
 
 
 TIME_POSTERIOR_EXPORT_MODES = ("auto", "continuous", "grid")
+TIME_POSTERIOR_WORKING_SET_MAX = 512 * 1024 * 1024
+TIME_POSTERIOR_BYTES_PER_CELL = 128
+
+
+def validate_time_posterior_working_set(n_rows, n_times,
+                                        limit=TIME_POSTERIOR_WORKING_SET_MAX):
+    """Refuse a dense export before its dominant full matrices can exhaust GPU RAM."""
+    if not isinstance(n_rows, (int, np.integer)) or n_rows < 0:
+        raise ValueError("n_rows must be a non-negative integer")
+    if not isinstance(n_times, (int, np.integer)) or n_times < 2:
+        raise ValueError("n_times must be an integer >= 2")
+    estimated = int(n_rows) * int(n_times) * TIME_POSTERIOR_BYTES_PER_CELL
+    if estimated > int(limit):
+        raise MemoryError(
+            "continuous time export would require an unsafe dense working set "
+            "(estimated at least {:.3g} MiB for {} rows x {} times; limit {:.3g} "
+            "MiB). Reduce --fairdraw-extrinsic-output-n-max or use "
+            "--time-posterior-export grid.".format(
+                estimated / 2.0**20, n_rows, n_times, int(limit) / 2.0**20))
+    return estimated
 
 
 def legacy_time_interpolation_enabled(value):
