@@ -785,7 +785,8 @@ def eval_lnL(like, theta, opts, with_distance):
         sl = slice(i, min(i + chunk, N))
         cols = [theta[sl, j] for j in range(theta.shape[1])]
         out[sl] = np.asarray(like.log_likelihood(*cols))
-        if like.time_quadrature == "bandlimited" and np.any(np.isnan(out[sl])):
+        if (getattr(like, "time_quadrature", "simpson") == "bandlimited"
+                and np.any(np.isnan(out[sl]))):
             raise RuntimeError(
                 "adaptive reflected-FFT time marginalization failed its width/"
                 "doubling convergence or endpoint-mass check; no coarse "

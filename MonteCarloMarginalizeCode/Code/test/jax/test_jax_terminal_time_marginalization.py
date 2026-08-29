@@ -98,7 +98,7 @@ def test_phase_marginalization_refines_kappa_before_abs_near_nyquist():
     wrong = amp + np.log((n - 1) * dt)
     x_truth = np.linspace(0.0, n - 1.0, (n - 1) * 8192 + 1)
     y = np.exp(amp * np.abs(np.cos(np.pi * x_truth)) - amp)
-    want = amp + np.log(np.trapz(y, x=x_truth))
+    want = amp + np.log(np.trapezoid(y, x=x_truth))
     assert abs(want - wrong) > 0.5
     # This adversary has likelihood maxima at both window endpoints and lies
     # outside the documented spectral-headroom regime.  The reconstruction is
@@ -131,7 +131,8 @@ def test_guarded_cosine_pad_matches_independent_dense_high_snr_truth(n_harmonics
                   1.0 / factor_truth)
     truth = primitive(t)
     peak = np.max(truth)
-    want = peak + np.log(np.trapz(np.exp(truth - peak), dx=1.0 / factor_truth))
+    want = peak + np.log(
+        np.trapezoid(np.exp(truth - peak), dx=1.0 / factor_truth))
     assert abs(got - want) < 1e-3
 
 
