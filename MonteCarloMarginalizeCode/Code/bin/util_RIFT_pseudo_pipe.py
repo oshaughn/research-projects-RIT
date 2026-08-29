@@ -2393,7 +2393,7 @@ if opts.condor_local_nonworker:
 if opts.condor_nogrid_nonworker:
     cmd += " --condor-nogrid-nonworker "
 if opts.use_osg_simple_requirements:
-    cmd += " --use-osg-simple-reqirements "
+    cmd += " --use-osg-simple-requirements "
 if opts.archive_pesummary_label:
 #    cmd += " --plot-exe `which summarypages` --plot-args  args_plot.txt "
     cmd += " --plot-exe summarypages --plot-args  args_plot.txt "

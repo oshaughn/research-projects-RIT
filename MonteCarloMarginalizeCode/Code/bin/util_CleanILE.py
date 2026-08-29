@@ -232,7 +232,8 @@ for key in data_at_intrinsic:
         lnL_m = np.atleast_1d(np.array(lnL_m)); sig_m = np.atleast_1d(np.array(sig_m))
         w_m = np.atleast_1d(np.array(w_m, dtype=float))
         if np.sum(w_m) <= 0:
-            w_m = np.ones(len(present))
+            sys.exit("intrinsic point {} is covered only by zero-prior models; "
+                     "cannot define the subset mixture".format(key))
         # Renormalized over the models PRESENT here: with partial coverage the
         # estimator is a marginal over a subset, which is why n_partial is
         # reported and --require-all-models exists.
@@ -241,9 +242,17 @@ for key in data_at_intrinsic:
         # on its own scale above; converting only the final model means relative
         # to their maximum is the log-sum-exp construction and remains finite
         # even when the models differ by thousands of nats.
-        lnL_model_scale = np.max(lnL_m)
-        L_m_scaled = np.exp(lnL_m - lnL_model_scale)
-        Lbar_scaled = np.sum(w_m*L_m_scaled)
+        positive = w_m > 0
+        # A zero-prior model must not set the numerical scale: if it is 1000
+        # nats louder than every positive-prior model, scaling by it makes all
+        # contributing likelihoods underflow and returns -inf/nan.
+        lnL_pos = lnL_m[positive]
+        sig_pos = sig_m[positive]
+        w_pos = w_m[positive]
+        w_pos = w_pos/np.sum(w_pos)
+        lnL_model_scale = np.max(lnL_pos)
+        L_m_scaled = np.exp(lnL_pos - lnL_model_scale)
+        Lbar_scaled = np.sum(w_pos*L_m_scaled)
         lnLmean = lnL_model_scale + np.log(Lbar_scaled)
         # ACROSS MODELS, report ONLY the propagated integration uncertainty.
         #
@@ -259,12 +268,12 @@ for key in data_at_intrinsic:
         # The model variation is already carried by Lbar, which is the
         # marginalized likelihood.  It does not belong in the error bar too.
         sigmaNetOverL = np.sqrt(np.sum(
-            (w_m*sig_m*L_m_scaled)**2))/Lbar_scaled
-        M = len(present)
+            (w_pos*sig_pos*L_m_scaled)**2))/Lbar_scaled
+        M = len(lnL_pos)
         if M > 1:
             # kept as a diagnostic only -- never folded into sigmaNetOverL
             spread = np.sqrt(np.sum(
-                w_m**2 * (L_m_scaled - Lbar_scaled)**2)
+                w_pos**2 * (L_m_scaled - Lbar_scaled)**2)
                 * M/(M-1.))/Lbar_scaled
             model_spread.append(spread)
 

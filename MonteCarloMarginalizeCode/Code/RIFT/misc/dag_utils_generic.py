@@ -3320,7 +3320,7 @@ def write_extrconsolidate_sub(tag='extrconsolidate', exe=None, log_dir=None, uni
     return job, sub_name
 
 
-def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,universe="vanilla",arg_str=None,log_dir=None, use_eos=False,ncopies=1,no_grid=False, max_runtime_minutes=60,extra_text='',script_name=None,glob_pattern='*.composite',**kwargs):
+def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,universe="vanilla",arg_str=None,log_dir=None, use_eos=False,ncopies=1,no_grid=False, max_runtime_minutes=60,extra_text='',script_name=None,glob_pattern='*.composite',fail_on_error=False,**kwargs):
     """
     Write a submit file for launching a consolidation job
        util_ILEdagPostprocess.sh   # suitable for ILE consolidation.  
@@ -3366,14 +3366,21 @@ def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,universe
         if arg_str:
             extra_args = arg_str
         f.write( exe + extra_args+ glob_str+ " \n")
-        # Backstop code for untify.sh
+        # Historical single-model workflows fall back to raw concatenation if
+        # CleanILE fails.  A model-aware workflow must fail closed: otherwise
+        # a validation error silently changes model marginalization into flat
+        # replica pooling while the DAG reports success.
         f.write("""ret_value=$?
 if [ $ret_value -eq 0 ]; then
   exit 0
-else
+""")
+        if fail_on_error:
+            f.write("else\n  exit $ret_value\n")
+        else:
+            f.write("""else
   cat {}
-fi
 """.format(glob_str))
+        f.write("fi\n")
     st = os.stat(cmdname)
     import stat
     os.chmod(cmdname, st.st_mode | stat.S_IEXEC)
@@ -4117,7 +4124,8 @@ def write_resample_sub(tag='resample', exe=None, file_input=None,file_output=Non
 def write_cat_sub(tag='cat', exe=None, file_prefix=None,file_postfix=None,
                   file_output=None, universe="vanilla",
                   arg_str='',log_dir=None, use_eos=False,ncopies=1,
-                  no_grid=False, search_root='.', **kwargs):
+                  no_grid=False, search_root='.', expected_batches=None,
+                  events_per_batch=None, **kwargs):
     """
     Write a submit file for launching a 'resample' job
        util_ResampleILEOutputWithExtrinsic.py
@@ -4135,8 +4143,18 @@ def write_cat_sub(tag='cat', exe=None, file_prefix=None,file_postfix=None,
     # top-level directory and mixing every model's posterior samples.
     with open(cmdname,'w') as f:
         f.write("#! /bin/bash\n")
-        f.write(exe+"  \"$1\" -name '"+file_prefix+"*"+file_postfix+
-                "' -exec cat {} \\; | sort -r | uniq > \"$2\";\n")
+        if expected_batches is not None and events_per_batch is not None:
+            f.write("set -e -o pipefail\n")
+            f.write("{ for ((batch=0; batch<$3; batch++)); do "
+                    "event=$((batch*$4)); "
+                    "for ((idx=0; idx<$4; idx++)); do "
+                    "file=\"$1/EXTR_out-${event}.xml_${idx}_.dat\"; "
+                    "if [ ! -s \"$file\" ]; then "
+                    "echo \"catjob: missing expected input $file\" >&2; exit 1; fi; "
+                    "cat \"$file\"; done; done; } | sort -r | uniq > \"$2\";\n")
+        else:
+            f.write(exe+"  \"$1\" -name '"+file_prefix+"*"+file_postfix+
+                    "' -exec cat {} \\; | sort -r | uniq > \"$2\";\n")
         f.write(exe_switch + " 'm1 ' '# m1 ' \"$2\"")  # add standard prefix
         os.system("chmod a+x "+cmdname)
 
@@ -4161,6 +4179,9 @@ def write_cat_sub(tag='cat', exe=None, file_prefix=None,file_postfix=None,
     ile_job.set_sub_file(ile_sub_name)
     ile_job.add_arg(search_root or '.')
     ile_job.add_arg(file_output)
+    if expected_batches is not None and events_per_batch is not None:
+        ile_job.add_arg(str(expected_batches))
+        ile_job.add_arg(str(events_per_batch))
 
 
 #    ile_job.add_arg(" . -name '" + file_prefix + "*" +file_postfix+"' -exec cat {} \; ")

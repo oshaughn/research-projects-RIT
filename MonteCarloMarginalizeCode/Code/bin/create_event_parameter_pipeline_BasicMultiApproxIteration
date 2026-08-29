@@ -269,6 +269,30 @@ if _requested:
     print(" implement the option here.")
     sys.exit(1)
 
+if not opts.approx or len(opts.approx) < 2:
+    parser.error("the multi-approximant builder requires at least two --approx values")
+if len(set(opts.approx)) != len(opts.approx):
+    parser.error("duplicate --approx values are not allowed: {}".format(opts.approx))
+if opts.approx_prior:
+    _prior_labels = set()
+    _prior_total = 0.0
+    for _item in opts.approx_prior:
+        if "=" not in _item:
+            parser.error("--approx-prior wants APPROX=WEIGHT, got {}".format(_item))
+        _label, _value = [x.strip() for x in _item.split("=", 1)]
+        if _label in _prior_labels:
+            parser.error("duplicate --approx-prior for {}".format(_label))
+        try:
+            _weight = float(_value)
+        except ValueError:
+            parser.error("--approx-prior weight is not numeric: {}".format(_item))
+        if not np.isfinite(_weight) or _weight < 0:
+            parser.error("--approx-prior weights must be finite and non-negative")
+        _prior_labels.add(_label)
+        _prior_total += _weight
+    if _prior_total <= 0:
+        parser.error("--approx-prior weights must have positive total mass")
+
 
 
 local_worker_universe="vanilla"
@@ -421,7 +445,7 @@ if opts.gridinit_args:
 # Copy seed grid into place as overlap-grid-0.xml.gz
 it_start = opts.start_iteration
 n_initial = opts.n_samples_per_job
-if (it_start is 0) and not gridinit_args:
+if (it_start == 0) and not gridinit_args:
     shutil.copyfile(opts.input_grid,"overlap-grid-0.xml.gz")  # put in working directory !
     n_initial = len(lalsimutils.xml_to_ChooseWaveformParams_array("overlap-grid-0.xml.gz"))
 
@@ -577,11 +601,20 @@ for indx in np.arange(it_start,opts.n_iterations+1):
 ##   ILE job
 
 ile_exe =opts.ile_exe
-if (opts.ile_n_events_to_analyze > 1) and (exe is None):
+if ile_exe is None:
+    # This builder's terminal stage relies on batchmode's bounded fair-draw
+    # option even when a worker analyzes one intrinsic point.  Falling back to
+    # integrate_likelihood_extrinsic for n_group==1 produces a command line
+    # containing --fairdraw-extrinsic-output-n-max, which that executable does
+    # not accept.
     ile_exe = dag_utils.which("integrate_likelihood_extrinsic_batchmode")
 output_file_names = None
 if opts.use_singularity or opts.use_osg:
-    transfer_file_names.append("../input-grid-$(macroiteration).xml.gz")
+    # ILE runs from approx_<model>_iteration_<N>_ile, while the shared grid is
+    # written in the workflow root as overlap-grid-N.xml.gz.  `input-grid-N`
+    # is not produced anywhere in this workflow.  This typo is invisible in a
+    # shared-filesystem pool but makes Condor reject the transfer on OSG.
+    transfer_file_names.append("../overlap-grid-$(macroiteration).xml.gz")
     #output_file_names = ','.join(["CME_out-$(macroevent)-$(cluster)-$(process).xml_{0}_.dat".format(x) for x in np.arange(opts.ile_n_events_to_analyze)])
     #print "OUTPUT FILES ", output_file_names
 # The generator route is per MODEL, not per run.  A global --use-gwsignal (as
@@ -599,7 +632,7 @@ ile_args += " --approx $(macroapprox) $(macrogwsignal) "
 ile_args_forpuff = ile_args.replace(
     working_dir_inside + '/overlap-grid-$(macroiteration).xml.gz',
     working_dir_inside + '/puffball-$(macroiteration).xml.gz')
-ile_job, ile_job_name = dag_utils.write_ILE_sub_simple(tag='ILE',log_dir=None,arg_str=ile_args,output_file="CME_out.xml",ncopies=opts.n_copies,exe=ile_exe,transfer_files=transfer_file_names,transfer_output_files=output_file_names,request_memory=opts.request_memory_ILE,request_gpu=opts.request_gpu_ILE,use_singularity=opts.use_singularity,singularity_image=singularity_image,use_osg=opts.use_osg,simple_osg_requirements=opts.use_osg_simple_requirements,frames_dir=opts.frames_dir,cache_file=opts.cache_file,use_cvmfs_frames=opts.use_cvmfs_frames,max_runtime_minutes=opts.ile_runtime_max_minutes)
+ile_job, ile_job_name = dag_utils.write_ILE_sub_simple(tag='ILE',log_dir=None,arg_str=ile_args,output_file="CME_out.xml",ncopies=opts.n_copies,exe=ile_exe,transfer_files=transfer_file_names,transfer_output_files=output_file_names,request_memory=opts.request_memory_ILE,request_gpu=opts.request_gpu_ILE,use_singularity=opts.use_singularity,singularity_image=singularity_image,use_osg=opts.use_osg,use_simple_osg_requirements=opts.use_osg_simple_requirements,frames_dir=opts.frames_dir,cache_file=opts.cache_file,use_cvmfs_frames=opts.use_cvmfs_frames,max_runtime_minutes=opts.ile_runtime_max_minutes)
 # Modify: create macro for iteration 
 #   - added on a per-node basis
 # Modify: add macro argument for overlap grid to be used (kept in top-level directory)
@@ -617,7 +650,7 @@ if not (opts.puff_args is None):
     transfer_file_names_puff.append(opts.working_directory+"/puffball-$(macroiteration).xml.gz") # could also use ../puffball, because relative is ok to initialdir
     # Write a version of the ILE job that uses puffball inputs ... IDENTICAL to code above for standard ILE case,just different argument for input
     # Yes, it would logically be simpler to make overlap-grid.xml.gz larger ... but I want to keep 'real samples' and 'puffed samples' seperate.
-    ilePuff_job, ilePuff_job_name = dag_utils.write_ILE_sub_simple(tag='ILE_puff',log_dir=None,arg_str=ile_args_forpuff,output_file="CME_out.xml",simple_unique=True,ncopies=opts.n_copies,exe=ile_exe,transfer_files=transfer_file_names_puff,request_memory=opts.request_memory_ILE,request_gpu=opts.request_gpu_ILE,use_singularity=opts.use_singularity,singularity_image=singularity_image,use_osg=opts.use_osg,simple_osg_requirements=opts.use_osg_simple_requirements,frames_dir=opts.frames_dir,cache_file=opts.cache_file,use_cvmfs_frames=opts.use_cvmfs_frames,max_runtime_minutes=opts.ile_runtime_max_minutes)
+    ilePuff_job, ilePuff_job_name = dag_utils.write_ILE_sub_simple(tag='ILE_puff',log_dir=None,arg_str=ile_args_forpuff,output_file="CME_out.xml",simple_unique=True,ncopies=opts.n_copies,exe=ile_exe,transfer_files=transfer_file_names_puff,request_memory=opts.request_memory_ILE,request_gpu=opts.request_gpu_ILE,use_singularity=opts.use_singularity,singularity_image=singularity_image,use_osg=opts.use_osg,use_simple_osg_requirements=opts.use_osg_simple_requirements,frames_dir=opts.frames_dir,cache_file=opts.cache_file,use_cvmfs_frames=opts.use_cvmfs_frames,max_runtime_minutes=opts.ile_runtime_max_minutes)
     ilePuff_job.add_condor_cmd("initialdir",opts.working_directory+"/approx_$(macroapprox)_iteration_$(macroiteration)_ile")
     ilePuff_job.set_log_file(opts.working_directory+"/approx_$(macroapprox)_iteration_$(macroiteration)_ile/logs/ILE-$(macroevent)-$(cluster)-$(process).log")
     ilePuff_job.set_stderr_file(opts.working_directory+"/approx_$(macroapprox)_iteration_$(macroiteration)_ile/logs/ILE-$(macroevent)-$(cluster)-$(process).err")
@@ -628,6 +661,11 @@ if  (opts.last_iteration_extrinsic):
     n_points_per_ILE = opts.last_iteration_extrinsic_samples_per_ile
     if n_points_per_ILE < 1:
         parser.error("--last-iteration-extrinsic-samples-per-ile must be positive")
+    if opts.last_iteration_extrinsic_nsamples < 1:
+        parser.error("--last-iteration-extrinsic-nsamples must be positive")
+    n_extrinsic_batches = int(np.ceil(
+        opts.last_iteration_extrinsic_nsamples/
+        (1.0*opts.ile_n_events_to_analyze)))
     # Match the maintained RIFT terminal-stage contract: never lower the ILE
     # convergence target supplied by the science configuration, and retain
     # enough effective samples to support the requested fair draw.
@@ -653,10 +691,20 @@ if  (opts.last_iteration_extrinsic):
             n_points_per_ILE, n_eff_last))
     # A time-marginalized likelihood otherwise exports the fiducial time for
     # every row.  Recover posterior times on the same terminal fair-draw path.
+    _uses_time_marginalization = re.search(
+        r'(?<!\S)--time-marginalization(?=\s|$)', ile_args_extr) is not None
     if ((opts.last_iteration_extrinsic_time_resampling or
-         "--time-marginalization" in ile_args_extr) and
+         _uses_time_marginalization) and
             "--resample-time-marginalization" not in ile_args_extr):
         ile_args_extr += " --resample-time-marginalization "
+    # Fair-drawn terminal rows must contain sampled distances.  If distance is
+    # still marginalized, ILE fills the output with its reference distance;
+    # its time-resampling helper also explicitly rejects this combination.
+    # BasicIteration makes the same transition for terminal extraction.
+    if re.search(r'(?<!\S)--distance-marginalization(?=\s|$)', ile_args_extr):
+        print(" Fair-draw extraction: disabling distance marginalization")
+        ile_args_extr = re.sub(
+            r'(?<!\S)--distance-marginalization(?=\s|$)', ' ', ile_args_extr)
     # The extrinsic stage runs AFTER the fork, on this model's own terminal CIP
     # posterior -- not on the shared marginalized grid the iteration loop used.
     ile_args_extr = ile_args_extr.replace(
@@ -666,7 +714,8 @@ if  (opts.last_iteration_extrinsic):
     ile_args_extr = ile_args_extr.replace('--no-adapt-after-first','')
     if opts.last_iteration_export_marginal_distance_grid:
         ile_args_extr += " --export-marginal-distance-grid "
-        ile_args_extr = ile_args_extr.replace("--distance-marginalization ", ' ')
+        ile_args_extr = re.sub(
+            r'(?<!\S)--distance-marginalization(?=\s|$)', ' ', ile_args_extr)
     if opts.last_iteration_export_distance_slices and opts.last_iteration_export_distance_slices > 0:
         ile_args_extr += " --export-distance-slices {} ".format(opts.last_iteration_export_distance_slices)
         if opts.last_iteration_export_distance_slices_n_core:
@@ -680,7 +729,25 @@ if  (opts.last_iteration_extrinsic):
         if "--internal-use-lnL" not in ile_args_extr:
             ile_args_extr += " --internal-use-lnL "
         ile_args_extr = ile_args_extr.replace("--distance-marginalization ", ' ')
-    ileExtr_job, ileExtr_job_name = dag_utils.write_ILE_sub_simple(tag='ILE_extr',log_dir=None,arg_str=ile_args_extr,output_file="EXTR_out.xml",simple_unique=True,ncopies=1,exe=ile_exe,transfer_files=transfer_file_names,request_memory=opts.request_memory_ILE*2,request_gpu=opts.request_gpu_ILE,use_cvmfs_frames=opts.use_cvmfs_frames)
+    transfer_file_names_extr = list(transfer_file_names)
+    if opts.use_singularity or opts.use_osg:
+        # The terminal fork reads a model-specific CIP grid, not the shared
+        # in-loop grid.  Condor expands these macros in transfer_input_files
+        # and stages the basename used by ile_args_extr in the remote sandbox.
+        transfer_file_names_extr[-1] = (
+            "../approx_$(macroapprox)_overlap-grid-$(macroiteration).xml.gz")
+    ileExtr_job, ileExtr_job_name = dag_utils.write_ILE_sub_simple(
+        tag='ILE_extr', log_dir=None, arg_str=ile_args_extr,
+        output_file="EXTR_out.xml", simple_unique=True, ncopies=1,
+        exe=ile_exe, transfer_files=transfer_file_names_extr,
+        request_memory=opts.request_memory_ILE*2,
+        request_gpu=opts.request_gpu_ILE,
+        use_singularity=opts.use_singularity,
+        singularity_image=singularity_image, use_osg=opts.use_osg,
+        use_simple_osg_requirements=opts.use_osg_simple_requirements,
+        frames_dir=opts.frames_dir, cache_file=opts.cache_file,
+        use_cvmfs_frames=opts.use_cvmfs_frames,
+        max_runtime_minutes=opts.ile_runtime_max_minutes)
     ileExtr_job.add_condor_cmd("initialdir",opts.working_directory+"/approx_$(macroapprox)_iteration_$(macroiteration)_ile")
     ileExtr_job.set_log_file(opts.working_directory+"/approx_$(macroapprox)_iteration_$(macroiteration)_ile/logs/ILEextr-$(macroevent)-$(cluster)-$(process).log")
     ileExtr_job.set_stderr_file(opts.working_directory+"/approx_$(macroapprox)_iteration_$(macroiteration)_ile/logs/ILEextr-$(macroevent)-$(cluster)-$(process).err")
@@ -710,7 +777,9 @@ if  (opts.last_iteration_extrinsic):
                     '/approx_$(macroapprox)_iteration_$(macroiteration)_ile',
         file_output=opts.working_directory+
                     '/extrinsic_posterior_samples_$(macroapprox).dat',
-        universe=local_worker_universe)
+        universe=local_worker_universe,
+        expected_batches=n_extrinsic_batches,
+        events_per_batch=opts.ile_n_events_to_analyze)
     cat_job.add_condor_cmd("initialdir",opts.working_directory)
     cat_job.set_log_file(opts.working_directory+"/approx_$(macroapprox)_iteration_$(macroiteration)_ile/logs/cat-$(cluster)-$(process).log")
     cat_job.set_stdout_file(opts.working_directory+"/approx_$(macroapprox)_iteration_$(macroiteration)_ile/logs/cat-$(cluster)-$(process).out")
@@ -768,7 +837,7 @@ if opts.approx_prior:
 if opts.require_all_approx:
     clean_model_args += " --require-all-models "
 
-unify_job, unify_job_name = dag_utils.write_unify_sub_simple(tag='unify',log_dir='',arg_str=clean_model_args, base=opts.working_directory, target=opts.working_directory+'/all.net',universe=local_worker_universe,script_name='unify.sh')
+unify_job, unify_job_name = dag_utils.write_unify_sub_simple(tag='unify',log_dir='',arg_str=clean_model_args, base=opts.working_directory, target=opts.working_directory+'/all.net',universe=local_worker_universe,script_name='unify.sh',fail_on_error=True)
 unify_job.add_condor_cmd("initialdir",opts.working_directory)
 unify_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/unify-$(cluster)-$(process).log")
 unify_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/unify-$(cluster)-$(process).err")
@@ -778,7 +847,7 @@ unify_job.write_sub_file()
 ##   Per-model unify, for the terminal forked CIP.  No --model-group-regex:
 ##   within one model the evaluations ARE replicas of one quantity, so the flat
 ##   ntot-weighted pool is the correct combination.
-unify_model_job, unify_model_job_name = dag_utils.write_unify_sub_simple(tag='unify_model',log_dir='',arg_str='', base=opts.working_directory, target=opts.working_directory+'/approx_$(macroapprox)_all.net',universe=local_worker_universe,script_name='unify_model.sh',glob_pattern='approx_$(macroapprox)_*.composite')
+unify_model_job, unify_model_job_name = dag_utils.write_unify_sub_simple(tag='unify_model',log_dir='',arg_str='', base=opts.working_directory, target=opts.working_directory+'/approx_$(macroapprox)_all.net',universe=local_worker_universe,script_name='unify_model.sh',glob_pattern='approx_$(macroapprox)_*.composite',fail_on_error=True)
 unify_model_job.add_condor_cmd("initialdir",opts.working_directory)
 unify_model_job.set_log_file(opts.working_directory+"/approx_$(macroapprox)_iteration_$(macroiteration)_con/logs/unifymodel-$(cluster)-$(process).log")
 unify_model_job.set_stderr_file(opts.working_directory+"/approx_$(macroapprox)_iteration_$(macroiteration)_con/logs/unifymodel-$(cluster)-$(process).err")
@@ -870,7 +939,11 @@ if opts.last_iteration_extrinsic:
 ##   p(m) Z_m.  This is the one place the models are recombined AFTER the fork.
 combine_job = None
 if opts.last_iteration_extrinsic:
+    _combined_sample_target = (n_extrinsic_batches *
+                               opts.ile_n_events_to_analyze *
+                               n_points_per_ILE)
     combine_args = " --output " + opts.working_directory + "/extrinsic_posterior_samples.dat "
+    combine_args += " --n-output-samples {} ".format(_combined_sample_target)
     for approx in opts.approx:
         combine_args += " --model {}:{}/extrinsic_posterior_samples_{}.dat:{}/approx_{}_overlap-grid-$(macroiteration)+annotation.dat ".format(
             approx, opts.working_directory, approx, opts.working_directory, approx)
@@ -1092,9 +1165,7 @@ for it in np.arange(it_start,opts.n_iterations):
     n_jobs_this_time = opts.n_samples_per_job
     if it ==it_start:
         n_jobs_this_time = n_initial
-    indx_max = int((1.0*n_jobs_this_time)/n_group)
-    if indx_max*n_jobs_this_time < n_group:
-        indx_max+=1
+    indx_max = int(np.ceil((1.0*n_jobs_this_time)/n_group))
     for event in np.arange(indx_max): #np.arange(n_jobs_this_time):
         # Add task per ILE operation
         ile_node = pipeline.CondorDAGNode(ile_job)
@@ -1233,7 +1304,7 @@ if opts.last_iteration_extrinsic:
     # per-model posterior at the same index the extrinsic stage reads.
     it = opts.n_iterations
 
-    n_jobs_extrinsic = int(opts.last_iteration_extrinsic_nsamples/(1.0*n_group))
+    n_jobs_extrinsic = n_extrinsic_batches
     cat_nodes = []
     loop_final_node = parent_fit_node
 

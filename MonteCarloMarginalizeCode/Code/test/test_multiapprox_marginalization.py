@@ -148,6 +148,23 @@ def test_large_model_separation_is_stable(tmp_path):
     assert float(fields[10]) == pytest.approx(0.1, abs=1e-12)
 
 
+def test_zero_prior_loud_model_does_not_set_the_numerical_scale(tmp_path):
+    """A zero-mass model 1000 nats louder must not underflow the real mixture."""
+    _composite(tmp_path / "approx_MODELA_consolidated_0.composite",
+               [_row(10., 8., 1000.0, sigma=0.1)])
+    _composite(tmp_path / "approx_MODELB_consolidated_0.composite",
+               [_row(10., 8., 0.0, sigma=0.2)])
+    files = sorted(str(p) for p in tmp_path.glob("*.composite"))
+    out = _run([CLEANILE, "--model-group-regex", MODEL_RX,
+                "--model-prior", "MODELA=0", "--model-prior", "MODELB=1"]
+               + files, tmp_path)
+    assert out.returncode == 0, out.stderr
+    fields = out.stdout.strip().split()
+    assert float(fields[9]) == pytest.approx(0.0, abs=1e-12)
+    assert float(fields[10]) == pytest.approx(0.2, abs=1e-12)
+    assert "nan" not in (out.stdout + out.stderr).lower()
+
+
 def test_partial_model_prior_is_refused(two_models):
     """Half-specified weights would silently default the rest to 1.0."""
     out = _run([CLEANILE, "--model-group-regex", MODEL_RX, "--model-prior", "MODELA=0.3"]
@@ -261,6 +278,21 @@ def test_mismatched_columns_are_refused(two_posteriors):
     assert "different column header" in out.stderr
 
 
+def test_final_mixture_never_manufactures_duplicate_rows(tmp_path):
+    """Final posterior grids follow PR #180's without-replacement contract."""
+    for label, rows in (("A", "1 2\n1 2\n3 4\n"),
+                        ("B", "5 6\n5 6\n7 8\n")):
+        with open(str(tmp_path / "post_{}.dat".format(label)), "w") as f:
+            f.write("# m1 m2\n" + rows)
+        _annotation(tmp_path / "annot_{}.dat".format(label), 0.0)
+    out = _combine(tmp_path, ["--n-output-samples", "20"])
+    assert out.returncode == 0, out.stderr
+    combined = np.atleast_2d(np.genfromtxt(str(tmp_path / "out.dat"), comments="#"))
+    assert len(combined) == len(np.unique(combined, axis=0))
+    assert len(combined) == 4
+    assert "reducing output" in out.stderr
+
+
 # --------------------------------------------------------------------------
 # the emitted DAG
 # --------------------------------------------------------------------------
@@ -292,8 +324,11 @@ def multiapprox_rundir(tmp_path_factory):
     pytest.importorskip("RIFT.lalsimutils")
     rundir = tmp_path_factory.mktemp("multiapprox")
     (rundir / "args_ile.txt").write_text(
-        "--fmin-template 20.0 --n-max 100 --n-eff 17 "
-        "--time-marginalization --approx placeholder\n")
+        "integrate_likelihood_extrinsic_batchmode --fmin-template 20.0 "
+        "--n-max 100 --n-eff 17 "
+        "--time-marginalization --distance-marginalization "
+        "--distance-marginalization-lookup-table distance_lookup.npz "
+        "--approx placeholder\n")
     (rundir / "args_cip_list.txt").write_text(
         "1   --no-plots --fit-method rf --parameter mc --parameter delta_mc --n-output-samples 5\n"
         "1   --no-plots --fit-method rf --parameter mc --parameter delta_mc --n-output-samples 5\n")
@@ -324,7 +359,7 @@ def multiapprox_rundir(tmp_path_factory):
                   "--ile-args", str(rundir / "args_ile.txt"),
                   "--cip-args-list", "args_cip_list.txt",
                   "--test-args", "args_test.txt",
-                  "--ile-n-events-to-analyze", "2", "--n-samples-per-job", "2",
+                  "--ile-n-events-to-analyze", "2", "--n-samples-per-job", "5",
                   "--request-memory-CIP", "4096", "--request-memory-ILE", "4096",
                   "--working-directory", str(rundir),
                   "--n-iterations", "2", "--n-copies", "1",
@@ -422,6 +457,19 @@ def test_the_loop_fits_once_per_iteration(multiapprox_rundir):
                 "unify waits on {}, not every model {}".format(sorted(waited), sorted(models)))
 
 
+def test_odd_grid_size_does_not_drop_the_remainder_batch(multiapprox_rundir):
+    """Five requested points in batches of two require starts 0, 2, and 4."""
+    jobs, macros, _ = _dag_facts(multiapprox_rundir)
+    by_model = {}
+    for node, submit in jobs.items():
+        values = macros.get(node, {})
+        if (submit.endswith("ILE.sub") and values.get("macroiteration") == "1"):
+            by_model.setdefault(values.get("macroapprox"), set()).add(
+                values.get("macroevent"))
+    assert by_model
+    assert all(starts == {"0", "2", "4"} for starts in by_model.values())
+
+
 def test_the_terminal_stage_forks_and_recombines(multiapprox_rundir):
     jobs, macros, parents = _dag_facts(multiapprox_rundir)
     models = {macros.get(n, {}).get("macroapprox") for n, s in jobs.items()
@@ -469,6 +517,10 @@ def test_terminal_extrinsic_export_is_a_bounded_fair_draw(multiapprox_rundir):
     assert "--fairdraw-extrinsic-output" in sub
     assert "--fairdraw-extrinsic-output-n-max 3" in sub
     assert "--resample-time-marginalization" in sub
+    assert not re.search(r'(?<!\S)--distance-marginalization(?=\s|$)', sub)
+    assert "--distance-marginalization-lookup-table distance_lookup.npz" in sub
+    assert "--fmin-template 20.0" in sub
+    assert "--20.0" not in sub
     # The terminal-stage helper may ask for fewer samples, but it must never
     # weaken the science configuration's convergence target.
     assert re.findall(r"--n-eff\s+(\d+)", sub)[-1] == "17"
@@ -510,6 +562,14 @@ def test_no_condor_macro_survives_into_a_shell_script(multiapprox_rundir):
         "as command substitution:\n  " + "\n  ".join(offenders))
 
 
+def test_model_aware_unify_scripts_fail_closed(multiapprox_rundir):
+    """CleanILE validation failure must not silently fall back to raw cat."""
+    for name in ("unify.sh", "unify_model.sh"):
+        text = (multiapprox_rundir / name).read_text()
+        assert "exit $ret_value" in text
+        assert not re.search(r"else\s+cat ", text)
+
+
 def test_cat_job_is_model_scoped_at_runtime(multiapprox_rundir):
     """Each cat node must search only its model's terminal ILE directory."""
     cat_sub = (multiapprox_rundir / "cat.sub").read_text()
@@ -520,17 +580,34 @@ def test_cat_job_is_model_scoped_at_runtime(multiapprox_rundir):
 
     model_a = multiapprox_rundir / "approx_IMRPhenomXPHM_iteration_2_ile"
     model_b = multiapprox_rundir / "approx_SEOBNRv4PHM_iteration_2_ile"
-    (model_a / "EXTR_scope_.dat").write_text("m1 m2\n11 8\n")
-    (model_b / "EXTR_scope_.dat").write_text("m1 m2\n99 8\n")
+    expected = ["EXTR_out-0.xml_0_.dat", "EXTR_out-0.xml_1_.dat",
+                "EXTR_out-2.xml_0_.dat", "EXTR_out-2.xml_1_.dat"]
+    for name in expected:
+        (model_a / name).write_text("m1 m2\n11 8\n11 8\n")
+        (model_b / name).write_text("m1 m2\n99 8\n")
+    # A rescue/rebuild can leave same-format products that are not in the
+    # current DAG.  Exact manifest collection must ignore them.
+    (model_a / "EXTR_out-999.xml_0_.dat").write_text("m1 m2\n777 8\n")
     output = multiapprox_rundir / "cat_scope_probe.dat"
     run = subprocess.run(
-        [str(multiapprox_rundir / "catjob.sh"), str(model_a), str(output)],
+        [str(multiapprox_rundir / "catjob.sh"), str(model_a), str(output), "2", "2"],
         cwd=str(multiapprox_rundir), env=_env(), text=True,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     assert run.returncode == 0, run.stderr
     text = output.read_text()
-    assert "11 8" in text
+    # RIFT posterior exports deliberately exclude repeated samples.
+    assert text.count("11 8") == 1
     assert "99 8" not in text
+    assert "777 8" not in text
+
+    (model_a / expected[-1]).unlink()
+    missing = subprocess.run(
+        [str(multiapprox_rundir / "catjob.sh"), str(model_a),
+         str(multiapprox_rundir / "cat_missing_probe.dat"), "2", "2"],
+        cwd=str(multiapprox_rundir), env=_env(), text=True,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    assert missing.returncode != 0
+    assert "missing expected input" in missing.stderr
 
 
 def test_stage_inputs_name_files_the_workflow_produces(multiapprox_rundir):

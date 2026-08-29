@@ -59,6 +59,7 @@ H = _load_ile_helpers()
 ln_weights_from_rvs = H["ln_weights_from_rvs"]
 ln_weights_for_posterior = H["ln_weights_for_posterior"]
 _rvs_is_export_resample = H["_rvs_is_export_resample"]
+_equal_weight_fairdraw_for_serialization = H["_equal_weight_fairdraw_for_serialization"]
 
 
 class _FakeSampler(object):
@@ -124,6 +125,42 @@ def test_the_helper_defaults_to_importance_weights_when_the_flag_is_absent():
     r = _record()
     assert not _rvs_is_export_resample(_Bare())
     assert np.allclose(ln_weights_for_posterior(r, _Bare()), ln_weights_from_rvs(r))
+
+
+def test_nonfired_fairdraw_is_completed_at_the_serialization_boundary():
+    """A tiny raw record must not be serialized as an equal-weight posterior.
+
+    PR #87 intentionally preserves the weighted retained record when the
+    sampler-side draw would not shrink it.  The XML boundary has no complete
+    weight provenance, so it must perform the promised draw before export.
+    """
+    r = {"log_integrand": np.array([-1000.0, 0.0]),
+         "log_joint_prior": np.zeros(2),
+         "log_joint_s_prior": np.zeros(2),
+         "x": np.array([1.0, 9.0])}
+
+    class _PeakRng(object):
+        def choice(self, population, size=None, replace=None, p=None):
+            assert replace is True
+            assert np.argmax(p) == 1 and p[1] == pytest.approx(1.0)
+            return np.full(size, 1, dtype=int)
+
+    out = _equal_weight_fairdraw_for_serialization(
+        r, _FakeSampler(False), n_max=5, rng=_PeakRng())
+    assert len(out["x"]) == 2       # bounded by the retained record
+    assert np.all(out["x"] == 9.0)  # drawn by posterior weight, not flattened
+
+
+def test_already_equal_weight_export_is_not_resampled_again():
+    r = _record(n=4)
+
+    class _NoDraw(object):
+        def choice(self, *args, **kwargs):
+            raise AssertionError("an equal-weight export was resampled again")
+
+    out = _equal_weight_fairdraw_for_serialization(
+        r, _FakeSampler(True), n_max=2, rng=_NoDraw())
+    assert out is r
 
 
 ###
