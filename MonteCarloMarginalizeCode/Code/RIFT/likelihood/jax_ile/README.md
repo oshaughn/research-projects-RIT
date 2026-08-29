@@ -77,7 +77,8 @@ resolution have separate certificates.
 
 The JAX driver derives this support requirement before waveform precompute and
 widens `--internal-data-storage-window-half` when necessary.  It includes the
-full certified guard, a conservative 30 ms detector-delay allowance, and the
+full certified guard, a conservative 50 ms detector-delay allowance (larger
+than the Earth-diameter light time), and the
 largest shipped interpolation stencil.  The accumulator also validates every
 guarded gather index per row; missing support produces a fail-closed likelihood
 instead of inheriting the ordinary gatherer's out-of-buffer zero fill.  The

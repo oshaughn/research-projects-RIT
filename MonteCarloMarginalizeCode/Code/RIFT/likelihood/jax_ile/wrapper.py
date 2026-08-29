@@ -35,7 +35,7 @@ from .core import (build_likelihood_data, fused_log_likelihood,
 
 # Parameter order used throughout the wrapper's vectorized interface.
 EXTRINSIC_PARAM_ORDER = ("ra", "dec", "psi", "incl", "phiref", "distMpc")
-_TIME_SUPPORT_DELAY_MARGIN = 0.03
+_TIME_SUPPORT_DELAY_MARGIN = 0.05
 
 
 def bandlimited_storage_requirement(deltaT, integration_window_half):
@@ -45,6 +45,8 @@ def bandlimited_storage_requirement(deltaT, integration_window_half):
     g_default = default_time_guard(len(tvals))
     g0 = 1 << int(np.ceil(np.log2(g_default)))
     g_certificate = 2 * g0
+    # Fifty milliseconds exceeds the Earth-diameter light time (~42.6 ms), so
+    # this support guarantee does not encode an HLV-only network assumption.
     storage_half = (float(integration_window_half) + g_certificate * float(deltaT)
                     + _TIME_SUPPORT_DELAY_MARGIN + 16 * float(deltaT))
     return storage_half, g0, g_certificate
