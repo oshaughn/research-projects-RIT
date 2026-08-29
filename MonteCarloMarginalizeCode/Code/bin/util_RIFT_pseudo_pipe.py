@@ -358,7 +358,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--skip-reproducibility",action='store_true')
 parser.add_argument("--use-production-defaults",action='store_true',help="Use production defaults. Intended for use with tools like asimov or by nonexperts who just want something to run on a real event.  Will require manual setting of other arguments!")
 parser.add_argument("--use-subdags",action='store_true',help="Use CEPP_Alternate instead of CEPP_BasicIteration. Note this writes an adaptively-sized DAG each iteration, but doesn't otherwise optimize yet.")
-parser.add_argument("--pipeline-builder",default=None,choices=["BasicIteration","AlternateIteration"],help="Explicitly select the create_event_parameter_pipeline_* iteration builder, as a drop-in hot-swap for side-by-side A/B testing. Overrides the implicit --use-subdags routing. If unset, the builder is chosen by --use-subdags (Alternate) vs. the default (Basic).")
+parser.add_argument("--pipeline-builder",default=None,choices=["BasicIteration","AlternateIteration","BasicMultiApproxIteration"],help="Explicitly select the create_event_parameter_pipeline_* iteration builder, as a drop-in hot-swap for side-by-side A/B testing. Overrides the implicit --use-subdags routing. If unset, the builder is chosen by --use-subdags (Alternate) vs. the default (Basic).")
 parser.add_argument("--use-ile-subdags",action='store_true',help="Use ILE subdag system (new)")
 parser.add_argument("--bilby-ini-file",default=None,type=str,help="Pass ini file for parsing. Intended to use for calibration reweighting. Full path recommended")
 parser.add_argument("--bilby-pickle-file",default=None,type=str,help="Bilby Pickle file with event settings. Intended to use for calibration reweighting. Full path recommended")
@@ -426,6 +426,10 @@ parser.add_argument("--lisa-zero-likelihood",action='store_true',help="With --li
 parser.add_argument("--calibration",default="C00",type=str)
 parser.add_argument("--playground-data",action='store_true', help="Passed through to helper_LDG_events, and changes name prefix")
 parser.add_argument("--approx",default=None,type=str,help="Approximant. REQUIRED")
+parser.add_argument("--approx-extra",default=None,action='append',help="Additional waveform model, repeatable.  Selects the cross-model workflow: every model is evaluated on ONE shared intrinsic grid and marginalized over point by point, and the terminal stage forks to give each model its own posterior and evidence.  Implies --pipeline-builder BasicMultiApproxIteration.  See RIFT/misc/DESIGN_multiapprox_marginalization.md")
+parser.add_argument("--approx-prior",default=None,action='append',help="APPROX=WEIGHT prior p(m) over waveform models, repeatable.  Default uniform.  NOT sampling weights.")
+parser.add_argument("--approx-extra-gwsignal",default=None,action='append',help="An --approx-extra model that must be generated through gwsignal.  The primary --approx inherits --use-gwsignal automatically.  The generator route is PER MODEL: the phenom family has no time-domain mode generator in gwsignal, so a single global route cannot serve an EOB-vs-phenom comparison.")
+parser.add_argument("--require-all-approx",action='store_true',help="Drop intrinsic points not successfully evaluated under EVERY model, instead of marginalizing over whichever subset survived.")
 parser.add_argument("--use-gwsurrogate",action='store_true',help="Attempt to use gwsurrogate instead of lalsuite.")
 parser.add_argument("--use-gwsignal",action='store_true',help="Attempt to use gwsignal interface.")
 parser.add_argument("--l-max",default=2,type=int)
@@ -1300,11 +1304,35 @@ if opts.use_ini:
 else:
     cmd += " --calibration-version " + opts.calibration 
 if opts.use_online_psd_file:
-    # Get IFO list from ini file
-##    import ConfigParser
-#    config = ConfigParser.ConfigParser()
-#    config.read(opts.use_ini)
-    ifo_list = eval(config.get('analysis','ifos'))
+    # Which instruments does that PSD file cover?
+    #
+    # This used to read the ini's [analysis] ifos unconditionally, but `config`
+    # only exists on the --use-ini path, so --use-online-psd-file without an ini
+    # -- the natural way to run a synthetic injection -- died with
+    # "NameError: name 'config' is not defined".
+    #
+    # Prefer the ini when there is one (it is the run's declared instrument
+    # list), then an explicit --manual-ifo-list, and otherwise ask the PSD file
+    # itself, which names its own instruments and cannot disagree with itself.
+    ifo_list = None
+    if opts.use_ini:
+        ifo_list = eval(config.get('analysis','ifos'))
+    elif opts.manual_ifo_list:
+        ifo_list = eval(opts.manual_ifo_list)
+    else:
+        try:
+            import lal.series
+            from igwn_ligolw import utils as _ligolw_utils, ligolw as _ligolw
+            _xmldoc = _ligolw_utils.load_filename(
+                opts.use_online_psd_file, contenthandler=lal.series.PSDContentHandler)
+            ifo_list = sorted(lal.series.read_psd_xmldoc(_xmldoc).keys())
+            print(" pseudo_pipe: instruments read from {}: {}".format(
+                opts.use_online_psd_file, ifo_list))
+        except Exception as exc:
+            print(" pseudo_pipe: --use-online-psd-file needs an instrument list, and "
+                  "neither --use-ini nor --manual-ifo-list was given, and the PSD file "
+                  "could not be read ({}) ".format(exc))
+            sys.exit(1)
     # Create command line arguments for those IFOs, so helper can correctly pass then downward
     for ifo in ifo_list:
         cmd+= " --psd-file {}={}".format(ifo,opts.use_online_psd_file)
@@ -1359,6 +1387,26 @@ if opts.use_ini:
         cmd += " --cache local.cache --fake-data  "
 if opts.fake_data_cache:
     cmd += " --cache {} --fake-data  ".format(opts.fake_data_cache)
+    # event_dict["IFOs"] is populated on the --use-ini path (and by the gracedb
+    # lookup), but NOT by --event-time + --fake-data-cache, which is the natural
+    # way to set up a synthetic injection.  That combination used to die here
+    # with KeyError: 'IFOs'.  Resolve it from --manual-ifo-list, or from the
+    # instruments already read off the PSD file, and store it so the later
+    # consumers of event_dict["IFOs"] see it too.
+    _ifos = event_dict.get("IFOs")
+    if not _ifos and opts.manual_ifo_list:
+        _ifos = eval(opts.manual_ifo_list)
+    if not _ifos:
+        try:
+            _ifos = list(ifo_list)
+        except NameError:
+            _ifos = None
+    if not _ifos:
+        print(" pseudo_pipe: --fake-data-cache needs an instrument list.  Give "
+              "--manual-ifo-list \"['H1','L1']\", or --use-online-psd-file whose "
+              "instruments can be read. ")
+        sys.exit(1)
+    event_dict["IFOs"] = list(_ifos)
     if len(event_dict["IFOs"]) >0 :
         short_list = " {} ".format(event_dict['IFOs'])        
         cmd += " --manual-ifo-list {} ".format(short_list.replace(' ',''))
@@ -2083,13 +2131,47 @@ if opts.internal_cip_request_memory:
 cepp = "create_event_parameter_pipeline_BasicIteration"
 if opts.use_subdags:
     cepp = "create_event_parameter_pipeline_AlternateIteration"
+if opts.approx_extra and not opts.pipeline_builder:
+    # asking for more than one waveform model IS asking for the cross-model
+    # builder; make the user say it twice only if they disagree
+    opts.pipeline_builder = "BasicMultiApproxIteration"
+use_multiapprox = (opts.pipeline_builder == "BasicMultiApproxIteration")
+if use_multiapprox and not opts.approx_extra:
+    print(" --pipeline-builder BasicMultiApproxIteration needs at least one --approx-extra ")
+    sys.exit(1)
+# The builder itself accepts pseudo_pipe's option surface and refuses the parts
+# it does not implement, so there is no allow-list to maintain here.
 if opts.pipeline_builder:  # explicit override wins, for clean side-by-side A/B testing of the two builders
     if opts.use_subdags and opts.pipeline_builder != "AlternateIteration":
         # use_subdags is set either by the user or force-set by --internal-use-amr (which REQUIRES the Alternate builder)
         print(" WARNING: --pipeline-builder {} overrides --use-subdags routing; AMR/subdag runs require AlternateIteration ".format(opts.pipeline_builder))
     cepp = "create_event_parameter_pipeline_" + opts.pipeline_builder
 print(" Pipeline builder (create_event_parameter_pipeline_*): ", cepp)
-cmd =cepp+ "  --ile-n-events-to-analyze {} --input-grid proposed-grid.{} --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args `pwd`/args_ile.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP {} --request-memory-ILE {} --n-samples-per-job ".format(n_jobs_per_worker,grid_suffix_pp,cip_mem,ile_mem) + str(npts_it) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + " --n-iterations-subdag-max {} ".format(opts.internal_n_iterations_subdag_max) + "  --n-copies {} ".format(opts.ile_copies) + "   --ile-retries "+ str(opts.ile_retries) + " --general-retries " + str(opts.general_retries)
+cmd =cepp+ "  --ile-n-events-to-analyze {} --input-grid proposed-grid.{} --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args `pwd`/args_ile.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP {} --request-memory-ILE {} --n-samples-per-job ".format(n_jobs_per_worker,grid_suffix_pp,cip_mem,ile_mem) + str(npts_it) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + ("" if use_multiapprox else " --n-iterations-subdag-max {} ".format(opts.internal_n_iterations_subdag_max)) + "  --n-copies {} ".format(opts.ile_copies) + "   --ile-retries "+ str(opts.ile_retries) + " --general-retries " + str(opts.general_retries)
+if use_multiapprox:
+    # Every model on the SAME grid.  --approx is the primary; --approx-extra the
+    # rest.  The builder marginalizes over them point by point in the loop and
+    # forks per model at the terminal stage.
+    for _ap in [opts.approx] + list(opts.approx_extra):
+        cmd += " --approx {} ".format(_ap)
+    # Forward the generator ROUTE per model.  Without this the builder never sees
+    # --approx-gwsignal, so it does not strip the global --use-gwsignal and every
+    # model is sent through gwsignal -- where the phenom family cannot be
+    # generated at all, its ILE jobs contribute zero rows, and the run silently
+    # degrades to a single model.
+    _gw = []
+    if opts.use_gwsignal:
+        _gw.append(opts.approx)                      # the primary is what --use-gwsignal meant
+    _gw += list(opts.approx_extra_gwsignal or [])
+    for _m in _gw:
+        if _m not in [opts.approx] + list(opts.approx_extra):
+            print(" --approx-extra-gwsignal names {}, which is not among the models {}".format(
+                _m, [opts.approx] + list(opts.approx_extra))); sys.exit(1)
+        cmd += " --approx-gwsignal {} ".format(_m)
+    for _pr in (opts.approx_prior or []):
+        cmd += " --approx-prior '{}' ".format(_pr)
+    if opts.require_all_approx:
+        cmd += " --require-all-approx "
 if opts.ile_jobs_per_worker_first:
     cmd += " --ile-n-events-to-analyze-first {} ".format(opts.ile_jobs_per_worker_first)
 if opts.assume_matter or opts.assume_eccentric or opts.assume_hyperbolic:
@@ -2254,7 +2336,7 @@ if opts.add_extrinsic:
     if opts.internal_last_iteration_extrinsic_samples_per_ile:
         cmd += " --last-iteration-extrinsic-samples-per-ile {}".format(opts.internal_last_iteration_extrinsic_samples_per_ile)
     if opts.internal_last_iteration_extrinsic_samples_per_ile_internal:
-        cmd += " --last-iteration-extrinsic-samples-per-ile-internal {}".format(opts.internal_last_iteration_extrinsic_samples_per_ile_internal)        
+        cmd += " --last-iteration-extrinsic-samples-per-ile-internal {}".format(opts.internal_last_iteration_extrinsic_samples_per_ile_internal)
     if opts.add_extrinsic_time_resampling:
         cmd+= " --last-iteration-extrinsic-time-resampling "
 if opts.batch_extrinsic:
@@ -2311,7 +2393,7 @@ if opts.condor_local_nonworker:
 if opts.condor_nogrid_nonworker:
     cmd += " --condor-nogrid-nonworker "
 if opts.use_osg_simple_requirements:
-    cmd += " --use-osg-simple-reqirements "
+    cmd += " --use-osg-simple-requirements "
 if opts.archive_pesummary_label:
 #    cmd += " --plot-exe `which summarypages` --plot-args  args_plot.txt "
     cmd += " --plot-exe summarypages --plot-args  args_plot.txt "
@@ -2418,12 +2500,18 @@ if opts.export_distance_slices and opts.export_distance_slices > 0:
         cmd += " --last-iteration-export-distance-slices-skip-threshold {} ".format(opts.export_distance_slices_skip_threshold)
 
 print(cmd)
-os.system(cmd)
+_rc = os.system(cmd)
+if _rc != 0:
+    # A failed builder used to leave pseudo_pipe reporting success with no DAG in
+    # the run directory -- the args_*.txt are all there, so it looks finished.
+    print(" pseudo_pipe: the pipeline builder FAILED (exit {}); no DAG was written. "
+          "See the output above.".format(_rc >> 8 if _rc > 255 else _rc))
+    sys.exit(1)
 
 if opts.internal_ile_check_good_enough:
     # Populate 'ile_check_good_enough' through all subdirectories
     cmd_enough = r"find . -name 'iter*ile' -type d -exec touch {}/ile_good_enough \; "
-    os.system(cmd)
+    os.system(cmd_enough)   # was os.system(cmd): re-ran the pipeline builder
 
 if opts.use_osg_file_transfer and opts.internal_truncate_files_for_osg_file_transfer:
     if opts.fake_data_cache:

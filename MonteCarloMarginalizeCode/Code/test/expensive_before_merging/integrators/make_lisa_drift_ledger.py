@@ -223,6 +223,11 @@ RULES = [
      "is 5, so adopting main's default verbatim would silently shrink every LISA "
      "export by orders of magnitude. Port the flag with LISA's present behaviour as "
      "its default."),
+    (r"^FUNC:_equal_weight_fairdraw_for_serialization$", "PORT",
+     "Completes a sampler-side fair draw that intentionally did not fire because it "
+     "would not shrink a tiny retained record, but only on the copy written to XML. "
+     "LISA has the same skip-on-no-shrink and serialization boundary, so port this "
+     "with --fairdraw-extrinsic-output-n-max while preserving its larger LISA default."),
 
     # ------------------------------------------------------- LIGO/Virgo calibration envelopes
     (r"^OPTION:--calibration-", "NA",

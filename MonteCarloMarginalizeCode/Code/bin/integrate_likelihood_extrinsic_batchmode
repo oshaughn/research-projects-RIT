@@ -2402,6 +2402,55 @@ def ln_weights_for_posterior(rvs, sampler, convert=None, use_lnL=None):
                          dtype=float)
 
 
+def _equal_weight_fairdraw_for_serialization(rvs, sampler, n_max, convert=None,
+                                             use_lnL=None, rng=None):
+    """Return an equal-weight posterior draw for the external sample file.
+
+    PR #87 deliberately lets an integrator keep its weighted retained record
+    when a fair draw would not shrink it.  That is the correct *internal*
+    contract: later in-process consumers can still use the real importance
+    weights.  XML cannot carry that full weight provenance, however, so a
+    caller of ``--fairdraw-extrinsic-output`` must never serialize such a
+    record as though its rows were equal-weight posterior samples.
+
+    Do the missing draw only at the serialization boundary.  Already
+    equal-weight records pass through unchanged.  Raw or replica-pooled
+    records are resampled from ``ln_weights_for_posterior``; the draw size is
+    bounded by both the requested export cap and the retained row count.
+    Sampling with replacement is intentional for a fair draw.  Final RIFT
+    posterior assembly applies its separate unique-output policy later.
+    """
+    if _rvs_is_equal_weight(sampler):
+        return rvs
+    n_have = _rvs_len(rvs)
+    if n_have == 0:
+        return rvs
+    n_draw = min(int(n_max), n_have)
+    if n_draw < 1:
+        raise ValueError("fair-draw serialization requires a positive sample cap")
+    ln_w = numpy.asarray(ln_weights_for_posterior(
+        rvs, sampler, convert=convert, use_lnL=use_lnL), dtype=float)
+    finite = numpy.isfinite(ln_w)
+    if not numpy.any(finite):
+        raise ValueError("fair-draw serialization has no finite posterior weights")
+    scale = numpy.max(ln_w[finite])
+    weights = numpy.zeros(len(ln_w), dtype=float)
+    weights[finite] = numpy.exp(ln_w[finite] - scale)
+    total = numpy.sum(weights)
+    if not numpy.isfinite(total) or total <= 0:
+        raise ValueError("fair-draw serialization weights cannot be normalized")
+    weights /= total
+    rng = numpy.random if rng is None else rng
+    indices = rng.choice(numpy.arange(n_have), size=n_draw,
+                         replace=True, p=weights)
+    out = {}
+    for key, value in rvs.items():
+        array = convert(value) if convert is not None else value
+        array = numpy.asarray(array)
+        out[key] = array[:, indices] if isinstance(key, tuple) else array[indices]
+    return out
+
+
 def _pool_replica_rvs(rep_rvs, sampler, rep_lnZ=None, already_resampled=False, use_lnL=None,
                       records=None):
     """Concatenate the replicas' samples into one correctly-weighted set.
@@ -4769,6 +4818,18 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
     if opts.save_samples and opts.output_file:
       import copy
       samples = copy.deepcopy(sampler._rvs)  # deep copy: avoid modifying structures and  having side effect on integrator, which loops over keys Expensive!
+      if opts.fairdraw_extrinsic_output:
+        # The sampler intentionally skips its internal fair draw when it would
+        # not shrink a tiny retained record (PR #87).  Internal consumers still
+        # have the weights in that case, but XML does not preserve their full
+        # provenance.  Complete the draw at the serialization boundary so the
+        # external file always satisfies the equal-weight contract promised by
+        # --fairdraw-extrinsic-output.  This also flattens replica-pooled output
+        # according to the pooled posterior weights.
+        samples = _equal_weight_fairdraw_for_serialization(
+          samples, sampler,
+          min(opts.fairdraw_extrinsic_output_n_max, opts.n_eff),
+          convert=identity_convert, use_lnL=rvs_integrand_is_lnL)
       # Insert reference distance if it was marginalized over
       if "distance" not in samples:
         # Not distance output is the same as internal calculations: in *Mpc*

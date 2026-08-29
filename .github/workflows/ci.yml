@@ -197,6 +197,14 @@ jobs:
           python -m pip install coverage pytest --break-system-packages
           python -m pip install --editable . --break-system-packages
       - name: Run probe confirm-on-fail accounting and CIP intrinsic-prior tests
+        # The multi-approximant marginalization suite rides along too (~11 s, and it
+        # builds its own DAG from synthetic inputs, so it needs no rundir).  It guards a
+        # combination that is silently wrong rather than loud: pooling several waveform
+        # models flat weights them by REPLICA COUNT instead of by p(m), which shifts lnL
+        # by a few tenths of a nat and raises nothing.  Its DAG cases build with TWO
+        # approximants deliberately -- with one, every cross-model path is vacuously
+        # satisfied, which is how that builder kept a severed grid handoff for years.
+        #
         # The CIP prior suite rides along here for the same reason: it is pure logic that
         # runs in seconds (it reads CIP's source with ast instead of importing it, so it
         # needs only numpy/scipy), and a wrong prior density or a mis-wired
@@ -207,7 +215,9 @@ jobs:
             MonteCarloMarginalizeCode/Code/test/expensive_before_merging/integrators/test_probe_confirm.py \
             MonteCarloMarginalizeCode/Code/test/test_cip_priors.py \
             MonteCarloMarginalizeCode/Code/test/test_cip_gp_kernel_bounds.py \
-            MonteCarloMarginalizeCode/Code/test/test_cosmology_single_source.py
+            MonteCarloMarginalizeCode/Code/test/test_cosmology_single_source.py \
+            MonteCarloMarginalizeCode/Code/test/test_multiapprox_marginalization.py \
+            MonteCarloMarginalizeCode/Code/test/test_multiapprox_pseudo_pipe.py
 
   q-window-stencil-check:
     needs: install
