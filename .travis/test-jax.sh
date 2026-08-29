@@ -157,7 +157,7 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         passes a weaker guard), and that BOTH
 #                                         artifacts are labelled and never imply
 #                                         verification.  Seconds, not minutes.
-#   test_angle_marg_compile_cost.py   5  the laplace path's COMPILE- and RUN-cost
+#   test_angle_marg_compile_cost.py   6  the laplace path's COMPILE- and RUN-cost
 #                                         structure (2026-08-28: an unrolled kernel
 #                                         x 64 distance blocks put a production
 #                                         SNR-40 run >88 min / 22 GiB into XLA
@@ -218,7 +218,52 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #   demo_*.py, debug_*.py,        Demos, debugging scripts and a figure generator, not
 #   benchmark_snr_sequence.py,    assertions.  None defines a test_* function and none
 #   make_3g_figdata.py            is intended as a gate.
+#   test_jax_time_quadrature.py      12  band-limited time marginalization.  The
+#                                         stock path integrates exp(lnL_t) with fixed
+#                                         Simpson weights at the DATA spacing while the
+#                                         integrand width sigma_t = 1/(2 pi rho sigma_f)
+#                                         SHRINKS with SNR -- 61.2 us against grid
+#                                         spacings of 244/122/61 us at srate
+#                                         4096/8192/16384 on a 35+30 HLV injection at
+#                                         rho=40.  Simpson is not a safeguard: it is
+#                                         (4 T_h - T_2h)/3, so it carries the coarser
+#                                         T_2h alias and is WORSE than trapezoid when
+#                                         under-resolved.  Pins that upsampling is EXACT
+#                                         (sampling theorem, not an approximation), that
+#                                         the Nyquist bin is split rather than dumped,
+#                                         that the band-limited result is grid-phase
+#                                         INDEPENDENT where stock Simpson swings 4.26
+#                                         nats, convergence in the free upsample factor,
+#                                         and that an unknown time_quad RAISES instead of
+#                                         silently giving the old behaviour.  Also pins
+#                                         the two ways the reconstruction can silently
+#                                         change the ANSWER rather than the resolution:
+#                                         that it integrates the ORIGINAL (n-1)*deltaT
+#                                         window and not the periodic FFT continuation
+#                                         past the last sample (a constant integrand
+#                                         makes that a pure normalization shift), and
+#                                         that it REFUSES data whose <h|h> depends on
+#                                         arrival time (the slow-rotation post-phase),
+#                                         where holding the norm at one bin would be a
+#                                         different likelihood.  And the GUARD
+#                                         SAMPLES: the window is a CROP, so its
+#                                         ends do not join, and the FFT's
+#                                         periodic seam rings into the inserted
+#                                         samples while every retained sample
+#                                         stays exact -- invisible to an
+#                                         exactness test built from whole-period
+#                                         modes.  Pins the defect on a
+#                                         non-periodic cropped tone, its removal
+#                                         by guard samples, that the guard is
+#                                         support and never enters the integral,
+#                                         that it has no default, and that the
+#                                         band-limited path actually widens the
+#                                         accumulation window (while Simpson
+#                                         does not).  Pure numpy
+#                                         and jax, no lal, no GPU.
+
 FILES=(
+  "${JAXDIR}/test_jax_time_quadrature.py"
   "${JAXDIR}/test_jax_likelihood.py"
   "${JAXDIR}/test_jax_endtoend.py"
   "${JAXDIR}/test_jax_slowrot_coeffs.py"
@@ -316,7 +361,17 @@ fi
 # collection" must mean collection IN THE GATE'S ENVIRONMENT -- a local count has
 # tripped this floor twice.  When in doubt, take the number from a CI log line
 # ("collected N tests from M files") rather than from your shell.
-EXPECTED_TESTS=157
+# Raised 153 -> 155 by the two new test_jax_time_quadrature.py pins (original
+# integration window; refusal of arrival-time-dependent norms), then 155 -> 160 by
+# the five guard-sample pins in the same file (periodic-seam defect on a
+# non-periodic crop; its removal by guard samples; guard is support, not window;
+# no default guard; the band-limited path widens the accumulation window).
+# PR #209 then adds six test_angle_marg_compile_cost.py pins, raising 160 -> 166,
+# and PR #210 adds five test_angle_marg_block_dispatch.py pins, raising 166 -> 171.
+# Raising the floor
+# by exactly the number of tests ADDED is safe whatever the environment delta above,
+# since it preserves the margin the previous floor already had.
+EXPECTED_TESTS=171
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"

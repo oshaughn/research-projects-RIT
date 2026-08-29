@@ -23,4 +23,6 @@ fi
   MonteCarloMarginalizeCode/Code/test/test_lisa_use_lnL_branches.py \
   MonteCarloMarginalizeCode/Code/test/test_lisa_portfolio_method_integrity.py \
   MonteCarloMarginalizeCode/Code/test/test_lisa_mc_error_replicas.py \
-  MonteCarloMarginalizeCode/Code/test/test_lisa_driver_drift.py
+  MonteCarloMarginalizeCode/Code/test/test_lisa_driver_drift.py \
+  MonteCarloMarginalizeCode/Code/test/test_lisa_operational_synthetic.py \
+  MonteCarloMarginalizeCode/Code/test/test_spherical_harmonics_backend.py

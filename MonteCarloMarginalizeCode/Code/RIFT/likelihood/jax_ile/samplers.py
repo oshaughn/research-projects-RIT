@@ -257,7 +257,9 @@ def angle_marg_eval_chunk(like, chunk):
     npts = int(getattr(getattr(like, "data", None), "npts", 0) or 0)
     if npts <= 0:
         return chunk
-    cap = max(64, _ANGLE_MARG_BUFFER_TARGET
+    # A floor larger than one defeats the memory bound for long, valid time
+    # windows (for example npts=65537 made a floor of 64 request ~32 GiB).
+    cap = max(1, _ANGLE_MARG_BUFFER_TARGET
               // (_ANGLE_MARG_BYTES_PER_SAMPLE_PT * npts))
     return min(chunk, cap)
 

@@ -824,8 +824,11 @@ def _psi_lnI_lap_branch(a, c1, c2, b, t_amp):
     N = _LAPLACE_BRACKET_CELLS
     ug = np.linspace(0.0, 2.0 * np.pi, N + 1)
     cell = ug[1] - ug[0]
-    zero_f = jnp.zeros_like(b)
-    false_x = jnp.zeros_like(b, dtype=bool)
+    # a, c1 and c2 may have different but broadcast-compatible shapes.  The
+    # scan carry must start at their combined shape: lax.scan forbids the
+    # Python-loop behaviour of expanding a scalar carry on the first step.
+    zero_f = jnp.zeros_like(t_amp)
+    false_x = jnp.zeros_like(t_amp, dtype=bool)
     nR = _LAPLACE_MAX_ROOTS
     slot_ids = jnp.arange(nR, dtype=zero_f.dtype).reshape(
         (nR,) + (1,) * zero_f.ndim)
@@ -980,6 +983,11 @@ def _laplace_psi_lnI(a, c1, c2):
     Elementary functions only (no scipy, no eigensolvers); differentiable;
     any input shape (elementwise over broadcast a, c1, c2).
     """
+    # Materialize the documented elementwise broadcast before introducing
+    # the leading root-slot axis.  Otherwise a data axis contributed only by
+    # ``a`` can collide with the four-root axis (silently when its length is
+    # four, or as a shape error for any other length).
+    a, c1, c2 = jnp.broadcast_arrays(a, c1, c2)
     b, d, t_amp = _psi_lnI_amplitudes(c1, c2)
     ln_laplace = _psi_lnI_lap_branch(a, c1, c2, b, t_amp)
     ln_quad = _psi_lnI_quad_branch(a, c1, c2, b, _LAPLACE_QUAD_N)
@@ -1048,6 +1056,10 @@ def _laplace_psi_lnI_block(a, c1, c2):
     relative aliasing <= e^-41.7 at every rung edge (vs e^-41.7 at the
     shipped band edge itself).
     """
+    # Keep the data axes distinct from the dispatcher's root-slot axis just
+    # as _laplace_psi_lnI does.  The block dispatcher is the production call
+    # path, so it must preserve the same three-input broadcast contract.
+    a, c1, c2 = jnp.broadcast_arrays(a, c1, c2)
     b, d, t_amp = _psi_lnI_amplitudes(c1, c2)
     tmin = jnp.min(t_amp)
     tmax = jnp.max(t_amp)

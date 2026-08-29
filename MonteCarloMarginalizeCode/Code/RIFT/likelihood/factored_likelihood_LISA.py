@@ -328,8 +328,12 @@ def FactoredLogLikelihoodAlignedSpinLISA(Q_lm, U_lm_pq, beta, lam, psi, inclinat
     factor = np.ones(modes.shape)
     factor[:,1] = -factor[:,1] 
     negative_m_modes = modes * factor
-    spherical_harmonics  = SphericalHarmonicsVectorized(modes, inclination, -phi_ref)
-    negative_m_harmonics = SphericalHarmonicsVectorized(negative_m_modes, inclination, -phi_ref)
+    # xpy=np is mandatory: this whole routine works in host numpy, while
+    # SphericalHarmonicsVectorized would otherwise pick cupy on any host where
+    # cupy imports.  Same reason factored_likelihood_freqresponse.py passes
+    # xpy=np to TimeDelayFromEarthCenter.
+    spherical_harmonics  = SphericalHarmonicsVectorized(modes, inclination, -phi_ref, xpy=np)
+    negative_m_harmonics = SphericalHarmonicsVectorized(negative_m_modes, inclination, -phi_ref, xpy=np)
 
     term_lm_conj_conjterm_lm__ = {}
     conjterm_lm_term_lm__conj = {}

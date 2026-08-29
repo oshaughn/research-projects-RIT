@@ -389,8 +389,30 @@ _GATHERERS = {"nearest": _gather_nearest, "linear": _gather_linear,
 JAX_INTERP_DEFAULT = "sinc"
 
 
+def _guarded_window(data, guard):
+    """``(npts, t_offsets)`` for the accumulation window widened by ``guard`` samples.
+
+    ``guard == 0`` is the production window -- ``npts == data.npts`` and
+    ``t_offsets == arange(data.npts)``, unchanged.  A positive ``guard`` adds that
+    many samples at EACH end, so the window runs from ``-guard`` to
+    ``data.npts + guard - 1`` and the caller gets ``data.npts + 2*guard`` columns.
+
+    The extra columns are RECONSTRUCTION SUPPORT, not window: only
+    :func:`_time_marginalize_bandlimited` asks for them, and it integrates the
+    original ``data.npts`` columns after using the guard samples to keep the
+    FFT's periodic seam out of the integrated region.  One definition here so
+    the two accumulators cannot drift on the offset convention -- an off-by-one
+    between them would misplace the arrival time of every guarded evaluation.
+    """
+    guard = int(guard)
+    if guard < 0:
+        raise ValueError("guard must be >= 0 samples, got %r" % (guard,))
+    return (data.npts + 2 * guard,
+            jnp.arange(-guard, data.npts + guard, dtype=jnp.float64))
+
+
 def _accumulate_unit(data, ra, dec, psi, incl, phiref, interp,
-                     phase_marginalization):
+                     phase_marginalization, guard=0):
     """Network kappa and rho^2 at the *fiducial* distance (invDist == 1).
 
     Returns ``(kappa_unit, rho_sq_unit)`` each shape (S, npts).  ``kappa_unit``
@@ -403,10 +425,16 @@ def _accumulate_unit(data, ra, dec, psi, incl, phiref, interp,
     the multi-band accumulator is used instead.  It returns the *identical*
     ``(kappa_unit, rho_sq_unit)`` contract, so every downstream marginalization
     variant (distance, phi_ref, psi, ...) inherits the feature for free.
+
+    ``guard`` widens the evaluated window by that many samples at each end (see
+    :func:`_guarded_window`), giving ``(S, data.npts + 2*guard)``.  It defaults
+    to 0, i.e. every existing caller gets the production window unchanged; the
+    band-limited time quadrature is the one caller that asks for more, and it
+    pays for them in gathers (cost is linear in the number of columns).
     """
     if getattr(data, "feature", None) is not None:
         return _accumulate_unit_banded(data, ra, dec, psi, incl, phiref, interp,
-                                       phase_marginalization)
+                                       phase_marginalization, guard=guard)
     ra = jnp.asarray(ra, dtype=jnp.float64)
     dec = jnp.asarray(dec, dtype=jnp.float64)
     psi = jnp.asarray(psi, dtype=jnp.float64)
@@ -417,8 +445,7 @@ def _accumulate_unit(data, ra, dec, psi, incl, phiref, interp,
     gmst = data.gmst
     inv_deltaT = 1.0 / data.deltaT
     S = ra.shape[0]
-    npts = data.npts
-    t_offsets = jnp.arange(npts, dtype=jnp.float64)
+    npts, t_offsets = _guarded_window(data, guard)
 
     kappa_unit = jnp.zeros((S, npts), dtype=jnp.complex128)
     rho_sq_unit = jnp.zeros((S, npts), dtype=jnp.float64)
@@ -478,6 +505,22 @@ def _accumulate_unit(data, ra, dec, psi, incl, phiref, interp,
     return kappa_unit, rho_sq_unit
 
 
+def _norm_is_arrival_time_dependent(data):
+    """True when the model norm ``<h|h>`` depends on the template's arrival time.
+
+    Only the slow-rotation bank has that dependence: its post-phase
+    ``C~_a(t) = C_a exp(i n_a Omega (t - tref))`` multiplies the data term AND the
+    norm, so :func:`_accumulate_unit_banded` returns a genuinely ``(S, npts)``
+    ``rho_sq`` there.  The baseline accumulator (static ``F``) and the finite-size
+    ``freqresponse`` bank (no sidereal modulation) both return a norm that is
+    constant along the time axis, broadcast into the ``(S, npts)`` contract.
+
+    One definition on purpose: the quadratures that hold the norm fixed refuse
+    exactly the data this predicate flags, so the two must not drift apart.
+    """
+    return getattr(data, "feature", None) == "rotation"
+
+
 def _banded_coefficients(data, det, ra, dec, psi):
     """Per-sample response coefficients ``C`` of shape (A, S) for detector ``det``.
 
@@ -500,7 +543,7 @@ def _banded_coefficients(data, det, ra, dec, psi):
 
 
 def _accumulate_unit_banded(data, ra, dec, psi, incl, phiref, interp,
-                            phase_marginalization):
+                            phase_marginalization, guard=0):
     """Multi-band (slow-rotation / finite-size) network kappa and rho^2.
 
     Generalizes :func:`_accumulate_unit` by an extra summed "band" index
@@ -555,6 +598,11 @@ def _accumulate_unit_banded(data, ra, dec, psi, incl, phiref, interp,
     ``freqresponse`` (Path D) has NO post-phase -- its basis is not a sidereal modulation
     -- and keeps the arrival-time-independent ``rho_sq``.
 
+    ``guard`` widens the window as in :func:`_accumulate_unit` / :func:`_guarded_window`.
+    The post-phase follows it: ``jgrid`` is built from the same (now partly negative)
+    integer offsets, so a guarded sample is phased at the arrival time it was gathered
+    from, exactly as an unguarded one is.
+
     ``phase_marginalization`` is not supported for banded features.
     """
     if phase_marginalization:
@@ -572,14 +620,13 @@ def _accumulate_unit_banded(data, ra, dec, psi, incl, phiref, interp,
     gmst = data.gmst
     inv_deltaT = 1.0 / data.deltaT
     S = ra.shape[0]
-    npts = data.npts
-    t_offsets = jnp.arange(npts, dtype=jnp.float64)
+    npts, t_offsets = _guarded_window(data, guard)
     refl_idx = data.band["refl_idx"]           # (A,) int, static
 
     # Arrival-time post-phase: rotation only (see the docstring).  Honour the bank
     # convention flag rather than assuming it, so a future change fails loudly.
     band = data.band
-    post_phase = (data.feature == "rotation")
+    post_phase = _norm_is_arrival_time_dependent(data)
     if post_phase:
         if not bool(band.get("post_phase_required", False)):
             raise ValueError(
@@ -689,6 +736,178 @@ def _accumulate_unit_banded(data, ra, dec, psi, incl, phiref, interp,
     return kappa_unit, rho_sq_unit
 
 
+TIME_QUAD_DEFAULT = "simpson"        # unchanged behaviour; "bandlimited" is opt-in
+_TIME_QUAD_CHOICES = ("simpson", "bandlimited")
+_TIME_UPSAMPLE_DEFAULT = 8
+
+
+def default_time_guard(npts):
+    """Guard width (samples per end) used by ``time_quad="bandlimited"`` by default.
+
+    Half the window, floored at 32 samples: the reconstruction's seam error falls
+    off only like 1/distance (see :func:`_time_marginalize_bandlimited`), so the
+    guard has to be a FRACTION of the window rather than a small fixed pad, and
+    the cost is linear -- half a window at each end doubles the gathers of an
+    opt-in quadrature that exists to buy accuracy.  It is a convergence knob, not
+    a constant of nature: pass ``time_guard=`` and raise it until the answer stops
+    moving, exactly as with ``time_upsample``.
+    """
+    return max(32, int(npts) // 2)
+
+
+def _upsample_bandlimited(x, factor, axis=-1):
+    """Band-limited resampling of ``x`` by an integer ``factor``, ASSUMING PERIODICITY.
+
+    Zero-pads the spectrum, which is interpolation only in the sense that the
+    sampling theorem is: for a signal whose Fourier content the grid already
+    resolves AND WHOSE PERIOD IS THE ARRAY, the padded inverse transform
+    reproduces the underlying continuous function at the finer spacing, not an
+    approximation of it.
+
+    THE PERIODICITY CAVEAT IS NOT DECORATIVE, and it is not something the caller
+    can check on the output.  The array is a period, so this treats ``x[-1]`` and
+    ``x[0]`` as adjacent; when they are not -- as for any window CROPPED out of a
+    longer timeseries, which is what the accumulators produce -- the seam's jump
+    is spectral content as far as the FFT is concerned, and the reconstruction
+    rings.  The retained samples stay exact (the interpolant passes through every
+    input sample), so a test that only checks ``fine[::factor] == x`` cannot see
+    it; the INSERTED samples carry the error, largest at the ends and falling off
+    only like 1/(distance from the seam).  Callers reconstructing a crop must
+    supply guard samples and discard the contaminated region --
+    :func:`_time_marginalize_bandlimited` does, and explains the arithmetic.
+
+    Nyquist handling: for even ``n`` the +n/2 bin is split evenly between the
+    +n/2 and -n/2 positions.  Dumping it entirely into one of them biases the
+    result by a term that oscillates at Nyquist -- small, but exactly the kind
+    of grid-phase-dependent error this whole change exists to remove.
+    """
+    x = jnp.asarray(x)
+    n = x.shape[axis]
+    if factor == 1:
+        return x
+    X = jnp.fft.fft(x, axis=axis)
+    X = jnp.moveaxis(X, axis, -1)
+    n_out = n * factor
+    half = n // 2
+    pad_shape = X.shape[:-1] + (n_out - n,)
+    if n % 2 == 0:
+        lo = X[..., :half]
+        hi = X[..., half + 1:]
+        nyq = X[..., half:half + 1] * 0.5
+        Y = jnp.concatenate(
+            [lo, nyq, jnp.zeros(X.shape[:-1] + (n_out - n - 1,), X.dtype),
+             nyq, hi], axis=-1)
+    else:
+        Y = jnp.concatenate(
+            [X[..., :half + 1], jnp.zeros(pad_shape, X.dtype),
+             X[..., half + 1:]], axis=-1)
+    y = jnp.fft.ifft(Y, axis=-1) * factor
+    return jnp.moveaxis(y, -1, axis)
+
+
+def _time_marginalize_bandlimited(kappa_t, rho_sq, deltaT, factor, guard,
+                                  phase_marginalization=False):
+    """Time marginal evaluated on a band-limited RECONSTRUCTION of kappa(t).
+
+    Why this exists.  ``_time_marginalize`` integrates exp(lnL_t) with fixed
+    Simpson weights at the DATA sample spacing, but the integrand's width is
+    sigma_t = 1/(2 pi rho sigma_f) -- it SHRINKS as the signal gets louder while
+    the grid does not.  Measured on a 35+30 Msun HLV injection at rho=40:
+    sigma_t = 61.2 us against grid spacings of 244/122/61 us at srate
+    4096/8192/16384, i.e. under-resolved at the sample rates people actually
+    use, and worse at higher SNR.  The required condition is
+    srate >~ 2 pi sigma_f rho (~16 kHz at rho=40 here, growing linearly with
+    SNR).  Simpson is not a safeguard here: Simpson = (4 T_h - T_2h)/3 carries
+    the coarser T_2h alias, so when under-resolved it is WORSE than trapezoid --
+    the measured lnL span over a rigid grid-phase scan was 1.649 / 0.385 /
+    0.0095 nats at those three sample rates, dominated by the period-2h term.
+
+    The fix costs no new likelihood evaluations.  kappa(t) is band-limited (it
+    is a cross-correlation of band-limited data with a band-limited template),
+    and rho_sq is time-independent (the PRECONDITION below), so the samples ALREADY
+    COMPUTED determine the continuous integrand exactly.  One zero-padded FFT
+    per row recovers it; the quadrature then runs on the reconstruction.
+
+    Measured against a converged window-shift reference: -0.007 nats, versus
+    +0.745 nats for stock Simpson at the same grid phase.  (That comparison was
+    taken with ``guard == 0``, i.e. before the guard argument below existed, so
+    it is quoted for the SIMPSON contrast and not as a bound on the seam error.)
+
+    GUARD SAMPLES, and why this argument has no default.  ``kappa_t`` is a window
+    CROPPED out of a longer correlation buffer, so its two ends are not
+    neighbours -- while :func:`_upsample_bandlimited`, being an FFT, necessarily
+    treats them as though they were.  The fictitious jump across that seam is
+    spectral content as far as the transform is concerned, and it rings into the
+    INSERTED samples, changing the integrand before any quadrature touches it.
+    The rings are invisible at the input samples (the interpolant reproduces
+    those exactly), which is why this has to be handled here rather than caught
+    downstream.
+
+    The cure is support, not smoothing: ``kappa_t`` carries ``guard`` extra
+    samples at EACH end (:func:`_accumulate_unit` gathers them), the seam moves
+    out to those ends, and only the middle
+    ``npts = kappa_t.shape[-1] - 2*guard`` samples -- the window the stock
+    quadrature integrates -- are kept.  The residual is then set by the seam's
+    distance: writing the reconstruction as a Whittaker sum over the
+    PERIODICALLY REPEATED window, the error at a point ``d`` samples inside the
+    kept region is the tail
+
+        sum_{j outside} (xtilde_j - x_j) sinc(t - j)  ~  |seam jump| / (pi d),
+
+    which falls off like 1/d and NOT exponentially.  So ``guard`` is a
+    convergence knob of the same standing as ``factor``: raise it until the
+    answer stops moving (:func:`fused_log_likelihood` starts from
+    :func:`default_time_guard`).  Passing zero on real cropped data is the defect
+    itself, so there is no default to fall into; ``guard=0`` stays legitimate
+    only for a window whose ends genuinely join -- a constant, or an integrand
+    that has decayed to its pedestal at both ends.
+
+    PRECONDITION on ``rho_sq``: the model norm must NOT depend on arrival time.
+    Only ``rho_sq[..., :1]`` is used here, because the reconstruction is of kappa
+    alone.  That is the complete norm for the baseline and finite-size
+    accumulators, whose ``rho_sq`` is a constant column broadcast along time, but
+    the slow-rotation post-phase makes ``rho_sq`` a genuine function of the
+    arrival bin (:func:`_accumulate_unit_banded`), and taking its first bin there
+    would evaluate a DIFFERENT likelihood.  Callers must screen such data with
+    :func:`_norm_is_arrival_time_dependent`; :func:`fused_log_likelihood` does.
+    """
+    guard = int(guard)
+    if guard < 0:
+        raise ValueError("guard must be >= 0 samples, got %r" % (guard,))
+    npts = kappa_t.shape[-1] - 2 * guard
+    if npts < 2:
+        raise ValueError(
+            "guard=%d leaves %d sample(s) of a %d-sample array to integrate; the "
+            "guard samples are reconstruction support, not window"
+            % (guard, npts, kappa_t.shape[-1]))
+    kappa_f = _upsample_bandlimited(kappa_t, factor, axis=-1)
+    # Integrate the ORIGINAL interval (npts-1)*deltaT, and nothing else.  Two
+    # distinct pieces of the fine grid are NOT part of it:
+    #   * the leading and trailing `guard*factor` samples, whose coarse samples
+    #     were gathered only to hold the periodic seam away from the window; and
+    #   * the last factor-1 samples of the array, which lie PAST the final coarse
+    #     sample and are the periodic continuation wrapping back toward sample 0.
+    # Integrating either rescales the result -- for a constant integrand by
+    # exactly log(kept length / ((npts-1)*deltaT)) -- against every other
+    # quadrature in the module.  Starting at guard*factor and taking
+    # (npts-1)*factor+1 points lands on the original two endpoints exactly.
+    start = guard * factor
+    kappa_f = kappa_f[..., start:start + (npts - 1) * factor + 1]
+    # The norm is taken at the first bin OF THE KEPT WINDOW, not of the guarded
+    # array: identical under the precondition (the column is constant), and the
+    # one that stays right if a future caller ever relaxes it.
+    rho_sq_0 = rho_sq[..., guard:guard + 1]
+    if phase_marginalization:
+        lnL_f = jnp.abs(kappa_f) - 0.5 * rho_sq_0
+    else:
+        lnL_f = kappa_f.real - 0.5 * rho_sq_0
+    n_f = lnL_f.shape[-1]
+    w_f = jnp.asarray(_simpson_weights(n_f, deltaT / factor))
+    m = jnp.max(lnL_f, axis=-1, keepdims=True)
+    L = jnp.sum(w_f[None, :] * jnp.exp(lnL_f - m), axis=-1)
+    return m[:, 0] + jnp.log(L)
+
+
 def _time_marginalize(lnL_t, w_t):
     """log integral_t exp(lnL_t) dt via constant Simpson weights, log-sum-exp stable."""
     m = jnp.max(lnL_t, axis=-1, keepdims=True)
@@ -697,7 +916,10 @@ def _time_marginalize(lnL_t, w_t):
 
 
 def fused_log_likelihood(data, ra, dec, psi, incl, phiref, distMpc,
-                         interp=JAX_INTERP_DEFAULT, phase_marginalization=False):
+                         interp=JAX_INTERP_DEFAULT, phase_marginalization=False,
+                         time_quad=TIME_QUAD_DEFAULT,
+                         time_upsample=_TIME_UPSAMPLE_DEFAULT,
+                         time_guard=None):
     """Time-marginalized factored log-likelihood at a fixed distance, lnL(theta).
 
     Parameters
@@ -709,17 +931,66 @@ def fused_log_likelihood(data, ra, dec, psi, incl, phiref, distMpc,
         Time-interpolation of the rholm timeseries (see module docstring).
     phase_marginalization : bool
         Marginalize the coalescence phase via ``|kappa|``.
+    time_quad : {"simpson", "bandlimited"}
+        Time quadrature.  ``"simpson"`` (default) is the unchanged behaviour.
+        ``"bandlimited"`` integrates a band-limited reconstruction of kappa(t)
+        over the SAME interval; it holds the model norm fixed in time and is
+        therefore refused for slow-rotation data, whose ``<h|h>`` depends on the
+        template arrival time (see :func:`_time_marginalize_bandlimited`).
+    time_upsample : int
+        Reconstruction factor for ``time_quad="bandlimited"``; costs no
+        likelihood evaluations, so raise it until the answer stops moving.
+    time_guard : int or None
+        Guard samples per end for ``time_quad="bandlimited"``.  The window is a
+        crop, the reconstruction is periodic, and the seam between the two ends
+        rings into the integrand; these samples move that seam outside the
+        integrated window (see :func:`_time_marginalize_bandlimited`).  Unlike
+        ``time_upsample`` they DO cost gathers -- the accumulation runs on
+        ``npts + 2*time_guard`` bins -- and the seam error falls off only like
+        1/distance, so this is the second knob to raise when checking that the
+        answer has stopped moving.  ``None`` takes :func:`default_time_guard`.
+        Ignored (and forced to 0) by ``time_quad="simpson"``, which integrates
+        the sampled window itself and has no seam.
 
     Returns
     -------
     lnL : array_like, shape (S,)
     """
+    if time_quad not in _TIME_QUAD_CHOICES:
+        # Fail on an unrecognised value rather than silently falling through to
+        # the default: a typo'd quadrature name that quietly gives you the OLD
+        # behaviour is exactly the silent-no-op pattern this module keeps
+        # getting bitten by.
+        raise ValueError("time_quad must be one of %r, got %r"
+                         % (_TIME_QUAD_CHOICES, time_quad))
+    if time_quad == "bandlimited" and _norm_is_arrival_time_dependent(data):
+        # Same reason, other direction: the band-limited quadrature reconstructs
+        # kappa(t) and holds the model norm at one time bin, so on data whose
+        # <h|h> depends on the arrival time it would quietly return a DIFFERENT
+        # likelihood rather than a better-integrated one.  Refuse it here instead.
+        raise ValueError(
+            "time_quad='bandlimited' holds the model norm fixed in time, but this "
+            "likelihood data carries the slow-rotation post-phase, whose <h|h> "
+            "depends on the template arrival time; use time_quad='simpson' for "
+            "rotation data.")
+    # Only the band-limited path widens the window; "simpson" integrates the
+    # sampled window itself, so it must keep gathering exactly data.npts bins.
+    if time_quad == "bandlimited":
+        guard = (default_time_guard(data.npts) if time_guard is None
+                 else int(time_guard))
+    else:
+        guard = 0
     distMpc = jnp.asarray(distMpc, dtype=jnp.float64)
     invDist = data.distMpcRef / distMpc
     kappa_unit, rho_sq_unit = _accumulate_unit(
-        data, ra, dec, psi, incl, phiref, interp, phase_marginalization)
+        data, ra, dec, psi, incl, phiref, interp, phase_marginalization,
+        guard=guard)
     kappa_sq = kappa_unit * invDist[:, None]
     rho_sq = rho_sq_unit * jnp.square(invDist)[:, None]
+    if time_quad == "bandlimited":
+        return _time_marginalize_bandlimited(
+            kappa_sq, rho_sq, data.deltaT, int(time_upsample), guard,
+            phase_marginalization=phase_marginalization)
     if phase_marginalization:
         lnL_t = jnp.abs(kappa_sq) - 0.5 * rho_sq
     else:

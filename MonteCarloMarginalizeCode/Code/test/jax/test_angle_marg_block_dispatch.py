@@ -75,6 +75,33 @@ def test_quad_ladder_keeps_the_shipped_aliasing_exponent():
     assert all(toks[i] < toks[i + 1] for i in range(len(toks) - 1))
 
 
+def test_dispatcher_preserves_three_input_broadcasting():
+    """The production dispatcher must keep the public kernel's elementwise
+    broadcast contract before it introduces its private root-slot axis.
+
+    Exercise both formerly broken directions: a vector supplied only by
+    ``a`` (whose length is deliberately not the four-root count), and a
+    vector supplied only by one coefficient.  Scalar calls provide an
+    independent elementwise oracle without relying on the same broadcast.
+    """
+    avec = jnp.asarray([-0.8, 0.1, 1.7])
+    c1 = jnp.asarray(0.35 + 0.2j)
+    c2 = jnp.asarray(-0.15 + 0.05j)
+    got_a = np.asarray(AM._laplace_psi_lnI_block(avec, c1, c2))
+    want_a = np.asarray([
+        AM._laplace_psi_lnI_block(ai, c1, c2) for ai in avec
+    ])
+    np.testing.assert_allclose(got_a, want_a, rtol=0.0, atol=1e-13)
+
+    c2vec = jnp.asarray([0.05 + 0.02j, -0.1 + 0.03j, 0.2 - 0.04j])
+    got_c = np.asarray(AM._laplace_psi_lnI_block(jnp.asarray(0.4), c1, c2vec))
+    want_c = np.asarray([
+        AM._laplace_psi_lnI_block(jnp.asarray(0.4), c1, c2i)
+        for c2i in c2vec
+    ])
+    np.testing.assert_allclose(got_c, want_c, rtol=0.0, atol=1e-13)
+
+
 def _batch(rng, tlo, thi, n=256):
     t = rng.uniform(tlo, thi, n)
     frac = rng.uniform(0, 1, n)

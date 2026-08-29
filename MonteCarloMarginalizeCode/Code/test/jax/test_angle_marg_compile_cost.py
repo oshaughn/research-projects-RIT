@@ -32,6 +32,8 @@ landing; the mutations and observed failures are recorded in the PR):
 """
 
 import numpy as np
+import importlib.machinery
+import importlib.util
 
 import jax
 jax.config.update("jax_enable_x64", True)
@@ -145,6 +147,52 @@ def test_laplace_kernel_graph_is_rolled():
         "docstring." % n)
 
 
+def test_laplace_kernel_preserves_mixed_shape_broadcasting():
+    """The rolled scan must preserve the kernel's elementwise broadcast API.
+
+    A scalar c1 and vector c2 make the derivative fields vector-valued.  If
+    the scan carry and root-slot arrays are initialized from c1 alone, their
+    shapes start scalar and lax.scan fails instead of allowing the expansion
+    that the former Python loop performed.
+    """
+    a = jnp.asarray(0.0)
+    c1 = jnp.asarray(350.0 + 20.0j)
+    c2 = jnp.asarray([10.0 + 2.0j, 20.0 - 3.0j])
+
+    got = AM._laplace_psi_lnI(a, c1, c2)
+    got_jit = jax.jit(AM._laplace_psi_lnI)(a, c1, c2)
+    expected = jnp.stack([
+        AM._laplace_psi_lnI(a, c1, c2_i) for c2_i in c2
+    ])
+
+    assert got.shape == c2.shape
+    assert np.allclose(np.asarray(got), np.asarray(expected),
+                       rtol=0, atol=1e-12)
+    assert np.allclose(np.asarray(got_jit), np.asarray(expected),
+                       rtol=0, atol=1e-12)
+
+    # The root-slot axis must also remain distinct from a data axis supplied
+    # only by a.  Length 3 catches the former shape error; length 4 catches
+    # the more dangerous silent collision with _LAPLACE_MAX_ROOTS.
+    c1_scalar = jnp.asarray(1000.0 + 30.0j)
+    c2_scalar = jnp.asarray(200.0 - 20.0j)
+    for n in (3, 4):
+        a_vector = jnp.arange(n, dtype=jnp.float64)
+        got = AM._laplace_psi_lnI(a_vector, c1_scalar, c2_scalar)
+        got_jit = jax.jit(AM._laplace_psi_lnI)(
+            a_vector, c1_scalar, c2_scalar)
+        expected = jnp.stack([
+            AM._laplace_psi_lnI(a_i, c1_scalar, c2_scalar)
+            for a_i in a_vector
+        ])
+
+        assert got.shape == a_vector.shape
+        assert np.allclose(np.asarray(got), np.asarray(expected),
+                           rtol=0, atol=1e-12)
+        assert np.allclose(np.asarray(got_jit), np.asarray(expected),
+                           rtol=0, atol=1e-12)
+
+
 def test_laplace_dist_tail_padding_exact():
     """A distance grid NOT divisible by dist_block must give the same
     marginal as one evaluated without tail padding.
@@ -170,6 +218,35 @@ def test_laplace_dist_tail_padding_exact():
         (np.asarray(v4), np.asarray(v5))
     assert np.allclose(np.asarray(v4), np.asarray(v1), rtol=0, atol=1e-12), \
         (np.asarray(v4), np.asarray(v1))
+
+    # Independent direct reference: evaluate each distance node alone with
+    # zero log-weight, then combine those scalar marginals with the original
+    # nonuniform weights.  This pins every weight's value, node association,
+    # and completeness; agreement among blockings alone cannot see a shared
+    # permutation or truncation bug in the packing code.
+    node_vals = []
+    for i in range(len(xg)):
+        node_vals.append(AM.fused_log_likelihood_distphipsimarg_laplace(
+            data, ra, dec, incl, xg[i:i + 1], jnp.zeros(1),
+            amp_sizing=900.0, dist_block=1)[0])
+    direct = jax.scipy.special.logsumexp(
+        jnp.stack(node_vals) + lwg, axis=0)
+    assert np.allclose(np.asarray(v4[0]), np.asarray(direct),
+                       rtol=0, atol=1e-11), (np.asarray(v4[0]), np.asarray(direct))
+
+    # Also pin AD through the padded distance fold.  Adding c to every
+    # log-weight must add exactly c to the normalized log-sum-exp, so its
+    # derivative with respect to c is one.
+    c = 0.37
+    def shifted(dc):
+        return AM.fused_log_likelihood_distphipsimarg_laplace(
+            data, ra, dec, incl, xg, lwg + dc, amp_sizing=900.0,
+            dist_block=4)[0]
+    v_shift = shifted(c)
+    assert np.allclose(np.asarray(v_shift), np.asarray(v4[0] + c),
+                       rtol=0, atol=1e-12)
+    assert np.allclose(np.asarray(jax.grad(shifted)(0.0)), 1.0,
+                       rtol=0, atol=1e-12)
 
 
 # ---------------------------------------------------------------------------
@@ -213,7 +290,7 @@ def test_eval_chunk_cap_wired_for_anglemarg_schemes():
     theta = np.zeros((1000, 3))
     lap = _RecordingLike("laplace", 1200)
     S.eval_lnL_3(lap, theta)
-    expected_cap = max(64, (4 << 30) // (8192 * 1200))
+    expected_cap = max(1, (4 << 30) // (8192 * 1200))
     assert max(lap.batches) == expected_cap, lap.batches
     assert sum(lap.batches) == 1000
 
@@ -222,6 +299,11 @@ def test_eval_chunk_cap_wired_for_anglemarg_schemes():
     assert max(grid.batches) == 1000, (
         "grid-scheme eval must NOT be capped (batches: %r)" % grid.batches)
 
+    exact = _RecordingLike("exact", 1200)
+    S.eval_lnL_3(exact, theta)
+    assert max(exact.batches) == expected_cap, exact.batches
+    assert sum(exact.batches) == 1000
+
     # helper edge cases: unknown npts or missing data -> untouched
     import types as _t
     assert S.angle_marg_eval_chunk(
@@ -229,19 +311,33 @@ def test_eval_chunk_cap_wired_for_anglemarg_schemes():
     assert S.angle_marg_eval_chunk(
         _t.SimpleNamespace(angle_marg_scheme="exact",
                            data=_t.SimpleNamespace(npts=0)), 4000) == 4000
+    # Long but supported integration windows must still honor the 4 GiB
+    # bound; the former floor of 64 turned this case into a ~32 GiB buffer.
+    long_like = _t.SimpleNamespace(
+        angle_marg_scheme="laplace", data=_t.SimpleNamespace(npts=65537))
+    assert S.angle_marg_eval_chunk(long_like, 4000) == 7
 
 
 def test_driver_eval_applies_the_chunk_cap():
     """The driver's own eval_lnL (the --n-chunk 8000 loop) must consult
     angle_marg_eval_chunk -- the samplers-level wiring test cannot see this
-    call site.  String-level guard on the driver source, following this
-    suite's AST-guard precedent for call-site pins."""
+    call site.  Drive the real loop: a source substring can remain present
+    while a later assignment silently overwrites the capped value."""
     import pathlib
-    drv = (pathlib.Path(__file__).resolve().parents[2] / "bin"
-           / "integrate_likelihood_extrinsic_jax")
-    src = drv.read_text()
-    assert "_angle_marg_eval_chunk(like, opts.n_chunk)" in src, (
-        "driver eval_lnL no longer caps its chunk for anglemarg schemes; "
-        "at --n-chunk 8000 the laplace path allocates ~73 GiB and dies "
-        "RESOURCE_EXHAUSTED (measured 36.41 GiB at chunk 4000, npts 1193)")
-    assert "for i in range(0, N, chunk):" in src
+    import types
+    path = (pathlib.Path(__file__).resolve().parents[2] / "bin"
+            / "integrate_likelihood_extrinsic_jax")
+    loader = importlib.machinery.SourceFileLoader(
+        "_ile_jax_driver_chunk_test", str(path))
+    spec = importlib.util.spec_from_loader("_ile_jax_driver_chunk_test", loader)
+    drv = importlib.util.module_from_spec(spec)
+    loader.exec_module(drv)
+
+    theta = np.zeros((1000, 3))
+    like = _RecordingLike("laplace", 1200)
+    opts = types.SimpleNamespace(n_chunk=1000)
+    out = drv.eval_lnL(like, theta, opts, with_distance=False)
+    expected_cap = (4 << 30) // (8192 * 1200)
+    assert np.asarray(out).shape == (1000,)
+    assert max(like.batches) == expected_cap, like.batches
+    assert sum(like.batches) == 1000
