@@ -176,7 +176,12 @@ def draw_continuous_time_posterior(tvals, lnlt, rng=None, max_attempts=100000):
             interval = int(rng.choice(len(widths), p=probabilities))
             candidate = float(rng.uniform(tvals[interval], tvals[interval + 1]))
             log_candidate, accept_probability = evaluate(candidate)
-            if float(rng.uniform()) <= accept_probability:
+            # A float RNG can return exactly zero.  With ``<=``, a proposal at
+            # a zero-density endpoint then satisfies 0 <= 0 and escapes with
+            # lnL=-inf, which downstream fair-draw filtering can silently
+            # excise.  Zero posterior density must never be accepted.
+            if (accept_probability > 0.0 and
+                    float(rng.uniform()) < accept_probability):
                 times[row] = candidate
                 log_likelihoods[row] = log_candidate
                 break

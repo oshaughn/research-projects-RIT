@@ -200,6 +200,23 @@ def test_pathological_rejection_cannot_hang_the_driver():
             rng=AlwaysReject(), max_attempts=3)
 
 
+def test_zero_rng_endpoint_cannot_accept_zero_posterior_density():
+    class ZeroEndpoint(object):
+        def choice(self, size, p):
+            return 0
+
+        def uniform(self, *bounds):
+            return bounds[0] if bounds else 0.0
+
+    # The first interval rises from zero density.  Both proposal and acceptance
+    # uniforms are exactly zero, so an inclusive acceptance comparison would
+    # incorrectly return the left endpoint with lnL=-inf.
+    with pytest.raises(RuntimeError, match="exhausted 3 proposals"):
+        draw_continuous_time_posterior(
+            np.arange(3.0), np.array([-np.inf, 0.0, -np.inf]),
+            rng=ZeroEndpoint(), max_attempts=3)
+
+
 def test_driver_wires_continuous_draw_before_legacy_grid_choice():
     with open(DRIVER) as handle:
         source = handle.read()
@@ -212,7 +229,8 @@ def test_driver_wires_continuous_draw_before_legacy_grid_choice():
     assert "explicit_time_values=True" in source
     assert "validate_time_posterior_working_set(n_samples, n_dense)" in source
     assert "del lnLt_dense, tvals_dense, sigma_dense, measurable_dense" in source
-    assert "opts.rotation_slow or opts.freqresponse" in source
+    assert "not opts.gpu or opts.rotation_slow or opts.freqresponse" in source
+    assert "continuous_available=not (opts.rotation_slow or opts.freqresponse)" in source
     assert "refusing before the expensive integration" in source
     assert 'opts._time_posterior_export == "continuous"' in source
     assert 'opts._time_posterior_export == "grid"' in source

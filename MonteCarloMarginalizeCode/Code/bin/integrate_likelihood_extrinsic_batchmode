@@ -246,7 +246,7 @@ optp.add_option("-m", "--time-marginalization", action="store_true", help="Perfo
 optp.add_option("--resample-time-marginalization",action='store_true', help="If time-marginalizaiton is true (and should almost always be true), at the end export step use resampling. REQUIRES using fairdraw-extrinsic-output")
 optp.add_option("--srate-resample-time-marginalization",type=int, default=None, help="For --time-posterior-export grid, interpolate lnL(t) onto a lattice at this rate before drawing. Continuous posterior export has no output lattice and supersedes this option.")
 optp.add_option("--time-posterior-export", type="choice", choices=["auto", "continuous", "grid"], default="auto",
-                help="How --resample-time-marginalization exports geocenter time. auto (default) draws continuously from the interpolated lnL(t) posterior when --interpolate-time is active, otherwise preserves the grid; continuous always draws off-grid; grid is the explicit legacy compatibility mode.")
+                help="How --resample-time-marginalization exports geocenter time. auto (default) draws continuously from the interpolated lnL(t) posterior when the active likelihood exposes a faithful arbitrary-time evaluator, otherwise preserves the grid; continuous always requests an off-grid draw and is refused on unsupported likelihood paths; grid is the explicit legacy compatibility mode.")
 optp.add_option("-d", "--distance-marginalization", action="store_true", help="Perform marginalization over distance via a look-up table. Default is false.")
 optp.add_option("-l", "--distance-marginalization-lookup-table", default=None, help="Look-up table for distance marginalization.")
 optp.add_option("--calibration-envelope-directory",default=None, help="Name of directory")
@@ -493,7 +493,8 @@ else:
 opts._legacy_interpolate_time = opts._noloop_time_interp in ("cubic", "sinc")
 from RIFT.likelihood.time_posterior import resolve_time_posterior_export_mode
 opts._time_posterior_export = resolve_time_posterior_export_mode(
-    opts.time_posterior_export, opts._noloop_time_interp)
+    opts.time_posterior_export, opts._noloop_time_interp,
+    continuous_available=not (opts.rotation_slow or opts.freqresponse))
 # NOTE: deliberately NOT announcing the stencil here.  opts.gpu is not resolved yet at this
 # point, so we cannot yet tell whether the stencil will actually be used -- and a banner that
 # names a stencil the run then ignores is worse than no banner, because it reads as proof.
@@ -679,11 +680,13 @@ if opts._noloop_time_interp != 'nearest' and not _stencil_is_honoured:
         "you asked for." % (opts._noloop_time_interp, ", ".join(_stencil_missing)))
 if (opts.resample_time_marginalization and
         opts._time_posterior_export == "continuous" and
-        (opts.rotation_slow or opts.freqresponse)):
+        (not opts.gpu or opts.rotation_slow or opts.freqresponse)):
     raise NotImplementedError(
         "continuous time-posterior export is not implemented for "
-        "--rotation-slow/--freqresponse because those paths need their own "
-        "explicit-time likelihood evaluator; use --time-posterior-export grid")
+        "the active likelihood path: it requires the maintained NoLoop "
+        "GPU/--force-xpy evaluator without --rotation-slow/--freqresponse, so "
+        "the exported draw uses the same likelihood as integration; use "
+        "--time-posterior-export grid")
 # --time-marginalization-quadrature: same refuse-don't-ignore discipline as the stencil guard
 # above, and for the same reason -- an accuracy option that silently does nothing is worse than
 # one that is unavailable, because a comparison campaign can be run against it and believed.
