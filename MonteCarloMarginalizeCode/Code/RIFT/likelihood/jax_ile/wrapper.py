@@ -30,10 +30,36 @@ from .core import (build_likelihood_data, fused_log_likelihood,
                    fused_log_likelihood_distpsimarg,
                    make_distance_grid, make_distance_grid_adaptive,
                    estimate_distance_peak, phi_ref_grid, psi_grid,
-                   phi_ref_conditional_lnL, DIST_MPC_REF, JAX_INTERP_DEFAULT)
+                   phi_ref_conditional_lnL, DIST_MPC_REF, JAX_INTERP_DEFAULT,
+                   TIME_QUAD_DEFAULT, _TIME_QUAD_CHOICES, default_time_guard)
 
 # Parameter order used throughout the wrapper's vectorized interface.
 EXTRINSIC_PARAM_ORDER = ("ra", "dec", "psi", "incl", "phiref", "distMpc")
+_TIME_SUPPORT_DELAY_MARGIN = 0.05
+
+
+def bandlimited_storage_requirement(deltaT, integration_window_half):
+    """Return ``(storage_half, g0, g_certificate)`` for adaptive time support."""
+    tvals = factored_likelihood.marginalization_time_grid(
+        integration_window_half, deltaT, xpy=np)
+    g_default = default_time_guard(len(tvals))
+    g0 = 1 << int(np.ceil(np.log2(g_default)))
+    g_certificate = 2 * g0
+    # Fifty milliseconds exceeds the Earth-diameter light time (~42.6 ms), so
+    # this support guarantee does not encode an HLV-only network assumption.
+    storage_half = (float(integration_window_half) + g_certificate * float(deltaT)
+                    + _TIME_SUPPORT_DELAY_MARGIN + 16 * float(deltaT))
+    return storage_half, g0, g_certificate
+
+
+def _validate_nonlinear_time_quadrature(time_quadrature, endpoint):
+    if time_quadrature not in _TIME_QUAD_CHOICES:
+        raise ValueError("time_quadrature must be one of %r" % (_TIME_QUAD_CHOICES,))
+    if time_quadrature == "bandlimited":
+        raise ValueError(
+            "time_quadrature='bandlimited' is not valid for %s: the primitive "
+            "time fields must be refined before its nonlinear marginalization; "
+            "use 'simpson'" % endpoint)
 
 
 def build_rotation_data_from_precompute(P, data_dict, psd_dict, fiducial_epoch,
@@ -221,15 +247,24 @@ class JAXExtrinsicLikelihood:
     arrays of shape (S,).
     """
 
-    def __init__(self, data, interp=JAX_INTERP_DEFAULT, phase_marginalization=False):
+    def __init__(self, data, interp=JAX_INTERP_DEFAULT, phase_marginalization=False,
+                 *, time_quadrature=TIME_QUAD_DEFAULT):
         self.data = data
         self.interp = interp
         self.phase_marginalization = phase_marginalization
+        if time_quadrature not in _TIME_QUAD_CHOICES:
+            raise ValueError("time_quadrature must be one of %r" % (_TIME_QUAD_CHOICES,))
+        self.time_quadrature = time_quadrature
+        if time_quadrature == "bandlimited":
+            g_default = default_time_guard(data.npts)
+            self.time_guard_initial = 1 << int(np.ceil(np.log2(g_default)))
+            self.time_guard_certified = 2 * self.time_guard_initial
 
         def _batched(ra, dec, psi, incl, phiref, distMpc):
             return fused_log_likelihood(
                 data, ra, dec, psi, incl, phiref, distMpc,
-                interp=interp, phase_marginalization=phase_marginalization)
+                interp=interp, phase_marginalization=phase_marginalization,
+                time_quadrature=time_quadrature)
 
         self._batched = jax.jit(_batched)
 
@@ -239,7 +274,8 @@ class JAXExtrinsicLikelihood:
                 data,
                 theta6[0:1], theta6[1:2], theta6[2:3],
                 theta6[3:4], theta6[4:5], theta6[5:6],
-                interp=interp, phase_marginalization=phase_marginalization)
+                interp=interp, phase_marginalization=phase_marginalization,
+                time_quadrature=time_quadrature)
             return v[0]
 
         self._scalar = _scalar
@@ -281,9 +317,14 @@ class JAXDistanceMarginalizedLikelihood:
     ANGULAR_PARAM_ORDER = ("ra", "dec", "psi", "incl", "phiref")
 
     def __init__(self, data, d_min, d_max, n_grid=256, d_prior="euclidean",
-                 interp=JAX_INTERP_DEFAULT, phase_marginalization=False):
+                 interp=JAX_INTERP_DEFAULT, phase_marginalization=False,
+                 *, time_quadrature=TIME_QUAD_DEFAULT):
         self.data = data
         self.interp = interp   # the instance's stencil; sample_phi_ref defaults to it
+        self.phase_marginalization = phase_marginalization
+        _validate_nonlinear_time_quadrature(
+            time_quadrature, "distance marginalization")
+        self.time_quadrature = time_quadrature
         self.x_grid, self.log_w_grid = make_distance_grid(
             d_min, d_max, n_grid, d_prior, distMpcRef=data.distMpcRef)
 
@@ -291,7 +332,8 @@ class JAXDistanceMarginalizedLikelihood:
             return fused_log_likelihood_distmarg(
                 data, ra, dec, psi, incl, phiref,
                 self.x_grid, self.log_w_grid,
-                interp=interp, phase_marginalization=phase_marginalization)
+                interp=interp, phase_marginalization=phase_marginalization,
+                time_quadrature=time_quadrature)
 
         self._batched = jax.jit(_batched)
 
@@ -299,7 +341,8 @@ class JAXDistanceMarginalizedLikelihood:
             v = fused_log_likelihood_distmarg(
                 data, theta5[0:1], theta5[1:2], theta5[2:3],
                 theta5[3:4], theta5[4:5], self.x_grid, self.log_w_grid,
-                interp=interp, phase_marginalization=phase_marginalization)
+                interp=interp, phase_marginalization=phase_marginalization,
+                time_quadrature=time_quadrature)
             return v[0]
 
         self._scalar = _scalar
@@ -344,9 +387,13 @@ class JAXDistPhiMargLikelihood:
     ANGULAR_PARAM_ORDER = ("ra", "dec", "psi", "incl")
 
     def __init__(self, data, d_min, d_max, nphi=32, n_grid=256,
-                 d_prior="euclidean", interp=JAX_INTERP_DEFAULT, guess_snr=None):
+                 d_prior="euclidean", interp=JAX_INTERP_DEFAULT, guess_snr=None,
+                 *, time_quadrature=TIME_QUAD_DEFAULT):
         self.data = data
         self.interp = interp   # the instance's stencil; sample_phi_ref defaults to it
+        _validate_nonlinear_time_quadrature(
+            time_quadrature, "distance/phase marginalization")
+        self.time_quadrature = time_quadrature
         self.nphi = int(nphi)
         self._phi_grid = phi_ref_grid(self.nphi)
         # Adaptive distance quadrature: concentrate grid resolution on the
@@ -375,14 +422,15 @@ class JAXDistPhiMargLikelihood:
 
         def _batched(ra, dec, psi, incl):
             return fused_log_likelihood_distphimarg(
-                data, ra, dec, psi, incl, xg, lwg, pg, interp=interp)
+                data, ra, dec, psi, incl, xg, lwg, pg, interp=interp,
+                time_quadrature=time_quadrature)
 
         self._batched = jax.jit(_batched)
 
         def _scalar(theta4):
             v = fused_log_likelihood_distphimarg(
                 data, theta4[0:1], theta4[1:2], theta4[2:3], theta4[3:4],
-                xg, lwg, pg, interp=interp)
+                xg, lwg, pg, interp=interp, time_quadrature=time_quadrature)
             return v[0]
 
         self._scalar = _scalar
@@ -448,7 +496,8 @@ class JAXDistPhiMargLikelihood:
             self.data,
             jnp.asarray(ra_), jnp.asarray(dec_),
             jnp.asarray(psi_), jnp.asarray(incl_),
-            jnp.asarray(dist_), self._phi_grid, interp=interp))  # (nphi, S)
+            jnp.asarray(dist_), self._phi_grid, interp=interp,
+            time_quadrature=self.time_quadrature))  # (nphi, S)
 
         phi_vals = np.asarray(self._phi_grid)
         dphi = float(phi_vals[1] - phi_vals[0])
@@ -479,9 +528,12 @@ class JAXDistPhiPsiMargLikelihood:
 
     def __init__(self, data, d_min, d_max, nphi=32, npsi=16, n_grid=256,
                  d_prior="euclidean", interp=JAX_INTERP_DEFAULT, guess_snr=None,
-                 angle_marg="grid"):
+                 angle_marg="grid", *, time_quadrature=TIME_QUAD_DEFAULT):
         self.data = data
         self.interp = interp   # the instance's stencil; sample_phi_ref defaults to it
+        _validate_nonlinear_time_quadrature(
+            time_quadrature, "distance/phase/polarization marginalization")
+        self.time_quadrature = time_quadrature
         self.nphi = int(nphi)
         self.npsi = int(npsi)
         self._phi_grid = phi_ref_grid(self.nphi)
@@ -552,19 +604,22 @@ class JAXDistPhiPsiMargLikelihood:
                     _anglemarg._data_m_max(data)))
 
         if scheme == "grid":
-            def _fused(data_, ra, dec, incl):
+            def _fused(data_, ra, dec, incl, return_lnLt=False):
                 return fused_log_likelihood_distphipsimarg(
-                    data_, ra, dec, incl, xg, lwg, pg, sg, interp=interp)
+                    data_, ra, dec, incl, xg, lwg, pg, sg, interp=interp,
+                    time_quadrature=time_quadrature, return_lnLt=return_lnLt)
         elif scheme == "exact":
-            def _fused(data_, ra, dec, incl):
+            def _fused(data_, ra, dec, incl, return_lnLt=False):
                 return _anglemarg.fused_log_likelihood_distphipsimarg_exact(
                     data_, ra, dec, incl, xg, lwg, interp=interp,
-                    amp_sizing=amp_sizing)
+                    amp_sizing=amp_sizing, time_quadrature=time_quadrature,
+                    return_lnLt=return_lnLt)
         else:   # laplace
-            def _fused(data_, ra, dec, incl):
+            def _fused(data_, ra, dec, incl, return_lnLt=False):
                 return _anglemarg.fused_log_likelihood_distphipsimarg_laplace(
                     data_, ra, dec, incl, xg, lwg, interp=interp,
-                    amp_sizing=amp_sizing)
+                    amp_sizing=amp_sizing, time_quadrature=time_quadrature,
+                    return_lnLt=return_lnLt)
 
         def _batched(ra, dec, incl):
             return _fused(data, ra, dec, incl)
@@ -611,9 +666,13 @@ class JAXDistPsiMargLikelihood:
     ANGULAR_PARAM_ORDER = ("ra", "dec", "phiref", "incl")
 
     def __init__(self, data, d_min, d_max, npsi=8, n_grid=256,
-                 d_prior="euclidean", interp=JAX_INTERP_DEFAULT, guess_snr=None):
+                 d_prior="euclidean", interp=JAX_INTERP_DEFAULT, guess_snr=None,
+                 *, time_quadrature=TIME_QUAD_DEFAULT):
         self.data = data
         self.interp = interp   # the instance's stencil; sample_phi_ref defaults to it
+        _validate_nonlinear_time_quadrature(
+            time_quadrature, "distance/polarization marginalization")
+        self.time_quadrature = time_quadrature
         self.npsi = int(npsi)
         self._psi_grid = psi_grid(self.npsi)
         if int(os.environ.get("JAX_ILE_DISTGRID_ADAPTIVE", "0")) and guess_snr:
@@ -636,13 +695,14 @@ class JAXDistPsiMargLikelihood:
 
         def _batched(ra, dec, phiref, incl):
             return fused_log_likelihood_distpsimarg(
-                data, ra, dec, phiref, incl, xg, lwg, sg, interp=interp)
+                data, ra, dec, phiref, incl, xg, lwg, sg, interp=interp,
+                time_quadrature=time_quadrature)
         self._batched = jax.jit(_batched)
 
         def _scalar(theta4):
             v = fused_log_likelihood_distpsimarg(
                 data, theta4[0:1], theta4[1:2], theta4[2:3], theta4[3:4],
-                xg, lwg, sg, interp=interp)
+                xg, lwg, sg, interp=interp, time_quadrature=time_quadrature)
             return v[0]
         self._scalar = _scalar
         self._value_and_grad = jax.jit(jax.value_and_grad(_scalar))

@@ -42,6 +42,65 @@ response, geometric time delay, spin-(-2) spherical harmonics, the
 `kappa`/`rho^2` assembly, continuous time-shift interpolation, time
 marginalization, and **analytic distance marginalization**.
 
+### Time quadrature
+
+All JAX likelihood wrappers accept the conventional ILE keyword
+`time_quadrature={"simpson","bandlimited"}`.  Simpson remains the default.
+The opt-in `bandlimited` path is currently supported by
+`JAXExtrinsicLikelihood`, including analytic phase marginalization.  It forms
+the endpoint-nonduplicating even extension
+`[kappa[0], ..., kappa[-1], kappa[-2], ..., kappa[1]]`, FFT-interpolates it,
+applies the phase reduction on the
+fine grid, and integrates the original closed interval with a stable trapezoid
+rule.  The per-row power-of-two factor is derived from fine-grid peak curvature,
+remeasured after interpolation, and doubled until the integral agrees within
+1e-3 nat.  Row-local `lax.map` execution bounds scratch memory independently of
+the sampler batch.  There is deliberately no public factor knob; a row that
+cannot meet the criterion fails closed.
+
+The supported signal regime assumes spectral headroom below the sampled
+Nyquist frequency and negligible likelihood mass at both ends of the short
+integration window.  The latter is checked on the refined grid: either endpoint
+must be at least 15 natural-log units below the peak, otherwise `bandlimited`
+fails closed rather than trusting a boundary extension that can affect the
+answer.  Increase the physical time window or use Simpson when this diagnostic
+fires.
+
+The primitive gather includes support outside that window.  Its initial guard
+is the established half-window default rounded up to a power of two; one guard
+doubling is gathered at the same time.  A raised-cosine pad acts only across
+the support samples, reaching exactly one at the integration crop and zero
+with zero slope at the remote even-reflection turns.  The value is accepted
+only when both guard widths agree within 1e-3 nat, independently of the fine
+quadrature-factor doubling check.  Thus short-window truncation and fine-grid
+resolution have separate certificates.
+
+The JAX driver derives this support requirement before waveform precompute and
+widens `--internal-data-storage-window-half` when necessary.  It includes the
+full certified guard, a conservative 50 ms detector-delay allowance (larger
+than the Earth-diameter light time), and the
+largest shipped interpolation stencil.  The accumulator also validates every
+guarded gather index per row; missing support produces a fail-closed likelihood
+instead of inheriting the ordinary gatherer's out-of-buffer zero fill.  The
+baseline and banded finite-size/frequency-response accumulators enforce the
+same check; rotation remains refused because its norm depends on arrival time.
+The
+curvature-derived starting fine factor is capped at 1024 and certified once at
+2048; a sharper row is refused with guidance to increase the input/rholm sample
+rate rather than allocating multi-gigabyte FFT branches.
+
+Distance, phi, psi, exact-angle, and Laplace-marginalized wrappers currently
+refuse `bandlimited`.  Those nonlinear reductions generate time harmonics, so
+interpolating their already-reduced `lnL(t)` can converge to the wrong function;
+they require endpoint-specific primitive refinement before they can safely opt
+in.  They continue to use the unchanged Simpson default.
+The driver exposes the same public spelling as conventional ILE:
+`--time-marginalization-quadrature`.  `--interpolate-time` is an alias for the
+JAX-native `--interp` with conflict detection.  Conditional nuisance recovery
+is outside this implementation: `--resample-time-marginalization` and
+`--srate-resample-time-marginalization` are accepted for interface clarity but
+fail loudly rather than producing coarse or inconsistent draws.
+
 ## Modules
 
 - `detector.py` — `compute_detamresponse`, `time_delay_from_earth_center`

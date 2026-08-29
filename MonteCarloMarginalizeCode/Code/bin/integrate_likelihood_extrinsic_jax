@@ -71,6 +71,7 @@ import lalsimulation as lalsim
 
 import RIFT.lalsimutils as lalsimutils
 from RIFT.likelihood.jax_ile import build_data_from_precompute
+from RIFT.likelihood.jax_ile.wrapper import bandlimited_storage_requirement
 from RIFT.likelihood.jax_ile import anglemarg as _anglemarg
 from RIFT.likelihood.jax_ile.samplers import angle_marg_eval_chunk as _angle_marg_eval_chunk
 from RIFT.likelihood.jax_ile.core import _GATHERERS as _JAX_GATHERERS, JAX_INTERP_DEFAULT
@@ -253,6 +254,10 @@ def check_critical_and_report(opts, optp):
         fatal.append("--zero-likelihood is not implemented")
     if is_set("--maximize-only"):
         fatal.append("--maximize-only is not implemented (this driver integrates)")
+    if is_set("--resample-time-marginalization"):
+        fatal.append("--resample-time-marginalization is not implemented")
+    if is_set("--srate-resample-time-marginalization"):
+        fatal.append("--srate-resample-time-marginalization is not implemented")
     if fatal:
         optp.error("Cannot run as a faithful drop-in: " + "; ".join(fatal)
                    + ".  (These would silently change the result if ignored.)")
@@ -271,7 +276,9 @@ def check_critical_and_report(opts, optp):
                    "--event", "--save-samples", "--verbose", "--seed",
                    "--sim-xml", "--sim-grid", "--n-events-to-analyze",
                    "--random-event", "--distance-marginalization",
-                   "--time-marginalization", "--vectorized", "--use-gwsignal"}
+                   "--time-marginalization", "--time-marginalization-quadrature",
+                   "--interpolate-time",
+                   "--vectorized", "--use-gwsignal"}
     # These are implemented PER MODE.  Listing them unconditionally would claim
     # they act under --mode laplace-is (the default), nuts, map, multistart-nuts
     # and nuts-phimarg, where they are inert -- exactly the silent no-op this
@@ -429,6 +436,17 @@ def build_parser():
     g.add_option("--d-max", type=float, default=10000.0, help="Max distance (Mpc).")
     g.add_option("--distance-grid-points", type=int, default=256)
     g.add_option("--phase-marginalization", action="store_true", default=False)
+    g.add_option("--time-marginalization-quadrature", type="choice",
+                 choices=("simpson", "bandlimited"), default="simpson",
+                 help="Rule for the terminal time integral: historical fixed-grid "
+                      "Simpson or adaptive reflected-FFT interpolation followed "
+                      "by a converged trapezoid. No resolution knob is exposed; "
+                      "the factor is derived and rechecked from lnL(t).")
+    g.add_option("--resample-time-marginalization", action="store_true",
+                 default=False,
+                 help="Conventional ILE option; currently unsupported by JAX ILE.")
+    g.add_option("--srate-resample-time-marginalization", type="int", default=None,
+                 help="Conventional ILE option; currently unsupported by JAX ILE.")
     g.add_option("--n-phi", type=int, default=32,
                  help="phi_ref grid size for --mode flowmc-phimarg (default 32; "
                       "use 64-128 for l-max>=4 or production quality).")
@@ -767,6 +785,13 @@ def eval_lnL(like, theta, opts, with_distance):
         sl = slice(i, min(i + chunk, N))
         cols = [theta[sl, j] for j in range(theta.shape[1])]
         out[sl] = np.asarray(like.log_likelihood(*cols))
+        if (getattr(like, "time_quadrature", "simpson") == "bandlimited"
+                and np.any(np.isnan(out[sl]))):
+            raise RuntimeError(
+                "adaptive reflected-FFT time marginalization failed its width/"
+                "doubling convergence or endpoint-mass check; no coarse "
+                "likelihood is substituted. Increase the input/rholm sample "
+                "rate or integration/storage window.")
     return out
 
 
@@ -1077,6 +1102,20 @@ def was_supplied(opts, flag):
     "assume the user did not pass it" and so never fabricates a conflict.
     """
     return flag in getattr(opts, "_supplied_options", set())
+
+
+def resolve_ile_interface_aliases(opts, optp):
+    """Resolve conventional ILE spellings into JAX-native option values."""
+    if getattr(opts, "interpolate_time", None) is not None:
+        ile_interp = str(opts.interpolate_time).strip().lower()
+        if ile_interp not in _JAX_GATHERER_NAMES:
+            optp.error("--interpolate-time must be one of %s" %
+                       ", ".join(sorted(_JAX_GATHERER_NAMES)))
+        if was_supplied(opts, "--interp") and opts.interp != ile_interp:
+            optp.error("--interp %r and --interpolate-time %r disagree" %
+                       (opts.interp, ile_interp))
+        opts.interp = ile_interp
+    return opts
 
 
 def _target_ess_was_given(opts):
@@ -1460,14 +1499,21 @@ def write_samples(opts, out_index, theta, lnL, with_distance, logw=None,
     provenance = "fairdraw: %s n_out=%d" % (note, len(theta))
     if angle_note:
         provenance += " " + angle_note
+    phase_marginalized = bool(getattr(opts, "phase_marginalization", False))
+    if phase_marginalized:
+        provenance += " phase=analytically-marginalized"
 
     ndim = theta.shape[1] if theta.ndim == 2 else len(theta)
     if with_distance:
         # 6-D: ra, dec, psi, incl, phiref, dist
-        cols = np.column_stack([theta[:, 0], theta[:, 1], theta[:, 5],
-                                theta[:, 3], theta[:, 2], theta[:, 4],
-                                lnL])
-        hdr = "right_ascension declination distance inclination psi phi_orb loglikelihood"
+        if phase_marginalized:
+            cols = np.column_stack([theta[:, 0], theta[:, 1], theta[:, 5],
+                                    theta[:, 3], theta[:, 2], lnL])
+            hdr = "right_ascension declination distance inclination psi loglikelihood"
+        else:
+            cols = np.column_stack([theta[:, 0], theta[:, 1], theta[:, 5],
+                                    theta[:, 3], theta[:, 2], theta[:, 4], lnL])
+            hdr = "right_ascension declination distance inclination psi phi_orb loglikelihood"
     elif ndim == 4 and opts.mode == "flowmc-dpsimarg":
         # 4-D (flowmc-dpsimarg): theta = ra, dec, phiref, incl (psi marginalised,
         # phi_ref sampled).  Write ra, dec, incl, phi_orb.
@@ -1486,9 +1532,14 @@ def write_samples(opts, out_index, theta, lnL, with_distance, logw=None,
         hdr = "right_ascension declination inclination loglikelihood"
     else:
         # 5-D: ra, dec, psi, incl, phiref
-        cols = np.column_stack([theta[:, 0], theta[:, 1], theta[:, 3],
-                                theta[:, 2], theta[:, 4], lnL])
-        hdr = "right_ascension declination inclination psi phi_orb loglikelihood"
+        if phase_marginalized:
+            cols = np.column_stack([theta[:, 0], theta[:, 1], theta[:, 3],
+                                    theta[:, 2], lnL])
+            hdr = "right_ascension declination inclination psi loglikelihood"
+        else:
+            cols = np.column_stack([theta[:, 0], theta[:, 1], theta[:, 3],
+                                    theta[:, 2], theta[:, 4], lnL])
+            hdr = "right_ascension declination inclination psi phi_orb loglikelihood"
     # Column line FIRST (unchanged, so `head -1` parsers keep working); the
     # provenance line follows, so the artifact records how it was produced --
     # notably the export ESS, which was previously written nowhere.
@@ -1506,6 +1557,18 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
     # Per-EVENT state: a batch run analyzes several events in one process, and
     # an undersizing on event 0 must not label event 1.
     _anglemarg.reset_amp_failsafe()
+    tq = opts.time_marginalization_quadrature
+    if tq == "bandlimited":
+        required, g0, gcert = bandlimited_storage_requirement(
+            P.deltaT, opts.data_integration_window_half)
+        if opts.internal_data_storage_window_half < required:
+            print("  widening rholm storage for bandlimited time support: "
+                  "%.6g -> %.6g s" %
+                  (opts.internal_data_storage_window_half, required))
+            opts.internal_data_storage_window_half = required
+        print("  precompute time support: guard_initial=%d guard_certificate=%d "
+              "samples storage_half=%.6g s" %
+              (g0, gcert, opts.internal_data_storage_window_half))
     print("Building JAX likelihood (PrecomputeLikelihoodTerms + pack)...")
     like_data, extras = build_data_from_precompute(
         P.copy(), data_dict, psd_dict, fiducial_epoch,
@@ -1530,7 +1593,8 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
         like = JAXDistPhiMargLikelihood(
             like_data, opts.d_min, opts.d_max,
             nphi=nphi, n_grid=opts.distance_grid_points,
-            interp=opts.interp, guess_snr=extras["guess_snr"])
+            interp=opts.interp, guess_snr=extras["guess_snr"],
+            time_quadrature=tq)
         if getattr(like, "dist_grid_info", {}).get("mode") == "adaptive":
             gi = like.dist_grid_info
             print("  distance grid: ADAPTIVE  d_peak=%.3g Mpc  sigma_d=%.3g Mpc  npts=%d"
@@ -1550,7 +1614,8 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
         like = JAXDistPhiPsiMargLikelihood(
             like_data, opts.d_min, opts.d_max, nphi=nphi, npsi=npsi,
             n_grid=opts.distance_grid_points, interp=opts.interp,
-            guess_snr=extras["guess_snr"], angle_marg=angle_marg)
+            guess_snr=extras["guess_snr"], angle_marg=angle_marg,
+            time_quadrature=tq)
         # ALWAYS report the resolved scheme (requested may be 'auto'; this
         # pipeline has a documented history of silently-inert flags).
         print("  angle-marg scheme: %s (requested %s): %s"
@@ -1576,7 +1641,7 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
         like = JAXDistPsiMargLikelihood(
             like_data, opts.d_min, opts.d_max, npsi=npsi,
             n_grid=opts.distance_grid_points, interp=opts.interp,
-            guess_snr=extras["guess_snr"])
+            guess_snr=extras["guess_snr"], time_quadrature=tq)
         if getattr(like, "dist_grid_info", {}).get("mode") == "adaptive":
             gi = like.dist_grid_info
             print("  distance grid: ADAPTIVE  d_peak=%.3g Mpc  sigma_d=%.3g Mpc  npts=%d"
@@ -1588,13 +1653,25 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
               % (opts.distance_grid_points, opts.d_min, opts.d_max))
         like = JAXDistanceMarginalizedLikelihood(
             like_data, opts.d_min, opts.d_max, n_grid=opts.distance_grid_points,
-            interp=opts.interp, phase_marginalization=opts.phase_marginalization)
+            interp=opts.interp, phase_marginalization=opts.phase_marginalization,
+            time_quadrature=tq)
         dim = 5
     else:
         like = JAXExtrinsicLikelihood(
             like_data, interp=opts.interp,
-            phase_marginalization=opts.phase_marginalization)
+            phase_marginalization=opts.phase_marginalization,
+            time_quadrature=tq)
         dim = 6
+
+    if like.time_quadrature != tq:
+        raise RuntimeError("constructed likelihood changed time quadrature: %r != %r"
+                           % (like.time_quadrature, tq))
+    print("  time-marginalization quadrature: %s (interpolate-time: %s)"
+          % (like.time_quadrature, opts.interp))
+    if like.time_quadrature == "bandlimited":
+        print("  time guard: derived_initial=%d samples certified=%d samples; "
+              "fine factor is curvature-derived per row with one doubling certificate"
+              % (like.time_guard_initial, like.time_guard_certified))
 
     if opts.mode == "map":
         theta_map, lnL_map = run_map(like, opts, rng, dim, with_distance)
@@ -1800,6 +1877,7 @@ def main(argv=None):
     opts, _ = optp.parse_args(argv)
     # BEFORE anything reads an option: which tokens did the user actually type?
     record_supplied_options(opts, argv, optp)
+    resolve_ile_interface_aliases(opts, optp)
     check_critical_and_report(opts, optp)
 
     if opts.event_time is None:

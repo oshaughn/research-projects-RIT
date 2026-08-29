@@ -70,7 +70,8 @@ import jax
 import jax.numpy as jnp
 
 from . import core as _core
-from .core import (JAX_INTERP_DEFAULT, _accumulate_unit, _time_marginalize,
+from .core import (JAX_INTERP_DEFAULT, TIME_QUAD_DEFAULT, _accumulate_unit,
+                   _time_marginalize_terminal,
                    _logsumexp_grid_blocked, _distmarg_gh_logL,
                    make_distance_gh)
 
@@ -641,7 +642,8 @@ def _pad_chunks(values, chunk):
 def fused_log_likelihood_distphipsimarg_exact(
         data, ra, dec, incl, x_grid, log_w_grid,
         interp=JAX_INTERP_DEFAULT, amp_sizing=None,
-        dense_chunk=8, grid_block=32):
+        dense_chunk=8, grid_block=32,
+        time_quadrature=TIME_QUAD_DEFAULT, return_lnLt=False):
     """Distance-, phi_ref- AND psi-marginalized lnL: exact-coefficient scheme.
 
     Drop-in replacement for :func:`core.fused_log_likelihood_distphipsimarg`
@@ -707,7 +709,9 @@ def fused_log_likelihood_distphipsimarg_exact(
     (m, s), _ = jax.lax.scan(jax.checkpoint(_step), (m0, s0),
                              (phi_x, u_x, lw_x))
     lnL_t = m + jnp.log(s) - jnp.log(float(n_dense))
-    return _time_marginalize(lnL_t, data.w_t)
+    if return_lnLt:
+        return lnL_t
+    return _time_marginalize_terminal(lnL_t, data, time_quadrature)
 
 
 # ---------------------------------------------------------------------------
@@ -1091,7 +1095,8 @@ def _laplace_psi_lnI_block(a, c1, c2):
 def fused_log_likelihood_distphipsimarg_laplace(
         data, ra, dec, incl, x_grid, log_w_grid,
         interp=JAX_INTERP_DEFAULT, amp_sizing=None,
-        phi_chunk=16, dist_block=4):
+        phi_chunk=16, dist_block=4,
+        time_quadrature=TIME_QUAD_DEFAULT, return_lnLt=False):
     """Distance-, phi_ref- AND psi-marginalized lnL: analytic psi-Laplace scheme.
 
     Same contract and normalization as
@@ -1206,7 +1211,9 @@ def fused_log_likelihood_distphipsimarg_laplace(
     s0 = jnp.zeros((S, npts), dtype=jnp.float64)
     (m, s), _ = jax.lax.scan(jax.checkpoint(_step), (m0, s0), (phi_x, lw_x))
     lnL_t = m + jnp.log(s) - jnp.log(float(nphi_d))
-    return _time_marginalize(lnL_t, data.w_t)
+    if return_lnLt:
+        return lnL_t
+    return _time_marginalize_terminal(lnL_t, data, time_quadrature)
 
 
 def choose_angle_marg_scheme(amplitude, gh_enabled=None):
