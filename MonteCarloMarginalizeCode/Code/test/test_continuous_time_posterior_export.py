@@ -10,6 +10,7 @@ import pytest
 DRIVER = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "..", "bin",
     "integrate_likelihood_extrinsic_batchmode")
+LISA_DRIVER = DRIVER + "_lisa"
 MODULE = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "..", "RIFT", "likelihood",
     "time_posterior.py")
@@ -73,3 +74,10 @@ def test_driver_wires_continuous_draw_before_legacy_grid_choice():
     assert continuous < grid
     assert 'opts._time_posterior_export == "continuous"' in source
     assert 'opts._time_posterior_export == "grid"' in source
+
+
+def test_lisa_twin_exposes_and_uses_the_same_export_contract():
+    with open(LISA_DRIVER) as handle:
+        source = handle.read()
+    assert '"--time-posterior-export"' in source
+    assert source.count("draw_continuous_time_posterior(tvals, lnLt)") == 2

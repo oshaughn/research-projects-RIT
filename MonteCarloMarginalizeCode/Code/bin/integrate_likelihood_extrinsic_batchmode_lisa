@@ -238,6 +238,8 @@ optp.add_option("--psd-window-shape", type=float, default=0, help="Shape of Tuke
 optp.add_option("-m", "--time-marginalization", action="store_true", help="Perform marginalization over time via direct numerical integration. Default is false.")
 #optp.add_option("--n-fairdraw-extrinsic-samples",default=None,type=int,help="Extracts a concrete number of fair draw extrinsic samples, bounded above by n_eff")
 optp.add_option("--resample-time-marginalization",action='store_true', help="If time-marginalizaiton is true (and should almost always be true), at the end export step use resampling. REQUIRES using fairdraw-extrinsic-output")
+optp.add_option("--time-posterior-export", type="choice", choices=["auto", "continuous", "grid"], default="auto",
+                help="How --resample-time-marginalization exports time. auto (default) draws continuously when --interpolate-time is active, otherwise preserves the legacy grid; continuous always draws off-grid; grid is the explicit compatibility mode.")
 optp.add_option("-d", "--distance-marginalization", action="store_true", help="Perform marginalization over distance via a look-up table. Default is false.")
 optp.add_option("-l", "--distance-marginalization-lookup-table", default=None, help="Look-up table for distance marginalization.")
 optp.add_option("--vectorized", action="store_true", help="Perform manipulations of lm and timeseries using numpy arrays, not LAL data structures.  (Combine with --gpu to enable GPU use, where available)")
@@ -387,6 +389,9 @@ for pin_param in LIKELIHOOD_PINNABLE_PARAMS:
 optp.add_option_group(pinnable)
 
 opts, args = optp.parse_args()
+from RIFT.likelihood.time_posterior import resolve_time_posterior_export_mode
+opts._time_posterior_export = resolve_time_posterior_export_mode(
+    opts.time_posterior_export, "cubic" if opts.interpolate_time else "nearest")
 
 #
 # Failure modes
@@ -2770,9 +2775,16 @@ def resample_samples_LISA(my_samples, rholms, cross_terms, right_ascension, decl
   lnLt_norm = scipy.special.logsumexp(lnLt,axis=-1)
   tvals = identity_convert(tvals) # back to CPU
   
-  # Loop over and resample in time, picking index according to weights
+  # Draw continuously when sub-sample interpolation requested it; retain the
+  # historical fixed 1 ms LISA export grid as the explicit compatibility path.
   t_out = np.zeros(n_samples)
   lnL_out = np.zeros(n_samples)
+  if opts._time_posterior_export == "continuous":
+    from RIFT.likelihood.time_posterior import draw_continuous_time_posterior
+    t_out, lnL_out = draw_continuous_time_posterior(tvals, lnLt)
+    my_samples['t_ref'] = fiducial_epoch + t_out
+    my_samples["lnL_raw"] = lnL_out
+    return my_samples
   # identifiy max lnL(t) point, and then interpolate around that point to avoid Nan weights.
   index_max_lnLt = np.argmax(lnLt[0]).flatten()
   tval_at_max = tvals[index_max_lnLt]
@@ -2833,14 +2845,19 @@ def resample_samples(my_samples,
   lnLt_norm = scipy.special.logsumexp(lnLt,axis=-1)
   tvals = identity_convert(tvals) # back to CPU
 #  print(lnLt.shape, lnLt_norm.shape,tvals.shape)
-  # Loop over and resample in time, picking index according to weights
+  # Match the main driver's sub-sample export contract on this legacy
+  # ground-based path retained in the LISA executable.
   t_out = np.zeros(n_samples)
   lnL_out = np.zeros(n_samples)
-  indx_list =np.arange(len(tvals))
-  for indx in np.arange(n_samples):
-    indx_choose = np.random.choice(indx_list, p=np.exp(lnLt[indx] - lnLt_norm[indx]))
-    t_out[indx] = tvals[indx_choose]
-    lnL_out[indx] = lnLt[indx][indx_choose]
+  if opts._time_posterior_export == "continuous":
+    from RIFT.likelihood.time_posterior import draw_continuous_time_posterior
+    t_out, lnL_out = draw_continuous_time_posterior(tvals, lnLt)
+  else:
+    indx_list =np.arange(len(tvals))
+    for indx in np.arange(n_samples):
+      indx_choose = np.random.choice(indx_list, p=np.exp(lnLt[indx] - lnLt_norm[indx]))
+      t_out[indx] = tvals[indx_choose]
+      lnL_out[indx] = lnLt[indx][indx_choose]
 #    print(' Resampled time offset {} '.format(t_out[indx])) #, lnLt[indx]-lnLt_norm[indx])
     
   my_samples['t_ref'] = fiducial_epoch+t_out # add sample time jitter from reweighting to samples
