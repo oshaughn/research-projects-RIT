@@ -739,6 +739,9 @@ def _accumulate_unit_banded(data, ra, dec, psi, incl, phiref, interp,
 TIME_QUAD_DEFAULT = "simpson"        # unchanged behaviour; "bandlimited" is opt-in
 _TIME_QUAD_CHOICES = ("simpson", "bandlimited")
 _TIME_UPSAMPLE_DEFAULT = 8
+_TIME_ADAPTIVE_FACTOR_MAX = 1024
+_TIME_ADAPTIVE_SAFETY = 2.0
+_TIME_ADAPTIVE_RTOL = 1e-3
 
 
 def default_time_guard(npts):
@@ -915,11 +918,133 @@ def _time_marginalize(lnL_t, w_t):
     return m[:, 0] + jnp.log(L)
 
 
+def _reflected_fft_upsample(x, factor):
+    """FFT-interpolate a finite row after the literal ``[forward, backward]`` reflection.
+
+    The duplicated turning samples make the 2N periodic extension continuous at
+    both joins.  Only the forward interval, including its two endpoints, is
+    returned.  This is the JAX counterpart of
+    ``time_marginalization_quadrature.reflected_bandlimited_upsample``.
+    """
+    x = jnp.asarray(x)
+    factor = int(factor)
+    if factor == 1:
+        return x
+    n = x.shape[-1]
+    reflected = jnp.concatenate((x, jnp.flip(x, axis=-1)), axis=-1)
+    dense = _upsample_bandlimited(reflected, factor, axis=-1)
+    return dense[..., :(n - 1) * factor + 1]
+
+
+def _peak_width_from_lnL_jax(lnL_t, dx):
+    """Measure per-row Gaussian peak width from finite centred differences."""
+    n = lnL_t.shape[-1]
+    finite = jnp.isfinite(lnL_t)
+    safe = jnp.where(finite, lnL_t, -jnp.inf)
+    jmax = jnp.argmax(safe, axis=-1)
+    sigma = jnp.full(jmax.shape, jnp.inf, dtype=jnp.float64)
+    measurable = jnp.zeros(jmax.shape, dtype=bool)
+
+    def take(j):
+        return jnp.take_along_axis(lnL_t, j[..., None], axis=-1)[..., 0]
+
+    for d in (1, 2, 4, 8):
+        if 2 * d >= n:
+            break
+        jc = jnp.clip(jmax, d, n - 1 - d)
+        d2 = (take(jc - d) - 2.0 * take(jc) + take(jc + d)) / (d * dx) ** 2
+        fresh = jnp.isfinite(d2) & (~measurable)
+        neg = fresh & (d2 < 0)
+        sigma = jnp.where(neg, 1.0 / jnp.sqrt(jnp.where(neg, -d2, 1.0)), sigma)
+        measurable = measurable | fresh
+    return sigma, measurable
+
+
+def _log_trapezoid(lnL_t, dx):
+    """Stable row-wise log trapezoid over exactly the represented interval."""
+    m = jnp.max(lnL_t, axis=-1, keepdims=True)
+    m_safe = jnp.where(jnp.isfinite(m), m, 0.0)
+    y = jnp.exp(lnL_t - m_safe)
+    total = dx * (0.5 * y[..., 0] + jnp.sum(y[..., 1:-1], axis=-1)
+                  + 0.5 * y[..., -1])
+    return m_safe[..., 0] + jnp.log(total)
+
+
+def _terminal_reflected_fft_at_factor(lnL_t, deltaT, factor):
+    dense = _reflected_fft_upsample(lnL_t, factor).real
+    value = _log_trapezoid(dense, deltaT / float(factor))
+    sigma, measurable = _peak_width_from_lnL_jax(dense, deltaT / float(factor))
+    resolved = (~measurable) | (~jnp.isfinite(sigma)) | (
+        deltaT / float(factor) <= sigma / _TIME_ADAPTIVE_SAFETY)
+    return value, resolved
+
+
+def _time_marginalize_reflected_fft(lnL_t, deltaT, w_t):
+    """Adaptive reflected-FFT terminal time marginalization.
+
+    A block-wide power-of-two factor is selected from the narrowest measurable
+    coarse-row curvature (static FFT shapes require one factor per compiled
+    branch).  The selected grid is remeasured and the integral is doubled until
+    both the width criterion and a 1e-3-nat convergence check pass.  Rows with
+    any non-finite coarse bin retain the historical Simpson value; their
+    sanitized values still enter traced FFT branches because JAX evaluates both
+    sides of ``where``.
+    """
+    lnL_t = jnp.asarray(lnL_t, dtype=jnp.float64)
+    simpson = _time_marginalize(lnL_t, w_t)
+    finite_rows = jnp.all(jnp.isfinite(lnL_t), axis=-1)
+    clean = jnp.where(finite_rows[:, None], lnL_t, 0.0)
+
+    sigma, measurable = _peak_width_from_lnL_jax(clean, deltaT)
+    need = jnp.where(measurable & jnp.isfinite(sigma) & (sigma > 0),
+                     _TIME_ADAPTIVE_SAFETY * deltaT / sigma, 1.0)
+    need = jnp.maximum(need, 1.0)
+    factor_float = jnp.exp2(jnp.ceil(jnp.log2(need)))
+    factor_float = jnp.where(factor_float < need, factor_float * 2.0, factor_float)
+    factor_float = jnp.max(factor_float)
+    too_sharp = (~jnp.isfinite(factor_float)) | (
+        factor_float > _TIME_ADAPTIVE_FACTOR_MAX)
+    # Clamp before the integer cast: inf or an out-of-range float can wrap to a
+    # negative integer and otherwise masquerade as factor 1.
+    factor = jnp.minimum(factor_float, float(_TIME_ADAPTIVE_FACTOR_MAX)).astype(
+        jnp.int32)
+
+    powers = tuple(1 << k for k in range(11))  # 1 .. 1024; two rechecks reach 4096
+
+    def make_branch(base):
+        def branch(x):
+            v0, r0 = _terminal_reflected_fft_at_factor(x, deltaT, base)
+            v1, r1 = _terminal_reflected_fft_at_factor(x, deltaT, 2 * base)
+            v2, r2 = _terminal_reflected_fft_at_factor(x, deltaT, 4 * base)
+            c1 = r1 & (jnp.abs(v1 - v0) <= _TIME_ADAPTIVE_RTOL)
+            c2 = r2 & (jnp.abs(v2 - v1) <= _TIME_ADAPTIVE_RTOL)
+            # A non-converged final doubling is a fail-closed NaN, not a
+            # plausible-looking under-resolved likelihood.
+            return jnp.where(c1, v1, jnp.where(c2, v2, jnp.nan))
+        return branch
+
+    index = jnp.clip(jnp.ceil(jnp.log2(factor.astype(jnp.float64))).astype(jnp.int32),
+                     0, len(powers) - 1)
+    refined = jax.lax.switch(index, tuple(make_branch(f) for f in powers), clean)
+    refined = jnp.where(too_sharp, jnp.nan, refined)
+    return jnp.where(finite_rows, refined, simpson)
+
+
+def _time_marginalize_terminal(lnL_t, data, time_quadrature=TIME_QUAD_DEFAULT):
+    """Common terminal selector used by every JAX time-marginalized endpoint."""
+    if time_quadrature not in _TIME_QUAD_CHOICES:
+        raise ValueError("time_quadrature must be one of %r, got %r"
+                         % (_TIME_QUAD_CHOICES, time_quadrature))
+    if time_quadrature == "simpson":
+        return _time_marginalize(lnL_t, data.w_t)
+    return _time_marginalize_reflected_fft(lnL_t, data.deltaT, data.w_t)
+
+
 def fused_log_likelihood(data, ra, dec, psi, incl, phiref, distMpc,
                          interp=JAX_INTERP_DEFAULT, phase_marginalization=False,
                          time_quad=TIME_QUAD_DEFAULT,
-                         time_upsample=_TIME_UPSAMPLE_DEFAULT,
-                         time_guard=None):
+                         time_upsample=None, time_guard=None,
+                         time_quadrature=None, return_lnLt=False):
     """Time-marginalized factored log-likelihood at a fixed distance, lnL(theta).
 
     Parameters
@@ -956,6 +1081,11 @@ def fused_log_likelihood(data, ra, dec, psi, incl, phiref, distMpc,
     -------
     lnL : array_like, shape (S,)
     """
+    canonical_time_api = time_quadrature is not None
+    if canonical_time_api:
+        if time_quad != TIME_QUAD_DEFAULT and time_quad != time_quadrature:
+            raise ValueError("time_quad and time_quadrature disagree")
+        time_quad = time_quadrature
     if time_quad not in _TIME_QUAD_CHOICES:
         # Fail on an unrecognised value rather than silently falling through to
         # the default: a typo'd quadrature name that quietly gives you the OLD
@@ -963,7 +1093,13 @@ def fused_log_likelihood(data, ra, dec, psi, incl, phiref, distMpc,
         # getting bitten by.
         raise ValueError("time_quad must be one of %r, got %r"
                          % (_TIME_QUAD_CHOICES, time_quad))
-    if time_quad == "bandlimited" and _norm_is_arrival_time_dependent(data):
+    # ``time_quad`` / ``time_upsample`` is the PR-208 low-level API.  Preserve
+    # its primitive-kappa behavior for direct callers; wrappers and drivers use
+    # the conventional ILE ``time_quadrature`` spelling and the adaptive
+    # terminal implementation.
+    legacy_primitive_refinement = (time_quad == "bandlimited"
+                                   and not canonical_time_api)
+    if legacy_primitive_refinement and _norm_is_arrival_time_dependent(data):
         # Same reason, other direction: the band-limited quadrature reconstructs
         # kappa(t) and holds the model norm at one time bin, so on data whose
         # <h|h> depends on the arrival time it would quietly return a DIFFERENT
@@ -975,7 +1111,7 @@ def fused_log_likelihood(data, ra, dec, psi, incl, phiref, distMpc,
             "rotation data.")
     # Only the band-limited path widens the window; "simpson" integrates the
     # sampled window itself, so it must keep gathering exactly data.npts bins.
-    if time_quad == "bandlimited":
+    if legacy_primitive_refinement:
         guard = (default_time_guard(data.npts) if time_guard is None
                  else int(time_guard))
     else:
@@ -987,21 +1123,26 @@ def fused_log_likelihood(data, ra, dec, psi, incl, phiref, distMpc,
         guard=guard)
     kappa_sq = kappa_unit * invDist[:, None]
     rho_sq = rho_sq_unit * jnp.square(invDist)[:, None]
-    if time_quad == "bandlimited":
+    if legacy_primitive_refinement:
         return _time_marginalize_bandlimited(
-            kappa_sq, rho_sq, data.deltaT, int(time_upsample), guard,
+            kappa_sq, rho_sq, data.deltaT,
+            int(_TIME_UPSAMPLE_DEFAULT if time_upsample is None else time_upsample), guard,
             phase_marginalization=phase_marginalization)
     if phase_marginalization:
         lnL_t = jnp.abs(kappa_sq) - 0.5 * rho_sq
     else:
         lnL_t = kappa_sq.real - 0.5 * rho_sq
-    return _time_marginalize(lnL_t, data.w_t)
+    if return_lnLt:
+        return lnL_t
+    return _time_marginalize_terminal(lnL_t, data, time_quad)
 
 
 def fused_log_likelihood_distmarg(data, ra, dec, psi, incl, phiref,
                                   x_grid, log_w_grid,
                                   interp=JAX_INTERP_DEFAULT, phase_marginalization=False,
-                                  grid_block=64):
+                                  grid_block=64,
+                                  time_quadrature=TIME_QUAD_DEFAULT,
+                                  return_lnLt=False):
     """Distance- AND time-marginalized factored log-likelihood, lnL(angles).
 
     Marginalizes the luminosity distance analytically (numerical quadrature over
@@ -1046,7 +1187,9 @@ def fused_log_likelihood_distmarg(data, ra, dec, psi, incl, phiref,
     a = x_grid                     # (G,)
     b = -0.5 * jnp.square(x_grid)  # (G,)
     lnL_t = _logsumexp_grid_blocked(K, R, a, b, log_w_grid, grid_block)
-    return _time_marginalize(lnL_t, data.w_t)
+    if return_lnLt:
+        return lnL_t
+    return _time_marginalize_terminal(lnL_t, data, time_quadrature)
 
 
 def _logsumexp_grid_blocked(K, R, a, b, log_w, block):
@@ -1175,7 +1318,9 @@ def phi_ref_grid(nphi: int) -> np.ndarray:
 
 
 def fused_log_likelihood_phimarg(data, ra, dec, psi, incl, distMpc,
-                                  phi_grid, interp=JAX_INTERP_DEFAULT):
+                                  phi_grid, interp=JAX_INTERP_DEFAULT,
+                                  time_quadrature=TIME_QUAD_DEFAULT,
+                                  return_lnLt=False):
     """Time-marginalized factored lnL with φ_ref marginalized via uniform grid sum.
 
     Evaluates the standard factored lnL at each φ_ref in ``phi_grid`` and
@@ -1212,13 +1357,18 @@ def fused_log_likelihood_phimarg(data, ra, dec, psi, incl, distMpc,
     (m, s), _ = jax.lax.scan(_phi_step, (m0, s0), phi_grid_jax)
 
     lnL_t_marg = m + jnp.log(s) - jnp.log(nphi)
-    return _time_marginalize(lnL_t_marg, data.w_t)
+    if return_lnLt:
+        return lnL_t_marg
+    return _time_marginalize_terminal(lnL_t_marg, data, time_quadrature)
 
 
 def fused_log_likelihood_distphimarg(data, ra, dec, psi, incl,
                                       x_grid, log_w_grid,
                                       phi_grid, interp=JAX_INTERP_DEFAULT,
-                                      grid_block=64):
+                                      grid_block=64,
+                                      time_quadrature=TIME_QUAD_DEFAULT,
+                                      return_lnLt=False,
+                                      return_phi_lnLt=False):
     """Distance- AND φ_ref-marginalized factored lnL over (ra, dec, psi, incl).
 
     Marginalises over both luminosity distance (via quadrature grid, as in
@@ -1268,14 +1418,18 @@ def fused_log_likelihood_distphimarg(data, ra, dec, psi, incl,
                 kappa_unit.real, rho_sq_unit, a, b, log_w_grid, grid_block)
         m_new = jnp.maximum(m, lnL_t)
         s_new = s * jnp.exp(m - m_new) + jnp.exp(lnL_t - m_new)
-        return (m_new, s_new), None
+        return (m_new, s_new), (lnL_t if return_phi_lnLt else None)
 
     m0 = jnp.full((S, data.npts), -jnp.inf, dtype=jnp.float64)
     s0 = jnp.zeros((S, data.npts), dtype=jnp.float64)
-    (m, s), _ = jax.lax.scan(_phi_step, (m0, s0), phi_grid_jax)
+    (m, s), lnL_phi_t = jax.lax.scan(_phi_step, (m0, s0), phi_grid_jax)
 
     lnL_t_marg = m + jnp.log(s) - jnp.log(nphi)
-    return _time_marginalize(lnL_t_marg, data.w_t)
+    if return_phi_lnLt:
+        return lnL_phi_t
+    if return_lnLt:
+        return lnL_t_marg
+    return _time_marginalize_terminal(lnL_t_marg, data, time_quadrature)
 
 
 def psi_grid(npsi: int) -> np.ndarray:
@@ -1290,7 +1444,9 @@ def psi_grid(npsi: int) -> np.ndarray:
 
 def fused_log_likelihood_distphipsimarg(data, ra, dec, incl,
                                         x_grid, log_w_grid, phi_grid, psi_grid_,
-                                        interp=JAX_INTERP_DEFAULT, grid_block=64):
+                                        interp=JAX_INTERP_DEFAULT, grid_block=64,
+                                        time_quadrature=TIME_QUAD_DEFAULT,
+                                        return_lnLt=False):
     """Distance-, phi_ref- AND psi-marginalized factored lnL over (ra, dec, incl).
 
     Marginalizes luminosity distance (quadrature grid), orbital phase phi_ref and
@@ -1339,12 +1495,16 @@ def fused_log_likelihood_distphipsimarg(data, ra, dec, incl,
     # backward pass -> memory O(1) in the grid size.
     (m, s), _ = jax.lax.scan(jax.checkpoint(_step), (m0, s0), pairs)
     lnL_t_marg = m + jnp.log(s) - jnp.log(npair)
-    return _time_marginalize(lnL_t_marg, data.w_t)
+    if return_lnLt:
+        return lnL_t_marg
+    return _time_marginalize_terminal(lnL_t_marg, data, time_quadrature)
 
 
 def fused_log_likelihood_distpsimarg(data, ra, dec, phiref, incl,
                                      x_grid, log_w_grid, psi_grid_,
-                                     interp=JAX_INTERP_DEFAULT, grid_block=64):
+                                     interp=JAX_INTERP_DEFAULT, grid_block=64,
+                                     time_quadrature=TIME_QUAD_DEFAULT,
+                                     return_lnLt=False):
     """Distance- AND psi-marginalized factored lnL over (ra, dec, phi_ref, incl).
 
     Marginalizes luminosity distance (quadrature grid) and polarization psi
@@ -1386,11 +1546,14 @@ def fused_log_likelihood_distpsimarg(data, ra, dec, phiref, incl,
     # remat: cheap insurance (psi grid is small, but keeps gradient memory O(1)).
     (m, s), _ = jax.lax.scan(jax.checkpoint(_psi_step), (m0, s0), psi_g)
     lnL_t_marg = m + jnp.log(s) - jnp.log(npsi)
-    return _time_marginalize(lnL_t_marg, data.w_t)
+    if return_lnLt:
+        return lnL_t_marg
+    return _time_marginalize_terminal(lnL_t_marg, data, time_quadrature)
 
 
 def phi_ref_conditional_lnL(data, ra, dec, psi, incl, distMpc,
-                              phi_grid, interp=JAX_INTERP_DEFAULT):
+                              phi_grid, interp=JAX_INTERP_DEFAULT,
+                              time_quadrature=TIME_QUAD_DEFAULT):
     """Log-likelihood vs φ_ref given the other extrinsic parameters.
 
     Returns a ``(nphi, S)`` array of time-marginalized lnL values, one per
@@ -1410,7 +1573,7 @@ def phi_ref_conditional_lnL(data, ra, dec, psi, incl, distMpc,
         kappa = kappa_unit * invDist[:, None]
         rho_sq = rho_sq_unit * jnp.square(invDist)[:, None]
         lnL_t = kappa.real - 0.5 * rho_sq
-        return None, _time_marginalize(lnL_t, data.w_t)   # carry=None, out=(S,)
+        return None, _time_marginalize_terminal(lnL_t, data, time_quadrature)
 
     _, lnL_per_phi = jax.lax.scan(_phi_step, None, phi_grid_jax)
     return lnL_per_phi   # (nphi, S)

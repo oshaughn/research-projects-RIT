@@ -42,6 +42,28 @@ response, geometric time delay, spin-(-2) spherical harmonics, the
 `kappa`/`rho^2` assembly, continuous time-shift interpolation, time
 marginalization, and **analytic distance marginalization**.
 
+### Time quadrature and conditional time export
+
+All JAX likelihood wrappers accept the conventional ILE keyword
+`time_quadrature={"simpson","bandlimited"}`.  Simpson remains the default.
+The opt-in `bandlimited` path operates on the final `lnL(t)` after any distance,
+phase, polarization, exact-angle, or Laplace reduction: it forms the literal
+2N `[forward, backward]` reflection, FFT-interpolates it, and integrates the
+original closed interval with a stable trapezoid rule.  The power-of-two factor
+is derived from peak curvature, remeasured after interpolation, and doubled
+until the integral agrees within 1e-3 nat.  There is deliberately no public
+factor knob; a row that cannot meet the criterion fails closed.
+
+The driver exposes the same public spelling as conventional ILE:
+`--time-marginalization-quadrature`.  `--interpolate-time` is an alias for the
+JAX-native `--interp` with conflict detection.  With
+`--resample-time-marginalization`, saved samples include a GPS `t_ref` drawn
+from the conditional posterior on the same converged fine grid; an optional
+`--srate-resample-time-marginalization` is a minimum output rate, never a cap on
+the derived resolution.  The per-row factors are recorded in the sample header.
+For phi-marginalized modes, `phi_orb` is drawn conditional on that refined
+`t_ref`, rather than from an independently time-marginalized distribution.
+
 ## Modules
 
 - `detector.py` — `compute_detamresponse`, `time_delay_from_earth_center`
