@@ -189,7 +189,7 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #   demo_*.py, debug_*.py,        Demos, debugging scripts and a figure generator, not
 #   benchmark_snr_sequence.py,    assertions.  None defines a test_* function and none
 #   make_3g_figdata.py            is intended as a gate.
-#   test_jax_time_quadrature.py       7  band-limited time marginalization.  The
+#   test_jax_time_quadrature.py      12  band-limited time marginalization.  The
 #                                         stock path integrates exp(lnL_t) with fixed
 #                                         Simpson weights at the DATA spacing while the
 #                                         integrand width sigma_t = 1/(2 pi rho sigma_f)
@@ -216,7 +216,21 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         that it REFUSES data whose <h|h> depends on
 #                                         arrival time (the slow-rotation post-phase),
 #                                         where holding the norm at one bin would be a
-#                                         different likelihood.  Pure numpy
+#                                         different likelihood.  And the GUARD
+#                                         SAMPLES: the window is a CROP, so its
+#                                         ends do not join, and the FFT's
+#                                         periodic seam rings into the inserted
+#                                         samples while every retained sample
+#                                         stays exact -- invisible to an
+#                                         exactness test built from whole-period
+#                                         modes.  Pins the defect on a
+#                                         non-periodic cropped tone, its removal
+#                                         by guard samples, that the guard is
+#                                         support and never enters the integral,
+#                                         that it has no default, and that the
+#                                         band-limited path actually widens the
+#                                         accumulation window (while Simpson
+#                                         does not).  Pure numpy
 #                                         and jax, no lal, no GPU.
 
 FILES=(
@@ -317,10 +331,14 @@ fi
 # tripped this floor twice.  When in doubt, take the number from a CI log line
 # ("collected N tests from M files") rather than from your shell.
 # Raised 153 -> 155 by the two new test_jax_time_quadrature.py pins (original
-# integration window; refusal of arrival-time-dependent norms).  Raising the floor
+# integration window; refusal of arrival-time-dependent norms), then 155 -> 160 by
+# the five guard-sample pins in the same file (periodic-seam defect on a
+# non-periodic crop; its removal by guard samples; guard is support, not window;
+# no default guard; the band-limited path widens the accumulation window).
+# Raising the floor
 # by exactly the number of tests ADDED is safe whatever the environment delta above,
 # since it preserves the margin the previous floor already had.
-EXPECTED_TESTS=155
+EXPECTED_TESTS=160
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"
