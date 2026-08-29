@@ -5,6 +5,8 @@
 #   python check_waveform_random.py  --force-psi 0.1
 #   python ./check_waveform_random.py --approx SpinTaylorT4 --force-psi 0 --use-same-fref --force-aligned
 #   python check_waveform_random.py --approx SEOBNRv5EHM --force-aligned --use-eccentric --use-gwsignal --inj mdc.xml.gz --event 15
+#   python check_waveform_random.py --approximant IMRPhenomXPHM --fiducial --use-extra-fd-args --assert-overlap 0.998
+#   python check_waveform_random.py --approximant IMRPhenomXPHM --stress-q4-edge --seglen 16 --use-extra-fd-args --assert-overlap 0.995
 #
 # RESULTS
 #   - Pv2: perfect
@@ -25,6 +27,7 @@
 
 import numpy as np
 from matplotlib import pyplot as plt
+from scipy import signal
 import argparse
 import lal
 import sys
@@ -37,6 +40,8 @@ import RIFT.physics.GWSignal as rift_gws
 parser = argparse.ArgumentParser()
 parser.add_argument("--approximant",type=str,default="IMRPhenomPv2")
 parser.add_argument("--fiducial",action='store_true')
+parser.add_argument("--stress-q4-edge", action='store_true')
+parser.add_argument("--stress-near-aligned", action='store_true')
 parser.add_argument("--mtot",default=40,type=float)
 parser.add_argument("--fmin",default=20,type=float)
 parser.add_argument("--use-gwsignal",action='store_true')
@@ -57,18 +62,44 @@ parser.add_argument("--inj", default=None,help="inspiral XML file containing inj
 parser.add_argument("--event",type=int, default=None,help="event ID of injection XML to use.")
 parser.add_argument("--seglen",default=8,type=int)
 parser.add_argument("--verbose",action='store_true')
+parser.add_argument("--assert-overlap", type=float, default=None,
+                    help="fail unless the mode-sum/direct flat-noise overlap, maximized over integer time and constant phase, reaches this value")
 opts=  parser.parse_args()
+
+
+def best_flat_overlap(a, b, delta_t, f_low, f_high):
+    """Flat-noise complex overlap maximized over integer time and phase."""
+    fa = np.fft.fft(a)
+    fb = np.fft.fft(b)
+    freqs = np.fft.fftfreq(len(a), delta_t)
+    keep = np.logical_and(np.abs(freqs) >= f_low, np.abs(freqs) <= f_high)
+    fa = np.where(keep, fa, 0)
+    fb = np.where(keep, fb, 0)
+    a_band = np.fft.ifft(fa)
+    b_band = np.fft.ifft(fb)
+    corr = signal.correlate(a_band, b_band, mode="full", method="fft")
+    lags = signal.correlation_lags(len(a_band), len(b_band), mode="full")
+    lag = int(lags[np.argmax(np.abs(corr))])
+    b_shift = np.zeros_like(b_band)
+    if lag >= 0:
+        b_shift[lag:] = b_band[:len(b_band)-lag]
+    else:
+        b_shift[:lag] = b_band[-lag:]
+    overlap = abs(np.vdot(a_band, b_shift))/(np.linalg.norm(a_band)*np.linalg.norm(b_shift))
+    scale = np.vdot(b_shift, a_band)/np.vdot(b_shift, b_shift)
+    return float(overlap), lag, scale
 
 P = lalsimutils.ChooseWaveformParams()
 P.ampO=-1  # need this otherwise we don't get SpinTaylor HM output
 P.phaseO = 7 # so we have less insane outputs
 P.taper = lalsimutils.lsu_TAPER_START
-if not(opts.fiducial) and not(opts.inj):
+if not(opts.fiducial or opts.stress_q4_edge or opts.stress_near_aligned) and not(opts.inj):
    print("Creating random event to use for plot comparison.")
    P.randomize()
    # move inside conditional for use inj purposes
    P.dist = RIFT.likelihood.factored_likelihood.distMpcRef*1e6*lal.PC_SI  # fiducial reference distance
    P.assign_param('mtot',opts.mtot*lal.MSUN_SI)
+
    if opts.use_eccentric:
       P.eccentricity = np.random.uniform(0.0,0.4) #for safety, for now
       P.meanPerAno = np.random.uniform(0.0,2*np.pi)
@@ -108,6 +139,17 @@ else:
    P.dist = RIFT.likelihood.factored_likelihood.distMpcRef*1e6*lal.PC_SI  # fiducial reference distance
    P.assign_param('mtot',opts.mtot*lal.MSUN_SI)
 
+   if opts.stress_q4_edge:
+      P.m1, P.m2 = 60*lal.MSUN_SI, 15*lal.MSUN_SI
+      P.incl, P.phiref, P.psi = 1.2, 1.1, 0.4
+      P.s1x, P.s1y, P.s1z = 0.75, 0.0, 0.25
+      P.s2x, P.s2y, P.s2z = -0.20, 0.25, -0.10
+   elif opts.stress_near_aligned:
+      P.m1, P.m2 = 40*lal.MSUN_SI, 20*lal.MSUN_SI
+      P.incl, P.phiref, P.psi = 1.2, 1.1, 0.4
+      P.s1x, P.s1y, P.s1z = 1e-6, 0.0, 0.4
+      P.s2x, P.s2y, P.s2z = 0.0, 0.0, -0.2
+
 if opts.force_aligned:
     P.s1x = P.s1y=P.s2x=P.s2y=0
 if not(opts.use_gwsignal):
@@ -123,6 +165,8 @@ if opts.approximant == "SEOBNRv5EHM":
 P.deltaT=1./4096
 P.deltaF = 1./opts.seglen
 P.fref = 22
+if opts.stress_q4_edge:
+    P.fref = 30
 P.fmin=opts.fmin
 if opts.use_same_fref:
     P.fref = P.fmin
@@ -134,11 +178,10 @@ if opts.force_zero_inclination:
 P.print_params()
 
 # hoft via hlm, using exactly the function call we use in production
-extra_args ={}
 extra_waveform_args ={}
 extra_waveform_args['fd_centering_factor']= 0.9
 if opts.use_extra_fd_args:
-    extra_args['fd_L_frame'] = True
+    extra_waveform_args['fd_L_frame'] = True
 if opts.use_xphm_spintaylor:
     extra_waveform_args['FinalSpinMod'] =2
     extra_waveform_args['PhenomXPHMReleaseVersion'] = 122022
@@ -146,7 +189,7 @@ if opts.use_xphm_spintaylor:
 
 
 P_copy = P.manual_copy() # beware, call may change P!
-hlmF_1, _= factored_likelihood.internal_hlm_generator(P_copy, opts.Lmax, use_gwsignal=opts.use_gwsignal, use_gwsignal_approx=opts.approximant,ROM_group=opts.rom_group,ROM_param=opts.rom_param, extra_waveform_kwargs=extra_waveform_args, **extra_args)
+hlmF_1, _= factored_likelihood.internal_hlm_generator(P_copy, opts.Lmax, use_gwsignal=opts.use_gwsignal, use_gwsignal_approx=opts.approximant,ROM_group=opts.rom_group,ROM_param=opts.rom_param, extra_waveform_kwargs=extra_waveform_args)
 hlmT_1  = {}
 for mode in hlmF_1:
     hlmT_1[mode] = lalsimutils.DataInverseFourier(hlmF_1[mode])
@@ -184,6 +227,36 @@ else:
   #hTc_2 = 
 if opts.verbose:
   print('net2 ', np.max(np.abs(hTc_2.data.data)))
+
+if opts.assert_overlap is not None:
+    overlap, lag, scale = best_flat_overlap(
+        np.asarray(hTc_1.data.data), np.asarray(hTc_2.data.data),
+        float(hTc_1.deltaT), P.fmin, min(1024., 0.5/P.deltaT),
+    )
+    print("Mode-sum/direct overlap", overlap, "at lag", lag, "samples")
+    if not np.isfinite(overlap) or overlap < opts.assert_overlap:
+        raise SystemExit("FAIL: overlap {} is below {}".format(overlap, opts.assert_overlap))
+    print("Best aligned complex scale", scale)
+    if not np.isfinite(scale) or abs(np.angle(scale)) > 0.05 or not 0.8 < abs(scale) < 1.2:
+        raise SystemExit("FAIL: mode-sum/direct phase or amplitude convention is inconsistent")
+
+    # fd_L_frame modes are intrinsic.  Polarization is applied only when the
+    # modes are summed into strain, so changing psi must not change any mode.
+    P_psi = P.manual_copy()
+    P_psi.psi += 0.37
+    hlmF_psi, _ = factored_likelihood.internal_hlm_generator(
+        P_psi, opts.Lmax, use_gwsignal=opts.use_gwsignal,
+        use_gwsignal_approx=opts.approximant, ROM_group=opts.rom_group,
+        ROM_param=opts.rom_param, extra_waveform_kwargs=extra_waveform_args,
+    )
+    relative_mode_difference = max(
+        np.linalg.norm(hlmF_1[mode].data.data - hlmF_psi[mode].data.data)
+        / max(np.linalg.norm(hlmF_1[mode].data.data), np.finfo(float).tiny)
+        for mode in hlmF_1
+    )
+    print("Maximum relative mode change under psi shift", relative_mode_difference)
+    if relative_mode_difference > 1e-12:
+        raise SystemExit("FAIL: intrinsic modes depend on polarization angle")
 
 # now confirm complex_hoft dependence on psi is as desired
 #    NOT THE SAME PSI DEPENDENCE AS WE ASSUME ELSEWHERE

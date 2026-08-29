@@ -330,7 +330,11 @@ jobs:
     # and means a breaking upstream jax release can redden this job outside any PR's
     # control. If that becomes noisy, pin here rather than deleting the job.
     #
-    # Cost.  CURRENT (EXPECTED_TESTS=148 in .travis/test-jax.sh): 148 tests, the 139
+    # Cost.  CURRENT (EXPECTED_TESTS=144 in .travis/test-jax.sh): 144 tests, measured
+    # 859 s of pytest on ldas-pcdev11 pinned to 16 cores (jax 0.9.2,
+    # JAX_PLATFORMS=cpu, OMP_NUM_THREADS=1).  The count grew 27 -> 48 -> 64
+    # (#180, fair-draw export) -> 95 (this PR, the tempering chooser), and #190
+    # Cost.  CURRENT (EXPECTED_TESTS=153 in .travis/test-jax.sh): 153 tests, the 139
     # previously measured at 859 s of pytest on ldas-pcdev11 pinned to 16 cores
     # (jax 0.9.2, JAX_PLATFORMS=cpu, OMP_NUM_THREADS=1) plus test_angle_marg_exact.py
     # (30 tests, ~600 s local on ldas-grid, 16 cores, same stack -- the sizing
@@ -380,6 +384,15 @@ jobs:
           OMP_NUM_THREADS: 1
         run: bash .travis/test-jax.sh
 
+  # CPU ONLY.  GitHub runners have no GPU and no cupy, so this lane cannot
+  # exercise the cupy branch of RIFT/likelihood/SphericalHarmonics_gpu.py -- the
+  # branch that used to break every LISA likelihood evaluation on a GPU host
+  # while passing here.  The tests it runs therefore assert on the BACKEND
+  # ARGUMENT rather than only on the outcome (test_spherical_harmonics_backend.py
+  # fakes the GPU module; test_lisa_operational_synthetic.py spies on the call
+  # site), so this lane does catch that class of defect without a device.  The
+  # real-cupy run lives in .travis/test-lisa-gpu.sh, driven by the gpu_integration
+  # job in .gitlab-ci.yml.
   lisa-check:
     needs: install
     runs-on: ubuntu-latest
