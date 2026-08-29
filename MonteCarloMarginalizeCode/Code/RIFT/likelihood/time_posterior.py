@@ -12,7 +12,7 @@ interpolated density without introducing another export lattice.
 """
 
 import numpy as np
-from scipy.interpolate import CubicSpline
+from scipy.interpolate import CubicSpline, PchipInterpolator
 
 
 TIME_POSTERIOR_EXPORT_MODES = ("auto", "continuous", "grid")
@@ -41,7 +41,7 @@ def _interval_log_envelopes(spline, knots, log_values):
     return maxima
 
 
-def draw_continuous_time_posterior(tvals, lnlt, rng=None):
+def draw_continuous_time_posterior(tvals, lnlt, rng=None, max_attempts=100000):
     """Draw one continuous time per row from an interpolated ``lnL(t)``.
 
     Parameters
@@ -54,6 +54,9 @@ def draw_continuous_time_posterior(tvals, lnlt, rng=None):
         Must provide ``choice`` and ``uniform``.  The default is
         ``numpy.random`` so the driver's existing ``--seed`` contract remains
         unchanged.
+    max_attempts : int, optional
+        Maximum rejection proposals per row.  Exhaustion raises rather than
+        allowing a pathological interpolant or RNG to hang an ILE job.
 
     Returns
     -------
@@ -63,14 +66,18 @@ def draw_continuous_time_posterior(tvals, lnlt, rng=None):
     """
     tvals = np.asarray(tvals, dtype=float)
     values = np.asarray(lnlt, dtype=float)
+    if values.ndim not in (1, 2):
+        raise ValueError("lnlt must be a 1-D or 2-D array")
     one_row = values.ndim == 1
     values = np.atleast_2d(values)
     if tvals.ndim != 1 or tvals.size < 2 or not np.all(np.diff(tvals) > 0):
         raise ValueError("tvals must be a strictly increasing 1-D grid")
     if values.shape[1] != tvals.size:
         raise ValueError("lnlt's final axis must match tvals")
-    if not np.all(np.isfinite(values)):
-        raise ValueError("continuous time export requires finite lnL(t)")
+    if np.any(np.isnan(values)) or np.any(np.isposinf(values)):
+        raise ValueError("continuous time export does not accept NaN or +inf lnL(t)")
+    if not isinstance(max_attempts, (int, np.integer)) or max_attempts <= 0:
+        raise ValueError("max_attempts must be a positive integer")
     if rng is None:
         rng = np.random
 
@@ -78,23 +85,62 @@ def draw_continuous_time_posterior(tvals, lnlt, rng=None):
     times = np.empty(values.shape[0], dtype=float)
     log_likelihoods = np.empty(values.shape[0], dtype=float)
     for row, log_values in enumerate(values):
-        spline = CubicSpline(tvals, log_values)
-        maxima = _interval_log_envelopes(spline, tvals, log_values)
-        shift = float(np.max(maxima))
-        envelope_mass = widths * np.exp(maxima - shift)
+        finite = np.isfinite(log_values)
+        if not np.any(finite):
+            raise ValueError("time posterior has no finite positive mass")
+
+        if np.all(finite):
+            # Preserve the requested cubic interpolation of lnL for the normal
+            # path.  Work relative to the envelope maximum to avoid overflow.
+            spline = CubicSpline(tvals, log_values)
+            maxima = _interval_log_envelopes(spline, tvals, log_values)
+            shift = float(np.max(maxima))
+            envelope_mass = widths * np.exp(maxima - shift)
+
+            def evaluate(candidate):
+                log_candidate = float(spline(candidate))
+                interval_maximum = maxima[interval]
+                ratio = np.exp(log_candidate - interval_maximum)
+                return log_candidate, min(1.0, float(ratio))
+        else:
+            # -inf is a valid zero-posterior-mass value.  A log spline cannot
+            # represent it.  Interpolate the shifted density with PCHIP, which
+            # preserves non-negativity and the zero knots without manufacturing
+            # the huge ringing that replacing -inf by an arbitrary log floor can
+            # cause.  This branch is only used for rows containing -inf.
+            shift = float(np.max(log_values[finite]))
+            density_values = np.zeros_like(log_values)
+            density_values[finite] = np.exp(log_values[finite] - shift)
+            spline = PchipInterpolator(tvals, density_values)
+            maxima = _interval_log_envelopes(
+                spline, tvals, density_values)
+            maxima = np.maximum(maxima, 0.0)
+            envelope_mass = widths * maxima
+
+            def evaluate(candidate):
+                density = max(0.0, float(spline(candidate)))
+                interval_maximum = maxima[interval]
+                ratio = density / interval_maximum if interval_maximum > 0 else 0.0
+                log_candidate = shift + np.log(density) if density > 0 else -np.inf
+                return log_candidate, min(1.0, ratio)
+
         total = float(np.sum(envelope_mass))
         if not np.isfinite(total) or total <= 0:
             raise ValueError("time posterior has no finite positive mass")
         probabilities = envelope_mass / total
 
-        while True:
+        for _attempt in range(max_attempts):
             interval = int(rng.choice(len(widths), p=probabilities))
             candidate = float(rng.uniform(tvals[interval], tvals[interval + 1]))
-            log_candidate = float(spline(candidate))
-            if float(rng.uniform()) <= np.exp(log_candidate - maxima[interval]):
+            log_candidate, accept_probability = evaluate(candidate)
+            if float(rng.uniform()) <= accept_probability:
                 times[row] = candidate
                 log_likelihoods[row] = log_candidate
                 break
+        else:
+            raise RuntimeError(
+                "continuous time-posterior rejection sampler exhausted "
+                "{} proposals for row {}".format(max_attempts, row))
 
     if one_row:
         return times[0], log_likelihoods[0]

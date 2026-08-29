@@ -19,6 +19,7 @@ TIME_POSTERIOR = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(TIME_POSTERIOR)
 draw_continuous_time_posterior = TIME_POSTERIOR.draw_continuous_time_posterior
 resolve_time_posterior_export_mode = TIME_POSTERIOR.resolve_time_posterior_export_mode
+_interval_log_envelopes = TIME_POSTERIOR._interval_log_envelopes
 
 
 def test_auto_contract_tracks_subsample_interpolation():
@@ -56,6 +57,20 @@ def test_gaussian_posterior_moments_and_interpolated_logl():
                                rtol=0, atol=2e-12)
 
 
+def test_stationary_point_envelope_bounds_overshooting_cubics():
+    from scipy.interpolate import CubicSpline
+
+    rng = np.random.RandomState(37)
+    knots = np.linspace(-1.0, 1.0, 9)
+    for _ in range(20):
+        values = rng.normal(size=knots.size)
+        spline = CubicSpline(knots, values)
+        maxima = _interval_log_envelopes(spline, knots, values)
+        for interval in range(knots.size - 1):
+            probes = np.linspace(knots[interval], knots[interval + 1], 1001)
+            assert np.max(spline(probes)) <= maxima[interval] + 5e-14
+
+
 def test_batched_rows_draw_from_their_own_posteriors():
     tvals = np.linspace(-0.02, 0.02, 81)
     centers = np.array([-0.006, 0.0, 0.007])
@@ -64,6 +79,52 @@ def test_batched_rows_draw_from_their_own_posteriors():
         tvals, lnlt, np.random.RandomState(9))
     assert draws.shape == logls.shape == centers.shape
     assert np.all(np.abs(draws - centers) < 0.004)
+
+
+def test_negative_infinity_knots_are_zero_mass_not_an_arbitrary_log_floor():
+    from scipy.interpolate import PchipInterpolator
+
+    tvals = np.linspace(-1.0, 1.0, 5)
+    lnlt = np.array([-np.inf, -1.0, 0.0, -1.0, -np.inf])
+    rng = np.random.RandomState(81)
+    draws, logls = zip(*(draw_continuous_time_posterior(tvals, lnlt, rng)
+                         for _ in range(200)))
+    draws = np.asarray(draws)
+    logls = np.asarray(logls)
+    density = np.exp(np.where(np.isfinite(lnlt), lnlt, -np.inf))
+    expected = PchipInterpolator(tvals, density)(draws)
+    np.testing.assert_allclose(np.exp(logls), expected, rtol=2e-14, atol=0)
+    assert np.all(np.isfinite(logls))
+    assert np.all((draws > tvals[0]) & (draws < tvals[-1]))
+
+
+@pytest.mark.parametrize("bad", [
+    np.array([0.0, np.nan, -1.0]),
+    np.array([0.0, np.inf, -1.0]),
+])
+def test_nan_and_positive_infinity_fail_loudly(bad):
+    with pytest.raises(ValueError, match=r"NaN or \+inf"):
+        draw_continuous_time_posterior(np.arange(3.0), bad)
+
+
+def test_all_negative_infinity_has_no_posterior_mass():
+    with pytest.raises(ValueError, match="no finite positive mass"):
+        draw_continuous_time_posterior(
+            np.arange(3.0), np.full(3, -np.inf))
+
+
+def test_pathological_rejection_cannot_hang_the_driver():
+    class AlwaysReject(object):
+        def choice(self, size, p):
+            return 0
+
+        def uniform(self, *bounds):
+            return 0.5 * (bounds[0] + bounds[1]) if bounds else 1.0
+
+    with pytest.raises(RuntimeError, match="exhausted 3 proposals"):
+        draw_continuous_time_posterior(
+            np.arange(3.0), np.array([0.0, -100.0, 0.0]),
+            rng=AlwaysReject(), max_attempts=3)
 
 
 def test_driver_wires_continuous_draw_before_legacy_grid_choice():
