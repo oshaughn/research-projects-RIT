@@ -330,6 +330,7 @@ integration_params.add_option("--internal-gmm-max-components",type=int,default=8
 integration_params.add_option("--internal-gmm-defensive-frac",type=float,default=0.0,help="Weight of the broad box-covering 'defensive' mixture component added to each adaptive GMM group (default 0 = OFF).  Intended to bound the importance weights (Hesterberg defensive IS), but on a wide extrinsic prior the broad component draws physically-extreme points where the likelihood is NaN and it did not improve n_eff on the SNR~82 benchmark -- opt-in only.")
 integration_params.add_option("--internal-gmm-inflate",type=float,default=1.0,help="Covariance inflation factor (std multiplier) applied to each adaptive GMM component (default 1.0 = none).  A value >1 widens the proposal relative to the elite cloud it was fit to; complements --internal-gmm-defensive-frac.")
 integration_params.add_option("--interpolate-time", default=False,help="Sub-sample stencil for evaluating Q_lm at fractional detector times, instead of snapping to the nearest sample bin. Accepts 'nearest', 'cubic', 'sinc', or a legacy truthy value (True/1/yes) meaning 'cubic'. WHICH TO USE is set by the bandwidth of Q(t), which is NOT fmax -- Q is band-limited by whichever is lower, fmax or the template's own cutoff, so it depends on the MASSES and on FMIN. MEASURED with SEOBNRv4 (an IMR model): %s. fmin matters as much as mass -- cubic degrades from fmin 20 to 150 at fixed mass (endpoint ratios 6.5x at M=9 and 9.6x at M=20, and NOT monotone in between) while sinc stays flat, which is why the crossover rises. NEAREST is never competitive (200-443 nats) and reaches 1 nat of error by SNR 2-6. Do not trust inspiral-only (TaylorT4) numbers for this: no merger-ringdown, understates the band by 2-3.7x. Error grows as SNR^2. COST of sinc vs cubic: ~4.2-4.5x on CPU, ~1.6-3.0x on GPU. All three stencils have CPU and GPU implementations. Requires the maintained NoLoop likelihood: this is REFUSED, not ignored, if the configuration cannot honour it. Measured tables and limitations: RIFT/likelihood/DESIGN_q_window_stencil.md. (Default=false, i.e. nearest)" % _CROSSOVER_GUIDANCE)
+integration_params.add_option("--time-marginalization-quadrature", default="simpson", type=str, help="Rule for the TIME integral of the marginalized likelihood: 'simpson' (default, historical) or 'bandlimited'. 'simpson' integrates exp(lnL(t)) with Simpson's rule at the FIXED spacing deltaT=1/srate. That spacing is a property of the DATA; the integrand's width is a property of the SIGNAL -- after angle marginalization exp(lnL(t)) is a near-Gaussian peak of width sigma_t = 1/(2 pi rho sigma_f) -- so resolving it needs srate >~ 2 pi sigma_f rho, a requirement that GROWS LINEARLY WITH SNR and that production does not meet. MEASURED on a 35+30 Msun SEOBNRv4 H1L1V1 injection at rho=40 (sigma_t = 61.2 us): rigidly scanning the grid phase over 2*deltaT moves the reported lnL by 1.649 / 0.385 / 0.0095 nats at srate 4096 / 8192 / 16384. Simpson makes an under-resolved peak WORSE than trapezoid, not better: (4T_h - T_2h)/3 carries the coarser T_2h and inherits its 2h alias. 'bandlimited' costs no extra likelihood evaluations and no extra precompute: kappa(t) is band-limited below Nyquist by construction and rho_sq is time-independent on this path, so the samples already computed determine the continuous integrand exactly, and one zero-padded FFT per row recovers it. Against a converged dense reference at srate 4096, rho=40: -0.007 nats, versus +0.745 for Simpson at the same grid phase. THERE IS DELIBERATELY NO RESOLUTION OPTION: the refinement factor is derived from the measured peak width and re-asserted on the refined grid. Cost scales with that factor and is paid only where the integrand actually demands it (a well-resolved peak derives a factor of 1 and costs nothing). Requires --time-marginalization --vectorized --gpu (--force-xpy is accepted), excludes --rotation-slow / --freqresponse / calibration marginalization, and is REFUSED, not ignored, if the configuration cannot honour it. Rationale, measured tables and exclusions: RIFT/likelihood/time_marginalization_quadrature.py. (Default=simpson)")
 integration_params.add_option("--d-prior",default='Euclidean' ,type=str,help="Distance prior for dL.  Options are dL^2 (Euclidean), 'pseudo_cosmo', and 'cosmo'  and 'cosmo_sourceframe' .")
 integration_params.add_option("--d-prior-redshift", action='store_true', help="If true, distance prior is computed in redshift. This option MAY be enforced for 'cosmo' sampling")
 integration_params.add_option("--d-max", default=10000,type=float,help="Maximum distance in volume integral. Used to SET THE PRIOR; changing this value changes the numerical answer.")
@@ -667,6 +668,42 @@ if opts._noloop_time_interp != 'nearest' and not _stencil_is_honoured:
         "present, which keeps the identical NoLoop code path on numpy -- or drop "
         "--interpolate-time. Refusing rather than running a different likelihood than the one "
         "you asked for." % (opts._noloop_time_interp, ", ".join(_stencil_missing)))
+# --time-marginalization-quadrature: same refuse-don't-ignore discipline as the stencil guard
+# above, and for the same reason -- an accuracy option that silently does nothing is worse than
+# one that is unavailable, because a comparison campaign can be run against it and believed.
+opts._time_quadrature = str(opts.time_marginalization_quadrature).strip().lower()
+factored_likelihood.time_quadrature_module.validate_time_quadrature(opts._time_quadrature)
+_tq_prereqs = (
+    ('--time-marginalization', bool(opts.time_marginalization)),
+    ('--vectorized', bool(opts.vectorized)),
+    ('--gpu (accepts --force-xpy)', bool(opts.gpu)),
+    ('not --rotation-slow (time-DEPENDENT rho_sq: the band-limited argument does not hold)',
+     not bool(opts.rotation_slow)),
+    ('not --freqresponse (separate likelihood, not audited for this)',
+     not bool(opts.freqresponse)),
+    ('no calibration marginalization (--calibration-envelope-directory)',
+     not bool(opts.calibration_envelope_directory)),
+)
+_tq_missing = [name for name, ok in _tq_prereqs if not ok]
+if opts._time_quadrature != 'simpson' and _tq_missing:
+    raise ValueError(
+        "--time-marginalization-quadrature %r was requested, but this configuration cannot "
+        "honour it: %s. Refusing rather than running the historical Simpson quadrature while "
+        "reporting that you asked for something else."
+        % (opts._time_quadrature, "; ".join(_tq_missing)))
+# One assignment, inherited by every DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop call site.
+factored_likelihood.TIME_QUADRATURE_DEFAULT = opts._time_quadrature
+# Announce the value READ BACK OUT of the module, not the one parsed from the
+# command line.  Those are the same string only if the assignment above actually
+# happened, and a banner built from `opts` reports what was ASKED FOR rather than
+# what is in force -- so deleting the assignment leaves the flag inert while the
+# banner still says it is honoured.  Reading back is what makes the printed line,
+# and the tests that assert on it, load-bearing.
+print(" Time-marginalization quadrature: {} (from --time-marginalization-quadrature {!r}); "
+      "honoured by this configuration: {}".format(
+          factored_likelihood.TIME_QUADRATURE_DEFAULT,
+          opts.time_marginalization_quadrature, not _tq_missing))
+
 print(" Q_lm sub-sample time stencil: {} (from --interpolate-time {!r}); honoured by this "
       "configuration: {} [time_marginalization={} vectorized={} gpu={} rotation_slow={} "
       "freqresponse={}]; legacy scalar path interpolate={}".format(
