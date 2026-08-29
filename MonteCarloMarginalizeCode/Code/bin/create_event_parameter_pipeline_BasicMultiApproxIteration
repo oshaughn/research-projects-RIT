@@ -677,6 +677,12 @@ if  (opts.last_iteration_extrinsic):
     n_extrinsic_batches = int(np.ceil(
         opts.last_iteration_extrinsic_nsamples/
         (1.0*opts.ile_n_events_to_analyze)))
+    # The terminal work grid must cover every intrinsic event scheduled below.
+    # Round up to a complete batch when the requested count is not divisible by
+    # --ile-n-events-to-analyze; the final combiner applies the public output
+    # cap and uniqueness policy after these interior evaluations.
+    terminal_intrinsic_count = (n_extrinsic_batches *
+                                opts.ile_n_events_to_analyze)
     # Match the maintained RIFT terminal-stage contract: never lower the ILE
     # convergence target supplied by the science configuration, and retain
     # enough effective samples to support the requested fair draw.
@@ -938,6 +944,22 @@ if cip_args_lines is not None:
 
 cip_terminal_job = None
 if opts.last_iteration_extrinsic:
+    # The iteration fit's posterior size is an adaptation setting, not the
+    # terminal work-grid contract.  In particular pseudo_pipe commonly leaves
+    # `--n-output-samples 5000 --posterior-unique-draw` in the final CIP line,
+    # while a science terminal stage schedules 20000 intrinsic events.  The
+    # high event indices then soft-exit successfully as out of range and the
+    # exact cat manifest can never be completed.  Interior duplicate points are
+    # valid importance-work items; exact uniqueness belongs only to the final
+    # exported posterior (util_CombineApproximantPosteriors.py).
+    cip_args_terminal = re.sub(
+        r'(?<!\S)--n-output-samples(?:=\S+|\s+\S+)', ' ',
+        cip_args_terminal)
+    cip_args_terminal = re.sub(
+        r'(?<!\S)--posterior-unique-draw(?=\s|$)', ' ',
+        cip_args_terminal)
+    cip_args_terminal += " --n-output-samples {} ".format(
+        terminal_intrinsic_count)
     cip_terminal_job, cip_terminal_job_name = dag_utils.write_CIP_sub(tag='CIP_terminal',log_dir=None,arg_str=cip_args_terminal,request_memory=opts.request_memory_CIP,input_net=opts.working_directory+'/approx_$(macroapprox)_all.net',output='approx_$(macroapprox)_overlap-grid-$(macroiterationnext)',out_dir=opts.working_directory,exe=opts.cip_exe,universe=local_worker_universe)
     cip_terminal_job.add_condor_cmd("initialdir",opts.working_directory+"/approx_$(macroapprox)_iteration_$(macroiteration)_cip")
     cip_terminal_job.set_log_file(opts.working_directory+"/approx_$(macroapprox)_iteration_$(macroiteration)_cip/logs/cipterm-$(cluster)-$(process).log")
