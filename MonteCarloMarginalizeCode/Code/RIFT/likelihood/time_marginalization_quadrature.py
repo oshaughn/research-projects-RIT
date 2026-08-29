@@ -327,13 +327,6 @@ _PIPELINE_EXCLUDING_ILE_FLAGS = (
 
 ILE_TIME_QUADRATURE_FLAG = '--time-marginalization-quadrature'
 
-#: Minimum characters after ``--`` before a token is treated as an abbreviation of
-#: an excluding flag.  optparse accepts any UNIQUE prefix, so ``--rotation-sl``
-#: really does set ``rotation_slow``; a guard that only matched the full spelling
-#: was evaded by three legal spellings (equals-form, abbreviation, quoted).
-_ABBREV_MIN = 6
-
-
 def _ile_tokens(ile_args):
     """Tokenise an ILE argument string the way optparse will see it.
 
@@ -357,11 +350,18 @@ def _ile_tokens(ile_args):
 
 
 def _matches(flag, token):
-    """True if ``token`` is ``flag`` or a legal optparse abbreviation of it."""
+    """True if ``token`` is ``flag`` or a possible optparse abbreviation.
+
+    optparse has no fixed minimum abbreviation length: in the current ILE parser
+    ``--g`` uniquely selects ``--gpu`` and ``--vec`` selects ``--vectorized``.
+    Ambiguous prefixes are rejected by ILE itself; treating them as a match here
+    can only move that refusal to DAG-build time, while imposing an invented
+    length floor falsely rejects legal configurations.
+    """
     if token == flag:
         return True
     return (flag.startswith(token) and token.startswith('--')
-            and len(token) - 2 >= _ABBREV_MIN)
+            and len(token) > 2)
 
 
 def find_time_quadrature_in_ile_args(ile_args):
@@ -374,7 +374,17 @@ def find_time_quadrature_in_ile_args(ile_args):
     toks = _ile_tokens(ile_args)
     out = []
     for n, t in enumerate(toks):
-        if t == ILE_TIME_QUADRATURE_FLAG:
+        # optparse accepts unique long-option prefixes.  The exact
+        # ``--time-marginalization`` flag wins as an exact match, but anything
+        # through the following '-' is a unique prefix of the quadrature flag.
+        # Treat those spellings exactly as ILE does or a hand-passed abbreviated
+        # bandlimited request can be invisible to the prerequisite guard.
+        is_quadrature = (
+            t == ILE_TIME_QUADRATURE_FLAG
+            or (t.startswith('--time-marginalization-')
+                and ILE_TIME_QUADRATURE_FLAG.startswith(t))
+        )
+        if is_quadrature:
             out.append(toks[n + 1] if n + 1 < len(toks) else None)
     return out
 
@@ -433,8 +443,9 @@ def refuse_unless_time_quadrature_emitted(time_quadrature, ile_args, where):
     that never received the flag at all.  Three ways that happens in practice, all
     ending in a silent fall back to Simpson while the pipeline logs the opposite:
 
-    * a helper that predates the option argparse-errors, its exit status is
-      discarded, and a re-run directory still holds a STALE ``helper_ile_args.txt``;
+    * a helper that predates the option argparse-errors while a re-run directory
+      still holds a STALE ``helper_ile_args.txt`` (the caller now also removes the
+      generated file first and checks the helper's exit status);
     * ``--manual-extra-ile-args`` appends a second ``--time-marginalization-quadrature``
       after the helper's, and optparse takes the LAST occurrence;
     * any future refactor that drops the emission.
@@ -462,8 +473,8 @@ def refuse_unless_time_quadrature_emitted(time_quadrature, ile_args, where):
         raise ValueError(
             "time-marginalization quadrature {!r} was requested, but {} contains no {} at "
             "all.  The request was lost between the pipeline and the ILE arguments -- a "
-            "stale helper_ile_args.txt in a re-used run directory does exactly this, and "
-            "the helper's exit status is not checked.  Refusing rather than submitting a "
+            "stale or version-skewed helper path can do exactly this.  Refusing rather "
+            "than submitting a "
             "campaign that would silently run Simpson.".format(
                 time_quadrature, where, ILE_TIME_QUADRATURE_FLAG))
     if found[0] != time_quadrature:

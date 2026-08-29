@@ -52,6 +52,10 @@ def test_simpson_is_never_refused():
 
 def test_honourable_configuration_passes():
     assert time_quadrature_pipeline_prereqs('bandlimited', GOOD_ILE_ARGS) == []
+    # optparse has no six-character floor: these are the shortest unique
+    # spellings in ILE's current option set.
+    assert time_quadrature_pipeline_prereqs(
+        'bandlimited', "X --time-marginalization --vec --g") == []
 
 
 @pytest.mark.parametrize("flag", ["--time-marginalization", "--vectorized", "--gpu"])
@@ -73,7 +77,8 @@ def test_each_excluding_flag_is_reported_when_present(flag, value):
 
 @pytest.mark.parametrize("spelling", [
     "--calibration-envelope-directory=/tmp/cal",   # optparse accepts the equals form
-    "--rotation-sl",                               # optparse accepts any unique prefix
+    "--rotation-s",                                # shortest unique prefix today
+    "--calibration-en=/tmp/cal",                   # shortest unique prefix today
     "'--rotation-slow'",                           # an ini leaves the quotes on
 ])
 def test_legal_optparse_spellings_do_not_evade_the_exclusions(spelling):
@@ -376,6 +381,25 @@ def test_emission_guard_accepts_the_honoured_case():
 def test_find_handles_the_equals_form():
     assert find_time_quadrature_in_ile_args(
         "X --time-marginalization-quadrature=bandlimited") == ['bandlimited']
+    # ILE uses optparse, which accepts these unique-prefix forms.  The guard must
+    # see the same option or a manual abbreviation bypasses all prerequisites.
+    assert find_time_quadrature_in_ile_args(
+        "X --time-marginalization-q=bandlimited") == ['bandlimited']
+    assert find_time_quadrature_in_ile_args(
+        "X --time-marginalization- bandlimited") == ['bandlimited']
+    # The exact boolean flag wins as an exact optparse match; it is not an
+    # abbreviation of the quadrature option.
+    assert find_time_quadrature_in_ile_args(
+        "X --time-marginalization --vectorized --gpu") == []
+
+
+def test_abbreviated_hand_passed_quadrature_cannot_evade_prerequisites():
+    args = ("X --time-marginalization --vectorized --rotation-slow "
+            "--time-marginalization-q=bandlimited")
+    with pytest.raises(ValueError) as e:
+        refuse_unless_time_quadrature_emitted(None, args, "args_ile.txt")
+    assert "--gpu" in str(e.value)
+    assert "--rotation-slow" in str(e.value)
 
 
 def test_refusal_actually_raises():
@@ -475,6 +499,18 @@ def test_pseudo_pipe_forwards_the_requested_value_to_the_helper(tmp_path):
         tmp_path, "--internal-ile-time-marginalization-quadrature", "bandlimited")
     assert "--internal-ile-time-marginalization-quadrature bandlimited" in proc.stdout, \
         proc.stdout[-3000:]
+
+
+def test_pseudo_pipe_checks_the_helper_exit_status():
+    """A same-value stale helper_ile_args.txt can satisfy the byte guard.  The
+    helper's status therefore has to be checked independently, before that file
+    is read."""
+    src = _source(PSEUDO_PIPE)
+    call = src.index("_helper_rc = os.system(cmd)")
+    check = src.index("if _helper_rc != 0:", call)
+    read = src.index('np.loadtxt("helper_ile_args.txt"', check)
+    assert call < check < read
+    assert "os.unlink('helper_ile_args.txt')" in src[:call]
 
 
 def test_pseudo_pipe_refuses_calmarg_before_it_runs_anything(tmp_path):

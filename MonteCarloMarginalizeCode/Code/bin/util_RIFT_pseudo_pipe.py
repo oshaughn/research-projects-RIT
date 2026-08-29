@@ -1459,7 +1459,17 @@ if opts.fake_data_cache:
         short_list = " {} ".format(event_dict['IFOs'])        
         cmd += " --manual-ifo-list {} ".format(short_list.replace(' ',''))
 print( cmd)
-os.system(cmd)
+if os.path.exists('helper_ile_args.txt'):
+    # This is generated output, not an input.  Remove it before invoking the
+    # helper so a failed helper cannot be mistaken for fresh success in a
+    # re-used directory.  The emitted-byte guard below cannot distinguish a
+    # stale file from a fresh one when both carry the same requested value.
+    os.unlink('helper_ile_args.txt')
+_helper_rc = os.system(cmd)
+if _helper_rc != 0:
+    print(" FAILURE: helper call exited nonzero; refusing to use any pre-existing "
+          "helper_ile_args.txt")
+    sys.exit(1)
 # we MUST make helper_ile_args.txt
 if not(os.path.exists('helper_ile_args.txt')):
     print(" FAILURE: helper call failed to generate required file helper_ile_args.txt")
@@ -1679,9 +1689,10 @@ if opts.extrinsic_handoff:
 # happily approved an args_ile.txt that had never received the flag at all.  Three ways that
 # happens, all ending in a silent fall back to Simpson while the pipeline logs the opposite:
 #
-#   * the helper is invoked by NAME through PATH and its exit status is discarded (os.system
-#     above), the only check being file existence -- so an older helper argparse-errors on the
-#     new option and, in a re-used run directory, the STALE helper_ile_args.txt is read instead;
+#   * the helper is invoked by NAME through PATH, so version skew can make an older helper
+#     argparse-error on the new option.  The caller now removes stale generated output and checks
+#     the helper status; this byte check is the independent defence against a successful helper
+#     that nevertheless drops the emission;
 #   * --manual-extra-ile-args is appended AFTER the helper's arguments and optparse takes the
 #     LAST occurrence, so a hand-passed 'simpson' silently overrides the requested value while
 #     the .sub file still shows both;

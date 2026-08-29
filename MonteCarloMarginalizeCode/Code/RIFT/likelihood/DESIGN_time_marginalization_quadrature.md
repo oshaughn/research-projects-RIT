@@ -282,12 +282,15 @@ argument string into `ILE.sub`, `ILE_extr.sub`, `ILE_puff.sub` and `ILE_fetch.su
   (`_PIPELINE_REQUIRED_ILE_FLAGS` / `_PIPELINE_EXCLUDING_ILE_FLAGS`), mirroring the `_tq_prereqs`
   block in `bin/integrate_likelihood_extrinsic_batchmode`.  Both pipeline layers import it; it is
   never re-typed.  Matching handles optparse's equals form and unique-prefix abbreviations,
-  because `--rotation-sl` really does set `rotation_slow`.
+  including short legal spellings such as `--g` for `--gpu`; there is no invented minimum
+  abbreviation length.  Exact-option precedence keeps `--time-marginalization` distinct from
+  an abbreviated `--time-marginalization-quadrature`.
 * **The guard checks the BYTES, not the parsed options.**  `refuse_unless_time_quadrature_emitted`
   requires the flag to be present exactly once with the requested value in the argument string
   about to be written.  A guard keyed on the options approves an `args_ile.txt` that never
-  received the flag -- which is what a stale `helper_ile_args.txt` in a re-used run directory
-  produces, since the helper is invoked by name and its exit status is discarded.
+  received the flag.  The helper is invoked by name, so pseudo-pipe also removes the generated
+  `helper_ile_args.txt` before invocation and refuses a nonzero helper status; otherwise a
+  same-value stale file can satisfy even the byte guard.
 * **The extrinsic stage is only half covered.**  The flag reaches `ILE_extr.sub`, but
   `--resample-time-marginalization` calls the likelihood with `return_lnLt=True`, which returns
   `lnL(t)` on the original grid and never reaches the quadrature.  The marginalized `lnL` is
