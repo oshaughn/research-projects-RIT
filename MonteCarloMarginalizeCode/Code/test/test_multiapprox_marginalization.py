@@ -292,7 +292,8 @@ def multiapprox_rundir(tmp_path_factory):
     pytest.importorskip("RIFT.lalsimutils")
     rundir = tmp_path_factory.mktemp("multiapprox")
     (rundir / "args_ile.txt").write_text(
-        "--fmin-template 20.0 --n-max 100 --approx placeholder\n")
+        "--fmin-template 20.0 --n-max 100 --n-eff 17 "
+        "--time-marginalization --approx placeholder\n")
     (rundir / "args_cip_list.txt").write_text(
         "1   --no-plots --fit-method rf --parameter mc --parameter delta_mc --n-output-samples 5\n"
         "1   --no-plots --fit-method rf --parameter mc --parameter delta_mc --n-output-samples 5\n")
@@ -332,6 +333,8 @@ def multiapprox_rundir(tmp_path_factory):
                   "--puff-cadence", "1", "--puff-max-it", "1",
                   "--last-iteration-extrinsic",
                   "--last-iteration-extrinsic-nsamples", "4",
+                  "--last-iteration-extrinsic-samples-per-ile", "3",
+                  "--last-iteration-extrinsic-samples-per-ile-internal", "7",
                   "--plot-args", str(rundir / "args_plot.txt")], rundir)
     if build.returncode:
         pytest.fail("builder failed:\n{}".format(build.stdout[-3000:]))
@@ -453,6 +456,32 @@ def test_extrinsic_stage_reads_the_grid_the_run_finished_on(multiapprox_rundir):
     assert next(iter(extrinsic)) == max(written, key=int)
 
 
+def test_terminal_extrinsic_export_is_a_bounded_fair_draw(multiapprox_rundir):
+    """Never serialize the full terminal importance-sampling cache.
+
+    A nonconverged science-scale point can reach n-max with millions of raw
+    draws.  The terminal ILE must fair-draw before --save-samples writes the
+    record, and the already-equal-weight result must go straight from convert
+    to cat rather than through a second weighted resampler.
+    """
+    sub = (multiapprox_rundir / "ILE_extr.sub").read_text()
+    assert "--save-samples" in sub
+    assert "--fairdraw-extrinsic-output" in sub
+    assert "--fairdraw-extrinsic-output-n-max 3" in sub
+    assert "--resample-time-marginalization" in sub
+    # The terminal-stage helper may ask for fewer samples, but it must never
+    # weaken the science configuration's convergence target.
+    assert re.findall(r"--n-eff\s+(\d+)", sub)[-1] == "17"
+
+    jobs, _, parents = _dag_facts(multiapprox_rundir)
+    assert not any(name.endswith("resample.sub") for name in jobs.values())
+    cat_nodes = [n for n, name in jobs.items() if name.endswith("cat.sub")]
+    assert cat_nodes
+    for cat in cat_nodes:
+        assert all(jobs[parent].endswith("convert_extr.sub")
+                   for parent in parents.get(cat, ()))
+
+
 def test_no_condor_macro_survives_into_a_shell_script(multiapprox_rundir):
     """A $(macro) in a .sh is command substitution, not a condor macro.
 
@@ -491,8 +520,8 @@ def test_cat_job_is_model_scoped_at_runtime(multiapprox_rundir):
 
     model_a = multiapprox_rundir / "approx_IMRPhenomXPHM_iteration_2_ile"
     model_b = multiapprox_rundir / "approx_SEOBNRv4PHM_iteration_2_ile"
-    (model_a / "EXTR_scope.downsampled_dat.dat").write_text("m1 m2\n11 8\n")
-    (model_b / "EXTR_scope.downsampled_dat.dat").write_text("m1 m2\n99 8\n")
+    (model_a / "EXTR_scope_.dat").write_text("m1 m2\n11 8\n")
+    (model_b / "EXTR_scope_.dat").write_text("m1 m2\n99 8\n")
     output = multiapprox_rundir / "cat_scope_probe.dat"
     run = subprocess.run(
         [str(multiapprox_rundir / "catjob.sh"), str(model_a), str(output)],

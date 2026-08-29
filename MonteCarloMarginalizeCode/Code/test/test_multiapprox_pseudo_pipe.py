@@ -115,6 +115,14 @@ def test_pseudo_pipe_forwards_the_generator_route():
         "the primary --approx does not inherit --use-gwsignal")
 
 
+def test_pseudo_pipe_forwards_terminal_fairdraw_controls_to_multiapprox():
+    """The multi builder must receive normal RIFT's per-ILE export bounds."""
+    text = PSEUDO.read_text()
+    assert "BasicMultiApproxIteration does not implement" not in text
+    assert 'cmd += " --last-iteration-extrinsic-samples-per-ile {}"' in text
+    assert 'cmd += " --last-iteration-extrinsic-samples-per-ile-internal {}"' in text
+
+
 def test_coverage_is_judged_against_the_configured_models():
     """util_CleanILE must be told which models the run configured.
 

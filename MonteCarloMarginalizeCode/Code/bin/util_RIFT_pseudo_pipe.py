@@ -2333,19 +2333,10 @@ if opts.ile_xpu:
     cmd += " --request-xpu-ILE "
 if opts.add_extrinsic:
     cmd += " --last-iteration-extrinsic --last-iteration-extrinsic-nsamples {} ".format(opts.n_output_samples_last)
-    if use_multiapprox:
-        # BasicMultiApproxIteration implements the terminal extrinsic stage but
-        # not these per-ILE sample controls; its own defaults apply.  Said out
-        # loud rather than dropped quietly, since they change how many samples
-        # the extrinsic stage draws.
-        print(" pseudo_pipe: BasicMultiApproxIteration does not implement "
-              "--last-iteration-extrinsic-samples-per-ile[-internal]; using the "
-              "builder's defaults for the extrinsic stage.")
-    else:
-        if opts.internal_last_iteration_extrinsic_samples_per_ile:
-            cmd += " --last-iteration-extrinsic-samples-per-ile {}".format(opts.internal_last_iteration_extrinsic_samples_per_ile)
-        if opts.internal_last_iteration_extrinsic_samples_per_ile_internal:
-            cmd += " --last-iteration-extrinsic-samples-per-ile-internal {}".format(opts.internal_last_iteration_extrinsic_samples_per_ile_internal)        
+    if opts.internal_last_iteration_extrinsic_samples_per_ile:
+        cmd += " --last-iteration-extrinsic-samples-per-ile {}".format(opts.internal_last_iteration_extrinsic_samples_per_ile)
+    if opts.internal_last_iteration_extrinsic_samples_per_ile_internal:
+        cmd += " --last-iteration-extrinsic-samples-per-ile-internal {}".format(opts.internal_last_iteration_extrinsic_samples_per_ile_internal)
     if opts.add_extrinsic_time_resampling:
         cmd+= " --last-iteration-extrinsic-time-resampling "
 if opts.batch_extrinsic:

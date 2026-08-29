@@ -65,6 +65,7 @@ import lalsimulation as lalsim
 import lal
 import functools
 import itertools
+import re
 
 # Backend-neutral pipeline namespace (htcondor/glue/slurm) provided by dag_utils_generic
 from RIFT.misc.dag_utils_generic import pipeline
@@ -190,6 +191,9 @@ parser.add_argument("--puff-cadence",default=None,type=int,help="Every n iterati
 parser.add_argument("--puff-max-it",default=-1,type=int,help="Maximum iteration number that puffball is applied.  If negative, puffball is not applied ")
 parser.add_argument("--last-iteration-extrinsic",action='store_true',help="Configure last iteration to extract *one* set of extrinsic parameters from each intrinsic point. [This is highly inefficient, but people like having one extrinsic point per intrinsic point.]  Requires --convert-args")
 parser.add_argument("--last-iteration-extrinsic-nsamples",default=3000,type=int,help="Construct this number of extrinsic samples")
+parser.add_argument("--last-iteration-extrinsic-samples-per-ile",default=5,type=int,help="Fair-draw this many extrinsic posterior samples from each terminal ILE result")
+parser.add_argument("--last-iteration-extrinsic-samples-per-ile-internal",default=10,type=int,help="Minimum terminal ILE n_eff used to support the per-result fair draw")
+parser.add_argument("--last-iteration-extrinsic-time-resampling",action='store_true',help="Recover posterior times when the terminal ILE uses time marginalization")
 parser.add_argument("--last-iteration-export-marginal-distance-grid", action='store_true', help="Add argument to ILE_extr")
 parser.add_argument("--last-iteration-export-distance-slices", default=0, type=int, help="If >0, the ILE_extr (extrinsic) stage exports K-row .dslice files: Plan-B fixed-distance extrinsic-marginalized likelihoods. Adds --export-distance-slices K (+ --internal-use-lnL) to ILE_extr and strips --distance-marginalization.")
 parser.add_argument("--last-iteration-export-distance-slices-n-core", default=0, type=int, help="Passthrough to ILE --n-distance-slice-core for the extrinsic-stage .dslice export (0 = ILE default).")
@@ -244,8 +248,8 @@ parser.add_argument("--use-bw-psd",action='store_true',help="Use BW PSD, attempt
 # parses and does nothing changes a run without saying so, and is invisible in a
 # config diff.  test_multiapprox_pseudo_pipe.py re-derives these lists from the
 # two builders' argparse surfaces so they cannot drift.
-_API_ONLY_FLAGS = ['--calibration-reweighting', '--calibration-reweighting-osg', '--calmarg-pilot', '--cip-explode-jobs-dag', '--cip-explode-jobs-subdag', '--comov-distance-reweighting', '--condor-containerize-nonworker', '--condor-local-nonworker-igwn-prefix', '--condor-nogrid-nonworker', '--extrinsic-handoff', '--first-iteration-jumpstart', '--frame-rotation', '--ile-group-subdag', '--ile-group-subdag-check-work', '--last-iteration-export-distance-slices-all-fresh', '--last-iteration-export-distance-slices-randomize', '--last-iteration-extrinsic-batched-convert', '--last-iteration-extrinsic-time-resampling', '--search-reflected-sky-mode', '--use-eccentricity', '--use-eccentricity-squared-sampling', '--use-full-submit-paths', '--use-hyperbolic', '--use-osg-cip', '--use-tabular-eos-file']
-_API_ONLY_VALUED = ['--bilby-ini-file', '--bilby-pickle-exe', '--bilby-pickle-file', '--cal-request-disk', '--calibration-reweighting-batchsize', '--calibration-reweighting-count', '--calibration-reweighting-exe', '--calibration-reweighting-extra-args', '--calibration-reweighting-initial-extra-args', '--calmarg-pilot-cadence', '--calmarg-pilot-max-it', '--calmarg-pilot-max-points', '--calmarg-pilot-top-fraction', '--cip-explode-jobs-last', '--cip-post-exe', '--cip-request-disk', '--comov-distance-reweighting-exe', '--convert-ascii2h5-exe', '--extrinsic-handoff-select', '--fetch-ext-grid-args', '--fetch-ext-grid-exe', '--general-request-disk', '--ile-condor-commands', '--ile-gpu-fanout', '--ile-n-events-to-analyze-first', '--ile-post-exe', '--ile-request-disk', '--last-iteration-export-distance-slices-wing-neff', '--last-iteration-export-distance-slices-wing-nmax', '--last-iteration-extrinsic-samples-per-ile', '--last-iteration-extrinsic-samples-per-ile-internal', '--lisa-reference-time', '--n-eff', '--n-iterations-subdag-max', '--n-samples-per-job-threshold', '--reflected-sky-mode-exe', '--search-reflected-sky-mode-iteration', '--use-oauth-files']
+_API_ONLY_FLAGS = ['--calibration-reweighting', '--calibration-reweighting-osg', '--calmarg-pilot', '--cip-explode-jobs-dag', '--cip-explode-jobs-subdag', '--comov-distance-reweighting', '--condor-containerize-nonworker', '--condor-local-nonworker-igwn-prefix', '--condor-nogrid-nonworker', '--extrinsic-handoff', '--first-iteration-jumpstart', '--frame-rotation', '--ile-group-subdag', '--ile-group-subdag-check-work', '--last-iteration-export-distance-slices-all-fresh', '--last-iteration-export-distance-slices-randomize', '--last-iteration-extrinsic-batched-convert', '--search-reflected-sky-mode', '--use-eccentricity', '--use-eccentricity-squared-sampling', '--use-full-submit-paths', '--use-hyperbolic', '--use-osg-cip', '--use-tabular-eos-file']
+_API_ONLY_VALUED = ['--bilby-ini-file', '--bilby-pickle-exe', '--bilby-pickle-file', '--cal-request-disk', '--calibration-reweighting-batchsize', '--calibration-reweighting-count', '--calibration-reweighting-exe', '--calibration-reweighting-extra-args', '--calibration-reweighting-initial-extra-args', '--calmarg-pilot-cadence', '--calmarg-pilot-max-it', '--calmarg-pilot-max-points', '--calmarg-pilot-top-fraction', '--cip-explode-jobs-last', '--cip-post-exe', '--cip-request-disk', '--comov-distance-reweighting-exe', '--convert-ascii2h5-exe', '--extrinsic-handoff-select', '--fetch-ext-grid-args', '--fetch-ext-grid-exe', '--general-request-disk', '--ile-condor-commands', '--ile-gpu-fanout', '--ile-n-events-to-analyze-first', '--ile-post-exe', '--ile-request-disk', '--last-iteration-export-distance-slices-wing-neff', '--last-iteration-export-distance-slices-wing-nmax', '--lisa-reference-time', '--n-eff', '--n-iterations-subdag-max', '--n-samples-per-job-threshold', '--reflected-sky-mode-exe', '--search-reflected-sky-mode-iteration', '--use-oauth-files']
 for _flag in _API_ONLY_FLAGS:
     parser.add_argument(_flag, action='store_true', help=argparse.SUPPRESS)
 for _flag in _API_ONLY_VALUED:
@@ -621,10 +625,38 @@ if not (opts.puff_args is None):
     ilePuff_job.write_sub_file()
 
 if  (opts.last_iteration_extrinsic):
-    n_points_per_ILE = 5
-    # ILE job with modified output format
-    #  - note we *double* the memory request, because we need space to save samples
-    ile_args_extr = ile_args + " --save-P 0.01 --save-samples --n-eff  "  +str(2*n_points_per_ILE)  # modify convergence criteria so output of reasonable size
+    n_points_per_ILE = opts.last_iteration_extrinsic_samples_per_ile
+    if n_points_per_ILE < 1:
+        parser.error("--last-iteration-extrinsic-samples-per-ile must be positive")
+    # Match the maintained RIFT terminal-stage contract: never lower the ILE
+    # convergence target supplied by the science configuration, and retain
+    # enough effective samples to support the requested fair draw.
+    n_eff_last = max(2*n_points_per_ILE,
+                     opts.last_iteration_extrinsic_samples_per_ile_internal)
+    configured_neff = re.findall(
+        r'(?:^|\s)--n-eff(?:=|\s+)([0-9]+)(?=\s|$)', ile_args_orig)
+    if configured_neff:
+        n_eff_last = max(n_eff_last, int(configured_neff[-1]))
+    # ILE job with modified output format.  The saved record MUST be a bounded
+    # fair draw from the extrinsic posterior, not the raw importance-sampling
+    # cache.  A difficult point can reach n-max with n_eff~1; raw
+    # --save-samples then writes millions of rows and the downstream resampler
+    # must materialize all of them merely to select five.  More importantly,
+    # that intermediate is not itself a posterior sample set.
+    #
+    # --save-samples is still the switch that serializes the record, while
+    # --fairdraw-extrinsic-output changes that record to an equal-weight draw
+    # before serialization and bounds it at n_points_per_ILE.
+    ile_args_extr = (ile_args +
+        " --save-P 0.01 --save-samples --fairdraw-extrinsic-output "
+        "--fairdraw-extrinsic-output-n-max {} --n-eff {} ".format(
+            n_points_per_ILE, n_eff_last))
+    # A time-marginalized likelihood otherwise exports the fiducial time for
+    # every row.  Recover posterior times on the same terminal fair-draw path.
+    if ((opts.last_iteration_extrinsic_time_resampling or
+         "--time-marginalization" in ile_args_extr) and
+            "--resample-time-marginalization" not in ile_args_extr):
+        ile_args_extr += " --resample-time-marginalization "
     # The extrinsic stage runs AFTER the fork, on this model's own terminal CIP
     # posterior -- not on the shared marginalized grid the iteration loop used.
     ile_args_extr = ile_args_extr.replace(
@@ -665,17 +697,15 @@ if  (opts.last_iteration_extrinsic):
     convertExtr_job.set_stderr_file(opts.working_directory+"/approx_$(macroapprox)_iteration_$(macroiteration)_ile/logs/convert-$(macroevent)-$(macroindx).err")
     convertExtr_job.write_sub_file()
 
-    # Resample task 
-    resample_args = ' --n-output-samples  ' + str(n_points_per_ILE)  # pick 5 random points from each ILE run
-    resample_job, resample_job_name = dag_utils.write_resample_sub('resample',log_dir=None,arg_str=resample_args,file_input=opts.working_directory+"/approx_$(macroapprox)_iteration_$(macroiteration)_ile/EXTR_out-$(macroevent).xml_$(macroindx)_.dat",file_output=opts.working_directory+"/approx_$(macroapprox)_iteration_$(macroiteration)_ile/EXTR_out-$(macroevent).xml_$(macroindx)_.downsampled_dat",universe=local_worker_universe)
-    resample_job.add_condor_cmd("initialdir",opts.working_directory)
-    resample_job.set_log_file(opts.working_directory+"/approx_$(macroapprox)_iteration_$(macroiteration)_ile/logs/resample-$(macroevent)-$(macroindx).log")
-    resample_job.set_stderr_file(opts.working_directory+"/approx_$(macroapprox)_iteration_$(macroiteration)_ile/logs/resample-$(macroevent)-$(macroindx).err")
-    resample_job.write_sub_file()
-
-    # Combination task at end -- probably should be a general utility
+    # The converted rows are already equal-weight fair draws.  Do not pass them
+    # through util_ResampleILEOutputWithExtrinsic: that would apply the
+    # importance weights a second time as well as reintroducing an unbounded
+    # full-table read.
     cat_job, cat_job_name = dag_utils.write_cat_sub(
-        file_prefix='EXTR', file_postfix='.downsampled_dat.dat',
+        # Match only convert_extr's EXTR_out-..._.dat products.  The narrower
+        # suffix also prevents stale *.downsampled_dat.dat files from an old
+        # DAG revision being silently concatenated after a rescue/rebuild.
+        file_prefix='EXTR', file_postfix='_.dat',
         search_root=opts.working_directory+
                     '/approx_$(macroapprox)_iteration_$(macroiteration)_ile',
         file_output=opts.working_directory+
@@ -1231,7 +1261,7 @@ if opts.last_iteration_extrinsic:
         # Create nodes for followup tasks
         cat_node = pipeline.CondorDAGNode(cat_job)
 
-        # Perform final ILE run on all points, saving samples
+        # Perform final ILE run on all points, saving bounded fair draws.
         # Need to perform number of events CONSISTENT WITH TARGET SAMPLE SIZE
         #    - *not* always same as number of ILE events being analyzed
         #    - *assumes* grid files have sufficiently large numbers of samples to allow this! (as in many other cases)
@@ -1246,7 +1276,7 @@ if opts.last_iteration_extrinsic:
             ile_node.add_parent(cipterm_node)
             dag.add_node(ile_node)
 
-            # Add convert and resample task *for each output file*
+            # Convert each already-fair-drawn output file.
             for indx in np.arange(n_group):
                 convert_node = pipeline.CondorDAGNode(convertExtr_job)
                 convert_node.add_macro("macroevent", event*n_group)
@@ -1256,23 +1286,14 @@ if opts.last_iteration_extrinsic:
                 convert_node.set_retry(opts.ile_retries)  # this can fail too
                 convert_node.add_parent(ile_node)
 
-                resample_node = pipeline.CondorDAGNode(resample_job)
-                resample_node.add_macro("macroevent", event*n_group)
-                resample_node.add_macro("macroiteration", it)
-                resample_node.add_macro("macroindx",indx)
-                resample_node.add_macro("macroapprox", approx)
-                resample_node.set_retry(opts.ile_retries)  # these occasionally fail for stupid reasons - nodes missing software, etc
-                resample_node.add_parent(convert_node)
-
                 # Make cat job 
-                cat_node.add_parent(resample_node)
+                cat_node.add_parent(convert_node)
                 cat_node.set_retry(opts.ile_retries)  # this can fail too
                 cat_node.add_macro("macroiteration", it)  # needed to identify log file location
                 cat_node.add_macro("macroapprox", approx)
 
                 # Add nodes
                 dag.add_node(convert_node)
-                dag.add_node(resample_node)
 
         dag.add_node(cat_node)
         cat_nodes.append(cat_node)
