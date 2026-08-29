@@ -17,13 +17,6 @@ MODULE = os.path.join(
 SPEC = importlib.util.spec_from_file_location("time_posterior", MODULE)
 TIME_POSTERIOR = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(TIME_POSTERIOR)
-TMARG_MODULE = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "..", "RIFT", "likelihood",
-    "time_marginalization_quadrature.py")
-TMARG_SPEC = importlib.util.spec_from_file_location(
-    "time_marginalization_quadrature", TMARG_MODULE)
-TMARG = importlib.util.module_from_spec(TMARG_SPEC)
-TMARG_SPEC.loader.exec_module(TMARG)
 draw_continuous_time_posterior = TIME_POSTERIOR.draw_continuous_time_posterior
 resolve_time_posterior_export_mode = TIME_POSTERIOR.resolve_time_posterior_export_mode
 legacy_time_interpolation_enabled = TIME_POSTERIOR.legacy_time_interpolation_enabled
@@ -98,32 +91,27 @@ def test_batched_rows_draw_from_their_own_posteriors():
     assert np.all(np.abs(draws - centers) < 0.004)
 
 
-def test_bandlimited_refinement_uses_components_and_preserves_coarse_samples():
-    n = 65
-    phase = np.linspace(-np.pi, np.pi, n)
-    # A narrow, band-limited peak whose measured curvature requires refinement.
-    kappa = (80.0 * np.cos(phase)[None, :]).astype(complex)
-    rho_sq = np.zeros(kappa.shape)
-    dense, factor = TMARG.refine_time_posterior_bandlimited(
-        kappa, rho_sq, 1.0,
-        lambda data_term, self_term: data_term - 0.5 * self_term)
-    assert factor > 1
-    np.testing.assert_allclose(dense[:, ::factor], kappa.real, rtol=0, atol=2e-12)
-    assert dense.shape[-1] == (n - 1) * factor + 1
+@pytest.mark.parametrize("stencil", ["cubic", "sinc"])
+def test_explicit_times_apply_selected_q_stencil_at_every_dense_time(stencil):
+    from RIFT.likelihood import factored_likelihood as fl
 
-    # Calibration realizations must be reconstructed before their weighted
-    # log-sum-exp reduction, not spline-interpolated after marginalization.
-    kappa_cal = np.stack((kappa, kappa - 2.0), axis=1)
-    rho_cal = np.zeros(kappa_cal.shape)
-    weights = np.log(np.array([1.5, 0.5]))
-    dense_cal, factor_cal = TMARG.refine_time_posterior_bandlimited(
-        kappa_cal, rho_cal, 1.0,
-        lambda data_term, self_term: data_term - 0.5 * self_term,
-        cal_log_weights=weights)
-    coarse_weighted = np.log(
-        (1.5 * np.exp(kappa.real) + 0.5 * np.exp(kappa.real - 2.0)) / 2.0)
-    np.testing.assert_allclose(
-        dense_cal[:, ::factor_cal], coarse_weighted, rtol=0, atol=2e-12)
+    rng = np.random.RandomState(63)
+    q = rng.normal(size=(160, 3)) + 1j * rng.normal(size=(160, 3))
+    antenna_modes = rng.normal(size=(2, 3)) + 1j * rng.normal(size=(2, 3))
+    starts = np.array([[31, 32, 33, 34], [57, 58, 59, 60]], dtype=np.int32)
+    fractions = np.array([[0.05, 0.27, 0.51, 0.89],
+                          [0.13, 0.38, 0.64, 0.92]])
+    actual = fl._q_inner_product_explicit_times(
+        q, antenna_modes, starts, fractions, stencil, xpy=np)
+    expected = np.empty(actual.shape, dtype=complex)
+    for row in range(starts.shape[0]):
+        for col in range(starts.shape[1]):
+            q_one = fl._q_window_numpy_interp(
+                q, starts[row:row + 1, col],
+                fractions[row:row + 1, col], 1, stencil, xpy=np)[0, 0]
+            expected[row, col] = np.einsum(
+                "j,j->", antenna_modes[row], q_one)
+    np.testing.assert_allclose(actual, expected, rtol=2e-14, atol=2e-14)
 
 
 def test_negative_infinity_knots_are_zero_mass_not_an_arbitrary_log_floor():
@@ -175,15 +163,13 @@ def test_pathological_rejection_cannot_hang_the_driver():
 def test_driver_wires_continuous_draw_before_legacy_grid_choice():
     with open(DRIVER) as handle:
         source = handle.read()
-    components = source.index("return_time_components=True")
-    refinement = source.index("refine_time_posterior_bandlimited(", components)
-    dense_labels = source.index("xpy_default.arange(n_dense)", refinement)
-    continuous = source.index("draw_continuous_time_posterior(tvals, lnLt)", dense_labels)
+    dense_labels = source.index("xpy_default.arange(n_dense)")
+    explicit = source.index("explicit_time_values=True", dense_labels)
+    continuous = source.index("draw_continuous_time_posterior(tvals, lnLt)", explicit)
     grid = source.index("indx_choose = np.random.choice", continuous)
-    assert components < refinement < dense_labels < continuous < grid
+    assert dense_labels < explicit < continuous < grid
     assert continuous < grid
-    assert "return_time_components=True" in source
-    assert "refine_time_posterior_bandlimited(" in source
+    assert "explicit_time_values=True" in source
     assert 'opts._time_posterior_export == "continuous"' in source
     assert 'opts._time_posterior_export == "grid"' in source
 
@@ -195,5 +181,5 @@ def test_lisa_twin_refuses_continuous_mode_without_faithful_components():
     assert "legacy_time_interpolation_enabled(opts.interpolate_time)" in source
     assert ("opts.resample_time_marginalization and\n"
             "        opts._time_posterior_export == \"continuous\"") in source
-    assert "does not expose the band-limited time components" in source
+    assert "does not expose an explicit selected-stencil time evaluator" in source
     assert "draw_continuous_time_posterior(tvals, lnLt)" not in source

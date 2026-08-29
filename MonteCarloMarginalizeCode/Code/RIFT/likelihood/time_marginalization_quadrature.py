@@ -173,7 +173,6 @@ __all__ = [
     "refuse_unhonourable_time_quadrature",
     "find_time_quadrature_in_ile_args",
     "time_marginalize_bandlimited",
-    "refine_time_posterior_bandlimited",
     "last_report",
 ]
 
@@ -575,7 +574,13 @@ def peak_width_from_lnL(lnL_t, dx, xpy=np):
     if n < 3:
         raise ValueError("need at least 3 time samples to measure a peak width")
     jmax = xpy.argmax(xpy.where(xpy.isfinite(lnL_t), lnL_t, -np.inf), axis=-1)
-    take = lambda j: xpy.take_along_axis(lnL_t, j[..., None], axis=-1)[..., 0]
+    # numpy.take_along_axis was introduced in 1.15, while RIFT still declares a
+    # NumPy >=1.14 floor.  Flatten the leading axes and use ordinary advanced
+    # indexing, which has the same semantics on NumPy and CuPy at that floor.
+    lead_shape = jmax.shape
+    flat_lnL = lnL_t.reshape((-1, n))
+    row_index = xpy.arange(flat_lnL.shape[0])
+    take = lambda j: flat_lnL[row_index, j.reshape(-1)].reshape(lead_shape)
 
     sigma = xpy.full(jmax.shape, np.inf, dtype=np.float64)
     measurable = xpy.zeros(jmax.shape, dtype=bool)
@@ -891,87 +896,3 @@ def _integrate_group(kappa_rows, rho_col_rows, npts, deltaT, factor,
 
         factor *= 2
         n_refine += 1
-
-
-def refine_time_posterior_bandlimited(kappa, rho_sq, deltaT, loglikelihood,
-                                      phase_marginalization=False,
-                                      cal_log_weights=None, xpy=np):
-    """Return ``lnL(t)`` on a derived fine grid from band-limited ``kappa``.
-
-    Unlike relabelling ``tvals``, this reconstructs the actual filtered Q-window
-    sequence produced by the selected nearest/cubic/sinc likelihood stencil.
-    ``kappa`` may be ``(n_row, n_time)`` or ``(n_row, n_cal, n_time)``; in the
-    latter case the calibration likelihoods are reduced on the dense grid with
-    the same weighted log-sum-exp contract as the caller.
-
-    Returns ``(lnL_dense, factor)``.  The dense time labels are
-    ``t0 + arange((n_time-1)*factor+1) * deltaT/factor``.
-    """
-    kappa = xpy.asarray(kappa)
-    rho_sq = xpy.asarray(rho_sq)
-    if kappa.ndim not in (2, 3) or rho_sq.shape != kappa.shape:
-        raise ValueError("kappa and rho_sq must have matching 2-D or 3-D shapes")
-    npts = kappa.shape[-1]
-    if npts < 3:
-        raise ValueError("need at least 3 time samples to refine a time posterior")
-    rho_col = rho_sq[..., :1]
-    cmp = xpy.isfinite(rho_sq) & xpy.isfinite(xpy.broadcast_to(rho_col, rho_sq.shape))
-    if not bool(xpy.all(xpy.where(cmp, rho_sq == rho_col, True))):
-        raise NotImplementedError(
-            "continuous time export requires time-independent rho_sq")
-
-    term = (lambda k: xpy.abs(k)) if phase_marginalization else (lambda k: k.real)
-
-    def reduce_cal(lnl):
-        if kappa.ndim == 2:
-            return lnl
-        n_cal = kappa.shape[1]
-        if cal_log_weights is None:
-            weights = xpy.zeros(n_cal, dtype=np.float64)
-        else:
-            weights = xpy.asarray(cal_log_weights, dtype=np.float64)
-            if weights.shape != (n_cal,):
-                raise ValueError("cal_log_weights must have shape (n_cal,)")
-        weighted = lnl + weights[None, :, None]
-        offset = xpy.max(weighted, axis=1, keepdims=True)
-        offset = xpy.where(xpy.isfinite(offset), offset, 0.0)
-        return (offset[:, 0, :] +
-                xpy.log(xpy.sum(xpy.exp(weighted - offset), axis=1)) -
-                float(np.log(n_cal)))
-
-    coarse = reduce_cal(loglikelihood(term(kappa), rho_sq))
-    sigma, jmax, measurable = peak_width_from_lnL(coarse, float(deltaT), xpy=xpy)
-    finite = xpy.isfinite(coarse)
-    row_max = xpy.max(xpy.where(finite, coarse, -np.inf), axis=-1)
-    row_min = xpy.min(xpy.where(finite, coarse, np.inf), axis=-1)
-    varies = xpy.isfinite(row_max) & xpy.isfinite(row_min) & (row_max > row_min)
-    boundary_unresolved = (measurable & (~xpy.isfinite(sigma)) & varies &
-                           ((jmax == 0) | (jmax == npts - 1)))
-    factors = required_upsample_factors(sigma, float(deltaT), xpy=xpy)
-    factors = xpy.where(boundary_unresolved, xpy.maximum(factors, 4), factors)
-    # Even a broad/resolved posterior needs a genuine sub-sample representation:
-    # factor=1 would hand the downstream sampler only coarse lnL knots and put us
-    # back to inventing a natural-cubic lnL target.  Four band-limited samples per
-    # original interval are the floor; sharper rows raise it analytically below.
-    factor = max(4, int(xpy.max(factors)))
-
-    while True:
-        if factor > UPSAMPLE_FACTOR_MAX:
-            raise RuntimeError(
-                "continuous time export needs an upsampling factor above "
-                "UPSAMPLE_FACTOR_MAX=%d" % UPSAMPLE_FACTOR_MAX)
-        flat_kappa = kappa.reshape((-1, npts))
-        dense_flat = reflected_bandlimited_upsample(flat_kappa, factor, xpy=xpy)
-        dense_shape = kappa.shape[:-1] + (dense_flat.shape[-1],)
-        dense_kappa = dense_flat.reshape(dense_shape)
-        dense_rho = xpy.broadcast_to(rho_col, dense_shape)
-        dense = reduce_cal(loglikelihood(term(dense_kappa), dense_rho))
-        sigma_dense, _, measurable_dense = peak_width_from_lnL(
-            dense, float(deltaT) / factor, xpy=xpy)
-        need = required_upsample_factors(
-            xpy.where(measurable_dense, sigma_dense, np.inf),
-            float(deltaT) / factor, xpy=xpy)
-        extra = max(1, int(xpy.max(need)))
-        if extra == 1:
-            return dense, factor
-        factor *= extra

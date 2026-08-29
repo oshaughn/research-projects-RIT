@@ -2158,34 +2158,52 @@ def resample_samples(my_samples,
   # With calibration marginalization (n_cal>1) this returns the cal-marginalized
   # lnL(t) timeseries (weighted log-sum-exp over realizations per time bin), so the
   # time resampling below operates on the marginalized likelihood.
+  lnLt = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
+                        P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default,return_lnLt=True,n_cal=n_cal,cal_log_weights=cal_log_weights,
+                        time_interp=opts._noloop_time_interp,
+                        ctUArrayDict_cal=ctUArrayDict_cal, ctVArrayDict_cal=ctVArrayDict_cal)
   if opts._time_posterior_export == "continuous":
-    # NoLoop consumes only tvals[0] and len(tvals), stepping by P.deltaT; merely
-    # handing it denser labels would silently relabel coarse Q samples.  Ask for
-    # the actual coarse kappa/rho components produced by the selected Q-window
-    # stencil, then reconstruct that band-limited sequence on a derived grid.
-    kappa_t, rho_sq_t = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(
-                          tvals, P, lookupNKDict, rholmArrayDict, ctUArrayDict,
-                          ctVArrayDict, epochDict, Lmax=opts.l_max, xpy=xpy_default,
-                          n_cal=n_cal, cal_log_weights=cal_log_weights,
+    # NoLoop's historical window gather consumes only tvals[0] and len(tvals),
+    # stepping by P.deltaT.  Its explicit-time mode instead evaluates the chosen
+    # cubic/Lanczos Q stencil independently at every dense geocenter time.
+    from RIFT.likelihood import time_marginalization_quadrature as _tm_export
+    sigma_t, _, measurable_t = _tm_export.peak_width_from_lnL(
+        lnLt, P.deltaT, xpy=xpy_default)
+    factors_t = _tm_export.required_upsample_factors(
+        xpy_default.where(measurable_t, sigma_t, np.inf), P.deltaT,
+        xpy=xpy_default)
+    time_export_refinement = max(4, int(xpy_default.max(factors_t)))
+    t0_export = tvals[0]
+    n_coarse_export = len(tvals)
+    while True:
+      if time_export_refinement > _tm_export.UPSAMPLE_FACTOR_MAX:
+        raise RuntimeError(
+            "continuous time export needs refinement above the supported ceiling {}"
+            .format(_tm_export.UPSAMPLE_FACTOR_MAX))
+      n_dense = (n_coarse_export - 1) * time_export_refinement + 1
+      tvals_dense = (t0_export + (P.deltaT / time_export_refinement) *
+                     xpy_default.arange(n_dense))
+      lnLt_dense = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(
+                          tvals_dense, P, lookupNKDict, rholmArrayDict,
+                          ctUArrayDict, ctVArrayDict, epochDict, Lmax=opts.l_max,
+                          xpy=xpy_default, return_lnLt=True, n_cal=n_cal,
+                          cal_log_weights=cal_log_weights,
                           time_interp=opts._noloop_time_interp,
                           ctUArrayDict_cal=ctUArrayDict_cal,
                           ctVArrayDict_cal=ctVArrayDict_cal,
-                          return_time_components=True)
-    from RIFT.likelihood.time_marginalization_quadrature import refine_time_posterior_bandlimited
-    lnLt, time_export_refinement = refine_time_posterior_bandlimited(
-                          kappa_t, rho_sq_t, P.deltaT,
-                          factored_likelihood._factored_lnL_helper,
-                          cal_log_weights=cal_log_weights, xpy=xpy_default)
-    n_dense = (len(tvals) - 1) * time_export_refinement + 1
-    tvals = (tvals[0] + (P.deltaT / time_export_refinement) *
-             xpy_default.arange(n_dense))
-    print(" Time-posterior internal band-limited refinement: {}x ".format(
+                          explicit_time_values=True)
+      sigma_dense, _, measurable_dense = _tm_export.peak_width_from_lnL(
+          lnLt_dense, P.deltaT / time_export_refinement, xpy=xpy_default)
+      extra = _tm_export.required_upsample_factors(
+          xpy_default.where(measurable_dense, sigma_dense, np.inf),
+          P.deltaT / time_export_refinement, xpy=xpy_default)
+      extra = max(1, int(xpy_default.max(extra)))
+      if extra == 1:
+        tvals, lnLt = tvals_dense, lnLt_dense
+        break
+      time_export_refinement *= extra
+    print(" Time-posterior selected-stencil refinement: {}x ".format(
           time_export_refinement))
-  else:
-    lnLt = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
-                          P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default,return_lnLt=True,n_cal=n_cal,cal_log_weights=cal_log_weights,
-                          time_interp=opts._noloop_time_interp,
-                          ctUArrayDict_cal=ctUArrayDict_cal, ctVArrayDict_cal=ctVArrayDict_cal)
 
   lnLt = identity_convert(lnLt) # back to CPU.  Note we have removed offsets 
   if opts.zero_likelihood:

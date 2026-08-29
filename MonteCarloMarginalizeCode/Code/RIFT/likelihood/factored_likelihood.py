@@ -2416,6 +2416,42 @@ def _q_inner_product_gpu(Q, A, start_indices, fractional_offsets, npts, time_int
                      % (time_interp, TIME_INTERP_CHOICES))
 
 
+def _q_inner_product_explicit_times(Q, A, start_indices, fractional_offsets,
+                                    time_interp, xpy=np):
+    """Evaluate a Q-window stencil at every explicitly supplied time.
+
+    ``start_indices`` has shape ``(n_extrinsic, n_time)``.  Work is chunked on
+    the extrinsic axis so a large fair-draw export or many calibration
+    realizations cannot allocate the full ``n_extrinsic*n_time*n_modes`` gather
+    at once.  Each flattened entry asks the existing, tested stencil for one
+    sample; unlike the historical window gather, no implicit ``+j*deltaT`` is
+    introduced.
+    """
+    if start_indices.ndim != 2:
+        raise ValueError("explicit start_indices must have shape (n_extrinsic, n_time)")
+    n_ext, n_time = start_indices.shape
+    n_modes = A.shape[-1]
+    # Q gather + repeated antenna/mode row + output, kept below ~64 MiB.
+    bytes_per_ext = max(1, n_time * n_modes * 16 * 3)
+    chunk = max(1, min(n_ext, (64 * 1024 * 1024) // bytes_per_ext))
+    out = xpy.empty((n_ext, n_time), dtype=np.complex128)
+    for start in range(0, n_ext, chunk):
+        stop = min(n_ext, start + chunk)
+        starts = start_indices[start:stop].reshape(-1)
+        fracs = (None if fractional_offsets is None else
+                 fractional_offsets[start:stop].reshape(-1))
+        A_rows = xpy.repeat(A[start:stop], n_time, axis=0)
+        if xpy is np:
+            Q_one = _q_window_numpy_interp(
+                Q, starts, fracs, 1, time_interp, xpy=xpy)[:, 0, :]
+            values = np.einsum("ej,ej->e", A_rows, Q_one)
+        else:
+            values = _q_inner_product_gpu(
+                Q, A_rows, starts, fracs, 1, time_interp)[:, 0]
+        out[start:stop] = values.reshape((stop - start, n_time))
+    return out
+
+
 def _nearest_Q_window_numpy(Q_block, start_indices, npts, xpy=np):
     """Return nearest-grid Q windows with zero extension."""
     npts_extrinsic = len(start_indices)
@@ -2430,7 +2466,7 @@ def _nearest_Q_window_numpy(Q_block, start_indices, npts, xpy=np):
     return Qlms
 
 
-def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=np, loglikelihood=_factored_lnL_helper,return_lnLt=False,phase_marginalization=False,n_cal=1,cal_method='loop',cal_distmarg=None,cal_log_weights=None,return_cal_components=False,time_interp='nearest',ctUArrayDict_cal=None,ctVArrayDict_cal=None,time_quadrature=None,return_time_components=False):
+def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=np, loglikelihood=_factored_lnL_helper,return_lnLt=False,phase_marginalization=False,n_cal=1,cal_method='loop',cal_distmarg=None,cal_log_weights=None,return_cal_components=False,time_interp='nearest',ctUArrayDict_cal=None,ctVArrayDict_cal=None,time_quadrature=None,explicit_time_values=False):
     """
     DiscreteFactoredLogLikelihoodViaArray uses the array-ized data structures to compute the log likelihood,
     either as an array vs time *or* marginalized in time.
@@ -2528,8 +2564,6 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
     global distMpcRef
 
     validate_time_interp(time_interp, on_gpu=not (xpy is np))
-    if return_time_components and (return_lnLt or return_cal_components):
-        raise ValueError("return_time_components is mutually exclusive with other return modes")
     if time_interp != 'nearest' and cal_method == 'fused':
         raise NotImplementedError("time_interp='{}' is not implemented for cal_method='fused'".format(time_interp))
 
@@ -2677,15 +2711,24 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
             float(greenwich_mean_sidereal_time_tref),
             xpy=xpy
         )
-        tfirst = t_det + tvals[0]
-
-        sample_first = tfirst / deltaT
-        if time_interp == 'nearest':
-            ifirst = (xpy.rint(sample_first) + 0.5).astype(np.int32)  # C uses 32 bit integers : be careful
-            frac_first = None
+        if explicit_time_values:
+            sample_at_times = ((t_det[:, None] +
+                                xpy.asarray(tvals)[None, :]) / deltaT)
+            if time_interp == 'nearest':
+                ifirst = (xpy.rint(sample_at_times) + 0.5).astype(np.int32)
+                frac_first = None
+            else:
+                ifirst = xpy.floor(sample_at_times).astype(np.int32)
+                frac_first = (sample_at_times - xpy.floor(sample_at_times)).astype(np.float64)
         else:
-            ifirst = xpy.floor(sample_first).astype(np.int32)
-            frac_first = (sample_first - xpy.floor(sample_first)).astype(np.float64)
+            tfirst = t_det + tvals[0]
+            sample_first = tfirst / deltaT
+            if time_interp == 'nearest':
+                ifirst = (xpy.rint(sample_first) + 0.5).astype(np.int32)  # C uses 32 bit integers : be careful
+                frac_first = None
+            else:
+                ifirst = xpy.floor(sample_first).astype(np.int32)
+                frac_first = (sample_first - xpy.floor(sample_first)).astype(np.float64)
 #        ilast = ifirst + npts
 
 
@@ -2786,25 +2829,39 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
             # Shape Q = (npts_time_full, nlms)
             # Shape A=FY_conj = (npts_extrinsic, nlms)
             # shape result = (npts_extrinsic, npts_time_*window* = npts)
-            Q_prod_result = _q_inner_product_gpu(
-                Q, FY_conj, ifirst, frac_first, npts, time_interp)
+            if explicit_time_values:
+                Q_prod_result = _q_inner_product_explicit_times(
+                    Q, FY_conj, ifirst, frac_first, time_interp, xpy=xpy)
+            else:
+                Q_prod_result = _q_inner_product_gpu(
+                    Q, FY_conj, ifirst, frac_first, npts, time_interp)
           else:
             # Use old code completely unchanged ... very wasteful on memory management!
             Q_block = rholmsArrayDict[det].T
-            Qlms = _q_window_numpy_interp(Q_block, ifirst, frac_first, npts, time_interp,
-                                          xpy=xpy)
+            if explicit_time_values:
+                Q_prod_result = _q_inner_product_explicit_times(
+                    Q_block, np.conj(F_vec_dummy_lm * Ylms_vec), ifirst,
+                    frac_first, time_interp, xpy=xpy)
+                Qlms = None
+            else:
+                Qlms = _q_window_numpy_interp(Q_block, ifirst, frac_first, npts, time_interp,
+                                              xpy=xpy)
             if phase_marginalization:
+                if explicit_time_values:
+                    raise NotImplementedError(
+                        "explicit time values with CPU phase marginalization are untested")
                 Qlms[:, :, 1] = xpy.conj(Qlms[:, :, 1])
 
-            FY_dummy_t = np.broadcast_to(
-              (F_vec_dummy_lm * Ylms_vec)[:, np.newaxis],
-              Qlms.shape,
-              )
+            if not explicit_time_values:
+                FY_dummy_t = np.broadcast_to(
+                  (F_vec_dummy_lm * Ylms_vec)[:, np.newaxis],
+                  Qlms.shape,
+                  )
 
-            Q_prod_result =  np.einsum(
-              "...i,...i",
-              np.conj(FY_dummy_t), Qlms,
-              )
+                Q_prod_result =  np.einsum(
+                  "...i,...i",
+                  np.conj(FY_dummy_t), Qlms,
+                  )
 
           kappa_sq += Q_prod_result * (distMpcRef/distMpc)[..., np.newaxis]
         else:
@@ -2844,9 +2901,6 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
             lnL_t = loglikelihood(xpy.abs(kappa_sq), rho_sq_here)
         else:
             lnL_t = loglikelihood(kappa_sq.real, rho_sq_here)
-
-        if return_time_components:
-          return kappa_sq, rho_sq_here
 
         # Take exponential of the log likelihood in-place.
         lnLmax  = xpy.max(lnL_t)
@@ -2910,8 +2964,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         cal_log_w = xpy.asarray(cal_log_weights, dtype=np.float64)
     cal_log_w_norm = float(np.log(n_cal))
 
-    if (cal_method == 'fused' and not return_lnLt and
-            not return_cal_components and not return_time_components):
+    if cal_method == 'fused' and not return_lnLt and not return_cal_components:
         # ---- Option C: fused implementation (GPU CUDA kernel, or numpy on CPU) ----
         # (return_lnLt needs the per-time series, which the loop reduction produces, so
         #  the fused scalar kernel is bypassed when a timeseries is requested.)
@@ -2958,8 +3011,6 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
     # This is the cal posterior responsibility used by util_CalPilotFit to learn a
     # proposal.  (loop method only; the fused scalar path is bypassed above.)
     cal_components = xpy.zeros((npts_extrinsic, n_cal), dtype=np.float64) if return_cal_components else None
-    time_kappa_components = [] if return_time_components else None
-    time_rho_components = [] if return_time_components else None
     for c in range(n_cal):
         kappa_sq_c = xpy.zeros((npts_extrinsic, npts), dtype=np.complex128)
         for det in detectors:
@@ -2973,13 +3024,23 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
             Q_block = Q_det[c*N_window_block:(c+1)*N_window_block]   # (N_window, n_lms)
             ifirst_within = ifirst_det.astype(np.int32)
             if not (xpy is np):
-                Q_prod_result = _q_inner_product_gpu(
-                    Q_block, FY_conj_det, ifirst_within, frac_first_det, npts, time_interp)
+                if explicit_time_values:
+                    Q_prod_result = _q_inner_product_explicit_times(
+                        Q_block, FY_conj_det, ifirst_within, frac_first_det,
+                        time_interp, xpy=xpy)
+                else:
+                    Q_prod_result = _q_inner_product_gpu(
+                        Q_block, FY_conj_det, ifirst_within, frac_first_det, npts, time_interp)
             else:
-                Qlms = _q_window_numpy_interp(Q_block, ifirst_within, frac_first_det, npts,
-                                              time_interp, xpy=xpy)
-                # Q_det and FY_conj_det already encode any phase-marg conjugation
-                Q_prod_result = np.einsum("ej,etj->et", FY_conj_det, Qlms)
+                if explicit_time_values:
+                    Q_prod_result = _q_inner_product_explicit_times(
+                        Q_block, FY_conj_det, ifirst_within, frac_first_det,
+                        time_interp, xpy=xpy)
+                else:
+                    Qlms = _q_window_numpy_interp(Q_block, ifirst_within, frac_first_det, npts,
+                                                  time_interp, xpy=xpy)
+                    # Q_det and FY_conj_det already encode any phase-marg conjugation
+                    Q_prod_result = np.einsum("ej,etj->et", FY_conj_det, Qlms)
             kappa_sq_c += Q_prod_result * invDistMpc[..., np.newaxis]
 
         # Fused-calmarg self-term fix: use this realization's rho_sq_c = <C_c h|C_c h>
@@ -2995,9 +3056,6 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
             lnL_t_c = loglikelihood(xpy.abs(kappa_sq_c), rho_sq_here)
         else:
             lnL_t_c = loglikelihood(kappa_sq_c.real, rho_sq_here)
-        if return_time_components:
-            time_kappa_components.append(kappa_sq_c)
-            time_rho_components.append(rho_sq_here)
         if return_cal_components:
             # RAW per-realization time-integrated log L (no importance weight), stable:
             #   log( simps_t exp(lnL_t,c) ) = m + log( simps_t exp(lnL_t,c - m) )
@@ -3013,10 +3071,6 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
             S *= xpy.exp(running_max - m_c)
             running_max = m_c
         S += xpy.exp(lnL_t_c - running_max)
-
-    if return_time_components:
-        return (xpy.stack(time_kappa_components, axis=1),
-                xpy.stack(time_rho_components, axis=1))
 
     if return_cal_components:
         # (npts_extrinsic, n_cal): RAW per-realization integrated log-likelihood.  The

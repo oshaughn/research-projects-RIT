@@ -398,7 +398,7 @@ if (opts.resample_time_marginalization and
         opts._time_posterior_export == "continuous"):
     raise NotImplementedError(
         "continuous time-posterior export is not yet available in the LISA driver: "
-        "its likelihood does not expose the band-limited time components needed to "
+        "its likelihood does not expose an explicit selected-stencil time evaluator needed to "
         "sample the selected interpolant faithfully; use --time-posterior-export grid")
 
 #
