@@ -3,22 +3,25 @@
 
 WHAT IS BEING TESTED, AND AGAINST WHAT
 --------------------------------------
-The claim is that the samples the likelihood already computes determine the
-continuous time integrand exactly, because kappa(t) is band-limited below
-Nyquist and rho_sq is time-independent.  So the reference here is NOT another
-numerical estimate of the same thing, and it is not a stored number: it is an
-ANALYTIC continuous function.  kappa(t) is built as a sum of complex exponentials
-with every frequency below Nyquist, which is band-limited by construction, and
-the truth is that same closed form evaluated directly (a dense complex-exponential
-sum -- not an FFT, so it shares no machinery with the code under test) and
-integrated at a density where the quadrature error is analytically negligible.
+The claim is that kappa(t) is band-limited below Nyquist and rho_sq is
+time-independent.  Production supplies only a finite integration-window slice,
+so the implementation makes that slice value-continuous with a literal 2N
+forward/backward reflection before FFT reconstruction; it does not identify the
+slice's generally unlike endpoints.  The reference here is NOT another numerical estimate of the same
+thing, and it is not a stored number: it is an ANALYTIC continuous function.
+kappa(t) is built as a sum of complex exponentials with every frequency below
+Nyquist, and the truth is that same closed form evaluated directly (a dense
+complex-exponential sum -- not an FFT, so it shares no machinery with the code
+under test) and integrated at a density where the quadrature error is
+analytically negligible.
 
 Two regimes are covered on purpose:
   * exactly periodic on the window  -> the interpolation is exact, so the only
     error left is the quadrature's, and it should vanish to machine precision;
   * a segment cut from a LONGER band-limited function -> not periodic on the
-    window, so the periodic interpolant rings at the wrap.  This is the realistic
-    case and it is where the edge guard has to earn its place.
+    window, so a raw periodic interpolant rings at the wrap.  This is the
+    realistic case and it is where the forward/backward boundary construction
+    has to earn its place.
 
 The wiring test drives the SHIPPED likelihood function rather than the helper: an
 accuracy option that computes the right number but never reaches the likelihood
@@ -89,7 +92,7 @@ class BandLimited(object):
                                   / (1.0 + (ms / (40.0 * scale)) ** 2))
         self.ms, self.c = ms, amp * c
 
-    def at(self, ts, chunk=40000):
+    def at(self, ts, chunk=1000):
         out = np.empty(np.size(ts), dtype=complex)
         ts = np.asarray(ts)
         for i in range(0, ts.size, chunk):
@@ -134,6 +137,56 @@ def test_upsample_is_exact_on_a_band_limited_sequence():
     assert np.allclose(up[::factor], sig.samples(), atol=1e-12, rtol=0)
 
 
+def test_reflected_upsample_reproduces_the_finite_row_exactly():
+    """The non-periodic boundary construction must not move supplied samples."""
+    sig = BandLimited(amp=1.0, peak_sample=NPTS // 2 + 0.25,
+                      n_period=8 * NPTS, m_hi=1400, background=0.12)
+    k = sig.samples()
+    factor = 8
+    up = tmq.reflected_bandlimited_upsample(k[None, :], factor)[0]
+    assert up.size == (NPTS - 1) * factor + 1
+    assert np.allclose(up[::factor], k, atol=1e-11, rtol=0)
+
+
+def test_forward_backward_reflection_blocks_the_endpoint_gibbs_counterexample():
+    """A decayed integrand does not imply a periodic kappa slice.
+
+    This centred row has negligible edge likelihood but a large coherent
+    endpoint mismatch.  Periodizing the raw slice biases the integral by more
+    than 100 nats; the literal 2N reflection must stay sub-millinat.  This pins
+    the adversarial case that invalidated the tail-decay guard.
+    """
+    sig = BandLimited(amp=1.0, peak_sample=NPTS // 2 + 0.25,
+                      n_period=8 * NPTS, m_hi=1400, background=0.12)
+    tone_amp, tone_mode, tone_phase = 930.745, 620, 2.3532
+    n_period = 8 * NPTS
+    js = sig.j0 + np.arange(NPTS)
+    tone = lambda j: tone_amp * np.exp(1j * (2 * np.pi * tone_mode * j / n_period
+                                             + tone_phase))
+    k = sig.samples() + tone(js)
+    lnL = _lnL(k.real, RHO_SQ)
+    guard = int(NPTS * tmq.EDGE_GUARD_FRACTION)
+    assert guard < np.argmax(lnL) < NPTS - 1 - guard
+    assert lnL.max() - lnL[:guard].max() > 30
+    assert lnL.max() - lnL[-guard:].max() > 30
+    assert abs(k[0] - k[-1]) > 1000
+
+    refine = 128
+    jd = sig.j0 + np.arange((NPTS - 1) * refine + 1) / float(refine)
+    exact = sig.at(jd * DELTAT, chunk=4000) + tone(jd)
+    ref = _log_trapz(_lnL(exact.real, RHO_SQ), DELTAT / refine)
+    sigma, _, _ = tmq.peak_width_from_lnL(lnL[None, :], DELTAT)
+    factor = int(tmq.required_upsample_factors(sigma, DELTAT)[0])
+
+    raw = tmq.bandlimited_upsample(k[None, :], factor)[0]
+    raw_value = _log_trapz(_lnL(raw[:(NPTS - 1) * factor + 1].real, RHO_SQ),
+                           DELTAT / factor)
+    reflected = tmq.reflected_bandlimited_upsample(k[None, :], factor)[0]
+    reflected_value = _log_trapz(_lnL(reflected.real, RHO_SQ), DELTAT / factor)
+    assert raw_value - ref > 100
+    assert abs(reflected_value - ref) < 1e-3
+
+
 def test_peak_width_estimator_is_exact_for_a_gaussian_at_any_grid_phase():
     """The width estimator is what makes the refinement DERIVED rather than
     guessed, and its whole job is to stay honest when the peak is under-resolved
@@ -161,7 +214,7 @@ def test_flat_integrand_derives_no_refinement():
 
 # --------------------------------------------- accuracy against analytic truth
 
-@pytest.mark.parametrize("amp,phase", [(a, p) for a in (0.02, 0.17, 1.0, 5.0)
+@pytest.mark.parametrize("amp,phase", [(a, p) for a in (0.3, 0.5, 1.0, 5.0)
                                        for p in (0.0, 0.25, 0.5)])
 def test_exact_on_a_periodic_window(amp, phase):
     """Exactly-periodic window: interpolation is exact, so the band-limited value
@@ -172,12 +225,12 @@ def test_exact_on_a_periodic_window(amp, phase):
     assert abs(_bandlimited(k) - ref) < 1e-6
 
 
-@pytest.mark.parametrize("amp,phase", [(a, p) for a in (0.02, 0.17, 1.0, 5.0)
+@pytest.mark.parametrize("amp,phase", [(a, p) for a in (0.05, 0.17, 1.0, 5.0)
                                        for p in (0.0, 0.25, 0.5)])
 def test_accurate_on_a_non_periodic_window(amp, phase):
     """The realistic case: the window is a segment of a longer band-limited
-    signal, so the periodic interpolant rings at the wrap.  With the peak
-    centred, the residual must still be far below Simpson's error."""
+    signal, so a raw periodic interpolant rings at the wrap.  With the peak
+    centred, the reflected residual must still be far below Simpson's error."""
     sig = BandLimited(amp=amp, peak_sample=NPTS // 2 + phase,
                       n_period=8 * NPTS, m_hi=1400, background=0.12)
     ref = sig.truth()
@@ -189,14 +242,14 @@ def test_beats_simpson_where_the_peak_is_under_resolved():
     """The defect itself.  Sweeping the peak across one sample must move the
     Simpson answer by of order a nat while leaving the band-limited answer put --
     that grid-phase sensitivity IS the bug, and insensitivity to it is the fix."""
-    sig0 = BandLimited(amp=0.02, peak_sample=NPTS // 2,
+    sig0 = BandLimited(amp=0.05, peak_sample=NPTS // 2,
                        n_period=8 * NPTS, m_hi=1400, background=0.12)
     sigma, _, _ = tmq.peak_width_from_lnL(_lnL(sig0.samples().real, RHO_SQ)[None, :], DELTAT)
-    assert 0.15 < float(sigma[0]) / DELTAT < 0.45, "not the under-resolved regime"
+    assert 0.08 < float(sigma[0]) / DELTAT < 0.30, "not the under-resolved regime"
 
     s_err, b_err = [], []
     for phase in (0.0, 0.25, 0.5, 0.75):
-        sig = BandLimited(amp=0.02, peak_sample=NPTS // 2 + phase,
+        sig = BandLimited(amp=0.05, peak_sample=NPTS // 2 + phase,
                           n_period=8 * NPTS, m_hi=1400, background=0.12)
         ref = sig.truth()
         k = sig.samples()
@@ -210,24 +263,37 @@ def test_beats_simpson_where_the_peak_is_under_resolved():
 
 # ----------------------------------------------------------- the edge guard
 
-def test_wrap_exposed_rows_fall_back_to_simpson_exactly():
-    """A peak parked near the window edge is where the periodic interpolant is
-    least trustworthy -- unguarded it was measured +88 nats HIGH, an upward bias
-    in the evidence, which is the dangerous direction.  Such rows must be handed
-    back the historical value bit-for-bit, so enabling the option can never make
-    a row worse than the status quo."""
+def test_centered_row_does_not_switch_rules_at_a_tail_threshold():
+    """Tail height does not select a Simpson fallback after reflection."""
+    sig = BandLimited(amp=0.02, peak_sample=NPTS // 2 + 0.25,
+                      n_period=8 * NPTS, m_hi=1400, background=0.12)
+    k = sig.samples()
+    lnL = _lnL(k.real, RHO_SQ)
+    guard = max(1, int(NPTS * tmq.EDGE_GUARD_FRACTION))
+    jmax = int(np.argmax(lnL))
+    assert guard <= jmax <= NPTS - 1 - guard
+    assert lnL.max() - lnL[:guard].max() < 30
+    assert lnL.max() - lnL[-guard:].max() < 30
+
+    got = _bandlimited(k)
+    assert got != _simpson_value(k)
+    assert abs(got - sig.truth()) < 1e-3
+    rep = tmq.last_report()
+    assert rep['n_refined_rows'] == 1, rep
+
+def test_boundary_diagnostic_does_not_select_simpson():
+    """Crossing the diagnostic boundary must not change quadrature rules."""
     for peak in (0.3, 2.3, 30.3):
         sig = BandLimited(amp=1.0, peak_sample=peak, n_period=8 * NPTS,
                           m_hi=1400, background=0.12)
         k = sig.samples()
-        assert _bandlimited(k) == _simpson_value(k), peak
+        assert _bandlimited(k) != _simpson_value(k), peak
         assert tmq.last_report()['n_wrap_exposed_rows'] == 1
+        assert tmq.last_report()['n_refined_rows'] == 1
 
 
 def test_one_exposed_row_does_not_contaminate_its_block():
-    """The guard is per row.  A mis-centred row must fall back WITHOUT dragging a
-    healthy row in the same block onto the Simpson path, and without inflating the
-    refinement the healthy rows pay for."""
+    """The boundary diagnostic is per row and does not alter reconstruction."""
     bad = BandLimited(amp=1.0, peak_sample=1.3, n_period=8 * NPTS,
                       m_hi=1400, background=0.12)
     good = BandLimited(amp=1.0, peak_sample=NPTS // 2 + 0.25, n_period=8 * NPTS,
@@ -235,30 +301,29 @@ def test_one_exposed_row_does_not_contaminate_its_block():
     k = np.stack([bad.samples(), good.samples()])
     out = tmq.time_marginalize_bandlimited(k, np.full(k.shape, RHO_SQ), DELTAT, _lnL)
     assert tmq.last_report()['n_wrap_exposed_rows'] == 1
-    assert float(out[0]) == _simpson_value(bad.samples())
+    assert tmq.last_report()['n_refined_rows'] == 2
+    assert float(out[0]) != _simpson_value(bad.samples())
     assert abs(float(out[1]) - good.truth()) < 1e-3
 
 
-def test_a_sharp_row_does_not_degrade_a_flat_row_sharing_its_block():
-    """One refinement factor serves a whole block, so a flat row gets interpolated
-    at a factor its own integrand never asked for.  That must not hurt it."""
+def test_rows_sharing_a_block_keep_their_individual_resolution():
+    """Each row still derives and pays for its own reconstruction factor."""
     flat = BandLimited(amp=0.0012, peak_sample=NPTS // 2 + 0.3, n_period=8 * NPTS,
                        m_hi=1400, background=0.12, seed=11)
     sharp = BandLimited(amp=5.0, peak_sample=NPTS // 2 + 0.3, n_period=8 * NPTS,
                         m_hi=1400, background=0.12)
     k = np.stack([flat.samples(), sharp.samples()])
     out = tmq.time_marginalize_bandlimited(k, np.full(k.shape, RHO_SQ), DELTAT, _lnL)
-    hist = tmq.last_report()['factor_histogram']
-    assert tmq.last_report()['upsample_factor'] > 8
+    rep = tmq.last_report()
+    hist = rep['factor_histogram']
+    assert rep['upsample_factor'] > 8
+    assert rep['n_refined_rows'] == 2, rep
+    assert float(out[0]) != _simpson_value(flat.samples())
     assert abs(float(out[0]) - flat.truth()) < 1e-4
-    # and the flat row must NOT have been dragged onto the sharp row's grid: the
-    # factor is derived per row precisely so the broad majority stop paying for
-    # the sharpest few.
-    assert len(hist) == 2, hist
-    assert min(hist) * 8 <= max(hist), hist
+    assert sum(hist.values()) == 2, hist
 
 
-# ------------------------------------------------------------- fail-closed
+# ------------------------------------------------------------- preconditions
 
 def test_time_dependent_rho_sq_is_refused():
     """The precondition is checked, not trusted.  A time-dependent self-term (the
@@ -335,13 +400,17 @@ def _shipped(tvals, args, **kw):
         tvals, P, lookupNK, rholms, ct, ct, epochs, Lmax=2, xpy=np, **kw)
 
 
-def _tuned_inputs(tvals, sigma_target_over_dt=0.25):
+def _tuned_inputs(tvals, sigma_target_over_dt=0.15):
     """Build likelihood inputs whose lnL(t) actually sits in the under-resolved
-    regime, by MEASURING what the shipped function produces rather than assuming
-    it: the response factor and the gather offset are the code's business, not the
-    test's.  Centres the peak in the window (an integer roll of a periodic
-    band-limited buffer is still band-limited) and scales the amplitude using
-    sigma ~ 1/sqrt(amp)."""
+    regime AND has decayed window tails, by MEASURING what the shipped function
+    produces rather than assuming it: the response factor and the gather offset
+    are the code's business, not the test's.  Centres the peak in the window (an
+    integer roll of a periodic band-limited buffer is still band-limited) and
+    scales the amplitude using sigma ~ 1/sqrt(amp).  The 0.15 target leaves about
+    49 nats of measured edge suppression, safely beyond the 30-nat eligibility
+    boundary; the former 0.25 target left only 18 and correctly stopped reaching
+    the FFT path once that boundary was added.
+    """
     amp, roll = 1.0, 0
     for _ in range(6):
         args = _fake_likelihood_inputs(_buffer_signal(amp, roll))
@@ -373,6 +442,9 @@ def test_driver_flag_reaches_the_likelihood_and_changes_the_answer():
     assert 0.1 < sigma_over_dt < 0.6, sigma_over_dt        # under-resolved, as intended
     guard = int(NPTS * tmq.EDGE_GUARD_FRACTION)
     assert guard < jmax < NPTS - 1 - guard, jmax           # and not wrap-exposed
+    lnL_t = np.asarray(_shipped(tvals, args, return_lnLt=True))[0]
+    assert lnL_t.max() - lnL_t[:guard].max() >= 30
+    assert lnL_t.max() - lnL_t[-guard:].max() >= 30
 
     assert fl.TIME_QUADRATURE_DEFAULT == 'simpson', "default must not have moved"
     base = float(np.asarray(_shipped(tvals, args))[0])
@@ -500,8 +572,9 @@ def test_unmeasurable_row_falls_back_and_is_counted():
     # unmeasurable row can never also be exposed -- asserting the two do not
     # overlap is vacuous.  What is worth pinning is that the counters PARTITION
     # the batch, so no row can fall through a gap between them and be invisible.
-    assert (rep['n_refined_rows'] + rep['n_wrap_exposed_rows']
-            + rep['n_unmeasurable_rows'] + rep['n_flat_rows']
+    assert (rep['n_refined_rows']
+            + rep['n_unmeasurable_rows']
+            + rep['n_flat_rows']
             + _n_resolved(rep)) == rep['n_rows'], rep
     # zero likelihood over the whole window integrates to zero: the answer is
     # -inf, which is what the historical global-offset path returns.  NaN here
@@ -513,10 +586,10 @@ def test_unmeasurable_row_falls_back_and_is_counted():
 def test_a_row_changes_if_and_only_if_it_was_under_resolved():
     """The guarantee, stated so it can be checked rather than argued.
 
-    Every row that is NOT refined -- wrap-exposed, unmeasurable, or already
-    resolved -- must come back with the historical Simpson value, so enabling
-    this option cannot make any row worse than the status quo.  Letting an
-    unrefined row fall through to a coarse trapezoid instead is numerically a
+    Every row that is NOT refined -- unmeasurable, flat, or already resolved --
+    must come back with the historical Simpson value, so
+    enabling this option cannot make any row worse than the status quo.  Letting
+    an unrefined row fall through to a coarse trapezoid instead is numerically a
     non-event, but it changes the rule for rows this option was never meant to
     touch and forfeits exactly this property.
     """
@@ -525,9 +598,13 @@ def test_a_row_changes_if_and_only_if_it_was_under_resolved():
     rows.append(BandLimited(amp=0.002, peak_sample=NPTS // 2).samples()); expect_refined.append(False)
     # signal-free
     rows.append(np.zeros(NPTS, dtype=complex)); expect_refined.append(False)
-    # wrap-exposed
+    # boundary-diagnostic row: still refined
     rows.append(BandLimited(amp=1.0, peak_sample=2.3, n_period=8 * NPTS,
-                            m_hi=1400, background=0.12).samples()); expect_refined.append(False)
+                            m_hi=1400, background=0.12).samples()); expect_refined.append(True)
+    # centred and sharp with non-negligible coarse tails: still refined
+    rows.append(BandLimited(amp=0.02, peak_sample=NPTS // 2 + 0.25,
+                            n_period=8 * NPTS, m_hi=1400,
+                            background=0.12).samples()); expect_refined.append(True)
     # genuinely under-resolved
     rows.append(BandLimited(amp=1.0, peak_sample=NPTS // 2 + 0.25, n_period=8 * NPTS,
                             m_hi=1400, background=0.12).samples()); expect_refined.append(True)
@@ -683,7 +760,8 @@ def test_bandlimited_runs_on_the_gpu_backend_and_matches_numpy():
 
     # Same classification and the same derived factors on both backends.
     for key in ('upsample_factor', 'factor_histogram', 'n_refined_rows',
-                'n_wrap_exposed_rows', 'n_unmeasurable_rows', 'n_flat_rows'):
+                'n_wrap_exposed_rows', 'n_unmeasurable_rows',
+                'n_flat_rows'):
         assert rep_np[key] == rep_cp[key], (key, rep_np[key], rep_cp[key])
     assert rep_np['n_refined_rows'] >= 1
 
@@ -749,9 +827,8 @@ def test_the_likelihood_hands_the_bandlimited_path_its_own_simpson_rule():
 def _row_factors(k, r):
     """Per-row derived factor, as the integrator computes it."""
     lnL = _lnL(np.asarray(k).real, np.asarray(r))
-    sigma, jmax, meas = tmq.peak_width_from_lnL(lnL, DELTAT)
-    guard = max(1, int(k.shape[-1] * tmq.EDGE_GUARD_FRACTION))
-    ok = meas & np.isfinite(sigma) & (jmax >= guard) & (jmax <= k.shape[-1] - 1 - guard)
+    sigma, _, meas = tmq.peak_width_from_lnL(lnL, DELTAT)
+    ok = meas & np.isfinite(sigma)
     f = np.maximum(tmq.required_upsample_factors(sigma, DELTAT), 1)
     return np.where(ok, f, 1)
 
@@ -867,27 +944,20 @@ def test_a_nan_self_term_does_not_abort_the_run():
 
 def _n_resolved(rep):
     """Rows with a real peak that simply needed no refinement."""
-    return (rep['n_rows'] - rep['n_refined_rows'] - rep['n_wrap_exposed_rows']
+    return (rep['n_rows'] - rep['n_refined_rows']
             - rep['n_unmeasurable_rows'] - rep['n_flat_rows'])
 
 
-def test_the_edge_guard_covers_the_RIGHT_edge_too():
-    """Both ends, not just the one the first test happened to use.
-
-    The guard is `(jmax < g) | (jmax > npts-1-g)`.  Dropping the second term, or
-    an off-by-one in it, leaves the left edge covered and the right edge wide
-    open -- and a peak parked at the last sample then returns +88.8 nats ABOVE
-    truth, the evidence-inflating direction the guard exists to stop.  Every
-    fixture in the original suite parked peaks near sample 0.
-    """
+def test_the_boundary_diagnostic_covers_the_RIGHT_edge_too():
+    """Both physical integration boundaries are reported, not rule switches."""
     for peak in (NPTS - 1.3, NPTS - 3.3, NPTS - 31.3):
         sig = BandLimited(amp=1.0, peak_sample=peak, n_period=8 * NPTS,
                           m_hi=1400, background=0.12)
         k = sig.samples()
-        assert _bandlimited(k) == _simpson_value(k), peak
+        assert _bandlimited(k) != _simpson_value(k), peak
         assert tmq.last_report()['n_wrap_exposed_rows'] == 1, peak
-    # and a peak just INSIDE the right guard is still refined, so the guard is
-    # not merely swallowing everything on that side
+        assert tmq.last_report()['n_refined_rows'] == 1, peak
+    # A central peak is reconstructed by the same rule without the diagnostic.
     inside = BandLimited(amp=1.0, peak_sample=NPTS // 2 + 0.25, n_period=8 * NPTS,
                          m_hi=1400, background=0.12)
     _bandlimited(inside.samples())
@@ -998,7 +1068,7 @@ def test_argmax_ignores_non_finite_bins():
 
 
 def test_report_sigma_t_min_is_the_width_that_was_resolved():
-    sig = BandLimited(amp=0.17, peak_sample=NPTS // 2 + 0.25)
+    sig = BandLimited(amp=0.3, peak_sample=NPTS // 2 + 0.25)
     k = sig.samples()[None, :]
     tmq.time_marginalize_bandlimited(k, np.full(k.shape, RHO_SQ), DELTAT, _lnL)
     rep = tmq.last_report()
@@ -1104,24 +1174,25 @@ def test_the_edge_guard_band_is_exactly_the_outer_fraction():
         tmq.time_marginalize_bandlimited(k, r, DELTAT, _lnL)
         rep = tmq.last_report()
         assert (rep['n_wrap_exposed_rows'] == 1) == expect_exposed, (j, guard, rep)
-        # accepted rows here are sharp enough to be refined, so the guard is
-        # deciding something rather than being masked by a factor of 1
-        assert (rep['n_refined_rows'] == 1) == (not expect_exposed), (j, rep)
+        # All four rows are sharp enough to be refined; the boundary changes
+        # only the diagnostic count, never the quadrature rule.
+        assert rep['n_refined_rows'] == 1, (j, rep)
 
     # A peak on the very first or last SAMPLE is a documented corner: the
-    # curvature stencil is clipped inward, so it measures a positive second
-    # difference and the row classifies as FLAT rather than wrap-exposed.  That
-    # under-states the window-centring problem in the diagnostic, but it is safe
-    # -- what matters is that such a row is never refined, so it gets the
-    # historical value either way.
+    # curvature stencil is clipped inward and initially measures positive
+    # curvature away from the maximum.  A strongly varying row must not be
+    # confused with a genuinely flat antenna null; it receives a seed factor and
+    # lets dense remeasurement derive the eventual resolution.
     for j in (0, NPTS - 1):
         k = row_peaking_at(j)[None, :]
         r = np.full(k.shape, RHO_SQ)
         out = tmq.time_marginalize_bandlimited(k, r, DELTAT, _lnL)
         rep = tmq.last_report()
-        assert rep['n_refined_rows'] == 0, (j, rep)
-        assert rep['n_flat_rows'] == 1, (j, rep)
-        assert float(out[0]) == _simpson_value(k[0]), j
+        assert rep['n_refined_rows'] == 1, (j, rep)
+        assert rep['n_wrap_exposed_rows'] == 1, (j, rep)
+        assert rep['n_flat_rows'] == 0, (j, rep)
+        assert rep['upsample_factor'] >= 16, (j, rep)
+        assert float(out[0]) != _simpson_value(k[0]), j
 
 
 if __name__ == '__main__':

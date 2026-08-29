@@ -35,10 +35,48 @@ Synthetic band-limited kappa, srate 4096, npts 614, error in nats at three grid 
 | 0.016–0.019 | +3.589 / -139.4 / -549.0 | 0 | 256 |
 | 0.007–0.008 | +4.393 / -710.6 / -2760.4 | 0 | 512 |
 
-Non-periodic window (segment of a longer band-limited signal, peak centred): band-limited
-error <= 5e-5 nats where Simpson is off by up to 420.
+Non-periodic window (segment of a longer band-limited signal, peak centred): the literal
+2N forward/backward reflection measured errors from 2e-8 to 2.5e-6 nats over amplitudes
+0.05–5, where Simpson can be wrong by hundreds of nats.
 
-## Edge guard: a bound on WHERE, not on HOW MUCH
+## Finite-window reconstruction: why decay is not an eligibility test
+
+`kappa_rows` contains only the gathered integration-window slice of a longer inverse-FFT
+series.  Zero-padding its FFT directly treats that slice as one period; centring the coarse
+argmax does not bound the artificial wrap or its ringing.  More subtly, decay of the
+integrand does not bound it either: `exp(lnL)` may be negligible at the edges while the
+quantity being FFT-interpolated, complex `kappa`, has a large endpoint mismatch.
+
+The adversarial review pinned that distinction with a centred analytic row: outer-eighth
+log-likelihood drops 51.4 and 49.6 nats, endpoint mismatch 1720, derived refinement factor
+64.  The raw periodic-slice FFT was **+140.88 nats** wrong.  Thus a 30-nat tail guard would
+have certified precisely the catastrophic case it was intended to exclude.
+
+The shipped mitigation forms the literal length-2N sequence
+`[kappa[0], ..., kappa[-1], kappa[-1], ..., kappa[0]]`, FFT-interpolates that periodic,
+value-continuous sequence, and retains only the forward interval.  On the counterexample the
+error is **+2.4e-4 nats**.  The superficially standard 2(N-1) reflection was tested too and
+was worse (+0.078 nats) because it places the turn on the endpoint sample rather than between
+the duplicated endpoints.  On the ordinary longer-period fixtures the literal 2N form was
+also better: 2e-8–2.5e-6 nats versus 2e-6–2.5e-4 for 2(N-1).
+
+An internal randomized review added 400 coherent sinusoids (random amplitude, mode and
+phase) to the longer-period analytic fixture.  Of 387 rows that passed the former centring
+and 30-nat tail guards, raw periodization still reached 130 nats error.  Reflection reduced
+the worst error to 0.0137 nats; 364/387 were below 1e-3 and only one exceeded 1e-2.  The
+worst residual used a deliberately coherent near-Nyquist mode of amplitude 1894, comparable
+to the signal peak.  Production remeasurement doubled its quadrature factor from 128 to 256
+and left the value unchanged, establishing that 0.0137 is reconstruction, not integration,
+error.  Local Lanczos reconstruction was also tested on that worst row and was inferior:
+errors 7.24, -0.779, 0.164, 0.0646 and 0.0273 nats for half-widths 8, 16, 32, 64 and 128.
+This records the measured limitation instead of implying that reflection recovers the
+unavailable full-period series exactly.
+
+This is a numerical boundary condition, not a claim that the physical correlation reverses
+outside the window.  The integration domain remains exactly `[t0, t_{N-1}]`; the backward
+half contributes no probability mass.
+
+## Boundary peaks: diagnostic, never a rule switch
 
 Peak swept toward the window edge, `sigma_t/deltaT = 0.042`:
 
@@ -53,8 +91,33 @@ outside the guard: -8.0e-4 / -8.1e-3 / -8.1e-2 / **-0.846** nats at peak lnL 5.3
 on a different fixture and implementation and reached the same magnitude at the same
 amplitude — corroboration across lines, not a single-fixture artefact.
 
-Rejected: an endpoint-ramp detrend.  It halves the interior error but is WORSE at 8 and 2
-samples from the edge (`detrend.py`).
+The table records the rejected raw-slice periodic reconstruction.  An endpoint-ramp detrend
+was also rejected: it halves the interior error but is worse at 8 and 2 samples from the edge
+(`detrend.py`).
+
+The former outer-eighth guard is now diagnostic-only.  A sweep immediately across its
+boundary (peak samples 75.3, 76.3, 77.3 for N=614) gave reflected errors of order 1e-6 nats;
+switching to Simpson there would create a discontinuous, arbitrary loss of accuracy.  Peaks
+at the actual integration endpoint remain a distinct physical truncation problem.  The
+reflected result is best-effort on the unchanged domain and the boundary count remains in
+`last_report()` so truncation is visible, but it neither returns a lower-resolution rule nor
+raises: in the production pipeline either behavior can silently bias selection, because an
+exception may be interpreted as waveform failure and excise that configuration.
+
+This distinction is load-bearing:
+
+* a **numerical reconstruction boundary** is mitigated by forward/backward reflection;
+* a **physical integration boundary** is reported, not silently reclassified;
+* Simpson fallback is retained only where no peak width can be measured or no refinement is
+  needed, not because a row crossed a location or tail-height threshold.
+
+One endpoint corner needs explicit classification.  At an argmax on the first or last sample,
+the nominal centred curvature stencil is clipped inward; on a severely under-resolved row it
+can measure positive curvature away from the peak and call the row flat.  A nonconstant row in
+that state now receives a seed factor of 4, after which dense-grid remeasurement derives the
+needed resolution (factor 16 in the pinned sharp-endpoint fixture).  A truly constant antenna
+null remains flat and unrefined.  This prevents an exact-boundary row from silently reaching
+Simpson through a different classification path.
 
 ## Odd npts
 
@@ -85,6 +148,12 @@ the dense grid, which has no even/odd ambiguity, so this path removes the diverg
 applies.
 
 ## Cost, and why the strategy should change
+
+The table below predates the finite-window fix and measures the rejected raw-slice FFT.
+Forward/backward reconstruction doubles the FFT period and the chunking budget accounts for
+that larger temporary.  Treat these numbers as the lower-bound historical record, not as a
+current performance claim; correctness is the gate for this opt-in quadrature and the
+peak-local follow-up remains the intended cost reduction.
 
 End-to-end through the shipped likelihood, n_extrinsic 4000, 3 IFOs, CPU time:
 

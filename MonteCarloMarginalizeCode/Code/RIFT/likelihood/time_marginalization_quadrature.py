@@ -37,13 +37,28 @@ WHY THE EXISTING SAMPLES ALREADY CONTAIN THE ANSWER
 The data term ``kappa(t) = sum_det <h_det | d_det>(t)`` is built from the
 precomputed rholm cross-correlation timeseries, which are inverse FFTs of a
 frequency-domain product band-limited to ``[fmin, fmax]`` with
-``fmax <= fNyq = 1/(2 deltaT)``.  So ``kappa(t)`` is band-limited below Nyquist,
-and by the sampling theorem the samples the code ALREADY COMPUTES determine the
-continuous function exactly.  The template self-term ``rho_sq`` is
-time-independent on this path.  Therefore ``lnL(t) = f(kappa(t), rho_sq)`` is
-recoverable on an arbitrarily fine grid from the samples in hand -- one
-zero-padded FFT per row, no extra likelihood evaluations, no extra precompute
-and no extra accumulator passes.
+``fmax <= fNyq = 1/(2 deltaT)``.  So ``kappa(t)`` is band-limited below Nyquist.
+The template self-term ``rho_sq`` is time-independent on this path.  Therefore
+``lnL(t) = f(kappa(t), rho_sq)`` is recoverable on an arbitrarily fine grid from
+samples covering a full underlying period.
+
+The samples in hand are only a gathered INTEGRATION-WINDOW SLICE, however.  A
+zero-padded FFT of that slice alone identifies its generally unlike endpoints.
+Decay of ``exp(lnL)`` does NOT make that safe: the FFT acts on ``kappa``, whose
+endpoint mismatch can remain large where the likelihood is negligible, and the
+resulting Gibbs overshoot is global.  A centred adversarial row with both outer
+eighths more than 49 nats below its peak still moved by +140.9 nats when the raw
+slice was periodized.
+
+The implementation instead doubles the finite row by literal even reflection,
+``[kappa forward, kappa backward]``, before FFT interpolation, then discards the
+backward half.  Both joins are value-continuous, the supplied samples are
+unchanged, and no unavailable samples outside the deliberately narrow
+integration domain are invented.  The same adversarial row is accurate to
+2.4e-4 nats.  Boundary proximity and coarse tail height are reported or tested,
+but neither selects a lower-accuracy Simpson fallback: such a discontinuous
+switch silently changes likelihood quality, while an exception can be mapped by
+the calling pipeline to waveform failure and silently excise configurations.
 
 Two independent checks of that claim.  On the real injection above, against a
 converged dense reference built by re-gathering the rholms at shifted window
@@ -72,10 +87,10 @@ the integrand is already resolved the historical rule is fine, the derivation
 returns a factor of 1 and nothing is paid.  The row at sigma_t/deltaT = 0.25
 spans 1.95 nats across grid phase, which is the same scale as the 1.649 nats
 measured on the real injection at the same ratio -- the synthetic reproduces the
-defect's magnitude rather than a caricature of it.  On a window cut from a longer
-band-limited signal (so the periodic interpolant genuinely rings at the wrap, the
-realistic case) the band-limited error stays at or below 5e-5 nats where Simpson
-is off by up to 420.
+defect's magnitude rather than a caricature of it.  On windows cut from a longer
+band-limited signal, the reflected reconstruction measured 2e-8 to 2.5e-6 nats
+error over the tested sharpness range; the raw periodic-slice reconstruction
+could ring at the artificial wrap.
 
 RESOLUTION IS DERIVED, NOT CONFIGURED
 -------------------------------------
@@ -148,6 +163,7 @@ __all__ = [
     "UPSAMPLE_FACTOR_MAX",
     "EDGE_GUARD_FRACTION",
     "bandlimited_upsample",
+    "reflected_bandlimited_upsample",
     "peak_width_from_lnL",
     "required_upsample_factors",
     "validate_time_quadrature",
@@ -168,16 +184,13 @@ UPSAMPLE_SAFETY = 2.0
 #: the resolution.
 UPSAMPLE_FACTOR_MAX = 4096
 
-#: Fraction of the window at EACH end within which a row's peak is treated as
-#: wrap-exposed.  The zero-padded FFT reconstructs the unique PERIODIC
-#: band-limited interpolant through the window's samples; the true kappa is a
-#: segment of a longer function and is not periodic on the window, so the
-#: endpoint mismatch rings, and the ringing contaminates the reconstruction most
-#: where the peak sits closest to the wrap.  Crucially this deviation is NOT
-#: measurable from the window's own samples -- the periodic interpolant is
-#: uniquely determined by them, so any estimate of the departure needs
-#: information from outside the window.  It therefore has to be bounded a priori,
-#: and rows that fall outside the bound fall back rather than guess.
+#: Fraction of the window at EACH end used only to REPORT a peak close to a
+#: truncated integration boundary.  It must not select a different quadrature:
+#: crossing an arbitrary threshold cannot silently move an under-resolved row
+#: back to Simpson, and raising on such a row can be interpreted upstream as a
+#: waveform failure and silently excise that configuration.  The reflected
+#: reconstruction below has no value discontinuity at either boundary, so the
+#: old periodic-wrap exclusion is no longer needed for numerical safety.
 #:
 #: Measured on a window cut from a longer band-limited signal (peaked kernel plus
 #: a 12%-amplitude coloured background, so the two ends genuinely disagree),
@@ -187,31 +200,20 @@ UPSAMPLE_FACTOR_MAX = 4096
 #:   band-limited              5e-6   4.6e-3  5.2e-2  5.6e-2  -3.3    +88.8
 #:   Simpson (for scale)      -29.2   -29.9   -29.3   -29.4   -29.7   -29.9
 #:
-#: The +88.8 is the reason this is a guard and not just a report: it is wrong in
-#: the DANGEROUS direction, and a spuriously high lnL importance-weights that
-#: sample into dominance.  1/8 of the window is 77 samples at the production
-#: npts=614.  TWO HONEST CAVEATS on that choice, both measured:
-#:
-#: * The table above is at ONE amplitude.  ``lnL`` is LINEAR in ``kappa``, so the
-#:   wrap error in nats scales with it: for a row just outside the guard, at peak
-#:   ``lnL`` of 5.3e2 / 5.3e3 / 5.3e4 / 5.3e5 (rho ~ 33 / 103 / 326 / 1031), the
-#:   measured error was -8.0e-4 / -8.1e-3 / -8.1e-2 / -0.846 nats.  So the fixed
-#:   fraction is a bound on WHERE, not on HOW MUCH: adequate through O4
-#:   amplitudes, weaker in the 3G regime.
-#: * Do NOT justify the guard by saying such rows are truncated anyway.  Often
-#:   they are not -- at 20-60 samples from the edge the peak sits entirely inside
-#:   the window, yet those rows get a Simpson value measured 2.87 nats wrong where
-#:   the reconstruction would have been 0.007-0.02.  The guard is deliberately
-#:   conservative: the crossover where the reconstruction actually loses is nearer
-#:   5-10 samples, and 1/8 buys margin against the amplitude scaling above.
+#: That table is the REJECTED raw-slice periodic reconstruction and records why
+#: boundary proximity must remain visible: +88.8 is in the dangerous direction,
+#: where a spurious row can dominate importance weights.  It does not justify an
+#: algorithm switch.  With reflection, peaks immediately on either side of the
+#: old one-eighth line (samples 75.3, 76.3, 77.3 at npts=614) agree with analytic
+#: truth at order 1e-6 nats.  Switching them to under-resolved Simpson because
+#: they crossed that line would itself create the quality regression.
 #:
 #: In a well-posed run nothing comes close: the grid is centred on the trigger's
 #: geocentre time, so the peak sits within the trigger timing uncertainty (a few
 #: ms, tens of samples) of the CENTRE, not of an edge.  Rows that do violate it
-#: are given the historical Simpson value and counted in ``last_report()``.
-#: (The route to supporting such rows properly is to widen the GATHER so the wrap
-#: sits outside the integration domain -- deliberately not done here, since it
-#: touches the GPU kernel and the buffer-margin assumptions.)
+#: are still reconstructed and integrated over the caller's unchanged, possibly
+#: truncated domain; the count in ``last_report()`` makes that separate physical
+#: window-containment issue auditable without changing the likelihood rule.
 EDGE_GUARD_FRACTION = 0.125
 
 #: Half-widths, in coarse samples, tried in turn for the curvature stencil.  A
@@ -251,13 +253,14 @@ def last_report():
     ``sigma_t_min``, ``n_rows``, ``n_wrap_exposed_rows``, ``n_unmeasurable_rows``,
     ``n_flat_rows``, ``n_refined_rows``.
 
-    The three row counts are deliberately kept apart, because they mean different
-    things and only two of them are ever worth acting on:
+    The diagnostic row counts are deliberately kept apart because they mean
+    different things:
 
-    ``n_wrap_exposed_rows`` -- a resolvable peak sitting inside
-    ``EDGE_GUARD_FRACTION`` of a window edge.  This is a statement that the
-    WINDOW is mis-centred for those samples, which truncates their integral under
-    either rule.  Given the historical Simpson value.
+    ``n_wrap_exposed_rows`` -- compatibility name for a resolvable peak sitting
+    inside ``EDGE_GUARD_FRACTION`` of a window edge.  It is diagnostic only: the
+    row is reconstructed by the same reflected rule as every other measurable
+    under-resolved row.  The name records the old implementation; there is no
+    periodic wrap in the current reconstruction.
 
     ``n_unmeasurable_rows`` -- ``lnL(t)`` non-finite around its maximum at every
     stencil half-width, so no width can be justified.  Given the historical value.
@@ -267,8 +270,8 @@ def last_report():
 
     ``n_refined_rows`` is the count that matters for auditing a change: the
     QUADRATURE RULE changes for these rows and for no others.  Every other row --
-    exposed, unmeasurable, or already resolved -- is integrated by the caller's
-    own Simpson rule over the same domain.
+    unmeasurable, flat, or already resolved -- is integrated by the caller's own
+    Simpson rule over the same domain.
 
     Read that precisely: it is a statement about the RULE, not about the returned
     VALUE.  The log-sum-exp offset also changes, from the historical single
@@ -334,6 +337,31 @@ def bandlimited_upsample(x, factor, xpy=np):
     else:
         Xup[..., -n_pos:] = X[..., n_pos + 1:]
     return xpy.fft.ifft(Xup, axis=-1) * factor
+
+
+def reflected_bandlimited_upsample(x, factor, xpy=np):
+    """Upsample a finite row after a literal ``2*n`` even reflection.
+
+    Upsampling the gathered row directly identifies its unlike endpoints and
+    can create global Gibbs ringing.  Instead periodize
+    ``[x[0], ..., x[-1], x[-1], ..., x[0]]`` and return only the original
+    forward interval.  Both periodic joins are value-continuous, every input
+    sample is reproduced exactly, and no unavailable samples outside the
+    integration domain are invented.  The duplicated turning samples are
+    deliberate: the ``2*(n-1)`` reflection was less accurate in measured
+    realistic and adversarial cases because it locates the turn differently.
+
+    This is a numerical boundary condition, not a claim that the physical
+    correlation reverses outside the caller's finite integration window.
+    """
+    x = xpy.asarray(x)
+    factor = int(factor)
+    if factor == 1:
+        return x
+    n = x.shape[-1]
+    reflected = xpy.concatenate((x, xpy.flip(x, axis=-1)), axis=-1)
+    dense = bandlimited_upsample(reflected, factor, xpy=xpy)
+    return dense[..., :(n - 1) * factor + 1]
 
 
 def peak_width_from_lnL(lnL_t, dx, xpy=np):
@@ -541,28 +569,44 @@ def time_marginalize_bandlimited(kappa, rho_sq, deltaT, loglikelihood,
 
     sigma, jmax, measurable = peak_width_from_lnL(lnL_coarse, deltaT, xpy=xpy)
 
-    # Classify the rows.  The edge guard must apply only to rows that HAVE a
+    # Classify the rows.  The boundary diagnostic applies only to rows that HAVE a
     # resolvable peak: a row whose lnL(t) is constant -- an extrinsic sample in an
     # antenna null, where kappa is numerically zero -- has an argmax of 0 by
-    # convention and would otherwise be reported as wrap-exposed.  That is
+    # convention and would otherwise be reported as boundary-exposed.  That is
     # harmless numerically (Simpson is exact on a constant) but it makes the
     # diagnostic lie: measured on a random-sky batch of 4000, it reported 810
-    # "wrap-exposed" rows, which in a production log reads as a mis-centred
-    # window rather than as 810 rows with no signal in them.
+    # "wrap-exposed" rows (the compatibility report key), which in a production
+    # log reads as a mis-centred window rather than as 810 rows with no signal
+    # in them.
     guard = max(1, int(npts * EDGE_GUARD_FRACTION))
-    has_peak = measurable & xpy.isfinite(sigma)
-    flat = measurable & (~xpy.isfinite(sigma))
+    finite_lnL = xpy.isfinite(lnL_coarse)
+    row_max = xpy.max(xpy.where(finite_lnL, lnL_coarse, -np.inf), axis=-1)
+    row_min = xpy.min(xpy.where(finite_lnL, lnL_coarse, np.inf), axis=-1)
+    varies = xpy.isfinite(row_max) & xpy.isfinite(row_min) & (row_max > row_min)
+    # At the first/last sample the centred stencil is clipped inward.  For a
+    # severely under-resolved endpoint peak it can then see positive curvature
+    # away from the maximum and label a strongly varying row "flat".  That would
+    # silently retain Simpson for exactly the truncated-boundary case we intend
+    # to report and reconstruct.  Give such rows a small seed factor; dense-grid
+    # remeasurement takes over as soon as the reflected peak is measurable.
+    boundary_unresolved = (measurable & (~xpy.isfinite(sigma)) & varies
+                           & ((jmax == 0) | (jmax == npts - 1)))
+    has_peak = measurable & (xpy.isfinite(sigma) | boundary_unresolved)
+    flat = measurable & (~xpy.isfinite(sigma)) & (~boundary_unresolved)
     exposed = has_peak & ((jmax < guard) | (jmax > npts - 1 - guard))
     # Counted unconditionally, NOT `& ~exposed`: an all -inf row also has an
     # argmax of 0, so a conditional counter would hide it behind the edge guard.
     unmeasurable = ~measurable
 
     factors = xpy.maximum(required_upsample_factors(sigma, deltaT, xpy=xpy), 1)
+    factors = xpy.where(boundary_unresolved, xpy.maximum(factors, 4), factors)
+
     # A row is REFINED only if it has a trustworthy peak AND the derivation
-    # actually asks for a finer grid.  Everything else -- wrap-exposed,
-    # unmeasurable, or simply already resolved -- gets the historical Simpson
-    # value.  That is the whole rule: the QUADRATURE changes for under-resolved
-    # rows and for no others.  (The log-sum-exp offset changes for every row --
+    # actually asks for a finer grid.  Reflection removes the endpoint value
+    # jump, so neither boundary proximity nor a tail threshold selects a Simpson
+    # fallback.  ``exposed`` reports possible physical truncation only.
+    # Everything else -- unmeasurable, flat, or already resolved -- gets the
+    # historical Simpson value.  (The log-sum-exp offset changes for every row --
     # see last_report() -- so this is a statement about the rule, not a promise
     # that unrefined rows come back bit-identical.)
     # The alternative, letting an unrefined row fall through to
@@ -572,7 +616,7 @@ def time_marginalize_bandlimited(kappa, rho_sq, deltaT, loglikelihood,
     # rule on a resolved integrand -- 5e-6 nats against an analytic truth, versus
     # Simpson's 5e-6 the other way -- so this trades nothing measurable for an
     # auditable claim.)
-    refined = (~(exposed | unmeasurable)) & (factors > 1)
+    refined = has_peak & (factors > 1)
 
     out = _log_simps_rows(lnL_coarse, deltaT, simps, xpy=xpy)
 
@@ -629,13 +673,16 @@ def _integrate_group(kappa_rows, rho_col_rows, npts, deltaT, factor,
         dx_dense = deltaT / factor
         # Chunk the extrinsic axis so one dense temporary stays inside the
         # working-set budget.  Rows are independent; this cannot change results.
-        per_row = npts * factor * 16 * 3
+        # The FFT period is 2*n after reflection; budget for it and the forward
+        # kappa/rho/lnL temporaries.
+        per_row = npts * factor * 16 * 8
         chunk = max(1, min(n_rows, int(_DENSE_CHUNK_BYTES // max(per_row, 1))))
 
         pieces = []
         sigma_dense_min = np.inf
         for start in range(0, n_rows, chunk):
-            k_up = bandlimited_upsample(kappa_rows[start:start + chunk], factor, xpy=xpy)
+            k_up = reflected_bandlimited_upsample(
+                kappa_rows[start:start + chunk], factor, xpy=xpy)
             rho_up = xpy.broadcast_to(rho_col_rows[start:start + chunk], k_up.shape)
             lnL_up = loglikelihood(_term(k_up), rho_up)
             s_d, _, meas = peak_width_from_lnL(lnL_up, dx_dense, xpy=xpy)
