@@ -574,7 +574,13 @@ def peak_width_from_lnL(lnL_t, dx, xpy=np):
     if n < 3:
         raise ValueError("need at least 3 time samples to measure a peak width")
     jmax = xpy.argmax(xpy.where(xpy.isfinite(lnL_t), lnL_t, -np.inf), axis=-1)
-    take = lambda j: xpy.take_along_axis(lnL_t, j[..., None], axis=-1)[..., 0]
+    # numpy.take_along_axis was introduced in 1.15, while RIFT still declares a
+    # NumPy >=1.14 floor.  Flatten the leading axes and use ordinary advanced
+    # indexing, which has the same semantics on NumPy and CuPy at that floor.
+    lead_shape = jmax.shape
+    flat_lnL = lnL_t.reshape((-1, n))
+    row_index = xpy.arange(flat_lnL.shape[0])
+    take = lambda j: flat_lnL[row_index, j.reshape(-1)].reshape(lead_shape)
 
     sigma = xpy.full(jmax.shape, np.inf, dtype=np.float64)
     measurable = xpy.zeros(jmax.shape, dtype=bool)

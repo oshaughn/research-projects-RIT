@@ -244,7 +244,9 @@ optp.add_option("--psd-window-shape", type=float, default=0, help="Shape of Tuke
 optp.add_option("-m", "--time-marginalization", action="store_true", help="Perform marginalization over time via direct numerical integration. Default is false.")
 #optp.add_option("--n-fairdraw-extrinsic-samples",default=None,type=int,help="Extracts a concrete number of fair draw extrinsic samples, bounded above by n_eff")
 optp.add_option("--resample-time-marginalization",action='store_true', help="If time-marginalizaiton is true (and should almost always be true), at the end export step use resampling. REQUIRES using fairdraw-extrinsic-output")
-optp.add_option("--srate-resample-time-marginalization",type=int, default=None, help="If time-marginalizaiton is true (and should almost always be true), an opportunity to interpolate the likelihoods on the (internal) time grid and perform time resampling at a higher sampling rate, for greater nominal time resolution. Does not change underlying calculations.")
+optp.add_option("--srate-resample-time-marginalization",type=int, default=None, help="For --time-posterior-export grid, interpolate lnL(t) onto a lattice at this rate before drawing. Continuous posterior export has no output lattice and supersedes this option.")
+optp.add_option("--time-posterior-export", type="choice", choices=["auto", "continuous", "grid"], default="auto",
+                help="How --resample-time-marginalization exports geocenter time. auto (default) draws continuously from the interpolated lnL(t) posterior when the active likelihood exposes a faithful arbitrary-time evaluator, otherwise preserves the grid; continuous always requests an off-grid draw and is refused on unsupported likelihood paths; grid is the explicit legacy compatibility mode.")
 optp.add_option("-d", "--distance-marginalization", action="store_true", help="Perform marginalization over distance via a look-up table. Default is false.")
 optp.add_option("-l", "--distance-marginalization-lookup-table", default=None, help="Look-up table for distance marginalization.")
 optp.add_option("--calibration-envelope-directory",default=None, help="Name of directory")
@@ -489,6 +491,10 @@ else:
 # legacy path's interpolation ON while meaning the exact opposite in NoLoop.  Derive an honest
 # boolean instead: only the two genuinely-interpolating stencils count as "interpolate".
 opts._legacy_interpolate_time = opts._noloop_time_interp in ("cubic", "sinc")
+from RIFT.likelihood.time_posterior import resolve_time_posterior_export_mode
+opts._time_posterior_export = resolve_time_posterior_export_mode(
+    opts.time_posterior_export, opts._noloop_time_interp,
+    continuous_available=not (opts.rotation_slow or opts.freqresponse))
 # NOTE: deliberately NOT announcing the stencil here.  opts.gpu is not resolved yet at this
 # point, so we cannot yet tell whether the stencil will actually be used -- and a banner that
 # names a stencil the run then ignores is worse than no banner, because it reads as proof.
@@ -576,6 +582,10 @@ if opts.resample_time_marginalization:
   import scipy.special
 if opts.resample_time_marginalization and not(opts.fairdraw_extrinsic_output):
   raise Exception(" Resampled time output requires --fairdraw-extrinsic-output ")
+if opts.resample_time_marginalization and opts.distance_marginalization:
+  raise ValueError(
+      "--resample-time-marginalization does not support distance/phase "
+      "marginalization; refusing before the expensive integration")
 
 # Fairdraw is NOT YET IMPLEMENTED for these other integrators!
 #if opts.fairdraw_extrinsic_output:
@@ -668,6 +678,15 @@ if opts._noloop_time_interp != 'nearest' and not _stencil_is_honoured:
         "present, which keeps the identical NoLoop code path on numpy -- or drop "
         "--interpolate-time. Refusing rather than running a different likelihood than the one "
         "you asked for." % (opts._noloop_time_interp, ", ".join(_stencil_missing)))
+if (opts.resample_time_marginalization and
+        opts._time_posterior_export == "continuous" and
+        (not opts.gpu or opts.rotation_slow or opts.freqresponse)):
+    raise NotImplementedError(
+        "continuous time-posterior export is not implemented for "
+        "the active likelihood path: it requires the maintained NoLoop "
+        "GPU/--force-xpy evaluator without --rotation-slow/--freqresponse, so "
+        "the exported draw uses the same likelihood as integration; use "
+        "--time-posterior-export grid")
 # --time-marginalization-quadrature: same refuse-don't-ignore discipline as the stencil guard
 # above, and for the same reason -- an accuracy option that silently does nothing is worse than
 # one that is unavailable, because a comparison campaign can be run against it and believed.
@@ -710,6 +729,14 @@ print(" Q_lm sub-sample time stencil: {} (from --interpolate-time {!r}); honoure
           opts._noloop_time_interp, opts.interpolate_time, _stencil_is_honoured,
           bool(opts.time_marginalization), bool(opts.vectorized), bool(opts.gpu),
           bool(opts.rotation_slow), bool(opts.freqresponse), opts._legacy_interpolate_time))
+if opts.resample_time_marginalization:
+    print(" Time-posterior export: {} (from --time-posterior-export {!r})".format(
+          opts._time_posterior_export, opts.time_posterior_export))
+    if (opts._time_posterior_export == "continuous" and
+            opts.srate_resample_time_marginalization):
+        print(" Time-posterior export: continuous draws supersede "
+              "--srate-resample-time-marginalization; use "
+              "--time-posterior-export grid for the requested lattice.")
 
 manual_avoid_overflow_logarithm=opts.manual_logarithm_offset
 manual_avoid_overflow_logarithm_default =  manual_avoid_overflow_logarithm
@@ -2149,6 +2176,54 @@ def resample_samples(my_samples,
                         P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default,return_lnLt=True,n_cal=n_cal,cal_log_weights=cal_log_weights,
                         time_interp=opts._noloop_time_interp,
                         ctUArrayDict_cal=ctUArrayDict_cal, ctVArrayDict_cal=ctVArrayDict_cal)
+  if opts._time_posterior_export == "continuous":
+    # NoLoop's historical window gather consumes only tvals[0] and len(tvals),
+    # stepping by P.deltaT.  Its explicit-time mode instead evaluates the chosen
+    # cubic/Lanczos Q stencil independently at every dense geocenter time.
+    from RIFT.likelihood import time_marginalization_quadrature as _tm_export
+    sigma_t, _, measurable_t = _tm_export.peak_width_from_lnL(
+        lnLt, P.deltaT, xpy=xpy_default)
+    factors_t = _tm_export.required_upsample_factors(
+        xpy_default.where(measurable_t, sigma_t, np.inf), P.deltaT,
+        xpy=xpy_default)
+    time_export_refinement = max(4, int(xpy_default.max(factors_t)))
+    t0_export = tvals[0]
+    n_coarse_export = len(tvals)
+    while True:
+      if time_export_refinement > _tm_export.UPSAMPLE_FACTOR_MAX:
+        raise RuntimeError(
+            "continuous time export needs refinement above the supported ceiling {}"
+            .format(_tm_export.UPSAMPLE_FACTOR_MAX))
+      n_dense = (n_coarse_export - 1) * time_export_refinement + 1
+      from RIFT.likelihood.time_posterior import validate_time_posterior_working_set
+      validate_time_posterior_working_set(n_samples, n_dense)
+      tvals_dense = (t0_export + (P.deltaT / time_export_refinement) *
+                     xpy_default.arange(n_dense))
+      lnLt_dense = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(
+                          tvals_dense, P, lookupNKDict, rholmArrayDict,
+                          ctUArrayDict, ctVArrayDict, epochDict, Lmax=opts.l_max,
+                          xpy=xpy_default, return_lnLt=True, n_cal=n_cal,
+                          cal_log_weights=cal_log_weights,
+                          time_interp=opts._noloop_time_interp,
+                          ctUArrayDict_cal=ctUArrayDict_cal,
+                          ctVArrayDict_cal=ctVArrayDict_cal,
+                          explicit_time_values=True)
+      sigma_dense, _, measurable_dense = _tm_export.peak_width_from_lnL(
+          lnLt_dense, P.deltaT / time_export_refinement, xpy=xpy_default)
+      extra = _tm_export.required_upsample_factors(
+          xpy_default.where(measurable_dense, sigma_dense, np.inf),
+          P.deltaT / time_export_refinement, xpy=xpy_default)
+      extra = max(1, int(xpy_default.max(extra)))
+      if extra == 1:
+        tvals, lnLt = tvals_dense, lnLt_dense
+        break
+      # The RHS of the next likelihood call is allocated before Python rebinds
+      # lnLt_dense/tvals_dense.  Drop the smaller generation explicitly so a
+      # refinement retry cannot transiently hold both full dense grids.
+      del lnLt_dense, tvals_dense, sigma_dense, measurable_dense
+      time_export_refinement *= extra
+    print(" Time-posterior selected-stencil refinement: {}x ".format(
+          time_export_refinement))
 
   lnLt = identity_convert(lnLt) # back to CPU.  Note we have removed offsets 
   if opts.zero_likelihood:
@@ -2156,12 +2231,16 @@ def resample_samples(my_samples,
   lnLt_norm = scipy.special.logsumexp(lnLt,axis=-1)
   tvals = identity_convert(tvals) # back to CPU
 #  print(lnLt.shape, lnLt_norm.shape,tvals.shape)
-  # Loop over and resample in time, picking index according to weights
-  #   - perform higher-resolution interpolation
+  # Draw from the per-sample time posterior.  Sub-sample likelihood
+  # interpolation implies a continuous export contract by default: choosing a
+  # coarse tvals index here would throw away the resolution just requested.
   t_out = np.zeros(n_samples)
   lnL_out = np.zeros(n_samples)
-  # IF UPSAMPLING, PERFORM NOW.  (Currently on
-  if opts.srate_resample_time_marginalization and opts.srate_resample_time_marginalization > fSample:
+  if opts._time_posterior_export == "continuous":
+    from RIFT.likelihood.time_posterior import draw_continuous_time_posterior
+    t_out, lnL_out = draw_continuous_time_posterior(tvals, lnLt)
+  # Legacy/fallback grid export, including the explicit higher-rate lattice.
+  elif opts.srate_resample_time_marginalization and opts.srate_resample_time_marginalization > fSample:
     # Resample the marginalization-time grid to EXACTLY the requested rate, so
     # the exported geocenter time is quantized at 1/srate_resample seconds.  We
     # step by exactly 1/srate_resample; for the usual power-of-two rates that is
@@ -2192,11 +2271,12 @@ def resample_samples(my_samples,
     # replace, re-normalize
     tvals = tvals_denser; lnLt= lnLt_new
     lnLt_norm = scipy.special.logsumexp(lnLt,axis=-1)
-  indx_list =np.arange(len(tvals))
-  for indx in np.arange(n_samples):
-    indx_choose = np.random.choice(indx_list, p=np.exp(lnLt[indx] - lnLt_norm[indx]))
-    t_out[indx] = tvals[indx_choose]
-    lnL_out[indx] = lnLt[indx][indx_choose]
+  if opts._time_posterior_export == "grid":
+    indx_list =np.arange(len(tvals))
+    for indx in np.arange(n_samples):
+      indx_choose = np.random.choice(indx_list, p=np.exp(lnLt[indx] - lnLt_norm[indx]))
+      t_out[indx] = tvals[indx_choose]
+      lnL_out[indx] = lnLt[indx][indx_choose]
 #    print(' Resampled time offset {} '.format(t_out[indx])) #, lnLt[indx]-lnLt_norm[indx])
     
   my_samples['t_ref'] = fiducial_epoch+t_out # add sample time jitter from reweighting to samples

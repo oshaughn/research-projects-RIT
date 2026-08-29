@@ -165,7 +165,7 @@ def test_source_matches_reference_implementation():
         source = handle.read()
 
     block = re.search(
-        r"if opts\.srate_resample_time_marginalization and .*?lnLt_norm = "
+        r"(?:if|elif) opts\.srate_resample_time_marginalization and .*?lnLt_norm = "
         r"scipy\.special\.logsumexp\(lnLt,axis=-1\)",
         source,
         re.S,
