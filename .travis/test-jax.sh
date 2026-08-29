@@ -172,6 +172,20 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         cap must stay WIRED in samplers and the
 #                                         driver.  Each fails under a verified
 #                                         mutation (see the PR).  Seconds.
+#   test_angle_marg_block_dispatch.py 4  the laplace path's EXECUTION-cost
+#                                         structure (2026-08-28: with compilation
+#                                         fixed, the kernel executed ~2,950x the
+#                                         grid scheme because BOTH blend branches
+#                                         ran at every lattice point, the 320-pt
+#                                         quadrature everywhere included the 99.5%
+#                                         of points needing N ~ 32-96).  Pins the
+#                                         lax.switch block dispatch: the N ladder
+#                                         keeps the shipped aliasing exponent, the
+#                                         dispatcher matches the undispatched
+#                                         kernel in every branch, and the fused
+#                                         driver actually CALLS the dispatcher
+#                                         (wiring).  Each fails under a verified
+#                                         mutation (see the PR).  Seconds.
 #   test_angle_marg_sizing_rule.py    1  the m_max-aware dense phi sizing rule.
 #                                         Pure numpy, milliseconds, closed-form I0
 #                                         reference.  FAILS under the old m_max-blind
@@ -267,6 +281,7 @@ FILES=(
   "${JAXDIR}/test_angle_marg_sizing_rule.py"
   "${JAXDIR}/test_angle_marg_smoke.py"
   "${JAXDIR}/test_angle_marg_compile_cost.py"
+  "${JAXDIR}/test_angle_marg_block_dispatch.py"
 )
 
 # EXCLUDED: files in JAXDIR matching test_*.py that are deliberately NOT gated.  The
@@ -351,11 +366,12 @@ fi
 # the five guard-sample pins in the same file (periodic-seam defect on a
 # non-periodic crop; its removal by guard samples; guard is support, not window;
 # no default guard; the band-limited path widens the accumulation window).
-# PR #209 then adds six test_angle_marg_compile_cost.py pins, raising 160 -> 166.
+# PR #209 then adds six test_angle_marg_compile_cost.py pins, raising 160 -> 166,
+# and PR #210 adds five test_angle_marg_block_dispatch.py pins, raising 166 -> 171.
 # Raising the floor
 # by exactly the number of tests ADDED is safe whatever the environment delta above,
 # since it preserves the margin the previous floor already had.
-EXPECTED_TESTS=166
+EXPECTED_TESTS=171
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"

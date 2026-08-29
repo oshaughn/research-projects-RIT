@@ -757,45 +757,22 @@ _LAPLACE_BRACKET_CELLS = 24   # sign-scan cells for the stationary points of
 _LAPLACE_MAX_ROOTS = 4
 
 
-def _laplace_psi_lnI(a, c1, c2):
-    """log[(1/pi) int_0^pi exp(a + Re(c1 e^{iu}) + Re(c2 e^{2iu})) dpsi], u = 2 psi.
-
-    Two regimes, C^1-blended on t = b + 2d (b = |c1|, d = |c2|); see the
-    constants block above for the placement rationale and review history.
-
-    t < BLEND_HI: fixed-N trapezoid quadrature of exp(f) over u -- machine-
-    accurate for a periodic band-limited exponent up to the handover, which
-    is what makes the kernel's LOCAL error small at every reachable bin (a
-    global-amplitude subdominance argument is not available: the kernel runs
-    at every proposed sky position, review 3).
-
-    t > BLEND_LO: Laplace's method with ALL maxima enumerated.  An early
-    revision seeded Newton only at the extrema of the FIRST harmonic, which
-    fails outright when that harmonic cancels (c1 = 0, c2 = -d: both seeds
-    are minima; -inf was returned for a finite integral -- review 1).  Every
-    transversal zero of f' is bracketed by a sign scan (interval-based, so
-    coincident roots cannot be double-counted), bisected under
-    stop_gradient, polished by one differentiable Newton step (a contraction
-    step from the converged point carries the implicit derivative without a
-    deep 1/H^2 gradient chain); near-degenerate maxima are kept with floored
-    curvature rather than dropped, so -inf is impossible for a finite
-    integral.  Angle-free throughout: f, f', f'' are evaluated directly from
-    c1, c2, so arg(0) never appears and b = 0 is a regular point.
-
-    Elementary functions only (no scipy, no eigensolvers); differentiable;
-    any input shape (elementwise over broadcast a, c1, c2).
-    """
-    # Materialize the documented elementwise broadcast before introducing
-    # the leading root-slot axis.  Otherwise a data axis contributed only by
-    # ``a`` can collide with the four-root axis (silently when its length is
-    # four, or as a shape error for any other length).
-    a, c1, c2 = jnp.broadcast_arrays(a, c1, c2)
+def _psi_lnI_amplitudes(c1, c2):
+    """(b, d, t_amp) for the kernel and the block dispatcher: harmonic
+    magnitudes and the blend variable t = b + 2 d.  Factored out so the
+    dispatcher can bound t without tracing either branch."""
     mag1 = jnp.square(c1.real) + jnp.square(c1.imag)
     mag2 = jnp.square(c2.real) + jnp.square(c2.imag)
     b = jnp.sqrt(mag1 + 1e-300)
     d = jnp.sqrt(mag2 + 1e-300)
+    return b, d, b + 2.0 * d
 
-    t_amp = b + 2.0 * d
+
+def _psi_lnI_lap_branch(a, c1, c2, b, t_amp):
+    """The enumerated-maxima Laplace branch of :func:`_laplace_psi_lnI`
+    (verbatim code motion; see that docstring for the contract).  Returns
+    ln_laplace; -inf is impossible for a finite integral by the tolerant
+    acceptance, and hypothetical nonfinite values are guarded by callers."""
     lap_dummy = t_amp < _LAPLACE_BLEND_LO      # blend weight is exactly 1 here
     # jnp.where's VJP sends a ZERO cotangent through the unselected branch,
     # and 0 * inf = nan: the Laplace branch must have BOUNDED derivatives
@@ -938,15 +915,23 @@ def _laplace_psi_lnI(a, c1, c2):
     ln_laplace = jnp.where(ssum > 0,
                            mts + jnp.log(jnp.maximum(ssum, 1e-300)),
                            -jnp.inf)
+    return ln_laplace
 
+
+def _psi_lnI_quad_branch(a, c1, c2, b, n_quad):
+    """The fixed-N trapezoid u-quadrature branch of :func:`_laplace_psi_lnI`
+    (verbatim code motion, N parameterized; n_quad must be a multiple of the
+    16-point scan chunk).  Bit-identical to the pre-split code at
+    n_quad = _LAPLACE_QUAD_N.
+    """
     # ---- fixed-N u-quadrature branch: mean of exp(f) over a uniform u grid
     # equals (1/pi) int dpsi.  Uses the TRUE c1, c2 (no dummies needed: no
     # divisions, and the running-max log-sum-exp keeps exp() in range even
     # for the huge-t bins whose blend weight is 0).  Chunked (as a lax.scan
     # over precomputed host phase tables, one traced body instead of
-    # _LAPLACE_QUAD_N unrolled evaluations) so the transient stays a few
+    # n_quad unrolled evaluations) so the transient stays a few
     # X-sized arrays.
-    uq = np.linspace(0.0, 2.0 * np.pi, _LAPLACE_QUAD_N, endpoint=False)
+    uq = np.linspace(0.0, 2.0 * np.pi, n_quad, endpoint=False)
     QCH = 16
     e1 = np.exp(1j * uq)                       # host phases, as before
     e2 = e1 * e1                               # == eiu * eiu elementwise
@@ -966,8 +951,46 @@ def _laplace_psi_lnI(a, c1, c2):
     sq0 = jnp.zeros(bshape, dtype=b.dtype)
     (mq, sq), _ = jax.lax.scan(_quad_step, (mq0, sq0), (p1, p2))
     ln_quad = (a + mq + jnp.log(jnp.maximum(sq, 1e-300))
-               - jnp.log(float(_LAPLACE_QUAD_N)))
+               - jnp.log(float(n_quad)))
+    return ln_quad
 
+
+def _laplace_psi_lnI(a, c1, c2):
+    """log[(1/pi) int_0^pi exp(a + Re(c1 e^{iu}) + Re(c2 e^{2iu})) dpsi], u = 2 psi.
+
+    Two regimes, C^1-blended on t = b + 2d (b = |c1|, d = |c2|); see the
+    constants block above for the placement rationale and review history.
+
+    t < BLEND_HI: fixed-N trapezoid quadrature of exp(f) over u -- machine-
+    accurate for a periodic band-limited exponent up to the handover, which
+    is what makes the kernel's LOCAL error small at every reachable bin (a
+    global-amplitude subdominance argument is not available: the kernel runs
+    at every proposed sky position, review 3).
+
+    t > BLEND_LO: Laplace's method with ALL maxima enumerated.  An early
+    revision seeded Newton only at the extrema of the FIRST harmonic, which
+    fails outright when that harmonic cancels (c1 = 0, c2 = -d: both seeds
+    are minima; -inf was returned for a finite integral -- review 1).  Every
+    transversal zero of f' is bracketed by a sign scan (interval-based, so
+    coincident roots cannot be double-counted), bisected under
+    stop_gradient, polished by one differentiable Newton step (a contraction
+    step from the converged point carries the implicit derivative without a
+    deep 1/H^2 gradient chain); near-degenerate maxima are kept with floored
+    curvature rather than dropped, so -inf is impossible for a finite
+    integral.  Angle-free throughout: f, f', f'' are evaluated directly from
+    c1, c2, so arg(0) never appears and b = 0 is a regular point.
+
+    Elementary functions only (no scipy, no eigensolvers); differentiable;
+    any input shape (elementwise over broadcast a, c1, c2).
+    """
+    # Materialize the documented elementwise broadcast before introducing
+    # the leading root-slot axis.  Otherwise a data axis contributed only by
+    # ``a`` can collide with the four-root axis (silently when its length is
+    # four, or as a shape error for any other length).
+    a, c1, c2 = jnp.broadcast_arrays(a, c1, c2)
+    b, d, t_amp = _psi_lnI_amplitudes(c1, c2)
+    ln_laplace = _psi_lnI_lap_branch(a, c1, c2, b, t_amp)
+    ln_quad = _psi_lnI_quad_branch(a, c1, c2, b, _LAPLACE_QUAD_N)
     # ---- C^1 blend: pure quadrature below LO, pure Laplace above HI
     r = jnp.clip((_LAPLACE_BLEND_HI - t_amp)
                  / (_LAPLACE_BLEND_HI - _LAPLACE_BLEND_LO), 0.0, 1.0)
@@ -977,6 +1000,92 @@ def _laplace_psi_lnI(a, c1, c2):
     # the 0-weight product against a hypothetical -inf anyway.
     ln_lap = jnp.where(jnp.isfinite(ln_laplace), ln_laplace, ln_quad)
     return wgt * ln_quad + (1.0 - wgt) * ln_lap
+
+
+# ---------------------------------------------------------------------------
+# Block-dispatched execution of the kernel (2026-08-28 execution-cost fix).
+#
+# The C^1 blend evaluates BOTH branches at every lattice point, and the
+# quadrature is sized for the handover amplitude (N = 320 at t = 300)
+# regardless of the local t.  Measured on the production-shaped lattice
+# (amp_sizing ~ 1109, SNR-40 scale), 99.5% of (distance x dense-phi x sample
+# x time) points sit at t < BLEND_LO -- 89% at t < 20 -- while every point
+# that carries posterior weight sits at t > 900: each branch does needed
+# work on a small, DISJOINT part of the lattice, yet both were paid
+# everywhere (quad 55% / root-finding 39% of execution, additively).
+#
+# Per-point branching cannot save work under SIMD (select evaluates both
+# sides), but the fused driver already evaluates the kernel in blocks
+# (dist_block x phi_chunk x S x npts), and a block-level scalar bound on
+# t = b + 2d makes the choice discrete via lax.switch (one branch executes):
+#   - every point has t >= BLEND_HI  -> Laplace branch only;
+#   - every point has t <  BLEND_LO  -> quadrature only (weight is exactly
+#     1 and the blend gradient exactly 0 there, so values AND derivatives
+#     equal the shipped kernel's), with N from the ladder below;
+#   - otherwise -> the full blended kernel, unchanged.
+#
+# The N ladder applies the SHIPPED sizing rule locally: the aliasing error
+# of the N-point trapezoid rule on exp(f) is ~ I_{N/2}(t)/I_0(t), and the
+# shipped pair (N = 320, t = 300) fixes the accepted exponent
+#   E(N, t) = sqrt(nu^2 + t^2) - nu asinh(nu/t) - t = -41.73   (nu = N/2)
+# (the constants block above quotes e^-40 for the same pair).  Each rung's
+# threshold t_ok is rounded DOWN from the exact E = -41.73 contour, so every
+# rung is at least as accurate as the shipped band edge: relative aliasing
+# <= e^-41.7 ~ 8e-19, i.e. below f64 roundoff of the result.  Rungs are
+# multiples of the 16-point scan chunk.  Exact contour values:
+# N=32: 0.918, 48: 3.583, 64: 8.101, 96: 22.38, 128: 43.27, 160: 70.54,
+# 224: 143.8, 320: 300 (test_angle_marg_block_dispatch.py recomputes these).
+_QUAD_LADDER_N = (32, 48, 64, 96, 128, 160, 224, 320)
+_QUAD_LADDER_TOK = (0.9, 3.5, 8.0, 22.0, 43.0, 70.0, 143.0,
+                    _LAPLACE_BLEND_HI)
+
+
+def _laplace_psi_lnI_block(a, c1, c2):
+    """Same value and derivatives as :func:`_laplace_psi_lnI` (see the
+    dispatch comment above for the exact equivalence statement), evaluated
+    with one lax.switch branch chosen by scalar bounds of t over the WHOLE
+    input block.  Intended for the fused driver's per-(distance-block,
+    phi-chunk) kernel calls; for pointwise use, call _laplace_psi_lnI.
+
+    Two deliberate differences from the shipped kernel, both confined to
+    cases the review history establishes as unreachable or sub-roundoff:
+    (1) in the pure-Laplace branch a hypothetical nonfinite ln_laplace
+    falls back to ``a`` instead of ln_quad (ln_quad is not computed there;
+    the fallback cannot fire for t >= BLEND_LO, see the blend comment);
+    (2) pure-quadrature blocks use the ladder N instead of N = 320, with
+    relative aliasing <= e^-41.7 at every rung edge (vs e^-41.7 at the
+    shipped band edge itself).
+    """
+    # Keep the data axes distinct from the dispatcher's root-slot axis just
+    # as _laplace_psi_lnI does.  The block dispatcher is the production call
+    # path, so it must preserve the same three-input broadcast contract.
+    a, c1, c2 = jnp.broadcast_arrays(a, c1, c2)
+    b, d, t_amp = _psi_lnI_amplitudes(c1, c2)
+    tmin = jnp.min(t_amp)
+    tmax = jnp.max(t_amp)
+
+    def _pure_lap(_):
+        ln_l = _psi_lnI_lap_branch(a, c1, c2, b, t_amp)
+        return jnp.where(jnp.isfinite(ln_l), ln_l, a)
+
+    def _quad_rung(nq):
+        def _q(_):
+            return _psi_lnI_quad_branch(a, c1, c2, b, nq)
+        return _q
+
+    def _full(_):
+        return _laplace_psi_lnI(a, c1, c2)
+
+    branches = ([_pure_lap] + [_quad_rung(n) for n in _QUAD_LADDER_N]
+                + [_full])
+    n_rungs = len(_QUAD_LADDER_N)
+    rung = jnp.zeros((), dtype=jnp.int32)
+    for tok in _QUAD_LADDER_TOK[:-1]:
+        rung = rung + (tmax > tok).astype(jnp.int32)
+    idx = jnp.where(tmin >= _LAPLACE_BLEND_HI, jnp.int32(0),
+                    jnp.where(tmax < _LAPLACE_BLEND_LO,
+                              jnp.int32(1) + rung, jnp.int32(1 + n_rungs)))
+    return jax.lax.switch(idx, branches, None)
 
 
 def fused_log_likelihood_distphipsimarg_laplace(
@@ -1082,7 +1191,7 @@ def fused_log_likelihood_distphipsimarg_laplace(
             av = xg * A0[None] - 0.5 * jnp.square(xg) * B0[None]
             c1 = xg * A1[None] - 0.5 * jnp.square(xg) * B1[None]
             c2 = -0.5 * jnp.square(xg) * B2[None]
-            e = _laplace_psi_lnI(av, c1, c2) + lwg            # (g,c,S,npts)
+            e = _laplace_psi_lnI_block(av, c1, c2) + lwg        # (g,c,S,npts)
             return _lse_update(mx, sx, e, axis=0), None
 
         mx0 = jnp.full((c, S, npts), -jnp.inf, dtype=jnp.float64)
