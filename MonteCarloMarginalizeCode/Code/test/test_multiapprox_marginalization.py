@@ -131,6 +131,23 @@ def test_model_prior_reweights_the_mixture(two_models):
     assert got == pytest.approx(expected, abs=1e-9)
 
 
+def test_large_model_separation_is_stable(tmp_path):
+    """A weak model must not become 0/0 on a stronger model's log scale."""
+    _composite(tmp_path / "approx_MODELA_consolidated_0.composite",
+               [_row(10., 8., 0.0, sigma=0.2)])
+    _composite(tmp_path / "approx_MODELB_consolidated_0.composite",
+               [_row(10., 8., 1000.0, sigma=0.1)])
+    files = sorted(str(p) for p in tmp_path.glob("*.composite"))
+    out = _run([CLEANILE, "--model-group-regex", MODEL_RX] + files, tmp_path)
+    assert out.returncode == 0, out.stderr
+    fields = out.stdout.strip().split()
+    assert fields and all(value.lower() != "nan" for value in fields), out.stdout
+    # Uniform model prior: log((exp(0) + exp(1000))/2), whose weak term is
+    # negligible but whose integration uncertainty remains well-defined.
+    assert float(fields[9]) == pytest.approx(1000.0 - np.log(2.0), abs=1e-9)
+    assert float(fields[10]) == pytest.approx(0.1, abs=1e-12)
+
+
 def test_partial_model_prior_is_refused(two_models):
     """Half-specified weights would silently default the rest to 1.0."""
     out = _run([CLEANILE, "--model-group-regex", MODEL_RX, "--model-prior", "MODELA=0.3"]
@@ -286,6 +303,8 @@ def multiapprox_rundir(tmp_path_factory):
     # iteration macros, so a model-tagged log path can never resolve.  A stage
     # that is not built is a stage no assertion can check.
     (rundir / "args_plot.txt").write_text("--parameter mc --parameter eta\n")
+    (rundir / "args_puff.txt").write_text(
+        "--parameter mc --parameter eta --force-away 0.01\n")
 
     grid = _run(["-c",
                  "import RIFT.lalsimutils as u;"
@@ -308,6 +327,9 @@ def multiapprox_rundir(tmp_path_factory):
                   "--request-memory-CIP", "4096", "--request-memory-ILE", "4096",
                   "--working-directory", str(rundir),
                   "--n-iterations", "2", "--n-copies", "1",
+                  "--approx-gwsignal", "SEOBNRv4PHM",
+                  "--puff-args", str(rundir / "args_puff.txt"),
+                  "--puff-cadence", "1", "--puff-max-it", "1",
                   "--last-iteration-extrinsic",
                   "--last-iteration-extrinsic-nsamples", "4",
                   "--plot-args", str(rundir / "args_plot.txt")], rundir)
@@ -356,6 +378,24 @@ def test_generator_route_is_per_model(multiapprox_rundir):
         # whatever the fixture asked for, a model must get one route, not both
         for model, route in routed.items():
             assert route is not None, model
+
+
+def test_puff_ile_uses_the_same_per_model_route(multiapprox_rundir):
+    """Puff nodes differ from ordinary ILE only in the grid they evaluate."""
+    ordinary = (multiapprox_rundir / "ILE.sub").read_text()
+    puff = (multiapprox_rundir / "ILE_puff.sub").read_text()
+    for token in ("--approx $(macroapprox)", "$(macrogwsignal)"):
+        assert token in ordinary, ordinary
+        assert token in puff, puff
+    assert "overlap-grid-$(macroiteration).xml.gz" in ordinary
+    assert "puffball-$(macroiteration).xml.gz" in puff
+
+    jobs, macros, _ = _dag_facts(multiapprox_rundir)
+    puff_nodes = [n for n, sub in jobs.items() if sub.endswith("ILE_puff.sub")]
+    assert puff_nodes, "fixture did not build the normally-enabled puff lane"
+    assert {macros[n].get("macroapprox") for n in puff_nodes} == {
+        "IMRPhenomXPHM", "SEOBNRv4PHM"}
+    assert all("macrogwsignal" in macros[n] for n in puff_nodes)
 
 
 def test_the_loop_fits_once_per_iteration(multiapprox_rundir):
@@ -439,6 +479,29 @@ def test_no_condor_macro_survives_into_a_shell_script(multiapprox_rundir):
     assert not offenders, (
         "condor macros interpolated into shell scripts, where bash treats them "
         "as command substitution:\n  " + "\n  ".join(offenders))
+
+
+def test_cat_job_is_model_scoped_at_runtime(multiapprox_rundir):
+    """Each cat node must search only its model's terminal ILE directory."""
+    cat_sub = (multiapprox_rundir / "cat.sub").read_text()
+    arguments = re.search(r'^arguments\s*=\s*"(.*)"$', cat_sub, re.M)
+    assert arguments, cat_sub
+    assert "approx_$(macroapprox)_iteration_$(macroiteration)_ile" in arguments.group(1)
+    assert "extrinsic_posterior_samples_$(macroapprox).dat" in arguments.group(1)
+
+    model_a = multiapprox_rundir / "approx_IMRPhenomXPHM_iteration_2_ile"
+    model_b = multiapprox_rundir / "approx_SEOBNRv4PHM_iteration_2_ile"
+    (model_a / "EXTR_scope.downsampled_dat.dat").write_text("m1 m2\n11 8\n")
+    (model_b / "EXTR_scope.downsampled_dat.dat").write_text("m1 m2\n99 8\n")
+    output = multiapprox_rundir / "cat_scope_probe.dat"
+    run = subprocess.run(
+        [str(multiapprox_rundir / "catjob.sh"), str(model_a), str(output)],
+        cwd=str(multiapprox_rundir), env=_env(), text=True,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    assert run.returncode == 0, run.stderr
+    text = output.read_text()
+    assert "11 8" in text
+    assert "99 8" not in text
 
 
 def test_stage_inputs_name_files_the_workflow_produces(multiapprox_rundir):

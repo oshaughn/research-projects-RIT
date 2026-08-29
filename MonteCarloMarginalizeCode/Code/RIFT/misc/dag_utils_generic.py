@@ -4114,7 +4114,10 @@ def write_resample_sub(tag='resample', exe=None, file_input=None,file_output=Non
 
 
 
-def write_cat_sub(tag='cat', exe=None, file_prefix=None,file_postfix=None,file_output=None,universe="vanilla",arg_str='',log_dir=None, use_eos=False,ncopies=1, no_grid=False,**kwargs):
+def write_cat_sub(tag='cat', exe=None, file_prefix=None,file_postfix=None,
+                  file_output=None, universe="vanilla",
+                  arg_str='',log_dir=None, use_eos=False,ncopies=1,
+                  no_grid=False, search_root='.', **kwargs):
     """
     Write a submit file for launching a 'resample' job
        util_ResampleILEOutputWithExtrinsic.py
@@ -4125,16 +4128,16 @@ def write_cat_sub(tag='cat', exe=None, file_prefix=None,file_postfix=None,file_o
     exe_switch = which("switcheroo")  # tool for patterend search-replace, to fix first line of output file
 
     cmdname = 'catjob.sh'
-    # As in write_unify_sub_simple: a condor macro cannot appear in the script.
-    # bash reads $(macroapprox) as COMMAND SUBSTITUTION, so a per-model output
-    # name collapses to the same file for every model and they overwrite each
-    # other.  Pass it as $1 and let condor expand it in the .sub.
-    output_is_macro = file_output is not None and "$(" in file_output
-    out_str = "$1" if output_is_macro else file_output
+    # Condor expands macros only in submit-file fields, never inside the shell
+    # script.  Pass BOTH the search root and output name as arguments.  Besides
+    # avoiding bash command substitution for $(macroapprox), this lets callers
+    # scope the input tree per model instead of running `find .` over a shared
+    # top-level directory and mixing every model's posterior samples.
     with open(cmdname,'w') as f:
         f.write("#! /bin/bash\n")
-        f.write(exe+"  . -name '"+file_prefix+"*"+file_postfix+r"' -exec cat {} \; | sort -r | uniq > "+out_str+";\n")
-        f.write(exe_switch + " 'm1 ' '# m1 ' "+out_str)  # add standard prefix
+        f.write(exe+"  \"$1\" -name '"+file_prefix+"*"+file_postfix+
+                "' -exec cat {} \\; | sort -r | uniq > \"$2\";\n")
+        f.write(exe_switch + " 'm1 ' '# m1 ' \"$2\"")  # add standard prefix
         os.system("chmod a+x "+cmdname)
 
     ile_job = CondorDAGJob(universe=universe, executable='catjob.sh')
@@ -4156,8 +4159,8 @@ def write_cat_sub(tag='cat', exe=None, file_prefix=None,file_postfix=None,file_o
 
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
-    if output_is_macro:
-        ile_job.add_arg(file_output)   # condor expands the macro here, not bash
+    ile_job.add_arg(search_root or '.')
+    ile_job.add_arg(file_output)
 
 
 #    ile_job.add_arg(" . -name '" + file_prefix + "*" +file_postfix+"' -exec cat {} \; ")

@@ -138,10 +138,12 @@ for fname in opts.fname[0]: #sys.argv[1:]:
           sys.stderr.write("Skipping malformed ILE row in {}: {}\n".format(fname, exc))
           continue
 
-def _pool_linear(lnL, sigmaOverL, ntot, lnLmax, weights=None):
+def _pool_linear(lnL, sigmaOverL, ntot, weights=None):
     """Combine evaluations of the SAME quantity by their weighted linear mean in L.
 
-    Returns (Lbar, sigmaOverL) with L measured relative to exp(lnLmax).
+    Returns (lnLbar, sigmaOverL).  The linear arithmetic is performed relative
+    to this pool's own maximum, so the largest member is exactly one and Lbar
+    cannot underflow to zero merely because some *other* model is much better.
 
     DO NOT inverse-variance weight with the reported sigmas: each sigma is
     computed from the same importance weights as its lnL, so a replica that
@@ -154,7 +156,8 @@ def _pool_linear(lnL, sigmaOverL, ntot, lnLmax, weights=None):
     scatter term can see the replica lottery (correlated underreporting); with
     K replicas it has K-1 dof, so treat the result as a t-interval downstream.
     """
-    L = np.exp(lnL - lnLmax)
+    lnLscale = np.max(lnL)
+    L = np.exp(lnL - lnLscale)
     K = len(lnL)
     if weights is None:
         wts = np.asarray(ntot, dtype=float)
@@ -169,7 +172,7 @@ def _pool_linear(lnL, sigmaOverL, ntot, lnLmax, weights=None):
         sigma_scatter = np.sqrt( np.sum(wts**2 * (L - Lbar)**2) * K/(K-1.) )/Lbar
     else:
         sigma_scatter = 0.
-    return Lbar, max(sigma_prop, sigma_scatter)
+    return lnLscale + np.log(Lbar), max(sigma_prop, sigma_scatter)
 
 
 if model_mode:
@@ -202,11 +205,9 @@ for key in data_at_intrinsic:
     lnL, sigmaOverL, ntot,neff =   np.transpose(data_at_intrinsic[key])
     lnL = np.atleast_1d(lnL); sigmaOverL = np.atleast_1d(sigmaOverL); ntot = np.atleast_1d(ntot); neff = np.atleast_1d(neff)
     sigmaOverL = np.maximum(sigmaOverL, 1e-7*np.ones(len(lnL)))   # prevent accidental underflow during debugging/using synthetic data with no error
-    lnLmax = np.max(lnL)
-
     if not model_mode:
         # One model (or replicas of one model): pool everything flat.
-        Lbar, sigmaNetOverL = _pool_linear(lnL, sigmaOverL, ntot, lnLmax)
+        lnLmean, sigmaNetOverL = _pool_linear(lnL, sigmaOverL, ntot)
     else:
         # Two levels, because replicas and models are not the same thing.
         # Within a model, replicas estimate ONE number -> ntot-weighted mean.
@@ -222,13 +223,13 @@ for key in data_at_intrinsic:
                 n_dropped_partial += 1
                 continue
             n_partial += 1
-        L_m = []; sig_m = []; w_m = []
+        lnL_m = []; sig_m = []; w_m = []
         for m in present:
             sel = np.array([lab == m for lab in labels])
-            Lm, sm = _pool_linear(lnL[sel], sigmaOverL[sel], ntot[sel], lnLmax)
-            L_m.append(Lm); sig_m.append(sm)
+            lnLm, sm = _pool_linear(lnL[sel], sigmaOverL[sel], ntot[sel])
+            lnL_m.append(lnLm); sig_m.append(sm)
             w_m.append(model_prior_arg[m] if model_prior_arg else 1.0)
-        L_m = np.atleast_1d(np.array(L_m)); sig_m = np.atleast_1d(np.array(sig_m))
+        lnL_m = np.atleast_1d(np.array(lnL_m)); sig_m = np.atleast_1d(np.array(sig_m))
         w_m = np.atleast_1d(np.array(w_m, dtype=float))
         if np.sum(w_m) <= 0:
             w_m = np.ones(len(present))
@@ -236,7 +237,14 @@ for key in data_at_intrinsic:
         # estimator is a marginal over a subset, which is why n_partial is
         # reported and --require-all-models exists.
         w_m = w_m/np.sum(w_m)
-        Lbar = np.sum(w_m*L_m)
+        # Combine the model means on a new common scale.  Each model was pooled
+        # on its own scale above; converting only the final model means relative
+        # to their maximum is the log-sum-exp construction and remains finite
+        # even when the models differ by thousands of nats.
+        lnL_model_scale = np.max(lnL_m)
+        L_m_scaled = np.exp(lnL_m - lnL_model_scale)
+        Lbar_scaled = np.sum(w_m*L_m_scaled)
+        lnLmean = lnL_model_scale + np.log(Lbar_scaled)
         # ACROSS MODELS, report ONLY the propagated integration uncertainty.
         #
         # An earlier version also took the between-model scatter, reasoning that
@@ -250,21 +258,23 @@ for key in data_at_intrinsic:
         #
         # The model variation is already carried by Lbar, which is the
         # marginalized likelihood.  It does not belong in the error bar too.
-        sigmaNetOverL = np.sqrt(np.sum((w_m*sig_m*L_m)**2))/Lbar
+        sigmaNetOverL = np.sqrt(np.sum(
+            (w_m*sig_m*L_m_scaled)**2))/Lbar_scaled
         M = len(present)
         if M > 1:
             # kept as a diagnostic only -- never folded into sigmaNetOverL
-            spread = np.sqrt( np.sum(w_m**2 * (L_m - Lbar)**2) * M/(M-1.) )/Lbar
+            spread = np.sqrt(np.sum(
+                w_m**2 * (L_m_scaled - Lbar_scaled)**2)
+                * M/(M-1.))/Lbar_scaled
             model_spread.append(spread)
 
     n_points += 1
-    lnLmeanMinusLmax = np.log(Lbar)
 
 
     # The key already holds every intrinsic column that was present in the
     # input rows, in input order, so the composite preserves whatever
     # combination of advanced-physics groups the run enabled.
-    print(-1, *key, lnLmeanMinusLmax+lnLmax, sigmaNetOverL, np.sum(ntot), -1)
+    print(-1, *key, lnLmean, sigmaNetOverL, np.sum(ntot), -1)
 
 
 # Coverage report.  stdout is the data stream, so this goes to stderr.

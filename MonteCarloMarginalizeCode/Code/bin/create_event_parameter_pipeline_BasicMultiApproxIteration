@@ -464,7 +464,6 @@ os.chmod(cmdname, st.st_mode | stat.S_IEXEC)
 #    identify output file names (?)
 ile_args_orig = ile_args  # provides ability to strip out the output and replace it with alternate
 ile_args+= ' --sim-xml ' + working_dir_inside + '/overlap-grid-$(macroiteration).xml.gz '
-ile_args_forpuff= ile_args_orig + ' --sim-xml ' + working_dir_inside + '/puffball-$(macroiteration).xml.gz '
 
 
 ###
@@ -589,6 +588,13 @@ if opts.use_singularity or opts.use_osg:
 if opts.approx_gwsignal:
     ile_args = ile_args.replace("--use-gwsignal", " ")
 ile_args += " --approx $(macroapprox) $(macrogwsignal) "
+# Puff ILE is the same per-model evaluation routed over a different grid.  It
+# must be derived after the global route is stripped and the model macros are
+# appended; capturing ile_args_orig above silently baked the primary model and
+# its generator route into every puff node.
+ile_args_forpuff = ile_args.replace(
+    working_dir_inside + '/overlap-grid-$(macroiteration).xml.gz',
+    working_dir_inside + '/puffball-$(macroiteration).xml.gz')
 ile_job, ile_job_name = dag_utils.write_ILE_sub_simple(tag='ILE',log_dir=None,arg_str=ile_args,output_file="CME_out.xml",ncopies=opts.n_copies,exe=ile_exe,transfer_files=transfer_file_names,transfer_output_files=output_file_names,request_memory=opts.request_memory_ILE,request_gpu=opts.request_gpu_ILE,use_singularity=opts.use_singularity,singularity_image=singularity_image,use_osg=opts.use_osg,simple_osg_requirements=opts.use_osg_simple_requirements,frames_dir=opts.frames_dir,cache_file=opts.cache_file,use_cvmfs_frames=opts.use_cvmfs_frames,max_runtime_minutes=opts.ile_runtime_max_minutes)
 # Modify: create macro for iteration 
 #   - added on a per-node basis
@@ -611,7 +617,7 @@ if not (opts.puff_args is None):
     ilePuff_job.add_condor_cmd("initialdir",opts.working_directory+"/approx_$(macroapprox)_iteration_$(macroiteration)_ile")
     ilePuff_job.set_log_file(opts.working_directory+"/approx_$(macroapprox)_iteration_$(macroiteration)_ile/logs/ILE-$(macroevent)-$(cluster)-$(process).log")
     ilePuff_job.set_stderr_file(opts.working_directory+"/approx_$(macroapprox)_iteration_$(macroiteration)_ile/logs/ILE-$(macroevent)-$(cluster)-$(process).err")
-    ilePuff_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILE-$(macroevent)-$(cluster)-$(process).out")
+    ilePuff_job.set_stdout_file(opts.working_directory+"/approx_$(macroapprox)_iteration_$(macroiteration)_ile/logs/ILE-$(macroevent)-$(cluster)-$(process).out")
     ilePuff_job.write_sub_file()
 
 if  (opts.last_iteration_extrinsic):
@@ -668,7 +674,13 @@ if  (opts.last_iteration_extrinsic):
     resample_job.write_sub_file()
 
     # Combination task at end -- probably should be a general utility
-    cat_job, cat_job_name = dag_utils.write_cat_sub(file_prefix='EXTR', file_postfix='.downsampled_dat.dat',file_output='extrinsic_posterior_samples_$(macroapprox).dat',universe=local_worker_universe)
+    cat_job, cat_job_name = dag_utils.write_cat_sub(
+        file_prefix='EXTR', file_postfix='.downsampled_dat.dat',
+        search_root=opts.working_directory+
+                    '/approx_$(macroapprox)_iteration_$(macroiteration)_ile',
+        file_output=opts.working_directory+
+                    '/extrinsic_posterior_samples_$(macroapprox).dat',
+        universe=local_worker_universe)
     cat_job.add_condor_cmd("initialdir",opts.working_directory)
     cat_job.set_log_file(opts.working_directory+"/approx_$(macroapprox)_iteration_$(macroiteration)_ile/logs/cat-$(cluster)-$(process).log")
     cat_job.set_stdout_file(opts.working_directory+"/approx_$(macroapprox)_iteration_$(macroiteration)_ile/logs/cat-$(cluster)-$(process).out")
