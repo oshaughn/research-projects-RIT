@@ -31,7 +31,7 @@ from .core import (build_likelihood_data, fused_log_likelihood,
                    make_distance_grid, make_distance_grid_adaptive,
                    estimate_distance_peak, phi_ref_grid, psi_grid,
                    phi_ref_conditional_lnL, DIST_MPC_REF, JAX_INTERP_DEFAULT,
-                   TIME_QUAD_DEFAULT, _TIME_QUAD_CHOICES)
+                   TIME_QUAD_DEFAULT, _TIME_QUAD_CHOICES, default_time_guard)
 
 # Parameter order used throughout the wrapper's vectorized interface.
 EXTRINSIC_PARAM_ORDER = ("ra", "dec", "psi", "incl", "phiref", "distMpc")
@@ -240,6 +240,10 @@ class JAXExtrinsicLikelihood:
         if time_quadrature not in _TIME_QUAD_CHOICES:
             raise ValueError("time_quadrature must be one of %r" % (_TIME_QUAD_CHOICES,))
         self.time_quadrature = time_quadrature
+        if time_quadrature == "bandlimited":
+            g_default = default_time_guard(data.npts)
+            self.time_guard_initial = 1 << int(np.ceil(np.log2(g_default)))
+            self.time_guard_certified = 2 * self.time_guard_initial
 
         def _batched(ra, dec, psi, incl, phiref, distMpc):
             return fused_log_likelihood(

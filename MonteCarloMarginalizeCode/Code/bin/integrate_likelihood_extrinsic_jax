@@ -1654,6 +1654,10 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
                            % (like.time_quadrature, tq))
     print("  time-marginalization quadrature: %s (interpolate-time: %s)"
           % (like.time_quadrature, opts.interp))
+    if like.time_quadrature == "bandlimited":
+        print("  time guard: derived_initial=%d samples certified=%d samples; "
+              "fine factor is curvature-derived per row with one doubling certificate"
+              % (like.time_guard_initial, like.time_guard_certified))
 
     if opts.mode == "map":
         theta_map, lnL_map = run_map(like, opts, rng, dim, with_distance)

@@ -107,6 +107,34 @@ def test_phase_marginalization_refines_kappa_before_abs_near_nyquist():
     assert np.isnan(got)
 
 
+@pytest.mark.parametrize("n_harmonics", [14, 88])
+def test_guarded_cosine_pad_matches_independent_dense_high_snr_truth(n_harmonics):
+    n, center, amp = 491, 245.37, 600.0 ** 2 / 2.0
+    g_initial = 1 << int(np.ceil(np.log2(core.default_time_guard(n))))
+    guard = 2 * g_initial
+    harmonics = np.arange(1, n_harmonics + 1, dtype=float)
+
+    def primitive(t):
+        phase = 2.0 * np.pi * harmonics[:, None] * (
+            np.asarray(t)[None, :] - center) / n
+        return amp * np.mean(np.cos(phase), axis=0)
+
+    samples = primitive(np.arange(-guard, n + guard))
+    got = float(core._time_marginalize_reflected_primitive(
+        jnp.asarray(samples[None, :], dtype=jnp.complex128),
+        jnp.zeros((1, samples.size)), 1.0, guard=guard)[0])
+    factor_truth = 8192
+    # At rho~600 the principal posterior peak is far narrower than this
+    # four-sample independent continuous interval; all omitted contributions
+    # underflow relative to it, while this avoids a needlessly huge K x N array.
+    t = np.arange(center - 2.0, center + 2.0 + 0.5 / factor_truth,
+                  1.0 / factor_truth)
+    truth = primitive(t)
+    peak = np.max(truth)
+    want = peak + np.log(np.trapz(np.exp(truth - peak), dx=1.0 / factor_truth))
+    assert abs(got - want) < 1e-3
+
+
 def test_refinement_is_batch_composition_independent():
     sharp, dt, _ = _event_b_like_row(phase=0.41)
     broad = 20.0 * np.exp(-0.5 * ((np.arange(sharp.size) - 245.1) / 20.0) ** 2)

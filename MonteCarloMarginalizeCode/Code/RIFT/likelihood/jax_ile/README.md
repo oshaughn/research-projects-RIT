@@ -66,6 +66,15 @@ fails closed rather than trusting a boundary extension that can affect the
 answer.  Increase the physical time window or use Simpson when this diagnostic
 fires.
 
+The primitive gather includes support outside that window.  Its initial guard
+is the established half-window default rounded up to a power of two; one guard
+doubling is gathered at the same time.  A raised-cosine pad acts only across
+the support samples, reaching exactly one at the integration crop and zero
+with zero slope at the remote even-reflection turns.  The value is accepted
+only when both guard widths agree within 1e-3 nat, independently of the fine
+quadrature-factor doubling check.  Thus short-window truncation and fine-grid
+resolution have separate certificates.
+
 Distance, phi, psi, exact-angle, and Laplace-marginalized wrappers currently
 refuse `bandlimited`.  Those nonlinear reductions generate time harmonics, so
 interpolating their already-reduced `lnL(t)` can converge to the wrong function;

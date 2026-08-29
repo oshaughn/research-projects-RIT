@@ -1038,7 +1038,8 @@ def _time_marginalize_reflected_fft(lnL_t, deltaT, w_t):
 
 
 def _time_marginalize_reflected_primitive(kappa_t, rho_sq, deltaT,
-                                           phase_marginalization=False):
+                                           phase_marginalization=False,
+                                           guard=0):
     """Adaptive integral after refining the band-limited complex primitive.
 
     This is required for phase marginalization: interpolating ``abs(kappa)``
@@ -1048,22 +1049,41 @@ def _time_marginalize_reflected_primitive(kappa_t, rho_sq, deltaT,
     the even-extension boundary condition is not trustworthy when the finite
     window carries appreciable posterior mass at either turn.
     """
+    guard = int(guard)
+    if guard < 0 or 2 * guard >= kappa_t.shape[-1] - 1:
+        raise ValueError("guard must leave at least two integration samples")
+    npts = kappa_t.shape[-1] - 2 * guard
+    inner_guard = guard // 2
+    if guard and inner_guard < 1:
+        raise ValueError("guard convergence requires at least two samples per end")
     kappa_t = jnp.asarray(kappa_t, dtype=jnp.complex128)
     rho_sq = jnp.asarray(rho_sq, dtype=jnp.float64)
-    coarse = ((jnp.abs(kappa_t) if phase_marginalization else kappa_t.real)
-              - 0.5 * rho_sq)
+    coarse_full = ((jnp.abs(kappa_t) if phase_marginalization else kappa_t.real)
+                   - 0.5 * rho_sq)
+    coarse = coarse_full[..., guard:guard + npts]
     finite_rows = jnp.all(jnp.isfinite(coarse), axis=-1)
     clean_kappa = jnp.where(finite_rows[:, None], kappa_t, 0.0)
     clean_rho = jnp.where(finite_rows[:, None], rho_sq, 0.0)
+
+    def taper_support(x, support_guard):
+        if not support_guard:
+            return x
+        u = jnp.arange(support_guard + 1, dtype=jnp.float64) / support_guard
+        ramp = 0.5 * (1.0 - jnp.cos(jnp.pi * u))
+        taper = jnp.concatenate((ramp[:-1], jnp.ones((npts,)),
+                                 jnp.flip(ramp[:-1])))
+        return x * taper
+
     # Probe the primitive at half a sample before deriving curvature.  A
     # near-Nyquist real kappa can alternate +/-A, making coarse ``abs(kappa)``
     # exactly constant even though the continuous phase-marginalized field has
     # a zero between every pair of samples.  No statistic of the coarse
     # nonlinear field can detect that alias.
-    probe_kappa = _reflected_fft_upsample(clean_kappa, 2)
+    probe_kappa = _reflected_fft_upsample(taper_support(clean_kappa, guard), 2)
     probe_rho = jnp.broadcast_to(clean_rho[:, :1], probe_kappa.shape)
     probe = ((jnp.abs(probe_kappa) if phase_marginalization
               else probe_kappa.real) - 0.5 * probe_rho)
+    probe = probe[..., 2 * guard:2 * guard + (npts - 1) * 2 + 1]
     sigma, measurable = _peak_width_from_lnL_jax(probe, deltaT / 2.0)
     need = jnp.where(measurable & jnp.isfinite(sigma) & (sigma > 0),
                      _TIME_ADAPTIVE_SAFETY * deltaT / sigma, 1.0)
@@ -1077,7 +1097,19 @@ def _time_marginalize_reflected_primitive(kappa_t, rho_sq, deltaT,
     powers = tuple(1 << k for k in range(11))
 
     def make_branch(base):
-        def at_factor(kappa, rho, f):
+        def at_factor(kappa, rho, f, support_guard):
+            if support_guard < guard:
+                trim = guard - support_guard
+                kappa = kappa[trim:-trim]
+                rho = rho[trim:-trim]
+            if support_guard:
+                # Smoothly pad the primitive to zero only in the support
+                # samples.  The raised-cosine value and slope both vanish at
+                # the remote reflection turns and reach exactly one at the
+                # integration crop.  This removes the derivative cusp whose
+                # global FFT ringing survives even when endpoint likelihood
+                # mass is negligible.
+                kappa = taper_support(kappa, support_guard)
             dense_kappa = _reflected_fft_upsample(kappa, f)
             # Conventional baseline data have a time-independent model norm.
             # Keeping the first value avoids inventing high-frequency structure
@@ -1085,6 +1117,8 @@ def _time_marginalize_reflected_primitive(kappa_t, rho_sq, deltaT,
             dense_rho = jnp.broadcast_to(rho[0], dense_kappa.shape)
             dense = ((jnp.abs(dense_kappa) if phase_marginalization
                       else dense_kappa.real) - 0.5 * dense_rho)
+            start = support_guard * f
+            dense = dense[start:start + (npts - 1) * f + 1]
             value = _log_trapezoid(dense, deltaT / float(f))
             width, measured = _peak_width_from_lnL_jax(dense, deltaT / float(f))
             resolved = ((~measured) | (~jnp.isfinite(width))
@@ -1096,11 +1130,18 @@ def _time_marginalize_reflected_primitive(kappa_t, rho_sq, deltaT,
 
         def branch(args):
             kappa, rho = args
-            v0, r0, b0 = at_factor(kappa, rho, base)
-            v1, r1, b1 = at_factor(kappa, rho, 2 * base)
-            v2, r2, b2 = at_factor(kappa, rho, 4 * base)
-            c1 = r1 & b1 & (jnp.abs(v1 - v0) <= _TIME_ADAPTIVE_RTOL)
-            c2 = r2 & b2 & (jnp.abs(v2 - v1) <= _TIME_ADAPTIVE_RTOL)
+            v0, r0, b0 = at_factor(kappa, rho, base, guard)
+            v1, r1, b1 = at_factor(kappa, rho, 2 * base, guard)
+            v2, r2, b2 = at_factor(kappa, rho, 4 * base, guard)
+            if guard:
+                vg1, _, _ = at_factor(kappa, rho, 2 * base, inner_guard)
+                vg2, _, _ = at_factor(kappa, rho, 4 * base, inner_guard)
+                g1 = jnp.abs(v1 - vg1) <= _TIME_ADAPTIVE_RTOL
+                g2 = jnp.abs(v2 - vg2) <= _TIME_ADAPTIVE_RTOL
+            else:
+                g1 = g2 = True
+            c1 = r1 & b1 & g1 & (jnp.abs(v1 - v0) <= _TIME_ADAPTIVE_RTOL)
+            c2 = r2 & b2 & g2 & (jnp.abs(v2 - v1) <= _TIME_ADAPTIVE_RTOL)
             return jnp.where(c1, v1, jnp.where(c2, v2, jnp.nan))
         return branch
 
@@ -1210,6 +1251,12 @@ def fused_log_likelihood(data, ra, dec, psi, incl, phiref, distMpc,
     if legacy_primitive_refinement:
         guard = (default_time_guard(data.npts) if time_guard is None
                  else int(time_guard))
+    elif canonical_time_api and time_quad == "bandlimited":
+        # Start at the established half-window guard, rounded upward to a power
+        # of two, then gather one doubling as an independent certificate.
+        g_default = default_time_guard(data.npts)
+        g_initial = 1 << int(np.ceil(np.log2(g_default)))
+        guard = 2 * g_initial
     else:
         guard = 0
     distMpc = jnp.asarray(distMpc, dtype=jnp.float64)
@@ -1233,7 +1280,7 @@ def fused_log_likelihood(data, ra, dec, psi, incl, phiref, distMpc,
     if canonical_time_api and time_quad == "bandlimited":
         return _time_marginalize_reflected_primitive(
             kappa_sq, rho_sq, data.deltaT,
-            phase_marginalization=phase_marginalization)
+            phase_marginalization=phase_marginalization, guard=guard)
     return _time_marginalize_terminal(
         lnL_t, data, time_quad, bandlimited_safe=not phase_marginalization)
 
