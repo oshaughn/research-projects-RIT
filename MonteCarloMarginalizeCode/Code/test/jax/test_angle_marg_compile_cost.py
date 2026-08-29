@@ -32,6 +32,8 @@ landing; the mutations and observed failures are recorded in the PR):
 """
 
 import numpy as np
+import importlib.machinery
+import importlib.util
 
 import jax
 jax.config.update("jax_enable_x64", True)
@@ -171,6 +173,21 @@ def test_laplace_dist_tail_padding_exact():
     assert np.allclose(np.asarray(v4), np.asarray(v1), rtol=0, atol=1e-12), \
         (np.asarray(v4), np.asarray(v1))
 
+    # Pin the actual distance weights, not merely agreement among three
+    # blockings of the same implementation.  Adding c to every log-weight
+    # must add exactly c to a normalized log-sum-exp, including through the
+    # padded scan; its derivative with respect to c must therefore be one.
+    c = 0.37
+    def shifted(dc):
+        return AM.fused_log_likelihood_distphipsimarg_laplace(
+            data, ra, dec, incl, xg, lwg + dc, amp_sizing=900.0,
+            dist_block=4)[0]
+    v_shift = shifted(c)
+    assert np.allclose(np.asarray(v_shift), np.asarray(v4[0] + c),
+                       rtol=0, atol=1e-12)
+    assert np.allclose(np.asarray(jax.grad(shifted)(0.0)), 1.0,
+                       rtol=0, atol=1e-12)
+
 
 # ---------------------------------------------------------------------------
 # Execution-side memory: the batched-eval chunk cap.
@@ -213,7 +230,7 @@ def test_eval_chunk_cap_wired_for_anglemarg_schemes():
     theta = np.zeros((1000, 3))
     lap = _RecordingLike("laplace", 1200)
     S.eval_lnL_3(lap, theta)
-    expected_cap = max(64, (4 << 30) // (8192 * 1200))
+    expected_cap = max(1, (4 << 30) // (8192 * 1200))
     assert max(lap.batches) == expected_cap, lap.batches
     assert sum(lap.batches) == 1000
 
@@ -222,6 +239,11 @@ def test_eval_chunk_cap_wired_for_anglemarg_schemes():
     assert max(grid.batches) == 1000, (
         "grid-scheme eval must NOT be capped (batches: %r)" % grid.batches)
 
+    exact = _RecordingLike("exact", 1200)
+    S.eval_lnL_3(exact, theta)
+    assert max(exact.batches) == expected_cap, exact.batches
+    assert sum(exact.batches) == 1000
+
     # helper edge cases: unknown npts or missing data -> untouched
     import types as _t
     assert S.angle_marg_eval_chunk(
@@ -229,19 +251,33 @@ def test_eval_chunk_cap_wired_for_anglemarg_schemes():
     assert S.angle_marg_eval_chunk(
         _t.SimpleNamespace(angle_marg_scheme="exact",
                            data=_t.SimpleNamespace(npts=0)), 4000) == 4000
+    # Long but supported integration windows must still honor the 4 GiB
+    # bound; the former floor of 64 turned this case into a ~32 GiB buffer.
+    long_like = _t.SimpleNamespace(
+        angle_marg_scheme="laplace", data=_t.SimpleNamespace(npts=65537))
+    assert S.angle_marg_eval_chunk(long_like, 4000) == 7
 
 
 def test_driver_eval_applies_the_chunk_cap():
     """The driver's own eval_lnL (the --n-chunk 8000 loop) must consult
     angle_marg_eval_chunk -- the samplers-level wiring test cannot see this
-    call site.  String-level guard on the driver source, following this
-    suite's AST-guard precedent for call-site pins."""
+    call site.  Drive the real loop: a source substring can remain present
+    while a later assignment silently overwrites the capped value."""
     import pathlib
-    drv = (pathlib.Path(__file__).resolve().parents[2] / "bin"
-           / "integrate_likelihood_extrinsic_jax")
-    src = drv.read_text()
-    assert "_angle_marg_eval_chunk(like, opts.n_chunk)" in src, (
-        "driver eval_lnL no longer caps its chunk for anglemarg schemes; "
-        "at --n-chunk 8000 the laplace path allocates ~73 GiB and dies "
-        "RESOURCE_EXHAUSTED (measured 36.41 GiB at chunk 4000, npts 1193)")
-    assert "for i in range(0, N, chunk):" in src
+    import types
+    path = (pathlib.Path(__file__).resolve().parents[2] / "bin"
+            / "integrate_likelihood_extrinsic_jax")
+    loader = importlib.machinery.SourceFileLoader(
+        "_ile_jax_driver_chunk_test", str(path))
+    spec = importlib.util.spec_from_loader("_ile_jax_driver_chunk_test", loader)
+    drv = importlib.util.module_from_spec(spec)
+    loader.exec_module(drv)
+
+    theta = np.zeros((1000, 3))
+    like = _RecordingLike("laplace", 1200)
+    opts = types.SimpleNamespace(n_chunk=1000)
+    out = drv.eval_lnL(like, theta, opts, with_distance=False)
+    expected_cap = (4 << 30) // (8192 * 1200)
+    assert np.asarray(out).shape == (1000,)
+    assert max(like.batches) == expected_cap, like.batches
+    assert sum(like.batches) == 1000
