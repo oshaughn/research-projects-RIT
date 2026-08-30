@@ -238,15 +238,18 @@ def test_driver_wires_continuous_draw_before_legacy_grid_choice():
     assert 'opts._time_posterior_export == "grid"' in source
 
 
-def test_lisa_twin_refuses_continuous_mode_without_faithful_components():
+def test_lisa_twin_accepts_export_contract_with_documented_lattice_fallback():
     with open(LISA_DRIVER) as handle:
         source = handle.read()
     assert '"--time-posterior-export"' in source
+    assert '"--srate-resample-time-marginalization"' in source
     assert "legacy_time_interpolation_enabled(opts.interpolate_time)" in source
     assert "continuous_available=False" in source
     assert ("opts.resample_time_marginalization and\n"
             "        opts._time_posterior_export == \"continuous\"") in source
-    assert "does not expose an explicit selected-stencil time evaluator" in source
+    assert "interpolation-lattice export for executable-swap compatibility" in source
+    assert 'opts._time_posterior_export = "grid"' in source
+    assert "1.0 / opts.srate_resample_time_marginalization" in source
     assert "draw_continuous_time_posterior(tvals, lnLt)" not in source
 
 

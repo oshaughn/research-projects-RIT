@@ -97,9 +97,13 @@ in.  They continue to use the unchanged Simpson default.
 The driver exposes the same public spelling as conventional ILE:
 `--time-marginalization-quadrature`.  `--interpolate-time` is an alias for the
 JAX-native `--interp` with conflict detection.  Conditional nuisance recovery
-is outside this implementation: `--resample-time-marginalization` and
-`--srate-resample-time-marginalization` are accepted for interface clarity but
-fail loudly rather than producing coarse or inconsistent draws.
+is outside this implementation.  For drop-in CLI compatibility,
+`--resample-time-marginalization`, `--srate-resample-time-marginalization`, and
+`--time-posterior-export` are accepted and reported as ignored: JAX ILE's
+sample export keeps time terminally marginalized rather than reconstructing one
+conditional time per exported row.  This intentionally differs from
+conventional ILE's XML export semantics, but a high-level DAG can swap
+executables without dying during option parsing.
 
 ## Modules
 
