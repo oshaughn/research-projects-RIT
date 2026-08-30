@@ -423,6 +423,61 @@ def test_integration_cip_legacy_single_image(tmp_path, monkeypatch):
     assert "require_gpus" not in cmds
 
 
+def _make_calibration_job(tmp_path, monkeypatch, manifest, container_universe):
+    if container_universe:
+        monkeypatch.setenv("RIFT_CONTAINER_UNIVERSE", "1")
+    else:
+        monkeypatch.delenv("RIFT_CONTAINER_UNIVERSE", raising=False)
+    monkeypatch.chdir(tmp_path)
+    dag = pytest.importorskip("RIFT.misc.dag_utils")
+    job, _ = dag.write_calibration_uncertainty_reweighting_sub(
+        tag="Calib_reweight",
+        log_dir=str(tmp_path) + "/",
+        exe="/usr/bin/true",
+        pickle_file=str(tmp_path / "event.pickle"),
+        posterior_file=str(tmp_path / "posterior.dat"),
+        transfer_files=[],
+        use_osg=True,
+        use_singularity=True,
+        singularity_image=manifest,
+    )
+    return job, _cmds(job)
+
+
+def test_calibration_family_legacy_uses_fallback_not_manifest(tmp_path, monkeypatch):
+    manifest = _write(tmp_path, ALL_OSDF_MANIFEST)
+    job, cmds = _make_calibration_job(tmp_path, monkeypatch, manifest, False)
+    assert _universe(job) == "vanilla"
+    assert cmds["MY.SingularityImage"] == '"./rift_ancient_cuda11.sif"'
+    assert manifest not in cmds["MY.SingularityImage"]
+    assert "ifThenElse" not in cmds["MY.SingularityImage"]
+    assert cmds["transfer_input_files"].count(
+        "osdf:///igwn/sw/rift_ancient_cuda11.sif"
+    ) == 1
+    assert "osdf:///igwn/sw/rift_modern_cuda12.sif" not in cmds["transfer_input_files"]
+
+
+def test_calibration_family_container_universe_uses_fallback_not_manifest(
+    tmp_path, monkeypatch
+):
+    manifest = _write(tmp_path, ALL_OSDF_MANIFEST)
+    job, cmds = _make_calibration_job(tmp_path, monkeypatch, manifest, True)
+    assert _universe(job) == "container"
+    assert cmds["container_image"] == "osdf:///igwn/sw/rift_ancient_cuda11.sif"
+    assert manifest not in cmds["container_image"]
+    assert "MY.SingularityImage" not in cmds
+    assert "MY.SingularityBindCVMFS" not in cmds
+    assert "$$(" not in cmds["container_image"]
+    assert "rift_modern_cuda12.sif" not in cmds["transfer_input_files"]
+
+    # Exercise the same submit-file emission path as a build-only pipeline run.
+    job.write_sub_file()
+    submit = (tmp_path / "Calib_reweight.sub").read_text()
+    assert "universe = container" in submit
+    assert "container_image = osdf:///igwn/sw/rift_ancient_cuda11.sif" in submit
+    assert "fam.yaml" not in submit
+
+
 # ---------------------------------------------------------------------------
 # 7. runtime-selection wrapper fallback
 # ---------------------------------------------------------------------------

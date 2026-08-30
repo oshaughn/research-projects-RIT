@@ -2425,13 +2425,38 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
         sys.exit(0)
 
     singularity_image_used = "{}".format(singularity_image) # make copy
-    if singularity_image:
-        if 'osdf:' in singularity_image:
-            singularity_image_used  = "./{}".format(singularity_image.split('/')[-1])
-            if transfer_files is None:
-                transfer_files= [singularity_image]
-            else:
-                transfer_files += [singularity_image]
+    # Calibration reweighting is CPU-only.  Collapse a container family to its
+    # configured fallback image (as CIP does); a capability selector cannot be
+    # evaluated on a CPU slot, and the manifest YAML is not a runnable image.
+    singularity_is_family = False
+    singularity_container_universe = False
+    singularity_container_image = None
+    singularity_fallback_runtime = None
+    if singularity_image and is_container_manifest(singularity_image):
+        singularity_is_family = True
+        _manifest = load_container_manifest(singularity_image)
+        singularity_container_universe = bool(
+            use_singularity and os.environ.get('RIFT_CONTAINER_UNIVERSE')
+        )
+        if singularity_container_universe:
+            singularity_container_image = build_container_image_select(
+                _manifest, request_gpu=False
+            )
+        else:
+            singularity_fallback_runtime, _fb_transfer = build_fallback_single_image(
+                _manifest
+            )
+            if _fb_transfer:
+                if transfer_files is None:
+                    transfer_files = [_fb_transfer]
+                else:
+                    transfer_files += [_fb_transfer]
+    elif singularity_image and 'osdf:' in singularity_image:
+        singularity_image_used = "./{}".format(singularity_image.split('/')[-1])
+        if transfer_files is None:
+            transfer_files = [singularity_image]
+        else:
+            transfer_files += [singularity_image]
 
     
     exe = exe or which("calibration_reweighting.py")
@@ -2449,7 +2474,10 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
             singularity_base_exe_path = "/usr/bin/"  # should not hardcode this ...!
         exe=singularity_base_exe_path + exe_base
 
-    ile_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
+    ile_job = pipeline.CondorDAGJob(
+        universe=("container" if singularity_container_universe else "vanilla"),
+        executable=exe,
+    )
     # This is a hack since CondorDAGJob hides the queue property
     ile_job._CondorJob__queue = ncopies
 
@@ -2465,8 +2493,18 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
         # Compare to https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
         ile_job.add_condor_cmd('request_CPUs', str(1))
         ile_job.add_condor_cmd('transfer_executable', 'False')
-        ile_job.add_condor_cmd("MY.SingularityBindCVMFS", 'True')
-        ile_job.add_condor_cmd("MY.SingularityImage", '"' + singularity_image_used + '"')
+        if singularity_container_universe:
+            ile_job.add_condor_cmd("container_image", singularity_container_image)
+        else:
+            ile_job.add_condor_cmd("MY.SingularityBindCVMFS", 'True')
+            if singularity_is_family:
+                ile_job.add_condor_cmd(
+                    "MY.SingularityImage", '"' + singularity_fallback_runtime + '"'
+                )
+            else:
+                ile_job.add_condor_cmd(
+                    "MY.SingularityImage", '"' + singularity_image_used + '"'
+                )
         ile_job.add_condor_cmd("transfer_output_files", "weight_files")
         requirements.append("HAS_SINGULARITY=?=TRUE")
         print(" WARNING: cal reweighting requires bilby. Directories are moved to cal_evelopes")
@@ -3166,4 +3204,3 @@ def write_hyperpost_sub(tag='HYPER', exe=None, input_net='all.marg_net',output='
 
 
     return ile_job, ile_sub_name
-
