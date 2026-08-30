@@ -1229,16 +1229,14 @@ if time_quadrature_choice is not None:
           "the ILE driver refuses rather than ignores if its configuration cannot honour it)".format(
               time_quadrature_choice))
     if time_quadrature_choice != 'simpson':
-        # F12: the flag reaches ILE_extr.sub, but it does not do the same job there.  The
-        # standard extrinsic stage (--add-extrinsic --add-extrinsic-time-resampling ->
-        # --resample-time-marginalization) calls the likelihood with return_lnLt=True, which
-        # returns lnL(t) on the ORIGINAL grid and never reaches the quadrature branch.  So the
-        # extrinsic INTEGRAL is refined but the drawn t_ref stays quantised at 1/srate.  Say so
-        # at build time rather than letting "it reaches ILE_extr.sub" be read as more than it is.
-        print("      NOTE: on the extrinsic/fairdraw stage the drawn t_ref is still quantised "
-              "at deltaT=1/srate -- --resample-time-marginalization asks for lnL(t) on the "
-              "original grid (return_lnLt), which never reaches this quadrature.  The "
-              "marginalized lnL is refined; the exported time sample is not.")
+        # Sub-sample integration is also an export contract.  The extrinsic stage
+        # uses the same reflected, derived-resolution reconstruction to draw a
+        # continuous conditional time, rather than calling coarse-grid
+        # return_lnLt=True and throwing the new resolution away.
+        print("      NOTE: on the extrinsic/fairdraw stage band-limited quadrature "
+              "also mandates a continuous draw from p(t | extrinsic, data), using "
+              "the same validated dense reconstruction as the integral.  Export "
+              "is not quantised at 1/srate or at a configurable finer lattice.")
     # rstrip() so the separator does not depend on whatever the PREVIOUS append left
     # behind: the flag gluing onto its neighbour would produce an args_ile.txt in which
     # the quadrature is not a token at all, and the emission guard below is what would

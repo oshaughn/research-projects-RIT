@@ -471,14 +471,14 @@ def test_helper_refuses_a_configuration_it_cannot_honour(tmp_path):
     assert not (tmp_path / "helper_ile_args.txt").exists()
 
 
-def test_helper_warns_that_the_extrinsic_t_ref_is_not_refined(tmp_path):
-    """The PR offers "it reaches ILE_extr.sub" as the assurance for the extrinsic
-    stage, but --resample-time-marginalization asks for lnL(t) on the ORIGINAL grid
-    (return_lnLt), which never reaches this quadrature.  Say so at build time."""
+def test_helper_records_the_continuous_extrinsic_time_contract(tmp_path):
+    """Sub-sample integration also means a continuous conditional time draw at
+    the fairdraw export stage; keep that subtle contract in the build log."""
     proc = _run_helper(tmp_path, "--propose-ile-convergence-options",
                        "--internal-ile-time-marginalization-quadrature", "bandlimited")
     assert proc.returncode == 0
-    assert "t_ref is still quantised" in proc.stdout
+    assert "continuous draw from p(t | extrinsic, data)" in proc.stdout
+    assert "not quantised at 1/srate" in proc.stdout
 
 
 def _run_pseudo_pipe(tmp_path, *extra):

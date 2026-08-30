@@ -7,6 +7,8 @@ import os
 import numpy as np
 import pytest
 
+from RIFT.misc import xmlutils
+
 DRIVER = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "..", "bin",
     "integrate_likelihood_extrinsic_batchmode")
@@ -236,13 +238,68 @@ def test_driver_wires_continuous_draw_before_legacy_grid_choice():
     assert 'opts._time_posterior_export == "grid"' in source
 
 
-def test_lisa_twin_refuses_continuous_mode_without_faithful_components():
+def test_lisa_twin_accepts_export_contract_with_documented_lattice_fallback():
     with open(LISA_DRIVER) as handle:
         source = handle.read()
     assert '"--time-posterior-export"' in source
+    assert '"--srate-resample-time-marginalization"' in source
     assert "legacy_time_interpolation_enabled(opts.interpolate_time)" in source
     assert "continuous_available=False" in source
     assert ("opts.resample_time_marginalization and\n"
             "        opts._time_posterior_export == \"continuous\"") in source
-    assert "does not expose an explicit selected-stencil time evaluator" in source
+    assert "interpolation-lattice export for executable-swap compatibility" in source
+    assert 'opts._time_posterior_export = "grid"' in source
+    assert "1.0 / opts.srate_resample_time_marginalization" in source
     assert "draw_continuous_time_posterior(tvals, lnLt)" not in source
+
+
+def test_bandlimited_export_bypasses_coarse_return_lnlt():
+    with open(DRIVER) as handle:
+        source = handle.read()
+    resample = source.index("def resample_samples")
+    bandlimited = source.index('if opts._time_quadrature == "bandlimited":', resample)
+    dense_draw = source.index("return_time_draw=True", bandlimited)
+    coarse_series = source.index("return_lnLt=True", dense_draw)
+    assert bandlimited < dense_draw < coarse_series
+    assert "opts._time_posterior_export = 'continuous'" in source
+    assert "--time-posterior-export grid would" in source
+    assert "conflicting fixed" in source
+
+
+def test_exact_gps_addition_preserves_sub_float_ulp_offsets_and_carry():
+    epoch_s = 1400000000
+    epoch_ns = 0
+    offset = np.array([60e-9, -60e-9, 1.000000060])
+    seconds, nanoseconds = xmlutils.gps_add_seconds_exact(
+        epoch_s, epoch_ns, offset)
+    np.testing.assert_array_equal(seconds,
+                                  [1400000000, 1399999999, 1400000001])
+    np.testing.assert_array_equal(nanoseconds, [60, 999999940, 60])
+    # At this epoch float64 cannot represent a 60 ns increment.  The exact pair
+    # must therefore be the serialization source, not the compatibility float.
+    assert float(epoch_s) + 60e-9 == float(epoch_s)
+
+
+def test_exact_xml_time_fields_override_the_legacy_float_mapping():
+    keys = list(xmlutils.CMAP)
+    assert keys.index("t_ref") < keys.index("t_ref_gps_seconds")
+    assert keys.index("t_ref_gps_seconds") < keys.index("t_ref_gps_nanoseconds")
+    assert xmlutils.CMAP["t_ref_gps_seconds"] == "geocent_end_time"
+    assert xmlutils.CMAP["t_ref_gps_nanoseconds"] == "geocent_end_time_ns"
+
+    class Row(object):
+        pass
+
+    class Table(object):
+        RowType = Row
+
+        @staticmethod
+        def get_next_id():
+            return 17
+
+    row = xmlutils.samples_to_siminsp_row(
+        Table(), t_ref=float(1400000000),
+        t_ref_gps_seconds=np.int64(1400000000),
+        t_ref_gps_nanoseconds=np.int64(60))
+    assert row.geocent_end_time == 1400000000
+    assert row.geocent_end_time_ns == 60

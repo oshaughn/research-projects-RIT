@@ -238,8 +238,10 @@ optp.add_option("--psd-window-shape", type=float, default=0, help="Shape of Tuke
 optp.add_option("-m", "--time-marginalization", action="store_true", help="Perform marginalization over time via direct numerical integration. Default is false.")
 #optp.add_option("--n-fairdraw-extrinsic-samples",default=None,type=int,help="Extracts a concrete number of fair draw extrinsic samples, bounded above by n_eff")
 optp.add_option("--resample-time-marginalization",action='store_true', help="If time-marginalizaiton is true (and should almost always be true), at the end export step use resampling. REQUIRES using fairdraw-extrinsic-output")
+optp.add_option("--srate-resample-time-marginalization", type=int, default=None,
+                help="Requested lattice rate for time-posterior resampling. The LISA driver uses this as its interpolation/draw grid; default keeps its historical 1 ms grid.")
 optp.add_option("--time-posterior-export", type="choice", choices=["auto", "continuous", "grid"], default="auto",
-                help="How --resample-time-marginalization exports time. auto (default) preserves the legacy LISA grid because this driver cannot yet evaluate the selected stencil at arbitrary times; continuous is refused rather than silently approximated; grid is the explicit compatibility mode.")
+                help="How --resample-time-marginalization exports time. The LISA likelihood cannot yet evaluate the selected stencil at arbitrary times, so auto/grid use its interpolation lattice and continuous is accepted as the same best-available lattice export for drop-in CLI compatibility (with a warning).")
 optp.add_option("-d", "--distance-marginalization", action="store_true", help="Perform marginalization over distance via a look-up table. Default is false.")
 optp.add_option("-l", "--distance-marginalization-lookup-table", default=None, help="Look-up table for distance marginalization.")
 optp.add_option("--vectorized", action="store_true", help="Perform manipulations of lm and timeseries using numpy arrays, not LAL data structures.  (Combine with --gpu to enable GPU use, where available)")
@@ -397,10 +399,13 @@ opts._time_posterior_export = resolve_time_posterior_export_mode(
     continuous_available=False)
 if (opts.resample_time_marginalization and
         opts._time_posterior_export == "continuous"):
-    raise NotImplementedError(
-        "continuous time-posterior export is not yet available in the LISA driver: "
-        "its likelihood does not expose an explicit selected-stencil time evaluator needed to "
-        "sample the selected interpolant faithfully; use --time-posterior-export grid")
+    print("WARNING: LISA ILE cannot evaluate the selected time stencil at arbitrary "
+          "times; treating --time-posterior-export continuous as its best-available "
+          "interpolation-lattice export for executable-swap compatibility.")
+    opts._time_posterior_export = "grid"
+if (opts.srate_resample_time_marginalization is not None and
+        opts.srate_resample_time_marginalization <= 0):
+    optp.error("--srate-resample-time-marginalization must be positive")
 
 #
 # Failure modes
@@ -2752,7 +2757,9 @@ def resample_samples_LISA(my_samples, rholms, cross_terms, right_ascension, decl
   print(" Time resampling size : {} ".format(n_samples))
 
   # Hardcoded time sampling limits, should change it in future
-  low_t_lim, high_t_lim, delta_t = -5, 5, 0.001
+  low_t_lim, high_t_lim = -5, 5
+  delta_t = (1.0 / opts.srate_resample_time_marginalization
+             if opts.srate_resample_time_marginalization else 0.001)
   
   # t_ref_wind is defined as data_window_integration_half
 

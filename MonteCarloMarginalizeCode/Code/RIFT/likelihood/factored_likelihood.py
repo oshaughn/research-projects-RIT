@@ -2479,7 +2479,7 @@ def _nearest_Q_window_numpy(Q_block, start_indices, npts, xpy=np):
     return Qlms
 
 
-def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=np, loglikelihood=_factored_lnL_helper,return_lnLt=False,phase_marginalization=False,n_cal=1,cal_method='loop',cal_distmarg=None,cal_log_weights=None,return_cal_components=False,time_interp='nearest',ctUArrayDict_cal=None,ctVArrayDict_cal=None,time_quadrature=None,explicit_time_values=False):
+def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=np, loglikelihood=_factored_lnL_helper,return_lnLt=False,phase_marginalization=False,n_cal=1,cal_method='loop',cal_distmarg=None,cal_log_weights=None,return_cal_components=False,time_interp='nearest',ctUArrayDict_cal=None,ctVArrayDict_cal=None,time_quadrature=None,explicit_time_values=False,return_time_draw=False,time_draw_uniforms=None):
     """
     DiscreteFactoredLogLikelihoodViaArray uses the array-ized data structures to compute the log likelihood,
     either as an array vs time *or* marginalized in time.
@@ -2570,8 +2570,10 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         recovered exactly by a zero-padded FFT per row.  The refinement factor is
         DERIVED from the measured peak width and re-asserted on the refined grid;
         it is not a settable accuracy knob.  Restricted to n_cal==1 and to the
-        integrated (not return_lnLt / return_cal_components) outputs; anything
-        else raises rather than quietly falling back.  Rationale, measured
+        integrated outputs and continuous posterior draws (not return_lnLt /
+        return_cal_components); anything else raises rather than quietly falling
+        back.  A time draw returns ``(time_offset, lnL_at_draw)`` and uses the
+        same validated dense representation as the integral.  Rationale, measured
         before/after and the exclusions: RIFT.likelihood.time_marginalization_quadrature.
     """
     global distMpcRef
@@ -2584,6 +2586,14 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
     if time_quadrature is None:
         time_quadrature = TIME_QUADRATURE_DEFAULT
     time_quadrature_module.validate_time_quadrature(time_quadrature)
+    if return_time_draw and return_lnLt:
+        raise ValueError("return_time_draw and return_lnLt are mutually exclusive")
+    if return_time_draw and return_cal_components:
+        raise ValueError("return_time_draw and return_cal_components are mutually exclusive")
+    if return_time_draw and time_quadrature != 'bandlimited':
+        raise ValueError(
+            "return_time_draw requires time_quadrature='bandlimited'; the continuous "
+            "draw must share the quadrature's validated reconstruction")
     if time_quadrature == 'bandlimited':
         # Refuse loudly wherever the band-limited argument does not hold, rather
         # than falling back to Simpson: a silently inert accuracy option is worse
@@ -2937,10 +2947,15 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
             # reproduce what the run they are in would have returned.  Omitting
             # this also made the module default to scipy, which RAISES on a cupy
             # array: every --vectorized --gpu run of this option crashed.
-            return time_quadrature_module.time_marginalize_bandlimited(
+            _time_result = time_quadrature_module.time_marginalize_bandlimited(
                 kappa_sq, rho_sq_here, float(deltaT), loglikelihood,
                 phase_marginalization=phase_marginalization, simps=simps,
-                lnL_coarse=lnL_t, xpy=xpy)
+                lnL_coarse=lnL_t, return_time_draw=return_time_draw,
+                draw_uniforms=time_draw_uniforms, t0=float(tvals[0]), xpy=xpy)
+            if return_time_draw:
+                _, _drawn_t, _drawn_lnL = _time_result
+                return _drawn_t, _drawn_lnL
+            return _time_result
 
         L_t = xpy.exp(lnL_t - lnLmax, out=lnL_t)
 

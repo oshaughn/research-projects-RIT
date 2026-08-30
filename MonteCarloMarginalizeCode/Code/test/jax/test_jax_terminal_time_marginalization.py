@@ -1,4 +1,5 @@
 """Regression tests for adaptive, primitive-field time marginalization."""
+import ast
 import inspect
 
 import jax
@@ -7,6 +8,9 @@ import numpy as np
 import pytest
 
 jax.config.update("jax_enable_x64", True)
+_trapezoid = getattr(np, "trapezoid", None)
+if _trapezoid is None:
+    _trapezoid = np.trapz
 
 from RIFT.likelihood.jax_ile import anglemarg, core, wrapper
 
@@ -98,7 +102,7 @@ def test_phase_marginalization_refines_kappa_before_abs_near_nyquist():
     wrong = amp + np.log((n - 1) * dt)
     x_truth = np.linspace(0.0, n - 1.0, (n - 1) * 8192 + 1)
     y = np.exp(amp * np.abs(np.cos(np.pi * x_truth)) - amp)
-    want = amp + np.log(np.trapezoid(y, x=x_truth))
+    want = amp + np.log(_trapezoid(y, x=x_truth))
     assert abs(want - wrong) > 0.5
     # This adversary has likelihood maxima at both window endpoints and lies
     # outside the documented spectral-headroom regime.  The reconstruction is
@@ -132,7 +136,7 @@ def test_guarded_cosine_pad_matches_independent_dense_high_snr_truth(n_harmonics
     truth = primitive(t)
     peak = np.max(truth)
     want = peak + np.log(
-        np.trapezoid(np.exp(truth - peak), dx=1.0 / factor_truth))
+        _trapezoid(np.exp(truth - peak), dx=1.0 / factor_truth))
     assert abs(got - want) < 1e-3
 
 
@@ -223,8 +227,81 @@ def test_jax_driver_uses_conventional_ile_flag_names():
     for flag in ("--time-marginalization-quadrature",
                  "--resample-time-marginalization",
                  "--srate-resample-time-marginalization",
+                 "--time-posterior-export",
                  "--interpolate-time"):
         assert flag in src
+
+
+def _declared_option_actions(path):
+    """Return long option -> arity class without executing an ILE driver."""
+    tree = ast.parse(path.read_text())
+    out = {}
+    pinnable = []
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Assign) and
+                any(isinstance(target, ast.Name) and
+                    target.id == "LIKELIHOOD_PINNABLE_PARAMS"
+                    for target in node.targets)):
+            pinnable = ast.literal_eval(node.value)
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and
+                isinstance(node.func, ast.Attribute) and
+                node.func.attr == "add_option"):
+            continue
+        names = [arg.value for arg in node.args
+                 if isinstance(arg, ast.Constant) and
+                 isinstance(arg.value, str) and arg.value.startswith("--")]
+        if not names:
+            continue
+        action = "store"
+        for keyword in node.keywords:
+            if (keyword.arg == "action" and
+                    isinstance(keyword.value, ast.Constant)):
+                action = keyword.value.value
+        if action in ("store_true", "store_false"):
+            arity = "bool"
+        elif action == "append":
+            arity = "append"
+        else:
+            arity = "value"
+        out[names[0]] = arity
+    # Conventional ILE registers these options in a loop, so there is no
+    # literal ``--flag`` argument for the AST walk above to discover.
+    out.update(("--" + name.replace("_", "-"), "value")
+               for name in pinnable)
+    return out
+
+
+def test_jax_dropin_manifest_covers_every_batchmode_option_with_same_arity():
+    """A new conventional ILE flag must not make executable swapping fail.
+
+    This is intentionally mechanical.  The compatibility table had drifted by
+    77 options while still claiming complete coverage; checking a hand-picked
+    list of headline flags did not detect that class of failure.
+    """
+    import pathlib
+    code = pathlib.Path(__file__).parents[2]
+    conventional = _declared_option_actions(
+        code / "bin" / "integrate_likelihood_extrinsic_batchmode")
+    drv = _load_driver()
+    parser = drv.build_parser()
+    jax_actions = {}
+    for option in parser._get_all_options():
+        if option.action in ("store_true", "store_false"):
+            arity = "bool"
+        elif option.action == "append":
+            arity = "append"
+        else:
+            arity = "value"
+        for name in option._long_opts:
+            jax_actions[name] = arity
+    missing = sorted(set(conventional) - set(jax_actions))
+    mismatched = sorted(
+        (name, conventional[name], jax_actions[name])
+        for name in set(conventional) & set(jax_actions)
+        if conventional[name] != jax_actions[name])
+    assert not missing
+    assert not mismatched
 
 
 def _load_driver():
@@ -251,11 +328,27 @@ def test_driver_parses_readback_and_conflict_checks_ile_aliases():
     assert opts.time_marginalization_quadrature == "bandlimited"
     assert opts.interp == "sinc"
 
-    argv = ["--resample-time-marginalization"]
+    # The high-level ILE_extr job emits these conventional export arguments.
+    # JAX keeps time terminally marginalized, but executable substitution must
+    # not die during option parsing or the compatibility check.
+    argv = ["--resample-time-marginalization",
+            "--srate-resample-time-marginalization", "8192",
+            "--time-posterior-export", "grid"]
     opts, _ = parser.parse_args(argv)
     drv.record_supplied_options(opts, argv, parser)
-    with pytest.raises(SystemExit):
-        drv.check_critical_and_report(opts, parser)
+    drv.check_critical_and_report(opts, parser)
+
+    # Legacy conventional ILE spellings remain valid when an old args_ile.txt
+    # is pointed at the JAX executable.
+    for value, expected in (("True", "cubic"), ("False", "nearest")):
+        argv = ["--interpolate-time", value]
+        opts, _ = parser.parse_args(argv)
+        drv.record_supplied_options(opts, argv, parser)
+        drv.resolve_ile_interface_aliases(opts, parser)
+        assert opts.interp == expected
+    assert drv._normalize_interpolate_time_argv(
+        ["--interpolate-time", "--gpu"]) == [
+            "--interpolate-time", "True", "--gpu"]
 
     argv = ["--interp", "linear", "--interpolate-time", "sinc"]
     opts, _ = parser.parse_args(argv)

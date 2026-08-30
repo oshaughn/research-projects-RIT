@@ -126,12 +126,14 @@ _FAIRDRAW_MODES = _TEMPERED_MODES | frozenset(("prior-mc", "laplace-is"))
 
 # Boolean (zero-argument) ILE options (action=store_true/false).
 _ILE_BOOL_OPTS = {
+    "--calibration-conjugate-phase", "--calibration-global-norm",
     "--check-good-enough", "--zero-likelihood", "--random-event",
     "--soft-fail-event-range", "--fmin-template-correct-for-lmax",
     "--internal-use-gwpy", "--nr-lookup", "--nr-hybrid-use", "--rom-use-basis",
     "--rom-integrate-intrinsic", "--nr-perturbative-extraction",
     "--nr-perturbative-extraction-full", "--nr-use-provided-strain",
-    "--no-memory", "--use-gwsignal", "--maximize-only", "--time-marginalization",
+    "--no-memory", "--use-gwsignal", "--use-external-EOB", "--maximize-only",
+    "--dump-lnL-time-series", "--time-marginalization",
     "--resample-time-marginalization", "--distance-marginalization",
     "--calibration-fused-kernel", "--calibration-export-posterior",
     "--extrinsic-proposal-adapt", "--vectorized", "--gpu", "--force-gpu-only",
@@ -147,15 +149,32 @@ _ILE_BOOL_OPTS = {
     "--internal-sky-network-coordinates-raw", "--auto-logarithm-offset",
     "--pin-distance-to-sim", "--export-eos-index",
     "--export-marginal-distance-grid", "--adapt-intrinsic",
+    "--reject-collapsed-live-volume", "--rotation-slow", "--freqresponse",
+    "--internal-waveform-fd-L-frame", "--save-EOB-parameters",
+    "--save-hyperbolic", "--force-hyperbolic-22", "--save-meanPerAno",
+    "--internal-gmm-correlate-all", "--internal-gmm-adaptive-components",
+    "--portfolio-varaha-never-freeze", "--portfolio-varaha-can-freeze",
+    "--portfolio-adaptive-alloc", "--sampler-sequential-warmstart",
+    "--sampler-l0-rescue-accept-truncated", "--sampler-anisotropic-bins",
+    "--internal-reparam-dl-incl", "--internal-use-lnL",
+    "--distance-slice-all-fresh",
+    "--distance-slice-randomize",
 }
 # ILE options taking repeated values (action=append).
-_ILE_APPEND_OPTS = {"--channel-name", "--psd-file"}
+_ILE_APPEND_OPTS = {
+    "--channel-name", "--psd-file", "--fmin-ifo", "--nr-lookup-group",
+    "--parameter", "--parameter-range", "--sampler-portfolio",
+    "--sampler-portfolio-args",
+}
 # The full ILE option set (so anything not implemented is still accepted).
 _ILE_ALL_OPTS = {
     "--adapt-adapt", "--adapt-floor-level", "--adapt-intrinsic", "--adapt-log",
     "--adapt-weight-exponent", "--amp-order", "--approximant",
     "--auto-logarithm-offset", "--cache-file", "--calibration-burn-in-neff",
     "--calibration-burn-in-nmax", "--calibration-dump-responsibilities",
+    "--calibration-conjugate-phase", "--calibration-global-norm",
+    "--calibration-mc-error-extrinsic", "--calibration-n-realizations-max",
+    "--calibration-neff-cal-target",
     "--calibration-envelope-directory", "--calibration-export-posterior",
     "--calibration-fused-kernel", "--calibration-n-realizations",
     "--calibration-pilot-extrinsic", "--calibration-proposal-breadcrumb",
@@ -163,37 +182,72 @@ _ILE_ALL_OPTS = {
     "--coinc-xml", "--convergence-tests-on", "--data-end-time",
     "--data-integration-window-half", "--data-start-time",
     "--declination-cosine-sampler", "--deff-lambda", "--distance-marginalization",
-    "--distance-marginalization-lookup-table", "--distance-slice-skip-threshold",
+    "--distance-marginalization-lookup-table", "--distance-slice-all-fresh",
+    "--distance-slice-chunk", "--distance-slice-randomize",
+    "--distance-slice-skip-threshold", "--distance-slice-wing-delta-lnL",
     "--distance-slice-wing-neff", "--distance-slice-wing-nmax", "--d-max",
     "--d-min", "--d-prior", "--d-prior-redshift", "--eff-lambda", "--e-freq",
-    "--event", "--event-time", "--export-distance-slices", "--export-eos-index",
+    "--dump-lnL-time-series", "--event", "--event-time",
+    "--export-distance-slices", "--export-eos-index",
     "--export-marginal-distance-grid", "--extrinsic-proposal-adapt",
     "--extrinsic-proposal-breadcrumb", "--extrinsic-proposal-output",
+    "--extrinsic-proposal-field", "--extrinsic-proposal-field-cover-frac",
+    "--extrinsic-proposal-field-inflate",
     "--fairdraw-extrinsic-output", "--fairdraw-extrinsic-output-n-max", "--fmax",
     "--fmin-ifo", "--fmin-template", "--fmin-template-correct-for-lmax",
-    "--force-adapt-all", "--force-gpu-only", "--force-reset-all", "--force-xpy",
-    "--gpu", "--inclination-cosine-sampler",
+    "--force-adapt-all", "--force-gpu-only", "--force-hyperbolic-22",
+    "--force-reset-all", "--force-xpy", "--freqresponse",
+    "--freqresponse-arm-length", "--freqresponse-qmax", "--gpu",
+    "--inclination-cosine-sampler", "--internal-gmm-adaptive-components",
+    "--internal-gmm-correlate-all", "--internal-gmm-defensive-frac",
+    "--internal-gmm-inflate", "--internal-gmm-max-components",
+    "--internal-gmm-phase-components", "--internal-gmm-sky-components",
     "--internal-data-storage-window-half", "--internal-hard-fail-on-error",
     "--internal-make-empty-file-on-error", "--internal-precompute-ignore-threshold",
     "--internal-rotate-phase", "--internal-sky-network-coordinates",
     "--internal-sky-network-coordinates-raw", "--internal-soft-fail-on-cuda-error",
-    "--internal-use-gwpy", "--internal-waveform-extra-kwargs",
+    "--internal-reparam-dl-incl", "--internal-use-gwpy", "--internal-use-lnL",
+    "--internal-waveform-extra-kwargs",
     "--internal-waveform-extra-lalsuite-args", "--internal-waveform-fd-no-condition",
-    "--internal-waveform-taper", "--interpolate-time", "--inv-spec-trunc-time",
-    "--l-max", "--manual-logarithm-offset", "--mass1", "--mass2",
+    "--internal-waveform-fd-L-frame", "--internal-waveform-taper",
+    "--interpolate-time", "--inv-spec-trunc-time", "--l-max",
+    "--limit-declination", "--limit-inclination", "--limit-psi",
+    "--limit-right-ascension", "--manual-logarithm-offset", "--mass1", "--mass2",
+    "--mc-error-ess-trigger", "--mc-error-khat-trigger", "--mc-error-replicas",
+    "--mc-error-sigma-trigger",
     "--maximize-only", "--n-chunk", "--n-distance-slice-core", "--n-eff",
     "--n-events-to-analyze", "--n-fairdraw-extrinsic-samples", "--n-max",
     "--n-distance-slice-wing", "--no-adapt", "--no-adapt-after-first",
-    "--no-adapt-distance", "--no-memory", "--nr-hybrid-method", "--nr-hybrid-use",
-    "--nr-index", "--nr-lookup", "--nr-lookup-group", "--nr-params",
+    "--no-adapt-distance", "--no-memory", "--nf-flow-load", "--nf-flow-save",
+    "--nr-group", "--nr-hybrid-method", "--nr-hybrid-use", "--nr-index",
+    "--nr-lookup", "--nr-lookup-group", "--nr-param", "--nr-params",
     "--nr-perturbative-extraction", "--nr-perturbative-extraction-full",
     "--nr-use-provided-strain", "--output-file", "--output-format",
-    "--parameter", "--parameter-range", "--pin-distance-to-sim", "--psd-file",
+    "--parameter", "--parameter-range", "--pin-distance-to-sim",
+    "--right-ascension", "--declination", "--psi", "--distance",
+    "--phi-orb", "--t-ref", "--inclination",
+    "--portfolio-adaptive-alloc", "--portfolio-alloc-exponent",
+    "--portfolio-freeze-wt", "--portfolio-grace-iters",
+    "--portfolio-probe-period", "--portfolio-quality-signal",
+    "--portfolio-revive-period", "--portfolio-varaha-can-freeze",
+    "--portfolio-varaha-max-frac", "--portfolio-varaha-min-frac",
+    "--portfolio-varaha-never-freeze", "--portfolio-weight-clip", "--psd-file",
     "--psd-window-shape", "--random-event", "--reference-freq",
     "--resample-time-marginalization", "--restricted-mode-list-file",
     "--rom-group", "--rom-integrate-intrinsic", "--rom-limit-basis-size-to",
-    "--rom-param", "--rom-use-basis", "--sampler-method", "--sampler-portfolio",
-    "--sampler-portfolio-args", "--sampler-xpy", "--save-eccentricity",
+    "--reject-collapsed-live-volume", "--rom-param", "--rom-use-basis",
+    "--rotation-n-harmonics", "--rotation-p-max", "--rotation-slow",
+    "--sampler-anisotropic-bins", "--sampler-l0-rescue-accept-truncated",
+    "--sampler-l0-rescue-puff-factor", "--sampler-l0-rescue-puff-scale",
+    "--sampler-l0-rescue-puff-width-frac", "--sampler-l0-rescue-reject-dlnZ",
+    "--sampler-load-state", "--sampler-method", "--sampler-portfolio",
+    "--sampler-portfolio-args", "--sampler-save-state",
+    "--sampler-sequential-warmstart", "--sampler-sequential-warmstart-cover-frac",
+    "--sampler-sequential-warmstart-deltalnL", "--sampler-warmstart-cover-frac",
+    "--sampler-warmstart-inflate", "--sampler-warmstart-retry-neff",
+    "--sampler-warmstart-samples", "--sampler-xpy", "--save-EOB-parameters",
+    "--save-P", "--save-deltalnL", "--save-eccentricity", "--save-hyperbolic",
+    "--save-meanPerAno",
     "--save-samples", "--save-samples-process-params", "--seed", "--sim-grid",
     "--sim-xml", "--skymap-file", "--soft-fail-event-range", "--spin1z",
     "--spin2z", "--srate", "--srate-internal",
@@ -201,7 +255,8 @@ _ILE_ALL_OPTS = {
     "--supplementary-likelihood-factor-code",
     "--supplementary-likelihood-factor-function",
     "--supplementary-likelihood-factor-ini", "--time-marginalization",
-    "--use-gwsignal", "--use-gwsignal-lmax-nyquist", "--vectorized", "--verbose",
+    "--time-posterior-export", "--use-external-EOB", "--use-gwsignal",
+    "--use-gwsignal-lmax-nyquist", "--vectorized", "--verbose",
     "--window-shape", "--zero-likelihood",
 }
 
@@ -254,10 +309,6 @@ def check_critical_and_report(opts, optp):
         fatal.append("--zero-likelihood is not implemented")
     if is_set("--maximize-only"):
         fatal.append("--maximize-only is not implemented (this driver integrates)")
-    if is_set("--resample-time-marginalization"):
-        fatal.append("--resample-time-marginalization is not implemented")
-    if is_set("--srate-resample-time-marginalization"):
-        fatal.append("--srate-resample-time-marginalization is not implemented")
     if fatal:
         optp.error("Cannot run as a faithful drop-in: " + "; ".join(fatal)
                    + ".  (These would silently change the result if ignored.)")
@@ -1108,14 +1159,33 @@ def resolve_ile_interface_aliases(opts, optp):
     """Resolve conventional ILE spellings into JAX-native option values."""
     if getattr(opts, "interpolate_time", None) is not None:
         ile_interp = str(opts.interpolate_time).strip().lower()
+        # Conventional ILE accepted this as a boolean before it accepted the
+        # explicit stencil names.  Production args_ile.txt files containing
+        # either spelling must remain swappable into this driver.
+        if ile_interp in ("1", "true", "t", "yes", "y", "on"):
+            ile_interp = "cubic"
+        elif ile_interp in ("0", "false", "f", "no", "n", "off", "none"):
+            ile_interp = "nearest"
         if ile_interp not in _JAX_GATHERER_NAMES:
-            optp.error("--interpolate-time must be one of %s" %
+            optp.error("--interpolate-time must be one of %s or a legacy boolean" %
                        ", ".join(sorted(_JAX_GATHERER_NAMES)))
         if was_supplied(opts, "--interp") and opts.interp != ile_interp:
             optp.error("--interp %r and --interpolate-time %r disagree" %
                        (opts.interp, ile_interp))
         opts.interp = ile_interp
     return opts
+
+
+def _normalize_interpolate_time_argv(argv):
+    """Give conventional ILE's historical bare flag its ``True`` value."""
+    raw = list(sys.argv[1:] if argv is None else argv)
+    out = []
+    for i, token in enumerate(raw):
+        out.append(token)
+        if (token == "--interpolate-time" and
+                (i + 1 == len(raw) or raw[i + 1].startswith("--"))):
+            out.append("True")
+    return out
 
 
 def _target_ess_was_given(opts):
@@ -1874,6 +1944,7 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
 # ---------------------------------------------------------------------------
 def main(argv=None):
     optp = build_parser()
+    argv = _normalize_interpolate_time_argv(argv)
     opts, _ = optp.parse_args(argv)
     # BEFORE anything reads an option: which tokens did the user actually type?
     record_supplied_options(opts, argv, optp)
