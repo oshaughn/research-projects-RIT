@@ -1,0 +1,60 @@
+# Example RIFT container *family* manifest.
+#
+# Point SINGULARITY_RIFT_IMAGE at a copy of this file (a .yaml / .yml path) to
+# deploy a family of containers instead of a single .sif.  The pipeline turns it
+# into an expression-valued MY.SingularityImage that picks the right image per
+# matched machine's GPU capability, a selective ($$()) transfer for osdf images,
+# and a require_gpus capability floor.
+#
+# A plain .sif path or single osdf:// URL keeps the legacy single-image behavior
+# (this file is NOT consulted in that case).
+#
+# See containers/README.md for the full schema and the HTCondor GPU-attribute
+# caveat.
+#
+# IMPORTANT -- keep the family CONSISTENT. A single SINGULARITY_BASE_EXE_DIR is
+# applied to *every* image in the family (the ILE/CIP jobs locate the executable
+# as SINGULARITY_BASE_EXE_DIR + <exe name>, with no per-image override). So all
+# images listed below MUST install RIFT's executables at the SAME in-container
+# path (and otherwise share a common layout/Python/entrypoints). Build them from
+# the same containers/rift_container.def.in template (build_family.sh does this)
+# -- do NOT mix images with different internal layouts. Same goes for
+# SINGULARITY_BASE_EXE_DIR_HYPERPIPE if you use hyperpipe.
+
+version: 1
+
+# Machine ClassAd attribute the image-selection ifThenElse tests.  Default
+# GPUs_Capability (advertised on the OSG; verify on your pool with e.g.
+#   condor_status -constraint 'TotalGPUs > 0' -af GPUs_DeviceName GPUs_Capability
+# ). Overridable per-run via the RIFT_GPU_CAPABILITY_ATTR env var.
+capability_attr: GPUs_Capability
+
+# Innermost else-branch of the selection expression: used when the machine
+# advertises no/low capability (and on CPU-only CIP slots).  MUST be the
+# CPU-safe / most broadly compatible image.
+fallback: default
+
+# NOTE for RIFT_CONTAINER_UNIVERSE=1 (the recommended OSG mode): every image below
+# must be a transferable URL.  condor_submit derives the job's ContainerImage as the
+# text after the last "/" of container_image, BEFORE any $$ expansion, so the
+# selector may not contain a path -- it names basenames, and the image is delivered
+# by file transfer.  An in-place CVMFS/local image cannot be named that way and is
+# rejected with ContainerManifestError.  It is still fine under the legacy and
+# runtime-select modes; see containers/README.md.
+
+containers:
+  # Default, broadly-compatible image for older machines.  Delivered via osdf:
+  # only the matched machine fetches it (selective $$() transfer).
+  - label: default
+    image: osdf:///igwn/staging/oshaughn/rift_containers/rift_container_default.sif
+    cuda_capability_min: 3.5
+    cuda_capability_max: 8.0
+    note: "base=nvidia/cuda:11.8.0-runtime-ubuntu22.04, cupy-cuda11x"
+
+  # Newer image for higher-capability GPUs.  Delivered via osdf: only the
+  # matched machine fetches it (selective $$() transfer).
+  - label: modern
+    image: osdf:///igwn/staging/oshaughn/rift_containers/rift_container_modern.sif
+    cuda_capability_min: 8.0
+    cuda_capability_max: null
+    note: "base=nvidia/cuda:12.4.1-runtime-ubuntu22.04, cupy-cuda12x"
