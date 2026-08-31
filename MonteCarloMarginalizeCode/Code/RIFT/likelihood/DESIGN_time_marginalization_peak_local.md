@@ -407,11 +407,37 @@ comparing `761cafb3` with the fix, same fixtures:
 
 So the family Door 2 describes — no finite width obtainable at an endpoint — is closed
 with no regression anywhere.  **A residual family remains and is NOT that mechanism**:
-those rows already had a finite edge sigma at `761cafb3` and are byte-identical after the
-fix, up to **−6.0 nats**, accepted, with `tail_bound_worst = -inf` (the intervals cover
-the whole window, so the bound is vacuous there).  `bandlimited` is exact on the same
-rows.  **This is an open, measured defect that I have not diagnosed**, and the
-quantisation class should not be called closed on my say-so.
+those rows already had a finite edge sigma at `761cafb3`, up to **−6.0 nats**, accepted.
+
+**Re-measured after Round 5's rebase, this family changed character but did NOT close.**
+Against a converged reflected reference (32768x; successive refinements differ by
+−1.8e-4), on the sharpest case (`sig2/sig1 = 0.58`, secondary at `0.4 h_enum` from t=0):
+
+| | value | vs reference |
+|---|---|---|
+| converged reference | 39844.73839 | — |
+| `bandlimited`, derived factor 256 | 39845.34836 | **+0.610** |
+| `peak-local` | 39845.87353 | **+1.135** |
+
+So the disagreement with the rule it delegates to is **+0.53 nats, ACCEPTED** —
+`tail_bound_worst = −250.71` and the containment check passes, so neither defence fires.
+It was −6.0 nats and is now +0.53, a 10x improvement and a sign flip, but it is still an
+accepted error three orders above the 1e-3 nat bar the rest of this rule meets.
+
+**Located, not yet fixed.** The even reflection is value-continuous but its DERIVATIVE
+flips sign at the join, so a peak sitting at t=0 is a two-half-peak cusp rather than a
+locally Gaussian peak.  Both rules derive a width — and hence a factor and an interval
+half-width — from a Gaussian curvature model, so both under-resolve it; `bandlimited` is
+wrong here too (+0.610 at its own derived factor), which places the root cause in the
+shared reconstruction rather than in the local placement.  peak-local roughly doubles the
+error because it also sizes its interval as `W_SIGMA * sigma` from that same model.
+Diagnostics: the row enumerates 295 maxima, the keep filter retains 1, and that one is at
+enumeration index 0 with `q` decreasing monotonically away from it.
+
+**The quantisation class should not be called closed on my say-so, and this is not the
+quantisation class**: the enumeration-index defect is closed and re-verified above, while
+this is a curvature-model defect at the reflection join, inherited from the dense path.
+It is the top open item.
 
 ### The `W_SIGMA` coupling is now asserted
 
@@ -425,6 +451,80 @@ sits at an interval edge, already `W_SIGMA**2/2 = 72` nats below the crest.  Dro
 
 is now asserted, tying `W_SIGMA` to `TAIL_LOG_TOL` and `UPSAMPLE_FACTOR_MAX` so none can
 move alone.
+
+## Round 5: the rebase onto `rift_O4d` changed the reconstruction underneath this module
+
+Retargeting this PR from the merged `rift_O4d_tmarg_bandlimited` onto `rift_O4d` moves it
+across `e4ed25c7` ("Avoid Gibbs ringing in time marginalization"), which
+
+* replaced the raw periodic zero-padded FFT with an EVEN REFLECTION — periodize
+  `[kappa forward, kappa backward]`, keep the forward interval — because a zero-padded FFT
+  of the gathered slice alone identifies its unlike endpoints and rings globally
+  (+140.9 nats measured on an adversarial row); and
+* demoted `EDGE_GUARD_FRACTION` to a diagnostic, on the grounds that crossing an arbitrary
+  threshold must not silently move an under-resolved row back to Simpson.
+
+**The diff did not change; its meaning did.** This module was written against the older
+contract, and nothing in the seven-file delta says so. Three clauses had drifted, and each
+one made peak-local return a WORSE value than `time_marginalize_bandlimited` for the same
+row — the one thing this rule promises never to do.
+
+| drift | measured |
+|---|---|
+| enumeration, localisation and local evaluation still on the PERIODIC interpolant, while fallback rows got the reflected one — two different continuous functions inside one call | **−3.79 nats** on a row with peaks at both window ends; **9.0e-6 nat** median bias on the uniform-arrival block |
+| `EDGE_GUARD_FRACTION` still routing a near-edge row to SIMPSON | row never entered the rule; every fallback counter read zero |
+| `boundary_unresolved` missing: an endpoint maximum whose inward-clipped stencil reads positive curvature is mislabelled "flat" and silently keeps Simpson | **+4.60 nats** against the reflected reference, where the dense path was +0.81 |
+
+Fixed by taking the spectrum of `concatenate((kappa, flip(kappa)))` at period
+`2*npts*deltaT`. The local evaluator then reproduces `reflected_bandlimited_upsample` to
+**2.3e-13 relative** at every production `npts` (153 / 307 / 614 / 1228 / 2457, odd and
+even).
+
+### The lesson is structural, and the fix is too
+
+Fixing the copy leaves the copy. Row classification is now `_classify_rows` in
+`time_marginalization_quadrature.py`, the SINGLE definition, called by both rules;
+peak-local keeps only `refined = has_peak & (factors > 1)`. Verified behaviour-preserving
+rather than asserted: `time_marginalize_bandlimited` is **bit-identical** over a 32-row
+battery spanning flat, edge, near-edge, broad, sharp and both-ends-peaked rows, with every
+`last_report()` counter identical.
+
+`test_row_classification_matches_the_dense_path_exactly` compares the CLASSIFICATION, not
+the values, because a value check passes whenever the two rules happen to agree — which on
+most rows they are designed to, which is exactly why this drifted unnoticed three times.
+
+### Door 1 re-verified at the sharpest legal row, against the right reference
+
+The round-3 reopen (`g1e_reopen2`) reproduced at derived factor 4096, off = half a cell:
+**−0.693147** = −log 2, one of two equal crests deleted. Re-run against a REFLECTED 16384x
+reference — the object the module now integrates — all nine rows are exact and both peaks
+survive:
+
+| sigma_t/deltaT | factor | offset | peak_local − truth | n_peaks |
+|---|---|---|---|---|
+| 0.000615 | 4096 | 0.00 | +0.000000 | 2 |
+| 0.000615 | 4096 | 0.25 | +0.000000 | 2 |
+| 0.000615 | 4096 | 0.50 | **+0.000000** | 2 |
+
+### Door 2's mechanism is closed, and measured at the source
+
+The estimator is now genuinely one-sided at the array ends rather than degrading to the raw
+sample. On a parabola of known width `3 h_enum` sampled on the enumeration grid, the
+recovered sigma at peak index 0, 1, 7, 8, 100, n−9, n−2 and n−1 is **finite and exact
+(3.0000 h) at every one**, including both endpoints. The dead-code condition — 22 endpoint
+maxima enumerated, zero able to obtain a finite width — is gone.
+
+End to end, a row whose dominant maximum sits at the very edge is either handled correctly
+or delegated, never silently approximated: at tau = 0.5 and 612.5 samples peak-local is
+exact; at 0.2 and 612.8 it is **better** than the dense path (+1.44 against +1.71); at 0.0
+and 613.0 it declines and returns the dense value **bit-identically**.
+
+### The contract, checked reference-free
+
+`|peak_local − bandlimited|` over 46 rows spanning sharp phase-scan, broad, near-edge,
+two-peak, both-ends and flat/null families: **worst 2.6e-10 nats**, no family above 1e-3.
+All ten near-edge rows are now handled by the rule; before this round they were routed to
+Simpson.
 
 ## Mutation sweep
 
