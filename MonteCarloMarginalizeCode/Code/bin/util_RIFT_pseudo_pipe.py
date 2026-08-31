@@ -605,7 +605,7 @@ parser.add_argument("--use-osg-public",action='store_true',help="Activate public
 parser.add_argument("--archive-pesummary-label",default=None,help="If provided, creates a 'pesummary' directory and fills it with this run's final output at the end of the run")
 parser.add_argument("--archive-pesummary-event-label",default="this_event",help="Label to use on the pesummary page itself")
 parser.add_argument("--internal-mitigate-fd-J-frame",default="L_frame",help="L_frame|rotate, choose method to deal with ChooseFDWaveform being in wrong frame. Default is to request L frame for inputs")
-parser.add_argument("--internal-force-puff-iterations", default=4, type=int, help="Number of iterations to be puffed")
+parser.add_argument("--internal-force-puff-iterations", default=None, type=int, help="Number of iterations to be puffed. If None, will use the algorithm to determine the number of iterations to puff.")
 opts=  parser.parse_args()
 
 # Resolve the sub-sample stencil request IMMEDIATELY, so a bare flag / retired 'True' / typo
@@ -1829,7 +1829,7 @@ with open("args_cip_list.txt",'w') as f:
 
 # Write puff file
 #puff_params = " --parameter mc --parameter delta_mc --parameter chieff_aligned "
-puff_max_it = opts.internal_force_puff_iterations
+puff_max_it = 4 
 #  Read puff args from file, if present
 try:
     with open("helper_puff_max_it.txt",'r') as f:
@@ -1862,7 +1862,10 @@ if opts.assume_eccentric:
 if opts.assume_highq:
         puff_params = puff_params.replace(' delta_mc ', ' eta ')  # use natural coordinates in the high q strategy. May want to do this always
         puff_max_it +=3
-                                                                                                                                
+
+if opts.internal_force_puff_iterations is not None:
+    puff_max_it = int(opts.internal_force_puff_iterations)
+
 with open("args_puff.txt",'w') as f:
         puff_args =''  # note used below
         if opts.assume_nospin:
