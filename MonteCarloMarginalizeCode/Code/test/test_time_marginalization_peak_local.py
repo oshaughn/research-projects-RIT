@@ -439,7 +439,7 @@ def _unmerged_value(kappa_row, callback=_lnL):
     F = pl.PEAK_ENUM_FACTOR
     h = DELTAT / F
     last = (NPTS - 1) * F
-    up = tmq.bandlimited_upsample(k, F)[0][:last + 1]
+    up = tmq.reflected_bandlimited_upsample(k, F)[0][:last + 1]
     v = callback(up.real, RHO_SQ)
     idx = np.where((v[1:-1] >= v[:-2]) & (v[1:-1] > v[2:]))[0] + 1
     idx = idx[v[idx] > v[idx].max() - pl.PEAK_KEEP_NATS]
@@ -455,10 +455,11 @@ def _unmerged_value(kappa_row, callback=_lnL):
         b = min(last * h, i * h + pl.W_SIGMA * s)
         n_loc = max(3, int(np.ceil((b - a) / min(s / tmq.UPSAMPLE_SAFETY, h))) + 1)
         tl = np.linspace(a, b, n_loc)
-        Xw, fk = pl.bandlimited_spectrum(k)
+        Xw, fk = pl.bandlimited_spectrum(
+            np.concatenate((k, np.flip(k, axis=-1)), axis=-1))
         kl = pl.eval_bandlimited_uniform(Xw, fk, np.array([tl[0]]),
                                          np.array([tl[1] - tl[0]]), n_loc,
-                                         NPTS * DELTAT)[0]
+                                         2.0 * NPTS * DELTAT)[0]
         parts.append(_log_trapz(callback(kl.real, RHO_SQ), tl[1] - tl[0]))
     if not parts:
         return np.nan
@@ -610,7 +611,8 @@ def test_peak_positions_do_not_depend_on_distance_or_callback():
     sig = BandLimited(amp=40.0, peak_sample=NPTS // 2 + 0.25, background=0.05,
                       n_period=2 * NPTS)
     k = sig.samples()[None, :]
-    up = tmq.bandlimited_upsample(k, pl.PEAK_ENUM_FACTOR)[0][:(NPTS - 1) * pl.PEAK_ENUM_FACTOR + 1]
+    up = tmq.reflected_bandlimited_upsample(
+        k, pl.PEAK_ENUM_FACTOR)[0][:(NPTS - 1) * pl.PEAK_ENUM_FACTOR + 1]
     ref = np.where(pl.enumerate_peak_indices(up.real[None, :])[0])[0]
     assert ref.size > 3, "fixture must have several maxima for this to mean anything"
 
@@ -642,7 +644,7 @@ def test_the_enumeration_factor_finds_the_same_peaks_as_a_much_finer_grid():
     k = sig.samples()[None, :]
 
     def peaks_at(F):
-        up = tmq.bandlimited_upsample(k, F)[0][:(NPTS - 1) * F + 1].real
+        up = tmq.reflected_bandlimited_upsample(k, F)[0][:(NPTS - 1) * F + 1].real
         i = np.where(pl.enumerate_peak_indices(up[None, :])[0])[0] + 1
         i = i[up[i] > up[i].max() - pl.PEAK_KEEP_NATS]
         return np.sort(i * (DELTAT / F))
@@ -659,17 +661,56 @@ def test_the_enumeration_factor_finds_the_same_peaks_as_a_much_finer_grid():
 
 # ------------------------------------------- inherited invariants (PR #203)
 
-def test_wrap_exposed_rows_fall_back_to_simpson_exactly():
-    """The edge guard is inherited unchanged, and it must still route rows to the
-    CALLER'S rule bit-for-bit -- the wrap contaminates the kappa upsample this path
-    enumerates on just as much as the one the dense path integrates on."""
+def test_edge_proximity_is_reported_but_selects_no_quadrature():
+    """The edge guard is DIAGNOSTIC, and this test used to assert the opposite.
+
+    It once routed a near-edge row to the caller's Simpson rule, because the periodic
+    reconstruction rang at the window wrap.  rift_O4d e4ed25c7 removed that wrap by even
+    reflection and demoted the guard: crossing an arbitrary threshold must not silently
+    change likelihood quality.  This module inherited the old routing and kept it across
+    the rebase, so it returned a SIMPSON value where the dense path returns a refined
+    one -- 3.79 nats apart on a row with peaks at both ends, with every fallback counter
+    reading zero because the row never entered the rule.
+
+    So: still reported, and refined anyway, and agreeing with the dense path.
+    """
     guard = max(1, int(NPTS * tmq.EDGE_GUARD_FRACTION))
     for j in (guard - 1, NPTS - guard):
         sig = BandLimited(amp=40.0, peak_sample=j)
         k = sig.samples()
-        assert _peak_local(k) == _simpson_value(k), j
+        got = _peak_local(k)
         rep = pl.last_report()
-        assert rep['n_wrap_exposed_rows'] == 1 and rep['n_refined_rows'] == 0, (j, rep)
+        assert rep['n_wrap_exposed_rows'] == 1, (j, rep)
+        assert rep['n_refined_rows'] == 1, (j, rep)
+        assert got != _simpson_value(k), (j, "edge proximity still selects Simpson")
+        assert abs(got - _bandlimited(k)) < 1e-3, (j, got, _bandlimited(k))
+
+
+def test_row_classification_matches_the_dense_path_exactly():
+    """The invariant the rebase broke, asserted so it cannot break silently again.
+
+    peak-local's contract is that it changes WHERE the refined grid is placed and
+    nothing about WHICH rows get one.  Three clauses of the dense path's classification
+    had drifted out of this module -- the reflected reconstruction, the demotion of the
+    edge guard, and `boundary_unresolved` -- and each drift showed up as peak-local
+    silently returning a lower-accuracy value than `time_marginalize_bandlimited` for
+    the same row.  Compare the CLASSIFICATION, not just the values: a value check passes
+    whenever the two rules happen to agree, which on most rows they are designed to.
+    """
+    rows = [np.zeros(NPTS, dtype=complex),                                  # flat
+            BandLimited(amp=40.0, peak_sample=3).samples(),                 # edge
+            BandLimited(amp=40.0, peak_sample=NPTS - 4).samples(),          # far edge
+            BandLimited(amp=0.5, peak_sample=NPTS // 2 + 0.25).samples(),   # broad
+            BandLimited(amp=2000.0, peak_sample=NPTS // 2 + 0.25).samples()]
+    k = np.stack(rows)
+    r = np.full(k.shape, RHO_SQ)
+    pl.time_marginalize_peak_local(k, r, DELTAT, _lnL)
+    pr = dict(pl.last_report())
+    tmq.time_marginalize_bandlimited(k, r, DELTAT, _lnL)
+    br = dict(tmq.last_report())
+    for key in ('n_refined_rows', 'n_flat_rows', 'n_unmeasurable_rows',
+                'n_wrap_exposed_rows'):
+        assert pr[key] == br[key], (key, pr[key], br[key])
 
 
 def test_the_edge_guard_covers_the_RIGHT_edge_too():
@@ -687,7 +728,8 @@ def test_the_edge_guard_covers_the_RIGHT_edge_too():
         _peak_local(row_peaking_at(j))
         rep = pl.last_report()
         assert (rep['n_wrap_exposed_rows'] == 1) == expect_exposed, (j, rep)
-        assert (rep['n_refined_rows'] == 1) == (not expect_exposed), (j, rep)
+        # The guard REPORTS; it no longer selects a rule, so all four are refined.
+        assert rep['n_refined_rows'] == 1, (j, rep)
 
 
 def test_flat_and_signal_free_rows_are_not_refined_and_not_reported_as_exposed():
@@ -838,7 +880,10 @@ def test_a_mixed_block_gives_every_row_its_own_treatment():
     k = np.stack(rows)
     block = pl.time_marginalize_peak_local(k, np.full(k.shape, RHO_SQ), DELTAT, _lnL)
     rep = pl.last_report()
-    assert rep['n_rows'] == 4 and rep['n_peak_local_rows'] == 1, rep
+    # 2, not 1: the near-edge row (peak_sample=3) is now refined like any other, since
+    # the edge guard became diagnostic.  The flat row and the broad row account for the
+    # rest -- the broad one is declined on cost and gets the dense value.
+    assert rep['n_rows'] == 4 and rep['n_peak_local_rows'] == 2, rep
     for i, (a, b) in enumerate(zip(singles, np.asarray(block))):
         assert a == b or abs(a - b) < 1e-9, (i, a, b)
 
@@ -1124,7 +1169,7 @@ def test_the_reported_tail_bound_matches_an_independent_recomputation():
     starts, stops, _ = (lambda o: (o[3], o[4], o[1]))(
         pl.merge_intervals_by_row(np.zeros(len(lo), dtype=np.int64), lo, hi, t_last))
 
-    up = tmq.bandlimited_upsample(k, F)[0][:(NPTS - 1) * F + 1].real
+    up = tmq.reflected_bandlimited_upsample(k, F)[0][:(NPTS - 1) * F + 1].real
     covered = np.zeros(up.size, dtype=bool)
     for a, b in zip(starts, stops):
         i0, i1 = int(np.ceil(a / h_enum)), int(np.floor(b / h_enum))
@@ -1343,8 +1388,12 @@ def _two_equal_kernels(H, off, m0=120.0):
 
 def _exact_reference(kappa, refine=16384):
     """The integral of the exact band-limited interpolant -- the same object the module
-    integrates -- at a refinement far beyond any factor the module will derive."""
-    up = tmq.bandlimited_upsample(kappa, refine)[0, :(NPTS - 1) * refine + 1].real
+    integrates -- at a refinement far beyond any factor the module will derive.
+
+    REFLECTED, because that is what the module integrates since rift_O4d e4ed25c7: the
+    raw periodic interpolant is a different function near the window ends, and using it
+    here would hold peak-local to a reference its own dense fallback does not meet."""
+    up = tmq.reflected_bandlimited_upsample(kappa, refine)[0, :(NPTS - 1) * refine + 1].real
     m = up.max()
     w = np.ones(up.size)
     w[0] = w[-1] = 0.5

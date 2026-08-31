@@ -105,21 +105,24 @@ fi
 # and that the option reaches the shipped likelihood instead of being inert.
 _TMARG_PL_TESTS=MonteCarloMarginalizeCode/Code/test/test_time_marginalization_peak_local.py
 # Raise EXPECTED by RUNNING collection, never by arithmetic.
-_TMARG_PL_EXPECTED=103
+_TMARG_PL_EXPECTED=104
 _TMARG_PL_FOUND=$(python -m pytest -q --collect-only "$_TMARG_PL_TESTS" 2>/dev/null | grep -c '::' || true)
 if [ "$_TMARG_PL_FOUND" -ne "$_TMARG_PL_EXPECTED" ]; then
     echo "peak-local gate: collected $_TMARG_PL_FOUND tests, expected $_TMARG_PL_EXPECTED" >&2
     exit 1
 fi
-# SKIP guard: exactly the GPU-parity test skips on a CPU runner, and nothing else may.
-# On a GPU runner RIFT_CI_REQUIRE_GPU=1 makes it FAIL rather than skip, so expect 0.
-if [[ "${RIFT_CI_REQUIRE_GPU:-0}" == "1" ]]; then _TMARG_PL_EXPECT_SKIP=0; else _TMARG_PL_EXPECT_SKIP=1; fi
+# SKIP guard, IDENTIFYING rather than counting, for the reasons the band-limited gate
+# above gives: a compensating pair leaves the total unchanged, and the expected total is
+# a property of the RUNNER (a GPU-equipped runner that does not set RIFT_CI_REQUIRE_GPU=1
+# legitimately stops skipping, and a count guard then fails a good run).  Allow skips
+# whose REASON names cupy/GPU, and fail on any other skip whatever the total.
 _TMARG_PL_OUT=$(python -m pytest -q -rs "$_TMARG_PL_TESTS" 2>&1) || { echo "$_TMARG_PL_OUT"; exit 1; }
 echo "$_TMARG_PL_OUT" | tail -20
-_TMARG_PL_SKIPPED=$(echo "$_TMARG_PL_OUT" | grep -oE '[0-9]+ skipped' | grep -oE '^[0-9]+' || true)
-_TMARG_PL_SKIPPED=${_TMARG_PL_SKIPPED:-0}
-if [ "$_TMARG_PL_SKIPPED" -ne "$_TMARG_PL_EXPECT_SKIP" ]; then
-    echo "peak-local gate: $_TMARG_PL_SKIPPED tests skipped, expected $_TMARG_PL_EXPECT_SKIP" >&2
+_TMARG_PL_BAD=$(echo "$_TMARG_PL_OUT" | grep -E '^SKIPPED' | grep -vciE 'cupy|gpu|cuda' || true)
+_TMARG_PL_BAD=${_TMARG_PL_BAD:-0}
+if [ "$_TMARG_PL_BAD" -ne 0 ]; then
+    echo "peak-local gate: $_TMARG_PL_BAD test(s) skipped for a reason other than an absent GPU:" >&2
+    echo "$_TMARG_PL_OUT" | grep -E '^SKIPPED' | grep -viE 'cupy|gpu|cuda' >&2
     exit 1
 fi
 

@@ -157,6 +157,7 @@ from .time_marginalization_quadrature import (
     EDGE_GUARD_FRACTION,
     CURVATURE_STENCIL_HALFWIDTHS,
     bandlimited_upsample,
+    reflected_bandlimited_upsample,
     peak_width_from_lnL,
     required_upsample_factors,
     time_marginalize_bandlimited,
@@ -737,13 +738,49 @@ def time_marginalize_peak_local(kappa, rho_sq, deltaT, loglikelihood,
         lnL_coarse = loglikelihood(_term(kappa), rho_sq)
 
     sigma, jmax, measurable = peak_width_from_lnL(lnL_coarse, deltaT, xpy=xpy)
+
+    # ROW CLASSIFICATION IS THE DENSE PATH'S, VERBATIM.  It is not restated here
+    # because it must not be allowed to drift: this module's contract is that it
+    # changes WHERE the refined grid is placed and nothing about WHICH rows get one, so
+    # any row `time_marginalize_bandlimited` refines must be a row peak-local refines.
+    # Read the rationale for each clause there.
+    #
+    # Two clauses arrived with rift_O4d e4ed25c7 and were missing here until the rebase:
+    # `boundary_unresolved` (an endpoint maximum whose inward-clipped stencil reads
+    # positive curvature is mislabelled "flat" and would silently keep Simpson), and the
+    # demotion of `exposed` to a report.  Their absence left this fixture on Simpson:
+    # a row with peaks at both ends came back 4.60 nats above the reflected reference
+    # while the dense path came back 0.81 above it, with every fallback counter zero
+    # because the row never entered the rule at all.
     guard = max(1, int(npts * EDGE_GUARD_FRACTION))
-    has_peak = measurable & xpy.isfinite(sigma)
-    flat = measurable & (~xpy.isfinite(sigma))
+    finite_lnL = xpy.isfinite(lnL_coarse)
+    row_max = xpy.max(xpy.where(finite_lnL, lnL_coarse, -np.inf), axis=-1)
+    row_min = xpy.min(xpy.where(finite_lnL, lnL_coarse, np.inf), axis=-1)
+    varies = xpy.isfinite(row_max) & xpy.isfinite(row_min) & (row_max > row_min)
+    boundary_unresolved = (measurable & (~xpy.isfinite(sigma)) & varies
+                           & ((jmax == 0) | (jmax == npts - 1)))
+    has_peak = measurable & (xpy.isfinite(sigma) | boundary_unresolved)
+    flat = measurable & (~xpy.isfinite(sigma)) & (~boundary_unresolved)
+    # DIAGNOSTIC ONLY -- it must not select a quadrature.  This module was written when
+    # `EDGE_GUARD_FRACTION` was a routing guard: the periodic reconstruction rang at the
+    # window wrap, so a peak near an edge was excluded and kept its SIMPSON value.
+    # rift_O4d e4ed25c7 removed that wrap by even reflection and demoted the guard,
+    # because "crossing an arbitrary threshold cannot silently move an under-resolved row
+    # back to Simpson" -- a discontinuous switch that silently changes likelihood quality.
+    # Keeping the old routing here made peak-local return a Simpson value where
+    # `time_marginalize_bandlimited` returns a refined one, measured 3.79 nats apart on a
+    # row with peaks at both ends (`test_intervals_are_clipped_to_the_integration_domain`),
+    # with every fallback counter reading zero because the row never entered the rule.
+    #
+    # So the classification is now IDENTICAL to the dense path's -- `refined = has_peak &
+    # (factors > 1)`, with `exposed` reported and nothing more.  A row peak-local declines
+    # for its own reasons still falls back to `time_marginalize_bandlimited`, which now
+    # refines these rows rather than excluding them.
     exposed = has_peak & ((jmax < guard) | (jmax > npts - 1 - guard))
     unmeasurable = ~measurable
     factors = xpy.maximum(required_upsample_factors(sigma, deltaT, xpy=xpy), 1)
-    refined = (~(exposed | unmeasurable)) & (factors > 1)
+    factors = xpy.where(boundary_unresolved, xpy.maximum(factors, 4), factors)
+    refined = has_peak & (factors > 1)
 
     out = _log_simps_rows(lnL_coarse, deltaT, simps, xpy=xpy)
     peaks_out = [None] * n_rows if return_peaks else None
@@ -860,7 +897,8 @@ def _peak_local_chunk(kappa_rows, rho_col_rows, factors, npts, deltaT, period,
     # ---- enumeration.  One FFT upsample of kappa at a FIXED, SNR-independent
     # factor.  The callback is NOT evaluated on this grid: only term(kappa) is
     # needed, because a monotone callback cannot move an extremum.
-    k_up = bandlimited_upsample(kappa_rows, PEAK_ENUM_FACTOR, xpy=xpy)[..., :last + 1]
+    k_up = reflected_bandlimited_upsample(
+        kappa_rows, PEAK_ENUM_FACTOR, xpy=xpy)[..., :last + 1]
     q_up = _term(k_up)
     del k_up
     n_enum = q_up.shape[-1]
@@ -1028,10 +1066,31 @@ def _peak_local_chunk(kappa_rows, rho_col_rows, factors, npts, deltaT, period,
     # built around the CREST.  Centring on the index instead cost up to 165 nats, always
     # negative -- see LOCALISE_SAFETY.  Newton is confined to the bracket the
     # enumeration already established, so it places peaks, it cannot find or lose them.
-    Xw, fk = bandlimited_spectrum(kappa_rows, xpy=xpy)
+    # THE RECONSTRUCTION MUST BE THE ONE THE DENSE PATH USES, and it is no longer the
+    # raw periodic interpolant.  `time_marginalize_bandlimited` periodizes the EVEN
+    # REFLECTION `[kappa forward, kappa backward]` (rift_O4d e4ed25c7, "Avoid Gibbs
+    # ringing"), because a zero-padded FFT of the gathered slice alone identifies its
+    # unlike endpoints and rings globally -- measured +140.9 nats on an adversarial row.
+    #
+    # This module was written against the older periodic contract and the rebase onto
+    # rift_O4d changed it underneath.  Leaving it periodic makes peak-local integrate a
+    # DIFFERENT continuous function from the one its own fallback rows get, inside a
+    # single call: measured -3.79 nats on a row with peaks near both window ends
+    # (`test_intervals_are_clipped_to_the_integration_domain`) and a residual 9.0e-6 nat
+    # median bias on the uniform-arrival block.  So enumeration, localisation and local
+    # evaluation all run on the reflected row.
+    #
+    # The reflected row has length `2*npts` -- always EVEN -- so `bandlimited_spectrum`
+    # takes its even branch and splits the Nyquist bin exactly as `bandlimited_upsample`
+    # does inside `reflected_bandlimited_upsample`.  The two therefore agree on the
+    # forward interval, which is the only part this module ever evaluates.
+    kappa_reflected = xpy.concatenate(
+        (kappa_rows, xpy.flip(kappa_rows, axis=-1)), axis=-1)
+    Xw, fk = bandlimited_spectrum(kappa_reflected, xpy=xpy)
+    period_ref = 2.0 * period
     t_star, q_star, loc_ok = localise_peaks(
         Xw, fk, xpy.asarray(rows_np), xpy.asarray(t_grid_np), h_enum,
-        xpy.asarray(tol_np), period, xpy=xpy, t_last=t_last)
+        xpy.asarray(tol_np), period_ref, xpy=xpy, t_last=t_last)
     t_np = _host(t_star, xpy)
     lnL_star = _host(loglikelihood(q_star, rho_col_rows[xpy.asarray(rows_np), 0]), xpy)
     loc_ok_np = _host(loc_ok, xpy).astype(bool)
@@ -1140,7 +1199,8 @@ def _peak_local_chunk(kappa_rows, rho_col_rows, factors, npts, deltaT, period,
             # over-coverage.
             h_h = np.where(h_h > 0, h_h, h_enum)
             k_loc = eval_bandlimited_uniform(Xw[rr_x], fk, xpy.asarray(a_h),
-                                             xpy.asarray(h_h), m_pad, period, xpy=xpy)
+                                             xpy.asarray(h_h), m_pad, period_ref,
+                                             xpy=xpy)
             lnL_loc = loglikelihood(
                 _term(k_loc), xpy.broadcast_to(rho_col_rows[rr_x], k_loc.shape))
             parts[rr_x, j] = _log_trapz_local(lnL_loc, xpy.asarray(h_h), xpy=xpy)
