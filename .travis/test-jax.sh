@@ -186,6 +186,30 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         driver actually CALLS the dispatcher
 #                                         (wiring).  Each fails under a verified
 #                                         mutation (see the PR).  Seconds.
+#   test_distance_grid_loguniform.py 30  the OPT-IN log-uniform ("peak-resolving")
+#                                         distance quadrature for the dense
+#                                         angle-marg schemes.  Pins the spacing
+#                                         contract (Delta ln d <= c/rho_max), the
+#                                         TWO-SIDED calibration of c against the
+#                                         Gaussian trapezoid error law it is
+#                                         derived from (a one-sided check is
+#                                         satisfied by c -> 0, which is accurate
+#                                         and arbitrarily expensive), that
+#                                         --distance-grid-scheme still DEFAULTS to
+#                                         the historical uniform grid node for
+#                                         node, and -- the safety property -- that
+#                                         the dense angle lattice is sized from the
+#                                         amplitude on the FULL prior support, so
+#                                         no distance grid can shrink it.  Includes
+#                                         driver AST guards on the option VALUE
+#                                         node, on the forwarded (not hardcoded)
+#                                         keyword, and on the fail-closed refusal
+#                                         when the flag is set on a mode that does
+#                                         not implement it.  One numerical
+#                                         execution test against a 1024-node
+#                                         uniform reference; the rest are numpy or
+#                                         AST.  ~19 s.  Each fails under a verified
+#                                         mutation (matrix in the PR).
 #   test_angle_marg_sizing_rule.py    1  the m_max-aware dense phi sizing rule.
 #                                         Pure numpy, milliseconds, closed-form I0
 #                                         reference.  FAILS under the old m_max-blind
@@ -293,6 +317,7 @@ FILES=(
   "${JAXDIR}/test_angle_marg_smoke.py"
   "${JAXDIR}/test_angle_marg_compile_cost.py"
   "${JAXDIR}/test_angle_marg_block_dispatch.py"
+  "${JAXDIR}/test_distance_grid_loguniform.py"
 )
 
 # EXCLUDED: files in JAXDIR matching test_*.py that are deliberately NOT gated.  The
@@ -380,10 +405,12 @@ fi
 # PR #209 then adds six test_angle_marg_compile_cost.py pins, raising 160 -> 166,
 # and PR #210 adds five test_angle_marg_block_dispatch.py pins, raising 166 -> 171.
 # PR #216 adds eighteen adaptive primitive-time pins, raising 171 -> 189.
+# The log-uniform distance-quadrature PR adds thirty, raising 189 -> 219;
+# counted by `pytest --collect-only` in the GATE's interpreter, not locally.
 # Raising the floor
 # by exactly the number of tests ADDED is safe whatever the environment delta above,
 # since it preserves the margin the previous floor already had.
-EXPECTED_TESTS=189
+EXPECTED_TESTS=219
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"

@@ -297,7 +297,8 @@ ANGLE_AMP_MARGIN = 2.0        # covers the finite sky sample: the amplitude is
 def estimate_angle_amplitude(data, x_grid, interp=JAX_INTERP_DEFAULT,
                              n_sky=ANGLE_AMP_SKY_POINTS, seed=0,
                              margin=ANGLE_AMP_MARGIN,
-                             _n_phi_e=None, _n_u_e=24):
+                             _n_phi_e=None, _n_u_e=24,
+                             return_diagnostics=False):
     """DATA-DERIVED bound on the (phi, psi)-exponent amplitude A.
 
     This is the number that sizes the dense reconstruction grids, and it is
@@ -396,6 +397,7 @@ def estimate_angle_amplitude(data, x_grid, interp=JAX_INTERP_DEFAULT,
         E_A = _recon_matrix(C_A.shape[0], (C_A.shape[1] - 1) // 2)
         E_B = _recon_matrix(C_B.shape[0], (C_B.shape[1] - 1) // 2)
         amps = []
+        amps_unclipped = []
         for j in range(C_A.shape[2]):      # per-sky loop bounds the transient
             A_g = (E_A @ C_A[:, :, j].reshape(-1, C_A.shape[-1])).real
             B_g = np.maximum(
@@ -405,7 +407,16 @@ def estimate_angle_amplitude(data, x_grid, interp=JAX_INTERP_DEFAULT,
             x_hat = np.clip(A_g / np.maximum(B_g, 1e-300), x_min, x_max)
             val = x_hat * A_g - 0.5 * np.square(x_hat) * B_g
             amps.append(max(float(val.max()), 0.0))
-        return np.array(amps), C_A, C_B
+            # UNCLIPPED companion: the stationary value A^2/(2B) itself, which
+            # is what the exponent would reach if the maximizing distance were
+            # inside the prior support.  Only used to DETECT that it is not --
+            # the returned amplitude is unchanged.  A <= 0 puts the stationary
+            # point at negative x, where the max over x >= 0 is 0.
+            val_u = np.where(A_g > 0.0,
+                             np.square(A_g) / (2.0 * np.maximum(B_g, 1e-300)),
+                             0.0)
+            amps_unclipped.append(max(float(val_u.max()), 0.0))
+        return np.array(amps), np.array(amps_unclipped), C_A, C_B
 
     def _draw(n, rng):
         ra = rng.uniform(0.0, 2.0 * np.pi, n)
@@ -425,7 +436,7 @@ def estimate_angle_amplitude(data, x_grid, interp=JAX_INTERP_DEFAULT,
         dec = np.concatenate([dec, g_dec.ravel()])
         incl = np.concatenate([incl, np.full(g_ra.size, i0_)])
 
-    amps, C_A, C_B = _per_sky_amps(ra, dec, incl)
+    amps, amps_u, C_A, C_B = _per_sky_amps(ra, dec, incl)
     # split-half convergence check (mechanism 2 of the docstring): compare
     # the max WITHOUT the second half of the random draws against the max
     # with them; growth > 20% means the sky variation is under-sampled, so
@@ -439,7 +450,8 @@ def estimate_angle_amplitude(data, x_grid, interp=JAX_INTERP_DEFAULT,
         print("estimate_angle_amplitude: sky maximum still growing "
               "(%.4g -> %.4g); doubling the sample." % (amp_ref, amp_emp))
         ra2, dec2, incl2 = _draw(n_sky, rng)
-        amps2, _, _ = _per_sky_amps(ra2, dec2, incl2)
+        amps2, amps_u2, _, _ = _per_sky_amps(ra2, dec2, incl2)
+        amps_u = np.concatenate([amps_u, amps_u2])
         amp_ref = amp_emp
         amp_emp = max(amp_emp, float(amps2.max()))
         grows = amp_emp > 1.2 * amp_ref + 1e-12
@@ -459,6 +471,18 @@ def estimate_angle_amplitude(data, x_grid, interp=JAX_INTERP_DEFAULT,
               "BELOW the empirical max %.6g (the review-flagged heuristic "
               "direction); the empirical value governs." % (amp_analytic,
                                                             amp_emp))
+    if return_diagnostics:
+        amp_unclipped = float(np.max(amps_u)) if len(amps_u) else 0.0
+        return margin * amp_emp, dict(
+            amp_clipped=float(amp_emp),
+            amp_unclipped=amp_unclipped,
+            # > 1 means the exponent's maximizing distance x* = A/B lies
+            # OUTSIDE [x_min, x_max] for the dominant angles, i.e. the
+            # distance posterior rails against a prior edge.  See
+            # DESIGN_jax_distance_quadrature.md section 1a.
+            clip_excess=(amp_unclipped / amp_emp) if amp_emp > 0.0
+                        else (float("inf") if amp_unclipped > 0.0 else 1.0),
+            x_min=x_min, x_max=x_max)
     return margin * amp_emp
 
 
