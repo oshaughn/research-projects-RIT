@@ -630,6 +630,84 @@ nothing.
 * The tail bound is still a SAMPLED maximum, and its safety still comes from the
   `W_SIGMA**2/2 = 72` nat structural slack rather than from the sampling being adequate.
 
+## Round 7 — DOOR 5: a crest pinned at a window end is not a peak
+
+The round-6 bound held. An independent re-attack could not violate it — **0 violations**,
+measured slack **15x to 84.5x** — so the class did not reopen where it had been patched. It
+reopened one site further along, at the **resolution scale** rather than the crest location.
+
+`localise_peaks` counted a peak pinned against a window end as CONVERGED, reasoning that
+the maximum over the integration domain really is the boundary. It is. **But it is not a
+STATIONARY point, and everything downstream assumes one.** At an interior crest `q'`
+vanishes, so `exp(lnL)` is locally Gaussian and a spacing derived from the curvature
+resolves it. At a boundary the maximum is a CORNER: `q'` is non-zero there, so the local
+integrand is an **exponential decay of rate `|q'|`**, and a spacing derived from `sigma`
+does not resolve that scale at all. The trapezoid's half-weight endpoint then over-counts by
+
+    log( lam * (0.5 + 1/(exp(lam) - 1)) )  ->  log(lam/2),     lam = |q'| * h_loc
+
+MEASURED on a single band-limited bump centred at `t = 0`, against the same interpolant
+integrated on **the very interval the module chose** — so this is the rule's own quadrature
+error on its own domain, not a reference artifact:
+
+| amplitude | coarse factor | `lam` | over-count | accepted |
+|---|---|---|---|---|
+| 4e4 | 512 | 7.12 | **+1.27410** | yes |
+| 1.6e5 | 1024 | 14.24 | **+1.96381** | yes |
+| 6.4e5 | 2048 | 28.49 | **+2.65648** | yes |
+| 2.56e6 | 4096 | 56.98 | **+3.34949** | yes |
+| 1e7 | 4096 | 112.6 | **+4.03071** | yes |
+| 2e7 | 4096 (ceiling) | — | **+4.37722** | yes |
+
+`log(112.6/2) = 4.031` against a measured `+4.03071` — the closed form is exact. **The error
+grows by +log 2 per factor 4 in amplitude and is unbounded inside the legal range.**
+
+### Neither defence could ever have caught it
+
+This is structural, not bad luck, and it is the reason the fix is a refusal rather than
+another check:
+
+* **Containment** compares the local grid's attained maximum against `row_star`. The grid's
+  FIRST POINT is the pinned crest, so `attained == row_star` identically. It cannot fire on
+  this family, at any parameters.
+* **The tail bound** is a statement about mass OUTSIDE the intervals. This error is entirely
+  inside. `tail_bound_worst` reads −250 to −32990 on exactly these rows.
+* `localise_peaks` declared the peak converged, so `n_dense_fallback_localise` was 0.
+* `_classify_rows` flags these rows `exposed` and, by design since `e4ed25c7`, `exposed`
+  selects nothing.
+
+### The fix, and what it does not fix
+
+A pinned peak is reported UNCONVERGED and its row goes to the dense path. Fail-closed, and
+it restores the contract this rule actually makes — **never a worse value than the
+backstop**. Coverage is unchanged (24/24 sharp, 10/10 near-edge, 3/3 two-peak; worst
+`|peak_local - bandlimited|` **2.6e-10** over 46 rows), because only rows whose crest is
+literally at the boundary now decline.
+
+It also closed a **regression round 6 had introduced and the author had not found**: the
+looser pre-filter kept a second peak on a near-edge row that round 5 correctly REJECTED, so
+the row became accepted carrying this defect — `pl - bl` went `0.000000` (rejected) to
+`-0.778178` (accepted). It is back to `+0.000000`, declined. The edge/cusp family that this
+note carried at −6.0 nats, then +0.53 and growing with SNR, is now `pl - bl = 0.000000`
+throughout: every row either matches the dense path exactly or declines.
+
+**DISCLOSED, NOT FIXED.** `time_marginalize_bandlimited` carries a milder form of the same
+defect — its refined grid also begins at the boundary with a half weight — measuring
+**+0.77 / +1.43 / +2.10 / +2.52 / +2.08 nats** on those rows against a converged reflected
+reference. peak-local now matches it **exactly** (`pl - bl = +0.000000`), which is what makes
+the residual cleanly attributable: it belongs to the shared reconstruction and to #203's
+rule, not to this one. It should be raised upstream rather than patched here.
+
+### A correction to a stated precondition
+
+The module claimed every shipped `loglikelihood` callback is monotone increasing in
+`Re kappa`. **That is false**: the distance-marginalized callback returns `-inf` ABOVE its
+table as well as below. The direction is safe — an upper bound landing in the hole evaluates
+to `-inf`, the peak is dropped, and the row loses peaks until it falls back — so it costs
+coverage and never accuracy, and with the shipped table the boundary sits at
+`D_eff < d_min/10`, unreachable at default settings. But the claim as written was wrong, and
+the pre-filter's `q`-bound-to-`lnL`-bound step rests on it, so it is now stated precisely.
+
 ## Mutation sweep
 
 25 mutations against the post-G-fix code (`244e7cca`), baseline **90 passed / 4
