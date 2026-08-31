@@ -582,9 +582,37 @@ def localise_peaks(Xw, fk, rows, t_grid, h_enum, tol, period, xpy=np,
             pinned = xpy.zeros(t.shape, dtype=bool)
         t_out[a:b] = t
         q_out[a:b] = q0
-        # A peak pinned at a window boundary is CONVERGED -- the maximum over the
-        # integration domain is the boundary -- and need not be concave there.
-        ok_out[a:b] = inside & (((xpy.abs(step) <= tol_c) & (q2 < 0)) | pinned)
+        # A PINNED PEAK IS NOT CONVERGED, and calling it converged cost up to +4.38 nats.
+        #
+        # The crest of a peak enumerated at an endpoint can lie outside the window; the
+        # maximum over the domain is then the boundary itself, and it was tempting to
+        # call that "found".  It is found -- but it is not a PEAK, and everything
+        # downstream assumes it is.  At an interior crest `q'` vanishes, so `exp(lnL)`
+        # is locally Gaussian and a spacing derived from the curvature resolves it.  At a
+        # boundary the maximum is a CORNER: `q'` is non-zero there, so the local integrand
+        # is an exponential decay of rate `|q'|`, and the spacing derived from `sigma`
+        # does not resolve that scale at all.  The trapezoid's half-weight endpoint then
+        # over-counts by
+        #
+        #     log( lam * (0.5 + 1/(exp(lam) - 1)) )  ->  log(lam/2),   lam = |q'| * h_loc
+        #
+        # which GROWS WITHOUT BOUND in amplitude -- +log 2 per factor 4.  MEASURED on a
+        # single band-limited bump centred at t = 0, against the same interpolant
+        # integrated on the very interval the module chose: **+1.27 / +1.96 / +2.66 /
+        # +3.35 / +4.03 nats** at rho-scale 4e4 / 1.6e5 / 6.4e5 / 2.56e6 / 1e7, and +4.38
+        # at the ceiling.  All ACCEPTED, and both a-posteriori defences are silent BY
+        # CONSTRUCTION: the containment check compares the grid's attained maximum against
+        # `row_star`, and the grid's FIRST POINT is the pinned crest, so `attained ==
+        # row_star` identically and it can never fire; the tail bound is a statement about
+        # mass OUTSIDE the intervals and the error is entirely inside.
+        #
+        # So the row is declined and handed to the dense path.  That is the fail-closed
+        # direction and it restores the contract this rule actually makes -- never a worse
+        # value than the backstop.  (The dense path carries a milder form of the same
+        # defect, +0.77 to +2.74 nats on these rows, because its grid also begins at the
+        # boundary with a half weight; that is a defect of the shared reconstruction and
+        # is recorded in the design note, not papered over here.)
+        ok_out[a:b] = inside & (xpy.abs(step) <= tol_c) & (q2 < 0) & (~pinned)
     return t_out, q_out, ok_out
 
 
@@ -1035,7 +1063,14 @@ def _peak_local_chunk(kappa_rows, rho_col_rows, factors, npts, deltaT, period,
     # no `1/sigma^2` amplification of a modelling error.  It uses `h_enum`, the localiser's
     # actual bracket, not `h_enum/2`.
     #
-    # `loglikelihood` is monotone in its first argument, so bounding `q` bounds `lnL`.  The
+    # `loglikelihood` is monotone in its first argument over its DOMAIN, so bounding `q`
+    # bounds `lnL`.  Stated precisely because the obvious stronger claim is false: the
+    # shipped distance-marginalized callback returns `-inf` ABOVE its table as well as
+    # below, so it is not monotone increasing everywhere.  That direction is safe here --
+    # an upper bound that evaluates into the hole becomes `-inf`, the peak is dropped, and
+    # the row loses peaks until it falls back to the dense path -- so it costs coverage,
+    # never accuracy.  With the shipped table the boundary sits at `D_eff < d_min/10` and
+    # is not reachable at default settings.  The
     # comparison is then a genuine upper bound against a genuine lower bound (the largest
     # SAMPLE in the row, which cannot exceed the crest above it), and a peak is discarded
     # only when it cannot be within `PEAK_KEEP_NATS` however the quantisation falls.

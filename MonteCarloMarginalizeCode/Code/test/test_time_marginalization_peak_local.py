@@ -2044,5 +2044,66 @@ def test_the_peak_sample_is_read_at_the_enumerated_index():
             amp, "the clipped read no longer breaks the bound; fixture is stale")
 
 
+def test_a_boundary_pinned_crest_is_not_integrated_locally():
+    """DOOR 5.  A crest pinned at a window end is not a PEAK, and treating it as one cost
+    up to +4.38 nats, accepted, growing without bound in amplitude.
+
+    At an interior crest `q'` vanishes, so `exp(lnL)` is locally Gaussian and a spacing
+    derived from the curvature resolves it.  At a boundary the maximum is a CORNER: `q'`
+    is non-zero, the local integrand is an exponential decay of rate `|q'|`, and a spacing
+    derived from `sigma` does not resolve that scale at all.  The trapezoid's half-weight
+    endpoint then over-counts by `log(lam*(0.5 + 1/(exp(lam)-1))) -> log(lam/2)` with
+    `lam = |q'| h_loc`, i.e. **+log 2 per factor 4 in amplitude**: measured +1.27 / +1.96
+    / +2.66 / +3.35 / +4.03 nats, all ACCEPTED.
+
+    Neither a-posteriori defence can catch it, and that is structural rather than bad
+    luck: the containment check compares the grid's attained maximum against `row_star`,
+    and the grid's FIRST POINT is the pinned crest, so `attained == row_star` identically;
+    the tail bound is a statement about mass OUTSIDE the intervals, and this error is
+    entirely inside.  So the fix has to be a refusal, not another check.
+
+    Asserted against the rule this one delegates to, so no reference can be argued with --
+    and the property asserted is the contract: never a worse value than the backstop.
+    """
+    T = NPTS * DELTAT
+    ms = np.arange(1, (NPTS - 1) // 2 + 1)
+    basis = np.exp(2j * np.pi * np.outer(np.arange(NPTS), ms) / NPTS)
+    env = np.exp(-0.5 * (ms / 40.0) ** 2)
+    for amp in (4.0e4, 6.4e5, 1.0e7):
+        # a single band-limited bump centred exactly on t = 0
+        k = (basis @ (2.0 * (amp / (2 * env.sum())) * env))[None, :]
+        r = np.full(k.shape, RHO_SQ)
+        got = float(np.asarray(pl.time_marginalize_peak_local(k, r, DELTAT, _lnL))[0])
+        rep = pl.last_report()
+        want = float(np.asarray(
+            tmq.time_marginalize_bandlimited(k, r, DELTAT, _lnL))[0])
+        assert abs(got - want) < 1e-3, (amp, got, want, rep)
+        # and it is DECLINED rather than accepted-and-happening-to-agree
+        assert rep['n_peak_local_rows'] == 0, (amp, rep)
+        assert rep['n_dense_fallback_rows'] == 1, (amp, rep)
+
+
+def test_the_localiser_reports_a_pinned_peak_as_unconverged():
+    """The mechanism behind DOOR 5, pinned at the unit level so the end-to-end test above
+    cannot start passing for an unrelated reason.  `localise_peaks` once counted a peak
+    pinned against a window end as CONVERGED, on the grounds that the maximum over the
+    domain really is the boundary.  It is -- but it is not a stationary point, and every
+    consumer of the result assumes one."""
+    T = NPTS * DELTAT
+    ms = np.arange(1, (NPTS - 1) // 2 + 1)
+    env = np.exp(-0.5 * (ms / 40.0) ** 2)
+    k = (np.exp(2j * np.pi * np.outer(np.arange(NPTS), ms) / NPTS)
+         @ (2.0 * (4.0e4 / (2 * env.sum())) * env))[None, :]
+    kref = np.concatenate((k, np.flip(k, axis=-1)), axis=-1)
+    Xw, fk = pl.bandlimited_spectrum(kref)
+    h_enum = DELTAT / pl.PEAK_ENUM_FACTOR
+    rows = np.zeros(1, dtype=np.int64)
+    t_star, _, ok = pl.localise_peaks(
+        Xw, fk, rows, np.zeros(1), h_enum, np.full(1, 1e-14 * T),
+        2.0 * NPTS * DELTAT, t_last=(NPTS - 1) * DELTAT)
+    assert float(np.asarray(t_star)[0]) == 0.0, t_star
+    assert not bool(np.asarray(ok)[0]), "a pinned crest must not report as converged"
+
+
 if __name__ == '__main__':
     raise SystemExit(pytest.main([__file__, '-q']))
