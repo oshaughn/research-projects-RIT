@@ -526,6 +526,110 @@ two-peak, both-ends and flat/null families: **worst 2.6e-10 nats**, no family ab
 All ten near-edge rows are now handled by the rule; before this round they were routed to
 Simpson.
 
+## Round 6 — DOOR 4: the pre-filter's "upper bound" was not one
+
+The fourth independent re-attack reopened the class at the one site the previous three had
+left alone, and it is the site whose own comment said it could not fail: the
+**conservative pre-filter**, described as comparing "an UPPER bound on each crest against a
+LOWER bound on the highest crest, so it can only ever keep too many."
+
+    crest_upper = lnL_sample + (h_enum/2)**2 / (2 sigma**2)
+
+is not an upper bound, for two independent reasons, and the second is the one that matters:
+
+* the localiser's bracket is `+/- h_enum` and displacements of `0.959*h_enum` have been
+  observed, so the correction covers less than half the distance it must; and
+* **`lnL` is not a parabola across a half enumeration cell.** The ANHARMONIC part of the
+  crest deficit carries the same `1/sigma**2` amplification as the quadratic part. At
+  derived factor 1024 the pure quantisation excess is **4.4 nats** and the true shortfall
+  is **122.30**.
+
+Being short, it DELETED peaks — before localisation, so the exact filter never saw them.
+
+| derived factor | shortfall of `crest_upper` | `pl - bl` | accepted? |
+|---|---|---|---|
+| 1024 | +122.30 nats | **−0.358385** | yes, both defences silent |
+| 2048 | +489.19 | **−0.358427** | yes |
+| 4096 | +1956.74 | **−0.358383** | yes |
+
+and the magnitude is not bounded by `log 2`. Raising the deleted peak above the survivor
+by `Delta`:
+
+| Delta | `pl - ref` | accepted |
+|---|---|---|
+| 0 | −0.358 | yes |
+| 800 | −799.159 | yes |
+| **1850** | **−1849.159** | **yes** |
+| 1950 | +0.000 | yes (the peak survives) |
+
+The cutoff is `shortfall - PEAK_KEEP_NATS`, so **a peak may sit ~1900 nats ABOVE the one
+that survives and still be deleted.** The tail bound cannot backstop it: `q_out_max` reads
+the deleted peak at its SAMPLE, the very quantity the defect corrupts. Recomputed as an
+honest supremum on a 4096x refinement, those rows score **+11.5 / +12.1 / +7.2** against
+`TAIL_LOG_TOL = -23` — every one would be REJECTED.
+
+### The fix is an inequality, not a better fit
+
+Widening the constant would have been the fifth version of the same mistake. Expanding
+about the CREST, where `q'` vanishes by definition,
+
+    q(t_s) = q(t*) + q''(xi) (t_s - t*)^2 / 2,    |t_s - t*| <= h_enum
+
+so `q(t*) <= q(t_s) + max|q''| * h_enum**2 / 2`, and `max|q''| <= sum_j |Xw_j| |w_j|**2`
+by the triangle inequality on the spectral sum. **Nothing is fitted**, so there is no model
+error left to amplify, and it uses `h_enum` rather than half of it. `loglikelihood` is
+monotone in `q`, so a bound on `q` is a bound on `lnL`.
+
+Verified as a PROPERTY rather than on the fixture that motivated it: over **9311 enumerated
+peaks** across npts 153/307/614/1228/2457 and amplitudes 2e4–2.5e7, **zero violations**,
+where the old bound failed on **0.3–3 %** of peaks by up to **19456 nats**.
+
+`spectral_curvature_bound` and `crest_upper_bound` are module functions precisely so the
+suite tests the SHIPPED formula and not a copy of it.
+
+### Deleting the pre-filter outright is not the answer, and was tried
+
+Without it every row enumerates its whole oscillation — 295 maxima on one fixture — the
+structure gate sees more than `MAX_INTERVALS` and declines every row, and the option goes
+**inert**: `n_peak_local_rows = 0` on all six fixture families, which is the W1 hazard the
+suite already guards against. With the rigorous bound, coverage is exactly what it was
+(24/24 sharp, 10/10 near-edge, 3/3 two-peak) and `|peak_local - bandlimited|` is
+**2.6e-10 nats** over 46 rows.
+
+### The same defect at a third site, fixed with it
+
+The pre-filter's LOWER bound read `lnL_st[:, maxd]` — the callback at the stencil CENTRE,
+which is clipped inward by one at the array ends. At enumeration index 0 or `n-1` that is a
+full cell from the peak it describes: **132 nats** low at rho ~ 40, **8449** at rho ~ 700,
+growing with SNR. A stencil centre is clipped so the CURVATURE can be measured; the peak's
+own value must be read where the peak is.
+
+### What makes the regression test worth anything
+
+`test_a_codominant_crest_is_not_deleted_by_the_prefilter` **FAILS on the parent commit** and
+passes here. Its fixture solves for the second amplitude by bisection rather than hard-coding
+a ratio, because the crest gap is linear in amplitude — a ratio tuned at rho ~ 40 leaves the
+second peak thousands of nats down at rho ~ 700 and the fixture silently stops testing
+anything, which is exactly how round 2's suite missed round 3's defect.
+
+The helper that finds the two crests LOCALISES them. The first version of it did not, and
+was wrong in the same way as everything else in this file: peak A sits on an enumeration
+sample so its sample is its crest, while peak B is deliberately off-grid and its sample
+understates its crest by ~3125 nats in the sharp regime. Equalising the SAMPLES leaves B
+thousands of nats above A, A is correctly dropped, and the test passes while measuring
+nothing.
+
+### Still open after round 6
+
+* **The ceiling contract.** `over_ceiling` is taken on the COARSE derived factor, while
+  `time_marginalize_bandlimited` raises on a factor remeasured on the REFINED grid. At
+  npts=307 and H = 6.5e4 / 7e4 / 7.5e4 peak-local returns an ACCEPTED value while the dense
+  path RAISES. The values are exact to 1e-6 against a 32768x reference, so this is a broken
+  fail-closed contract rather than an observed wrong number — but it is the hole the
+  module's own ceiling comment claims to have closed. **Not fixed.**
+* The tail bound is still a SAMPLED maximum, and its safety still comes from the
+  `W_SIGMA**2/2 = 72` nat structural slack rather than from the sampling being adequate.
+
 ## Mutation sweep
 
 25 mutations against the post-G-fix code (`244e7cca`), baseline **90 passed / 4
