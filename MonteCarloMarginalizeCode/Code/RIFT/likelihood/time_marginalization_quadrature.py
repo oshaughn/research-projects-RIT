@@ -686,6 +686,61 @@ def _require_time_independent_rho_sq(rho_sq, xpy=np, rule='band-limited'):
     return rho_col
 
 
+def _classify_rows(lnL_coarse, deltaT, npts, xpy=np):
+    """Which rule each row gets.  THE SINGLE DEFINITION, shared with 'peak-local'.
+
+    Returns ``(sigma, jmax, measurable, has_peak, flat, exposed, unmeasurable,
+    factors)``.  A row is REFINED by the caller iff ``has_peak & (factors > 1)``.
+
+    It lives here, and is called rather than copied, because
+    :mod:`RIFT.likelihood.time_marginalization_peak_local` promises to change WHERE the
+    refined grid is placed and nothing about WHICH rows get one.  That promise was made
+    good by duplication and it did not survive: three clauses below -- reflection's
+    demotion of the edge guard, ``boundary_unresolved``, and the guard's Simpson routing
+    -- reached this module and not that one, and each showed up as peak-local silently
+    returning a lower-accuracy value than this function for the same row.  Duplicated
+    policy that MUST agree is policy that will eventually not.
+
+    The boundary diagnostic applies only to rows that HAVE a resolvable peak: a row whose
+    lnL(t) is constant -- an extrinsic sample in an antenna null, where kappa is
+    numerically zero -- has an argmax of 0 by convention and would otherwise be reported
+    as boundary-exposed.  That is harmless numerically (Simpson is exact on a constant)
+    but it makes the diagnostic lie: measured on a random-sky batch of 4000, it reported
+    810 "wrap-exposed" rows, which in a production log reads as a mis-centred window
+    rather than as 810 rows with no signal in them.
+
+    ``boundary_unresolved``: at the first/last sample the centred stencil is clipped
+    inward, so for a severely under-resolved endpoint peak it can see positive curvature
+    away from the maximum and label a strongly varying row "flat".  That would silently
+    retain Simpson for exactly the truncated-boundary case we intend to report and
+    reconstruct.  Such rows get a small seed factor; dense-grid remeasurement takes over
+    as soon as the reflected peak is measurable.
+
+    ``exposed`` REPORTS possible physical truncation and selects nothing.  Reflection
+    removes the endpoint value jump, so neither boundary proximity nor a tail threshold
+    may select a Simpson fallback: crossing an arbitrary threshold cannot silently change
+    likelihood quality, and raising on such a row can be read upstream as a waveform
+    failure and silently excise that configuration.
+    """
+    sigma, jmax, measurable = peak_width_from_lnL(lnL_coarse, deltaT, xpy=xpy)
+    guard = max(1, int(npts * EDGE_GUARD_FRACTION))
+    finite_lnL = xpy.isfinite(lnL_coarse)
+    row_max = xpy.max(xpy.where(finite_lnL, lnL_coarse, -np.inf), axis=-1)
+    row_min = xpy.min(xpy.where(finite_lnL, lnL_coarse, np.inf), axis=-1)
+    varies = xpy.isfinite(row_max) & xpy.isfinite(row_min) & (row_max > row_min)
+    boundary_unresolved = (measurable & (~xpy.isfinite(sigma)) & varies
+                           & ((jmax == 0) | (jmax == npts - 1)))
+    has_peak = measurable & (xpy.isfinite(sigma) | boundary_unresolved)
+    flat = measurable & (~xpy.isfinite(sigma)) & (~boundary_unresolved)
+    exposed = has_peak & ((jmax < guard) | (jmax > npts - 1 - guard))
+    # Counted unconditionally, NOT `& ~exposed`: an all -inf row also has an argmax of 0,
+    # so a conditional counter would hide it behind the edge guard.
+    unmeasurable = ~measurable
+    factors = xpy.maximum(required_upsample_factors(sigma, deltaT, xpy=xpy), 1)
+    factors = xpy.where(boundary_unresolved, xpy.maximum(factors, 4), factors)
+    return (sigma, jmax, measurable, has_peak, flat, exposed, unmeasurable, factors)
+
+
 def _safe_offset(off, xpy=np):
     """Log-sum-exp offset, guarded for a row that is ``-inf`` everywhere.
 
@@ -890,39 +945,9 @@ def time_marginalize_bandlimited(kappa, rho_sq, deltaT, loglikelihood,
     if lnL_coarse is None:
         lnL_coarse = loglikelihood(_term(kappa), rho_sq)
 
-    sigma, jmax, measurable = peak_width_from_lnL(lnL_coarse, deltaT, xpy=xpy)
-
-    # Classify the rows.  The boundary diagnostic applies only to rows that HAVE a
-    # resolvable peak: a row whose lnL(t) is constant -- an extrinsic sample in an
-    # antenna null, where kappa is numerically zero -- has an argmax of 0 by
-    # convention and would otherwise be reported as boundary-exposed.  That is
-    # harmless numerically (Simpson is exact on a constant) but it makes the
-    # diagnostic lie: measured on a random-sky batch of 4000, it reported 810
-    # "wrap-exposed" rows (the compatibility report key), which in a production
-    # log reads as a mis-centred window rather than as 810 rows with no signal
-    # in them.
-    guard = max(1, int(npts * EDGE_GUARD_FRACTION))
-    finite_lnL = xpy.isfinite(lnL_coarse)
-    row_max = xpy.max(xpy.where(finite_lnL, lnL_coarse, -np.inf), axis=-1)
-    row_min = xpy.min(xpy.where(finite_lnL, lnL_coarse, np.inf), axis=-1)
-    varies = xpy.isfinite(row_max) & xpy.isfinite(row_min) & (row_max > row_min)
-    # At the first/last sample the centred stencil is clipped inward.  For a
-    # severely under-resolved endpoint peak it can then see positive curvature
-    # away from the maximum and label a strongly varying row "flat".  That would
-    # silently retain Simpson for exactly the truncated-boundary case we intend
-    # to report and reconstruct.  Give such rows a small seed factor; dense-grid
-    # remeasurement takes over as soon as the reflected peak is measurable.
-    boundary_unresolved = (measurable & (~xpy.isfinite(sigma)) & varies
-                           & ((jmax == 0) | (jmax == npts - 1)))
-    has_peak = measurable & (xpy.isfinite(sigma) | boundary_unresolved)
-    flat = measurable & (~xpy.isfinite(sigma)) & (~boundary_unresolved)
-    exposed = has_peak & ((jmax < guard) | (jmax > npts - 1 - guard))
-    # Counted unconditionally, NOT `& ~exposed`: an all -inf row also has an
-    # argmax of 0, so a conditional counter would hide it behind the edge guard.
-    unmeasurable = ~measurable
-
-    factors = xpy.maximum(required_upsample_factors(sigma, deltaT, xpy=xpy), 1)
-    factors = xpy.where(boundary_unresolved, xpy.maximum(factors, 4), factors)
+    # THE SINGLE DEFINITION, shared with 'peak-local' -- see _classify_rows.
+    (sigma, jmax, measurable, has_peak, flat, exposed, unmeasurable,
+     factors) = _classify_rows(lnL_coarse, deltaT, npts, xpy=xpy)
 
     # A row is REFINED only if it has a trustworthy peak AND the derivation
     # actually asks for a finer grid.  Reflection removes the endpoint value

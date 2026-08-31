@@ -154,12 +154,9 @@ import numpy as np
 from . import time_marginalization_quadrature as _tmq
 from .time_marginalization_quadrature import (
     UPSAMPLE_SAFETY,
-    EDGE_GUARD_FRACTION,
     CURVATURE_STENCIL_HALFWIDTHS,
     bandlimited_upsample,
     reflected_bandlimited_upsample,
-    peak_width_from_lnL,
-    required_upsample_factors,
     time_marginalize_bandlimited,
     _log_simps_rows,
     _safe_offset,
@@ -737,49 +734,13 @@ def time_marginalize_peak_local(kappa, rho_sq, deltaT, loglikelihood,
     if lnL_coarse is None:
         lnL_coarse = loglikelihood(_term(kappa), rho_sq)
 
-    sigma, jmax, measurable = peak_width_from_lnL(lnL_coarse, deltaT, xpy=xpy)
-
-    # ROW CLASSIFICATION IS THE DENSE PATH'S, VERBATIM.  It is not restated here
-    # because it must not be allowed to drift: this module's contract is that it
-    # changes WHERE the refined grid is placed and nothing about WHICH rows get one, so
-    # any row `time_marginalize_bandlimited` refines must be a row peak-local refines.
-    # Read the rationale for each clause there.
-    #
-    # Two clauses arrived with rift_O4d e4ed25c7 and were missing here until the rebase:
-    # `boundary_unresolved` (an endpoint maximum whose inward-clipped stencil reads
-    # positive curvature is mislabelled "flat" and would silently keep Simpson), and the
-    # demotion of `exposed` to a report.  Their absence left this fixture on Simpson:
-    # a row with peaks at both ends came back 4.60 nats above the reflected reference
-    # while the dense path came back 0.81 above it, with every fallback counter zero
-    # because the row never entered the rule at all.
-    guard = max(1, int(npts * EDGE_GUARD_FRACTION))
-    finite_lnL = xpy.isfinite(lnL_coarse)
-    row_max = xpy.max(xpy.where(finite_lnL, lnL_coarse, -np.inf), axis=-1)
-    row_min = xpy.min(xpy.where(finite_lnL, lnL_coarse, np.inf), axis=-1)
-    varies = xpy.isfinite(row_max) & xpy.isfinite(row_min) & (row_max > row_min)
-    boundary_unresolved = (measurable & (~xpy.isfinite(sigma)) & varies
-                           & ((jmax == 0) | (jmax == npts - 1)))
-    has_peak = measurable & (xpy.isfinite(sigma) | boundary_unresolved)
-    flat = measurable & (~xpy.isfinite(sigma)) & (~boundary_unresolved)
-    # DIAGNOSTIC ONLY -- it must not select a quadrature.  This module was written when
-    # `EDGE_GUARD_FRACTION` was a routing guard: the periodic reconstruction rang at the
-    # window wrap, so a peak near an edge was excluded and kept its SIMPSON value.
-    # rift_O4d e4ed25c7 removed that wrap by even reflection and demoted the guard,
-    # because "crossing an arbitrary threshold cannot silently move an under-resolved row
-    # back to Simpson" -- a discontinuous switch that silently changes likelihood quality.
-    # Keeping the old routing here made peak-local return a Simpson value where
-    # `time_marginalize_bandlimited` returns a refined one, measured 3.79 nats apart on a
-    # row with peaks at both ends (`test_intervals_are_clipped_to_the_integration_domain`),
-    # with every fallback counter reading zero because the row never entered the rule.
-    #
-    # So the classification is now IDENTICAL to the dense path's -- `refined = has_peak &
-    # (factors > 1)`, with `exposed` reported and nothing more.  A row peak-local declines
-    # for its own reasons still falls back to `time_marginalize_bandlimited`, which now
-    # refines these rows rather than excluding them.
-    exposed = has_peak & ((jmax < guard) | (jmax > npts - 1 - guard))
-    unmeasurable = ~measurable
-    factors = xpy.maximum(required_upsample_factors(sigma, deltaT, xpy=xpy), 1)
-    factors = xpy.where(boundary_unresolved, xpy.maximum(factors, 4), factors)
+    # ROW CLASSIFICATION IS THE DENSE PATH'S -- literally, by calling it.  This module's
+    # contract is that it changes WHERE the refined grid is placed and nothing about
+    # WHICH rows get one, so any row `time_marginalize_bandlimited` refines must be a row
+    # peak-local refines.  That was previously kept true by copying, and the copy went
+    # stale across the rebase onto rift_O4d in three separate clauses; see _classify_rows.
+    (sigma, jmax, measurable, has_peak, flat, exposed, unmeasurable,
+     factors) = _tmq._classify_rows(lnL_coarse, deltaT, npts, xpy=xpy)
     refined = has_peak & (factors > 1)
 
     out = _log_simps_rows(lnL_coarse, deltaT, simps, xpy=xpy)
