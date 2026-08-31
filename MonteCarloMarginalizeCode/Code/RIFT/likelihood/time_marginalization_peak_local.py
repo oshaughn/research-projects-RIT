@@ -175,6 +175,8 @@ __all__ = [
     "CONTAINMENT_SLACK_NATS",
     "localise_peaks",
     "bandlimited_spectrum",
+    "spectral_curvature_bound",
+    "crest_upper_bound",
     "eval_bandlimited_uniform",
     "enumerate_peak_indices",
     "merge_intervals_by_row",
@@ -443,6 +445,38 @@ def eval_bandlimited_uniform(Xw, fk, t0, dt_local, n_local, period, xpy=np):
 
 
 # -------------------------------------------------------------- enumeration
+
+def spectral_curvature_bound(Xw, fk, period, xpy=np):
+    """``max_t |q''(t)|`` for the interpolant, bounded rather than estimated.
+
+    ``q(t) = Re sum_j Xw_j exp(w_j t)`` with ``w_j = 2 pi i fk_j / period``, so
+    ``|q''| <= sum_j |Xw_j| |w_j|^2`` everywhere, by the triangle inequality.  One
+    reduction over the spectrum per row; nothing is fitted and no shape is assumed.
+    """
+    w2 = (2.0 * np.pi * xpy.asarray(fk) / float(period)) ** 2
+    return xpy.sum(xpy.abs(Xw) * w2[None, :], axis=-1)
+
+
+def crest_upper_bound(q_at_peak, q_ddot_max, h_enum):
+    """Upper bound on a crest, from its enumeration SAMPLE and a bound on ``|q''|``.
+
+    Expanding about the crest ``t*``, where ``q'`` vanishes by definition,
+
+        q(t_s) = q(t*) + q''(xi) (t_s - t*)^2 / 2,   |t_s - t*| <= h_enum
+
+    so ``q(t*) <= q(t_s) + q_ddot_max * h_enum^2 / 2``.  A Taylor remainder with a TRUE
+    bound on the second derivative -- not a parabolic fit through three samples, which is
+    what the previous version of this was and which is why it was not a bound: ``lnL`` is
+    not quadratic across an enumeration cell, and the anharmonic part of the deficit
+    carries the same ``1/sigma^2`` amplification as the quadratic part.  Measured at
+    derived factor 1024, the pure quantisation excess is 4.4 nats and the true shortfall
+    was 122.3.
+
+    ``h_enum``, not ``h_enum/2``: the localiser's bracket is ``+/- h_enum`` and
+    displacements up to 0.959 of it have been observed.
+    """
+    return q_at_peak + 0.5 * q_ddot_max * h_enum ** 2
+
 
 def enumerate_peak_indices(q, xpy=np):
     """Boolean mask of INTERIOR local maxima of each row of ``q``.
@@ -864,6 +898,18 @@ def _peak_local_chunk(kappa_rows, rho_col_rows, factors, npts, deltaT, period,
     del k_up
     n_enum = q_up.shape[-1]
 
+    # The reflected spectrum is needed for the rigorous crest bound below and again for
+    # localisation; it is one FFT, built once here.
+    kappa_reflected = xpy.concatenate(
+        (kappa_rows, xpy.flip(kappa_rows, axis=-1)), axis=-1)
+    Xw, fk = bandlimited_spectrum(kappa_reflected, xpy=xpy)
+    period_ref = 2.0 * period
+    # RIGOROUS bound on |q''| for this row, from the spectrum rather than from a model:
+    # q(t) = Re sum_j Xw_j exp(w_j t), so |q''| <= sum_j |Xw_j| |w_j|^2 everywhere, by the
+    # triangle inequality.  No parabola is assumed and nothing is fitted, which is the
+    # whole point -- see the keep note below.
+    q_ddot_max = spectral_curvature_bound(Xw, fk, period_ref, xpy=xpy)
+
     mask = enumerate_peak_indices(q_up, xpy=xpy)
     mask = mask & xpy.asarray(viable)[:, None]
     rows_p, cols_p = xpy.where(mask)          # full-width mask: index is the sample
@@ -933,38 +979,90 @@ def _peak_local_chunk(kappa_rows, rho_col_rows, factors, npts, deltaT, period,
     # both defences silent.  Every approximation substituted for the crest fails the
     # same way one octave further out.
     #
-    # So the keep decision is taken TWICE, and neither stage uses an estimate as if it
-    # were the answer:
+    # ROUND 6: THE PRE-FILTER WAS THE FOURTH DOOR, AND IT IS NOW GONE.
     #
-    #  1. here, a CONSERVATIVE PRE-FILTER whose only job is to bound the number of peaks
-    #     carried into localisation.  It compares an UPPER bound on each crest against a
-    #     LOWER bound on the highest crest, so it can only ever keep too many.  The upper
-    #     bound is the worst-case quantisation correction `(h_enum/2)^2 / (2 sigma^2)`;
-    #     the lower bound is the sample itself, which cannot exceed its own crest.
-    #  2. after localisation, the EXACT filter on `lnL_star` -- exact by construction
-    #     rather than exact-to-second-order.
-    lnL_sample = lnL_st[:, maxd]
-    with np.errstate(divide='ignore', invalid='ignore'):
-        crest_upper = lnL_sample + (0.5 * h_enum) ** 2 / (2.0 * sigma_pk ** 2)
-    crest_upper = xpy.where(xpy.isfinite(crest_upper), crest_upper, lnL_sample)
-    lnL_pk = crest_upper
+    # It compared a `crest_upper = lnL_sample + (h_enum/2)^2 / (2 sigma^2)` against the
+    # largest sample in the row, and was described as an upper bound that "can only ever
+    # keep too many".  It is not an upper bound.  An independent re-attack broke it:
+    #
+    #   * the displacement is bounded by `h_enum`, not `h_enum/2` -- the localiser's own
+    #     bracket says so and 0.959*h_enum has been observed -- so the correction is
+    #     taken at less than half the distance it must cover; and, much worse,
+    #   * `lnL` is NOT a parabola across a half enumeration cell.  The ANHARMONIC part of
+    #     the deficit carries the same 1/sigma^2 amplification as the quadratic part.
+    #     MEASURED at derived factor 1024 on a skewed peak: the pure quantisation excess
+    #     is 4.4 nats while the actual shortfall is 122.30.
+    #
+    # So `crest_upper` fell short of the true crest by 122 / 489 / 1957 nats at derived
+    # factor 1024 / 2048 / 4096 -- and being short, it DROPPED co-dominant peaks.
+    # End-to-end, shipped code, both peaks well inside PEAK_KEEP_NATS: **-0.358 nats** at
+    # factor 1024 and, when the deleted peak is raised above the survivor, **-1849 nats**,
+    # ACCEPTED, with the tail bound and the containment check both silent.  A peak may sit
+    # ~1900 nats ABOVE the one that survives and still be deleted.  The tail bound cannot
+    # backstop it because `q_out_max` reads the dropped peak at its SAMPLE -- the very
+    # quantity the defect corrupts; recomputed as an honest supremum, those rows' margins
+    # are +11.5 / +12.1 / +7.2 and every one would be REJECTED.
+    #
+    # This is the fourth time this class has reopened, and the fourth time the estimate of
+    # the crest was one octave too optimistic.  Widening the constant would be the fifth.
+    # NO QUANTITY DERIVED FROM THE ENUMERATION INDEX MAY DROP A PEAK.  The index survives
+    # only as a Newton seed and bracket centre, which is the one thing it is entitled to
+    # be.  The keep decision is now taken ONCE, after localisation, on `lnL_star`, which
+    # is the crest rather than an estimate of it.
+    #
+    # What used to justify the pre-filter was COST -- bounding how many peaks reach
+    # localisation.  That job is already done, and done safely, by the gate below: it runs
+    # BEFORE localisation, it is built from the enumeration samples alone, and it declines
+    # the whole ROW to the dense path rather than selecting which peaks to believe.  A
+    # gate that declines a row is safe in a way that a filter which deletes a peak is not.
+    # THE PRE-FILTER, REBUILT ON AN INEQUALITY INSTEAD OF A FIT.
+    #
+    # Cost still has to be bounded -- without any pre-filter every row enumerates its
+    # whole oscillation (295 maxima on one fixture here), the gate below sees more
+    # intervals than `MAX_INTERVALS` and declines EVERY row, and the option becomes inert.
+    # Measured: `n_peak_local_rows = 0` on all six fixture families.
+    #
+    # So a peak may still be dropped, but only against a bound that holds unconditionally.
+    # Let `t*` be the crest and `t_s` its enumeration sample.  Expanding about the CREST,
+    # where `q'` vanishes by definition,
+    #
+    #     q(t_s) = q(t*) + q''(xi) (t_s - t*)^2 / 2,     |t_s - t*| <= h_enum
+    #
+    # so  q(t*) <= q(t_s) + q_ddot_max * h_enum^2 / 2  with `q_ddot_max` the spectral
+    # bound computed above.  This is a Taylor remainder with a TRUE bound on the second
+    # derivative, not a parabolic fit, so it is immune to the anharmonicity that broke the
+    # previous version: there is no assumption that `lnL` is quadratic across a cell, and
+    # no `1/sigma^2` amplification of a modelling error.  It uses `h_enum`, the localiser's
+    # actual bracket, not `h_enum/2`.
+    #
+    # `loglikelihood` is monotone in its first argument, so bounding `q` bounds `lnL`.  The
+    # comparison is then a genuine upper bound against a genuine lower bound (the largest
+    # SAMPLE in the row, which cannot exceed the crest above it), and a peak is discarded
+    # only when it cannot be within `PEAK_KEEP_NATS` however the quantisation falls.
+    #
+    # NOTE the sample is read AT THE ENUMERATED INDEX.  The previous version read
+    # `lnL_st[:, maxd]`, which sits at the stencil centre -- clipped inward by one at the
+    # array ends -- so at `cols_p` 0 or `n_enum-1` it was a full enumeration cell away from
+    # the peak, measured 132 nats low at rho ~ 40 and 8449 nats low at rho ~ 700, growing
+    # with SNR.  That is the same defect at a third site.
+    q_at_peak = q_up[rows_p, cols_p]
+    q_crest_upper = crest_upper_bound(q_at_peak, q_ddot_max[rows_p], h_enum)
+    rho_at_peak = rho_col_rows[rows_p, 0]
+    lnL_upper = loglikelihood(q_crest_upper, rho_at_peak)
+    lnL_lower = loglikelihood(q_at_peak, rho_at_peak)
 
     rows_np = _host(rows_p, xpy)
     cols_np = _host(cols_p, xpy)
     sig_np = _host(sigma_pk, xpy)
-    val_np = _host(lnL_pk, xpy)              # UPPER bound on each crest
-    low_np = _host(lnL_sample, xpy)          # LOWER bound (the raw sample)
+    up_np = _host(lnL_upper, xpy)            # rigorous UPPER bound on this crest
+    low_np = _host(lnL_lower, xpy)           # LOWER bound (the sample cannot exceed it)
 
-    # ---- drop peaks that cannot carry representable mass, and peaks with no
-    # resolvable curvature.  Both drops are SAFE rather than hopeful: what is dropped
-    # then lies outside the intervals and so enters the tail bound below.
-    # LOWER bound on the row's highest crest: the largest SAMPLE value, which can never
-    # exceed the crest it sits under.  Compared against each peak's UPPER bound, so a
-    # peak is discarded only when it cannot be within PEAK_KEEP_NATS however the
-    # quantisation falls.
     row_best = np.full(n_rows, -np.inf)
     np.maximum.at(row_best, rows_np, low_np)
-    keep = np.isfinite(sig_np) & (val_np > row_best[rows_np] - PEAK_KEEP_NATS)
+    # `isfinite(sig_np)` is not a magnitude decision: a peak with no finite negative
+    # curvature at any stencil half-width has no width, so no interval can be built for
+    # it.  What is dropped here lies outside the intervals and enters the tail bound.
+    keep = np.isfinite(sig_np) & (up_np > row_best[rows_np] - PEAK_KEEP_NATS)
     rows_np, cols_np, sig_np = rows_np[keep], cols_np[keep], sig_np[keep]
     if rows_np.size == 0:
         return values, ok, peaks
@@ -1045,10 +1143,6 @@ def _peak_local_chunk(kappa_rows, rho_col_rows, factors, npts, deltaT, period,
     # takes its even branch and splits the Nyquist bin exactly as `bandlimited_upsample`
     # does inside `reflected_bandlimited_upsample`.  The two therefore agree on the
     # forward interval, which is the only part this module ever evaluates.
-    kappa_reflected = xpy.concatenate(
-        (kappa_rows, xpy.flip(kappa_rows, axis=-1)), axis=-1)
-    Xw, fk = bandlimited_spectrum(kappa_reflected, xpy=xpy)
-    period_ref = 2.0 * period
     t_star, q_star, loc_ok = localise_peaks(
         Xw, fk, xpy.asarray(rows_np), xpy.asarray(t_grid_np), h_enum,
         xpy.asarray(tol_np), period_ref, xpy=xpy, t_last=t_last)

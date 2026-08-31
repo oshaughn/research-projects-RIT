@@ -1825,5 +1825,224 @@ def test_peak_local_runs_on_the_gpu_backend_and_matches_numpy():
     assert np.max(np.abs(gpu[fin] - cpu[fin])) < 1e-6, (cpu, gpu)
 
 
+# ---------------------------------------------------------------- round 6 (door 4)
+
+def _skewed_two_peak_row(HA, HB, npts=NPTS, phase=0.65625):
+    """The fixture that broke the parabolic pre-filter.
+
+    Peak A is symmetric and sets the row's derived factor.  Peak B is SKEWED -- a kernel
+    plus 0.8x the same kernel shifted by two coarse samples -- and sits at a sub-cell
+    phase chosen to maximise its crest-to-sample displacement (d = 0.5007 h_enum).  The
+    skew is what matters: a symmetric peak's crest deficit is nearly quadratic and a
+    parabolic correction almost covers it, while a skewed peak's is ANHARMONIC and no
+    parabolic correction covers it at any constant.
+    """
+    T = npts * DELTAT
+    ms = np.arange(1, (npts - 1) // 2 + 1)
+    h_enum = DELTAT / pl.PEAK_ENUM_FACTOR
+    ea = np.exp(-0.5 * (ms / 40.0) ** 2)
+    eb = np.exp(-0.5 * (ms / 120.0) ** 2)
+    tb = 400 * DELTAT + phase * h_enum
+    c = (HA * ea * np.exp(-2j * np.pi * ms * (150 * DELTAT) / T)
+         + HB * eb * (np.exp(-2j * np.pi * ms * tb / T)
+                      + 0.8 * np.exp(-2j * np.pi * ms * (tb + 2.0 * DELTAT) / T)))
+    return (np.exp(2j * np.pi * np.outer(np.arange(npts), ms) / npts) @ c)[None, :]
+
+
+def _crest_pair(k):
+    """The CREST values of peak A (near coarse sample 150) and peak B (near 400).
+
+    Identified BY POSITION, not by rank: which of the two is on top is exactly what the
+    bisection below varies, so a rank-ordered pair silently swaps under it.
+
+    LOCALISED, not sampled -- and the first version of this helper was not, which is the
+    same mistake this whole file is about.  Peak A sits exactly on an enumeration sample
+    so its sample IS its crest; peak B is deliberately off-grid, and in the sharp regime
+    its sample understates its crest by ~3125 nats.  Equalising the SAMPLES therefore
+    leaves B thousands of nats above A, A is correctly dropped, and the fixture tests
+    nothing while appearing to.
+    """
+    F = pl.PEAK_ENUM_FACTOR
+    h_enum = DELTAT / F
+    q = tmq.reflected_bandlimited_upsample(k, F)[..., :(NPTS - 1) * F + 1].real
+    rp, cp = np.where(pl.enumerate_peak_indices(q))
+    kref = np.concatenate((k, np.flip(k, axis=-1)), axis=-1)
+    Xw, fk = pl.bandlimited_spectrum(kref)
+    period_ref = 2.0 * NPTS * DELTAT
+    _, q_star, _ = pl.localise_peaks(
+        Xw, fk, rp, cp * h_enum, h_enum, np.full(rp.size, 1e-14 * NPTS * DELTAT),
+        period_ref, t_last=(NPTS - 1) * DELTAT)
+    out = []
+    for centre in (150 * F, 400 * F):
+        near = np.abs(cp - centre) <= 3 * F
+        assert near.any(), (centre, cp[:20])
+        out.append(float(np.asarray(q_star)[near].max()))
+    return out[0], out[1]
+
+
+def _equalise_crests(scale, tol=1.0):
+    """Solve for the B amplitude that makes the two crests equal to within `tol` nats.
+
+    Bisected rather than hard-coded: the two peaks OVERLAP, so a fixed amplitude ratio
+    equalises them at one scale only -- the crest gap is linear in amplitude, so a ratio
+    tuned at rho ~ 40 leaves the second peak thousands of nats down at rho ~ 700 and the
+    fixture silently stops testing anything.  `crestA - crestB` is monotone decreasing in
+    the B amplitude, which is what makes a plain bisection valid.
+    """
+    lo, hi = 1e-4 * scale, 10.0 * scale
+    mid = hi
+    for _ in range(80):
+        mid = 0.5 * (lo + hi)
+        a, b = _crest_pair(_skewed_two_peak_row(scale, mid))
+        if abs(a - b) < tol:
+            return mid
+        if a > b:
+            lo = mid          # B too small
+        else:
+            hi = mid
+    raise AssertionError("could not equalise the two crests at scale %g" % scale)
+
+
+def test_the_prefilter_bound_is_actually_a_bound():
+    """DOOR 4, the property.  The pre-filter may only drop a peak against a bound that
+    HOLDS.  The previous one -- `lnL_sample + (h_enum/2)**2 / (2 sigma**2)` -- did not:
+    it was violated on 0.3-3% of enumerated peaks, by up to 19456 nats, growing linearly
+    with amplitude, because `lnL` is not a parabola across a half enumeration cell and
+    the ANHARMONIC part of the deficit carries the same 1/sigma**2 amplification.  At
+    derived factor 1024 the pure quantisation excess is 4.4 nats and the true shortfall
+    is 122.3.
+
+    The replacement is a Taylor remainder with a TRUE bound on the second derivative:
+    expanding about the crest, where q' vanishes, q(t*) <= q(t_s) + max|q''| h_enum**2/2,
+    and max|q''| <= sum_j |Xw_j| |w_j|**2 by the triangle inequality on the spectral sum.
+    Nothing is fitted, so there is no model error to amplify.
+
+    Asserted as a PROPERTY over every peak, not on one fixture: a bound that holds on the
+    fixture you thought of is what has failed here four times.
+    """
+    rng = np.random.default_rng(6060)
+    for npts in (153, 307, 614):
+        for amp in (2.0e4, 2.0e6):
+            T = npts * DELTAT
+            ms = np.arange(1, (npts - 1) // 2 + 1)
+            env = np.exp(-0.5 * (ms / max(npts / 6.0, 20.0)) ** 2)
+            c = np.zeros(ms.size, dtype=complex)
+            for tau, a in zip(rng.uniform(0.05, 0.95, 4) * T,
+                              amp * rng.uniform(0.6, 1.0, 4)):
+                c = c + 2.0 * env * (a / (2 * env.sum())) * np.exp(-2j * np.pi * ms * tau / T)
+            kap = (np.exp(2j * np.pi * np.outer(np.arange(npts), ms) / npts) @ c)[None, :]
+
+            F = pl.PEAK_ENUM_FACTOR
+            h_enum = DELTAT / F
+            q_up = tmq.reflected_bandlimited_upsample(
+                kap, F)[..., :(npts - 1) * F + 1].real
+            rp, cp = np.where(pl.enumerate_peak_indices(q_up))
+            assert rp.size > 10, (npts, amp, rp.size)
+
+            kref = np.concatenate((kap, np.flip(kap, axis=-1)), axis=-1)
+            Xw, fk = pl.bandlimited_spectrum(kref)
+            period_ref = 2.0 * npts * DELTAT
+            q_ddot_max = pl.spectral_curvature_bound(Xw, fk, period_ref)
+            upper = _lnL(
+                pl.crest_upper_bound(q_up[rp, cp], q_ddot_max[rp], h_enum), RHO_SQ)
+
+            # the TRUE crest, on the same interpolant the module localises on
+            _, q_star, _ = pl.localise_peaks(
+                Xw, fk, rp, cp * h_enum, h_enum, np.full(rp.size, 1e-14 * T),
+                period_ref, t_last=(npts - 1) * DELTAT)
+            true_crest = _lnL(q_star, RHO_SQ)
+            short = float((true_crest - upper).max())
+            assert short <= 0.0, (
+                "the pre-filter bound is not a bound", npts, amp, short)
+
+
+def test_a_codominant_crest_is_not_deleted_by_the_prefilter():
+    """DOOR 4, end to end, on the shipped entry point.
+
+    Two crests equal to within 1e-4 nats, so neither may be dropped -- both are far
+    inside PEAK_KEEP_NATS.  The old pre-filter deleted the skewed one BEFORE localisation,
+    so the exact filter never saw it, and the answer came back **-0.358 nats** low,
+    ACCEPTED, with the tail bound and the containment check both silent.  The tail bound
+    cannot backstop this: `q_out_max` reads the deleted peak at its SAMPLE, the very
+    quantity the defect corrupts.
+
+    Reference-free: compared against the rule this one delegates to, so no interpolant
+    reference can be argued with.
+    """
+    checked = 0
+    for scale in (2.0e4, 4.0e4, 8.0e4):
+        HB = _equalise_crests(scale)
+        k = _skewed_two_peak_row(scale, HB)
+        # both crests inside PEAK_KEEP_NATS, so NEITHER may be dropped -- that is the
+        # precondition the whole test rests on, so assert it rather than assume it
+        pair = _crest_pair(k)
+        assert abs(pair[0] - pair[1]) < pl.PEAK_KEEP_NATS, (scale, pair)
+        r = np.full(k.shape, RHO_SQ)
+        try:
+            want = float(np.asarray(
+                tmq.time_marginalize_bandlimited(k, r, DELTAT, _lnL))[0])
+        except RuntimeError:
+            # the dense path declines this row on the ceiling, so it cannot serve as the
+            # reference here.  Skipping it is honest; asserting against a value the
+            # reference implementation refuses to produce is not.
+            continue
+        got = float(np.asarray(pl.time_marginalize_peak_local(k, r, DELTAT, _lnL))[0])
+        rep = pl.last_report()
+        assert abs(got - want) < 1e-3, (scale, got, want, rep)
+        # and the peak SURVIVES THE FILTER rather than the row being rescued by a
+        # fallback: the defect was a deletion, so a clean-up afterwards is not the fix
+        assert rep['n_peaks_total'] >= 2, rep
+        checked += 1
+    assert checked >= 2, "fixture no longer exercises the defect at any scale"
+
+
+def test_the_peak_sample_is_read_at_the_enumerated_index():
+    """The same defect at a third site.  The pre-filter's lower bound used to be
+    `lnL_st[:, maxd]`, the callback at the stencil CENTRE -- which is clipped inward by
+    one sample at the array ends, so at enumeration index 0 or n-1 it was a full
+    enumeration cell away from the peak it claimed to describe.  Measured 132 nats low at
+    rho ~ 40 and 8449 nats low at rho ~ 700, growing with SNR.
+
+    A stencil centre is clipped so the CURVATURE can be measured; the peak's own value
+    must still be read where the peak is.
+    """
+    F = pl.PEAK_ENUM_FACTOR
+    maxd = max(pl.CURVATURE_STENCIL_HALFWIDTHS)
+    for amp in (4.0e4, 2.56e6):
+        sig = BandLimited(amp=amp, peak_sample=0.05)
+        k = sig.samples()[None, :]
+        q_up = tmq.reflected_bandlimited_upsample(
+            k, F)[..., :(NPTS - 1) * F + 1].real
+        rp, cp = np.where(pl.enumerate_peak_indices(q_up))
+        edge = cp == 0
+        if not edge.any():
+            continue
+        at_index = q_up[rp[edge], cp[edge]]
+        at_clipped = q_up[rp[edge], np.clip(cp[edge], 1, q_up.shape[-1] - 2)]
+        # the two differ materially, and by more as the amplitude grows, which is why
+        # reading the wrong one mattered and why it got worse with SNR
+        gap = float(np.max(at_index - at_clipped))
+        assert gap > 1.0, (amp, at_index, at_clipped)
+
+        # The property that matters: the bound the pre-filter compares against must still
+        # hold AT AN ENDPOINT, which it does only if the sample is read at the enumerated
+        # index.  Read at the clipped centre it is short by `gap`, and `gap` grows with
+        # amplitude without limit.
+        kref = np.concatenate((k, np.flip(k, axis=-1)), axis=-1)
+        Xw, fk = pl.bandlimited_spectrum(kref)
+        period_ref = 2.0 * NPTS * DELTAT
+        h_enum = DELTAT / F
+        q_ddot_max = pl.spectral_curvature_bound(Xw, fk, period_ref)
+        _, q_star, _ = pl.localise_peaks(
+            Xw, fk, rp[edge], cp[edge] * h_enum, h_enum,
+            np.full(int(edge.sum()), 1e-14 * NPTS * DELTAT), period_ref,
+            t_last=(NPTS - 1) * DELTAT)
+        good = pl.crest_upper_bound(at_index, q_ddot_max[rp[edge]], h_enum)
+        bad = pl.crest_upper_bound(at_clipped, q_ddot_max[rp[edge]], h_enum)
+        assert np.all(good >= q_star - 1e-6), (amp, float((q_star - good).max()))
+        assert np.any(bad < q_star - 1e-6), (
+            amp, "the clipped read no longer breaks the bound; fixture is stale")
+
+
 if __name__ == '__main__':
     raise SystemExit(pytest.main([__file__, '-q']))
