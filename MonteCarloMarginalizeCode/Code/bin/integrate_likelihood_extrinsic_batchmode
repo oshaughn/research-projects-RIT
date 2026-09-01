@@ -60,6 +60,7 @@ from RIFT.integrators.rvs_record import (RvsRecord as _RvsRecord,   # see DESIGN
 # cupy when mcsamplerGPU.draw_simplified() calls it with a device array), so one definition serves
 # every sampler.
 from RIFT.integrators.mcsampler import (clip_angle_limits, cosine_sampler_limits,
+                                        distance_limit_range, distance_sampler_kwargs,
                                         ret_dec_samp_vector, ret_dec_samp_cdf_inv_vector,
                                         ret_cos_samp_vector, ret_cos_samp_cdf_inv_vector)
 import RIFT.misc.sky_rotations as sky_rotations
@@ -343,6 +344,7 @@ integration_params.add_option("--limit-right-ascension",default=None,help="Restr
 integration_params.add_option("--limit-declination",default=None,help="Restrict declination sampling AND prior to 'LO,HI' [rad].  Always given in radians of DECLINATION: with --declination-cosine-sampler the box is transformed internally to the sampled coordinate sin(dec).  Not compatible with --internal-sky-network-coordinates.")
 integration_params.add_option("--limit-inclination",default=None,help="Restrict inclination sampling AND prior to 'LO,HI' [rad].  Always given in radians of INCLINATION: with --inclination-cosine-sampler the box is transformed internally to the sampled coordinate cos(iota), which reverses the limit order.")
 integration_params.add_option("--limit-psi",default=None,help="Restrict polarization psi sampling AND prior to 'LO,HI' [rad].")
+integration_params.add_option("--limit-distance",default=None,help="Restrict distance SAMPLING to 'LO,HI' [Mpc], WITHOUT changing the prior or its normalization.  Unlike --d-min/--d-max (which SET the prior and therefore change the numerical answer) and unlike the angular --limit-* boxes (which narrow the prior SUPPORT, so lnZ drops by the prior mass outside), this is a change of SAMPLING prior only: the distance prior keeps the normalization it has over the full [--d-min,--d-max], so the reported lnZ needs no correction and is directly comparable to a full-range run and between samplers.  Intended for high amplitude, where the distance posterior narrows as 1/rho and a box tracking it costs no evidence while restoring the resolution the quadrature was wasting -- keep the box comfortably wider than the posterior, because likelihood OUTSIDE it is simply not integrated.  Must lie inside [--d-min,--d-max].  REFUSED (not ignored) with --distance-marginalization (no distance sampler exists: the marginal is an analytic integral over [--d-min,--d-max]), with --d-prior-redshift (the sampled coordinate is redshift, not Mpc) and with --internal-reparam-dl-incl (the sampled axis is D_eff, not d_L).")
 integration_params.add_option("--internal-rotate-phase", action='store_true',help="If specified, the integration sampler uses phase_p ==phi+psi and phase_m == phi-psi as sampling coordinates, both ranging from 0 to 4 pi.  The prior is twice as large.")
 integration_params.add_option("--internal-sky-network-coordinates",action='store_true',help="If specified, perform integration in sky coordinates aligned with the first two IFOs provided")
 integration_params.add_option("--internal-sky-network-coordinates-raw",action='store_true',help="If specified, does not attempt to organize IFO network sensibly, uses them AS PROVIDED IN ORDER.")
@@ -1373,6 +1375,26 @@ for _optv, _k in [(opts.limit_psi, 'psi'), (opts.limit_right_ascension, 'right_a
     print("  [limit] restricting {} sampling/prior to [{:.4f}, {:.4f}]".format(_k, _lo, _hi))
 limit_declination_active = bool(opts.limit_declination)
 limit_inclination_active = bool(opts.limit_inclination)
+# --limit-distance: SAMPLING-only narrowing.  dist_prior_range is captured BEFORE the
+# narrowing and is what the distance prior normalizes over, so the reported lnZ keeps the
+# full-range scale.  (Under --internal-reparam-dl-incl the range captured here is the
+# widened D_eff axis, which is what that mode already normalized over -- and which is why
+# --limit-distance is refused there rather than reinterpreted.)
+dist_prior_range = (param_limits["distance"][0], param_limits["distance"][1])
+limit_distance_active = bool(opts.limit_distance)
+if limit_distance_active:
+  if opts.distance_marginalization:
+    raise SystemExit(" --limit-distance is not compatible with --distance-marginalization: that path has no distance sampler to narrow (the distance integral is done analytically over [--d-min,--d-max] from the lookup table).")
+  if getattr(opts, 'd_prior_redshift', False):
+    raise SystemExit(" --limit-distance is not compatible with --d-prior-redshift: the sampled coordinate is then redshift, not luminosity distance in Mpc.")
+  if opts.internal_reparam_dl_incl:
+    raise SystemExit(" --limit-distance is not compatible with --internal-reparam-dl-incl: the sampled distance axis is then D_eff = d_L/A(iota), not d_L, so a box in Mpc of d_L does not map to a box in the sampled coordinate.")
+  try:
+    _dlo, _dhi = distance_limit_range(opts.limit_distance, dist_prior_range[0], dist_prior_range[1])
+  except ValueError as _e:
+    raise SystemExit(" --limit-distance: {}".format(_e))
+  param_limits["distance"] = (_dlo, _dhi)
+  print("  [limit] restricting distance sampling to [{:.4f}, {:.4f}] Mpc (prior normalization UNCHANGED over [{:.4f}, {:.4f}] Mpc)".format(_dlo, _dhi, dist_prior_range[0], dist_prior_range[1]))
 
 #
 # Parameter integral sampling strategy
@@ -1627,8 +1649,12 @@ if (opts.d_prior == 'cosmo' or opts.d_prior == 'cosmo_sourceframe') and not opts
       sampler.add_parameter("distance",   
                           pdf = dist_sampler,   
                           cdf_inv = dist_sampler_cdf_inv, 
-                          left_limit = dmin, 
-                          right_limit = dmax,
+                          # Historically the physical [dmin,dmax]; narrowed only by
+                          # --limit-distance.  pdf_dL is normalized over the full
+                          # [zmin,zmax] <-> [dmin,dmax] either way, so the evidence
+                          # scale does not move.
+                          left_limit = param_limits["distance"][0] if limit_distance_active else dmin, 
+                          right_limit = param_limits["distance"][1] if limit_distance_active else dmax,
                           prior_pdf = pdf_dL,   #only thing preserved in calculation
                           adaptive_sampling = (adapt_extra_extrinsic and not (opts.no_adapt or opts.no_adapt_distance)) or opts.force_adapt_all)
     else:
@@ -1643,16 +1669,22 @@ if (opts.d_prior == 'cosmo' or opts.d_prior == 'cosmo_sourceframe') and not opts
                           prior_pdf = pdf_z,   #only thing preserved in calculation
                           adaptive_sampling = (adapt_extra_extrinsic and not (opts.no_adapt or opts.no_adapt_distance)) or opts.force_adapt_all)
 elif not opts.distance_marginalization:
-  dist_sampler = mcsampler.ret_uniform_samp_vector_alt( param_limits["distance"][0], param_limits["distance"][1])
-  dist_sampler_cdf_inv = functools.partial(mcsampler.uniform_samp_cdf_inv_vector,     param_limits["distance"][0], param_limits["distance"][1])
-  #dist_sampler=functools.partial( mcsampler.uniform_samp_withfloor_vector, numpy.min([distBoundGuess,param_limits["distance"][1]]), param_limits["distance"][1], 0.001)
-  dist_prior_pdf =   lambda x: x**2/(param_limits["distance"][1]**3/3.                   - param_limits["distance"][0]**3/3.) 
-  if opts.d_prior == 'pseudo_cosmo':
-    nm = priors_utils.dist_prior_pseudo_cosmo_eval_norm(param_limits["distance"][0],param_limits["distance"][1])
-    dist_prior_pdf =functools.partial( priors_utils.dist_prior_pseudo_cosmo, nm=nm,xpy=xpy_default)
-  elif opts.d_prior != 'Euclidean':
+  # The SAMPLING range is param_limits["distance"] (narrowed by --limit-distance); the
+  # PRIOR normalization range is dist_prior_range, which --limit-distance never touches.
+  # Keeping them as two arguments is the point: the old one-range form normalized the
+  # Euclidean density over whatever the sampler happened to be drawing from, so narrowing
+  # for cost silently rescaled the evidence.  See mcsampler.distance_sampler_kwargs().
+  try:
+    _dist_kwargs = distance_sampler_kwargs(
+                        mcsampler, param_limits["distance"], dist_prior_range,
+                        d_prior=opts.d_prior, xpy=xpy_default,
+                        adaptive_sampling = (adapt_extra_extrinsic and not (opts.no_adapt or opts.no_adapt_distance)) or opts.force_adapt_all)
+  except ValueError:
     print(" ==== WARNING UNKNOWN DISTANCE PRIOR === ")
     raise Exception('distance prior')
+  dist_sampler = _dist_kwargs['pdf']
+  dist_sampler_cdf_inv = _dist_kwargs['cdf_inv']
+  dist_prior_pdf = _dist_kwargs['prior_pdf']
   if opts.internal_reparam_dl_incl:
     # dist_prior_pdf is normalized over the WIDENED D_eff range; the physical prior must be
     # normalized over [dmin,dmax].  ln F = ln(mass of dist_prior_pdf in [dmin,dmax]); the closure
@@ -1665,13 +1697,7 @@ elif not opts.distance_marginalization:
     _REPARAM_LNF = float(numpy.log(numpy.trapz(_pg, _xg)))
     print("  [reparam] physical-range prior-mass fraction F={:.4f} (lnF={:.3f}); lnZ normalization matched".format(numpy.exp(_REPARAM_LNF), _REPARAM_LNF))
   #dist_sampler_cdf_inv=None
-  sampler.add_parameter("distance",
-                        pdf = dist_sampler, 
-                        cdf_inv = dist_sampler_cdf_inv,
-                        left_limit = param_limits["distance"][0], 
-                        right_limit = param_limits["distance"][1],
-                        prior_pdf = dist_prior_pdf,  #only thing physical
-                        adaptive_sampling = (adapt_extra_extrinsic and not (opts.no_adapt or opts.no_adapt_distance)) or opts.force_adapt_all)
+  sampler.add_parameter("distance", **_dist_kwargs)   # prior_pdf is the only thing physical
 
 # 
 # Rotate sky coordinates

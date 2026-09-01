@@ -37,6 +37,11 @@ fi
 # coordinate-transform + prior-mass identities, so they belong with the integrator gate
 # rather than with the end-to-end run tests.
 python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_limit_cosine_samplers.py
+# --limit-distance: the SAMPLING-only distance box.  Listed separately from the cosine
+# file because the failure it guards is a different one -- not "the flag is ignored" but
+# "the flag silently renormalized the prior", which looks like success in the obvious
+# check (lnZ comes back unchanged) and is only separable with a constant likelihood.
+python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_limit_distance.py
 python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_mcsampler_ensemble_log_contract.py
 
 # Supplementary-likelihood plugin hook: the NAL reader/evaluator (pure numpy, no data) and the

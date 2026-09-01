@@ -549,7 +549,10 @@ jobs:
         # Also run by .travis/test-integrate.sh (integration-check, py3.10). Repeated here
         # because this job is the only one matrixed over BOTH numpy lanes, and these tests
         # are the kind that break on numpy API removals (e.g. np.trapz -> np.trapezoid).
-        run: python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_limit_cosine_samplers.py
+        run: |
+          python -m pytest -q \
+            MonteCarloMarginalizeCode/Code/test/test_limit_cosine_samplers.py \
+            MonteCarloMarginalizeCode/Code/test/test_limit_distance.py
       - name: Run NAL / supplementary-likelihood hook tests
         # Also run by .travis/test-integrate.sh (integration-check, py3.10). Repeated here for the
         # same reason as above: nal_io is pure numpy and has a legacy-numpy fallback for
