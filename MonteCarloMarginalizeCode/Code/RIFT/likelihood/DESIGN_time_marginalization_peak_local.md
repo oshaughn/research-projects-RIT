@@ -791,100 +791,89 @@ FURTHER from every crest. Over 250 random rows (1–3 bumps, log-uniform amplitu
 
 ## Mutation sweep
 
-25 mutations against the post-G-fix code (`244e7cca`), baseline **90 passed / 4
-deselected** (the 4 driver subprocess tests, which no numerical mutation can reach;
-full suite 94).  Restores from `git show HEAD:` — a pristine source, never a
-reverse-edit, never a snapshot taken while a mutation was live — with every anchor
-required to match exactly once so a stale anchor reports a HARNESS FAILURE rather than a
-false survivor.  Run on `ldas-pcdev13` with the intended branch verified live.
+**34 mutations against the current code** (`e03dde95`), baseline **109 collected / 108
+passed / 1 skipped** (the skip is the GPU parity test on a CPU runner). Restores from
+`git show HEAD:` — a pristine source, never a reverse-edit, never a snapshot taken while a
+mutation was live — with every anchor required to match EXACTLY ONCE so a stale anchor
+reports a HARNESS FAILURE rather than a false survivor. **0 harness failures**, and the
+anchor check earned its keep: it caught one anchor that had gone stale under the round-7
+edit before the sweep could report a phantom survivor.
 
-**17 killed, 8 survived.**  Killed, with the test that did it:
+**22 killed, 12 survived.**
 
-| mutation | killed by |
+### The harness had a defect of its own, and it inverted every verdict
+
+The first run reported `L1_skip_localisation` as **SURVIVED** beside the words
+"11 failed, 92 passed". `pytest ... | tail -4` returns **TAIL's** exit status, which is
+always 0, so every killed mutation read as a survivor. This is the same family as any check
+whose pass condition is empty output. The runner now captures the full run and takes the
+last lines in Python, so the return code is pytest's own. Quoted here because a sweep that
+silently inverts its verdicts is worse than no sweep.
+
+### Killed (22), grouped by the defence that did it
+
+| defence | mutations killed |
 |---|---|
-| L1 skip localisation | uniform-arrival block, return_peaks, ceiling |
-| L2 one Newton step | 12 tests |
-| L3 drop the convergence assertion | localiser-reports-non-convergence |
-| L5 drop the tol widening | tail-bound recomputation |
-| G1 keep filter on the SAMPLE value | secondary-crest-between-samples |
-| C1 containment always passes | containment-catches-mis-placed-interval |
-| **C2 containment vs the enumeration SAMPLE** | containment-catches-mis-placed-interval |
-| C3 `T_outside` from grid indices | tail-bound recomputation |
-| C4 tail bound drops `log(T_outside)` | tail-bound recomputation |
-| C6 ceiling after the cost gate | ceiling-fails-closed-for-sharpest |
-| C7 disable the pre-enumeration gate | pre-enumeration-gate-actually-fires |
-| C9 `LOCALISE_SAFETY` breaks the relation | tuned-constants |
-| E2/E3 plateau asymmetry, both ways | plateau-yields-exactly-one-maximum |
-| E4 merge running maximum | merge-keeps-contained-interval |
-| E7 drop trapezoid half-weights | local-trapezoid-half-weights |
-| **W1 shipped branch delegates to bandlimited** | option-reaches-the-shipped-likelihood |
+| localisation | `L1` skip it, `L2` one Newton step, `L3` drop the convergence test, `L5` drop the tol widening |
+| **the round-7 pinned refusal** | **`P1` count a pinned crest as converged** |
+| **the round-6 crest bound** | **`D4c` revert to the parabolic bound**, `D4e` remove the pre-filter entirely (the option goes inert) |
+| curvature stencil | `G5` re-clip the stencil centre, `E1` re-exclude endpoints |
+| containment / tail bound | `C1` containment always passes, `C3` `T_outside` from indices, `C4` drop `log T_outside`, `C6` ceiling after the cost gate, `C10` disable the tail tolerance |
+| constants' coupling | `C9` break the `LOCALISE_SAFETY` relation, **`W2` drop `W_SIGMA` below its slack**, `W3` lower `PEAK_KEEP_NATS` |
+| quadrature | `E7` drop the trapezoid half-weights |
+| **the round-5 reconstruction** | **`R1` enumerate on the periodic interpolant, `R2` evaluate on it, `R3` route the edge guard back to Simpson** |
+| the shipped wiring | **`W1` make the branch delegate to `bandlimited`** — same signature, same numbers, whole cost benefit gone |
 
-C2 and W1 are the two that had to die.  W1 makes the option INERT — same signature, same
-numbers, entire cost benefit gone — and it was invisible until `last_report()` was
-asserted, because peak-local is *designed* to agree with bandlimited so no value
-comparison can distinguish them.  C2 is the check comparing against the sample instead of
-the localised crest, which passes precisely in the case it must catch.
+Three of these matter more than the rest. **`W1`** is the inert-option hazard, invisible to
+any value comparison because agreeing with `bandlimited` *is* the design; only the
+`last_report()` assertion catches it. **`W2`** confirms the `W_SIGMA` coupling inequality is
+load-bearing rather than decorative. **`E1` was a SURVIVOR before round 4** and was reported
+then as "a no-op over dead code" — it is now killed, which is the cleanest evidence that the
+endpoint enumeration Door 2 was meant to enable is actually live.
 
-### The 8 survivors, and which of them are evidence
+### The 12 survivors, and which of them are evidence
 
-A mutation that does not change behaviour is a harness artifact, not a coverage gap.
-Each survivor was re-applied and run over a battery of six fixture families chosen to hit
-the shape it targets, comparing values AND report counters against pristine:
+A mutation that cannot be shown to change behaviour is a **harness artifact, not a coverage
+gap**, and reporting it as one would be the sweep lying to itself. Each survivor was
+re-applied and run over six fixture families chosen to hit the shape it targets, comparing
+values AND every `last_report()` counter against pristine.
 
-| survivor | changes behaviour? | verdict |
-|---|---|---|
-| L4 widen the Newton bracket | **no** — identical on all 6 | no-op: Newton converges well inside `+/-h_enum`, so widening is unobservable |
-| G4 gate interval not a superset | **no** — identical on all 6 | no-op here; cost-only by construction (a row it wrongly keeps is still computed correctly) |
-| E1 re-exclude endpoints | **no** — identical on all 6 | no-op **over dead code** — see the correction below |
-| E5 drop interval clipping | **no** — identical on all 6 | no-op, but the stated reason was wrong — see below |
-| E6 curvature ladder → d=1 | **no** — identical on all 6 | no-op: no fixture has a `-inf` hole at d=1 on the enumeration grid |
-| G5 re-clip the stencil centre | values, at **1e-12** | right observation, WRONG mechanism — see below |
+**Ten of the twelve are no-ops** — identical values *and* identical counters on all six
+families: `L4` (widen the Newton bracket), `G1` (disable the exact keep filter — it only ever
+keeps MORE, so it cannot change an answer), `D4a` (shrink the bound's constant 4x), `D4b`
+(halve the curvature bound), `D4d` (read the sample at the clipped stencil centre), `C7`,
+`C8`, `E5`, `E6`, `G4`.
 
-### Four of those reasons were wrong, and a right verdict on a false premise is how the next bug hides
+**Two changed behaviour, and only these are coverage gaps:**
 
-An independent check reproduced all five no-op VERDICTS on a wider battery. Four of the
-reasons I gave for them did not survive:
+* **`R4` drop the `boundary_unresolved` seed — max |Δ| = 6.06 nats** on an endpoint-max row,
+  with every counter unchanged. A genuine gap, and instructive about why it hid: it survived
+  `test_row_classification_matches_the_dense_path_exactly` because both rules read the SAME
+  `_classify_rows`, so removing the clause moves them together and parity still holds. **A
+  parity test cannot see a change made to the definition both sides read.**
+  `test_boundary_unresolved_rows_are_refined_and_not_called_flat` now asserts the
+  classification itself and kills it. **Closed.**
+* **`C5` one extra covered sample per end** — values identical to the last bit; only
+  `tail_bound_worst` moves (−109.7 → −462.9, −57.7 → −67.0, −366.2 → −1591.7). Diagnostics
+  only. **Open gap, and it is a reporting number, not an answer.**
 
-* **E1.** I wrote "no fixture puts a maximum exactly at index 0 or last". False — their
-  battery has 22. The true reason is stronger and much worse: at revision `761cafb3` an
-  endpoint maximum could never obtain a finite `sigma` (both estimators degrade at the
-  array ends, see Door 2 below), so it was dropped before anything else ran. **Revision
-  2's endpoint enumeration was dead code**: 22 endpoint maxima enumerated, zero usable.
-  The mutation was a no-op over a feature that did nothing.
-* **E5.** I wrote "no fixture produces `lo < 0` or `hi > t_last`". False — the clip fires
-  for 138 of 2682 peaks. It remains a no-op only because the clipped region carries
-  `e^-72`. But the clip is what makes the integration domain exactly `[0, t_last]`,
-  identical to the dense path's, and that invariant was unasserted.
-* **G5.** Right that the fixtures do not exercise it, wrong about why: the near-edge peak
-  is dropped because `sigma = inf` at index 0, not because it is below
-  `PEAK_KEEP_NATS`. Their secondary crest is 1.003 nats down and still dropped.
-  "Unexercised" and "the fix is inoperative there" are different bugs, and it was the
-  second.
-* **C8.** Diagnosis right, and now sharper: 4 of 21 rows have final interval count >
-  provisional, so the final check is genuinely non-redundant — it is **untested, not
-  unreachable**, and a fixture in the band `prov <= 32 < final` is constructible.
-| C5 one extra covered sample per end | counters only | genuine gap, diagnostics only |
-| C8 disable the final `MAX_INTERVALS` check | counters only | genuine gap, precisely diagnosed below |
+Two of the no-op verdicts deserve their reasons stated rather than assumed, because a right
+verdict on a false premise is how the next defect hides:
 
-So **five of the eight are not evidence at all**, and reporting them as coverage gaps
-would be the sweep lying to itself.  What remains:
+* **`D4a` / `D4b`.** These weaken the round-6 crest bound by 4x and 2x, and nothing notices.
+  The reason is not that the bound is untested — `D4c`, which reverts it to the parabolic
+  FORM, is killed. It is that the spectral bound is **loose by construction**: measured slack
+  is 15x to 84.5x, so scaling its constant by 2–4x leaves it a valid bound on every fixture
+  available. The suite pins the bound's FORM but not its CONSTANT, and closing that would
+  need a fixture where the true crest deficit comes within 4x of the bound. Given the bound
+  is deliberately conservative, such a fixture may not exist. **Stated as a limit of the
+  sweep, not as a passed test.**
+* **`D4d`.** Reading the peak's value at the inward-clipped stencil centre instead of the
+  enumerated index — the Round-6 third-site defect — is a no-op on these fixtures because the
+  round-6 bound's slack absorbs the 132-to-8449 nat mis-read. `test_the_peak_sample_is_read_at
+  _the_enumerated_index` asserts the property that makes the mis-read wrong, but it does not
+  observe the module's choice, so it cannot kill this mutation. **Open gap, precisely located.**
 
-* **G5** changes the answer only at 1e-12 on the fixtures available, because on every
-  one of them the near-edge peak is more than `PEAK_KEEP_NATS` below the dominant crest
-  and is dropped before the stencil ever runs (`n_peaks_total == 1`).  Making a peak both
-  near-edge and within 60 nats puts the row in a regime where it is declined on cost
-  instead, so **the shape is not reachable through the public entry point with these
-  fixtures.**  The fix is applied and is strictly better; the test that claimed to cover
-  it did not, and has been renamed to say what it actually checks.  The reviewer measured
-  the defect directly (`e2_edgepeak`, −0.3124 nats).  **Open gap.**
-* **C8** is killed by the PROVISIONAL structure gate, not the final one — disabling only
-  the final `too_much` check leaves the suite green because the provisional gate declines
-  the row first.  The final check is kept (the final interval count *can* exceed the
-  provisional one, since narrower intervals merge less readily) but no fixture reaches
-  it.  **Open gap, precisely located.**
-* **C5** perturbs `covered` near an interval edge; with `T_outside` now exact geometry
-  this moves only `q_out_max`, and only when the outside maximum sits adjacent to an
-  edge, which no fixture arranges.  **Open gap, diagnostics only.**
 
 ## Not done in this draft
 

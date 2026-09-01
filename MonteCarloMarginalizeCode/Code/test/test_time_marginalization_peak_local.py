@@ -2105,5 +2105,43 @@ def test_the_localiser_reports_a_pinned_peak_as_unconverged():
     assert not bool(np.asarray(ok)[0]), "a pinned crest must not report as converged"
 
 
+def test_boundary_unresolved_rows_are_refined_and_not_called_flat():
+    """A COVERAGE GAP the mutation sweep found, closed.
+
+    `_classify_rows` seeds a factor for a row whose maximum sits at the first or last
+    sample: the centred curvature stencil is clipped inward there, so a severely
+    under-resolved endpoint peak reads POSITIVE curvature and is mislabelled "flat", which
+    would silently retain Simpson for exactly the truncated-boundary case the option exists
+    to reconstruct.
+
+    Deleting that seed left the whole 109-test suite green while moving an endpoint row by
+    **6.06 nats**.  It survived `test_row_classification_matches_the_dense_path_exactly`
+    because both rules share `_classify_rows`, so removing the clause moves them TOGETHER
+    and parity still holds -- a parity test cannot see a change made to the definition both
+    sides read.  So this asserts the classification itself, not the agreement.
+    """
+    T = NPTS * DELTAT
+    ms = np.arange(1, (NPTS - 1) // 2 + 1)
+    # m0 = 120 is the regime where the inward-clipped coarse stencil actually reads
+    # positive curvature; at m0 = 40 the endpoint peak is wide enough that the stencil
+    # measures it and this clause never fires, so that fixture would test nothing.
+    env = np.exp(-0.5 * (ms / 120.0) ** 2)
+    basis = np.exp(2j * np.pi * np.outer(np.arange(NPTS), ms) / NPTS)
+    for centre in (0.0, 0.4 * DELTAT / pl.PEAK_ENUM_FACTOR):
+        c = 2.0 * (4.0e4 / (2 * env.sum())) * env * np.exp(-2j * np.pi * ms * centre / T)
+        k = (basis @ c)[None, :]
+        r = np.full(k.shape, RHO_SQ)
+        lnL_coarse = _lnL(k.real, r)
+        (sigma, jmax, measurable, has_peak, flat, exposed, unmeasurable,
+         factors) = tmq._classify_rows(lnL_coarse, DELTAT, NPTS)
+        assert int(jmax[0]) in (0, NPTS - 1), jmax
+        # the inward-clipped stencil genuinely cannot measure it ...
+        assert not np.isfinite(sigma[0]), (centre, sigma)
+        # ... and precisely because of that it must NOT be called flat, and must be refined
+        assert not bool(flat[0]), (centre, "an endpoint peak was mislabelled flat")
+        assert bool(has_peak[0]), (centre, has_peak)
+        assert int(factors[0]) >= 4, (centre, factors)
+
+
 if __name__ == '__main__':
     raise SystemExit(pytest.main([__file__, '-q']))
