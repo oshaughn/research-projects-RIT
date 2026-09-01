@@ -71,6 +71,38 @@ paper-production parity and treat disconnected branches as a separate model.
   legacy scalar workflows, or move to the central-enthalpy inference path when
   marginalization over branch identity is scientifically required.
 
+`--using-eos-branch` is rejected with `--using-eos-for-prior`. The current
+EOS-hyperprior plugin protocol returns an EOS but does not return branch
+identity, so accepting this combination would silently analyze the wrong
+branch. A future multibranch hyperprior must extend that plugin contract before
+this restriction can be relaxed.
+
+## Reviewed-LALSimulation integration gate
+
+The fake-backed compatibility tests check RIFT's dispatch logic, but do not
+certify the reviewed SWIG interface. To run the real-build gate, build the
+exact reviewed LALSuite commit, activate that Python environment, and set
+`RIFT_REVIEWED_LALSIM_MANIFEST` to a JSON file with this shape:
+
+```json
+{
+  "lalsuite_ref": "0123456789abcdef0123456789abcdef01234567",
+  "fixtures": {
+    "two_column": {"path": "two-column.dat", "sha256": "..."},
+    "nine_column": {"path": "nine-column.dat", "sha256": "..."},
+    "twin_star": {"path": "twin-star.dat", "sha256": "...", "dirty_phase_transitions": true}
+  }
+}
+```
+
+Run
+`pytest MonteCarloMarginalizeCode/Code/test/test_lalsim_eos_reviewed_integration.py`.
+Paths are relative to the manifest. The ref must be the full 40-character
+commit actually built by the job, and every fixture hash is mandatory. Once
+the manifest enables the gate, missing modern symbols, malformed provenance,
+missing fixtures, wrong column counts, or absence of overlapping twin-star
+branches are failures. Ordinary CI skips this private-build gate explicitly.
+
 The drift-sentinel registry should eventually declare an EOS contract group
 with LALSuite and NuclearMatter-Backend as producers and RIFT/nmb-papers as
 consumers.  The current registry only covers RIFT/hyperpipe operational archive
