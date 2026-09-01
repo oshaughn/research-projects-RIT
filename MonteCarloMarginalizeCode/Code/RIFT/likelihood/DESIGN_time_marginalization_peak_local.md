@@ -805,6 +805,65 @@ FURTHER from every crest. Over 250 random rows (1–3 bumps, log-uniform amplitu
   looks like dead code: the provisional point count is an over-estimate, so `p_slow` fires
   first.
 
+## Real data, through the shipped driver
+
+Everything above is synthetic band-limited rows. This is not.
+
+**Case:** the paper-1 3G study, `RIFT_roboto_paper/analyses/slowrot_finite-size/3g`,
+`run_ET_snr100` — a zero-spin BNS (1.6 + 1.4 Msun) injected into the ET triangle with the
+finite-size response, network SNR 100, analysed with the **real ILE**
+(`integrate_likelihood_extrinsic_batchmode`) in its `static` configuration: `--srate 2048
+--fmin-template 50 --fmax 1024 --approximant IMRPhenomD --l-max 2 --vectorized --force-xpy
+--gpu --internal-use-lnL --time-marginalization --sampler-method AV --n-eff 300 --n-max
+800000`, intrinsic grid point 4, `--seed 1234`. Only `--time-marginalization-quadrature`
+varied between runs.
+
+| quadrature | lnL | sigma/L | n_eff | samples | wall |
+|---|---|---|---|---|---|
+| `simpson` (default) | −296.1915649136 | 0.747 | 1.36 | 802476 | **64.6 s** |
+| `bandlimited` | −294.8959884975 | 0.413 | 3.06 | 809950 | **749.0 s** |
+| `peak-local` | −294.8959884975 | 0.413 | 3.06 | 809950 | **915.9 s** |
+
+**`peak-local` and `bandlimited` agree to 0.000e+00 nats — the two `.dat` files are
+BYTE-IDENTICAL (same md5), and `n_eff` matches to all 16 digits.** That is the rule's
+central contract, verified end to end on real data through the shipped driver rather than on
+a fixture, and it is a stronger statement than the synthetic `2.6e-10` because the two runs
+followed the same adaptive sample path and still landed on the same bits.
+
+**Cost, on this real case: 11.6x `simpson` for `bandlimited` and 14.2x for `peak-local`**, on
+comparable sample counts. So `peak-local` is **1.22x SLOWER than the dense rule here**, which
+is the disclosed behaviour — SNR 100 is below the ~180 where the local placement starts to
+pay, and this measurement is a confirmation of that claim on real data, not a refutation of
+it. It is also the first end-to-end cost number for this rule that is not a microbenchmark.
+
+**The `simpson` difference is NOT a clean bias measurement, and must not be quoted as one.**
+It reads −1.296 nats against the other two, but its adaptive sample path diverged (`n_eff`
+1.36 vs 3.06, different draw count), so the number confounds the quadrature with the
+sampling. What it does show is that the choice is not inert at this amplitude. A clean bias
+number needs the same samples under all three rules, which this run does not provide.
+
+**Caveat on the absolute values:** `n_eff` is 1.4-3.1, so the lnL values themselves are not
+converged — this grid point is in the high-SNR `n_eff` lottery the case's own README
+describes. That does not weaken the `peak-local == bandlimited` result, which is exact and
+independent of convergence, but it does mean no accuracy claim should be read off the lnL
+column here.
+
+### Two things the real run surfaced that the fixtures could not
+
+* **`--force-xpy` alone does not satisfy the guard, though its label says it does.** The
+  prerequisite is printed as `--gpu (accepts --force-xpy)`, but the predicate is
+  `bool(opts.gpu)`, and `--force-xpy` only re-enables `opts.gpu` when `--gpu` was ALSO passed
+  and no device was found. The paper case ships `--vectorized --force-xpy` with no `--gpu`, so
+  a CPU run of it is refused with a message that reads as though the flag it already has
+  should have been enough. The refusal is CORRECT -- without `--gpu` the run takes
+  `DiscreteFactoredLogLikelihoodViaArrayVector`, not the maintained NoLoop path -- but the
+  label is misleading in exactly the configuration a CPU user hits.
+* **`last_report()` is never called by the shipped driver.** The counters exist and the suite
+  asserts them, but nothing surfaces them in a production run, so an operator gets no
+  confirmation of how many rows `peak-local` actually handled, how many fell back, or what the
+  tail-bound margin was. Several comments in this module appeal to "an operator reading the
+  columns"; there are no columns to read outside the tests.
+
 ## Mutation sweep
 
 **34 mutations against the current code** (`e03dde95`), baseline **109 collected / 108
@@ -898,7 +957,10 @@ verdict on a false premise is how the next defect hides:
   largest remaining cost lever.  Not attempted here.
 * **No GPU measurement.**  The path is `xpy`-generic and there is a cupy parity test,
   but the cost table above is CPU only.
-* **No real-data run.**  Accuracy is against analytic truth and against the dense path;
+* **Real data: ONE run, one grid point.** See "Real data, through the shipped driver" --
+  `peak-local == bandlimited` byte-identical end to end, cost 14.2x `simpson`. That is a
+  single ET-SNR100 grid point at low `n_eff`; there is no campaign, no SNR ladder through this
+  path, and no converged accuracy comparison against `simpson`. Formerly  Accuracy is against analytic truth and against the dense path;
   the dense path's own real-injection comparison has not been repeated for this rule.
 * **`MAX_INTERVALS`, `PEAK_KEEP_NATS`** are fail-closed guards with an argument behind
   them but no sweep behind the specific values.
