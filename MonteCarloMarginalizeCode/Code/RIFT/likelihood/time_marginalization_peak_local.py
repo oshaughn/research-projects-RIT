@@ -176,8 +176,13 @@ __all__ = [
     "localise_peaks",
     "bandlimited_spectrum",
     "spectral_curvature_bound",
+    "spectral_derivative_bound",
     "crest_upper_bound",
+    "parabolic_sup",
+    "segment_sup_bound",
+    "enum_grid_derivatives",
     "eval_bandlimited_uniform",
+    "eval_bandlimited_points",
     "enumerate_peak_indices",
     "merge_intervals_by_row",
     "time_marginalize_peak_local",
@@ -444,17 +449,84 @@ def eval_bandlimited_uniform(Xw, fk, t0, dt_local, n_local, period, xpy=np):
     return out
 
 
+def eval_bandlimited_points(Xw, fk, rows, t, period, xpy=np, point_chunk=1024):
+    """``q``, ``q'`` and ``q''`` at arbitrary ``(row, time)`` pairs.
+
+    The uniform-grid evaluator above cannot be used for the omitted-mass bound: the
+    points that matter there are the ENDS OF THE MERGED INTERVALS, which are wherever
+    localisation put them and are not on any grid.  Cost is one exponential array per
+    point and ``O(npts)`` per point, and the caller uses at most ``2 * MAX_INTERVALS``
+    of them per row, so this is negligible against the local grids.
+
+    Same three sums as :func:`localise_peaks` -- the derivatives are the spectral sum
+    with ``w_j`` and ``w_j**2`` folded in -- and chunked over points for the same
+    reason: the temporary is ``(n_points, n_freq)``.
+    """
+    w = (2j * np.pi / float(period)) * fk
+    n_pt = int(t.shape[0])
+    q0 = xpy.zeros(n_pt, dtype=np.float64)
+    q1 = xpy.zeros(n_pt, dtype=np.float64)
+    q2 = xpy.zeros(n_pt, dtype=np.float64)
+    for a in range(0, n_pt, point_chunk):
+        b = min(a + point_chunk, n_pt)
+        E = Xw[rows[a:b]] * xpy.exp(w[None, :] * t[a:b][:, None])
+        q0[a:b] = xpy.sum(E, axis=-1).real
+        q1[a:b] = xpy.sum(E * w[None, :], axis=-1).real
+        q2[a:b] = xpy.sum(E * (w * w)[None, :], axis=-1).real
+    return q0, q1, q2
+
+
+def enum_grid_derivatives(Xw, fk, factor, n_keep, period, xpy=np):
+    """``q'`` and ``q''`` on the ENUMERATION grid, by FFT, from the same spectrum.
+
+    The enumeration grid is ``m * period / (n * factor)`` for ``m = 0 .. n_keep-1``,
+    which is exactly the grid :func:`bandlimited_upsample` produces, so placing
+    ``Xw_j * w_j**k`` at bin ``fk_j mod (n*factor)`` and inverse-transforming gives the
+    ``k``-th derivative of the SAME interpolant on the SAME points.  Two transforms of
+    the length the enumeration upsample already uses; the alternative -- evaluating the
+    spectral sum pointwise -- is ``O(npts)`` per point and would cost more than the
+    integration it is protecting.
+
+    Differencing ``q`` on the grid would NOT do: a difference of an under-resolved
+    sample sequence is an estimate, and everything downstream of these arrays is an
+    inequality.
+    """
+    n = int(Xw.shape[-1])
+    n_pad = n * int(factor)
+    w = (2j * np.pi / float(period)) * fk
+    idx = xpy.asarray(_host(fk, xpy).astype(np.int64) % n_pad)
+    coef = Xw * w[None, :]
+    out = []
+    for _ in range(2):
+        pad = xpy.zeros(Xw.shape[:-1] + (n_pad,), dtype=coef.dtype)
+        pad[..., idx] = coef
+        out.append((xpy.fft.ifft(pad, axis=-1)[..., :n_keep] * float(n_pad)).real)
+        del pad
+        coef = coef * w[None, :]
+    return out[0], out[1]
+
+
 # -------------------------------------------------------------- enumeration
+
+def spectral_derivative_bound(Xw, fk, period, order, xpy=np):
+    """``max_t |q^(order)(t)|`` for the interpolant, bounded rather than estimated.
+
+    ``q(t) = Re sum_j Xw_j exp(w_j t)`` with ``w_j = 2 pi i fk_j / period``, so
+    ``|q^(k)| <= sum_j |Xw_j| |w_j|^k`` everywhere, by the triangle inequality.  One
+    reduction over the spectrum per row; nothing is fitted and no shape is assumed.
+    """
+    w = xpy.abs(2.0 * np.pi * xpy.asarray(fk) / float(period)) ** int(order)
+    return xpy.sum(xpy.abs(Xw) * w[None, :], axis=-1)
+
 
 def spectral_curvature_bound(Xw, fk, period, xpy=np):
     """``max_t |q''(t)|`` for the interpolant, bounded rather than estimated.
 
-    ``q(t) = Re sum_j Xw_j exp(w_j t)`` with ``w_j = 2 pi i fk_j / period``, so
-    ``|q''| <= sum_j |Xw_j| |w_j|^2`` everywhere, by the triangle inequality.  One
-    reduction over the spectrum per row; nothing is fitted and no shape is assumed.
+    The ``order = 2`` case of :func:`spectral_derivative_bound`, kept under its own
+    name because the crest pre-filter is the one caller that must not be read as
+    depending on anything else.
     """
-    w2 = (2.0 * np.pi * xpy.asarray(fk) / float(period)) ** 2
-    return xpy.sum(xpy.abs(Xw) * w2[None, :], axis=-1)
+    return spectral_derivative_bound(Xw, fk, period, 2, xpy=xpy)
 
 
 def crest_upper_bound(q_at_peak, q_ddot_max, h_enum):
