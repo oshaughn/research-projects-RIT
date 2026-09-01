@@ -17,6 +17,7 @@ import pytest
 
 MANIFEST_ENV = "RIFT_REVIEWED_LALSIM_MANIFEST"
 REQUIRED_SYMBOLS = (
+    "SimulationVCSInfo",
     "SimNeutronStarEOSFromFileChoiceDirtyPT",
     "SimNeutronStarFamNumberOfBranches",
     "SimNeutronStarFamMinMassPerBranch",
@@ -59,14 +60,25 @@ def test_actual_reviewed_lalsimulation_tables(record_property):
     from RIFT.physics.lalsim_eos_compat import AmbiguousFamilyBranchError
 
     manifest_path, manifest = _load_manifest()
+    missing = [name for name in REQUIRED_SYMBOLS if not hasattr(lalsim, name)]
+    assert not missing, "reviewed LALSimulation symbols missing: {}".format(missing)
+    vcs_info = lalsim.SimulationVCSInfo
+    assert vcs_info.vcsId == manifest["lalsuite_ref"], (
+        "manifest ref {} does not match imported LALSimulation build {}".format(
+            manifest["lalsuite_ref"], vcs_info.vcsId
+        )
+    )
+    assert vcs_info.vcsClean == "CLEAN", (
+        "reviewed LALSimulation build has uncommitted source modifications: {}"
+        .format(vcs_info.vcsStatus)
+    )
     record_property("lalsuite_ref", manifest["lalsuite_ref"])
     record_property(
         "lalsimulation_version",
         getattr(lalsim, "LALSIMULATION_VERSION", "unknown"),
     )
-    missing = [name for name in REQUIRED_SYMBOLS if not hasattr(lalsim, name)]
-    assert not missing, "reviewed LALSimulation symbols missing: {}".format(missing)
-
+    record_property("lalsimulation_vcs_status", vcs_info.vcsStatus)
+    record_property("lalsimulation_vcs_tag", vcs_info.vcsTag)
     fixtures = manifest.get("fixtures", {})
     assert set(fixtures) == {"two_column", "nine_column", "twin_star"}
     loaded = {}
@@ -88,6 +100,19 @@ def test_actual_reviewed_lalsimulation_tables(record_property):
         )
         assert loaded[name]._get_lalsim_family_adapter().number_of_branches >= 1
 
+    # The reviewed contract changes both the table loader and CreateFamily's
+    # second argument. Exercise clean/dirty readers and minimal/extended family
+    # construction on the real nine-column fixture rather than on a fake.
+    nine_path = (manifest_path.parent / fixtures["nine_column"]["path"]).resolve()
+    nine_dirty = EOSManager.EOSLALSimulationFromFile(
+        str(nine_path), dirty_phase_transitions=True
+    )
+    nine_extended = EOSManager.EOSLALSimulationFromFile(
+        str(nine_path), minimal_family=False
+    )
+    assert nine_dirty._get_lalsim_family_adapter().number_of_branches >= 1
+    assert nine_extended._get_lalsim_family_adapter().number_of_branches >= 1
+
     family = loaded["twin_star"]._get_lalsim_family_adapter()
     assert family.number_of_branches >= 2
     overlaps = []
@@ -101,5 +126,26 @@ def test_actual_reviewed_lalsimulation_tables(record_property):
     left, right, mass = overlaps[0]
     with pytest.raises(AmbiguousFamilyBranchError):
         family.radius(mass)
-    assert family.radius(mass, branch_id=left) > 0
-    assert family.radius(mass, branch_id=right) > 0
+    with pytest.raises(ValueError, match="branch_id .* outside"):
+        family.radius(mass, branch_id=family.number_of_branches)
+    outside_left = np.nextafter(family.maximum_mass(left), np.inf)
+    with pytest.raises(ValueError, match="outside stable branch"):
+        family.radius(outside_left, branch_id=left)
+    radii = [family.radius(mass, branch_id=branch) for branch in (left, right)]
+    love = [
+        family.love_number_k2(mass, branch_id=branch)
+        for branch in (left, right)
+    ]
+    pressure = [
+        family.central_pressure(mass, branch_id=branch)
+        for branch in (left, right)
+    ]
+    tidal_lambda = [
+        loaded["twin_star"].lambda_from_m(mass, branch_id=branch)
+        for branch in (left, right)
+    ]
+    assert all(value > 0 for value in radii + love + pressure + tidal_lambda)
+    assert not np.isclose(radii[0], radii[1], rtol=1e-10, atol=0)
+    assert not np.isclose(love[0], love[1], rtol=1e-10, atol=0)
+    assert not np.isclose(pressure[0], pressure[1], rtol=1e-10, atol=0)
+    assert not np.isclose(tidal_lambda[0], tidal_lambda[1], rtol=1e-10, atol=0)

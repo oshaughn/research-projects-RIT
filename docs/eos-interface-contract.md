@@ -98,10 +98,15 @@ exact reviewed LALSuite commit, activate that Python environment, and set
 Run
 `pytest MonteCarloMarginalizeCode/Code/test/test_lalsim_eos_reviewed_integration.py`.
 Paths are relative to the manifest. The ref must be the full 40-character
-commit actually built by the job, and every fixture hash is mandatory. Once
-the manifest enables the gate, missing modern symbols, malformed provenance,
-missing fixtures, wrong column counts, or absence of overlapping twin-star
-branches are failures. Ordinary CI skips this private-build gate explicitly.
+commit actually built by the job: the gate requires it to equal
+`lalsimulation.SimulationVCSInfo.vcsId` and requires a clean VCS build. Every
+fixture hash is mandatory. Once the manifest enables the gate, missing modern
+symbols, malformed or mismatched build provenance, missing fixtures, wrong
+column counts, or absence of distinct overlapping twin-star solutions are
+failures. The gate exercises clean and phase-transition-correcting readers,
+minimal and extended family construction, and branch-indexed radius, Love
+number, central pressure, and tidal deformability. Ordinary CI skips this
+private-build gate explicitly.
 
 The drift-sentinel registry should eventually declare an EOS contract group
 with LALSuite and NuclearMatter-Backend as producers and RIFT/nmb-papers as
