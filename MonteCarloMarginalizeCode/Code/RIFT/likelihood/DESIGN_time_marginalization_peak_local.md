@@ -535,12 +535,21 @@ LOWER bound on the highest crest, so it can only ever keep too many."
 
     crest_upper = lnL_sample + (h_enum/2)**2 / (2 sigma**2)
 
-is not an upper bound, for two independent reasons, and the second is the one that matters:
+is not an upper bound, for two independent reasons, and the second is the one that matters.
+
+**The Laplace model is not what failed.** `lnL` is of course not a parabola. The whole design
+uses the Gaussian/curvature picture to **target** — where the mass is, how wide an interval
+must be, how fine a spacing it needs — and then either the Laplace quadrature is reliable
+enough or the row falls back to the grid. Used that way the model owes nothing: the answer
+comes from the quadrature actually performed and from the checks that verify it. What failed
+was using the same model where an **inequality** was required. A targeting estimate that is
+off by 122 nats costs a slightly wrong interval, which the verification catches; the same
+estimate asked to justify DELETING a peak costs the peak.
 
 * the localiser's bracket is `+/- h_enum` and displacements of `0.959*h_enum` have been
   observed, so the correction covers less than half the distance it must; and
-* **`lnL` is not a parabola across a half enumeration cell.** The ANHARMONIC part of the
-  crest deficit carries the same `1/sigma**2` amplification as the quadratic part. At
+* **the ANHARMONIC part of the crest deficit carries the same `1/sigma**2` amplification**
+  as the quadratic part, so the error does not shrink where it matters. At
   derived factor 1024 the pure quantisation excess is **4.4 nats** and the true shortfall
   is **122.30**.
 
@@ -621,12 +630,11 @@ nothing.
 
 ### Still open after round 6
 
-* **The ceiling contract.** `over_ceiling` is taken on the COARSE derived factor, while
-  `time_marginalize_bandlimited` raises on a factor remeasured on the REFINED grid. At
-  npts=307 and H = 6.5e4 / 7e4 / 7.5e4 peak-local returns an ACCEPTED value while the dense
-  path RAISES. The values are exact to 1e-6 against a 32768x reference, so this is a broken
-  fail-closed contract rather than an observed wrong number — but it is the hole the
-  module's own ceiling comment claims to have closed. **Not fixed.**
+* **The ceiling is a limit on the DENSE GRID, and this rule is not bound by it.** RO's
+  ruling, recorded rather than re-litigated. `over_ceiling` here catches the saturation
+  sentinel; it deliberately does not mirror the dense path's refined re-measurement. See the
+  round-8 entry for the measured size of the difference and why forcing agreement costs more
+  than it buys.
 * The tail bound is still a SAMPLED maximum, and its safety still comes from the
   `W_SIGMA**2/2 = 72` nat structural slack rather than from the sampling being adequate.
 
@@ -760,17 +768,25 @@ FURTHER from every crest. Over 250 random rows (1–3 bumps, log-uniform amplitu
 
 ### What is still open, in severity order
 
-* **The ceiling contract, and it is far more reachable than it looked.** `over_ceiling` is
-  taken on the COARSE derived factor while `time_marginalize_bandlimited` re-measures on the
-  refined grid and raises, so peak-local ACCEPTS where the dense path REFUSES. The crafted
-  fixture was not the point: a random hunt hit this on **9 of 250 uncrafted rows** at
-  npts=614. The values are exact — scored against a converged spectral reference on three of
-  them, `pl − ref = 0.000000` — so it is a **broken fail-closed contract, not a wrong
-  number.** Fixing it is a design decision, not a one-line change: `>=` instead of `>` would
-  route every row at the legal ceiling to the dense path, which is precisely the regime this
-  rule exists to serve. The honest options are to re-measure the width on the local grid the
-  way the dense path does, or to state that peak-local is deliberately NOT bound by a ceiling
-  that exists for the dense grid. **Not fixed; the top open item.**
+* **The ceiling: a DECISION, not a defect.** `over_ceiling` is taken on the COARSE derived
+  factor, while `time_marginalize_bandlimited` re-measures on the refined grid and doubles
+  until the criterion holds, raising if the chain leaves the legal range. So the dense path
+  can refuse a row whose coarse factor was legal, and this rule returns it. Measured over 220
+  random multi-bump rows: the disagreement is confined to `factor_coarse ==
+  UPSAMPLE_FACTOR_MAX` exactly — 27 rows landed there, 8 of them refused by the dense path and
+  returned here. Below 4096 it never arose (it would need the coarse estimate to be optimistic
+  by three doublings); at the 8192 sentinel both refuse, 44 of 44.
+
+  Those 8 rows are not approximated — scored exact against a converged spectral reference.
+  **`UPSAMPLE_FACTOR_MAX` bounds the dense grid**, the point past which a zero-padded FFT over
+  the whole window stops being affordable or believable, and this rule never builds that grid:
+  its resolution comes from a per-peak width measured on the enumeration grid, already 8x
+  finer than the coarse grid the ceiling factor is derived from, with the containment check
+  and tail bound verifying the outcome. So a row the dense path declines on grid size is one
+  this rule may legitimately still resolve. **RO's ruling: it may.** Forcing agreement would
+  mean `>=`, which sends all 27 rows at the legal ceiling to the dense path — including the 19
+  it handles perfectly well — and the sharpest legal rows are precisely the regime this rule
+  exists to serve. Recorded as a documented difference between the two paths.
 * **The dense path's own boundary defect** — merged code, up to **+3.48 nats** at the legal
   ceiling, inherited rather than caused, and peak-local now matches it exactly.
 * **A cost regression from round 7.** A row carrying an interior dominant crest AND a

@@ -905,6 +905,32 @@ def _peak_local_chunk(kappa_rows, rho_col_rows, factors, npts, deltaT, period,
     # here and silently returned instead of raising.  Measured before this check: at a
     # derived factor of 8192 the dense path raised (as designed) while peak-local
     # returned -24451 nats and reported tail_bound_worst = -2721.
+    #
+    # WHAT THIS CHECK IS, AND DELIBERATELY IS NOT.  It catches the SATURATION SENTINEL --
+    # `required_upsample_factors` returning 2*UPSAMPLE_FACTOR_MAX because it could not
+    # justify a factor at all.  It does NOT mirror the dense path's ceiling test, and that
+    # is a decision rather than an oversight.
+    #
+    # `time_marginalize_bandlimited` re-measures the width on the grid it just refined and
+    # doubles until the criterion holds, raising if the chain leaves the legal range, so it
+    # can refuse a row whose COARSE factor was legal.  This module tests the coarse factor
+    # once.  The two therefore disagree on exactly one band, `factor_coarse ==
+    # UPSAMPLE_FACTOR_MAX`: measured over 220 random multi-bump rows, 27 landed there and 8
+    # of them are rows the dense path refuses and this one returns.  (Below 4096 the
+    # disagreement never arose -- it would need the coarse estimate to be optimistic by
+    # three doublings -- and at the 8192 sentinel both refuse, 44 of 44.)
+    #
+    # Those 8 rows are NOT approximated: their values were scored exact against a converged
+    # spectral reference.  UPSAMPLE_FACTOR_MAX bounds the DENSE GRID -- the point past which
+    # a zero-padded FFT over the whole window stops being affordable or believable -- and
+    # this rule never builds that grid.  Its resolution comes from a per-peak width measured
+    # on the enumeration grid, which is already 8x finer than the coarse grid the ceiling
+    # factor is derived from, and the containment check and tail bound then verify the
+    # outcome.  So a row the dense path declines on grid size is one this rule may legitimately
+    # still resolve, and RO's ruling is that it may: the ceiling is a limit on the dense
+    # grid, not on the physics.  The cost of forcing agreement would be `>=` here, which
+    # sends every row at the legal ceiling to the dense path -- 19 of those 27 rows, and the
+    # sharpest legal rows are precisely the regime this rule exists to serve.
     over_ceiling = factors_np > _tmq.UPSAMPLE_FACTOR_MAX
     viable = (c_lo < c_dn) & (~over_ceiling)
     stats['n_dense_fallback_ceiling'] += int(np.sum(over_ceiling))
@@ -1007,19 +1033,31 @@ def _peak_local_chunk(kappa_rows, rho_col_rows, factors, npts, deltaT, period,
     # both defences silent.  Every approximation substituted for the crest fails the
     # same way one octave further out.
     #
-    # ROUND 6: THE PRE-FILTER WAS THE FOURTH DOOR, AND IT IS NOW GONE.
+    # ROUND 6: A TARGETING MODEL WAS PROMOTED TO A BOUND, AND THAT IS THE FOURTH DOOR.
     #
-    # It compared a `crest_upper = lnL_sample + (h_enum/2)^2 / (2 sigma^2)` against the
-    # largest sample in the row, and was described as an upper bound that "can only ever
-    # keep too many".  It is not an upper bound.  An independent re-attack broke it:
+    # THE LAPLACE MODEL IS NOT THE DEFECT.  `lnL` is of course not a parabola; the whole
+    # design uses the Gaussian/curvature picture to TARGET -- where the mass is, how wide
+    # an interval must be, how fine a spacing it needs -- and then either the Laplace
+    # quadrature is reliable enough or the row falls back to the grid.  Used that way the
+    # model owes nothing, because the answer comes from the quadrature actually performed
+    # and from the checks that verify it.
+    #
+    # The defect is using the same model where an INEQUALITY is required.  The pre-filter
+    # compared `crest_upper = lnL_sample + (h_enum/2)^2 / (2 sigma^2)` against the largest
+    # sample in the row, and was described as an upper bound that "can only ever keep too
+    # many".  It is a targeting estimate wearing the word "bound", and an independent
+    # re-attack broke it:
     #
     #   * the displacement is bounded by `h_enum`, not `h_enum/2` -- the localiser's own
     #     bracket says so and 0.959*h_enum has been observed -- so the correction is
     #     taken at less than half the distance it must cover; and, much worse,
-    #   * `lnL` is NOT a parabola across a half enumeration cell.  The ANHARMONIC part of
-    #     the deficit carries the same 1/sigma^2 amplification as the quadratic part.
-    #     MEASURED at derived factor 1024 on a skewed peak: the pure quantisation excess
-    #     is 4.4 nats while the actual shortfall is 122.30.
+    #   * the ANHARMONIC part of the deficit carries the same 1/sigma^2 amplification as
+    #     the quadratic part, so the error does not shrink where it matters.  MEASURED at
+    #     derived factor 1024 on a skewed peak: the pure quantisation excess is 4.4 nats
+    #     while the actual shortfall is 122.30.
+    #
+    # A targeting model that is off by 122 nats costs a slightly wrong interval, which the
+    # verification catches.  The same model asked to justify DELETING a peak costs the peak.
     #
     # So `crest_upper` fell short of the true crest by 122 / 489 / 1957 nats at derived
     # factor 1024 / 2048 / 4096 -- and being short, it DROPPED co-dominant peaks.
