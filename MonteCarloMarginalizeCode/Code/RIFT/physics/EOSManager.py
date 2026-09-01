@@ -149,7 +149,7 @@ class EOSConcrete:
             ])
             return out
 
-    def estimate_baryon_mass_from_mg(self,m):
+    def estimate_baryon_mass_from_mg(self, m, branch_id=None):
         r"""
         Estimate m_b = m_g + m_g^2/(R_{1.4}/km) based on https://arxiv.org/pdf/1905.03784.pdf Eq. (6)
         Note baryon mass can be computed exactly with a TOV solution integral (e.g., Eq. 6.21 of Haensel's book)
@@ -157,7 +157,7 @@ class EOSConcrete:
         but lalsuite doesn't provide access to this low-level info
         !! This function is only for use when LALEOS is created. Use RePrimAnd's baryon_mass_from_mg preferably for most other purposes!!
         """
-        r1p4 = self.radius_from_m(1.4, branch_id=None) / 1e3
+        r1p4 = self.radius_from_m(1.4, branch_id=branch_id) / 1e3
         return m + (1./r1p4)*m**2
     
     def pressure_density_on_grid_alternate(self,logrho_grid,enforce_causal=False):
@@ -228,7 +228,8 @@ class EOSConcrete:
         else:
             return True
 
-    def test_speed_of_sound_causal(self, test_only_under_mmax=True,fast_test=True):
+    def test_speed_of_sound_causal(
+            self, test_only_under_mmax=True, fast_test=True, branch_id=None):
         """
         Test if EOS satisfies speed of sound.
         Relies on low-level lalsimulation interpolation routines to get v(h) and as such is not very reliable
@@ -243,12 +244,13 @@ class EOSConcrete:
         eos = self.eos
         fam = self.eos_fam
         # Largest NS provides largest attained central pressure
-        m_max_SI = self.mMaxMsun*lal.MSUN_SI
+        family = self._get_lalsim_family_adapter()
+        m_max_SI = family.maximum_mass(branch_id) if branch_id is not None else self.mMaxMsun*lal.MSUN_SI
         if not test_only_under_mmax:
             hmax = lalsim.SimNeutronStarEOSMaxPseudoEnthalpy(eos)
         else:
             try:
-                pmax = self._get_lalsim_family_adapter().central_pressure(m_max_SI)
+                pmax = family.central_pressure(m_max_SI, branch_id=branch_id)
                 hmax = lalsim.SimNeutronStarEOSPseudoEnthalpyOfPressure(pmax,eos)
             except:
                 # gatch gsl interpolation errors for example
@@ -312,6 +314,29 @@ class EOSBranchView:
         if not isinstance(m, np.ndarray):
             return self.lambda_from_m(m)
         return np.array([self.lambda_from_m(m_here) for m_here in m])
+
+    def estimate_baryon_mass_from_mg(self, m):
+        """Estimate baryonic mass using this branch's 1.4-Msun radius."""
+        try:
+            return self.source.estimate_baryon_mass_from_mg(
+                m, branch_id=self.branch_id
+            )
+        except ValueError as exc:
+            raise ValueError(
+                "cannot estimate baryonic mass on branch {} because that "
+                "branch does not contain the 1.4-Msun reference star".format(
+                    self.branch_id
+                )
+            ) from exc
+
+    def test_speed_of_sound_causal(
+            self, test_only_under_mmax=True, fast_test=True):
+        """Test causality only up to this branch's maximum-mass star."""
+        return self.source.test_speed_of_sound_causal(
+            test_only_under_mmax=test_only_under_mmax,
+            fast_test=fast_test,
+            branch_id=self.branch_id,
+        )
 
     def __getattr__(self, name):
         return getattr(self.source, name)

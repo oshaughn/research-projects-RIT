@@ -7,6 +7,7 @@ import pytest
 from RIFT.physics.lalsim_eos_compat import (
     AmbiguousFamilyBranchError,
     LALSimNeutronStarFamilyAdapter,
+    validate_fixed_eos_branch_request,
 )
 
 
@@ -94,8 +95,14 @@ class MultibranchLALSimulation:
 class StellarMassMultibranchLALSimulation(MultibranchLALSimulation):
     bounds = tuple(
         (lower * lal.MSUN_SI, upper * lal.MSUN_SI)
-        for lower, upper in MultibranchLALSimulation.bounds
+        for lower, upper in ((1.0, 2.0), (1.3, 3.0))
     )
+
+    def SimNeutronStarEOSPseudoEnthalpyOfPressure(self, pressure, eos):
+        return pressure
+
+    def SimNeutronStarEOSSpeedOfSoundGeometerized(self, enthalpy, eos):
+        return 0.5
 
 
 def test_released_lalsimulation_uses_one_argument_family_api():
@@ -129,6 +136,16 @@ def test_reviewed_lalsimulation_uses_minimal_multibranch_api():
     assert family.radius(1.75, branch_id=1) == 11.75
     assert family.love_number_k2(1.75, branch_id=1) == pytest.approx(1.175)
     assert family.central_pressure(1.75, branch_id=1) == 101.75
+
+
+def test_partial_reviewed_api_fails_diagnostically(monkeypatch):
+    lalsim = MultibranchLALSimulation()
+    monkeypatch.delattr(
+        MultibranchLALSimulation,
+        "SimNeutronStarFamLoveNumberK2OfMassPerBranch",
+    )
+    with pytest.raises(RuntimeError, match="partial reviewed LALSimulation"):
+        LALSimNeutronStarFamilyAdapter("eos", lalsim_module=lalsim)
 
 
 def test_twin_star_mass_requires_an_explicit_branch():
@@ -210,6 +227,48 @@ def test_selected_branch_view_preserves_legacy_scalar_consumer_api(monkeypatch):
     )
     assert np.isfinite(secondary.lambda_from_m(1.75))
     assert primary.lambda_from_m(2.5) == pytest.approx(1e-8)
+
+
+def test_selected_branch_view_preserves_branch_sensitive_helpers(monkeypatch):
+    from RIFT.physics import EOSManager
+
+    fake_lalsim = StellarMassMultibranchLALSimulation()
+    monkeypatch.setattr(EOSManager, "lalsim", fake_lalsim)
+    secondary = EOSManager.EOSLALSimulationFromFile("twin-star.dat").for_branch(1)
+
+    expected_radius_km = (10.0 + 1.4 * lal.MSUN_SI) / 1e3
+    assert secondary.estimate_baryon_mass_from_mg(1.4) == pytest.approx(
+        1.4 + 1.4**2 / expected_radius_km
+    )
+    assert secondary.test_speed_of_sound_causal()
+
+
+def test_selected_branch_helpers_fail_closed_when_branch_data_are_missing(monkeypatch):
+    from RIFT.physics import EOSManager
+
+    no_reference_star = StellarMassMultibranchLALSimulation()
+    no_reference_star.bounds = tuple(
+        (lower * lal.MSUN_SI, upper * lal.MSUN_SI)
+        for lower, upper in MultibranchLALSimulation.bounds
+    )
+    monkeypatch.setattr(EOSManager, "lalsim", no_reference_star)
+    secondary = EOSManager.EOSLALSimulationFromFile("twin-star.dat").for_branch(1)
+    with pytest.raises(ValueError, match="does not contain the 1.4-Msun"):
+        secondary.estimate_baryon_mass_from_mg(1.6)
+
+    monkeypatch.delattr(
+        MultibranchLALSimulation,
+        "SimNeutronStarFamCentralPressureOfMassPerBranch",
+    )
+    assert secondary.test_speed_of_sound_causal() is False
+
+
+def test_eos_hyperprior_rejects_fixed_branch_request():
+    with pytest.raises(ValueError, match="not supported with --using-eos-for-prior"):
+        validate_fixed_eos_branch_request(1, "file:eos-draws.dat", True)
+
+    assert validate_fixed_eos_branch_request(1, "lalsim_file:eos.dat") is None
+    assert validate_fixed_eos_branch_request(None, "file:eos-draws.dat", True) is None
 
 
 def test_nmb_sequence_dispatch_and_accessors_remain_compatible(tmp_path):

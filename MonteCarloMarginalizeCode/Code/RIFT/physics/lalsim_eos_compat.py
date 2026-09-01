@@ -13,6 +13,24 @@ class AmbiguousFamilyBranchError(ValueError):
     """Raised when a mass belongs to more than one stable family branch."""
 
 
+def validate_fixed_eos_branch_request(branch_id, eos_spec, using_eos_for_prior=False):
+    """Fail closed when a scalar fixed-EOS branch request cannot be honored.
+
+    EOS hyperprior plugins construct an EOS after the fixed-EOS setup path has
+    run.  Until that plugin contract carries branch identity explicitly, a
+    ``branch_id`` here would otherwise be accepted and silently ignored.
+    """
+    if branch_id is None:
+        return
+    if using_eos_for_prior:
+        raise ValueError(
+            "--using-eos-branch is not supported with --using-eos-for-prior; "
+            "the EOS hyperprior plugin contract does not carry branch identity"
+        )
+    if eos_spec is None:
+        raise ValueError("--using-eos-branch also requires --using-eos")
+
+
 class LALSimNeutronStarFamilyAdapter:
     """Version-neutral access to a LALSimulation neutron-star family.
 
@@ -35,14 +53,26 @@ class LALSimNeutronStarFamilyAdapter:
         "SimNeutronStarFamLoveNumberK2OfMassPerBranch",
     )
 
+    @classmethod
+    def _uses_multibranch_api(cls, lalsim_module):
+        present = [hasattr(lalsim_module, name) for name in cls._MODERN_REQUIRED]
+        if any(present) and not all(present):
+            missing = [
+                name for name, available in zip(cls._MODERN_REQUIRED, present)
+                if not available
+            ]
+            raise RuntimeError(
+                "partial reviewed LALSimulation family API; missing symbols: {}"
+                .format(", ".join(missing))
+            )
+        return all(present)
+
     def __init__(self, eos, minimal=True, lalsim_module=None):
         if lalsim_module is None:
             import lalsimulation as lalsim_module
         self.lalsim = lalsim_module
         self.eos = eos
-        self.is_multibranch_api = all(
-            hasattr(self.lalsim, name) for name in self._MODERN_REQUIRED
-        )
+        self.is_multibranch_api = self._uses_multibranch_api(self.lalsim)
         if self.is_multibranch_api:
             # The reviewed API requires ``min_fam``: 1 selects the PE-oriented
             # M/R/k2 solver, while 0 also constructs baryonic mass, k3, and k4.
@@ -61,9 +91,7 @@ class LALSimNeutronStarFamilyAdapter:
         obj.lalsim = lalsim_module
         obj.eos = None
         obj.family = family
-        obj.is_multibranch_api = all(
-            hasattr(obj.lalsim, name) for name in cls._MODERN_REQUIRED
-        )
+        obj.is_multibranch_api = cls._uses_multibranch_api(obj.lalsim)
         return obj
 
     @property
@@ -157,7 +185,12 @@ class LALSimNeutronStarFamilyAdapter:
         modern = getattr(
             self.lalsim, "SimNeutronStarFamCentralPressureOfMassPerBranch", None
         )
-        if self.is_multibranch_api and modern is not None:
+        if self.is_multibranch_api:
+            if modern is None:
+                raise NotImplementedError(
+                    "reviewed LALSimulation family API lacks branch-specific "
+                    "central pressure"
+                )
             return modern(mass_si, self.family, resolved)
         return self.lalsim.SimNeutronStarCentralPressure(mass_si, self.family)
 
