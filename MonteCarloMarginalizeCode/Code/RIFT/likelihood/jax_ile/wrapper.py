@@ -318,7 +318,7 @@ class JAXDistanceMarginalizedLikelihood:
 
     def __init__(self, data, d_min, d_max, n_grid=256, d_prior="euclidean",
                  interp=JAX_INTERP_DEFAULT, phase_marginalization=False,
-                 *, time_quadrature=TIME_QUAD_DEFAULT):
+                 *, time_quadrature=TIME_QUAD_DEFAULT, d_prior_range=None):
         self.data = data
         self.interp = interp   # the instance's stencil; sample_phi_ref defaults to it
         self.phase_marginalization = phase_marginalization
@@ -326,7 +326,8 @@ class JAXDistanceMarginalizedLikelihood:
             time_quadrature, "distance marginalization")
         self.time_quadrature = time_quadrature
         self.x_grid, self.log_w_grid = make_distance_grid(
-            d_min, d_max, n_grid, d_prior, distMpcRef=data.distMpcRef)
+            d_min, d_max, n_grid, d_prior, distMpcRef=data.distMpcRef,
+            d_prior_range=d_prior_range)
 
         def _batched(ra, dec, psi, incl, phiref):
             return fused_log_likelihood_distmarg(
@@ -388,7 +389,7 @@ class JAXDistPhiMargLikelihood:
 
     def __init__(self, data, d_min, d_max, nphi=32, n_grid=256,
                  d_prior="euclidean", interp=JAX_INTERP_DEFAULT, guess_snr=None,
-                 *, time_quadrature=TIME_QUAD_DEFAULT):
+                 *, time_quadrature=TIME_QUAD_DEFAULT, d_prior_range=None):
         self.data = data
         self.interp = interp   # the instance's stencil; sample_phi_ref defaults to it
         _validate_nonlinear_time_quadrature(
@@ -409,13 +410,15 @@ class JAXDistPhiMargLikelihood:
             # pre-2026-08-26 run' recipe, which is the whole mitigation for that default move.
             d_peak, sigma_d = estimate_distance_peak(data, guess_snr, interp=interp)
             self.x_grid, self.log_w_grid = make_distance_grid_adaptive(
-                d_min, d_max, d_peak, sigma_d, d_prior, distMpcRef=data.distMpcRef)
+                d_min, d_max, d_peak, sigma_d, d_prior, distMpcRef=data.distMpcRef,
+                d_prior_range=d_prior_range)
             self.dist_grid_info = dict(mode="adaptive", d_peak=float(d_peak),
                                        sigma_d=float(sigma_d),
                                        n=int(self.x_grid.shape[0]))
         else:
             self.x_grid, self.log_w_grid = make_distance_grid(
-                d_min, d_max, n_grid, d_prior, distMpcRef=data.distMpcRef)
+                d_min, d_max, n_grid, d_prior, distMpcRef=data.distMpcRef,
+                d_prior_range=d_prior_range)
             self.dist_grid_info = dict(mode="uniform", n=int(self.x_grid.shape[0]))
 
         xg, lwg, pg = self.x_grid, self.log_w_grid, self._phi_grid
@@ -528,7 +531,8 @@ class JAXDistPhiPsiMargLikelihood:
 
     def __init__(self, data, d_min, d_max, nphi=32, npsi=16, n_grid=256,
                  d_prior="euclidean", interp=JAX_INTERP_DEFAULT, guess_snr=None,
-                 angle_marg="grid", *, time_quadrature=TIME_QUAD_DEFAULT):
+                 angle_marg="grid", *, time_quadrature=TIME_QUAD_DEFAULT,
+                 d_prior_range=None):
         self.data = data
         self.interp = interp   # the instance's stencil; sample_phi_ref defaults to it
         _validate_nonlinear_time_quadrature(
@@ -561,13 +565,15 @@ class JAXDistPhiPsiMargLikelihood:
             # pre-2026-08-26 run' recipe, which is the whole mitigation for that default move.
             d_peak, sigma_d = estimate_distance_peak(data, guess_snr, interp=interp)
             self.x_grid, self.log_w_grid = make_distance_grid_adaptive(
-                d_min, d_max, d_peak, sigma_d, d_prior, distMpcRef=data.distMpcRef)
+                d_min, d_max, d_peak, sigma_d, d_prior, distMpcRef=data.distMpcRef,
+                d_prior_range=d_prior_range)
             self.dist_grid_info = dict(mode="adaptive", d_peak=float(d_peak),
                                        sigma_d=float(sigma_d),
                                        n=int(self.x_grid.shape[0]))
         else:
             self.x_grid, self.log_w_grid = make_distance_grid(
-                d_min, d_max, n_grid, d_prior, distMpcRef=data.distMpcRef)
+                d_min, d_max, n_grid, d_prior, distMpcRef=data.distMpcRef,
+                d_prior_range=d_prior_range)
             self.dist_grid_info = dict(mode="uniform", n=int(self.x_grid.shape[0]))
 
         xg, lwg, pg, sg = (self.x_grid, self.log_w_grid,
@@ -667,7 +673,7 @@ class JAXDistPsiMargLikelihood:
 
     def __init__(self, data, d_min, d_max, npsi=8, n_grid=256,
                  d_prior="euclidean", interp=JAX_INTERP_DEFAULT, guess_snr=None,
-                 *, time_quadrature=TIME_QUAD_DEFAULT):
+                 *, time_quadrature=TIME_QUAD_DEFAULT, d_prior_range=None):
         self.data = data
         self.interp = interp   # the instance's stencil; sample_phi_ref defaults to it
         _validate_nonlinear_time_quadrature(
@@ -682,13 +688,15 @@ class JAXDistPsiMargLikelihood:
             # pre-2026-08-26 run' recipe, which is the whole mitigation for that default move.
             d_peak, sigma_d = estimate_distance_peak(data, guess_snr, interp=interp)
             self.x_grid, self.log_w_grid = make_distance_grid_adaptive(
-                d_min, d_max, d_peak, sigma_d, d_prior, distMpcRef=data.distMpcRef)
+                d_min, d_max, d_peak, sigma_d, d_prior, distMpcRef=data.distMpcRef,
+                d_prior_range=d_prior_range)
             self.dist_grid_info = dict(mode="adaptive", d_peak=float(d_peak),
                                        sigma_d=float(sigma_d),
                                        n=int(self.x_grid.shape[0]))
         else:
             self.x_grid, self.log_w_grid = make_distance_grid(
-                d_min, d_max, n_grid, d_prior, distMpcRef=data.distMpcRef)
+                d_min, d_max, n_grid, d_prior, distMpcRef=data.distMpcRef,
+                d_prior_range=d_prior_range)
             self.dist_grid_info = dict(mode="uniform", n=int(self.x_grid.shape[0]))
 
         xg, lwg, sg = self.x_grid, self.log_w_grid, self._psi_grid

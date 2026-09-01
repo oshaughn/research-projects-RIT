@@ -1741,25 +1741,67 @@ def phi_ref_conditional_lnL(data, ra, dec, psi, incl, distMpc,
     return lnL_per_phi   # (nphi, S)
 
 
+def _distance_prior_density(d, d_prior):
+    """Unnormalized distance prior density on the nodes ``d``."""
+    if d_prior in ("euclidean", "volumetric"):
+        return d ** 2
+    if d_prior == "uniform":
+        return np.ones_like(d)
+    raise NotImplementedError("d_prior=%r" % d_prior)
+
+
+def _adaptive_distance_nodes(d_min, d_max, d_peak, sigma_d, n_fine_max, n_coarse,
+                             n_sigma, oversample):
+    """Node positions for the adaptive grid, or None if the request is degenerate."""
+    half = n_sigma * sigma_d                       # additive: peak is well-located
+    d_lo = max(float(d_min), d_peak - half)
+    d_hi = min(float(d_max), d_peak + half)
+    if not (d_hi > d_lo) or not (sigma_d > 0):
+        return None
+    n_fine = int(np.clip((d_hi - d_lo) / (sigma_d / float(oversample)),
+                         32, int(n_fine_max)))
+    fine = np.linspace(d_lo, d_hi, n_fine)
+    coarse = np.linspace(float(d_min), float(d_max), int(n_coarse))
+    return np.unique(np.concatenate([coarse, fine]))           # sorted, deduped
+
+
+def _trapezoidal_spacing(d):
+    dd = np.empty_like(d)                                    # trapezoidal spacing
+    dd[1:-1] = 0.5 * (d[2:] - d[:-2])
+    dd[0] = d[1] - d[0]
+    dd[-1] = d[-1] - d[-2]
+    return dd
+
+
 def make_distance_grid(d_min, d_max, n_grid=256, d_prior="euclidean",
-                       distMpcRef=DIST_MPC_REF):
+                       distMpcRef=DIST_MPC_REF, d_prior_range=None):
     """Build (x_grid, log_w_grid) for distance marginalization.
 
     Uniform grid in distance ``d``; ``x = distMpcRef/d``.  Returns the log
     quadrature weights ``log( p(d) * Delta_d )`` for the requested prior,
     normalized so ``sum_g exp(log_w_g) == 1`` (a proper distance average).
     ``d_prior='euclidean'`` is the volumetric ``p(d) ∝ d^2`` prior.
+
+    ``d_prior_range`` (the ILE ``--limit-distance`` hook) SPLITS the two roles
+    ``[d_min,d_max]`` otherwise plays at once.  Left at None the grid range is
+    also the normalization range -- the historical behaviour, and the reason a
+    narrowed grid used to renormalize the prior onto itself: the marginal comes
+    back looking "unchanged" while the evidence scale has silently moved.  Given
+    a ``(lo,hi)``, the NODES span ``[d_min,d_max]`` (the range actually
+    integrated) while the weights are divided by the prior mass over ``(lo,hi)``
+    (the physical range), computed with the SAME discrete rule -- so passing
+    ``d_prior_range == (d_min,d_max)`` reproduces the None branch bitwise.
     """
     d = np.linspace(d_min, d_max, n_grid)
     dd = d[1] - d[0]
-    if d_prior in ("euclidean", "volumetric"):
-        pd = d ** 2
-    elif d_prior == "uniform":
-        pd = np.ones_like(d)
-    else:
-        raise NotImplementedError("d_prior=%r" % d_prior)
+    pd = _distance_prior_density(d, d_prior)
     w = pd * dd
-    w = w / np.sum(w)               # normalize the distance average
+    if d_prior_range is None:
+        norm = np.sum(w)            # normalize the distance average
+    else:
+        D = np.linspace(d_prior_range[0], d_prior_range[1], n_grid)
+        norm = np.sum(_distance_prior_density(D, d_prior) * (D[1] - D[0]))
+    w = w / norm
     x = distMpcRef / d
     log_w = np.log(w)
     return jnp.asarray(x), jnp.asarray(log_w)
@@ -1842,7 +1884,7 @@ def estimate_distance_peak(data, guess_snr=None, n_sky=4000, seed=0, interp=JAX_
 
 def make_distance_grid_adaptive(d_min, d_max, d_peak, sigma_d, d_prior="euclidean",
                                 distMpcRef=DIST_MPC_REF, n_fine_max=160, n_coarse=48,
-                                n_sigma=12.0, oversample=4.0):
+                                n_sigma=12.0, oversample=4.0, d_prior_range=None):
     """Non-uniform distance grid: fine near the (SNR-set) peak, coarse on the tail.
 
     Concentrates resolution where the distance posterior lives while staying
@@ -1867,28 +1909,26 @@ def make_distance_grid_adaptive(d_min, d_max, d_peak, sigma_d, d_prior="euclidea
     nodes (8x LESS memory than a 256 static grid) and the 1/R only enters through
     stop_gradient -> gradient-stable.  That is a kernel change (TODO).
     """
-    half = n_sigma * sigma_d                       # additive: peak is well-located
-    d_lo = max(float(d_min), d_peak - half)
-    d_hi = min(float(d_max), d_peak + half)
-    if not (d_hi > d_lo) or not (sigma_d > 0):    # degenerate -> uniform fallback
-        return make_distance_grid(d_min, d_max, n_fine_max + n_coarse, d_prior, distMpcRef)
-    n_fine = int(np.clip((d_hi - d_lo) / (sigma_d / float(oversample)),
-                         32, int(n_fine_max)))
-    fine = np.linspace(d_lo, d_hi, n_fine)
-    coarse = np.linspace(float(d_min), float(d_max), int(n_coarse))
-    d = np.unique(np.concatenate([coarse, fine]))           # sorted, deduped
-    if d_prior in ("euclidean", "volumetric"):
-        pd = d ** 2
-    elif d_prior == "uniform":
-        pd = np.ones_like(d)
+    d = _adaptive_distance_nodes(d_min, d_max, d_peak, sigma_d, n_fine_max,
+                                 n_coarse, n_sigma, oversample)
+    if d is None:                                 # degenerate -> uniform fallback
+        return make_distance_grid(d_min, d_max, n_fine_max + n_coarse, d_prior,
+                                  distMpcRef, d_prior_range=d_prior_range)
+    w = _distance_prior_density(d, d_prior) * _trapezoidal_spacing(d)
+    if d_prior_range is None:
+        norm = np.sum(w)
     else:
-        raise NotImplementedError("d_prior=%r" % d_prior)
-    dd = np.empty_like(d)                                    # trapezoidal spacing
-    dd[1:-1] = 0.5 * (d[2:] - d[:-2])
-    dd[0] = d[1] - d[0]
-    dd[-1] = d[-1] - d[-2]
-    w = pd * dd
-    w = w / np.sum(w)
+        # --limit-distance: nodes span the narrowed range, but the weights carry the
+        # prior mass over the PHYSICAL range, evaluated with this same construction so
+        # d_prior_range == (d_min,d_max) reproduces the branch above bitwise.
+        D = _adaptive_distance_nodes(d_prior_range[0], d_prior_range[1], d_peak,
+                                     sigma_d, n_fine_max, n_coarse, n_sigma, oversample)
+        if D is None:
+            D = np.linspace(d_prior_range[0], d_prior_range[1], n_fine_max + n_coarse)
+            norm = np.sum(_distance_prior_density(D, d_prior) * (D[1] - D[0]))
+        else:
+            norm = np.sum(_distance_prior_density(D, d_prior) * _trapezoidal_spacing(D))
+    w = w / norm
     return jnp.asarray(distMpcRef / d), jnp.asarray(np.log(w))
 
 

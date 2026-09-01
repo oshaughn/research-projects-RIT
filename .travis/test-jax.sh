@@ -194,6 +194,16 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         is the only gated check that distinguishes
 #                                         the corrected sizing.  The rest of the
 #                                         angle-marg suite is EXCLUDED; see below.
+#   test_limit_distance_jax.py        14  --limit-distance on this arm: the distance
+#                                         QUADRATURE narrows while the prior keeps its
+#                                         [d_min,d_max] normalization.  Includes the
+#                                         bitwise no-op of the default call (both the
+#                                         uniform and the adaptive grid), the ACCEPTANCE
+#                                         comparison (narrowed vs full-range lnZ at equal
+#                                         n_grid: 0.0 nats, measured 2.8e-14), and its
+#                                         power check -- the pre-change call signature on
+#                                         the same box moves lnZ by +4.16 nats.  ~110 s,
+#                                         CPU, one synthetic precompute.
 
 #   test_nuts_phimarg_injection.py  Not a pytest file at all: it runs the whole study at
 #                                 module scope and calls sys.exit() there.  WITHOUT numpyro
@@ -293,6 +303,7 @@ FILES=(
   "${JAXDIR}/test_angle_marg_smoke.py"
   "${JAXDIR}/test_angle_marg_compile_cost.py"
   "${JAXDIR}/test_angle_marg_block_dispatch.py"
+  "${JAXDIR}/test_limit_distance_jax.py"
 )
 
 # EXCLUDED: files in JAXDIR matching test_*.py that are deliberately NOT gated.  The
@@ -383,7 +394,8 @@ fi
 # Raising the floor
 # by exactly the number of tests ADDED is safe whatever the environment delta above,
 # since it preserves the margin the previous floor already had.
-EXPECTED_TESTS=189
+# PR (this one) adds fourteen test_limit_distance_jax.py pins, raising 189 -> 203.
+EXPECTED_TESTS=203
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"
