@@ -864,6 +864,71 @@ column here.
   tail-bound margin was. Several comments in this module appeal to "an operator reading the
   columns"; there are no columns to read outside the tests.
 
+## P1 from an outside reviewer: is `q_out_max` a certified upper bound? No — and measured, it does not need to be
+
+**The complaint.** `q_out_max` is the maximum on the factor-8 enumeration samples, so it is a
+LOWER bound on the continuous outside supremum. An off-grid peak omitted by enumeration could
+be comparable to the retained peak while its sampled value falls arbitrarily lower as amplitude
+grows; `margin` would then pass and the returned integral would be missing that peak. The
+containment check cannot catch it, since it examines only retained intervals.
+
+Every step of that is correct as stated. Taken apart, it has three premises, and they do not
+fare alike.
+
+**Premise 1 — `q_out_max` under-reads, and the gap grows with amplitude. CONFIRMED.** Honest
+supremum recomputed on a 64x-per-enumeration-cell grid over the module's own uncovered set,
+for rows it ACCEPTED:
+
+| amplitude | sampled margin | HONEST margin | under-read |
+|---|---|---|---|
+| 2e4 | −79.57 | −65.53 | **14.0** |
+| 2e5 | −289.51 / −220.32 / −141.08 | −71.14 / −71.83 / −66.55 | **218 / 148 / 75** |
+| 2e6 | −2998.61 / −2307.03 / −1514.75 | −75.82 / −90.20 / −70.17 | **2923 / 2217 / 1445** |
+
+The under-read grows without bound, exactly as claimed — two orders of magnitude over two
+decades of amplitude.
+
+**Premise 2 — therefore the margin passes when it should not. NOT OBSERVED, and structurally
+so.** The honest margin is **amplitude-independent**: −65 to −90 nats at every amplitude,
+against `TAIL_LOG_TOL = −23`. **Zero** rows where the honest bound would reject and the sampled
+one accepted. The reason is the relation already asserted in the suite: the uncovered set's
+supremum sits at an interval EDGE, `W_SIGMA * sigma` from a crest, hence `W_SIGMA**2/2 = 72`
+nats below it *whatever the amplitude* — the sharper the peak, the further the SAMPLE falls
+below that edge, which inflates the under-read while leaving the honest quantity where it was.
+So the growth in Premise 1 is real and is also the reason Premise 2 does not follow.
+
+**Premise 3 — an off-grid peak omitted by enumeration. NOT REPRODUCED, and partly superseded.**
+Across npts 153/307/614, spectral widths m0 30/120/300 and amplitudes 2e4-2e6, **zero material
+continuous maxima** (within 100 nats of the row top) were missed by `enumerate_peak_indices`;
+enumeration in fact returns one or two MORE than the interior continuous count, the endpoints.
+(A naive scan reports tens of thousands of extra "maxima" at m0=30 — those are float ripple
+10^4 to 10^6 nats down, and are what a materiality filter is for.)
+
+More importantly this premise reads against a commit before `004dcdac`. Since Door 4 an
+enumerated peak can no longer be dropped on its SAMPLED value: the pre-filter uses a certified
+spectral bound and the final filter uses localised crests. The "sampled value arbitrarily
+lower" failure was real there, cost up to −1849 nats, and is fixed.
+
+**Coverage-boundary cells are already included.** The mask is built with
+`lo_i = ceil(a/h_enum)`, `hi_i = floor(b/h_enum)`, so only samples strictly INSIDE an interval
+are marked covered and the samples bracketing every edge already enter `q_out_max`.
+
+**Why the proposed remedy is not viable as stated.** Certifying the supremum with the same
+spectral bound the pre-filter uses would add `0.5 * q_ddot_max * h_enum**2` to `q_out_max`.
+That bound is deliberately loose — measured slack **15x to 84.5x**, i.e. 494 nats at amplitude
+2e4 rising to 5.7e5 at 2.5e7. Against a keep window of `PEAK_KEEP_NATS = 60` that looseness is
+harmless (it keeps peaks it need not, costing only work); against a REJECT window of
+`TAIL_LOG_TOL = -23` it is fatal — every high-amplitude row would fail the bound and fall back,
+which is the inert-option outcome, the same failure mode as deleting the pre-filter outright.
+The reviewer's alternative — "route any row without a certified outside supremum to the dense
+implementation" — is that same outcome by another name at these amplitudes.
+
+**What stands.** The tail bound remains a SAMPLED maximum whose safety rests on the `W_SIGMA`
+structural slack rather than on certification, which this note has said from the start and now
+says with the amplitude scaling measured. Closing it properly needs a LOCAL bound on `q''` —
+one that distinguishes a quiet region from the tall peak, which a global spectral bound cannot —
+and that is a piece of work, not a constant to widen.
+
 ## Mutation sweep
 
 **34 mutations against the current code** (`e03dde95`), baseline **109 collected / 108
