@@ -691,12 +691,18 @@ the row became accepted carrying this defect — `pl - bl` went `0.000000` (reje
 note carried at −6.0 nats, then +0.53 and growing with SNR, is now `pl - bl = 0.000000`
 throughout: every row either matches the dense path exactly or declines.
 
-**DISCLOSED, NOT FIXED.** `time_marginalize_bandlimited` carries a milder form of the same
-defect — its refined grid also begins at the boundary with a half weight — measuring
-**+0.77 / +1.43 / +2.10 / +2.52 / +2.08 nats** on those rows against a converged reflected
-reference. peak-local now matches it **exactly** (`pl - bl = +0.000000`), which is what makes
-the residual cleanly attributable: it belongs to the shared reconstruction and to #203's
-rule, not to this one. It should be raised upstream rather than patched here.
+**DISCLOSED, NOT FIXED.** `time_marginalize_bandlimited` carries the same defect in milder
+form — its refined grid also begins at the boundary with a half weight. Measured against a
+converged spectral reference: **+0.768 / +1.429 / +2.121 / +2.813 / +3.479 nats** at
+amplitude 4e4 / 1.6e5 / 6.4e5 / 2.56e6 / 1e7, i.e. derived factor 256 → 4096. It obeys the
+same `+log 2 per factor 4` law, and finer references move the top row DOWN, so **+3.48 nats
+at the legal ceiling is a lower bound.** (An earlier measurement here stopped one octave
+short and quoted a maximum of +2.74; that was wrong and is corrected.)
+
+peak-local now matches it **exactly** — `pl - bl = +0.000000` at every amplitude with
+`n_peak_local_rows = 0` — so it inherits the defect rather than adding to it, which is what
+makes the residual cleanly attributable: it belongs to the shared reconstruction and to
+#203's rule, not to this one. **It should be raised upstream, not patched here.**
 
 ### A correction to a stated precondition
 
@@ -707,6 +713,81 @@ to `-inf`, the peak is dropped, and the row loses peaks until it falls back — 
 coverage and never accuracy, and with the shipped table the boundary sits at
 `D_eff < d_min/10`, unreachable at default settings. But the claim as written was wrong, and
 the pre-filter's `q`-bound-to-`lnL`-bound step rests on it, so it is now stated precisely.
+
+## Round 8 — the first independent YES, and what is left
+
+A sixth reviewer, handed the round-6 and round-7 fixes and told to break them, returned
+**YES: the quantisation/resolution class is closed.** That is the first affirmative verdict
+in six adversarial passes, and what it rests on is worth recording rather than just the word.
+
+### Why `~pinned` is the right predicate, and not a patch over one fixture
+
+The obvious next door is a crest that is NOT pinned but sits close enough to a boundary that
+its interval is CLIPPED, leaving a non-stationary edge. That band was scanned directly —
+auto-bracketing the pinned-to-interior transition, then bisecting the bump offset to land
+`t*/sigma` on 13 targets in (0.25, 11.9), with the module's own local grid captured and
+re-integrated at 512x/1024x on the same interval (convergence ≤ 9.3e-9):
+
+| derived factor | worst `pl − exact(own interval)` | worst `pl − bl` | worst `lam` |
+|---|---|---|---|
+| 256 | −0.00238 | −0.00193 | 0.172 |
+| 1024 | −0.00272 | −0.00224 | 0.80 |
+| 4096 | −0.00268 | −0.00222 | 1.24 |
+
+**Flat in amplitude** — 0.0024 to 0.0027 across 250x in amplitude and 16x in resolution —
+and negative. The opposite signature to the pinned defect, which grew +1.27 → +4.03 nats at
++log 2 per factor 4.
+
+The mechanism is why, and it is the argument that actually closes the class. At an INTERIOR
+crest the edge deficit and the decay rate are TIED: for a peak of width `sigma` integrated at
+`h <= sigma/2`, an edge at distance `d` has `lam = d*h/sigma^2 <= d/(2 sigma)` and depth
+`Delta = d^2/(2 sigma^2) ~ 2 lam^2`. So `lam >> 1` forces `Delta >> 1` and the over-counted
+mass is exponentially suppressed, while `Delta ~ 0` forces `lam ~ 0` and the half weight is
+correct. **The pinned case escaped only because a boundary CORNER has `q' != 0` at
+`Delta = 0`** — there is no such relation there. Round 7 removes exactly the configurations
+that break the tie.
+
+Confirmed at the extreme: an accepted row whose clipped edge is **0.005 nats** below its
+interval's own maximum — a 72-nat violation of what `W_SIGMA` assumes — still has
+`lam_lo = 0.031` and an error of −6.1e-4 nats. The other end of that same interval has
+`lam_hi = 5.67` at depth 72.85. The two conditions never co-occur.
+
+**Merged edges** cannot be the door either, and structurally so: the union's endpoints are
+`min_i(t_i − W sigma_i)` and `max_i(t_i + W sigma_i)`, so merging can only push an edge
+FURTHER from every crest. Over 250 random rows (1–3 bumps, log-uniform amplitude
+10^3.5–10^7.5, 70% of positions biased hard against the window ends) the worst
+`pl − bandlimited` was **+0.000000 nats**.
+
+### What is still open, in severity order
+
+* **The ceiling contract, and it is far more reachable than it looked.** `over_ceiling` is
+  taken on the COARSE derived factor while `time_marginalize_bandlimited` re-measures on the
+  refined grid and raises, so peak-local ACCEPTS where the dense path REFUSES. The crafted
+  fixture was not the point: a random hunt hit this on **9 of 250 uncrafted rows** at
+  npts=614. The values are exact — scored against a converged spectral reference on three of
+  them, `pl − ref = 0.000000` — so it is a **broken fail-closed contract, not a wrong
+  number.** Fixing it is a design decision, not a one-line change: `>=` instead of `>` would
+  route every row at the legal ceiling to the dense path, which is precisely the regime this
+  rule exists to serve. The honest options are to re-measure the width on the local grid the
+  way the dense path does, or to state that peak-local is deliberately NOT bound by a ceiling
+  that exists for the dense grid. **Not fixed; the top open item.**
+* **The dense path's own boundary defect** — merged code, up to **+3.48 nats** at the legal
+  ceiling, inherited rather than caused, and peak-local now matches it exactly.
+* **A cost regression from round 7.** A row carrying an interior dominant crest AND a
+  boundary crest within `PEAK_KEEP_NATS` is now declined whole: `exact_keep` keeps the pinned
+  peak and `bad_loc` then condemns the row. Fail-closed and correct, but a real coverage loss
+  on edge-peaked rows. Measured: a uniform-arrival block is 60/60 accepted and a
+  near-far-end block 6/7, so it bites on edge-peaked rows specifically, not broadly.
+* **A latent accounting fragility.** `n_dense_fallback_localise` is incremented
+  unconditionally while `keep_row` later ANDs `~bad_loc` with `~too_much`/`~too_slow`, which
+  increment their own counters, so a row that is both would be double counted and the
+  sub-counts would exceed `n_dense_fallback_rows`. Three early returns also skip the
+  `n_dense_fallback_nopeak` accounting. **Not reachable on any fixture tried** — a 47-row
+  mixed block reconciles exactly — because the `bad_loc & too_much` path needs peaks
+  separated by between `24.5 sigma` and `24.5 sigma + 2 h_enum`, a window the band limit
+  closes at high SNR. Recorded as fragility, not as a demonstrated bug. Relatedly `too_slow`
+  looks like dead code: the provisional point count is an over-estimate, so `p_slow` fires
+  first.
 
 ## Mutation sweep
 
