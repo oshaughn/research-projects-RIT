@@ -137,14 +137,46 @@ in an uncovered cell is carried by the tail bound.  An adapter with an `exact-tr
 warrant might look like it could skip the certificate on the strength of its extremum
 count; it cannot, and the contract must not let it.
 
-**`provable-unimodality` — distance.**  In `u = Dref/D` the plain-callback exponent is
-`A u − B u²`, plus `−4 ln u` for the volumetric prior `p(d) ∝ d²`.  Measured: the full
-exponent is **not** concave, but on (0,∞) it has exactly one interior maximum — the
-smaller root of `B u² − A u + 4` is a minimum, the larger a maximum.  Completeness is
-free; no certificate is needed because there is nothing to miss.  Note the shipped node
-centre `K/R` is the peak of the Gaussian factor only, so it is offset from the true
-maximum: measured **−0.08σ at K=50,R=1** but **−1.6σ at K=4.1,R=1**.  Benign at the SNR
-this exists for, but a heuristic, not a bound, and undocumented at the call site.
+**`bounded-stationary-set` — distance.**  In `u = Dref/D` the plain-callback exponent is
+`A u − B u²`, plus `−4 ln u` for the volumetric prior `p(d) ∝ d²` — which is the exponent
+the shipped `_distmarg_gh_logL` sums over its nodes (`jax_ile/core.py:1454`:
+`K u − ½R u² − 4 ln u`, so `A = K` and `B = R/2`).  It is **not** concave, and — an
+earlier draft of this note said otherwise — it is **not** unimodal either, nor does it
+always have an interior maximum.  What is provable is weaker and support-dependent:
+
+    u·e′(u) = −(2B u² − A u + 4) = −(R u² − K u + 4)
+
+so the stationary points are the roots of a quadratic, which are **real only when
+`A² ≥ 32B`, i.e. `K² ≥ 16R`**; when they exist they are
+`u_± = (K ± √(K² − 16R)) / (2R)`, the smaller a minimum and the larger a maximum.  Two
+regimes follow, and the second is the one an implementation would get wrong:
+
+* **`K² < 16R`.**  The quadratic has no real root and is positive throughout, so
+  `e′ < 0` on all of (0,∞): the exponent is strictly DECREASING and there is no interior
+  maximum at all.  On the physical support the maximum sits at the lower endpoint
+  `u_min = Dref/D_max`.
+* **`K² ≥ 16R`.**  `u_+` is an interior maximum only if it lies inside the support, and
+  even then it must be compared against the endpoints — on (0,∞) the exponent runs to
+  `+∞` as `u → 0⁺` (the `−4 ln u` prior term), so there is no global maximum on (0,∞) and
+  the integral is finite only because `u_min > 0`.
+
+So the completeness that is actually available is over the **support-aware** candidate set
+`{u_min, u_max} ∪ ({u_+} ∩ [u_min, u_max])` — at most three points, at most two of them
+local maxima, all in closed form.  That is still cheap and still certificate-free, but it
+is *not* "nothing to miss": an adapter that enumerated interior stationary points alone
+would silently drop the boundary-dominated mass.  The shipped code already anticipates
+that regime (how often it fires is NOT measured here) — it clips the node centre into
+`[x_min, x_max]` exactly so
+that bins whose Gaussian peak falls outside the support "still get their
+boundary-dominated integral resolved" (`jax_ile/core.py:1437-1442`).  A peak-local
+distance adapter inherits that obligation.
+
+Note also the shipped node centre `K/R` is the peak of the Gaussian factor only — it
+ignores both the `−4 ln u` prior term and the endpoints — so it is offset from the true
+maximum: measured **−0.08σ at K=50,R=1** but **−1.6σ at K=4.1,R=1**, and that second case
+sits barely above the `K² ≥ 16R` threshold (16.8 against 16), which is precisely where the
+interior maximum is weakest and the endpoints take over.  Benign at the SNR this exists
+for, but a heuristic, not a bound, and undocumented at the call site.
 
 **`effective-bandwidth` — the existing angle grid, and the one that CANNOT be
 certified.**  `_dense_grid_sizes` sizes N = K√A.  That constant is not arbitrary:
@@ -223,8 +255,9 @@ alternative, refuse rather than degrade.
 is NOT an adapter-overridable method.  The adapter supplies `spectrum(rows)` and the
 **core** computes `M_k` by the triangle inequality — the one construction that cannot be
 a fit.  An axis that cannot express its exponent as an exponential sum but holds a
-`provable-unimodality` warrant gets no `M_k` and no Hermite certificate; its tail control
-is the unimodal bracket.  There is no third path.  This is the structural answer to the
+`bounded-stationary-set` warrant gets no `M_k` and no Hermite certificate; its tail control
+is the bracket around the closed-form candidate set — interior stationary maximum AND both
+support endpoints, per the distance case above.  There is no third path.  This is the structural answer to the
 defect that reopened four times.
 
 **The core never applies a fail policy.**  It returns `(values, ok, decline_ledger)`.
@@ -404,5 +437,6 @@ that is a defect per axis.
   production samples ψ by Monte Carlo.  NOT verified.
 * The harmonic degree of the φ_orb exponent (asserted ≤ 2·Lmax via the Ylm crossterms).
   NOT verified — check the crossterm conventions before relying on it.
-* Whether cosmological distance priors preserve the unimodality measured above for the
-  volumetric prior.  NOT checked.
+* Whether cosmological distance priors preserve the stationary-point structure derived
+  above for the volumetric prior — the quadratic, its discriminant, and hence the size of
+  the candidate set all come from the `−4 ln u` term specifically.  NOT checked.
