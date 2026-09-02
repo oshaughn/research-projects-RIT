@@ -579,14 +579,12 @@ def _runtime_amp_failsafe(C_A, C_B, x_grid, amp_sizing, scheme_name):
     amp_call = jnp.max(jnp.clip(
         x_hat * M_A - 0.5 * jnp.square(x_hat) * B0, 0.0, None))
     amp_call = jax.lax.stop_gradient(amp_call)
-    # FAIL CLOSED.  A warning printed from inside jit does not stop anything:
-    # a production run would finish and publish biased likelihoods, samples and
-    # evidence while the "fail-safe" scrolled past in a log.  So in addition to
-    # the message we return a POISON term the caller ADDS to its result, making
-    # the output non-finite.  A NaN lnL cannot be silently consumed -- samplers
-    # reject or abort on it -- whereas an under-resolved finite number is
-    # indistinguishable from a good one.  Kept under stop_gradient so the check
-    # never enters the AD graph.
+    # The hazard this check answers: a warning printed from inside jit does not stop
+    # anything, so a production run could finish and publish biased likelihoods, samples
+    # and evidence while the "fail-safe" scrolled past in a log.  The recourse chosen is
+    # a HOST-RECORDED LABEL, not a poisoned value -- see the block below, which gives the
+    # reasoning and the two rejected alternatives.  This function returns None; it alters
+    # no value.  Everything is under stop_gradient so the check never enters the AD graph.
     jax.lax.cond(
         amp_call > 2.0 * amp_sizing,
         lambda a_: jax.debug.print(

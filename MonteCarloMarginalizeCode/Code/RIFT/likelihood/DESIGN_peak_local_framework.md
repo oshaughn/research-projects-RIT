@@ -16,7 +16,8 @@ Harnesses (host-local, `ldas-*` NFS home): `~/pl_framework_harness/`.
 `psi_warrant.py` the psi extrema count, the `M_k` bound, and the shipped-function
 check; `effective_bandwidth.py` the `exp(A cos phi)` coefficient envelope;
 `distance_unimodality.py` the distance stationary-point structure and the node-centre
-offset.  Each runs standalone with `PYTHONPATH` set to `MonteCarloMarginalizeCode/Code`,
+offset; `psi_bracket_adversarial.py` the near-annihilation extremum separation that
+falsified this note's first bracketing claim.  Each runs standalone with `PYTHONPATH` set to `MonteCarloMarginalizeCode/Code`,
 so a reviewer can re-run rather than take the tables on assertion.
 
 ## The method has been written three times, independently
@@ -53,10 +54,15 @@ object, and about nothing else.
 Read that way, the band limit plays **four** distinct roles for time, and they
 generalize separately:
 
-1. **Enumeration completeness.**  `kappa` is band-limited below Nyquist, so its
-   narrowest possible lobe is `deltaT` and a fixed, SNR-independent `PEAK_ENUM_FACTOR`
-   provably brackets every extremum.  This is what makes "enumerate, do not search"
-   honest.
+1. **Enumeration RESOLUTION — and note what it does and does not buy.**  `kappa` is
+   band-limited below Nyquist, so its narrowest possible LOBE is `deltaT`, and a fixed,
+   SNR-independent `PEAK_ENUM_FACTOR` places 8 points across it whatever the SNR.  That
+   is what makes "enumerate, do not search" affordable.  It is NOT a guarantee that every
+   extremum is separately bracketed: a band-limited function can carry a max and a saddle
+   approaching annihilation, arbitrarily close together (measured for the ψ case below).
+   The shipped module is already careful about exactly this — *"Completeness of the
+   enumeration buys SPEED; the bound buys CORRECTNESS"* — and a generalized core must
+   inherit that division rather than the looser reading.
 2. **The derivative bound `M_k`.**  `sum_j |X_j| |w_j|^k` is a TRUE bound because the
    interpolant is a finite trig sum.  Three consumers: the crest pre-filter (`M2`), the
    certificate remainder (`M4`), and — the round-6 lesson — it is the only place an
@@ -97,11 +103,39 @@ over 4000 random coefficient draws spanning six decades of amplitude:
 | extrema of `g` on [0,π) | **4**, amplitude-independent | 4, from degree 4 |
 | violations of `M_k = 2^k\|term1\| + 4^k\|term2b\|` | **0** | — |
 
-So ψ gets all of roles 1–3 exactly and in closed form, and *more cheaply than time*: a
-fixed ~16-point grid brackets every extremum forever, `M_k` is two terms rather than a
-spectral sum, evaluation at arbitrary ψ is O(1), and the domain is genuinely periodic
-so none of the reflection machinery applies.  ψ is not the hard axis.  It is the
-easiest one, and it is the right second instance.
+So ψ gets all of roles 1–3 exactly and in closed form, and more cheaply than time:
+`M_k` is two terms rather than a spectral sum, evaluation at arbitrary ψ is O(1), and the
+domain is genuinely periodic so none of the reflection machinery applies.  ψ is not the
+hard axis.  It is the easiest one, and it is the right second instance.
+
+**But an earlier draft of this note claimed a fixed grid "brackets every extremum,
+forever", and that is FALSE.**  It is recorded here rather than quietly fixed, because it
+is the project's characteristic error — a bound on the extremum COUNT silently promoted
+to a guarantee about RESOLVING them.  A degree-2 trig polynomial can carry a maximum and
+a saddle that approach annihilation, so adjacent extrema come arbitrarily close.  Measured
+on a plain 3000-draw random family: **minimum adjacent-extremum separation 0.068 rad,
+against a 0.196 rad cell on a 32-point grid** — two extrema in one cell, with no tuning
+required.  Driven deliberately toward the bifurcation:
+
+| `c1/c2` | 3.9 | 3.99 | 3.999 | 3.99999 |
+|---|---|---|---|---|
+| min separation (rad) | 0.224 | 0.0707 | 0.0224 | 0.0022 |
+| value spread of the merging pair (nats) | 1.3e-3 | 1.3e-5 | 1.3e-7 | **1.2e-11** |
+
+Two things follow, and both matter for the contract.
+
+*What is actually true* is the weaker pair of statements the method needs: the extremum
+COUNT is bounded by 4 and is amplitude-independent (which is what sizes `MAX_INTERVALS`),
+and the pair that can hide inside one cell is a max/saddle whose value difference vanishes
+as roughly the fourth power of their separation — 1.2e-11 nats at 0.0022 rad — so missing
+it cannot lose mass.
+
+*And the certificate is not optional for ψ.*  `segment_sup_bound` bounds `max q` over a
+cell from its endpoint values, slopes and `M4` remainder, **regardless of how many extrema
+are inside it**.  So an unenumerated maximum in a covered cell is bounded anyway, and one
+in an uncovered cell is carried by the tail bound.  An adapter with an `exact-trig-degree`
+warrant might look like it could skip the certificate on the strength of its extremum
+count; it cannot, and the contract must not let it.
 
 **`provable-unimodality` — distance.**  In `u = Dref/D` the plain-callback exponent is
 `A u − B u²`, plus `−4 ln u` for the volumetric prior `p(d) ∝ d²`.  Measured: the full
@@ -148,7 +182,7 @@ with a certificate that ψ's structure makes exact.
 Both smooth exponents in scope are **finite exponential sums**.  Time:
 `q(t) = Re sum_j Xw_j exp(w_j t)`, an `npts`-term spectrum.  Polarization, in the
 `u = 2ψ` chart, is `g(u) = a + Re(c1 e^{iu}) + Re(c2 e^{2iu})` — a **two-term spectrum
-with frequencies {1, 2}** (`jax_ile/anglemarg.py:962` states exactly this).
+with frequencies {1, 2}** (`jax_ile/anglemarg.py:961` states exactly this).
 
 That is not an analogy.  MEASURED: calling the shipped time function
 `spectral_derivative_bound(Xw=(c1,c2), fk=(1,2), period=2π, order=k)` — unmodified,
@@ -212,7 +246,7 @@ inequality each must register** for the suite to assert.
 | domain | span 2π in `u`, **periodic** — no reflection, no pinning, no edge guard |
 | warrant | `exact-trig-degree(harmonics=(1,2), period=2π)` |
 | spectrum | `(c1, c2)`, `(1, 2)` → core `M_k = \|c1\| + 2^k\|c2\|`, exact and attained |
-| enum_grid | 32 points on [0,2π): 8 per period of the top harmonic, the same discipline as `PEAK_ENUM_FACTOR`. Measured ~16 suffices; 32 is the discipline, not a tune |
+| enum_grid | 32 points on [0,2π): 8 per period of the top harmonic, the same discipline as `PEAK_ENUM_FACTOR`. Sizes the enumeration, and does NOT by itself guarantee separation — see the bracketing measurement above |
 | eval | closed form, O(1)/point; `q'`, `q''` analytic — every evaluation is truth |
 | lnL | identity |
 | backstop | fixed-N trapezoid on the full circle — super-exponentially convergent for a periodic band-limited exponent, so the backstop itself carries an aliasing *bound*, unlike time's |
