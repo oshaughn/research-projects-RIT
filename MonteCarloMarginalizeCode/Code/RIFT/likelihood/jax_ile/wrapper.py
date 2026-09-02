@@ -32,6 +32,16 @@ from .core import (build_likelihood_data, fused_log_likelihood,
                    estimate_distance_peak, phi_ref_grid, psi_grid,
                    phi_ref_conditional_lnL, DIST_MPC_REF, JAX_INTERP_DEFAULT,
                    TIME_QUAD_DEFAULT, _TIME_QUAD_CHOICES, default_time_guard)
+# Generic probe direction for the build-time identity check.  The A0==0/B1==0
+# identity is a property of the spin-2 detector response, so it does not depend
+# on where we probe; a single generic (ra, dec, incl) away from any pole or
+# face-on/edge-on special case is enough, and keeps the check O(1).
+_ANGLE_MARG_PROBE_RA = [1.0]
+_ANGLE_MARG_PROBE_DEC = [0.3]
+_ANGLE_MARG_PROBE_INCL = [1.0]
+from . import core as _core
+from .anglemarg import (ANGLE_MARG_DEFAULT, ANGLE_MARG_LEGACY,  # noqa: F401
+                        ANGLE_MARG_CHOICES)
 
 # Parameter order used throughout the wrapper's vectorized interface.
 EXTRINSIC_PARAM_ORDER = ("ra", "dec", "psi", "incl", "phiref", "distMpc")
@@ -531,8 +541,8 @@ class JAXDistPhiPsiMargLikelihood:
 
     def __init__(self, data, d_min, d_max, nphi=32, npsi=16, n_grid=256,
                  d_prior="euclidean", interp=JAX_INTERP_DEFAULT, guess_snr=None,
-                 angle_marg="grid", *, time_quadrature=TIME_QUAD_DEFAULT,
-                 d_prior_range=None):
+                 angle_marg=ANGLE_MARG_DEFAULT, *,
+                 time_quadrature=TIME_QUAD_DEFAULT, d_prior_range=None):
         self.data = data
         self.interp = interp   # the instance's stencil; sample_phi_ref defaults to it
         _validate_nonlinear_time_quadrature(
@@ -554,7 +564,7 @@ class JAXDistPhiPsiMargLikelihood:
         # must not be able to silently under-resolve the quadrature
         # (external-review defect 2).  self.angle_marg_info records what
         # actually ran -- callers must surface it in the run log.
-        if angle_marg not in ("grid", "exact", "laplace", "auto"):
+        if angle_marg not in ANGLE_MARG_CHOICES:
             raise ValueError("angle_marg must be one of grid/exact/laplace/"
                              "auto, got %r" % (angle_marg,))
         from . import anglemarg as _anglemarg
@@ -588,13 +598,46 @@ class JAXDistPhiPsiMargLikelihood:
             # over a sky sample and the ACTUAL distance nodes.
             amp_data = _anglemarg.estimate_angle_amplitude(
                 data, self.x_grid, interp=interp)
+            # The A0==0/B1==0 identity that the GH psi-marginal node placement
+            # is DERIVED from is measured ONCE here, on concrete tables, and
+            # gates EVERY route to that placement -- not just 'auto'.  An
+            # earlier revision checked it only in the 'auto' branch, so an
+            # explicit --angle-marg-scheme laplace walked past it and an
+            # m_max == 2 dataset whose identity fails was evaluated with a
+            # placement whose premise was absent (external review).  It cannot
+            # be checked inside the kernel: that runs under jit/grad, where the
+            # coefficient tables are tracers.
+            gh_ok, gh_info = None, {}
+            if _core._DISTMARG_GH_N > 0 and angle_marg in ("auto", "laplace"):
+                gh_ok, gh_info = _anglemarg.gh_laplace_supported(
+                    *_anglemarg.angle_coefficient_tables(
+                        data,
+                        jnp.asarray(_ANGLE_MARG_PROBE_RA),
+                        jnp.asarray(_ANGLE_MARG_PROBE_DEC),
+                        jnp.asarray(_ANGLE_MARG_PROBE_INCL),
+                        interp)[:2],
+                    _anglemarg._data_m_max(data),
+                    feature=getattr(data, "feature", None))
             if angle_marg == "auto":
                 scheme, sel_info = _anglemarg.choose_angle_marg_scheme(
-                    amp_data)
+                    amp_data, gh_laplace_ok=gh_ok)
+                sel_info.update(gh_info)
             else:
+                if angle_marg == "laplace" and gh_ok is False:
+                    raise ValueError(
+                        "--angle-marg-scheme laplace was requested with "
+                        "JAX_ILE_DISTMARG_GH set, but its psi-marginal "
+                        "distance-node placement is not valid for this data: "
+                        "%s.  The placement is DERIVED from A0 == 0 and "
+                        "B1 == 0 (that is what reduces stationarity to "
+                        "z^2 w = conj(w)), so it must not be used where they "
+                        "do not hold.  Use --angle-marg-scheme exact, or unset "
+                        "JAX_ILE_DISTMARG_GH."
+                        % gh_info.get("gh_laplace_reason", "identity absent"))
                 scheme, sel_info = angle_marg, dict(
                     reason="forced by caller", amplitude=amp_data,
                     crossover=_anglemarg.ANGLE_MARG_CROSSOVER_AMPLITUDE)
+                sel_info.update(gh_info)
             # sizing is FLOORED at the crossover (never below the
             # calibration point); the SELECTION above used the unfloored
             # bound, so quiet targets stay on the exact branch
