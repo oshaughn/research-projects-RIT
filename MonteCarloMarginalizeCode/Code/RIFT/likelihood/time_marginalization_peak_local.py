@@ -178,8 +178,6 @@ __all__ = [
     "spectral_curvature_bound",
     "spectral_derivative_bound",
     "crest_upper_bound",
-    "parabolic_sup",
-    "segment_sup_bound",
     "enum_grid_derivatives",
     "eval_bandlimited_uniform",
     "eval_bandlimited_points",
@@ -1309,6 +1307,12 @@ def _peak_local_chunk(kappa_rows, rho_col_rows, factors, npts, deltaT, period,
     row_top = np.full(n_rows, -np.inf)
     np.maximum.at(row_top, rows_np, lnL_star)
     exact_keep = lnL_star > row_top[rows_np] - PEAK_KEEP_NATS
+    # Every localised crest, INCLUDING the ones about to be dropped.  They cost nothing --
+    # Newton has already run on them -- and they are exact, so the tail bound below can use
+    # a crest rather than the sample under it.  See the outside-supremum note there.
+    q_all_np = _host(q_star, xpy)
+    t_all_np = t_np.copy()
+    rows_all_np = rows_np.copy()
     if not exact_keep.all():
         rows_np, cols_np = rows_np[exact_keep], cols_np[exact_keep]
         sig_np, tol_np = sig_np[exact_keep], tol_np[exact_keep]
@@ -1430,8 +1434,67 @@ def _peak_local_chunk(kappa_rows, rho_col_rows, factors, npts, deltaT, period,
     # row -- because the callback is monotone in it, so no evaluation on the full
     # time axis is needed.  A row whose bound is not small enough is NOT reported
     # with a caveat: it goes to the dense path.
+    # ---- the outside supremum, evaluated OFF-GRID rather than sampled.
+    #
+    # `max(q_up over uncovered samples)` is a LOWER bound on the continuous supremum, and the
+    # gap GROWS WITH AMPLITUDE.  Measured, honest supremum against the sampled one on rows this
+    # rule accepted: the sampled margin read -79.6 / -289.5 / -2998.6 at amplitude 2e4 / 2e5 /
+    # 2e6 while the honest margin was -65.5 / -71.1 / -75.8 -- an under-read of 14, then 218,
+    # then 2923 nats.  The reported `tail_bound_worst` was therefore a diagnostic that got more
+    # flattering the sharper the row, which is the wrong direction for a safety margin.
+    #
+    # WHERE THE GAP COMES FROM, and it is not a peak the enumeration missed.  The supremum over
+    # a union of closed intervals is attained at an interior stationary point or at an end, so
+    # the candidates are exactly: the crests of uncovered enumerated maxima, and the ENDS of the
+    # covered intervals.  The ends dominate.  An interval end sits `W_SIGMA * sigma` from its
+    # crest, i.e. `W_SIGMA**2/2 = 72` nats below it whatever the amplitude -- but the nearest
+    # SAMPLE outside that end is a further `W_SIGMA * h_enum / sigma` nats down, which diverges
+    # as the peak sharpens.  That single term is the whole measured under-read.
+    #
+    # So evaluate the candidates instead of sampling near them.  `q` is band-limited and the
+    # double-copy (forward+backward) Fourier model reconstructs it exactly between samples, so
+    # the interval ends are evaluated directly on that model, and the localised crests are
+    # already in hand from Newton -- including the peaks the exact filter dropped, which is
+    # precisely the set the sampled version read at their samples.
+    #
+    # This does not certify anything, and does not claim to: a peak the enumeration never found
+    # would still be missed.  For a Nyquist-band-limited `q` on an 8x grid that is not a
+    # realistic failure -- across npts 153/307/614 and spectral widths 30/120/300, zero material
+    # continuous maxima (within 100 nats of the row top) were missed, and enumeration returns
+    # one or two MORE than the interior continuous count.  What this does remove is the
+    # amplitude-divergent term, which was real.
     cov_x = xpy.asarray(covered)
     q_out_max = xpy.max(xpy.where(cov_x, -np.inf, q_up), axis=-1)
+    if g_row.size:
+        # the ends of every merged interval, on the reflected interpolant
+        edge_rows = np.concatenate([g_row, g_row])
+        edge_t = np.concatenate([g_lo, g_hi])
+        q_edge = _host(eval_bandlimited_points(Xw, fk, xpy.asarray(edge_rows),
+                                               xpy.asarray(edge_t), period_ref,
+                                               xpy=xpy)[0], xpy)
+        q_out_np = _host(q_out_max, xpy)
+        np.maximum.at(q_out_np, edge_rows, q_edge)
+        # ... and the crests of enumerated peaks left outside, exact from localisation
+        if rows_all_np.size:
+            # Is each localised crest inside one of ITS OWN row's merged intervals?  Vectorised
+            # by the same row-offset trick merge_intervals_by_row uses: the intervals are
+            # ascending in (row, lo), so offsetting by `row * big` makes one global searchsorted
+            # answer it for every peak at once.  A Python loop over intervals here is O(groups x
+            # peaks) and is exactly the shape that once made this rule slower than the path it
+            # delegates to.
+            #
+            # The exclusion is NOT optional and cannot be skipped for conservatism: a crest that
+            # IS covered is already integrated, and feeding it to the outside maximum would make
+            # the bound `log(T_out) + crest - result`, which rejects every row.
+            big = 2.0 * (float(t_last) + 1.0)
+            j = np.searchsorted(g_lo + g_row * big, t_all_np + rows_all_np * big,
+                                side='right') - 1
+            jc = np.maximum(j, 0)
+            in_cov = (j >= 0) & (g_row[jc] == rows_all_np) & (t_all_np <= g_hi[jc])
+            out_pk = ~in_cov
+            if out_pk.any():
+                np.maximum.at(q_out_np, rows_all_np[out_pk], q_all_np[out_pk])
+        q_out_max = xpy.asarray(q_out_np)
     T_out = np.maximum(t_last - covered_len, 0.0)
     lnL_out = loglikelihood(q_out_max, rho_col_rows[:, 0])
     with np.errstate(divide='ignore', invalid='ignore'):

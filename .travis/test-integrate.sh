@@ -105,7 +105,7 @@ fi
 # and that the option reaches the shipped likelihood instead of being inert.
 _TMARG_PL_TESTS=MonteCarloMarginalizeCode/Code/test/test_time_marginalization_peak_local.py
 # Raise EXPECTED by RUNNING collection, never by arithmetic.
-_TMARG_PL_EXPECTED=110
+_TMARG_PL_EXPECTED=112
 _TMARG_PL_FOUND=$(python -m pytest -q --collect-only "$_TMARG_PL_TESTS" 2>/dev/null | grep -c '::' || true)
 if [ "$_TMARG_PL_FOUND" -ne "$_TMARG_PL_EXPECTED" ]; then
     echo "peak-local gate: collected $_TMARG_PL_FOUND tests, expected $_TMARG_PL_EXPECTED" >&2

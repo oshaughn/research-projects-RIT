@@ -412,6 +412,50 @@ def test_the_containment_check_catches_a_mis_placed_interval(monkeypatch):
     monkeypatch.setattr(pl, 'localise_peaks', snap_back_to_the_grid)
     got = _peak_local(k)
     rep = pl.last_report()
+    # THE SAFETY PROPERTY, and it is the assertion that matters: the truncated value is not
+    # reported.  The row is declined and given the dense value.
+    assert rep['n_peak_local_rows'] == 0, rep
+    assert got == _bandlimited(k)
+    # WHICH defence fires moved, and the move is an improvement.  It used to be containment
+    # alone: the tail bound read the excluded crest at its SAMPLE, ~87 nats below the crest,
+    # so it passed.  Now the outside supremum is evaluated off-grid, sees that crest at full
+    # height, and rejects the row first.  Assert the disjunction rather than one counter, so
+    # this test pins the safety property and not the order the two defences happen to fire in.
+    assert (rep['n_dense_fallback_tail'] + rep['n_dense_fallback_containment']) == 1, rep
+
+
+def test_containment_still_catches_a_mis_placed_interval_with_the_tail_bound_disabled(
+        monkeypatch):
+    """Containment is a SECOND line of defence, and after the off-grid tail bound it is no
+    longer the one that fires -- so it has to be tested in isolation or not at all.
+
+    Evidence that it stopped being covered: disabling the containment check outright
+    (`contained = all True`) leaves the entire suite green, because the off-grid outside
+    supremum now rejects every mis-placed-interval fixture first.  That is a real coverage
+    loss and this test is the fix.
+
+    The two checks are NOT redundant, which is why containment is kept rather than deleted.
+    The tail bound is a statement about mass OUTSIDE the intervals, and it excludes covered
+    points by construction; it therefore cannot see a crest that is INSIDE its interval but
+    that the local grid failed to attain.  Containment is the only thing that can.
+
+    Isolated by making the tail bound unconditionally pass, then re-introducing F1 exactly as
+    the companion test does.  With both defences live the tail bound wins; with only
+    containment live, containment must still catch it.
+    """
+    monkeypatch.setattr(pl, 'TAIL_LOG_TOL', np.inf)
+    sig = BandLimited(amp=2000.0, peak_sample=NPTS // 2 + 0.5 / pl.PEAK_ENUM_FACTOR)
+    k = sig.samples()
+    real = pl.localise_peaks
+
+    def snap_back_to_the_grid(Xw, fk, rows, t_grid, h_enum, tol, period, **kw):
+        t, q, ok = real(Xw, fk, rows, t_grid, h_enum, tol, period, **kw)
+        return t_grid, q, ok            # crest value kept, position quantised: the old bug
+
+    monkeypatch.setattr(pl, 'localise_peaks', snap_back_to_the_grid)
+    got = _peak_local(k)
+    rep = pl.last_report()
+    assert rep['n_dense_fallback_tail'] == 0, ("tail bound was supposed to be disabled", rep)
     assert rep['n_dense_fallback_containment'] == 1, rep
     assert rep['n_peak_local_rows'] == 0, rep
     assert got == _bandlimited(k)
@@ -1176,7 +1220,20 @@ def test_the_reported_tail_bound_matches_an_independent_recomputation():
         if i1 >= i0:
             covered[max(i0, 0):i1 + 1] = True
     T_out = t_last - float(np.sum(stops - starts))
-    want = np.log(T_out) + _lnL(np.max(up[~covered]), RHO_SQ) - float(out[0])
+
+    # The outside supremum is EVALUATED, not sampled: the candidates are the uncovered
+    # samples, the ENDS of the merged intervals (on the double-copy Fourier model), and the
+    # localised crests left outside.  Recomputing it from `up[~covered]` alone reproduces the
+    # old sampled value -- which for this fixture is -439.93 against the module's -63.88, a
+    # 376 nat gap that is exactly the term the off-grid evaluation removes.
+    kref = np.concatenate((k, np.flip(k, axis=-1)), axis=-1)
+    Xw, fk = pl.bandlimited_spectrum(kref)
+    period_ref = 2.0 * NPTS * DELTAT
+    ends = np.concatenate([starts, stops])
+    q_ends, _, _ = pl.eval_bandlimited_points(
+        Xw, fk, np.zeros(ends.size, dtype=np.int64), ends, period_ref)
+    q_out = max(float(np.max(up[~covered])), float(np.max(q_ends)))
+    want = np.log(T_out) + _lnL(q_out, RHO_SQ) - float(out[0])
     assert abs(rep['tail_bound_worst'] - want) < 1e-6, (rep['tail_bound_worst'], want)
 
 
@@ -2141,6 +2198,66 @@ def test_boundary_unresolved_rows_are_refined_and_not_called_flat():
         assert not bool(flat[0]), (centre, "an endpoint peak was mislabelled flat")
         assert bool(has_peak[0]), (centre, has_peak)
         assert int(factors[0]) >= 4, (centre, factors)
+
+
+def test_the_outside_supremum_is_evaluated_off_grid_not_sampled():
+    """P1.  `max(q_up over uncovered SAMPLES)` is a lower bound on the continuous outside
+    supremum, and the gap GROWS WITH AMPLITUDE, so the reported margin got more flattering the
+    sharper the row -- the wrong direction for a safety number.  Measured before this was
+    fixed: the module reported -79.6 / -289.5 / -2998.6 at amplitude 2e4 / 2e5 / 2e6 where the
+    honest margins were -65.5 / -71.1 / -75.8, an under-read of 14, 218 and 2923 nats.
+
+    The gap is NOT a peak the enumeration missed.  The supremum over a union of closed
+    intervals sits at an interior stationary point or at an END; the ends dominate.  An
+    interval end is `W_SIGMA * sigma` from its crest -- 72 nats below it at any amplitude --
+    but the nearest SAMPLE outside that end is a further `W_SIGMA * h_enum / sigma` down,
+    which diverges as sigma shrinks.  That one term was the entire under-read.
+
+    So the ends are evaluated on the double-copy Fourier model rather than sampled near.  This
+    asserts the property that fixes: the reported margin must track an independently computed
+    honest supremum, and must not sit hundreds of nats below it.
+    """
+    T = NPTS * DELTAT
+    ms = np.arange(1, (NPTS - 1) // 2 + 1)
+    basis = np.exp(2j * np.pi * np.outer(np.arange(NPTS), ms) / NPTS)
+    env = np.exp(-0.5 * (ms / 120.0) ** 2)
+    rng = np.random.default_rng(4242)
+    checked = 0
+    for amp in (2.0e4, 2.0e6):
+        c = np.zeros(ms.size, dtype=complex)
+        for _ in range(3):
+            c = c + 2.0 * env * (amp * rng.uniform(0.4, 1.0) / (2 * env.sum())) * \
+                np.exp(-2j * np.pi * ms * rng.uniform(0.05, 0.95))
+        k = (basis @ c)[None, :]
+        r = np.full(k.shape, RHO_SQ)
+        v, peaks = pl.time_marginalize_peak_local(k, r, DELTAT, _lnL, return_peaks=True)
+        rep = pl.last_report()
+        if rep['n_peak_local_rows'] != 1 or peaks[0] is None:
+            continue
+        t_star, sigma = peaks[0]
+        half = pl.W_SIGMA * sigma + pl.LOCALISE_SAFETY * sigma
+        t_last = (NPTS - 1) * DELTAT
+        lo = np.maximum(t_star - half, 0.0)
+        hi = np.minimum(t_star + half, t_last)
+
+        # honest supremum over the uncovered set, on a grid far finer than the enumeration one
+        FF = 32 * pl.PEAK_ENUM_FACTOR
+        tf = np.arange((NPTS - 1) * FF + 1) * (DELTAT / FF)
+        qf = tmq.reflected_bandlimited_upsample(k, FF)[0, :(NPTS - 1) * FF + 1].real
+        outside = np.ones(tf.size, dtype=bool)
+        for a, b in zip(lo, hi):
+            outside &= ~((tf >= a) & (tf <= b))
+        assert outside.any(), "fixture leaves nothing outside"
+        T_out = max(t_last - float(np.sum(hi - lo)), 0.0)
+        honest = np.log(T_out) + _lnL(qf[outside].max(), RHO_SQ) - float(np.asarray(v)[0])
+
+        got = float(rep['tail_bound_worst'])
+        # the reported margin must be CLOSE to honest, and never far BELOW it (which is the
+        # optimistic direction that grew with amplitude)
+        assert got - honest > -30.0, (amp, got, honest, "reported margin far below honest")
+        assert got < pl.TAIL_LOG_TOL, (amp, got)
+        checked += 1
+    assert checked == 2, checked
 
 
 if __name__ == '__main__':
