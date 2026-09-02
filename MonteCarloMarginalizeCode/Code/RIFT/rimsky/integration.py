@@ -74,6 +74,15 @@ def _resolve_output_dir(config, config_path=None):
     return output_dir.resolve()
 
 
+def _resolve_config_path(value, *, config_path=None):
+    """Resolve a Rimsky path using the source configuration as its anchor."""
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        base = Path(config_path).resolve().parent if config_path else Path.cwd()
+        path = base / path
+    return path.resolve()
+
+
 def build_analysis(config, *, config_path=None, overrides=None):
     """Build the Asimov analysis document consumed by Rimsky's follow-up hook.
 
@@ -160,6 +169,41 @@ def build_analysis(config, *, config_path=None, overrides=None):
     return analysis
 
 
+def configure_rimsky(config, analysis_path, *, config_path=None):
+    """Return a runnable Rimsky configuration wired to the RIFT follow-up.
+
+    Rimsky interprets paths relative to its launch directory, rather than the
+    YAML file.  Emit absolute paths so the online output observed by Rimsky is
+    the same output searched by RIFT's bootstrap glob.  Missing orchestration
+    settings default to a local Asimov project and a submitted Bilby run; an
+    operator's explicit values are retained.
+    """
+    if not isinstance(config, dict):
+        raise RimskyIntegrationError("Rimsky configuration must be a mapping")
+
+    configured = copy.deepcopy(config)
+    configured["output_dir"] = str(
+        _resolve_output_dir(configured, config_path=config_path)
+    )
+    configured["asimovdir"] = str(
+        _resolve_config_path(
+            configured.get("asimovdir", "asimov"), config_path=config_path
+        )
+    )
+    event_sink = configured.setdefault("event_sink", {})
+    if not isinstance(event_sink, dict):
+        raise RimskyIntegrationError("Rimsky 'event_sink' must be a mapping")
+    event_sink.setdefault("bilby_pipe_format", "full-submit")
+
+    sample_sink = configured.setdefault("sample_sink", {})
+    if not isinstance(sample_sink, dict):
+        raise RimskyIntegrationError("Rimsky 'sample_sink' must be a mapping")
+    sample_sink["asimov_configuration"] = str(
+        _resolve_config_path(analysis_path)
+    )
+    return configured
+
+
 def normalize_event_metadata(metadata):
     """Return RIFT-compatible metadata from a Rimsky-created event mapping.
 
@@ -224,20 +268,43 @@ def write_analysis(analysis, path):
     return path
 
 
+def write_rimsky_config(config, path):
+    """Write a Rimsky configuration containing the automatic RIFT hook."""
+    return write_analysis(config, path)
+
+
 def main(argv=None):
-    """Command-line entry point for creating a Rimsky RIFT follow-up file."""
+    """Create the RIFT analysis and a Rimsky config that invokes it."""
     parser = argparse.ArgumentParser(
         description="Generate a RIFT follow-up analysis for a Rimsky configuration"
     )
     parser.add_argument("rimsky_config", help="Rimsky YAML configuration")
     parser.add_argument("output", help="Destination analysis YAML")
+    parser.add_argument(
+        "--configured-rimsky",
+        help=(
+            "Destination for the runnable Rimsky YAML "
+            "(default: <input stem>-rift.yaml)"
+        ),
+    )
     args = parser.parse_args(argv)
 
     config = load_rimsky_config(args.rimsky_config)
-    path = write_analysis(
+    analysis_path = write_analysis(
         build_analysis(config, config_path=args.rimsky_config), args.output
     )
-    print(path)
+    source = Path(args.rimsky_config)
+    configured_path = Path(args.configured_rimsky) if args.configured_rimsky else (
+        source.with_name(source.stem + "-rift" + source.suffix)
+    )
+    write_rimsky_config(
+        configure_rimsky(
+            config, analysis_path.resolve(), config_path=args.rimsky_config
+        ),
+        configured_path,
+    )
+    print(analysis_path)
+    print(configured_path)
 
 
 if __name__ == "__main__":

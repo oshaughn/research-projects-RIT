@@ -5,9 +5,14 @@ from types import SimpleNamespace
 
 import pytest
 
+# Import Asimov before its RIFT entry point. Importing the entry-point module
+# first creates a circular discovery path in Asimov 0.5/0.6.
+pytest.importorskip("asimov")
+
 from RIFT.rimsky import (
     RimskyIntegrationError,
     build_analysis,
+    configure_rimsky,
     normalize_event_metadata,
     write_analysis,
 )
@@ -248,6 +253,34 @@ def test_write_analysis_round_trips(tmp_path):
     )
     destination = write_analysis(analysis, tmp_path / "rift-followup.yaml")
     assert yaml.safe_load(destination.read_text()) == analysis
+
+
+def test_configure_rimsky_defaults_to_submitted_bilby_then_rift(tmp_path):
+    source = tmp_path / "configs" / "rimsky.yaml"
+    followup = tmp_path / "generated" / "rift-followup.yaml"
+    configured = configure_rimsky(
+        _rimsky_config(tmp_path), followup, config_path=source
+    )
+
+    assert configured["output_dir"] == str(
+        (source.parent / "online-output").resolve()
+    )
+    assert configured["asimovdir"] == str((source.parent / "asimov").resolve())
+    assert configured["event_sink"]["bilby_pipe_format"] == "full-submit"
+    assert configured["sample_sink"]["asimov_configuration"] == str(
+        followup.resolve()
+    )
+
+
+def test_configure_rimsky_preserves_explicit_run_mode_and_asimovdir(tmp_path):
+    config = _rimsky_config(tmp_path)
+    config["asimovdir"] = "project"
+    config["event_sink"]["bilby_pipe_format"] = "full-local"
+    configured = configure_rimsky(
+        config, tmp_path / "followup.yaml", config_path=tmp_path / "rimsky.yaml"
+    )
+    assert configured["event_sink"]["bilby_pipe_format"] == "full-local"
+    assert configured["asimovdir"] == str((tmp_path / "project").resolve())
 
 
 @pytest.mark.parametrize("detectors", [[], {"H1": "bad"}, ["H1", 2]])

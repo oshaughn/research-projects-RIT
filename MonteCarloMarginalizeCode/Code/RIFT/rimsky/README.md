@@ -4,11 +4,18 @@ Rimsky performs online Bilby parameter estimation and can launch follow-up
 analyses through its Asimov hook.  RIFT supplies a bridge for that hook:
 
 1. `rift-rimsky-analysis rimsky.yaml rift-followup.yaml` reads the Rimsky
-   configuration and writes a RIFT Asimov analysis document.
-2. Set `sample_sink.asimov_configuration` in `rimsky.yaml` to the absolute path
-   of `rift-followup.yaml`.
-3. Set `asimovdir` to an initialized Asimov project in which the RIFT package is
-   installed and its pipeline is configured.
+   configuration and writes both a RIFT Asimov analysis document and a runnable
+   `rimsky-rift.yaml`.
+2. Initialize the Asimov project named by `asimovdir` once, install RIFT in its
+   environment, and run `rimsky rimsky-rift.yaml`.
+
+The generated Rimsky configuration defaults `event_sink.bilby_pipe_format` to
+`full-submit`, points `sample_sink.asimov_configuration` at the generated RIFT
+analysis, and makes relative output paths absolute.  Thus the first online
+Bilby result is written as a PESummary metafile and Rimsky immediately adds the
+ready RIFT follow-up to Asimov.  A running Asimov manager then builds and submits
+that production.  Existing explicit Bilby run modes and Asimov project paths
+are preserved.  Use `--configured-rimsky PATH` to choose a different filename.
 
 For example:
 
@@ -18,6 +25,7 @@ asimovdir: ./asimov
 detectors: [H1, L1, V1]
 
 sample_sink:
+  # Written automatically in rimsky-rift.yaml.
   asimov_configuration: /absolute/path/to/rift-followup.yaml
 
 # Optional. Rimsky ignores this extra section; the RIFT generator consumes it.
@@ -41,7 +49,10 @@ Rimsky 0.1 event documents use Bilby-style prior names (`chirp_mass`,
 the space-separated aliases expected by its Asimov template.  This makes the
 same event usable by both Bilby and RIFT analyses.
 
-The bridge consumes plain YAML mappings and does not import Rimsky.  It is
-therefore lightweight to test and isolated from Rimsky's streaming, GraceDB,
-and HTCondor dependencies.  The contract targets Rimsky `0.1.0rc1` and current
-main as of 2026-09-02.
+The bridge itself consumes plain YAML mappings and does not import Rimsky.  Its
+unit tests remain isolated from streaming, GraceDB, and HTCondor.  Dedicated
+end-to-end lanes install Rimsky `0.1.0rc1` on Python 3.12 and pinned current main
+on Python 3.14. They load the generated configuration through Rimsky, invoke its
+real post-PE Asimov hook, discover the RIFT pipeline, and resolve the first
+metafile as the bootstrap input. External scheduler submission is the only
+mocked boundary. The current-main pin is commit `2621d15` (2026-09-01).

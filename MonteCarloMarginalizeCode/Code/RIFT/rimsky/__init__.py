@@ -9,15 +9,19 @@ runtime stack.
 from .integration import (
     RimskyIntegrationError,
     build_analysis,
+    configure_rimsky,
     load_rimsky_config,
     normalize_event_metadata,
     write_analysis,
+    write_rimsky_config,
 )
 
 __all__ = [
     "RimskyIntegrationError",
     "build_analysis",
+    "configure_rimsky",
     "load_rimsky_config",
     "normalize_event_metadata",
     "write_analysis",
+    "write_rimsky_config",
 ]
