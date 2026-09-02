@@ -12,6 +12,13 @@ Everything measured here was measured on `citlogin6` (CIT), CVMFS IGWN python 3.
 NOT measured it says so.  This note is a design record, not a shipped-behaviour
 record: nothing in it has been implemented.
 
+Harnesses (host-local, `ldas-*` NFS home): `~/pl_framework_harness/`.
+`psi_warrant.py` the psi extrema count, the `M_k` bound, and the shipped-function
+check; `effective_bandwidth.py` the `exp(A cos phi)` coefficient envelope;
+`distance_unimodality.py` the distance stationary-point structure and the node-centre
+offset.  Each runs standalone with `PYTHONPATH` set to `MonteCarloMarginalizeCode/Code`,
+so a reviewer can re-run rather than take the tables on assertion.
+
 ## The method has been written three times, independently
 
 | | **time**<br>`time_marginalization_peak_local` | **angle**<br>`jax_ile/anglemarg.py` | **distance**<br>`jax_ile/core.py` |
@@ -136,6 +143,145 @@ mass, and there is no fallback ladder.  So the first concrete payoff of this fra
 is not deduplication.  It is giving the angle axis a peak-local branch it does not have,
 with a certificate that ψ's structure makes exact.
 
+## The seam is "supply a spectrum", not "supply an evaluator"
+
+Both smooth exponents in scope are **finite exponential sums**.  Time:
+`q(t) = Re sum_j Xw_j exp(w_j t)`, an `npts`-term spectrum.  Polarization, in the
+`u = 2ψ` chart, is `g(u) = a + Re(c1 e^{iu}) + Re(c2 e^{2iu})` — a **two-term spectrum
+with frequencies {1, 2}** (`jax_ile/anglemarg.py:962` states exactly this).
+
+That is not an analogy.  MEASURED: calling the shipped time function
+`spectral_derivative_bound(Xw=(c1,c2), fk=(1,2), period=2π, order=k)` — unmodified,
+no new code — returns ψ's bound `|c1| + 2^k|c2|` over 300 draws at orders 1, 2, 4,
+with **zero violations and tightness exactly 1.000**, i.e. the bound is *attained*
+(with two terms the triangle inequality is achievable).
+
+So the primitives the time rule built are already axis-free; they are merely misfiled
+as time code.  `spectral_derivative_bound`, the Newton in `localise_peaks`,
+`eval_bandlimited_points`, and the whole certified-supremum stack (`parabolic_sup`,
+`segment_sup_bound`, the sub-cell cuts) consume only *(coefficients, frequencies,
+period)* and cell geometry.  What an axis must supply beyond a spectrum is the short
+list a spectrum cannot carry: domain topology, the lnL map, the width source, the
+backstop, and the fail policy.
+
+The reflection machinery is not on that list.  It exists because time's spectrum is
+*implicit in coarse samples of a truncated window* — reflection is how the time adapter
+**manufactures** its spectrum.  ψ's spectrum is explicit input.  Reflection is adapter
+internals, invisible to the core.
+
+## The axis contract
+
+**The warrant is a closed, typed union owned by the core**, with four kinds — the three
+above plus `effective-bandwidth-with-margin`.  The fourth is in the type *so the core can
+refuse it by name*:
+
+    if axis.warrant.kind is EFFECTIVE_BANDWIDTH_WITH_MARGIN:
+        raise NotImplementedError(
+            "peak-local requires a warrant that certifies enumeration completeness and "
+            "true derivative bounds; effective-bandwidth-with-margin certifies neither "
+            "(it is the sizing rule for a DENSE grid with a runtime failsafe).  Use the "
+            "axis's dense rule; peak-local cannot be built on it.")
+
+Same texture as the existing `phase_marginalization` refusal: name the reason, name the
+alternative, refuse rather than degrade.
+
+**A fitted `M_k` is made unrepresentable, not merely discouraged.**  `derivative_bound`
+is NOT an adapter-overridable method.  The adapter supplies `spectrum(rows)` and the
+**core** computes `M_k` by the triangle inequality — the one construction that cannot be
+a fit.  An axis that cannot express its exponent as an exponential sum but holds a
+`provable-unimodality` warrant gets no `M_k` and no Hermite certificate; its tail control
+is the unimodal bracket.  There is no third path.  This is the structural answer to the
+defect that reopened four times.
+
+**The core never applies a fail policy.**  It returns `(values, ok, decline_ledger)`.
+The axis-owning wrapper decides: time hands `~ok` rows to `time_marginalize_bandlimited`;
+a jitted consumer labels and continues.  That is how "the fail policy differs by design"
+survives consolidation — it becomes a property of the call site, expressed on the ledger,
+rather than a branch inside the core.
+
+Protocol members, each named for the site that consumes it: `domain` (span, periodic),
+`warrant`, `spectrum`, `enum_grid`, `exponent_on_enum_grid`, `exponent_deriv_on_enum_grid`,
+`eval_points`, `eval_uniform`, `lnL` (must be monotone), `peak_scale`, `viable_rows`,
+`backstop`, `backstop_cost`, and the per-axis constants **together with the discharge
+inequality each must register** for the suite to assert.
+
+## ψ worked through, and where it falsifies the contract
+
+| member | ψ supplies |
+|---|---|
+| domain | span 2π in `u`, **periodic** — no reflection, no pinning, no edge guard |
+| warrant | `exact-trig-degree(harmonics=(1,2), period=2π)` |
+| spectrum | `(c1, c2)`, `(1, 2)` → core `M_k = \|c1\| + 2^k\|c2\|`, exact and attained |
+| enum_grid | 32 points on [0,2π): 8 per period of the top harmonic, the same discipline as `PEAK_ENUM_FACTOR`. Measured ~16 suffices; 32 is the discipline, not a tune |
+| eval | closed form, O(1)/point; `q'`, `q''` analytic — every evaluation is truth |
+| lnL | identity |
+| backstop | fixed-N trapezoid on the full circle — super-exponentially convergent for a periodic band-limited exponent, so the backstop itself carries an aliasing *bound*, unlike time's |
+
+Two places ψ pushes back on the contract, and both should be treated as findings rather
+than smoothed over:
+
+* **`peak_scale` must admit truth-grade curvature.**  ψ has exact `σ = 1/√(−g''(u*))`.
+  If the protocol forces the shared stencil estimator, ψ is pushed through an
+  approximation it does not need.  (`σ` may be fitted in general — it *targets*, it never
+  *bounds* — but the contract must not forbid exactness.)
+* **`max_intervals` means different things on different axes.**  For time it is a cost
+  guard.  For ψ the warrant *proves* ≤2 maxima, so exceeding it is a broken-adapter
+  assertion.  The core may only count and decline; the meaning belongs to the adapter.
+
+**Fail policy for ψ: fail-closed — and the reason is cost, not ideology.**  A cheap
+certified backstop is available per row in numpy, so declining is affordable.  A future
+jitted port inherits `anglemarg`'s constraint (static shapes, no per-row backstop) and
+must go fail-open-with-label.  Same axis, different policy, decided by the call site —
+which is exactly why the policy is a seam.
+
+**Reconciliation with the existing `anglemarg`:** its *exact/dense* scheme is the ψ
+analogue of `time_marginalize_bandlimited`; peak-local does not compete with it and the
+core refuses its warrant.  It stays.  Its *Laplace branch* is what peak-local-ψ is a
+certified replacement for — that branch already enumerates all maxima, then applies an
+O(1/A) width model with documented worst-phase error and a blend band that absorbed three
+review rounds.  But not in one step: the core does host-side ragged bookkeeping while
+`anglemarg`'s kernel runs under `lax.scan` with static shapes.  The numpy ψ instance
+exists to prove the *contract*; porting it into the Laplace slot is a separate PR with its
+own gates.
+
+## Migration, and the gate at each step
+
+The house rule is `_classify_rows`: no extraction before the second instance exists in
+draft.  Gate numbers below are measured on `rift_O4d` at `6e5bd4b1`.
+
+**Step 0 — pin the baseline.**  Hash `time_marginalize_peak_local` outputs over a mixed
+block.  The bar for every later step is **exact identity, not ULP-close**: pure code
+motion cannot reassociate floats.  Plus, with the test files UNTOUCHED:
+
+| gate | files | count |
+|---|---|---|
+| peak-local | `test_time_marginalization_peak_local.py` | **121** collected |
+| band-limited | `..._quadrature.py` (81) + `..._quadrature_pipeline.py` (57) + `test_continuous_time_posterior_export.py` (23) | **161** collected, 160 passed, 1 skipped (cupy absent) |
+
+**Step 1 — write ψ as a draft that imports from the time module and duplicates
+deliberately.**  Importing across modules is the safe direction; it is *copying policy*
+that rotted.  Gate: agreement with a converged `quad` reference over an amplitude ladder
+and adversarial phases; enumeration-completeness and `M_k` property tests; time hash
+unchanged (trivially — nothing has moved).
+
+**Step 2 — diff the two spines, and extract only what the diff proves shared.**  Move the
+axis-free helpers to the core verbatim, leaving re-export shims so `__all__` keeps
+resolving.  Gate: time hash identical, both suites green *unmodified*, plus a new test
+asserting a helper is the **same object** in both consumers — the `is`-identity anti-drift
+analogue of the existing classification-itself test, since a parity test cannot see a
+change both sides read.
+
+**Step 3 — formalize the contract types**, deliberately *after* step 2: the protocol is
+transcribed from the seam the diff exposed, not designed ahead of it.  Gate: refusal tests
+executable, time hash still identical, public signature unchanged.
+
+**Falsifiable prediction, recorded now so step 2 can settle it:** the plan/bucket skeleton
+of `_peak_local_chunk` will **not** extract.  It exists because time's interval and point
+counts are ragged; ψ has ≤2 maxima and a fixed per-interval point count, so its natural
+shape is fixed-slot arrays with no plan, no buckets, no host round trip.  What should
+extract from that spine is the two-stage keep discipline, the accounting-reconciliation
+ledger, and the accept predicate.
+
 ## Anti-goals
 
 * **Do not unify the fail policy.**  It follows from the warrant.  See above.
@@ -155,6 +301,18 @@ with a certificate that ψ's structure makes exact.
   nothing, the crest's own cell counts as outside, the bound then bounds the CREST, and
   every row is rejected — the option goes inert.  Measured.  If this geometry lives in
   the adapter, every new axis rediscovers it.
+* **Do not own row classification or viability.**  `_classify_rows` stays where it is
+  for time; another axis brings its own dispatcher.  The core never sees `factors`,
+  ceilings, or edge guards.
+* **Do not call the likelihood on a full axis grid, and do not call the backstop.**  All
+  exponent evaluation routes through the adapter, and the backstop is invoked only by the
+  policy-owning wrapper — otherwise the core smuggles a fail policy in through the back
+  door.
+* **Do not carry cross-call state.**  Batch-local only; any persistent scale makes results
+  batch-order-dependent.
+* **Do not silently widen.**  Every decline goes on the ledger under a named reason, with
+  the reconcile invariant that the sub-counts sum to the declined rows.  A change that adds
+  an unledgered decline path must fail a reconcile test.
 * **Do not extract before the second instance exists in draft.**  `_classify_rows` is
   the house precedent and it was extracted only AFTER the duplicated policy had drifted
   three times.  Of ~1600 lines here, perhaps 300 are the generic skeleton; the rest is
@@ -174,12 +332,39 @@ that is a defect per axis.
 
 ## Open, and not established here
 
-* The composition/nesting contract.  "Peak-local in several places" means NESTED
-  marginalizations, and the time rule's refusal of phase marginalization is the existence
-  proof that nesting couples widths: under phase marginalization the time peak's Laplace
-  width picks up an `(I1/I0)(|kappa|/D)` factor that does not reduce, so the local spacing
-  stops being derivable.  Three individually-correct axis tools whose composition is
-  unsound is the failure mode to design against.
+* **The composition/nesting contract**, and it is the sharpest open question.  Nesting
+  means the outer axis's exponent is the inner MARGINAL, `G(t) = log int exp(g(t,psi)) dpsi`,
+  and `G` inherits neither the warrant nor the derivative bounds of `g`.  Concretely, under
+  the tilted inner measure `mu`,
+
+      d2G = E_mu[d2 g] + Var_mu(d_t g)
+
+  and the variance term scales with inner amplitude — so **the enumeration factor for `G`
+  is not SNR-independent**, which is the pillar the whole time construction stands on.
+  The existing refusal of phase marginalization is the special case: the outer exponent
+  becomes `log I0(|kappa|/D)`-shaped, its width carries `(I1/I0)(|kappa|/D)`, and `|kappa|`
+  peaks elsewhere than `Re kappa`, so both the width derivation and the monotone-argmax
+  separation die at once.
+
+  Two classes, and only one is open:
+
+  - **Monotone-reduction inner — shipped, works, and should be NAMED.**  If the inner
+    marginalization is presented as a callback monotone in the outer exponent at fixed row,
+    argmaxes are preserved, the outer warrant is untouched, and the width is measured
+    through the callback.  Distance-inside-time is this class and is the production
+    configuration today.  It is already the `lnL` + monotone member of the contract.
+  - **Genuine inner peak-local — DEFERRED, with named preconditions.**  The core composes
+    nothing.  Before the contract can be written, two things must exist: (i) a cumulant
+    bound giving `sup|d_t^k G|` from `M_k(g)` and inner-measure moment bounds, with the
+    `I1/I0` case as its acceptance test — SPECULATION: such bounds plausibly exist but grow
+    with inner amplitude, and whether they stay tight enough to beat the dense alternative
+    is unmeasured; and (ii) a measured completeness study for enumerating extrema of `G`,
+    since a fixed factor is provably insufficient.  Until both exist, every nested pairing
+    refuses per pairing, naming the missing lemma.
+  - **The practical bridge that needs neither:** `return_peaks=True` already exports
+    `(t_star, sigma)` per row, callback-independent.  A time-first reordering composes over
+    PEAK SETS rather than over nested exponents — which is why the peaks are an output and
+    not a temporary.
 * Whether ψ-marginalization is actually moving into the vectorized likelihood.
   `NetworkLogLikelihoodPolarizationMarginalized` is on the old non-vectorized API and
   production samples ψ by Monte Carlo.  NOT verified.
