@@ -1092,6 +1092,78 @@ def _laplace_psi_lnI_block(a, c1, c2):
     return jax.lax.switch(idx, branches, None)
 
 
+# ---------------------------------------------------------------------------
+# psi-marginal node placement for the adaptive distance quadrature
+# (JAX_ILE_DISTMARG_GH on the laplace path)
+#
+# core._distmarg_gh_logL places its frozen nodes at clip(K/R) +- 7/sqrt(R) for a
+# FIXED psi.  On this path psi has already been integrated out analytically, so
+# the nodes have to bracket the psi-MARGINAL distance integrand
+#     I(x) = (1/pi) int dpsi exp(x A(u) - x^2/2 B(u)),  u = 2 psi,
+# a mixture over u of Gaussians of centre x*(u) = A(u)/B(u) and width
+# 1/sqrt(B(u)).  Two facts make a closed-form bracket sufficient:
+#
+#   * every component is NARROWER than sigma = 1/sqrt(R_lo) with
+#     R_lo = B0 - |B1| - |B2| <= min_u B, so 7 sigma past the extreme
+#     component centre covers the mixture to the same 1e-11 the fixed-psi
+#     rule covers its single Gaussian;
+#   * the component centres that carry weight span a BOUNDED number of sigma.
+#
+# Both were measured on the ladder-2 injection (35+30 Msun, H1/L1/V1, SEOBNRv4,
+# l_max = 2 -> lms {(2,-2),(2,2)}), at the sky points the campaign's own
+# posterior occupies, over 235,776 (dense-phi, sample, time) bins per rung:
+#
+#   rho    W = sqrt(min_u B/R_lo)   C = |x*(u_cf)-x*(u_exact)|/sigma   S span/sigma
+#   40.77  median 1.0000 max 1.0000  median 0.0014 p99 0.636 max 0.689  p99 3.899 max 4.085
+#   163.1  (see DESIGN note; same verdicts)
+#
+# with R_lo <= 0 at 0.0000% of ALL bins at both rungs.  W == 1 is an IDENTITY
+# for m_max = 2, not a lucky bound: the spin-2 response makes A0 and B1 vanish
+# identically (measured |A0|/|A1| ~ 7e-17, |B1|/|B0| ~ 6e-16), so
+# B(u) = B0 + Re(B2 e^{2iu}) and R_lo = B0 - |B2| IS min_u B.  That identity is
+# exactly what does NOT survive odd-m or l >= 3 content, hence the m_max gate
+# below: this rule is established for m_max = 2 only.
+#
+# Half-width: the pre-registered rule is (7 + ceil(S_p99)) sigma = 11 sigma,
+# and the closed-form centre adds C_p99 = 0.64 on top -> 12 sigma.  Measured
+# directly, the quantity that must fit is the one-sided reach from the
+# closed-form centre to the furthest weight-carrying component centre:
+# p99 3.28, max 3.46 sigma at rho 40.77, so 7 + 3.46 = 10.5 sigma is what is
+# needed and 12 sigma is the shipped budget.  ("Weight-carrying" = within 100
+# nats of the best bin's clipped exponent; bins below that contribute < e^-100
+# and an under-reaching bracket can only UNDER-estimate them, never inflate
+# them, since the trapezoid is exponentially accurate at this spacing.)
+_GH_PSI_HALF_SIGMA = 12.0     # node half-span, in units of sigma = 1/sqrt(R_lo)
+_GH_PSI_MIN_NODES = 27        # floor: 24 sigma / 26 gaps = 0.92 sigma spacing,
+                              # trapezoid aliasing on a Gaussian ~ 2e^-2pi^2/h^2
+                              # = 2e-10 -- below the f64 noise of the result
+_GH_PSI_M_MAX = 2             # mode content the placement rule is VALIDATED for
+                              # (the A0 == B1 == 0 identity above).  Keyed on
+                              # mode content the way angle_sample_grid_sizes is.
+
+
+def _gh_psi_node_offsets(n_nodes):
+    """Node offsets ``(z, z_prev, z_next, n)`` for the psi-marginal bracket.
+
+    ``z`` spans +-``_GH_PSI_HALF_SIGMA`` instead of the fixed-psi rule's +-7,
+    and the count is raised in proportion so the NODE DENSITY the caller asked
+    for through JAX_ILE_DISTMARG_GH is preserved rather than diluted by the
+    wider bracket (floored at ``_GH_PSI_MIN_NODES``).
+
+    ``z_prev``/``z_next`` are ``z`` with the INDEX clamped at the ends.  The
+    composite-trapezoid weight of node k is then 0.5*(x[k+1] - x[k-1]) with the
+    same end convention as :func:`core._distmarg_gh_logL`'s
+    ``diff``-and-concatenate form -- identical weights, but computable one
+    block at a time, so the distance axis stays scanned and memory stays
+    bounded by ``dist_block``.
+    """
+    n = max(int(_GH_PSI_MIN_NODES),
+            1 + int(np.ceil((int(n_nodes) - 1) * _GH_PSI_HALF_SIGMA / 7.0)))
+    z = np.linspace(-_GH_PSI_HALF_SIGMA, _GH_PSI_HALF_SIGMA, n)
+    idx = np.arange(n)
+    return (z, z[np.maximum(idx - 1, 0)], z[np.minimum(idx + 1, n - 1)], n)
+
+
 def fused_log_likelihood_distphipsimarg_laplace(
         data, ra, dec, incl, x_grid, log_w_grid,
         interp=JAX_INTERP_DEFAULT, amp_sizing=None,
@@ -1111,19 +1183,18 @@ def fused_log_likelihood_distphipsimarg_laplace(
 
     so no additional likelihood evaluations are needed.  Cost scales ~sqrt(A)
     (the dense phi axis) instead of ~A; the Laplace error is O(1/A) and
-    SHRINKS with SNR.  The adaptive distance quadrature
-    (JAX_ILE_DISTMARG_GH) is NOT supported on this path -- it would need a
-    psi-marginal node-placement rule this PR does not validate -- and raises
-    rather than being silently ignored.
+    SHRINKS with SNR.
+
+    The adaptive distance quadrature (JAX_ILE_DISTMARG_GH) is honoured for
+    ``m_max <= _GH_PSI_M_MAX`` via the psi-marginal node placement documented
+    above ``_gh_psi_node_offsets``; ``x_grid``/``log_w_grid`` then only supply
+    the support [x_min, x_max] and the prior normalization, exactly as on the
+    exact path.  Richer mode content still RAISES rather than being silently
+    accepted: the placement rests on an A0 == B1 == 0 identity that is
+    established for (2,+-2) only.
 
     Memory is bounded by ``phi_chunk`` x ``dist_block``, never by grid sizes.
     """
-    if _core._DISTMARG_GH_N > 0:
-        raise ValueError(
-            "JAX_ILE_DISTMARG_GH is set, but the 'laplace' angle-marg scheme "
-            "does not support the adaptive distance quadrature (its node "
-            "placement is defined per fixed-psi exponent).  Use "
-            "--angle-marg-scheme exact, or unset JAX_ILE_DISTMARG_GH.")
     x_grid = jnp.asarray(x_grid, dtype=jnp.float64)
     log_w_grid = jnp.asarray(log_w_grid, dtype=jnp.float64)
     C_A, C_B, meta = angle_coefficient_tables(data, ra, dec, incl, interp)
@@ -1131,7 +1202,20 @@ def fused_log_likelihood_distphipsimarg_laplace(
     S = ra.shape[0]
     npts = data.npts
 
+    _use_gh = _core._DISTMARG_GH_N > 0
+    if _use_gh and int(m_max) > _GH_PSI_M_MAX:
+        raise ValueError(
+            "JAX_ILE_DISTMARG_GH is set and the 'laplace' angle-marg scheme's "
+            "psi-marginal distance-node placement is validated for mode "
+            "content m_max <= %d only (it rests on the A0 == B1 == 0 identity "
+            "that holds for (2,+-2)); this data has m_max = %d.  Use "
+            "--angle-marg-scheme exact, or unset JAX_ILE_DISTMARG_GH."
+            % (_GH_PSI_M_MAX, int(m_max)))
+
     amp_sizing = _require_amp_sizing(amp_sizing)
+    # x_grid is still the right argument under GH: the adaptive nodes are
+    # CLIPPED into [min x_grid, max x_grid], so the amplitude bound the
+    # failsafe computes over x_grid bounds the nodes actually used.
     _runtime_amp_failsafe(C_A, C_B, x_grid, amp_sizing, "laplace")
     nphi_d, _ = _dense_grid_sizes(amp_sizing, m_max=m_max)
     phi_d = np.linspace(0.0, 2.0 * np.pi, nphi_d, endpoint=False)
@@ -1164,6 +1248,35 @@ def fused_log_likelihood_distphipsimarg_laplace(
         x_pad, lw_pad = x_grid, log_w_grid
     xg_blk = x_pad.reshape(n_dblk, blk)
     lwg_blk = lw_pad.reshape(n_dblk, blk)
+
+    if _use_gh:
+        # Adaptive nodes replace the static grid entirely; x_grid survives only
+        # as the physical support and the (dref-independent) prior norm C0, the
+        # same two roles it plays inside core._distmarg_gh_logL.
+        x_min = jnp.min(x_grid)
+        x_max = jnp.max(x_grid)
+        gh_C0 = jnp.log(3.0) - jnp.log(jnp.min(x_grid) ** (-3.0)
+                                       - jnp.max(x_grid) ** (-3.0))
+        z_np, zp_np, zn_np, n_gh = _gh_psi_node_offsets(_core._DISTMARG_GH_N)
+        n_zblk = (n_gh + blk - 1) // blk
+        pad_z = n_zblk * blk - n_gh
+        pad_lw = np.zeros(n_gh)
+        if pad_z:
+            z_np = np.pad(z_np, (0, pad_z), mode="edge")
+            zp_np = np.pad(zp_np, (0, pad_z), mode="edge")
+            zn_np = np.pad(zn_np, (0, pad_z), mode="edge")
+            pad_lw = np.pad(pad_lw, (0, pad_z), constant_values=-np.inf)
+        zg_blk = jnp.asarray(z_np.reshape(n_zblk, blk), jnp.float64)
+        zpg_blk = jnp.asarray(zp_np.reshape(n_zblk, blk), jnp.float64)
+        zng_blk = jnp.asarray(zn_np.reshape(n_zblk, blk), jnp.float64)
+        zpad_blk = jnp.asarray(pad_lw.reshape(n_zblk, blk), jnp.float64)
+        # Never let the bracket exceed the physical support: as R_lo -> 0 (a
+        # bin with no response at all, where the exponent is flat in x) sigma
+        # would otherwise blow up and every node would clip onto one of the two
+        # rails.  Capped, such a bin degrades to a uniform-in-x tiling of the
+        # support instead of a 2-point one.  Inactive by ~3 orders of magnitude
+        # wherever the data carry signal (test_angle_marg_gh_laplace.py pins it).
+        gh_sigma_cap = (x_max - x_min) / (2.0 * _GH_PSI_HALF_SIGMA)
 
     def _step(carry, x):
         m, s = carry
@@ -1198,6 +1311,57 @@ def fused_log_likelihood_distphipsimarg_laplace(
             c2 = -0.5 * jnp.square(xg) * B2[None]
             e = _laplace_psi_lnI_block(av, c1, c2) + lwg        # (g,c,S,npts)
             return _lse_update(mx, sx, e, axis=0), None
+
+        if _use_gh:
+            # ---- psi-marginal adaptive node placement, all FROZEN ----------
+            # e^{i u*} = conj(A1)/|A1| is the u that maximises
+            # A(u) = A0 + Re(A1 e^{iu}); written this way rather than as
+            # exp(-i arg(A1)) so that, like the rest of this module, arg(0)
+            # never appears and A1 = 0 is a regular point.
+            aa1 = jnp.abs(A1)
+            ph1 = jnp.conj(A1) / jnp.maximum(aa1, 1e-300)      # e^{i u*}
+            A_st = A0 + aa1                                    # A(u*)
+            B_st = B0 + (B1 * ph1).real + (B2 * ph1 * ph1).real
+            R_lo = B0 - jnp.abs(B1) - jnp.abs(B2)              # <= min_u B
+            gh_center = jax.lax.stop_gradient(
+                jnp.clip(A_st / jnp.maximum(B_st, 1e-30), x_min, x_max))
+            gh_sigma = jax.lax.stop_gradient(
+                jnp.minimum(1.0 / jnp.sqrt(jnp.maximum(R_lo, 1e-30)),
+                            gh_sigma_cap))
+
+            def _gh_dist_step(carry, zw):
+                mx, sx = carry
+                zb, zpb, znb, zpadb = zw                       # (blk,)
+
+                def _node(zz):
+                    return jnp.clip(
+                        gh_center[None] + gh_sigma[None] * zz[:, None, None, None],
+                        x_min, x_max)
+
+                xg = _node(zb)                                 # (g,c,S,npts)
+                # composite-trapezoid weight, index-clamped at both ends:
+                # identical to core._distmarg_gh_logL's diff/concatenate form.
+                w = 0.5 * (_node(znb) - _node(zpb))
+                pos = w > 0                                    # live (unclipped)
+                lwg = jnp.where(pos, jnp.log(jnp.where(pos, w, 1.0))
+                                - 4.0 * jnp.log(xg), -jnp.inf)
+                lwg = lwg + zpadb[:, None, None, None]         # -inf on pad slots
+                av = xg * A0[None] - 0.5 * jnp.square(xg) * B0[None]
+                c1 = xg * A1[None] - 0.5 * jnp.square(xg) * B1[None]
+                c2 = -0.5 * jnp.square(xg) * B2[None]
+                e = _laplace_psi_lnI_block(av, c1, c2) + lwg
+                return _lse_update(mx, sx, e, axis=0), None
+
+            mx0 = jnp.full((c, S, npts), -jnp.inf, dtype=jnp.float64)
+            sx0 = jnp.zeros((c, S, npts), dtype=jnp.float64)
+            (mx, sx), _ = jax.lax.scan(
+                _gh_dist_step, (mx0, sx0),
+                (zg_blk, zpg_blk, zng_blk, zpad_blk))
+            lnI = (mx + jnp.where(sx > 0, jnp.log(jnp.maximum(sx, 1e-300)),
+                                  -jnp.inf)
+                   + gh_C0 + lww[:, None, None])               # (c,S,npts)
+            m_new, s_new = _lse_update(m, s, lnI, axis=0)
+            return (m_new, s_new), None
 
         mx0 = jnp.full((c, S, npts), -jnp.inf, dtype=jnp.float64)
         sx0 = jnp.zeros((c, S, npts), dtype=jnp.float64)

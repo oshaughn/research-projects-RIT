@@ -500,17 +500,34 @@ def test_choose_angle_marg_scheme():
     assert s == "exact" and "DISTMARG_GH" in info["reason"]
 
 
-def test_laplace_refuses_gh_env(monkeypatch):
-    """JAX_ILE_DISTMARG_GH + laplace must raise, not silently ignore the env
-    var (documented silently-inert-flag history)."""
+def test_laplace_refuses_gh_env_above_the_covered_mode_content(monkeypatch):
+    """JAX_ILE_DISTMARG_GH + laplace is HONOURED for the mode content its
+    psi-marginal node placement is validated for, and RAISES above it -- never
+    silently ignores the env var (documented silently-inert-flag history).
+    The placement itself is gated in test_angle_marg_gh_laplace.py."""
     from RIFT.likelihood.jax_ile import core as core_mod
     monkeypatch.setattr(core_mod, "_DISTMARG_GH_N", 8)
-    data = make_synth(scale=2.0)
-    x_grid, log_w = _dist_grid(data)
-    with pytest.raises(ValueError, match="DISTMARG_GH"):
-        AM.fused_log_likelihood_distphipsimarg_laplace(
+    x_grid, log_w = _dist_grid(make_synth(scale=2.0))
+
+    def call(data):
+        return AM.fused_log_likelihood_distphipsimarg_laplace(
             data, jnp.asarray(RA), jnp.asarray(DEC), jnp.asarray(INCL),
-            x_grid, log_w, interp=INTERP, amp_sizing=AM.ANGLE_MARG_CROSSOVER_AMPLITUDE)
+            x_grid, log_w, interp=INTERP,
+            amp_sizing=AM.ANGLE_MARG_CROSSOVER_AMPLITUDE)
+
+    # covered: accepted, and the env var demonstrably reaches the result
+    assert AM._GH_PSI_M_MAX == 2
+    got_gh = np.asarray(call(make_synth(scale=2.0)))
+    assert np.isfinite(got_gh).all()
+    monkeypatch.setattr(core_mod, "_DISTMARG_GH_N", 0)
+    got_uniform = np.asarray(call(make_synth(scale=2.0)))
+    assert np.abs(got_gh - got_uniform).max() > 1e-6, (
+        "JAX_ILE_DISTMARG_GH made no difference to the laplace answer -- the "
+        "flag is inert and 'honoured' means nothing")
+    # above the covered mode content: raises rather than guessing
+    monkeypatch.setattr(core_mod, "_DISTMARG_GH_N", 8)
+    with pytest.raises(ValueError, match="m_max"):
+        call(make_synth(scale=2.0, modes=((2, 2), (2, -2), (3, 3), (3, -3))))
 
 
 def test_exact_supports_gh_env(monkeypatch):
