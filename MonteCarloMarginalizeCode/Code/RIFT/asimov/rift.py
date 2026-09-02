@@ -5,6 +5,7 @@ import glob
 import os
 import re
 import subprocess
+from pathlib import Path
 
 from ligo.gracedb.rest import HTTPError
 
@@ -67,6 +68,12 @@ class Rift(Pipeline):
 
     def _create_ledger_entries(self):
         """Create entries in the ledger which might be required in the templating."""
+        # Rimsky writes Bilby-style prior names into the shared Asimov event.
+        # Add RIFT's legacy aliases without removing the keys Bilby consumes.
+        from RIFT.rimsky import normalize_event_metadata
+        normalized = normalize_event_metadata(self.production.meta)
+        self.production.meta.clear()
+        self.production.meta.update(normalized)
         if "sampler" not in self.production.meta:
             self.production.meta["sampler"] = {}
         required_args = {
@@ -78,6 +85,62 @@ class Rift(Pipeline):
             for section_arg in required_args[section]:
                 if section_arg not in section_data:
                     section_data[section_arg] = {}
+
+    def _get_psds(self, format="ascii"):
+        """Return PSD assets across the Asimov 0.5 and 0.6 APIs."""
+        legacy_getter = getattr(self.production, "get_psds", None)
+        if callable(legacy_getter):
+            assets = legacy_getter(format)
+        else:
+            attribute = "xml_psds" if format == "xml" else "psds"
+            assets = getattr(self.production, attribute, {}) or {}
+        if format == "xml" and isinstance(assets, dict):
+            return list(assets.values())
+        return assets
+
+    def _prepare_frame_caches(self):
+        """Create LAL cache files for local frames supplied by Rimsky."""
+        data = self.production.meta.get("data", {})
+        data_files = data.get("data files", {})
+        if not isinstance(data_files, dict) or not data_files:
+            return {}
+
+        cache_dir = Path(self.production.event.work_dir)
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        caches = {}
+        for detector, files in data_files.items():
+            if isinstance(files, (str, os.PathLike)):
+                files = [files]
+            if not isinstance(files, (list, tuple)):
+                raise PipelineException(
+                    "RIFT Rimsky frame list for {} is malformed".format(detector),
+                    production=self.production.name,
+                )
+
+            entries = []
+            for filename in files:
+                frame = Path(filename).expanduser().resolve()
+                match = re.search(r"-(\d+)-(\d+)\.gwf$", frame.name)
+                if not frame.is_file() or match is None:
+                    raise PipelineException(
+                        "RIFT Rimsky frame is missing or has no GPS/duration suffix: {}".format(
+                            frame
+                        ),
+                        production=self.production.name,
+                    )
+                start, duration = match.groups()
+                entries.append(
+                    "{} RIMSKY {} {} {}".format(
+                        detector[0].upper(), start, duration, frame.as_uri()
+                    )
+                )
+
+            cache = cache_dir / "{}-rimsky.cache".format(detector)
+            cache.write_text("\n".join(entries) + "\n", encoding="utf-8")
+            caches[detector] = str(cache)
+
+        data["frame cache"] = caches
+        return caches
     # Top-level groups a PESummary metafile carries that are not analysis labels
     _PESUMMARY_RESERVED = ('version', 'history')
 
@@ -246,9 +309,10 @@ class Rift(Pipeline):
         """
         event = self.production.event
         category = config.get("general", "calibration_directory")
+        self._prepare_frame_caches()
         # XML PSDs
         self.logger.info("Checking for XML format PSDs")
-        if len(self.production.get_psds("xml")) == 0 and "psds" in self.production.meta:
+        if len(self._get_psds("xml")) == 0 and "psds" in self.production.meta:
             self.logger.info("Did not find XML format PSDs")
             for ifo in self.production.meta["interferometers"]:
                 with set_directory(f"{event.work_dir}"):
@@ -268,6 +332,11 @@ class Rift(Pipeline):
                         saveloc,
                         commit_message=f"Added the xml format PSD for {ifo}.",
                     )
+                    xml_psds = getattr(self.production, "xml_psds", None)
+                    if isinstance(xml_psds, dict):
+                        xml_psds[ifo] = os.path.join(
+                            self.production.event.repository.directory, saveloc
+                        )
                     self.logger.info(f"Saved at {saveloc}")
         # calmarg: find bilby ini file if needed
         self.logger.info(" About to check for calmarg ")
@@ -625,7 +694,7 @@ class Rift(Pipeline):
                         )
                     if self.production.event.repository:
                         # with set_directory(os.path.abspath(self.production.rundir)):
-                        for psdfile in self.production.get_psds("xml"):
+                        for psdfile in self._get_psds("xml"):
                             ifo = psdfile.split("/")[-1].split("-")[1].split(".")[0]
                             os.system(f"cp {psdfile} {ifo}-psd.xml.gz")
 
@@ -668,7 +737,7 @@ class Rift(Pipeline):
            This will be raised if the pipeline fails to submit the job.
         """
         self.before_submit()
-        for psdfile in self.production.get_psds("xml"):
+        for psdfile in self._get_psds("xml"):
             ifo = psdfile.split("/")[-1].split("-")[1].split(".")[0]
             os.system(f"cp {psdfile} {ifo}-psd.xml.gz")
 
@@ -679,12 +748,12 @@ class Rift(Pipeline):
             "marginalize_intrinsic_parameters_BasicIterationWorkflow.dag",
         ]
         if dryrun:
-            for psdfile in self.production.get_psds("xml"):
+            for psdfile in self._get_psds("xml"):
                 print(f"cp {psdfile} {self.production.rundir}/{psdfile.split('/')[-1]}")
             print("")
             print(" ".join(command))
         else:
-            for psdfile in self.production.get_psds("xml"):
+            for psdfile in self._get_psds("xml"):
                 os.system(
                     f"cp {psdfile} {self.production.rundir}/{psdfile.split('/')[-1]}"
                 )
