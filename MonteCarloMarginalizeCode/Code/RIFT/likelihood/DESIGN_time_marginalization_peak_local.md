@@ -995,6 +995,60 @@ earlier drafts of this note said: the interval is widened by the localisation re
 suite's coupling assertion uses 72, which remains a valid CONSERVATIVE lower bound on the real
 slack, so it is left as it is.)
 
+## Two more reviewer P1s: one fixed, one answered with a measurement
+
+### Time resampling with `peak-local` is now REFUSED
+
+`--resample-time-marginalization` under `peak-local` had two available answers and both were
+silently wrong. `--time-posterior-export grid` draws `t_ref` from the original coarse `lnLt`
+bins — so the integral would be sub-sample accurate and the exported TIME quantised to the very
+grid the option exists to escape, computed and then discarded. With `--interpolate-time nearest`
+the `auto` mode resolves to `grid`, so that was the DEFAULT outcome, not a corner. And
+`continuous` was never available: it needs `return_time_draw`, which needs a validated dense
+reconstruction over the whole window, and this rule by construction never forms one.
+
+Refused at startup, with the message naming `bandlimited` — which mandates the continuous
+export and is one flag away. This is the same disclosed limitation as "`resample_samples()`
+unserved", now enforced instead of documented.
+
+### The certified outside supremum: implemented, measured, and NOT wired in
+
+The reviewer asked for the uncovered segments to be certified with the spectral derivative
+bounds, or for rows without a certificate to fall back. Both pieces now exist and are tested —
+and the wiring does not work, for a reason worth recording rather than repeating.
+
+**First, the machinery that arrived with it was wrong.** `enum_grid_derivatives` came in
+uncalled and untested and was **52% off on `q'` and 46% on `q''`**. For the reflected row `n`
+is EVEN, so `bandlimited_spectrum` splits the Nyquist bin and returns `n+1` coefficients; that
+version used the count as the transform LENGTH, so the grid was wrong and the two split bins
+collided on one index. It now differentiates spectrally and reuses the validated upsampler,
+and agrees with pointwise evaluation to **1e-14 relative**. `parabolic_sup` and
+`segment_sup_bound` — named in `__all__` but never defined — are implemented.
+
+**The certificate is tight enough.** Slack per cell, measured on a realistic row:
+
+| bound | amp 2e4 | amp 2e6 | amp 2e7 |
+|---|---|---|---|
+| one sample + `M2 h^2/2` (the crude form) | 407 | 4.1e4 | 4.1e5 |
+| endpoint values + `M2 h^2/8` | 102 | 1.0e4 | 1.0e5 |
+| **endpoints + SLOPES + `M4 h^4/384`** | **0.12** | **12.2** | **122** |
+
+Fetching the slopes buys three orders of magnitude and makes certification viable, which an
+earlier revision of this note said it was not. That earlier claim was based on the crude form
+only and was wrong.
+
+**And it still cannot be dropped in, because `covered` is SAMPLE-GRANULAR.** A sharp row's
+interval is narrower than one enumeration cell, so `ceil(lo/h) > floor(hi/h)` marks nothing
+covered and **the crest's own cell counts as outside**. A certified bound over that cell then
+bounds the crest itself, the margin fails, and the row is rejected — measured: EVERY row
+rejected, i.e. the option goes inert, which is the `W1` hazard the suite exists to catch. The
+sampled version escaped this only by under-reading the very peak it should have been excluding.
+
+A real certificate needs **sub-cell covered geometry** — the uncovered PART of a straddling
+cell, not the whole cell — which is a piece of work rather than a wiring change. The three
+functions it would be built from are now correct, exported and tested, so that work starts from
+a known-good base rather than from a helper that is quietly 50% wrong.
+
 ## Mutation sweep
 
 **34 mutations against the current code** (`e03dde95`), baseline **109 collected / 108

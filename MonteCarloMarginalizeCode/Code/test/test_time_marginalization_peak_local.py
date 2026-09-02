@@ -1811,6 +1811,36 @@ def _phase_marg_lookup(tmp_path, value):
     return path
 
 
+def test_driver_refuses_peak_local_with_time_resampling():
+    """P1.  BOTH available answers here are silently wrong, which is why this refuses.
+
+    `--time-posterior-export grid` draws `t_ref` from the original coarse `lnLt` bins.
+    peak-local exists to resolve a peak far narrower than that spacing, so the integral would
+    be sub-sample accurate and the exported time quantised to the very grid the option was
+    introduced to escape -- computed, then thrown away.  And with `--interpolate-time nearest`
+    the `auto` mode resolves to `grid`, so that is the DEFAULT outcome, not a corner.
+
+    `continuous` is not available either: it needs `return_time_draw`, which needs a validated
+    dense reconstruction over the whole window, and peak-local by construction never forms one.
+    The library refuses that combination for the same reason.
+
+    `bandlimited` mandates the continuous export and is one flag away, so the refusal costs a
+    user nothing but a corrected command line.
+    """
+    # --fairdraw-extrinsic-output is required by a PRE-EXISTING guard on
+    # --resample-time-marginalization, so without it the driver exits for an unrelated reason
+    # and this test would pass while proving nothing.
+    resample = ['--resample-time-marginalization', '--fairdraw-extrinsic-output']
+    rc, out = _run_driver(['--time-marginalization-quadrature', 'peak-local']
+                          + resample + _HONOURED)
+    assert rc != 0, out[-2000:]
+    assert 'does not support --resample-time-marginalization' in out, out[-3000:]
+    # and the same configuration under `bandlimited` must NOT be refused for this reason
+    rc2, out2 = _run_driver(['--time-marginalization-quadrature', 'bandlimited']
+                            + resample + _HONOURED)
+    assert 'does not support --resample-time-marginalization' not in out2, out2[-2000:]
+
+
 def test_driver_refuses_peak_local_under_phase_marginalization_AT_STARTUP(tmp_path):
     """Refused before the run, not deep inside it.
 
@@ -2326,6 +2356,80 @@ def test_every_exported_name_is_actually_defined():
         # and the operation that actually broke
         ns = {}
         exec("from %s import *" % mod.__name__, ns)
+
+
+def _reflected_spectrum(k):
+    kref = np.concatenate((k, np.flip(k, axis=-1)), axis=-1)
+    Xw, fk = pl.bandlimited_spectrum(kref)
+    return kref, Xw, fk, 2.0 * NPTS * DELTAT
+
+
+def test_enum_grid_derivatives_agrees_with_pointwise_evaluation():
+    """This helper ARRIVED WRONG and uncalled, so it is tested against an independent route.
+
+    Its first version reimplemented the zero-padding convention and was off by **52% on q'
+    and 46% on q''**.  The cause is worth keeping: for the reflected row `n` is EVEN, so
+    `bandlimited_spectrum` splits the Nyquist bin and returns `n+1` coefficients -- which that
+    version used as the transform LENGTH, so the grid was wrong and the two split bins collided
+    on one index.  It now differentiates the row spectrally and reuses the validated
+    upsampler, which cannot drift from the grid `q` is taken on because it IS that grid.
+    """
+    sig = BandLimited(amp=4.0e4, peak_sample=NPTS // 2 + 0.3125)
+    k = sig.samples()[None, :]
+    kref, Xw, fk, period = _reflected_spectrum(k)
+    F = pl.PEAK_ENUM_FACTOR
+    n_keep = (NPTS - 1) * F + 1
+    dq, ddq = pl.enum_grid_derivatives(kref, F, n_keep, DELTAT)
+    t = np.arange(n_keep) * (DELTAT / F)
+    rows = np.zeros(n_keep, dtype=np.int64)
+    _, dq_ref, ddq_ref = pl.eval_bandlimited_points(Xw, fk, rows, t, period)
+    assert np.max(np.abs(dq[0] - dq_ref)) < 1e-10 * np.max(np.abs(dq_ref)), "q' disagrees"
+    assert np.max(np.abs(ddq[0] - ddq_ref)) < 1e-10 * np.max(np.abs(ddq_ref)), "q'' disagrees"
+
+
+def test_parabolic_sup_never_under_bounds_a_cubic():
+    """The cell maximum must be an upper bound or the certificate built on it is worthless.
+
+    Fuzzed rather than spot-checked, because the failure found during development was a
+    DEGENERATE case, not a generic one: when the cubic coefficient vanishes -- which a
+    symmetric bump does exactly -- the cubic root formula divides by zero, the interior
+    stationary point is skipped, and the endpoint maximum is returned.  That under-bounds
+    precisely the cells that contain a peak.
+    """
+    rng = np.random.default_rng(0)
+    s_grid = np.linspace(0.0, 1.0, 2001)
+    y0, y1, d0, d1 = (rng.normal(size=4000) * 10.0 for _ in range(4))
+    got = pl.parabolic_sup(y0, y1, d0, d1)
+    a = 2 * y0 + d0 - 2 * y1 + d1
+    b = -3 * y0 - 2 * d0 + 3 * y1 - d1
+    ref = np.max(y0[:, None] + d0[:, None] * s_grid + b[:, None] * s_grid ** 2
+                 + a[:, None] * s_grid ** 3, axis=1)
+    assert np.all(got >= ref - 1e-8), float(np.max(ref - got))
+    # and the degenerate case explicitly: y0=y1=0, d0=-d1=4 has max 1.0 at s=1/2
+    assert abs(float(pl.parabolic_sup(np.array([0.0]), np.array([0.0]),
+                                      np.array([4.0]), np.array([-4.0]))[0]) - 1.0) < 1e-12
+
+
+def test_segment_sup_bound_is_an_upper_bound_on_the_cell():
+    """The certificate itself: `q` on a cell must never exceed it."""
+    sig = BandLimited(amp=4.0e4, peak_sample=NPTS // 2 + 0.3125)
+    k = sig.samples()[None, :]
+    kref, Xw, fk, period = _reflected_spectrum(k)
+    F = pl.PEAK_ENUM_FACTOR
+    h = DELTAT / F
+    n_keep = (NPTS - 1) * F + 1
+    q = tmq.reflected_bandlimited_upsample(k, F)[0, :n_keep].real
+    (dq,) = pl.enum_grid_derivatives(kref, F, n_keep, DELTAT, orders=(1,))
+    m4 = pl.spectral_derivative_bound(Xw, fk, period, 4)[0]
+    cert = pl.segment_sup_bound(q[:-1], q[1:], h * dq[0][:-1], h * dq[0][1:], h, m4)
+    # the true max on each cell, from a far finer sampling of the same interpolant
+    sub = 64
+    qf = tmq.reflected_bandlimited_upsample(k, F * sub)[0, :(NPTS - 1) * F * sub + 1].real
+    true_cell = np.max(qf[:(n_keep - 1) * sub].reshape(-1, sub), axis=1)
+    assert np.all(cert >= true_cell - 1e-6), float(np.max(true_cell - cert))
+    # ... and tight enough to be worth having: the Hermite remainder, not the h^2 bounds
+    m2 = pl.spectral_curvature_bound(Xw, fk, period)[0]
+    assert m4 * h ** 4 / 384.0 < m2 * h ** 2 / 8.0
 
 
 if __name__ == '__main__':

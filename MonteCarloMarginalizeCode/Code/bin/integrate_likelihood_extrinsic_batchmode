@@ -734,6 +734,31 @@ if opts._time_quadrature == 'bandlimited':
             "resolution and exports a continuous draw; drop the conflicting fixed "
             "--srate-resample-time-marginalization lattice")
     opts._time_posterior_export = 'continuous'
+if opts._time_quadrature == 'peak-local' and opts.resample_time_marginalization:
+    # REFUSED, for the same refuse-don't-ignore reason as everything else on this path, and
+    # this one is easy to miss because BOTH available answers are silently wrong.
+    #
+    # 'grid' export draws `t_ref` from the original coarse `lnLt` bins.  peak-local exists to
+    # resolve a peak whose width is far below that spacing, so the integral would be
+    # sub-sample accurate and the exported time would be quantised to the very grid the option
+    # was introduced to escape -- the resolution is computed and then discarded.  With
+    # --interpolate-time nearest, `auto` resolves to 'grid', so that is the DEFAULT outcome.
+    #
+    # 'continuous' export is not available either: it needs `return_time_draw`, which requires
+    # a validated dense reconstruction over the whole window.  peak-local by construction never
+    # forms one -- it evaluates only near the peaks -- and the library refuses the combination
+    # for exactly that reason.
+    #
+    # So there is nothing correct to do here, and the honest move is to say so rather than pick
+    # the quieter of two wrong answers.  'bandlimited' serves this and is one flag away.
+    raise ValueError(
+        "--time-marginalization-quadrature peak-local does not support "
+        "--resample-time-marginalization.  A 'grid' export would draw t_ref from the coarse "
+        "lnLt bins, discarding the sub-sample resolution this quadrature exists to recover, "
+        "and a 'continuous' export needs the dense reconstruction over the whole window that "
+        "peak-local deliberately never forms.  Use "
+        "--time-marginalization-quadrature bandlimited, which exports a validated continuous "
+        "draw, or drop --resample-time-marginalization.")
 # One assignment, inherited by every DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop call site.
 factored_likelihood.TIME_QUADRATURE_DEFAULT = opts._time_quadrature
 # Announce the value READ BACK OUT of the module, not the one parsed from the

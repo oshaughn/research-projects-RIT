@@ -177,6 +177,8 @@ __all__ = [
     "bandlimited_spectrum",
     "spectral_curvature_bound",
     "spectral_derivative_bound",
+    "parabolic_sup",
+    "segment_sup_bound",
     "crest_upper_bound",
     "enum_grid_derivatives",
     "eval_bandlimited_uniform",
@@ -474,34 +476,83 @@ def eval_bandlimited_points(Xw, fk, rows, t, period, xpy=np, point_chunk=1024):
     return q0, q1, q2
 
 
-def enum_grid_derivatives(Xw, fk, factor, n_keep, period, xpy=np):
-    """``q'`` and ``q''`` on the ENUMERATION grid, by FFT, from the same spectrum.
+def enum_grid_derivatives(x_reflected, factor, n_keep, deltaT, orders=(1, 2),
+                          xpy=np):
+    """``q'`` and ``q''`` on the ENUMERATION grid, from the same reflected row.
 
-    The enumeration grid is ``m * period / (n * factor)`` for ``m = 0 .. n_keep-1``,
-    which is exactly the grid :func:`bandlimited_upsample` produces, so placing
-    ``Xw_j * w_j**k`` at bin ``fk_j mod (n*factor)`` and inverse-transforming gives the
-    ``k``-th derivative of the SAME interpolant on the SAME points.  Two transforms of
-    the length the enumeration upsample already uses; the alternative -- evaluating the
-    spectral sum pointwise -- is ``O(npts)`` per point and would cost more than the
-    integration it is protecting.
+    Differentiation is a spectral multiply, so the derivative of the band-limited
+    interpolant is the interpolant OF the differentiated row -- which means the validated
+    upsampler can be reused rather than its zero-padding convention reimplemented.  That
+    matters: the first version of this reimplemented it and got 52% relative error on ``q'``
+    and 46% on ``q''``, because for the reflected row ``n`` is EVEN, so
+    :func:`bandlimited_spectrum` splits the Nyquist bin and returns ``n+1`` coefficients --
+    a length the padding logic then used as the transform size, mapping two bins onto one
+    index and losing the rest.
 
-    Differencing ``q`` on the grid would NOT do: a difference of an under-resolved
+    Differencing ``q`` on the grid would not do either: a difference of an under-resolved
     sample sequence is an estimate, and everything downstream of these arrays is an
     inequality.
     """
-    n = int(Xw.shape[-1])
-    n_pad = n * int(factor)
-    w = (2j * np.pi / float(period)) * fk
-    idx = xpy.asarray(_host(fk, xpy).astype(np.int64) % n_pad)
-    coef = Xw * w[None, :]
+    n = int(x_reflected.shape[-1])
+    k = xpy.fft.fftfreq(n, d=1.0) * n            # signed bin index, matching numpy's fft
+    w = (2j * np.pi / (n * float(deltaT))) * k
+    X = xpy.fft.fft(x_reflected, axis=-1)
     out = []
-    for _ in range(2):
-        pad = xpy.zeros(Xw.shape[:-1] + (n_pad,), dtype=coef.dtype)
-        pad[..., idx] = coef
-        out.append((xpy.fft.ifft(pad, axis=-1)[..., :n_keep] * float(n_pad)).real)
-        del pad
-        coef = coef * w[None, :]
-    return out[0], out[1]
+    for order in orders:
+        row = xpy.fft.ifft(X * (w ** order)[None, :], axis=-1)
+        out.append(bandlimited_upsample(row, factor, xpy=xpy)[..., :n_keep].real)
+    return tuple(out)
+
+
+def parabolic_sup(y0, y1, d0, d1, xpy=np):
+    """``max`` of the cubic Hermite through ``(0, y0, d0)`` and ``(1, y1, d1)``, per cell.
+
+    ``d0``/``d1`` are the slopes ALREADY SCALED BY THE CELL WIDTH, i.e. ``h * q'``.  The
+    maximum of a cubic on a closed interval is at an end or at a stationary point inside it,
+    so this is exact -- no search and no iteration.
+    """
+    a = 2.0 * y0 + d0 - 2.0 * y1 + d1
+    b = -3.0 * y0 - 2.0 * d0 + 3.0 * y1 - d1
+    c = d0
+    best = xpy.maximum(y0, y1)
+
+    def _try(srt, live):
+        val = y0 + c * srt + b * srt * srt + a * srt ** 3
+        return xpy.where(live & (srt > 0.0) & (srt < 1.0), xpy.maximum(best, val), best)
+
+    # H'(s) = 3a s^2 + 2b s + c.  The CUBIC term vanishes whenever the cell's two slopes and
+    # its secant conspire -- a symmetric bump is the obvious case, and it is not rare -- so the
+    # degenerate branch is not an edge case to skip.  Missing it returns the endpoint maximum
+    # and silently under-bounds exactly the cells that contain a peak.
+    cubic = xpy.abs(3.0 * a) > 0.0
+    disc = b * b - 3.0 * a * c
+    sq = xpy.sqrt(xpy.where(cubic & (disc > 0), disc, 0.0))
+    den = xpy.where(cubic, 3.0 * a, 1.0)
+    for sgn in (1.0, -1.0):
+        best = _try((-b + sgn * sq) / den, cubic & (disc > 0))
+    lin = (~cubic) & (xpy.abs(2.0 * b) > 0.0)
+    best = _try(-c / xpy.where(lin, 2.0 * b, 1.0), lin)
+    return best
+
+
+def segment_sup_bound(q0, q1, dq0, dq1, h, m4, xpy=np):
+    """CERTIFIED upper bound on ``max q`` over one enumeration cell.
+
+    Cubic Hermite through the cell's two endpoint values and slopes, plus the classical
+    Hermite remainder ``M4 * h**4 / 384`` where ``M4`` bounds the FOURTH derivative.  ``m4``
+    comes from :func:`spectral_derivative_bound` at order 4, so it is a true bound and nothing
+    is fitted.
+
+    WHY THE SLOPES ARE WORTH FETCHING.  A bound from endpoint VALUES alone carries
+    ``M2 * h**2 / 8``, and from a single sample ``M2 * h**2 / 2``.  Measured on a realistic row
+    at amplitude 2e4 / 2e6 / 2e7 those are 102 / 1.0e4 / 1.0e5 nats and 407 / 4.1e4 / 4.1e5 --
+    useless against a 23 nat tolerance, which is why an earlier revision of this note called
+    certification non-viable.  With the slopes the remainder is **0.12 / 12.2 / 122 nats**,
+    three thousand times tighter, and usable across the range that matters.  Above it the
+    certificate simply stops being small enough, the margin fails, and the row falls back --
+    the intended fail-closed behaviour, not a special case.
+    """
+    return parabolic_sup(q0, q1, dq0, dq1, xpy=xpy) + m4 * (h ** 4) / 384.0
 
 
 # -------------------------------------------------------------- enumeration
@@ -1307,12 +1358,6 @@ def _peak_local_chunk(kappa_rows, rho_col_rows, factors, npts, deltaT, period,
     row_top = np.full(n_rows, -np.inf)
     np.maximum.at(row_top, rows_np, lnL_star)
     exact_keep = lnL_star > row_top[rows_np] - PEAK_KEEP_NATS
-    # Every localised crest, INCLUDING the ones about to be dropped.  They cost nothing --
-    # Newton has already run on them -- and they are exact, so the tail bound below can use
-    # a crest rather than the sample under it.  See the outside-supremum note there.
-    q_all_np = _host(q_star, xpy)
-    t_all_np = t_np.copy()
-    rows_all_np = rows_np.copy()
     if not exact_keep.all():
         rows_np, cols_np = rows_np[exact_keep], cols_np[exact_keep]
         sig_np, tol_np = sig_np[exact_keep], tol_np[exact_keep]
@@ -1434,39 +1479,35 @@ def _peak_local_chunk(kappa_rows, rho_col_rows, factors, npts, deltaT, period,
     # row -- because the callback is monotone in it, so no evaluation on the full
     # time axis is needed.  A row whose bound is not small enough is NOT reported
     # with a caveat: it goes to the dense path.
-    # ---- the outside supremum, evaluated OFF-GRID rather than sampled.
+    # ---- the outside supremum, EVALUATED off-grid rather than sampled.
     #
-    # `max(q_up over uncovered samples)` is a LOWER bound on the continuous supremum, and the
-    # gap GROWS WITH AMPLITUDE.  Measured, honest supremum against the sampled one on rows this
-    # rule accepted: the sampled margin read -79.6 / -289.5 / -2998.6 at amplitude 2e4 / 2e5 /
-    # 2e6 while the honest margin was -65.5 / -71.1 / -75.8 -- an under-read of 14, then 218,
-    # then 2923 nats.  The reported `tail_bound_worst` was therefore a diagnostic that got more
-    # flattering the sharper the row, which is the wrong direction for a safety margin.
+    # `max(q_up over uncovered SAMPLES)` is a LOWER bound on the continuous supremum and the
+    # gap GROWS WITH AMPLITUDE: measured on rows this rule accepted, the reported margin was
+    # 14 nats optimistic at amplitude 2e4, 75-218 at 2e5 and 1445-2923 at 2e6.  So
+    # `tail_bound_worst` got more flattering the sharper the row, the wrong direction.
     #
-    # WHERE THE GAP COMES FROM, and it is not a peak the enumeration missed.  The supremum over
-    # a union of closed intervals is attained at an interior stationary point or at an end, so
-    # the candidates are exactly: the crests of uncovered enumerated maxima, and the ENDS of the
-    # covered intervals.  The ends dominate.  An interval end sits `W_SIGMA * sigma` from its
-    # crest, i.e. `(W_SIGMA + LOCALISE_SAFETY)**2/2 = 75.03` nats below it whatever the amplitude -- but the nearest
-    # SAMPLE outside that end is a further `W_SIGMA * h_enum / sigma` nats down, which diverges
-    # as the peak sharpens.  That single term is the whole measured under-read.
+    # The dominant term is NOT a peak the enumeration missed.  The supremum over a union of
+    # closed intervals sits at an interior stationary point or at an END, and the ends
+    # dominate: an interval end is (W_SIGMA + LOCALISE_SAFETY)*sigma from its crest, 75 nats
+    # below it at any amplitude, but the nearest SAMPLE outside that end is a further
+    # W_SIGMA*h_enum/sigma down, and THAT diverges as sigma shrinks.
     #
-    # So evaluate the candidates instead of sampling near them.  `q` is band-limited and the
-    # double-copy (forward+backward) Fourier model reconstructs it exactly between samples, so
-    # the interval ends are evaluated directly on that model, and the localised crests are
-    # already in hand from Newton -- including the peaks the exact filter dropped, which is
-    # precisely the set the sampled version read at their samples.
+    # So evaluate the candidates instead of sampling near them: the interval ends on the
+    # double-copy Fourier model, which reconstructs q exactly between samples.
     #
-    # This does not certify anything, and does not claim to: a peak the enumeration never found
-    # would still be missed.  For a Nyquist-band-limited `q` on an 8x grid that is not a
-    # realistic failure -- across npts 153/307/614 and spectral widths 30/120/300, zero material
-    # continuous maxima (within 100 nats of the row top) were missed, and enumeration returns
-    # one or two MORE than the interior continuous count.  What this does remove is the
-    # amplitude-divergent term, which was real.
+    # WHY NOT A CERTIFICATE HERE, given `segment_sup_bound` exists and is exact enough.  It
+    # cannot be dropped in, and the reason is `covered`, which is SAMPLE-granular.  A sharp
+    # row's interval is narrower than one enumeration cell, so `ceil(lo/h) > floor(hi/h)`
+    # marks nothing covered and the CREST'S OWN CELL counts as outside; a certified bound over
+    # that cell then bounds the crest itself and the row is rejected.  Measured: every row
+    # rejected, i.e. the option goes inert.  The sampled version escaped this only by
+    # under-reading the very peak it should have been excluding.  A real certificate needs
+    # SUB-CELL covered geometry -- the uncovered part of a straddling cell, not the whole cell
+    # -- which is a piece of work, not a wiring change.  `segment_sup_bound`, `parabolic_sup`
+    # and `enum_grid_derivatives` are correct and tested and are what it would be built from.
     cov_x = xpy.asarray(covered)
     q_out_max = xpy.max(xpy.where(cov_x, -np.inf, q_up), axis=-1)
     if g_row.size:
-        # the ends of every merged interval, on the reflected interpolant
         edge_rows = np.concatenate([g_row, g_row])
         edge_t = np.concatenate([g_lo, g_hi])
         q_edge = _host(eval_bandlimited_points(Xw, fk, xpy.asarray(edge_rows),
@@ -1474,26 +1515,6 @@ def _peak_local_chunk(kappa_rows, rho_col_rows, factors, npts, deltaT, period,
                                                xpy=xpy)[0], xpy)
         q_out_np = _host(q_out_max, xpy)
         np.maximum.at(q_out_np, edge_rows, q_edge)
-        # ... and the crests of enumerated peaks left outside, exact from localisation
-        if rows_all_np.size:
-            # Is each localised crest inside one of ITS OWN row's merged intervals?  Vectorised
-            # by the same row-offset trick merge_intervals_by_row uses: the intervals are
-            # ascending in (row, lo), so offsetting by `row * big` makes one global searchsorted
-            # answer it for every peak at once.  A Python loop over intervals here is O(groups x
-            # peaks) and is exactly the shape that once made this rule slower than the path it
-            # delegates to.
-            #
-            # The exclusion is NOT optional and cannot be skipped for conservatism: a crest that
-            # IS covered is already integrated, and feeding it to the outside maximum would make
-            # the bound `log(T_out) + crest - result`, which rejects every row.
-            big = 2.0 * (float(t_last) + 1.0)
-            j = np.searchsorted(g_lo + g_row * big, t_all_np + rows_all_np * big,
-                                side='right') - 1
-            jc = np.maximum(j, 0)
-            in_cov = (j >= 0) & (g_row[jc] == rows_all_np) & (t_all_np <= g_hi[jc])
-            out_pk = ~in_cov
-            if out_pk.any():
-                np.maximum.at(q_out_np, rows_all_np[out_pk], q_all_np[out_pk])
         q_out_max = xpy.asarray(q_out_np)
     T_out = np.maximum(t_last - covered_len, 0.0)
     lnL_out = loglikelihood(q_out_max, rho_col_rows[:, 0])
