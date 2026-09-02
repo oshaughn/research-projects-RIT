@@ -318,6 +318,30 @@ RULES = [
      "beta; say exactly that in the help text. Port the post-PR#58 form including the "
      "cos(iota)/cos(dec) endpoint swap under the cosine samplers."),
 
+    (r"^OPTION:--limit-distance$", "PORT",
+     "Sampling-only distance box: narrows what distance is DRAWN from while the prior keeps "
+     "its full [--d-min,--d-max] normalization, so lnZ stays on the full-range scale. Port it, "
+     "and port the SPLIT rather than the option alone. VERIFIED 2026-09-02 that the LISA "
+     "driver still carries the one-range form the main driver was just moved off "
+     "(integrate_likelihood_extrinsic_batchmode_lisa:1021-1024: dist_sampler and "
+     "dist_prior_pdf are both built from param_limits['distance']), which normalizes the "
+     "Euclidean density over whatever the sampler happens to draw from -- so narrowing for "
+     "cost there would silently rescale the evidence. mcsampler.distance_sampler_kwargs() "
+     "already takes the sampling range and the prior range as two arguments and is shared "
+     "code, so the port is a call-site change, not a reimplementation. The motivation is "
+     "STRONGER on LISA than on ground-based data: measured on real LIGO data at rho ~ 82, a "
+     "box tracking the posterior removes 0.37 +- 0.11 nats of sampling bias the full-range "
+     "run was carrying (4.16 nats with --no-adapt-distance), and MBHB SNRs are one to two "
+     "orders of magnitude higher, where the posterior is narrower still relative to the same "
+     "prior (RIFT_roboto_paper analyses/limit_distance_e2e/). CARRY THE REFUSALS, and note "
+     "only one of the three transfers today: LISA HAS --distance-marginalization (:245), so "
+     "refuse there for the same reason -- no distance sampler exists to narrow. It has "
+     "neither --d-prior-redshift nor --internal-reparam-dl-incl, so those two refusals have "
+     "nothing to attach to yet; --internal-reparam-dl-incl is itself a PORT item above, so "
+     "whichever of the two lands second owes the refusal. LISA's --d-prior set is also "
+     "different (Euclidean|uniform|pseudo_cosmo, no cosmo/cosmo_sourceframe), so the cosmo "
+     "branch of the main driver's narrowing block has no counterpart to port."),
+
     # --------------------------------------------------------------------- data / waveform io
     (r"^OPTION:--internal-data-storage-window-half$", "NA",
      "Half-width of the main driver's internal precompute storage window. The LISA "
