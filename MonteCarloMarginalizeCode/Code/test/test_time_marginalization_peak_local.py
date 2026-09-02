@@ -2442,6 +2442,64 @@ def test_parabolic_sup_never_under_bounds_a_cubic():
                                       np.array([4.0]), np.array([-4.0]))[0]) - 1.0) < 1e-12
 
 
+def test_parabolic_sup_handles_a_nearly_quadratic_symmetric_crest():
+    """The stable root path must survive roundoff in an analytically symmetric cell.
+
+    For this admissible band-limited cosine, the Hermite cubic coefficient is analytically
+    zero but endpoint arithmetic leaves it tiny and nonzero.  The direct quadratic formula
+    placed the in-cell root at 2/3 instead of 1/2; even after adding the exact fourth-derivative
+    remainder, the purported certificate under-read the true crest by 4255 nats at this
+    amplitude.
+    """
+    amp = 2.0e6
+    omega = np.pi / 8.0
+    y0 = amp * np.cos(-omega / 2.0)
+    y1 = amp * np.cos(omega / 2.0)
+    d0 = -amp * omega * np.sin(-omega / 2.0)
+    d1 = -amp * omega * np.sin(omega / 2.0)
+
+    cubic_sup = float(pl.parabolic_sup(
+        np.array([y0]), np.array([y1]), np.array([d0]), np.array([d1]))[0])
+    certificate = cubic_sup + amp * omega ** 4 / 384.0
+    assert certificate >= amp, (certificate, amp)
+
+
+def test_parabolic_sup_scales_finite_coefficients_before_the_discriminant():
+    """Finite derivative coefficients must not overflow the discriminant to ``NaN``."""
+    # H'(s) = scale * (s - 0.2) * (s - 0.8), whose local maximum is at s=0.2.
+    scale = 1.0e200
+    A = scale
+    a = A / 3.0
+    b = -A / 2.0
+    c = 0.16 * A
+    y0 = 0.0
+    y1 = c + b + a
+    d0 = c
+    d1 = 3.0 * a + 2.0 * b + c
+    true_max = y0 + c * 0.2 + b * 0.2 ** 2 + a * 0.2 ** 3
+
+    got = float(pl.parabolic_sup(
+        np.array([y0]), np.array([y1]), np.array([d0]), np.array([d1]))[0])
+    assert got >= true_max, (got, true_max)
+
+
+def test_certificate_fallback_reasons_are_disjoint_and_exhaustive():
+    """A structural failure must not also increment the tail or containment counter."""
+    margin = np.array([pl.TAIL_LOG_TOL + 1.0, pl.TAIL_LOG_TOL + 1.0,
+                       pl.TAIL_LOG_TOL - 1.0, pl.TAIL_LOG_TOL - 1.0])
+    contained = np.array([False, True, False, True])
+    cert_bad = np.array([True, False, False, False])
+    planned = np.arange(4)
+    good, structure, tail, containment = pl._certificate_acceptance_masks(
+        margin, contained, cert_bad, planned)
+
+    np.testing.assert_array_equal(structure, [True, False, False, False])
+    np.testing.assert_array_equal(tail, [False, True, False, False])
+    np.testing.assert_array_equal(containment, [False, False, True, False])
+    np.testing.assert_array_equal(good, [False, False, False, True])
+    assert np.all(np.sum(np.stack([good, structure, tail, containment]), axis=0) == 1)
+
+
 def test_segment_sup_bound_is_an_upper_bound_on_the_cell():
     """The certificate itself: `q` on a cell must never exceed it."""
     sig = BandLimited(amp=4.0e4, peak_sample=NPTS // 2 + 0.3125)

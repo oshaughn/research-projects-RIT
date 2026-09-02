@@ -361,7 +361,8 @@ def last_report():
         bound was not small enough.  **This is the count to watch**: it is the
         method admitting it could not justify its own truncation, and a run where it
         is not ~0 is a run where the enumeration is not doing its job.
-    ``n_dense_fallback_structure``  rows exceeding ``MAX_INTERVALS``.
+    ``n_dense_fallback_structure``  rows exceeding ``MAX_INTERVALS`` or whose sub-cell
+        certificate geometry contains more than one disjoint interval in a cell.
     ``n_intervals_total`` / ``n_local_points_total``  the work actually done.
     ``n_peaks_total``  enumerated maxima kept, over the peak-local rows.
     ``tail_bound_worst``  the worst (largest) ``bound - result`` among ACCEPTED
@@ -527,7 +528,10 @@ def parabolic_sup(y0, y1, d0, d1, s_lo=0.0, s_hi=1.0, xpy=np):
     best = xpy.maximum(_H(s_lo), _H(s_hi))
 
     def _try(root, live):
-        val = _H(root)
+        # Evaluate only inside the requested range.  This avoids overflow from the
+        # irrelevant enormous root of a nearly-linear quadratic on eager array backends.
+        root_eval = xpy.clip(root, s_lo, s_hi)
+        val = _H(root_eval)
         return xpy.where(live & (root > s_lo) & (root < s_hi),
                          xpy.maximum(best, val), best)
 
@@ -535,15 +539,42 @@ def parabolic_sup(y0, y1, d0, d1, s_lo=0.0, s_hi=1.0, xpy=np):
     # secant conspire -- a symmetric bump does it exactly -- so the degenerate branch is not an
     # edge case to skip: missing it returns the endpoint maximum and under-bounds precisely the
     # cells that contain a peak.
-    cubic = xpy.abs(3.0 * a) > 0.0
-    disc = b * b - 3.0 * a * c
+    A = 3.0 * a
+    B = 2.0 * b
+    # The roots are invariant under a common coefficient scale.  Normalize before forming
+    # the discriminant so finite coefficients cannot produce ``inf - inf = NaN`` and make
+    # genuine stationary points disappear from a purported upper bound.
+    coef_scale = xpy.maximum(xpy.maximum(xpy.abs(A), xpy.abs(B)), xpy.abs(c))
+    live_poly = coef_scale > 0.0
+    safe_scale = xpy.where(live_poly, coef_scale, 1.0)
+    An, Bn, Cn = A / safe_scale, B / safe_scale, c / safe_scale
+    cubic = xpy.abs(An) > 0.0
+    disc = Bn * Bn - 4.0 * An * Cn
     sq = xpy.sqrt(xpy.where(cubic & (disc > 0), disc, 0.0))
-    den = xpy.where(cubic, 3.0 * a, 1.0)
-    for sgn in (1.0, -1.0):
-        best = _try((-b + sgn * sq) / den, cubic & (disc > 0))
-    lin = (~cubic) & (xpy.abs(2.0 * b) > 0.0)
-    best = _try(-c / xpy.where(lin, 2.0 * b, 1.0), lin)
+    # Cancellation-safe quadratic roots.  The direct ``(-b +/- sq)/(3a)`` loses the
+    # in-range root of a nearly quadratic Hermite cell when ``b`` and ``sq`` agree.  This
+    # occurs naturally for a symmetric band-limited crest: ``a`` should vanish, but the
+    # endpoint/derivative arithmetic leaves a few ulps behind.  Form the large root from the
+    # non-cancelling sign and the other from the product of the roots, ``c/A``.
+    q = -0.5 * (Bn + xpy.copysign(sq, Bn))
+    q_live = cubic & (disc > 0) & (xpy.abs(q) > 0.0)
+    root_large = q / xpy.where(cubic, An, 1.0)
+    root_small = Cn / xpy.where(q_live, q, 1.0)
+    best = _try(root_large, cubic & (disc > 0))
+    best = _try(root_small, q_live)
+    lin = (~cubic) & (xpy.abs(Bn) > 0.0)
+    best = _try(-Cn / xpy.where(lin, Bn, 1.0), lin)
     return xpy.where(empty, -np.inf, best)
+
+
+def _certificate_acceptance_masks(margin, contained, cert_bad, planned):
+    """Partition planned rows into one accepted class and three disjoint fallback reasons."""
+    margin_ok = margin[planned] < TAIL_LOG_TOL
+    structure_fail = cert_bad[planned]
+    tail_fail = (~structure_fail) & (~margin_ok)
+    containment_fail = (~structure_fail) & margin_ok & (~contained[planned])
+    good = (~structure_fail) & margin_ok & contained[planned]
+    return good, structure_fail, tail_fail, containment_fail
 
 
 def segment_sup_bound(q0, q1, dq0, dq1, h, m4, s_lo=0.0, s_hi=1.0, xpy=np):
@@ -1571,15 +1602,14 @@ def _peak_local_chunk(kappa_rows, rho_col_rows, factors, npts, deltaT, period,
     # integration grid's own values, and it is what actually catches a mis-placed
     # interval.  Neither subsumes the other and a row must satisfy both.
     contained = attained >= row_star - CONTAINMENT_SLACK_NATS
-    stats['n_dense_fallback_structure'] += int(np.sum(cert_bad[planned]))
-    good_mask = ((margin[planned] < TAIL_LOG_TOL) & contained[planned]
-                 & (~cert_bad[planned]))
+    (good_mask, structure_fail, tail_fail,
+     containment_fail) = _certificate_acceptance_masks(
+         margin, contained, cert_bad, planned)
+    stats['n_dense_fallback_structure'] += int(np.sum(structure_fail))
     accepted = planned[good_mask]
     rejected = planned[~good_mask]
-    stats['n_dense_fallback_tail'] += int(np.sum(
-        ~(margin[planned] < TAIL_LOG_TOL)))
-    stats['n_dense_fallback_containment'] += int(np.sum(
-        (margin[planned] < TAIL_LOG_TOL) & (~contained[planned])))
+    stats['n_dense_fallback_tail'] += int(np.sum(tail_fail))
+    stats['n_dense_fallback_containment'] += int(np.sum(containment_fail))
     if accepted.size:
         acc_x = xpy.asarray(accepted)
         values[acc_x] = result[acc_x]
