@@ -292,6 +292,59 @@ ANGLE_AMP_MARGIN = 2.0        # covers the finite sky sample: the amplitude is
                               # and the sizing error enters only through
                               # sqrt(amp), so a 2x margin in amplitude is a
                               # 1.4x margin in grid size
+ENDPOINT_GUARD_BAND = 15.0    # nats below the amplitude maximum within which a
+                              # sky point's dominant peak still counts for the
+                              # near-boundary diagnostic below.  Applied per sky
+                              # point against that point's own maximum AND again
+                              # against the global one, so what survives is
+                              # within [BAND, 2*BAND] nats of the global maximum
+                              # -- a bound worth stating, since the two-stage
+                              # form is what avoids a second pass over the
+                              # per-entry arrays the sky loop exists to keep
+                              # transient.
+
+
+def _endpoint_bell(k):
+    """``k exp(-k^2/2)``, the shape of a Gaussian's DERIVATIVE at a point ``k``
+    widths from its peak, clamped at 0 for exterior (non-positive) clearances.
+
+    This is the only ``k`` dependence in the truncated-endpoint error term of
+    :func:`core.loguniform_endpoint_error`; it is maximal (0.6065) at exactly
+    ONE width of clearance, and vanishes both far out in the tail AND at the
+    peak itself -- an endpoint sitting ON the peak is a stationary point, where
+    the Euler-Maclaurin endpoint term has nothing to correct.  So "closer to the
+    edge" is NOT monotonically worse, and a guard shaped as a bare minimum
+    clearance would refuse the k -> 0 case that the alias law already covers.
+    """
+    k = np.maximum(np.asarray(k, dtype=float), 0.0)
+    return k * np.exp(-0.5 * np.square(k))
+
+
+def _peak_clearance(A, B, x_min, x_max):
+    """``(rho, clearance from the d_min edge, clearance from the d_max edge)``.
+
+    The distance integrand ``exp(x A - x^2 B/2)`` is a Gaussian in ``x`` peaked
+    at ``x* = A/B``, whose width in ``ln d`` is ``1/rho`` with
+    ``rho = A/sqrt(B)`` -- scale free, which is the whole basis of the
+    log-uniform grid (see :func:`core.make_distance_grid_loguniform`).  The
+    clearances are that peak's distance from each prior edge IN THOSE UNITS,
+    which is what decides whether the untruncated alias law applies.
+
+    ``x = distMpcRef/d`` inverts the edges: the ``d_min`` edge is ``x_max``.
+    Non-positive clearances mean the maximizer is EXTERIOR -- the boundary-layer
+    regime section 1a refuses outright -- not a resolved peak, and callers must
+    treat them as such rather than as "very close to the edge".
+    """
+    A = np.asarray(A, dtype=float)
+    B = np.asarray(B, dtype=float)
+    Bs = np.maximum(B, 1e-300)
+    rho = np.where((A > 0.0) & (B > 0.0), A / np.sqrt(Bs), 0.0)
+    x_star = np.where(rho > 0.0, A / Bs, 0.0)
+    ok = x_star > 0.0
+    xs = np.where(ok, x_star, 1.0)
+    k_lo = np.where(ok, rho * np.log(float(x_max) / xs), 0.0)
+    k_hi = np.where(ok, rho * np.log(xs / float(x_min)), 0.0)
+    return rho, k_lo, k_hi
 
 
 def estimate_angle_amplitude(data, x_grid, interp=JAX_INTERP_DEFAULT,
@@ -398,6 +451,8 @@ def estimate_angle_amplitude(data, x_grid, interp=JAX_INTERP_DEFAULT,
         E_B = _recon_matrix(C_B.shape[0], (C_B.shape[1] - 1) // 2)
         amps = []
         amps_unclipped = []
+        pk_A = []
+        pk_B = []
         for j in range(C_A.shape[2]):      # per-sky loop bounds the transient
             A_g = (E_A @ C_A[:, :, j].reshape(-1, C_A.shape[-1])).real
             B_g = np.maximum(
@@ -431,7 +486,17 @@ def estimate_angle_amplitude(data, x_grid, interp=JAX_INTERP_DEFAULT,
                              np.square(A_g) / (2.0 * np.maximum(B_g, 1e-300)),
                              0.0)
             amps_unclipped.append(max(float(val_u.max()), 0.0))
-        return np.array(amps), np.array(amps_unclipped), C_A, C_B
+            # (A, B) of THIS sky point's DOMINANT configuration -- the entry
+            # that attains its clipped maximum, i.e. the one whose distance
+            # integral this sky direction's marginal is made of.  Kept (two
+            # scalars per sky point, not the arrays) so the near-boundary
+            # diagnostic below can be formed after the global maximum is known,
+            # without a second pass over the per-entry arrays.
+            i_hat = int(np.argmax(val))
+            pk_A.append(float(A_g.ravel()[i_hat]))
+            pk_B.append(float(B_g.ravel()[i_hat]))
+        return (np.array(amps), np.array(amps_unclipped),
+                np.array(pk_A), np.array(pk_B), C_A, C_B)
 
     def _draw(n, rng):
         ra = rng.uniform(0.0, 2.0 * np.pi, n)
@@ -451,7 +516,11 @@ def estimate_angle_amplitude(data, x_grid, interp=JAX_INTERP_DEFAULT,
         dec = np.concatenate([dec, g_dec.ravel()])
         incl = np.concatenate([incl, np.full(g_ra.size, i0_)])
 
-    amps, amps_u, C_A, C_B = _per_sky_amps(ra, dec, incl)
+    amps, amps_u, pk_A, pk_B, C_A, C_B = _per_sky_amps(ra, dec, incl)
+    # Concatenated across sky BATCHES, in the same idiom the two maxima use:
+    # the near-boundary diagnostic is formed after the loop, so it must see the
+    # re-drawn batches too or it reads a first batch that a later one displaced.
+    amps_cat, pk_A_cat, pk_B_cat = amps, pk_A, pk_B
     # split-half convergence check (mechanism 2 of the docstring): compare
     # the max WITHOUT the second half of the random draws against the max
     # with them; growth > 20% means the sky variation is under-sampled, so
@@ -471,12 +540,15 @@ def estimate_angle_amplitude(data, x_grid, interp=JAX_INTERP_DEFAULT,
         print("estimate_angle_amplitude: sky maximum still growing "
               "(%.4g -> %.4g); doubling the sample." % (amp_ref, amp_emp))
         ra2, dec2, incl2 = _draw(n_sky, rng)
-        amps2, amps_u2, _, _ = _per_sky_amps(ra2, dec2, incl2)
+        amps2, amps_u2, pk_A2, pk_B2, _, _ = _per_sky_amps(ra2, dec2, incl2)
         amp_ref = amp_emp
         amp_emp = max(amp_emp, float(amps2.max()))
         amp_u_emp = max(amp_u_emp, float(amps_u2.max()))
         grows = amp_emp > 1.2 * amp_ref + 1e-12
         n_extra += n_sky
+        amps_cat = np.concatenate([amps_cat, amps2])
+        pk_A_cat = np.concatenate([pk_A_cat, pk_A2])
+        pk_B_cat = np.concatenate([pk_B_cat, pk_B2])
 
     # analytic cross-check (mechanism documented above; heuristic direction)
     w = np.ones(C_A.shape[0])
@@ -494,9 +566,48 @@ def estimate_angle_amplitude(data, x_grid, interp=JAX_INTERP_DEFAULT,
                                                             amp_emp))
     if return_diagnostics:
         amp_unclipped = amp_u_emp
+        # NEAR-BOUNDARY diagnostic, for the log-uniform distance grid's OTHER
+        # precondition: clip_excess sees a maximizer that has left the support,
+        # but the spacing law is a statement about an effectively UNTRUNCATED
+        # Gaussian, and a peak that is interior yet only ~1 width inside an edge
+        # breaks it while clip_excess reads exactly 1.  Reduced here to one
+        # scalar the wrapper turns into an error with its own spacing:
+        # max over the loud sky points of rho^2 * (bell(k_lo) + bell(k_hi)),
+        # which is the Euler-Maclaurin endpoint term stripped of the grid factor
+        # (core.loguniform_endpoint_error puts it back).  BOTH edges, summed:
+        # they are separate corrections and a narrow support has both.
+        #
+        # WHAT IS AND IS NOT COVERED.  One entry per sky point -- that point's
+        # DOMINANT configuration -- within ENDPOINT_GUARD_BAND of the maximum.
+        # Sub-dominant configurations are covered only by the rho^2 factor,
+        # which is the honest bound: an entry's endpoint error scales as
+        # (rho_entry/rho_max)^2, so anything quieter than ~0.36*rho_max is
+        # inside the shipped tolerance whatever its clearance, and the band
+        # between that and the peak is a stated residual (design note 1a).
+        # The band is a threshold on the CLIPPED value, never on A^2/(2B): the
+        # A < 0 mirror is exactly degenerate under an unconstrained ranking and
+        # survives such a cut, which is the trap recorded in _per_sky_amps.
+        keep = amps_cat >= amp_emp - ENDPOINT_GUARD_BAND
+        rho_pk, k_lo, k_hi = _peak_clearance(pk_A_cat, pk_B_cat, x_min, x_max)
+        interior = (k_lo > 0.0) & (k_hi > 0.0)
+        term = np.where(keep & interior,
+                        np.square(rho_pk)
+                        * (_endpoint_bell(k_lo) + _endpoint_bell(k_hi)), 0.0)
+        endpoint_scale = float(term.max()) if term.size else 0.0
+        i_dom = int(np.argmax(amps_cat)) if amps_cat.size else 0
         return margin * amp_emp, dict(
             amp_clipped=float(amp_emp),
             amp_unclipped=amp_unclipped,
+            # the Euler-Maclaurin endpoint term, grid-independent half
+            endpoint_scale=endpoint_scale,
+            # the globally dominant peak itself, reported so a refusal can name
+            # a number the caller can act on (and so a test can BUILD a support
+            # with a chosen clearance rather than hunt for one)
+            peak_x=(float(pk_A_cat[i_dom] / max(pk_B_cat[i_dom], 1e-300))
+                    if amps_cat.size else 0.0),
+            peak_rho=float(rho_pk[i_dom]) if rho_pk.size else 0.0,
+            peak_clearance=float(min(k_lo[i_dom], k_hi[i_dom]))
+                           if rho_pk.size else 0.0,
             # > 1 means the exponent's maximizing distance x* = A/B lies
             # OUTSIDE [x_min, x_max] for the dominant angles, i.e. the
             # distance posterior rails against a prior edge.  See
@@ -505,6 +616,20 @@ def estimate_angle_amplitude(data, x_grid, interp=JAX_INTERP_DEFAULT,
                         else (float("inf") if amp_unclipped > 0.0 else 1.0),
             x_min=x_min, x_max=x_max)
     return margin * amp_emp
+
+
+AMP_FAILSAFE_TRIP_FACTOR = 2.0
+# The multiple of amp_sizing at which _runtime_amp_failsafe speaks up, and
+# therefore the largest amplitude a run may reach while remaining UNLABELLED.
+# It is a named constant because a second consumer now sizes from it: the
+# log-uniform distance grid resolves peaks up to
+# rho = sqrt(2 * TRIP * amp_sizing), so that every call the guard admits in
+# silence is one the distance spacing already covers.  Sizing that grid from
+# amp_sizing itself (as an earlier draft did) leaves a factor sqrt(TRIP) in SNR
+# -- and hence, through the Gaussian alias law, a tol -> sqrt(2*tol) hole --
+# open BELOW the trigger, where nothing is printed and nothing is recorded.
+# Raise this and the distance grid follows automatically; that coupling is the
+# point of the constant.
 
 
 _AMP_FAILSAFE = {"tripped": False, "n_calls": 0, "worst_amp": 0.0,
@@ -591,11 +716,12 @@ def _runtime_amp_failsafe(C_A, C_B, x_grid, amp_sizing, scheme_name):
     # indistinguishable from a good one.  Kept under stop_gradient so the check
     # never enters the AD graph.
     jax.lax.cond(
-        amp_call > 2.0 * amp_sizing,
+        amp_call > AMP_FAILSAFE_TRIP_FACTOR * amp_sizing,
         lambda a_: jax.debug.print(
             "WARNING anglemarg/" + scheme_name + ": this call's coefficient "
             "tables reach an amplitude scale ~{a:.4g} (analytic over-reading "
-            "expression), above 2x the amp_sizing=" + "%.4g" % amp_sizing
+            "expression), above "
+            + "%gx the amp_sizing=%.4g" % (AMP_FAILSAFE_TRIP_FACTOR, amp_sizing)
             + " the dense (phi,psi) grids were built for.  "
             "estimate_angle_amplitude underestimated the sky maximum; the "
             "marginal may be under-resolved at such points.  Rebuild the "
@@ -633,7 +759,7 @@ def _runtime_amp_failsafe(C_A, C_B, x_grid, amp_sizing, scheme_name):
     # call jax.effects_barrier() before reading or resetting the state, and must
     # not treat a clean read as proof of adequacy.
     jax.lax.cond(
-        amp_call > 2.0 * amp_sizing,
+        amp_call > AMP_FAILSAFE_TRIP_FACTOR * amp_sizing,
         lambda a_: jax.debug.callback(
             _record_amp_failsafe, True, a_,
             jnp.asarray(amp_sizing, dtype=jnp.float64), scheme_name),

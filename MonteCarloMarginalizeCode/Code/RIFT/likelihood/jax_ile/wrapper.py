@@ -716,7 +716,66 @@ class JAXDistPhiPsiMargLikelihood:
                 # under-resolves the distance peak WITHOUT tripping anything.
                 # Flooring costs a minimum of ~144 nodes on a quiet event, whose
                 # run is cheap anyway.
-                rho_max = float(np.sqrt(2.0 * max(float(amp_sizing), 0.0)))
+                #
+                # ...and the sizing amplitude is the one the guard ADMITS, not
+                # the one it was built from.  _runtime_amp_failsafe stays silent
+                # until amp_call > AMP_FAILSAFE_TRIP_FACTOR * amp_sizing, so a
+                # call just under that threshold carries an interior peak at
+                # rho = sqrt(TRIP) * sqrt(2*amp_sizing) -- sqrt(2) above the
+                # spacing's design point at the shipped factor -- and is neither
+                # printed nor recorded.  Through the Gaussian alias law
+                # (2 exp(-2 pi^2/c^2), c fixed by tol) that turns the advertised
+                # tol into ~sqrt(2*tol): 0.01 becomes 0.14, unlabelled.  Sizing
+                # from TRIP*amp_sizing closes the window by construction and
+                # costs sqrt(TRIP) = 1.41x the nodes; the alternative -- a
+                # second, distance-specific runtime guard at a tighter threshold
+                # -- adds a mechanism where a constant will do, and the two
+                # would then have to be kept consistent by hand.
+                rho_max = float(np.sqrt(
+                    2.0 * _anglemarg.AMP_FAILSAFE_TRIP_FACTOR
+                    * max(float(amp_sizing), 0.0)))
+                # SECOND precondition (the first is clip_excess, above): a peak
+                # that is interior but sits ~1 width inside an edge breaks the
+                # spacing law while clip_excess reads exactly 1.  The alias law
+                # is Poisson summation on an UNTRUNCATED Gaussian; a truncated
+                # support adds an Euler-Maclaurin endpoint term proportional to
+                # the integrand's derivative there, worth ~11% at the shipped
+                # tol (c = 1.93) against a promised 1%.  Refuse rather than
+                # widen silently: the option's whole claim is the stated
+                # fractional error, and both alternatives -- shipping the error
+                # or moving the user's distance prior for them -- are worse than
+                # saying so.  Evaluated at the CONTRACT spacing c/rho_max, which
+                # is the coarsest the built grid can be (the node count ceils).
+                dlnd_contract = (_core.loguniform_spacing_for_tolerance(
+                    dist_grid_tol) / rho_max)
+                eps_end = float(_core.ENDPOINT_ERROR_MARGIN
+                                * _core.loguniform_endpoint_error(
+                                    dlnd_contract,
+                                    amp_diag["endpoint_scale"]))
+                if eps_end > float(dist_grid_tol):
+                    raise ValueError(
+                        "dist_grid='loguniform' refuses this event: the "
+                        "likelihood's maximizing distance is INTERIOR to "
+                        "[d_min, d_max] = [%g, %g] Mpc but too close to an "
+                        "edge for the spacing contract, which assumes an "
+                        "effectively untruncated Gaussian peak.  The dominant "
+                        "peak sits %.3g peak widths (1/rho, rho = %.4g) from "
+                        "the nearer edge; at this grid's spacing dlnd = %.4g "
+                        "the truncated-endpoint term alone is ~%.3g of the "
+                        "distance integral, against the requested tol=%g.  A "
+                        "peak at the sizing SNR needs >= %.2f widths.  "
+                        "Recourse: widen the distance prior so the peak has "
+                        "clearance (this is the same physics signal as the "
+                        "exterior refusal -- the posterior is close to a prior "
+                        "edge), or stay on --distance-grid-scheme uniform and "
+                        "raise --distance-grid-points.  Note that TIGHTENING "
+                        "--distance-grid-tol does not help: the endpoint term "
+                        "falls as c(tol)^2 while the budget falls faster.  See "
+                        "DESIGN_jax_distance_quadrature.md section 1a."
+                        % (float(d_min), float(d_max),
+                           amp_diag["peak_clearance"], amp_diag["peak_rho"],
+                           dlnd_contract, eps_end, float(dist_grid_tol),
+                           _core.loguniform_min_clearance(dist_grid_tol)))
                 self.x_grid, self.log_w_grid = make_distance_grid_loguniform(
                     d_min, d_max, rho_max, d_prior,
                     distMpcRef=data.distMpcRef, tol=dist_grid_tol)

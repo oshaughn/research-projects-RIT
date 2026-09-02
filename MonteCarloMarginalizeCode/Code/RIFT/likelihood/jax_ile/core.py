@@ -1919,6 +1919,66 @@ def loguniform_spacing_for_tolerance(tol):
     return float(np.pi * np.sqrt(2.0 / np.log(2.0 / tol)))
 
 
+ENDPOINT_ERROR_MARGIN = 2.0
+# The endpoint model below is the LEADING Euler-Maclaurin term, and c(tol) puts
+# the node spacing at ~2 sigma, which is not an asymptotic regime: against a
+# directly evaluated truncated trapezoid the leading term under-reads by ~1.5x
+# at one width of clearance (the h^4 term and the truncated normalization both
+# push the same way).  So the guard carries a stated 2x margin, in the same
+# spirit as anglemarg.ANGLE_AMP_MARGIN, rather than pretending the series is
+# converged.  test_endpoint_error_model_tracks_the_measured_truncated_trapezoid
+# pins the model against the measurement, which is what bounds this factor.
+
+
+def loguniform_endpoint_error(dlnd, endpoint_scale):
+    """Fractional error the PRIOR ENDPOINTS add to the alias law of
+    :func:`loguniform_spacing_for_tolerance`.
+
+    That law is Poisson summation on an UNTRUNCATED Gaussian: it bounds the
+    aliasing of an infinite trapezoid sum, and is independent of where the peak
+    sits.  A distance prior is finite, so the sum stops, and Euler-Maclaurin
+    contributes a term the alias law knows nothing about -- proportional to the
+    integrand's DERIVATIVE at each retained endpoint:
+
+        eps  =  h^2 / 12 * |g'(edge)| / integral(g)
+             =  h^2 / 12 * rho^2 k exp(-k^2/2) / sqrt(2 pi)
+
+    for a peak of width ``1/rho`` in ``ln d`` sitting ``k`` widths inside the
+    edge.  ``endpoint_scale`` is the ``rho^2 (k exp(-k^2/2))`` half of that,
+    summed over the two edges and maximized over the loud angle configurations
+    by ``anglemarg.estimate_angle_amplitude``; ``dlnd`` is the grid's spacing.
+
+    The two errors do NOT cancel and are not the same effect: a peak one width
+    inside an edge is ~11% wrong (measured) at the shipped ``tol = 1e-2``
+    spacing while the alias term is at its promised 1%.  A guard on ``tol``
+    alone therefore does not deliver ``tol``, which is what this exists to say.
+    """
+    # array-friendly: loguniform_min_clearance sweeps k through it
+    return (np.asarray(dlnd, dtype=float) ** 2
+            * np.asarray(endpoint_scale, dtype=float)
+            / (12.0 * np.sqrt(2.0 * np.pi)))
+
+
+def loguniform_min_clearance(tol=DIST_GRID_TOL_DEFAULT):
+    """Clearance, in peak widths, that an edge needs at the WORST spacing.
+
+    Solves ``ENDPOINT_ERROR_MARGIN * loguniform_endpoint_error(c(tol), k) =
+    tol`` for the peak that sizes the grid (``rho = rho_max``, so ``h = c``),
+    taking the LARGE root: ``k exp(-k^2/2)`` rises to 0.6065 at one width and
+    falls away on both sides, so the small root is the "endpoint on the peak"
+    case the alias law already covers and must not be reported as a requirement.
+    Reported in refusals; the guard itself uses the error, not this number,
+    because a quieter peak (``rho < rho_max``) is on a proportionally finer grid
+    and needs less.
+    """
+    c = loguniform_spacing_for_tolerance(tol)
+    k = np.linspace(0.0, 12.0, 24001)
+    over = (ENDPOINT_ERROR_MARGIN
+            * loguniform_endpoint_error(c, k * np.exp(-0.5 * np.square(k)))
+            > float(tol))
+    return float(k[over].max()) if np.any(over) else 0.0
+
+
 def loguniform_grid_size(d_min, d_max, rho_max, tol=DIST_GRID_TOL_DEFAULT):
     """Node count for :func:`make_distance_grid_loguniform` (pure, testable)."""
     rho_max = float(rho_max)
@@ -1970,6 +2030,19 @@ def make_distance_grid_loguniform(d_min, d_max, rho_max, d_prior="euclidean",
     5.23 -> 3.92).  Callers must detect and refuse that regime; the wrapper
     does, via ``estimate_angle_amplitude(..., return_diagnostics=True)`` and
     its ``clip_excess``.  Design note section 1a.
+
+    PRECONDITION, SECOND HALF -- interior is not enough: the peak must be
+    interior BY A MARGIN.  Poisson summation bounds an UNTRUNCATED trapezoid
+    sum; a support that cuts the peak's tail adds an Euler-Maclaurin endpoint
+    term the alias law does not see, and at the shipped ``tol = 1e-2`` spacing
+    (``c = 1.93``) a peak ONE width inside an edge is ~11% wrong while
+    ``clip_excess`` still reads exactly 1.  The requirement is on the error, not
+    on a bare distance: see :func:`loguniform_endpoint_error` and
+    :func:`loguniform_min_clearance`, which the wrapper evaluates on the loud
+    angle configurations and refuses on.  ``rho_max`` alone cannot express it --
+    two supports with the same ``rho_max`` differ entirely in this respect --
+    which is why this function still takes only ``rho_max`` and the check lives
+    with the estimator that knows where the peak is.
 
     WHERE ``rho_max`` COMES FROM.  ``A = anglemarg.estimate_angle_amplitude``
     is ``ANGLE_AMP_MARGIN`` times the ``max`` over a SAMPLED sky, and over the
