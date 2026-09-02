@@ -163,7 +163,7 @@ with the SHIPPED constants (exact-argmax centring, 22 sigma, 49-node floor):
 | laplace+GH65 vs exact+GH65 | 9.196e-05 | 5.128e-06 |
 | laplace+GH129 vs exact+GH129 | 9.196e-05 | 5.128e-06 |
 | laplace+GH65 vs laplace+uniform-4096 | 3.662e-04 | 1.481e-03 |
-| laplace+GH16 vs laplace+GH129 (self-convergence) | 4.20e-09 | < 1e-9 |
+| laplace+GH16 vs laplace+GH129 (self-convergence) | 4.20e-09 | 1.273e-10 |
 | laplace+GH33/65 vs laplace+GH129 | 0.0 | 0.0 |
 
 (The rho 163.08 `laplace+uniform-4096` figure is carried over from the run with
