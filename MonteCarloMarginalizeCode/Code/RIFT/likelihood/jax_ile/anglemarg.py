@@ -79,6 +79,9 @@ from .core import (JAX_INTERP_DEFAULT, TIME_QUAD_DEFAULT, _accumulate_unit,
                    make_distance_gh)
 
 __all__ = [
+    "ANGLE_MARG_DEFAULT",
+    "ANGLE_MARG_LEGACY",
+    "ANGLE_MARG_CHOICES",
     "angle_sample_grid_sizes",
     "angle_coefficient_tables",
     "estimate_angle_amplitude",
@@ -111,6 +114,41 @@ __all__ = [
 # measured amplitude bound that drives it, and tests evaluate both schemes in
 # the overlap region and assert agreement -- the crossover is a validated
 # constant, not a tuning knob.
+# ---------------------------------------------------------------------------
+# THE (phi_ref, psi) SCHEME DEFAULT.  One definition; every entry point imports
+# it, so the driver flag and the wrapper argument cannot drift.  This is the
+# same discipline JAX_INTERP_DEFAULT already uses, and for the same reason: the
+# last default move on this path (interp linear -> sinc) had the value re-typed
+# in many places.
+#
+# CHANGED 2026-09-02: 'grid' -> 'exact'.  THIS CHANGES RESULTS for any caller
+# that does not pass the scheme explicitly.  Pass --angle-marg-scheme grid (or
+# angle_marg=ANGLE_MARG_LEGACY) to reproduce a pre-2026-09-02 run.
+#
+# Why 'exact' and not 'auto': 'auto' selects 'laplace' above
+# ANGLE_MARG_CROSSOVER_AMPLITUDE (rho ~21-30), which is an ACCURACY crossover.
+# But 'laplace' cannot use the per-sample adaptive distance quadrature and the
+# log-uniform distance grid is opt-in, so on the default uniform grid 'laplace'
+# was measured 43.2 nats from 'exact'+GH16 at rho 163 (mean; 16.3 median) -- an
+# error on the DISTANCE axis, not the angular one, which is ~1e-6 nats there.
+# A default that is correct and slow beats one that is fast and tens of nats
+# wrong.  'auto' becomes the right default once laplace has a sound distance
+# quadrature, and ANGLE_MARG_CROSSOVER_AMPLITUDE should then be re-derived from
+# COST as well as accuracy -- the measured cost crossover is rho ~200-326, an
+# order of magnitude above the accuracy one.
+#
+# Why not 'grid': its quadrature error grows without bound with SNR (it averages
+# exp(lnL), whose peak width is ~1/SNR, on n_phi x n_psi nodes).  Measured on
+# the paper-1 ladder-2 injection at rho 652: the best of the 4 distinct
+# n_phi=8 nodes is 37,419 nats below the true phi_ref profile peak, and the
+# recovered sky position is displaced 0.53 deg -- the grid scheme ranks that
+# artifact ABOVE the injection and the correct peak BELOW it, by 900.6 nats.
+# Evidence: RIFT_roboto_paper analyses/sky_offset_diagnosis/
+# RESULTS_phigrid_2026-09-02.md (commit 3f1f66f).
+ANGLE_MARG_DEFAULT = "exact"
+ANGLE_MARG_LEGACY = "grid"      # the spelling that reproduces pre-2026-09-02 runs
+ANGLE_MARG_CHOICES = ("grid", "exact", "laplace", "auto")
+
 # ---------------------------------------------------------------------------
 ANGLE_MARG_CROSSOVER_AMPLITUDE = 450.0     # A = rho^2/2; rho = 30.  NOTE the
 # auto selector compares the MARGINED data-derived bound (~2x the true

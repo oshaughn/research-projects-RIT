@@ -75,6 +75,8 @@ from RIFT.likelihood.jax_ile.wrapper import bandlimited_storage_requirement
 from RIFT.likelihood.jax_ile import anglemarg as _anglemarg
 from RIFT.likelihood.jax_ile.samplers import angle_marg_eval_chunk as _angle_marg_eval_chunk
 from RIFT.likelihood.jax_ile.core import _GATHERERS as _JAX_GATHERERS, JAX_INTERP_DEFAULT
+from RIFT.likelihood.jax_ile.anglemarg import (ANGLE_MARG_DEFAULT, ANGLE_MARG_LEGACY,
+                                               ANGLE_MARG_CHOICES)
 _JAX_GATHERER_NAMES = tuple(_JAX_GATHERERS)
 from RIFT.likelihood.jax_ile.wrapper import (
     JAXExtrinsicLikelihood, JAXDistanceMarginalizedLikelihood,
@@ -511,17 +513,33 @@ def build_parser():
                       "scheme's marginalization error grows without bound with "
                       "SNR (measured ~1e2 nats at SNR 40 for npsi=8).  See "
                       "--angle-marg-scheme for the fix.")
-    g.add_option("--angle-marg-scheme", type=str, default="grid",
+    # No type=: optparse infers type="choice" from choices=, and raises
+    # "must not supply choices for type 'string'" if both are given.  --interp
+    # above omits it for the same reason.
+    g.add_option("--angle-marg-scheme", default=ANGLE_MARG_DEFAULT,
+                 choices=sorted(ANGLE_MARG_CHOICES),
                  help="(phi_ref, psi) marginalization scheme for --mode "
-                      "flowmc-phipsimarg: 'grid' (DEFAULT: the historical "
-                      "--n-phi x --n-psi quadrature, kept so existing runs "
-                      "reproduce), 'exact' (Fourier-coefficient bootstrap + "
-                      "dense reconstruction; expensive likelihood calls fixed "
-                      "by MODE CONTENT, never by SNR), 'laplace' (analytic "
-                      "Laplace in psi + dense phi; error O(1/SNR^2), best at "
-                      "high SNR), or 'auto' (select exact/laplace from the "
-                      "run's SNR estimate).  The scheme that actually ran is "
-                      "printed.  See RIFT.likelihood.jax_ile.anglemarg.")
+                      "flowmc-phipsimarg.  DEFAULT '%s' since 2026-09-02; it "
+                      "was '%s' before, and passing '%s' reproduces a "
+                      "pre-2026-09-02 run exactly.  '%s': the historical "
+                      "--n-phi x --n-psi quadrature -- it averages exp(lnL), "
+                      "whose peak width is ~1/SNR, on those nodes, so its "
+                      "error grows WITHOUT BOUND with SNR; at rho 652 it "
+                      "displaced a recovered sky position by 0.53 deg and "
+                      "ranked that artifact ABOVE the injection.  Kept for "
+                      "reproducing archived runs, not for new ones.  'exact': "
+                      "Fourier-coefficient bootstrap + dense reconstruction; "
+                      "expensive likelihood calls fixed by MODE CONTENT, never "
+                      "by SNR (cost ~SNR^2).  'laplace': analytic Laplace in "
+                      "psi + dense phi, error O(1/SNR^2), cheaper than 'exact' "
+                      "above rho ~200 -- but it cannot use the per-sample "
+                      "adaptive distance quadrature, so on the default uniform "
+                      "distance grid it was measured 43 nats from 'exact' at "
+                      "rho 163.  'auto': select exact/laplace from the run's "
+                      "own data-derived amplitude.  The scheme that actually "
+                      "ran is printed.  See RIFT.likelihood.jax_ile.anglemarg."
+                      % (ANGLE_MARG_DEFAULT, ANGLE_MARG_LEGACY,
+                         ANGLE_MARG_LEGACY, ANGLE_MARG_LEGACY))
     # flowMC tuning (modes flowmc / flowmc-phimarg).  Defaults match
     # samplers.flowmc_sample*; exposed so pipeline Makefiles can tune them.
     g.add_option("--n-training-loops", type=int, default=4,
@@ -1678,7 +1696,7 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
         from RIFT.likelihood.jax_ile.wrapper import JAXDistPhiPsiMargLikelihood
         nphi = getattr(opts, "n_phi", 32)
         npsi = getattr(opts, "n_psi", 16)
-        angle_marg = getattr(opts, "angle_marg_scheme", "grid")
+        angle_marg = getattr(opts, "angle_marg_scheme", ANGLE_MARG_DEFAULT)
         print("Distance + phi_ref + psi marginalization: ON (grid=%d, nphi=%d, npsi=%d, d in [%g,%g] Mpc)"
               % (opts.distance_grid_points, nphi, npsi, opts.d_min, opts.d_max))
         like = JAXDistPhiPsiMargLikelihood(

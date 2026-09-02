@@ -252,6 +252,13 @@ def angle_marg_eval_chunk(like, chunk):
     pattern as the _GH_NODES shrink above.  Grid-scheme and 4/5-param
     likelihoods pass through unchanged.
     """
+    # NOT the scheme default.  "grid" here is a SENTINEL meaning "this object
+    # runs no dense angle scheme" -- it is what a JAXDistanceMarginalized/
+    # JAXExtrinsic likelihood, which has no angle_marg_scheme at all, must fall
+    # back to.  Do NOT sync it to ANGLE_MARG_DEFAULT: that would shrink the eval
+    # chunk for every likelihood that does not need it.  Two independent things
+    # that happened to be the same string; the last default move on this path
+    # (interp linear -> sinc) was bitten by exactly that.
     if getattr(like, "angle_marg_scheme", "grid") not in ("exact", "laplace"):
         return chunk
     npts = int(getattr(getattr(like, "data", None), "npts", 0) or 0)

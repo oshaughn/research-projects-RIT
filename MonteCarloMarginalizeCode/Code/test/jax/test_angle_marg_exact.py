@@ -553,11 +553,23 @@ def test_exact_supports_gh_env(monkeypatch):
 # 9. the wrapper: selection, provenance, and NO default change
 # ---------------------------------------------------------------------------
 
-def test_wrapper_default_is_grid_and_matches_legacy():
+def test_wrapper_default_and_legacy_path():
+    """The wrapper's default follows ANGLE_MARG_DEFAULT, and the LEGACY
+    spelling still reproduces the historical grid quadrature exactly.
+
+    Changed 2026-09-02: the default moved 'grid' -> 'exact' (its quadrature
+    error grows without bound with SNR).  What must not change is that
+    angle_marg=ANGLE_MARG_LEGACY still equals the direct grid call bit for bit,
+    because that is the contract archived runs are reproduced under.
+    """
     data = make_synth(scale=2.0)
+    default_like = JAXDistPhiPsiMargLikelihood(data, 30.0, 3000.0, nphi=32,
+                                               npsi=8, n_grid=64, interp=INTERP)
+    assert default_like.angle_marg_scheme == AM.ANGLE_MARG_DEFAULT
     like = JAXDistPhiPsiMargLikelihood(data, 30.0, 3000.0, nphi=32, npsi=8,
-                                       n_grid=64, interp=INTERP)
-    assert like.angle_marg_scheme == "grid"
+                                       n_grid=64, interp=INTERP,
+                                       angle_marg=AM.ANGLE_MARG_LEGACY)
+    assert like.angle_marg_scheme == AM.ANGLE_MARG_LEGACY
     x_grid, log_w = like.x_grid, like.log_w_grid
     direct = np.asarray(fused_log_likelihood_distphipsimarg(
         data, jnp.asarray(RA), jnp.asarray(DEC), jnp.asarray(INCL),
@@ -635,9 +647,17 @@ def test_driver_flag_exists_with_grid_default():
             kw = {k.arg: k.value for k in node.keywords}
             found = kw
     assert found is not None, "--angle-marg-scheme not registered"
-    assert isinstance(found.get("default"), ast.Constant)
-    assert found["default"].value == "grid", \
-        "the DEFAULT scheme must stay 'grid'; changing it is a separate decision"
+    # Changed 2026-09-02: the default moved 'grid' -> 'exact'.  The flag must
+    # now name the SINGLE definition rather than re-type any literal -- a
+    # Constant here would be a second copy of the default, which is what bit
+    # the previous default move on this path (interp linear -> sinc).
+    assert isinstance(found.get("default"), ast.Name), \
+        "--angle-marg-scheme default must be ANGLE_MARG_DEFAULT, not a literal"
+    assert found["default"].id == "ANGLE_MARG_DEFAULT"
+    assert AM.ANGLE_MARG_DEFAULT == "exact", \
+        "default changed again: update the reproduce recipe and this test"
+    assert AM.ANGLE_MARG_LEGACY == "grid", \
+        "the legacy spelling must keep reproducing pre-2026-09-02 runs"
 
 
 def test_driver_passes_scheme_to_wrapper_and_reports_it():
@@ -646,7 +666,7 @@ def test_driver_passes_scheme_to_wrapper_and_reports_it():
     ``angle_marg="grid"`` (flag parsed, help present, print present, value
     ignored) passed the whole suite -- exactly this repo's documented
     silent-no-op pattern.  The guard now pins the keyword's VALUE node: it
-    must be the local variable ``angle_marg`` (which test_driver_flag_exists
+    must be the local variable ``angle_marg`` (which test_driver_flag_exists_with_grid_default
     ties to the option), not a constant."""
     src = _driver_source()
     tree = ast.parse(src)
@@ -664,7 +684,8 @@ def test_driver_passes_scheme_to_wrapper_and_reports_it():
                     passed = True
     assert passed, "driver builds JAXDistPhiPsiMargLikelihood without angle_marg="
     # and the variable itself must be read from the option, not re-hardcoded
-    assert 'angle_marg = getattr(opts, "angle_marg_scheme", "grid")' in src
+    assert ('angle_marg = getattr(opts, "angle_marg_scheme", '
+            'ANGLE_MARG_DEFAULT)') in src
     assert "angle-marg scheme:" in src, \
         "driver must print the RESOLVED scheme (silently-inert-flag history)"
     # the print uses the wrapper's resolved attribute, not the raw option

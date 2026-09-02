@@ -32,6 +32,8 @@ from .core import (build_likelihood_data, fused_log_likelihood,
                    estimate_distance_peak, phi_ref_grid, psi_grid,
                    phi_ref_conditional_lnL, DIST_MPC_REF, JAX_INTERP_DEFAULT,
                    TIME_QUAD_DEFAULT, _TIME_QUAD_CHOICES, default_time_guard)
+from .anglemarg import (ANGLE_MARG_DEFAULT, ANGLE_MARG_LEGACY,  # noqa: F401
+                        ANGLE_MARG_CHOICES)
 
 # Parameter order used throughout the wrapper's vectorized interface.
 EXTRINSIC_PARAM_ORDER = ("ra", "dec", "psi", "incl", "phiref", "distMpc")
@@ -528,7 +530,8 @@ class JAXDistPhiPsiMargLikelihood:
 
     def __init__(self, data, d_min, d_max, nphi=32, npsi=16, n_grid=256,
                  d_prior="euclidean", interp=JAX_INTERP_DEFAULT, guess_snr=None,
-                 angle_marg="grid", *, time_quadrature=TIME_QUAD_DEFAULT):
+                 angle_marg=ANGLE_MARG_DEFAULT, *,
+                 time_quadrature=TIME_QUAD_DEFAULT):
         self.data = data
         self.interp = interp   # the instance's stencil; sample_phi_ref defaults to it
         _validate_nonlinear_time_quadrature(
@@ -550,7 +553,7 @@ class JAXDistPhiPsiMargLikelihood:
         # must not be able to silently under-resolve the quadrature
         # (external-review defect 2).  self.angle_marg_info records what
         # actually ran -- callers must surface it in the run log.
-        if angle_marg not in ("grid", "exact", "laplace", "auto"):
+        if angle_marg not in ANGLE_MARG_CHOICES:
             raise ValueError("angle_marg must be one of grid/exact/laplace/"
                              "auto, got %r" % (angle_marg,))
         from . import anglemarg as _anglemarg
