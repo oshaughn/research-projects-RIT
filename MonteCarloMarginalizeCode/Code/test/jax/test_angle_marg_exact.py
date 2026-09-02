@@ -46,6 +46,15 @@ import types
 import numpy as np
 import pytest
 
+# numpy renamed trapz -> trapezoid in 2.0.  The IGWN CVMFS python still
+# ships numpy 1.26, where the new name does not exist -- and these two
+# call sites are inside this file's own BRUTE-FORCE REFERENCE, so on that
+# interpreter four test_laplace_kernel_* tests died with an AttributeError
+# before comparing anything, and read as four kernel failures.  RIFT's own
+# library code already carries this shim (misc/distance_grid.py,
+# misc/distance_slices.py); the test file had missed it.
+_trapz = np.trapezoid if hasattr(np, "trapezoid") else np.trapz
+
 import jax
 jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
@@ -442,7 +451,7 @@ def test_laplace_kernel_error_law():
         u = np.linspace(0, 2 * np.pi, 2_000_001)
         f = a + b * np.cos(u - beta) + d * np.cos(2 * u - delta)
         fm = f.max()
-        truth = fm + np.log(np.trapezoid(np.exp(f - fm), u) / (2 * np.pi))
+        truth = fm + np.log(_trapz(np.exp(f - fm), u) / (2 * np.pi))
         errs[b] = abs(val - truth)
         assert errs[b] < 0.5 / b, "b=%g: err %g exceeds the O(1/b) law" % (
             b, errs[b])
@@ -700,7 +709,7 @@ def _kernel_truth(a, c1, c2, n=400001):
     u = np.linspace(0, 2 * np.pi, n)
     f = a + (c1 * np.exp(1j * u)).real + (c2 * np.exp(2j * u)).real
     fm = f.max()
-    return fm + np.log(np.trapezoid(np.exp(f - fm), u) / (2 * np.pi))
+    return fm + np.log(_trapz(np.exp(f - fm), u) / (2 * np.pi))
 
 
 def test_laplace_kernel_first_harmonic_cancellation():
