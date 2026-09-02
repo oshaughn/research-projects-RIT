@@ -36,6 +36,16 @@ from .core import (build_likelihood_data, fused_log_likelihood,
                    estimate_distance_peak, phi_ref_grid, psi_grid,
                    phi_ref_conditional_lnL, DIST_MPC_REF, JAX_INTERP_DEFAULT,
                    TIME_QUAD_DEFAULT, _TIME_QUAD_CHOICES, default_time_guard)
+# Generic probe direction for the build-time identity check.  The A0==0/B1==0
+# identity is a property of the spin-2 detector response, so it does not depend
+# on where we probe; a single generic (ra, dec, incl) away from any pole or
+# face-on/edge-on special case is enough, and keeps the check O(1).
+_ANGLE_MARG_PROBE_RA = [1.0]
+_ANGLE_MARG_PROBE_DEC = [0.3]
+_ANGLE_MARG_PROBE_INCL = [1.0]
+from . import core as _core
+from .anglemarg import (ANGLE_MARG_DEFAULT, ANGLE_MARG_LEGACY,  # noqa: F401
+                        ANGLE_MARG_CHOICES)
 
 # Parameter order used throughout the wrapper's vectorized interface.
 EXTRINSIC_PARAM_ORDER = ("ra", "dec", "psi", "incl", "phiref", "distMpc")
@@ -532,7 +542,8 @@ class JAXDistPhiPsiMargLikelihood:
 
     def __init__(self, data, d_min, d_max, nphi=32, npsi=16, n_grid=256,
                  d_prior="euclidean", interp=JAX_INTERP_DEFAULT, guess_snr=None,
-                 angle_marg="grid", *, time_quadrature=TIME_QUAD_DEFAULT,
+                 angle_marg=ANGLE_MARG_DEFAULT, *,
+                 time_quadrature=TIME_QUAD_DEFAULT,
                  dist_grid="uniform", dist_grid_tol=DIST_GRID_TOL_DEFAULT):
         self.data = data
         self.interp = interp   # the instance's stencil; sample_phi_ref defaults to it
@@ -555,7 +566,7 @@ class JAXDistPhiPsiMargLikelihood:
         # must not be able to silently under-resolve the quadrature
         # (external-review defect 2).  self.angle_marg_info records what
         # actually ran -- callers must surface it in the run log.
-        if angle_marg not in ("grid", "exact", "laplace", "auto"):
+        if angle_marg not in ANGLE_MARG_CHOICES:
             raise ValueError("angle_marg must be one of grid/exact/laplace/"
                              "auto, got %r" % (angle_marg,))
         if dist_grid not in DIST_GRID_SCHEMES:
@@ -755,6 +766,38 @@ class JAXDistPhiPsiMargLikelihood:
                                 * _core.loguniform_endpoint_error(
                                     dlnd_contract,
                                     amp_diag["endpoint_scale"]))
+                # ...and a NON-POSITIVE clearance is not a small correction.
+                # _endpoint_bell clamps k <= 0 to zero on the argument that an
+                # endpoint sitting ON the peak is a stationary point with
+                # nothing to correct -- true, and MEASURED true at exactly
+                # k = 0 (1.2e-9).  But the clamp cannot tell k = 0 from k < 0,
+                # where the peak has left the support entirely and the error
+                # climbs steeply, so the term scores zero exactly where it is
+                # worst.  Between that and the clip_excess trip there is a
+                # window neither guard sees: measured on the reference synthetic
+                # at rho_pk 51.4, clearance -0.66 builds with a TRUE error of
+                # 0.0668 -- 6.7x the promised tol -- while clip_excess is still
+                # ~1.  Refuse it here.  This also refuses the benign k = 0
+                # point, which costs nothing: the error is 2e-2 by half a width
+                # either side of it.  (External review of the endpoint guard.)
+                if amp_diag["peak_clearance"] <= 0.0:
+                    raise ValueError(
+                        "dist_grid='loguniform' refuses this event: the "
+                        "dominant peak sits AT or OUTSIDE a prior edge of "
+                        "[d_min, d_max] = [%g, %g] Mpc (clearance %.4g peak "
+                        "widths, rho = %.4g), so the spacing contract's "
+                        "precondition -- a Gaussian peak INSIDE the support -- "
+                        "does not hold.  This is the same physics signal as "
+                        "the exterior refusal, caught earlier: the truncated "
+                        "endpoint term is what dominates here, and it is not "
+                        "bounded by the alias law the node count is derived "
+                        "from.  Recourse: widen the distance prior so the peak "
+                        "is interior with clearance >= %.2f widths, or stay on "
+                        "--distance-grid-scheme uniform.  See "
+                        "DESIGN_jax_distance_quadrature.md section 1a."
+                        % (float(d_min), float(d_max),
+                           amp_diag["peak_clearance"], amp_diag["peak_rho"],
+                           _core.loguniform_min_clearance(dist_grid_tol)))
                 if eps_end > float(dist_grid_tol):
                     raise ValueError(
                         "dist_grid='loguniform' refuses this event: the "
@@ -788,13 +831,46 @@ class JAXDistPhiPsiMargLikelihood:
                     dlnd=float(np.log(float(d_max) / float(d_min))
                                / (int(self.x_grid.shape[0]) - 1)),
                     n_uniform_requested=int(n_grid))
+            # The A0==0/B1==0 identity that the GH psi-marginal node placement
+            # is DERIVED from is measured ONCE here, on concrete tables, and
+            # gates EVERY route to that placement -- not just 'auto'.  An
+            # earlier revision checked it only in the 'auto' branch, so an
+            # explicit --angle-marg-scheme laplace walked past it and an
+            # m_max == 2 dataset whose identity fails was evaluated with a
+            # placement whose premise was absent (external review).  It cannot
+            # be checked inside the kernel: that runs under jit/grad, where the
+            # coefficient tables are tracers.
+            gh_ok, gh_info = None, {}
+            if _core._DISTMARG_GH_N > 0 and angle_marg in ("auto", "laplace"):
+                gh_ok, gh_info = _anglemarg.gh_laplace_supported(
+                    *_anglemarg.angle_coefficient_tables(
+                        data,
+                        jnp.asarray(_ANGLE_MARG_PROBE_RA),
+                        jnp.asarray(_ANGLE_MARG_PROBE_DEC),
+                        jnp.asarray(_ANGLE_MARG_PROBE_INCL),
+                        interp)[:2],
+                    _anglemarg._data_m_max(data),
+                    feature=getattr(data, "feature", None))
             if angle_marg == "auto":
                 scheme, sel_info = _anglemarg.choose_angle_marg_scheme(
-                    amp_data)
+                    amp_data, gh_laplace_ok=gh_ok)
+                sel_info.update(gh_info)
             else:
+                if angle_marg == "laplace" and gh_ok is False:
+                    raise ValueError(
+                        "--angle-marg-scheme laplace was requested with "
+                        "JAX_ILE_DISTMARG_GH set, but its psi-marginal "
+                        "distance-node placement is not valid for this data: "
+                        "%s.  The placement is DERIVED from A0 == 0 and "
+                        "B1 == 0 (that is what reduces stationarity to "
+                        "z^2 w = conj(w)), so it must not be used where they "
+                        "do not hold.  Use --angle-marg-scheme exact, or unset "
+                        "JAX_ILE_DISTMARG_GH."
+                        % gh_info.get("gh_laplace_reason", "identity absent"))
                 scheme, sel_info = angle_marg, dict(
                     reason="forced by caller", amplitude=amp_data,
                     crossover=_anglemarg.ANGLE_MARG_CROSSOVER_AMPLITUDE)
+                sel_info.update(gh_info)
         self.angle_marg_scheme = scheme
         self.angle_marg_info = dict(sel_info, requested=angle_marg,
                                     scheme=scheme)

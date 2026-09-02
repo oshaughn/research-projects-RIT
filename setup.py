@@ -68,6 +68,8 @@ setuptools.setup(
         'jax-apps': ['jax', 'optax', 'equinox', 'tinygp', 'numpyro', 'flowMC'],
    },
    entry_points={
+        'console_scripts':
+        ['rift-rimsky-analysis = RIFT.rimsky.integration:main'],
         'asimov.pipelines':
         ["rift = RIFT.asimov.rift:Rift"],
         'RIFT.integrator_plugins':

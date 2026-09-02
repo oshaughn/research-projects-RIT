@@ -1,7 +1,10 @@
 # Distance quadrature for the dense angle-marginalization schemes
 
 **This is an accuracy change, not a speedup.**  At the shipped tolerance it uses
-~3% MORE distance nodes than the current default and is ~2000x more accurate.
+~46% MORE distance nodes than the current default and is ~2000x more accurate.
+(It was ~3% until the spacing was sized from the fail-safe's TRIP threshold
+rather than from `amp_sizing` itself -- see section 1's `rho_max` note.  The
+cost went up; the accuracy claim did not change.)
 Matched to the current default's own accuracy it is 2.0-2.6x cheaper on the
 distance axis, which is one axis of one kernel and does not rescue any campaign
 (section 3).  Read the cost section before citing a factor from this document.
@@ -94,7 +97,7 @@ estimator's own docstring says so: *"THIS IS AN ESTIMATOR, NOT A PROVEN
 BOUND"*.  Two consequences worth stating plainly:
 
 * the shipped node count is **41% above what the stated tolerance requires** --
-  the reference configuration's 264 nodes meet the `tol = 1e-2` contract at
+  the reference configuration's 373 nodes meet the `tol = 1e-2` contract at
   ~187.  That margin is deliberate, and it is earning its keep: on this
   configuration the sweep's own empirical maximum was 758.17 against the
   injection's 800, i.e. it DID under-read the true maximum, and the margin
@@ -203,6 +206,47 @@ error we cannot compute at build time keeps the option's promise honest in both
 directions.  The cost is stated here rather than hidden: at the lower edge the
 refusal sends the caller back to a grid that is measurably worse.  Recourse is
 the same one the message names -- narrow `--d-min` so the posterior is interior.
+
+**What `tol` actually delivers near an edge, measured.**  The endpoint guard
+budgets the whole of `tol` to the endpoint term while the alias law has already
+spent it: `c(tol)` is derived from `2 exp(-2 pi^2 / c^2) = tol`, so at the
+sizing peak the alias error IS `tol` by construction.  The two add.  Measured on
+the scheme's own quadrature in pure numpy (uniform in `ln d`, half-width end
+intervals, against a 2e6-node reference):
+
+| clearance (peak widths) | measured error | guard |
+|---|---|---|
+| 1.0 | 0.113 | refuses |
+| 2.93 (the reported minimum) | 0.0132 | accepts |
+| 30 (deep interior) | 0.0093 | accepts |
+
+So deep in the interior the contract is met (0.0093 against 0.01), and **at the
+acceptance boundary for a peak at the sizing SNR the delivered error is ~1.3x
+`tol`, not `tol`**.  That is stated rather than fixed: making the comparison
+`alias + endpoint <= tol` would refuse EVERY loud peak, because the alias term
+alone already equals `tol` at `rho = rho_max`.  The honest bound is that the
+option delivers `tol` deep in the interior and up to ~2x `tol` (the guard's own
+`ENDPOINT_ERROR_MARGIN`) in the last few widths before a refusal.  Quieter peaks
+sit on a proportionally finer grid and are covered with room to spare -- measured
+0.0053 against a 0.0081 estimate at `rho_pk = 10.3` on a grid sized for 42.4.
+
+**The non-positive-clearance window, and why it is a separate refusal.**
+`_endpoint_bell` clamps `k <= 0` to zero, on the correct observation that an
+endpoint sitting ON the peak is a stationary point -- measured error 1.2e-9 at
+exactly `k = 0`.  But the clamp cannot distinguish that from `k < 0`, where the
+peak has left the support and the error climbs steeply, so the term scored its
+worst case as its safest.  Between that and the `clip_excess` trip lay a window
+neither guard saw: measured, clearance -0.656 built with a true error of
+**0.0668, 6.7x `tol`**, while `clip_excess` still read 1.0.  A non-positive
+clearance is now refused outright.  Measured transition, monotone with no
+building window:
+
+| clearance | true error | verdict |
+|---|---|---|
+| 6.97 | -- | builds |
+| 2.07 | 0.0074 | refused (endpoint) |
+| -0.66 | 0.0668 | refused (clearance) |
+| -2.40 | 0.485 | refused (exterior) |
 
 **Why refuse rather than fall back to uniform.**  Three reasons.  A fallback
 would make `--distance-grid-scheme loguniform` silently produce the *other*
@@ -316,9 +360,9 @@ Read off:
 * **The shipped default's error is 0.17-0.22 nats**, not a chosen tolerance.
 * **Equal accuracy to the shipped default is reached at n ~ 100-128 log-uniform
   nodes: a 2.0-2.6x reduction on the distance axis.**
-* At the shipped tolerance default `tol = 1e-2` the derived count is **n = 264**
+* At the shipped tolerance default `tol = 1e-2` the derived count is **n = 373**
   -- 3% *more* nodes than the default -- for **1.0e-4 nats instead of 0.216**,
-  i.e. ~2000x more accurate at ~1.03x the distance-axis cost.
+  i.e. ~2000x more accurate at ~1.46x the distance-axis cost.
 * **There is no 10.7x at fixed accuracy.**  `n_grid = 24` costs 27-73 nats of
   lnL and 1.6-34 nats of evidence.  See §4.
 
@@ -333,7 +377,7 @@ Read off:
 * **The "equal accuracy at n ~ 100-128" figure is empirical, not the
   contract.**  It is where the measured error happens to match the shipped
   grid's on THIS configuration.  The shipped default `tol = 1e-2` deliberately
-  sizes above it (n = 264), because the option's selling point is a bound that
+  sizes above it (n = 373), because the option's selling point is a bound that
   holds without this measurement, not the smallest number that passed it.
 * **The error metric is the per-sample lnL after the time reduction, plus a
   cloud evidence proxy.**  It is not a posterior-level statement: a bias that is
@@ -366,8 +410,8 @@ sequential A/B on a quiet host has overstated a speedup by ~50% on this code
 before.  Numbers in the PR body.
 
 **There is no speedup to quote at the recommended operating point**, and the
-matched-accuracy one is small.  At `tol = 1e-2` the derived count is 264 against
-the shipped 256: ~3% more distance work.  Matched to the shipped grid's own
+matched-accuracy one is small.  At `tol = 1e-2` the derived count is 373 against
+the shipped 256: ~46% more distance work.  Matched to the shipped grid's own
 accuracy the count is ~100-128, i.e. 2.0-2.6x less work **on the distance axis
 only** — the dense `(phi, u)` lattice is unchanged by construction.  Combined
 with the other measured lever (per-distance-block phi sizing: 1.45x standalone,
@@ -413,7 +457,7 @@ puts the shipped uniform 256 at 0.17-0.33 nats from a converged reference and a
 136-node log-uniform grid at a comparable distance from it, so a difference of
 this size is what two independently-wrong approximations should show.  It is
 also why `tol = 0.5` is the loose end of the option and not what this document
-recommends -- at the shipped `tol = 1e-2` the count is 264 and the error is
+recommends -- at the shipped `tol = 1e-2` the count is 373 and the error is
 ~1e-4 nats, and there is no speedup at all.
 
 The practical number: **~6.6 s per sky sample at `npts = 614`, n = 256**.  That
@@ -430,7 +474,7 @@ Two scaling consequences that follow from the node count
 front of them before choosing this scheme:
 
 * **Cost is linear in `rho_max`, i.e. in SNR.**  At the reference SNR 40,
-  `rho_max = 55.07` and `n = 264` at `tol = 1e-2` -- about the shipped 256.  At
+  `rho_max = 77.88` (= sqrt(TRIP) x 55.07) and `n = 373` at `tol = 1e-2`.  At
   the top of the cost bake-off ladder (SNR 640) `rho_max ~ 905` and `n ~ 4300`,
   ~17x the shipped grid.  That is not a regression introduced here: a uniform
   256-node grid at that SNR is wrong by far more than the numbers in section 2
@@ -444,7 +488,7 @@ front of them before choosing this scheme:
   100 Mpc -- carries essentially no posterior for a 35+30 source.  Narrowing an
   unphysically wide distance prior now buys proportional speed; under the
   uniform grid it buys nothing, because the spacing is set by `d_max` alone.
-  `--d-min 50` on this configuration takes `n` from 264 to 153.
+  `--d-min 50` on this configuration takes `n` from 373 to 215.
 
 ---
 
@@ -528,7 +572,7 @@ set of `x* = clip(A/B)` is over angle points within `T` nats of the maximum:
 | 200 | [669, 1798] | 0.99 | 55 |
 | 400 | [193, 2609] | 2.60 | 144 |
 
-That looks like a large win -- 22 fine nodes instead of 264 -- and it is a trap.
+That looks like a large win -- 22 fine nodes instead of 373 -- and it is a trap.
 The window is centred on **1073 Mpc**, and `d_inj = 633.92 Mpc` is **outside it
 until T = 400**.  The reason is structural: the sweep is 64 random
 sky/inclination draws plus deterministic extremes, and its empirical maximum

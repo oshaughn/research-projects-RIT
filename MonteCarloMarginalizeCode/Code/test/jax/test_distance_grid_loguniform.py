@@ -350,10 +350,19 @@ def test_rho_max_is_the_amplitude_the_runtime_failsafe_actually_compares():
         "this synthetic target is no longer quiet enough for the floor to "
         "bind, so the test can no longer distinguish the two amplitudes")
     assert amp_sizing == AM.ANGLE_MARG_CROSSOVER_AMPLITUDE
-    assert np.isclose(like.dist_grid_info["rho_max"], np.sqrt(2 * amp_sizing),
-                      rtol=1e-12), (
-        "rho_max must come from amp_sizing (%.6g), not amp_data (%.6g)"
-        % (amp_sizing, amp_data))
+    # ...and from TRIP * amp_sizing, not amp_sizing alone.  The fail-safe stays
+    # silent until amp_call > TRIP * amp_sizing, so sizing the spacing at
+    # amp_sizing leaves a window of admitted-but-unresolved amplitudes that
+    # nothing labels -- and on any vmapped path the label is uninformative
+    # anyway (DESIGN section 5(a)).  Costs sqrt(TRIP) = 1.41x the nodes.
+    want = np.sqrt(2 * AM.AMP_FAILSAFE_TRIP_FACTOR * amp_sizing)
+    assert np.isclose(like.dist_grid_info["rho_max"], want, rtol=1e-12), (
+        "rho_max must come from TRIP(%.4g) * amp_sizing(%.6g) -> %.6g, not "
+        "amp_data (%.6g) and not the unmultiplied amp_sizing (%.6g); got %.6g"
+        % (AM.AMP_FAILSAFE_TRIP_FACTOR, amp_sizing, want, amp_data,
+           np.sqrt(2 * amp_sizing), like.dist_grid_info["rho_max"]))
+    assert AM.AMP_FAILSAFE_TRIP_FACTOR > 1.0, (
+        "a TRIP factor of 1 would reopen the window this sizing closes")
 
 
 def test_unrecognised_scheme_raises_and_never_falls_through():
@@ -824,6 +833,117 @@ def test_sky_doubling_updates_the_unclipped_maximum_too():
         "would" % [n.lineno for n in late])
 
 
+def test_endpoint_term_matches_an_independent_quadrature_measurement():
+    """The truncated-endpoint term, checked against a measurement rather than
+    against its own derivation.
+
+    The alias law c(tol) is Poisson summation on an UNTRUNCATED Gaussian.  A
+    finite prior stops the sum, and Euler-Maclaurin adds a term proportional to
+    the integrand's derivative at each retained edge -- which the node count
+    knows nothing about.  Reproduced here in pure numpy on the scheme's own
+    quadrature (uniform in ln d, half-width end intervals) so the check is
+    independent of the module's formula: a peak ONE width inside an edge is
+    ~11% wrong at the shipped tol, while the same grid deep in the interior
+    delivers its promised ~1%.  Both numbers below are measured.
+    """
+    from RIFT.likelihood.jax_ile.core import (loguniform_endpoint_error,
+                                              ENDPOINT_ERROR_MARGIN)
+
+    def measured(rho, k, h, d_min=1.0, d_max=10000.0, n_ref=400001):
+        u_pk = np.log(d_min) + k / rho
+        g = lambda u: np.exp(-0.5 * np.square((u - u_pk) * rho))
+        n = int(np.ceil(np.log(d_max / d_min) / h)) + 1
+        u = np.linspace(np.log(d_min), np.log(d_max), n)
+        w = np.full(n, u[1] - u[0]); w[0] *= 0.5; w[-1] *= 0.5
+        ur = np.linspace(np.log(d_min), np.log(d_max), n_ref)
+        wr = np.full(n_ref, ur[1] - ur[0]); wr[0] *= 0.5; wr[-1] *= 0.5
+        exact = float(np.sum(wr * g(ur)))
+        return abs(float(np.sum(w * g(u))) - exact) / exact
+
+    rho = 55.06965048323435
+    h = loguniform_spacing_for_tolerance(DIST_GRID_TOL_DEFAULT) / rho
+    near = measured(rho, 1.0, h)
+    deep = measured(rho, 30.0, h)
+    assert 0.08 < near < 0.15, (
+        "a peak one width inside an edge should cost ~11%% at the shipped "
+        "tol; measured %.4g.  If this moved, the endpoint term is no longer "
+        "what this guard thinks it is" % near)
+    assert deep < 2.0 * DIST_GRID_TOL_DEFAULT, (
+        "deep in the interior the alias law alone should deliver ~tol; "
+        "measured %.4g" % deep)
+    assert near > 5.0 * deep, (
+        "the endpoint term must dominate near an edge, or there is nothing "
+        "for the guard to catch (near %.4g, deep %.4g)" % (near, deep))
+    # and the module's own estimate must be conservative there, not optimistic
+    est = ENDPOINT_ERROR_MARGIN * float(loguniform_endpoint_error(
+        h, rho ** 2 * 1.0 * np.exp(-0.5)))
+    assert est >= near, (
+        "the margined estimate %.4g must not UNDER-read the measured %.4g; "
+        "the guard would then admit what it exists to refuse" % (est, near))
+
+
+def test_peak_too_close_to_an_edge_is_refused_even_though_it_is_interior():
+    """The SECOND precondition.  clip_excess reads exactly 1.0 here -- the
+    maximizing distance IS inside the support -- and the grid is still wrong,
+    because the alias law does not cover a truncated endpoint.  Two regimes,
+    both refused, and the transition between them must be monotone in
+    clearance with no window that builds."""
+    data = _synth(scale=10.0, kappa_boost=20.0)
+    seen = []
+    for d_min, expect in ((1.0, "build"), (50.0, "build"),
+                          (55.0, "refuse"), (58.0, "refuse"), (60.0, "refuse")):
+        try:
+            like = _like(data, "loguniform", n_grid=64,
+                         d_min=d_min, d_max=10000.0)
+            seen.append((d_min, "build", int(like.x_grid.shape[0])))
+            assert expect == "build", (
+                "d_min=%g built with n=%d; expected a refusal"
+                % (d_min, like.x_grid.shape[0]))
+        except ValueError as exc:
+            seen.append((d_min, "refuse", str(exc)[:60]))
+            assert expect == "refuse", "d_min=%g refused unexpectedly: %s" % (
+                d_min, exc)
+    # the interior-but-too-close case must cite the CLEARANCE, not exteriority
+    try:
+        _like(data, "loguniform", n_grid=64, d_min=55.0, d_max=10000.0)
+    except ValueError as exc:
+        assert "too close to an edge" in str(exc), str(exc)[:200]
+        assert "peak widths" in str(exc)
+
+
+def test_a_peak_at_or_outside_an_edge_is_refused_before_clip_excess_trips():
+    """The window between the two guards.  _endpoint_bell clamps k <= 0 to
+    zero -- correct AT k = 0, where the endpoint is a stationary point and the
+    measured error is 1.2e-9, but it cannot tell that from k < 0, where the
+    peak has left the support and the error climbs.  Scoring the worst case as
+    zero left a band that neither guard saw: measured, clearance -0.656 built
+    with a TRUE quadrature error of 0.0668, 6.7x the promised tol, while
+    clip_excess was still ~1.  Found by external review of the endpoint guard.
+    """
+    from RIFT.likelihood.jax_ile import anglemarg as AM
+    data = _synth(scale=10.0, kappa_boost=20.0)
+    xg, _ = make_distance_grid(58.0, 10000.0, 64, "euclidean",
+                               distMpcRef=data.distMpcRef)
+    _, diag = AM.estimate_angle_amplitude(data, xg, interp="sinc",
+                                          return_diagnostics=True)
+    assert diag["peak_clearance"] < 0.0, (
+        "this fixture no longer puts the dominant peak outside the edge "
+        "(clearance %.4g), so it no longer exercises the window"
+        % diag["peak_clearance"])
+    assert diag["clip_excess"] <= 1.0 + 1e-3, (
+        "...and clip_excess must still read INTERIOR here (%.6g), or the "
+        "exterior guard already covers this and there is no window"
+        % diag["clip_excess"])
+    try:
+        _like(data, "loguniform", n_grid=64, d_min=58.0, d_max=10000.0)
+    except ValueError as exc:
+        assert "AT or OUTSIDE a prior edge" in str(exc), str(exc)[:200]
+    else:
+        raise AssertionError(
+            "a dominant peak outside the support must be refused; scoring its "
+            "endpoint term as zero is what let this build")
+
+
 def test_dist_grid_tol_is_forwarded_and_not_hardcoded():
     """F3/N1.  Hardcoding the module default at the call site leaves
     --distance-grid-tol silently inert while dist_grid_info keeps echoing the
@@ -916,7 +1036,12 @@ def test_driver_refuses_the_bad_combinations_at_PARSE_time():
     gated test that runs this driver runs --help, which exits before validation
     happens at all.)"""
     cases = [
-        (["--mode", "flowmc-phipsimarg", "--distance-grid-scheme", "loguniform"],
+        # The refusal is about the 'grid' scheme, which does not compute the
+        # sizing amplitude -- NOT about the option being unset.  Since #225 the
+        # default is a dense scheme, so it must be named explicitly to be
+        # refused; the accepted-by-default case is asserted after this loop.
+        (["--mode", "flowmc-phipsimarg", "--distance-grid-scheme", "loguniform",
+          "--angle-marg-scheme", "grid"],
          "requires --angle-marg-scheme"),
         (["--mode", "flowmc-phimarg", "--distance-grid-scheme", "loguniform"],
          "applies only to --mode flowmc-phipsimarg"),
@@ -949,6 +1074,18 @@ def test_driver_refuses_the_bad_combinations_at_PARSE_time():
                 "%r: expected %r, got %r" % (args, expect, err.getvalue()[-400:]))
         else:
             raise AssertionError("%r must be refused, it was accepted" % (args,))
+    # ...and the mirror: with no --angle-marg-scheme at all the driver must
+    # ACCEPT, because ANGLE_MARG_DEFAULT is a dense scheme.  Both parse-time
+    # seams must assume the SAME default; one of them hardcoded 'grid' and so
+    # refused a command line the constructor would have run.
+    from RIFT.likelihood.jax_ile.anglemarg import ANGLE_MARG_DEFAULT
+    assert ANGLE_MARG_DEFAULT != "grid", (
+        "the default is 'grid' again; this test and the driver's parse-time "
+        "fallback both key on it not being")
+    optp = mod.build_parser()
+    opts, _ = optp.parse_args(["--mode", "flowmc-phipsimarg",
+                               "--distance-grid-scheme", "loguniform"])
+    mod.check_critical_and_report(opts, optp)   # must not raise
 
 
 def test_driver_reaches_and_uses_the_resolved_node_count_on_a_real_input():

@@ -211,6 +211,21 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         AST.  ~19 s.  Each fails under a verified
 #                                         mutation (matrix in the PR).
 #   test_angle_marg_sizing_rule.py    1  the m_max-aware dense phi sizing rule.
+#
+#   test_angle_marg_gh_laplace.py    15  the psi-marginal distance-node placement
+#                                        that lets 'laplace' honour
+#                                        JAX_ILE_DISTMARG_GH.  GATED despite
+#                                        costing ~3.5 min: it is a NEW numerical
+#                                        path, and every constant in it is
+#                                        pinned by MUTATION (collapse the
+#                                        half-span, drop the node floor, force
+#                                        the sigma cap) rather than by a
+#                                        pass-through assertion.  The two
+#                                        agreement legs (converged uniform grid,
+#                                        exact scheme under the same quadrature)
+#                                        are the expensive ones; they are also
+#                                        the only ones that would catch a wiring
+#                                        error, so they stay.
 #                                         Pure numpy, milliseconds, closed-form I0
 #                                         reference.  FAILS under the old m_max-blind
 #                                         rule (0.498 nats vs 1.17e-10), which every
@@ -318,6 +333,9 @@ FILES=(
   "${JAXDIR}/test_angle_marg_compile_cost.py"
   "${JAXDIR}/test_angle_marg_block_dispatch.py"
   "${JAXDIR}/test_distance_grid_loguniform.py"
+  "${JAXDIR}/test_angle_marg_gh_laplace.py"
+  "${JAXDIR}/test_angle_marg_default.py"
+  "${JAXDIR}/test_angle_marg_gh_selection.py"
 )
 
 # EXCLUDED: files in JAXDIR matching test_*.py that are deliberately NOT gated.  The
@@ -405,16 +423,24 @@ fi
 # PR #209 then adds six test_angle_marg_compile_cost.py pins, raising 160 -> 166,
 # and PR #210 adds five test_angle_marg_block_dispatch.py pins, raising 166 -> 171.
 # PR #216 adds eighteen adaptive primitive-time pins, raising 171 -> 189.
-# The log-uniform distance-quadrature PR adds thirty, raising 189 -> 219;
-# counted by `pytest --collect-only` in the GATE's interpreter, not locally.
-# External re-review of that PR then added three more -- the zero-clipped-
-# amplitude extreme of the F1 detector, the DRIVER half of the F2 refusal, and
-# a source guard on the sky-doubling path -- each because a mutation SURVIVED
-# the 33-mutation matrix without it.  219 -> 222.
+# The psi-marginal GH placement (#225) adds 36, raising 189 -> 225: 15 in
+# test_angle_marg_gh_laplace.py, 5 in test_angle_marg_default.py, 8 in
+# test_angle_marg_gh_selection.py, plus 4 answering external review on the
+# identity gate (imaginary-A0 coefficient, B1 in the conjugate slice, the gate
+# applying to an explicit laplace, the kernel guard staying trace-safe).
+# The log-uniform distance quadrature adds 33 on top of that, raising
+# 225 -> 261: 30 for the scheme itself, 3 from external re-review (the
+# zero-clipped-amplitude extreme of the F1 detector, the DRIVER half of the F2
+# refusal, and a guard on the sky-doubling path -- each because a mutation
+# SURVIVED the 33-mutation matrix without it), and 3 covering the truncated-
+# endpoint precondition added by the automated review pass, which shipped with
+# none (the estimator against an independent numpy measurement, the
+# interior-but-too-close refusal, and the non-positive-clearance window that
+# built at 6.7x tol).
 # Raising the floor
 # by exactly the number of tests ADDED is safe whatever the environment delta above,
 # since it preserves the margin the previous floor already had.
-EXPECTED_TESTS=222
+EXPECTED_TESTS=261
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"
