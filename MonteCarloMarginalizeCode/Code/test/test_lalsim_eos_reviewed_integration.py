@@ -271,24 +271,34 @@ def test_actual_reviewed_lalsimulation_tables(record_property):
             ]
         )
 
+
+
+def test_known_upstream_two_transition_crash(record_property):
+    """Keep the upstream SIGSEGV visible without masking passing fixtures."""
+    import lalsimulation as lalsim
+
+    manifest_path, manifest = _load_manifest()
+    _validate_reviewed_build(lalsim, manifest, record_property)
     crash = manifest.get("known_upstream_crash")
-    if crash:
-        crash_path = (manifest_path.parent / crash["path"]).resolve()
-        assert _sha256(crash_path) == crash["sha256"]
-        crash_data = np.loadtxt(str(crash_path), ndmin=2)
-        assert crash_data.shape[1] == 4
-        expected_codes = crash.get("expected_returncodes", [-11, 139])
-        assert expected_codes == [-11, 139]
-        _run_expected_upstream_crash(
-            [
-                sys.executable,
-                str(runner),
-                "--fixture",
-                str(crash_path),
-                "--columns",
-                "4",
-                "--arrays",
-                "--status",
-                os.devnull,
-            ]
-        )
+    if not crash:
+        pytest.skip("known upstream two-transition fixture not supplied")
+    crash_path = (manifest_path.parent / crash["path"]).resolve()
+    assert _sha256(crash_path) == crash["sha256"]
+    crash_data = np.loadtxt(str(crash_path), ndmin=2)
+    assert crash_data.shape[1] == 4
+    expected_codes = crash.get("expected_returncodes", [-11, 139])
+    assert expected_codes == [-11, 139]
+    runner = Path(__file__).with_name("run_lalsim_eos_reviewed_fixture.py")
+    _run_expected_upstream_crash(
+        [
+            sys.executable,
+            str(runner),
+            "--fixture",
+            str(crash_path),
+            "--columns",
+            "4",
+            "--arrays",
+            "--status",
+            os.devnull,
+        ]
+    )
