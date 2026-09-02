@@ -164,18 +164,50 @@ def test_explicit_laplace_under_gh_is_gated_too_not_only_auto():
         "an explicit laplace with a failing identity does not raise")
 
 
-def test_kernel_keeps_only_the_trace_safe_mode_check():
-    """The kernel's own guard must stay trace-safe (m_max only).
+def test_kernel_enforces_the_response_model_itself_not_only_the_wrapper():
+    """The PUBLIC laplace kernel must gate on the response model too.
 
-    Putting the identity measurement there breaks jax.grad -- the tables are
-    tracers and numpy conversion raises.  Pinned so a future 'move the guard
-    closer to the use' change does not silently reintroduce that.
+    External review: this function is in ``anglemarg.__all__`` and is called
+    directly by the wrapper and by several test modules, so a wrapper-only gate
+    leaves a live bypass -- a direct call with ``data.feature == "rotation"``
+    and ``m_max <= 2`` executes the unsupported placement while the wrapper
+    correctly refuses it.
+
+    An earlier version of THIS TEST asserted the kernel contained no such check,
+    which entrenched the bypass rather than catching it.  What must stay absent
+    is only the NUMERICAL A0/B1 measurement, which needs concrete tables and
+    raises under jit/grad; ``feature`` is a static Python attribute and is free
+    to check.
     """
     import inspect
     src = inspect.getsource(AM.fused_log_likelihood_distphipsimarg_laplace)
-    assert "_GH_PSI_M_MAX" in src
+    assert "_GH_PSI_STATIC_FEATURES" in src, (
+        "the public laplace kernel does not enforce the response model; a "
+        "direct call with a banded response would use the placement anyway")
     assert "gh_laplace_supported(" not in src, (
-        "the kernel measures the identity under trace; that raises under grad")
+        "the kernel measures the identity numerically; that needs concrete "
+        "tables and raises under jax.grad")
+
+
+def test_kernel_refuses_a_banded_response_on_a_direct_call():
+    """Behavioural counterpart: a direct call must RAISE, not merely be
+    discouraged.  Uses a stub carrying only what the precondition reads, so it
+    exercises the gate rather than a full likelihood build."""
+    class _Data:
+        lms = [(2, -2), (2, 2)]          # m_max = 2: the mode gate would pass
+        feature = "rotation"             # but the response model must not
+        npts = 4
+
+    import RIFT.likelihood.jax_ile.core as _core
+    saved = _core._DISTMARG_GH_N
+    _core._DISTMARG_GH_N = 64            # GH on
+    try:
+        with pytest.raises(ValueError, match="static detector response"):
+            AM.fused_log_likelihood_distphipsimarg_laplace(
+                _Data(), np.zeros(1), np.zeros(1), np.zeros(1),
+                np.ones(2), np.zeros(2))
+    finally:
+        _core._DISTMARG_GH_N = saved
 
 
 def test_global_maxima_cannot_hide_a_locally_invalid_bin():

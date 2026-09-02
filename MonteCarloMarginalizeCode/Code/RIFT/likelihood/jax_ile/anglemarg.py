@@ -1268,6 +1268,27 @@ def fused_log_likelihood_distphipsimarg_laplace(
 
     Memory is bounded by ``phi_chunk`` x ``dist_block``, never by grid sizes.
     """
+    # RESPONSE-MODEL PRECONDITION, before anything is built.  This function is
+    # public (__all__) and is called directly by the wrapper and by several test
+    # modules, so a wrapper-only gate leaves a live bypass: a direct call with a
+    # banded response and m_max <= 2 would execute the unsupported placement
+    # while the wrapper correctly refused it.  `feature` is a plain Python
+    # attribute -- static and trace-safe -- so unlike the numerical A0/B1
+    # measurement (which needs concrete tables and therefore stays in the
+    # wrapper) it costs nothing, and checking it here also avoids paying for a
+    # coefficient-table build that is about to be rejected.
+    if _core._DISTMARG_GH_N > 0:
+        _feature = getattr(data, "feature", None)
+        if _feature not in _GH_PSI_STATIC_FEATURES:
+            raise ValueError(
+                "JAX_ILE_DISTMARG_GH is set, but the 'laplace' angle-marg "
+                "scheme's psi-marginal distance-node placement requires the "
+                "static detector response: it is DERIVED from A0 == 0 and "
+                "B1 == 0, which follow from F+(psi) + i Fx(psi) = "
+                "(F+(0) + i Fx(0)) e^{-2i psi}.  This data has feature=%r, "
+                "which does not have that factorization.  Use "
+                "--angle-marg-scheme exact, or unset JAX_ILE_DISTMARG_GH."
+                % (_feature,))
     x_grid = jnp.asarray(x_grid, dtype=jnp.float64)
     log_w_grid = jnp.asarray(log_w_grid, dtype=jnp.float64)
     C_A, C_B, meta = angle_coefficient_tables(data, ra, dec, incl, interp)
