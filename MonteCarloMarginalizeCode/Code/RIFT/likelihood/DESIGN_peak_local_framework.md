@@ -489,6 +489,136 @@ each pair is hand-checked.  Two rules keep the surface from growing:
   marginalization is expected to arrive on the other path, so this particular refusal must
   be expressed as a warrant property and not frozen as a permanent pairwise rule.
 
+## ENUMERATION AS A PRIMITIVE
+
+The reusable building block, worked out abstractly because it is where the long-term
+compute is saved: every axis needs it, and re-deriving it per axis is how the certificate
+gets weakened by accident.
+
+### The output is a certified COVER, not a list of peaks
+
+Three tempting contracts all fail at the operating point:
+
+* *"all critical points"* — the count is DISCONTINUOUS in the coefficients at a max/saddle
+  annihilation, so it cannot be honoured continuously; and annihilation is normal here, not
+  a corner (measured, above).
+* *"all local maxima"* — with 8–12 maxima equal to machine precision, which of them are
+  "the" maxima is a rounding accident.
+* *"all modes above a mass threshold"* — the right question, wrong contract: mode mass is
+  not knowable before integrating, so a threshold on estimated mass is exactly an estimate
+  promoted to a bound.
+
+What survives — and what the time module already implements, distributed across
+`enumerate_peak_indices`, `merge_intervals_by_row` and `segment_sup_bound` — is:
+
+> **ModeCover**: a finite set of disjoint regions `{R_i}`, each with a representative point
+> and targeting data, plus a CERTIFIED bound `B_out >= sup{ g : outside the union }`, plus a
+> ledger.
+
+Three promises, in decreasing strength.  **(1) The bound** is the only correctness-bearing
+one: it converts "did I miss a mode?" into an inequality the caller discharges, omitted mass
+`<= |domain \ union| * exp(B_out)`.  **(2) Targeting** — each representative is a stationary
+point to a stated residual — buys speed only, and is allowed to fail; failure surfaces as
+`B_out` too large and the row declines.  **(3) There is NO count promise.**  The number of
+regions is an output.  A merged max/saddle pair is one region; twelve machine-equal maxima
+may be twelve regions or fewer if their covers overlap.
+
+Mass therefore SELECTS (drop a region whose certified sup is below tolerance — a bound-based
+rejection, safe) but never CERTIFIES PRESENCE.
+
+### Warrants, by what finite object exhausts the stationary set
+
+| class | axis | certificate | cost | amplitude? |
+|---|---|---|---|---|
+| **exact trig poly, 1-D** | ψ | fundamental theorem of algebra: `z = e^{iu}` gives degree `2n`; those `2n` roots are all of them | one `2n × 2n` companion eigenproblem | **independent** |
+| **exact trig poly, multi-D** | joint (φ,ψ) | BKK / mixed volume | one algebraic solve of that size | **independent** |
+| **band-limited, large spectrum** | time | algebraically possible (`2·npts` companion) but `O(npts³)` unaffordable | grid seeds + `segment_sup_bound` | independent |
+| **closed-form stationary set** | distance | the algebra of that functional form; ≤3 candidates incl. support endpoints | `O(1)` | independent |
+| **effective bandwidth** | the dense angle grid | NONE | — | refused by name |
+
+The economic argument, stated plainly: under the first two, everything that sizes the
+enumeration — degree, mixed volume, `M_k` — is invariant under `C -> λC`.  Amplitude enters
+only downstream, in how narrow each mode's LOCAL grid must be.  Dense pays `√A` per axis
+(so `~A` for the 2-D product); enumeration converts an amplitude-scaling cost into a
+physics-scaling one.  That conversion is the whole justification.
+
+**Time is the instructive case**: it is class-1 in principle but not in practice, so it
+enumerates on a grid — which is NOT a certificate — and restores correctness at
+CERTIFICATION time via the cover bound.  Classes 1 and 2 certify at ENUMERATION time.  Both
+are certified; only where the cost is paid differs.
+
+### The algebraic core, and the tolerance that must not exist
+
+1-D: `P(z) = c2 z⁴ + (c1/2) z³ − (c̄1/2) z − c̄2` for ψ.  Roots on `|z|=1` are the critical
+points.  Measured: residual `|g'|` at the roots is **3.4e-15** relative to `M_1` over 3000
+draws spanning six decades; never fewer than a 2e5-point grid; **~20 µs/call, flat from
+amplitude 1 to 1e6** — the amplitude-independence, demonstrated.
+
+Grid seeding fails where it matters.  Driving `c1/c2 -> 4`:
+
+| `c1/c2` | separation | grid-32 | grid-256 | grid-4096 | algebraic |
+|---|---|---|---|---|---|
+| 3.99 | 0.0707 | 1 | 3 | 3 | **4** |
+| 3.99999 | 0.0022 | 1 | 1 | 3 | **4** |
+
+(Verified this is genuine resolution loss, not a seam-wrap artefact: a circular counter gives
+identical numbers.)
+
+**AND A TRAP THAT WAS WALKED PAST ONCE, recorded so it is not walked past twice.**  The
+obvious implementation filters roots by `||z| − 1| < tol`.  That tolerance is itself an
+estimate promoted to a bound.  At EXACT multiplicity `m` the computed roots smear off the
+circle by `ε_machine^(1/m)` — measured **4.6e-6 for a triple root** — so:
+
+| on-circle tol | 1e-9 | 1e-7 | 1e-6 | 1e-3 |
+|---|---|---|---|---|
+| roots found at exact degeneracy (true: 4) | 1 | 1 | **1** | 4 |
+
+A `1e-6` filter — a perfectly reasonable-looking choice, and the one first written here —
+silently returns ONE mode where there are four, in precisely the machine-degenerate
+configuration that is the production regime.  A conjugate-reciprocal pairing test does not
+escape it either: measured, it returns counts identical to the naive filter at every
+tolerance, because the partner is off-circle by the same amount.
+
+**The fix is to have no tolerance at all**, and it falls out of promise 3.  Seed regions
+from `arg(z)` of ALL `2n` roots and filter nothing.  Over-covering is free — redundant
+regions merge — while under-covering is the only real danger.  Measured over 4000 draws
+spanning six decades, every true extremum lies within **3.1e-4 rad** of a seed, which is the
+reference grid's own resolution, i.e. exact.  And at exact degeneracy, where sign-change
+enumeration finds **zero** extrema (`g'` touches zero without crossing), the algebraic seeds
+still cover the point exactly.
+
+### Degeneracy
+
+Cluster, and treat a cluster as one region.  The codebase already contains this as
+`merge_intervals_by_row`, whose docstring makes the deeper point: merging is not an
+optimization, it is what prevents double-counting and what makes the method degrade
+CONTINUOUSLY into the dense grid with no threshold anywhere.  Under ModeCover, clustering is
+not even a special case — regions are built around every seed, and overlapping ones merge.
+
+The invariant that expresses "do not split an annihilating pair" is upper-semicontinuity IN
+THE MASS SENSE: as coefficients vary, the integral over the union plus the certified outside
+bound must vary continuously, while the region COUNT is free to jump.  A primitive promising
+only the union and `B_out` cannot be broken by the bifurcation, because nothing it promises
+changes discontinuously there.  That is a testable property: perturb through a measured
+bifurcation and assert the accepted mass moves continuously.
+
+SPECULATION, not verified: at exact degeneracy the co-dominant modes look like orbit-mates
+of a discrete symmetry, and quotienting would divide the algebraic degree by `|G|` and
+replace `k` numerically-rediscovered copies by an exact `+ln k`.  Attractive, but the
+measured gaps are 0 *to 4.6e-13* nats and the tables are built by sampled accumulation, so
+the symmetry can be broken at roundoff.  A symmetry assumed exact when it is 1e-13-broken is
+the same defect in a new costume.  Correct layering: numerical clustering stays load-bearing;
+a declared symmetry may SEED clustering and tighten the budget, and the certificate verifies.
+
+### Where enumeration loses — the exclusion region is part of the design
+
+* **Low amplitude**: modes are wide, regions merge toward the whole domain, and the method
+  IS the dense grid plus overhead.  Selection should not enter peak-local below crossover.
+* **High degree**: cost is the algebraic solve regardless of how much mass matters.
+* **Dimension ≥ 3**: mixed volume and solve cost grow multiplicatively; do not extend
+  without a new measurement campaign.  Composing over peak SETS is the designed alternative.
+* **No warrant**: refuse by name.
+
 ## Anti-goals
 
 * **Do not unify the fail policy.**  It follows from the warrant.  See above.
