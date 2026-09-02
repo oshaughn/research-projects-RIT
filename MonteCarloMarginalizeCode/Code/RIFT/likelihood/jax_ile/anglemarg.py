@@ -54,8 +54,11 @@ laplace : marginalize psi ANALYTICALLY by Laplace's method at every
 
 Both schemes marginalize distance with the same quadrature machinery as the
 grid path (:func:`core._logsumexp_grid_blocked`, or the adaptive
-:func:`core._distmarg_gh_logL` when JAX_ILE_DISTMARG_GH is set -- exact
-scheme only), and use the same normalization convention (mean over uniform
+:func:`core._distmarg_gh_logL` when JAX_ILE_DISTMARG_GH is set; the laplace
+scheme cannot call that function, whose nodes are placed per FIXED psi, and
+uses the psi-MARGINAL placement documented above
+:func:`_gh_psi_node_offsets` instead -- for m_max <= 2 only, raising above
+it), and use the same normalization convention (mean over uniform
 angle grids, i.e. the uniform priors dphi/2pi, dpsi/pi), so they are
 drop-in replacements for the grid function and agree with it wherever the
 grid is converged (pinned in test/jax/test_angle_marg_exact.py).
