@@ -13,7 +13,12 @@ from asimov import config, logger
 from asimov.utils import set_directory
 
 from asimov.pipeline import Pipeline, PipelineException, PipelineLogger
-from asimov.pipeline import PESummaryPipeline
+
+try:
+    from asimov.pipeline import PESummaryPipeline
+except ImportError:
+    # Asimov >= 0.7 supplies PESummary as a separate pipeline plugin.
+    PESummaryPipeline = None
 
 from asimov.utils import update
 
@@ -277,9 +282,18 @@ class Rift(Pipeline):
             self.logger.error("Could not find an analysis providing posterior samples to analyse.")
 
     def after_completion(self):
+        if PESummaryPipeline is None:
+            self.logger.info(
+                "Job has completed. PESummary is managed by a separate "
+                "Asimov postprocessing analysis."
+            )
+            super().after_completion()
+            return
 
-        self.logger.info("Job has completed. Running PE Summary.")
-        post_pipeline = PESummaryPipeline(production=self.production)
+        self.logger.info("Job has completed. Running legacy PE Summary.")
+        post_pipeline = PESummaryPipeline(
+            production=self.production, category=self.category
+        )
         cluster = post_pipeline.submit_dag()
 
         self.production.meta["job id"] = int(cluster)
