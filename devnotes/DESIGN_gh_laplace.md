@@ -185,20 +185,52 @@ ships (exact argmax, 22 sigma, 49 nodes).
 
 * `test_angle_marg_gh_laplace.py`: 15 tests, all passing, wired into
   `.travis/test-jax.sh` (`EXPECTED_TESTS` 189 -> 204).
-* Full jax gate on the CI environment (`~/.conda/envs/rift_jax`, jax 0.9.2,
-  `JAX_PLATFORMS=cpu`, `OMP_NUM_THREADS=1`): **206 passed, 1 deselected,
-  11m34s**, collected 206 from 21 files (204 floor).
+* Full jax gate: **206 passed, 1 deselected, 11m34s**, collected 206 from 21
+  files (204 floor).  Interpreter `~/.conda/envs/rift_jax/bin/python`
+  (numpy 2.4.6, jax 0.9.2, numpyro 0.21.0), resolved by `test-jax.sh` through
+  `RIFT_JAX_PYTHON`.  **That env has no pytest of its own**; pytest 9.1.1 was
+  supplied from a private `pip install --no-deps --target
+  devnotes/pylibs` directory placed on `PYTHONPATH` (gitignored, nothing
+  installed into the shared env).  The gate CANNOT run on the CVMFS IGWN python
+  at all: `test-jax.sh` aborts at its `import numpyro` precheck, which CVMFS
+  lacks.  So on this host the gate needs rift_jax for jax+numpyro AND an
+  external pytest -- that combination is the blocker a peer hit.
 * `test_angle_marg_exact.py` (excluded from the gate for cost; the gate's own
-  comment says to run it by hand when touching `anglemarg.py`):
-  **33 passed, 2 failed, 4m47s**.  Both failures reproduce IDENTICALLY on a
-  pristine worktree at the base commit `52433198`
-  (33 passed / 2 failed, same two node ids), so they are pre-existing and not
-  from this change:
+  comment says to run it by hand when touching `anglemarg.py`).  **Every run
+  below names its interpreter, because the result depends on the numpy
+  version:**
+
+  | numpy / jax | interpreter | tree | result |
+  |---|---|---|---|
+  | 2.4.6 / 0.9.2 | `~/.conda/envs/rift_jax/bin/python` + private pytest 9.1.1 | base `52433198` | 2 failed, 33 passed |
+  | 2.4.6 / 0.9.2 | same | this branch | 2 failed, 33 passed |
+  | 1.26.4 / 0.7.1 | `/cvmfs/software.igwn.org/conda/envs/igwn/bin/python`, pytest 8.3.5 | base, before the shim | **6 failed**, 29 passed |
+  | 1.26.4 / 0.7.1 | same | this branch, before the shim | 6 failed, 29 passed |
+  | 1.26.4 / 0.7.1 | same | base kernel + shimmed reference | 3 failed, 32 passed* |
+  | 1.26.4 / 0.7.1 | same | this branch, shimmed | 2 failed, 33 passed |
+
+  \* the third is this branch's own `test_laplace_refuses_gh_env_above_the_
+  covered_mode_content`, run against base-commit code that still refuses GH
+  unconditionally -- an accidental positive control that the test discriminates.
+
+  The four extra failures on numpy 1.26 were
+  `test_laplace_kernel_{error_law,first_harmonic_cancellation,randomized_sweep,
+  branch_window}`, all raising
+  `AttributeError: module 'numpy' has no attribute 'trapezoid'` from inside the
+  test file's OWN brute-force reference integrator (numpy renamed `trapz` ->
+  `trapezoid` in 2.0).  They died before comparing anything, so they said
+  nothing about the laplace kernel; with the one-line shim RIFT's library
+  already uses (`misc/distance_grid.py`, `misc/distance_slices.py`) all four
+  PASS on numpy 1.26 against the unmodified base kernel.  **There is no kernel
+  failure in either environment.**
+
+  The two genuine pre-existing failures, present in every environment and on
+  the pristine base commit, are:
     - `test_laplace_high_amplitude_accuracy_and_trend` -- its `errs[1] < errs[0]`
-      trend assertion compares 4.17e-10 against 5.68e-14, i.e. two numbers that
-      are both at machine precision; the docstring's reference values (0.055 /
-      0.028) are stale by ~12 orders of magnitude, so the test is now comparing
-      noise.  Worth a separate fix; NOT touched here.
+      trend assertion compares 4.17e-10 against 5.68e-14, i.e. two numbers both
+      at machine precision; the docstring's reference values (0.055 / 0.028) are
+      stale by ~12 orders of magnitude, so the test now compares noise.  Wants a
+      separate fix; NOT touched here.
     - `test_driver_labels_a_suspect_angle_grid_in_provenance`.
 
 ### Mutation results (every new guard)
