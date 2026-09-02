@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import re
 
+import lal
 import numpy as np
 import pytest
 
@@ -18,13 +19,17 @@ import pytest
 MANIFEST_ENV = "RIFT_REVIEWED_LALSIM_MANIFEST"
 REQUIRED_SYMBOLS = (
     "SimulationVCSInfo",
-    "SimNeutronStarEOSFromFileChoiceDirtyPT",
+    "SimNeutronStarEOSFromFilePhaseTransition",
+    "CreateSimNeutronStarFamilyPT",
     "SimNeutronStarFamNumberOfBranches",
-    "SimNeutronStarFamMinMassPerBranch",
-    "SimNeutronStarFamMaxMassPerBranch",
-    "SimNeutronStarFamRadiusOfMassPerBranch",
-    "SimNeutronStarFamLoveNumberK2OfMassPerBranch",
-    "SimNeutronStarFamCentralPressureOfMassPerBranch",
+    "SimNeutronStarFamBranchMinMass",
+    "SimNeutronStarFamBranchMaxMass",
+    "SimNeutronStarFamBranchRadius",
+    "SimNeutronStarFamBranchLoveNumberK2",
+    "SimNeutronStarFamBranchCentralPressure",
+    "SimNeutronStarEOSMultiPartsMaxPseudoEnthalpy",
+    "SimNeutronStarEOSMultiPartsPseudoEnthalpyOfPressure",
+    "SimNeutronStarEOSMultiPartsSpeedOfSoundOfPseudoEnthalpy",
 )
 
 
@@ -100,17 +105,18 @@ def test_actual_reviewed_lalsimulation_tables(record_property):
         )
         assert loaded[name]._get_lalsim_family_adapter().number_of_branches >= 1
 
-    # The reviewed contract changes both the table loader and CreateFamily's
-    # second argument. Exercise clean/dirty readers and minimal/extended family
-    # construction on the real nine-column fixture rather than on a fake.
+    # The reviewed PT reader always enables its phase-transition handling; the
+    # historical dirty_phase_transitions flag is therefore a compatibility
+    # alias, not a clean/dirty toggle. Exercise both accepted call forms and
+    # minimal/extended family construction on a real nine-column fixture.
     nine_path = (manifest_path.parent / fixtures["nine_column"]["path"]).resolve()
-    nine_dirty = EOSManager.EOSLALSimulationFromFile(
+    nine_compat_flag = EOSManager.EOSLALSimulationFromFile(
         str(nine_path), dirty_phase_transitions=True
     )
     nine_extended = EOSManager.EOSLALSimulationFromFile(
         str(nine_path), minimal_family=False
     )
-    assert nine_dirty._get_lalsim_family_adapter().number_of_branches >= 1
+    assert nine_compat_flag._get_lalsim_family_adapter().number_of_branches >= 1
     assert nine_extended._get_lalsim_family_adapter().number_of_branches >= 1
 
     family = loaded["twin_star"]._get_lalsim_family_adapter()
@@ -140,10 +146,26 @@ def test_actual_reviewed_lalsimulation_tables(record_property):
         family.central_pressure(mass, branch_id=branch)
         for branch in (left, right)
     ]
+    enthalpy = lalsim.SimNeutronStarEOSMultiPartsPseudoEnthalpyOfPressure(
+        pressure[0], loaded["twin_star"].eos
+    )
+    sound_speed_si = (
+        lalsim.SimNeutronStarEOSMultiPartsSpeedOfSoundOfPseudoEnthalpy(
+            enthalpy, loaded["twin_star"].eos
+        )
+    )
+    assert np.isfinite(enthalpy)
+    assert np.isfinite(sound_speed_si) and sound_speed_si > 0
+    assert sound_speed_si / lal.C_SI < 1.1
+    max_enthalpy = lalsim.SimNeutronStarEOSMultiPartsMaxPseudoEnthalpy(
+        loaded["twin_star"].eos
+    )
+    assert np.isfinite(max_enthalpy) and max_enthalpy >= enthalpy
     tidal_lambda = [
         loaded["twin_star"].lambda_from_m(mass, branch_id=branch)
         for branch in (left, right)
     ]
+    assert loaded["twin_star"].for_branch(left).test_speed_of_sound_causal()
     assert all(value > 0 for value in radii + love + pressure + tidal_lambda)
     assert not np.isclose(radii[0], radii[1], rtol=1e-10, atol=0)
     assert not np.isclose(love[0], love[1], rtol=1e-10, atol=0)

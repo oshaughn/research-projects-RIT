@@ -20,10 +20,6 @@ class LegacyLALSimulation:
         self.file_calls.append((fname, 0))
         return "clean-eos"
 
-    def SimNeutronStarEOSFromFileChoiceDirtyPT(self, fname, dirty):
-        self.file_calls.append((fname, dirty))
-        return "dirty-eos"
-
     def CreateSimNeutronStarFamily(self, eos):
         self.create_calls.append((eos,))
         return "legacy-family"
@@ -51,44 +47,34 @@ class MultibranchLALSimulation:
         self.create_calls = []
         self.file_calls = []
 
-    def SimNeutronStarEOSFromFile(self, fname):
-        self.file_calls.append((fname, 0))
-        return "clean-eos"
+    def SimNeutronStarEOSFromFilePhaseTransition(self, fname):
+        self.file_calls.append((fname,))
+        return "multipart-eos"
 
-    def SimNeutronStarEOSFromFileChoiceDirtyPT(self, fname, dirty):
-        self.file_calls.append((fname, dirty))
-        return "dirty-eos"
-
-    def CreateSimNeutronStarFamily(self, eos, min_fam):
+    def CreateSimNeutronStarFamilyPT(self, eos, min_fam):
         self.create_calls.append((eos, min_fam))
         return "multibranch-family"
+
+    def CreateSimNeutronStarFamilyPTWithPcmin(self, eos, min_fam, log_pc_min):
+        self.create_calls.append((eos, min_fam, log_pc_min))
+        return "multibranch-family-pcmin"
 
     def SimNeutronStarFamNumberOfBranches(self, family):
         return len(self.bounds)
 
-    def SimNeutronStarFamMinMassPerBranch(self, family, branch_id):
+    def SimNeutronStarFamBranchMinMass(self, branch_id, family):
         return self.bounds[branch_id][0]
 
-    def SimNeutronStarFamMaxMassPerBranch(self, family, branch_id):
+    def SimNeutronStarFamBranchMaxMass(self, branch_id, family):
         return self.bounds[branch_id][1]
 
-    def SimNeutronStarFamMinMass(self, family):
-        return min(x[0] for x in self.bounds)
-
-    def SimNeutronStarFamMaxMass(self, family):
-        return max(x[1] for x in self.bounds)
-
-    def SimNeutronStarFamRadiusOfMassPerBranch(self, mass, family, branch_id):
+    def SimNeutronStarFamBranchRadius(self, mass, branch_id, family):
         return 10.0 * branch_id + mass
 
-    def SimNeutronStarFamLoveNumberK2OfMassPerBranch(
-        self, mass, family, branch_id
-    ):
+    def SimNeutronStarFamBranchLoveNumberK2(self, mass, branch_id, family):
         return branch_id + 0.1 * mass
 
-    def SimNeutronStarFamCentralPressureOfMassPerBranch(
-        self, mass, family, branch_id
-    ):
+    def SimNeutronStarFamBranchCentralPressure(self, mass, branch_id, family):
         return 100.0 * branch_id + mass
 
 
@@ -98,11 +84,39 @@ class StellarMassMultibranchLALSimulation(MultibranchLALSimulation):
         for lower, upper in ((1.0, 2.0), (1.3, 3.0))
     )
 
-    def SimNeutronStarEOSPseudoEnthalpyOfPressure(self, pressure, eos):
+    def SimNeutronStarEOSMultiPartsPseudoEnthalpyOfPressure(self, pressure, eos):
         return pressure
 
-    def SimNeutronStarEOSSpeedOfSoundGeometerized(self, enthalpy, eos):
-        return 0.5
+    def SimNeutronStarEOSMultiPartsMaxPseudoEnthalpy(self, eos):
+        return 1.0
+
+    def SimNeutronStarEOSMultiPartsSpeedOfSoundOfPseudoEnthalpy(
+        self, enthalpy, eos
+    ):
+        return 0.5 * lal.C_SI
+
+
+class CoexistingLALSimulation(MultibranchLALSimulation):
+    """Reviewed builds retain the released EOS/family object family too."""
+
+    def CreateSimNeutronStarFamily(self, eos):
+        self.create_calls.append(("legacy", eos))
+        return "legacy-family"
+
+    def SimNeutronStarFamMinimumMass(self, family):
+        return 1.0
+
+    def SimNeutronStarMaximumMass(self, family):
+        return 3.0
+
+    def SimNeutronStarRadius(self, mass, family):
+        return 10.0 + mass
+
+    def SimNeutronStarLoveNumberK2(self, mass, family):
+        return 0.1 * mass
+
+    def SimNeutronStarCentralPressure(self, mass, family):
+        return 100.0 * mass
 
 
 def test_released_lalsimulation_uses_one_argument_family_api():
@@ -121,10 +135,23 @@ def test_released_lalsimulation_uses_one_argument_family_api():
         family.radius(2.0, branch_id=1)
 
 
+def test_eosmanager_file_loader_keeps_released_api_fallback(monkeypatch):
+    from RIFT.physics import EOSManager
+
+    fake_lalsim = LegacyLALSimulation()
+    monkeypatch.setattr(EOSManager, "lalsim", fake_lalsim)
+    eos = EOSManager.EOSLALSimulationFromFile("released-format.dat")
+
+    assert fake_lalsim.file_calls == [("released-format.dat", 0)]
+    assert fake_lalsim.create_calls == [("clean-eos",)]
+    assert eos._get_lalsim_family_adapter().number_of_branches == 1
+
+
 def test_reviewed_lalsimulation_uses_minimal_multibranch_api():
     lalsim = MultibranchLALSimulation()
     family = LALSimNeutronStarFamilyAdapter(
-        "eos", minimal=True, lalsim_module=lalsim
+        "eos", minimal=True, lalsim_module=lalsim,
+        reviewed_multibranch=True,
     )
 
     assert lalsim.create_calls == [("eos", 1)]
@@ -138,19 +165,33 @@ def test_reviewed_lalsimulation_uses_minimal_multibranch_api():
     assert family.central_pressure(1.75, branch_id=1) == 101.75
 
 
+def test_reviewed_module_keeps_legacy_family_dispatch_explicit():
+    lalsim = CoexistingLALSimulation()
+    family = LALSimNeutronStarFamilyAdapter(
+        "legacy-eos", lalsim_module=lalsim, reviewed_multibranch=False
+    )
+
+    assert lalsim.create_calls == [("legacy", "legacy-eos")]
+    assert family.number_of_branches == 1
+    assert family.radius(2.0) == 12.0
+
+
 def test_partial_reviewed_api_fails_diagnostically(monkeypatch):
     lalsim = MultibranchLALSimulation()
     monkeypatch.delattr(
         MultibranchLALSimulation,
-        "SimNeutronStarFamLoveNumberK2OfMassPerBranch",
+        "SimNeutronStarFamBranchLoveNumberK2",
     )
-    with pytest.raises(RuntimeError, match="partial reviewed LALSimulation"):
-        LALSimNeutronStarFamilyAdapter("eos", lalsim_module=lalsim)
+    with pytest.raises(RuntimeError, match="phase-transition API is incomplete"):
+        LALSimNeutronStarFamilyAdapter(
+            "eos", lalsim_module=lalsim, reviewed_multibranch=True
+        )
 
 
 def test_twin_star_mass_requires_an_explicit_branch():
     family = LALSimNeutronStarFamilyAdapter(
-        "eos", lalsim_module=MultibranchLALSimulation()
+        "eos", lalsim_module=MultibranchLALSimulation(),
+        reviewed_multibranch=True,
     )
 
     with pytest.raises(AmbiguousFamilyBranchError, match=r"branches \[0, 1\]"):
@@ -170,16 +211,22 @@ def test_eosmanager_file_loader_routes_reviewed_phase_transition_api(monkeypatch
         "new-format.dat", dirty_phase_transitions=True
     )
 
-    assert fake_lalsim.file_calls == [("new-format.dat", 1)]
-    assert fake_lalsim.create_calls == [("dirty-eos", 1)]
-    assert eos.eos == "dirty-eos"
+    assert fake_lalsim.file_calls == [("new-format.dat",)]
+    assert fake_lalsim.create_calls == [("multipart-eos", 1)]
+    assert eos.eos == "multipart-eos"
     assert eos._get_lalsim_family_adapter().number_of_branches == 2
 
     extended = EOSManager.EOSLALSimulationFromFile(
         "extended-format.dat", minimal_family=False
     )
-    assert fake_lalsim.file_calls[-1] == ("extended-format.dat", 0)
-    assert fake_lalsim.create_calls[-1] == ("clean-eos", 0)
+    assert fake_lalsim.file_calls[-1] == ("extended-format.dat",)
+    assert fake_lalsim.create_calls[-1] == ("multipart-eos", 0)
+
+    pressure_floor = EOSManager.EOSLALSimulationFromFile(
+        "pressure-floor.dat", family_log_pressure_min=12.5
+    )
+    assert pressure_floor.eos_fam == "multibranch-family-pcmin"
+    assert fake_lalsim.create_calls[-1] == ("multipart-eos", 1, 12.5)
 
 
 def test_eosmanager_smoke_with_installed_released_lalsimulation():
@@ -228,6 +275,10 @@ def test_selected_branch_view_preserves_legacy_scalar_consumer_api(monkeypatch):
     assert np.isfinite(secondary.lambda_from_m(1.75))
     assert primary.lambda_from_m(2.5) == pytest.approx(1e-8)
 
+    curves = EOSManager.make_mr_lambda_lal_branches(eos.eos, n_bins=3)
+    assert set(curves) == {0, 1}
+    assert curves[0].shape == (3, 3)
+
 
 def test_selected_branch_view_preserves_branch_sensitive_helpers(monkeypatch):
     from RIFT.physics import EOSManager
@@ -241,6 +292,7 @@ def test_selected_branch_view_preserves_branch_sensitive_helpers(monkeypatch):
         1.4 + 1.4**2 / expected_radius_km
     )
     assert secondary.test_speed_of_sound_causal()
+    assert secondary.test_speed_of_sound_causal(test_only_under_mmax=False)
 
 
 def test_selected_branch_helpers_fail_closed_when_branch_data_are_missing(monkeypatch):
@@ -257,8 +309,8 @@ def test_selected_branch_helpers_fail_closed_when_branch_data_are_missing(monkey
         secondary.estimate_baryon_mass_from_mg(1.6)
 
     monkeypatch.delattr(
-        MultibranchLALSimulation,
-        "SimNeutronStarFamCentralPressureOfMassPerBranch",
+        StellarMassMultibranchLALSimulation,
+        "SimNeutronStarEOSMultiPartsSpeedOfSoundOfPseudoEnthalpy",
     )
     assert secondary.test_speed_of_sound_causal() is False
 

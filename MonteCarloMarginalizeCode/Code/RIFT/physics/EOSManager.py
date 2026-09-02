@@ -77,10 +77,14 @@ class EOSConcrete:
         self.eos_fam = None
         return None
 
-    def _set_lalsim_family(self, minimal=True):
+    def _set_lalsim_family(self, minimal=True, reviewed_multibranch=False,
+                           log_pressure_min=None):
         """Create and cache a released-or-multibranch LAL family."""
+        self._lalsim_reviewed_multibranch = bool(reviewed_multibranch)
         self._lalsim_family_adapter = create_family(
-            self.eos, minimal=minimal, lalsim_module=lalsim
+            self.eos, minimal=minimal, lalsim_module=lalsim,
+            reviewed_multibranch=self._lalsim_reviewed_multibranch,
+            log_pressure_min=log_pressure_min,
         )
         self.eos_fam = self._lalsim_family_adapter.family
         self.mMaxMsun = self._lalsim_family_adapter.maximum_mass() / lal.MSUN_SI
@@ -90,7 +94,10 @@ class EOSConcrete:
         adapter = getattr(self, "_lalsim_family_adapter", None)
         if adapter is None or adapter.family is not self.eos_fam:
             adapter = LALSimNeutronStarFamilyAdapter.from_family(
-                self.eos_fam, lalsim_module=lalsim
+                self.eos_fam, lalsim_module=lalsim,
+                reviewed_multibranch=getattr(
+                    self, "_lalsim_reviewed_multibranch", False
+                ),
             )
             self._lalsim_family_adapter = adapter
         return adapter
@@ -247,18 +254,35 @@ class EOSConcrete:
         family = self._get_lalsim_family_adapter()
         m_max_SI = family.maximum_mass(branch_id) if branch_id is not None else self.mMaxMsun*lal.MSUN_SI
         if not test_only_under_mmax:
-            hmax = lalsim.SimNeutronStarEOSMaxPseudoEnthalpy(eos)
+            if getattr(self, "_lalsim_reviewed_multibranch", False):
+                hmax = (
+                    lalsim.SimNeutronStarEOSMultiPartsMaxPseudoEnthalpy(eos)
+                )
+            else:
+                hmax = lalsim.SimNeutronStarEOSMaxPseudoEnthalpy(eos)
         else:
             try:
                 pmax = family.central_pressure(m_max_SI, branch_id=branch_id)
-                hmax = lalsim.SimNeutronStarEOSPseudoEnthalpyOfPressure(pmax,eos)
+                if getattr(self, "_lalsim_reviewed_multibranch", False):
+                    hmax = lalsim.SimNeutronStarEOSMultiPartsPseudoEnthalpyOfPressure(
+                        pmax, eos
+                    )
+                else:
+                    hmax = lalsim.SimNeutronStarEOSPseudoEnthalpyOfPressure(pmax,eos)
             except:
                 # gatch gsl interpolation errors for example
                 return False  
         if fast_test: 
             # https://git.ligo.org/lscsoft/lalsuite/blob/lalinference_o2/lalinference/src/LALInference.c#L2513
             try:
-                vsmax = lalsim.SimNeutronStarEOSSpeedOfSoundGeometerized(hmax, eos)
+                if getattr(self, "_lalsim_reviewed_multibranch", False):
+                    vsmax = (
+                        lalsim.SimNeutronStarEOSMultiPartsSpeedOfSoundOfPseudoEnthalpy(
+                            hmax, eos
+                        ) / lal.C_SI
+                    )
+                else:
+                    vsmax = lalsim.SimNeutronStarEOSSpeedOfSoundGeometerized(hmax, eos)
                 return vsmax <1.1
             except:
                 # catch gsl interpolation errors for example
@@ -270,7 +294,16 @@ class EOSConcrete:
 #        h = np.linspace(0.0001,lalsim.SimNeutronStarEOSMinAcausalPseudoEnthalpy(eos),npts_internal)
         vs_internal = np.zeros(npts_internal)
         for indx in np.arange(npts_internal):
-            vs_internal[indx] =  lalsim.SimNeutronStarEOSSpeedOfSoundGeometerized(h[indx],eos)
+            if getattr(self, "_lalsim_reviewed_multibranch", False):
+                vs_internal[indx] = (
+                    lalsim.SimNeutronStarEOSMultiPartsSpeedOfSoundOfPseudoEnthalpy(
+                        h[indx], eos
+                    ) / lal.C_SI
+                )
+            else:
+                vs_internal[indx] = lalsim.SimNeutronStarEOSSpeedOfSoundGeometerized(
+                    h[indx], eos
+                )
             if rosDebug:
                 print(h[indx], vs_internal[indx])
         return not np.any(vs_internal>1.1)   # allow buffer, so we have some threshold
@@ -357,32 +390,43 @@ class EOSLALSimulation(EOSConcrete):
 class EOSLALSimulationFromFile(EOSConcrete):
     """Load a released two-column or reviewed nine-column LAL EOS table.
 
-    The reviewed LALSimulation reader detects clean phase transitions in both
-    formats and preserves all thermodynamic columns in the new format. Set
-    ``dirty_phase_transitions`` to request its opt-in correction of numerically
-    imperfect pressure plateaus.
+    When the reviewed interface is installed, this class uses
+    ``SimNeutronStarEOSFromFilePhaseTransition`` and the matching multipart
+    family constructor for both formats. That reader always enables its dirty
+    phase-transition handling; ``dirty_phase_transitions`` remains accepted as
+    a backward-compatible request but is not a clean/dirty toggle.
     """
 
     def __init__(self, fname, name=None, dirty_phase_transitions=False,
-                 skip_family=False, minimal_family=True):
+                 skip_family=False, minimal_family=True,
+                 family_log_pressure_min=None):
         self.name = name or os.path.basename(fname)
         self.fname = fname
         self.eos = None
         self.eos_fam = None
-        dirty_reader = getattr(
-            lalsim, "SimNeutronStarEOSFromFileChoiceDirtyPT", None
+        phase_transition_reader = getattr(
+            lalsim, "SimNeutronStarEOSFromFilePhaseTransition", None
         )
-        if dirty_phase_transitions:
-            if dirty_reader is None:
-                raise NotImplementedError(
-                    "dirty phase-transition correction requires the reviewed "
-                    "LALSimulation multipart EOS interface"
-                )
-            self.eos = dirty_reader(fname, 1)
+        self._lalsim_reviewed_multibranch = phase_transition_reader is not None
+        if self._lalsim_reviewed_multibranch:
+            self.eos = phase_transition_reader(fname)
+        elif (
+            dirty_phase_transitions
+            or not minimal_family
+            or family_log_pressure_min is not None
+        ):
+            raise NotImplementedError(
+                "phase-transition, extended-family, and pressure-floor options "
+                "require the reviewed LALSimulation multipart EOS interface"
+            )
         else:
             self.eos = lalsim.SimNeutronStarEOSFromFile(fname)
         if not skip_family:
-            self._set_lalsim_family(minimal=minimal_family)
+            self._set_lalsim_family(
+                minimal=minimal_family,
+                reviewed_multibranch=self._lalsim_reviewed_multibranch,
+                log_pressure_min=family_log_pressure_min,
+            )
         else:
             self.mMaxMsun = None
 
@@ -540,7 +584,7 @@ class EOSFromDataFile(EOSConcrete):
             eos_fname = "./" +eos_name + "_geom.dat" # assume write acces
             np.savetxt(eos_fname, np.transpose((press, edens)), delimiter='\t')
             eos = lalsim.SimNeutronStarEOSFromFile(eos_fname)
-            family_adapter = create_family(eos)
+            family_adapter = create_family(eos, lalsim_module=lalsim)
             fam = family_adapter.family
 
         else:
@@ -1198,16 +1242,21 @@ def epsilon(x, p0, eps0, coeffs,use_ode=True):
 ###
 
 # Les-like
-def make_mr_lambda_lal(eos, n_bins=100, branch_id=None):
+def make_mr_lambda_lal(eos, n_bins=100, branch_id=None,
+                       reviewed_multibranch=False):
     '''
     Construct mass-radius curve from EOS
     Based on modern code resources (https://git.ligo.org/publications/gw170817/bns-eos/blob/master/scripts/eos-params.py) which access low-level structures
 
     ``branch_id`` is optional for released/single-branch LALSimulation.  It is
     required for a multibranch family so an overlapping twin-star interval is
-    never collapsed silently.
+    never collapsed silently. Set ``reviewed_multibranch`` only for an EOS
+    returned by ``SimNeutronStarEOSFromFilePhaseTransition``.
     '''
-    family = create_family(eos)
+    family = create_family(
+        eos, lalsim_module=lalsim,
+        reviewed_multibranch=reviewed_multibranch
+    )
     if family.number_of_branches > 1 and branch_id is None:
         raise ValueError(
             "multibranch LAL family requires branch_id; use "
@@ -1231,7 +1280,9 @@ def make_mr_lambda_lal(eos, n_bins=100, branch_id=None):
 
 def make_mr_lambda_lal_branches(eos, n_bins=100):
     """Return ``{branch_id: [M, R, Lambda]}`` for every stable LAL branch."""
-    family = create_family(eos)
+    family = create_family(
+        eos, lalsim_module=lalsim, reviewed_multibranch=True
+    )
     return {
         branch_id: _make_mr_lambda_for_family(family, n_bins, branch_id)
         for branch_id in range(family.number_of_branches)
@@ -1262,7 +1313,7 @@ def make_mr_lambda(eos,use_lal=False):
    if use_lal:
        make_mr_lambda_lal(eos)
 
-   family = create_family(eos)
+   family = create_family(eos, lalsim_module=lalsim)
    fam = family.family
  
    r_cut = 40   # Some EOS we consider for PE purposes will have very large radius!

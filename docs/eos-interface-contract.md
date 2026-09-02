@@ -32,6 +32,15 @@ Reviewed two- or nine-column tables use:
     [--using-eos-extended-family] [--using-eos-branch <integer>]
 ```
 
+On a reviewed build, RIFT dispatches these files through
+`SimNeutronStarEOSFromFilePhaseTransition` and constructs their families with
+`CreateSimNeutronStarFamilyPT`. Legacy named, spectral, piecewise-polytrope,
+and ordinary file EOS objects continue to use the released one-argument family
+constructor: both SWIG object families coexist and are selected explicitly.
+The reviewed PT reader always enables its dirty-phase-transition handling, so
+`--using-eos-dirty-phase-transitions` remains accepted for command-line
+compatibility but does not toggle a second reader mode.
+
 For pseudo-pipe workflows, forward the flag with
 `--manual-extra-cip-args`.  On O4d, Hydra hyperpipe configurations can put it
 in the post driver's `extra-args` when that driver is the fixed-EOS CIP
@@ -103,9 +112,9 @@ commit actually built by the job: the gate requires it to equal
 fixture hash is mandatory. Once the manifest enables the gate, missing modern
 symbols, malformed or mismatched build provenance, missing fixtures, wrong
 column counts, or absence of distinct overlapping twin-star solutions are
-failures. The gate exercises clean and phase-transition-correcting readers,
-minimal and extended family construction, and branch-indexed radius, Love
-number, central pressure, and tidal deformability. Ordinary CI skips this
+failures. The gate exercises the always-PT multipart reader through both legacy
+flag forms, minimal and extended family construction, and branch-indexed radius,
+Love number, central pressure, and tidal deformability. Ordinary CI skips this
 private-build gate explicitly.
 
 The drift-sentinel registry should eventually declare an EOS contract group
