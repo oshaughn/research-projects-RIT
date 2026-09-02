@@ -99,6 +99,38 @@ if [ "$_TMARG_BAD" -ne 0 ]; then
     exit 1
 fi
 
+# Peak-local time-marginalization quadrature.  Same defect, same derived-resolution
+# discipline; what changes is WHERE the refined grid is placed -- around the enumerated
+# peaks of a band-limited kappa rather than over the whole window, so the cost stops
+# growing with SNR.  What this gate has to protect, beyond accuracy: that the intervals
+# are MERGED (the un-merged variant double-counts the overlap, +1.6 nats at rho~6), that
+# the omitted mass is BOUNDED rather than assumed (a deliberately sabotaged enumeration
+# must be caught and sent to the dense path), that the local evaluator reconstructs the
+# same interpolant the dense FFT does at every production npts including the odd ones,
+# and that the option reaches the shipped likelihood instead of being inert.
+_TMARG_PL_TESTS=MonteCarloMarginalizeCode/Code/test/test_time_marginalization_peak_local.py
+# Raise EXPECTED by RUNNING collection, never by arithmetic.
+_TMARG_PL_EXPECTED=121
+_TMARG_PL_FOUND=$(python -m pytest -q --collect-only "$_TMARG_PL_TESTS" 2>/dev/null | grep -c '::' || true)
+if [ "$_TMARG_PL_FOUND" -ne "$_TMARG_PL_EXPECTED" ]; then
+    echo "peak-local gate: collected $_TMARG_PL_FOUND tests, expected $_TMARG_PL_EXPECTED" >&2
+    exit 1
+fi
+# SKIP guard, IDENTIFYING rather than counting, for the reasons the band-limited gate
+# above gives: a compensating pair leaves the total unchanged, and the expected total is
+# a property of the RUNNER (a GPU-equipped runner that does not set RIFT_CI_REQUIRE_GPU=1
+# legitimately stops skipping, and a count guard then fails a good run).  Allow skips
+# whose REASON names cupy/GPU, and fail on any other skip whatever the total.
+_TMARG_PL_OUT=$(python -m pytest -q -rs "$_TMARG_PL_TESTS" 2>&1) || { echo "$_TMARG_PL_OUT"; exit 1; }
+echo "$_TMARG_PL_OUT" | tail -20
+_TMARG_PL_BAD=$(echo "$_TMARG_PL_OUT" | grep -E '^SKIPPED' | grep -vciE 'cupy|gpu|cuda' || true)
+_TMARG_PL_BAD=${_TMARG_PL_BAD:-0}
+if [ "$_TMARG_PL_BAD" -ne 0 ]; then
+    echo "peak-local gate: $_TMARG_PL_BAD test(s) skipped for a reason other than an absent GPU:" >&2
+    echo "$_TMARG_PL_OUT" | grep -E '^SKIPPED' | grep -viE 'cupy|gpu|cuda' >&2
+    exit 1
+fi
+
 python MonteCarloMarginalizeCode/Code/test/test_mcsamplerEnsemble_extended.py --as-test --n-max 100000
 
 python MonteCarloMarginalizeCode/Code/test/test_mcsamplerEnsemble_extended.py --as-test --n-max 100000 --use-lnL

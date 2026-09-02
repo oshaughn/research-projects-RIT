@@ -503,6 +503,52 @@ jobs:
       - name: Run Asimov integration test
         run: bash .travis/test-asimov.sh
 
+  rimsky-integration:
+    needs: install
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rimsky-series: '0.1.0rc1'
+            rimsky-spec: 'rimsky==0.1.0rc1'
+            python-version: '3.12'
+          - rimsky-series: 'main-2621d15'
+            rimsky-spec: 'git+https://git.ligo.org/colm.talbot/rimsky.git@2621d15cf9a39ce01145ac5b81c92e1173a1d2d0'
+            python-version: '3.14'
+    name: rimsky-integration (${{ matrix.rimsky-series }})
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+      - name: Enable symlink
+        run: sudo ln -sf $(which python3) /usr/bin/python
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libgsl-dev
+      - name: Install RIFT and Rimsky orchestration stack
+        run: |
+          retry_pip_install() {
+            local attempt
+            for attempt in 1 2 3; do
+              if python -m pip install "$@" --break-system-packages; then
+                return 0
+              fi
+              echo "pip install failed (attempt ${attempt}/3)"
+              sleep 10
+            done
+            return 1
+          }
+          python -m pip install --upgrade pip --break-system-packages
+          retry_pip_install '${{ matrix.rimsky-spec }}'
+          retry_pip_install --upgrade 'asimov>=0.7,<0.8' 'bilby_pipe @ git+https://git.ligo.org/lscsoft/bilby_pipe.git@be6c77021db809690c781a7744f40564e62dd72f'
+          python -m pip install pytest packaging --break-system-packages
+          python -m pip install --editable . --no-deps --break-system-packages
+      - name: Run Rimsky to RIFT end-to-end test
+        run: python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_rimsky_end_to_end.py
+
   test-run:
     needs: install
     runs-on: ubuntu-latest
