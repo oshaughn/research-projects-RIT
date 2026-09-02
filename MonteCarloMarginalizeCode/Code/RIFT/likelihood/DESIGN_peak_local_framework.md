@@ -404,6 +404,91 @@ shape is fixed-slot arrays with no plan, no buckets, no host round trip.  What s
 extract from that spine is the two-stage keep discipline, the accounting-reconciliation
 ledger, and the accept predicate.
 
+## The primitive is PER-AXIS {localize, dense}, not "1-D vs 2-D marginalizer"
+
+The natural-looking decomposition — a 1-D marginalizer primitive and a 2-D one — is the
+wrong cut.  We do not always dual-localize, and the reason is physical, not a limitation
+to be engineered away.  The right primitive is a per-axis CHOICE, and the existing schemes
+are already members of one family rather than a ladder:
+
+| | φ dense | φ localized |
+|---|---|---|
+| **ψ dense** | `..._exact`, cost ~A | (no use case found) |
+| **ψ localized** | `..._laplace`, cost ~√A — SHIPPED | the joint high-SNR target |
+
+Today's `laplace` is not a stepping stone to be replaced.  It is the correct member
+whenever ψ is localizable and φ is not, and a core that only offers "all axes localized"
+would delete a working configuration.
+
+**The joint exponent is a 2-D trig polynomial, so the warrant extends verbatim.**  This is
+already in the shipped code, not an assumption: `angle_coefficient_tables` builds *"Exact
+2-D Fourier coefficient tables"*, `_reconstruct_field` evaluates *"the real trig polynomial
+... at (phi, u)"*, and `angle_sample_grid_sizes` states the bidegree as derived —
+φ-harmonics up to `2*m_max`, and u-harmonics **at most 2 for ANY mode set** (spin-2), so
+the ψ degree never grows.  Measured on random tables of bidegree (4,2), 150 draws × 7
+derivative orders: `M_(a,b) = sum_kq |C_kq| k^a |q|^b` had **0 violations**, tightness 0.89.
+`spectral_derivative_bound` generalizes to a multi-index unchanged in construction.
+
+## "Localized" ALWAYS means multi-mode.  Single-centre is not in the family
+
+Stated first because it is the easy thing to get wrong when extending to a second axis.
+The shipped ψ branch is already multi-mode — `_psi_lnI_lap_branch` is *"the
+enumerated-maxima Laplace branch"*, resolving up to four roots — so "Laplace" in this
+module has never meant "expand about one point".  The joint (φ,ψ) kernel must inherit that
+structure on BOTH axes.  The measurement below is the quantitative reason, not a criticism
+of anything shipped: it sizes what a naive single-centre joint extension would cost.
+
+Measured on the shipped coefficient tables (`make_synth` fixture, real (φ,ψ) structure,
+not random coefficients), at fixed `x`:
+
+| kappa boost | 1 | 10 | 100 | 1000 |
+|---|---|---|---|---|
+| exponent amplitude | 3.4 | 32.5 | 325 | 3250 |
+| co-dominant maxima | 8 | 12 | 8 | 8 |
+| **single-centre Laplace error (nats)** | **−1.66** | **−1.48** | **−1.40** | **−1.40** |
+
+Two readings, and the second is the load-bearing one.
+
+*The obstruction is MULTIPLICITY, not conditioning.*  `cond(H)` at the dominant mode
+measured 11–23 — unremarkable.  What breaks a single-centre Laplace is that with dominant
+(2,±2) content the (φ,ψ) surface carries ~8–12 maxima whose values are equal to machine
+precision (measured second-best gap 0 to 4.6e-13 nats).  Adding (3,±3) leaves 11 maxima
+within 0.031 nats.  These are exact structural degeneracies, and the count is
+amplitude-independent — consistent with the fixed bidegree.
+
+*And the single-centre error DOES NOT DECAY WITH AMPLITUDE.*  It sits at −1.4 nats from
+amplitude 3 to 3250.  That is the opposite of the usual "Laplace improves at high SNR"
+intuition, and the reason is that the deficit is combinatorial rather than curvature: one
+centre represents one of k equal modes however sharp each becomes.  High SNR does not
+rescue a single centre — it is precisely where enumerating the modes matters.  Which is
+why the joint kernel is peak-local (enumerate, then integrate near each) rather than a
+Laplace refinement, and why the enumeration budget, not the curvature model, is the thing
+the φ-axis selector has to size.
+
+HONEST LIMIT OF THIS HARNESS: the multi-mode sum measured +0.42 to +1.01 nats and did not
+show clean `O(1/A)` convergence.  The per-mode Hessians here are grid finite differences on
+a 512² torus, so that residual is plausibly the harness rather than the method — it is NOT
+evidence that a multi-mode estimator converges, and a real localizer plus certificate is
+needed before any such claim.  Recorded so the number is not quoted as a validation.
+
+## Selection must not become an option matrix
+
+The tree already shows the failure mode: `..._laplace` REFUSES `JAX_ILE_DISTMARG_GH`
+(`jax_ile/anglemarg.py:1119`) because its node placement is defined per fixed-ψ exponent.
+That is a pairwise option corner case, and a family of per-axis choices multiplies them if
+each pair is hand-checked.  Two rules keep the surface from growing:
+
+* **Selection stays keyed on measured quantities, per axis.**  `choose_angle_marg_scheme`
+  already picks from the data-derived amplitude rather than a user flag; a new member of
+  the family is a new regime on that same measured axis, not a new option.  The degeneracy
+  measurement above is what the φ-axis selector must key on — multiplicity and mode gap,
+  not amplitude alone.
+* **An incompatibility is a property of a scheme's warrant, declared once**, never an `if`
+  per pair.  The GH refusal is really "this scheme's node-placement warrant is defined per
+  fixed-ψ exponent"; stated that way it is checked generically.  NOTE: distance
+  marginalization is expected to arrive on the other path, so this particular refusal must
+  be expressed as a warrant property and not frozen as a permanent pairwise rule.
+
 ## Anti-goals
 
 * **Do not unify the fail policy.**  It follows from the warrant.  See above.
