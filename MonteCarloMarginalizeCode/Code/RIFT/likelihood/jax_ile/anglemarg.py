@@ -1463,9 +1463,29 @@ def fused_log_likelihood_distphipsimarg_laplace(
 # node placement rests on (A0 == 0, B1 == 0, so R_lo = B0 - |B2| IS min_u B) is a
 # property of the SPIN-2 detector response, not of the source, and is measured at
 # ~1e-16 relative on every non-precessing mode set tried through m_max = 4.  It is
-# NOT measured under precession.  1e-8 is ~8 orders above the observed level and
-# ~8 below a value that would move the bracket, so it separates "the identity
-# holds" from "it does not" without adjudicating anything in between.
+# NOT measured under precession.
+#
+# WHY 1e-8, and what is NOT claimed for it.  The identity is a STRUCTURAL
+# precondition, not a numerical one: the closed-form psi maximiser below is
+# DERIVED from A0 == 0 and B1 == 0 (that is what reduces stationarity to
+# z^2 w = conj(w)).  So the tolerance's job is to separate "numerically zero"
+# from "structurally nonzero", not to bound an error.  Observed values are
+# ~1e-16 relative on every mode set tried, and the mutation sweep in
+# test_angle_marg_gh_selection.py shows planted harmonics at 1e-3 are caught,
+# so 1e-8 sits ~8 orders above the noise and ~5 below the smallest breach the
+# tests exercise.
+#
+# An earlier revision of this comment also claimed 1e-8 was "~8 orders below a
+# value that would move the bracket".  That was never measured and is removed
+# rather than left standing: an attempt to measure it produced a centre error
+# FLAT at ~2 sigma across six decades of planted A0/B1, including where the
+# identity holds -- a hand-rolled reimplementation of the maximiser failing its
+# own flatness check, not a property of the code.  If the upper end is ever
+# wanted, measure it through the shipped kernel, not a re-derivation.
+#
+# Values are not bit-portable: they come through BLAS-heavy reconstruction in
+# angle_coefficient_tables, so anything pinned off them needs a RELATIVE
+# tolerance.  This comparison is already relative and one-sided.
 GH_PSI_IDENTITY_TOL = 1e-8
 
 
