@@ -1,3 +1,15 @@
+0.0.17.13 compatibility backstop
+--------------------------------
+  - EOSManager supports released and reviewed multipart/multibranch LALSimulation
+    family interfaces while retaining the existing scalar and NuclearMatter-Backend
+    sequence contracts. Fixed-EOS CIP can load a reviewed table with
+    ``lalsim_file:<path>`` and select a LAL family with ``--using-eos-branch``. Native
+    NMB/PCA files retain the ``nmbseq:`` primary-branch
+    contract, with disconnected stable runs split before interpolation. The CIP
+    piecewise-polytrope constructor keyword and four-parameter row guards are corrected
+    for Kedia-style workflows.
+    See ``docs/eos-interface-contract.md``.
+
 0.0.17.13
 ---------
 MR https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/55  , for ln(e) parameter access in pipeline
