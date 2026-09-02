@@ -35,10 +35,9 @@ jobs:
       - name: Install RIFT and Rimsky orchestration stack
         run: |
           python -m pip install --upgrade pip --break-system-packages
-          python -m pip install -r requirements.txt --break-system-packages
-          python -m pip install pytest --break-system-packages
-          python -m pip install --editable . --break-system-packages
           python -m pip install '${{ matrix.rimsky-spec }}' --break-system-packages
           python -m pip install --upgrade 'asimov>=0.7,<0.8' 'bilby_pipe @ git+https://git.ligo.org/lscsoft/bilby_pipe.git@be6c77021db809690c781a7744f40564e62dd72f' --break-system-packages
+          python -m pip install pytest packaging --break-system-packages
+          python -m pip install --editable . --no-deps --break-system-packages
       - name: Run Rimsky to RIFT end-to-end test
         run: python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_rimsky_end_to_end.py
