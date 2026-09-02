@@ -1155,6 +1155,50 @@ verdict on a false premise is how the next defect hides:
   observe the module's choice, so it cannot kill this mutation. **Open gap, precisely located.**
 
 
+## A costing lever that is measured, DANGEROUS, and deliberately not in this PR
+
+Refinement currently runs on every row. On the real 3G case the extrinsic integral is carried
+by `n_eff ~ 3` out of 810k samples, which invites the obvious question: could rows far below
+the batch's best be left on the coarse rule?
+
+**Measured**, per-batch coarse peak `lnL` on the real `run_ET_snr100` case (6 batches, 120493
+rows), fraction of rows below their OWN batch maximum by more than:
+
+| batch | rows | max | median | >60 | >500 | >1000 | >2000 |
+|---|---|---|---|---|---|---|---|
+| 0 | 20000 | −372.50 | −3183.05 | 1.000 | 0.979 | 0.896 | 0.651 |
+| 3 | 20181 | −276.76 | −789.85 | 0.998 | 0.524 | 0.000 | 0.000 |
+| 5 | 20196 | −275.08 | −650.01 | 0.992 | 0.202 | 0.000 | 0.000 |
+| **all** | **120493** | | | **99.72%** | **60.82%** | **25.31%** | **10.95%** |
+
+So the row-count opportunity is large, and the spread NARROWS as AV contracts -- batch 0 spans
+~2800 nats, batch 5 ~375.
+
+**It is not taken, and should not be taken lightly, for a reason that is about the physics and
+not about the gate.** RO's ruling: *the lnL range in a posterior is wide, and accurate lnL is
+needed WAY OFF PEAK to probe the tails.* The rows this would skip are not spare capacity --
+they carry the posterior's tails, and the adaptive sampler ADAPTS on them, so degrading their
+`lnL` changes where the next batch looks and therefore the whole run. "Contributes negligibly
+to the evidence integral" is not the same property as "may be computed badly", and only the
+first is measured above.
+
+Two further constraints, recorded so the work starts from them:
+
+* **Batch-local only.** A maximum carried ACROSS calls would be a hidden, order-dependent
+  variable: each call is independent by contract, and a persistent scale would make results
+  depend on batch order and defeat reproducibility.
+* **The ranking cannot use the coarse value.** Simpson's error is precisely what this whole
+  line of work exists to remove, so a gate keyed on the coarse `lnL` is unsafe by exactly that
+  amount. A sound gate needs a certified UPPER bound on each row's refined value compared
+  against an ACHIEVED lower bound from the same batch -- refine the top rows first, then bound
+  the rest. The machinery for the upper bound now exists (`spectral_derivative_bound`,
+  `parabolic_sup`, `segment_sup_bound`) and is cheap on the COARSE grid: the Hermite remainder
+  there is ~492 nats at amplitude 2e4, against ~6500 for a curvature-only bound.
+
+**Disposition (RO): OPT-IN AND EXPLICITLY EXPERIMENTAL if it is ever built, expected to need
+WEEKS of calibration to establish safety, and it belongs in a NEW PR -- not this one.** Recorded
+here only so the measurement and the hazard are not lost.
+
 ## Not done in this draft
 
 * **The evaluator is a direct spectral sum**, `O(npts)` per output point.  A chirp-z
