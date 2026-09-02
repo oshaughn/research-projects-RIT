@@ -17,7 +17,8 @@ Harnesses (host-local, `ldas-*` NFS home): `~/pl_framework_harness/`.
 check; `effective_bandwidth.py` the `exp(A cos phi)` coefficient envelope;
 `distance_unimodality.py` the distance stationary-point structure and the node-centre
 offset; `psi_bracket_adversarial.py` the near-annihilation extremum separation that
-falsified this note's first bracketing claim.  Each runs standalone with `PYTHONPATH` set to `MonteCarloMarginalizeCode/Code`,
+falsified this note's first bracketing claim; `psi_backstop.py` the trapezoid aliasing
+table and the calibrated-vs-certified sizing cost.  Each runs standalone with `PYTHONPATH` set to `MonteCarloMarginalizeCode/Code`,
 so a reviewer can re-run rather than take the tables on assertion.
 
 ## The method has been written three times, independently
@@ -282,7 +283,7 @@ inequality each must register** for the suite to assert.
 | enum_grid | 32 points on [0,2π): 8 per period of the top harmonic, the same discipline as `PEAK_ENUM_FACTOR`. Sizes the enumeration, and does NOT by itself guarantee separation — see the bracketing measurement above |
 | eval | closed form, O(1)/point; `q'`, `q''` analytic — every evaluation is truth |
 | lnL | identity |
-| backstop | fixed-N trapezoid on the full circle — super-exponentially convergent for a periodic band-limited exponent, so the backstop itself carries an aliasing *bound*, unlike time's |
+| backstop | trapezoid on the full circle at **N derived from amplitude**, `N ≈ 6.2·√A` for a 1e-8 relative tolerance. NOT certified at that N — see below |
 
 Two places ψ pushes back on the contract, and both should be treated as findings rather
 than smoothed over:
@@ -295,11 +296,65 @@ than smoothed over:
   guard.  For ψ the warrant *proves* ≤2 maxima, so exceeding it is a broken-adapter
   assertion.  The core may only count and decline; the meaning belongs to the adapter.
 
-**Fail policy for ψ: fail-closed — and the reason is cost, not ideology.**  A cheap
-certified backstop is available per row in numpy, so declining is affordable.  A future
-jitted port inherits `anglemarg`'s constraint (static shapes, no per-row backstop) and
-must go fail-open-with-label.  Same axis, different policy, decided by the call site —
-which is exactly why the policy is a seam.
+**Fail policy for ψ: fail-closed, but to an UNCERTIFIED backstop — and that distinction
+has to be carried, not glossed.**  Declining is affordable per row in numpy, so
+fail-closed is the right mechanism.  What an earlier draft got wrong is the *status* of
+the thing it declines to: at the calibrated `N ≈ 6.2·√A` the backstop's accuracy rests on
+a sizing rule with a margin, exactly like `anglemarg`'s dense scheme, and it is therefore
+an `effective-bandwidth-with-margin` object.  A certified backstop is available (below)
+but costs ~24× the nodes at `A = 10⁴`.  So the honest statement is: peak-local-ψ's own
+answer is certified by the sub-cell Hermite bound on `g`; the rule it falls back to is
+not, unless the certified sizing is paid for.  A future jitted port inherits
+`anglemarg`'s constraint (static shapes, no per-row backstop) and must go
+fail-open-with-label.
+
+### RETRACTED: "the backstop carries an aliasing bound"
+
+An earlier draft called the ψ backstop a *fixed*-N trapezoid, "super-exponentially
+convergent for a periodic band-limited exponent, so the backstop itself carries an
+aliasing bound".  **That is false**, and it is the same error this note diagnoses
+elsewhere: super-exponential convergence is in `N` at FIXED coefficients, not uniform
+over amplitude.  `g(u) = A cos u` is degree one, but `exp(g)` has width `∝ A^{-1/2}`, so
+any fixed grid eventually under-resolves it.  The note already contained the disproof —
+the `exp(A cos φ)` coefficient envelope measured two sections above is the same object.
+
+For the `N`-point trapezoid on a `2π`-periodic `f` the error is *exactly* the aliasing
+sum `T_N − I = 2π Σ_{m≠0} ĉ_{mN}`, and for `f = exp(A cos u)` the coefficients are
+`I_k(A)`, so the relative error is `2 Σ_{m≥1} I_{mN}(A) / I_0(A)` — computable, not
+estimated.  Measured:
+
+| relative error | N=16 | N=32 | N=64 | N=128 | N=256 |
+|---|---|---|---|---|---|
+| A = 25 | 1.3e-2 | 1.4e-8 | 4.6e-28 | 7.6e-85 | 4.8e-236 |
+| A = 450 | 2.3e0 | 6.6e-1 | 2.1e-2 | 2.7e-8 | 2.7e-31 |
+| A = 10000 | 1.2e1 | 6.8e0 | 2.9e0 | 9.6e-1 | 7.6e-2 |
+
+Read the `N=32` column: the error grows without limit in `A`.  The required `N` follows
+the same `√A` law as everything else here — `N(10⁻⁸)/√A` = 6.80, 6.40, 6.22, 6.22, 6.20,
+6.19 over `A = 25 … 5×10⁴`.
+
+**Can it be certified?**  Yes, and the price is measured.  For the two-term exponent the
+coefficients of `exp(g)` are a Bessel convolution, so
+`|ĉ_k| ≤ Σ_j I_j(|c2|) I_{k−2j}(|c1|)` is a true bound.  Converting it to a *relative*
+bound needs a rigorous lower bound on `ĉ_0`; the only cheap one is Jensen — the harmonics
+have zero mean, so `ĉ_0 ≥ e^{⟨g⟩} = 1` — which is valid but conservative by roughly
+`e^A`:
+
+| A | 25 | 450 | 2000 | 10000 | 50000 |
+|---|---|---|---|---|---|
+| `N` calibrated (relative, 1e-8) | 34 | 132 | 278 | 620 | 1384 |
+| `N` certified (Jensen) | 50 | 692 | 3030 | **15100** | **75456** |
+| ratio | 1.5× | 5.2× | 10.9× | 24.4× | 54.5× |
+
+So the certified sizing grows like `1.5·A` against the calibrated `6.2·√A`, and the
+penalty grows as roughly `√A/4.4`.  **This is an open design choice with a measured
+price, not a settled fact**, and the contract must record which one an adapter takes —
+because only one of them may be described as certified.
+
+(Computed with a uniform-asymptotic `log I_k(A)`; a first attempt used `scipy.special.ive`
+directly and silently underflowed to zero, which read as "tolerance met" and produced
+certified-`N` values too small by up to 9×.  Validated against `scipy` wherever `scipy`
+is still finite: max disagreement 5e-3 nats.)
 
 **Reconciliation with the existing `anglemarg`:** its *exact/dense* scheme is the ψ
 analogue of `time_marginalize_bandlimited`; peak-local does not compete with it and the
