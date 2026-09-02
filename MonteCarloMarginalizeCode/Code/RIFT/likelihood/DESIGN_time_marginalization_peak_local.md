@@ -825,7 +825,11 @@ varied between runs.
 | `peak-local` | −294.8959884975 | 0.413 | 3.06 | 809950 | **915.9 s** |
 
 **`peak-local` and `bandlimited` agree to 0.000e+00 nats — the two `.dat` files are
-BYTE-IDENTICAL (same md5), and `n_eff` matches to all 16 digits.** That is the rule's
+BYTE-IDENTICAL (same md5), and `n_eff` matches to all 16 digits.**  Re-run after the outside
+supremum was certified on sub-cell geometry: **the same md5 again**, so certifying the bound
+left the real-data answer bit-for-bit unchanged.  (Wall times moved between the two runs --
+`bandlimited`, which was not touched, went 749 s to 596 s -- so the run-to-run ratio is machine
+load and must not be read as a cost of the certificate.) That is the rule's
 central contract, verified end to end on real data through the shipped driver rather than on
 a fixture, and it is a stronger statement than the synthetic `2.6e-10` because the two runs
 followed the same adaptive sample path and still landed on the same bits.
