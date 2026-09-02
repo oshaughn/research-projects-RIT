@@ -2310,5 +2310,23 @@ def test_the_tail_margin_on_a_clean_row_is_a_design_constant_not_a_measurement()
     assert checked == 2, checked
 
 
+def test_every_exported_name_is_actually_defined():
+    """P2.  `__all__` gained `parabolic_sup` and `segment_sup_bound`, neither of which was
+    ever defined, so `from RIFT.likelihood.time_marginalization_peak_local import *` raised
+    `AttributeError` -- the module was unimportable by star-import at that head.
+
+    Guarded here rather than just fixed, because the failure is invisible to every other test
+    in this file: they all use `import module as pl`, which does not consult `__all__` at all.
+    Only a star-import does, so only a star-import can catch it.  Both quadrature modules are
+    checked, since the two are edited together and the same slip is available in either.
+    """
+    for mod in (pl, tmq):
+        missing = [n for n in mod.__all__ if not hasattr(mod, n)]
+        assert not missing, (mod.__name__, "exported but not defined", missing)
+        # and the operation that actually broke
+        ns = {}
+        exec("from %s import *" % mod.__name__, ns)
+
+
 if __name__ == '__main__':
     raise SystemExit(pytest.main([__file__, '-q']))
