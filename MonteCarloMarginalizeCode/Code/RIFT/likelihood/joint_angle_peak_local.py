@@ -69,6 +69,7 @@ __all__ = [
     "derivative_bound",
     "outside_bound",
     "joint_marginalize_peak_local",
+    "joint_marginalize_over_distance",
 ]
 
 #: Local integration half-width, in units of the mode's MARGINAL Gaussian sigma, per
@@ -409,3 +410,77 @@ def joint_marginalize_peak_local(C, n_phi=64, n_bound_grid=256,
     if not ok:
         rep['decline'] = 'omitted-mass bound too large'
     return float(log_inside - 2.0 * np.log(2.0 * np.pi)), bool(ok), rep
+
+
+def joint_marginalize_over_distance(C_A_st, C_B_st, x_grid, log_w_grid,
+                                    n_phi=64, n_bound_grid=256,
+                                    tol_nats=OUTSIDE_TOL_NATS, keep_nats=25.0):
+    """Distance-, phi- and psi-marginalized value at ONE ``(sample, time)`` point.
+
+    ``log sum_x exp(log_w_x) * (2 pi)^-2 int int exp(x A - x^2/2 B)``, i.e. the same
+    quantity ``anglemarg.fused_log_likelihood_distphipsimarg_exact`` produces before
+    time marginalization, with the same normalization.
+
+    THE DISTANCE AXIS IS NOT FREE, and this is where the joint rule's cost actually
+    lives.  The mode locations depend on ``x``, so the dense scheme's trick -- form one
+    ``(phi, u)`` grid and reuse it for every distance node -- is not available: the
+    enumeration is per node.  What rescues it is that the number of nodes CARRYING MASS
+    falls as the signal sharpens (measured on the synthetic fixture: 16 of 64 nodes
+    within 20 nats at exponent amplitude 32, and 1 of 64 at amplitude 3249), so a cheap
+    pre-pass on the nodes bounds the work before any enumeration happens.
+
+    READ THIS BEFORE QUOTING THE HIGH-SNR NUMBERS.  That same collapse means the FIXED
+    distance grid is itself under-resolving the distance peak there -- the peak is
+    ``~1/SNR`` narrow, which is precisely the defect ``core._distmarg_gh_logL`` exists
+    to fix with adaptive nodes.  So "1 node carries the mass" is simultaneously a cost
+    win for this rule and a warning about the grid it was handed.  This function
+    inherits the caller's distance quadrature and does not repair it.
+
+    ``keep_nats`` selects the nodes to work on, using a CHEAP upper bound on each node's
+    contribution rather than the node's actual value: ``log_w_x + max_(phi,u) g_x``,
+    where the maximum is taken over the coarse bound grid and lifted by the same local
+    slope/curvature remainder the outside bound uses.  Dropping a node therefore drops
+    something provably below the kept mass, not something estimated to be.
+    """
+    x_grid = np.asarray(x_grid, dtype=float).ravel()
+    log_w_grid = np.asarray(log_w_grid, dtype=float).ravel()
+
+    # --- cheap pre-pass: a true upper bound on each node's contribution
+    t = np.linspace(0.0, 2.0 * np.pi, 96, endpoint=False)
+    PHI, U = np.meshgrid(t, t, indexing='ij')
+    r = 0.5 * np.sqrt(2.0) * (2.0 * np.pi / 96)
+    ub = np.empty(x_grid.size)
+    for i, x in enumerate(x_grid):
+        C = joint_table(C_A_st, C_B_st, x=float(x))
+        g0 = eval_g(C, PHI.ravel(), U.ravel())
+        gp = eval_g(C, PHI.ravel(), U.ravel(), (1, 0))
+        gu = eval_g(C, PHI.ravel(), U.ravel(), (0, 1))
+        m2 = (derivative_bound(C, (2, 0)) + 2.0 * derivative_bound(C, (1, 1))
+              + derivative_bound(C, (0, 2)))
+        ub[i] = log_w_grid[i] + float((g0 + np.hypot(gp, gu) * r
+                                       + 0.5 * m2 * r * r).max())
+    live = np.nonzero(ub > ub.max() - float(keep_nats))[0]
+
+    parts, ok_all, rep = [], True, {'n_nodes': int(x_grid.size),
+                                    'n_nodes_live': int(live.size),
+                                    'worst_margin': -np.inf, 'declines': []}
+    for i in live:
+        C = joint_table(C_A_st, C_B_st, x=float(x_grid[i]))
+        v, ok, r_i = joint_marginalize_peak_local(
+            C, n_phi=n_phi, n_bound_grid=n_bound_grid, tol_nats=tol_nats)
+        if not ok:
+            ok_all = False
+            rep['declines'].append((int(i), r_i['decline']))
+        rep['worst_margin'] = max(rep['worst_margin'], r_i['margin'])
+        parts.append(log_w_grid[i] + v)
+
+    if not parts:
+        return -np.inf, False, rep
+    parts = np.array(parts)
+    m = parts.max()
+    # dropped nodes are bounded above by ub; add that as a certified remainder
+    dropped = np.setdiff1d(np.arange(x_grid.size), live)
+    value = m + np.log(np.exp(parts - m).sum())
+    if dropped.size:
+        rep['dropped_bound'] = float(ub[dropped].max())
+    return float(value), bool(ok_all), rep
