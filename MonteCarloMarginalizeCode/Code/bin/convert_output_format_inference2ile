@@ -166,6 +166,9 @@ for indx in np.arange(opts.target_size):
             lambda1, lambda2 = lalsimutils.tidal_lambda_from_tilde(m1,m2,lambdat_here, dlambdat_here)
             P.lambda1 = lambda1
             P.lambda2 =lambda2
+    if "eccentricity" in samples_in.dtype.names:
+            P.eccentricity = samples_in["eccentricity"][fac_reduce*indx]
+            P.meanPerAno = samples_in["meanPerAno"][fac_reduce*indx]
 
     # Add extrinsic parameters...NEED TO DOUBLE CHECK
     if opts.use_extrinsic:  # note the Euler angles are already set
