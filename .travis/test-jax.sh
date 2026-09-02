@@ -410,7 +410,11 @@ fi
 # test_angle_marg_gh_selection.py (auto may reach laplace under GH only where
 # the A0==0/B1==0 identity is MEASURED to hold).  Collection in this
 # environment measures 219/220 with 1 deselected.
-EXPECTED_TESTS=217
+# Raised 217 -> 221 by the 4 tests added answering external review on the
+# identity gate (imaginary-A0 coefficient, B1 in the conjugate slice, the
+# gate applying to an explicit laplace, and the kernel guard staying
+# trace-safe).
+EXPECTED_TESTS=221
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"

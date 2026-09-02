@@ -1276,13 +1276,19 @@ def fused_log_likelihood_distphipsimarg_laplace(
     npts = data.npts
 
     _use_gh = _core._DISTMARG_GH_N > 0
+    # This runs under jit/grad, where C_A and C_B are TRACERS, so the identity
+    # cannot be measured here -- it is a property of the DATA and is enforced
+    # once, on concrete tables, by JAXDistPhiPsiMargLikelihood (which gates
+    # EVERY scheme, not just 'auto').  A caller invoking this kernel directly
+    # under GH is responsible for calling gh_laplace_supported itself; the
+    # m_max test below is the only check available at trace time.
     if _use_gh and int(m_max) > _GH_PSI_M_MAX:
         raise ValueError(
             "JAX_ILE_DISTMARG_GH is set and the 'laplace' angle-marg scheme's "
             "psi-marginal distance-node placement is validated for mode "
-            "content m_max <= %d only (it rests on the A0 == B1 == 0 identity "
-            "that holds for (2,+-2)); this data has m_max = %d.  Use "
-            "--angle-marg-scheme exact, or unset JAX_ILE_DISTMARG_GH."
+            "content m_max <= %d only (it rests on the A0 == 0 / B1 == 0 "
+            "identity); this data has m_max = %d.  Use --angle-marg-scheme "
+            "exact, or unset JAX_ILE_DISTMARG_GH."
             % (_GH_PSI_M_MAX, int(m_max)))
 
     amp_sizing = _require_amp_sizing(amp_sizing)
@@ -1354,22 +1360,10 @@ def fused_log_likelihood_distphipsimarg_laplace(
     def _step(carry, x):
         m, s = carry
         phw, lww = x                                          # (c,)
-        EA = jnp.exp(1j * phw[:, None] * kpA[None, :]) * wA[None, :]  # (c,KPA)
-        EB = jnp.exp(1j * phw[:, None] * kpB[None, :]) * wB[None, :]
-
-        def MA(ks_idx):
-            return jnp.einsum("ck,kst->cst", EA, C_A[:, ks_idx])
-
-        def MB(ks_idx):
-            return jnp.einsum("ck,kst->cst", EB, C_B[:, ks_idx])
-
-        # psi-Fourier coefficient FIELDS at the dense phi points (c,S,npts):
-        # A(u) = A0 + Re(A1 e^{iu});  B(u) = B0 + Re(B1 e^{iu}) + Re(B2 e^{2iu})
-        A0 = MA(1).real                       # ks index 1 == ks 0
-        A1 = MA(2) + jnp.conj(MA(0))          # ks +1 plus conj(ks -1)
-        B0 = MB(2).real
-        B1 = MB(3) + jnp.conj(MB(1))
-        B2 = MB(4) + jnp.conj(MB(0))
+        # psi-Fourier coefficient FIELDS at the dense phi points (c,S,npts).
+        # Shared with gh_laplace_supported so the identity that predicate
+        # measures IS the one this placement depends on.
+        A0, A1, B0, B1, B2 = psi_harmonics_at_phi(C_A, C_B, phw, m_max)
 
         # distance quadrature: blocked, vectorized over the block (AD-fast),
         # running log-sum-exp across blocks (a lax.scan; see the packing note
@@ -1489,6 +1483,37 @@ def fused_log_likelihood_distphipsimarg_laplace(
 GH_PSI_IDENTITY_TOL = 1e-8
 
 
+def psi_harmonics_at_phi(C_A, C_B, phi, m_max):
+    """The psi-Fourier FIELDS (A0, A1, B0, B1, B2) at the given phi points.
+
+    A(u) = A0 + Re(A1 e^{iu});  B(u) = B0 + Re(B1 e^{iu}) + Re(B2 e^{2iu}), u = 2 psi.
+
+    THE ONLY DEFINITION.  Both the laplace kernel and :func:`gh_laplace_supported`
+    call this, so the identity the predicate measures is by construction the one
+    the kernel's node placement depends on.  They were separate once, and the
+    predicate silently measured a DIFFERENT quantity: it read the real part of the
+    coefficient SLICE ``C_A[:, 1]`` rather than of the phi-reconstruction
+    ``MA(1)``, so a purely imaginary coefficient gave a nonzero A0(phi) that the
+    check reported as zero; and it read only ``C_B[:, 3]`` while the field also
+    carries ``conj(C_B[:, 1])``.  Either could pass a dataset whose identity does
+    not hold.  Do not re-derive these five lines anywhere.
+    """
+    phi = jnp.asarray(phi, dtype=jnp.float64)
+    wA = _kp_weights(m_max + 1)
+    wB = _kp_weights(2 * m_max + 1)
+    kpA = jnp.arange(m_max + 1, dtype=jnp.float64)
+    kpB = jnp.arange(2 * m_max + 1, dtype=jnp.float64)
+    EA = jnp.exp(1j * phi[:, None] * kpA[None, :]) * wA[None, :]
+    EB = jnp.exp(1j * phi[:, None] * kpB[None, :]) * wB[None, :]
+    MA = lambda k: jnp.einsum("ck,kst->cst", EA, C_A[:, k])
+    MB = lambda k: jnp.einsum("ck,kst->cst", EB, C_B[:, k])
+    return (MA(1).real,                    # A0   (ks index 1 == ks 0)
+            MA(2) + jnp.conj(MA(0)),       # A1   (ks +1 plus conj(ks -1))
+            MB(2).real,                    # B0
+            MB(3) + jnp.conj(MB(1)),       # B1
+            MB(4) + jnp.conj(MB(0)))       # B2
+
+
 def gh_laplace_supported(C_A, C_B, m_max):
     """May 'laplace' use the per-sample adaptive distance quadrature on THIS data?
 
@@ -1511,26 +1536,37 @@ def gh_laplace_supported(C_A, C_B, m_max):
     tables), once, at build time.
     """
     import numpy as _np
-    A0 = _np.abs(_np.asarray(C_A[:, 1]).real).max()
-    A1 = _np.abs(_np.asarray(C_A[:, 2])).max()
-    ks0 = (int(_np.asarray(C_B).shape[1]) - 1) // 2
-    B0 = _np.abs(_np.asarray(C_B[:, ks0]).real).max()
-    B1 = _np.abs(_np.asarray(C_B[:, ks0 + 1])).max()
+    # Measure the RECONSTRUCTED fields the kernel uses, on a phi grid dense
+    # enough to resolve their phi content (harmonics to 2*m_max), NOT the
+    # coefficient slices -- see psi_harmonics_at_phi's docstring for the two
+    # ways reading slices gave the wrong answer.
+    ok_modes = int(m_max) <= _GH_PSI_M_MAX
+    if not ok_modes:
+        # Return before reconstructing: the tables are SIZED by m_max, so a
+        # mismatched m_max is a shape error rather than a measurement.
+        return False, dict(gh_laplace_ok=False, m_max=int(m_max),
+                           identity_A0_over_A1=None, identity_B1_over_B0=None,
+                           gh_laplace_reason="mode content m_max=%d above the "
+                                             "validated %d"
+                                             % (int(m_max), _GH_PSI_M_MAX))
+    n_phi_probe = max(8 * int(m_max) + 8, 16)
+    phi_probe = _np.linspace(0.0, 2.0 * _np.pi, n_phi_probe, endpoint=False)
+    A0f, A1f, B0f, B1f, B2f = psi_harmonics_at_phi(C_A, C_B, phi_probe, m_max)
+    A0 = float(_np.abs(_np.asarray(A0f)).max())
+    A1 = float(_np.abs(_np.asarray(A1f)).max())
+    B0 = float(_np.abs(_np.asarray(B0f)).max())
+    B1 = float(_np.abs(_np.asarray(B1f)).max())
     r_A0 = float(A0 / A1) if A1 > 0 else _np.inf
     r_B1 = float(B1 / B0) if B0 > 0 else _np.inf
-    ok_modes = int(m_max) <= _GH_PSI_M_MAX
     ok_ident = (r_A0 <= GH_PSI_IDENTITY_TOL) and (r_B1 <= GH_PSI_IDENTITY_TOL)
-    if not ok_modes:
-        reason = ("mode content m_max=%d above the validated %d"
-                  % (int(m_max), _GH_PSI_M_MAX))
-    elif not ok_ident:
+    if not ok_ident:
         reason = ("the A0==0/B1==0 identity does NOT hold on this data "
                   "(|A0|/|A1|=%.3g, |B1|/B0=%.3g, tol %.0e) -- the psi-marginal "
                   "node placement is not valid here"
                   % (r_A0, r_B1, GH_PSI_IDENTITY_TOL))
     else:
         reason = "m_max=%d and the A0==0/B1==0 identity holds (measured)" % int(m_max)
-    return (ok_modes and ok_ident), dict(gh_laplace_ok=bool(ok_modes and ok_ident),
+    return ok_ident, dict(gh_laplace_ok=bool(ok_ident),
                                          gh_laplace_reason=reason,
                                          identity_A0_over_A1=r_A0,
                                          identity_B1_over_B0=r_B1,
