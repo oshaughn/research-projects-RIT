@@ -47,6 +47,13 @@ The optional Python API `family_log_pressure_min` selects
 `CreateSimNeutronStarFamilyPTWithPcmin`; its value is the finite natural
 logarithm of central pressure in pascals, `ln(Pc / Pa)`.
 
+The mass-radius-Lambda helpers use the same canonical keyword as O4d:
+`make_mr_lambda_lal(..., multipart=True)` and
+`make_mr_lambda_lal_branches(..., multipart=True)`. The older O4c keyword
+`reviewed_multibranch` remains a deprecated alias. Supplying both keywords with
+different values raises an error rather than selecting an object family
+ambiguously.
+
 For pseudo-pipe workflows, forward the flag with
 `--manual-extra-cip-args`.  On O4d, Hydra hyperpipe configurations can put it
 in the post driver's `extra-args` when that driver is the fixed-EOS CIP

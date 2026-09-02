@@ -15,6 +15,7 @@ rosDebug=False
 import numpy as np
 import os
 import sys
+import warnings
 import lal
 import lalsimulation as lalsim
 from scipy.integrate import quad
@@ -1255,20 +1256,46 @@ def epsilon(x, p0, eps0, coeffs,use_ode=True):
 ###
 
 # Les-like
+def _resolve_multipart_helper_keyword(multipart, reviewed_multibranch):
+    """Resolve the canonical helper keyword and its deprecated O4c alias."""
+    if reviewed_multibranch is not None:
+        warnings.warn(
+            "reviewed_multibranch is deprecated; use multipart",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+        if (
+            multipart is not None
+            and bool(multipart) != bool(reviewed_multibranch)
+        ):
+            raise ValueError(
+                "conflicting multipart and reviewed_multibranch values"
+            )
+        multipart = reviewed_multibranch
+    return False if multipart is None else bool(multipart)
+
+
 def make_mr_lambda_lal(eos, n_bins=100, branch_id=None,
-                       reviewed_multibranch=False, family_adapter=None):
+                       multipart=None, family_adapter=None,
+                       reviewed_multibranch=None):
     '''
     Construct mass-radius curve from EOS
     Based on modern code resources (https://git.ligo.org/publications/gw170817/bns-eos/blob/master/scripts/eos-params.py) which access low-level structures
 
     ``branch_id`` is optional for released/single-branch LALSimulation.  It is
     required for a multibranch family so an overlapping twin-star interval is
-    never collapsed silently. Set ``reviewed_multibranch`` only for an EOS
-    returned by ``SimNeutronStarEOSFromFilePhaseTransition``.
+    never collapsed silently. Set ``multipart=True`` only for an EOS returned
+    by ``SimNeutronStarEOSFromFilePhaseTransition``.
+
+    ``reviewed_multibranch`` is a deprecated O4c keyword alias for
+    ``multipart``. Supplying both with different values is an error.
     '''
+    multipart = _resolve_multipart_helper_keyword(
+        multipart, reviewed_multibranch
+    )
     family = family_adapter or create_family(
         eos, lalsim_module=lalsim,
-        reviewed_multibranch=reviewed_multibranch,
+        reviewed_multibranch=multipart,
     )
     if family.number_of_branches > 1 and branch_id is None:
         raise ValueError(
@@ -1292,12 +1319,18 @@ def make_mr_lambda_lal(eos, n_bins=100, branch_id=None,
 
 
 def make_mr_lambda_lal_branches(eos, n_bins=100,
-                                reviewed_multibranch=False,
-                                family_adapter=None):
-    """Return branch curves; multipart construction is explicit and opt-in."""
+                                multipart=None, family_adapter=None,
+                                reviewed_multibranch=None):
+    """Return branch curves with canonical ``multipart`` dispatch.
+
+    ``reviewed_multibranch`` remains as a deprecated O4c keyword alias.
+    """
+    multipart = _resolve_multipart_helper_keyword(
+        multipart, reviewed_multibranch
+    )
     family = family_adapter or create_family(
         eos, lalsim_module=lalsim,
-        reviewed_multibranch=reviewed_multibranch,
+        reviewed_multibranch=multipart,
     )
     return {
         branch_id: _make_mr_lambda_for_family(family, n_bins, branch_id)

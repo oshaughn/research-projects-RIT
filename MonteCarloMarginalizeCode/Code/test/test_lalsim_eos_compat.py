@@ -310,15 +310,44 @@ def test_selected_branch_view_preserves_legacy_scalar_consumer_api(monkeypatch):
     assert primary.lambda_from_m(2.5) == pytest.approx(1e-8)
 
     curves = EOSManager.make_mr_lambda_lal_branches(
-        eos.eos, n_bins=3, family_adapter=eos._get_lalsim_family_adapter()
+        eos.eos, n_bins=3, multipart=True
     )
     assert set(curves) == {0, 1}
     assert curves[0].shape == (3, 3)
 
     explicit = EOSManager.make_mr_lambda_lal(
-        eos.eos, n_bins=3, branch_id=1, reviewed_multibranch=True
+        eos.eos, n_bins=3, branch_id=1, multipart=True
     )
     assert explicit.shape == (3, 3)
+
+    with pytest.warns(DeprecationWarning, match="use multipart"):
+        alias = EOSManager.make_mr_lambda_lal(
+            eos.eos,
+            n_bins=3,
+            branch_id=1,
+            reviewed_multibranch=True,
+        )
+    assert alias.shape == (3, 3)
+
+    with pytest.warns(DeprecationWarning, match="use multipart"):
+        alias_branches = EOSManager.make_mr_lambda_lal_branches(
+            eos.eos, n_bins=3, reviewed_multibranch=True
+        )
+    assert set(alias_branches) == {0, 1}
+
+    for helper, kwargs in (
+        (EOSManager.make_mr_lambda_lal, {"branch_id": 1}),
+        (EOSManager.make_mr_lambda_lal_branches, {}),
+    ):
+        with pytest.warns(DeprecationWarning, match="use multipart"):
+            with pytest.raises(ValueError, match="conflicting multipart"):
+                helper(
+                    eos.eos,
+                    n_bins=3,
+                    multipart=True,
+                    reviewed_multibranch=False,
+                    **kwargs
+                )
 
 
 def test_mr_lambda_branches_helper_keeps_legacy_default(monkeypatch):
