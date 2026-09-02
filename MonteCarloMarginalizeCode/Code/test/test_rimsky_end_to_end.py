@@ -6,11 +6,13 @@ Asimov's ledger, RIFT pipeline discovery, and bootstrap-file resolution.
 """
 
 import configparser
+from importlib.metadata import version
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 import yaml
+from packaging.version import Version
 
 rimsky = pytest.importorskip("rimsky", reason="Rimsky requires Python >=3.12")
 
@@ -68,6 +70,8 @@ def _initialise_asimov(project):
 
 
 def test_first_rimsky_result_creates_bootstrapped_rift_production(tmp_path):
+    assert Version(version("asimov")) >= Version("0.7")
+
     sid = "S260305df"
     source = tmp_path / "rimsky.yaml"
     followup = tmp_path / "rift-followup.yaml"
