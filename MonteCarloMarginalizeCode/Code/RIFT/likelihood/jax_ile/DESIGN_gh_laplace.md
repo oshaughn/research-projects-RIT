@@ -166,10 +166,12 @@ with the SHIPPED constants (exact-argmax centring, 22 sigma, 49-node floor):
 | laplace+GH16 vs laplace+GH129 (self-convergence) | 4.20e-09 | 1.273e-10 |
 | laplace+GH33/65 vs laplace+GH129 | 0.0 | 0.0 |
 
-(The rho 163.08 `laplace+uniform-4096` figure is carried over from the run with
-the first-cut constants: `laplace+uniform` does not use the adaptive nodes at
-all, so it is unchanged by them.  The `laplace+GH` values at BOTH rungs are
-identical to six decimals between the first cut and what ships.)
+Every cell is measured with the shipped constants; nothing is carried over.
+The rho 163.08 `laplace+uniform-4096` leg finished last and reproduced
+1.4810625671e-03, the value the first-cut run gave, as it must -- that leg does
+not use the adaptive nodes at all.  The `laplace+GH` values at BOTH rungs are
+identical to six decimals between the first cut (argmax A, 12 sigma, 27 nodes)
+and what ships (exact argmax, 22 sigma, 49 nodes).
 
 The laplace-vs-exact residual is FLAT in node count, so it is the psi-Laplace
 error alone, not the distance quadrature.  The uniform-4096 residual is that
@@ -199,6 +201,21 @@ ships (exact argmax, 22 sigma, 49 nodes).
   comment says to run it by hand when touching `anglemarg.py`).  **Every run
   below names its interpreter, because the result depends on the numpy
   version:**
+
+  **That step is avoidable, and the gate has been run without it.**
+  `~/.conda/envs/gwkokab_stable` carries pytest 9.0.3 (a real `bin/pytest`),
+  jax/jaxlib 0.9.2, numpyro 0.21.0, numpy 2.4.6, flowMC, lal and lalsimulation
+  -- everything `test-jax.sh` prechecks.  The full gate on the integration
+  branch ran there with NO `PYTHONPATH` additions: **219 passed, 1 deselected,
+  0 failed, 0 errors** in 11m01s, collection floor 217, 23 files.
+
+  A first attempt on that interpreter was OOM-killed 41 tests in (rc 137).  The
+  25 GiB cgroup is `user.slice/user-<uid>.slice` -- PER-UID, shared by every
+  session on the host -- so "run serially" bounds only your own contribution and
+  a neighbouring session can kill you.  Exit 137 with no message is
+  indistinguishable from a code failure; `dmesg -T | grep -E 'oom-kill|Killed
+  process'` separates them.  Recorded in the infra-atlas (lvk-cit) rather than
+  here, since it is a host fact and not a property of this code.
 
   | numpy / jax | interpreter | tree | result |
   |---|---|---|---|
