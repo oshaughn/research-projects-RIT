@@ -280,9 +280,13 @@ def test_angle_lattice_is_sized_from_the_full_support_grid_by_name():
     deprecated JAX_ILE_DISTGRID_ADAPTIVE branch and quoted 12.6%, which is
     wrong.  make_distance_grid_adaptive concatenates a full-range `linspace`
     backbone before dedup, so its x_min/x_max ARE the full support's and it
-    returns a byte-identical amplitude (measured 10573.7261 either way; the
-    12.6-14.8% figure belongs to the hand-built [0.8 d, 1.25 d] window in
-    wrapper.py, which no code path produces).  So the guard is on the argument
+    returns a byte-identical amplitude -- 105.737261 either way on THIS file's
+    _synth(scale=3.0, kappa_boost=4.0), and 10573.7261 either way on the louder
+    _synth(scale=30.0, kappa_boost=40.0) the figure was first taken from.  (An
+    earlier draft quoted only the second, unlabelled, which reproduces 100x off
+    if you use the fixture this file actually ships.)  The 12.6-14.8% figure
+    belongs to the hand-built [0.8 d, 1.25 d] window in wrapper.py, which no
+    code path produces.  So the guard is on the argument
     the wrapper passes, which is where the property lives, and it is
     prospective -- see test_narrowing_the_distance_grid_can_move_the_sizing_
     amplitude, which pins the premise the guard rests on."""
@@ -667,12 +671,24 @@ def test_driver_refuses_the_gh_combination_at_PARSE_time():
                 "--distance-grid-scheme loguniform under JAX_ILE_DISTMARG_GH "
                 "must be refused at PARSE time, not deferred to the "
                 "constructor after a full precompute")
-        # ...and the identical command line must be ACCEPTED with the variable
-        # unset, or this guard is just refusing the option outright.
-        os.environ.pop("JAX_ILE_DISTMARG_GH", None)
-        optp = mod.build_parser()
-        opts, _ = optp.parse_args(list(args))
-        mod.check_critical_and_report(opts, optp)
+        # ...and the identical command line must be ACCEPTED both with the
+        # variable unset AND with it explicitly OFF.  "0" is the case that
+        # separates the shipped `int(...) > 0` from a truthiness test on the
+        # raw string: under `if os.environ.get(...)` the driver refuses while
+        # core._DISTMARG_GH_N is 0 and the constructor would accept, so the two
+        # seams disagree and the user is refused a combination that works.
+        # External review found exactly that mutation surviving.
+        for off in ("0", "00", None):
+            if off is None:
+                os.environ.pop("JAX_ILE_DISTMARG_GH", None)
+            else:
+                os.environ["JAX_ILE_DISTMARG_GH"] = off
+            from RIFT.likelihood.jax_ile import core as _C
+            assert _C._DISTMARG_GH_N == 0, (
+                "precondition: the kernels must see GH as OFF for %r" % (off,))
+            optp = mod.build_parser()
+            opts, _ = optp.parse_args(list(args))
+            mod.check_critical_and_report(opts, optp)   # must not raise
     finally:
         if saved is None:
             os.environ.pop("JAX_ILE_DISTMARG_GH", None)
@@ -690,27 +706,57 @@ def test_sky_doubling_updates_the_unclipped_maximum_too():
     the F1 refusal disarms itself on exactly the events whose sky sampling was
     too coarse to trust.
 
-    Why a SOURCE-level guard, when the branch itself is reachable.  It is:
-    19 of 120 searched (data seed, n_sky, seed) combinations enter the re-draw,
-    across five of six data seeds, and one of them sits on an exterior support
-    (this file's own _synth(), [500, 10000] Mpc, n_sky=64, seed=1 --
-    clip_excess 2.4257).  What is NOT reachable is a DIFFERENCE.  The
+    BOTH a value pin and a source guard, because neither alone is enough --
+    and an earlier draft of this test shipped only the source guard on the
+    strength of a claim that was too strong.
+
+    The re-draw branch IS reachable: sweeping (data seed in 0..5) x (support
+    [1, 10000] Mpc) x (n_sky in 4, 8, 16, 32, 64) x (estimator seed in 0..3) --
+    120 combinations -- 19 enter it, across five of the six data seeds.  The
+    fixture below is one that enters it AND sits on an exterior support.
+
+    What a value pin CAN catch: any change that scales or replaces the
+    accumulated unclipped maximum (halving it, wrapping it, resetting it after
+    the loop, or reverting the CONSUMER to read the first batch's array).
+    Those all move clip_excess on this fixture, and external review found three
+    such mutations that the source guard alone missed -- including one that
+    restores the pre-fix defect bit-for-bit by touching a line the loop guard
+    never looks at.
+
+    What a value pin CANNOT catch, which is why the source guard stays: simply
+    DELETING the loop update leaves clip_excess bit-identical here, because the
     deterministic face-on/face-off extremes are appended to the FIRST batch and
-    are what attains the unclipped maximum, so the second batch's unclipped
-    contribution was a no-op in every configuration measured: deleting the
-    update leaves clip_excess bit-identical (2.42571586419 either way) on the
-    one exterior doubling case there is.  The corruption is real but silent --
+    are what attains the unclipped maximum, so the second batch contributes
+    nothing on every fixture available.  That corruption is real but silent --
     a dataset whose unclipped maximum came from a second-batch draw would take
-    clip_excess BELOW 1 and disarm the refusal, and nothing here bounds that.
-    So a behavioural test would be one that cannot be made to fail, which is
-    why the gradient test in this file was deleted rather than kept.  What CAN
-    fail is the assertion that the loop updates both accumulators.  Verified:
-    deleting the unclipped update makes this test fail and leaves every other
-    test in this file passing.
+    clip_excess BELOW 1 and disarm the F1 refusal, and nothing here bounds
+    that.
     """
     import inspect
     import textwrap
     from RIFT.likelihood.jax_ile import anglemarg as AM
+
+    # ---- 1. VALUE PIN, on a fixture that actually enters the re-draw ----
+    data = _synth(scale=3.0, kappa_boost=4.0, seed=3)
+    xg, _ = make_distance_grid(500.0, 10000.0, 64, "euclidean",
+                               distMpcRef=data.distMpcRef)
+    import contextlib, io
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        _, diag = AM.estimate_angle_amplitude(
+            data, xg, interp="sinc", n_sky=64, seed=1, return_diagnostics=True)
+    assert "doubling" in buf.getvalue(), (
+        "this fixture no longer enters the sky re-draw branch, so the pin "
+        "below no longer exercises it; find another (see the docstring sweep)")
+    assert diag["amp_clipped"] == 21.795063180415923, diag["amp_clipped"]
+    assert diag["amp_unclipped"] == 52.868630517667135, diag["amp_unclipped"]
+    assert diag["clip_excess"] == 2.4257158641858192, (
+        "clip_excess on the re-draw fixture moved to %.17g.  Any rescaling, "
+        "wrapping, post-loop reset, or reversion of the CONSUMER to the "
+        "first batch's array lands here." % diag["clip_excess"])
+    assert diag["clip_excess"] > 1.0 + 1e-3, "and it must still refuse"
+
+    # ---- 2. SOURCE GUARD, for the one mutation a value pin cannot see ----
     tree = ast.parse(textwrap.dedent(
         inspect.getsource(AM.estimate_angle_amplitude)))
     loops = [n for n in ast.walk(tree) if isinstance(n, ast.While)]
@@ -733,6 +779,30 @@ def test_sky_doubling_updates_the_unclipped_maximum_too():
     src = inspect.getsource(AM.estimate_angle_amplitude)
     assert "amp_emp = max(amp_emp, float(amps2.max()))" in src
     assert "amp_u_emp = max(amp_u_emp, float(amps_u2.max()))" in src
+    # ...and the CONSUMER must read the accumulator, not re-derive from the
+    # array.  With the concatenate gone, `amps_u` holds batch 1 ONLY, so
+    # `amp_unclipped = np.max(amps_u)` is the pre-fix defect bit-for-bit while
+    # the loop guard above still passes.  External review found exactly that.
+    fn = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)][0]
+    reads = [n for n in ast.walk(fn) if isinstance(n, ast.Assign)
+             and any(isinstance(t, ast.Name) and t.id == "amp_unclipped"
+                     for t in n.targets)]
+    assert len(reads) == 1 and isinstance(reads[0].value, ast.Name) \
+        and reads[0].value.id == "amp_u_emp", (
+        "amp_unclipped must be the accumulator amp_u_emp itself; re-deriving "
+        "it from amps_u reads the FIRST sky batch only and silently restores "
+        "the defect this test exists for")
+    # ...and nothing may reassign the accumulator AFTER the loop, which would
+    # discard the second batch just as effectively.
+    loop_line = loops[0].lineno
+    late = [n for n in ast.walk(fn) if isinstance(n, ast.Assign)
+            and n.lineno > loop_line + len(loops[0].body)
+            and any(isinstance(t, ast.Name) and t.id == "amp_u_emp"
+                    for t in n.targets)]
+    assert not late, (
+        "amp_u_emp is reassigned after the re-draw loop (line %s); that "
+        "discards the second batch exactly as dropping the in-loop update "
+        "would" % [n.lineno for n in late])
 
 
 def test_dist_grid_tol_is_forwarded_and_not_hardcoded():

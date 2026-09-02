@@ -337,7 +337,11 @@ def check_critical_and_report(opts, optp):
             # the combinations.
             fatal.append("--distance-grid-tol must be in (0, 2): it is a "
                          "FRACTIONAL error on the distance integral (~nats on "
-                         "lnL), not a node count; got %r" % (_tol,))
+                         "lnL), not a node count; got %r.  Note the interval "
+                         "is the DERIVATION's domain, not a range of sensible "
+                         "values: c(tol) diverges as tol -> 2, so 1.999 asks "
+                         "for a 2-node grid.  The shipped default is %g."
+                         % (_tol, _jax_core_dist_tol_default()))
         if int(os.environ.get("JAX_ILE_DISTMARG_GH", "0")) > 0:
             fatal.append(
                 "--distance-grid-scheme %s cannot be combined with "

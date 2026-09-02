@@ -412,6 +412,21 @@ def estimate_angle_amplitude(data, x_grid, interp=JAX_INTERP_DEFAULT,
             # inside the prior support.  Only used to DETECT that it is not --
             # the returned amplitude is unchanged.  A <= 0 puts the stationary
             # point at negative x, where the max over x >= 0 is 0.
+            # The A_g > 0 arm is inert FOR THIS CONSUMER and load-bearing for
+            # a different one, which is the only useful thing to say about it.
+            # A^2 is even in A, so the arm changes nothing whenever the
+            # selection is an ARGMAX: the lattice maximum of A^2/(2B) sits at
+            # A > 0 anyway, and removing the arm leaves clip_excess
+            # bit-identical on every mode set tried ((2,+-2), +(2,+-1),
+            # +(3,+-3), interior and exterior supports).  Nothing here can fail
+            # if it is deleted.  It becomes load-bearing the moment a consumer
+            # selects a BAND rather than a maximum -- over a threshold the
+            # A < 0 branch is exactly degenerate with its mirror and survives
+            # the cut, which is a documented trap (a weight cut ranked on the
+            # unconstrained A^2/(2B) came out a factor ~300 wrong, and the tell
+            # was that the answer did not move between a 10-nat and a 100-nat
+            # threshold).  So: keep it, and if you add a banded selection here,
+            # that is the point at which it needs a test.
             val_u = np.where(A_g > 0.0,
                              np.square(A_g) / (2.0 * np.maximum(B_g, 1e-300)),
                              0.0)
@@ -1144,7 +1159,15 @@ def fused_log_likelihood_distphipsimarg_laplace(
     SHRINKS with SNR.  The adaptive distance quadrature
     (JAX_ILE_DISTMARG_GH) is NOT supported on this path -- it would need a
     psi-marginal node-placement rule this PR does not validate -- and raises
-    rather than being silently ignored.
+    rather than being silently ignored.  That restriction is about the
+    PER-SAMPLE adaptive quadrature ONLY.  The STATIC distance grid is a
+    separate axis and is NOT restricted here: ``--distance-grid-scheme
+    loguniform`` is supported and gated on this path, and needs no node
+    placement rule at all because it locates no peak -- one relative spacing
+    resolves every per-sample peak wherever it sits.  See
+    DESIGN_jax_distance_quadrature.md.  (It is refused when
+    JAX_ILE_DISTMARG_GH is set, because the per-sample quadrature consumes
+    only the SUPPORT of x_grid and the option would be inert.)
 
     Memory is bounded by ``phi_chunk`` x ``dist_block``, never by grid sizes.
     """

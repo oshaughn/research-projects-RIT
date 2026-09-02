@@ -167,21 +167,31 @@ absolute spacing is coarsest at `d_max`, so a layer there is the worst case for
 it.  At the LOWER edge the same grid is *finest* exactly where the layer sits,
 and the sign reverses.  Measured (external re-review, 2026-09-02) on a
 `rho_max = 30` target with the maximizer at 86 Mpc, sweeping `d_min` past it
-with `d_max = 10^4` Mpc, against a uniform-8192 reference:
+with `d_max = 10^4` Mpc.  **The reference is two references**: a uniform
+65536-node grid and a log-uniform grid at `tol = 1e-10`, and their mutual
+disagreement is reported as a column rather than assumed away -- an earlier
+draft of this table used a single uniform-8192 reference and argued its
+convergence from the fact that the log grid agreed with it, which is a
+common-mode argument and was ~25% low.
 
-| `d_min` | `clip_excess` | verdict | log-uniform err | uniform-256 err |
-|---|---|---|---|---|
-| 86 | 1.0 | accepted | 1.42e-4 | 1.372e-3 |
-| 88 | 1.00057 | accepted | 1.44e-4 | 1.371e-3 |
-| 92 | 1.0044 | REFUSED | 1.46e-4 | 1.371e-3 |
-| 120 | 1.0879 | REFUSED | 1.45e-4 | 1.367e-3 |
-| 400 | 2.5579 | REFUSED | 1.44e-4 | 1.318e-3 |
+| `d_min` | `clip_excess` | verdict | n (log) | refs disagree | log-uniform err | uniform-256 err |
+|---|---|---|---|---|---|---|
+| 86 | 1.0 | accepted | 75 | 3.68e-5 | 1.85e-4 | 1.41e-3 |
+| 92 | 1.0044 | REFUSED | 74 | 3.67e-5 | 1.85e-4 | 1.41e-3 |
+| 120 | 1.0879 | REFUSED | 70 | 3.69e-5 | 1.84e-4 | 1.41e-3 |
+| 400 | 2.5579 | REFUSED | 52 | 3.79e-5 | 1.81e-4 | 1.36e-3 |
 
-The log-uniform error is flat at ~1.4e-4 nats across the whole refused range and
-stays ~9x BETTER than the default, out to `clip_excess` 2.56.  (That the log
-grid and the uniform reference -- two structurally different quadratures --
-agree to 1.4e-4 is itself the evidence that the reference is converged there; a
-uniform reference would otherwise be suspect at a `d_min`-edge layer.)
+**Read this to two significant figures and no further.**  The two references
+disagree by 3.7e-5, which is ~20% of the log-uniform error being measured, so
+that column is good to about that and no better.  What survives the uncertainty
+is the ratio and its stability: log-uniform is **~7.6x more accurate than the
+uniform-256 default** here, and both errors are flat to a few percent while the
+support shrinks 4.6x and the node count falls 75 -> 52.  An independent
+reconstruction of this measurement by a second reviewer reproduced the
+DIRECTION (log-uniform better at the lower edge, by 2.3x-540x on their
+`(A, B)`) but not the flatness; their fixture is not this one, and the
+disagreement is unresolved.  Treat the direction as established and the
+magnitude as fixture-specific.
 
 We refuse both edges anyway, and that is a deliberate choice rather than an
 oversight: the CONTRACT is what fails once the maximizer leaves the support --
@@ -440,6 +450,27 @@ front of them before choosing this scheme:
 
 ## 4. Rejected alternatives, with the measurement that rejected them
 
+**First, a distinction this document must not blur.**  "The adaptive distance
+machinery" names TWO different mechanisms and only one of them is being
+rejected here.
+
+* `estimate_distance_peak` + `make_distance_grid_adaptive` build ONE static
+  window from an EXTERNAL peak estimate.  That estimate is a 300-step gradient
+  ascent on `0.5*K^2/R`, measured 15.5-19.8 sigma from truth and varying
+  224.8-1231.5 Mpc with the random seed alone.  This is what is rejected
+  below, and the rejection is about the ESTIMATOR, not about adaptivity.
+* `core._distmarg_gh_logL` is a per-sample adaptive quadrature: centre
+  `stop_gradient(clip(K/R, x_min, x_max))`, width `1/sqrt(R)`, both derived
+  from the data AT THAT (sample, time-bin), with no external estimator
+  anywhere.  Nothing here rejects it, and the published `JAX_ILE_DISTMARG_GH`
+  rows are not tarred by the paragraph above.  It is REFUSED in combination
+  with this option only because it consumes just the SUPPORT of `x_grid`, so
+  the option would be bit-identically inert beside it -- a flag-inertness
+  refusal, not a quality judgement.  Its centre-clipping is designed for
+  exactly the boundary-layer regime section 1a refuses, so the two may well be
+  complementary rather than competing; that is unmeasured here and is an open
+  lead, not a claim.
+
 **(a) `make_distance_grid_adaptive` + `estimate_distance_peak` (the in-tree
 machinery behind `JAX_ILE_DISTGRID_ADAPTIVE`).**  Not shipped.  Three defects,
 all measured:
@@ -544,11 +575,36 @@ from `amp_sizing`, the same number the dense lattice is sized from, and
 tables inside every jitted likelihood call and warns when it exceeds
 `amp_sizing`.  That coverage is inherited, and it only holds because the
 spacing is sized from `amp_sizing` (floored) rather than the unfloored
-`amp_data` -- see section 1.  Limits: the fail-safe is a
-`jax.debug.callback`, which XLA may drop (the driver already labels artifacts
-`BEST-EFFORT` for this reason, and silence is not verification); and it
-compares the amplitude, not the spacing, so the claim lapses if a future change
-sources `rho_max` from anywhere else.
+`amp_data` -- see section 1.
+
+**Limits, and they are more severe than an earlier draft of this section
+said.**  (i) The fail-safe is a `jax.debug.callback`, which XLA may drop (the
+driver already labels artifacts `BEST-EFFORT` for this reason, and silence is
+not verification).  (ii) It compares the amplitude, not the spacing, so the
+claim lapses if a future change sources `rho_max` from anywhere else.  (iii)
+**Under `vmap` the label is uninformative in BOTH directions**, so on the
+`--mode flowmc-*` paths -- which is what production runs -- inheriting its
+coverage buys nothing.  `_runtime_amp_failsafe` guards its callback with
+`jax.lax.cond`; a BATCHED predicate lowers to a select, so both branches
+execute, and the callback branch passes a literal `True` rather than the
+predicate, so the recorded state cannot distinguish tripped from not-tripped.
+Measured on a sound run with the predicate false by four orders of magnitude
+(`amp_sizing` forced to 1e12 against a worst reported amplitude of 10.49):
+
+| transformation | `tripped` | `n_calls` |
+|---|---|---|
+| plain call | False | 0 |
+| under `jit` | False | 0 |
+| under `vmap` | **True** | 2 |
+
+That is a defect in `_runtime_amp_failsafe`, NOT in this PR, and it is
+deliberately not fixed here -- it is pre-existing, it needs a host-side
+predicate evaluation and its own validation, and folding it in would widen a
+PR under review.  It is recorded here because it bounds what the sentence
+above may be used for: for the interior-undersizing mode (a), **treat the
+runtime fail-safe as absent on any vmapped path** and rely on the build-time
+sizing.  (Independently reported by the chip-05 session; confirmed here by the
+measurement above.)
 
 **(b) The maximizing distance is EXTERIOR to the prior support** (section 1a).
 **The runtime fail-safe is BLIND to this one.**
@@ -591,11 +647,20 @@ than assumed.
 
 ### Refused combinations
 
-All except the first fail at option-validation time (no precompute) as well as
-in the constructor.  The exterior maximizing distance is the exception and
-cannot be otherwise: it is a property of the DATA, not of the option set, so
-nothing before the precompute can see it and it is refused in the constructor
-only.
+Two of these are refused in the CONSTRUCTOR only; the rest also fail at
+option-validation time, before any precompute.
+
+* the exterior maximizing distance, and it cannot be otherwise: it is a
+  property of the DATA, not of the option set, so nothing before the precompute
+  can see it;
+* `JAX_ILE_DISTGRID_ADAPTIVE=1` together with a non-uniform scheme.  This one
+  COULD be caught at parse time -- it is visible from the option set plus the
+  environment, exactly like the `JAX_ILE_DISTMARG_GH` row -- and is not, which
+  is an inconsistency rather than a necessity.  It is left alone here because
+  that variable is deprecated and its branch additionally requires
+  `guess_snr`, so the parse-time check could not reproduce the constructor's
+  condition without duplicating it.  Recorded so the asymmetry is deliberate
+  rather than overlooked.  (Found by external review of the fix round.)
 
 | combination | why |
 |---|---|
