@@ -1514,8 +1514,21 @@ GH_PSI_IDENTITY_TOL = 1e-8
 # build their coefficients from the arm vectors and a time-varying orientation --
 # so the factorization, and with it the identity, is not guaranteed there.
 #
-# FAIL CLOSED on anything not named: a response model added later must opt in
-# deliberately rather than inherit a placement whose premise nobody checked.
+# READ THE ALLOWLIST POSITIVELY, because the negative phrasing inverts: the ONLY
+# admitted value is the static response, which is the ABSENCE of a feature tag
+# (None).  Every named feature -- "rotation", "freqresponse", and anything added
+# later -- is refused.  Fail-closed by construction: a new response model must be
+# added to this tuple deliberately rather than inherit a placement whose premise
+# nobody checked.
+#
+# SCOPE, so this is not over-read: the identity and this gate are about the PSI
+# axis.  Under precession the PHI content of the coefficient tables IS
+# materially redistributed (measured 2026-09-02 on SEOBNRv5PHM: the A phi-slot-0
+# weight moves from 1.1e-16 aligned to 2.9e-2 precessing, while staying
+# band-limited to ~6e-15), and that is a property of the SOURCE, not the
+# detector.  It is not an identity failure and this gate is right to admit it --
+# the psi harmonics are unchanged -- but "the identity holds under precession"
+# must not be read as a statement about the phi axis.
 _GH_PSI_STATIC_FEATURES = (None,)
 
 # Bin denominators are floored at this fraction of their own global maximum, so
