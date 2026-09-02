@@ -1447,7 +1447,7 @@ def _peak_local_chunk(kappa_rows, rho_col_rows, factors, npts, deltaT, period,
     # a union of closed intervals is attained at an interior stationary point or at an end, so
     # the candidates are exactly: the crests of uncovered enumerated maxima, and the ENDS of the
     # covered intervals.  The ends dominate.  An interval end sits `W_SIGMA * sigma` from its
-    # crest, i.e. `W_SIGMA**2/2 = 72` nats below it whatever the amplitude -- but the nearest
+    # crest, i.e. `(W_SIGMA + LOCALISE_SAFETY)**2/2 = 75.03` nats below it whatever the amplitude -- but the nearest
     # SAMPLE outside that end is a further `W_SIGMA * h_enum / sigma` nats down, which diverges
     # as the peak sharpens.  That single term is the whole measured under-read.
     #

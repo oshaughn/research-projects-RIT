@@ -2260,5 +2260,55 @@ def test_the_outside_supremum_is_evaluated_off_grid_not_sampled():
     assert checked == 2, checked
 
 
+def test_the_tail_margin_on_a_clean_row_is_a_design_constant_not_a_measurement():
+    """What the tail bound is actually saying on a single-peak row: almost nothing about it.
+
+    The interval end is `(W_SIGMA + LOCALISE_SAFETY) * sigma` from the crest and the Laplace
+    value of the integral is `lnL_crest + log(sqrt(2 pi) sigma)`, so
+
+        margin = log(T_out / (sqrt(2 pi) sigma)) - (W_SIGMA + LOCALISE_SAFETY)**2 / 2
+
+    where the second term is 75.03 nats of pure design choice and the first moves by only
+    `log 10` per decade of amplitude.  Measured, the reported margin tracks that to under a
+    nat over two decades.
+
+    This is pinned because it is easy to read `tail_bound_worst = -64` as a per-row safety
+    margin, and on a clean row it is not one -- it is the arithmetic of `W_SIGMA` restated,
+    and it cannot fail whatever the data.  It also explains, rather than merely observes, the
+    "structural slack" two independent reviewers probed and could not eat into: sampling was
+    never what set it.  The bound earns its place on rows with structure OUTSIDE the intervals,
+    where this closed form does not apply and it does fire.
+    """
+    T = NPTS * DELTAT
+    ms = np.arange(1, (NPTS - 1) // 2 + 1)
+    basis = np.exp(2j * np.pi * np.outer(np.arange(NPTS), ms) / NPTS)
+    env = np.exp(-0.5 * (ms / 120.0) ** 2)
+    t_last = (NPTS - 1) * DELTAT
+    cut = (pl.W_SIGMA + pl.LOCALISE_SAFETY) ** 2 / 2.0
+    checked = 0
+    for amp in (2.0e4, 2.0e6):
+        rng = np.random.default_rng(11)
+        c = np.zeros(ms.size, dtype=complex)
+        for _ in range(3):
+            c = c + 2.0 * env * (amp * rng.uniform(0.4, 1.0) / (2 * env.sum())) * \
+                np.exp(-2j * np.pi * ms * rng.uniform(0.05, 0.95))
+        k = (basis @ c)[None, :]
+        r = np.full(k.shape, RHO_SQ)
+        _, peaks = pl.time_marginalize_peak_local(k, r, DELTAT, _lnL, return_peaks=True)
+        rep = pl.last_report()
+        if rep['n_peak_local_rows'] != 1 or peaks[0] is None:
+            continue
+        t_star, sigma = peaks[0]
+        half = (pl.W_SIGMA + pl.LOCALISE_SAFETY) * sigma
+        lo = np.maximum(t_star - half, 0.0)
+        hi = np.minimum(t_star + half, t_last)
+        T_out = max(t_last - float(np.sum(hi - lo)), 0.0)
+        predicted = np.log(T_out / (np.sqrt(2 * np.pi) * float(np.min(sigma)))) - cut
+        assert abs(float(rep['tail_bound_worst']) - predicted) < 2.0, (
+            amp, rep['tail_bound_worst'], predicted)
+        checked += 1
+    assert checked == 2, checked
+
+
 if __name__ == '__main__':
     raise SystemExit(pytest.main([__file__, '-q']))

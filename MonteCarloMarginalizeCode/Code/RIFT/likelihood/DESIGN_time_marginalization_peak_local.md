@@ -444,7 +444,7 @@ It is the top open item.
 The sampled `q_out_max` survived a determined attempt to break it (24 accepted rows,
 honest supremum on a 4096x grid, worst honest margin −63.42 against `TAIL_LOG_TOL =
 -23`).  But the reason is structural slack, not adequate sampling: the outside supremum
-sits at an interval edge, already `W_SIGMA**2/2 = 72` nats below the crest.  Dropping
+sits at an interval edge, already `(W_SIGMA + LOCALISE_SAFETY)**2/2 = 75.03` nats below the crest.  Dropping
 `W_SIGMA` below ~8–9 would silently invalidate the bound.  The inequality
 
     W_SIGMA**2 / 2  >  |TAIL_LOG_TOL| + log(T_out / (sqrt(2 pi) sigma_min))
@@ -636,7 +636,7 @@ nothing.
   round-8 entry for the measured size of the difference and why forcing agreement costs more
   than it buys.
 * The tail bound is still a SAMPLED maximum, and its safety still comes from the
-  `W_SIGMA**2/2 = 72` nat structural slack rather than from the sampling being adequate.
+  `(W_SIGMA + LOCALISE_SAFETY)**2/2 = 75.03` nat structural slack rather than from the sampling being adequate.
 
 ## Round 7 — DOOR 5: a crest pinned at a window end is not a peak
 
@@ -888,7 +888,7 @@ which is the wrong direction for a safety number.
 The supremum over a union of closed intervals is attained at an interior stationary point or at
 an END. The candidates are therefore exactly the crests of uncovered enumerated maxima and the
 ends of the covered intervals, **and the ends dominate**. An interval end sits `W_SIGMA * sigma`
-from its crest, i.e. `W_SIGMA**2/2 = 72` nats below it at any amplitude — but the nearest SAMPLE
+from its crest, i.e. `(W_SIGMA + LOCALISE_SAFETY)**2/2 = 75.03` nats below it at any amplitude — but the nearest SAMPLE
 outside that end is a further `W_SIGMA * h_enum / sigma` down, and that term diverges as the
 peak sharpens. It is the whole measured error.
 
@@ -943,6 +943,57 @@ is INSIDE its interval and that the local grid failed to attain, which is the on
 containment can catch. `test_containment_still_catches_a_mis_placed_interval_with_the_tail_bound
 _disabled` isolates it by making the tail bound unconditionally pass, and it kills that mutation
 again.
+
+## What the tail bound is actually measuring, and it is mostly not the data
+
+The reported margin is suspiciously flat: −65.1 / −65.0 / −64.9 at amplitude 2e4, −64.1 /
+−64.0 / −63.9 at 2e5, −63.0 / −62.9 / −62.8 at 2e6. Two decades of amplitude move it by two
+nats. That is not a coincidence and it is not the data speaking.
+
+For a single-peak row the interval end sits `(W_SIGMA + LOCALISE_SAFETY) * sigma` from the
+crest, and the Laplace value of the integral is `lnL_crest + log(sqrt(2 pi) sigma)`, so
+
+    margin  =  log(T_out) + lnL(end) - result
+            =  log(T_out / (sqrt(2 pi) sigma))  -  (W_SIGMA + LOCALISE_SAFETY)**2 / 2
+
+**The second term is 75.031 nats and is a pure design constant** — it says where we chose to
+cut, nothing else. The only data-dependence is the logarithm, worth `log 10 = 2.3` nats per
+decade of amplitude. Measured against that closed form:
+
+| amplitude | sigma/deltaT | `T_out/(sqrt(2 pi) sigma)` | predicted | reported | diff |
+|---|---|---|---|---|---|
+| 2e4 | 0.00691 | 3.54e4 | −64.56 | −65.13 | −0.58 |
+| 2e5 | 0.00218 | 1.12e5 | −63.41 | −64.13 | −0.73 |
+| 2e6 | 0.00069 | 3.54e5 | −62.25 | −63.00 | −0.74 |
+
+Agreement to under a nat across the range; the residual is the Laplace approximation's own
+error (trapezoid, non-Gaussian tails), and it is systematic and small.
+
+### What follows, and it is not comfortable
+
+**On a clean single-peak row the tail bound is very nearly vacuous.** It passes iff
+`(W_SIGMA + LOCALISE_SAFETY)**2/2 - log(T_out/(sqrt(2 pi) sigma)) > |TAIL_LOG_TOL|`, which is a
+statement about three constants and a logarithm — not about the row. It cannot fail on such a
+row for any data this module will see. So a `tail_bound_worst` of −64 is NOT evidence that the
+truncation was safe here; it is the arithmetic of `W_SIGMA` restated, and reading it as a
+per-row safety margin over-reads it.
+
+This also explains, exactly rather than by observation, the "~40 nats of structural slack" two
+independent reviewers measured and could not eat into. The slack is
+`(W_SIGMA + LOCALISE_SAFETY)**2/2 - log(T_out/(sqrt(2 pi) sigma))`, and no amount of probing the
+SAMPLING could touch it, because sampling was never what set it.
+
+**Where the check does earn its place is structure OUTSIDE the intervals** — a peak the keep
+filter dropped, a comb-like row, an enumeration that has gone wrong. There the outside supremum
+is set by that structure and not by the interval end, the closed form above does not apply, and
+the bound fires: a deliberately sabotaged enumeration is CAUGHT at all four amplitudes tested,
+and the mis-placed-interval fixture now trips it. **The tail bound is a structure detector, not
+an accuracy margin**, and it should be read that way.
+
+(The edge deficit is `(W_SIGMA + LOCALISE_SAFETY)**2/2 = 75.03`, not `W_SIGMA**2/2 = 72` as
+earlier drafts of this note said: the interval is widened by the localisation residual. The
+suite's coupling assertion uses 72, which remains a valid CONSERVATIVE lower bound on the real
+slack, so it is left as it is.)
 
 ## Mutation sweep
 
