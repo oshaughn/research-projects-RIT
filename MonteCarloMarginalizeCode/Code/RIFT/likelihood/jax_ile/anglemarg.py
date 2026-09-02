@@ -1482,6 +1482,27 @@ def fused_log_likelihood_distphipsimarg_laplace(
 # tolerance.  This comparison is already relative and one-sided.
 GH_PSI_IDENTITY_TOL = 1e-8
 
+# The response models for which A0 == 0 / B1 == 0 hold at EVERY extrinsic point.
+# This is the angle-independent half of the gate and it is the actual guarantee:
+# the static path builds F = F+ + i Fx through compute_detamresponse (LAL's
+# ComputeDetAMResponse), where the polarization enters as an exact rotation,
+#     F+(psi) + i Fx(psi) = (F+(0) + i Fx(0)) e^{-2 i psi},
+# a SINGLE u-harmonic (u = 2 psi).  kappa is linear in F and rho^2 quadratic, so
+# A carries only u-harmonics +-1 and B only {0, +-2}, for every (ra, dec, incl).
+# The banded features do not use that response -- "freqresponse" and "rotation"
+# build their coefficients from the arm vectors and a time-varying orientation --
+# so the factorization, and with it the identity, is not guaranteed there.
+#
+# FAIL CLOSED on anything not named: a response model added later must opt in
+# deliberately rather than inherit a placement whose premise nobody checked.
+_GH_PSI_STATIC_FEATURES = (None,)
+
+# Bin denominators are floored at this fraction of their own global maximum, so
+# that response-free bins (numerator and denominator both ~0) are not scored as
+# 0/0 violations.  Small enough that a bin carrying any real response is judged
+# on its own scale.
+_GH_PSI_BIN_FLOOR = 1e-6
+
 
 def psi_harmonics_at_phi(C_A, C_B, phi, m_max):
     """The psi-Fourier FIELDS (A0, A1, B0, B1, B2) at the given phi points.
@@ -1514,7 +1535,7 @@ def psi_harmonics_at_phi(C_A, C_B, phi, m_max):
             MB(4) + jnp.conj(MB(0)))       # B2
 
 
-def gh_laplace_supported(C_A, C_B, m_max):
+def gh_laplace_supported(C_A, C_B, m_max, feature=None):
     """May 'laplace' use the per-sample adaptive distance quadrature on THIS data?
 
     Returns ``(ok, info)``.  Two conditions, both necessary:
@@ -1546,27 +1567,49 @@ def gh_laplace_supported(C_A, C_B, m_max):
         # mismatched m_max is a shape error rather than a measurement.
         return False, dict(gh_laplace_ok=False, m_max=int(m_max),
                            identity_A0_over_A1=None, identity_B1_over_B0=None,
+                           feature=feature,
                            gh_laplace_reason="mode content m_max=%d above the "
                                              "validated %d"
                                              % (int(m_max), _GH_PSI_M_MAX))
+    # ANGLE-INDEPENDENT CONDITION, and the one that actually generalises.  A
+    # numerical check can only ever speak for the angles it was evaluated at,
+    # and the placement runs at arbitrary sampled angles; the response model is
+    # a property of the packed data and holds for all of them.
+    if feature not in _GH_PSI_STATIC_FEATURES:
+        return False, dict(gh_laplace_ok=False, m_max=int(m_max),
+                           identity_A0_over_A1=None, identity_B1_over_B0=None,
+                           feature=feature,
+                           gh_laplace_reason="response model %r does not give "
+                                             "the exact e^{-2i psi} polarization "
+                                             "factorization the A0 == 0 / B1 == 0 "
+                                             "identity rests on" % (feature,))
     n_phi_probe = max(8 * int(m_max) + 8, 16)
     phi_probe = _np.linspace(0.0, 2.0 * _np.pi, n_phi_probe, endpoint=False)
     A0f, A1f, B0f, B1f, B2f = psi_harmonics_at_phi(C_A, C_B, phi_probe, m_max)
-    A0 = float(_np.abs(_np.asarray(A0f)).max())
-    A1 = float(_np.abs(_np.asarray(A1f)).max())
-    B0 = float(_np.abs(_np.asarray(B0f)).max())
-    B1 = float(_np.abs(_np.asarray(B1f)).max())
-    r_A0 = float(A0 / A1) if A1 > 0 else _np.inf
-    r_B1 = float(B1 / B0) if B0 > 0 else _np.inf
+    A0f = _np.abs(_np.asarray(A0f)); A1f = _np.abs(_np.asarray(A1f))
+    B0f = _np.abs(_np.asarray(B0f)); B1f = _np.abs(_np.asarray(B1f))
+    # POINTWISE, not a ratio of global maxima.  The placement uses the centre
+    # and width computed at EACH (phi, sample, time) bin independently, so a
+    # single locally invalid bin is enough to invalidate it there -- and
+    # max|A0| / max|A1| hides exactly that, because a large A1 somewhere else
+    # shrinks the ratio (bins (1e-3, 1) and (0, 1e6) give a passing 1e-9 while
+    # the first violates by 1e-3).  Denominators are floored at a small fraction
+    # of their own global maximum so that bins with no response at all -- where
+    # numerator and denominator are both ~0 and nothing is at stake -- do not
+    # register as 0/0 violations.
+    a_floor = _GH_PSI_BIN_FLOOR * A1f.max() if A1f.size else 0.0
+    b_floor = _GH_PSI_BIN_FLOOR * B0f.max() if B0f.size else 0.0
+    r_A0 = float((A0f / _np.maximum(A1f, a_floor)).max()) if a_floor > 0 else _np.inf
+    r_B1 = float((B1f / _np.maximum(B0f, b_floor)).max()) if b_floor > 0 else _np.inf
     ok_ident = (r_A0 <= GH_PSI_IDENTITY_TOL) and (r_B1 <= GH_PSI_IDENTITY_TOL)
     if not ok_ident:
-        reason = ("the A0==0/B1==0 identity does NOT hold on this data "
-                  "(|A0|/|A1|=%.3g, |B1|/B0=%.3g, tol %.0e) -- the psi-marginal "
-                  "node placement is not valid here"
+        reason = ("the A0==0/B1==0 identity does NOT hold pointwise on this data "
+                  "(worst-bin |A0|/|A1|=%.3g, |B1|/B0=%.3g, tol %.0e)"
                   % (r_A0, r_B1, GH_PSI_IDENTITY_TOL))
     else:
-        reason = "m_max=%d and the A0==0/B1==0 identity holds (measured)" % int(m_max)
-    return ok_ident, dict(gh_laplace_ok=bool(ok_ident),
+        reason = ("m_max=%d, response %r, and the A0==0/B1==0 identity holds at "
+                  "every probed bin" % (int(m_max), feature))
+    return ok_ident, dict(gh_laplace_ok=bool(ok_ident), feature=feature,
                                          gh_laplace_reason=reason,
                                          identity_A0_over_A1=r_A0,
                                          identity_B1_over_B0=r_B1,

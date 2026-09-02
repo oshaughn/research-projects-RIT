@@ -611,7 +611,8 @@ class JAXDistPhiPsiMargLikelihood:
                         jnp.asarray(_ANGLE_MARG_PROBE_DEC),
                         jnp.asarray(_ANGLE_MARG_PROBE_INCL),
                         interp)[:2],
-                    _anglemarg._data_m_max(data))
+                    _anglemarg._data_m_max(data),
+                    feature=getattr(data, "feature", None))
             if angle_marg == "auto":
                 scheme, sel_info = _anglemarg.choose_angle_marg_scheme(
                     amp_data, gh_laplace_ok=gh_ok)

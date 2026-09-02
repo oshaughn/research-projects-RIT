@@ -414,7 +414,7 @@ fi
 # identity gate (imaginary-A0 coefficient, B1 in the conjugate slice, the
 # gate applying to an explicit laplace, and the kernel guard staying
 # trace-safe).
-EXPECTED_TESTS=221
+EXPECTED_TESTS=224
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"

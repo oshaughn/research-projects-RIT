@@ -176,3 +176,49 @@ def test_kernel_keeps_only_the_trace_safe_mode_check():
     assert "_GH_PSI_M_MAX" in src
     assert "gh_laplace_supported(" not in src, (
         "the kernel measures the identity under trace; that raises under grad")
+
+
+def test_global_maxima_cannot_hide_a_locally_invalid_bin():
+    """The identity ratio must be POINTWISE, not max|A0| / max|A1|.
+
+    External review: bins (A0,A1) = (1e-3, 1) and (0, 1e6) give a global ratio
+    of 1e-9 -- passing -- while the first bin violates by 1e-3.  The GH
+    placement computes its centre and width at each bin independently, so one
+    invalid bin is enough to invalidate the placement there.
+    """
+    C_A, C_B = _tables(m_max=2)
+    # one bin violates at 1e-3; another carries a denominator 1e6 larger
+    C_A[:, 1, 0, 0] = 1e-3
+    C_A[:, 2, 0, 0] = 1.0
+    C_A[:, 2, 1, 1] = 1e6
+    ok, info = AM.gh_laplace_supported(C_A, C_B, 2)
+    assert ok is False, (
+        "a locally invalid bin was hidden behind a large denominator elsewhere; "
+        "the ratio is being taken between unrelated global maxima")
+    assert info["identity_A0_over_A1"] > AM.GH_PSI_IDENTITY_TOL
+
+
+def test_response_model_is_an_angle_independent_precondition():
+    """A numerical probe speaks only for the angles it was evaluated at.
+
+    The placement runs at arbitrary sampled angles, so the gate's real guarantee
+    is the RESPONSE MODEL: the static path's F+ + i Fx = (F+(0) + i Fx(0))
+    e^{-2i psi} is a single u-harmonic at every (ra, dec, incl), which is what
+    forces A0 == 0 and B1 == 0.  The banded features do not use that response,
+    and an unknown feature must fail closed.
+    """
+    C_A, C_B = _tables(m_max=2)
+    assert AM.gh_laplace_supported(C_A, C_B, 2, feature=None)[0] is True
+    for bad in ("freqresponse", "rotation", "something_added_later"):
+        ok, info = AM.gh_laplace_supported(C_A, C_B, 2, feature=bad)
+        assert ok is False, "feature %r was admitted" % bad
+        assert "factorization" in info["gh_laplace_reason"]
+
+
+def test_wrapper_passes_the_response_feature_through():
+    import inspect
+    from RIFT.likelihood.jax_ile import wrapper as WR
+    src = inspect.getsource(WR.JAXDistPhiPsiMargLikelihood.__init__)
+    assert 'feature=getattr(data, "feature", None)' in src, (
+        "the wrapper does not forward the response model, so the "
+        "angle-independent half of the gate never runs")
