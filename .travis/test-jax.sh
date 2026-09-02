@@ -194,7 +194,7 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         is the only gated check that distinguishes
 #                                         the corrected sizing.  The rest of the
 #                                         angle-marg suite is EXCLUDED; see below.
-#   test_limit_distance_jax.py        14  --limit-distance on this arm: the distance
+#   test_limit_distance_jax.py        15  --limit-distance on this arm: the distance
 #                                         QUADRATURE narrows while the prior keeps its
 #                                         [d_min,d_max] normalization.  Includes the
 #                                         bitwise no-op of the default call (both the
@@ -394,8 +394,9 @@ fi
 # Raising the floor
 # by exactly the number of tests ADDED is safe whatever the environment delta above,
 # since it preserves the margin the previous floor already had.
-# PR (this one) adds fourteen test_limit_distance_jax.py pins, raising 189 -> 203.
-EXPECTED_TESTS=203
+# PR (this one) adds fifteen test_limit_distance_jax.py pins (fourteen behavioural plus
+# an x64 tripwire, added on takeover), raising 189 -> 204.
+EXPECTED_TESTS=204
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"

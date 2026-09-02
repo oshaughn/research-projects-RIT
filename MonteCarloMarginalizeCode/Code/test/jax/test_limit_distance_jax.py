@@ -37,6 +37,14 @@ import numpy as np
 import pytest
 
 jax = pytest.importorskip("jax")
+# x64 EXPLICITLY, before any jax array is built.  This file happens to get x64
+# for free today -- importing RIFT.likelihood.jax_ile turns it on as a side
+# effect -- but the tolerances below (1e-10 nats on lnZ, np.array_equal on the
+# default-identity checks) are float64 tolerances and would be unreachable in
+# float32.  A file whose precision depends on what some other module did on
+# import is not tested; see PR #222's finding 4, where exactly that made three
+# headline equivalence numbers float32 while CI stayed green.
+jax.config.update("jax_enable_x64", True)
 
 from RIFT.likelihood.jax_ile.core import (                     # noqa: E402
     make_distance_grid, make_distance_grid_adaptive)
@@ -47,6 +55,24 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from test_angle_marg_exact import make_synth                   # noqa: E402
 
 D_MIN, D_MAX = 1.0, 20000.0
+
+
+def test_x64_is_on():
+    """The rest of this file asserts float64 tolerances, so a float32 run must
+    fail HERE rather than quietly loosening every other assertion.
+
+    HONEST LIMIT, so this is not read as more coverage than it is: x64 is held
+    on by TWO redundant mechanisms right now -- the explicit update at the top
+    of this file, and the side effect of importing RIFT.likelihood.jax_ile.
+    Deleting the explicit line therefore does NOT make this test fire, and a
+    mutation sweep that only deletes it reports a false INERT.  What was
+    verified is that the assertion is not vacuous: forcing
+    jax.config.update("jax_enable_x64", False) immediately above it fails with
+    `assert False is True`.  The test earns its place as a tripwire for the day
+    the import side effect is refactored away, not as a live mutation kill."""
+    import jax.numpy as jnp
+    assert jax.config.jax_enable_x64 is True
+    assert jnp.zeros(1).dtype == jnp.float64
 
 
 ###
