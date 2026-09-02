@@ -1011,43 +1011,59 @@ Refused at startup, with the message naming `bandlimited` — which mandates the
 export and is one flag away. This is the same disclosed limitation as "`resample_samples()`
 unserved", now enforced instead of documented.
 
-### The certified outside supremum: implemented, measured, and NOT wired in
+### The certified outside supremum, on SUB-CELL geometry
 
 The reviewer asked for the uncovered segments to be certified with the spectral derivative
-bounds, or for rows without a certificate to fall back. Both pieces now exist and are tested —
-and the wiring does not work, for a reason worth recording rather than repeating.
+bounds. They now are, and the shipped tail bound is a genuine upper bound on `q` over the
+uncovered set — it assumes nothing about where extrema are, so the "a peak between samples was
+never enumerated" objection is closed outright rather than argued to be unrealistic.
 
-**First, the machinery that arrived with it was wrong.** `enum_grid_derivatives` came in
-uncalled and untested and was **52% off on `q'` and 46% on `q''`**. For the reflected row `n`
-is EVEN, so `bandlimited_spectrum` splits the Nyquist bin and returns `n+1` coefficients; that
-version used the count as the transform LENGTH, so the grid was wrong and the two split bins
-collided on one index. It now differentiates spectrally and reuses the validated upsampler,
-and agrees with pointwise evaluation to **1e-14 relative**. `parabolic_sup` and
-`segment_sup_bound` — named in `__all__` but never defined — are implemented.
+**The machinery that arrived for it was wrong.** `enum_grid_derivatives` came in uncalled and
+untested and was **52% off on `q'` and 46% on `q''`**: for the reflected row `n` is EVEN, so
+`bandlimited_spectrum` splits the Nyquist bin and returns `n+1` coefficients, and that version
+used the count as the transform LENGTH — wrong grid, and the two split bins collided on one
+index. It now differentiates spectrally and reuses the validated upsampler, agreeing with
+pointwise evaluation to **1e-14 relative**. `parabolic_sup` and `segment_sup_bound`, named in
+`__all__` but never defined, are implemented.
 
-**The certificate is tight enough.** Slack per cell, measured on a realistic row:
+**Fetching the slopes is what makes certification affordable.** Slack per cell, measured:
 
 | bound | amp 2e4 | amp 2e6 | amp 2e7 |
 |---|---|---|---|
-| one sample + `M2 h^2/2` (the crude form) | 407 | 4.1e4 | 4.1e5 |
+| one sample + `M2 h^2/2` | 407 | 4.1e4 | 4.1e5 |
 | endpoint values + `M2 h^2/8` | 102 | 1.0e4 | 1.0e5 |
 | **endpoints + SLOPES + `M4 h^4/384`** | **0.12** | **12.2** | **122** |
 
-Fetching the slopes buys three orders of magnitude and makes certification viable, which an
-earlier revision of this note said it was not. That earlier claim was based on the crude form
-only and was wrong.
+Three orders of magnitude. An earlier revision of this note called certification non-viable; it
+had costed only the crude form and was wrong.
 
-**And it still cannot be dropped in, because `covered` is SAMPLE-GRANULAR.** A sharp row's
-interval is narrower than one enumeration cell, so `ceil(lo/h) > floor(hi/h)` marks nothing
-covered and **the crest's own cell counts as outside**. A certified bound over that cell then
-bounds the crest itself, the margin fails, and the row is rejected — measured: EVERY row
-rejected, i.e. the option goes inert, which is the `W1` hazard the suite exists to catch. The
-sampled version escaped this only by under-reading the very peak it should have been excluding.
+**Sub-cell geometry is the whole point, and bounding whole cells does not work.** This rule
+earns its keep on sharp rows, and there **the merged interval is narrower than one enumeration
+cell** — measured, the half-width falls to 0.05 of a cell at derived factor 4096. A
+cell-granular notion of "covered" then marks nothing, the crest's own cell counts as outside, a
+bound over that whole cell bounds the CREST, and every row is rejected. That was measured, and
+it is the inert-option outcome. So each cell is bounded on the part that is genuinely outside:
+the interval cuts the cell at `lo` and `hi`, leaving `[0, lo]` and `[hi, 1]` in cell
+coordinates, and the Hermite is maximised over those. Empty pieces return `-inf` and drop out.
+A cell containing TWO merged intervals would leave an uncovered gap between them that a
+two-piece decomposition misses; it is detected and the ROW is declined, fail-closed.
 
-A real certificate needs **sub-cell covered geometry** — the uncovered PART of a straddling
-cell, not the whole cell — which is a piece of work rather than a wiring change. The three
-functions it would be built from are now correct, exported and tested, so that work starts from
-a known-good base rather than from a helper that is quietly 50% wrong.
+**Result.** Every row still accepted, margins `-65.0 / -63.1 / -55.0` at amplitude 2e4 / 2e5 /
+2e6 against `TAIL_LOG_TOL = -23`, conservative relative to the honest supremum throughout.
+Contract, accuracy and coverage unchanged: worst `|pl - bl|` over six fixture families still
+**2.6e-10**, with 24/24 sharp, 10/10 near-edge and 3/3 two-peak rows kept, and Door 1 at derived
+factor 4096 still exact with both peaks retained — now reporting a margin of -42 where the
+sampled version reported -6904.
+
+**A reference trap, for the third time in this file.** The test that pins this first failed
+because its own reference was a 512x uniform grid, and on a sub-cell interval (`sigma = 5.1e-7`
+s) the grid spacing is comparable to `sigma`, so the nearest grid point outside an interval end
+under-reads that end by `W_SIGMA/sigma * spacing ~ 11` nats — and the supremum sits exactly at
+an end. A correct bound looked 11 nats loose. The reference now uses the grid for the bulk and
+EXACT evaluation at the ends, against which the bound is 0.46 nats high, inside its own 0.64 nat
+remainder. Sampled references have now been wrong here three times: periodic instead of
+reflected, sample instead of crest, and grid instead of exact-at-the-ends.
+
 
 ## Mutation sweep
 

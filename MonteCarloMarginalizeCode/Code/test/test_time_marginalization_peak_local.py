@@ -1221,20 +1221,42 @@ def test_the_reported_tail_bound_matches_an_independent_recomputation():
             covered[max(i0, 0):i1 + 1] = True
     T_out = t_last - float(np.sum(stops - starts))
 
-    # The outside supremum is EVALUATED, not sampled: the candidates are the uncovered
-    # samples, the ENDS of the merged intervals (on the double-copy Fourier model), and the
-    # localised crests left outside.  Recomputing it from `up[~covered]` alone reproduces the
-    # old sampled value -- which for this fixture is -439.93 against the module's -63.88, a
-    # 376 nat gap that is exactly the term the off-grid evaluation removes.
+    # The outside supremum is a CERTIFIED bound now, not a sample and not an evaluation at a
+    # few points, so it is pinned against the HONEST supremum with a two-sided window rather
+    # than re-derived: it must never be below the honest value (or it is not a bound) and must
+    # not exceed it by more than the certificate's own remainder (or it is not useful).
+    #
+    # A one-sided `< TAIL_LOG_TOL` assertion pins nothing here -- the measured margins are tens
+    # of nats against a tolerance of -23, so any error smaller than ~40 nats is invisible, and
+    # deleting `log(T_outside)` or building `T_outside` from grid indices both survived it.
     kref = np.concatenate((k, np.flip(k, axis=-1)), axis=-1)
     Xw, fk = pl.bandlimited_spectrum(kref)
     period_ref = 2.0 * NPTS * DELTAT
+    m4 = float(pl.spectral_derivative_bound(Xw, fk, period_ref, 4)[0])
+    remainder = m4 * h_enum ** 4 / 384.0
+
+    # THE REFERENCE HAS TO BE EXACT AT THE INTERVAL ENDS, and a uniform grid is not.  On this
+    # fixture the merged interval is SUB-CELL (sigma = 5.1e-7 s) and even a 512x grid has
+    # spacing ~= sigma, so its nearest point outside an end under-reads that end by
+    # |dlnL/dt| * spacing = W_SIGMA/sigma * spacing ~= 11 nats -- and the supremum over the
+    # uncovered set sits exactly at an end.  Comparing against that reference makes a correct
+    # bound look 11 nats loose.  So: grid for the bulk, EXACT evaluation at the ends.
+    sub = 64
+    qf = tmq.reflected_bandlimited_upsample(k, F * sub)[0, :(NPTS - 1) * F * sub + 1].real
+    tf = np.arange(qf.size) * (h_enum / sub)
+    outside = np.ones(qf.size, dtype=bool)
+    for a, b in zip(starts, stops):
+        outside &= ~((tf >= a) & (tf <= b))
     ends = np.concatenate([starts, stops])
     q_ends, _, _ = pl.eval_bandlimited_points(
         Xw, fk, np.zeros(ends.size, dtype=np.int64), ends, period_ref)
-    q_out = max(float(np.max(up[~covered])), float(np.max(q_ends)))
-    want = np.log(T_out) + _lnL(q_out, RHO_SQ) - float(out[0])
-    assert abs(rep['tail_bound_worst'] - want) < 1e-6, (rep['tail_bound_worst'], want)
+    q_honest = max(float(np.max(qf[outside])), float(np.max(q_ends)))
+    honest = np.log(T_out) + _lnL(q_honest, RHO_SQ) - float(out[0])
+
+    got = rep['tail_bound_worst']
+    assert got >= honest - 1e-6, ("not a bound", got, honest)
+    assert got <= honest + remainder + 1.0, ("bound far looser than its remainder",
+                                             got, honest, remainder)
 
 
 def test_merge_keeps_a_fully_contained_interval_inside_its_enclosure():
@@ -2334,8 +2356,18 @@ def test_the_tail_margin_on_a_clean_row_is_a_design_constant_not_a_measurement()
         hi = np.minimum(t_star + half, t_last)
         T_out = max(t_last - float(np.sum(hi - lo)), 0.0)
         predicted = np.log(T_out / (np.sqrt(2 * np.pi) * float(np.min(sigma)))) - cut
-        assert abs(float(rep['tail_bound_worst']) - predicted) < 2.0, (
-            amp, rep['tail_bound_worst'], predicted)
+        # The design constant still sets the SCALE.  What sits on top of it is the
+        # certificate's own remainder -- the outside supremum is now bounded, not evaluated --
+        # so the margin is `predicted` plus something non-negative and no larger than that
+        # remainder.  Both sides are asserted: the floor is the design constant, the ceiling
+        # is the remainder, and neither is free to drift.
+        kref = np.concatenate((k, np.flip(k, axis=-1)), axis=-1)
+        Xw, fk = pl.bandlimited_spectrum(kref)
+        m4 = float(pl.spectral_derivative_bound(Xw, fk, 2.0 * NPTS * DELTAT, 4)[0])
+        remainder = m4 * (DELTAT / pl.PEAK_ENUM_FACTOR) ** 4 / 384.0
+        got = float(rep['tail_bound_worst'])
+        assert got >= predicted - 2.0, (amp, got, predicted)
+        assert got <= predicted + remainder + 2.0, (amp, got, predicted, remainder)
         checked += 1
     assert checked == 2, checked
 

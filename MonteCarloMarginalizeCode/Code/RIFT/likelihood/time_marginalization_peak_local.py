@@ -504,26 +504,37 @@ def enum_grid_derivatives(x_reflected, factor, n_keep, deltaT, orders=(1, 2),
     return tuple(out)
 
 
-def parabolic_sup(y0, y1, d0, d1, xpy=np):
-    """``max`` of the cubic Hermite through ``(0, y0, d0)`` and ``(1, y1, d1)``, per cell.
+def parabolic_sup(y0, y1, d0, d1, s_lo=0.0, s_hi=1.0, xpy=np):
+    """``max`` of the cubic Hermite through ``(0, y0, d0)`` and ``(1, y1, d1)``, over the
+    SUB-RANGE ``[s_lo, s_hi]`` of the cell (default: the whole cell).
 
-    ``d0``/``d1`` are the slopes ALREADY SCALED BY THE CELL WIDTH, i.e. ``h * q'``.  The
-    maximum of a cubic on a closed interval is at an end or at a stationary point inside it,
-    so this is exact -- no search and no iteration.
+    ``d0``/``d1`` are the slopes ALREADY SCALED BY THE CELL WIDTH, i.e. ``h * q'``.  The maximum
+    of a cubic on a closed range is at an end or at a stationary point inside it, so this is
+    exact -- no search and no iteration.
+
+    The sub-range is what lets a cell that a merged interval CUTS be bounded on the part that
+    is actually outside.  A range with ``s_hi <= s_lo`` is empty and returns ``-inf``, so empty
+    pieces fall out of a maximum without needing to be filtered.
     """
     a = 2.0 * y0 + d0 - 2.0 * y1 + d1
     b = -3.0 * y0 - 2.0 * d0 + 3.0 * y1 - d1
     c = d0
-    best = xpy.maximum(y0, y1)
+    empty = s_hi <= s_lo
 
-    def _try(srt, live):
-        val = y0 + c * srt + b * srt * srt + a * srt ** 3
-        return xpy.where(live & (srt > 0.0) & (srt < 1.0), xpy.maximum(best, val), best)
+    def _H(t):
+        return y0 + c * t + b * t * t + a * t ** 3
 
-    # H'(s) = 3a s^2 + 2b s + c.  The CUBIC term vanishes whenever the cell's two slopes and
-    # its secant conspire -- a symmetric bump is the obvious case, and it is not rare -- so the
-    # degenerate branch is not an edge case to skip.  Missing it returns the endpoint maximum
-    # and silently under-bounds exactly the cells that contain a peak.
+    best = xpy.maximum(_H(s_lo), _H(s_hi))
+
+    def _try(root, live):
+        val = _H(root)
+        return xpy.where(live & (root > s_lo) & (root < s_hi),
+                         xpy.maximum(best, val), best)
+
+    # H'(s) = 3a s^2 + 2b s + c.  The CUBIC term vanishes whenever the cell's slopes and its
+    # secant conspire -- a symmetric bump does it exactly -- so the degenerate branch is not an
+    # edge case to skip: missing it returns the endpoint maximum and under-bounds precisely the
+    # cells that contain a peak.
     cubic = xpy.abs(3.0 * a) > 0.0
     disc = b * b - 3.0 * a * c
     sq = xpy.sqrt(xpy.where(cubic & (disc > 0), disc, 0.0))
@@ -532,10 +543,10 @@ def parabolic_sup(y0, y1, d0, d1, xpy=np):
         best = _try((-b + sgn * sq) / den, cubic & (disc > 0))
     lin = (~cubic) & (xpy.abs(2.0 * b) > 0.0)
     best = _try(-c / xpy.where(lin, 2.0 * b, 1.0), lin)
-    return best
+    return xpy.where(empty, -np.inf, best)
 
 
-def segment_sup_bound(q0, q1, dq0, dq1, h, m4, xpy=np):
+def segment_sup_bound(q0, q1, dq0, dq1, h, m4, s_lo=0.0, s_hi=1.0, xpy=np):
     """CERTIFIED upper bound on ``max q`` over one enumeration cell.
 
     Cubic Hermite through the cell's two endpoint values and slopes, plus the classical
@@ -552,7 +563,8 @@ def segment_sup_bound(q0, q1, dq0, dq1, h, m4, xpy=np):
     certificate simply stops being small enough, the margin fails, and the row falls back --
     the intended fail-closed behaviour, not a special case.
     """
-    return parabolic_sup(q0, q1, dq0, dq1, xpy=xpy) + m4 * (h ** 4) / 384.0
+    return (parabolic_sup(q0, q1, dq0, dq1, s_lo=s_lo, s_hi=s_hi, xpy=xpy)
+            + m4 * (h ** 4) / 384.0)
 
 
 # -------------------------------------------------------------- enumeration
@@ -1479,43 +1491,71 @@ def _peak_local_chunk(kappa_rows, rho_col_rows, factors, npts, deltaT, period,
     # row -- because the callback is monotone in it, so no evaluation on the full
     # time axis is needed.  A row whose bound is not small enough is NOT reported
     # with a caveat: it goes to the dense path.
-    # ---- the outside supremum, EVALUATED off-grid rather than sampled.
+    # ---- the outside supremum, CERTIFIED on sub-cell geometry.
     #
     # `max(q_up over uncovered SAMPLES)` is a LOWER bound on the continuous supremum and the
-    # gap GROWS WITH AMPLITUDE: measured on rows this rule accepted, the reported margin was
-    # 14 nats optimistic at amplitude 2e4, 75-218 at 2e5 and 1445-2923 at 2e6.  So
-    # `tail_bound_worst` got more flattering the sharper the row, the wrong direction.
+    # gap GROWS WITH AMPLITUDE: measured, the reported margin was 14 nats optimistic at
+    # amplitude 2e4, 75-218 at 2e5 and 1445-2923 at 2e6.  `tail_bound_worst` got more
+    # flattering the sharper the row, the wrong direction for a safety number.
     #
-    # The dominant term is NOT a peak the enumeration missed.  The supremum over a union of
-    # closed intervals sits at an interior stationary point or at an END, and the ends
-    # dominate: an interval end is (W_SIGMA + LOCALISE_SAFETY)*sigma from its crest, 75 nats
-    # below it at any amplitude, but the nearest SAMPLE outside that end is a further
-    # W_SIGMA*h_enum/sigma down, and THAT diverges as sigma shrinks.
+    # The fix is a true bound on every uncovered piece.  Per enumeration cell, the cubic
+    # Hermite through the cell's endpoint VALUES AND SLOPES plus the remainder `M4 h^4/384` is
+    # an upper bound on `q` there -- it assumes nothing about where extrema are, so it closes
+    # the "a peak between samples was never enumerated" objection outright rather than arguing
+    # the case is unrealistic.  The slopes are what make it affordable: from endpoint values
+    # alone the remainder is `M2 h^2/8` and from one sample `M2 h^2/2`, which measure 102 /
+    # 1.0e4 / 1.0e5 and 407 / 4.1e4 / 4.1e5 nats at amplitude 2e4 / 2e6 / 2e7 -- useless
+    # against a 23 nat tolerance.  With the slopes: 0.12 / 12.2 / 122.
     #
-    # So evaluate the candidates instead of sampling near them: the interval ends on the
-    # double-copy Fourier model, which reconstructs q exactly between samples.
+    # SUB-CELL GEOMETRY IS THE WHOLE POINT, and bounding whole cells does not work.  This rule
+    # earns its keep on sharp rows, and there the merged interval is NARROWER THAN ONE
+    # ENUMERATION CELL -- measured, the half-width falls to 0.05 of a cell at derived factor
+    # 4096.  A cell-granular notion of "covered" then marks nothing, the crest's own cell counts
+    # as outside, a bound over that whole cell bounds the CREST, and every row is rejected.
+    # (Measured: exactly that, the option goes inert.)  So each cell is bounded on the part
+    # that is genuinely outside: the interval cuts the cell at `lo` and `hi`, leaving `[0, lo]`
+    # and `[hi, 1]` in cell coordinates, and the Hermite is maximised over those.  Empty pieces
+    # return -inf and drop out of the maximum.
     #
-    # WHY NOT A CERTIFICATE HERE, given `segment_sup_bound` exists and is exact enough.  It
-    # cannot be dropped in, and the reason is `covered`, which is SAMPLE-granular.  A sharp
-    # row's interval is narrower than one enumeration cell, so `ceil(lo/h) > floor(hi/h)`
-    # marks nothing covered and the CREST'S OWN CELL counts as outside; a certified bound over
-    # that cell then bounds the crest itself and the row is rejected.  Measured: every row
-    # rejected, i.e. the option goes inert.  The sampled version escaped this only by
-    # under-reading the very peak it should have been excluding.  A real certificate needs
-    # SUB-CELL covered geometry -- the uncovered part of a straddling cell, not the whole cell
-    # -- which is a piece of work, not a wiring change.  `segment_sup_bound`, `parabolic_sup`
-    # and `enum_grid_derivatives` are correct and tested and are what it would be built from.
-    cov_x = xpy.asarray(covered)
-    q_out_max = xpy.max(xpy.where(cov_x, -np.inf, q_up), axis=-1)
+    # A cell containing TWO merged intervals would leave a gap between them that this
+    # two-piece decomposition does not cover.  It is detected and the ROW is declined --
+    # fail-closed, and rare: it needs two crests inside one enumeration cell.
+    n_cells = n_enum - 1
+    m4 = _host(spectral_derivative_bound(Xw, fk, period_ref, 4, xpy=xpy), xpy)
+    (dq,) = enum_grid_derivatives(kappa_reflected, PEAK_ENUM_FACTOR, n_enum, deltaT,
+                                  orders=(1,), xpy=xpy)
+    q_np = _host(q_up, xpy)
+    dq_np = _host(dq, xpy)
+    del dq
+
+    big = 2.0 * (float(t_last) + 1.0)
+    t_l = (np.arange(n_cells) * h_enum)[None, :]
+    row_off = (np.arange(n_rows) * big)[:, None]
     if g_row.size:
-        edge_rows = np.concatenate([g_row, g_row])
-        edge_t = np.concatenate([g_lo, g_hi])
-        q_edge = _host(eval_bandlimited_points(Xw, fk, xpy.asarray(edge_rows),
-                                               xpy.asarray(edge_t), period_ref,
-                                               xpy=xpy)[0], xpy)
-        q_out_np = _host(q_out_max, xpy)
-        np.maximum.at(q_out_np, edge_rows, q_edge)
-        q_out_max = xpy.asarray(q_out_np)
+        key_iv = g_lo + g_row * big
+        j = np.searchsorted(key_iv, (t_l + h_enum + row_off).ravel(),
+                            side='right').reshape(n_rows, n_cells) - 1
+        jc = np.maximum(j, 0)
+        hit = (j >= 0) & (g_row[jc] == np.arange(n_rows)[:, None]) & (g_hi[jc] > t_l)
+        j2 = np.maximum(jc - 1, 0)
+        two = (hit & (jc >= 1) & (g_row[j2] == np.arange(n_rows)[:, None])
+               & (g_hi[j2] > t_l))
+        cert_bad = two.any(axis=1)
+        lo_n = np.clip(np.where(hit, (g_lo[jc] - t_l) / h_enum, 1.0), 0.0, 1.0)
+        hi_n = np.clip(np.where(hit, (g_hi[jc] - t_l) / h_enum, 1.0), 0.0, 1.0)
+    else:
+        cert_bad = np.zeros(n_rows, dtype=bool)
+        lo_n = np.ones((n_rows, n_cells))
+        hi_n = np.ones((n_rows, n_cells))
+
+    q0, q1 = q_np[:, :-1], q_np[:, 1:]
+    d0, d1 = h_enum * dq_np[:, :-1], h_enum * dq_np[:, 1:]
+    m4c = m4[:, None]
+    cell_sup = np.maximum(
+        segment_sup_bound(q0, q1, d0, d1, h_enum, m4c, 0.0, lo_n, xpy=np),
+        segment_sup_bound(q0, q1, d0, d1, h_enum, m4c, hi_n, 1.0, xpy=np))
+    q_out_max = xpy.asarray(np.max(cell_sup, axis=-1))
+    del cell_sup, q0, q1, d0, d1, lo_n, hi_n, q_np, dq_np
     T_out = np.maximum(t_last - covered_len, 0.0)
     lnL_out = loglikelihood(q_out_max, rho_col_rows[:, 0])
     with np.errstate(divide='ignore', invalid='ignore'):
@@ -1531,7 +1571,9 @@ def _peak_local_chunk(kappa_rows, rho_col_rows, factors, npts, deltaT, period,
     # integration grid's own values, and it is what actually catches a mis-placed
     # interval.  Neither subsumes the other and a row must satisfy both.
     contained = attained >= row_star - CONTAINMENT_SLACK_NATS
-    good_mask = (margin[planned] < TAIL_LOG_TOL) & contained[planned]
+    stats['n_dense_fallback_structure'] += int(np.sum(cert_bad[planned]))
+    good_mask = ((margin[planned] < TAIL_LOG_TOL) & contained[planned]
+                 & (~cert_bad[planned]))
     accepted = planned[good_mask]
     rejected = planned[~good_mask]
     stats['n_dense_fallback_tail'] += int(np.sum(
