@@ -88,6 +88,7 @@ __all__ = [
     "fused_log_likelihood_distphipsimarg_exact",
     "fused_log_likelihood_distphipsimarg_laplace",
     "choose_angle_marg_scheme",
+    "gh_laplace_supported",
     "ANGLE_MARG_CROSSOVER_AMPLITUDE",
 ]
 
@@ -1458,7 +1459,66 @@ def fused_log_likelihood_distphipsimarg_laplace(
     return _time_marginalize_terminal(lnL_t, data, time_quadrature)
 
 
-def choose_angle_marg_scheme(amplitude, gh_enabled=None):
+# Relative size at which A0 / B1 count as nonzero.  The identity the psi-marginal
+# node placement rests on (A0 == 0, B1 == 0, so R_lo = B0 - |B2| IS min_u B) is a
+# property of the SPIN-2 detector response, not of the source, and is measured at
+# ~1e-16 relative on every non-precessing mode set tried through m_max = 4.  It is
+# NOT measured under precession.  1e-8 is ~8 orders above the observed level and
+# ~8 below a value that would move the bracket, so it separates "the identity
+# holds" from "it does not" without adjudicating anything in between.
+GH_PSI_IDENTITY_TOL = 1e-8
+
+
+def gh_laplace_supported(C_A, C_B, m_max):
+    """May 'laplace' use the per-sample adaptive distance quadrature on THIS data?
+
+    Returns ``(ok, info)``.  Two conditions, both necessary:
+
+    1. ``m_max <= _GH_PSI_M_MAX`` -- what the path is shipped and validated for.
+    2. The A0 == 0 / B1 == 0 identity actually HOLDS on these coefficient
+       tables, MEASURED rather than assumed.
+
+    (2) exists because (1) does not imply it.  m_max is the largest |m| in the
+    mode list, so a PRECESSING l=2 system has m_max = 2 and passes (1) while
+    breaking the aligned-spin symmetry h_{l,-m} = (-1)^l conj(h_lm) that the
+    identity has only ever been tested under.  Every measurement of the identity
+    to date -- IMRPhenomXHM through m_max = 4, and a zero-spin SEOBNRv5PHM run --
+    is non-precessing.  The analytic argument (F+ + i Fx ~ e^{-2i psi} is one
+    psi-harmonic, so A is linear in it and B quadratic, making this a property of
+    the DETECTOR) says it should extend; what has been measured is the CODE's
+    tables, and two non-precessing tests cannot separate those.  So the code
+    CHECKS instead of trusting the argument: cost is O(size of the coefficient
+    tables), once, at build time.
+    """
+    import numpy as _np
+    A0 = _np.abs(_np.asarray(C_A[:, 1]).real).max()
+    A1 = _np.abs(_np.asarray(C_A[:, 2])).max()
+    ks0 = (int(_np.asarray(C_B).shape[1]) - 1) // 2
+    B0 = _np.abs(_np.asarray(C_B[:, ks0]).real).max()
+    B1 = _np.abs(_np.asarray(C_B[:, ks0 + 1])).max()
+    r_A0 = float(A0 / A1) if A1 > 0 else _np.inf
+    r_B1 = float(B1 / B0) if B0 > 0 else _np.inf
+    ok_modes = int(m_max) <= _GH_PSI_M_MAX
+    ok_ident = (r_A0 <= GH_PSI_IDENTITY_TOL) and (r_B1 <= GH_PSI_IDENTITY_TOL)
+    if not ok_modes:
+        reason = ("mode content m_max=%d above the validated %d"
+                  % (int(m_max), _GH_PSI_M_MAX))
+    elif not ok_ident:
+        reason = ("the A0==0/B1==0 identity does NOT hold on this data "
+                  "(|A0|/|A1|=%.3g, |B1|/B0=%.3g, tol %.0e) -- the psi-marginal "
+                  "node placement is not valid here"
+                  % (r_A0, r_B1, GH_PSI_IDENTITY_TOL))
+    else:
+        reason = "m_max=%d and the A0==0/B1==0 identity holds (measured)" % int(m_max)
+    return (ok_modes and ok_ident), dict(gh_laplace_ok=bool(ok_modes and ok_ident),
+                                         gh_laplace_reason=reason,
+                                         identity_A0_over_A1=r_A0,
+                                         identity_B1_over_B0=r_B1,
+                                         m_max=int(m_max))
+
+
+def choose_angle_marg_scheme(amplitude, gh_enabled=None,
+                             gh_laplace_ok=None):
     """Select 'exact' or 'laplace' from a measured amplitude bound.
 
     ``amplitude`` is the DATA-DERIVED bound from
@@ -1487,11 +1547,25 @@ def choose_angle_marg_scheme(amplitude, gh_enabled=None):
                              amplitude=None,
                              crossover=ANGLE_MARG_CROSSOVER_AMPLITUDE)
     amp = float(amplitude)
-    if gh_enabled:
-        return "exact", dict(reason="JAX_ILE_DISTMARG_GH set: laplace does "
-                                    "not support the adaptive distance "
-                                    "quadrature", amplitude=amp,
+    if gh_enabled and not gh_laplace_ok:
+        # 'laplace' CAN use the adaptive distance quadrature now, but only where
+        # gh_laplace_supported() says so.  Selecting it anywhere else would route
+        # 'auto' into the raise inside the laplace kernel, so this branch is
+        # deliberately more conservative than that kernel's own gate: when the
+        # caller does not supply the predicate at all (gh_laplace_ok=None) we
+        # take the safe branch rather than guess.
+        return "exact", dict(reason="JAX_ILE_DISTMARG_GH set and the laplace "
+                                    "psi-marginal node placement is not "
+                                    "available for this data",
+                             amplitude=amp,
                              crossover=ANGLE_MARG_CROSSOVER_AMPLITUDE)
+    # NOTE, and it is a live limitation rather than a subtlety:
+    # ANGLE_MARG_CROSSOVER_AMPLITUDE is an ACCURACY crossover (A=450, rho~30) --
+    # the point above which BOTH schemes are accurate.  The measured COST
+    # crossover is rho ~200-326 (A ~2e4-5e4), an order of magnitude higher, so
+    # between them 'auto' picks the accurate-but-slower scheme.  Re-deriving the
+    # constant from cost as well as accuracy is a separate, measured change; it
+    # is deliberately NOT folded in here.
     scheme = "laplace" if amp >= ANGLE_MARG_CROSSOVER_AMPLITUDE else "exact"
     return scheme, dict(reason="measured amplitude bound %s crossover"
                                % ("above" if scheme == "laplace" else "below"),

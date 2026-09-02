@@ -32,6 +32,13 @@ from .core import (build_likelihood_data, fused_log_likelihood,
                    estimate_distance_peak, phi_ref_grid, psi_grid,
                    phi_ref_conditional_lnL, DIST_MPC_REF, JAX_INTERP_DEFAULT,
                    TIME_QUAD_DEFAULT, _TIME_QUAD_CHOICES, default_time_guard)
+# Generic probe direction for the build-time identity check.  The A0==0/B1==0
+# identity is a property of the spin-2 detector response, so it does not depend
+# on where we probe; a single generic (ra, dec, incl) away from any pole or
+# face-on/edge-on special case is enough, and keeps the check O(1).
+_ANGLE_MARG_PROBE_RA = [1.0]
+_ANGLE_MARG_PROBE_DEC = [0.3]
+_ANGLE_MARG_PROBE_INCL = [1.0]
 from .anglemarg import (ANGLE_MARG_DEFAULT, ANGLE_MARG_LEGACY,  # noqa: F401
                         ANGLE_MARG_CHOICES)
 
@@ -586,8 +593,22 @@ class JAXDistPhiPsiMargLikelihood:
             amp_data = _anglemarg.estimate_angle_amplitude(
                 data, self.x_grid, interp=interp)
             if angle_marg == "auto":
+                # Under JAX_ILE_DISTMARG_GH, 'laplace' is reachable only where
+                # its psi-marginal node placement is valid.  MEASURE that on
+                # this data rather than inferring it from mode content: a
+                # PRECESSING l=2 system has m_max = 2 and would pass a mode
+                # gate while breaking the identity the placement rests on.
+                gh_ok, gh_info = _anglemarg.gh_laplace_supported(
+                    *_anglemarg.angle_coefficient_tables(
+                        data,
+                        jnp.asarray(_ANGLE_MARG_PROBE_RA),
+                        jnp.asarray(_ANGLE_MARG_PROBE_DEC),
+                        jnp.asarray(_ANGLE_MARG_PROBE_INCL),
+                        interp)[:2],
+                    _anglemarg._data_m_max(data))
                 scheme, sel_info = _anglemarg.choose_angle_marg_scheme(
-                    amp_data)
+                    amp_data, gh_laplace_ok=gh_ok)
+                sel_info.update(gh_info)
             else:
                 scheme, sel_info = angle_marg, dict(
                     reason="forced by caller", amplitude=amp_data,

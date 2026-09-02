@@ -310,6 +310,7 @@ FILES=(
   "${JAXDIR}/test_angle_marg_block_dispatch.py"
   "${JAXDIR}/test_angle_marg_gh_laplace.py"
   "${JAXDIR}/test_angle_marg_default.py"
+  "${JAXDIR}/test_angle_marg_gh_selection.py"
 )
 
 # EXCLUDED: files in JAXDIR matching test_*.py that are deliberately NOT gated.  The
@@ -402,7 +403,14 @@ fi
 # Raising the floor
 # by exactly the number of tests ADDED is safe whatever the environment delta above,
 # since it preserves the margin the previous floor already had.
-EXPECTED_TESTS=209
+# Raised 189 -> 217 by the 28 tests added in this branch, per the rule above
+# (exactly the number ADDED, preserving the prior margin): 15 in
+# test_angle_marg_gh_laplace.py (psi-marginal GH placement), 5 in
+# test_angle_marg_default.py (the scheme default has one definition), 8 in
+# test_angle_marg_gh_selection.py (auto may reach laplace under GH only where
+# the A0==0/B1==0 identity is MEASURED to hold).  Collection in this
+# environment measures 219/220 with 1 deselected.
+EXPECTED_TESTS=217
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"
