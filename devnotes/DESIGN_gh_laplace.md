@@ -18,17 +18,26 @@ which is a MIXTURE over u of Gaussians of centre `x*(u) = A(u)/B(u)` and width
 
 ## The rule that ships
 
-    centre = stop_gradient(clip(A(u*)/B(u*), x_min, x_max)),  e^{i u*} = conj(A1)/|A1|
-    sigma  = stop_gradient(min(1/sqrt(max(R_lo, 1e-30)), (x_max-x_min)/24))
-    R_lo   = B0 - |B1| - |B2|   (<= min_u B)
-    nodes  = clip(centre + sigma * z, x_min, x_max),  z = linspace(-12, +12, n)
+    w      = B0*A1 - conj(A1)*B2
+    e^{iu*}= +- conj(w)/|w|      (sign chosen so A(u*) > 0)
+    centre = stop_gradient(clip(A(u*)/B(u*), x_min, x_max))
+    sigma  = stop_gradient(min(1/sqrt(max(R_lo, 1e-30)), (x_max-x_min)/44))
+    R_lo   = B0 - |B1| - |B2|   (== min_u B; see the identity below)
+    nodes  = clip(centre + sigma * z, x_min, x_max),  z = linspace(-22, +22, n)
 
-with `n = max(27, 1 + ceil((N-1) * 12/7))` for `JAX_ILE_DISTMARG_GH = N`, so the
+with `n = max(49, 1 + ceil((N-1) * 22/7))` for `JAX_ILE_DISTMARG_GH = N`, so the
 node DENSITY the caller asked for at +-7 sigma is preserved, not diluted.
 Trapezoid weights `0.5*(x[k+1]-x[k-1])` with the index clamped at both ends --
 algebraically identical to `_distmarg_gh_logL`'s `diff`/`concatenate` form, but
 computable one block at a time so the distance axis stays scanned.
 Gated on `m_max <= 2`; richer mode content still raises.
+
+`u*` is the EXACT maximiser of `A(u)^2/(2 B(u))`, not of `A(u)`.  With
+`A0 = B1 = 0` the stationary condition `2 A' B = A B'` reduces in `z = e^{iu}`
+to `z^2 w = conj(w)`, so the maximiser is closed form and angle-free, and
+reduces to `conj(A1)/|A1|` when `B2 = 0`.  Verified against a 400,001-point
+brute-force argmax on 20,000 random `(A1, B0, B2)` with `|B2|/B0` up to
+0.99999: brute force never beats it by more than 6.5e-16 relative.
 
 ## Task 1: why the closed form is enough (m_max = 2 only)
 
@@ -89,6 +98,56 @@ closed form.  Neither statement survives odd-m or l >= 3 content, which is why
 the ship gate keys on `m_max`, following `angle_sample_grid_sizes`'s precedent.
 The higher-mode verdict is owned by another session; the gate stays until it
 lands, whatever it says.
+
+## Beyond the fixture: an exhaustive scan of the reachable family
+
+Because `A0 == 0` and `B1 == 0` hold for EVERY mode set, after scaling
+`B0 -> 1`, `sigma0 = 1/sqrt(B0)` and rotating `arg(A1) -> 0` the bracket problem
+depends on exactly three numbers:
+
+    rho = |A1|/sqrt(B0)     r = |B2|/B0 in [0,1)     delta = relative phase
+
+and `rho` enters only as an overall factor of the exponent, so the whole family
+can be SCANNED rather than sampled.  222,950 points (r to 0.9999, rho 0.2 to
+3000, 91 phases, v grid 262,144, 100-nat weight threshold), of which 214,849
+have >= 32 samples inside the weight-carrying window; the rest are grid-limited
+and excluded.  Clipping into `[x_min, x_max]` is 1-Lipschitz, so these unclipped
+reaches are UPPER bounds on the clipped ones.
+
+| centring | reach p50 | reach p99 | reach MAX |
+|---|---|---|---|
+| `argmax A(u)` (the naive closed form) | 6.02 | 3136.7 | 10417.2 |
+| `argmax A(u)^2/(2B(u))` (shipped) | 2.79 | 12.80 | **14.134** |
+
+The naive centring is catastrophic at large `|B2|/B0` -- and `|B2|/B0` is a
+property of the network response, not of the mode content, so no `m_max` gate
+would have caught it.  The ladder-2 fixture never reaches that corner
+(`|B2|/B0` median 0.011, p99 0.023 at rho 40.77 and 163.08), which is precisely
+why a fixture-only validation would have shipped the wrong rule: this is the
+"exact on a fixture, loose in production" defect class in its usual form.
+
+With the shipped centring the reach is bounded across every peak-exponent
+decade:
+
+| peak exponent | rows | reach p99 | reach MAX |
+|---|---|---|---|
+| [0, 30) | 74,092 | 7.24 | 7.74 |
+| [30, 100) | 13,463 | 13.86 | 14.11 |
+| [100, 300) | 12,503 | 13.80 | 14.13 |
+| [300, 1e3) | 13,727 | 12.05 | 13.82 |
+| [1e3, 1e4) | 26,402 | 11.20 | 13.50 |
+| [1e4, 1e5) | 26,282 | 10.62 | 13.06 |
+| >= 1e5 | 48,380 | 10.11 | 12.65 |
+
+The maximum saturates at `sqrt(2T) = sqrt(200) = 14.142` -- attained in the
+weak-signal corner, where the 100-nat window is the whole circle.  Hence the
+shipped half-span `7 + 14.14 -> 22 sigma`, and the node floor
+`2*22/0.92 + 1 = 49`.  The pre-registered `(7 + ceil(S_p99)) = 11` plus
+`C_p99 = 0.64` gives 12 sigma, which the ladder-2 operating point needs; 22 is
+the family-wide requirement and is what ships.  Widening is the conservative
+direction, and it costs nothing at the operating point: the answer at rho 40.77
+is bit-identical between 27 nodes at 12 sigma and 49 nodes at 22 sigma to the
+six decimals printed.
 
 ## Task 3: validation, in nats
 

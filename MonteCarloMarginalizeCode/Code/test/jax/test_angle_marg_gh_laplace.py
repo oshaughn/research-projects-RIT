@@ -92,15 +92,35 @@ def _fields(data, nphi=24):
 # 1. the structural identity the placement rests on
 # ---------------------------------------------------------------------------
 
-def test_a0_and_b1_vanish_for_m_max_2():
+def _identity_residuals(f):
+    """(|A0|/|A1|, |B1|/|B0|) -- zero iff A(u) is a pure first harmonic and
+    B(u) a constant plus a pure second harmonic."""
+    return (np.abs(f["A0"]).max() / np.abs(f["A1"]).max(),
+            np.abs(f["B1"]).max() / np.abs(f["B0"]).max())
+
+
+@pytest.mark.parametrize("modes,m_max", [
+    (((2, 2), (2, -2)), 2),
+    (((2, 2), (2, -2), (3, 3), (3, -3)), 3),
+    (((2, 2), (2, -2), (2, 1), (2, -1), (3, 3), (3, -3), (4, 4), (4, -4)), 4),
+])
+def test_a0_and_b1_vanish(modes, m_max):
     """A(u) is a PURE first harmonic and B(u) a constant plus a PURE second
-    harmonic for (2,+-2) content, so R_lo = B0 - |B1| - |B2| is min_u B
-    exactly rather than a bound.  This is the identity the +-12 sigma rule is
-    derived from; if a mode-convention change breaks it, the rule is void."""
-    f = _fields(loud_data())
-    assert f["m_max"] == 2
-    assert np.abs(f["A0"]).max() / np.abs(f["A1"]).max() < 1e-12
-    assert np.abs(f["B1"]).max() / np.abs(f["B0"]).max() < 1e-12
+    harmonic, so R_lo = B0 - |B1| - |B2| is min_u B EXACTLY rather than a
+    bound.  This is the identity the +-12 sigma rule is derived from; if a
+    mode-convention change breaks it, the rule is void.
+
+    It is not a (2,+-2) accident: the psi dependence enters only through the
+    spin-2 antenna response F(psi) ~ e^{-2 i psi}, which puts the kappa term at
+    exactly one u-harmonic (u = 2 psi) and the rho^2 term at exactly harmonics
+    0 and 2, whatever the mode content.  Checked here through m_max = 4, and
+    on real IMRPhenomXHM l_max = 3/4 data in the branch's DESIGN note.  (The
+    SHIP gate is still m_max <= 2, deliberately: the identity fixes the WIDTH,
+    while the half-span constant was measured on (2,+-2) fixtures.)"""
+    f = _fields(loud_data(modes=modes))
+    assert f["m_max"] == m_max
+    a0, b1 = _identity_residuals(f)
+    assert a0 < 1e-12 and b1 < 1e-12, (a0, b1)
     # ... and the second harmonic is REAL content, not another zero: a bound
     # that is tight only because every harmonic vanished would prove nothing.
     assert np.median(np.abs(f["B2"]) / f["B0"]) > 1e-3
@@ -113,16 +133,22 @@ def test_a0_and_b1_vanish_for_m_max_2():
     assert np.abs(Bu.min(-1) / R_lo - 1.0).max() < 1e-4
 
 
-def test_a0_and_b1_identity_has_a_positive_control():
-    """POSITIVE CONTROL for the test above: the same assertions must FAIL on
-    mode content with odd m.  Without this, a bug that zeroed the coefficient
-    tables outright would make the identity test pass for the wrong reason."""
-    f = _fields(loud_data(modes=((2, 2), (2, -2), (3, 3), (3, -3))))
-    assert f["m_max"] == 3
-    broke = (np.abs(f["A0"]).max() / np.abs(f["A1"]).max() >= 1e-12
-             or np.abs(f["B1"]).max() / np.abs(f["B0"]).max() >= 1e-12)
-    assert broke, ("m_max=3 data satisfied the (2,+-2) identity; the identity "
-                   "test above is then vacuous")
+def test_identity_check_has_a_positive_control():
+    """POSITIVE CONTROL for the test above.  The identity holds for EVERY mode
+    set, so no choice of modes can make the assertion fail -- which means a
+    bug that returned all-zero coefficient tables, or a residual computed from
+    the wrong slots, would leave it passing for the wrong reason.  Prove the
+    detector fires by PLANTING the harmonics it is supposed to reject."""
+    f = _fields(loud_data())
+    ok_a0, ok_b1 = _identity_residuals(f)
+    assert ok_a0 < 1e-12 and ok_b1 < 1e-12
+    planted_a0 = dict(f, A0=f["A0"] + 1e-3 * np.abs(f["A1"]))
+    planted_b1 = dict(f, B1=f["B1"] + 1e-3 * f["B0"])
+    assert _identity_residuals(planted_a0)[0] >= 1e-12
+    assert _identity_residuals(planted_b1)[1] >= 1e-12
+    # and the residual is computed from a NON-DEGENERATE table: |A1| and |B0|
+    # are the scales it divides by, so a zeroed table would give 0/0, not 0
+    assert np.abs(f["A1"]).max() > 0 and np.abs(f["B0"]).max() > 0
 
 
 # ---------------------------------------------------------------------------
@@ -130,8 +156,8 @@ def test_a0_and_b1_identity_has_a_positive_control():
 # ---------------------------------------------------------------------------
 
 def test_gh_psi_node_offsets():
-    assert AM._GH_PSI_HALF_SIGMA == 12.0
-    assert AM._GH_PSI_MIN_NODES == 27
+    assert AM._GH_PSI_HALF_SIGMA == 22.0
+    assert AM._GH_PSI_MIN_NODES == 49
     assert AM._GH_PSI_M_MAX == 2
     for n_req in (8, 16, 33, 64, 129):
         z, zp, zn, n = AM._gh_psi_node_offsets(n_req)
@@ -253,8 +279,8 @@ def test_half_span_is_sufficient_and_not_gratuitous(monkeypatch):
     data = loud_data()
     x, lw = loud_grid(data)
     base = _lap_gh(data, x, lw, 65, monkeypatch)
-    wide = _lap_gh(data, x, lw, 65, monkeypatch, _GH_PSI_HALF_SIGMA=24.0)
-    assert np.abs(base - wide).max() < 1e-4, "12 sigma does not contain the peak"
+    wide = _lap_gh(data, x, lw, 65, monkeypatch, _GH_PSI_HALF_SIGMA=44.0)
+    assert np.abs(base - wide).max() < 1e-4, "22 sigma does not contain the peak"
     narrow = _lap_gh(data, x, lw, 65, monkeypatch, _GH_PSI_HALF_SIGMA=0.05)
     assert np.abs(base - narrow).max() > 1e-2, (
         "collapsing the bracket did not change the answer -- the half-span is "
@@ -269,39 +295,48 @@ def test_node_floor_is_live(monkeypatch):
     x, lw = loud_grid(data)
     ref = _lap_gh(data, x, lw, 129, monkeypatch)
     monkeypatch.setattr(AM, "_GH_PSI_MIN_NODES", 3)
+    n_coarse = AM._gh_psi_node_offsets(2)[3]
+    assert n_coarse < 10, n_coarse          # the floor is what was holding it up
     coarse = _lap_gh(data, x, lw, 2, monkeypatch)
-    assert AM._gh_psi_node_offsets(2)[3] == 3
     assert np.abs(coarse - ref).max() > 1e-3, (
-        "a 3-node bracket matched the converged answer -- the node count is "
-        "inert and the floor pins nothing")
+        "a %d-node bracket matched the converged answer -- the node count is "
+        "inert and the floor pins nothing" % n_coarse)
 
 
 # ---------------------------------------------------------------------------
 # 6. the sigma cap (unreachable on signal-carrying data; must still be live)
 # ---------------------------------------------------------------------------
 
-def test_sigma_cap_is_inactive_on_signal_and_live_when_forced(monkeypatch):
-    """The cap keeps the bracket inside the physical support when R_lo -> 0
-    (a bin with no response, where the exponent is flat in x).  On real data
-    it is inactive by orders of magnitude -- so pin BOTH: that raising the cap
-    changes nothing, and that lowering it changes the answer."""
+def test_sigma_cap_is_inactive_at_production_support_and_live_when_it_binds(
+        monkeypatch):
+    """The cap keeps the bracket inside the physical support when R_lo -> 0 (a
+    bin with no response, where the exponent is flat in x and sigma would blow
+    up, leaving every node on one of the two rails).  Pin BOTH directions: it
+    is far from binding at a production distance support, and it does bind --
+    and change the answer -- on a narrow one."""
     data = loud_data()
-    x, lw = loud_grid(data)
-    base = _lap_gh(data, x, lw, 65, monkeypatch)
-    # the cap is (x_max-x_min)/(2*half_sigma); it enters only via jnp.minimum,
-    # so make it enormous by shrinking the half-span denominator's partner --
-    # here directly, by widening the support the cap is computed from.
     f = _fields(data)
     sigma = 1.0 / np.sqrt(f["B0"] - np.abs(f["B1"]) - np.abs(f["B2"]))
-    cap = (float(np.max(np.asarray(x))) - float(np.min(np.asarray(x)))) \
-        / (2.0 * AM._GH_PSI_HALF_SIGMA)
-    assert sigma.max() < 0.05 * cap, (
-        "the sigma cap is within 20x of the widths this data actually uses; "
-        "it would then be shaping the result rather than guarding a corner")
-    # forcing the cap to bind must change the answer (it is not dead code)
-    monkeypatch.setattr(AM, "_GH_PSI_HALF_SIGMA", 1e9)
-    forced = _lap_gh(data, x, lw, 65, monkeypatch)
-    assert np.abs(forced - base).max() > 1e-2
+
+    def cap(d_min, d_max):
+        xg, _ = make_distance_grid(d_min, d_max, 64, distMpcRef=data.distMpcRef)
+        xg = np.asarray(xg)
+        return (xg.max() - xg.min()) / (2.0 * AM._GH_PSI_HALF_SIGMA)
+
+    # production-scale support (RIFT's own --d-min 1 --d-max 10000): the widths
+    # this data actually uses are two orders of magnitude below the cap, so the
+    # cap cannot be shaping any production result.  (On the ladder-2 injection
+    # itself the margin is ~1100x -- sigma ~ 0.02 against a cap of 22.7 -- this
+    # synthetic target is quieter, hence the looser factor here.)
+    assert sigma.max() < 1e-2 * cap(1.0, 10000.0)
+    # the fixture's own narrow support DOES reach it -- so the cap is live code
+    assert sigma.max() > cap(200.0, 4000.0)
+    # ... and removing it changes the answer, i.e. it is not a no-op minimum
+    x, lw = loud_grid(data)
+    base = _lap_gh(data, x, lw, 65, monkeypatch)
+    monkeypatch.setattr(AM, "_GH_PSI_HALF_SIGMA", 1e-9)   # cap -> enormous
+    uncapped = _lap_gh(data, x, lw, 65, monkeypatch)
+    assert np.abs(uncapped - base).max() > 1e-2
 
 
 # ---------------------------------------------------------------------------
@@ -330,3 +365,57 @@ def test_gh_laplace_gradients_are_finite(monkeypatch):
         lo = float(f(*args))
         fd = (hi - lo) / (2 * eps)
         assert abs(fd - float(np.asarray(g[i]).sum())) <= 1e-4 * max(1.0, abs(fd))
+
+
+# ---------------------------------------------------------------------------
+# 8. the closed-form psi maximiser the centre sits on
+# ---------------------------------------------------------------------------
+
+def test_closed_form_psi_argmax_is_exact():
+    """With A0 == 0 and B1 == 0, argmax_u A(u)^2/(2 B(u)) is exactly
+    e^{i u*} = +- conj(w)/|w|, w = B0*A1 - conj(A1)*B2.  This is what the node
+    CENTRE sits on; centring on argmax A(u) instead (the B2 -> 0 limit of the
+    same formula) is loose by up to ~7000 sigma at large |B2|/B0.
+
+    Checked against brute force over random coefficient triples, INCLUDING the
+    large-|B2|/B0 corner that the ladder-2 fixture never reaches -- the point
+    being that a fixture cannot exercise this and the closed form must be
+    right everywhere."""
+    rng = np.random.default_rng(11)
+    n = 4000
+    A1 = rng.normal(size=n) + 1j * rng.normal(size=n)
+    B0 = np.abs(rng.normal(size=n)) * 3 + 0.05
+    r = rng.uniform(0.0, 0.9999, n)
+    B2 = B0 * r * np.exp(1j * rng.uniform(0, 2 * np.pi, n))
+
+    w = B0 * A1 - np.conj(A1) * B2
+    ph = np.conj(w) / np.maximum(np.abs(w), 1e-300)
+    ph = ph * np.where((A1 * ph).real >= 0, 1.0, -1.0)
+    A_st = (A1 * ph).real
+    B_st = B0 + (B2 * ph * ph).real
+    assert (A_st > 0).all(), "sign branch does not put the centre at x* > 0"
+    assert (B_st > 0).all()
+    E_st = A_st ** 2 / (2 * B_st)
+
+    u = np.linspace(0.0, 2 * np.pi, 100001, endpoint=False)
+    e1 = np.exp(1j * u); e2 = e1 * e1
+    best = np.empty(n)
+    for k in range(0, n, 100):
+        sl = slice(k, k + 100)
+        A = (A1[sl, None] * e1).real
+        B = B0[sl, None] + (B2[sl, None] * e2).real
+        best[sl] = np.where(A > 0, A * A / (2 * np.maximum(B, 1e-300)), 0.0).max(-1)
+    # brute force must never BEAT the closed form (it can only fall short by
+    # the u-grid resolution)
+    assert ((best - E_st) / E_st).max() < 1e-12
+    # POSITIVE CONTROL: the naive centring (argmax A) is measurably worse, so
+    # the correction is doing work rather than being a no-op rewrite
+    ph_naive = np.conj(A1) / np.abs(A1)
+    E_naive = ((A1 * ph_naive).real ** 2
+               / (2 * (B0 + (B2 * ph_naive * ph_naive).real)))
+    assert (E_naive < E_st * (1 - 1e-6)).mean() > 0.5, (
+        "argmax A already equals argmax A^2/2B on this sample; the closed form "
+        "is then untested")
+    # ... and the two coincide exactly in the B2 -> 0 limit
+    w0 = B0 * A1
+    assert np.abs(np.conj(w0) / np.abs(w0) - np.conj(A1) / np.abs(A1)).max() < 1e-12

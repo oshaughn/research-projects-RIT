@@ -1115,31 +1115,62 @@ def _laplace_psi_lnI_block(a, c1, c2):
 #
 #   rho    W = sqrt(min_u B/R_lo)   C = |x*(u_cf)-x*(u_exact)|/sigma   S span/sigma
 #   40.77  median 1.0000 max 1.0000  median 0.0014 p99 0.636 max 0.689  p99 3.899 max 4.085
-#   163.1  (see DESIGN note; same verdicts)
+#   163.1  median 1.0000 max 1.0000  median 0.0090 p99 0.097 max 0.112  p99 0.863 max 0.887
 #
-# with R_lo <= 0 at 0.0000% of ALL bins at both rungs.  W == 1 is an IDENTITY
-# for m_max = 2, not a lucky bound: the spin-2 response makes A0 and B1 vanish
-# identically (measured |A0|/|A1| ~ 7e-17, |B1|/|B0| ~ 6e-16), so
-# B(u) = B0 + Re(B2 e^{2iu}) and R_lo = B0 - |B2| IS min_u B.  That identity is
-# exactly what does NOT survive odd-m or l >= 3 content, hence the m_max gate
-# below: this rule is established for m_max = 2 only.
+# with R_lo <= 0 at 0.0000% of ALL bins at both rungs.  W == 1 is an IDENTITY,
+# not a lucky bound: the spin-2 response F(psi) ~ e^{-2 i psi} puts the kappa
+# term at exactly one u-harmonic and the rho^2 term at exactly harmonics 0 and
+# 2, so A0 and B1 vanish for EVERY mode set -- measured |A0|/|A1| ~ 7e-17 and
+# |B1|/|B0| ~ 6e-16 on real IMRPhenomXHM data at m_max = 2, 3 AND 4, and on
+# synthetic data with random U/V.  Hence B(u) = B0 + Re(B2 e^{2iu}) and
+# R_lo = B0 - |B2| IS min_u B.  The m_max gate below is therefore CONSERVATIVE
+# rather than load-bearing for the width; it stands because the half-span
+# constant was measured on (2,+-2) fixtures and the higher-mode verdict is
+# owned by another session.
 #
-# Half-width: the pre-registered rule is (7 + ceil(S_p99)) sigma = 11 sigma,
-# and the closed-form centre adds C_p99 = 0.64 on top -> 12 sigma.  Measured
-# directly, the quantity that must fit is the one-sided reach from the
-# closed-form centre to the furthest weight-carrying component centre:
-# p99 3.28, max 3.46 sigma at rho 40.77, so 7 + 3.46 = 10.5 sigma is what is
-# needed and 12 sigma is the shipped budget.  ("Weight-carrying" = within 100
-# nats of the best bin's clipped exponent; bins below that contribute < e^-100
-# and an under-reaching bracket can only UNDER-estimate them, never inflate
-# them, since the trapezoid is exponentially accurate at this spacing.)
-_GH_PSI_HALF_SIGMA = 12.0     # node half-span, in units of sigma = 1/sqrt(R_lo)
-_GH_PSI_MIN_NODES = 27        # floor: 24 sigma / 26 gaps = 0.92 sigma spacing,
+# CENTRING.  A0 == 0 makes A(u) a pure first harmonic, so the u that maximises
+# A is closed form; but the u that maximises the DISTANCE-maximum exponent
+# A(u)^2/(2 B(u)) is what the bracket must sit on, and the two part company as
+# |B2|/B0 grows.  With A0 = B1 = 0 the stationary condition 2 A' B = A B'
+# reduces, in z = e^{iu}, to
+#     z^2 (B0 A1 - conj(A1) B2) = conj(B0 A1 - conj(A1) B2)
+# so with w = B0*A1 - conj(A1)*B2 the maximiser is EXACTLY
+#     e^{i u*} = +- conj(w)/|w|            (sign chosen so A(u*) > 0)
+# -- closed form, angle-free, and equal to conj(A1)/|A1| when B2 = 0.  (B has
+# only even u-harmonics, so E(u) = E(u+pi) and the two roots of z^2 are the
+# same maximum; the other two stationary points are the A = 0 minima, divided
+# out.)  Checked against a 400,001-point brute-force argmax on 20,000 random
+# (A1, B0, B2) with |B2|/B0 up to 0.99999: the brute force never beats it by
+# more than 6.5e-16 relative.  Using argmax A instead costs nothing on the
+# ladder (the two centres differ by 0.64 sigma at rho 40.77, 0.10 at 163.08)
+# but is catastrophic elsewhere in the family -- see below.
+#
+# HALF-SPAN.  Because A0 = B1 = 0 hold for ANY mode set, the whole problem
+# reduces after scaling to three numbers -- rho = |A1|/sqrt(B0), r = |B2|/B0,
+# and the relative phase -- so the bracket can be scanned EXHAUSTIVELY instead
+# of sampled on a fixture.  Over 57,082 well-resolved points of that family
+# (r up to 0.999, rho 1..1500, 61 phases, v grid 262144, weight threshold 100
+# nats), the one-sided reach that the half-span must cover is
+#     centre = argmax A            : p50 8.1   p99 2701   MAX 7172   sigma
+#     centre = argmax A^2/(2B)     : p50 3.5   p99 13.1   MAX 14.14  sigma
+# and the 14.14 = sqrt(2 * 100 nats) bound is attained in the weak-signal
+# corner where the 100-nat window is the whole circle.  Hence 7 + 14.14 -> 22.
+# On the ladder-2 injection itself the requirement is far smaller (7 + 3.46 =
+# 10.5 sigma at rho 40.77, 7.8 at 163.08, 11.5 at 652), so the shipped span is
+# ~2x what the operating point needs.  ("Weight-carrying" = within 100 nats of
+# the bin's own maximum over u of the clipped exponent; psi below that
+# contribute < e^-100, and an under-reaching bracket can only UNDER-estimate
+# them, never inflate them, the trapezoid being exponentially accurate at this
+# spacing.)
+_GH_PSI_HALF_SIGMA = 22.0     # node half-span, in units of sigma = 1/sqrt(R_lo)
+_GH_PSI_MIN_NODES = 49        # floor: 44 sigma / 48 gaps = 0.92 sigma spacing,
                               # trapezoid aliasing on a Gaussian ~ 2e^-2pi^2/h^2
                               # = 2e-10 -- below the f64 noise of the result
-_GH_PSI_M_MAX = 2             # mode content the placement rule is VALIDATED for
-                              # (the A0 == B1 == 0 identity above).  Keyed on
-                              # mode content the way angle_sample_grid_sizes is.
+_GH_PSI_M_MAX = 2             # mode content the path is SHIPPED for.  The
+                              # A0 == B1 == 0 identity itself is structural and
+                              # measured through m_max = 4, but the higher-mode
+                              # verdict is owned elsewhere; keyed on mode
+                              # content the way angle_sample_grid_sizes is.
 
 
 def _gh_psi_node_offsets(n_nodes):
@@ -1314,13 +1345,19 @@ def fused_log_likelihood_distphipsimarg_laplace(
 
         if _use_gh:
             # ---- psi-marginal adaptive node placement, all FROZEN ----------
-            # e^{i u*} = conj(A1)/|A1| is the u that maximises
-            # A(u) = A0 + Re(A1 e^{iu}); written this way rather than as
-            # exp(-i arg(A1)) so that, like the rest of this module, arg(0)
-            # never appears and A1 = 0 is a regular point.
-            aa1 = jnp.abs(A1)
-            ph1 = jnp.conj(A1) / jnp.maximum(aa1, 1e-300)      # e^{i u*}
-            A_st = A0 + aa1                                    # A(u*)
+            # Centre on the psi that maximises the (unclipped) distance-maximum
+            # exponent A(u)^2/(2 B(u)) -- available in CLOSED FORM here, see
+            # the derivation above _gh_psi_node_offsets:
+            #     e^{i u*} = +- conj(w)/|w|,  w = B0*A1 - conj(A1)*B2
+            # with the sign picking the branch where A(u*) > 0 (x must be
+            # positive).  Angle-free, so arg(0) never appears and w = 0 is a
+            # regular point; reduces to conj(A1)/|A1| -- the maximiser of A
+            # itself -- when B2 = 0.
+            w_st = B0 * A1 - jnp.conj(A1) * B2
+            ph1 = jnp.conj(w_st) / jnp.maximum(jnp.abs(w_st), 1e-300)
+            sgn = jnp.where((A1 * ph1).real >= 0, 1.0, -1.0)
+            ph1 = ph1 * sgn                                    # e^{i u*}
+            A_st = A0 + (A1 * ph1).real                        # A(u*)
             B_st = B0 + (B1 * ph1).real + (B2 * ph1 * ph1).real
             R_lo = B0 - jnp.abs(B1) - jnp.abs(B2)              # <= min_u B
             gh_center = jax.lax.stop_gradient(
