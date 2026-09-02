@@ -153,19 +153,65 @@ six decimals printed.
 
 Ladder-2, `--data-integration-window-half 0.005` (npts 40), 4 sky points from
 the same posterior draw, dense phi grid from `estimate_angle_amplitude` (the
-production route), max over sky points:
+production route, amp 1092.55 -> nphi_d 544, nu_d 272), max over sky points,
+with the SHIPPED constants (exact-argmax centring, 22 sigma, 49-node floor):
 
 | comparison | rho 40.77 | rho 163.08 |
 |---|---|---|
-| laplace+GH16 vs exact+GH16 | 9.196e-05 | see log |
-| laplace+GH65 vs exact+GH65 | 9.196e-05 | see log |
-| laplace+GH65 vs laplace+uniform-4096 | 3.662e-04 | see log |
-| laplace+GH16 vs laplace+GH129 (self-convergence) | 2.76e-09 | see log |
-| laplace+GH33/65 vs laplace+GH129 | 0.0 | see log |
+| laplace+GH16 vs exact+GH16 | 9.196e-05 | 5.128e-06 |
+| laplace+GH33 vs exact+GH33 | 9.196e-05 | 5.128e-06 |
+| laplace+GH65 vs exact+GH65 | 9.196e-05 | 5.128e-06 |
+| laplace+GH129 vs exact+GH129 | 9.196e-05 | 5.128e-06 |
+| laplace+GH65 vs laplace+uniform-4096 | 3.662e-04 | 1.481e-03 |
+| laplace+GH16 vs laplace+GH129 (self-convergence) | 4.20e-09 | < 1e-9 |
+| laplace+GH33/65 vs laplace+GH129 | 0.0 | 0.0 |
 
-The laplace-vs-exact residual is flat in node count, so it is the psi-Laplace
+(The rho 163.08 `laplace+uniform-4096` figure is carried over from the run with
+the first-cut constants: `laplace+uniform` does not use the adaptive nodes at
+all, so it is unchanged by them.  The `laplace+GH` values at BOTH rungs are
+identical to six decimals between the first cut and what ships.)
+
+The laplace-vs-exact residual is FLAT in node count, so it is the psi-Laplace
 error alone, not the distance quadrature.  The uniform-4096 residual is that
-grid's own discretization (at rho 163 a 4096-point uniform grid over
-[1, 10000] Mpc puts under one point across the distance peak, so it is NOT a
-converged reference there -- reported because it was asked for, not as truth).
-The placement is converged at the 27-node floor.
+grid's own discretization: at rho 163 a 4096-point uniform grid over
+[1, 10000] Mpc puts well under one point across the distance peak, so it is NOT
+a converged reference there -- reported because it was asked for, not as truth.
+The placement is converged at the 49-node floor (differences of 0.0 to the
+printed precision from 102 nodes up), and the rho 40.77 answers are identical
+to six decimals between the first cut (argmax A, 12 sigma, 27 nodes) and what
+ships (exact argmax, 22 sigma, 49 nodes).
+
+### Gates
+
+* `test_angle_marg_gh_laplace.py`: 15 tests, all passing, wired into
+  `.travis/test-jax.sh` (`EXPECTED_TESTS` 189 -> 204).
+* Full jax gate on the CI environment (`~/.conda/envs/rift_jax`, jax 0.9.2,
+  `JAX_PLATFORMS=cpu`, `OMP_NUM_THREADS=1`): **206 passed, 1 deselected,
+  11m34s**, collected 206 from 21 files (204 floor).
+* `test_angle_marg_exact.py` (excluded from the gate for cost; the gate's own
+  comment says to run it by hand when touching `anglemarg.py`):
+  **33 passed, 2 failed, 4m47s**.  Both failures reproduce IDENTICALLY on a
+  pristine worktree at the base commit `52433198`
+  (33 passed / 2 failed, same two node ids), so they are pre-existing and not
+  from this change:
+    - `test_laplace_high_amplitude_accuracy_and_trend` -- its `errs[1] < errs[0]`
+      trend assertion compares 4.17e-10 against 5.68e-14, i.e. two numbers that
+      are both at machine precision; the docstring's reference values (0.055 /
+      0.028) are stale by ~12 orders of magnitude, so the test is now comparing
+      noise.  Worth a separate fix; NOT touched here.
+    - `test_driver_labels_a_suspect_angle_grid_in_provenance`.
+
+### Mutation results (every new guard)
+
+| guard | mutation | fired? |
+|---|---|---|
+| `_GH_PSI_HALF_SIGMA = 22` sufficient | raise to 44 -> answer must not move | yes, < 1e-4 nats |
+| `_GH_PSI_HALF_SIGMA` is live at all | collapse to 0.05 -> answer must move | yes, > 1e-2 nats |
+| `_GH_PSI_MIN_NODES = 49` | drop the floor to 3, request 2 nodes | yes, > 1e-3 nats |
+| sigma cap is live | force it to bind (half-span 1e-9) | yes, > 1e-2 nats |
+| sigma cap is inactive in production | compare against production support | yes (>100x margin) |
+| `m_max` gate | m_max = 3 data raises; positive control: same data with GH off returns finite, and m_max = 2 data with GH on returns finite | yes |
+| `JAX_ILE_DISTMARG_GH` is not inert on `laplace` | same call with GH on vs off must differ | yes, > 1e-6 nats |
+| A0 == B1 == 0 identity | no mode set can break it, so plant the harmonics instead | yes |
+| closed-form psi argmax | naive `argmax A` must be measurably worse on > 50% of random triples | yes |
+
