@@ -443,6 +443,12 @@ def estimate_angle_amplitude(data, x_grid, interp=JAX_INTERP_DEFAULT,
     # draw again (at most twice) and say so.
     half = np.concatenate([amps[: n_sky // 2], amps[n_sky:]])   # + extremes
     amp_emp = float(amps.max())
+    # Accumulated in the SAME idiom as amp_emp, and adjacently: dropping the
+    # unclipped update in the re-draw loop below takes clip_excess below 1 and
+    # disarms the F1 exteriority refusal, with no observable difference on any
+    # fixture.  DESIGN_jax_distance_quadrature.md section 5(c);
+    # test_sky_doubling_updates_the_unclipped_maximum_too pins it at the source.
+    amp_u_emp = float(amps_u.max()) if len(amps_u) else 0.0
     amp_ref = float(half.max())
     grows = amp_emp > 1.2 * amp_ref + 1e-12
     n_extra = 0
@@ -451,9 +457,9 @@ def estimate_angle_amplitude(data, x_grid, interp=JAX_INTERP_DEFAULT,
               "(%.4g -> %.4g); doubling the sample." % (amp_ref, amp_emp))
         ra2, dec2, incl2 = _draw(n_sky, rng)
         amps2, amps_u2, _, _ = _per_sky_amps(ra2, dec2, incl2)
-        amps_u = np.concatenate([amps_u, amps_u2])
         amp_ref = amp_emp
         amp_emp = max(amp_emp, float(amps2.max()))
+        amp_u_emp = max(amp_u_emp, float(amps_u2.max()))
         grows = amp_emp > 1.2 * amp_ref + 1e-12
         n_extra += n_sky
 
@@ -472,7 +478,7 @@ def estimate_angle_amplitude(data, x_grid, interp=JAX_INTERP_DEFAULT,
               "direction); the empirical value governs." % (amp_analytic,
                                                             amp_emp))
     if return_diagnostics:
-        amp_unclipped = float(np.max(amps_u)) if len(amps_u) else 0.0
+        amp_unclipped = amp_u_emp
         return margin * amp_emp, dict(
             amp_clipped=float(amp_emp),
             amp_unclipped=amp_unclipped,

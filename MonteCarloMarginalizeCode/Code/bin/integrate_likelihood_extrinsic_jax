@@ -328,6 +328,16 @@ def check_critical_and_report(opts, optp):
             fatal.append("--distance-grid-points and --distance-grid-scheme %s "
                          "both set the distance node count; pass one or the "
                          "other" % dgs)
+        _tol = getattr(opts, "distance_grid_tol", None)
+        if _tol is not None and not (0.0 < float(_tol) < 2.0):
+            # The option's VALUE, checked beside its combinations.  The range
+            # is closed form -- c(tol) = pi*sqrt(2/ln(2/tol)) needs
+            # 0 < tol < 2 -- so making the user sit through a full precompute
+            # to be told otherwise is the same avoidable cost F8 removed for
+            # the combinations.
+            fatal.append("--distance-grid-tol must be in (0, 2): it is a "
+                         "FRACTIONAL error on the distance integral (~nats on "
+                         "lnL), not a node count; got %r" % (_tol,))
         if int(os.environ.get("JAX_ILE_DISTMARG_GH", "0")) > 0:
             fatal.append(
                 "--distance-grid-scheme %s cannot be combined with "

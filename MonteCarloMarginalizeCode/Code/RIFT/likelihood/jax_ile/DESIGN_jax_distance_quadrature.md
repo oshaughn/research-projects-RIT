@@ -152,13 +152,47 @@ nodes over `[1, 10^4]` Mpc.  Measured:
 | 40 | 3000 | [100, 2000] | 89 | **+3.01** | +1.51 |
 | 40 | 634 (interior control) | [1, 10000] | 271 | +5.6e-05 | +0.049 |
 
-So in this regime the scheme is **1.3-3x WORSE in nats than the default it
+So at the UPPER edge the scheme is **1.3-3x WORSE in nats than the default it
 replaces**.  It is REFUSED at build time, not silently mis-sized and not
 silently fallen back to uniform.  The detector is a single scalar from the same
 sky sweep: the amplitude recomputed WITHOUT the clip (`A^2/(2B)`, the true
 stationary value) against the clipped one.  `clip_excess > 1 + 1e-3` means the
 maximizer is exterior.  Verified to fire on truncated supports and to stay at
 exactly 1.0 on interior ones.
+
+**The refusal is symmetric in the two prior edges; the harm is NOT, and the
+table above measures only one of them.**  Every row of it puts the maximizer
+ABOVE `d_max`, which is where the mechanism argument applies -- the log grid's
+absolute spacing is coarsest at `d_max`, so a layer there is the worst case for
+it.  At the LOWER edge the same grid is *finest* exactly where the layer sits,
+and the sign reverses.  Measured (external re-review, 2026-09-02) on a
+`rho_max = 30` target with the maximizer at 86 Mpc, sweeping `d_min` past it
+with `d_max = 10^4` Mpc, against a uniform-8192 reference:
+
+| `d_min` | `clip_excess` | verdict | log-uniform err | uniform-256 err |
+|---|---|---|---|---|
+| 86 | 1.0 | accepted | 1.42e-4 | 1.372e-3 |
+| 88 | 1.00057 | accepted | 1.44e-4 | 1.371e-3 |
+| 92 | 1.0044 | REFUSED | 1.46e-4 | 1.371e-3 |
+| 120 | 1.0879 | REFUSED | 1.45e-4 | 1.367e-3 |
+| 400 | 2.5579 | REFUSED | 1.44e-4 | 1.318e-3 |
+
+The log-uniform error is flat at ~1.4e-4 nats across the whole refused range and
+stays ~9x BETTER than the default, out to `clip_excess` 2.56.  (That the log
+grid and the uniform reference -- two structurally different quadratures --
+agree to 1.4e-4 is itself the evidence that the reference is converged there; a
+uniform reference would otherwise be suspect at a `d_min`-edge layer.)
+
+We refuse both edges anyway, and that is a deliberate choice rather than an
+oversight: the CONTRACT is what fails once the maximizer leaves the support --
+`c(tol)/rho_max` is derived from a Gaussian peak's relative width, and there is
+no peak on the support to have a width -- so the stated fractional error is not
+being delivered even where the realised error happens to be small.  Refusing on
+the condition we can actually detect (`clip_excess`) rather than on a realised
+error we cannot compute at build time keeps the option's promise honest in both
+directions.  The cost is stated here rather than hidden: at the lower edge the
+refusal sends the caller back to a grid that is measurably worse.  Recourse is
+the same one the message names -- narrow `--d-min` so the posterior is interior.
 
 **Why refuse rather than fall back to uniform.**  Three reasons.  A fallback
 would make `--distance-grid-scheme loguniform` silently produce the *other*
@@ -499,7 +533,7 @@ option for `exact` is a good, separate PR.
 
 ## 5. What can still go wrong, and what detects it
 
-Two distinct failure modes.  They have different detectors and one of them is
+Three distinct failure modes.  They have different detectors and one of them is
 NOT covered by the runtime fail-safe, which an earlier draft of this document
 wrongly claimed it was.
 
@@ -525,6 +559,29 @@ fires.  Nothing at runtime detects this regime.  It is handled by REFUSING at
 build time instead, using the unclipped-amplitude diagnostic, which is why that
 refusal is not optional and must not be softened into a fallback.
 
+**(c) The detector's own accumulation, on the sky re-draw path.**
+`estimate_angle_amplitude` re-draws the sky when its split-half check says the
+maximum is still growing.  Both maxima -- clipped and unclipped -- must be
+updated there; updating only the clipped one leaves `clip_excess` reading the
+first batch against a denominator that grew, so it falls BELOW 1 and the
+refusal in (b) stops firing on exactly the events whose sky sampling was too
+coarse to trust.  External re-review deleted that update and all 30 tests of
+the gate stayed green, so the two are now accumulated in the same idiom on
+adjacent lines and guarded at the source
+(`test_sky_doubling_updates_the_unclipped_maximum_too`).  A behavioural test is
+not available, and the reason is worth stating precisely because the obvious
+one is wrong: the re-draw branch IS reachable (19 of 120 searched
+`(data seed, n_sky, seed)` combinations enter it, one of them on an exterior
+support).  What is not reachable is a DIFFERENCE.  The deterministic
+face-on/face-off extremes are appended to the FIRST batch and are what attains
+the unclipped maximum, so the second batch's unclipped contribution was a no-op
+in every configuration measured -- deleting the update leaves `clip_excess`
+bit-identical at 2.42571586419 on the one exterior doubling case available.
+The corruption is therefore real but silent, and nothing bounds a dataset whose
+unclipped maximum comes from a second-batch draw.  A test that cannot be made
+to fail is the kind this file has already deleted once, so the guard is on the
+source instead.
+
 The contract in section 1 is therefore stated as holding uniformly over the
 prior range and over every angle sample **given that the maximizing distance is
 interior** -- a precondition that is checked, and refused when violated, rather
@@ -534,8 +591,11 @@ than assumed.
 
 ### Refused combinations
 
-All of these fail at option-validation time (no precompute) as well as in the
-constructor:
+All except the first fail at option-validation time (no precompute) as well as
+in the constructor.  The exterior maximizing distance is the exception and
+cannot be otherwise: it is a property of the DATA, not of the option set, so
+nothing before the precompute can see it and it is refused in the constructor
+only.
 
 | combination | why |
 |---|---|

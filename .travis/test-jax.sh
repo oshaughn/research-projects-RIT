@@ -186,7 +186,7 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         driver actually CALLS the dispatcher
 #                                         (wiring).  Each fails under a verified
 #                                         mutation (see the PR).  Seconds.
-#   test_distance_grid_loguniform.py 30  the OPT-IN log-uniform ("peak-resolving")
+#   test_distance_grid_loguniform.py 33  the OPT-IN log-uniform ("peak-resolving")
 #                                         distance quadrature for the dense
 #                                         angle-marg schemes.  Pins the spacing
 #                                         contract (Delta ln d <= c/rho_max), the
@@ -407,10 +407,14 @@ fi
 # PR #216 adds eighteen adaptive primitive-time pins, raising 171 -> 189.
 # The log-uniform distance-quadrature PR adds thirty, raising 189 -> 219;
 # counted by `pytest --collect-only` in the GATE's interpreter, not locally.
+# External re-review of that PR then added three more -- the zero-clipped-
+# amplitude extreme of the F1 detector, the DRIVER half of the F2 refusal, and
+# a source guard on the sky-doubling path -- each because a mutation SURVIVED
+# the 33-mutation matrix without it.  219 -> 222.
 # Raising the floor
 # by exactly the number of tests ADDED is safe whatever the environment delta above,
 # since it preserves the margin the previous floor already had.
-EXPECTED_TESTS=219
+EXPECTED_TESTS=222
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"

@@ -275,9 +275,17 @@ def test_angle_lattice_is_sized_from_the_full_support_grid_by_name():
     the identical amplitude today.  The mutation survives every value-level
     assertion.  What the change actually buys is that the invariant is
     structural rather than incidental -- it stays true the moment any
-    narrowing scheme is added (the deprecated JAX_ILE_DISTGRID_ADAPTIVE branch
-    is exactly such a scheme, and measures 12.6% low).  So the guard is on the
-    argument the wrapper passes, which is where the property lives."""
+    narrowing scheme is added.  NO in-tree scheme is currently such a scheme,
+    and that correction matters: an earlier draft of this docstring named the
+    deprecated JAX_ILE_DISTGRID_ADAPTIVE branch and quoted 12.6%, which is
+    wrong.  make_distance_grid_adaptive concatenates a full-range `linspace`
+    backbone before dedup, so its x_min/x_max ARE the full support's and it
+    returns a byte-identical amplitude (measured 10573.7261 either way; the
+    12.6-14.8% figure belongs to the hand-built [0.8 d, 1.25 d] window in
+    wrapper.py, which no code path produces).  So the guard is on the argument
+    the wrapper passes, which is where the property lives, and it is
+    prospective -- see test_narrowing_the_distance_grid_can_move_the_sizing_
+    amplitude, which pins the premise the guard rests on."""
     import inspect
     import textwrap
     import RIFT.likelihood.jax_ile.wrapper as W
@@ -577,6 +585,156 @@ def test_loguniform_is_refused_under_the_per_sample_gh_quadrature():
         C._DISTMARG_GH_N = saved
 
 
+def test_zero_clipped_amplitude_is_the_most_exterior_case_and_is_refused():
+    """F1, the EXTREME, which the test above cannot reach.
+
+    Section 1a's worst row is the one where the clipped amplitude reaches
+    exactly 0: the whole prior support lies beyond the maximizer, so
+    ``x*A - x^2 B/2 <= 0`` at every sampled angle and the max over ``x >= 0``
+    is the floor.  ``clip_excess`` then has no ratio to form, and a separate
+    arm of the expression -- ``inf if amp_unclipped > 0 else 1.0`` -- is what
+    decides the refusal.  Replacing that arm with a bare ``1.0`` leaves every
+    other test in this file GREEN while the design note's worst case (amp -> 0,
+    crossover floor, grid collapses) BUILDS.  Verified: 30/30 still passed
+    under exactly that mutation, and the constructor returned a 37-node grid.
+
+    ``test_clip_excess_diagnostic_...`` uses a [2000, 10000] support, where the
+    clipped amplitude is positive, so it never enters this arm.
+    """
+    from RIFT.likelihood.jax_ile import anglemarg as AM
+    data = _synth(scale=3.0, kappa_boost=4.0)
+    xg, _ = make_distance_grid(1.0, 10.0, 64, "euclidean",
+                               distMpcRef=data.distMpcRef)
+    _, diag = AM.estimate_angle_amplitude(data, xg, interp="sinc",
+                                          return_diagnostics=True)
+    assert diag["amp_clipped"] == 0.0, (
+        "this support no longer drives the CLIPPED amplitude to exactly 0 "
+        "(%.6g), so it can no longer exercise the amp_emp == 0 arm and this "
+        "test is guarding nothing" % diag["amp_clipped"])
+    assert diag["amp_unclipped"] > 0.0, (
+        "the UNCLIPPED amplitude must stay positive here, or there is no "
+        "exteriority left to detect")
+    assert diag["clip_excess"] == float("inf"), (
+        "a zero clipped amplitude against a positive unclipped one is the "
+        "MOST exterior case there is; reporting a finite ratio -- above all "
+        "an interior-looking 1.0 -- disarms the refusal in exactly the regime "
+        "section 1a measures at +4.60 nats")
+    try:
+        _like(data, "loguniform", n_grid=64, d_min=1.0, d_max=10.0)
+    except ValueError as exc:
+        assert "OUTSIDE" in str(exc)
+    else:
+        raise AssertionError(
+            "the extreme exterior case (clipped amplitude 0) must be refused, "
+            "not built")
+
+
+def test_driver_refuses_the_gh_combination_at_PARSE_time():
+    """F2, the DRIVER half -- which no other test in this file covers.
+
+    The constructor refuses this combination as well, so nothing can silently
+    run; but the parse-time half is the one that spares the user a full
+    precompute (F8), and DESIGN section 5 asserts in writing that it fires
+    there.  Deleting that arm of check_critical_and_report left all 30 tests
+    here green.
+
+    ``--angle-marg-scheme auto``, not ``exact``: choose_angle_marg_scheme
+    FORCES the exact scheme whenever GH is enabled, so this is reachable
+    without the user ever typing it.  Executable -- the real
+    check_critical_and_report runs, reading the same environment variable the
+    shipping code reads.
+    """
+    import contextlib, io
+    mod = _driver_module()
+    args = ["--mode", "flowmc-phipsimarg",
+            "--distance-grid-scheme", "loguniform",
+            "--angle-marg-scheme", "auto"]
+    saved = os.environ.get("JAX_ILE_DISTMARG_GH")
+    os.environ["JAX_ILE_DISTMARG_GH"] = "32"
+    try:
+        optp = mod.build_parser()
+        err = io.StringIO()
+        try:
+            with contextlib.redirect_stderr(err):
+                opts, _ = optp.parse_args(list(args))
+                mod.check_critical_and_report(opts, optp)
+        except SystemExit:
+            msg = err.getvalue()
+            assert "JAX_ILE_DISTMARG_GH" in msg, msg[-400:]
+            assert "inert" in msg, msg[-400:]
+        else:
+            raise AssertionError(
+                "--distance-grid-scheme loguniform under JAX_ILE_DISTMARG_GH "
+                "must be refused at PARSE time, not deferred to the "
+                "constructor after a full precompute")
+        # ...and the identical command line must be ACCEPTED with the variable
+        # unset, or this guard is just refusing the option outright.
+        os.environ.pop("JAX_ILE_DISTMARG_GH", None)
+        optp = mod.build_parser()
+        opts, _ = optp.parse_args(list(args))
+        mod.check_critical_and_report(opts, optp)
+    finally:
+        if saved is None:
+            os.environ.pop("JAX_ILE_DISTMARG_GH", None)
+        else:
+            os.environ["JAX_ILE_DISTMARG_GH"] = saved
+
+
+def test_sky_doubling_updates_the_unclipped_maximum_too():
+    """F1's detector on the SKY-DOUBLING path, guarded at the source.
+
+    estimate_angle_amplitude re-draws the sky when its split-half check says
+    the maximum is still growing.  The CLIPPED maximum is updated there; if the
+    UNCLIPPED companion is not, the exteriority detector reads only the first
+    batch while its denominator keeps growing, so clip_excess falls BELOW 1 and
+    the F1 refusal disarms itself on exactly the events whose sky sampling was
+    too coarse to trust.
+
+    Why a SOURCE-level guard, when the branch itself is reachable.  It is:
+    19 of 120 searched (data seed, n_sky, seed) combinations enter the re-draw,
+    across five of six data seeds, and one of them sits on an exterior support
+    (this file's own _synth(), [500, 10000] Mpc, n_sky=64, seed=1 --
+    clip_excess 2.4257).  What is NOT reachable is a DIFFERENCE.  The
+    deterministic face-on/face-off extremes are appended to the FIRST batch and
+    are what attains the unclipped maximum, so the second batch's unclipped
+    contribution was a no-op in every configuration measured: deleting the
+    update leaves clip_excess bit-identical (2.42571586419 either way) on the
+    one exterior doubling case there is.  The corruption is real but silent --
+    a dataset whose unclipped maximum came from a second-batch draw would take
+    clip_excess BELOW 1 and disarm the refusal, and nothing here bounds that.
+    So a behavioural test would be one that cannot be made to fail, which is
+    why the gradient test in this file was deleted rather than kept.  What CAN
+    fail is the assertion that the loop updates both accumulators.  Verified:
+    deleting the unclipped update makes this test fail and leaves every other
+    test in this file passing.
+    """
+    import inspect
+    import textwrap
+    from RIFT.likelihood.jax_ile import anglemarg as AM
+    tree = ast.parse(textwrap.dedent(
+        inspect.getsource(AM.estimate_angle_amplitude)))
+    loops = [n for n in ast.walk(tree) if isinstance(n, ast.While)]
+    assert len(loops) == 1, (
+        "expected exactly one re-draw loop in estimate_angle_amplitude, found "
+        "%d; this guard names the loop by being the only one" % len(loops))
+    assigned = {t.id for n in ast.walk(loops[0])
+                if isinstance(n, ast.Assign)
+                for t in n.targets if isinstance(t, ast.Name)}
+    assert "amp_emp" in assigned, (
+        "the re-draw loop no longer updates the clipped maximum; this guard "
+        "is anchored to that update and must be revisited")
+    assert "amp_u_emp" in assigned, (
+        "the re-draw loop updates the CLIPPED maximum but not the UNCLIPPED "
+        "one.  clip_excess = amp_unclipped / amp_clipped then reads the first "
+        "sky batch against a denominator that grew, falls below 1, and the "
+        "F1 exterior-peak refusal stops firing.  Update both, adjacently.")
+    # and the two must be accumulated the same way, so that dropping one is
+    # visible on sight rather than only to this test
+    src = inspect.getsource(AM.estimate_angle_amplitude)
+    assert "amp_emp = max(amp_emp, float(amps2.max()))" in src
+    assert "amp_u_emp = max(amp_u_emp, float(amps_u2.max()))" in src
+
+
 def test_dist_grid_tol_is_forwarded_and_not_hardcoded():
     """F3/N1.  Hardcoding the module default at the call site leaves
     --distance-grid-tol silently inert while dist_grid_info keeps echoing the
@@ -678,6 +836,15 @@ def test_driver_refuses_the_bad_combinations_at_PARSE_time():
          "both set the distance node count"),
         (["--distance-grid-tol", "0.1"], "applies only to"),
         (["--distance-grid-scheme", "adaptive"], "invalid choice"),
+        # the option's VALUE, not just its combinations: the valid range is a
+        # closed-form constant, so there is no reason to make the user sit
+        # through a precompute to be told 7.0 is not a fractional error.
+        (["--mode", "flowmc-phipsimarg", "--distance-grid-scheme", "loguniform",
+          "--angle-marg-scheme", "exact", "--distance-grid-tol", "7.0"],
+         "--distance-grid-tol must be in (0, 2)"),
+        (["--mode", "flowmc-phipsimarg", "--distance-grid-scheme", "loguniform",
+          "--angle-marg-scheme", "exact", "--distance-grid-tol", "-1"],
+         "--distance-grid-tol must be in (0, 2)"),
     ]
     import contextlib, io
     mod = _driver_module()
