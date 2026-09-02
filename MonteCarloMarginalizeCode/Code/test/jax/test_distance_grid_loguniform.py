@@ -748,12 +748,27 @@ def test_sky_doubling_updates_the_unclipped_maximum_too():
     assert "doubling" in buf.getvalue(), (
         "this fixture no longer enters the sky re-draw branch, so the pin "
         "below no longer exercises it; find another (see the docstring sweep)")
-    assert diag["amp_clipped"] == 21.795063180415923, diag["amp_clipped"]
-    assert diag["amp_unclipped"] == 52.868630517667135, diag["amp_unclipped"]
-    assert diag["clip_excess"] == 2.4257158641858192, (
-        "clip_excess on the re-draw fixture moved to %.17g.  Any rescaling, "
-        "wrapping, post-loop reset, or reversion of the CONSUMER to the "
-        "first batch's array lands here." % diag["clip_excess"])
+    # RELATIVE, not exact.  These come through BLAS-heavy reconstruction, and
+    # float64 is not bit-portable across CPUs: CI measured amp_clipped
+    # 21.79506318041593 against 21.795063180415923 here, a 3.2e-16 relative
+    # difference that failed an == pin.  The tolerance is chosen from BOTH
+    # sides and must stay there: ~1e-16 of platform drift below it, and the
+    # mutations it exists to catch far above it -- halving the accumulator
+    # (5e-1), a stray rescale (1e-3), and a wrapper that multiplies by
+    # 1.0000001 (1e-7).  1e-11 sits five orders above the drift and four
+    # below the tightest mutation.  Do NOT loosen it past 1e-8.
+    import math
+    _RTOL = 1e-11
+    for key, want in (("amp_clipped", 21.795063180415923),
+                      ("amp_unclipped", 52.868630517667135),
+                      ("clip_excess", 2.4257158641858192)):
+        assert math.isclose(diag[key], want, rel_tol=_RTOL), (
+            "%s on the re-draw fixture is %.17g, expected %.17g (rel %.3g > "
+            "%.0e).  Any rescaling, wrapping, post-loop reset, or reversion "
+            "of the CONSUMER to the first batch's array lands here; a drift "
+            "at the 1e-16 level instead means a new platform, and the "
+            "tolerance -- not the expectation -- is what to revisit."
+            % (key, diag[key], want, abs(diag[key] - want) / want, _RTOL))
     assert diag["clip_excess"] > 1.0 + 1e-3, "and it must still refuse"
 
     # ---- 2. SOURCE GUARD, for the one mutation a value pin cannot see ----
