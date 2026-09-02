@@ -665,7 +665,7 @@ option-validation time, before any precompute.
 | combination | why |
 |---|---|
 | exterior maximizing distance | section 1a: 1.9-4.6 nats, worse than the default |
-| `JAX_ILE_DISTMARG_GH` set | `core._distmarg_gh_logL` places its own per-sample nodes and reads only the SUPPORT of `x_grid`, so the option would be bit-identically inert while still reported as active.  Reachable without typing `exact`: `choose_angle_marg_scheme` FORCES the exact scheme whenever GH is enabled |
+| `JAX_ILE_DISTMARG_GH` set | `core._distmarg_gh_logL` places its own per-sample nodes and reads only the SUPPORT of `x_grid`, so the option would be bit-identically inert while still reported as active.  Reachable without the user naming a dense scheme: under GH `choose_angle_marg_scheme` resolves to one regardless, and this refusal does not depend on which |
 | `--angle-marg-scheme grid` | the sizing amplitude is not computed on that path |
 | a mode other than `flowmc-phipsimarg` | not validated there |
 | `--distance-grid-points` also given | two options setting the same node count |

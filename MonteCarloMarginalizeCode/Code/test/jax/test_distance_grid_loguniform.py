@@ -572,8 +572,11 @@ def test_clip_excess_diagnostic_detects_exteriority_and_is_quiet_when_interior()
 def test_loguniform_is_refused_under_the_per_sample_gh_quadrature():
     """F2.  core._distmarg_gh_logL places its own nodes and reads ONLY
     min/max of x_grid, so both schemes are bit-identical under it while
-    dist_grid_info still reports mode='loguniform'.  Reachable without typing
-    'exact': choose_angle_marg_scheme FORCES exact whenever GH is set."""
+    dist_grid_info still reports mode='loguniform'.  Reachable without the user
+    naming a dense scheme at all: under GH choose_angle_marg_scheme selects one
+    regardless of what was asked for.  The refusal does not depend on WHICH --
+    the per-sample quadrature reads only the support on every dense path -- so
+    this stays correct if that selector's choice under GH ever changes."""
     from RIFT.likelihood.jax_ile import core as C
     data = _synth()
     saved = C._DISTMARG_GH_N
@@ -642,9 +645,10 @@ def test_driver_refuses_the_gh_combination_at_PARSE_time():
     there.  Deleting that arm of check_critical_and_report left all 30 tests
     here green.
 
-    ``--angle-marg-scheme auto``, not ``exact``: choose_angle_marg_scheme
-    FORCES the exact scheme whenever GH is enabled, so this is reachable
-    without the user ever typing it.  Executable -- the real
+    ``--angle-marg-scheme auto``, not ``exact``: under GH the selector
+    resolves to a dense scheme whatever the user asked for, so this is
+    reachable without them ever naming one.  Which dense scheme it picks does
+    not matter here and is deliberately not asserted.  Executable -- the real
     check_critical_and_report runs, reading the same environment variable the
     shipping code reads.
     """

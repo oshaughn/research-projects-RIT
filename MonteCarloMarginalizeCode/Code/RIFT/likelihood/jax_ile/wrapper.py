@@ -570,9 +570,12 @@ class JAXDistPhiPsiMargLikelihood:
             # log_w_grid are unused.  Both schemes span the same support, so the
             # arms would be bit-identical while dist_grid_info still reported
             # mode='loguniform'.  That is the silently-inert-flag class the
-            # other refusals here exist to prevent, and it is reachable without
-            # the user typing 'exact': choose_angle_marg_scheme FORCES the exact
-            # scheme whenever JAX_ILE_DISTMARG_GH is set.
+            # other refusals here exist to prevent, and it is reachable
+            # without the user naming a dense scheme: under GH
+            # choose_angle_marg_scheme resolves to one regardless.  Which one
+            # is irrelevant to this refusal -- the per-sample quadrature reads
+            # only the support on every dense path -- so do not re-tie this
+            # comment to a particular selector outcome.
             raise ValueError(
                 "dist_grid=%r cannot be combined with JAX_ILE_DISTMARG_GH=%d: "
                 "the per-sample Gauss-Hermite distance quadrature places its "
