@@ -45,6 +45,7 @@ def test_build_analysis_targets_rimsky_pesummary_output(tmp_path):
     ).resolve()
     assert analysis["kind"] == "analysis"
     assert analysis["pipeline"] == "RIFT"
+    assert analysis["orchestrator"] == "rimsky"
     assert analysis["name"] == "rift-low-latency"
     assert analysis["dataset"] == "bilby-online"
     assert analysis["scheduler"]["bootstrap file"] == str(expected)
@@ -131,7 +132,10 @@ def test_rift_pipeline_builds_lal_caches_for_rimsky_frames(tmp_path):
     pipeline.production = SimpleNamespace(
         name="rift-online",
         event=SimpleNamespace(work_dir=str(work_dir)),
-        meta={"data": {"data files": {"H1": frames}}},
+        meta={
+            "orchestrator": "rimsky",
+            "data": {"data files": {"H1": frames}},
+        },
     )
     caches = pipeline._prepare_frame_caches()
 
@@ -143,6 +147,19 @@ def test_rift_pipeline_builds_lal_caches_for_rimsky_frames(tmp_path):
         "H RIMSKY 1456739152 4 {}".format(Path(frames[1]).as_uri()),
     ]
     assert pipeline.production.meta["data"]["frame cache"] == caches
+
+
+def test_frame_cache_generation_is_isolated_to_rimsky(tmp_path):
+    from RIFT.asimov.rift import Rift
+
+    pipeline = object.__new__(Rift)
+    pipeline.production = SimpleNamespace(
+        name="unrelated-analysis",
+        event=SimpleNamespace(work_dir=str(tmp_path)),
+        meta={"data": {"data files": {"H1": ["not-a-rimsky-frame"]}}},
+    )
+    assert pipeline._prepare_frame_caches() == {}
+    assert "frame cache" not in pipeline.production.meta["data"]
 
 
 def test_rift_template_passes_generated_frame_caches():

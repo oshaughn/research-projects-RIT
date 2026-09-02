@@ -100,6 +100,8 @@ class Rift(Pipeline):
 
     def _prepare_frame_caches(self):
         """Create LAL cache files for local frames supplied by Rimsky."""
+        if self.production.meta.get("orchestrator") != "rimsky":
+            return {}
         data = self.production.meta.get("data", {})
         data_files = data.get("data files", {})
         if not isinstance(data_files, dict) or not data_files:

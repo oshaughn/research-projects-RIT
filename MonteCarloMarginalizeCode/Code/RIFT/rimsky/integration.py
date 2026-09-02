@@ -117,6 +117,7 @@ def build_analysis(config, *, config_path=None, overrides=None):
         "name": "rift-online",
         "status": "Ready",
         "pipeline": "RIFT",
+        "orchestrator": "rimsky",
         "comment": "RIFT follow-up launched by Rimsky after online Bilby PE",
         "dataset": "bilby-online",
         "likelihood": {
