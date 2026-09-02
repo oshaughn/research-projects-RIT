@@ -530,9 +530,20 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libgsl-dev
       - name: Install RIFT and Rimsky orchestration stack
         run: |
+          retry_pip_install() {
+            local attempt
+            for attempt in 1 2 3; do
+              if python -m pip install "$@" --break-system-packages; then
+                return 0
+              fi
+              echo "pip install failed (attempt ${attempt}/3)"
+              sleep 10
+            done
+            return 1
+          }
           python -m pip install --upgrade pip --break-system-packages
-          python -m pip install '${{ matrix.rimsky-spec }}' --break-system-packages
-          python -m pip install --upgrade 'asimov>=0.7,<0.8' 'bilby_pipe @ git+https://git.ligo.org/lscsoft/bilby_pipe.git@be6c77021db809690c781a7744f40564e62dd72f' --break-system-packages
+          retry_pip_install '${{ matrix.rimsky-spec }}'
+          retry_pip_install --upgrade 'asimov>=0.7,<0.8' 'bilby_pipe @ git+https://git.ligo.org/lscsoft/bilby_pipe.git@be6c77021db809690c781a7744f40564e62dd72f'
           python -m pip install pytest packaging --break-system-packages
           python -m pip install --editable . --no-deps --break-system-packages
       - name: Run Rimsky to RIFT end-to-end test
