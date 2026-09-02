@@ -610,6 +610,53 @@ the symmetry can be broken at roundoff.  A symmetry assumed exact when it is 1e-
 the same defect in a new costume.  Correct layering: numerical clustering stays load-bearing;
 a declared symmetry may SEED clustering and tighten the budget, and the certificate verifies.
 
+### The 2-D enumerator COMPOSES the 1-D one — the pencil may not be needed at all
+
+The obvious route to joint (φ,ψ) is a full 2-D algebraic solve: two Laurent equations, BKK
+mixed volume `8mn = 64` as the certificate, hidden-variable pencil to solve it.  The flagged
+blocker was that pencil's conditioning on the machine-degenerate production tables — the 2-D
+analogue of the on-circle-tolerance trap.
+
+**That blocker is dissolved rather than solved, by composition.**  The u-degree is pinned at
+2 for ANY mode set, so at every fixed φ the u-critical points are the unit-circle roots of
+the SAME degree-4 polynomial the ψ primitive already solves.  The variety `{∂_u g = 0}` is
+therefore obtained EXACTLY, with no grid in u and no tolerance.  The 2-D critical points lie
+on that curve, so the remaining search is **one-dimensional in φ along a curve known
+exactly** — no resultant, no pencil, no BKK machinery.
+
+Measured on the shipped tables (`make_synth`, bidegree (4,2) — note `A` and `B` have
+DIFFERENT bidegrees, `A` linear in the waveform (φ≤m_max, u≤1) and `B` quadratic
+(φ≤2m_max, u≤2), which is why `c2` carries no `A` contribution exactly as
+`_laplace_psi_lnI` states):
+
+| κ boost | 1 | 10 | 100 | 1000 |
+|---|---|---|---|---|
+| mass-carrying maxima (brute force) | 16 | 12 | 12 | 12 |
+| **recovered, at 64 φ-seeds** | **16** | **12** | **12** | **12** |
+| worst candidate-to-maximum gap (rad) | 0.067 | 0.026 | 0.070 | 0.069 |
+
+Every mass-carrying maximum is recovered at every amplitude, and the gap shrinks as φ is
+refined (0.070 → 0.039 at 128 seeds).  Candidate count is `4 × N_φ` — **amplitude-independent**.
+
+Against the SHIPPED `_dense_grid_sizes` product grid:
+
+| amplitude | 325 | 3 250 | 3.25e4 | 3.25e5 |
+|---|---|---|---|---|
+| dense (φ,u) points | 48 640 | 430 592 | 4 216 576 | 41 806 336 |
+| composed (4 × 64) | 256 | 256 | 256 | 256 |
+| **ratio** | 190× | 1 682× | 16 471× | 163 306× |
+
+The ratio grows linearly in `A`, which is the amplitude-independence argument made concrete.
+
+**Be precise about what is and is not certified here.**  This is a HYBRID: the u axis is
+certified at enumeration time (exact quartic, all roots, no filtering), while the φ axis is
+GRID-SEEDED and therefore is not — it carries exactly the same "a grid is a resolution, not
+a certificate" caveat as the time axis.  Correctness on φ must come from the cover bound, as
+it does for time.  What composition buys is not a φ certificate; it is the removal of the
+entire 2-D algebraic apparatus and its conditioning risk, at a cost that does not grow with
+amplitude.  A full 2-D solve remains the route to an enumeration-time certificate on BOTH
+axes if one is ever needed; this measurement says it is not needed to get the cost win.
+
 ### Where enumeration loses — the exclusion region is part of the design
 
 * **Low amplitude**: modes are wide, regions merge toward the whole domain, and the method
