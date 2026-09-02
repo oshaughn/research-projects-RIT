@@ -264,3 +264,47 @@ ships (exact argmax, 22 sigma, 49 nodes).
 | A0 == B1 == 0 identity | no mode set can break it, so plant the harmonics instead | yes |
 | closed-form psi argmax | naive `argmax A` must be measurably worse on > 50% of random triples | yes |
 
+## What makes the placement admissible, and what does not
+
+The closed-form psi maximiser is DERIVED from `A0 == 0` and `B1 == 0`. Two
+conditions gate it, and they do different jobs.
+
+**The guarantee is the response model, and it is angle-independent.** The static
+path builds `F = F+ + i Fx` through `compute_detamresponse` (LAL's
+`ComputeDetAMResponse`), where polarization enters as an exact rotation:
+
+    F+(psi) + i Fx(psi) = (F+(0) + i Fx(0)) e^{-2 i psi}
+
+a SINGLE u-harmonic (u = 2 psi). `kappa` is linear in `F` and `rho^2` quadratic,
+so `A` carries only u-harmonics +-1 and `B` only {0, +-2} -- at EVERY
+(ra, dec, incl). That is why one probe angle is not being asked to establish a
+global property: the property comes from the detector, not from the sample.
+
+`_GH_PSI_STATIC_FEATURES = (None,)`. **The only admitted value is the static
+response, which is the ABSENCE of a feature tag.** Every NAMED feature is
+refused -- `"rotation"` and `"freqresponse"` build their coefficients from the
+arm vectors and a time-varying orientation and have no such factorization -- and
+so is any value added later, which must be added to the tuple deliberately.
+(Stated explicitly because the inverse reading is easy to fall into and was made
+in correspondence: "unnamed" is the thing that PASSES, not the thing refused.)
+
+The precondition is enforced in the PUBLIC kernel, not only in the wrapper:
+`feature` is a plain Python attribute, so it is static and trace-safe, and a
+direct caller with a banded response would otherwise execute the unsupported
+placement while the wrapper correctly refused it.
+
+**The numerical A0/B1 check is an implementation assertion, not the guarantee.**
+It confirms the code matches the structure, pointwise per bin (a ratio of
+unrelated global maxima hides a locally invalid bin behind a large denominator
+elsewhere). It lives in the wrapper because it needs CONCRETE coefficient
+tables: measuring it inside the kernel raises `TracerArrayConversionError` under
+`jax.grad`, since the tables there are tracers.
+
+**Scope, so this is not over-read.** The identity and this gate concern the PSI
+axis. Under precession the PHI content of the tables IS materially
+redistributed -- measured on SEOBNRv5PHM, the `A` phi-slot-0 weight moves from
+1.1e-16 aligned to 2.9e-2 precessing while staying band-limited to ~6e-15 -- and
+that is a property of the SOURCE. It is not an identity failure and the gate is
+right to admit it, but "the identity holds under precession" is a statement
+about psi only.
+
