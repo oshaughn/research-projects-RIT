@@ -99,6 +99,10 @@ class StellarMassMultibranchLALSimulation(MultibranchLALSimulation):
 class CoexistingLALSimulation(MultibranchLALSimulation):
     """Reviewed builds retain the released EOS/family object family too."""
 
+    def SimNeutronStarEOSFromFile(self, fname):
+        self.file_calls.append(("legacy", fname))
+        return "legacy-file-eos"
+
     def CreateSimNeutronStarFamily(self, eos):
         self.create_calls.append(("legacy", eos))
         return "legacy-family"
@@ -164,6 +168,14 @@ def test_reviewed_lalsimulation_uses_minimal_multibranch_api():
     assert family.love_number_k2(1.75, branch_id=1) == pytest.approx(1.175)
     assert family.central_pressure(1.75, branch_id=1) == 101.75
 
+    with pytest.raises(ValueError, match=r"finite ln\(Pc / Pa\)"):
+        LALSimNeutronStarFamilyAdapter(
+            "eos",
+            lalsim_module=lalsim,
+            reviewed_multibranch=True,
+            log_pressure_min=np.inf,
+        )
+
 
 def test_reviewed_module_keeps_legacy_family_dispatch_explicit():
     lalsim = CoexistingLALSimulation()
@@ -228,6 +240,26 @@ def test_eosmanager_file_loader_routes_reviewed_phase_transition_api(monkeypatch
     assert pressure_floor.eos_fam == "multibranch-family-pcmin"
     assert fake_lalsim.create_calls[-1] == ("multipart-eos", 1, 12.5)
 
+    for invalid in (np.inf, -np.inf, np.nan):
+        with pytest.raises(ValueError, match=r"finite ln\(Pc / Pa\)"):
+            EOSManager.EOSLALSimulationFromFile(
+                "pressure-floor.dat", family_log_pressure_min=invalid
+            )
+
+
+def test_eosmanager_file_loader_preserves_legacy_default(monkeypatch):
+    from RIFT.physics import EOSManager
+
+    fake_lalsim = CoexistingLALSimulation()
+    monkeypatch.setattr(EOSManager, "lalsim", fake_lalsim)
+    eos = EOSManager.EOSLALSimulationFromFile("ordinary-two-column.dat")
+
+    assert fake_lalsim.file_calls == [
+        ("legacy", "ordinary-two-column.dat")
+    ]
+    assert fake_lalsim.create_calls == [("legacy", "legacy-file-eos")]
+    assert eos._get_lalsim_family_adapter().number_of_branches == 1
+
 
 def test_eosmanager_smoke_with_installed_released_lalsimulation():
     from RIFT.physics import EOSManager
@@ -262,7 +294,9 @@ def test_selected_branch_view_preserves_legacy_scalar_consumer_api(monkeypatch):
 
     fake_lalsim = StellarMassMultibranchLALSimulation()
     monkeypatch.setattr(EOSManager, "lalsim", fake_lalsim)
-    eos = EOSManager.EOSLALSimulationFromFile("twin-star.dat")
+    eos = EOSManager.EOSLALSimulationFromFile(
+        "twin-star.dat", phase_transition_aware=True
+    )
 
     primary = eos.for_branch(0)
     secondary = eos.for_branch(1)
@@ -275,9 +309,28 @@ def test_selected_branch_view_preserves_legacy_scalar_consumer_api(monkeypatch):
     assert np.isfinite(secondary.lambda_from_m(1.75))
     assert primary.lambda_from_m(2.5) == pytest.approx(1e-8)
 
-    curves = EOSManager.make_mr_lambda_lal_branches(eos.eos, n_bins=3)
+    curves = EOSManager.make_mr_lambda_lal_branches(
+        eos.eos, n_bins=3, family_adapter=eos._get_lalsim_family_adapter()
+    )
     assert set(curves) == {0, 1}
     assert curves[0].shape == (3, 3)
+
+    explicit = EOSManager.make_mr_lambda_lal(
+        eos.eos, n_bins=3, branch_id=1, reviewed_multibranch=True
+    )
+    assert explicit.shape == (3, 3)
+
+
+def test_mr_lambda_branches_helper_keeps_legacy_default(monkeypatch):
+    from RIFT.physics import EOSManager
+
+    fake_lalsim = CoexistingLALSimulation()
+    monkeypatch.setattr(EOSManager, "lalsim", fake_lalsim)
+    curves = EOSManager.make_mr_lambda_lal_branches("legacy-eos", n_bins=3)
+
+    assert set(curves) == {0}
+    assert curves[0].shape == (3, 3)
+    assert fake_lalsim.create_calls == [("legacy", "legacy-eos")]
 
 
 def test_selected_branch_view_preserves_branch_sensitive_helpers(monkeypatch):
@@ -285,7 +338,9 @@ def test_selected_branch_view_preserves_branch_sensitive_helpers(monkeypatch):
 
     fake_lalsim = StellarMassMultibranchLALSimulation()
     monkeypatch.setattr(EOSManager, "lalsim", fake_lalsim)
-    secondary = EOSManager.EOSLALSimulationFromFile("twin-star.dat").for_branch(1)
+    secondary = EOSManager.EOSLALSimulationFromFile(
+        "twin-star.dat", phase_transition_aware=True
+    ).for_branch(1)
 
     expected_radius_km = (10.0 + 1.4 * lal.MSUN_SI) / 1e3
     assert secondary.estimate_baryon_mass_from_mg(1.4) == pytest.approx(
@@ -304,7 +359,9 @@ def test_selected_branch_helpers_fail_closed_when_branch_data_are_missing(monkey
         for lower, upper in MultibranchLALSimulation.bounds
     )
     monkeypatch.setattr(EOSManager, "lalsim", no_reference_star)
-    secondary = EOSManager.EOSLALSimulationFromFile("twin-star.dat").for_branch(1)
+    secondary = EOSManager.EOSLALSimulationFromFile(
+        "twin-star.dat", phase_transition_aware=True
+    ).for_branch(1)
     with pytest.raises(ValueError, match="does not contain the 1.4-Msun"):
         secondary.estimate_baryon_mass_from_mg(1.6)
 
@@ -313,6 +370,23 @@ def test_selected_branch_helpers_fail_closed_when_branch_data_are_missing(monkey
         "SimNeutronStarEOSMultiPartsSpeedOfSoundOfPseudoEnthalpy",
     )
     assert secondary.test_speed_of_sound_causal() is False
+
+
+def test_multipart_full_table_causality_requires_max_enthalpy(monkeypatch):
+    from RIFT.physics import EOSManager
+
+    fake_lalsim = StellarMassMultibranchLALSimulation()
+    monkeypatch.setattr(EOSManager, "lalsim", fake_lalsim)
+    secondary = EOSManager.EOSLALSimulationFromFile(
+        "twin-star.dat", phase_transition_aware=True
+    ).for_branch(1)
+    monkeypatch.delattr(
+        StellarMassMultibranchLALSimulation,
+        "SimNeutronStarEOSMultiPartsMaxPseudoEnthalpy",
+    )
+    assert secondary.test_speed_of_sound_causal(
+        test_only_under_mmax=False
+    ) is False
 
 
 def test_eos_hyperprior_rejects_fixed_branch_request():

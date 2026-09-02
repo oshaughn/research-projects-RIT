@@ -255,9 +255,14 @@ class EOSConcrete:
         m_max_SI = family.maximum_mass(branch_id) if branch_id is not None else self.mMaxMsun*lal.MSUN_SI
         if not test_only_under_mmax:
             if getattr(self, "_lalsim_reviewed_multibranch", False):
-                hmax = (
-                    lalsim.SimNeutronStarEOSMultiPartsMaxPseudoEnthalpy(eos)
+                max_enthalpy = getattr(
+                    lalsim,
+                    "SimNeutronStarEOSMultiPartsMaxPseudoEnthalpy",
+                    None,
                 )
+                if max_enthalpy is None:
+                    return False
+                hmax = max_enthalpy(eos)
             else:
                 hmax = lalsim.SimNeutronStarEOSMaxPseudoEnthalpy(eos)
         else:
@@ -390,16 +395,17 @@ class EOSLALSimulation(EOSConcrete):
 class EOSLALSimulationFromFile(EOSConcrete):
     """Load a released two-column or reviewed nine-column LAL EOS table.
 
-    When the reviewed interface is installed, this class uses
-    ``SimNeutronStarEOSFromFilePhaseTransition`` and the matching multipart
-    family constructor for both formats. That reader always enables its dirty
-    phase-transition handling; ``dirty_phase_transitions`` remains accepted as
-    a backward-compatible request but is not a clean/dirty toggle.
+    The default preserves the released reader and one-argument family API even
+    when reviewed symbols coexist in the module. ``phase_transition_aware``,
+    ``dirty_phase_transitions``, an extended family, or a pressure floor opts
+    into the reviewed multipart reader. ``family_log_pressure_min`` is the
+    finite natural logarithm ``ln(Pc / Pa)``.
     """
 
     def __init__(self, fname, name=None, dirty_phase_transitions=False,
                  skip_family=False, minimal_family=True,
-                 family_log_pressure_min=None):
+                 family_log_pressure_min=None,
+                 phase_transition_aware=False):
         self.name = name or os.path.basename(fname)
         self.fname = fname
         self.eos = None
@@ -407,18 +413,25 @@ class EOSLALSimulationFromFile(EOSConcrete):
         phase_transition_reader = getattr(
             lalsim, "SimNeutronStarEOSFromFilePhaseTransition", None
         )
-        self._lalsim_reviewed_multibranch = phase_transition_reader is not None
-        if self._lalsim_reviewed_multibranch:
-            self.eos = phase_transition_reader(fname)
-        elif (
-            dirty_phase_transitions
+        if family_log_pressure_min is not None:
+            family_log_pressure_min = float(family_log_pressure_min)
+            if not np.isfinite(family_log_pressure_min):
+                raise ValueError(
+                    "family_log_pressure_min must be finite ln(Pc / Pa)"
+                )
+        self._lalsim_reviewed_multibranch = bool(
+            phase_transition_aware
+            or dirty_phase_transitions
             or not minimal_family
             or family_log_pressure_min is not None
-        ):
-            raise NotImplementedError(
-                "phase-transition, extended-family, and pressure-floor options "
-                "require the reviewed LALSimulation multipart EOS interface"
-            )
+        )
+        if self._lalsim_reviewed_multibranch:
+            if phase_transition_reader is None:
+                raise NotImplementedError(
+                    "the requested multipart EOS family requires the reviewed "
+                    "LALSimulation phase-transition interface"
+                )
+            self.eos = phase_transition_reader(fname)
         else:
             self.eos = lalsim.SimNeutronStarEOSFromFile(fname)
         if not skip_family:
@@ -1243,7 +1256,7 @@ def epsilon(x, p0, eps0, coeffs,use_ode=True):
 
 # Les-like
 def make_mr_lambda_lal(eos, n_bins=100, branch_id=None,
-                       reviewed_multibranch=False):
+                       reviewed_multibranch=False, family_adapter=None):
     '''
     Construct mass-radius curve from EOS
     Based on modern code resources (https://git.ligo.org/publications/gw170817/bns-eos/blob/master/scripts/eos-params.py) which access low-level structures
@@ -1253,9 +1266,9 @@ def make_mr_lambda_lal(eos, n_bins=100, branch_id=None,
     never collapsed silently. Set ``reviewed_multibranch`` only for an EOS
     returned by ``SimNeutronStarEOSFromFilePhaseTransition``.
     '''
-    family = create_family(
+    family = family_adapter or create_family(
         eos, lalsim_module=lalsim,
-        reviewed_multibranch=reviewed_multibranch
+        reviewed_multibranch=reviewed_multibranch,
     )
     if family.number_of_branches > 1 and branch_id is None:
         raise ValueError(
@@ -1278,10 +1291,13 @@ def make_mr_lambda_lal(eos, n_bins=100, branch_id=None,
     return mrL_dat
 
 
-def make_mr_lambda_lal_branches(eos, n_bins=100):
-    """Return ``{branch_id: [M, R, Lambda]}`` for every stable LAL branch."""
-    family = create_family(
-        eos, lalsim_module=lalsim, reviewed_multibranch=True
+def make_mr_lambda_lal_branches(eos, n_bins=100,
+                                reviewed_multibranch=False,
+                                family_adapter=None):
+    """Return branch curves; multipart construction is explicit and opt-in."""
+    family = family_adapter or create_family(
+        eos, lalsim_module=lalsim,
+        reviewed_multibranch=reviewed_multibranch,
     )
     return {
         branch_id: _make_mr_lambda_for_family(family, n_bins, branch_id)

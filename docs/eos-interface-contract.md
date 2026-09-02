@@ -32,14 +32,20 @@ Reviewed two- or nine-column tables use:
     [--using-eos-extended-family] [--using-eos-branch <integer>]
 ```
 
-On a reviewed build, RIFT dispatches these files through
-`SimNeutronStarEOSFromFilePhaseTransition` and constructs their families with
-`CreateSimNeutronStarFamilyPT`. Legacy named, spectral, piecewise-polytrope,
-and ordinary file EOS objects continue to use the released one-argument family
-constructor: both SWIG object families coexist and are selected explicitly.
+By default, `lalsim_file:` preserves released `SimNeutronStarEOSFromFile`
+behavior even on a reviewed build. Requesting a branch, the compatibility
+dirty-phase-transition option, or the extended family opts into
+`SimNeutronStarEOSFromFilePhaseTransition` and `CreateSimNeutronStarFamilyPT`.
+Legacy named, spectral, piecewise-polytrope, and ordinary file EOS objects
+continue to use the released one-argument family constructor: both SWIG object
+families coexist and are selected explicitly.
 The reviewed PT reader always enables its dirty-phase-transition handling, so
 `--using-eos-dirty-phase-transitions` remains accepted for command-line
 compatibility but does not toggle a second reader mode.
+
+The optional Python API `family_log_pressure_min` selects
+`CreateSimNeutronStarFamilyPTWithPcmin`; its value is the finite natural
+logarithm of central pressure in pascals, `ln(Pc / Pa)`.
 
 For pseudo-pipe workflows, forward the flag with
 `--manual-extra-cip-args`.  On O4d, Hydra hyperpipe configurations can put it
@@ -89,33 +95,62 @@ this restriction can be relaxed.
 ## Reviewed-LALSimulation integration gate
 
 The fake-backed compatibility tests check RIFT's dispatch logic, but do not
-certify the reviewed SWIG interface. To run the real-build gate, build the
-exact reviewed LALSuite commit, activate that Python environment, and set
+certify the reviewed SWIG interface. Fixture-free acceptance uses trusted
+`SimNeutronStarEOSMultiPartsByName("SLY")`, checks coexistence with the legacy
+named-EOS API, extended-family fields when exported, and repeated family
+destruction. To run it, build the exact reviewed LALSuite commit, activate that
+Python environment, and set
 `RIFT_REVIEWED_LALSIM_MANIFEST` to a JSON file with this shape:
 
 ```json
 {
-  "lalsuite_ref": "0123456789abcdef0123456789abcdef01234567",
+  "lalsuite_ref": "974c0ef468b76e8298e67fd8baf71ed259cc5fee",
   "fixtures": {
     "two_column": {"path": "two-column.dat", "sha256": "..."},
     "nine_column": {"path": "nine-column.dat", "sha256": "..."},
-    "twin_star": {"path": "twin-star.dat", "sha256": "...", "dirty_phase_transitions": true}
+    "twin_star": {
+      "path": "twin_star.dat",
+      "sha256": "1bc0fa5f92788cfb10cea3a7f04d5e6587a342043c94f1d6e7fbef2f7294ac16",
+      "columns": 2,
+      "raw_source_sha256": "3905405889b7da968e07a7ec97d37ca92c710a15af9407e014d6b30869b9608e",
+      "transform": "pressure=raw col4*1.602176634e32*G/c^4; energy=raw col3*1.602176634e32*G/c^4"
+    }
+  },
+  "known_upstream_crash": {
+    "path": "upstream_2pt_raw.dat",
+    "sha256": "e8439b356e0815cfd710c3e4f0ccb7330a9ee7e42050ae6c5963c9d5890f8db7",
+    "expected_returncodes": [-11, 139]
   }
 }
 ```
 
 Run
 `pytest MonteCarloMarginalizeCode/Code/test/test_lalsim_eos_reviewed_integration.py`.
-Paths are relative to the manifest. The ref must be the full 40-character
+The `fixtures` object is optional, and `twin_star` is optional within it.
+Without fixtures, builtin acceptance runs and external-table coverage is an
+explicit skip. File-loader fixtures must be exact two- or nine-column numeric
+tables; four-column wiki arrays require a separate provenance-recorded
+transformation. Each table is loaded in a subprocess with a 60-second timeout,
+stdout and stderr sent to `DEVNULL`, and only a status file capped at 64 KiB
+returned to pytest. Paths are relative to the manifest. The ref must be the
+full 40-character
 commit actually built by the job: the gate requires it to equal
 `lalsimulation.SimulationVCSInfo.vcsId` and requires a clean VCS build. Every
-fixture hash is mandatory. Once the manifest enables the gate, missing modern
+supplied fixture hash is mandatory. Once the manifest enables the gate, missing modern
 symbols, malformed or mismatched build provenance, missing fixtures, wrong
 column counts, or absence of distinct overlapping twin-star solutions are
-failures. The gate exercises the always-PT multipart reader through both legacy
-flag forms, minimal and extended family construction, and branch-indexed radius,
-Love number, central pressure, and tidal deformability. Ordinary CI skips this
-private-build gate explicitly.
+failures. Ordinary CI skips this private-build gate explicitly.
+
+The recorded one-transition twin table is a two-column file derived using
+`pressure = raw column 4 * 1.602176634e32 * G / c^4` and
+`energy = raw column 3 * 1.602176634e32 * G / c^4`; both its derived and raw
+SHA-256 values are retained above. The optional `known_upstream_crash` record
+uses `SimNeutronStarEOSFromArraysPhaseTransition` with the same geometrized
+factor. At reviewed commit `974c0ef`, the authoritative two-transition RC139
+array reaches `CreateSimNeutronStarFamilyPT` and exits with SIGSEGV (`-11`, or
+shell `139`). The gate records that as an expected upstream `xfail`; if it
+starts passing, the test fails with instructions to promote it to a required
+passing fixture rather than silently accepting changed behavior.
 
 The drift-sentinel registry should eventually declare an EOS contract group
 with LALSuite and NuclearMatter-Backend as producers and RIFT/nmb-papers as

@@ -533,6 +533,7 @@ if opts.using_eos!=None:
             fname=eos_name.split(':', 1)[1],
             dirty_phase_transitions=opts.using_eos_dirty_phase_transitions,
             minimal_family=not opts.using_eos_extended_family,
+            phase_transition_aware=opts.using_eos_branch is not None,
         )
     elif 'lal_' in eos_name:
         eos_name = eos_name.replace('lal_','')

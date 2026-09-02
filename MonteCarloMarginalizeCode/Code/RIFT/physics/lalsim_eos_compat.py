@@ -8,6 +8,8 @@ EOSManager a scalar interface which fails explicitly when a mass has twin-star
 solutions.
 """
 
+import math
+
 
 class AmbiguousFamilyBranchError(ValueError):
     """Raised when a mass belongs to more than one stable family branch."""
@@ -47,7 +49,8 @@ class LALSimNeutronStarFamilyAdapter:
         objects coexist in the same module, so module-level symbol detection
         cannot safely choose the family constructor.
     log_pressure_min:
-        Optional lower log-central-pressure bound for the reviewed
+        Optional lower natural-log central-pressure bound, ``ln(Pc / Pa)``, for
+        the reviewed
         ``CreateSimNeutronStarFamilyPTWithPcmin`` constructor.
     lalsim_module:
         Dependency-injection hook used by the interface contract tests.
@@ -95,6 +98,11 @@ class LALSimNeutronStarFamilyAdapter:
                     eos, int(bool(minimal))
                 )
             else:
+                log_pressure_min = float(log_pressure_min)
+                if not math.isfinite(log_pressure_min):
+                    raise ValueError(
+                        "log_pressure_min must be finite ln(Pc / Pa)"
+                    )
                 constructor = getattr(
                     self.lalsim, "CreateSimNeutronStarFamilyPTWithPcmin", None
                 )
@@ -104,7 +112,7 @@ class LALSimNeutronStarFamilyAdapter:
                         "CreateSimNeutronStarFamilyPTWithPcmin"
                     )
                 self.family = constructor(
-                    eos, int(bool(minimal)), float(log_pressure_min)
+                    eos, int(bool(minimal)), log_pressure_min
                 )
         else:
             self.family = self.lalsim.CreateSimNeutronStarFamily(eos)
