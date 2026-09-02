@@ -54,4 +54,3 @@ cover/
 .pixi/*
 !.pixi/config.toml
 
-devnotes/pylibs/

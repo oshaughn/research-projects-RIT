@@ -190,7 +190,7 @@ ships (exact argmax, 22 sigma, 49 nodes).
   (numpy 2.4.6, jax 0.9.2, numpyro 0.21.0), resolved by `test-jax.sh` through
   `RIFT_JAX_PYTHON`.  **That env has no pytest of its own**; pytest 9.1.1 was
   supplied from a private `pip install --no-deps --target
-  devnotes/pylibs` directory placed on `PYTHONPATH` (gitignored, nothing
+  pip --target` directory placed on `PYTHONPATH` (nothing
   installed into the shared env).  The gate CANNOT run on the CVMFS IGWN python
   at all: `test-jax.sh` aborts at its `import numpyro` precheck, which CVMFS
   lacks.  So on this host the gate needs rift_jax for jax+numpyro AND an

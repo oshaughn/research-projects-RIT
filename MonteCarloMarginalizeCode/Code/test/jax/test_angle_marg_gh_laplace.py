@@ -33,7 +33,7 @@ not survive richer mode content, so:
     under stop_gradient at all).
 
 Ladder-2 measurements behind the constants live in
-devnotes/DESIGN_gh_laplace.md of the branch that introduced them, not here.
+RIFT/likelihood/jax_ile/DESIGN_gh_laplace.md, not here.
 """
 
 import numpy as np
