@@ -703,6 +703,16 @@ axes if one is ever needed; this measurement says it is not needed to get the co
   window it replaces.  1.7e-03 nats of inner-u error sat unexamined behind that sentence,
   and it survived a rewrite of the numpy twin because nobody re-read the twin.  When a
   claim in a comment is load-bearing for correctness, it is a test's job, not prose's.
+
+  **The operational form: when you correct a claim, grep the NUMBER, not the paragraph.**
+  A correction written into a new block leaves the old one standing, and then the file
+  asserts and denies the same thing -- with the assertion usually first, so a reader
+  scanning top-down gets the false one.  Measured on this module, by me, hours after
+  committing the rule above: `joint_angle_peak_local.py` carried "it can only add nodes"
+  FOURTEEN LINES from its own retraction, and `anglemarg.py` carried both "rho ~21-30"
+  and the corrected ~26 forty lines apart -- the superseded one being the figure the
+  manuscript quotes.  Two copies of one claim with different scopes is worse than either
+  copy alone, so DELETE the stale one rather than annotating it.
 * **Do not put a broad `except` around a certificate call, in shipped code OR in a
   harness.**  An error filter converts a bug into a result, and the result looks clean.
   Measured while sizing this note's own acceptance table: a broad `except Exception`
