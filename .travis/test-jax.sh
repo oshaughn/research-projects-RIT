@@ -311,6 +311,7 @@ FILES=(
   "${JAXDIR}/test_angle_marg_gh_laplace.py"
   "${JAXDIR}/test_angle_marg_default.py"
   "${JAXDIR}/test_angle_marg_gh_selection.py"
+  "${JAXDIR}/test_joint_anglemarg_peaklocal.py"
 )
 
 # EXCLUDED: files in JAXDIR matching test_*.py that are deliberately NOT gated.  The
@@ -414,7 +415,7 @@ fi
 # identity gate (imaginary-A0 coefficient, B1 in the conjugate slice, the
 # gate applying to an explicit laplace, and the kernel guard staying
 # trace-safe).
-EXPECTED_TESTS=225
+EXPECTED_TESTS=234
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"

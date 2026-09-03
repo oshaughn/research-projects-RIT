@@ -2953,7 +2953,15 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
             lnL_t = loglikelihood(kappa_sq.real, rho_sq_here)
 
         # Take exponential of the log likelihood in-place.
-        lnLmax  = xpy.max(lnL_t)
+        # PER-ROW offset, not the batch max: lnL_t is (npts_extrinsic, npts_time), and a
+        # single scalar max shifts every extrinsic sample by the LOUDEST sample's peak.
+        # Any row more than ~745 nats below it then underflows exp() to 0 across the whole
+        # time axis -> L=0 -> lnL=-inf where the likelihood is finite.  With lnL~rho^2/2 at
+        # the peak and ~0 for a typical prior draw that fires above rho~40 and takes out the
+        # BULK of the prior, collapsing mcsamplerAV.  keepdims=True is load-bearing: with a
+        # bare axis=-1 the (n,) result broadcasts along the TIME axis instead, silently.
+        # See oshaughnessy-junior/research-projects-RIT#232.
+        lnLmax  = xpy.max(lnL_t, axis=-1, keepdims=True)
         if return_lnLt:
           return lnL_t  #- lnLmax    # we want the verbatim lnL_t values, no shift
 
@@ -3001,8 +3009,9 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
 
         L = simps(L_t, dx=deltaT, axis=-1)
 
-        # Compute log likelihood in-place.
-        lnL = lnLmax + xpy.log(L, out=L)
+        # Compute log likelihood in-place.  lnLmax carries the kept trailing axis; drop it
+        # so the add-back lines up with L, which simps has already reduced over that axis.
+        lnL = lnLmax[..., 0] + xpy.log(L, out=L)
 
         return lnL
 

@@ -126,6 +126,24 @@ if [ "$_TMARG_PL_BAD" -ne 0 ]; then
     exit 1
 fi
 
+# Joint (phi,psi) peak-local angle marginalization, numpy reference kernel.  Gated here
+# because test/ has no manifest check of its own: an unlisted test file is simply never
+# run, which is the failure test-jax.sh exists to prevent one level up.  What this has to
+# protect: that the outside supremum is CERTIFIED (a straddling cell must count as
+# outside -- classifying grid centres once returned "nothing uncovered" and accepted
+# unconditionally), that a distance node is only dropped when the drop is provable
+# against the computed value, and that an undersized region is DECLINED rather than
+# returned.
+_JOINT_PL_TESTS=MonteCarloMarginalizeCode/Code/test/test_joint_angle_peak_local.py
+# Raise EXPECTED by RUNNING collection, never by arithmetic.
+_JOINT_PL_EXPECTED=15
+_JOINT_PL_FOUND=$(python -m pytest -q --collect-only "$_JOINT_PL_TESTS" 2>/dev/null | grep -c '::' || true)
+if [ "$_JOINT_PL_FOUND" -ne "$_JOINT_PL_EXPECTED" ]; then
+    echo "joint peak-local gate: collected $_JOINT_PL_FOUND tests, expected $_JOINT_PL_EXPECTED" >&2
+    exit 1
+fi
+python -m pytest -q "$_JOINT_PL_TESTS"
+
 python MonteCarloMarginalizeCode/Code/test/test_mcsamplerEnsemble_extended.py --as-test --n-max 100000
 
 python MonteCarloMarginalizeCode/Code/test/test_mcsamplerEnsemble_extended.py --as-test --n-max 100000 --use-lnL
