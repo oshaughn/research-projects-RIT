@@ -52,6 +52,10 @@ class _Opts(object):
         self.calibration_conjugate_phase = False
         self.calibration_global_norm = False
         self.calibration_export_posterior = False
+        # the driver's own default (optp.add_option("--calibration-n-realizations",
+        # default=100)).  NOT an opt-in; it is the prerequisite for the two options
+        # whose consumers sit behind n_cal > 1.
+        self.calibration_n_realizations = 100
         for k, v in kw.items():
             if not hasattr(self, k):
                 raise AttributeError("no such driver option: %s" % k)
@@ -265,6 +269,49 @@ def test_each_opt_in_without_the_envelope_directory_is_refused():
         r = oc.refusals_from_opts(opts)
         assert len(r) == 1 and r[0].kind == oc.KIND_INERT, (flag, r)
         assert r[0].options == (flag, '--calibration-envelope-directory'), (flag, r)
+
+
+# ------------------------------------- R8: the n_cal > 1 prerequisites
+
+def test_fused_kernel_with_one_realization_is_refused():
+    """--calibration-fused-kernel is inert at n_cal == 1: factored_likelihood's
+    `if n_cal == 1:` branch returns before cal_method is read, so the fused reduction is
+    unreachable and the run advertises a kernel it did not use."""
+    r = oc.refusals_from_opts(_honoured(calibration_fused_kernel=True,
+                                        calibration_n_realizations=1))
+    match = [x for x in r if x.options == ('--calibration-fused-kernel',
+                                           '--calibration-n-realizations')]
+    assert len(match) == 1, r
+    assert match[0].kind == oc.KIND_INERT, match
+
+
+def test_burn_in_neff_with_one_realization_is_refused():
+    """The zero-cal burn-in block is guarded by `n_cal_for_likelihood > 1`, so with one
+    realization the burn-in never runs and the target is silently ignored."""
+    r = oc.refusals_from_opts(_honoured(calibration_burn_in_neff=100.,
+                                        calibration_n_realizations=1))
+    match = [x for x in r if x.options == ('--calibration-burn-in-neff',
+                                           '--calibration-n-realizations')]
+    assert len(match) == 1, r
+    assert match[0].kind == oc.KIND_INERT, match
+
+
+def test_the_n_cal_rules_do_not_fire_at_the_shipped_default():
+    """--calibration-n-realizations defaults to 100, so these rules must be silent on a
+    command line that simply leaves it alone.  A rule that fires on the default would
+    refuse every calmarg run there is."""
+    for kw in (dict(calibration_fused_kernel=True), dict(calibration_burn_in_neff=100.)):
+        assert oc.refusals_from_opts(_honoured(**kw)) == [], kw
+
+
+def test_conjugate_and_global_norm_are_NOT_refused_at_one_realization():
+    """The deliberate non-members of the rule above.  Both reach the likelihood through
+    extra_kwargs on the PRECOMPUTE and are honoured at n_cal == 1 as well (that branch
+    uses rho_sq_cal[0]), so refusing them would be a false positive -- the failure mode
+    this whole gate is supposed to avoid."""
+    for kw in (dict(calibration_conjugate_phase=True), dict(calibration_global_norm=True)):
+        r = oc.refusals_from_opts(_honoured(calibration_n_realizations=1, **kw))
+        assert r == [], (kw, r)
 
 
 def test_numeric_default_options_are_not_treated_as_opt_ins():

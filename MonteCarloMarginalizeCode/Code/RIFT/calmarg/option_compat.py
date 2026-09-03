@@ -114,7 +114,9 @@ def calibration_refusals(calibration_envelope_directory=None,
                          freqresponse=False,
                          dump_responsibilities=False,
                          burn_in_neff=None,
-                         burn_in_nmax=None):
+                         burn_in_nmax=None,
+                         n_realizations=None,
+                         fused_kernel=False):
     """Return the list of Refusals for one resolved ILE configuration (possibly empty).
 
     Pure: booleans in, Refusals out.  No option namespace, no I/O, no raising.
@@ -146,6 +148,11 @@ def calibration_refusals(calibration_envelope_directory=None,
         --calibration-burn-in-neff and --calibration-burn-in-nmax.  The cap is a
         DEPENDENT option: the driver reads it only inside `if
         opts.calibration_burn_in_neff:`, so on its own it is silently ignored.
+    n_realizations : int or None
+        --calibration-n-realizations.  NOT an opt-in (it has a non-None default, so a rule
+        over its mere presence would refuse every run), but it is a PREREQUISITE for the
+        two options whose consumers sit behind `n_cal > 1`.  None means "not supplied";
+        the caller passes the resolved value.
     """
     out = []
 
@@ -213,6 +220,44 @@ def calibration_refusals(calibration_envelope_directory=None,
             "integration at the production sample budget, which is exactly the number of "
             "samples the cap was meant to hold down.  Add --calibration-burn-in-neff "
             "(the burn-in target), or drop --calibration-burn-in-nmax."))
+
+    # ---- the n_cal > 1 prerequisites -------------------------------------------------
+    # Two opt-ins have consumers guarded by n_cal > 1, so ONE realization makes them inert
+    # even on an otherwise perfect configuration.  Traced to the source, not inferred from
+    # the flag names:
+    #   --calibration-fused-kernel  factored_likelihood's `if n_cal == 1:` branch RETURNS
+    #                               before `cal_method == 'fused'` is ever read, so the
+    #                               fused reduction is unreachable and the run silently
+    #                               uses the ordinary one.
+    #   --calibration-burn-in-neff  the driver's burn-in block is
+    #                               `if opts.calibration_burn_in_neff and
+    #                                calibration_marginalization and
+    #                                n_cal_for_likelihood > 1:` -- with one realization the
+    #                               zero-cal burn-in never runs.
+    # NOT listed, deliberately: --calibration-conjugate-phase and --calibration-global-norm
+    # reach the likelihood through extra_kwargs on the PRECOMPUTE and are honoured at
+    # n_cal == 1 too (that branch uses rho_sq_cal[0]), so refusing them here would be a
+    # false positive.
+    if n_realizations is not None and int(n_realizations) <= 1:
+        if fused_kernel:
+            out.append(_inert(
+                ("--calibration-fused-kernel", "--calibration-n-realizations"),
+                "--calibration-fused-kernel with --calibration-n-realizations %d: the "
+                "fused reduction is selected by cal_method='fused', which "
+                "factored_likelihood reads only AFTER its `n_cal == 1` branch has already "
+                "returned.  With one realization the flag is therefore silently ignored "
+                "and the ordinary reduction runs -- the answer is right, but the run "
+                "advertises a kernel it did not use.  Raise "
+                "--calibration-n-realizations above 1, or drop the flag."
+                % (int(n_realizations),)))
+        if burn_in_neff:
+            out.append(_inert(
+                ("--calibration-burn-in-neff", "--calibration-n-realizations"),
+                "--calibration-burn-in-neff with --calibration-n-realizations %d: the "
+                "zero-cal burn-in runs only under `n_cal_for_likelihood > 1`, so with one "
+                "realization there is no burn-in and the target is silently ignored.  "
+                "Raise --calibration-n-realizations above 1, or drop the flag."
+                % (int(n_realizations),)))
 
     if not vectorized:
         out.append(_inert(
@@ -310,6 +355,8 @@ def refusals_from_opts(opts):
         dump_responsibilities=bool(getattr(opts, "calibration_dump_responsibilities", None)),
         burn_in_neff=getattr(opts, "calibration_burn_in_neff", None),
         burn_in_nmax=getattr(opts, "calibration_burn_in_nmax", None),
+        n_realizations=getattr(opts, "calibration_n_realizations", None),
+        fused_kernel=bool(getattr(opts, "calibration_fused_kernel", False)),
     )
 
 
