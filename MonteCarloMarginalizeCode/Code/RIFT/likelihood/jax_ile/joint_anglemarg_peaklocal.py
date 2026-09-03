@@ -534,7 +534,22 @@ def phi_local_lnI(C, n_seed=PHI_SEEDS, w_sigma=PHI_WINDOW_SIGMA,
     big = 1.0e6
     lo = jnp.where(peaked, p - w_sigma * sig, big)
     hi = jnp.where(peaked, p + w_sigma * sig, big)
-    seg_lo, seg_hi = _merge_sorted_intervals(lo, hi, n_seed)
+
+    # SPLIT AT THE SEAM BEFORE MERGING, for the reason the numpy reference had to: a
+    # linear merge never joins a window near 0 to one near 2 pi, yet every region is
+    # integrated at mod(., 2 pi), so both cover both peaks and the mass is counted twice
+    # (+log 2, accepted, because the error is inside the regions).  Each interval yields
+    # AT MOST two pieces, so 2*n_seed slots is a static bound and nothing has to be
+    # compacted; a piece that does not exist is emitted empty and drops out downstream.
+    wdt = jnp.clip(hi - lo, 0.0, 2.0 * jnp.pi)
+    a0 = jnp.where(peaked, jnp.mod(lo, 2.0 * jnp.pi), big)
+    crosses = peaked & (a0 + wdt > 2.0 * jnp.pi)
+    lo2 = jnp.concatenate([a0,
+                           jnp.where(crosses, 0.0, big)])
+    hi2 = jnp.concatenate([jnp.where(crosses, 2.0 * jnp.pi, a0 + wdt),
+                           jnp.where(crosses, a0 + wdt - 2.0 * jnp.pi, big)])
+    seg_lo, seg_hi = _merge_sorted_intervals(lo2, hi2, 2 * n_seed)
+    n_seed = 2 * n_seed
     # There are always more slots than groups, and an EMPTY slot comes back from the
     # segment reductions as (+inf, -inf).  Masking its weight is not enough: the node
     # positions are still built from it, jnp.mod(inf, 2 pi) is NaN, and NaN * 0 is NaN,
@@ -549,6 +564,9 @@ def phi_local_lnI(C, n_seed=PHI_SEEDS, w_sigma=PHI_WINDOW_SIGMA,
     # repeatedly (measured +1.84 nats, a factor of 6.3, on real tables in the numpy
     # reference -- and ACCEPTED, because a region covering everything leaves nothing
     # outside for the certificate to object to).
+    # close the circle: if some piece ends at 2 pi and another starts at 0 they are one
+    # region.  Left unjoined they are still DISJOINT, so nothing is double-counted -- the
+    # only cost is one extra region and a seam the quadrature treats as an edge.
     total = width.sum()
     wrapped = total >= 2.0 * jnp.pi
     seg_lo = jnp.where(wrapped, jnp.where(jnp.arange(n_seed) == 0, 0.0, big), seg_lo)
