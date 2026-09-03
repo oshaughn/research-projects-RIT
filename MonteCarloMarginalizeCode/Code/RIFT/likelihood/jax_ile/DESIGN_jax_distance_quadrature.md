@@ -330,6 +330,31 @@ Prior-draw cloud (S = 256):
 | log-uniform 256 | 256 | 0.0017 | +2.4e-5 |
 | `make_distance_grid_adaptive` (in tree) | 144 | **9.44** | -0.312 |
 
+**Quote a node-count error only with its AMPLITUDE attached.**  Every row in
+these two tables is at the header's operating point (injected SNR 40).  The
+distance peak narrows as `1/rho` against a grid fixed by the PRIOR range, so a
+256-node uniform grid is a different instrument at a different amplitude: the
+same family measures 0.170-0.216 nats here and 43.16 nats at `rho = 163.08`
+(paper-1 ladder, `snr160_laplace_gh0_dg256`).  Same rule, opposite sides of the
+threshold -- not a discrepancy.
+
+It is NOT a conversion, and two sessions have now been tempted to use it as one.
+Matching the two series on points-per-peak-width does not collapse them: on
+`N/rho` the louder series is 9.2-17.0x worse and roughly flat; on `N/rho^2` (the
+better-motivated scaling, since a grid uniform in `d` over a fixed range
+resolves a peak of width `d*/rho`, and `d* ~ 1/rho` when amplitude is set by
+injected distance) it is 0.67x, 0.52x, 0.06x -- overshooting and not flat.  The
+amplitude threshold is the dominant effect and explains the sign and most of the
+size; the residual is real, not constant, and carries the rest of the
+configuration (seglen, deltaF, probe points against a cloud max).  So compare
+grids WITHIN one operating point and re-measure across them.
+
+For scale at the loud end: `rho_sampled = 163.08` derives
+`rho_max = sqrt(ANGLE_AMP_MARGIN * AMP_FAILSAFE_TRIP_FACTOR) * rho = 326.16` and
+**n = 1558** at `tol = 1e-2` over `[1, 10^4]` Mpc -- against 4096 linear nodes
+for that rung's converged reference, so under a factor of three, not the ninth a
+transfer of the SNR-40 count (373) would suggest.
+
 Cloud concentrated near the injection (S = 256):
 
 | grid | n | max abs dL_s | dlnZ (nats) |
