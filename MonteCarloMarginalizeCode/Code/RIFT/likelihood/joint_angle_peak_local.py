@@ -643,8 +643,21 @@ def u_profile(C, phi, n_nodes=64, window_sigma=12.0):
                             -g1 / np.where(np.abs(g2) > 0.0, g2, 1.0), 0.0)
             ustar = np.clip(ustar + np.clip(step, -0.5, 0.5), lo_c, mid)
 
+        # A CLIPPED NEWTON POINT IS NOT A PEAK, however negative the curvature there.
+        # The iteration is clamped to [lo_c, mid], so it can come to rest ON a cell
+        # boundary with a large stationary residual; classifying that as a maximum
+        # centres a +-W sigma window on a non-stationary point and sizes sigma from the
+        # wrong curvature.  Require, as well as g'' < 0, that the residual is small
+        # relative to the axis's own derivative bound AND that the point is interior.
+        # A cell failing either is integrated WHOLE rather than windowed, which is the
+        # conservative branch: it can only add nodes, never move the centre.
+        g1c = eval_g(C, pv, ustar, (0, 1))
         g2c = _g_uu_at(C, p, ustar)
-        peaked = g2c < 0.0
+        _m1u = max(derivative_bound(C, (0, 1)), 1e-300)
+        _edge = 1e-9 * max(float(np.max(mid - lo_c)), 1e-300)
+        peaked = ((g2c < 0.0)
+                  & (np.abs(g1c) <= 1e-8 * _m1u)
+                  & (ustar > lo_c + _edge) & (ustar < mid - _edge))
         sig_c = np.where(peaked, 1.0 / np.sqrt(np.where(peaked, -g2c, 1.0)), np.inf)
         lo = np.where(peaked, np.maximum(ustar - window_sigma * sig_c, lo_c), lo_c)
         hi = np.where(peaked, np.minimum(ustar + window_sigma * sig_c, mid), mid)
@@ -795,9 +808,21 @@ def phi_local_marginalize(C, n_seed=64, w_sigma=12.0, n_nodes=64,
     # and bound that supremum with the SAME slope-plus-M2 form already validated for the
     # 2-D outside bound, whose remainder grows only linearly in amplitude.
     phi_out = t[~inside]
-    ug = np.linspace(0.0, 2.0 * np.pi, 128, endpoint=False)
+    # The u axis SETS the covering radius here: at n_bound_grid = 512 the phi half-step
+    # is 0.0061 while a 128-point u grid gives pi/128 = 0.0245, so u dominates r and the
+    # remainder is four times larger than it need be.  Tie the u resolution to the same
+    # knob so refining the bound refines BOTH axes; the cost is paid only on the
+    # UNCOVERED phi, which is the small set by construction.
+    n_ug = int(n_bound_grid)
+    ug = np.linspace(0.0, 2.0 * np.pi, n_ug, endpoint=False)
     PH2, UU2 = np.meshgrid(phi_out, ug, indexing='ij')
-    r = 0.5 * np.sqrt((0.5 * step_t) ** 2 + (np.pi / 128.0) ** 2)
+    # HALF-DIAGONAL OF THE CELL, with no extra factor.  The grid spacings are step_t in
+    # phi and 2*pi/128 in u, so the farthest a point can sit from its grid point is
+    # hypot(step_t/2, pi/128).  An earlier revision multiplied that by a further 0.5, so
+    # the Taylor remainder covered only half the cell and the "bound" was not one -- it
+    # happened not to be violated in the trials run, which is exactly why an unjustified
+    # constant is dangerous rather than harmless.
+    r = np.sqrt((0.5 * step_t) ** 2 + (np.pi / n_ug) ** 2)
     g0 = eval_g(C, PH2.ravel(), UU2.ravel())
     gpv = eval_g(C, PH2.ravel(), UU2.ravel(), (1, 0))
     guv = eval_g(C, PH2.ravel(), UU2.ravel(), (0, 1))
