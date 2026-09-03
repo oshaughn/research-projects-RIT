@@ -135,4 +135,4 @@ MonteCarloMarginalizeCode/Code/test/hyperpipe/tests/test_marg_list.py    BROKEN 
 
 # ---------------------------------------------------------------------------------------
 # PENDING -- registration in flight elsewhere.
-MonteCarloMarginalizeCode/Code/test/test_noloop_time_interp.py  PENDING  PR 242 registers it with q-window-stencil-check; delete this line in whichever of the two lands second
+MonteCarloMarginalizeCode/Code/test/test_noloop_time_interp.py  PENDING  gate:q-window-stencil -- PR 242 registers it there; this line expires the moment that gate goes live
