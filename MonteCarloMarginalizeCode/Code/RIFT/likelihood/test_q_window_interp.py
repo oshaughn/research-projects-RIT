@@ -1,4 +1,17 @@
 #!/usr/bin/env python3
+# RIFT-CI-GATE: q-window-stencil
+# ^ registers this file with .travis/test-q-window-stencil.sh, run by ci.yml's
+#   q-window-stencil-check job.  Membership lives here, in the test file, so that
+#   adding a test needs no edit to any shared list.  Do not reword the line above.
+# ---------------------------------------------------------------------------------
+# WHY THIS FILE IS IN q-window-stencil-check.  Moved verbatim from the comment block
+# above that job's hand-maintained file list in .github/workflows/ci.yml; it lives
+# here now so that registering a test needs no edit to a shared file.
+#
+# test_q_window_interp asserts the cubic/sinc crossover in BOTH directions on purpose.
+# sinc winning everywhere would mean the Lanczos window had been widened until it was no
+# longer a local stencil, so neither direction may be relaxed to make a change pass.
+# ---------------------------------------------------------------------------------
 """test_q_window_interp.py -- accuracy of the Q(t) sub-sample interpolation stencils.
 
 Q^a_lm(t) is the inverse transform of something supported on [fmin, fmax], so it is BAND-LIMITED,
