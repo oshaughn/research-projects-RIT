@@ -161,20 +161,39 @@ ANGLE_MARG_CHOICES = ("grid", "exact", "laplace", "peak-local", "auto")
 
 # ---------------------------------------------------------------------------
 ANGLE_MARG_CROSSOVER_AMPLITUDE = 450.0     # A = rho^2/2; rho = 30.  NOTE the
-# auto selector compares the MARGINED data-derived bound to this, not the true
-# amplitude, so laplace engages below rho = 30.  TWO DIFFERENT NUMBERS LIVE HERE
-# and an earlier version of this comment ran them together:
+# auto selector compares the MARGINED data-derived bound to this, so laplace
+# engages below rho = 30.  TWO DIFFERENT NUMBERS LIVE HERE and an earlier version
+# of this comment ran them together:
 #   * the INTENDED margin is the `margin=2.0` argument of
 #     estimate_angle_amplitude -- a deliberate parameter, not an estimate;
-#   * the REALIZED ratio of that margined bound to the true amplitude was
-#     MEASURED on the injection ladder at rung 1 (rho = 40.77): bound 1109.17
-#     against rho^2/2 = 831.1, i.e. 1.335, not 2.
-# The realized number is the one that sets where the switch actually happens:
-# 450 / 1.335 puts true-A engagement at ~337, i.e. rho ~ 26.0, and it is rho 26
-# that the paper quotes.  This comment previously said rho ~ 21 by assuming the
-# factor equalled the margin; keep the measured ratio and the assumed margin
-# distinct, or the code and the manuscript quote different crossovers for the
-# same switch.  (Measurement from the paper-1 ladder's amplitude table.)
+#   * the ratio the SWITCH actually keys on was measured AT THE LADDER INJECTION
+#     (rho = 40.77): bound 1109.17 against the nominal rho^2/2 = 831.1, i.e.
+#     1.335, not 2.
+# That gives 450 / 1.335 -> engagement at nominal A ~ 337, rho ~ 26.0, which is
+# what the manuscript quotes; this comment previously said rho ~ 21 by assuming
+# the factor equalled the margin.  Keep the two distinct or the code and the
+# paper quote different crossovers for the same switch.
+#
+# THREE LIMITS ON 1.335, so it is not read as more than it is:
+#   (a) the denominator is the NOMINAL rho^2/2, not a measured maximum of the
+#       (phi,psi) exponent.  Reading "the raw estimator sits at 0.667x TRUE A"
+#       goes through the identification true A == rho^2/2, which is this file's
+#       own convention but is not a measurement.
+#   (b) the ratio is constant to 6e-5 across rungs rho = 40.77 ... 652.31.  That
+#       is ARITHMETIC, NOT EVIDENCE: the ladder is one injection replayed at
+#       scaled amplitudes, so the exponent rescales uniformly and the ratio is
+#       forced.  Four decades of agreement validate nothing about the margin.
+#   (c) it is ONE injection's sky-sample realization.  The shortfall's size is
+#       set by how sharp the sky peak is relative to the sample -- the sample is
+#       random draws plus a coarse uniform grid and does not contain the
+#       injection's sky position, while the exponent is sharp enough that 1 of
+#       9824 (sky, time) points sits within 23 nats of the peak.  A shortfall is
+#       expected by design there, and nothing here bounds it for another event.
+# So: at this injection the margin is load-bearing rather than decorative, and
+# that is the whole claim.  What actually protects the general case is
+# _runtime_amp_failsafe, which recomputes the amplitude from the tables at the
+# point of use and warns if it exceeds amp_sizing -- independent of whether the
+# margin was well chosen.  (Ratios measured by the paper-1 ladder session.)
 # Early engagement is safe by measurement either way: laplace is at -1.8e-4 nats
 # by A = 200 on the injection ladder and improves upward, while exact remains
 # valid (crossover-floored sizing) below.
