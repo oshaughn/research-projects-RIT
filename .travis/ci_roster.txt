@@ -16,7 +16,12 @@
 #   GPU        needs a GPU; the runners have none, so it would report as skipped.
 #   EXPENSIVE  opt-in behind an env var by design.
 #   BROKEN     collects but FAILS today.  A debt, recorded as one.
-#   PENDING    registration is in flight in another PR; legal in either merge order.
+#   PENDING    waiting on a named gate that is not live yet.  The reason must say
+#              `gate:<name>`, and the entry is legal only while that gate is absent -- when
+#              it lands, the census errors on the entry by name.  An earlier version was
+#              exempt from the staleness check unconditionally, which made it the one status
+#              nothing could ever force out.  No entries currently: the last one, for
+#              test_noloop_time_interp.py on gate:q-window-stencil, expired when #242 merged.
 #
 # Everything here was collected and run individually on CIT with the IGWN conda python
 # (3.11, numpy 1.26.4, lal 7.7.0) on 2026-09-03; the counts quoted are from that run.
@@ -92,15 +97,12 @@ MonteCarloMarginalizeCode/Code/demo/rift/export_likelihoods/head_to_head/run_tes
 # Not done here because that job's counts are pinned and this PR does not own them.
 MonteCarloMarginalizeCode/Code/RIFT/interpolators/jax_gp/test_coordinates.py   OPTDEP  needs jax; belongs in jax-ile-check, which already installs a CPU jax stack
 MonteCarloMarginalizeCode/Code/RIFT/interpolators/jax_gp/test_interpolators.py OPTDEP  needs jax and optax; 10 collected, all 10 error on ModuleNotFoundError optax rather than skipping
-# The two GPU lines below become stale BY DESIGN when PR #242 lands: its
-# .travis/test-q-window-stencil.sh names both in an EXCLUDED array -- with the same reason, and
-# with its own fail-closed check that an EXCLUDED path still exists -- so the record moves there
-# and the census will start counting them reachable.  The check says so precisely ("listed as
-# GPU but IS now reachable -- delete it") and the fix is deleting these two lines.  They are
-# NOT marked PENDING: PENDING means a registration is in flight, and these are not going to be
-# registered.  Their record is simply moving to a better home.
-MonteCarloMarginalizeCode/Code/RIFT/likelihood/test_q_window_interp_gpu.py     GPU     cupy parity leg for the Q_lm stencil; run by hand on a GPU node, numbers in PR 97
-MonteCarloMarginalizeCode/Code/RIFT/likelihood/test_noloop_gpu_stencils.py     GPU     cupy parity leg for the no-loop stencils; run by hand on a GPU node, numbers in PR 97
+# The two cupy parity legs are NOT listed here.  PR #242 landed, and its
+# .travis/test-q-window-stencil.sh names both in an EXCLUDED array -- with the same reason,
+# and with its own fail-closed check that an EXCLUDED path still exists and does not carry
+# the marker.  That is a better home than this file: the decision sits beside the gate it
+# belongs to.  Their roster lines were deleted when #242 merged, exactly as the census
+# demanded ("listed as GPU but IS now reachable -- delete it").
 MonteCarloMarginalizeCode/Code/test/backends/test_backends_lowlevel.py         OPTDEP  needs lscsoft-glue and htcondor; 15 collected, 15 pass where both are installed
 MonteCarloMarginalizeCode/Code/test/hyperpipe/tests/test_hydra_integration.py  OPTDEP  needs hydra and omegaconf; skips cleanly without them
 MonteCarloMarginalizeCode/Code/test/test_gwsignal_teob_mode_sign.py            OPTDEP  needs the gwsignal TEOB route; 2 collected, 1 passes and 1 skips without EOBRun_module
@@ -132,7 +134,3 @@ MonteCarloMarginalizeCode/Code/test/expensive_before_merging/integrators/test_es
 # is the real problem and outlives that fix.
 MonteCarloMarginalizeCode/Code/test/integrators/test_replica_pooling.py  BROKEN  10 of 15 fail; its regex helper-slicer misses _lw_of, added to the driver after the test was written
 MonteCarloMarginalizeCode/Code/test/hyperpipe/tests/test_marg_list.py    BROKEN  2 of 3 fail; _stage_event_file writes event-N.net into base_dir while the test and assemble_marg_list's own run_dir docstring say run_dir
-
-# ---------------------------------------------------------------------------------------
-# PENDING -- registration in flight elsewhere.
-MonteCarloMarginalizeCode/Code/test/test_noloop_time_interp.py  PENDING  gate:q-window-stencil -- PR 242 registers it there; this line expires the moment that gate goes live
