@@ -756,6 +756,21 @@ axes if one is ever needed; this measurement says it is not needed to get the co
   Convention that avoids the whole problem: **quote one rounded form everywhere and let
   the committed record carry the digits.** Full precision duplicated into a comment is not
   an audit trail — the JSON records are — it is a second spelling that hides from the grep.
+* **A verification that CANNOT FAIL is indistinguishable from one that passed.**  This is
+  the single rule behind three failures this module hit in one day, and they are one
+  failure wearing three faces:
+  - a *guard that cannot discriminate* — `n_boxes_pts_capped` fires on every mass-carrying
+    point at rung 1 where the value is exact to 0.00000 nats, and identically at rung 3
+    where it is 0.36 nats wrong.  A flag that never distinguishes will be ignored when it
+    finally matters;
+  - a *check whose pass condition is empty output* — a missing binary plus `2>/dev/null`
+    is indistinguishable from a clean result;
+  - a *sweep that hides the defect from itself* — grouping numerals by string reports
+    `7.069` and `7.07` as unrelated, so the tool written to find multi-spelling reports
+    clean on a file that has it.
+  The third is the worst of the three, because running it converts "unchecked" into
+  "checked and clean" without touching the code.  Before trusting any check, ask what
+  input would make it FAIL; if you cannot name one, it is decoration.
 * **Do not put a broad `except` around a certificate call, in shipped code OR in a
   harness.**  An error filter converts a bug into a result, and the result looks clean.
   Measured while sizing this note's own acceptance table: a broad `except Exception`
