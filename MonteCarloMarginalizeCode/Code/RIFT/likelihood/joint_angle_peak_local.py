@@ -70,6 +70,8 @@ __all__ = [
     "outside_bound",
     "joint_marginalize_peak_local",
     "joint_marginalize_over_distance",
+    "u_profile",
+    "phi_local_marginalize",
 ]
 
 #: Local integration half-width, in units of the mode's MARGINAL Gaussian sigma, per
@@ -572,3 +574,150 @@ def joint_marginalize_over_distance(C_A_st, C_B_st, x_grid, log_w_grid,
             ok_all = False
             rep['declines'].append(('dropped-nodes', 'pre-filter bound too large'))
     return float(value), bool(ok_all), rep
+
+
+# ------------------------------------------------------------------ phi-local
+
+def u_profile(C, phi, n_nodes=64, window_sigma=12.0):
+    """``F(phi) = log int du exp(g)``, and its first two EXACT derivatives.
+
+    The u integral is done on the cell partition (the sorted u-stationary points tile the
+    circle), so ``F`` is exact rather than a Laplace model.  Its derivatives come from
+    the same nodes at no extra evaluation cost, by differentiating under the integral:
+
+        F'  = E[d_phi g]
+        F'' = E[d^2_phi g] + Var(d_phi g)
+
+    with the expectation under the normalized ``exp(g) du`` on the same axis.  That
+    variance term is why the phi axis cannot inherit the u axis's economy: it grows with
+    amplitude, so ``F`` sharpens as the signal does even though ``g`` itself does not.
+
+    Returns ``(F, dF, ddF)``, each shaped like ``phi``.
+    """
+    phi = np.atleast_1d(np.asarray(phi, dtype=float))
+    k, q, w, KS = _kq(C)
+    out = np.empty((3, phi.size))
+    for i, p in enumerate(phi):
+        ph = (np.exp(1j * p * k) * w).ravel()
+        _D = lambda qq: complex((ph * C[:, KS + qq]).sum())
+        c1 = _D(1) + np.conj(_D(-1))
+        c2 = (_D(2) + np.conj(_D(-2))) if KS >= 2 else 0.0 + 0.0j
+        P = np.array([c2, c1 / 2.0, 0.0, -np.conj(c1) / 2.0, -np.conj(c2)])
+        nz = np.nonzero(np.abs(P) > 0.0)[0]
+        roots = (np.mod(np.angle(np.roots(P[nz[0]:])), 2 * np.pi)
+                 if nz.size >= 2 else np.linspace(0, 2 * np.pi, 4, endpoint=False))
+        u = np.sort(np.concatenate([roots, np.zeros(max(0, 4 - roots.size))]))[:4]
+        mid = 0.5 * (u + np.roll(u, -1) + np.where(np.arange(4) == 3, 2 * np.pi, 0.0))
+        lo = np.roll(mid, 1) - np.where(np.arange(4) == 0, 2 * np.pi, 0.0)
+        s = np.linspace(0.0, 1.0, n_nodes)
+        uu = lo[:, None] + (mid - lo)[:, None] * s[None, :]
+        pp = np.full(uu.size, p)
+        g = eval_g(C, pp, uu.ravel())
+        gp = eval_g(C, pp, uu.ravel(), (1, 0))
+        gpp = eval_g(C, pp, uu.ravel(), (2, 0))
+        wq = np.full(n_nodes, 1.0 / (n_nodes - 1)); wq[0] *= 0.5; wq[-1] *= 0.5
+        lw = (np.log(np.maximum(mid - lo, 1e-300))[:, None] + np.log(wq)[None, :]).ravel()
+        m = g.max()
+        wgt = np.exp(g - m + lw)
+        Z = wgt.sum()
+        e1 = float((wgt * gp).sum() / Z)
+        out[0, i] = m + np.log(Z)
+        out[1, i] = e1
+        out[2, i] = float((wgt * (gpp + gp * gp)).sum() / Z) - e1 * e1
+    return out[0], out[1], out[2]
+
+
+def phi_local_marginalize(C, n_seed=64, w_sigma=12.0, n_nodes=64,
+                          n_bound_grid=512, tol_nats=OUTSIDE_TOL_NATS):
+    """``log[(2 pi)^-2 int int dphi du exp(g)]`` with BOTH axes localized.
+
+    u is exact on the cell partition; phi is localized around the maxima of the profile
+    ``F`` using its exact derivatives.  The phi axis has no algebraic completeness
+    warrant -- ``F`` is a log-integral, not a trig polynomial -- so it is the framework's
+    grid-seeded class and its correctness rests on the cover bound, exactly as the time
+    axis does.
+
+    Returns ``(value, ok, report)``; ``ok=False`` means the omitted-mass bound on phi
+    could not be made small enough and the caller must fall back.
+    """
+    rep = {'n_phi_modes': 0, 'n_phi_regions': 0, 'margin': np.inf, 'decline': None}
+    seeds = np.linspace(0.0, 2.0 * np.pi, int(n_seed), endpoint=False)
+    p = seeds.copy()
+    for _ in range(24):
+        _, d1, d2 = u_profile(C, p, n_nodes=n_nodes)
+        step = np.where(np.abs(d2) > 0, -d1 / np.where(np.abs(d2) > 0, d2, 1.0), 0.0)
+        p = np.mod(p + np.clip(step, -0.3, 0.3), 2.0 * np.pi)
+    F, d1, d2 = u_profile(C, p, n_nodes=n_nodes)
+    keep = (d2 < 0) & (np.abs(d1) < 1e-6 * max(derivative_bound(C, (1, 0)), 1e-300))
+    p, F, d2 = p[keep], F[keep], d2[keep]
+    if p.size == 0:
+        rep['decline'] = 'no phi modes'
+        return -np.inf, False, rep
+    order = np.argsort(p); p, F, d2 = p[order], F[order], d2[order]
+    uniq = np.concatenate([[True], np.diff(p) > 1e-6])
+    p, F, d2 = p[uniq], F[uniq], d2[uniq]
+    rep['n_phi_modes'] = int(p.size)
+
+    sig = 1.0 / np.sqrt(-d2)
+    lo = p - w_sigma * sig
+    hi = p + w_sigma * sig
+    # 1-D merge: sort by lo and absorb overlaps.  Same argument as the time module --
+    # merging is what stops the mass between two windows being counted twice.
+    idx = np.argsort(lo); lo, hi = lo[idx], hi[idx]
+    ml, mh = [lo[0]], [hi[0]]
+    for a, b in zip(lo[1:], hi[1:]):
+        if a <= mh[-1]:
+            mh[-1] = max(mh[-1], b)
+        else:
+            ml.append(a); mh.append(b)
+    ml, mh = np.array(ml), np.array(mh)
+    covered = float(np.minimum(mh - ml, 2 * np.pi).sum())
+    rep['n_phi_regions'] = int(ml.size)
+
+    parts = []
+    for a, b in zip(ml, mh):
+        n = max(16, min(512, int(np.ceil((b - a) / max(sig.min(), 1e-12) * 4)) + 1))
+        gp = np.linspace(a, b, n)
+        Fv, _, _ = u_profile(C, np.mod(gp, 2 * np.pi), n_nodes=n_nodes)
+        wq = np.full(n, (b - a) / (n - 1)); wq[0] *= 0.5; wq[-1] *= 0.5
+        m = Fv.max()
+        parts.append(m + np.log(np.sum(wq * np.exp(Fv - m))))
+    parts = np.array(parts); m = parts.max()
+    value = m + np.log(np.exp(parts - m).sum()) - 2.0 * np.log(2.0 * np.pi)
+
+    # cover bound on phi: same slope-plus-curvature form as the 2-D outside bound, with
+    # F'' bounded by M_(2,0) + M_(1,0)^2 (the variance term cannot exceed the square of
+    # the first-derivative bound).
+    t = np.linspace(0.0, 2.0 * np.pi, int(n_bound_grid), endpoint=False)
+    inside = np.zeros(t.size, dtype=bool)
+    step_t = 2.0 * np.pi / n_bound_grid
+    for a, b in zip(ml, mh):
+        d = _wrap(t - 0.5 * (a + b))
+        inside |= np.abs(d) <= 0.5 * (b - a) - 0.5 * step_t
+    T_out = float((~inside).sum()) * step_t
+    if T_out <= 0.0 or covered >= 2 * np.pi:
+        rep['margin'] = -np.inf
+        return float(value), True, rep
+    # BOUND F THROUGH g, NOT THROUGH F''.  The obvious route -- Taylor on F with
+    # F'' <= M_(2,0) + M_(1,0)^2 -- is useless: that variance bound grows as the SQUARE
+    # of the amplitude, so the remainder swamped everything (measured margins of +51 and
+    # +1196 nats at amplitude 1265 and 4217, i.e. no bound at all).  Instead use
+    #     F(phi) = log int du exp(g) <= log(2 pi) + sup_u g(phi, u),
+    # and bound that supremum with the SAME slope-plus-M2 form already validated for the
+    # 2-D outside bound, whose remainder grows only linearly in amplitude.
+    phi_out = t[~inside]
+    ug = np.linspace(0.0, 2.0 * np.pi, 128, endpoint=False)
+    PH2, UU2 = np.meshgrid(phi_out, ug, indexing='ij')
+    r = 0.5 * np.sqrt((0.5 * step_t) ** 2 + (np.pi / 128.0) ** 2)
+    g0 = eval_g(C, PH2.ravel(), UU2.ravel())
+    gpv = eval_g(C, PH2.ravel(), UU2.ravel(), (1, 0))
+    guv = eval_g(C, PH2.ravel(), UU2.ravel(), (0, 1))
+    m2 = (derivative_bound(C, (2, 0)) + 2.0 * derivative_bound(C, (1, 1))
+          + derivative_bound(C, (0, 2)))
+    sup_g = float((g0 + np.hypot(gpv, guv) * r + 0.5 * m2 * r * r).max())
+    sup_out = np.log(2.0 * np.pi) + sup_g
+    rep['margin'] = float(np.log(T_out) + sup_out - 2.0 * np.log(2 * np.pi) - value)
+    ok = rep['margin'] < tol_nats
+    if not ok:
+        rep['decline'] = 'phi omitted-mass bound too large'
+    return float(value), bool(ok), rep

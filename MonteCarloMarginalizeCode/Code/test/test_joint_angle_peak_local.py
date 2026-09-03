@@ -215,3 +215,59 @@ def test_a_full_circle_box_still_counts_as_covering():
     half = np.array([[np.pi, np.pi]])
     sup, area = J.outside_bound(C, cen, half, n_grid=32)
     assert area == 0.0 and sup == -np.inf, (sup, area)
+
+
+# ------------------------------------------------- both axes localized (phi-local)
+
+def test_u_profile_derivatives_match_finite_differences():
+    """F' and F'' come from differentiating UNDER the integral -- F' = E[d_phi g],
+    F'' = E[d^2_phi g] + Var(d_phi g) -- so they are exact and cost no extra evaluation.
+    That identity is what makes localizing phi possible at all, so it is pinned against
+    finite differences of F itself."""
+    A, B = _ab_tables(seed=3, scale=3.0)
+    C = J.joint_table(A, B, x=1.0)
+    h = 1e-5
+    for phi in np.linspace(0.3, 5.9, 6):
+        F0, d1, d2 = J.u_profile(C, np.array([phi]))
+        Fp, _, _ = J.u_profile(C, np.array([phi + h]))
+        Fm, _, _ = J.u_profile(C, np.array([phi - h]))
+        fd1 = (Fp[0] - Fm[0]) / (2 * h)
+        fd2 = (Fp[0] - 2 * F0[0] + Fm[0]) / h ** 2
+        assert abs(d1[0] - fd1) < 1e-4 * max(1.0, abs(fd1)), (phi, d1[0], fd1)
+        assert abs(d2[0] - fd2) < 1e-2 * max(1.0, abs(fd2)), (phi, d2[0], fd2)
+
+
+@pytest.mark.parametrize("scale", [1.0, 3.0, 10.0])
+def test_phi_local_matches_a_converged_dense_reference(scale):
+    """Both axes localized, against a dense torus quadrature."""
+    A, B = _ab_tables(seed=3, scale=1.0)
+    C = J.joint_table(A * scale, B * scale, x=1.0)
+    val, ok, rep = J.phi_local_marginalize(C)
+    assert ok, rep
+    assert abs(val - _ref(C, n=2048)) < 1e-4, (scale, val, rep)
+
+
+def test_phi_local_cost_does_not_grow_with_amplitude():
+    """The whole point of localizing BOTH axes: the dense rule spends ~A points on the
+    (phi,u) product, this spends a number set by the mode structure, which does not move
+    when the data amplitude does."""
+    A, B = _ab_tables(seed=3, scale=1.0)
+    counts = []
+    for scale in (1.0, 10.0, 100.0):
+        _, ok, rep = J.phi_local_marginalize(J.joint_table(A * scale, B * scale, x=1.0))
+        assert ok
+        counts.append(rep['n_phi_regions'])
+    assert max(counts) <= 8, counts          # bounded, not growing with sqrt(A)
+
+
+def test_phi_cover_bound_is_routed_through_g_not_through_F_curvature():
+    """Regression.  Bounding F by Taylor with F'' <= M_(2,0) + M_(1,0)^2 is useless: that
+    variance bound grows as the SQUARE of the amplitude and produced margins of +51 and
+    +1196 nats (no bound at all).  Routing through F <= log(2pi) + sup_u g keeps the
+    remainder linear in amplitude, so high-amplitude rows are ACCEPTED rather than
+    declined for a defect in the bound."""
+    A, B = _ab_tables(seed=3, scale=1.0)
+    for scale in (30.0, 100.0):
+        _, ok, rep = J.phi_local_marginalize(J.joint_table(A * scale, B * scale, x=1.0))
+        assert ok, (scale, rep)
+        assert rep['margin'] < J.OUTSIDE_TOL_NATS, (scale, rep)
