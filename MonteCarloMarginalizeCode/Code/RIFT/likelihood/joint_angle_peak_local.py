@@ -135,6 +135,18 @@ def _kq(C):
 #: here because each point is summed independently.
 _POINT_CHUNK = 200_000
 
+#: Per-axis ceiling on a box's trapezoid.  NOT a free tuning knob: it is the point at
+#: which the local integration stops honouring the curvature it derived, and the
+#: certificate cannot report that -- the omitted-mass bound covers what is outside the
+#: boxes, so a capped box can carry ``margin = -inf`` and still be wrong.  Measured on
+#: the rho=163.08 production tables (amplitude ~2.7e4, ``area_outside == 0``) against a
+#: torus reference self-converged to 2e-12: at 256 the value was off by up to 0.36 nats,
+#: at 512 by 3e-4, at 1024 exact to 1e-4.  Cost went 0.07 s -> 0.21 s -> 0.83 s.  512
+#: buys three orders of magnitude for 3x, and 1024 buys almost nothing more for 12x.
+#: Raising this does not widen the certificate's REACH -- declines are omitted-mass
+#: declines and this is internal accuracy; the two are independent, and both are needed.
+_BOX_MAX_PTS = 512
+
 
 def eval_g(C, phi, u, order=(0, 0)):
     """``d^a_phi d^b_u g`` at points ``(phi, u)``; ``order=(a, b)``.
@@ -379,14 +391,27 @@ def outside_bound(C, cen, half, n_grid=256):
 _PTS_PER_SIGMA = 3
 
 
-def _log_box_integral(C, c, h, pts_per_sigma=_PTS_PER_SIGMA, max_pts=256):
-    """``log int_box exp(g)`` by a tensor trapezoid sized from the LOCAL curvature."""
+def _log_box_integral(C, c, h, pts_per_sigma=_PTS_PER_SIGMA, max_pts=_BOX_MAX_PTS):
+    """``log int_box exp(g)`` by a tensor trapezoid sized from the LOCAL curvature.
+
+    Returns ``(value, n_points, capped)``.  ``capped`` is True when ``max_pts`` bound the
+    curvature-derived count on either axis -- i.e. when this box is UNDER-RESOLVED and the
+    value is an estimate rather than the requested resolution.  It has to be reported,
+    because the certificate cannot see it: the omitted-mass bound covers what is OUTSIDE
+    the boxes and says nothing about the quadrature inside one, so a capped box is exactly
+    the case where ``margin`` can read ``-inf`` (nothing omitted at all) while the value is
+    still wrong.  Measured on the rho=163 production tables: at the shipped cap of 256 the
+    value sat 0.36 nats from a converged torus reference with ``area_outside == 0``.
+    """
     n = []
+    capped = False
     for ax in (0, 1):
         order = (2, 0) if ax == 0 else (0, 2)
         curv = abs(float(eval_g(C, c[0], c[1], order)[0]))
         sig = 1.0 / np.sqrt(curv) if curv > 0 else h[ax]
         want = int(np.ceil(2.0 * h[ax] / max(sig, 1e-12) * pts_per_sigma)) + 1
+        if want > max_pts:
+            capped = True
         n.append(int(np.clip(want, 9, max_pts)))
     a = c[0] + np.linspace(-h[0], h[0], n[0])
     b = c[1] + np.linspace(-h[1], h[1], n[1])
@@ -396,7 +421,7 @@ def _log_box_integral(C, c, h, pts_per_sigma=_PTS_PER_SIGMA, max_pts=256):
     wb = np.full(n[1], 2.0 * h[1] / (n[1] - 1)); wb[0] *= 0.5; wb[-1] *= 0.5
     W = np.log(wa)[:, None] + np.log(wb)[None, :]
     m = g.max()
-    return m + np.log(np.sum(np.exp(g - m + W))), n[0] * n[1]
+    return m + np.log(np.sum(np.exp(g - m + W))), n[0] * n[1], capped
 
 
 def joint_marginalize_peak_local(C, n_phi=64, n_bound_grid=256,
@@ -409,6 +434,7 @@ def joint_marginalize_peak_local(C, n_phi=64, n_bound_grid=256,
     """
     C = np.asarray(C)
     rep = {'n_modes': 0, 'n_regions': 0, 'n_local_points': 0,
+           'n_boxes_pts_capped': 0,
            'margin': np.inf, 'area_outside': np.nan, 'sup_outside': np.nan,
            'decline': None}
 
@@ -432,12 +458,16 @@ def joint_marginalize_peak_local(C, n_phi=64, n_bound_grid=256,
         rep['decline'] = 'regions still overlap after MERGE_MAX_PASSES'
         return -np.inf, False, rep
 
-    parts, npts = [], 0
+    parts, npts, n_capped = [], 0, 0
     for c, h in zip(cen, half):
-        v, k = _log_box_integral(C, c, h)
+        v, k, capped = _log_box_integral(C, c, h)
         parts.append(v)
         npts += k
+        n_capped += int(capped)
     rep['n_local_points'] = int(npts)
+    # a capped box is under-resolved and the certificate CANNOT see it; surface it so the
+    # caller is never told 'nothing omitted' about a value the quadrature got wrong.
+    rep['n_boxes_pts_capped'] = int(n_capped)
     parts = np.array(parts)
     m = parts.max()
     log_inside = m + np.log(np.exp(parts - m).sum())

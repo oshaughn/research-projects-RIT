@@ -424,3 +424,82 @@ def test_phi_regions_are_disjoint_on_the_CIRCLE():
                     d = np.minimum(d, 2 * np.pi - d)
                     assert d.min() > 1e-6, ("regions overlap on the circle", regs)
     assert checked > 5, checked
+
+
+# --------------------------------------------- internal accuracy inside the cover
+
+def _torus_reference(C, n=2048):
+    """log (2pi)^-2 int int exp(g) over the WHOLE torus, independent of the peak-local path."""
+    ph = np.linspace(0.0, 2.0 * np.pi, n)
+    P, U = np.meshgrid(ph, ph, indexing='ij')
+    g = J.eval_g(C, P.ravel(), U.ravel()).reshape(n, n)
+    w = np.full(n, 2.0 * np.pi / (n - 1)); w[0] *= 0.5; w[-1] *= 0.5
+    W = np.log(w)[:, None] + np.log(w)[None, :] - 2.0 * np.log(2.0 * np.pi)
+    m = g.max()
+    return m + np.log(np.sum(np.exp(g - m + W)))
+
+
+def _production_tables(scale=1.0):
+    """The ACTUAL rho=163.08 coefficients at (sky 134, t 307), noise floor zeroed.
+
+    Not a synthetic stand-in: my first attempt built A and B by hand and rescaled the
+    combined C to a target amplitude, which DECLINED, because uniform rescaling destroys
+    the balance between the linear and quadratic parts that makes g peak at all.  The
+    structure that matters here cannot be faked -- A lives only in the k=2 phi harmonic
+    and is strongly asymmetric between q=+1 and q=-1 (inclination), while B is almost
+    entirely the real (k=0, ks=0) term.  On that structure the enumerated cover collapses
+    to ONE region spanning the whole torus.  Random coefficients never reach this branch.
+
+    Returns ``(C, x)``; ``x`` is the ML distance variable for these tables.
+    """
+    A = np.zeros((3, 3), dtype=complex)
+    B = np.zeros((5, 5), dtype=complex)
+    A[2, 0] = (21.9723661 - 36.92165017j) * scale
+    A[2, 2] = (3172.888697 - 459.2980961j) * scale
+    B[0, 0] = (13.52810099 - 16.70502609j) * scale
+    B[0, 2] = 1552.747913 * scale
+    B[0, 4] = (13.52810099 + 16.70502609j) * scale
+    B[4, 2] = (-0.002567515655 + 0.002517937939j) * scale
+    B[4, 4] = (-0.08802797904 - 0.01011860597j) * scale
+    k, q, w, _ = J._kq(A)
+    x = float(np.sum(w * np.abs(A))) / float(B[0, 2].real)
+    return J.joint_table(A, B, x), x
+
+
+def test_a_fully_covered_box_is_still_accurate_inside():
+    """OMITTED-MASS CONTROL IS NOT INTERNAL ACCURACY, and this is the case that proves the
+    two are independent.  On the production tables the cover collapses to a single region
+    spanning the whole torus, so ``area_outside == 0`` and ``margin == -inf``: the
+    certificate reports that NOTHING is omitted, which is true and which says nothing at
+    all about the quadrature inside.  With the per-axis cap at its old value of 256 the
+    value sat 0.36 nats from a converged reference while reporting -inf.
+
+    0.36 nats is not a rounding error -- it is half the saddle-point prototype's total
+    error at rho=40.77, arriving with a certificate that reads as exact.
+    """
+    C, _ = _production_tables()
+    assert abs(np.sum(np.abs(C)) - 27569.1) < 1.0, "fixture drifted from the real tables"
+    lnZ, ok, rep = J.joint_marginalize_peak_local(C)
+    assert ok, rep
+    # the structure that makes this case interesting must actually be present
+    assert rep['area_outside'] == 0.0, rep       # cover IS the whole torus
+    assert rep['margin'] == -np.inf, rep         # certificate claims nothing omitted
+    err = abs(lnZ - _torus_reference(C))
+    assert err < 1.0e-2, "inside-the-cover error %.4f nats (cap 256 gave 0.36)" % err
+
+
+def test_a_capped_box_is_reported_and_never_silent():
+    """A box whose curvature-derived node count hits the ceiling is under-resolved, and the
+    certificate cannot express that.  It must therefore be COUNTED -- otherwise the caller
+    is handed 'nothing omitted' about a value the quadrature got wrong.
+    """
+    C, _ = _production_tables()
+    _, ok, rep = J.joint_marginalize_peak_local(C)
+    assert ok
+    assert 'n_boxes_pts_capped' in rep
+    assert rep['n_boxes_pts_capped'] >= 1, rep   # this amplitude DOES still cap at 512
+    # and a much flatter case must NOT be flagged, or the counter says nothing
+    C_lo, _ = _production_tables(scale=1.0e-4)
+    _, ok2, rep2 = J.joint_marginalize_peak_local(C_lo)
+    assert ok2, rep2
+    assert rep2['n_boxes_pts_capped'] == 0, rep2
