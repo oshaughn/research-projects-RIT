@@ -204,7 +204,7 @@ VALID_STATUS = {
     # not gated, and that is NOT the right answer -- these are debts, stated as such
     "BROKEN":    "collects but fails; needs a fix before it can be gated",
     # tolerated in either state while a companion PR is in flight
-    "PENDING":   "waiting on a named gate that is not live yet; expires when it lands",
+    "PENDING":   "unreachable AND waiting on a named gate; expires when either changes",
 }
 
 
@@ -448,6 +448,13 @@ def main():
             errs.append("%s: %s no longer exists. A roster entry for a deleted file is a "
                         "silent no-op; drop the line." % (ROSTER, f))
             continue
+        # PENDING carries an EXTRA condition, not a weaker one.  It must still go stale the
+        # moment the file is covered -- by ANY job, not only by the gate it names.  An earlier
+        # version checked the gate and then `continue`d unconditionally, so a file that became
+        # reachable through some other job while its named gate stayed dormant kept a PENDING
+        # entry for ever: the one escape left in this file, and the same "never expires" defect
+        # that removing the blanket exemption was meant to close.  So fall through to the
+        # staleness check below rather than returning here.
         if status == "PENDING":
             m = re.search(r"gate:([a-z0-9-]+)", reason)
             if not m:
@@ -463,10 +470,11 @@ def main():
                             "    The wait is over: either the gate registers this file (delete "
                             "this line) or it does not (give the file a real status)."
                             % (ROSTER, f, m.group(1)))
-            continue
         if reachable[f] is not None:
+            extra = ("\n    PENDING is not an exemption from this: it waits on a named gate, but "
+                     "the file is covered NOW, by this job." if status == "PENDING" else "")
             errs.append("%s: %s is listed as %s but IS now reachable (%s). The entry is stale "
-                        "-- delete it." % (ROSTER, f, status, reachable[f]))
+                        "-- delete it.%s" % (ROSTER, f, status, reachable[f], extra))
 
     n_reach = sum(1 for v in reachable.values() if v is not None)
     print("test-ci-roster: %d test files under %s" % (len(files), CODEDIR))
