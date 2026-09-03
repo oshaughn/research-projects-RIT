@@ -72,7 +72,8 @@ from scipy import integrate as _scipy_integrate
 
 # The 'sinc' stencil half-width, shared with the numpy/cupy/CUDA backends.  Imported from the
 # leaf module rather than from factored_likelihood so this stays free of numba and lal.
-from RIFT.likelihood.time_interp_choice import SINC_HALFWIDTH_DEFAULT
+from RIFT.likelihood.time_interp_choice import (SINC_HALFWIDTH_DEFAULT,
+                                                TIME_INTERP_DEFAULT)
 
 # Adaptive (per-sample) distance marginalization.  The distance integrand is
 # exp(K x - 0.5 R x^2) with x = d_ref/d -- a Gaussian in x (peak x*=K/R, width
@@ -386,7 +387,11 @@ _GATHERERS = {"nearest": _gather_nearest, "linear": _gather_linear,
 # linear is the worst stencil here at high SNR (worse than 'nearest'), this path is used
 # exclusively at high SNR, and 'sinc' is the option whose error is BOUNDED (measured flat at
 # 2.3-7.9 nats across the whole mass/fmin sweep) rather than the one with the best best-case.
-JAX_INTERP_DEFAULT = "sinc"
+# ALIAS, not a second literal (2026-09-02).  It was a re-typed "sinc", which is exactly how
+# the two drivers came to ship opposite defaults in the first place (issue #233); the value
+# now lives once, in time_interp_choice.TIME_INTERP_DEFAULT.  The NAME is kept because every
+# entry point in this package and bin/integrate_likelihood_extrinsic_jax import it.
+JAX_INTERP_DEFAULT = TIME_INTERP_DEFAULT
 
 
 def _guarded_window(data, guard):

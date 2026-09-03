@@ -2320,10 +2320,13 @@ def _sinc_Q_window_numpy(Q_block, start_indices, fractional_offsets, npts,
     RIFT/likelihood/DESIGN_q_window_stencil.md.  Automatic selection was removed as measurably
     unreliable.
 
-    NO stencil is applied by default -- time_interp defaults to 'nearest', as does
-    --interpolate-time when omitted, so a caller who asks for nothing gets the nearest-bin gather
-    and neither interpolating stencil; 'cubic' is only the legacy truthy --interpolate-time
-    mapping.
+    THE LIBRARY DEFAULT AND THE DRIVER DEFAULT ARE DIFFERENT, deliberately.  This function's
+    own ``time_interp`` argument still defaults to 'nearest', so a library caller who asks for
+    nothing gets the nearest-bin gather and no interpolating stencil -- every existing caller is
+    unaffected.  bin/integrate_likelihood_extrinsic_batchmode's --interpolate-time, by contrast,
+    defaults to ``time_interp_choice.TIME_INTERP_DEFAULT`` as of 2026-09-02 (issue #233), which is
+    what an ILE run now gets when the flag is omitted; 'cubic' remains only the legacy truthy
+    --interpolate-time mapping.
 
     COST, measured (not estimated from the tap count):
       CPU  ~4.2-4.5x cubic -- 2a=16 taps against 4, and this path IS tap-count bound.

@@ -50,6 +50,7 @@ import glue.lal
 
 import RIFT.lalsimutils as lalsimutils
 from RIFT.likelihood.time_interp_choice import CROSSOVER_GUIDANCE as _CROSSOVER_GUIDANCE
+from RIFT.likelihood.time_interp_choice import TIME_INTERP_DEFAULT
 from RIFT.precision import RiftFloat
 import RIFT.integrators.mcsampler as mcsampler
 from RIFT.integrators.rvs_record import (RvsRecord as _RvsRecord,   # see DESIGN_rvs_naming.md
@@ -332,7 +333,7 @@ integration_params.add_option("--internal-gmm-adaptive-components",action='store
 integration_params.add_option("--internal-gmm-max-components",type=int,default=8,help="Cap on the per-group component count for --internal-gmm-adaptive-components (default 8).")
 integration_params.add_option("--internal-gmm-defensive-frac",type=float,default=0.0,help="Weight of the broad box-covering 'defensive' mixture component added to each adaptive GMM group (default 0 = OFF).  Intended to bound the importance weights (Hesterberg defensive IS), but on a wide extrinsic prior the broad component draws physically-extreme points where the likelihood is NaN and it did not improve n_eff on the SNR~82 benchmark -- opt-in only.")
 integration_params.add_option("--internal-gmm-inflate",type=float,default=1.0,help="Covariance inflation factor (std multiplier) applied to each adaptive GMM component (default 1.0 = none).  A value >1 widens the proposal relative to the elite cloud it was fit to; complements --internal-gmm-defensive-frac.")
-integration_params.add_option("--interpolate-time", default=False,help="Sub-sample stencil for evaluating Q_lm at fractional detector times, instead of snapping to the nearest sample bin. Accepts 'nearest', 'cubic', 'sinc', or a legacy truthy value (True/1/yes) meaning 'cubic'. WHICH TO USE is set by the bandwidth of Q(t), which is NOT fmax -- Q is band-limited by whichever is lower, fmax or the template's own cutoff, so it depends on the MASSES and on FMIN. MEASURED with SEOBNRv4 (an IMR model): %s. fmin matters as much as mass -- cubic degrades from fmin 20 to 150 at fixed mass (endpoint ratios 6.5x at M=9 and 9.6x at M=20, and NOT monotone in between) while sinc stays flat, which is why the crossover rises. NEAREST is never competitive (200-443 nats) and reaches 1 nat of error by SNR 2-6. Do not trust inspiral-only (TaylorT4) numbers for this: no merger-ringdown, understates the band by 2-3.7x. Error grows as SNR^2. COST of sinc vs cubic: ~4.2-4.5x on CPU, ~1.6-3.0x on GPU. All three stencils have CPU and GPU implementations. Requires the maintained NoLoop likelihood: this is REFUSED, not ignored, if the configuration cannot honour it. Measured tables and limitations: RIFT/likelihood/DESIGN_q_window_stencil.md. (Default=false, i.e. nearest)" % _CROSSOVER_GUIDANCE)
+integration_params.add_option("--interpolate-time", default=None,help="Sub-sample stencil for evaluating Q_lm at fractional detector times, instead of snapping to the nearest sample bin. Accepts 'nearest', 'cubic', 'sinc', or a legacy truthy value (True/1/yes) meaning 'cubic'. DEFAULT CHANGED 2026-09-02 from 'nearest' to %r (issue #233); the value is time_interp_choice.TIME_INTERP_DEFAULT, shared with the jax driver's --interp so the two cannot ship opposite defaults again. THIS CHANGES RESULTS for anyone who did not pass --interpolate-time; pass '--interpolate-time nearest' to reproduce a pre-2026-09-02 run. WHICH TO USE is set by the bandwidth of Q(t), which is NOT fmax -- Q is band-limited by whichever is lower, fmax or the template's own cutoff, so it depends on the MASSES and on FMIN. MEASURED with SEOBNRv4 (an IMR model): %s. fmin matters as much as mass -- cubic degrades from fmin 20 to 150 at fixed mass (endpoint ratios 6.5x at M=9 and 9.6x at M=20, and NOT monotone in between) while sinc stays flat, which is why the crossover rises. NEAREST is never competitive (200-443 nats) and reaches 1 nat of error by SNR 2-6. Do not trust inspiral-only (TaylorT4) numbers for this: no merger-ringdown, understates the band by 2-3.7x. Error grows as SNR^2. COST of sinc vs cubic: ~4.2-4.5x on CPU, ~1.6-3.0x on GPU. All three stencils have CPU and GPU implementations. Requires the maintained NoLoop likelihood: an EXPLICIT request is REFUSED, not ignored, if the configuration cannot honour it, while the DEFAULT falls back to 'nearest' with a printed reason rather than turning a working configuration into a startup error. Measured tables and limitations: RIFT/likelihood/DESIGN_q_window_stencil.md. (Default=%s)" % (TIME_INTERP_DEFAULT, _CROSSOVER_GUIDANCE, TIME_INTERP_DEFAULT))
 integration_params.add_option("--time-marginalization-quadrature", default="simpson", type=str, help="Rule for the TIME integral of the marginalized likelihood: 'simpson' (default, historical), 'bandlimited', or 'peak-local'. 'simpson' integrates exp(lnL(t)) with Simpson's rule at the FIXED spacing deltaT=1/srate. That spacing is a property of the DATA; the integrand's width is a property of the SIGNAL -- after angle marginalization exp(lnL(t)) is a near-Gaussian peak of width sigma_t = 1/(2 pi rho sigma_f) -- so resolving it needs srate >~ 2 pi sigma_f rho, a requirement that GROWS LINEARLY WITH SNR and that production does not meet. MEASURED on a 35+30 Msun SEOBNRv4 H1L1V1 injection at rho=40 (sigma_t = 61.2 us): rigidly scanning the grid phase over 2*deltaT moves the reported lnL by 1.649 / 0.385 / 0.0095 nats at srate 4096 / 8192 / 16384. Simpson makes an under-resolved peak WORSE than trapezoid, not better: (4T_h - T_2h)/3 carries the coarser T_2h and inherits its 2h alias. 'bandlimited' costs no extra likelihood evaluations and no extra precompute: kappa(t) is band-limited below Nyquist by construction and rho_sq is time-independent on this path, so the samples already computed determine the continuous integrand exactly, and one zero-padded FFT per row recovers it. Against a converged dense reference at srate 4096, rho=40: -0.007 nats, versus +0.745 for Simpson at the same grid phase. THERE IS DELIBERATELY NO RESOLUTION OPTION: the refinement factor is derived from the measured peak width and re-asserted on the refined grid. Cost scales with that factor and is paid only where the integrand actually demands it (a well-resolved peak derives a factor of 1 and costs nothing). Requires --time-marginalization --vectorized --gpu (--force-xpy is accepted), excludes --rotation-slow / --freqresponse / calibration marginalization, and is REFUSED, not ignored, if the configuration cannot honour it. Rationale, measured tables and exclusions: RIFT/likelihood/time_marginalization_quadrature.py. 'peak-local' is the same argument with the refined grid placed only where the integrand has support, because the dense rule refines the WHOLE window to a peak whose width shrinks as 1/rho -- it works hardest exactly where the peak occupies least of the domain. kappa's extrema are ENUMERATED on a small, SNR-INDEPENDENT upsample (kappa is band-limited at Nyquist, so enumerating it is not a function of SNR); an interval of a few sigma_t is built around each; overlapping intervals are MERGED into disjoint ones (without which the shared region is double-counted, measured +1.6 nats at rho~6); and each merged interval is integrated at its own derived spacing. The mass left OUTSIDE the intervals is bounded per row and CHECKED, so the truncation is not an assumption -- a row whose bound is not small enough, or whose local grid would cost more than the dense one, is given the 'bandlimited' value rather than an approximation with a caveat. Accuracy is that of 'bandlimited' by construction and is measured against it (max 1.9e-11 nats over 4000 extrinsic rows). COST: measured through this code path on CPU at n_extrinsic 4000, npts 614, it is NOT the prototype's headline figure -- that was measured with an analytic kappa in hand, where evaluating the interpolant at an arbitrary time was free, and here it is not. See RIFT/likelihood/DESIGN_time_marginalization_peak_local.md for the measured table. Same prerequisites and same exclusions as 'bandlimited', PLUS: 'peak-local' REFUSES phase marginalization. That is a deliberate scope cut -- production marginalizes over distance, not phase, and under phase marginalization the time peak's Laplace width picks up an (I1/I0)(|kappa|/D) factor that does not reduce, so the local spacing is no longer derivable from rho_sq and the curvature alone. 'bandlimited' still supports it. (Default=simpson)")
 integration_params.add_option("--d-prior",default='Euclidean' ,type=str,help="Distance prior for dL.  Options are dL^2 (Euclidean), 'pseudo_cosmo', and 'cosmo'  and 'cosmo_sourceframe' .")
 integration_params.add_option("--d-prior-redshift", action='store_true', help="If true, distance prior is computed in redshift. This option MAY be enforced for 'cosmo' sampling")
@@ -470,22 +471,35 @@ def _truthy_option(value):
 
 _TI_LEGACY_BOOLEAN = ("1", "true", "t", "yes", "y", "on",
                       "0", "false", "f", "no", "n", "off", "none")
-_ti_raw = str(opts.interpolate_time).strip().lower()
-if _ti_raw in ("nearest", "cubic", "sinc"):
-    # explicit stencil name
-    opts._noloop_time_interp = _ti_raw
-elif _ti_raw in _TI_LEGACY_BOOLEAN:
-    # legacy boolean: truthy meant cubic
-    opts._noloop_time_interp = "cubic" if _truthy_option(opts.interpolate_time) else "nearest"
+# WAS THE STENCIL ASKED FOR, OR INHERITED?  Every guard below distinguishes the two, so this
+# must be decided on IDENTITY (`is None`), before any string coercion: str(None) is 'none',
+# which is a legal explicit spelling meaning 'nearest', so a string test cannot tell an
+# omitted flag from "--interpolate-time none" and would silently disarm the explicit path.
+opts._interp_time_from_default = opts.interpolate_time is None
+if opts._interp_time_from_default:
+    # DEFAULT CHANGED 2026-09-02: 'nearest' -> time_interp_choice.TIME_INTERP_DEFAULT (issue
+    # #233).  PROVISIONAL until the guards further down have run -- a default may be downgraded
+    # back to 'nearest' where an explicit request would be refused.
+    opts._noloop_time_interp = TIME_INTERP_DEFAULT
 else:
-    # Anything else is a typo, and it must NOT be absorbed.  Before this check a misspelled
-    # stencil ('sinK', 'lanczos') was simply non-truthy and so ran 'nearest' -- a silent change
-    # of the likelihood's time discretization, invisible in the log and indistinguishable from a
-    # run that never asked for interpolation at all.  Now that the helper writes a resolved
-    # stencil NAME onto every --interpolate-time command line, a typo there has to be loud.
-    raise ValueError(
-        "--interpolate-time: unrecognised value %r. Use a stencil name (nearest|cubic|sinc) or "
-        "a legacy boolean (%s)." % (opts.interpolate_time, "|".join(_TI_LEGACY_BOOLEAN)))
+    _ti_raw = str(opts.interpolate_time).strip().lower()
+    if _ti_raw in ("nearest", "cubic", "sinc"):
+        # explicit stencil name
+        opts._noloop_time_interp = _ti_raw
+    elif _ti_raw in _TI_LEGACY_BOOLEAN:
+        # legacy boolean: truthy meant cubic
+        opts._noloop_time_interp = "cubic" if _truthy_option(opts.interpolate_time) else "nearest"
+    else:
+        # Anything else is a typo, and it must NOT be absorbed.  Before this check a misspelled
+        # stencil ('sinK', 'lanczos') was simply non-truthy and so ran 'nearest' -- a silent
+        # change of the likelihood's time discretization, invisible in the log and
+        # indistinguishable from a run that never asked for interpolation at all.  Now that the
+        # helper writes a resolved stencil NAME onto every --interpolate-time command line, a
+        # typo there has to be loud.
+        raise ValueError(
+            "--interpolate-time: unrecognised value %r. Use a stencil name (nearest|cubic|sinc) "
+            "or a legacy boolean (%s)." % (opts.interpolate_time,
+                                           "|".join(_TI_LEGACY_BOOLEAN)))
 # The LEGACY scalar path (FactoredLogLikelihoodTimeMarginalized) takes a plain boolean and has
 # nothing to do with the NoLoop stencils.  It used to be handed opts.interpolate_time raw, which
 # was fine while that was only ever truthy/falsy -- but 'nearest' is a non-empty string, so once
@@ -494,8 +508,20 @@ else:
 # boolean instead: only the two genuinely-interpolating stencils count as "interpolate".
 opts._legacy_interpolate_time = opts._noloop_time_interp in ("cubic", "sinc")
 from RIFT.likelihood.time_posterior import resolve_time_posterior_export_mode
+# THE DEFAULT STENCIL MUST NOT SILENTLY CHANGE THE EXPORT.  resolve_time_posterior_export_mode
+# maps `auto` (the --time-posterior-export default) to 'continuous' for ANY stencil other than
+# 'nearest', so once the stencil default stopped being 'nearest' the same one-line change would
+# also have flipped the fair-draw time export of every --resample-time-marginalization run.  That
+# is not a free relabelling: continuous export re-evaluates the whole likelihood on a >=4x denser
+# time grid and can raise MemoryError from validate_time_posterior_working_set, so it would have
+# turned working runs into failing ones and changed t_ref in the output of the rest.
+#
+# The export therefore keys on an EXPLICIT stencil only.  Asking for a stencil still opts you into
+# the better export, and '--time-posterior-export continuous' still works on its own; inheriting
+# the default gets the historical 'grid' export, bit-for-bit.
+_ti_for_export = 'nearest' if opts._interp_time_from_default else opts._noloop_time_interp
 opts._time_posterior_export = resolve_time_posterior_export_mode(
-    opts.time_posterior_export, opts._noloop_time_interp,
+    opts.time_posterior_export, _ti_for_export,
     continuous_available=not (opts.rotation_slow or opts.freqresponse))
 # NOTE: deliberately NOT announcing the stencil here.  opts.gpu is not resolved yet at this
 # point, so we cannot yet tell whether the stencil will actually be used -- and a banner that
@@ -508,8 +534,10 @@ if opts.rotation_slow:
     # template on GPU (same memory footprint as the baseline).
     if not opts.vectorized:
         raise ValueError("--rotation-slow requires --vectorized")
-    if opts.gpu and getattr(opts, 'calibration_marginalization', False):
-        raise ValueError("--rotation-slow on GPU does not support calibration/glitch marginalization (n_cal>1)")
+    # The calibration/glitch-marginalization exclusion used to be a guard here, keyed on an
+    # option that does not exist, so it never fired.  It now lives in the central gate below
+    # (RIFT/calmarg/option_compat.py), keyed on --calibration-envelope-directory and run once
+    # opts.gpu is final.  History: DESIGN_calmarg_in_loop.md, "Option-compatibility gate".
     if getattr(opts, 'distance_marginalization', False) or getattr(opts, 'phase_marginalization', False):
         raise ValueError("--rotation-slow does not yet support distance/phase marginalization")
 
@@ -521,8 +549,8 @@ if opts.freqresponse:
         raise ValueError("--freqresponse and --rotation-slow both replace the likelihood; use at most one")
     if not opts.vectorized:
         raise ValueError("--freqresponse requires --vectorized")
-    if opts.gpu and getattr(opts, 'calibration_marginalization', False):
-        raise ValueError("--freqresponse on GPU does not support calibration/glitch marginalization (n_cal>1)")
+    # Same never-firing calibration guard as --rotation-slow above, with the same history;
+    # superseded by the central gate below.  See RIFT/calmarg/option_compat.py.
     if getattr(opts, 'distance_marginalization', False) or getattr(opts, 'phase_marginalization', False):
         raise ValueError("--freqresponse does not yet support distance/phase marginalization")
 
@@ -671,6 +699,134 @@ _stencil_prereqs = (
 )
 _stencil_missing = [name for name, ok in _stencil_prereqs if not ok]
 _stencil_is_honoured = not _stencil_missing
+# THE DEFAULT IS DOWNGRADED WHERE A REQUEST IS REFUSED, and the two must not be conflated.
+#
+# The refusal below is the right answer to "I asked for sinc and this configuration will quietly
+# run something else": it protects a comparison campaign from being run against a flag that did
+# nothing.  It is the WRONG answer to an inherited default -- as a default it would convert every
+# configuration in the list above from working to a startup ValueError, with no command line
+# changed anywhere, which is a far larger blast radius than the accuracy the default buys.
+#
+# So: an EXPLICIT --interpolate-time is refused exactly as before (no behaviour change at all for
+# anyone who passes the flag), and a DEFAULT falls back to 'nearest' -- the historical value, so
+# the fallback is a no-op relative to today -- with the reason printed.  The fallback is announced
+# rather than silent because a stencil that is not running is the one thing the log has to say.
+def fused_calmarg_in_use(opts, calibration_marginalization=None):
+    """WILL A FUSED CALIBRATION KERNEL ACTUALLY RUN?  ONE definition, two call sites.
+
+    THIS FUNCTION EXISTS BECAUSE THE CONDITION WAS RE-DERIVED AND DRIFTED, TWICE IN A DAY, IN THE
+    SAME DIRECTION, WHILE A REVIEWER WAS LOOKING AT IT.  The stencil guard below needs the answer
+    at startup; `use_fused_calmarg` needs it again at dispatch time.  Written as two expressions
+    they went `flag` -> `flag and envelope` -> `flag and envelope and path`, each round adding a
+    conjunct the other site already had in effect.  The drift is INVISIBLE by construction: an
+    over-broad predicate downgrades the inherited stencil to 'nearest', which is exactly the
+    historical behaviour, so nothing fails and no log line looks wrong.  Two copies of a condition
+    drift; one does not.  (Four P2 findings on PR #237, of which three were this predicate.)
+
+    A fused kernel runs only where ALL of these hold.  Each is a REACHABILITY fact about the
+    driver, verified against the call sites, not a guess:
+
+      * calibration marginalization is configured -- otherwise n_cal stays 1;
+      * --calibration-fused-kernel was passed -- it is opt-in;
+      * --calibration-n-realizations > 1 -- factored_likelihood returns from its `n_cal == 1`
+        branch before `cal_method` is read at all, so with one realization 'fused' is inert;
+      * NOT --rotation-slow and NOT --freqresponse -- both REPLACE the likelihood.  The
+        non-distmarg dispatch puts the only `cal_method='fused'` call site in the `else` of
+        `if opts.rotation_slow: ... elif opts.freqresponse: ...`, and the two distmarg call
+        sites are unreachable because both options refuse distance marginalization outright at
+        startup;
+      * NOT --calibration-dump-responsibilities -- the pilot evaluates with an explicit
+        `cal_method='loop'` and `return_cal_components=True` (which the library also refuses to
+        fuse) and then RETURNS before the production integration is ever built.
+
+    The stencil is deliberately NOT a conjunct: whether the run is on 'nearest' is the question
+    the callers are answering, not part of "could a kernel run here at all".
+
+    WHAT THE EARLY CALL CANNOT SEE, stated rather than left to be rediscovered.  At startup
+    `calibration_marginalization` does not exist yet -- it is set several hundred lines later, at
+    the `if opts.calibration_envelope_directory:` block, from a False initial value.  Passing
+    None here substitutes `bool(opts.calibration_envelope_directory)`, which is that block's own
+    condition, so it is a restatement and not an approximation.  It is also CHECKED: the late
+    call site compares its result against the early one and refuses if they disagree, so a change
+    to how `calibration_marginalization` is derived fails loudly instead of silently re-opening
+    the same drift.  Nothing else in the predicate is unavailable at startup -- every other term
+    is a command-line option.
+    """
+    if calibration_marginalization is None:
+        calibration_marginalization = bool(opts.calibration_envelope_directory)
+    return (bool(calibration_marginalization)
+            and bool(opts.calibration_fused_kernel)
+            and int(getattr(opts, 'calibration_n_realizations', 0) or 0) > 1
+            and not bool(opts.rotation_slow)
+            and not bool(opts.freqresponse)
+            and not bool(opts.calibration_dump_responsibilities))
+
+
+_fused_calmarg_would_run = fused_calmarg_in_use(opts)
+# (reason, remedy) pairs, NOT bare reasons.  The two downgrades have DIFFERENT remedies and one
+# shared sentence would have to lie about one of them: a prerequisite downgrade becomes a REFUSAL
+# if you name the stencil explicitly, while the fused-kernel downgrade does NOT -- an explicit
+# stencil there is ACCEPTED and the fused kernel is dropped with a notice.  The single message
+# used until 2026-09-03 told everyone they would be refused, which was wrong for the second case.
+# Second P2 review finding on PR #237, and the reason these are printed one line per reason.
+_stencil_downgrades = []
+if opts._noloop_time_interp != 'nearest' and not _stencil_is_honoured:
+    _stencil_downgrades.append((
+        "this configuration cannot honour a sub-sample stencil: missing %s"
+        % ", ".join(_stencil_missing),
+        "add the missing option(s) -- --gpu accepts --force-xpy if no device is present -- or "
+        "pass '--interpolate-time %s' explicitly to be REFUSED rather than downgraded"
+        % TIME_INTERP_DEFAULT))
+# THE FUSED CALIBRATION KERNEL IMPLEMENTS 'nearest' ONLY, deliberately (see
+# DESIGN_q_window_stencil.md 9).  The three NoLoop call sites already fall back to cal_method
+# ='loop' when the stencil is not 'nearest', and the distmarg sites additionally drop the
+# cal_distmarg table -- so a non-'nearest' DEFAULT would silently move every
+# --calibration-fused-kernel run off the kernel it explicitly asked for, changing both its cost
+# and its distance-marginalization path.  An explicit stencil still does that (unchanged, and the
+# user named both flags); the default stays out of it.
+if (opts._noloop_time_interp != 'nearest' and _fused_calmarg_would_run
+        and not _stencil_downgrades):
+    _stencil_downgrades.append((
+        "--calibration-fused-kernel selects a fused kernel that implements 'nearest' only",
+        "pass '--interpolate-time %s' explicitly to KEEP the stencil and give up the fused "
+        "kernel -- that combination is ACCEPTED, not refused: calibration marginalization runs "
+        "the 'loop' method and the driver says so -- or pass '--interpolate-time nearest' to "
+        "make the current behaviour explicit" % TIME_INTERP_DEFAULT))
+if _stencil_downgrades and opts._interp_time_from_default:
+    for _dg_reason, _dg_remedy in _stencil_downgrades:
+        print(" Q_lm stencil DEFAULT %r NOT APPLIED -- %s. Falling back to 'nearest' (the "
+              "pre-2026-09-02 default), so this run is unchanged. To change that: %s."
+              % (opts._noloop_time_interp, _dg_reason, _dg_remedy))
+    opts._noloop_time_interp = 'nearest'
+    # Both of these were derived from the provisional default and must follow it down.
+    # The FIRST is load-bearing and is NOT redundant with the stencil reset above: it is the
+    # plain boolean handed to FactoredLogLikelihoodTimeMarginalized(..., interpolate=...) on the
+    # NON-VECTORIZED path (:3645, :4002), which is the likelihood that actually runs whenever a
+    # downgrade is triggered by a missing --vectorized.  Without it an omitted --interpolate-time
+    # would switch every such run onto the legacy path's unrelated cubic interpolation.  Pinned by
+    # test_batchmode_stencil_default.test_the_downgrade_also_takes_the_legacy_scalar_path_down_with_it.
+    # The SECOND is BELT-AND-BRACES, not a guard: this block only runs when the stencil came from
+    # the default, and in that case _ti_for_export was already 'nearest', so the recomputed value
+    # is always the value already stored.  Kept so the two derived quantities are reset in one
+    # place if _ti_for_export's rule ever changes; no test can distinguish it (verified by
+    # mutation, 2026-09-03 -- deleting it leaves the whole gate green).
+    opts._legacy_interpolate_time = False
+    opts._time_posterior_export = resolve_time_posterior_export_mode(
+        opts.time_posterior_export, 'nearest',
+        continuous_available=not (opts.rotation_slow or opts.freqresponse))
+if opts._noloop_time_interp != 'nearest' and _fused_calmarg_would_run:
+    # SAY SO.  This combination is not refused -- the user named both flags and the stencil is
+    # the one that is honoured -- but until now the loss of the fused kernel was silent at all
+    # three call sites, which contradicts this option's own "REFUSED, not ignored" promise.
+    # Gated on _fused_calmarg_would_run rather than on the flag, for the same reason as the
+    # downgrade above: with no calibration envelope there is no fused kernel to lose, and a
+    # "NOT USED" notice about a kernel that was never going to run is noise that trains readers
+    # to ignore the line.
+    print(" --calibration-fused-kernel: NOT USED. The fused calibration kernels implement the "
+          "'nearest' stencil only (DESIGN_q_window_stencil.md 9), and --interpolate-time %r is "
+          "in force, so calibration marginalization runs the 'loop' method instead (and the "
+          "distmarg variants drop the cal_distmarg table). Pass '--interpolate-time nearest' to "
+          "keep the fused kernel." % (opts._noloop_time_interp,))
 if opts._noloop_time_interp != 'nearest' and not _stencil_is_honoured:
     raise ValueError(
         "--interpolate-time %r was requested, but this configuration cannot honour it: missing "
@@ -744,7 +900,10 @@ if opts._time_quadrature == 'peak-local' and opts.resample_time_marginalization:
     # resolve a peak whose width is far below that spacing, so the integral would be
     # sub-sample accurate and the exported time would be quantised to the very grid the option
     # was introduced to escape -- the resolution is computed and then discarded.  With
-    # --interpolate-time nearest, `auto` resolves to 'grid', so that is the DEFAULT outcome.
+    # --interpolate-time nearest, `auto` resolves to 'grid'; since 2026-09-02 the stencil
+    # default is TIME_INTERP_DEFAULT, but a DEFAULT-derived stencil is deliberately not fed to
+    # the export resolver (see _ti_for_export above), so 'grid' is still the DEFAULT outcome and
+    # this refusal is still the one a default configuration meets.
     #
     # 'continuous' export is not available either: it needs `return_time_draw`, which requires
     # a validated dense reconstruction over the whole window.  peak-local by construction never
@@ -774,12 +933,48 @@ print(" Time-marginalization quadrature: {} (from --time-marginalization-quadrat
           factored_likelihood.TIME_QUADRATURE_DEFAULT,
           opts.time_marginalization_quadrature, not _tq_missing))
 
-print(" Q_lm sub-sample time stencil: {} (from --interpolate-time {!r}); honoured by this "
+print(" Q_lm sub-sample time stencil: {} (from --interpolate-time {}); honoured by this "
       "configuration: {} [time_marginalization={} vectorized={} gpu={} rotation_slow={} "
       "freqresponse={}]; legacy scalar path interpolate={}".format(
-          opts._noloop_time_interp, opts.interpolate_time, _stencil_is_honoured,
+          opts._noloop_time_interp,
+          ("DEFAULT %r" % TIME_INTERP_DEFAULT if opts._interp_time_from_default
+           else repr(opts.interpolate_time)), _stencil_is_honoured,
           bool(opts.time_marginalization), bool(opts.vectorized), bool(opts.gpu),
           bool(opts.rotation_slow), bool(opts.freqresponse), opts._legacy_interpolate_time))
+# THE BAND-LIMITED QUADRATURES WERE MEASURED AGAINST 'nearest', WHICH IS NO LONGER THE DEFAULT.
+#
+# 'bandlimited' reconstructs the integrand THE CODE ACTUALLY FORMS.  That is the true kappa(t)
+# only for the 'nearest' gather; with 'cubic' or 'sinc' the gathered values are a fixed FIR
+# filter applied to Q, still band-limited, so the reconstruction stays exact -- but exact for the
+# FILTERED function, and the stencil's own bias then dominates.  Measured at srate 4096, peak
+# lnL ~5300 (time_marginalization_quadrature.py): with 'nearest' this path is +0.0002 nats against
+# an analytic truth where Simpson is -521; with 'sinc' it is -2.29 where Simpson is +1.28, and
+# over a scan of seeds and grid phases Simpson wins about half the cases.  'peak-local' inherits
+# this: its accuracy is DEFINED against 'bandlimited' (max 1.9e-11 nats), so a stencil bias in
+# the reference is a stencil bias in it.
+#
+# AND THE PAIRING IS NOT RARE -- IT IS UNIVERSAL.  The quadrature's prerequisites
+# (--time-marginalization --vectorized --gpu) are a strict SUBSET of the stencil's honoured set,
+# so EVERY run that opts into a band-limited quadrature without naming a stencil now gets the
+# default one.  An explicit accuracy option must not be moved into an unvalidated regime in
+# silence: same discipline as the --calibration-fused-kernel notice above.  NOT a downgrade --
+# the quadrature is not wrong, its ADVANTAGE is unestablished here -- and not a refusal, because
+# either stencil is a legitimate choice.  Third P2 review finding on PR #237;
+# DESIGN_q_window_stencil.md 9.6.4 called for this notice and records the underlying measurement
+# as still open.
+if (opts._time_quadrature in ('bandlimited', 'peak-local')
+        and opts._noloop_time_interp != 'nearest'):
+    print(" --time-marginalization-quadrature %s: ADVANTAGE NOT ESTABLISHED with the "
+          "%s Q_lm stencil %r. Its measured accuracy (+0.0002 nats against an analytic truth "
+          "where Simpson is -521) is for 'nearest'; with 'sinc' the same comparison is -2.29 "
+          "nats where Simpson is +1.28, and Simpson wins about half a scan of seeds and grid "
+          "phases -- once a stencil is in force its own bias dominates the quadrature error. "
+          "The run is not wrong and nothing is being downgraded; the PAIRING is unmeasured "
+          "(RIFT/likelihood/DESIGN_q_window_stencil.md 9.6.4, open item). Pass "
+          "'--interpolate-time nearest' to reproduce the regime these numbers were measured in."
+          % (opts._time_quadrature,
+             "DEFAULT" if opts._interp_time_from_default else "explicitly requested",
+             opts._noloop_time_interp))
 if opts.resample_time_marginalization:
     print(" Time-posterior export: {} (from --time-posterior-export {!r})".format(
           opts._time_posterior_export, opts.time_posterior_export))
@@ -788,6 +983,18 @@ if opts.resample_time_marginalization:
         print(" Time-posterior export: continuous draws supersede "
               "--srate-resample-time-marginalization; use "
               "--time-posterior-export grid for the requested lattice.")
+
+# CALIBRATION-MARGINALIZATION OPTION COMPATIBILITY.  Same refuse-don't-ignore discipline as the
+# stencil and quadrature gates above, applied to the one option that switches in-loop calibration
+# marginalization on (--calibration-envelope-directory) and to the opt-ins that are read only
+# under it.  Placed HERE because opts.gpu is final only after the cupy availability downgrade
+# above, and a `--gpu` that has been downgraded to numpy is one of the configurations that drops
+# calibration on the floor.  Nothing expensive has run yet: no frames, no PSDs, no precompute.
+#
+# This gate only REFUSES.  It never changes what an accepted configuration computes.
+import RIFT.calmarg.option_compat as calibration_option_compat
+calibration_option_compat.refuse_incompatible_calibration_options(opts)
+
 
 manual_avoid_overflow_logarithm=opts.manual_logarithm_offset
 manual_avoid_overflow_logarithm_default =  manual_avoid_overflow_logarithm
@@ -3206,7 +3413,22 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
     # use the fused implementation (Option C) when requested; works on GPU (CUDA
     # kernels) and CPU (numpy).  Phase marginalization is not supported by the fused
     # path, so it is disabled there below (that call site stays on the loop method).
-    use_fused_calmarg = bool(calibration_marginalization and opts.calibration_fused_kernel)
+    # THE SAME COMPUTATION as the startup stencil guard, not a second expression -- see
+    # fused_calmarg_in_use.  `calibration_marginalization` is passed explicitly because it is the
+    # one term the early call had to substitute for; comparing the two results is what turns a
+    # future divergence in how it is derived into a loud failure instead of a silent re-opening
+    # of the drift this function was written to end.
+    use_fused_calmarg = fused_calmarg_in_use(opts, calibration_marginalization)
+    if use_fused_calmarg != _fused_calmarg_would_run:
+        raise ValueError(
+            "internal inconsistency: at startup the fused-calibration-kernel predicate was %r "
+            "and at dispatch it is %r. The startup value decided whether the inherited "
+            "--interpolate-time default was downgraded to 'nearest', so the stencil now in force "
+            "(%r) was chosen on a premise that no longer holds. This means "
+            "`calibration_marginalization` is no longer `bool(opts.calibration_envelope_directory)`; "
+            "fused_calmarg_in_use's early substitution must be updated in the same commit. "
+            "Refusing rather than integrating with a stencil chosen for the wrong reason."
+            % (_fused_calmarg_would_run, use_fused_calmarg, opts._noloop_time_interp))
     if calibration_marginalization:
       extra_kwargs['calibration_realizations'] = calibration_realization_dict
       extra_kwargs['calibration_conjugate'] = bool(opts.calibration_conjugate_phase)

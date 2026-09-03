@@ -65,7 +65,8 @@ explicit stencil name and the retired "choose for me" spelling raises.
 
 ## 3. Mass ladder (fmin 30)
 
-SEOBNRv4, an IMR model. Against an exact FFT-zero-padded reference; paired, K=2000, 3 seeds; each
+SEOBNRv4, an IMR model. Against an FFT-zero-padded reference (**not** exact -- see the note in
+§9.6.1); paired, K=2000, 3 seeds; each
 mass normalised to SNR_lik = 100. srate 4096, fmax 1700, fmin 30, Lmax 2. max|ΔlnL| in nats:
 
 | M/M☉ | nearest | cubic | sinc | winner |
@@ -422,6 +423,316 @@ it); dropping the argument at either call site fails the second.
 
 A `lax.scan` variant was also measured and rejected -- it cut the temp only to 1427 MB and cost
 2.9x runtime, against the separable form's 1279 MB at 0.5x runtime.
+
+### 9.6 The batchmode default moved from `nearest` to `sinc` (2026-09-02)
+
+`bin/integrate_likelihood_extrinsic_batchmode`'s `--interpolate-time` defaulted to `False`, i.e.
+`nearest` — the stencil §3 measures at 200–443 nats and which reaches 1 nat of error by SNR 2–6.
+It now defaults to `RIFT.likelihood.time_interp_choice.TIME_INTERP_DEFAULT`, which is `'sinc'`.
+**This changes results for any ILE run that did not pass `--interpolate-time`,** which is
+essentially every pipeline-driven run: `helper_LDG_Events.py` emits the flag only when
+`--internal-ile-interpolate-time` is given. **Pass `--interpolate-time nearest` to reproduce a
+pre-2026-09-02 run.** Filed as issue #233.
+
+`JAX_INTERP_DEFAULT` is now an *alias* of the same constant rather than a second literal `"sinc"`.
+That is the structural half of #233: the two drivers previously shipped opposite defaults for the
+same physical choice, so any cross-implementation comparison run at defaults was measuring a flag,
+and — because stencil error grows as SNR² — the disagreement presented as an amplitude-dependent
+bug in one of the codes rather than as a configuration difference.
+
+**Why `sinc` and not `cubic`.** Same reasoning as §9.4, re-measured independently on a
+production-shaped grid (below): a default is chosen for its *worst* case. Over 15 (mass, fmin)
+points spanning 10–120 M☉ and fmin 20/30/100, `sinc`'s error stays inside **1.59–4.58 nats** while
+`cubic`'s ranges **0.078–27.0 nats**. `cubic` is the better choice over much of that grid and is
+one flag away; it is not the safer *default*.
+
+#### 9.6.1 Accuracy, re-measured (2026-09-02)
+
+`study_stencil_lnL_sensitivity.py --mode mass-ladder`, SEOBNRv4, H1L1V1 zero noise, aLIGO ZDHP,
+srate 4096, fmax 1700, Lmax 2, every mass normalised to SNR_lik = 100, K = 400 × 2 seeds, against
+the same FFT-zero-padded reference §3 uses. max|ΔlnL| in nats; **winner** in bold.
+
+**THE REFERENCE IS NOT "EXACT", AND THIS DOCUMENT SAID IT WAS.** Both §3 and the paragraph above
+described it as an *exact* FFT-zero-padded reference. `study_stencil_lnL_sensitivity.eval_reference`
+zero-pads by M = 32 -- that step *is* exact for a periodic band-limited signal -- and then does a
+**`cubic` lookup on the fine grid** (`REF_STENCIL = 'cubic'`). The reference therefore shares a
+method with one of the three things it is judging, which is the shape of error a reader is entitled
+to be told about. The harness's own docstring is honest about it; the summaries were not, and are
+corrected here.
+
+It does **not** move any conclusion. Audited (2026-09-03) against an independent construction whose
+reference is an exact frequency-domain sub-sample shift, `N·ifft(W·exp(2πi f u Δt))`, sharing no
+machinery with any stencil: this reference's own error is **7.5e-6 nats at M = 20 and 7.7e-7 nats at
+M = 120** (fmin 20, peak lnL normalised to 5000), i.e. six orders of magnitude below the 1.6-4.8 nats
+it is used to resolve, and consistent with the O((1/M)^4) ~ 1e-6 bound `eval_reference` claims and
+with the per-stencil reference floors recorded in §10. What has **not** been audited independently is
+the periodic-wrap / Gibbs component from zero-padding a *cut* of rho(t); that still rests on the
+harness's own 6.5e-3 nat internal bound.
+
+| fmin | M/M☉ | nearest | cubic | sinc | winner, margin |
+|---|---|---|---|---|---|
+| 20 | 10 | 145.9 | 3.507 | **1.625** | sinc 2.16× |
+| 20 | 20 | 403.2 | 4.810 | **1.739** | sinc 2.77× |
+| 20 | 35 | 176.4 | **1.974** | 2.460 | cubic 1.25× |
+| 20 | 65 | 339.8 | **0.396** | 2.174 | cubic 5.49× |
+| 20 | 120 | 211.8 | **0.078** | 2.703 | cubic 34.5× |
+| 30 | 10 | 189.3 | 5.520 | **2.306** | sinc 2.39× |
+| 30 | 20 | 142.1 | 4.306 | **1.938** | sinc 2.22× |
+| 30 | 35 | 169.9 | **1.616** | 2.175 | cubic 1.35× |
+| 30 | 65 | 190.4 | **0.510** | 1.586 | cubic 3.11× |
+| 30 | 120 | 209.9 | **0.095** | 2.924 | cubic 30.7× |
+| 100 | 10 | 652.8 | 17.13 | **4.582** | sinc 3.74× |
+| 100 | 20 | 515.1 | 27.04 | **2.387** | sinc 11.3× |
+| 100 | 35 | 620.4 | 5.940 | **2.104** | sinc 2.82× |
+| 100 | 65 | 411.1 | **1.688** | 2.726 | cubic 1.61× |
+| 100 | 120 | 203.2 | **0.183** | 2.701 | cubic 14.8× |
+
+**Does this reproduce §3–§4?** The *winner* agrees at every one of the ten points these two
+measurements share, including the two cells §4 flags as flipping with fmin: M = 35 goes cubic at
+fmin 30 and **sinc at fmin 100**, exactly as §4 records. Ratios agree closely where §4 quotes one
+(M = 20, fmin 30: §4 2.2×, here 2.22×; M = 35, fmin 100: §4 2.5×, here 2.82×; M = 20, fmin 100:
+§4 8.6×, here 11.3×).
+
+**The ABSOLUTE numbers here are systematically smaller than §3's and that is expected, not a
+disagreement.** max|ΔlnL| is an extreme-value statistic over the drawn extrinsic points, and this
+table uses K = 400 × 2 seeds against §3's K = 2000 × 3. Compare the ratios, or re-run at §3's K
+before comparing the nats.
+
+**fmin 20 is new here** — §3–§4 start at fmin 20 only in the sweep, and §3's ladder is at fmin 30.
+It matters because fmin 20 is the O4 production value, and it is the fmin at which `cubic`'s
+advantage at high mass is largest (34.5× at 120 M☉). The default is still `sinc` because the
+comparison that decides a default is between the two WORST cases, and at fmin 20 those are
+`sinc` 2.70 nats against `cubic` 4.81 nats.
+
+#### 9.6.2 Cost, measured (2026-09-02)
+
+Per `DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop` call — **that is the denominator**: an ILE
+job's wall time also carries precompute and sampler overhead, so its end-to-end ratio is bounded
+above by these and was not measured. 3 detectors, Lmax 2, SEOBNRv4, srate 4096, fmax 1700. Median
+over repeats with the first call discarded (numba/cupy compile, first-touch allocation); on GPU
+every timed call is device-synchronized.
+
+**CPU** (`citlogin6`, uncapped and quiet — load average 3.6 before, 4.6 after; IGWN CVMFS python
+3.11, `OMP_NUM_THREADS=1`). K = 2000 extrinsic points, npts = 411, median of 5:
+
+| M/M☉ | fmin | nearest (s) | cubic (s) | sinc (s) | cubic/nearest | sinc/nearest | sinc/cubic |
+|---|---|---|---|---|---|---|---|
+| 20 | 20 | 0.108 | 0.520 | 1.897 | 4.83 | 17.6 | 3.65 |
+| 20 | 100 | 0.115 | 0.668 | 1.879 | 5.79 | 16.3 | 2.81 |
+| 35 | 20 | 0.107 | 0.504 | 1.864 | 4.70 | 17.4 | 3.70 |
+| 35 | 100 | 0.108 | 0.501 | 1.858 | 4.66 | 17.3 | 3.71 |
+| 65 | 20 | 0.112 | 0.508 | 1.829 | 4.54 | 16.4 | 3.60 |
+| 65 | 100 | 0.105 | 0.496 | 1.824 | 4.74 | 17.4 | 3.67 |
+
+**GPU** (`ldas-pcdev13` device 0, RTX PRO 4000 Blackwell, **idle — one job on the device**;
+`rift_o4d_cc90-120_cuda128_20260717.sif`, cupy 14.1.1). Time-marginalized (the production
+reduction), median of 7:
+
+| K (≈ `--n-chunk`) | npts | nearest (s) | cubic (s) | sinc (s) | cubic/nearest | sinc/nearest |
+|---|---|---|---|---|---|---|
+| 2000 | 411 | 0.0137 | 0.0140 | 0.0157 | 1.02 | 1.15 |
+| 10000 | 411 | 0.0165–0.0176 | 0.0175–0.0200 | 0.0205–0.0214 | 1.01–1.21 | 1.18–1.30 |
+| 40000 | 411 | 0.0386 | 0.0432 | 0.0543 | 1.12 | 1.41 |
+| 10000 | 1229 | 0.0263 | 0.0289 | 0.0372 | 1.10 | 1.42 |
+
+**Read the small-K rows as overhead-diluted, not as the cost of the stencil.** At K = 2000 the
+call is launch-bound and every stencil looks free; the ratio grows toward ~1.4× as K and npts rise
+into and past the production chunk. The K = 10000 row is quoted as a range because it was measured
+in two separate sweeps whose results differ by ~8% — run-to-run spread on a shared node, not a
+mass or fmin dependence (the six-point mass × fmin grid at K = 10000 is flat to 1.18–1.21×, which
+is what a stencil cost should do).
+
+**Provenance of these timings: they were taken at `6565d68c`, before PR #234's
+per-extrinsic-sample log-sum-exp offset landed in the same function.** That change replaces a
+scalar `max(lnL_t)` with a `keepdims` row-wise max in the time-marginalized reduction, so the
+absolute seconds in the GPU table may shift slightly. It is stencil-independent by construction --
+the same reduction runs for `nearest`, `cubic` and `sinc` -- so the RATIOS, which are what this
+section is for, are unaffected. Not re-timed.
+
+**So the cost objection is a CPU objection.** Production ILE runs `--gpu`, where `sinc` costs
+1.15–1.42× `nearest` and `cubic` 1.01–1.21×. On CPU `sinc` costs 16.3–17.6× `nearest`, which
+reproduces the ~16× end-to-end figure reported in issue #233 and identifies that measurement as
+CPU-bound.
+
+**Two comparisons against §7 and the shipped help text, both with different denominators — do not
+read either as a contradiction.** §7's "~4.2–4.5× on CPU, ~1.6–3.0× on GPU" is `sinc` vs `cubic`
+**in the Q product alone**; measured here at the whole-likelihood level it is 2.8–3.7× on CPU
+(consistent) and 1.07–1.29× on GPU (much smaller, because the surrounding likelihood dominates).
+§7's end-to-end CPU figures (nearest 9.3 s, cubic 25.1 s, sinc 85.3 s → 2.7× and 9.2×) are at a
+fixed n_max on a different configuration; the per-call ratios here are larger. Quote whichever
+denominator matches what you are describing, and say which.
+
+#### 9.6.3 What a DEFAULT had to be prevented from doing
+
+The one-line change is not the whole change. `--interpolate-time` had three behaviours keyed on
+`!= 'nearest'` that were written when `nearest` was the default, and each would have fired on
+runs that pass no flag at all. The driver therefore distinguishes an **explicit request** from an
+**inherited default** (`opts._interp_time_from_default`, decided on `is None` before any string
+coercion, because `str(None) == 'none'` is itself a legal explicit spelling meaning `nearest`):
+
+1. **The honoured-path gate would have become a startup crash.** A stencil is only honoured under
+   `--time-marginalization --vectorized` plus one of `--gpu`/`--rotation-slow`/`--freqresponse`,
+   and anything else is *refused*. As a default that refusal turns every other configuration —
+   including a bare invocation — from working into `ValueError`, with no command line changed
+   anywhere. An explicit request is still refused, unchanged; a default falls back to `nearest`
+   and prints why.
+2. **The time-posterior export mode would have flipped.** `resolve_time_posterior_export_mode`
+   maps `auto` to `continuous` for any non-`nearest` stencil, so the same edit would have changed
+   the fair-draw time export of every `--resample-time-marginalization` run: a re-evaluation of
+   the whole likelihood on a ≥4× denser grid, a different draw algorithm, two extra output
+   columns, and `validate_time_posterior_working_set`'s `MemoryError` newly reachable. The export
+   now keys on an explicit stencil only. Asking for a stencil still opts in;
+   `--time-posterior-export continuous` still works on its own.
+3. **The fused calibration kernel would have been silently abandoned.** The fused calmarg kernels
+   implement `nearest` only (§9), and the driver's three NoLoop call sites fall back to
+   `cal_method='loop'` — and drop the `cal_distmarg` table — for any other stencil. A default must
+   not spend someone else's `--calibration-fused-kernel` that way, so it stays `nearest` there.
+   With an *explicit* stencil the behaviour is unchanged but is no longer silent: the driver now
+   prints that the fused kernel is not in use.
+
+   **Corrected 2026-09-03 (P2 review, PR #237): this guard was BROADER THAN THE THING IT
+   PROTECTS.** It keyed on `--calibration-fused-kernel` alone, but `use_fused_calmarg` (`:3261`)
+   is `calibration_marginalization and opts.calibration_fused_kernel`, and
+   `calibration_marginalization` (`:1317`) is exactly `bool(opts.calibration_envelope_directory)`
+   — so with no envelope configured **no fused kernel can run under any stencil**, and downgrading
+   there protected nothing while silently costing the accuracy the default exists to provide. That
+   failure mode is invisible by construction: a needless downgrade looks exactly like the
+   historical behaviour. Both the downgrade and the `NOT USED` notice now key on
+   `fused_calmarg_in_use`. Pinned by
+   `test_a_bare_fused_kernel_flag_no_longer_downgrades_the_default`, whose command line is the
+   fused-kernel test's minus the envelope, with the opposite required outcome.
+
+   **THE FINDING IS THE DUPLICATION, NOT ANY ONE MISSING CONJUNCT.** That correction was made
+   twice more the same day — `flag` → `flag + envelope` → `flag + envelope + path` — each round
+   adding a term the dispatch-time expression already had in effect, each round found by a
+   reviewer rather than by a test. It could not be otherwise: **an over-broad predicate downgrades
+   the inherited stencil to `nearest`, which is exactly the historical behaviour**, so nothing
+   fails, nothing logs, and no value test distinguishes it. The condition is now a single function,
+   `fused_calmarg_in_use`, called by *both* the startup stencil guard and `use_fused_calmarg`, and
+   `test_the_fused_predicate_has_ONE_definition_shared_by_BOTH_call_sites` pins the **structure**
+   (one definition, ≥2 call sites, no re-inlined copy) rather than a value, because the next
+   forgotten conjunct will produce a fourth expression that agrees with every case anyone thought
+   to write down.
+
+   A fused kernel runs only where all of these hold, and each is a **reachability fact** verified
+   against the call sites rather than a guess: calibration marginalization configured;
+   `--calibration-fused-kernel`; `--calibration-n-realizations > 1` (`factored_likelihood` returns
+   from its `n_cal == 1` branch before `cal_method` is read); not `--rotation-slow` and not
+   `--freqresponse` (both *replace* the likelihood — the non-distmarg fused call site is in the
+   `else` of their dispatch, and the two distmarg call sites are unreachable because both options
+   refuse distance marginalization at startup); and not `--calibration-dump-responsibilities`
+   (that pilot evaluates with an explicit `cal_method='loop'` and `return_cal_components=True`,
+   then returns before the production integration is built). The five negative cases are pinned
+   one per reason in `test_no_fused_configuration_that_cannot_fuse_downgrades_the_default`,
+   because they fail for different reasons and one expression has already been wrong about three
+   of them.
+
+   **What the early call cannot see, stated rather than left to be rediscovered.** At startup
+   `calibration_marginalization` does not exist yet; it is set several hundred lines later by
+   `if opts.calibration_envelope_directory:` from a `False` initial value, so the early call
+   substitutes that option — a restatement of the same condition, not an approximation. It is
+   also *checked*: the dispatch-time call passes the real variable and the driver **refuses** if
+   the two disagree, so a change to how `calibration_marginalization` is derived fails loudly
+   instead of silently re-opening the drift. Nothing else in the predicate is unavailable at
+   startup.
+
+   **Related, found while surveying the other consumers, NOT fixed here.**
+   `bin/integrate_likelihood_extrinsic_batchmode:535` and `:548` guard
+   `--rotation-slow` / `--freqresponse` on GPU against calibration marginalization with
+   `getattr(opts, 'calibration_marginalization', False)`. **There is no
+   `--calibration-marginalization` option and nothing ever assigns that attribute**, so both
+   guards are dead and have never fired; the live state is the module-level
+   `calibration_marginalization`, which is not set until much later, so the check would have to
+   read `opts.calibration_envelope_directory` — the same substitution `fused_calmarg_in_use`
+   documents. Reported on PR #237 for the separate early-rejection change, which covers exactly
+   these combinations.
+
+   **And the downgrade notice promised behaviour the driver does not have.** One shared sentence
+   served both downgrades and told everyone that naming the stencil explicitly would get them
+   *refused*. That is true of the prerequisite downgrade and **false** of this one:
+   `--calibration-fused-kernel --interpolate-time sinc` is **accepted**, the fused kernel is
+   dropped, and the driver says so. Contradictory guidance is worse than none in a
+   result-changing startup notice, so each downgrade now carries its own remedy and they are
+   printed one line per reason. `test_each_downgrade_states_the_remedy_that_actually_applies`
+   asserts each remedy against the driver's actual behaviour on the command line it recommends,
+   not just against the string.
+
+4. **The legacy scalar path would have started interpolating.** `opts._legacy_interpolate_time`
+   is derived from the *provisional* default a hundred lines before the downgrade runs, and it is
+   not a stencil: it is the plain boolean handed to
+   `FactoredLogLikelihoodTimeMarginalized(..., interpolate=...)` at `batchmode:3645`/`:4002`, which
+   is the likelihood that actually runs whenever `--vectorized` is absent. A non-`nearest`
+   provisional default makes it `True`, so an omitted flag would have switched every non-vectorized
+   run onto that path's unrelated cubic interpolation — on a path that has no sub-sample stencil at
+   all. The downgrade resets it. **This one was missed on the first pass**: the code was correct but
+   nothing pinned it, and adversarial review (2026-09-03) found it by mutation — deleting the reset
+   left the whole gate green. Now pinned by
+   `test_the_downgrade_also_takes_the_legacy_scalar_path_down_with_it`.
+
+A fifth, in the pipeline: `resolve_interpolate_time_request` collapses "flag absent" and an
+explicit off-request (`--internal-ile-interpolate-time False`) to the same `None`, and both used
+to emit nothing. While the driver default was `nearest` those were the same answer; they are now
+opposites, so `helper_LDG_Events.py` re-expresses an off-request as an explicit
+`--interpolate-time nearest`. Without that, **"off" would have meant "on"**.
+
+#### 9.6.4 The concerns, recorded because they are not resolved by the above
+
+- **High-mass, low-fmin BBH — much of the O4 catalogue — is the population this default is worse
+  for.** §9.6.1 measures `cubic` winning by 5.5× at 65 M☉ and 34.5× at 120 M☉ at fmin 20. The
+  mitigation is the same asymmetry §9.4 relied on and this table re-measures: `sinc`'s loss there
+  is bounded (2.17 and 2.70 nats at SNR 100), `cubic`'s loss in the other regime is not (27.0 nats
+  at M = 20, fmin 100). Anyone running a high-mass campaign should pass `--interpolate-time cubic`.
+- **"Bounded" means FLAT IN MASS at fixed SNR, not small — and at O4 SNRs this choice barely
+  matters.** Scaling this table's own SNR² exponent off its SNR = 100 normalisation, a loud O4
+  event at network ρ = 30 sees, at fmin 20: `nearest` 13–36 nats (this is what actually justifies
+  the change), `sinc` 0.15–0.24 nats, `cubic` 0.007–0.43 nats. **The `sinc`-vs-`cubic` tie-break is
+  sub-nat for the current catalogue, high-mass included.** The real case for this PR is therefore
+  "anything but `nearest`", plus agreement with the jax driver (#233) — not an accuracy win over
+  `cubic`. At 3G amplitudes *both* are ruinous at high mass (`sinc`'s 2.70 nats at ρ = 100 is
+  270 nats at ρ = 1000, where `cubic` would be 7.8), so the earlier phrasing "`cubic`'s loss is not
+  bounded" should be read as **"not flat across the grid"**: both are finite. The minimax ordering
+  is unchanged and still selects `sinc` (worst case 4.58 against 27.0, or 458 against 6900 scaled
+  to ρ = 1000), so the decision stands — but it stands on predictability, not on magnitude.
+- **`--time-marginalization-quadrature bandlimited` was measured against `nearest`, and its
+  prerequisites are a strict SUBSET of the stencil's honoured set.** `bandlimited` requires
+  `--time-marginalization --vectorized --gpu`, which is exactly what makes the stencil honoured —
+  so **every** `bandlimited` user who does not pass `--interpolate-time` now lands in the regime
+  below, and the driver prints nothing about it (verified 2026-09-03). That
+  module's own docstring records +0.0002 nats for `nearest` against an analytic truth where
+  Simpson is −521, but −2.29 for `sinc` where Simpson is +1.28, "and over a scan of seeds and
+  grid phases Simpson wins about half the cases". The stencil default change moves that opt-in
+  quadrature into the regime where its advantage is not established. **This pairing has not been
+  re-measured and is an open item**, not a settled result.
+
+  **The SILENCE is closed (2026-09-03, P2 review, PR #237); the MEASUREMENT is not.** The driver
+  now prints `--time-marginalization-quadrature <rule>: ADVANTAGE NOT ESTABLISHED with the
+  DEFAULT/explicitly requested Q_lm stencil <name>` whenever a band-limited quadrature runs under
+  a non-`nearest` stencil, carrying both numbers and the `--interpolate-time nearest` reproduce
+  instruction. Not a downgrade — the quadrature is not wrong, its *advantage* is unestablished —
+  and not a refusal, because either stencil is a legitimate choice. `peak-local` is included
+  because its accuracy is *defined* against `bandlimited` (max 1.9e-11 nats), so a stencil bias in
+  the reference is a stencil bias in it. Pinned at both edges: the notice must fire for
+  `bandlimited` and `peak-local` under the default, and must stay silent for `simpson` and for an
+  explicit `nearest` — a notice that always prints carries no information, and one that fired on
+  `nearest` would contradict its own advice.
+  **Still NEEDS AN OWNER: whether `bandlimited`'s advantage survives against `sinc` is unmeasured.**
+- **The measurements above are for the BASELINE likelihood only.** `--rotation-slow` and
+  `--freqresponse` also satisfy the honoured set, so they inherit the new default too. Neither goes
+  silently inert — `factored_likelihood_with_rotation` and `factored_likelihood_freqresponse` both
+  implement all three stencils and call `validate_time_interp` — but §9.6.1 did not measure them.
+- **One line in the downgrade block is belt-and-braces, not a guard.** The
+  `resolve_time_posterior_export_mode(..., 'nearest', ...)` recompute inside it can never change
+  the stored value, because the block only runs when the stencil came from the default and
+  `_ti_for_export` was already `'nearest'`. No test can distinguish it (verified by mutation,
+  2026-09-03). Recorded so it is not mistaken for coverage; annotated in the source.
+- **srate is still unswept.** Every crossover in this document is at srate 4096, which §8 names as
+  the numerator of the ratio §6 says sets the answer. If srate moves the crossover as strongly as
+  fmin did, this default should be revisited.
+- **The LISA twin was deliberately not changed.** `integrate_likelihood_extrinsic_batchmode_lisa`
+  keeps `--interpolate-time default=False` and its own `legacy_time_interpolation_enabled`
+  parsing. The two executables therefore now differ in default. That is a scope cut, not an
+  oversight: the LISA driver has a separate drift-ledger gate and its own export contract.
+
 
 ## 10. Provenance
 

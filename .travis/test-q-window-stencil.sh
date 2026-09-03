@@ -122,6 +122,7 @@ SCOPE_GLOBS=(
   "${CODEDIR}/RIFT/likelihood/test_time_interp_*.py"
   "${CODEDIR}/RIFT/likelihood/test_interpolate_time_*.py"
   "${CODEDIR}/RIFT/likelihood/test_calmarg_stencil_*.py"
+  "${CODEDIR}/RIFT/likelihood/test_batchmode_stencil_*.py"
   "${CODEDIR}/RIFT/likelihood/test_noloop_*.py"
   "${CODEDIR}/RIFT/misc/test_psd_bandwidth*.py"
   "${CODEDIR}/test/test_noloop_*.py"
@@ -209,8 +210,8 @@ fi
 #   EXPECTED_TESTS   `pytest --collect-only -q` over the registered files.
 #   EXPECTED_PASSED  the "N passed" from a full run (tests minus skips).
 # Never lower either without saying why in the commit message.
-EXPECTED_TESTS=46
-EXPECTED_PASSED=44
+EXPECTED_TESTS=69
+EXPECTED_PASSED=67
 
 # The only legitimate skips here are the two cupy legs -- one in
 # test_noloop_time_marg_row_offset.py, one in test_calmarg_running_max_row_offset.py --
