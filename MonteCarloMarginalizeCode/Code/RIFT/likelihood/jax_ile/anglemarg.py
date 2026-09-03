@@ -206,10 +206,10 @@ ANGLE_MARG_CROSSOVER_AMPLITUDE = 450.0     # A = rho^2/2; rho = 30.  NOTE the
 # The genuinely reportable fact in them: on this ladder guess_snr sits 2.30x
 # below the true rho, so the abandoned route would have sized the dense grids
 # from an amplitude too small BY A FACTOR THAT DEPENDS ON WHAT YOU DIVIDE BY --
-#     7.07x against the LIVE data-derived bound (the thing that sizes grids
-#           today, so this is the operative figure), and
-#     5.30x against the nominal rho^2/2,
-# the two differing by exactly the 1.335 above.  A reader handed "7.07x" with no
+#     7.069x against the LIVE data-derived bound (the thing that sizes grids
+#            today, so this is the operative figure), and
+#     5.296x against the nominal rho^2/2,
+# the two differing by exactly the 1.335 above.  A reader handed "7.069x" with no
 # denominator cannot tell which, and will be off by 1.335 either way: that is the
 # same unnamed-denominator defect this block exists to guard against, and I
 # shipped it here one commit before fixing it.  The docstring's stated failure

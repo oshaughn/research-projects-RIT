@@ -399,7 +399,8 @@ def _log_box_integral(C, c, h, pts_per_sigma=_PTS_PER_SIGMA, max_pts=_BOX_MAX_PT
     THAN IT GOT.  That is a truncated request, NOT a verdict that the value is wrong:
     measured on the ladder, rung 1 (rho=40.77, amplitude ~2.5e3) caps on every
     mass-carrying point and is still exact to 0.00000 nats against a converged reference,
-    while rung 3 (rho=163.08, amplitude ~2.8e4) caps and is 0.36 nats out.  The trapezoid
+    while rung 3 (rho=163.08, amplitude ~2.8e4) caps and is wrong by the amount recorded
+    on _BOX_MAX_PTS -- stated there once rather than repeated here.  The trapezoid
     on a periodic integrand converges fast enough that the derived count is conservative
     at low amplitude and binding at high.  So treat the flag as "look here", not "this is
     broken" -- it is the only signal available, because the certificate cannot see inside
@@ -408,7 +409,7 @@ def _log_box_integral(C, c, h, pts_per_sigma=_PTS_PER_SIGMA, max_pts=_BOX_MAX_PT
     the boxes and says nothing about the quadrature inside one, so a capped box is exactly
     the case where ``margin`` can read ``-inf`` (nothing omitted at all) while the value is
     still wrong.  Measured on the rho=163 production tables: at the shipped cap of 256 the
-    value sat 0.36 nats from a converged torus reference with ``area_outside == 0``.
+    value sat that far from a converged torus reference with ``area_outside == 0``.
     """
     n = []
     capped = False

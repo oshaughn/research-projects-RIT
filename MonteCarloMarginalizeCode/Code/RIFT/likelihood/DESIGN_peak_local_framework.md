@@ -713,6 +713,28 @@ axes if one is ever needed; this measurement says it is not needed to get the co
   and the corrected ~26 forty lines apart -- the superseded one being the figure the
   manuscript quotes.  Two copies of one claim with different scopes is worse than either
   copy alone, so DELETE the stale one rather than annotating it.
+
+  **Reread does not find these; COUNTING does.** A duplicated number is invisible to
+  rereading because every copy is LOCALLY CONSISTENT — each one reads correctly in its own
+  paragraph. The sweep that works:
+
+  ```bash
+  grep -oE '[0-9]+\.[0-9]{2,}(e[-+]?[0-9]+)?' FILE | sort | uniq -c | sort -rn
+  ```
+
+  Repeats within one coherent block are fine; only SEPARATED copies can drift apart. Run
+  on this module it found two more: `0.36` stated three times in separated blocks (now
+  stated once, on `_BOX_MAX_PTS`, with the others referring to it), and — worse — the same
+  number spelled BOTH `7.069` and `7.07` in one comment, which **defeats the grep itself**:
+  correcting one spelling silently leaves the other. So normalize a number to one spelling
+  before relying on this. The durable fix is structural, not editorial: state a value in
+  ONE place and have the other sites point at it, so a later editor cannot helpfully
+  restore a superseded copy.
+
+  Reported independently by two sessions on the same day, each finding their own violation
+  hours after committing the rule against it — writing the rule is what makes you look,
+  and looking is exactly what feels unnecessary right after you have corrected the
+  paragraph in front of you.
 * **Do not put a broad `except` around a certificate call, in shipped code OR in a
   harness.**  An error filter converts a bug into a result, and the result looks clean.
   Measured while sizing this note's own acceptance table: a broad `except Exception`
