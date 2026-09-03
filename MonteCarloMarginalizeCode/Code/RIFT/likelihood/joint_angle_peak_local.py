@@ -287,7 +287,18 @@ def _merge_boxes(cen, half):
         half = np.array(out_h)
         if not merged:
             break
-    return cen, half
+    # VERIFY, do not assume.  Exiting on the pass limit with boxes still overlapping
+    # would double-count the mass between them -- silently, and in the direction that
+    # inflates the answer.  The caller declines on `converged=False`.
+    converged = True
+    for i in range(cen.shape[0]):
+        for j in range(i + 1, cen.shape[0]):
+            if np.all(np.abs(_wrap(cen[j] - cen[i])) < half[i] + half[j]):
+                converged = False
+                break
+        if not converged:
+            break
+    return cen, half, converged
 
 
 def outside_bound(C, cen, half, n_grid=256):
@@ -323,6 +334,12 @@ def outside_bound(C, cen, half, n_grid=256):
     g0 = eval_g(C, ph, uu)
     gp = eval_g(C, ph, uu, (1, 0))
     gu = eval_g(C, ph, uu, (0, 1))
+    # Why this M2 is a valid remainder, written out because it is not obvious and was
+    # doubted on review.  For |d| <= r, |0.5 d^T H d| <= 0.5 r^2 [max(M20,M02) + M11]
+    # (maximise M20 cos^2 + M11|sin 2t| + M02 sin^2).  The value used here,
+    # M20 + 2 M11 + M02, dominates that for any non-negative M, so the bound holds --
+    # conservatively.  Checked as well as argued: 0 violations over 1800 (point, radius)
+    # samples on 300 random tables.
     m2 = (derivative_bound(C, (2, 0)) + 2.0 * derivative_bound(C, (1, 1))
           + derivative_bound(C, (0, 2)))
     local = g0 + np.hypot(gp, gu) * r + 0.5 * m2 * r * r
@@ -391,8 +408,11 @@ def joint_marginalize_peak_local(C, n_phi=64, n_bound_grid=256,
         half[i, 1] = W_SIGMA * np.sqrt(max(Ci[1, 1], 1e-300))
     half = np.minimum(half, np.pi)
 
-    cen, half = _merge_boxes(P, half)
+    cen, half, merged_ok = _merge_boxes(P, half)
     rep['n_regions'] = int(cen.shape[0])
+    if not merged_ok:
+        rep['decline'] = 'regions still overlap after MERGE_MAX_PASSES'
+        return -np.inf, False, rep
 
     parts, npts = [], 0
     for c, h in zip(cen, half):
@@ -420,7 +440,8 @@ def joint_marginalize_peak_local(C, n_phi=64, n_bound_grid=256,
 
 def joint_marginalize_over_distance(C_A_st, C_B_st, x_grid, log_w_grid,
                                     n_phi=64, n_bound_grid=256,
-                                    tol_nats=OUTSIDE_TOL_NATS, keep_nats=25.0):
+                                    tol_nats=OUTSIDE_TOL_NATS, keep_nats=None,
+                                    _retry=False):
     """Distance-, phi- and psi-marginalized value at ONE ``(sample, time)`` point.
 
     ``log sum_x exp(log_w_x) * (2 pi)^-2 int int exp(x A - x^2/2 B)``, i.e. the same
@@ -446,8 +467,20 @@ def joint_marginalize_over_distance(C_A_st, C_B_st, x_grid, log_w_grid,
     contribution rather than the node's actual value: ``log_w_x + max_(phi,u) g_x``,
     where the maximum is taken over the coarse bound grid and lifted by the same local
     slope/curvature remainder the outside bound uses.  Dropping a node therefore drops
-    something provably below the kept mass, not something estimated to be.
+    something provably below the kept mass, not something estimated to be -- and the
+    drop is CHECKED against ``tol_nats``, not merely reported.
+
+    ``keep_nats`` is DERIVED from the tolerance by default, not an independent constant.
+    It was one (25.0), and the two never had to agree: the dropped set's certified
+    contribution came out only 15.7 nats below the kept value against a 23 nat
+    tolerance, so the filter was quietly discarding more than the rule was allowed to
+    lose.  The requirement is ``log(n_dropped) + max(ub_dropped) - value < tol_nats``;
+    keeping everything within ``|tol_nats| + log(n_nodes)`` of the best bound satisfies
+    it with room to spare, and adapts automatically if either is changed.
     """
+    if keep_nats is None:
+        keep_nats = abs(float(tol_nats)) + np.log(max(len(x_grid), 1)) + 5.0
+    keep_nats = float(keep_nats)
     x_grid = np.asarray(x_grid, dtype=float).ravel()
     log_w_grid = np.asarray(log_w_grid, dtype=float).ravel()
 
@@ -465,7 +498,14 @@ def joint_marginalize_over_distance(C_A_st, C_B_st, x_grid, log_w_grid,
               + derivative_bound(C, (0, 2)))
         ub[i] = log_w_grid[i] + float((g0 + np.hypot(gp, gu) * r
                                        + 0.5 * m2 * r * r).max())
-    live = np.nonzero(ub > ub.max() - float(keep_nats))[0]
+    # The filter is a COST optimization and must never change the answer.  A threshold
+    # alone cannot guarantee that: `ub` is certified but LOOSE -- measured about 13 nats
+    # above the value it bounds -- so a cut that looks safe against `ub.max()` can still
+    # leave the dropped set above tolerance relative to the ACTUAL value.  That is why
+    # the check below is made against the computed value, and why failing it retries
+    # with every node rather than widening by a guess: adding nodes only raises the
+    # value and empties the dropped set, so the retry always succeeds.
+    live = np.nonzero(ub > ub.max() - keep_nats)[0]
 
     parts, ok_all, rep = [], True, {'n_nodes': int(x_grid.size),
                                     'n_nodes_live': int(live.size),
@@ -484,9 +524,31 @@ def joint_marginalize_over_distance(C_A_st, C_B_st, x_grid, log_w_grid,
         return -np.inf, False, rep
     parts = np.array(parts)
     m = parts.max()
-    # dropped nodes are bounded above by ub; add that as a certified remainder
-    dropped = np.setdiff1d(np.arange(x_grid.size), live)
     value = m + np.log(np.exp(parts - m).sum())
+
+    # THE DROPPED NODES MUST GATE THE RESULT, not merely be recorded.  An earlier
+    # revision computed `ub` for them, stored the maximum in the report, and then
+    # returned `ok` without ever comparing it to anything -- the docstring promised a
+    # provably-negligible drop while the code performed an unchecked one.  Each dropped
+    # node contributes at most `exp(ub_i)`, so the whole dropped set contributes at most
+    # `log(n_dropped) + max(ub)`, and that must sit below the tolerance relative to the
+    # kept value on the same scale.
+    dropped = np.setdiff1d(np.arange(x_grid.size), live)
     if dropped.size:
-        rep['dropped_bound'] = float(ub[dropped].max())
+        drop_bound = float(np.log(dropped.size) + ub[dropped].max())
+        rep['dropped_bound'] = drop_bound
+        rep['dropped_margin'] = drop_bound - value
+        if rep['dropped_margin'] >= tol_nats and not _retry:
+            # the cut was not justified against the real value: redo with every node.
+            rep2 = dict(rep)
+            v2, ok2, r2 = joint_marginalize_over_distance(
+                C_A_st, C_B_st, x_grid, log_w_grid, n_phi=n_phi,
+                n_bound_grid=n_bound_grid, tol_nats=tol_nats,
+                keep_nats=np.inf, _retry=True)
+            r2['prefilter_retried'] = True
+            r2['prefilter_first_margin'] = rep['dropped_margin']
+            return v2, ok2, r2
+        if rep['dropped_margin'] >= tol_nats:
+            ok_all = False
+            rep['declines'].append(('dropped-nodes', 'pre-filter bound too large'))
     return float(value), bool(ok_all), rep

@@ -155,15 +155,32 @@ def test_distance_composition_matches_a_direct_sum_over_nodes():
     assert abs(val - ref) < 1e-9, (val, ref, rep)
 
 
-def test_the_node_prefilter_drops_only_provably_negligible_nodes():
-    """`keep_nats` selects on a TRUE upper bound of each node's contribution, not on
-    an estimate of it, so tightening it must not move the answer materially."""
+def test_the_node_prefilter_cannot_change_the_answer():
+    """The filter is a COST optimization only.  A cut it cannot JUSTIFY against the
+    computed value is undone by retrying with every node, so however aggressively it is
+    asked to cut, the answer must not move.  (Tightening `keep_nats` therefore does NOT
+    imply fewer live nodes -- an unjustified cut is reverted, which is the point.)"""
     A, B = _ab_tables(seed=4, scale=2.0)
     x = np.linspace(0.3, 4.0, 40)
     logw = -0.5 * (x - 1.0) ** 2 * 3.0
     wide, _, rw = J.joint_marginalize_over_distance(A, B, x, logw, n_phi=64,
-                                                    n_bound_grid=128, keep_nats=80.0)
+                                                    n_bound_grid=128, keep_nats=np.inf)
     tight, _, rt = J.joint_marginalize_over_distance(A, B, x, logw, n_phi=64,
                                                      n_bound_grid=128, keep_nats=25.0)
-    assert rt['n_nodes_live'] <= rw['n_nodes_live']
-    assert abs(wide - tight) < 1e-8, (wide, tight, rw['n_nodes_live'], rt['n_nodes_live'])
+    assert abs(wide - tight) < 1e-8, (wide, tight, rw, rt)
+    # an aggressive cut here is not justifiable, so it must have been retried
+    assert rt.get('prefilter_retried') or rt['n_nodes_live'] == x.size, rt
+
+
+def test_an_unjustified_node_cut_is_retried_not_reported():
+    """Regression: `dropped_bound` was once computed, stored in the report, and never
+    compared to anything -- the docstring promised a provably-negligible drop while the
+    code performed an unchecked one."""
+    A, B = _ab_tables(seed=6, scale=2.5)
+    x = np.linspace(0.3, 4.0, 32)
+    logw = -0.5 * (x - 1.0) ** 2 * 3.0
+    _, ok, rep = J.joint_marginalize_over_distance(A, B, x, logw, n_phi=64,
+                                                   n_bound_grid=128, keep_nats=5.0)
+    # either the cut was justified, or it was undone -- never silently kept
+    assert ok
+    assert rep.get('prefilter_retried') or rep.get('dropped_margin', -np.inf) < J.OUTSIDE_TOL_NATS
