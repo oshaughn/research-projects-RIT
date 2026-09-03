@@ -88,6 +88,7 @@ __all__ = [
     "fused_log_likelihood_distphipsimarg_exact",
     "fused_log_likelihood_distphipsimarg_laplace",
     "choose_angle_marg_scheme",
+    "fused_log_likelihood_distphipsimarg_peaklocal",
     "gh_laplace_supported",
     "ANGLE_MARG_CROSSOVER_AMPLITUDE",
 ]
@@ -148,7 +149,15 @@ __all__ = [
 # RESULTS_phigrid_2026-09-02.md (commit 3f1f66f).
 ANGLE_MARG_DEFAULT = "exact"
 ANGLE_MARG_LEGACY = "grid"      # the spelling that reproduces pre-2026-09-02 runs
-ANGLE_MARG_CHOICES = ("grid", "exact", "laplace", "auto")
+ANGLE_MARG_CHOICES = ("grid", "exact", "laplace", "peak-local", "auto")
+
+#: 'peak-local' is deliberately NOT reachable from 'auto' yet.  It agrees with 'exact'
+#: to 1e-13 nats on the tables measured so far and is device-independent (the same answer
+#: on CPU and on an NVIDIA Blackwell GPU), but nothing has yet compared the two head to
+#: head on a production campaign, and a scheme that changes the likelihood must not
+#: become reachable by default on the strength of unit tests.  Explicit-only is what lets
+#: a pilot run both and decide; promoting it into `choose_angle_marg_scheme` is a
+#: separate change with its own evidence.
 
 # ---------------------------------------------------------------------------
 ANGLE_MARG_CROSSOVER_AMPLITUDE = 450.0     # A = rho^2/2; rho = 30.  NOTE the
@@ -1888,6 +1897,61 @@ def gh_laplace_supported(C_A, C_B, m_max, feature=None):
                                          identity_A0_over_A1=r_A0,
                                          identity_B1_over_B0=r_B1,
                                          m_max=int(m_max))
+
+
+def fused_log_likelihood_distphipsimarg_peaklocal(
+        data, ra, dec, incl, x_grid, log_w_grid,
+        interp=JAX_INTERP_DEFAULT, amp_sizing=None,
+        time_quadrature=TIME_QUAD_DEFAULT, return_lnLt=False,
+        phi_chunk=None):
+    """Distance-, phi_ref- AND psi-marginalized lnL: PEAK-LOCAL scheme.
+
+    Same contract and normalization as
+    :func:`fused_log_likelihood_distphipsimarg_exact`.  What changes is the psi axis:
+    rather than a dense grid sized ``~sqrt(A)``, the u-stationary points are obtained
+    EXACTLY -- they are the unit-circle roots of a quartic, the u-degree being pinned at
+    2 for any mode set -- the sorted points partition the circle, and each cell is
+    integrated on a window set by its own curvature.  The node count on that axis is
+    therefore INDEPENDENT of amplitude: 4 cells x 48 nodes, against the dense rule's 896
+    at amplitude 1.25e4.
+
+    THE PHI AXIS IS STILL DENSE HERE and is sized by
+    :func:`~RIFT.likelihood.jax_ile.joint_anglemarg_peaklocal.required_n_phi` from the
+    same ``amp_sizing`` the other schemes use.  Localizing phi as well exists as a numpy
+    reference; it is not in this jitted path.  See DESIGN_peak_local_framework.md.
+
+    Measured against ``..._exact``: -3.6e-05, -7.1e-15 and -9.1e-13 nats at kappa boost
+    1, 10 and 100, and the same figure on a CUDA device as on CPU.
+
+    The adaptive distance quadrature (``JAX_ILE_DISTMARG_GH``) is REFUSED rather than
+    silently ignored, for the reason the laplace branch refuses it: this kernel sums the
+    caller's distance grid directly and implements no psi-marginal node placement.
+    """
+    if _core._DISTMARG_GH_N > 0:
+        raise ValueError(
+            "JAX_ILE_DISTMARG_GH is set, but the 'peak-local' angle-marg scheme does "
+            "not implement the adaptive distance quadrature (it sums the caller's "
+            "distance grid directly).  Use --angle-marg-scheme exact, or unset "
+            "JAX_ILE_DISTMARG_GH.")
+    _require_amp_sizing(amp_sizing)
+    from . import joint_anglemarg_peaklocal as _jp
+
+    C_A, C_B, _meta = angle_coefficient_tables(data, ra, dec, incl, interp=interp)
+    n_phi = _jp.required_n_phi(amp_sizing, m_max=_data_m_max(data))
+    kw = {} if phi_chunk is None else {"phi_chunk": int(phi_chunk)}
+
+    # tables are (KP, 2KS+1, S, npts); move the batch axes to the front so one nested
+    # vmap covers both and the kernel sees a plain 2-D table per (sample, time).
+    A = jnp.moveaxis(jnp.asarray(C_A), (2, 3), (0, 1))
+    B = jnp.moveaxis(jnp.asarray(C_B), (2, 3), (0, 1))
+
+    def _one(a, b):
+        return _jp.joint_lnL_phi_dense(a, b, x_grid, log_w_grid, n_phi=n_phi, **kw)
+
+    lnL_t = jax.vmap(jax.vmap(_one))(A, B)          # (S, npts)
+    if return_lnLt:
+        return lnL_t
+    return _time_marginalize_terminal(lnL_t, data, time_quadrature)
 
 
 def choose_angle_marg_scheme(amplitude, gh_enabled=None,
