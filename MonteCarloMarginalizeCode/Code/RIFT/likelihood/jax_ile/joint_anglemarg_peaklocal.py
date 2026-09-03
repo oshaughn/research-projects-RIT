@@ -128,9 +128,28 @@ def u_stationary_roots(c1, c2):
     comp = jnp.zeros((4, 4), dtype=jnp.complex128)
     comp = comp.at[0, :].set(-co)
     comp = comp.at[1:, :-1].set(jnp.eye(3, dtype=jnp.complex128))
-    z = jnp.linalg.eigvals(comp)
+    # the stop_gradient goes on the INPUT: placing it on the output still leaves JAX
+    # needing eigvals' JVP rule to build the trace, and that is the rule that does not
+    # exist.  Cutting the tangent before the eigensolve means it is never asked for.
+    z = jnp.linalg.eigvals(jax.lax.stop_gradient(comp))
     # a vanishing quartic leading coefficient degenerates to a cubic; the extra root is
     # spurious but produces only a redundant cell, never a lost one.
+    #
+    # STOP_GRADIENT, and it is a correctness statement rather than a convenience.
+    # (i) It is REQUIRED: jnp.linalg.eigvals has no second derivative in JAX ("the
+    #     derivatives of eigenvectors are not implemented"), so without it any Hessian
+    #     through this kernel raises -- and the caller that matters, _fisher_whitening,
+    #     swallows that in an `except Exception` and silently returns None, so
+    #     --fisher-precondition would degrade to raw coordinates with the flag still
+    #     recorded as supplied.  It also removes a NaN: as c2 -> 0 the companion matrix
+    #     acquires ~1/c2 entries and the eig JVP degenerates (measured grad 0.567 at
+    #     c2=1, -1.2e14 at 1e-20, nan at 1e-30).
+    # (ii) It is CORRECT: these angles are cell BOUNDARIES of an exact partition of the
+    #     circle, so a boundary shift adds to one cell exactly what it removes from its
+    #     neighbour and the contribution cancels identically.  Where a window stops short
+    #     of its cell edge the integrand there is ~exp(-W^2/2) of the peak, so that
+    #     residue is far below the truncation already accepted.  The same argument, and
+    #     the same device, is used for the distance nodes in core._distmarg_gh_logL.
     return jnp.mod(jnp.angle(z), 2.0 * jnp.pi)
 
 
@@ -241,7 +260,12 @@ def joint_lnL_phi_dense(C_A, C_B, x_grid, log_w_grid, n_phi=256,
         vals = jnp.where(lv[:, None], vals, -jnp.inf)
         return carry, vals
 
-    _, out = lax.scan(step, None,
+    # jax.checkpoint on the scan body, as the shipped exact scheme does.  Without it a
+    # REVERSE-mode pass keeps every chunk's intermediates: the wrapper's Hessian tried to
+    # allocate 135 GB and died RESOURCE_EXHAUSTED, so --fisher-precondition would have
+    # OOMed rather than run.  Forward evaluation was never affected, which is exactly why
+    # this was invisible until a second derivative was taken.
+    _, out = lax.scan(jax.checkpoint(step), None,
                       (phis_p.reshape(n_chunk, phi_chunk),
                        live.reshape(n_chunk, phi_chunk)))
     vals = out.reshape(n_chunk * phi_chunk, -1)[:n_phi]           # (n_phi, nx)
