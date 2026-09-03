@@ -3138,12 +3138,34 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         # fold in this realization's importance log-weight
         lnL_t_c = lnL_t_c + cal_log_w[c]
 
-        m_c = xpy.max(lnL_t_c)
+        # PER-EXTRINSIC-SAMPLE offset, not the batch max.  lnL_t_c is
+        # (npts_extrinsic, npts_time) and `running_max` is the streaming log-sum-exp
+        # offset for S.  A SCALAR running_max shifts every extrinsic sample by the
+        # LOUDEST sample's peak, so any row more than ~745 nats below it underflows
+        # exp() to 0 across its whole time axis and every realization -> S row 0 ->
+        # lnL = -inf where the likelihood is finite.  With lnL~rho^2/2 at the peak and
+        # ~0 for a typical prior draw that fires above rho~40 and takes out the BULK of
+        # the prior, collapsing mcsamplerAV.  keepdims=True is load-bearing: a bare
+        # axis=-1 gives (n,), which broadcasts along the TIME axis instead -- silently,
+        # when npts_extrinsic == npts_time.  Same defect and same fix as the n_cal==1
+        # offset above, and as the return_cal_components branch a few lines up, which
+        # was already per-row.  See oshaughnessy-junior/research-projects-RIT#232.
+        m_c = xpy.max(lnL_t_c, axis=-1, keepdims=True)      # (npts_extrinsic, 1)
+        # A row that is -inf at every time (e.g. a distance-marginalization callback
+        # that rejects the whole row) has no finite offset of its own.  Offset it by 0
+        # instead: exp(-inf - 0) = 0 keeps its S row at 0 and its lnL at -inf, whereas
+        # exp(-inf - -inf) = nan would poison the running sum for that row for good.
+        # The scalar offset was shielded from this by any other finite row in the batch;
+        # a per-row offset is not, so the guard ships with the per-row offset.
+        m_c = xpy.where(xpy.isfinite(m_c), m_c, 0.0)
         if running_max is None:
             running_max = m_c
-        elif m_c > running_max:
-            S *= xpy.exp(running_max - m_c)
-            running_max = m_c
+        else:
+            # Elementwise: each row rescales S by its OWN change of offset (a no-op
+            # multiply by 1 for rows whose running max did not move).
+            new_max = xpy.maximum(running_max, m_c)
+            S *= xpy.exp(running_max - new_max)
+            running_max = new_max
         S += xpy.exp(lnL_t_c - running_max)
 
     if return_cal_components:
@@ -3160,7 +3182,10 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
 
     L = simps(S, dx=deltaT, axis=-1)
     # lnL = max + log( sum_c exp(log_w[c]) \int dt exp(lnL_t - max) ) - log(n_cal)
-    lnL = running_max + xpy.log(L) - cal_log_w_norm
+    # running_max carries the kept trailing axis; drop it so the add-back lines up with
+    # L, which simps has already reduced over that axis.  (The return_lnLt branch above
+    # keeps the axis on purpose -- there S is still (npts_extrinsic, npts_time).)
+    lnL = running_max[..., 0] + xpy.log(L) - cal_log_w_norm
 
     return lnL
 
