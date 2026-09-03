@@ -661,13 +661,43 @@ def u_profile(C, phi, n_nodes=64, window_sigma=12.0):
         sig_c = np.where(peaked, 1.0 / np.sqrt(np.where(peaked, -g2c, 1.0)), np.inf)
         lo = np.where(peaked, np.maximum(ustar - window_sigma * sig_c, lo_c), lo_c)
         hi = np.where(peaked, np.minimum(ustar + window_sigma * sig_c, mid), mid)
-        s = np.linspace(0.0, 1.0, n_nodes)
-        uu = lo[:, None] + np.maximum(hi - lo, 0.0)[:, None] * s[None, :]
+        # DERIVE THE NODE COUNT; the fallback cell is where a fixed one fails.  A
+        # windowed cell spans +-W sigma so a fixed count resolves it, but a cell that
+        # FELL BACK spans the whole cell with the same nodes -- and an earlier comment
+        # here claimed that branch "can only add nodes", which was simply false: it adds
+        # none and spreads them wider, so rejecting a peak made the resolution WORSE.
+        # Measured on a searched counterexample: 1.7e-03 nats at 64 nodes, converging
+        # only by n = 1024.
+        #
+        # The requirement is derived, not tuned: |d^2 g/du^2| <= M2u = |c1| + 4|c2|
+        # EXACTLY, so no feature of exp(g) on this axis is narrower than
+        # sigma_min = 1/sqrt(M2u), and a spacing of sigma_min/_PTS_PER_SIGMA resolves the
+        # sharpest thing the coefficients admit.
+        # SCALE, AND WHY THIS ONE.  |d2g/du2| <= M2u = |c1| + 4|c2| exactly, so nothing
+        # on this axis is narrower than sigma_min = 1/sqrt(M2u) and a spacing of
+        # sigma_min/_PTS_PER_SIGMA resolves the sharpest feature the coefficients admit.
+        # Measured on a searched counterexample, this takes the 64-vs-1024-node gap from
+        # 1.7e-03 to 2.2e-04 nats at essentially no cost.
+        #
+        # A BOUNDARY-PEAKED FALLBACK CELL IS NOT GAUSSIAN THERE -- exp(g) falls off like
+        # exp(-|g'| du), so full convergence would need a spacing set by 1/M1u, and that
+        # was measured to cost a 25x slowdown for the remaining 2.2e-04 nats.  Not taken:
+        # 2e-04 nats is orders below anything this rule is asked to decide, and the
+        # residual is reported (`n_fallback_cells`) rather than hidden.  If a future
+        # caller needs it, raise _PTS_PER_SIGMA or pass n_nodes -- both are honest knobs
+        # and both cost what they cost.
+        m2u = abs(c1) + 4.0 * abs(c2)
+        width_c = np.maximum(hi - lo, 0.0)
+        need = int(np.ceil(float(width_c.max()) * np.sqrt(max(m2u, 1e-300))
+                           * _PTS_PER_SIGMA)) + 1
+        n_use = int(np.clip(max(n_nodes, need), n_nodes, 8192))
+        s = np.linspace(0.0, 1.0, n_use)
+        uu = lo[:, None] + width_c[:, None] * s[None, :]
         pp = np.full(uu.size, p)
         g = eval_g(C, pp, uu.ravel())
         gp = eval_g(C, pp, uu.ravel(), (1, 0))
         gpp = eval_g(C, pp, uu.ravel(), (2, 0))
-        wq = np.full(n_nodes, 1.0 / (n_nodes - 1)); wq[0] *= 0.5; wq[-1] *= 0.5
+        wq = np.full(n_use, 1.0 / (n_use - 1)); wq[0] *= 0.5; wq[-1] *= 0.5
         lw = (np.log(np.maximum(hi - lo, 1e-300))[:, None] + np.log(wq)[None, :]).ravel()
         m = g.max()
         wgt = np.exp(g - m + lw)
