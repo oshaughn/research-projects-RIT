@@ -1044,6 +1044,85 @@ def cosine_sampler_limits(lo, hi, kind):
     return z_lo, z_hi
 
 
+###
+### Distance: a SAMPLING-only restriction (--limit-distance)
+###
+# The angular zoom boxes above narrow the PRIOR SUPPORT: the angle priors are never
+# renormalized to the box, so restricting one costs exactly the prior mass it should
+# and lnZ moves by an analytic amount.  --limit-distance is a DIFFERENT animal, and
+# deliberately so: it narrows only the range the sampler draws from, while the
+# distance prior keeps the normalization it has over the FULL physical [d_min,d_max].
+# The reported lnZ is then the same number the full-range run reports -- no
+# correction, directly comparable across runs and across samplers -- to the extent
+# the likelihood is negligible outside the box.  That is the whole point: the
+# distance posterior narrows as 1/rho, so at high amplitude a box tracking it costs
+# nothing in evidence and buys back the resolution the quadrature was wasting.
+#
+# THE TRAP this pair of helpers exists to close: the natural implementation narrows
+# param_limits["distance"], which the Euclidean prior lambda also reads for its own
+# normalization -- so the density silently renormalizes to the box, lnZ comes back
+# UNCHANGED at exactly the value that says the prior moved, and nothing looks wrong.
+# Hence the two ranges are separate arguments here and cannot be conflated by
+# accident: `sampling_range` is what the sampler draws from, `prior_range` is what
+# the prior integrates to one over.
+
+def distance_limit_range(value, d_min, d_max):
+    """Parse and validate a --limit-distance 'LO,HI' request (Mpc).
+
+    Returns (lo, hi) as floats with d_min <= lo < hi <= d_max.  Raises ValueError
+    on an unparseable, non-finite, empty, inverted, or out-of-prior-range request:
+    a box outside [d_min,d_max] would ask the sampler for distances the prior gives
+    zero mass, which is a configuration error, not something to clip silently.
+    """
+    try:
+        lo, hi = [float(_x) for _x in str(value).split(',')]
+    except ValueError:
+        raise ValueError("distance_limit_range: expected 'LO,HI' in Mpc, got '{}'".format(value))
+    if not numpy.isfinite(lo) or not numpy.isfinite(hi):
+        raise ValueError("distance_limit_range: non-finite distance range [{}, {}]".format(lo, hi))
+    if not (hi > lo):
+        raise ValueError("distance_limit_range: empty or inverted distance range [{}, {}] (need LO < HI, in Mpc)".format(lo, hi))
+    d_min = float(d_min)
+    d_max = float(d_max)
+    if lo < d_min or hi > d_max:
+        raise ValueError(
+            "distance_limit_range: requested sampling range [{}, {}] Mpc is not inside the prior range [{}, {}] Mpc "
+            "(--d-min/--d-max).  --limit-distance narrows the SAMPLING only; it cannot extend the prior.".format(
+                lo, hi, d_min, d_max))
+    return lo, hi
+
+
+def distance_sampler_kwargs(sampler_module, sampling_range, prior_range,
+                            d_prior='Euclidean', xpy=numpy, adaptive_sampling=False):
+    """Build the add_parameter() kwargs for the distance coordinate.
+
+    `sampler_module` supplies the backend-appropriate uniform sampler helpers
+    (mcsampler / mcsamplerGPU / mcsamplerAdaptiveVolume all export them, and the
+    GPU ones return device arrays).  `sampling_range` sets the sampler's proposal
+    and its (llim, rlim); `prior_range` sets the normalization of `prior_pdf` and
+    is the ONLY thing that determines the reported evidence scale.  Pass them equal
+    for the historical behaviour.
+    """
+    lo, hi = float(sampling_range[0]), float(sampling_range[1])
+    p_lo, p_hi = float(prior_range[0]), float(prior_range[1])
+    if d_prior == 'pseudo_cosmo':
+        import RIFT.likelihood.priors_utils as _priors_utils
+        nm = _priors_utils.dist_prior_pseudo_cosmo_eval_norm(p_lo, p_hi)
+        prior_pdf = functools.partial(_priors_utils.dist_prior_pseudo_cosmo, nm=nm, xpy=xpy)
+    elif d_prior == 'Euclidean':
+        prior_pdf = lambda x: x**2/(p_hi**3/3. - p_lo**3/3.)
+    else:
+        raise ValueError("distance_sampler_kwargs: unknown distance prior '{}'".format(d_prior))
+    return dict(
+        pdf=sampler_module.ret_uniform_samp_vector_alt(lo, hi),
+        cdf_inv=functools.partial(sampler_module.uniform_samp_cdf_inv_vector, lo, hi),
+        left_limit=lo,
+        right_limit=hi,
+        prior_pdf=prior_pdf,
+        adaptive_sampling=adaptive_sampling,
+    )
+
+
 def ret_dec_samp_vector(dec_lo, dec_hi):
     """Sampling pdf in DECLINATION for a uniform-in-sin(dec) draw truncated to
     [dec_lo, dec_hi].  Normalized to unity over that box (the samplers that use
