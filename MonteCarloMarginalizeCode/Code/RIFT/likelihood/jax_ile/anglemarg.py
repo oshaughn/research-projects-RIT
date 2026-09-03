@@ -1937,6 +1937,17 @@ def fused_log_likelihood_distphipsimarg_peaklocal(
     from . import joint_anglemarg_peaklocal as _jp
 
     C_A, C_B, _meta = angle_coefficient_tables(data, ra, dec, incl, interp=interp)
+
+    # THE RUNTIME AMPLITUDE FAILSAFE APPLIES HERE TOO, and omitting it was a review
+    # finding rather than a judgement call.  The u axis is localized and needs no
+    # sizing, but THE PHI AXIS IS STILL DENSE and is sized from `amp_sizing`, which
+    # `estimate_angle_amplitude` is explicit about being an estimator and NOT a proven
+    # bound -- so a hotter sampled sky location can under-resolve phi exactly as it can
+    # for the exact and laplace schemes.  Skipping the check would publish that
+    # silently, and would also leave the artifact without the standing best-effort
+    # label, which is worse than the undersizing itself.
+    _runtime_amp_failsafe(C_A, C_B, x_grid, amp_sizing, "peak-local")
+
     n_phi = _jp.required_n_phi(amp_sizing, m_max=_data_m_max(data))
     kw = {} if phi_chunk is None else {"phi_chunk": int(phi_chunk)}
 

@@ -1242,7 +1242,11 @@ def angle_grid_suspect_note(scheme=None):
                 "amp_sizing=%.6g scheme=%s"
                 % (st.get("worst_amp", float("nan")),
                    st.get("amp_sizing", float("nan")), st.get("scheme")))
-    if scheme in ("exact", "laplace"):
+    # 'peak-local' belongs here for the same reason it belongs in the failsafe: its phi
+    # axis is dense and amp-sized, so its artifacts are entitled to no more confidence
+    # than the other two, and a scheme missing from this list would publish output with
+    # NO standing label at all -- the silence a reader would read as verification.
+    if scheme in ("exact", "laplace", "peak-local"):
         return ("ANGLE-GRID-CHECK=BEST-EFFORT (no undersizing detected; the "
                 "detector may be dropped under jax transformation, so this is "
                 "NOT a verification -- rebuild at larger amp_sizing if it matters)")

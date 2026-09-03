@@ -259,7 +259,14 @@ def angle_marg_eval_chunk(like, chunk):
     # chunk for every likelihood that does not need it.  Two independent things
     # that happened to be the same string; the last default move on this path
     # (interp linear -> sinc) was bitten by exactly that.
-    if getattr(like, "angle_marg_scheme", "grid") not in ("exact", "laplace"):
+    # 'peak-local' is capped WITH the dense schemes, not exempted from them.  Its u
+    # axis is localized, but it still nests sample/time vmaps over the distance grid,
+    # phi chunks, four cells and 48 u nodes, so the batch multiplies the same way the
+    # dense schemes do; the laplace bytes-per-sample-point constant is used for it as
+    # the worst case, exactly as it already is for exact.  Leaving it out kept an
+    # uncapped 8000-sample batch and reopened the 36.4 GiB failure documented above.
+    if getattr(like, "angle_marg_scheme", "grid") not in ("exact", "laplace",
+                                                          "peak-local"):
         return chunk
     npts = int(getattr(getattr(like, "data", None), "npts", 0) or 0)
     if npts <= 0:

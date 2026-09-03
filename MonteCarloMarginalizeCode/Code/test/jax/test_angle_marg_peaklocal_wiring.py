@@ -115,3 +115,72 @@ def test_the_driver_CLI_accepts_it_and_rejects_a_typo():
     bad = run("peaklocal")            # the plausible misspelling
     assert "invalid choice" in bad, bad[-1500:]
     assert "peak-local" in bad, bad[-1500:]
+
+
+# --------------------------------------------------------- review findings
+
+def test_peak_local_runs_the_runtime_amplitude_failsafe():
+    """P1 from review.  The u axis is localized and needs no sizing, but THE PHI AXIS IS
+    STILL DENSE and is sized from amp_sizing, which estimate_angle_amplitude is explicit
+    about being an estimator and NOT a proven bound.  A hotter sampled sky location can
+    therefore under-resolve phi exactly as it can for exact/laplace, and skipping the
+    check would publish that silently."""
+    data = make_synth(scale=2.0, kappa_boost=50.0)
+    x = jnp.linspace(0.4, 2.0, 8)
+    lw = jnp.zeros(8)
+    AM.reset_amp_failsafe()
+    # size for a much quieter target than the data actually is: the check must notice
+    AM.fused_log_likelihood_distphipsimarg_peaklocal(
+        data, jnp.asarray(RA), jnp.asarray(DEC), jnp.asarray(INCL), x, lw,
+        interp=INTERP, amp_sizing=1.0)
+    st = AM.amp_failsafe_state(barrier=True)
+    assert st.get("tripped"), st
+    assert st.get("scheme") == "peak-local", st
+    AM.reset_amp_failsafe()
+
+
+def test_peak_local_is_capped_by_the_batch_memory_rule():
+    """P1 from review.  peak-local still nests sample/time vmaps over the distance grid,
+    phi chunks, four cells and 48 u nodes, so the batch multiplies the same way the
+    dense schemes do.  Leaving it out of the cap kept an uncapped 8000-sample batch and
+    reopened a documented 36.4 GiB failure."""
+    from RIFT.likelihood.jax_ile import samplers as S
+
+    class _Data(object):
+        npts = 614
+
+    class _Like(object):
+        data = _Data()
+        angle_marg_scheme = "peak-local"
+
+    class _Exact(_Like):
+        angle_marg_scheme = "exact"
+
+    class _NoScheme(object):
+        pass
+
+    capped = S.angle_marg_eval_chunk(_Like(), 8000)
+    assert capped < 8000
+    assert capped == S.angle_marg_eval_chunk(_Exact(), 8000)
+    # the "grid" sentinel means "runs no dense angle scheme" and must stay uncapped
+    assert S.angle_marg_eval_chunk(_NoScheme(), 8000) == 8000
+
+
+def test_peak_local_artifacts_carry_the_standing_best_effort_label():
+    """P1 from review.  A scheme missing from the label's list publishes output with NO
+    standing statement at all -- and silence is precisely what a reader six months later
+    would misread as verification.  peak-local's phi grid is amp-sized, so its artifacts
+    are entitled to no more confidence than exact's."""
+    import importlib.util
+    import os
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    path = os.path.join(root, "bin", "integrate_likelihood_extrinsic_jax")
+    spec = importlib.util.spec_from_loader("_ile_jax_driver",
+                                           importlib.machinery.SourceFileLoader(
+                                               "_ile_jax_driver", path))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    AM.reset_amp_failsafe()
+    note = mod.angle_grid_suspect_note("peak-local")
+    assert note.startswith("ANGLE-GRID-CHECK=BEST-EFFORT"), note
+    assert mod.angle_grid_suspect_note("grid") == ""
