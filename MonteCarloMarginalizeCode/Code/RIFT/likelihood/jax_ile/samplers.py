@@ -282,9 +282,14 @@ def angle_marg_eval_chunk(like, chunk):
         # constant would have applied a cap that looks protective and is not.
         from . import joint_anglemarg_peaklocal as _jp
         n_x = int(np.size(getattr(like, "x_grid", ())) or 1)
+        # Size from what the kernel WILL REQUEST, never from the constant.  Reading
+        # U_NODES_PER_CELL here made this guard silently wrong the moment anything sized
+        # the kernel from amplitude: at the production floor amp_sizing=450 that is 896
+        # nodes against a modeled 48, taking the documented live slab from 3.6 GiB to
+        # 67 GiB at chunk one.  u_nodes_in_use() is the one place both sides read.
         bytes_per = max(
             bytes_per,
-            _jp.PHI_CHUNK_DEFAULT * n_x * 4 * _jp.U_NODES_PER_CELL * 8)
+            _jp.PHI_CHUNK_DEFAULT * n_x * 4 * _jp.u_nodes_in_use() * 8)
     cap = max(1, _ANGLE_MARG_BUFFER_TARGET // (bytes_per * npts))
     return min(chunk, cap)
     # A floor larger than one defeats the memory bound for long, valid time

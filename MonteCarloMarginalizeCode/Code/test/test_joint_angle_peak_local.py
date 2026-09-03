@@ -439,28 +439,33 @@ def _torus_reference(C, n=2048):
     return m + np.log(np.sum(np.exp(g - m + W)))
 
 
-def _production_tables(scale=1.0):
-    """The ACTUAL rho=163.08 coefficients at (sky 134, t 307), noise floor zeroed.
+def _degenerate_ridge_tables(seed=113, scale=1.0):
+    """SYNTHETIC coefficients reproducing the torus-spanning collapse.  No run data.
 
-    Not a synthetic stand-in: my first attempt built A and B by hand and rescaled the
-    combined C to a target amplitude, which DECLINED, because uniform rescaling destroys
-    the balance between the linear and quadratic parts that makes g peak at all.  The
-    structure that matters here cannot be faked -- A lives only in the k=2 phi harmonic
-    and is strongly asymmetric between q=+1 and q=-1 (inclination), while B is almost
-    entirely the real (k=0, ks=0) term.  On that structure the enumerated cover collapses
-    to ONE region spanning the whole torus.  Random coefficients never reach this branch.
+    An earlier version of this fixture hard-coded coefficients read out of an actual
+    production evaluation, together with its sky/time indices.  External review was right
+    that merging it would publish run-derived scientific data in a test, so it is replaced
+    by a seeded synthetic draw.
 
-    Returns ``(C, x)``; ``x`` is the ML distance variable for these tables.
+    What could NOT be replaced is the structure, and it took a seed search to find it.  A
+    hand-built table with the same sparsity PATTERN -- A only at k=2 with q=+-1 and
+    strongly asymmetric, B almost entirely the real (k=0,ks=0) term -- does not reproduce
+    the collapse: with round numbers it gives n_regions=4, area_outside=31.7 and no error
+    at all.  The relative PHASES decide whether the enumerated regions merge into one that
+    spans the torus, so the fixture is a search over seeded phases for a draw that does.
+    Seed 113 of 200 is the strongest.  This is why random-coefficient tests never reached
+    this branch: the landscape is a near-degenerate ridge, not isolated peaks.
     """
+    rng = np.random.default_rng(seed)
     A = np.zeros((3, 3), dtype=complex)
     B = np.zeros((5, 5), dtype=complex)
-    A[2, 0] = (21.9723661 - 36.92165017j) * scale
-    A[2, 2] = (3172.888697 - 459.2980961j) * scale
-    B[0, 0] = (13.52810099 - 16.70502609j) * scale
-    B[0, 2] = 1552.747913 * scale
-    B[0, 4] = (13.52810099 + 16.70502609j) * scale
-    B[4, 2] = (-0.002567515655 + 0.002517937939j) * scale
-    B[4, 4] = (-0.08802797904 - 0.01011860597j) * scale
+    A[2, 2] = 3000.0 * scale * np.exp(1j * rng.uniform(0.0, 2 * np.pi))
+    A[2, 0] = A[2, 2] * 0.013 * np.exp(1j * rng.uniform(0.0, 2 * np.pi))
+    B[0, 2] = 1550.0 * scale
+    B[0, 0] = 21.5 * scale * np.exp(1j * rng.uniform(0.0, 2 * np.pi))
+    B[0, 4] = np.conj(B[0, 0])
+    B[4, 2] = 0.0036 * scale * np.exp(1j * rng.uniform(0.0, 2 * np.pi))
+    B[4, 4] = 0.0886 * scale * np.exp(1j * rng.uniform(0.0, 2 * np.pi))
     k, q, w, _ = J._kq(A)
     x = float(np.sum(w * np.abs(A))) / float(B[0, 2].real)
     return J.joint_table(A, B, x), x
@@ -482,8 +487,8 @@ def test_a_fully_covered_box_is_still_accurate_inside():
     denominator is worse than no ratio, and this error needs no comparison to be a defect:
     the certificate reported nothing omitted while the value was wrong.
     """
-    C, _ = _production_tables()
-    assert abs(np.sum(np.abs(C)) - 27569.1) < 1.0, "fixture drifted from the real tables"
+    C, _ = _degenerate_ridge_tables()
+    assert abs(np.sum(np.abs(C)) - 24164.9) < 1.0, "fixture drifted"
     lnZ, ok, rep = J.joint_marginalize_peak_local(C)
     assert ok, rep
     # the structure that makes this case interesting must actually be present
@@ -498,13 +503,13 @@ def test_a_capped_box_is_reported_and_never_silent():
     certificate cannot express that.  It must therefore be COUNTED -- otherwise the caller
     is handed 'nothing omitted' about a value the quadrature got wrong.
     """
-    C, _ = _production_tables()
+    C, _ = _degenerate_ridge_tables()
     _, ok, rep = J.joint_marginalize_peak_local(C)
     assert ok
     assert 'n_boxes_pts_capped' in rep
     assert rep['n_boxes_pts_capped'] >= 1, rep   # this amplitude DOES still cap at 512
     # and a much flatter case must NOT be flagged, or the counter says nothing
-    C_lo, _ = _production_tables(scale=1.0e-4)
+    C_lo, _ = _degenerate_ridge_tables(scale=1.0e-4)
     _, ok2, rep2 = J.joint_marginalize_peak_local(C_lo)
     assert ok2, rep2
     assert rep2['n_boxes_pts_capped'] == 0, rep2
