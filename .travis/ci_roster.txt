@@ -92,11 +92,15 @@ MonteCarloMarginalizeCode/Code/demo/rift/export_likelihoods/head_to_head/run_tes
 # Not done here because that job's counts are pinned and this PR does not own them.
 MonteCarloMarginalizeCode/Code/RIFT/interpolators/jax_gp/test_coordinates.py   OPTDEP  needs jax; belongs in jax-ile-check, which already installs a CPU jax stack
 MonteCarloMarginalizeCode/Code/RIFT/interpolators/jax_gp/test_interpolators.py OPTDEP  needs jax and optax; 10 collected, all 10 error on ModuleNotFoundError optax rather than skipping
-# The two cupy parity legs, test_q_window_interp_gpu.py and test_noloop_gpu_stencils.py, are
-# deliberately NOT listed: they are already named in ci.yml (in q-window-stencil-check's comment
-# explaining why they are out), so the census counts them reachable and a roster line for them
-# would be flagged stale.  That is the documented cost of a generous reachability test -- a
-# mention in a comment reads as a reference -- and it under-reports rather than over-reports.
+# The two GPU lines below become stale BY DESIGN when PR #242 lands: its
+# .travis/test-q-window-stencil.sh names both in an EXCLUDED array -- with the same reason, and
+# with its own fail-closed check that an EXCLUDED path still exists -- so the record moves there
+# and the census will start counting them reachable.  The check says so precisely ("listed as
+# GPU but IS now reachable -- delete it") and the fix is deleting these two lines.  They are
+# NOT marked PENDING: PENDING means a registration is in flight, and these are not going to be
+# registered.  Their record is simply moving to a better home.
+MonteCarloMarginalizeCode/Code/RIFT/likelihood/test_q_window_interp_gpu.py     GPU     cupy parity leg for the Q_lm stencil; run by hand on a GPU node, numbers in PR 97
+MonteCarloMarginalizeCode/Code/RIFT/likelihood/test_noloop_gpu_stencils.py     GPU     cupy parity leg for the no-loop stencils; run by hand on a GPU node, numbers in PR 97
 MonteCarloMarginalizeCode/Code/test/backends/test_backends_lowlevel.py         OPTDEP  needs lscsoft-glue and htcondor; 15 collected, 15 pass where both are installed
 MonteCarloMarginalizeCode/Code/test/hyperpipe/tests/test_hydra_integration.py  OPTDEP  needs hydra and omegaconf; skips cleanly without them
 MonteCarloMarginalizeCode/Code/test/test_gwsignal_teob_mode_sign.py            OPTDEP  needs the gwsignal TEOB route; 2 collected, 1 passes and 1 skips without EOBRun_module
