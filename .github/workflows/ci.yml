@@ -271,6 +271,17 @@ jobs:
         # Its fifth test is a cupy leg and SKIPS here -- these runners have no GPU.  It
         # was run and mutation-checked by hand on ldas-pcdev11 (cupy 14.1.1, cuda 12.8).
         #
+        # test_calmarg_running_max_row_offset is the SAME defect on the in-loop calibration
+        # marginalization (n_cal>1, cal_method='loop' -- the DEFAULT calmarg reduction; the
+        # fused kernel is opt-in behind --calibration-fused-kernel).  Its streaming
+        # log-sum-exp offset `running_max` was a SCALAR over the whole
+        # (npts_extrinsic, npts_time) block, so the same >745-nat rows came back -inf
+        # (issue #232).  numpy + lal, no GPU, ~10 s.  All six CPU guards were
+        # mutation-checked before landing: reverting to the scalar max fails 4 of 6, a bare
+        # axis=-1 (no keepdims) fails 6 of 6, keeping the axis in the add-back fails 6 of 6,
+        # and dropping the all--inf-row guard fails 1 of 6.  Its seventh test is a cupy leg
+        # and SKIPS here -- these runners have no GPU.
+        #
         # The GPU parity files (test_q_window_interp_gpu, test_noloop_gpu_stencils) are
         # deliberately NOT here -- there is no GPU on these runners, and they would report as
         # skipped.  They are run by hand on a GPU node; the numbers are in PR #97.
@@ -286,7 +297,8 @@ jobs:
             MonteCarloMarginalizeCode/Code/RIFT/likelihood/test_calmarg_stencil_gating.py \
             MonteCarloMarginalizeCode/Code/RIFT/misc/test_psd_bandwidth.py \
             MonteCarloMarginalizeCode/Code/RIFT/likelihood/test_interpolate_time_cli.py \
-            MonteCarloMarginalizeCode/Code/test/test_noloop_time_marg_row_offset.py
+            MonteCarloMarginalizeCode/Code/test/test_noloop_time_marg_row_offset.py \
+            MonteCarloMarginalizeCode/Code/test/test_calmarg_running_max_row_offset.py
 
   slowrot-check:
     needs: install
