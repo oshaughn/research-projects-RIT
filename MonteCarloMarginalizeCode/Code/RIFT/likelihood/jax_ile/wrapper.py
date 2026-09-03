@@ -780,6 +780,37 @@ class JAXDistPhiPsiMargLikelihood:
                 # ~1.  Refuse it here.  This also refuses the benign k = 0
                 # point, which costs nothing: the error is 2e-2 by half a width
                 # either side of it.  (External review of the endpoint guard.)
+                # A loud EXTERIOR entry that no other diagnostic can see is a
+                # REAL structural hole and is deliberately NOT refused here.
+                # External review (P2) is right that clip_excess is a ratio of
+                # GLOBAL maxima, that peak_clearance describes the global
+                # argmax, and that the endpoint term cannot represent an
+                # exterior entry (its bell is clamped at k <= 0, and
+                # Euler-Maclaurin is the wrong expansion for a peak outside the
+                # support).  So an interior dominant entry with a near-equal
+                # exterior secondary reads clean on all three.
+                #
+                # It is not refused because no threshold on the available
+                # quantity survives contact with the fixtures.  The obvious
+                # one -- refuse when the exterior entry's weight exp(-gap)
+                # exceeds tol, i.e. gap < ln(1/tol) = 4.6 nats -- refuses every
+                # QUIET event: measured, _synth() has amp_clipped 3.30 nats in
+                # TOTAL and an exterior gap of 3.29, and a quieter one 0.0083
+                # and 0.0082.  Their whole exponent range is smaller than the
+                # threshold, and nothing is wrong with them: at low amplitude
+                # the distance integrand is smooth and the grid over-resolves
+                # it, so the exterior entry carries weight but not error.  The
+                # honest condition is weight TIMES that entry's own resolution
+                # error, which needs a model of the latter that cannot be
+                # validated against any configuration reachable here.
+                #
+                # What IS established: on every loud fixture and every prior
+                # this code is run with, the loudest exterior entry sits 32-5273
+                # nats below the maximum, against a 15-nat contribution band --
+                # so the hole is not reachable there.  That premise is pinned by
+                # test_exterior_entries_stay_far_below_the_dominant_one, which
+                # fails if it ever stops holding, and exterior_gap is reported
+                # so the condition is visible rather than silent.
                 if amp_diag["peak_clearance"] <= 0.0:
                     raise ValueError(
                         "dist_grid='loguniform' refuses this event: the "

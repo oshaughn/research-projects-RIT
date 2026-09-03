@@ -429,8 +429,8 @@ fi
 # test_angle_marg_gh_selection.py, plus 4 answering external review on the
 # identity gate (imaginary-A0 coefficient, B1 in the conjugate slice, the gate
 # applying to an explicit laplace, the kernel guard staying trace-safe).
-# The log-uniform distance quadrature adds 33 on top of that, raising
-# 225 -> 261: 30 for the scheme itself, 3 from external re-review (the
+# The log-uniform distance quadrature adds 37 on top of the base, raising
+# it by that amount wherever the base then sat: 30 for the scheme itself, 3 from external re-review (the
 # zero-clipped-amplitude extreme of the F1 detector, the DRIVER half of the F2
 # refusal, and a guard on the sky-doubling path -- each because a mutation
 # SURVIVED the 33-mutation matrix without it), and 3 covering the truncated-
@@ -446,7 +446,7 @@ fi
 # branch was open.  This branch's own additions are unchanged at 37 (33 for the
 # scheme and its two review rounds, 3 for the truncated-endpoint precondition,
 # 1 for the per-entry endpoint coverage), so the floor moves 234 + 37 = 271.
-EXPECTED_TESTS=271
+EXPECTED_TESTS=272
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"

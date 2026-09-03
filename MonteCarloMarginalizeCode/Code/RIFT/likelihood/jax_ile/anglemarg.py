@@ -496,6 +496,7 @@ def estimate_angle_amplitude(data, x_grid, interp=JAX_INTERP_DEFAULT,
         pk_A = []
         pk_B = []
         pk_ep = []
+        pk_ext = []
         for j in range(C_A.shape[2]):      # per-sky loop bounds the transient
             A_g = (E_A @ C_A[:, :, j].reshape(-1, C_A.shape[-1])).real
             B_g = np.maximum(
@@ -565,8 +566,21 @@ def estimate_angle_amplitude(data, x_grid, interp=JAX_INTERP_DEFAULT,
                           * (_endpoint_bell(klo_e) + _endpoint_bell(khi_e)),
                           0.0)
             pk_ep.append(float(ep.max()) if ep.size else 0.0)
+            # ...and the loudest EXTERIOR entry of this sky point.  The
+            # endpoint term above cannot represent one: its bell is clamped at
+            # k <= 0, and the Euler-Maclaurin expansion is the wrong instrument
+            # for a peak outside the support anyway (that is a boundary layer,
+            # section 1a).  The exterior guards do not see it either --
+            # clip_excess is a ratio of GLOBAL maxima and peak_clearance
+            # describes the global argmax -- so an interior dominant entry with
+            # a near-equal exterior secondary reads completely clean.  Carried
+            # as its own scalar so the wrapper can band it.
+            _ext = ~((klo_e > 0.0) & (khi_e > 0.0))
+            pk_ext.append(float(val.ravel()[_ext].max()) if _ext.any()
+                          else -np.inf)
         return (np.array(amps), np.array(amps_unclipped),
-                np.array(pk_A), np.array(pk_B), np.array(pk_ep), C_A, C_B)
+                np.array(pk_A), np.array(pk_B), np.array(pk_ep),
+                np.array(pk_ext), C_A, C_B)
 
     def _draw(n, rng):
         ra = rng.uniform(0.0, 2.0 * np.pi, n)
@@ -586,11 +600,13 @@ def estimate_angle_amplitude(data, x_grid, interp=JAX_INTERP_DEFAULT,
         dec = np.concatenate([dec, g_dec.ravel()])
         incl = np.concatenate([incl, np.full(g_ra.size, i0_)])
 
-    amps, amps_u, pk_A, pk_B, pk_ep, C_A, C_B = _per_sky_amps(ra, dec, incl)
+    (amps, amps_u, pk_A, pk_B, pk_ep, pk_ext,
+     C_A, C_B) = _per_sky_amps(ra, dec, incl)
     # Concatenated across sky BATCHES, in the same idiom the two maxima use:
     # the near-boundary diagnostic is formed after the loop, so it must see the
     # re-drawn batches too or it reads a first batch that a later one displaced.
-    amps_cat, pk_A_cat, pk_B_cat, pk_ep_cat = amps, pk_A, pk_B, pk_ep
+    amps_cat, pk_A_cat, pk_B_cat = amps, pk_A, pk_B
+    pk_ep_cat, pk_ext_cat = pk_ep, pk_ext
     # split-half convergence check (mechanism 2 of the docstring): compare
     # the max WITHOUT the second half of the random draws against the max
     # with them; growth > 20% means the sky variation is under-sampled, so
@@ -610,8 +626,8 @@ def estimate_angle_amplitude(data, x_grid, interp=JAX_INTERP_DEFAULT,
         print("estimate_angle_amplitude: sky maximum still growing "
               "(%.4g -> %.4g); doubling the sample." % (amp_ref, amp_emp))
         ra2, dec2, incl2 = _draw(n_sky, rng)
-        amps2, amps_u2, pk_A2, pk_B2, pk_ep2, _, _ = _per_sky_amps(
-            ra2, dec2, incl2)
+        (amps2, amps_u2, pk_A2, pk_B2, pk_ep2, pk_ext2,
+         _, _) = _per_sky_amps(ra2, dec2, incl2)
         amp_ref = amp_emp
         amp_emp = max(amp_emp, float(amps2.max()))
         amp_u_emp = max(amp_u_emp, float(amps_u2.max()))
@@ -621,6 +637,7 @@ def estimate_angle_amplitude(data, x_grid, interp=JAX_INTERP_DEFAULT,
         pk_A_cat = np.concatenate([pk_A_cat, pk_A2])
         pk_B_cat = np.concatenate([pk_B_cat, pk_B2])
         pk_ep_cat = np.concatenate([pk_ep_cat, pk_ep2])
+        pk_ext_cat = np.concatenate([pk_ext_cat, pk_ext2])
 
     # analytic cross-check (mechanism documented above; heuristic direction)
     w = np.ones(C_A.shape[0])
@@ -671,12 +688,20 @@ def estimate_angle_amplitude(data, x_grid, interp=JAX_INTERP_DEFAULT,
         rho_pk, k_lo, k_hi = _peak_clearance(pk_A_cat, pk_B_cat, x_min, x_max)
         endpoint_scale = (float(np.where(keep, pk_ep_cat, 0.0).max())
                           if pk_ep_cat.size else 0.0)
+        _ext_best = (float(np.max(pk_ext_cat)) if pk_ext_cat.size
+                     and np.isfinite(pk_ext_cat).any() else -np.inf)
         i_dom = int(np.argmax(amps_cat)) if amps_cat.size else 0
         return margin * amp_emp, dict(
             amp_clipped=float(amp_emp),
             amp_unclipped=amp_unclipped,
             # the Euler-Maclaurin endpoint term, grid-independent half
             endpoint_scale=endpoint_scale,
+            # nats by which the loudest EXTERIOR entry sits BELOW the global
+            # maximum.  inf when there is none.  Small means a boundary-layer
+            # configuration is contributing materially while every other
+            # diagnostic here reads clean -- see the wrapper's refusal.
+            exterior_gap=(float(amp_emp - _ext_best)
+                          if np.isfinite(_ext_best) else float("inf")),
             # the globally dominant peak itself, reported so a refusal can name
             # a number the caller can act on (and so a test can BUILD a support
             # with a chosen clearance rather than hunt for one)

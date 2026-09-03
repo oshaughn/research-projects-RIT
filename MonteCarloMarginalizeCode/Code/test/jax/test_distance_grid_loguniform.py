@@ -990,6 +990,52 @@ def test_endpoint_scale_covers_subdominant_entries_not_just_the_sky_argmax():
         % diag["endpoint_scale"])
 
 
+def test_exterior_entries_stay_far_below_the_dominant_one():
+    """P2's premise, pinned because the guard rests on it rather than on a
+    refusal.
+
+    An angle configuration whose distance peak lies OUTSIDE the support
+    contributes a boundary-layer integral that the spacing contract does not
+    cover -- and no other diagnostic here can see it: clip_excess is a ratio of
+    GLOBAL maxima, peak_clearance describes the global argmax, and the endpoint
+    term clamps its bell at k <= 0.  So the structural hole is real.
+
+    It is not refused, because every threshold on the available quantity fails
+    on the fixtures: refusing when the exterior weight exp(-gap) exceeds tol
+    (gap < 4.6 nats) refuses every QUIET event, whose ENTIRE exponent range is
+    smaller than that -- _synth() spans 3.30 nats in total.  Nothing is wrong
+    with those: at low amplitude the integrand is smooth and the grid
+    over-resolves it.
+
+    What this pins is the premise the decision rests on: on the LOUD fixtures,
+    and on the priors this code is actually run with, the loudest exterior entry
+    sits far below the dominant one -- far outside the contribution band -- so
+    the hole is not reachable there.  If that ever stops holding, this test
+    fails and the decision must be revisited rather than silently inherited.
+    """
+    from RIFT.likelihood.jax_ile import anglemarg as AM
+    band = AM.ENDPOINT_GUARD_BAND
+    for scale, kb, d_min, d_max in ((3.0, 4.0, 1.0, 10000.0),
+                                    (3.0, 4.0, 1.0, 1000.0),
+                                    (10.0, 20.0, 1.0, 10000.0),
+                                    (10.0, 20.0, 1.0, 1000.0)):
+        data = _synth(scale=scale, kappa_boost=kb)
+        xg, _ = make_distance_grid(d_min, d_max, 64, "euclidean",
+                                   distMpcRef=data.distMpcRef)
+        _, diag = AM.estimate_angle_amplitude(data, xg, interp="sinc",
+                                              return_diagnostics=True)
+        assert diag["amp_clipped"] > 10.0 * band / 15.0, (
+            "this fixture is no longer loud enough for the premise to be "
+            "meaningful (amp_clipped %.4g)" % diag["amp_clipped"])
+        assert diag["exterior_gap"] > band, (
+            "the loudest EXTERIOR entry is only %.4g nats below the dominant "
+            "one on _synth(%g, %g) over [%g, %g] -- inside the %.4g-nat "
+            "contribution band.  P2's hole is now REACHABLE, and the decision "
+            "not to refuse on it (wrapper.py, beside peak_clearance) rests on "
+            "it not being.  Revisit that."
+            % (diag["exterior_gap"], scale, kb, d_min, d_max, band))
+
+
 def test_dist_grid_tol_is_forwarded_and_not_hardcoded():
     """F3/N1.  Hardcoding the module default at the call site leaves
     --distance-grid-tol silently inert while dist_grid_info keeps echoing the
