@@ -771,6 +771,15 @@ axes if one is ever needed; this measurement says it is not needed to get the co
   The third is the worst of the three, because running it converts "unchecked" into
   "checked and clean" without touching the code.  Before trusting any check, ask what
   input would make it FAIL; if you cannot name one, it is decoration.
+* **A COMPRESSION of verified facts is a NEW claim, and does not inherit their
+  verification.**  The same shape as the rule above, from the opposite end: one is a check
+  that cannot fail, this is a claim nobody checked *because its parts were checked*.
+  Measured on this work: four per-axis defaults were each independently verified from the
+  code and each held, and the one-sentence summary of them was still false — it asserted a
+  pattern that one of the four axes is a counterexample to, because the default there had
+  deliberately been moved to the accurate scheme.  Every input was true and the summary was
+  not.  Verifying the parts is the step that makes checking the whole feel unnecessary,
+  which is exactly when it is required.
 * **Do not put a broad `except` around a certificate call, in shipped code OR in a
   harness.**  An error filter converts a bug into a result, and the result looks clean.
   Measured while sizing this note's own acceptance table: a broad `except Exception`
