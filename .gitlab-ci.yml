@@ -137,6 +137,13 @@ test_run:
     # the prior and collapses mcsamplerAV.  An unlisted test never runs in this CI, so
     # the wiring ships with the fix.
     - python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_noloop_time_marg_row_offset.py
+    # Same defect on the in-loop calibration-marginalization reduction (n_cal>1,
+    # cal_method='loop', which is the DEFAULT: the fused kernel is opt-in behind
+    # --calibration-fused-kernel).  Its streaming log-sum-exp offset was a SCALAR shared
+    # by every extrinsic sample, so rows more than ~745 nats below the loudest came back
+    # lnL = -inf (issue #232).  numpy + lal, ~10 s.  An unlisted test never runs in this
+    # CI, so the wiring ships with the fix.
+    - python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_calmarg_running_max_row_offset.py
     - . .travis/test-coord.sh
     - bash .travis/test-integrate.sh
     - . .travis/test-posterior.sh

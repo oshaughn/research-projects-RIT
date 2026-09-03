@@ -22,6 +22,8 @@ import jax.numpy as jnp
 
 import RIFT.likelihood.factored_likelihood as factored_likelihood
 
+from . import core as _core
+
 import os
 
 from .core import (build_likelihood_data, fused_log_likelihood,
@@ -29,6 +31,8 @@ from .core import (build_likelihood_data, fused_log_likelihood,
                    fused_log_likelihood_distphipsimarg,
                    fused_log_likelihood_distpsimarg,
                    make_distance_grid, make_distance_grid_adaptive,
+                   make_distance_grid_loguniform, loguniform_grid_size,
+                   DIST_GRID_TOL_DEFAULT, DIST_GRID_SCHEMES,
                    estimate_distance_peak, phi_ref_grid, psi_grid,
                    phi_ref_conditional_lnL, DIST_MPC_REF, JAX_INTERP_DEFAULT,
                    TIME_QUAD_DEFAULT, _TIME_QUAD_CHOICES, default_time_guard)
@@ -539,7 +543,8 @@ class JAXDistPhiPsiMargLikelihood:
     def __init__(self, data, d_min, d_max, nphi=32, npsi=16, n_grid=256,
                  d_prior="euclidean", interp=JAX_INTERP_DEFAULT, guess_snr=None,
                  angle_marg=ANGLE_MARG_DEFAULT, *,
-                 time_quadrature=TIME_QUAD_DEFAULT):
+                 time_quadrature=TIME_QUAD_DEFAULT,
+                 dist_grid="uniform", dist_grid_tol=DIST_GRID_TOL_DEFAULT):
         self.data = data
         self.interp = interp   # the instance's stencil; sample_phi_ref defaults to it
         _validate_nonlinear_time_quadrature(
@@ -556,16 +561,79 @@ class JAXDistPhiPsiMargLikelihood:
         # (which fix the grid path's SNR-unbounded quadrature error and its
         # nphi=8 Nyquist aliasing); "auto" selects between them.  Both the
         # selection and the dense-grid sizing key on a DATA-DERIVED amplitude
-        # bound (estimate_angle_amplitude, computed below once the distance
-        # grid exists) -- never on guess_snr: an absent or underestimated SNR
+        # bound (estimate_angle_amplitude, computed below on the FULL prior
+        # distance support) -- never on guess_snr: an absent or underestimated SNR
         # must not be able to silently under-resolve the quadrature
         # (external-review defect 2).  self.angle_marg_info records what
         # actually ran -- callers must surface it in the run log.
         if angle_marg not in ANGLE_MARG_CHOICES:
             raise ValueError("angle_marg must be one of grid/exact/laplace/"
                              "auto, got %r" % (angle_marg,))
+        if dist_grid not in DIST_GRID_SCHEMES:
+            # An unrecognised value must NEVER fall through to the default: a
+            # typo that silently returns the old answer is precisely the
+            # silently-inert-flag failure this module keeps being bitten by.
+            raise ValueError("dist_grid must be one of %r, got %r"
+                             % (DIST_GRID_SCHEMES, dist_grid))
+        if dist_grid != "uniform" and _core._DISTMARG_GH_N > 0:
+            # core._distmarg_gh_logL places its own per-sample nodes and reads
+            # ONLY min(x_grid)/max(x_grid); the node positions and the whole
+            # log_w_grid are unused.  Both schemes span the same support, so the
+            # arms would be bit-identical while dist_grid_info still reported
+            # mode='loguniform'.  That is the silently-inert-flag class the
+            # other refusals here exist to prevent, and it is reachable
+            # without the user naming a dense scheme: under GH
+            # choose_angle_marg_scheme resolves to one regardless.  Which one
+            # is irrelevant to this refusal -- the per-sample quadrature reads
+            # only the support on every dense path -- so do not re-tie this
+            # comment to a particular selector outcome.
+            raise ValueError(
+                "dist_grid=%r cannot be combined with JAX_ILE_DISTMARG_GH=%d: "
+                "the per-sample Gauss-Hermite distance quadrature places its "
+                "own nodes and uses only the SUPPORT of x_grid, so this option "
+                "would be bit-identically inert while still being reported as "
+                "active.  Unset JAX_ILE_DISTMARG_GH, or use "
+                "dist_grid='uniform'." % (dist_grid, _core._DISTMARG_GH_N))
         from . import anglemarg as _anglemarg
+        # THE FULL-SUPPORT distance grid.  Two distinct roles are deliberately
+        # separated here (see DESIGN_jax_distance_quadrature.md, "decoupling"):
+        #
+        #   x_grid_full  sizes the ANGLE lattice.  It always spans the whole
+        #                prior range [d_min, d_max], whatever grid the
+        #                likelihood ends up integrating on.
+        #   self.x_grid  is what the fused kernel integrates over.
+        #
+        # estimate_angle_amplitude reads only min/max of the grid it is given
+        # (the per-angle distance maximum is closed form at
+        # clip(A/B, x_min, x_max)), so a narrowed distance grid that still
+        # contains A/B leaves the amplitude untouched -- but one that does NOT
+        # contain it silently SHRINKS the angle lattice (measured: a
+        # [0.8 d, 1.25 d] window drops the amplitude 12.6% and the lattice from
+        # (624, 320) to (592, 304)).  Sizing from the full support costs one
+        # build-time scalar and removes that coupling by construction instead
+        # of bounding it.  For dist_grid="uniform" this IS self.x_grid, so the
+        # default path is unchanged, node for node.
+        x_grid_full, log_w_full = make_distance_grid(
+            d_min, d_max, n_grid, d_prior, distMpcRef=data.distMpcRef)
         if int(os.environ.get("JAX_ILE_DISTGRID_ADAPTIVE", "0")) and guess_snr:
+            if dist_grid != "uniform":
+                raise ValueError(
+                    "JAX_ILE_DISTGRID_ADAPTIVE=1 and dist_grid=%r both ask to "
+                    "replace the distance grid.  Unset the environment "
+                    "variable (it is deprecated; see "
+                    "DESIGN_jax_distance_quadrature.md)." % (dist_grid,))
+            # DEPRECATED.  Kept reachable so nothing that sets this variable
+            # today changes behaviour, but it is measurably unsafe: its window
+            # is centred on estimate_distance_peak, a 300-step gradient ascent
+            # that is NOT converged (measured rho 39.97 against the amplitude
+            # bound's 55.07), and its trapezoid gives the last node a full
+            # rather than half interval, misplacing ~3% of the volumetric prior
+            # mass onto d_max.  Measured 9.4 nats of lnL error at SNR 40.
+            print("WARNING: JAX_ILE_DISTGRID_ADAPTIVE is DEPRECATED and "
+                  "measurably unsafe (9.4 nats at SNR 40 on the reference "
+                  "configuration).  Use dist_grid='loguniform' "
+                  "(--distance-grid-scheme loguniform); see "
+                  "DESIGN_jax_distance_quadrature.md.")
             # interp= must be forwarded: this sizes the distance grid the likelihood then
             # integrates on, so leaving it at the module default silently mixes stencils --
             # and would break the documented 'pass interp="linear" to reproduce a
@@ -577,22 +645,223 @@ class JAXDistPhiPsiMargLikelihood:
                                        sigma_d=float(sigma_d),
                                        n=int(self.x_grid.shape[0]))
         else:
-            self.x_grid, self.log_w_grid = make_distance_grid(
-                d_min, d_max, n_grid, d_prior, distMpcRef=data.distMpcRef)
+            self.x_grid, self.log_w_grid = x_grid_full, log_w_full
             self.dist_grid_info = dict(mode="uniform", n=int(self.x_grid.shape[0]))
 
-        xg, lwg, pg, sg = (self.x_grid, self.log_w_grid,
-                           self._phi_grid, self._psi_grid)
-
         if angle_marg == "grid":
+            if dist_grid != "uniform":
+                # Fail closed.  The log-uniform grid is sized from the
+                # data-derived angle amplitude, which the grid scheme neither
+                # computes nor rechecks at runtime; applying it there would be
+                # an unvalidated path, and silently ignoring the request would
+                # be a silent no-op.
+                raise ValueError(
+                    "dist_grid=%r requires angle_marg in "
+                    "('exact', 'laplace', 'auto'): the log-uniform grid is "
+                    "sized from the data-derived angle amplitude, which the "
+                    "'grid' scheme does not compute." % (dist_grid,))
             scheme, sel_info = "grid", dict(reason="default grid quadrature")
             amp_sizing = None
         else:
             # Eager, build-time (grid sizes must be static under jit): bound
             # the exponent amplitude from the coefficient tables themselves,
-            # over a sky sample and the ACTUAL distance nodes.
-            amp_data = _anglemarg.estimate_angle_amplitude(
-                data, self.x_grid, interp=interp)
+            # over a sky sample and the FULL prior distance support.
+            amp_data, amp_diag = _anglemarg.estimate_angle_amplitude(
+                data, x_grid_full, interp=interp, return_diagnostics=True)
+            # sizing is FLOORED at the crossover (never below the calibration
+            # point); the SELECTION below uses the UNfloored bound, so quiet
+            # targets stay on the exact branch.  Computed here, before the
+            # distance grid, because the distance grid is sized from this same
+            # floored number -- see the rho_max note directly below.
+            amp_sizing = max(amp_data,
+                             _anglemarg.ANGLE_MARG_CROSSOVER_AMPLITUDE)
+            if dist_grid == "loguniform":
+                # REFUSE the truncated regime.  The spacing contract assumes the
+                # integrand is a Gaussian PEAK inside the support, whose relative
+                # width 1/rho is what c(tol)/rho_max resolves.  When the
+                # maximizing distance x* = A/B lies OUTSIDE [x_min, x_max] the
+                # integrand is monotone on the support instead -- a boundary
+                # layer at one prior edge -- and a log-uniform grid is the wrong
+                # instrument for it twice over: its ABSOLUTE spacing is coarsest
+                # exactly at d_max where the layer sits, and refining it adds
+                # nodes proportionally everywhere so the layer never resolves
+                # (measured: tol 0.5 -> 1e-9 moves the error only 5.23 -> 3.92
+                # nats, while uniform 256 -> 4096 moves 2.52 -> 0.36).  Worse,
+                # the clip makes the amplitude UNDER-read, so the derived node
+                # count moves the wrong way -- in the extreme it reads 0, the
+                # crossover floor pins rho_max = 30, and the grid collapses to
+                # 145 nodes.  We refuse rather than fall back to uniform: a
+                # fallback would make this flag silently produce the other
+                # scheme's grid, and this regime is a physics signal (the
+                # posterior rails against a prior edge) that the caller should
+                # see rather than have papered over.  Neither grid is good here
+                # -- uniform 256 is itself 2.5 nats out.
+                if amp_diag["clip_excess"] > 1.0 + 1e-3:
+                    raise ValueError(
+                        "dist_grid='loguniform' refuses this event: the "
+                        "likelihood's maximizing distance lies OUTSIDE "
+                        "[d_min, d_max] = [%g, %g] Mpc, so the distance "
+                        "integrand is a boundary layer at a prior edge rather "
+                        "than an interior peak, and the log-uniform spacing "
+                        "contract does not apply (measured 1.9-4.6 nats of "
+                        "error there, worse than the uniform default).  "
+                        "Diagnostic: unclipped amplitude %.6g against clipped "
+                        "%.6g (excess %.4g).  Recourse: widen --d-max (or "
+                        "narrow --d-min) so the posterior is interior, or stay "
+                        "on --distance-grid-scheme uniform and raise "
+                        "--distance-grid-points.  See "
+                        "DESIGN_jax_distance_quadrature.md section 1a."
+                        % (float(d_min), float(d_max),
+                           amp_diag["amp_unclipped"], amp_diag["amp_clipped"],
+                           amp_diag["clip_excess"]))
+                # rho_max = sqrt(2 A): A is the max over angles of the
+                # closed-form distance maximum A_ang^2/(2 B_ang) = rho^2/2.  NOT
+                # an identity and NOT a proven bound -- A carries
+                # ANGLE_AMP_MARGIN and the max is over a SAMPLED sky, so this is
+                # sqrt(margin) * rho_sampled_max.  No NEW estimator is
+                # introduced and no peak is located, which is the point.
+                #
+                # A is amp_SIZING, not amp_data, and that choice is what makes
+                # the runtime fail-safe cover this grid.  _runtime_amp_failsafe
+                # compares the per-call amplitude against amp_sizing; sizing the
+                # distance spacing from the unfloored amp_data instead would
+                # leave a silent gap for quiet targets (amp_data < crossover),
+                # where a runtime amplitude between amp_data and amp_sizing
+                # under-resolves the distance peak WITHOUT tripping anything.
+                # Flooring costs a minimum of ~144 nodes on a quiet event, whose
+                # run is cheap anyway.
+                #
+                # ...and the sizing amplitude is the one the guard ADMITS, not
+                # the one it was built from.  _runtime_amp_failsafe stays silent
+                # until amp_call > AMP_FAILSAFE_TRIP_FACTOR * amp_sizing, so a
+                # call just under that threshold carries an interior peak at
+                # rho = sqrt(TRIP) * sqrt(2*amp_sizing) -- sqrt(2) above the
+                # spacing's design point at the shipped factor -- and is neither
+                # printed nor recorded.  Through the Gaussian alias law
+                # (2 exp(-2 pi^2/c^2), c fixed by tol) that turns the advertised
+                # tol into ~sqrt(2*tol): 0.01 becomes 0.14, unlabelled.  Sizing
+                # from TRIP*amp_sizing closes the window by construction and
+                # costs sqrt(TRIP) = 1.41x the nodes; the alternative -- a
+                # second, distance-specific runtime guard at a tighter threshold
+                # -- adds a mechanism where a constant will do, and the two
+                # would then have to be kept consistent by hand.
+                rho_max = float(np.sqrt(
+                    2.0 * _anglemarg.AMP_FAILSAFE_TRIP_FACTOR
+                    * max(float(amp_sizing), 0.0)))
+                # SECOND precondition (the first is clip_excess, above): a peak
+                # that is interior but sits ~1 width inside an edge breaks the
+                # spacing law while clip_excess reads exactly 1.  The alias law
+                # is Poisson summation on an UNTRUNCATED Gaussian; a truncated
+                # support adds an Euler-Maclaurin endpoint term proportional to
+                # the integrand's derivative there, worth ~11% at the shipped
+                # tol (c = 1.93) against a promised 1%.  Refuse rather than
+                # widen silently: the option's whole claim is the stated
+                # fractional error, and both alternatives -- shipping the error
+                # or moving the user's distance prior for them -- are worse than
+                # saying so.  Evaluated at the CONTRACT spacing c/rho_max, which
+                # is the coarsest the built grid can be (the node count ceils).
+                dlnd_contract = (_core.loguniform_spacing_for_tolerance(
+                    dist_grid_tol) / rho_max)
+                eps_end = float(_core.ENDPOINT_ERROR_MARGIN
+                                * _core.loguniform_endpoint_error(
+                                    dlnd_contract,
+                                    amp_diag["endpoint_scale"]))
+                # ...and a NON-POSITIVE clearance is not a small correction.
+                # _endpoint_bell clamps k <= 0 to zero on the argument that an
+                # endpoint sitting ON the peak is a stationary point with
+                # nothing to correct -- true, and MEASURED true at exactly
+                # k = 0 (1.2e-9).  But the clamp cannot tell k = 0 from k < 0,
+                # where the peak has left the support entirely and the error
+                # climbs steeply, so the term scores zero exactly where it is
+                # worst.  Between that and the clip_excess trip there is a
+                # window neither guard sees: measured on the reference synthetic
+                # at rho_pk 51.4, clearance -0.66 builds with a TRUE error of
+                # 0.0668 -- 6.7x the promised tol -- while clip_excess is still
+                # ~1.  Refuse it here.  This also refuses the benign k = 0
+                # point, which costs nothing: the error is 2e-2 by half a width
+                # either side of it.  (External review of the endpoint guard.)
+                # A loud EXTERIOR entry that no other diagnostic can see is a
+                # REAL structural hole and is deliberately NOT refused here.
+                # External review (P2) is right that clip_excess is a ratio of
+                # GLOBAL maxima, that peak_clearance describes the global
+                # argmax, and that the endpoint term cannot represent an
+                # exterior entry (its bell is clamped at k <= 0, and
+                # Euler-Maclaurin is the wrong expansion for a peak outside the
+                # support).  So an interior dominant entry with a near-equal
+                # exterior secondary reads clean on all three.
+                #
+                # It is not refused because no threshold on the available
+                # quantity survives contact with the fixtures.  The obvious
+                # one -- refuse when the exterior entry's weight exp(-gap)
+                # exceeds tol, i.e. gap < ln(1/tol) = 4.6 nats -- refuses every
+                # QUIET event: measured, _synth() has amp_clipped 3.30 nats in
+                # TOTAL and an exterior gap of 3.29, and a quieter one 0.0083
+                # and 0.0082.  Their whole exponent range is smaller than the
+                # threshold, and nothing is wrong with them: at low amplitude
+                # the distance integrand is smooth and the grid over-resolves
+                # it, so the exterior entry carries weight but not error.  The
+                # honest condition is weight TIMES that entry's own resolution
+                # error, which needs a model of the latter that cannot be
+                # validated against any configuration reachable here.
+                #
+                # What IS established: on every loud fixture and every prior
+                # this code is run with, the loudest exterior entry sits 32-5273
+                # nats below the maximum, against a 15-nat contribution band --
+                # so the hole is not reachable there.  That premise is pinned by
+                # test_exterior_entries_stay_far_below_the_dominant_one, which
+                # fails if it ever stops holding, and exterior_gap is reported
+                # so the condition is visible rather than silent.
+                if amp_diag["peak_clearance"] <= 0.0:
+                    raise ValueError(
+                        "dist_grid='loguniform' refuses this event: the "
+                        "dominant peak sits AT or OUTSIDE a prior edge of "
+                        "[d_min, d_max] = [%g, %g] Mpc (clearance %.4g peak "
+                        "widths, rho = %.4g), so the spacing contract's "
+                        "precondition -- a Gaussian peak INSIDE the support -- "
+                        "does not hold.  This is the same physics signal as "
+                        "the exterior refusal, caught earlier: the truncated "
+                        "endpoint term is what dominates here, and it is not "
+                        "bounded by the alias law the node count is derived "
+                        "from.  Recourse: widen the distance prior so the peak "
+                        "is interior with clearance >= %.2f widths, or stay on "
+                        "--distance-grid-scheme uniform.  See "
+                        "DESIGN_jax_distance_quadrature.md section 1a."
+                        % (float(d_min), float(d_max),
+                           amp_diag["peak_clearance"], amp_diag["peak_rho"],
+                           _core.loguniform_min_clearance(dist_grid_tol)))
+                if eps_end > float(dist_grid_tol):
+                    raise ValueError(
+                        "dist_grid='loguniform' refuses this event: the "
+                        "likelihood's maximizing distance is INTERIOR to "
+                        "[d_min, d_max] = [%g, %g] Mpc but too close to an "
+                        "edge for the spacing contract, which assumes an "
+                        "effectively untruncated Gaussian peak.  The dominant "
+                        "peak sits %.3g peak widths (1/rho, rho = %.4g) from "
+                        "the nearer edge; at this grid's spacing dlnd = %.4g "
+                        "the truncated-endpoint term alone is ~%.3g of the "
+                        "distance integral, against the requested tol=%g.  A "
+                        "peak at the sizing SNR needs >= %.2f widths.  "
+                        "Recourse: widen the distance prior so the peak has "
+                        "clearance (this is the same physics signal as the "
+                        "exterior refusal -- the posterior is close to a prior "
+                        "edge), or stay on --distance-grid-scheme uniform and "
+                        "raise --distance-grid-points.  Note that TIGHTENING "
+                        "--distance-grid-tol does not help: the endpoint term "
+                        "falls as c(tol)^2 while the budget falls faster.  See "
+                        "DESIGN_jax_distance_quadrature.md section 1a."
+                        % (float(d_min), float(d_max),
+                           amp_diag["peak_clearance"], amp_diag["peak_rho"],
+                           dlnd_contract, eps_end, float(dist_grid_tol),
+                           _core.loguniform_min_clearance(dist_grid_tol)))
+                self.x_grid, self.log_w_grid = make_distance_grid_loguniform(
+                    d_min, d_max, rho_max, d_prior,
+                    distMpcRef=data.distMpcRef, tol=dist_grid_tol)
+                self.dist_grid_info = dict(
+                    mode="loguniform", n=int(self.x_grid.shape[0]),
+                    tol=float(dist_grid_tol), rho_max=rho_max,
+                    dlnd=float(np.log(float(d_max) / float(d_min))
+                               / (int(self.x_grid.shape[0]) - 1)),
+                    n_uniform_requested=int(n_grid))
             # The A0==0/B1==0 identity that the GH psi-marginal node placement
             # is DERIVED from is measured ONCE here, on concrete tables, and
             # gates EVERY route to that placement -- not just 'auto'.  An
@@ -633,14 +902,13 @@ class JAXDistPhiPsiMargLikelihood:
                     reason="forced by caller", amplitude=amp_data,
                     crossover=_anglemarg.ANGLE_MARG_CROSSOVER_AMPLITUDE)
                 sel_info.update(gh_info)
-            # sizing is FLOORED at the crossover (never below the
-            # calibration point); the SELECTION above used the unfloored
-            # bound, so quiet targets stay on the exact branch
-            amp_sizing = max(amp_data,
-                             _anglemarg.ANGLE_MARG_CROSSOVER_AMPLITUDE)
         self.angle_marg_scheme = scheme
         self.angle_marg_info = dict(sel_info, requested=angle_marg,
                                     scheme=scheme)
+        # Bound AFTER the distance grid is final: dist_grid="loguniform"
+        # replaces it inside the block above.
+        xg, lwg, pg, sg = (self.x_grid, self.log_w_grid,
+                           self._phi_grid, self._psi_grid)
         if scheme in ("exact", "laplace"):
             self.angle_marg_info["amp_sizing"] = amp_sizing
             self.angle_marg_info["sample_grid"] = tuple(
