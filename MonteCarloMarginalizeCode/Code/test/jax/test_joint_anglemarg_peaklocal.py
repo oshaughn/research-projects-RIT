@@ -285,3 +285,56 @@ def test_phi_local_cost_is_flat_in_amplitude():
         shapes.add(C.shape)
         assert np.isfinite(float(f(C)))
     assert len(shapes) == 1, shapes      # one shape => one compilation
+
+
+def test_u_profile_rejects_a_clipped_newton_point_as_a_peak():
+    """External-review P1 on the phi-localization branch.  ``u_profile`` classified a cell
+    as peaked from ``g'' < 0`` ALONE -- the same defect ``log_inner_u_integral`` already
+    gates, reintroduced because this function was written as a fresh copy of that Newton
+    iteration rather than as a call to it.  The iteration is clamped to ``[lo_c, mid]``, so
+    it can come to rest ON a boundary carrying a large stationary residual; curvature then
+    centres a +-window on a non-stationary point and can EXCLUDE the true maximum, which
+    underestimates ``F`` while the docstring calls its derivatives exact.
+
+    Non-vacuity is the point of this test: measured over 200 random coefficient draws, the
+    gate rejects 7.3% of the cells the curvature-only test accepted, the worst at
+    ``|g_u|/M_1 = 0.512``.  A gate that rejected nothing would pass this file's other tests
+    just as happily.
+    """
+    from jax import lax
+    rng = np.random.default_rng(3)
+    total = rejected = 0
+    worst = 0.0
+    for _ in range(120):
+        sc = 10.0 ** rng.uniform(0.5, 2.0)
+        c1 = complex(sc * rng.normal(), sc * rng.normal())
+        c2 = complex(sc * rng.normal(), sc * rng.normal())
+        u = jnp.sort(JP.u_stationary_roots(c1, c2))
+        mid = 0.5 * (u + jnp.roll(u, -1) + jnp.where(jnp.arange(4) == 3, 2 * jnp.pi, 0.0))
+        lo_c = jnp.roll(mid, 1) - jnp.where(jnp.arange(4) == 0, 2 * jnp.pi, 0.0)
+
+        def _step(uc, _):
+            g1 = JP._g_u(0.0, c1, c2, uc, 1)
+            g2 = JP._g_u(0.0, c1, c2, uc, 2)
+            st = jnp.where(jnp.abs(g2) > 0, -g1 / jnp.where(jnp.abs(g2) > 0, g2, 1.0), 0.0)
+            return jnp.clip(uc + jnp.clip(st, -0.5, 0.5), lo_c, mid), None
+
+        ustar, _ = lax.scan(_step, u, None, length=8)
+        g1s = JP._g_u(0.0, c1, c2, ustar, 1)
+        g2s = JP._g_u(0.0, c1, c2, ustar, 2)
+        m1u = abs(c1) + 2.0 * abs(c2)
+        edge = 1e-9 * float(jnp.max(mid - lo_c))
+        curvature_only = np.asarray(g2s < 0.0)
+        gated = np.asarray((g2s < 0.0)
+                           & (jnp.abs(g1s) <= 1e-8 * max(m1u, 1e-300))
+                           & (ustar > lo_c + edge) & (ustar < mid - edge))
+        assert not (gated & ~curvature_only).any(), "gate must only ever REMOVE cells"
+        dropped = curvature_only & ~gated
+        total += int(curvature_only.sum())
+        rejected += int(dropped.sum())
+        if dropped.any():
+            r = np.asarray(jnp.abs(g1s)) / max(m1u, 1e-300)
+            worst = max(worst, float(r[dropped].max()))
+    assert total > 0
+    assert rejected > 0, "gate rejected nothing -- it is decoration, not a check"
+    assert worst > 1e-3, "worst rejected residual %.3g is within tolerance of stationary" % worst

@@ -456,8 +456,23 @@ def u_profile(C, phi, n_nodes=U_NODES_PER_CELL, window_sigma=U_WINDOW_SIGMA):
         return jnp.clip(uc + jnp.clip(step, -0.5, 0.5), lo_c, mid), None
 
     ustar, _ = lax.scan(_newton, u, None, length=8)
+    g1s = _g_u(a, c1, c2, ustar, 1)
     g2s = _g_u(a, c1, c2, ustar, 2)
-    peaked = g2s < 0.0
+    # A CLIPPED NEWTON POINT IS NOT A PEAK, however negative the curvature -- the SAME
+    # defect log_inner_u_integral already gates, reintroduced here because this function
+    # was written as a fresh copy of that iteration rather than as a call to it.  The
+    # iteration is clamped to [lo_c, mid], so it can come to rest ON a boundary with a
+    # large stationary residual; curvature alone then centres a +-window_sigma window on a
+    # non-stationary point, sizes sigma from the wrong curvature, and can EXCLUDE the true
+    # maximum -- underestimating F while the docstring calls the derivatives exact.
+    # Measured in the numpy twin: 18% of cells that g'' < 0 accepts fail this gate, worst
+    # at |g_u|/M_1 = 0.33.  Require stationarity against the axis's own exact derivative
+    # bound AND interior placement; a cell failing either is integrated WHOLE.
+    m1u = jnp.abs(c1) + 2.0 * jnp.abs(c2)          # exact bound on |d g / du|
+    edge = 1e-9 * jnp.max(mid - lo_c)
+    peaked = ((g2s < 0.0)
+              & (jnp.abs(g1s) <= 1e-8 * jnp.maximum(m1u, 1e-300))
+              & (ustar > lo_c + edge) & (ustar < mid - edge))
     sig = jnp.where(peaked, 1.0 / jnp.sqrt(jnp.where(peaked, -g2s, 1.0)), jnp.inf)
     lo = jnp.where(peaked, jnp.maximum(ustar - window_sigma * sig, lo_c), lo_c)
     hi = jnp.where(peaked, jnp.minimum(ustar + window_sigma * sig, mid), mid)
