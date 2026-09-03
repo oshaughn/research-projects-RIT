@@ -1,4 +1,20 @@
 #!/usr/bin/env python3
+# RIFT-CI-GATE: q-window-stencil
+# ^ registers this file with .travis/test-q-window-stencil.sh, run by ci.yml's
+#   q-window-stencil-check job.  Membership lives here, in the test file, so that
+#   adding a test needs no edit to any shared list.  Do not reword the line above.
+# ---------------------------------------------------------------------------------
+# WHY THIS FILE IS IN q-window-stencil-check.  Moved verbatim from the comment block
+# above that job's hand-maintained file list in .github/workflows/ci.yml; it lives
+# here now so that registering a test needs no edit to a shared file.
+#
+# test_interpolate_time_cli runs the three scripts as real SUBPROCESSES (~30 s). That
+# cost is the point: the unit tests exercise the resolver and the gate predicate, but
+# neither can see whether the SCRIPTS are still wired to them. Reverting a parser to
+# const=None, or deleting a script's resolver call, leaves every unit test green while
+# restoring a bare flag that silently does nothing. All three mutations were checked to
+# fail these tests before they landed.
+# ---------------------------------------------------------------------------------
 """test_interpolate_time_cli -- the stencil flag AT THE COMMAND LINE, in real subprocesses.
 
 WHY SUBPROCESSES AND NOT UNIT CALLS.  test_time_interp_choice exercises

@@ -347,6 +347,7 @@ FILES=(
   "${JAXDIR}/test_angle_marg_default.py"
   "${JAXDIR}/test_angle_marg_gh_selection.py"
   "${JAXDIR}/test_joint_anglemarg_peaklocal.py"
+  "${JAXDIR}/test_angle_marg_peaklocal_wiring.py"
   "${JAXDIR}/test_limit_distance_jax.py"
 )
 
@@ -468,7 +469,15 @@ fi
 # THREE branches have now raised this constant, so it is the single place this
 # merge is most likely to go quietly wrong; the FILES array above is the other.
 # Taken from a collection RUN, never by adding the three accountings.
-EXPECTED_TESTS=293
+#
+# The peak-local ILE WIRING branch adds 13: 11 in
+# test_angle_marg_peaklocal_wiring.py (the scheme reaches the likelihood,
+# matches exact, is absent from 'auto', joins the amp failsafe / batch-memory
+# cap / artifact label, and the CLI rejects a misspelling) and 2 in
+# test_joint_anglemarg_peaklocal.py (twice differentiable, and the gradient stays
+# finite as the quartic leading coefficient vanishes).  293 + 13 = 306, re-derived
+# by RUNNING the gate's own collection after rebasing over #221/#238/#223.
+EXPECTED_TESTS=306
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"

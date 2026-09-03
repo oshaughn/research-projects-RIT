@@ -1,3 +1,16 @@
+# RIFT-CI-GATE: q-window-stencil
+# ^ registers this file with .travis/test-q-window-stencil.sh, run by ci.yml's
+#   q-window-stencil-check job.  Membership lives here, in the test file, so that
+#   adding a test needs no edit to any shared list.  Do not reword the line above.
+# ---------------------------------------------------------------------------------
+# WHY THIS FILE IS IN q-window-stencil-check.  Moved verbatim from the comment block
+# above that job's hand-maintained file list in .github/workflows/ci.yml; it lives
+# here now so that registering a test needs no edit to a shared file.
+#
+# test_calmarg_stencil_gating runs its CPU arms without a GPU (its GPU arm is additive),
+# so it belongs here: it is what stops cubic/sinc being routed to the fused calibration
+# kernel, which is implemented for 'nearest' only.
+# ---------------------------------------------------------------------------------
 """
 test_calmarg_stencil_gating : the fused calibration-marginalization kernel is implemented
 ONLY for time_interp='nearest', and everything else must fall back to the 'loop' path.

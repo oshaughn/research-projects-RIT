@@ -1,4 +1,25 @@
 #!/usr/bin/env python
+# RIFT-CI-GATE: q-window-stencil
+# ^ registers this file with .travis/test-q-window-stencil.sh, run by ci.yml's
+#   q-window-stencil-check job.  Membership lives here, in the test file, so that
+#   adding a test needs no edit to any shared list.  Do not reword the line above.
+# ---------------------------------------------------------------------------------
+# WHY THIS FILE IS IN q-window-stencil-check.  Moved verbatim from the comment block
+# above that job's hand-maintained file list in .github/workflows/ci.yml; it lives
+# here now so that registering a test needs no edit to a shared file.
+#
+# test_noloop_time_marg_row_offset belongs in THIS job for the same reason: it is
+# another core-likelihood choice that fails silently.  The time-marginalization
+# log-sum-exp offset was taken over the WHOLE batch instead of per extrinsic
+# sample, so any sample more than ~745 nats below the loudest one underflowed to
+# lnL = -inf where the likelihood is finite -- above rho ~ 40 that is the bulk of
+# the prior, and it collapses mcsamplerAV (issue #232).  numpy + lal, no GPU,
+# ~9 s.  Three of its four CPU guards were mutation-checked to FAIL against the
+# unpatched line and against a bare axis=-1 (no keepdims); the fourth pins the
+# unshifted return_lnLt early return, which the fix deliberately does not touch.
+# Its fifth test is a cupy leg and SKIPS here -- these runners have no GPU.  It
+# was run and mutation-checked by hand on ldas-pcdev11 (cupy 14.1.1, cuda 12.8).
+# ---------------------------------------------------------------------------------
 """The time-marginalization offset in the vectorized NoLoop likelihood must be
 PER EXTRINSIC SAMPLE, not per batch.
 
