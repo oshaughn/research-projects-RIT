@@ -4,6 +4,11 @@ Companion to `time_marginalization_quadrature.py`.  The module docstring carries
 argument; this file carries the numbers behind it and the harnesses that produced them,
 so a reviewer can re-run rather than take them on assertion.
 
+Downstream: `DESIGN_time_marginalization_peak_local.md` is the follow-up rule that
+delegates to this one, and `DESIGN_peak_local_framework.md` is the planning note for
+generalizing that rule to other parameters.  This module is the BACKSTOP in that
+picture — the thing peak-local falls back to — so changes here move both rules.
+
 Harnesses (host-local, `ldas-*` NFS home): `~/tmarg_harness/`.
 `probe.py` periodic-window accuracy, `wrap.py` non-periodic window, `adv.py` edge sweep and
 mixed blocks, `detrend.py` the rejected endpoint-detrend, `cost.py` quadrature-only cost,

@@ -336,6 +336,7 @@ FILES=(
   "${JAXDIR}/test_angle_marg_gh_laplace.py"
   "${JAXDIR}/test_angle_marg_default.py"
   "${JAXDIR}/test_angle_marg_gh_selection.py"
+  "${JAXDIR}/test_joint_anglemarg_peaklocal.py"
 )
 
 # EXCLUDED: files in JAXDIR matching test_*.py that are deliberately NOT gated.  The
@@ -440,7 +441,12 @@ fi
 # Raising the floor
 # by exactly the number of tests ADDED is safe whatever the environment delta above,
 # since it preserves the margin the previous floor already had.
-EXPECTED_TESTS=262
+# The peak-local framework (#224), the joint (phi,psi) peak-local kernel (#230)
+# and the AV batch-max change (#234) then raise the BASE 225 -> 234 while this
+# branch was open.  This branch's own additions are unchanged at 37 (33 for the
+# scheme and its two review rounds, 3 for the truncated-endpoint precondition,
+# 1 for the per-entry endpoint coverage), so the floor moves 234 + 37 = 271.
+EXPECTED_TESTS=271
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"
