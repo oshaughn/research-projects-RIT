@@ -242,74 +242,37 @@ jobs:
         # SILENTLY: picking the wrong sub-sample stencil raises nothing, it just makes Q_lm(t)
         # less accurate, which surfaces only as a slightly wrong likelihood surface.
         #
-        # test_q_window_interp asserts the cubic/sinc crossover in BOTH directions on purpose.
-        # sinc winning everywhere would mean the Lanczos window had been widened until it was no
-        # longer a local stencil, so neither direction may be relaxed to make a change pass.
-        # test_time_interp_choice pins the pipeline thresholds inside the measured ambiguous
-        # band, and checks the decision uses the sampling rate the run is actually on.
+        # MEMBERSHIP IS NO LONGER A LIST HERE.  It used to be a backslash-continued pytest
+        # invocation in this block; three PRs appended to that one list in two days and it
+        # conflicted twice, and taking one side of such a conflict silently unregisters the
+        # other side's test -- which in this CI simply never runs again, green forever.
+        # A test file now joins this job by carrying, on its own line,
         #
-        # test_calmarg_stencil_gating runs its CPU arms without a GPU (its GPU arm is additive),
-        # so it belongs here: it is what stops cubic/sinc being routed to the fused calibration
-        # kernel, which is implemented for 'nearest' only.
+        #     # RIFT-CI-GATE: q-window-stencil
         #
-        # test_interpolate_time_cli runs the three scripts as real SUBPROCESSES (~30 s). That
-        # cost is the point: the unit tests exercise the resolver and the gate predicate, but
-        # neither can see whether the SCRIPTS are still wired to them. Reverting a parser to
-        # const=None, or deleting a script's resolver call, leaves every unit test green while
-        # restoring a bare flag that silently does nothing. All three mutations were checked to
-        # fail these tests before they landed.
-        #
-        # test_noloop_time_marg_row_offset belongs in THIS job for the same reason: it is
-        # another core-likelihood choice that fails silently.  The time-marginalization
-        # log-sum-exp offset was taken over the WHOLE batch instead of per extrinsic
-        # sample, so any sample more than ~745 nats below the loudest one underflowed to
-        # lnL = -inf where the likelihood is finite -- above rho ~ 40 that is the bulk of
-        # the prior, and it collapses mcsamplerAV (issue #232).  numpy + lal, no GPU,
-        # ~9 s.  Three of its four CPU guards were mutation-checked to FAIL against the
-        # unpatched line and against a bare axis=-1 (no keepdims); the fourth pins the
-        # unshifted return_lnLt early return, which the fix deliberately does not touch.
-        # Its fifth test is a cupy leg and SKIPS here -- these runners have no GPU.  It
-        # was run and mutation-checked by hand on ldas-pcdev11 (cupy 14.1.1, cuda 12.8).
-        #
-        # test_calmarg_running_max_row_offset is the SAME defect on the in-loop calibration
-        # marginalization (n_cal>1, cal_method='loop' -- the DEFAULT calmarg reduction; the
-        # fused kernel is opt-in behind --calibration-fused-kernel).  Its streaming
-        # log-sum-exp offset `running_max` was a SCALAR over the whole
-        # (npts_extrinsic, npts_time) block, so the same >745-nat rows came back -inf
-        # (issue #232).  numpy + lal, no GPU, ~10 s.  All six CPU guards were
-        # mutation-checked before landing: reverting to the scalar max fails 4 of 6, a bare
-        # axis=-1 (no keepdims) fails 6 of 6, keeping the axis in the add-back fails 6 of 6,
-        # and dropping the all--inf-row guard fails 1 of 6.  Its seventh test is a cupy leg
-        # and SKIPS here -- these runners have no GPU.
-        #
-        # test_batchmode_stencil_default covers the one thing every other file here misses: what
-        # the driver does when --interpolate-time is ABSENT. Every other stencil test passes an
-        # explicit value, so the whole suite was blind to the default -- which is what essentially
-        # every production run uses, since the pipeline emits the flag only when asked. It is also
-        # subprocess-based (~2 min), and for the same reason: the interesting part of the
-        # 2026-09-02 default change is not the new value but the four places a DEFAULT must
-        # behave differently from a REQUEST (refusal, time-posterior export mode, fused calmarg
-        # kernel, and the legacy scalar path's `interpolate` boolean), and none of those is
-        # visible from a unit call.
+        # so a PR adding a test edits only its own new file.  .travis/test-q-window-stencil.sh
+        # discovers those files, and its MANIFEST fails the job if a file matching one of the
+        # filename patterns this job owns carries no marker and is not explicitly excluded --
+        # so forgetting to register a test is RED, not silent.  It also pins a per-file
+        # collection floor of 1 (pytest exits 5, "no tests ran", on a file that collects
+        # nothing), a total collection floor, and a junit OUTCOME floor on tests that actually
+        # PASSED.  Modelled on .travis/test-slowrot.sh, which solves the same problem for
+        # slowrot-check; the per-file rationale that used to sit in this block now lives in
+        # each test file's header, beside its marker.
         #
         # The GPU parity files (test_q_window_interp_gpu, test_noloop_gpu_stencils) are
-        # deliberately NOT here -- there is no GPU on these runners, and they would report as
-        # skipped.  They are run by hand on a GPU node; the numbers are in PR #97.
+        # deliberately NOT run -- there is no GPU on these runners, and they would report as
+        # skipped.  They are run by hand on a GPU node; the numbers are in PR #97.  They are
+        # in the script's EXCLUDED list, which is what keeps the manifest from demanding them.
         #
         # test_slowrot_* files do NOT belong here.  They are gated by slowrot-check, whose
         # manifest requires every test_slowrot_*.py in this directory to be listed or
         # explicitly excluded; a copy in this job's list is invisible to that manifest and
-        # would simply run the file twice (issue #169).
-        run: |
-          python -m pytest -q \
-            MonteCarloMarginalizeCode/Code/RIFT/likelihood/test_q_window_interp.py \
-            MonteCarloMarginalizeCode/Code/RIFT/likelihood/test_time_interp_choice.py \
-            MonteCarloMarginalizeCode/Code/RIFT/likelihood/test_calmarg_stencil_gating.py \
-            MonteCarloMarginalizeCode/Code/RIFT/misc/test_psd_bandwidth.py \
-            MonteCarloMarginalizeCode/Code/RIFT/likelihood/test_interpolate_time_cli.py \
-            MonteCarloMarginalizeCode/Code/test/test_noloop_time_marg_row_offset.py \
-            MonteCarloMarginalizeCode/Code/test/test_calmarg_running_max_row_offset.py \
-            MonteCarloMarginalizeCode/Code/RIFT/likelihood/test_batchmode_stencil_default.py
+        # would simply run the file twice (issue #169).  This job's scope patterns exclude
+        # that prefix on purpose.
+        env:
+          OMP_NUM_THREADS: 1
+        run: bash .travis/test-q-window-stencil.sh
 
   slowrot-check:
     needs: install
@@ -631,7 +594,10 @@ jobs:
         # Also run by .travis/test-integrate.sh (integration-check, py3.10). Repeated here
         # because this job is the only one matrixed over BOTH numpy lanes, and these tests
         # are the kind that break on numpy API removals (e.g. np.trapz -> np.trapezoid).
-        run: python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_limit_cosine_samplers.py
+        run: |
+          python -m pytest -q \
+            MonteCarloMarginalizeCode/Code/test/test_limit_cosine_samplers.py \
+            MonteCarloMarginalizeCode/Code/test/test_limit_distance.py
       - name: Run NAL / supplementary-likelihood hook tests
         # Also run by .travis/test-integrate.sh (integration-check, py3.10). Repeated here for the
         # same reason as above: nal_io is pure numpy and has a legacy-numpy fallback for

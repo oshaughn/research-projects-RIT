@@ -233,6 +233,16 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         is the only gated check that distinguishes
 #                                         the corrected sizing.  The rest of the
 #                                         angle-marg suite is EXCLUDED; see below.
+#   test_limit_distance_jax.py        21  --limit-distance on this arm: the distance
+#                                         QUADRATURE narrows while the prior keeps its
+#                                         [d_min,d_max] normalization.  Includes the
+#                                         bitwise no-op of the default call (both the
+#                                         uniform and the adaptive grid), the ACCEPTANCE
+#                                         comparison (narrowed vs full-range lnZ at equal
+#                                         n_grid: 0.0 nats, measured 2.8e-14), and its
+#                                         power check -- the pre-change call signature on
+#                                         the same box moves lnZ by +4.16 nats.  ~110 s,
+#                                         CPU, one synthetic precompute.
 
 #   test_nuts_phimarg_injection.py  Not a pytest file at all: it runs the whole study at
 #                                 module scope and calls sys.exit() there.  WITHOUT numpyro
@@ -337,6 +347,8 @@ FILES=(
   "${JAXDIR}/test_angle_marg_default.py"
   "${JAXDIR}/test_angle_marg_gh_selection.py"
   "${JAXDIR}/test_joint_anglemarg_peaklocal.py"
+  "${JAXDIR}/test_angle_marg_peaklocal_wiring.py"
+  "${JAXDIR}/test_limit_distance_jax.py"
 )
 
 # EXCLUDED: files in JAXDIR matching test_*.py that are deliberately NOT gated.  The
@@ -441,12 +453,31 @@ fi
 # Raising the floor
 # by exactly the number of tests ADDED is safe whatever the environment delta above,
 # since it preserves the margin the previous floor already had.
-# The peak-local framework (#224), the joint (phi,psi) peak-local kernel (#230)
-# and the AV batch-max change (#234) then raise the BASE 225 -> 234 while this
-# branch was open.  This branch's own additions are unchanged at 37 (33 for the
-# scheme and its two review rounds, 3 for the truncated-endpoint precondition,
-# 1 for the per-entry endpoint coverage), so the floor moves 234 + 37 = 271.
-EXPECTED_TESTS=272
+# Raised 189 -> 217 by the 28 tests added in the angle-marg GH branch (#225); then
+# 217 -> 225 by the tests answering external review on its identity gate; then
+# 225 -> 234 while this branch was open, by the peak-local framework (#224), the
+# joint (phi,psi) peak-local kernel (#230) and the AV batch-max change (#234);
+# then 234 -> 272 by the adaptive distance quadrature branch's own 37 (#221).
+# Raised 272 -> 293 on merging --limit-distance, by that branch's 21
+# test_limit_distance_jax.py pins: 15 shipped; 4 added after an adversarial
+# mutation sweep found two INERT guards (the adaptive grid's d_prior_range branch
+# could be deleted with the suite green, worth +5.5 nats silently, and
+# sample_prior could draw over the full range while the box correction stayed);
+# and 2 more for this merge's own interactions with the #221 distance quadrature
+# -- the box must not shrink the angle lattice, and the log-uniform grid must
+# refuse a box rather than renormalize the prior onto it.
+# THREE branches have now raised this constant, so it is the single place this
+# merge is most likely to go quietly wrong; the FILES array above is the other.
+# Taken from a collection RUN, never by adding the three accountings.
+#
+# The peak-local ILE WIRING branch adds 13: 11 in
+# test_angle_marg_peaklocal_wiring.py (the scheme reaches the likelihood,
+# matches exact, is absent from 'auto', joins the amp failsafe / batch-memory
+# cap / artifact label, and the CLI rejects a misspelling) and 2 in
+# test_joint_anglemarg_peaklocal.py (twice differentiable, and the gradient stays
+# finite as the quartic leading coefficient vanishes).  293 + 13 = 306, re-derived
+# by RUNNING the gate's own collection after rebasing over #221/#238/#223.
+EXPECTED_TESTS=306
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"

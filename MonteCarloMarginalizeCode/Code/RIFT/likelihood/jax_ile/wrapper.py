@@ -332,7 +332,7 @@ class JAXDistanceMarginalizedLikelihood:
 
     def __init__(self, data, d_min, d_max, n_grid=256, d_prior="euclidean",
                  interp=JAX_INTERP_DEFAULT, phase_marginalization=False,
-                 *, time_quadrature=TIME_QUAD_DEFAULT):
+                 *, time_quadrature=TIME_QUAD_DEFAULT, d_prior_range=None):
         self.data = data
         self.interp = interp   # the instance's stencil; sample_phi_ref defaults to it
         self.phase_marginalization = phase_marginalization
@@ -340,7 +340,8 @@ class JAXDistanceMarginalizedLikelihood:
             time_quadrature, "distance marginalization")
         self.time_quadrature = time_quadrature
         self.x_grid, self.log_w_grid = make_distance_grid(
-            d_min, d_max, n_grid, d_prior, distMpcRef=data.distMpcRef)
+            d_min, d_max, n_grid, d_prior, distMpcRef=data.distMpcRef,
+            d_prior_range=d_prior_range)
 
         def _batched(ra, dec, psi, incl, phiref):
             return fused_log_likelihood_distmarg(
@@ -402,7 +403,7 @@ class JAXDistPhiMargLikelihood:
 
     def __init__(self, data, d_min, d_max, nphi=32, n_grid=256,
                  d_prior="euclidean", interp=JAX_INTERP_DEFAULT, guess_snr=None,
-                 *, time_quadrature=TIME_QUAD_DEFAULT):
+                 *, time_quadrature=TIME_QUAD_DEFAULT, d_prior_range=None):
         self.data = data
         self.interp = interp   # the instance's stencil; sample_phi_ref defaults to it
         _validate_nonlinear_time_quadrature(
@@ -423,13 +424,15 @@ class JAXDistPhiMargLikelihood:
             # pre-2026-08-26 run' recipe, which is the whole mitigation for that default move.
             d_peak, sigma_d = estimate_distance_peak(data, guess_snr, interp=interp)
             self.x_grid, self.log_w_grid = make_distance_grid_adaptive(
-                d_min, d_max, d_peak, sigma_d, d_prior, distMpcRef=data.distMpcRef)
+                d_min, d_max, d_peak, sigma_d, d_prior, distMpcRef=data.distMpcRef,
+                d_prior_range=d_prior_range)
             self.dist_grid_info = dict(mode="adaptive", d_peak=float(d_peak),
                                        sigma_d=float(sigma_d),
                                        n=int(self.x_grid.shape[0]))
         else:
             self.x_grid, self.log_w_grid = make_distance_grid(
-                d_min, d_max, n_grid, d_prior, distMpcRef=data.distMpcRef)
+                d_min, d_max, n_grid, d_prior, distMpcRef=data.distMpcRef,
+                d_prior_range=d_prior_range)
             self.dist_grid_info = dict(mode="uniform", n=int(self.x_grid.shape[0]))
 
         xg, lwg, pg = self.x_grid, self.log_w_grid, self._phi_grid
@@ -543,7 +546,7 @@ class JAXDistPhiPsiMargLikelihood:
     def __init__(self, data, d_min, d_max, nphi=32, npsi=16, n_grid=256,
                  d_prior="euclidean", interp=JAX_INTERP_DEFAULT, guess_snr=None,
                  angle_marg=ANGLE_MARG_DEFAULT, *,
-                 time_quadrature=TIME_QUAD_DEFAULT,
+                 time_quadrature=TIME_QUAD_DEFAULT, d_prior_range=None,
                  dist_grid="uniform", dist_grid_tol=DIST_GRID_TOL_DEFAULT):
         self.data = data
         self.interp = interp   # the instance's stencil; sample_phi_ref defaults to it
@@ -568,7 +571,7 @@ class JAXDistPhiPsiMargLikelihood:
         # actually ran -- callers must surface it in the run log.
         if angle_marg not in ANGLE_MARG_CHOICES:
             raise ValueError("angle_marg must be one of grid/exact/laplace/"
-                             "auto, got %r" % (angle_marg,))
+                             "peak-local/auto, got %r" % (angle_marg,))
         if dist_grid not in DIST_GRID_SCHEMES:
             # An unrecognised value must NEVER fall through to the default: a
             # typo that silently returns the old answer is precisely the
@@ -594,6 +597,19 @@ class JAXDistPhiPsiMargLikelihood:
                 "would be bit-identically inert while still being reported as "
                 "active.  Unset JAX_ILE_DISTMARG_GH, or use "
                 "dist_grid='uniform'." % (dist_grid, _core._DISTMARG_GH_N))
+        if dist_grid != "uniform" and d_prior_range is not None and (
+                float(d_prior_range[0]) != float(d_min)
+                or float(d_prior_range[1]) != float(d_max)):
+            raise ValueError(
+                "dist_grid=%r cannot be combined with a narrowed distance range "
+                "(--limit-distance): make_distance_grid_loguniform takes no "
+                "d_prior_range, so it would normalize the distance prior onto the "
+                "BOX -- the exact renormalization --limit-distance exists to "
+                "prevent, and worth several nats of evidence silently.  The two "
+                "features address the same problem from opposite sides (narrow the "
+                "range vs resolve the peak anywhere in it); composing them needs a "
+                "prior-range split in the log-uniform builder and its own "
+                "validation.  Use one or the other." % (dist_grid,))
         from . import anglemarg as _anglemarg
         # THE FULL-SUPPORT distance grid.  Two distinct roles are deliberately
         # separated here (see DESIGN_jax_distance_quadrature.md, "decoupling"):
@@ -613,8 +629,16 @@ class JAXDistPhiPsiMargLikelihood:
         # build-time scalar and removes that coupling by construction instead
         # of bounding it.  For dist_grid="uniform" this IS self.x_grid, so the
         # default path is unchanged, node for node.
+        # --limit-distance is EXACTLY the "narrowed distance grid" the note above
+        # measures (12.6% amplitude, (624,320) -> (592,304) lattice).  d_min/d_max
+        # are then the SAMPLED box, so the full-support grid is built over
+        # d_prior_range instead -- which is what "the whole prior range" means once
+        # the two roles are split.  With no box the two are equal and this is the
+        # same call, node for node.
+        _full_lo, _full_hi = ((d_min, d_max) if d_prior_range is None
+                              else (d_prior_range[0], d_prior_range[1]))
         x_grid_full, log_w_full = make_distance_grid(
-            d_min, d_max, n_grid, d_prior, distMpcRef=data.distMpcRef)
+            _full_lo, _full_hi, n_grid, d_prior, distMpcRef=data.distMpcRef)
         if int(os.environ.get("JAX_ILE_DISTGRID_ADAPTIVE", "0")) and guess_snr:
             if dist_grid != "uniform":
                 raise ValueError(
@@ -640,12 +664,21 @@ class JAXDistPhiPsiMargLikelihood:
             # pre-2026-08-26 run' recipe, which is the whole mitigation for that default move.
             d_peak, sigma_d = estimate_distance_peak(data, guess_snr, interp=interp)
             self.x_grid, self.log_w_grid = make_distance_grid_adaptive(
-                d_min, d_max, d_peak, sigma_d, d_prior, distMpcRef=data.distMpcRef)
+                d_min, d_max, d_peak, sigma_d, d_prior, distMpcRef=data.distMpcRef,
+                d_prior_range=d_prior_range)
             self.dist_grid_info = dict(mode="adaptive", d_peak=float(d_peak),
                                        sigma_d=float(sigma_d),
                                        n=int(self.x_grid.shape[0]))
         else:
-            self.x_grid, self.log_w_grid = x_grid_full, log_w_full
+            if d_prior_range is None:
+                # Default path, unchanged node for node: the integration grid IS
+                # the full-support grid.
+                self.x_grid, self.log_w_grid = x_grid_full, log_w_full
+            else:
+                # --limit-distance: integrate on the box, normalize on the prior.
+                self.x_grid, self.log_w_grid = make_distance_grid(
+                    d_min, d_max, n_grid, d_prior, distMpcRef=data.distMpcRef,
+                    d_prior_range=d_prior_range)
             self.dist_grid_info = dict(mode="uniform", n=int(self.x_grid.shape[0]))
 
         if angle_marg == "grid":
@@ -909,7 +942,7 @@ class JAXDistPhiPsiMargLikelihood:
         # replaces it inside the block above.
         xg, lwg, pg, sg = (self.x_grid, self.log_w_grid,
                            self._phi_grid, self._psi_grid)
-        if scheme in ("exact", "laplace"):
+        if scheme in ("exact", "laplace", "peak-local"):
             self.angle_marg_info["amp_sizing"] = amp_sizing
             self.angle_marg_info["sample_grid"] = tuple(
                 _anglemarg.angle_sample_grid_sizes(
@@ -923,6 +956,15 @@ class JAXDistPhiPsiMargLikelihood:
         elif scheme == "exact":
             def _fused(data_, ra, dec, incl, return_lnLt=False):
                 return _anglemarg.fused_log_likelihood_distphipsimarg_exact(
+                    data_, ra, dec, incl, xg, lwg, interp=interp,
+                    amp_sizing=amp_sizing, time_quadrature=time_quadrature,
+                    return_lnLt=return_lnLt)
+        elif scheme == "peak-local":
+            # psi localized on the exact cell partition, phi still dense.  Reachable
+            # only when asked for by name -- see the note on ANGLE_MARG_CHOICES for why
+            # it is not in 'auto' until a head-to-head pilot has run.
+            def _fused(data_, ra, dec, incl, return_lnLt=False):
+                return _anglemarg.fused_log_likelihood_distphipsimarg_peaklocal(
                     data_, ra, dec, incl, xg, lwg, interp=interp,
                     amp_sizing=amp_sizing, time_quadrature=time_quadrature,
                     return_lnLt=return_lnLt)
@@ -979,7 +1021,7 @@ class JAXDistPsiMargLikelihood:
 
     def __init__(self, data, d_min, d_max, npsi=8, n_grid=256,
                  d_prior="euclidean", interp=JAX_INTERP_DEFAULT, guess_snr=None,
-                 *, time_quadrature=TIME_QUAD_DEFAULT):
+                 *, time_quadrature=TIME_QUAD_DEFAULT, d_prior_range=None):
         self.data = data
         self.interp = interp   # the instance's stencil; sample_phi_ref defaults to it
         _validate_nonlinear_time_quadrature(
@@ -994,13 +1036,15 @@ class JAXDistPsiMargLikelihood:
             # pre-2026-08-26 run' recipe, which is the whole mitigation for that default move.
             d_peak, sigma_d = estimate_distance_peak(data, guess_snr, interp=interp)
             self.x_grid, self.log_w_grid = make_distance_grid_adaptive(
-                d_min, d_max, d_peak, sigma_d, d_prior, distMpcRef=data.distMpcRef)
+                d_min, d_max, d_peak, sigma_d, d_prior, distMpcRef=data.distMpcRef,
+                d_prior_range=d_prior_range)
             self.dist_grid_info = dict(mode="adaptive", d_peak=float(d_peak),
                                        sigma_d=float(sigma_d),
                                        n=int(self.x_grid.shape[0]))
         else:
             self.x_grid, self.log_w_grid = make_distance_grid(
-                d_min, d_max, n_grid, d_prior, distMpcRef=data.distMpcRef)
+                d_min, d_max, n_grid, d_prior, distMpcRef=data.distMpcRef,
+                d_prior_range=d_prior_range)
             self.dist_grid_info = dict(mode="uniform", n=int(self.x_grid.shape[0]))
 
         xg, lwg, sg = self.x_grid, self.log_w_grid, self._psi_grid

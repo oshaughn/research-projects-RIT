@@ -215,3 +215,212 @@ def test_a_full_circle_box_still_counts_as_covering():
     half = np.array([[np.pi, np.pi]])
     sup, area = J.outside_bound(C, cen, half, n_grid=32)
     assert area == 0.0 and sup == -np.inf, (sup, area)
+
+
+# ------------------------------------------------- both axes localized (phi-local)
+
+def test_u_profile_derivatives_match_finite_differences():
+    """F' and F'' come from differentiating UNDER the integral -- F' = E[d_phi g],
+    F'' = E[d^2_phi g] + Var(d_phi g) -- so they are exact and cost no extra evaluation.
+    That identity is what makes localizing phi possible at all, so it is pinned against
+    finite differences of F itself."""
+    A, B = _ab_tables(seed=3, scale=3.0)
+    C = J.joint_table(A, B, x=1.0)
+    h = 1e-5
+    for phi in np.linspace(0.3, 5.9, 6):
+        F0, d1, d2 = J.u_profile(C, np.array([phi]))
+        Fp, _, _ = J.u_profile(C, np.array([phi + h]))
+        Fm, _, _ = J.u_profile(C, np.array([phi - h]))
+        fd1 = (Fp[0] - Fm[0]) / (2 * h)
+        fd2 = (Fp[0] - 2 * F0[0] + Fm[0]) / h ** 2
+        assert abs(d1[0] - fd1) < 1e-4 * max(1.0, abs(fd1)), (phi, d1[0], fd1)
+        assert abs(d2[0] - fd2) < 1e-2 * max(1.0, abs(fd2)), (phi, d2[0], fd2)
+
+
+@pytest.mark.parametrize("scale", [1.0, 3.0, 10.0])
+def test_phi_local_matches_a_converged_dense_reference(scale):
+    """Both axes localized, against a dense torus quadrature."""
+    A, B = _ab_tables(seed=3, scale=1.0)
+    C = J.joint_table(A * scale, B * scale, x=1.0)
+    val, ok, rep = J.phi_local_marginalize(C)
+    assert ok, rep
+    assert abs(val - _ref(C, n=2048)) < 1e-4, (scale, val, rep)
+
+
+def test_phi_local_cost_does_not_grow_with_amplitude():
+    """The whole point of localizing BOTH axes: the dense rule spends ~A points on the
+    (phi,u) product, this spends a number set by the mode structure, which does not move
+    when the data amplitude does."""
+    A, B = _ab_tables(seed=3, scale=1.0)
+    counts = []
+    for scale in (1.0, 10.0, 100.0):
+        _, ok, rep = J.phi_local_marginalize(J.joint_table(A * scale, B * scale, x=1.0))
+        assert ok
+        counts.append(rep['n_phi_regions'])
+    assert max(counts) <= 8, counts          # bounded, not growing with sqrt(A)
+
+
+def test_phi_cover_bound_is_routed_through_g_not_through_F_curvature():
+    """Regression.  Bounding F by Taylor with F'' <= M_(2,0) + M_(1,0)^2 is useless: that
+    variance bound grows as the SQUARE of the amplitude and produced margins of +51 and
+    +1196 nats (no bound at all).  Routing through F <= log(2pi) + sup_u g keeps the
+    remainder linear in amplitude, so high-amplitude rows are ACCEPTED rather than
+    declined for a defect in the bound."""
+    A, B = _ab_tables(seed=3, scale=1.0)
+    for scale in (30.0, 100.0):
+        _, ok, rep = J.phi_local_marginalize(J.joint_table(A * scale, B * scale, x=1.0))
+        assert ok, (scale, rep)
+        assert rep['margin'] < J.OUTSIDE_TOL_NATS, (scale, rep)
+
+
+def test_a_wrapped_phi_region_is_clamped_to_one_circuit():
+    """Regression, found on REAL coefficient tables and not reachable from the synthetic
+    ones.  At low amplitude F is nearly flat, so sigma is huge and [p-W*sig, p+W*sig]
+    spans more than 2 pi; integrating that range literally wraps the circle several times
+    and counts the same mass repeatedly -- measured +1.84 nats, a factor of e^1.84 = 6.3,
+    and ACCEPTED, because a region covering everything leaves nothing outside for the
+    omitted-mass certificate to object to.
+
+    The general lesson, worth more than the fix: the certificate bounds what is OUTSIDE
+    the regions and cannot see an error made INSIDE one."""
+    A, B = _ab_tables(seed=1, scale=0.05)          # deliberately near-flat
+    C = J.joint_table(A, B, x=0.3)
+    val, ok, rep = J.phi_local_marginalize(C)
+    assert ok, rep
+    ref = _ref(C, n=2048)
+    assert abs(val - ref) < 1e-3, (val, ref, rep)
+    # and the covered length may never exceed one circuit
+    assert rep['n_phi_regions'] >= 1
+
+
+def test_inner_u_quadrature_is_converged_at_the_default_node_count():
+    """P1 from review, and it needs its OWN regression because the phi omitted-mass
+    certificate cannot see it: an error made INSIDE a region is invisible to a bound on
+    what lies outside.  Raising n_nodes must not move the answer."""
+    rng = np.random.default_rng(11)
+    worst = 0.0
+    for _ in range(6):
+        sc = 10.0 ** rng.uniform(-0.5, 2.5)
+        A = (rng.normal(size=(3, 3)) + 1j * rng.normal(size=(3, 3))) * sc
+        B = (rng.normal(size=(5, 5)) + 1j * rng.normal(size=(5, 5))) * sc
+        B[0, 2] = abs(B[0, 2].real) + 3.0 * sc
+        C = J.joint_table(A, B, x=1.0)
+        for phi in (0.3, 1.9, 4.4):
+            lo, _, _ = J.u_profile(C, np.array([phi]), n_nodes=64)
+            hi, _, _ = J.u_profile(C, np.array([phi]), n_nodes=1024)
+            worst = max(worst, abs(lo[0] - hi[0]))
+    # 1e-4, matching this module's other marginal assertions.  An earlier revision of
+    # this test allowed 1e-3, which CODIFIED a 7.2e-4 inner-u error rather than catching
+    # it -- a tolerance chosen after seeing the number is not a check.
+    assert worst < 1e-4, worst
+
+
+def test_a_clipped_newton_point_is_not_classified_as_a_peak():
+    """P1 from review.  The in-cell Newton is clamped to [lo, mid], so it can come to
+    rest ON a boundary with a large stationary residual -- and curvature alone then calls
+    that a maximum, centring a +-W sigma window on a non-stationary point.  Measured over
+    5400 cells: 492 (18%) that g'' < 0 accepted are rejected once a small residual and an
+    interior position are also required, the worst of them sitting at |g_u|/M_1 = 0.33."""
+    rng = np.random.default_rng(7)
+    n_curv, n_gated = 0, 0
+    for _ in range(20):
+        sc = 10.0 ** rng.uniform(-0.5, 3.0)
+        A = (rng.normal(size=(3, 3)) + 1j * rng.normal(size=(3, 3))) * sc
+        B = (rng.normal(size=(5, 5)) + 1j * rng.normal(size=(5, 5))) * sc
+        B[0, 2] = abs(B[0, 2].real) + 3.0 * sc
+        C = J.joint_table(A, B, x=1.0)
+        k, q, w, KS = J._kq(C)
+        for phi in np.linspace(0.05, 6.2, 5):
+            ph = (np.exp(1j * phi * k) * w).ravel()
+            D = lambda qq: complex((ph * C[:, KS + qq]).sum())
+            c1 = D(1) + np.conj(D(-1))
+            c2 = D(2) + np.conj(D(-2))
+            u = np.sort(np.mod(np.angle(np.roots(
+                [c2, c1 / 2, 0, -np.conj(c1) / 2, -np.conj(c2)])), 2 * np.pi))
+            mid = 0.5 * (u + np.roll(u, -1)
+                         + np.where(np.arange(4) == 3, 2 * np.pi, 0.0))
+            lo_c = np.roll(mid, 1) - np.where(np.arange(4) == 0, 2 * np.pi, 0.0)
+            us = u.copy()
+            pv = np.full(4, phi)
+            for _i in range(8):
+                g1 = J.eval_g(C, pv, us, (0, 1))
+                g2 = J.eval_g(C, pv, us, (0, 2))
+                st = np.where(np.abs(g2) > 0, -g1 / np.where(np.abs(g2) > 0, g2, 1.0), 0.0)
+                us = np.clip(us + np.clip(st, -0.5, 0.5), lo_c, mid)
+            g1c = J.eval_g(C, pv, us, (0, 1))
+            g2c = J.eval_g(C, pv, us, (0, 2))
+            m1u = max(J.derivative_bound(C, (0, 1)), 1e-300)
+            edge = 1e-9 * max(float(np.max(mid - lo_c)), 1e-300)
+            curv = g2c < 0.0
+            gated = curv & (np.abs(g1c) <= 1e-8 * m1u) & (us > lo_c + edge) & (us < mid - edge)
+            n_curv += int(curv.sum())
+            n_gated += int(gated.sum())
+    assert n_curv > n_gated, (n_curv, n_gated)   # the gate must actually reject
+
+
+def test_the_quartic_roots_are_seeds_and_must_be_refined_in_cell():
+    """Why the in-cell Newton refinement is not dead weight.  A conjugate-reciprocal
+    pair leaves the unit circle -- measured, 309 of 900 (table, phi) pairs have at least
+    one such root -- and a spurious root's ANGLE is not a stationary point at all: the
+    worst |g_u|/M_1 at a raw root measured 0.311, i.e. nowhere near stationary.  Window
+    around that and the window is centred off the peak."""
+    rng = np.random.default_rng(11)
+    worst_resid = 0.0
+    n_off = 0
+    for _ in range(60):
+        sc = 10.0 ** rng.uniform(-0.5, 2.0)
+        A = (rng.normal(size=(3, 3)) + 1j * rng.normal(size=(3, 3))) * sc
+        B = (rng.normal(size=(5, 5)) + 1j * rng.normal(size=(5, 5))) * sc
+        B[0, 2] = abs(B[0, 2].real) + 3.0 * sc
+        C = J.joint_table(A, B, x=1.0)
+        k, q, w, KS = J._kq(C)
+        for phi in (0.3, 1.9, 4.4):
+            ph = (np.exp(1j * phi * k) * w).ravel()
+            D = lambda qq: complex((ph * C[:, KS + qq]).sum())
+            c1 = D(1) + np.conj(D(-1))
+            c2 = D(2) + np.conj(D(-2))
+            z = np.roots([c2, c1 / 2, 0, -np.conj(c1) / 2, -np.conj(c2)])
+            n_off += int(np.any(np.abs(np.abs(z) - 1.0) > 1e-6))
+            u = np.sort(np.mod(np.angle(z), 2 * np.pi))
+            g1 = J.eval_g(C, np.full(4, phi), u, (0, 1))
+            m1 = max(J.derivative_bound(C, (0, 1)), 1e-300)
+            worst_resid = max(worst_resid, float(np.max(np.abs(g1)) / m1))
+    assert n_off > 0, "fixture family must contain off-circle roots"
+    assert worst_resid > 1e-6, worst_resid   # raw roots are NOT all stationary points
+
+
+def test_phi_regions_are_disjoint_on_the_CIRCLE():
+    """P1 from review.  Merging on the LINE never joins a window near 0 to one near
+    2*pi, but every region is integrated at mod(., 2*pi) -- so both regions cover both
+    peaks and the mass is counted twice.  Measured before the fix: +log 2 = +0.693 nats
+    returned with ok=True and margin -437, because the error is INSIDE the regions.
+
+    Asserted as an INVARIANT rather than hunted for with a value comparison: reduced to
+    the circle, the regions must not overlap and must not exceed one circuit."""
+    rng = np.random.default_rng(5)
+    checked = 0
+    for _ in range(40):
+        sc = 10.0 ** rng.uniform(0.0, 2.5)
+        A = (rng.normal(size=(3, 3)) + 1j * rng.normal(size=(3, 3))) * sc
+        B = (rng.normal(size=(5, 5)) + 1j * rng.normal(size=(5, 5))) * sc
+        B[0, 2] = abs(B[0, 2].real) + 3.0 * sc
+        C = J.joint_table(A, B, x=1.0)
+        _, _, rep = J.phi_local_marginalize(C)
+        regs = rep.get('phi_regions', [])
+        if not regs:
+            continue
+        checked += 1
+        total = sum(b - a for a, b in regs)
+        assert total <= 2 * np.pi + 1e-9, (total, regs)
+        # sample each region densely, reduce to the circle, and require no point to be
+        # covered twice
+        pts = []
+        for a, b in regs:
+            pts.append(np.mod(np.linspace(a, b, 512, endpoint=False), 2 * np.pi))
+        if len(pts) > 1:
+            for i in range(len(pts)):
+                for j in range(i + 1, len(pts)):
+                    d = np.abs(pts[i][:, None] - pts[j][None, :])
+                    d = np.minimum(d, 2 * np.pi - d)
+                    assert d.min() > 1e-6, ("regions overlap on the circle", regs)
+    assert checked > 5, checked

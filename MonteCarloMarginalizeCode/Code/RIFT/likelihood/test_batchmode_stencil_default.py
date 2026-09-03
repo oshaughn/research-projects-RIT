@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# RIFT-CI-GATE: q-window-stencil
+# ^ registers this file with .travis/test-q-window-stencil.sh, run by ci.yml's
+#   q-window-stencil-check job.  Added with the test rather than to a shared list in
+#   ci.yml: that list is what this PR conflicted with when #242 replaced it.
 """test_batchmode_stencil_default -- what an ILE run gets when it says NOTHING.
 
 WHY THIS FILE EXISTS.  Every other stencil test passes an EXPLICIT --interpolate-time, so the

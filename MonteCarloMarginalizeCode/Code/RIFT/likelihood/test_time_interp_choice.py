@@ -1,4 +1,16 @@
 #!/usr/bin/env python3
+# RIFT-CI-GATE: q-window-stencil
+# ^ registers this file with .travis/test-q-window-stencil.sh, run by ci.yml's
+#   q-window-stencil-check job.  Membership lives here, in the test file, so that
+#   adding a test needs no edit to any shared list.  Do not reword the line above.
+# ---------------------------------------------------------------------------------
+# WHY THIS FILE IS IN q-window-stencil-check.  Moved verbatim from the comment block
+# above that job's hand-maintained file list in .github/workflows/ci.yml; it lives
+# here now so that registering a test needs no edit to a shared file.
+#
+# test_time_interp_choice pins the pipeline thresholds inside the measured ambiguous
+# band, and checks the decision uses the sampling rate the run is actually on.
+# ---------------------------------------------------------------------------------
 """test_time_interp_choice -- the pipeline's Q_lm stencil handling.
 
 Automatic selection was REMOVED after measurement (see time_interp_choice's docstring for the

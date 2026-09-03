@@ -213,7 +213,7 @@ _ILE_ALL_OPTS = {
     "--internal-waveform-extra-lalsuite-args", "--internal-waveform-fd-no-condition",
     "--internal-waveform-fd-L-frame", "--internal-waveform-taper",
     "--interpolate-time", "--inv-spec-trunc-time", "--l-max",
-    "--limit-declination", "--limit-inclination", "--limit-psi",
+    "--limit-declination", "--limit-distance", "--limit-inclination", "--limit-psi",
     "--limit-right-ascension", "--manual-logarithm-offset", "--mass1", "--mass2",
     "--mc-error-ess-trigger", "--mc-error-khat-trigger", "--mc-error-replicas",
     "--mc-error-sigma-trigger",
@@ -369,7 +369,8 @@ def check_critical_and_report(opts, optp):
                    "--reference-freq", "--fmax", "--srate",
                    "--data-integration-window-half",
                    "--internal-data-storage-window-half", "--d-min", "--d-max",
-                   "--d-prior", "--n-max", "--n-chunk", "--output-file",
+                   "--d-prior", "--limit-distance",
+                   "--n-max", "--n-chunk", "--output-file",
                    "--event", "--save-samples", "--verbose", "--seed",
                    "--sim-xml", "--sim-grid", "--n-events-to-analyze",
                    "--random-event", "--distance-marginalization",
@@ -540,6 +541,7 @@ def build_parser():
     g.add_option("--n-chunk", type=int, default=8000)
     g.add_option("--d-min", type=float, default=1.0, help="Min distance (Mpc).")
     g.add_option("--d-max", type=float, default=10000.0, help="Max distance (Mpc).")
+
     g.add_option("--distance-grid-points", type=int, default=None,
                  help="Node count for the DEFAULT uniform-in-distance grid "
                       "(default %d).  --distance-grid-scheme loguniform "
@@ -565,6 +567,27 @@ def build_parser():
                       "the node count follows from it in closed form.  "
                       "Default %g.  Only valid with that scheme."
                       % _jax_core_dist_tol_default())
+    g.add_option("--limit-distance", default=None,
+                 help="Restrict distance SAMPLING (and, when distance is "
+                      "marginalized, the distance QUADRATURE) to 'LO,HI' in Mpc, "
+                      "WITHOUT changing the prior or its normalization: the prior "
+                      "stays normalized over the full [--d-min,--d-max], so the "
+                      "reported lnZ needs no correction and stays comparable to a "
+                      "full-range run and to the batchmode ILE -- comparable to the "
+                      "SAMPLER's own systematic, not to machine precision: measured "
+                      "end to end on real data at rho ~ 82, the box truncates <= 0.003 "
+                      "nats of evidence while the observed lnZ difference is +0.37 +- "
+                      "0.11 nats the other way, being the full-range run's own bias "
+                      "that the box removes (RIFT_roboto_paper "
+                      "analyses/limit_distance_e2e/).  That benefit is a THRESHOLD "
+                      "in amplitude, not a general improvement: the same "
+                      "measurement at rho 41 gives +0.13 +- 0.08 nats, consistent "
+                      "with zero, because the full-range sampler is already "
+                      "healthy there.  Intended for high "
+                      "amplitude, where the distance posterior narrows as 1/rho.  "
+                      "Likelihood outside the box is simply not integrated, so keep "
+                      "the box comfortably wider than the posterior.  Must lie "
+                      "inside [--d-min,--d-max].")
     g.add_option("--phase-marginalization", action="store_true", default=False)
     g.add_option("--time-marginalization-quadrature", type="choice",
                  choices=("simpson", "bandlimited"), default="simpson",
@@ -885,6 +908,41 @@ def load_frames(opts, fiducial_epoch):
 # ---------------------------------------------------------------------------
 # Priors (the angular block is shared; distance added only when NOT marginalized)
 # ---------------------------------------------------------------------------
+def resolve_distance_limit(opts):
+    """(lo, hi) in Mpc that distance is actually SAMPLED / integrated over.
+
+    Equals (--d-min, --d-max) unless --limit-distance narrowed it.  The prior
+    normalization always stays on (--d-min, --d-max): see log_prior() and the
+    d_prior_range= argument threaded into the marginalized likelihoods.
+    """
+    v = getattr(opts, "limit_distance", None)
+    if not v:
+        return float(opts.d_min), float(opts.d_max)
+    from RIFT.integrators.mcsampler import distance_limit_range
+    try:
+        return distance_limit_range(v, opts.d_min, opts.d_max)
+    except ValueError as exc:
+        raise SystemExit(" --limit-distance: %s" % exc)
+
+
+def log_distance_box_correction(opts, with_distance):
+    """ln[ prior mass on (d_min,d_max) / prior mass on the sampled box ]; 0.0 unless
+    --limit-distance narrowed the box.
+
+    sample_prior() draws distance from the prior RESTRICTED to the box, so its
+    density is the prior divided by that mass.  Estimators that assume
+    "proposal == prior" (run_prior_mc) must subtract this; estimators that form
+    ln w = lnL + ln p - ln q explicitly (run_laplace_is) already have it right
+    and must NOT subtract it again.
+    """
+    if not with_distance:
+        return 0.0
+    lo, hi = resolve_distance_limit(opts)
+    if lo == float(opts.d_min) and hi == float(opts.d_max):
+        return 0.0
+    return float(np.log((opts.d_max ** 3 - opts.d_min ** 3) / (hi ** 3 - lo ** 3)))
+
+
 def sample_prior(n, opts, rng, with_distance):
     ra = rng.uniform(0.0, 2 * np.pi, n)
     dec = np.arcsin(rng.uniform(-1.0, 1.0, n))
@@ -894,7 +952,9 @@ def sample_prior(n, opts, rng, with_distance):
     cols = [ra, dec, psi, incl, phiref]
     if with_distance:
         u = rng.uniform(0.0, 1.0, n)
-        dmin3, dmax3 = opts.d_min ** 3, opts.d_max ** 3
+        # the SAMPLED range (== [d_min,d_max] unless --limit-distance)
+        d_lo, d_hi = resolve_distance_limit(opts)
+        dmin3, dmax3 = d_lo ** 3, d_hi ** 3
         cols.append((dmin3 + u * (dmax3 - dmin3)) ** (1.0 / 3.0))
     theta = np.stack(cols, axis=-1)
     return theta, log_prior(theta, opts, with_distance)
@@ -911,7 +971,11 @@ def log_prior(theta, opts, with_distance):
                 - np.log(2 * np.pi) - np.log(np.pi) - np.log(2 * np.pi))
         if with_distance:
             dist = theta[..., 5]
-            inb = inb & (dist >= opts.d_min) & (dist <= opts.d_max)
+            # SUPPORT is the sampled box (--limit-distance); the NORMALIZATION is
+            # always over the physical [d_min,d_max], so lnZ keeps its full-range
+            # scale and does not have to be corrected before comparison.
+            d_lo, d_hi = resolve_distance_limit(opts)
+            inb = inb & (dist >= d_lo) & (dist <= d_hi)
             dmin3, dmax3 = opts.d_min ** 3, opts.d_max ** 3
             logp = logp + np.log(3.0) + 2 * np.log(dist) - np.log(dmax3 - dmin3)
     return np.where(inb, logp, -np.inf)
@@ -984,10 +1048,15 @@ def _moment_match(theta, logL):
 def run_prior_mc(like, opts, rng, dim, with_distance):
     theta, _ = sample_prior(opts.n_max, opts, rng, with_distance)
     lnL = eval_lnL(like, theta, opts, with_distance)
-    logZ, sig, neff = evidence_from_logweights(lnL)  # draw from prior -> w = L
-    # p_s == p (the proposal IS the prior), so ln w = lnL.  These raw draws are
-    # PRIOR samples, not posterior ones: they must be fair-drawn before export.
-    return logZ, sig, neff, opts.n_max, theta, lnL, lnL
+    # p_s == p (the proposal IS the prior), so ln w = lnL -- EXCEPT under
+    # --limit-distance, where the proposal is the prior restricted to the box while
+    # the prior keeps its full-range normalization; the constant below is exactly
+    # 0.0 without that option, so the historical path is untouched.
+    logw = lnL - log_distance_box_correction(opts, with_distance)
+    logZ, sig, neff = evidence_from_logweights(logw)
+    # These raw draws are PRIOR samples, not posterior ones: they must be
+    # fair-drawn before export.
+    return logZ, sig, neff, opts.n_max, theta, lnL, logw
 
 
 def run_laplace_is(like, opts, rng, dim, with_distance, n_adapt=2):
@@ -1117,7 +1186,7 @@ def run_map(like, opts, rng, dim, with_distance):
     from scipy.optimize import minimize
     ang_bounds = [(0, 2 * np.pi), (-np.pi / 2 + 1e-3, np.pi / 2 - 1e-3),
                   (0, np.pi), (1e-3, np.pi - 1e-3), (0, 2 * np.pi)]
-    bounds = ang_bounds + ([(opts.d_min, opts.d_max)] if with_distance else [])
+    bounds = ang_bounds + ([resolve_distance_limit(opts)] if with_distance else [])
     theta_seed, _ = sample_prior(4000, opts, rng, with_distance)
     lnL_seed = eval_lnL(like, theta_seed, opts, with_distance)
     x0 = theta_seed[np.argmax(lnL_seed)]
@@ -1173,7 +1242,11 @@ def angle_grid_suspect_note(scheme=None):
                 "amp_sizing=%.6g scheme=%s"
                 % (st.get("worst_amp", float("nan")),
                    st.get("amp_sizing", float("nan")), st.get("scheme")))
-    if scheme in ("exact", "laplace"):
+    # 'peak-local' belongs here for the same reason it belongs in the failsafe: its phi
+    # axis is dense and amp-sized, so its artifacts are entitled to no more confidence
+    # than the other two, and a scheme missing from this list would publish output with
+    # NO standing label at all -- the silence a reader would read as verification.
+    if scheme in ("exact", "laplace", "peak-local"):
         return ("ANGLE-GRID-CHECK=BEST-EFFORT (no undersizing detected; the "
                 "detector may be dropped under jax transformation, so this is "
                 "NOT a verification -- rebuild at larger amp_sizing if it matters)")
@@ -1745,6 +1818,14 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
     print("  modes:", like_data.lms, "  guessed SNR:", extras["guess_snr"])
 
     with_distance = not opts.distance_marginalization
+    # --limit-distance: (d_lo,d_hi) is what is SAMPLED / quadratured; the prior is
+    # always normalized over (opts.d_min, opts.d_max), which is what keeps the
+    # reported lnZ on the same scale as a full-range run.
+    d_lo, d_hi = resolve_distance_limit(opts)
+    if (d_lo, d_hi) != (float(opts.d_min), float(opts.d_max)):
+        print("  [limit] restricting distance sampling/quadrature to [%.4f, %.4f] Mpc "
+              "(prior normalization UNCHANGED over [%.4f, %.4f] Mpc)"
+              % (d_lo, d_hi, opts.d_min, opts.d_max))
     # Fail closed on a flag that would otherwise be silently inert.  The
     # log-uniform distance quadrature is wired -- and validated -- only for the
     # dense (phi,psi) schemes of --mode flowmc-phipsimarg.
@@ -1778,12 +1859,12 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
         from RIFT.likelihood.jax_ile.wrapper import JAXDistPhiMargLikelihood
         nphi = getattr(opts, "n_phi", 32)
         print("Distance + phi_ref marginalization: ON (grid=%d, nphi=%d, d in [%g,%g] Mpc)"
-              % (n_dist_grid, nphi, opts.d_min, opts.d_max))
+              % (n_dist_grid, nphi, d_lo, d_hi))
         like = JAXDistPhiMargLikelihood(
-            like_data, opts.d_min, opts.d_max,
+            like_data, d_lo, d_hi,
             nphi=nphi, n_grid=n_dist_grid,
             interp=opts.interp, guess_snr=extras["guess_snr"],
-            time_quadrature=tq)
+            time_quadrature=tq, d_prior_range=(opts.d_min, opts.d_max))
         if getattr(like, "dist_grid_info", {}).get("mode") == "adaptive":
             gi = like.dist_grid_info
             print("  distance grid: ADAPTIVE  d_peak=%.3g Mpc  sigma_d=%.3g Mpc  npts=%d"
@@ -1799,7 +1880,7 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
         npsi = getattr(opts, "n_psi", 16)
         angle_marg = getattr(opts, "angle_marg_scheme", ANGLE_MARG_DEFAULT)
         print("Distance + phi_ref + psi marginalization: ON (grid=%d, nphi=%d, npsi=%d, d in [%g,%g] Mpc)"
-              % (n_dist_grid, nphi, npsi, opts.d_min, opts.d_max))
+              % (n_dist_grid, nphi, npsi, d_lo, d_hi))
         dist_grid = getattr(opts, "distance_grid_scheme", "uniform")
         dist_tol = getattr(opts, "distance_grid_tol", None)
         if dist_tol is None:
@@ -1809,10 +1890,11 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
                 "--distance-grid-tol only applies to --distance-grid-scheme "
                 "loguniform; it would be silently inert here.")
         like = JAXDistPhiPsiMargLikelihood(
-            like_data, opts.d_min, opts.d_max, nphi=nphi, npsi=npsi,
+            like_data, d_lo, d_hi, nphi=nphi, npsi=npsi,
             n_grid=n_dist_grid, interp=opts.interp,
             guess_snr=extras["guess_snr"], angle_marg=angle_marg,
-            time_quadrature=tq, dist_grid=dist_grid, dist_grid_tol=dist_tol)
+            time_quadrature=tq, d_prior_range=(opts.d_min, opts.d_max),
+            dist_grid=dist_grid, dist_grid_tol=dist_tol)
         # ALWAYS report the resolved scheme (requested may be 'auto'; this
         # pipeline has a documented history of silently-inert flags).
         print("  angle-marg scheme: %s (requested %s): %s"
@@ -1833,11 +1915,12 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
         npsi = getattr(opts, "n_psi", 8)
         print("Distance + psi marginalization (phi_ref sampled): ON "
               "(grid=%d, npsi=%d, d in [%g,%g] Mpc)"
-              % (n_dist_grid, npsi, opts.d_min, opts.d_max))
+              % (n_dist_grid, npsi, d_lo, d_hi))
         like = JAXDistPsiMargLikelihood(
-            like_data, opts.d_min, opts.d_max, npsi=npsi,
+            like_data, d_lo, d_hi, npsi=npsi,
             n_grid=n_dist_grid, interp=opts.interp,
-            guess_snr=extras["guess_snr"], time_quadrature=tq)
+            guess_snr=extras["guess_snr"], time_quadrature=tq,
+            d_prior_range=(opts.d_min, opts.d_max))
         if getattr(like, "dist_grid_info", {}).get("mode") == "adaptive":
             gi = like.dist_grid_info
             print("  distance grid: ADAPTIVE  d_peak=%.3g Mpc  sigma_d=%.3g Mpc  npts=%d"
@@ -1846,11 +1929,11 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
         dim = 4
     elif opts.distance_marginalization:
         print("Distance marginalization: ON (grid=%d, d in [%g,%g] Mpc)"
-              % (n_dist_grid, opts.d_min, opts.d_max))
+              % (n_dist_grid, d_lo, d_hi))
         like = JAXDistanceMarginalizedLikelihood(
-            like_data, opts.d_min, opts.d_max, n_grid=n_dist_grid,
+            like_data, d_lo, d_hi, n_grid=n_dist_grid,
             interp=opts.interp, phase_marginalization=opts.phase_marginalization,
-            time_quadrature=tq)
+            time_quadrature=tq, d_prior_range=(opts.d_min, opts.d_max))
         dim = 5
     else:
         like = JAXExtrinsicLikelihood(
