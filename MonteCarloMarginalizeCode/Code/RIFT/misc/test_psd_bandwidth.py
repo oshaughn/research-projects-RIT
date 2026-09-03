@@ -1,4 +1,16 @@
 #!/usr/bin/env python3
+# RIFT-CI-GATE: q-window-stencil
+# ^ registers this file with .travis/test-q-window-stencil.sh, run by ci.yml's
+#   q-window-stencil-check job.  Membership lives here, in the test file, so that
+#   adding a test needs no edit to any shared list.  Do not reword the line above.
+# ---------------------------------------------------------------------------------
+# WHY THIS FILE IS IN q-window-stencil-check.  Moved verbatim from the comment block
+# above that job's hand-maintained file list in .github/workflows/ci.yml; it lives
+# here now so that registering a test needs no edit to a shared file.
+#
+# test_psd_bandwidth guards the representative-detector choice and the fallback contract
+# behind the stencil decision; see this file's docstring.  numpy-only, seconds.
+# ---------------------------------------------------------------------------------
 """test_psd_bandwidth -- representative-detector choice, and the fallback contract.
 
 Two things are guarded, both of which are about behaviour under imperfect input rather than

@@ -1,3 +1,17 @@
+# RIFT-CI-GATE: q-window-stencil
+# ^ registers this file with .travis/test-q-window-stencil.sh, run by ci.yml's
+#   q-window-stencil-check job.  Membership lives here, in the test file, so that
+#   adding a test needs no edit to any shared list.  Do not reword the line above.
+# ---------------------------------------------------------------------------------
+# WHY THIS FILE IS IN q-window-stencil-check.  Moved verbatim from the comment block
+# above that job's hand-maintained file list in .github/workflows/ci.yml; it lives
+# here now so that registering a test needs no edit to a shared file.
+#
+# test_noloop_time_interp pins the cubic Q_lm window against the nearest-sample window at
+# integer offsets, against linear interpolation at midpoints, and against an exact cubic
+# polynomial.  It was registered by this PR: it matched no job in ci.yml before, so its
+# three tests had never run in CI -- the same silent loss this gate exists to stop.
+# ---------------------------------------------------------------------------------
 import os
 
 os.environ.setdefault("RIFT_LOWLATENCY", "1")

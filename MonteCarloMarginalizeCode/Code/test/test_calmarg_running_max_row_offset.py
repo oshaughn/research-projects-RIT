@@ -1,4 +1,24 @@
 #!/usr/bin/env python
+# RIFT-CI-GATE: q-window-stencil
+# ^ registers this file with .travis/test-q-window-stencil.sh, run by ci.yml's
+#   q-window-stencil-check job.  Membership lives here, in the test file, so that
+#   adding a test needs no edit to any shared list.  Do not reword the line above.
+# ---------------------------------------------------------------------------------
+# WHY THIS FILE IS IN q-window-stencil-check.  Moved verbatim from the comment block
+# above that job's hand-maintained file list in .github/workflows/ci.yml; it lives
+# here now so that registering a test needs no edit to a shared file.
+#
+# test_calmarg_running_max_row_offset is the SAME defect on the in-loop calibration
+# marginalization (n_cal>1, cal_method='loop' -- the DEFAULT calmarg reduction; the
+# fused kernel is opt-in behind --calibration-fused-kernel).  Its streaming
+# log-sum-exp offset `running_max` was a SCALAR over the whole
+# (npts_extrinsic, npts_time) block, so the same >745-nat rows came back -inf
+# (issue #232).  numpy + lal, no GPU, ~10 s.  All six CPU guards were
+# mutation-checked before landing: reverting to the scalar max fails 4 of 6, a bare
+# axis=-1 (no keepdims) fails 6 of 6, keeping the axis in the add-back fails 6 of 6,
+# and dropping the all--inf-row guard fails 1 of 6.  Its seventh test is a cupy leg
+# and SKIPS here -- these runners have no GPU.
+# ---------------------------------------------------------------------------------
 """The in-loop calibration-marginalization log-sum-exp offset must be PER EXTRINSIC
 SAMPLE, not per batch.
 
