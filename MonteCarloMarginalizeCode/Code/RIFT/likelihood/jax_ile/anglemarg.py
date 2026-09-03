@@ -128,7 +128,8 @@ __all__ = [
 # angle_marg=ANGLE_MARG_LEGACY) to reproduce a pre-2026-09-02 run.
 #
 # Why 'exact' and not 'auto': 'auto' selects 'laplace' above
-# ANGLE_MARG_CROSSOVER_AMPLITUDE (rho ~21-30), which is an ACCURACY crossover.
+# ANGLE_MARG_CROSSOVER_AMPLITUDE (rho ~26-30; see that constant's note for why
+# 26 and not the 21 this line used to say), which is an ACCURACY crossover.
 # But 'laplace' cannot use the per-sample adaptive distance quadrature and the
 # log-uniform distance grid is opt-in, so on the default uniform grid 'laplace'
 # was measured 43.2 nats from 'exact'+GH16 at rho 163 (mean; 16.3 median) -- an

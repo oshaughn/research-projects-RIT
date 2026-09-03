@@ -688,8 +688,11 @@ def u_profile(C, phi, n_nodes=64, window_sigma=12.0):
         # centres a +-W sigma window on a non-stationary point and sizes sigma from the
         # wrong curvature.  Require, as well as g'' < 0, that the residual is small
         # relative to the axis's own derivative bound AND that the point is interior.
-        # A cell failing either is integrated WHOLE rather than windowed, which is the
-        # conservative branch: it can only add nodes, never move the centre.
+        # A cell failing either is integrated WHOLE rather than windowed.  That is the
+        # conservative branch for the CENTRE -- it never moves onto a non-stationary
+        # point -- but it is NOT conservative for the resolution: see the node-count
+        # derivation below, which exists because the whole-cell branch spreads the same
+        # count over a wider interval.
         g1c = eval_g(C, pv, ustar, (0, 1))
         g2c = _g_uu_at(C, p, ustar)
         _m1u = max(derivative_bound(C, (0, 1)), 1e-300)
@@ -702,9 +705,12 @@ def u_profile(C, phi, n_nodes=64, window_sigma=12.0):
         hi = np.where(peaked, np.minimum(ustar + window_sigma * sig_c, mid), mid)
         # DERIVE THE NODE COUNT; the fallback cell is where a fixed one fails.  A
         # windowed cell spans +-W sigma so a fixed count resolves it, but a cell that
-        # FELL BACK spans the whole cell with the same nodes -- and an earlier comment
-        # here claimed that branch "can only add nodes", which was simply false: it adds
-        # none and spreads them wider, so rejecting a peak made the resolution WORSE.
+        # FELL BACK spans the whole cell with the same nodes.  An earlier version of the
+        # comment above called that branch conservative because it "can only add nodes",
+        # which was simply false: it adds none and spreads them wider, so rejecting a
+        # peak made the resolution WORSE.  (That false sentence outlived its own
+        # retraction here by 14 lines until a grep for the NUMBER, not the paragraph,
+        # turned it up -- correcting a claim means finding every copy of it.)
         # Measured on a searched counterexample: 1.7e-03 nats at 64 nodes, converging
         # only by n = 1024.
         #
