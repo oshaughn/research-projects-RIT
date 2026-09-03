@@ -5,6 +5,12 @@ Companion to `time_marginalization_peak_local.py`, and a follow-up to
 docstring carries the argument; this file carries the numbers behind it and the
 harnesses that produced them.
 
+**Generalizing this method to other axes:** see `DESIGN_peak_local_framework.md`.
+The same skeleton has since been written twice more, independently, for angles and
+for distance; that note works out which parts of what follows are about PEAK-LOCAL
+and which are about TIME, and it is the place to look before copying anything here
+onto a new parameter.
+
 Everything here was measured on `ldas-pcdev` class CPU (CIT), CVMFS IGWN python 3.11,
 `OMP_NUM_THREADS=1`, on branch `rift_O4d_tmarg_peaklocal` (based on
 `rift_O4d_tmarg_bandlimited`, PR #203).  Harnesses: `~/tmarg_harness/` for the
@@ -1213,12 +1219,14 @@ here only so the measurement and the hazard are not lost.
   the dense path's own real-injection comparison has not been repeated for this rule.
 * **`MAX_INTERVALS`, `PEAK_KEEP_NATS`** are fail-closed guards with an argument behind
   them but no sweep behind the specific values.
-* **The tail bound is still a sampled maximum, not a supremum.**  `q_out_max` is the
-  largest `Re kappa` over enumeration-grid points outside the intervals; between those
-  points it is not bounded rigorously.  `T_outside` is now exact and endpoints are now
-  enumerated, and the containment check covers the failure mode that mattered, but a
-  Bernstein-type bound on the interpolant between samples would make this a proof rather
-  than a strong check.  Not attempted.
+* ~~**The tail bound is still a sampled maximum, not a supremum.**~~  SUPERSEDED, and
+  the entry is kept rather than deleted because it records what changed.  As of
+  `6b4467ec` `q_out_max` is no longer a sampled maximum: it is
+  `max` over cells of `segment_sup_bound`, a cubic Hermite through each cell's endpoint
+  values AND slopes plus the classical remainder `M4 h^4/384`, with `M4` from
+  `spectral_derivative_bound` at order 4.  That is the between-samples bound this bullet
+  called "not attempted", and it is certified on SUB-CELL geometry because bounding whole
+  cells makes the option inert (see `DESIGN_peak_local_framework.md`).
 * **No re-measure-and-double loop.**  The dense path ENFORCES its resolution criterion;
   this path derives the spacing and then verifies the outcome two other ways.  Both are
   checked; they are not the same criterion, and this file no longer claims they are.
