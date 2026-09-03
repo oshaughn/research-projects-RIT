@@ -508,8 +508,10 @@ if opts.rotation_slow:
     # template on GPU (same memory footprint as the baseline).
     if not opts.vectorized:
         raise ValueError("--rotation-slow requires --vectorized")
-    if opts.gpu and getattr(opts, 'calibration_marginalization', False):
-        raise ValueError("--rotation-slow on GPU does not support calibration/glitch marginalization (n_cal>1)")
+    # The calibration/glitch-marginalization exclusion used to be a guard here, keyed on an
+    # option that does not exist, so it never fired.  It now lives in the central gate below
+    # (RIFT/calmarg/option_compat.py), keyed on --calibration-envelope-directory and run once
+    # opts.gpu is final.  History: DESIGN_calmarg_in_loop.md, "Option-compatibility gate".
     if getattr(opts, 'distance_marginalization', False) or getattr(opts, 'phase_marginalization', False):
         raise ValueError("--rotation-slow does not yet support distance/phase marginalization")
 
@@ -521,8 +523,8 @@ if opts.freqresponse:
         raise ValueError("--freqresponse and --rotation-slow both replace the likelihood; use at most one")
     if not opts.vectorized:
         raise ValueError("--freqresponse requires --vectorized")
-    if opts.gpu and getattr(opts, 'calibration_marginalization', False):
-        raise ValueError("--freqresponse on GPU does not support calibration/glitch marginalization (n_cal>1)")
+    # Same never-firing calibration guard as --rotation-slow above, with the same history;
+    # superseded by the central gate below.  See RIFT/calmarg/option_compat.py.
     if getattr(opts, 'distance_marginalization', False) or getattr(opts, 'phase_marginalization', False):
         raise ValueError("--freqresponse does not yet support distance/phase marginalization")
 
@@ -788,6 +790,18 @@ if opts.resample_time_marginalization:
         print(" Time-posterior export: continuous draws supersede "
               "--srate-resample-time-marginalization; use "
               "--time-posterior-export grid for the requested lattice.")
+
+# CALIBRATION-MARGINALIZATION OPTION COMPATIBILITY.  Same refuse-don't-ignore discipline as the
+# stencil and quadrature gates above, applied to the one option that switches in-loop calibration
+# marginalization on (--calibration-envelope-directory) and to the opt-ins that are read only
+# under it.  Placed HERE because opts.gpu is final only after the cupy availability downgrade
+# above, and a `--gpu` that has been downgraded to numpy is one of the configurations that drops
+# calibration on the floor.  Nothing expensive has run yet: no frames, no PSDs, no precompute.
+#
+# This gate only REFUSES.  It never changes what an accepted configuration computes.
+import RIFT.calmarg.option_compat as calibration_option_compat
+calibration_option_compat.refuse_incompatible_calibration_options(opts)
+
 
 manual_avoid_overflow_logarithm=opts.manual_logarithm_offset
 manual_avoid_overflow_logarithm_default =  manual_avoid_overflow_logarithm
