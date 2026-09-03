@@ -598,9 +598,54 @@ coercion, because `str(None) == 'none'` is itself a legal explicit spelling mean
    there protected nothing while silently costing the accuracy the default exists to provide. That
    failure mode is invisible by construction: a needless downgrade looks exactly like the
    historical behaviour. Both the downgrade and the `NOT USED` notice now key on
-   `_fused_calmarg_would_run`, the same predicate evaluated early. Pinned by
+   `fused_calmarg_in_use`. Pinned by
    `test_a_bare_fused_kernel_flag_no_longer_downgrades_the_default`, whose command line is the
    fused-kernel test's minus the envelope, with the opposite required outcome.
+
+   **THE FINDING IS THE DUPLICATION, NOT ANY ONE MISSING CONJUNCT.** That correction was made
+   twice more the same day — `flag` → `flag + envelope` → `flag + envelope + path` — each round
+   adding a term the dispatch-time expression already had in effect, each round found by a
+   reviewer rather than by a test. It could not be otherwise: **an over-broad predicate downgrades
+   the inherited stencil to `nearest`, which is exactly the historical behaviour**, so nothing
+   fails, nothing logs, and no value test distinguishes it. The condition is now a single function,
+   `fused_calmarg_in_use`, called by *both* the startup stencil guard and `use_fused_calmarg`, and
+   `test_the_fused_predicate_has_ONE_definition_shared_by_BOTH_call_sites` pins the **structure**
+   (one definition, ≥2 call sites, no re-inlined copy) rather than a value, because the next
+   forgotten conjunct will produce a fourth expression that agrees with every case anyone thought
+   to write down.
+
+   A fused kernel runs only where all of these hold, and each is a **reachability fact** verified
+   against the call sites rather than a guess: calibration marginalization configured;
+   `--calibration-fused-kernel`; `--calibration-n-realizations > 1` (`factored_likelihood` returns
+   from its `n_cal == 1` branch before `cal_method` is read); not `--rotation-slow` and not
+   `--freqresponse` (both *replace* the likelihood — the non-distmarg fused call site is in the
+   `else` of their dispatch, and the two distmarg call sites are unreachable because both options
+   refuse distance marginalization at startup); and not `--calibration-dump-responsibilities`
+   (that pilot evaluates with an explicit `cal_method='loop'` and `return_cal_components=True`,
+   then returns before the production integration is built). The five negative cases are pinned
+   one per reason in `test_no_fused_configuration_that_cannot_fuse_downgrades_the_default`,
+   because they fail for different reasons and one expression has already been wrong about three
+   of them.
+
+   **What the early call cannot see, stated rather than left to be rediscovered.** At startup
+   `calibration_marginalization` does not exist yet; it is set several hundred lines later by
+   `if opts.calibration_envelope_directory:` from a `False` initial value, so the early call
+   substitutes that option — a restatement of the same condition, not an approximation. It is
+   also *checked*: the dispatch-time call passes the real variable and the driver **refuses** if
+   the two disagree, so a change to how `calibration_marginalization` is derived fails loudly
+   instead of silently re-opening the drift. Nothing else in the predicate is unavailable at
+   startup.
+
+   **Related, found while surveying the other consumers, NOT fixed here.**
+   `bin/integrate_likelihood_extrinsic_batchmode:535` and `:548` guard
+   `--rotation-slow` / `--freqresponse` on GPU against calibration marginalization with
+   `getattr(opts, 'calibration_marginalization', False)`. **There is no
+   `--calibration-marginalization` option and nothing ever assigns that attribute**, so both
+   guards are dead and have never fired; the live state is the module-level
+   `calibration_marginalization`, which is not set until much later, so the check would have to
+   read `opts.calibration_envelope_directory` — the same substitution `fused_calmarg_in_use`
+   documents. Reported on PR #237 for the separate early-rejection change, which covers exactly
+   these combinations.
 
    **And the downgrade notice promised behaviour the driver does not have.** One shared sentence
    served both downgrades and told everyone that naming the stencil explicitly would get them

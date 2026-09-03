@@ -707,17 +707,58 @@ _stencil_is_honoured = not _stencil_missing
 # anyone who passes the flag), and a DEFAULT falls back to 'nearest' -- the historical value, so
 # the fallback is a no-op relative to today -- with the reason printed.  The fallback is announced
 # rather than silent because a stencil that is not running is the one thing the log has to say.
-# COULD A FUSED KERNEL ACTUALLY RUN?  The flag alone does not decide it.  `use_fused_calmarg`
-# (:3261) is `calibration_marginalization and opts.calibration_fused_kernel`, and
-# `calibration_marginalization` (:1317) is exactly `bool(opts.calibration_envelope_directory)` --
-# so this is that same predicate, evaluated early enough to gate the downgrade.  The check below
-# keyed on the FLAG ALONE until 2026-09-03, which made the guard BROADER THAN THE THING IT
-# PROTECTS: with no envelope configured no fused kernel runs under ANY stencil, so downgrading
-# there protected nothing and silently cost the accuracy the new default exists to provide.
-# Reported as a P2 review finding on PR #237, and pinned by
-# test_a_bare_fused_kernel_flag_no_longer_downgrades_the_default.
-_fused_calmarg_would_run = bool(opts.calibration_fused_kernel) and bool(
-    opts.calibration_envelope_directory)
+def fused_calmarg_in_use(opts, calibration_marginalization=None):
+    """WILL A FUSED CALIBRATION KERNEL ACTUALLY RUN?  ONE definition, two call sites.
+
+    THIS FUNCTION EXISTS BECAUSE THE CONDITION WAS RE-DERIVED AND DRIFTED, TWICE IN A DAY, IN THE
+    SAME DIRECTION, WHILE A REVIEWER WAS LOOKING AT IT.  The stencil guard below needs the answer
+    at startup; `use_fused_calmarg` needs it again at dispatch time.  Written as two expressions
+    they went `flag` -> `flag and envelope` -> `flag and envelope and path`, each round adding a
+    conjunct the other site already had in effect.  The drift is INVISIBLE by construction: an
+    over-broad predicate downgrades the inherited stencil to 'nearest', which is exactly the
+    historical behaviour, so nothing fails and no log line looks wrong.  Two copies of a condition
+    drift; one does not.  (Four P2 findings on PR #237, of which three were this predicate.)
+
+    A fused kernel runs only where ALL of these hold.  Each is a REACHABILITY fact about the
+    driver, verified against the call sites, not a guess:
+
+      * calibration marginalization is configured -- otherwise n_cal stays 1;
+      * --calibration-fused-kernel was passed -- it is opt-in;
+      * --calibration-n-realizations > 1 -- factored_likelihood returns from its `n_cal == 1`
+        branch before `cal_method` is read at all, so with one realization 'fused' is inert;
+      * NOT --rotation-slow and NOT --freqresponse -- both REPLACE the likelihood.  The
+        non-distmarg dispatch puts the only `cal_method='fused'` call site in the `else` of
+        `if opts.rotation_slow: ... elif opts.freqresponse: ...`, and the two distmarg call
+        sites are unreachable because both options refuse distance marginalization outright at
+        startup;
+      * NOT --calibration-dump-responsibilities -- the pilot evaluates with an explicit
+        `cal_method='loop'` and `return_cal_components=True` (which the library also refuses to
+        fuse) and then RETURNS before the production integration is ever built.
+
+    The stencil is deliberately NOT a conjunct: whether the run is on 'nearest' is the question
+    the callers are answering, not part of "could a kernel run here at all".
+
+    WHAT THE EARLY CALL CANNOT SEE, stated rather than left to be rediscovered.  At startup
+    `calibration_marginalization` does not exist yet -- it is set several hundred lines later, at
+    the `if opts.calibration_envelope_directory:` block, from a False initial value.  Passing
+    None here substitutes `bool(opts.calibration_envelope_directory)`, which is that block's own
+    condition, so it is a restatement and not an approximation.  It is also CHECKED: the late
+    call site compares its result against the early one and refuses if they disagree, so a change
+    to how `calibration_marginalization` is derived fails loudly instead of silently re-opening
+    the same drift.  Nothing else in the predicate is unavailable at startup -- every other term
+    is a command-line option.
+    """
+    if calibration_marginalization is None:
+        calibration_marginalization = bool(opts.calibration_envelope_directory)
+    return (bool(calibration_marginalization)
+            and bool(opts.calibration_fused_kernel)
+            and int(getattr(opts, 'calibration_n_realizations', 0) or 0) > 1
+            and not bool(opts.rotation_slow)
+            and not bool(opts.freqresponse)
+            and not bool(opts.calibration_dump_responsibilities))
+
+
+_fused_calmarg_would_run = fused_calmarg_in_use(opts)
 # (reason, remedy) pairs, NOT bare reasons.  The two downgrades have DIFFERENT remedies and one
 # shared sentence would have to lie about one of them: a prerequisite downgrade becomes a REFUSAL
 # if you name the stencil explicitly, while the fused-kernel downgrade does NOT -- an explicit
@@ -3330,7 +3371,22 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
     # use the fused implementation (Option C) when requested; works on GPU (CUDA
     # kernels) and CPU (numpy).  Phase marginalization is not supported by the fused
     # path, so it is disabled there below (that call site stays on the loop method).
-    use_fused_calmarg = bool(calibration_marginalization and opts.calibration_fused_kernel)
+    # THE SAME COMPUTATION as the startup stencil guard, not a second expression -- see
+    # fused_calmarg_in_use.  `calibration_marginalization` is passed explicitly because it is the
+    # one term the early call had to substitute for; comparing the two results is what turns a
+    # future divergence in how it is derived into a loud failure instead of a silent re-opening
+    # of the drift this function was written to end.
+    use_fused_calmarg = fused_calmarg_in_use(opts, calibration_marginalization)
+    if use_fused_calmarg != _fused_calmarg_would_run:
+        raise ValueError(
+            "internal inconsistency: at startup the fused-calibration-kernel predicate was %r "
+            "and at dispatch it is %r. The startup value decided whether the inherited "
+            "--interpolate-time default was downgraded to 'nearest', so the stencil now in force "
+            "(%r) was chosen on a premise that no longer holds. This means "
+            "`calibration_marginalization` is no longer `bool(opts.calibration_envelope_directory)`; "
+            "fused_calmarg_in_use's early substitution must be updated in the same commit. "
+            "Refusing rather than integrating with a stencil chosen for the wrong reason."
+            % (_fused_calmarg_would_run, use_fused_calmarg, opts._noloop_time_interp))
     if calibration_marginalization:
       extra_kwargs['calibration_realizations'] = calibration_realization_dict
       extra_kwargs['calibration_conjugate'] = bool(opts.calibration_conjugate_phase)

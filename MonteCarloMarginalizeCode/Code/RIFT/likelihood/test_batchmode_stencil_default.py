@@ -77,6 +77,9 @@ HONOURED = ['--time-marginalization', '--vectorized', '--gpu', '--force-xpy']
 # no kernel could run at all.
 CALMARG = ['--calibration-envelope-directory', '/nonexistent-calibration-envelope-for-tests']
 FUSED = ['--calibration-fused-kernel'] + CALMARG
+# NOTE the default --calibration-n-realizations is 100, i.e. > 1, so FUSED alone is a genuine
+# fused configuration.  test_no_fused_configuration_that_cannot_fuse_downgrades_the_default turns
+# that knob off explicitly as one of its cases.
 
 
 def _run(script, args, timeout=300, in_tmpdir=False):
@@ -328,6 +331,94 @@ def test_an_explicit_stencil_with_the_fused_kernel_says_so():
     out = _squash(_run(DRIVER, HONOURED + FUSED + ['--interpolate-time', 'sinc']))
     assert '--calibration-fused-kernel: NOT USED' in out, (
         "losing the fused kernel to an explicit stencil is still silent: %s" % out[-1500:])
+
+
+def test_the_fused_predicate_has_ONE_definition_shared_by_BOTH_call_sites():
+    """The fourth P2 finding on PR #237, and the reason it is the last one of its kind.
+
+    The condition "will a fused calibration kernel actually run?" is needed twice: at startup, to
+    decide whether the inherited stencil is downgraded, and at dispatch, to pick cal_method.
+    Written as two expressions it drifted THREE TIMES IN ONE DAY, always in the same direction --
+    flag -> flag+envelope -> flag+envelope+path -- because an over-broad predicate downgrades to
+    'nearest', which is indistinguishable from the historical behaviour, so nothing ever fails.
+
+    A value test cannot catch that; the next conjunct someone forgets will be a fourth expression
+    that agrees with these on every case anyone thought to write down.  So this pins the STRUCTURE:
+    one function, called at both sites, with no second expression left behind.
+    """
+    with open(DRIVER) as handle:
+        source = handle.read()
+    tree = ast.parse(source)
+    funcs = [n for n in ast.walk(tree)
+             if isinstance(n, ast.FunctionDef) and n.name == 'fused_calmarg_in_use']
+    assert len(funcs) == 1, (
+        "the shared fused-calibration-kernel predicate is gone; if it was inlined again, the "
+        "startup guard and use_fused_calmarg are two expressions once more and will drift")
+    calls = [n for n in ast.walk(tree)
+             if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+             and n.func.id == 'fused_calmarg_in_use']
+    assert len(calls) >= 2, (
+        "fused_calmarg_in_use is called %d time(s); BOTH the startup stencil guard and "
+        "use_fused_calmarg must go through it, or one of them is a second copy again"
+        % len(calls))
+    # and no site re-derives it: the old shapes, in either order, must not reappear
+    for shape in ("bool(calibration_marginalization and opts.calibration_fused_kernel)",
+                  "bool(opts.calibration_fused_kernel) and bool(\n    opts.calibration_envelope_directory)"):
+        assert shape not in source, (
+            "a hand-written copy of the fused-kernel predicate is back in the driver: %r" % shape)
+    # THE TRIPWIRE, pinned STRUCTURALLY and deliberately not claimed as behaviour coverage.
+    #
+    # The one term the early call cannot read is `calibration_marginalization`, for which it
+    # substitutes bool(opts.calibration_envelope_directory) -- that IS the condition the later
+    # assignment uses, so the two agree for every command line that exists, and removing the
+    # comparison changes nothing testable (verified by mutation, 2026-09-03: deleting it leaves
+    # all 23 tests green).  Its whole purpose is to fail if someone later derives
+    # calibration_marginalization differently, and no test can reach that without editing the
+    # driver.  So this asserts the tripwire is PRESENT rather than that it fires: an unexercisable
+    # guard that is silently deleted is worse than one that is honestly labelled.
+    compares = [n for n in ast.walk(tree) if isinstance(n, ast.Compare)
+                and isinstance(n.left, ast.Name) and n.left.id == 'use_fused_calmarg'
+                and any(isinstance(c, ast.Name) and c.id == '_fused_calmarg_would_run'
+                        for c in n.comparators)]
+    assert compares, (
+        "the startup/dispatch agreement check on the fused-kernel predicate is gone. It is the "
+        "only thing that makes a future change to how calibration_marginalization is derived "
+        "fail loudly instead of silently re-opening the drift this function exists to end.")
+
+
+def test_no_fused_configuration_that_cannot_fuse_downgrades_the_default():
+    """The OTHER edge, enumerated -- a guard must not be broader than the thing it protects.
+
+    Each of these passes --calibration-fused-kernel, and in each the fused kernel CANNOT run, so
+    downgrading the inherited stencil to 'nearest' buys nothing and silently costs the accuracy
+    the new default exists to provide.  They are listed one per reason rather than folded into a
+    single case because they fail for DIFFERENT reasons and a single expression has already been
+    wrong about three of them.
+    """
+    cases = [
+        ("no calibration envelope: nothing to marginalize over",
+         HONOURED + ['--calibration-fused-kernel']),
+        ("--calibration-n-realizations 1: the library returns from its n_cal==1 branch "
+         "before cal_method is read",
+         HONOURED + FUSED + ['--calibration-n-realizations', '1']),
+        ("--rotation-slow REPLACES the likelihood; the fused call site is in the else branch",
+         ['--time-marginalization', '--vectorized', '--rotation-slow',
+          '--calibration-fused-kernel'] + CALMARG),
+        ("--freqresponse REPLACES the likelihood, same dispatch",
+         ['--time-marginalization', '--vectorized', '--freqresponse',
+          '--calibration-fused-kernel'] + CALMARG),
+        ("--calibration-dump-responsibilities is a pilot: it evaluates with cal_method='loop' "
+         "and returns before the production integration exists",
+         HONOURED + FUSED + ['--calibration-dump-responsibilities', 'pilot_resp.npz']),
+    ]
+    for why, argv in cases:
+        out = _run(DRIVER, argv)
+        assert _stencil_banner(out) == TIME_INTERP_DEFAULT, (
+            "the default stencil was downgraded to protect a fused kernel that cannot run (%s). "
+            "A needless downgrade is INVISIBLE -- it looks exactly like the historical behaviour "
+            "-- which is why this edge is pinned case by case: %s" % (why, out[-1500:]))
+        assert 'NOT APPLIED' not in _squash(out), (
+            "the driver announced a downgrade it did not need to make (%s): %s" % (why, out[-1200:]))
 
 
 def test_a_bare_fused_kernel_flag_no_longer_downgrades_the_default():
