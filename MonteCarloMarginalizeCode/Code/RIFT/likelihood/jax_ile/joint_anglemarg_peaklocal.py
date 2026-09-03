@@ -57,6 +57,12 @@ __all__ = [
     "u_stationary_roots",
     "log_inner_u_integral",
     "joint_lnL_phi_dense",
+    "u_profile",
+    "eval_g2",
+    "phi_local_lnI",
+    "PHI_SEEDS",
+    "PHI_WINDOW_SIGMA",
+    "PHI_NODES_PER_REGION",
 ]
 
 #: Local u-window half-width in units of the local sigma, CLIPPED to the cell.  The cell
@@ -386,3 +392,174 @@ def joint_lnL_phi_dense(C_A, C_B, x_grid, log_w_grid, n_phi=256,
     per_x = jax.scipy.special.logsumexp(vals, axis=0) - jnp.log(n_phi) \
         + jnp.log(2.0 * jnp.pi)
     return jax.scipy.special.logsumexp(per_x + log_w_grid) - 2.0 * jnp.log(2.0 * jnp.pi)
+
+
+# ------------------------------------------------------- phi localization
+
+#: phi seeds.  These are SEEDS, not a quadrature grid: Newton moves each to a maximum of
+#: the profile and overlapping windows merge, so the count sets how many distinct modes
+#: can be found, not the accuracy.  It does not scale with amplitude -- the number of
+#: maxima of F is set by the bidegree, which is mode content, not SNR.
+PHI_SEEDS = 32
+
+#: phi window half-width in units of the profile's local sigma, and nodes per region.
+#: Same Poisson-summation argument as U_NODES_PER_CELL: at +-12 sigma with 96 nodes the
+#: spacing is sigma/4 and the trapezoid error on a Gaussian is ~1e-137.
+PHI_WINDOW_SIGMA = 12.0
+PHI_NODES_PER_REGION = 96
+
+
+def eval_g2(C, phi, u, order=(0, 0)):
+    """``d^a_phi d^b_u g`` at matching ``(phi, u)``, from the 2-D table."""
+    KP = C.shape[0]
+    KS = (C.shape[1] - 1) // 2
+    k = jnp.arange(KP)[None, :, None]
+    q = jnp.arange(-KS, KS + 1)[None, None, :]
+    w = jnp.where(jnp.arange(KP) > 0, 2.0, 1.0)[None, :, None]
+    a, b = order
+    phi = jnp.atleast_1d(phi)
+    u = jnp.atleast_1d(u)
+    E = jnp.exp(1j * (phi[:, None, None] * k + u[:, None, None] * q))
+    return (E * ((1j * k) ** a) * ((1j * q) ** b) * (w * C[None])).sum((1, 2)).real
+
+
+def u_profile(C, phi, n_nodes=U_NODES_PER_CELL, window_sigma=U_WINDOW_SIGMA):
+    """``F(phi) = log int du exp(g)`` and its first two EXACT phi-derivatives.
+
+    Differentiating under the integral gives them from the SAME nodes at no extra
+    evaluation cost:
+
+        F'  = E[d_phi g]              F'' = E[d^2_phi g] + Var(d_phi g)
+
+    the expectation being under the normalized ``exp(g) du`` on the u axis.  That
+    variance term is why phi cannot inherit the u axis's economy: it grows with
+    amplitude, so ``F`` sharpens as the signal does even though ``g`` does not.
+    """
+    KP = C.shape[0]
+    KS = (C.shape[1] - 1) // 2
+    k = jnp.arange(KP)
+    w = jnp.where(k > 0, 2.0, 1.0)
+    ph = jnp.exp(1j * phi * k) * w
+    D = lambda q: (ph * C[:, KS + q]).sum()
+    a = D(0).real
+    c1 = D(1) + jnp.conj(D(-1))
+    c2 = D(2) + jnp.conj(D(-2))
+
+    u = jnp.sort(u_stationary_roots(c1, c2))
+    mid = 0.5 * (u + jnp.roll(u, -1) + jnp.where(jnp.arange(4) == 3, 2 * jnp.pi, 0.0))
+    lo_c = jnp.roll(mid, 1) - jnp.where(jnp.arange(4) == 0, 2 * jnp.pi, 0.0)
+
+    def _newton(uc, _):
+        g1 = _g_u(a, c1, c2, uc, 1)
+        g2 = _g_u(a, c1, c2, uc, 2)
+        step = jnp.where(jnp.abs(g2) > 0, -g1 / jnp.where(jnp.abs(g2) > 0, g2, 1.0), 0.0)
+        return jnp.clip(uc + jnp.clip(step, -0.5, 0.5), lo_c, mid), None
+
+    ustar, _ = lax.scan(_newton, u, None, length=8)
+    g2s = _g_u(a, c1, c2, ustar, 2)
+    peaked = g2s < 0.0
+    sig = jnp.where(peaked, 1.0 / jnp.sqrt(jnp.where(peaked, -g2s, 1.0)), jnp.inf)
+    lo = jnp.where(peaked, jnp.maximum(ustar - window_sigma * sig, lo_c), lo_c)
+    hi = jnp.where(peaked, jnp.minimum(ustar + window_sigma * sig, mid), mid)
+    width = jnp.maximum(hi - lo, 0.0)
+
+    s = jnp.linspace(0.0, 1.0, n_nodes)
+    uu = (lo[:, None] + width[:, None] * s[None, :]).ravel()          # (4n,)
+    pp = jnp.full(uu.shape, phi)
+    gg = eval_g2(C, pp, uu, (0, 0))
+    gp = eval_g2(C, pp, uu, (1, 0))
+    gpp = eval_g2(C, pp, uu, (2, 0))
+    wq = jnp.full(n_nodes, 1.0 / (n_nodes - 1)).at[0].mul(0.5).at[-1].mul(0.5)
+    lw = (jnp.log(jnp.where(width > 0, width, 1e-300))[:, None]
+          + jnp.log(wq)[None, :]).ravel()
+    lw = jnp.where(jnp.repeat(width > 0, n_nodes), lw, -jnp.inf)
+
+    m = gg.max()
+    wt = jnp.exp(gg - m + lw)
+    Z = wt.sum()
+    e1 = (wt * gp).sum() / Z
+    F = m + jnp.log(Z)
+    ddF = (wt * (gpp + gp * gp)).sum() / Z - e1 * e1
+    return F, e1, ddF
+
+
+def _merge_sorted_intervals(lo, hi, n):
+    """Merge overlapping 1-D intervals under jit, without data-dependent shapes.
+
+    Sorting by ``lo`` makes merging a running maximum: a new group starts exactly where
+    an interval begins beyond the running max of the ``hi`` seen so far.  Group ids are
+    then a cumsum, and the merged bounds are segment reductions over a FIXED number of
+    slots.  Empty slots come back as an inverted interval and are dropped by the
+    ``width > 0`` mask downstream, so nothing needs compaction.
+
+    This is the jittable form of the reference's ``_merge_boxes``; merging is not
+    tidiness but what stops the mass between two windows being counted twice.
+    """
+    idx = jnp.argsort(lo)
+    lo, hi = lo[idx], hi[idx]
+    run = jax.lax.cummax(hi)
+    fresh = jnp.concatenate([jnp.array([True]), lo[1:] > run[:-1]])
+    gid = jnp.cumsum(fresh) - 1
+    seg_lo = jax.ops.segment_min(lo, gid, num_segments=n, indices_are_sorted=True)
+    seg_hi = jax.ops.segment_max(hi, gid, num_segments=n, indices_are_sorted=True)
+    return seg_lo, seg_hi
+
+
+def phi_local_lnI(C, n_seed=PHI_SEEDS, w_sigma=PHI_WINDOW_SIGMA,
+                  n_nodes=PHI_NODES_PER_REGION, u_nodes=U_NODES_PER_CELL):
+    """``log int dphi int du exp(g)`` with BOTH axes localized, jittable.
+
+    u is exact on the cell partition; phi is localized around the maxima of the profile
+    ``F`` using its exact derivatives (see :func:`u_profile`).  phi has no algebraic
+    completeness warrant -- ``F`` is a log-integral, not a trig polynomial -- so the
+    seeds are targeting only and correctness rests on the caller's cover bound, exactly
+    as on the time axis.
+    """
+    prof = lambda p: u_profile(C, p, n_nodes=u_nodes)
+    seeds = jnp.linspace(0.0, 2.0 * jnp.pi, n_seed, endpoint=False)
+
+    def _newton(p, _):
+        _, d1, d2 = jax.vmap(prof)(p)
+        step = jnp.where(d2 < 0, -d1 / jnp.where(d2 < 0, d2, -1.0), 0.0)
+        return jnp.mod(p + jnp.clip(step, -0.3, 0.3), 2.0 * jnp.pi), None
+
+    p, _ = lax.scan(_newton, seeds, None, length=24)
+    F, d1, d2 = jax.vmap(prof)(p)
+    peaked = d2 < 0.0
+    sig = jnp.where(peaked, 1.0 / jnp.sqrt(jnp.where(peaked, -d2, 1.0)), 0.0)
+
+    # non-maxima are pushed past every real interval so they form empty groups; no
+    # tolerance decides membership, which is deliberate -- a threshold on |F'| would be
+    # exactly the estimate-promoted-to-bound this design refuses.
+    big = 1.0e6
+    lo = jnp.where(peaked, p - w_sigma * sig, big)
+    hi = jnp.where(peaked, p + w_sigma * sig, big)
+    seg_lo, seg_hi = _merge_sorted_intervals(lo, hi, n_seed)
+    # There are always more slots than groups, and an EMPTY slot comes back from the
+    # segment reductions as (+inf, -inf).  Masking its weight is not enough: the node
+    # positions are still built from it, jnp.mod(inf, 2 pi) is NaN, and NaN * 0 is NaN,
+    # so the poison reaches the sum through a term that was supposed to be switched off.
+    # Neutralize the POSITION, not just the weight.
+    seg_lo = jnp.where(jnp.isfinite(seg_lo), seg_lo, 0.0)
+    seg_hi = jnp.where(jnp.isfinite(seg_hi), seg_hi, 0.0)
+    width = jnp.clip(seg_hi - seg_lo, 0.0, 2.0 * jnp.pi)
+
+    # CLAMP TO ONE CIRCUIT.  At low amplitude sigma is huge and the windows span more
+    # than 2 pi; integrating that literally wraps the circle and counts the same mass
+    # repeatedly (measured +1.84 nats, a factor of 6.3, on real tables in the numpy
+    # reference -- and ACCEPTED, because a region covering everything leaves nothing
+    # outside for the certificate to object to).
+    total = width.sum()
+    wrapped = total >= 2.0 * jnp.pi
+    seg_lo = jnp.where(wrapped, jnp.where(jnp.arange(n_seed) == 0, 0.0, big), seg_lo)
+    width = jnp.where(wrapped,
+                      jnp.where(jnp.arange(n_seed) == 0, 2.0 * jnp.pi, 0.0), width)
+
+    s = jnp.linspace(0.0, 1.0, n_nodes)
+    pp = (seg_lo[:, None] + width[:, None] * s[None, :]).ravel()
+    Fv, _, _ = jax.vmap(prof)(jnp.mod(pp, 2.0 * jnp.pi))
+    wq = jnp.full(n_nodes, 1.0 / (n_nodes - 1)).at[0].mul(0.5).at[-1].mul(0.5)
+    lw = (jnp.log(jnp.where(width > 0, width, 1e-300))[:, None]
+          + jnp.log(wq)[None, :]).ravel()
+    lw = jnp.where(jnp.repeat(width > 0, n_nodes), lw, -jnp.inf)
+    return jax.scipy.special.logsumexp(Fv + lw)

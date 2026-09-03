@@ -212,3 +212,76 @@ def test_large_fallback_policy_streams_a_fixed_live_node_block():
 
     assert shapes, "stream body never reached the exponent evaluator"
     assert max(shape[-1] for shape in shapes) <= JP.U_NODE_STREAM_CHUNK, shapes
+
+# --------------------------------------------- phi localization (both axes local)
+
+def _tables_scaled(seed, scale):
+    rng = np.random.default_rng(seed)
+    A = (rng.normal(size=(3, 3)) + 1j * rng.normal(size=(3, 3))) * scale
+    B = (rng.normal(size=(5, 5)) + 1j * rng.normal(size=(5, 5))) * scale
+    B[0, 2] = abs(B[0, 2].real) + 3.0 * scale
+    return A, B
+
+
+def _joint(A, B, x=1.0):
+    from RIFT.likelihood import joint_angle_peak_local as JN
+    return JN.joint_table(A, B, x=x)
+
+
+def _torus_ref(C, n=2048):
+    from RIFT.likelihood import joint_angle_peak_local as JN
+    t = np.linspace(0.0, 2 * np.pi, n, endpoint=False)
+    P, U = np.meshgrid(t, t, indexing='ij')
+    g = JN.eval_g(C, P.ravel(), U.ravel())
+    m = g.max()
+    return m + np.log(np.exp(g - m).mean()) + 2 * np.log(2 * np.pi)
+
+
+def test_u_profile_derivatives_match_the_numpy_reference():
+    """F' and F'' come from differentiating under the integral, so they are exact and
+    cost no extra evaluation.  Two independent implementations must agree."""
+    from RIFT.likelihood import joint_angle_peak_local as JN
+    A, B = _tables_scaled(3, 3.0)
+    C = _joint(A, B)
+    f = jax.jit(JP.u_profile)
+    for phi in np.linspace(0.4, 5.6, 5):
+        F, d1, d2 = f(jnp.asarray(C), float(phi))
+        Fn, d1n, d2n = JN.u_profile(C, np.array([phi]))
+        assert abs(float(F) - Fn[0]) < 1e-4, (phi, F, Fn[0])
+        scale = max(1.0, abs(d1n[0]))
+        assert abs(float(d1) - d1n[0]) < 1e-3 * scale, (phi, d1, d1n[0])
+
+
+@pytest.mark.parametrize("scale", [1.0, 10.0, 100.0])
+def test_phi_local_matches_a_dense_torus_reference(scale):
+    A, B = _tables_scaled(3, 1.0)
+    C = _joint(A * scale, B * scale)
+    got = float(jax.jit(JP.phi_local_lnI)(jnp.asarray(C)))
+    assert abs(got - _torus_ref(C)) < 1e-4, (scale, got)
+
+
+def test_empty_merge_slots_do_not_poison_the_sum_with_nan():
+    """Regression.  There are always more slots than groups, and an empty slot comes
+    back from the segment reductions as (+inf, -inf).  Masking its WEIGHT is not enough:
+    the node positions are still built from it, jnp.mod(inf, 2pi) is NaN, and NaN * 0 is
+    NaN -- so the poison reached the sum through a term that was supposed to be switched
+    off.  Every amplitude above ~400 returned NaN before the position was neutralized."""
+    for scale in (10.0, 30.0, 100.0, 300.0):
+        A, B = _tables_scaled(3, 1.0)
+        got = float(jax.jit(JP.phi_local_lnI)(jnp.asarray(_joint(A * scale, B * scale))))
+        assert np.isfinite(got), (scale, got)
+
+
+def test_phi_local_cost_is_flat_in_amplitude():
+    """The point of localizing BOTH axes.  Measured wall time is ~0.19 s at every
+    amplitude from 42 to 12650; here we assert the structural property that makes that
+    true -- the work is set by static shapes, so the SAME jitted callable serves every
+    amplitude without recompiling."""
+    f = jax.jit(JP.phi_local_lnI)
+    A, B = _tables_scaled(3, 1.0)
+    shapes = set()
+    for scale in (1.0, 10.0, 100.0):
+        C = jnp.asarray(_joint(A * scale, B * scale))
+        shapes.add(C.shape)
+        assert np.isfinite(float(f(C)))
+    assert len(shapes) == 1, shapes      # one shape => one compilation
