@@ -233,7 +233,13 @@ def log_inner_u_integral(a, c1, c2, n_nodes=U_NODES_PER_CELL,
     # large stationary residual; curvature alone then centres a +-W sigma window on a
     # non-stationary point and sizes sigma from the wrong curvature.  Measured in the
     # numpy twin: 18% of cells that g'' < 0 accepted fail this gate, the worst at
-    # |g_u|/M_1 = 0.33.  A cell failing it is integrated WHOLE, which can only add nodes.
+    # |g_u|/M_1 = 0.33.  A cell failing it is integrated WHOLE -- which ADDS NO NODES, it
+    # spreads the same n_nodes over the whole cell, so the fallback is COARSER than the
+    # window it replaces.  (An earlier comment here claimed "can only add nodes"; that was
+    # wrong, and the numpy twin measured 1.7e-03 nats of inner-u error from it.)  JAX
+    # cannot adapt n_nodes -- shapes may not depend on traced values -- so the sizing is
+    # exposed to the caller as required_u_nodes() rather than fixed here; see its docstring
+    # for why raising it by default is the wrong trade.
     g1s = _g_u(a, c1, c2, ustar, 1)
     g2s = _g_u(a, c1, c2, ustar, 2)
     m1u = jnp.abs(c1) + 2.0 * jnp.abs(c2)          # exact bound on |d g / du|
