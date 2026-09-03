@@ -125,6 +125,38 @@ def test_narrowed_grid_without_the_prior_range_renormalizes_the_defect():
     assert float(np.sum(np.exp(np.asarray(log_w)))) == pytest.approx(1.0, rel=1e-9)
 
 
+def test_narrowed_ADAPTIVE_grid_weights_are_the_box_prior_mass():
+    """The adaptive grid is a second, opt-in production path
+    (JAX_ILE_DISTGRID_ADAPTIVE=1) and it takes d_prior_range too.  It was pinned
+    only for the NO-OP case (bitwise-unchanged, above), which passes whether or
+    not the narrowed branch works -- a mutation deleting that branch left this
+    file green.  Found by mutation sweep on takeover; this is the test that kills
+    it, and the one below is its power check.
+    """
+    lo, hi = 800.0, 3200.0
+    kw = dict(d_peak=2000.0, sigma_d=100.0, d_prior='euclidean')
+    _, log_w = make_distance_grid_adaptive(lo, hi, d_prior_range=(D_MIN, D_MAX), **kw)
+    got = float(np.sum(np.exp(np.asarray(log_w))))
+    analytic = (hi ** 3 - lo ** 3) / (D_MAX ** 3 - D_MIN ** 3)
+    # 3e-2 relative, LOOSER than the uniform grid's 1e-2 on purpose: the numerator
+    # and the denominator are two differently-shaped adaptive node sets, and
+    # _trapezoidal_spacing gives the end nodes a full cell rather than a half one,
+    # so the endpoint bias no longer cancels between them.  Measured 1.87% here.
+    # It is a systematic, it is bounded, and it is pinned so it cannot grow quietly.
+    assert got == pytest.approx(analytic, rel=3e-2)
+    assert got < 0.05                       # emphatically NOT renormalized to 1
+
+
+def test_narrowed_ADAPTIVE_grid_without_the_prior_range_renormalizes_the_defect():
+    """Power check for the test above: the historical signature on a narrow range
+    returns unit weight, i.e. it moved the prior.  Measured cost of that on this
+    box: +5.53 nats of evidence, silently."""
+    lo, hi = 800.0, 3200.0
+    kw = dict(d_peak=2000.0, sigma_d=100.0, d_prior='euclidean')
+    _, log_w = make_distance_grid_adaptive(lo, hi, **kw)          # no d_prior_range
+    assert float(np.sum(np.exp(np.asarray(log_w)))) == pytest.approx(1.0, rel=1e-9)
+
+
 def test_narrowed_grid_nodes_are_inside_the_box():
     """The disconnected-flag check at grid level: the nodes must actually move."""
     lo, hi = 800.0, 3200.0
@@ -278,20 +310,27 @@ def test_driver_prior_normalization_stays_on_d_min_d_max():
     assert 'logw = lnL - log_distance_box_correction(opts, with_distance)' in src
 
 
-def test_box_correction_is_exactly_zero_without_the_option():
-    """The historical prior-MC path must be untouched: `lnL - 0.0` is bitwise lnL."""
-    sys.path.insert(0, os.path.dirname(os.path.abspath(_DRIVER)))
-    import importlib.util
-    spec = importlib.util.spec_from_loader('_jaxdrv', loader=None)
-    mod = importlib.util.module_from_spec(spec)
+def _driver_ns():
+    """The driver's distance-box functions, exec'd out of its source.
+
+    Spans resolve_distance_limit -> log_distance_box_correction -> sample_prior ->
+    log_prior, which is the whole contract: the box decides what is DRAWN and what
+    is IN SUPPORT, while [d_min,d_max] decides the normalization.  Executing them
+    together is deliberate -- pulling only one out is how the coupling between the
+    proposal range and the correction went unpinned in the first place.
+    """
     with open(_DRIVER) as f:
         src = f.read()
-    # exec only the two functions under test, with their numpy dependency
     ns = {'np': np}
     start = src.index('def resolve_distance_limit(opts):')
-    end = src.index('def sample_prior(n, opts, rng, with_distance):')
+    end = src.index('def eval_lnL(like, theta, opts, with_distance):')
     exec(compile(src[start:end], _DRIVER, 'exec'), ns)          # noqa: S102
-    mod.__dict__.update(ns)
+    return ns
+
+
+def test_box_correction_is_exactly_zero_without_the_option():
+    """The historical prior-MC path must be untouched: `lnL - 0.0` is bitwise lnL."""
+    ns = _driver_ns()
 
     class _O(object):
         d_min, d_max, limit_distance = 1.0, 20000.0, None
@@ -308,3 +347,52 @@ def test_box_correction_is_exactly_zero_without_the_option():
         np.log((20000.0 ** 3 - 1.0 ** 3) / (3200.0 ** 3 - 800.0 ** 3)))
     # inert when distance is marginalized out (no explicit distance proposal)
     assert ns['log_distance_box_correction'](_O(), False) == 0.0
+
+
+def test_sample_prior_DRAWS_inside_the_box():
+    """The proposal must actually move, not just the prior's support.
+
+    run_prior_mc subtracts log_distance_box_correction on the understanding that
+    sample_prior draws from the prior RESTRICTED to the box.  Nothing pinned that
+    understanding: a mutation making sample_prior draw over the full [d_min,d_max]
+    while the correction stayed left this file green, and the resulting estimator
+    is biased low by exactly the correction (5.5 nats on the box below), because
+    inside the box the proposal then equals the prior and the weight needs no
+    correction at all.  This test pins the two halves together.
+    """
+    ns = _driver_ns()
+    rng = np.random.default_rng(20260902)
+
+    class _O(object):
+        d_min, d_max, limit_distance = 1.0, 20000.0, '800,3200'
+
+    theta, logp = ns['sample_prior'](20000, _O(), rng, True)
+    d = theta[..., 5]
+    assert d.min() >= 800.0 and d.max() <= 3200.0, (d.min(), d.max())
+    # and it must FILL the box, not sit in a corner of it
+    assert d.min() < 900.0 and d.max() > 3100.0
+    assert np.all(np.isfinite(logp))                 # every draw is in support
+
+    # positive control: without the option the draws span the full prior range
+    _O.limit_distance = None
+    d_full = ns['sample_prior'](20000, _O(), rng, True)[0][..., 5]
+    assert d_full.max() > 15000.0
+
+
+def test_log_prior_is_minus_inf_outside_the_box():
+    """The other half of the same contract, at the density rather than the draw."""
+    ns = _driver_ns()
+
+    class _O(object):
+        d_min, d_max, limit_distance = 1.0, 20000.0, '800,3200'
+
+    inside = np.array([[1.0, 0.0, 1.0, 1.0, 1.0, 2000.0]])
+    below = np.array([[1.0, 0.0, 1.0, 1.0, 1.0, 500.0]])
+    above = np.array([[1.0, 0.0, 1.0, 1.0, 1.0, 9000.0]])
+    assert np.isfinite(ns['log_prior'](inside, _O(), True)[0])
+    assert ns['log_prior'](below, _O(), True)[0] == -np.inf
+    assert ns['log_prior'](above, _O(), True)[0] == -np.inf
+    # ... and the normalization inside is the FULL-range one, not the box's
+    got = float(ns['log_prior'](inside, _O(), True)[0])
+    _O.limit_distance = None
+    assert got == pytest.approx(float(ns['log_prior'](inside, _O(), True)[0]), rel=1e-12)

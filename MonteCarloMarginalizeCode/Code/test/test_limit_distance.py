@@ -414,6 +414,7 @@ def _run_ile_narrowing_block(limit_distance, **optkw):
         distance_marginalization = False
         d_prior_redshift = False
         internal_reparam_dl_incl = False
+        pin_distance_to_sim = False
         limit_distance = None
     o = _O()
     o.limit_distance = limit_distance
@@ -449,9 +450,16 @@ def test_ile_narrowing_block_is_a_no_op_without_the_option():
 
 @pytest.mark.skipif(not os.path.exists(_ILE), reason='ILE executable not in this tree')
 @pytest.mark.parametrize('flag', ['distance_marginalization', 'd_prior_redshift',
-                                  'internal_reparam_dl_incl'])
+                                  'internal_reparam_dl_incl', 'pin_distance_to_sim'])
 def test_ile_narrowing_block_refuses_the_incompatible_modes(flag):
-    """These three have no d_L sampler to narrow.  Refusing beats reinterpreting."""
+    """These four have no d_L sampler to narrow.  Refusing beats reinterpreting.
+
+    pin_distance_to_sim was MISSED by the first three and added after an
+    adversarial audit that enumerated every distance-touching option in the driver
+    rather than trusting the declared list: it pins distance to the injection value
+    inside analyze_event, so the box was accepted and silently did nothing.  That
+    is the same class as --distance-marginalization, and the same failure mode this
+    option's whole design is meant to avoid."""
     with pytest.raises(SystemExit):
         _run_ile_narrowing_block('800,3200', **{flag: True})
     # ... and they are NOT refused when the option is absent

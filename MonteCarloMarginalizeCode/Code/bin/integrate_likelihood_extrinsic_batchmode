@@ -1424,6 +1424,8 @@ if limit_distance_active:
     raise SystemExit(" --limit-distance is not compatible with --distance-marginalization: that path has no distance sampler to narrow (the distance integral is done analytically over [--d-min,--d-max] from the lookup table).")
   if getattr(opts, 'd_prior_redshift', False):
     raise SystemExit(" --limit-distance is not compatible with --d-prior-redshift: the sampled coordinate is then redshift, not luminosity distance in Mpc.")
+  if opts.pin_distance_to_sim:
+    raise SystemExit(" --limit-distance is not compatible with --pin-distance-to-sim: that path PINS distance to the injection value (analyze_event sets pinned_params['distance'] = P.dist), so there is no distance draw for a box to restrict and the option would be a silent no-op.  Same class as --distance-marginalization above: refuse rather than accept-and-ignore.")
   if opts.internal_reparam_dl_incl:
     raise SystemExit(" --limit-distance is not compatible with --internal-reparam-dl-incl: the sampled distance axis is then D_eff = d_L/A(iota), not d_L, so a box in Mpc of d_L does not map to a box in the sampled coordinate.")
   try:

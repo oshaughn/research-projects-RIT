@@ -209,7 +209,7 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         is the only gated check that distinguishes
 #                                         the corrected sizing.  The rest of the
 #                                         angle-marg suite is EXCLUDED; see below.
-#   test_limit_distance_jax.py        15  --limit-distance on this arm: the distance
+#   test_limit_distance_jax.py        19  --limit-distance on this arm: the distance
 #                                         QUADRATURE narrows while the prior keeps its
 #                                         [d_min,d_max] normalization.  Includes the
 #                                         bitwise no-op of the default call (both the
@@ -422,14 +422,17 @@ fi
 # the A0==0/B1==0 identity is MEASURED to hold).
 # Raised 217 -> 225 by the tests answering external review on the identity gate.
 # Raised 225 -> 240 on merging the --limit-distance branch, by the fifteen
-# test_limit_distance_jax.py pins (fourteen behavioural plus an x64 tripwire),
-# which preserves the margin of 2 the 225 floor already had.  CONFIRMED against a
-# real run on the merged tree rather than asserted: "collected 242 tests from 24
-# files", then "242 passed, 1 deselected, 0 failed" (jax 0.9.2 / numpyro 0.21.0 /
-# pytest 9.1.1 / numpy 2.4.6, 15m07s).  Both branches raised this constant, so it
-# is one of the two places this merge could have gone quietly wrong; the other is
-# the FILES array above, which takes the UNION of the two branches' additions.
-EXPECTED_TESTS=240
+# test_limit_distance_jax.py pins then present, which preserves the margin of 2
+# the 225 floor already had.  Both branches raised this constant, so it is one of
+# the two places that merge could have gone quietly wrong; the other is the FILES
+# array above, which takes the UNION of the two branches' additions.
+# Raised 240 -> 244 by four pins added after an adversarial mutation sweep found
+# two INERT guards: the adaptive distance grid's d_prior_range branch could be
+# deleted with the suite still green (a silent +5.5 nat evidence move on the
+# JAX_ILE_DISTGRID_ADAPTIVE path), and sample_prior could be made to draw over the
+# full range while run_prior_mc kept subtracting the box correction.  Counts taken
+# from collection runs, never arithmetic: that file now collects 19.
+EXPECTED_TESTS=244
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"
