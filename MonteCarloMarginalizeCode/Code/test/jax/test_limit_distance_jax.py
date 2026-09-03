@@ -396,3 +396,54 @@ def test_log_prior_is_minus_inf_outside_the_box():
     got = float(ns['log_prior'](inside, _O(), True)[0])
     _O.limit_distance = None
     assert got == pytest.approx(float(ns['log_prior'](inside, _O(), True)[0]), rel=1e-12)
+
+
+###
+### 7. Interactions with the distance quadrature that landed alongside (#221)
+###
+
+def _phipsi(data, lo, hi, prior_range, **kw):
+    from RIFT.likelihood.jax_ile.wrapper import JAXDistPhiPsiMargLikelihood
+    return JAXDistPhiPsiMargLikelihood(
+        data, lo, hi, nphi=8, npsi=8, n_grid=64,
+        guess_snr=40.0, angle_marg='exact', d_prior_range=prior_range, **kw)
+
+
+def test_the_box_does_not_shrink_the_ANGLE_lattice(_loud):
+    """#221 sizes the angle lattice from a FULL-SUPPORT distance grid, and measured
+    what a narrowed one does to it: a [0.8 d, 1.25 d] window dropped the amplitude
+    12.6% and the lattice from (624,320) to (592,304).
+
+    --limit-distance IS that narrowing.  Merging the two branches naively -- passing
+    the box as d_min/d_max and letting the full-support grid be built from it -- would
+    have silently shrunk the lattice on every boxed run.  The resolution builds that
+    grid over d_prior_range instead.  This pins it: the lattice and the amplitude are
+    properties of the PRIOR support, not of the box.
+    """
+    data, a5, _ = _loud
+    # The box must RAISE THE LOWER EDGE to exercise this.  estimate_angle_amplitude
+    # reads min/max of x = distMpcRef/d, so the amplitude comes from the SMALL-d end:
+    # measured on this fixture, [78,4999] and [1,120] both leave it at 2643.43 exactly,
+    # while [1500,4000] drops it to 501.41 -- 81%.  The first version of this test used
+    # the fixture's own generous box and was INERT; the mutation sweep caught that.
+    lo, hi = 1500.0, 4000.0
+    full = _phipsi(data, D_MIN, D_MAX, None)
+    boxed = _phipsi(data, lo, hi, (D_MIN, D_MAX))
+    assert boxed.angle_marg_info['sample_grid'] == full.angle_marg_info['sample_grid']
+    assert boxed.angle_marg_info['amp_sizing'] == pytest.approx(
+        full.angle_marg_info['amp_sizing'], rel=1e-12)
+    # ... and the box really did move the integration grid, or this proves nothing
+    assert float(np.asarray(boxed.x_grid).max()) < float(np.asarray(full.x_grid).max())
+
+
+def test_loguniform_grid_REFUSES_a_narrowed_box(_loud):
+    """make_distance_grid_loguniform takes no d_prior_range, so a box would
+    renormalize the prior onto itself -- several nats, silently, and exactly the
+    defect --limit-distance exists to prevent.  Fail closed rather than compose two
+    features whose composition is unvalidated."""
+    data, a5, (lo, hi) = _loud
+    with pytest.raises(ValueError, match='limit-distance'):
+        _phipsi(data, lo, hi, (D_MIN, D_MAX), dist_grid='loguniform')
+    # ... and it is NOT refused without a box: the refusal keys on the narrowing,
+    # not on d_prior_range merely being present.
+    _phipsi(data, D_MIN, D_MAX, (D_MIN, D_MAX), dist_grid='loguniform')

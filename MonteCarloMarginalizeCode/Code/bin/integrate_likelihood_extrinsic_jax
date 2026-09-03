@@ -311,6 +311,50 @@ def check_critical_and_report(opts, optp):
         fatal.append("--zero-likelihood is not implemented")
     if is_set("--maximize-only"):
         fatal.append("--maximize-only is not implemented (this driver integrates)")
+    # Distance-grid option combinations that the wrapper would reject anyway --
+    # caught HERE, at parse time, so the user is not made to sit through a full
+    # precompute first (F8 of external review).
+    dgs = getattr(opts, "distance_grid_scheme", "uniform")
+    if dgs != "uniform":
+        if getattr(opts, "mode", None) != "flowmc-phipsimarg":
+            fatal.append("--distance-grid-scheme %s applies only to --mode "
+                         "flowmc-phipsimarg (it is validated only for the dense "
+                         "angle-marginalization schemes)" % dgs)
+        elif getattr(opts, "angle_marg_scheme", ANGLE_MARG_DEFAULT) == "grid":
+            fatal.append(
+                "--distance-grid-scheme %s requires --angle-marg-scheme "
+                "exact/laplace/auto: the log-uniform grid is sized from the "
+                "data-derived angle amplitude, which the default 'grid' scheme "
+                "does not compute" % dgs)
+        if getattr(opts, "distance_grid_points", None) is not None:
+            fatal.append("--distance-grid-points and --distance-grid-scheme %s "
+                         "both set the distance node count; pass one or the "
+                         "other" % dgs)
+        _tol = getattr(opts, "distance_grid_tol", None)
+        if _tol is not None and not (0.0 < float(_tol) < 2.0):
+            # The option's VALUE, checked beside its combinations.  The range
+            # is closed form -- c(tol) = pi*sqrt(2/ln(2/tol)) needs
+            # 0 < tol < 2 -- so making the user sit through a full precompute
+            # to be told otherwise is the same avoidable cost F8 removed for
+            # the combinations.
+            fatal.append("--distance-grid-tol must be in (0, 2): it is a "
+                         "FRACTIONAL error on the distance integral (~nats on "
+                         "lnL), not a node count; got %r.  Note the interval "
+                         "is the DERIVATION's domain, not a range of sensible "
+                         "values: c(tol) diverges as tol -> 2, so 1.999 asks "
+                         "for a 2-node grid.  The shipped default is %g."
+                         % (_tol, _jax_core_dist_tol_default()))
+        if int(os.environ.get("JAX_ILE_DISTMARG_GH", "0")) > 0:
+            fatal.append(
+                "--distance-grid-scheme %s cannot be combined with "
+                "JAX_ILE_DISTMARG_GH: the per-sample Gauss-Hermite distance "
+                "quadrature uses only the SUPPORT of the grid, so the option "
+                "would be bit-identically inert while still being reported as "
+                "active" % dgs)
+    elif getattr(opts, "distance_grid_tol", None) is not None:
+        fatal.append("--distance-grid-tol applies only to "
+                     "--distance-grid-scheme loguniform; it would be silently "
+                     "inert here")
     if fatal:
         optp.error("Cannot run as a faithful drop-in: " + "; ".join(fatal)
                    + ".  (These would silently change the result if ignored.)")
@@ -371,6 +415,15 @@ def check_critical_and_report(opts, optp):
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+DISTANCE_GRID_POINTS_DEFAULT = 256
+
+
+def _jax_core_dist_tol_default():
+    """Default distance-grid tolerance, read from the module that owns it."""
+    from RIFT.likelihood.jax_ile.core import DIST_GRID_TOL_DEFAULT
+    return DIST_GRID_TOL_DEFAULT
+
+
 def build_parser():
     optp = OptionParser(usage="%prog [options]", description=__doc__)
 
@@ -488,7 +541,32 @@ def build_parser():
     g.add_option("--n-chunk", type=int, default=8000)
     g.add_option("--d-min", type=float, default=1.0, help="Min distance (Mpc).")
     g.add_option("--d-max", type=float, default=10000.0, help="Max distance (Mpc).")
-    g.add_option("--distance-grid-points", type=int, default=256)
+
+    g.add_option("--distance-grid-points", type=int, default=None,
+                 help="Node count for the DEFAULT uniform-in-distance grid "
+                      "(default %d).  --distance-grid-scheme loguniform "
+                      "derives its own node count from the data, so passing "
+                      "both is REFUSED rather than silently ignoring this one."
+                      % DISTANCE_GRID_POINTS_DEFAULT)
+    g.add_option("--distance-grid-scheme", type="choice",
+                 choices=("uniform", "loguniform"), default="uniform",
+                 help="Distance quadrature for --mode flowmc-phipsimarg with "
+                      "--angle-marg-scheme exact/laplace/auto.  'uniform' "
+                      "(DEFAULT) is the historical fixed --distance-grid-points "
+                      "grid over the whole prior range, so existing command "
+                      "lines reproduce existing runs.  'loguniform' places the "
+                      "SAME kind of static grid uniformly in ln d, with a node "
+                      "count DERIVED from the run's own data-derived angle "
+                      "amplitude so that every per-sample distance peak "
+                      "(relative width 1/rho) is resolved anywhere in "
+                      "[--d-min, --d-max].  See --distance-grid-tol and "
+                      "RIFT/likelihood/jax_ile/DESIGN_jax_distance_quadrature.md.")
+    g.add_option("--distance-grid-tol", type=float, default=None,
+                 help="Target FRACTIONAL error of the distance quadrature "
+                      "(~nats on lnL) for --distance-grid-scheme loguniform; "
+                      "the node count follows from it in closed form.  "
+                      "Default %g.  Only valid with that scheme."
+                      % _jax_core_dist_tol_default())
     g.add_option("--limit-distance", default=None,
                  help="Restrict distance SAMPLING (and, when distance is "
                       "marginalized, the distance QUADRATURE) to 'LO,HI' in Mpc, "
@@ -1744,6 +1822,30 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
         print("  [limit] restricting distance sampling/quadrature to [%.4f, %.4f] Mpc "
               "(prior normalization UNCHANGED over [%.4f, %.4f] Mpc)"
               % (d_lo, d_hi, opts.d_min, opts.d_max))
+    # Fail closed on a flag that would otherwise be silently inert.  The
+    # log-uniform distance quadrature is wired -- and validated -- only for the
+    # dense (phi,psi) schemes of --mode flowmc-phipsimarg.
+    if (getattr(opts, "distance_grid_scheme", "uniform") != "uniform"
+            and getattr(opts, "distance_grid_points", None) is not None):
+        raise SystemExit(
+            "--distance-grid-points and --distance-grid-scheme loguniform both "
+            "set the distance node count.  The log-uniform grid derives its "
+            "count from the data (see --distance-grid-tol); pass one or the "
+            "other, not both.")
+    # Resolved into a LOCAL, never written back onto opts: this driver has a
+    # documented history of an option written back on event 0 being read as
+    # event 1's choice in a batch loop.
+    n_dist_grid = (DISTANCE_GRID_POINTS_DEFAULT
+                   if opts.distance_grid_points is None
+                   else int(opts.distance_grid_points))
+    if (getattr(opts, "distance_grid_scheme", "uniform") != "uniform"
+            or getattr(opts, "distance_grid_tol", None) is not None):
+        if opts.mode != "flowmc-phipsimarg":
+            raise SystemExit(
+                "--distance-grid-scheme/--distance-grid-tol apply only to "
+                "--mode flowmc-phipsimarg (they are validated only for the "
+                "dense angle-marginalization schemes); got --mode %s."
+                % opts.mode)
     if opts.mode in ("flowmc-phimarg", "nuts-phimarg"):
         # phi_ref-marginalised: requires distance marginalisation (baked in);
         # produces a 4-D (ra, dec, psi, incl) posterior.
@@ -1753,10 +1855,10 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
         from RIFT.likelihood.jax_ile.wrapper import JAXDistPhiMargLikelihood
         nphi = getattr(opts, "n_phi", 32)
         print("Distance + phi_ref marginalization: ON (grid=%d, nphi=%d, d in [%g,%g] Mpc)"
-              % (opts.distance_grid_points, nphi, d_lo, d_hi))
+              % (n_dist_grid, nphi, d_lo, d_hi))
         like = JAXDistPhiMargLikelihood(
             like_data, d_lo, d_hi,
-            nphi=nphi, n_grid=opts.distance_grid_points,
+            nphi=nphi, n_grid=n_dist_grid,
             interp=opts.interp, guess_snr=extras["guess_snr"],
             time_quadrature=tq, d_prior_range=(opts.d_min, opts.d_max))
         if getattr(like, "dist_grid_info", {}).get("mode") == "adaptive":
@@ -1774,12 +1876,21 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
         npsi = getattr(opts, "n_psi", 16)
         angle_marg = getattr(opts, "angle_marg_scheme", ANGLE_MARG_DEFAULT)
         print("Distance + phi_ref + psi marginalization: ON (grid=%d, nphi=%d, npsi=%d, d in [%g,%g] Mpc)"
-              % (opts.distance_grid_points, nphi, npsi, d_lo, d_hi))
+              % (n_dist_grid, nphi, npsi, d_lo, d_hi))
+        dist_grid = getattr(opts, "distance_grid_scheme", "uniform")
+        dist_tol = getattr(opts, "distance_grid_tol", None)
+        if dist_tol is None:
+            dist_tol = _jax_core_dist_tol_default()
+        elif dist_grid == "uniform":
+            raise SystemExit(
+                "--distance-grid-tol only applies to --distance-grid-scheme "
+                "loguniform; it would be silently inert here.")
         like = JAXDistPhiPsiMargLikelihood(
             like_data, d_lo, d_hi, nphi=nphi, npsi=npsi,
-            n_grid=opts.distance_grid_points, interp=opts.interp,
+            n_grid=n_dist_grid, interp=opts.interp,
             guess_snr=extras["guess_snr"], angle_marg=angle_marg,
-            time_quadrature=tq, d_prior_range=(opts.d_min, opts.d_max))
+            time_quadrature=tq, d_prior_range=(opts.d_min, opts.d_max),
+            dist_grid=dist_grid, dist_grid_tol=dist_tol)
         # ALWAYS report the resolved scheme (requested may be 'auto'; this
         # pipeline has a documented history of silently-inert flags).
         print("  angle-marg scheme: %s (requested %s): %s"
@@ -1787,10 +1898,9 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
                  "; ".join("%s=%s" % kv for kv in
                            sorted(like.angle_marg_info.items())
                            if kv[0] not in ("scheme", "requested"))))
-        if getattr(like, "dist_grid_info", {}).get("mode") == "adaptive":
-            gi = like.dist_grid_info
-            print("  distance grid: ADAPTIVE  d_peak=%.3g Mpc  sigma_d=%.3g Mpc  npts=%d"
-                  % (gi["d_peak"], gi["sigma_d"], gi["n"]))
+        print("  distance grid: %s"
+              % "; ".join("%s=%s" % kv
+                          for kv in sorted(getattr(like, "dist_grid_info", {}).items())))
         with_distance = False
         dim = 3
     elif opts.mode == "flowmc-dpsimarg":
@@ -1801,10 +1911,10 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
         npsi = getattr(opts, "n_psi", 8)
         print("Distance + psi marginalization (phi_ref sampled): ON "
               "(grid=%d, npsi=%d, d in [%g,%g] Mpc)"
-              % (opts.distance_grid_points, npsi, d_lo, d_hi))
+              % (n_dist_grid, npsi, d_lo, d_hi))
         like = JAXDistPsiMargLikelihood(
             like_data, d_lo, d_hi, npsi=npsi,
-            n_grid=opts.distance_grid_points, interp=opts.interp,
+            n_grid=n_dist_grid, interp=opts.interp,
             guess_snr=extras["guess_snr"], time_quadrature=tq,
             d_prior_range=(opts.d_min, opts.d_max))
         if getattr(like, "dist_grid_info", {}).get("mode") == "adaptive":
@@ -1815,9 +1925,9 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
         dim = 4
     elif opts.distance_marginalization:
         print("Distance marginalization: ON (grid=%d, d in [%g,%g] Mpc)"
-              % (opts.distance_grid_points, d_lo, d_hi))
+              % (n_dist_grid, d_lo, d_hi))
         like = JAXDistanceMarginalizedLikelihood(
-            like_data, d_lo, d_hi, n_grid=opts.distance_grid_points,
+            like_data, d_lo, d_hi, n_grid=n_dist_grid,
             interp=opts.interp, phase_marginalization=opts.phase_marginalization,
             time_quadrature=tq, d_prior_range=(opts.d_min, opts.d_max))
         dim = 5

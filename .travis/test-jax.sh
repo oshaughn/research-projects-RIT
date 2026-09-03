@@ -186,6 +186,30 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         driver actually CALLS the dispatcher
 #                                         (wiring).  Each fails under a verified
 #                                         mutation (see the PR).  Seconds.
+#   test_distance_grid_loguniform.py 33  the OPT-IN log-uniform ("peak-resolving")
+#                                         distance quadrature for the dense
+#                                         angle-marg schemes.  Pins the spacing
+#                                         contract (Delta ln d <= c/rho_max), the
+#                                         TWO-SIDED calibration of c against the
+#                                         Gaussian trapezoid error law it is
+#                                         derived from (a one-sided check is
+#                                         satisfied by c -> 0, which is accurate
+#                                         and arbitrarily expensive), that
+#                                         --distance-grid-scheme still DEFAULTS to
+#                                         the historical uniform grid node for
+#                                         node, and -- the safety property -- that
+#                                         the dense angle lattice is sized from the
+#                                         amplitude on the FULL prior support, so
+#                                         no distance grid can shrink it.  Includes
+#                                         driver AST guards on the option VALUE
+#                                         node, on the forwarded (not hardcoded)
+#                                         keyword, and on the fail-closed refusal
+#                                         when the flag is set on a mode that does
+#                                         not implement it.  One numerical
+#                                         execution test against a 1024-node
+#                                         uniform reference; the rest are numpy or
+#                                         AST.  ~19 s.  Each fails under a verified
+#                                         mutation (matrix in the PR).
 #   test_angle_marg_sizing_rule.py    1  the m_max-aware dense phi sizing rule.
 #
 #   test_angle_marg_gh_laplace.py    15  the psi-marginal distance-node placement
@@ -209,7 +233,7 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         is the only gated check that distinguishes
 #                                         the corrected sizing.  The rest of the
 #                                         angle-marg suite is EXCLUDED; see below.
-#   test_limit_distance_jax.py        19  --limit-distance on this arm: the distance
+#   test_limit_distance_jax.py        21  --limit-distance on this arm: the distance
 #                                         QUADRATURE narrows while the prior keeps its
 #                                         [d_min,d_max] normalization.  Includes the
 #                                         bitwise no-op of the default call (both the
@@ -318,9 +342,11 @@ FILES=(
   "${JAXDIR}/test_angle_marg_smoke.py"
   "${JAXDIR}/test_angle_marg_compile_cost.py"
   "${JAXDIR}/test_angle_marg_block_dispatch.py"
+  "${JAXDIR}/test_distance_grid_loguniform.py"
   "${JAXDIR}/test_angle_marg_gh_laplace.py"
   "${JAXDIR}/test_angle_marg_default.py"
   "${JAXDIR}/test_angle_marg_gh_selection.py"
+  "${JAXDIR}/test_joint_anglemarg_peaklocal.py"
   "${JAXDIR}/test_limit_distance_jax.py"
 )
 
@@ -409,30 +435,40 @@ fi
 # PR #209 then adds six test_angle_marg_compile_cost.py pins, raising 160 -> 166,
 # and PR #210 adds five test_angle_marg_block_dispatch.py pins, raising 166 -> 171.
 # PR #216 adds eighteen adaptive primitive-time pins, raising 171 -> 189.
-# The psi-marginal GH placement adds fifteen test_angle_marg_gh_laplace.py pins,
-# raising 189 -> 204.  (Locally collected: 15 in that file, 204 over the gate.)
+# The psi-marginal GH placement (#225) adds 36, raising 189 -> 225: 15 in
+# test_angle_marg_gh_laplace.py, 5 in test_angle_marg_default.py, 8 in
+# test_angle_marg_gh_selection.py, plus 4 answering external review on the
+# identity gate (imaginary-A0 coefficient, B1 in the conjugate slice, the gate
+# applying to an explicit laplace, the kernel guard staying trace-safe).
+# The log-uniform distance quadrature adds 37 on top of the base, raising
+# it by that amount wherever the base then sat: 30 for the scheme itself, 3 from external re-review (the
+# zero-clipped-amplitude extreme of the F1 detector, the DRIVER half of the F2
+# refusal, and a guard on the sky-doubling path -- each because a mutation
+# SURVIVED the 33-mutation matrix without it), and 3 covering the truncated-
+# endpoint precondition added by the automated review pass, which shipped with
+# none (the estimator against an independent numpy measurement, the
+# interior-but-too-close refusal, and the non-positive-clearance window that
+# built at 6.7x tol).
 # Raising the floor
 # by exactly the number of tests ADDED is safe whatever the environment delta above,
 # since it preserves the margin the previous floor already had.
-# Raised 189 -> 217 by the 28 tests added in the angle-marg GH branch (#225), per the
-# rule above (exactly the number ADDED, preserving the prior margin): 15 in
-# test_angle_marg_gh_laplace.py (psi-marginal GH placement), 5 in
-# test_angle_marg_default.py (the scheme default has one definition), 8 in
-# test_angle_marg_gh_selection.py (auto may reach laplace under GH only where
-# the A0==0/B1==0 identity is MEASURED to hold).
-# Raised 217 -> 225 by the tests answering external review on the identity gate.
-# Raised 225 -> 240 on merging the --limit-distance branch, by the fifteen
-# test_limit_distance_jax.py pins then present, which preserves the margin of 2
-# the 225 floor already had.  Both branches raised this constant, so it is one of
-# the two places that merge could have gone quietly wrong; the other is the FILES
-# array above, which takes the UNION of the two branches' additions.
-# Raised 240 -> 244 by four pins added after an adversarial mutation sweep found
-# two INERT guards: the adaptive distance grid's d_prior_range branch could be
-# deleted with the suite still green (a silent +5.5 nat evidence move on the
-# JAX_ILE_DISTGRID_ADAPTIVE path), and sample_prior could be made to draw over the
-# full range while run_prior_mc kept subtracting the box correction.  Counts taken
-# from collection runs, never arithmetic: that file now collects 19.
-EXPECTED_TESTS=244
+# Raised 189 -> 217 by the 28 tests added in the angle-marg GH branch (#225); then
+# 217 -> 225 by the tests answering external review on its identity gate; then
+# 225 -> 234 while this branch was open, by the peak-local framework (#224), the
+# joint (phi,psi) peak-local kernel (#230) and the AV batch-max change (#234);
+# then 234 -> 272 by the adaptive distance quadrature branch's own 37 (#221).
+# Raised 272 -> 293 on merging --limit-distance, by that branch's 21
+# test_limit_distance_jax.py pins: 15 shipped; 4 added after an adversarial
+# mutation sweep found two INERT guards (the adaptive grid's d_prior_range branch
+# could be deleted with the suite green, worth +5.5 nats silently, and
+# sample_prior could draw over the full range while the box correction stayed);
+# and 2 more for this merge's own interactions with the #221 distance quadrature
+# -- the box must not shrink the angle lattice, and the log-uniform grid must
+# refuse a box rather than renormalize the prior onto it.
+# THREE branches have now raised this constant, so it is the single place this
+# merge is most likely to go quietly wrong; the FILES array above is the other.
+# Taken from a collection RUN, never by adding the three accountings.
+EXPECTED_TESTS=293
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"

@@ -453,11 +453,26 @@ def eval_bandlimited_uniform(Xw, fk, t0, dt_local, n_local, period, xpy=np):
 def eval_bandlimited_points(Xw, fk, rows, t, period, xpy=np, point_chunk=1024):
     """``q``, ``q'`` and ``q''`` at arbitrary ``(row, time)`` pairs.
 
-    The uniform-grid evaluator above cannot be used for the omitted-mass bound: the
-    points that matter there are the ENDS OF THE MERGED INTERVALS, which are wherever
-    localisation put them and are not on any grid.  Cost is one exponential array per
-    point and ``O(npts)`` per point, and the caller uses at most ``2 * MAX_INTERVALS``
-    of them per row, so this is negligible against the local grids.
+    The uniform-grid evaluator above cannot reach these points: the ones that matter are
+    OFF THE ENUMERATION GRID -- the ends of the merged intervals, wherever localisation
+    put them.  Cost is one exponential array per point and ``O(npts)`` per point.
+
+    NOT ON THE SHIPPED PATH, and kept deliberately.  It WAS the production evaluator for
+    the omitted-mass bound, until :func:`segment_sup_bound` replaced pointwise evaluation
+    with a sub-cell Hermite certificate that needs values only on the enumeration grid.
+    What it still does is keep two claims from being circular, which is why it is exported
+    rather than deleted:
+
+    * it is the INDEPENDENT route :func:`enum_grid_derivatives` is checked against.  That
+      helper arrived 52% wrong on ``q'``, and a check built from the same upsampler it
+      now reuses could not have caught it.
+    * it evaluates the merged-interval ends EXACTLY, which the tail-bound test needs.  A
+      uniform reference grid will not do there: on a sharp row its spacing is comparable
+      to ``sigma`` and it under-reads an end by ~11 nats, which makes a correct bound look
+      loose.
+
+    Anything that gives it a production caller again should say so here, because "exported,
+    tested, and called only by tests" is otherwise indistinguishable from dead code.
 
     Same three sums as :func:`localise_peaks` -- the derivatives are the spectral sum
     with ``w_j`` and ``w_j**2`` folded in -- and chunked over points for the same
