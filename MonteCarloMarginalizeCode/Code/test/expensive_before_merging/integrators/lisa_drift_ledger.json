@@ -65,6 +65,10 @@
       "decision": "PORT",
       "reason": "Cosmology helpers behind --d-prior-redshift. Planck15 via the framework helper; the interpolation grid still needs a z ceiling that covers MBHB (z~20), which is a gridding choice rather than a physics decision."
     },
+    "FUNC:fused_calmarg_in_use": {
+      "decision": "NA",
+      "reason": "THE predicate for 'will the fused in-loop calibration kernel actually run?', shared by the startup --interpolate-time guard and by use_fused_calmarg at dispatch so the condition has one definition instead of two that drift (it drifted three times in a day before being hoisted). Every one of its terms is a LIGO/Virgo calibration concept -- an envelope directory, a realization count, --calibration-fused-kernel, the responsibilities pilot -- and the LISA driver has NONE of them: it declares no --calibration-* option, never sets cal_method, and models no instrument calibration at all. See the --calibration-* reason. NOT a stencil gap despite being read by the stencil guard: LISA's --interpolate-time is a separate boolean parsed by legacy_time_interpolation_enabled, with no fused kernel to protect. If LISA ever models calibration this predicate is the wrong shape for it, and the thing to port would be the ONE-definition discipline, not this function."
+    },
     "OPTION:--calibration-burn-in-neff": {
       "decision": "NA",
       "reason": "LIGO/Virgo spline calibration-envelope marginalization. The LISA driver models no instrument calibration: it takes no envelope directory, has no cal nodes, and its response is applied analytically by factored_likelihood_LISA. LISA calibration, if it is ever modelled, will not have this data product or this spline parameterization, so porting the LIGO machinery would be actively misleading."

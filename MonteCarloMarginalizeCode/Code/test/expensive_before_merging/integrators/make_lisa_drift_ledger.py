@@ -248,6 +248,19 @@ RULES = [
      "one. If LISA ever models calibration, it wants derived_rng directly, not this wrapper."),
     (r"^FUNC:analyze_event\._cal_error_probe(\._draw_dist)?$", "NA",
      "Calibration Monte-Carlo error probe; see the --calibration-* reason."),
+    (r"^FUNC:fused_calmarg_in_use$", "NA",
+     "THE predicate for 'will the fused in-loop calibration kernel actually run?', shared by "
+     "the startup --interpolate-time guard and by use_fused_calmarg at dispatch so the "
+     "condition has one definition instead of two that drift (it drifted three times in a day "
+     "before being hoisted). Every one of its terms is a LIGO/Virgo calibration concept -- an "
+     "envelope directory, a realization count, --calibration-fused-kernel, the "
+     "responsibilities pilot -- and the LISA driver has NONE of them: it declares no "
+     "--calibration-* option, never sets cal_method, and models no instrument calibration at "
+     "all. See the --calibration-* reason. NOT a stencil gap despite being read by the "
+     "stencil guard: LISA's --interpolate-time is a separate boolean parsed by "
+     "legacy_time_interpolation_enabled, with no fused kernel to protect. If LISA ever models "
+     "calibration this predicate is the wrong shape for it, and the thing to port would be "
+     "the ONE-definition discipline, not this function."),
 
     # ------------------------------------------------------- ground-based detector geometry
     (r"^OPTION:--rotation-(slow|n-harmonics|p-max)$", "NA",
