@@ -477,7 +477,7 @@ fi
 # test_joint_anglemarg_peaklocal.py (twice differentiable, and the gradient stays
 # finite as the quartic leading coefficient vanishes).  293 + 13 = 306, re-derived
 # by RUNNING the gate's own collection after rebasing over #221/#238/#223.
-EXPECTED_TESTS=306
+EXPECTED_TESTS=308
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"

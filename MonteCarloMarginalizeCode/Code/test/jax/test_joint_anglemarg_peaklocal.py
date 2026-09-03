@@ -145,3 +145,42 @@ def test_gradient_is_finite_as_the_quartic_leading_coefficient_vanishes():
     assert all(np.isfinite(v) for v in vals), vals
     # and stable, not merely finite, across 24 orders of magnitude in c2
     assert abs(vals[1] - vals[3]) < 1e-3, vals
+
+
+def test_required_u_nodes_is_derived_and_grows_like_sqrt_amplitude():
+    """P1 from review: the fallback (whole-cell) branch integrates with the SAME fixed
+    node count spread over the entire cell, so rejecting a stalled Newton centre makes
+    the resolution worse rather than safer.  JAX cannot adapt the count -- shapes may not
+    depend on traced values -- so the sizing is exposed as a caller-side helper, derived
+    from the exact bound |d2g/du2| <= M2u ~ 5A.
+
+    Deliberately NOT wired into the default: it reaches 2048 nodes at amplitude 1e4,
+    roughly 40x the windowed cost, for an effect measured at 2.2e-04 nats in the numpy
+    twin -- far below this rule's 23 nat tolerance, on a path no production run reaches.
+    A caller that cares can size it; the default documents the limit instead of hiding it.
+    """
+    lo = JP.required_u_nodes(1.0)
+    mid = JP.required_u_nodes(100.0)
+    hi = JP.required_u_nodes(1.0e4)
+    assert lo == JP.U_NODES_PER_CELL          # never below the windowed default
+    assert lo < mid < hi                       # grows with amplitude
+    assert hi <= 2048                          # and is capped
+    # the growth is the sqrt law, not something steeper
+    assert 5.0 < mid / np.sqrt(100.0) < 60.0, mid
+
+
+def test_a_fallback_cell_is_resolved_when_the_caller_sizes_it():
+    """The helper must actually buy resolution: a whole-cell integration at a raised node
+    count must agree with a much finer one."""
+    rng = np.random.default_rng(0)
+    worst = 0.0
+    for _ in range(6):
+        sc = 10.0 ** rng.uniform(0.5, 2.0)
+        c1 = sc * (rng.normal() + 1j * rng.normal())
+        c2 = sc * (rng.normal() + 1j * rng.normal())
+        amp = abs(c1) + 2 * abs(c2)
+        n = JP.required_u_nodes(amp)
+        a = float(JP.log_inner_u_integral(0.0, c1, c2, n_nodes=n))
+        b = float(JP.log_inner_u_integral(0.0, c1, c2, n_nodes=min(4 * n, 4096)))
+        worst = max(worst, abs(a - b))
+    assert worst < 1e-4, worst

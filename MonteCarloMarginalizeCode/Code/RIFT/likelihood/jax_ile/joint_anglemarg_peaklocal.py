@@ -47,6 +47,7 @@ from jax import lax
 
 __all__ = [
     "required_n_phi",
+    "required_u_nodes",
     "U_WINDOW_SIGMA",
     "U_NODES_PER_CELL",
     "PHI_CHUNK_DEFAULT",
@@ -68,10 +69,42 @@ U_WINDOW_SIGMA = 12.0
 #: time quadrature.  This is the u axis's entire cost: 4 cells x 48 nodes = 192 points
 #: per phi, INDEPENDENT of amplitude, against the shipped dense rule's ~6.2 sqrt(A)
 #: (896 at amplitude 1.25e4).
+#:
+#: THAT AMPLITUDE-INDEPENDENCE HOLDS FOR A WINDOWED CELL AND NOT FOR A FALLBACK ONE.
+#: A cell whose Newton centre is rejected (stalled on a boundary, large stationary
+#: residual) is integrated WHOLE, and 48 nodes then span the entire cell rather than
+#: +-12 sigma.  The numpy twin measured 1.7e-03 nats of inner-u error that way, so the
+#: honest statement is: this default resolves WINDOWED cells at any amplitude, and a
+#: caller that may hit fallback cells at high amplitude should size it with
+#: :func:`required_u_nodes` instead of relying on the default.
 U_NODES_PER_CELL = 48
 
 #: phi points per scan step.
 PHI_CHUNK_DEFAULT = 16
+
+
+def required_u_nodes(amplitude, pts_per_sigma=3.0, cap=2048):
+    """u nodes per cell adequate for a FALLBACK (whole-cell) integration at ``amplitude``.
+
+    Derived, not tuned.  The u-spectrum has two terms, so ``|d2g/du2| <= M2u`` exactly,
+    and at exponent amplitude ``A`` the coefficients scale with ``A`` giving
+    ``M2u ~ 5 A``: nothing on this axis is narrower than ``sigma_min = 1/sqrt(M2u)``, and
+    a spacing of ``sigma_min / pts_per_sigma`` resolves the sharpest feature the
+    coefficients admit.  A fallback cell can span most of the circle, so the requirement
+    is ``2 pi * sqrt(M2u) * pts_per_sigma``.
+
+    JAX NEEDS THIS STATICALLY, which is why it is a caller-side helper rather than an
+    adaptation inside the kernel: shapes cannot depend on traced values.  The numpy twin
+    derives the same quantity per call because it can.
+
+    ``cap`` bounds the cost.  When it binds the fallback cell may be under-resolved --
+    measured at 1.7e-03 nats before any derivation, 2.2e-04 with the curvature scale --
+    which is far below this rule's 23 nat acceptance tolerance but is NOT nothing, so it
+    is reported rather than absorbed silently.
+    """
+    a = max(float(amplitude), 1.0)
+    need = int(np.ceil(2.0 * np.pi * np.sqrt(5.0 * a) * float(pts_per_sigma))) + 1
+    return int(min(max(need, U_NODES_PER_CELL), int(cap)))
 
 
 def required_n_phi(amplitude, m_max=2):
