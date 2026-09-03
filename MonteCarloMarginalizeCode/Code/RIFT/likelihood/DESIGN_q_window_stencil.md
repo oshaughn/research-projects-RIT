@@ -65,7 +65,8 @@ explicit stencil name and the retired "choose for me" spelling raises.
 
 ## 3. Mass ladder (fmin 30)
 
-SEOBNRv4, an IMR model. Against an exact FFT-zero-padded reference; paired, K=2000, 3 seeds; each
+SEOBNRv4, an IMR model. Against an FFT-zero-padded reference (**not** exact -- see the note in
+§9.6.1); paired, K=2000, 3 seeds; each
 mass normalised to SNR_lik = 100. srate 4096, fmax 1700, fmin 30, Lmax 2. max|ΔlnL| in nats:
 
 | M/M☉ | nearest | cubic | sinc | winner |
@@ -449,7 +450,24 @@ one flag away; it is not the safer *default*.
 
 `study_stencil_lnL_sensitivity.py --mode mass-ladder`, SEOBNRv4, H1L1V1 zero noise, aLIGO ZDHP,
 srate 4096, fmax 1700, Lmax 2, every mass normalised to SNR_lik = 100, K = 400 × 2 seeds, against
-the same exact FFT-zero-padded reference §3 uses. max|ΔlnL| in nats; **winner** in bold.
+the same FFT-zero-padded reference §3 uses. max|ΔlnL| in nats; **winner** in bold.
+
+**THE REFERENCE IS NOT "EXACT", AND THIS DOCUMENT SAID IT WAS.** Both §3 and the paragraph above
+described it as an *exact* FFT-zero-padded reference. `study_stencil_lnL_sensitivity.eval_reference`
+zero-pads by M = 32 -- that step *is* exact for a periodic band-limited signal -- and then does a
+**`cubic` lookup on the fine grid** (`REF_STENCIL = 'cubic'`). The reference therefore shares a
+method with one of the three things it is judging, which is the shape of error a reader is entitled
+to be told about. The harness's own docstring is honest about it; the summaries were not, and are
+corrected here.
+
+It does **not** move any conclusion. Audited (2026-09-03) against an independent construction whose
+reference is an exact frequency-domain sub-sample shift, `N·ifft(W·exp(2πi f u Δt))`, sharing no
+machinery with any stencil: this reference's own error is **7.5e-6 nats at M = 20 and 7.7e-7 nats at
+M = 120** (fmin 20, peak lnL normalised to 5000), i.e. six orders of magnitude below the 1.6-4.8 nats
+it is used to resolve, and consistent with the O((1/M)^4) ~ 1e-6 bound `eval_reference` claims and
+with the per-stencil reference floors recorded in §10. What has **not** been audited independently is
+the periodic-wrap / Gibbs component from zero-padding a *cut* of rho(t); that still rests on the
+harness's own 6.5e-3 nat internal bound.
 
 | fmin | M/M☉ | nearest | cubic | sinc | winner, margin |
 |---|---|---|---|---|---|
@@ -572,7 +590,19 @@ coercion, because `str(None) == 'none'` is itself a legal explicit spelling mean
    With an *explicit* stencil the behaviour is unchanged but is no longer silent: the driver now
    prints that the fused kernel is not in use.
 
-A fourth, in the pipeline: `resolve_interpolate_time_request` collapses "flag absent" and an
+4. **The legacy scalar path would have started interpolating.** `opts._legacy_interpolate_time`
+   is derived from the *provisional* default a hundred lines before the downgrade runs, and it is
+   not a stencil: it is the plain boolean handed to
+   `FactoredLogLikelihoodTimeMarginalized(..., interpolate=...)` at `batchmode:3645`/`:4002`, which
+   is the likelihood that actually runs whenever `--vectorized` is absent. A non-`nearest`
+   provisional default makes it `True`, so an omitted flag would have switched every non-vectorized
+   run onto that path's unrelated cubic interpolation — on a path that has no sub-sample stencil at
+   all. The downgrade resets it. **This one was missed on the first pass**: the code was correct but
+   nothing pinned it, and adversarial review (2026-09-03) found it by mutation — deleting the reset
+   left the whole gate green. Now pinned by
+   `test_the_downgrade_also_takes_the_legacy_scalar_path_down_with_it`.
+
+A fifth, in the pipeline: `resolve_interpolate_time_request` collapses "flag absent" and an
 explicit off-request (`--internal-ile-interpolate-time False`) to the same `None`, and both used
 to emit nothing. While the driver default was `nearest` those were the same answer; they are now
 opposites, so `helper_LDG_Events.py` re-expresses an off-request as an explicit
@@ -585,12 +615,40 @@ opposites, so `helper_LDG_Events.py` re-expresses an off-request as an explicit
   mitigation is the same asymmetry §9.4 relied on and this table re-measures: `sinc`'s loss there
   is bounded (2.17 and 2.70 nats at SNR 100), `cubic`'s loss in the other regime is not (27.0 nats
   at M = 20, fmin 100). Anyone running a high-mass campaign should pass `--interpolate-time cubic`.
-- **`--time-marginalization-quadrature bandlimited` was measured against `nearest`.** That
+- **"Bounded" means FLAT IN MASS at fixed SNR, not small — and at O4 SNRs this choice barely
+  matters.** Scaling this table's own SNR² exponent off its SNR = 100 normalisation, a loud O4
+  event at network ρ = 30 sees, at fmin 20: `nearest` 13–36 nats (this is what actually justifies
+  the change), `sinc` 0.15–0.24 nats, `cubic` 0.007–0.43 nats. **The `sinc`-vs-`cubic` tie-break is
+  sub-nat for the current catalogue, high-mass included.** The real case for this PR is therefore
+  "anything but `nearest`", plus agreement with the jax driver (#233) — not an accuracy win over
+  `cubic`. At 3G amplitudes *both* are ruinous at high mass (`sinc`'s 2.70 nats at ρ = 100 is
+  270 nats at ρ = 1000, where `cubic` would be 7.8), so the earlier phrasing "`cubic`'s loss is not
+  bounded" should be read as **"not flat across the grid"**: both are finite. The minimax ordering
+  is unchanged and still selects `sinc` (worst case 4.58 against 27.0, or 458 against 6900 scaled
+  to ρ = 1000), so the decision stands — but it stands on predictability, not on magnitude.
+- **`--time-marginalization-quadrature bandlimited` was measured against `nearest`, and its
+  prerequisites are a strict SUBSET of the stencil's honoured set.** `bandlimited` requires
+  `--time-marginalization --vectorized --gpu`, which is exactly what makes the stencil honoured —
+  so **every** `bandlimited` user who does not pass `--interpolate-time` now lands in the regime
+  below, and the driver prints nothing about it (verified 2026-09-03). That
   module's own docstring records +0.0002 nats for `nearest` against an analytic truth where
   Simpson is −521, but −2.29 for `sinc` where Simpson is +1.28, "and over a scan of seeds and
   grid phases Simpson wins about half the cases". The stencil default change moves that opt-in
   quadrature into the regime where its advantage is not established. **This pairing has not been
-  re-measured here and is an open item**, not a settled result.
+  re-measured here and is an open item**, not a settled result. By this change's own discipline —
+  a printed notice wherever a default costs someone their explicit opt-in, as with
+  `--calibration-fused-kernel` — this warrants a runtime notice rather than only a docstring. A
+  downgrade would be wrong (the run is still valid, just no longer better than Simpson).
+  **NEEDS AN OWNER; deliberately not fixed here.**
+- **The measurements above are for the BASELINE likelihood only.** `--rotation-slow` and
+  `--freqresponse` also satisfy the honoured set, so they inherit the new default too. Neither goes
+  silently inert — `factored_likelihood_with_rotation` and `factored_likelihood_freqresponse` both
+  implement all three stencils and call `validate_time_interp` — but §9.6.1 did not measure them.
+- **One line in the downgrade block is belt-and-braces, not a guard.** The
+  `resolve_time_posterior_export_mode(..., 'nearest', ...)` recompute inside it can never change
+  the stored value, because the block only runs when the stencil came from the default and
+  `_ti_for_export` was already `'nearest'`. No test can distinguish it (verified by mutation,
+  2026-09-03). Recorded so it is not mistaken for coverage; annotated in the source.
 - **srate is still unswept.** Every crossover in this document is at srate 4096, which §8 names as
   the numerator of the ratio §6 says sets the answer. If srate moves the crossover as strongly as
   fmin did, this default should be revisited.

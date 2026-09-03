@@ -287,9 +287,10 @@ jobs:
         # explicit value, so the whole suite was blind to the default -- which is what essentially
         # every production run uses, since the pipeline emits the flag only when asked. It is also
         # subprocess-based (~2 min), and for the same reason: the interesting part of the
-        # 2026-09-02 default change is not the new value but the three places a DEFAULT must
+        # 2026-09-02 default change is not the new value but the four places a DEFAULT must
         # behave differently from a REQUEST (refusal, time-posterior export mode, fused calmarg
-        # kernel), and none of those is visible from a unit call.
+        # kernel, and the legacy scalar path's `interpolate` boolean), and none of those is
+        # visible from a unit call.
         #
         # The GPU parity files (test_q_window_interp_gpu, test_noloop_gpu_stencils) are
         # deliberately NOT here -- there is no GPU on these runners, and they would report as

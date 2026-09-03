@@ -731,6 +731,17 @@ if _stencil_downgrades and opts._interp_time_from_default:
           % (opts._noloop_time_interp, "; ".join(_stencil_downgrades), TIME_INTERP_DEFAULT))
     opts._noloop_time_interp = 'nearest'
     # Both of these were derived from the provisional default and must follow it down.
+    # The FIRST is load-bearing and is NOT redundant with the stencil reset above: it is the
+    # plain boolean handed to FactoredLogLikelihoodTimeMarginalized(..., interpolate=...) on the
+    # NON-VECTORIZED path (:3645, :4002), which is the likelihood that actually runs whenever a
+    # downgrade is triggered by a missing --vectorized.  Without it an omitted --interpolate-time
+    # would switch every such run onto the legacy path's unrelated cubic interpolation.  Pinned by
+    # test_batchmode_stencil_default.test_the_downgrade_also_takes_the_legacy_scalar_path_down_with_it.
+    # The SECOND is BELT-AND-BRACES, not a guard: this block only runs when the stencil came from
+    # the default, and in that case _ti_for_export was already 'nearest', so the recomputed value
+    # is always the value already stored.  Kept so the two derived quantities are reset in one
+    # place if _ti_for_export's rule ever changes; no test can distinguish it (verified by
+    # mutation, 2026-09-03 -- deleting it leaves the whole gate green).
     opts._legacy_interpolate_time = False
     opts._time_posterior_export = resolve_time_posterior_export_mode(
         opts.time_posterior_export, 'nearest',

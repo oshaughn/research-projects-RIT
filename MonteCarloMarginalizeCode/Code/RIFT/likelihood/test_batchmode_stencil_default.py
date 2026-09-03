@@ -18,14 +18,16 @@ the most reachable kind of result change there is, so it is pinned three ways he
      than by trusting a re-typed literal (this is the check test_jax_stencil_parity already has
      for --interp and the batchmode driver did not have for --interpolate-time);
   3. the BEHAVIOUR -- real subprocesses, because the interesting part of this change is not the
-     new value but the three places where a DEFAULT must behave differently from a REQUEST.
+     new value but the FOUR places where a DEFAULT must behave differently from a REQUEST.
 
 ON (3), STATED PLAINLY, because it is the part a reviewer should attack.  The driver refuses an
 explicit --interpolate-time it cannot honour.  As a DEFAULT that same refusal would convert every
 configuration lacking --time-marginalization/--vectorized/--gpu from working to a startup
 ValueError, so the default is downgraded to 'nearest' instead, and the same distinction keeps the
-default out of the time-posterior export mode and off the fused calibration kernel.  Each of
-those three is a separate test below; deleting the distinction makes at least one of them fail.
+default out of the time-posterior export mode, off the fused calibration kernel, and off the
+LEGACY scalar path's `interpolate` boolean (the fourth, found by adversarial review on 2026-09-03:
+correct in the code, pinned by nothing).  Each of those four is a separate test below; deleting the
+distinction makes at least one of them fail.
 
 Subprocess cases cost a few seconds of lal/numba import each, so the list is kept to the ones
 that DISTINGUISH behaviours.
@@ -86,6 +88,19 @@ def _run(script, args, timeout=300, in_tmpdir=False):
 
 def _squash(text):
     return re.sub(r'\s+', ' ', text)
+
+
+def _legacy_scalar_flag(out):
+    """The `legacy scalar path interpolate=` field of the same banner.
+
+    Separate from _stencil_banner because it pins a DIFFERENT variable with a different
+    consumer: opts._legacy_interpolate_time, which is what
+    FactoredLogLikelihoodTimeMarginalized(..., interpolate=...) is handed on the NON-VECTORIZED
+    path.  The stencil name and this boolean can disagree, and one mutation makes them.
+    """
+    m = re.search(r'legacy scalar path interpolate=(\w+)', _squash(out))
+    assert m, "driver printed no legacy-scalar field; output was: %s" % out[-1500:]
+    return m.group(1)
 
 
 def _stencil_banner(out):
@@ -217,6 +232,31 @@ def test_unhonourable_configuration_downgrades_the_default_instead_of_refusing()
     assert 'Q_lm stencil DEFAULT' in squashed and 'NOT APPLIED' in squashed, (
         "the fallback must be ANNOUNCED. A stencil that is not running is the one thing the log "
         "has to say: %s" % out[-1500:])
+
+
+def test_the_downgrade_also_takes_the_legacy_scalar_path_down_with_it():
+    """The FIFTH thing a default had to be prevented from doing, found by adversarial review.
+
+    opts._legacy_interpolate_time is derived from the PROVISIONAL default a hundred lines before
+    the downgrade runs, and it is not the stencil: it is the plain boolean handed to
+    FactoredLogLikelihoodTimeMarginalized(..., interpolate=...) at batchmode:3645 and :4002, which
+    is the likelihood that ACTUALLY RUNS whenever --vectorized is absent.  A non-'nearest'
+    provisional default makes it True, i.e. an omitted --interpolate-time would silently switch
+    every non-vectorized run onto the legacy path's unrelated cubic interpolation -- a result
+    change of the same class as the three in 9.6.3, on a path where no sub-sample stencil exists
+    at all.  The downgrade block resets it; nothing pinned that until this test.
+
+    '--time-marginalization' alone is deliberate: it is unhonourable (no --vectorized, no
+    --gpu/--rotation-slow/--freqresponse), so the downgrade fires, AND it is the branch where the
+    legacy scalar call site is reachable.  Base behaviour is 'False' and must stay 'False'.
+    """
+    out = _run(DRIVER, ['--time-marginalization'])
+    assert _stencil_banner(out) == 'nearest', out[-1500:]
+    assert _legacy_scalar_flag(out) == 'False', (
+        "the downgrade left opts._legacy_interpolate_time True. On this configuration the "
+        "likelihood that runs is the LEGACY scalar path, whose `interpolate` argument this flag "
+        "is -- so the default would silently turn on the legacy cubic interpolation for every "
+        "non-vectorized run: %s" % out[-1500:])
 
 
 def test_an_explicit_request_is_still_refused_on_the_same_configuration():
