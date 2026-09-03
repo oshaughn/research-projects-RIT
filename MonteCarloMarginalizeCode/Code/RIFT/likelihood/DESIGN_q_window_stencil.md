@@ -590,6 +590,28 @@ coercion, because `str(None) == 'none'` is itself a legal explicit spelling mean
    With an *explicit* stencil the behaviour is unchanged but is no longer silent: the driver now
    prints that the fused kernel is not in use.
 
+   **Corrected 2026-09-03 (P2 review, PR #237): this guard was BROADER THAN THE THING IT
+   PROTECTS.** It keyed on `--calibration-fused-kernel` alone, but `use_fused_calmarg` (`:3261`)
+   is `calibration_marginalization and opts.calibration_fused_kernel`, and
+   `calibration_marginalization` (`:1317`) is exactly `bool(opts.calibration_envelope_directory)`
+   — so with no envelope configured **no fused kernel can run under any stencil**, and downgrading
+   there protected nothing while silently costing the accuracy the default exists to provide. That
+   failure mode is invisible by construction: a needless downgrade looks exactly like the
+   historical behaviour. Both the downgrade and the `NOT USED` notice now key on
+   `_fused_calmarg_would_run`, the same predicate evaluated early. Pinned by
+   `test_a_bare_fused_kernel_flag_no_longer_downgrades_the_default`, whose command line is the
+   fused-kernel test's minus the envelope, with the opposite required outcome.
+
+   **And the downgrade notice promised behaviour the driver does not have.** One shared sentence
+   served both downgrades and told everyone that naming the stencil explicitly would get them
+   *refused*. That is true of the prerequisite downgrade and **false** of this one:
+   `--calibration-fused-kernel --interpolate-time sinc` is **accepted**, the fused kernel is
+   dropped, and the driver says so. Contradictory guidance is worse than none in a
+   result-changing startup notice, so each downgrade now carries its own remedy and they are
+   printed one line per reason. `test_each_downgrade_states_the_remedy_that_actually_applies`
+   asserts each remedy against the driver's actual behaviour on the command line it recommends,
+   not just against the string.
+
 4. **The legacy scalar path would have started interpolating.** `opts._legacy_interpolate_time`
    is derived from the *provisional* default a hundred lines before the downgrade runs, and it is
    not a stencil: it is the plain boolean handed to
@@ -635,11 +657,20 @@ opposites, so `helper_LDG_Events.py` re-expresses an off-request as an explicit
   Simpson is −521, but −2.29 for `sinc` where Simpson is +1.28, "and over a scan of seeds and
   grid phases Simpson wins about half the cases". The stencil default change moves that opt-in
   quadrature into the regime where its advantage is not established. **This pairing has not been
-  re-measured here and is an open item**, not a settled result. By this change's own discipline —
-  a printed notice wherever a default costs someone their explicit opt-in, as with
-  `--calibration-fused-kernel` — this warrants a runtime notice rather than only a docstring. A
-  downgrade would be wrong (the run is still valid, just no longer better than Simpson).
-  **NEEDS AN OWNER; deliberately not fixed here.**
+  re-measured and is an open item**, not a settled result.
+
+  **The SILENCE is closed (2026-09-03, P2 review, PR #237); the MEASUREMENT is not.** The driver
+  now prints `--time-marginalization-quadrature <rule>: ADVANTAGE NOT ESTABLISHED with the
+  DEFAULT/explicitly requested Q_lm stencil <name>` whenever a band-limited quadrature runs under
+  a non-`nearest` stencil, carrying both numbers and the `--interpolate-time nearest` reproduce
+  instruction. Not a downgrade — the quadrature is not wrong, its *advantage* is unestablished —
+  and not a refusal, because either stencil is a legitimate choice. `peak-local` is included
+  because its accuracy is *defined* against `bandlimited` (max 1.9e-11 nats), so a stencil bias in
+  the reference is a stencil bias in it. Pinned at both edges: the notice must fire for
+  `bandlimited` and `peak-local` under the default, and must stay silent for `simpson` and for an
+  explicit `nearest` — a notice that always prints carries no information, and one that fired on
+  `nearest` would contradict its own advice.
+  **Still NEEDS AN OWNER: whether `bandlimited`'s advantage survives against `sinc` is unmeasured.**
 - **The measurements above are for the BASELINE likelihood only.** `--rotation-slow` and
   `--freqresponse` also satisfy the honoured set, so they inherit the new default too. Neither goes
   silently inert — `factored_likelihood_with_rotation` and `factored_likelihood_freqresponse` both

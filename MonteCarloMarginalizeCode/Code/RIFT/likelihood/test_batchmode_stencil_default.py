@@ -29,6 +29,15 @@ LEGACY scalar path's `interpolate` boolean (the fourth, found by adversarial rev
 correct in the code, pinned by nothing).  Each of those four is a separate test below; deleting the
 distinction makes at least one of them fail.
 
+TWO FURTHER THINGS THE SAME REVIEW FOUND, and the reason they belong in this file.  A guard can be
+wrong by being TOO BROAD as easily as by being absent, and a NOTICE can be wrong by describing
+behaviour the code does not have -- neither shows up as a failure anywhere, because a needless
+downgrade looks exactly like the historical behaviour and a wrong remedy string still prints.  So
+this file now also pins the OTHER edge of each: that a bare --calibration-fused-kernel with no
+calibration envelope does NOT downgrade (nothing to protect), that each downgrade's stated remedy
+matches what the driver actually does on that command line, and that the band-limited quadrature
+notice fires under the new default and stays silent for 'simpson' and for an explicit 'nearest'.
+
 Subprocess cases cost a few seconds of lal/numba import each, so the list is kept to the ones
 that DISTINGUISH behaviours.
 
@@ -57,6 +66,17 @@ PSEUDO = os.path.join(BIN, 'util_RIFT_pseudo_pipe.py')
 # The smallest command line the driver accepts that satisfies all three stencil prerequisites.
 # --force-xpy keeps the identical NoLoop code path on numpy, so this runs on a CI box with no GPU.
 HONOURED = ['--time-marginalization', '--vectorized', '--gpu', '--force-xpy']
+
+# --calibration-fused-kernel can only LOSE a fused kernel if one would have run, and that needs a
+# calibration envelope: use_fused_calmarg (batchmode:3261) is
+# `calibration_marginalization and opts.calibration_fused_kernel`, and calibration_marginalization
+# (:1317) is exactly bool(opts.calibration_envelope_directory).  The path is never opened this
+# early -- it is first read around :1300, long after the banner these tests parse -- so a
+# non-existent directory is the cheapest way to put the driver in the calmarg configuration.  Using
+# the flag WITHOUT this was the P2 review finding these tests missed: the guard fired on runs where
+# no kernel could run at all.
+CALMARG = ['--calibration-envelope-directory', '/nonexistent-calibration-envelope-for-tests']
+FUSED = ['--calibration-fused-kernel'] + CALMARG
 
 
 def _run(script, args, timeout=300, in_tmpdir=False):
@@ -296,7 +316,7 @@ def test_default_stays_off_the_fused_calibration_kernel():
     """The fused calmarg kernels implement 'nearest' only, and the driver's three call sites fall
     back to cal_method='loop' (and drop cal_distmarg) for any other stencil, silently.  A default
     must not spend someone else's --calibration-fused-kernel that way."""
-    out = _run(DRIVER, HONOURED + ['--calibration-fused-kernel'])
+    out = _run(DRIVER, HONOURED + FUSED)
     assert _stencil_banner(out) == 'nearest', (
         "the default stencil was applied on top of --calibration-fused-kernel, which silently "
         "moves the run off the fused kernel it explicitly asked for: %s" % out[-1500:])
@@ -305,14 +325,111 @@ def test_default_stays_off_the_fused_calibration_kernel():
 def test_an_explicit_stencil_with_the_fused_kernel_says_so():
     """Unchanged behaviour (the user named both flags), but it used to be silent at all three
     call sites, which contradicts this option's own 'REFUSED, not ignored' promise."""
-    out = _squash(_run(DRIVER, HONOURED + ['--calibration-fused-kernel',
-                                           '--interpolate-time', 'sinc']))
+    out = _squash(_run(DRIVER, HONOURED + FUSED + ['--interpolate-time', 'sinc']))
     assert '--calibration-fused-kernel: NOT USED' in out, (
         "losing the fused kernel to an explicit stencil is still silent: %s" % out[-1500:])
 
 
+def test_a_bare_fused_kernel_flag_no_longer_downgrades_the_default():
+    """A guard must not be BROADER than the thing it protects.  (P2 review finding, PR #237.)
+
+    --calibration-fused-kernel with no --calibration-envelope-directory cannot run a fused kernel
+    under ANY stencil: use_fused_calmarg is `calibration_marginalization and the flag`.  Keying the
+    downgrade on the flag alone therefore protected nothing on this command line and silently cost
+    the accuracy the new default exists to provide -- the failure mode is invisible, because a
+    needless downgrade looks exactly like the historical behaviour.
+
+    Deliberately the SAME command line as test_default_stays_off_the_fused_calibration_kernel minus
+    the envelope, with the opposite required outcome, so the pair pins both edges of the condition.
+    """
+    out = _run(DRIVER, HONOURED + ['--calibration-fused-kernel'])
+    assert _stencil_banner(out) == TIME_INTERP_DEFAULT, (
+        "a --calibration-fused-kernel flag with no calibration envelope still downgraded the "
+        "default stencil, though no fused kernel can run: %s" % out[-1500:])
+    squashed = _squash(out)
+    assert 'NOT APPLIED' not in squashed, (
+        "the driver announced a downgrade it did not need to make: %s" % out[-1500:])
+    assert 'NOT USED' not in squashed, (
+        "the driver reported losing a fused kernel that was never going to run: %s" % out[-1500:])
+
+
+def test_each_downgrade_states_the_remedy_that_actually_applies():
+    """A startup notice must not promise behaviour the driver does not have.  (P2, PR #237.)
+
+    The two downgrades have OPPOSITE remedies and one shared sentence lied about one of them.
+    Naming the stencil explicitly on a prerequisite downgrade gets you REFUSED; naming it on the
+    fused-kernel downgrade gets you ACCEPTED, with the kernel dropped and a notice.  The single
+    message said "pass ... explicitly to be refused instead" in both cases.
+
+    Asserted against the driver's real behaviour on the same two command lines, not just against
+    the strings: the refusal claim is checked by actually adding the flag and seeing a refusal, and
+    the acceptance claim by adding it and seeing the run continue.
+    """
+    prereq = _squash(_run(DRIVER, ['--vectorized']))
+    assert 'REFUSED rather than downgraded' in prereq, (
+        "the prerequisite downgrade no longer states its remedy: %s" % prereq[-1200:])
+    # ... and that claim is true:
+    assert 'cannot honour it' in _squash(
+        _run(DRIVER, ['--interpolate-time', TIME_INTERP_DEFAULT, '--vectorized'])), \
+        "the prerequisite message promises a refusal the driver does not perform"
+
+    fused = _squash(_run(DRIVER, HONOURED + FUSED))
+    assert 'ACCEPTED, not refused' in fused, (
+        "the fused-kernel downgrade still borrows the prerequisite downgrade's remedy: %s"
+        % fused[-1200:])
+    assert 'REFUSED rather than downgraded' not in fused, (
+        "the fused-kernel downgrade tells the user they will be refused; they will not: %s"
+        % fused[-1200:])
+    # ... and THAT claim is true: same command line plus the explicit stencil is accepted.
+    accepted = _squash(_run(DRIVER, HONOURED + FUSED + ['--interpolate-time', TIME_INTERP_DEFAULT]))
+    assert 'cannot honour it' not in accepted, (
+        "the fused-kernel message says an explicit stencil is accepted, but it was refused: %s"
+        % accepted[-1200:])
+    assert '--calibration-fused-kernel: NOT USED' in accepted, (
+        "the fused-kernel message says the driver will say so; it did not: %s" % accepted[-1200:])
+
+
 # ---------------------------------------------------------------------------
-# 4. spellings that must keep meaning what they meant
+# 4. the band-limited quadratures were measured against a stencil that is no
+#    longer the default, and the pairing is now universal rather than rare
+# ---------------------------------------------------------------------------
+def test_bandlimited_says_its_advantage_is_unestablished_under_the_new_default():
+    """The third P2 review finding on PR #237, and the reason it is not a rare corner.
+
+    --time-marginalization-quadrature's prerequisites (--time-marginalization --vectorized --gpu)
+    are a strict SUBSET of the stencil's honoured set, so EVERY run that opts into a band-limited
+    quadrature without naming a stencil now gets the default one -- the regime where that module's
+    own docstring measures -2.29 nats against Simpson's +1.28.  Startup said nothing.
+    """
+    for quadrature in ('bandlimited', 'peak-local'):
+        out = _squash(_run(DRIVER, HONOURED + ['--time-marginalization-quadrature', quadrature]))
+        assert 'ADVANTAGE NOT ESTABLISHED' in out, (
+            "--time-marginalization-quadrature %s ran under the DEFAULT stencil with no notice "
+            "that its measured advantage is for 'nearest': %s" % (quadrature, out[-1500:]))
+        assert 'DEFAULT Q_lm stencil' in out, (
+            "the notice does not say the stencil was inherited rather than chosen: %s"
+            % out[-1500:])
+
+
+def test_the_quadrature_notice_does_not_fire_where_the_numbers_still_hold():
+    """The other edge, without which the notice is unfalsifiable.
+
+    A notice that always prints carries no information.  It must be silent for 'simpson' (the
+    quadrature default, which these measurements are not about) and silent for an explicit
+    'nearest' (the regime the numbers WERE measured in, and the reproduce instruction the notice
+    itself gives -- so if it still fired there the advice would be self-contradicting).
+    """
+    assert 'ADVANTAGE NOT ESTABLISHED' not in _squash(_run(DRIVER, HONOURED)), \
+        "the quadrature notice fired for the historical simpson quadrature"
+    out = _squash(_run(DRIVER, HONOURED + ['--time-marginalization-quadrature', 'bandlimited',
+                                           '--interpolate-time', 'nearest']))
+    assert 'ADVANTAGE NOT ESTABLISHED' not in out, (
+        "the notice fired for the very configuration it tells the user to switch to: %s"
+        % out[-1500:])
+
+
+# ---------------------------------------------------------------------------
+# 5. spellings that must keep meaning what they meant
 # ---------------------------------------------------------------------------
 def test_explicit_nearest_and_explicit_off_still_mean_nearest():
     for value in ('nearest', 'none', 'False'):

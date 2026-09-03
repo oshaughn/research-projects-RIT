@@ -707,11 +707,31 @@ _stencil_is_honoured = not _stencil_missing
 # anyone who passes the flag), and a DEFAULT falls back to 'nearest' -- the historical value, so
 # the fallback is a no-op relative to today -- with the reason printed.  The fallback is announced
 # rather than silent because a stencil that is not running is the one thing the log has to say.
+# COULD A FUSED KERNEL ACTUALLY RUN?  The flag alone does not decide it.  `use_fused_calmarg`
+# (:3261) is `calibration_marginalization and opts.calibration_fused_kernel`, and
+# `calibration_marginalization` (:1317) is exactly `bool(opts.calibration_envelope_directory)` --
+# so this is that same predicate, evaluated early enough to gate the downgrade.  The check below
+# keyed on the FLAG ALONE until 2026-09-03, which made the guard BROADER THAN THE THING IT
+# PROTECTS: with no envelope configured no fused kernel runs under ANY stencil, so downgrading
+# there protected nothing and silently cost the accuracy the new default exists to provide.
+# Reported as a P2 review finding on PR #237, and pinned by
+# test_a_bare_fused_kernel_flag_no_longer_downgrades_the_default.
+_fused_calmarg_would_run = bool(opts.calibration_fused_kernel) and bool(
+    opts.calibration_envelope_directory)
+# (reason, remedy) pairs, NOT bare reasons.  The two downgrades have DIFFERENT remedies and one
+# shared sentence would have to lie about one of them: a prerequisite downgrade becomes a REFUSAL
+# if you name the stencil explicitly, while the fused-kernel downgrade does NOT -- an explicit
+# stencil there is ACCEPTED and the fused kernel is dropped with a notice.  The single message
+# used until 2026-09-03 told everyone they would be refused, which was wrong for the second case.
+# Second P2 review finding on PR #237, and the reason these are printed one line per reason.
 _stencil_downgrades = []
 if opts._noloop_time_interp != 'nearest' and not _stencil_is_honoured:
-    _stencil_downgrades.append(
+    _stencil_downgrades.append((
         "this configuration cannot honour a sub-sample stencil: missing %s"
-        % ", ".join(_stencil_missing))
+        % ", ".join(_stencil_missing),
+        "add the missing option(s) -- --gpu accepts --force-xpy if no device is present -- or "
+        "pass '--interpolate-time %s' explicitly to be REFUSED rather than downgraded"
+        % TIME_INTERP_DEFAULT))
 # THE FUSED CALIBRATION KERNEL IMPLEMENTS 'nearest' ONLY, deliberately (see
 # DESIGN_q_window_stencil.md 9).  The three NoLoop call sites already fall back to cal_method
 # ='loop' when the stencil is not 'nearest', and the distmarg sites additionally drop the
@@ -719,16 +739,19 @@ if opts._noloop_time_interp != 'nearest' and not _stencil_is_honoured:
 # --calibration-fused-kernel run off the kernel it explicitly asked for, changing both its cost
 # and its distance-marginalization path.  An explicit stencil still does that (unchanged, and the
 # user named both flags); the default stays out of it.
-if (opts._noloop_time_interp != 'nearest' and bool(opts.calibration_fused_kernel)
+if (opts._noloop_time_interp != 'nearest' and _fused_calmarg_would_run
         and not _stencil_downgrades):
-    _stencil_downgrades.append(
-        "--calibration-fused-kernel selects a fused kernel that implements 'nearest' only")
+    _stencil_downgrades.append((
+        "--calibration-fused-kernel selects a fused kernel that implements 'nearest' only",
+        "pass '--interpolate-time %s' explicitly to KEEP the stencil and give up the fused "
+        "kernel -- that combination is ACCEPTED, not refused: calibration marginalization runs "
+        "the 'loop' method and the driver says so -- or pass '--interpolate-time nearest' to "
+        "make the current behaviour explicit" % TIME_INTERP_DEFAULT))
 if _stencil_downgrades and opts._interp_time_from_default:
-    print(" Q_lm stencil DEFAULT %r NOT APPLIED -- %s. Falling back to "
-          "'nearest' (the pre-2026-09-02 default), so this run is unchanged. Pass "
-          "'--interpolate-time %s' explicitly to be refused instead, or add the missing "
-          "option(s) -- --gpu accepts --force-xpy if no device is present."
-          % (opts._noloop_time_interp, "; ".join(_stencil_downgrades), TIME_INTERP_DEFAULT))
+    for _dg_reason, _dg_remedy in _stencil_downgrades:
+        print(" Q_lm stencil DEFAULT %r NOT APPLIED -- %s. Falling back to 'nearest' (the "
+              "pre-2026-09-02 default), so this run is unchanged. To change that: %s."
+              % (opts._noloop_time_interp, _dg_reason, _dg_remedy))
     opts._noloop_time_interp = 'nearest'
     # Both of these were derived from the provisional default and must follow it down.
     # The FIRST is load-bearing and is NOT redundant with the stencil reset above: it is the
@@ -746,10 +769,14 @@ if _stencil_downgrades and opts._interp_time_from_default:
     opts._time_posterior_export = resolve_time_posterior_export_mode(
         opts.time_posterior_export, 'nearest',
         continuous_available=not (opts.rotation_slow or opts.freqresponse))
-if opts._noloop_time_interp != 'nearest' and bool(opts.calibration_fused_kernel):
+if opts._noloop_time_interp != 'nearest' and _fused_calmarg_would_run:
     # SAY SO.  This combination is not refused -- the user named both flags and the stencil is
     # the one that is honoured -- but until now the loss of the fused kernel was silent at all
     # three call sites, which contradicts this option's own "REFUSED, not ignored" promise.
+    # Gated on _fused_calmarg_would_run rather than on the flag, for the same reason as the
+    # downgrade above: with no calibration envelope there is no fused kernel to lose, and a
+    # "NOT USED" notice about a kernel that was never going to run is noise that trains readers
+    # to ignore the line.
     print(" --calibration-fused-kernel: NOT USED. The fused calibration kernels implement the "
           "'nearest' stencil only (DESIGN_q_window_stencil.md 9), and --interpolate-time %r is "
           "in force, so calibration marginalization runs the 'loop' method instead (and the "
@@ -869,6 +896,40 @@ print(" Q_lm sub-sample time stencil: {} (from --interpolate-time {}); honoured 
            else repr(opts.interpolate_time)), _stencil_is_honoured,
           bool(opts.time_marginalization), bool(opts.vectorized), bool(opts.gpu),
           bool(opts.rotation_slow), bool(opts.freqresponse), opts._legacy_interpolate_time))
+# THE BAND-LIMITED QUADRATURES WERE MEASURED AGAINST 'nearest', WHICH IS NO LONGER THE DEFAULT.
+#
+# 'bandlimited' reconstructs the integrand THE CODE ACTUALLY FORMS.  That is the true kappa(t)
+# only for the 'nearest' gather; with 'cubic' or 'sinc' the gathered values are a fixed FIR
+# filter applied to Q, still band-limited, so the reconstruction stays exact -- but exact for the
+# FILTERED function, and the stencil's own bias then dominates.  Measured at srate 4096, peak
+# lnL ~5300 (time_marginalization_quadrature.py): with 'nearest' this path is +0.0002 nats against
+# an analytic truth where Simpson is -521; with 'sinc' it is -2.29 where Simpson is +1.28, and
+# over a scan of seeds and grid phases Simpson wins about half the cases.  'peak-local' inherits
+# this: its accuracy is DEFINED against 'bandlimited' (max 1.9e-11 nats), so a stencil bias in
+# the reference is a stencil bias in it.
+#
+# AND THE PAIRING IS NOT RARE -- IT IS UNIVERSAL.  The quadrature's prerequisites
+# (--time-marginalization --vectorized --gpu) are a strict SUBSET of the stencil's honoured set,
+# so EVERY run that opts into a band-limited quadrature without naming a stencil now gets the
+# default one.  An explicit accuracy option must not be moved into an unvalidated regime in
+# silence: same discipline as the --calibration-fused-kernel notice above.  NOT a downgrade --
+# the quadrature is not wrong, its ADVANTAGE is unestablished here -- and not a refusal, because
+# either stencil is a legitimate choice.  Third P2 review finding on PR #237;
+# DESIGN_q_window_stencil.md 9.6.4 called for this notice and records the underlying measurement
+# as still open.
+if (opts._time_quadrature in ('bandlimited', 'peak-local')
+        and opts._noloop_time_interp != 'nearest'):
+    print(" --time-marginalization-quadrature %s: ADVANTAGE NOT ESTABLISHED with the "
+          "%s Q_lm stencil %r. Its measured accuracy (+0.0002 nats against an analytic truth "
+          "where Simpson is -521) is for 'nearest'; with 'sinc' the same comparison is -2.29 "
+          "nats where Simpson is +1.28, and Simpson wins about half a scan of seeds and grid "
+          "phases -- once a stencil is in force its own bias dominates the quadrature error. "
+          "The run is not wrong and nothing is being downgraded; the PAIRING is unmeasured "
+          "(RIFT/likelihood/DESIGN_q_window_stencil.md 9.6.4, open item). Pass "
+          "'--interpolate-time nearest' to reproduce the regime these numbers were measured in."
+          % (opts._time_quadrature,
+             "DEFAULT" if opts._interp_time_from_default else "explicitly requested",
+             opts._noloop_time_interp))
 if opts.resample_time_marginalization:
     print(" Time-posterior export: {} (from --time-posterior-export {!r})".format(
           opts._time_posterior_export, opts.time_posterior_export))
