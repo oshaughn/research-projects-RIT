@@ -291,3 +291,53 @@ def test_a_wrapped_phi_region_is_clamped_to_one_circuit():
     assert abs(val - ref) < 1e-3, (val, ref, rep)
     # and the covered length may never exceed one circuit
     assert rep['n_phi_regions'] >= 1
+
+
+def test_inner_u_quadrature_is_converged_at_the_default_node_count():
+    """P1 from review, and it needs its OWN regression because the phi omitted-mass
+    certificate cannot see it: an error made INSIDE a region is invisible to a bound on
+    what lies outside.  Raising n_nodes must not move the answer."""
+    rng = np.random.default_rng(11)
+    worst = 0.0
+    for _ in range(6):
+        sc = 10.0 ** rng.uniform(-0.5, 2.5)
+        A = (rng.normal(size=(3, 3)) + 1j * rng.normal(size=(3, 3))) * sc
+        B = (rng.normal(size=(5, 5)) + 1j * rng.normal(size=(5, 5))) * sc
+        B[0, 2] = abs(B[0, 2].real) + 3.0 * sc
+        C = J.joint_table(A, B, x=1.0)
+        for phi in (0.3, 1.9, 4.4):
+            lo, _, _ = J.u_profile(C, np.array([phi]), n_nodes=64)
+            hi, _, _ = J.u_profile(C, np.array([phi]), n_nodes=1024)
+            worst = max(worst, abs(lo[0] - hi[0]))
+    assert worst < 1e-3, worst
+
+
+def test_the_quartic_roots_are_seeds_and_must_be_refined_in_cell():
+    """Why the in-cell Newton refinement is not dead weight.  A conjugate-reciprocal
+    pair leaves the unit circle -- measured, 309 of 900 (table, phi) pairs have at least
+    one such root -- and a spurious root's ANGLE is not a stationary point at all: the
+    worst |g_u|/M_1 at a raw root measured 0.311, i.e. nowhere near stationary.  Window
+    around that and the window is centred off the peak."""
+    rng = np.random.default_rng(11)
+    worst_resid = 0.0
+    n_off = 0
+    for _ in range(60):
+        sc = 10.0 ** rng.uniform(-0.5, 2.0)
+        A = (rng.normal(size=(3, 3)) + 1j * rng.normal(size=(3, 3))) * sc
+        B = (rng.normal(size=(5, 5)) + 1j * rng.normal(size=(5, 5))) * sc
+        B[0, 2] = abs(B[0, 2].real) + 3.0 * sc
+        C = J.joint_table(A, B, x=1.0)
+        k, q, w, KS = J._kq(C)
+        for phi in (0.3, 1.9, 4.4):
+            ph = (np.exp(1j * phi * k) * w).ravel()
+            D = lambda qq: complex((ph * C[:, KS + qq]).sum())
+            c1 = D(1) + np.conj(D(-1))
+            c2 = D(2) + np.conj(D(-2))
+            z = np.roots([c2, c1 / 2, 0, -np.conj(c1) / 2, -np.conj(c2)])
+            n_off += int(np.any(np.abs(np.abs(z) - 1.0) > 1e-6))
+            u = np.sort(np.mod(np.angle(z), 2 * np.pi))
+            g1 = J.eval_g(C, np.full(4, phi), u, (0, 1))
+            m1 = max(J.derivative_bound(C, (0, 1)), 1e-300)
+            worst_resid = max(worst_resid, float(np.max(np.abs(g1)) / m1))
+    assert n_off > 0, "fixture family must contain off-circle roots"
+    assert worst_resid > 1e-6, worst_resid   # raw roots are NOT all stationary points

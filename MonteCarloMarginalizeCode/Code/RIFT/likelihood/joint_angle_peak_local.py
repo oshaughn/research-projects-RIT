@@ -624,11 +624,30 @@ def u_profile(C, phi, n_nodes=64, window_sigma=12.0):
         # EXACTLY 0.0 when the node count is raised -- i.e. the entire residual was this
         # rule, not the method.  A resolution that is a fixed number whose default is
         # assumed ample is the defect this whole line of work exists to remove.
-        g2c = _g_uu_at(C, p, u)
+        # REFINE THE CENTRE INSIDE EACH CELL FIRST.  The quartic roots are SEEDS, not
+        # located maxima: this module says elsewhere that they may leave the unit circle
+        # (a conjugate-reciprocal pair does exactly that), and a spurious root's angle is
+        # not a stationary point at all.  Windowing +-W sigma around the raw root then
+        # centres the window on the wrong place and takes sigma from the wrong curvature,
+        # which under-resolves the peak that IS in the cell -- an inside-cell quadrature
+        # error the phi omitted-mass certificate cannot see.  Measured on a constructed
+        # table before this change: -7.2e-04 nats returned with ok=True, converging to
+        # the reference only as n_nodes was raised.  The jax kernel already refines;
+        # this path did not, and the two must not differ on something load-bearing.
+        ustar = u.copy()
+        pv = np.full(ustar.size, float(p))
+        for _ in range(8):
+            g1 = eval_g(C, pv, ustar, (0, 1))
+            g2 = eval_g(C, pv, ustar, (0, 2))
+            step = np.where(np.abs(g2) > 0.0,
+                            -g1 / np.where(np.abs(g2) > 0.0, g2, 1.0), 0.0)
+            ustar = np.clip(ustar + np.clip(step, -0.5, 0.5), lo_c, mid)
+
+        g2c = _g_uu_at(C, p, ustar)
         peaked = g2c < 0.0
         sig_c = np.where(peaked, 1.0 / np.sqrt(np.where(peaked, -g2c, 1.0)), np.inf)
-        lo = np.where(peaked, np.maximum(u - window_sigma * sig_c, lo_c), lo_c)
-        hi = np.where(peaked, np.minimum(u + window_sigma * sig_c, mid), mid)
+        lo = np.where(peaked, np.maximum(ustar - window_sigma * sig_c, lo_c), lo_c)
+        hi = np.where(peaked, np.minimum(ustar + window_sigma * sig_c, mid), mid)
         s = np.linspace(0.0, 1.0, n_nodes)
         uu = lo[:, None] + np.maximum(hi - lo, 0.0)[:, None] * s[None, :]
         pp = np.full(uu.size, p)
