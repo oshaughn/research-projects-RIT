@@ -524,6 +524,13 @@ in two separate sweeps whose results differ by ~8% — run-to-run spread on a sh
 mass or fmin dependence (the six-point mass × fmin grid at K = 10000 is flat to 1.18–1.21×, which
 is what a stencil cost should do).
 
+**Provenance of these timings: they were taken at `6565d68c`, before PR #234's
+per-extrinsic-sample log-sum-exp offset landed in the same function.** That change replaces a
+scalar `max(lnL_t)` with a `keepdims` row-wise max in the time-marginalized reduction, so the
+absolute seconds in the GPU table may shift slightly. It is stencil-independent by construction --
+the same reduction runs for `nearest`, `cubic` and `sinc` -- so the RATIOS, which are what this
+section is for, are unaffected. Not re-timed.
+
 **So the cost objection is a CPU objection.** Production ILE runs `--gpu`, where `sinc` costs
 1.15–1.42× `nearest` and `cubic` 1.01–1.21×. On CPU `sinc` costs 16.3–17.6× `nearest`, which
 reproduces the ~16× end-to-end figure reported in issue #233 and identifies that measurement as
