@@ -184,3 +184,34 @@ def test_an_unjustified_node_cut_is_retried_not_reported():
     # either the cut was justified, or it was undone -- never silently kept
     assert ok
     assert rep.get('prefilter_retried') or rep.get('dropped_margin', -np.inf) < J.OUTSIDE_TOL_NATS
+
+
+def test_a_cell_straddling_a_box_edge_counts_as_OUTSIDE():
+    """P1 from review.  Classifying grid CENTRES lets a box cover every centre while
+    leaving real area uncovered; outside_bound then returned (-inf, 0.0) -- unconditional
+    acceptance.  The reviewer's counterexample: n_grid = 8, a box offset half a step with
+    half-width pi - h/4 covers all 64 centres and still leaves ~4.8 rad^2 outside."""
+    A, B = _ab_tables(seed=2, scale=1.0)
+    C = J.joint_table(A, B, x=1.0)
+    n = 8
+    h = 2 * np.pi / n
+    cen = np.array([[h / 2.0, h / 2.0]])
+    half = np.array([[np.pi - h / 4.0, np.pi - h / 4.0]])
+    sup, area = J.outside_bound(C, cen, half, n_grid=n)
+    assert area > 0.0, "a straddling cell must not be reported as fully covered"
+    assert np.isfinite(sup), "an uncovered region must yield a finite supremum bound"
+    # and the reported area must OVER-estimate, never under-estimate, the true uncovered
+    true_uncovered = (2 * np.pi) ** 2 - (2 * (np.pi - h / 4.0)) ** 2
+    assert area >= true_uncovered - 1e-9, (area, true_uncovered)
+
+
+def test_a_full_circle_box_still_counts_as_covering():
+    """The conservative shrink must not fire on a box that already spans the circle --
+    that is the low-amplitude case where regions merge to the whole torus, which is the
+    rule degenerating into the dense grid on purpose."""
+    A, B = _ab_tables(seed=2, scale=1.0)
+    C = J.joint_table(A, B, x=1.0)
+    cen = np.array([[0.0, 0.0]])
+    half = np.array([[np.pi, np.pi]])
+    sup, area = J.outside_bound(C, cen, half, n_grid=32)
+    assert area == 0.0 and sup == -np.inf, (sup, area)

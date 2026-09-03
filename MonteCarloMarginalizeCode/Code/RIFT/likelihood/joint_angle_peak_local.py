@@ -309,13 +309,29 @@ def outside_bound(C, cen, half, n_grid=256):
     with the ``M`` from :func:`derivative_bound` -- a true bound from the exact
     coefficient table, nothing fitted.
     """
+    step = 2.0 * np.pi / int(n_grid)
     t = np.linspace(0.0, 2.0 * np.pi, int(n_grid), endpoint=False)
     PHI, U = np.meshgrid(t, t, indexing='ij')
+
+    # A CELL IS COVERED ONLY IF THE WHOLE CELL IS INSIDE A BOX, not merely its centre.
+    # Classifying centres leaves cells that straddle a box edge unexamined: their
+    # uncovered part contributes to neither the supremum search nor the area.  The
+    # failure is not hypothetical or small -- a box positioned half a step off-axis can
+    # cover every grid CENTRE while leaving several rad^2 genuinely uncovered, and this
+    # function would then return (-inf, 0.0), i.e. UNCONDITIONAL ACCEPTANCE.  Shrinking
+    # each box by half a cell before testing makes a straddling cell count as outside;
+    # the uncovered area is then an OVER-estimate, which is the safe direction.
+    # A box that already spans the full circle on an axis covers it whatever the
+    # shrink does; without this the low-amplitude case -- where the regions have merged
+    # to the whole torus, which is the rule degenerating into the dense grid exactly as
+    # intended -- would report an uncovered band and decline every such row.
+    shrink = 0.5 * step
     inside = np.zeros(PHI.shape, dtype=bool)
     for c, h in zip(cen, half):
-        inside |= ((np.abs(_wrap(PHI - c[0])) <= h[0])
-                   & (np.abs(_wrap(U - c[1])) <= h[1]))
-    area_out = float((~inside).sum()) * (2.0 * np.pi / n_grid) ** 2
+        eff = np.where(h >= np.pi, np.pi + 1.0, h - shrink)
+        inside |= ((np.abs(_wrap(PHI - c[0])) <= eff[0])
+                   & (np.abs(_wrap(U - c[1])) <= eff[1]))
+    area_out = float((~inside).sum()) * step * step
     if not np.any(~inside):
         return -np.inf, 0.0
 
@@ -327,7 +343,7 @@ def outside_bound(C, cen, half, n_grid=256):
     # itself).  Using each cell's own gradient and paying M2 only on the quadratic term
     # makes the remainder local: it is small wherever the surface is flat, which is
     # precisely where the outside supremum lives.
-    r = 0.5 * np.sqrt(2.0) * (2.0 * np.pi / n_grid)     # half-diagonal of a cell
+    r = 0.5 * np.sqrt(2.0) * step                       # half-diagonal of a cell
     m = ~inside
     ph = PHI[m].ravel()
     uu = U[m].ravel()
@@ -535,7 +551,11 @@ def joint_marginalize_over_distance(C_A_st, C_B_st, x_grid, log_w_grid,
     # kept value on the same scale.
     dropped = np.setdiff1d(np.arange(x_grid.size), live)
     if dropped.size:
-        drop_bound = float(np.log(dropped.size) + ub[dropped].max())
+        # logsumexp over the dropped set, not log(n) + max: both are valid upper
+        # bounds on the omitted contribution, but the aggregate one is tighter and so
+        # declines fewer rows for the same guarantee.
+        _dm = ub[dropped].max()
+        drop_bound = float(_dm + np.log(np.exp(ub[dropped] - _dm).sum()))
         rep['dropped_bound'] = drop_bound
         rep['dropped_margin'] = drop_bound - value
         if rep['dropped_margin'] >= tol_nats and not _retry:
