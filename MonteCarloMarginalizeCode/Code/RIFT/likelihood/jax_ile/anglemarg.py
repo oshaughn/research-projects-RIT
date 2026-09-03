@@ -1966,9 +1966,16 @@ def fused_log_likelihood_distphipsimarg_peaklocal(
     rather than a dense grid sized ``~sqrt(A)``, the u-stationary points are obtained
     EXACTLY -- they are the unit-circle roots of a quartic, the u-degree being pinned at
     2 for any mode set -- the sorted points partition the circle, and each cell is
-    integrated on a window set by its own curvature.  The node count on that axis is
-    therefore INDEPENDENT of amplitude: 4 cells x 48 nodes, against the dense rule's 896
-    at amplitude 1.25e4.
+    integrated on a window set by its own curvature.
+
+    THE NODE COUNT ON THAT AXIS IS NOT AMPLITUDE-INDEPENDENT HERE, although the windowed
+    cells alone would be.  A cell whose Newton centre is rejected is integrated whole at
+    the same static count, and this path cannot know at trace time that no cell will be,
+    so it sizes all four cells with
+    :func:`~RIFT.likelihood.jax_ile.joint_anglemarg_peaklocal.required_u_nodes` and
+    REFUSES amplitudes whose requirement exceeds ``U_NODES_CAP``.  The saving over the
+    dense rule is then the phi/psi structure and the exact partition, not a constant u
+    cost.
 
     THE PHI AXIS IS STILL DENSE HERE and is sized by
     :func:`~RIFT.likelihood.jax_ile.joint_anglemarg_peaklocal.required_n_phi` from the
@@ -2004,7 +2011,29 @@ def fused_log_likelihood_distphipsimarg_peaklocal(
     _runtime_amp_failsafe(C_A, C_B, x_grid, amp_sizing, "peak-local")
 
     n_phi = _jp.required_n_phi(amp_sizing, m_max=_data_m_max(data))
-    kw = {} if phi_chunk is None else {"phi_chunk": int(phi_chunk)}
+
+    # THE FALLBACK CELLS SIZE THE u AXIS, not the windowed ones.  A cell whose Newton
+    # centre is rejected is integrated WHOLE at the SAME static node count, so the
+    # kernel's amplitude-independent default resolves only the windowed cells -- and
+    # which cells fall back is data-dependent, so at trace time this caller cannot know
+    # that none will.  Leaving the default in place would return rows carrying an
+    # inner-u error that NOTHING downstream can see: the peak-local certificate bounds
+    # the mass outside the cover, and this error is inside it.  So every cell is sized
+    # for the fallback case from the same amp_sizing the phi grid uses, and a sizing
+    # that does not fit inside U_NODES_CAP is REFUSED rather than silently truncated --
+    # the same rule as the JAX_ILE_DISTMARG_GH refusal above.
+    if _jp.u_nodes_capped(amp_sizing):
+        raise ValueError(
+            "the 'peak-local' angle-marg scheme cannot resolve its fallback (whole-cell)"
+            " u quadrature at amp_sizing=%.6g: it needs %d nodes per cell against the "
+            "U_NODES_CAP of %d, and the node count is static, so the cells that fall "
+            "back would be integrated under-resolved by an amount the omitted-mass "
+            "certificate cannot report.  Use --angle-marg-scheme exact or laplace at "
+            "this amplitude." % (float(amp_sizing),
+                                 _jp._u_nodes_needed(amp_sizing), _jp.U_NODES_CAP))
+    kw = {"n_nodes": _jp.required_u_nodes(amp_sizing)}
+    if phi_chunk is not None:
+        kw["phi_chunk"] = int(phi_chunk)
 
     # tables are (KP, 2KS+1, S, npts); move the batch axes to the front so one nested
     # vmap covers both and the kernel sees a plain 2-D table per (sample, time).

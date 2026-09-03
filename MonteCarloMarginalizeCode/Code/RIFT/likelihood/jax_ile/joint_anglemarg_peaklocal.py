@@ -28,6 +28,14 @@ to the cell, which keeps the node count fixed.  This is the u axis's whole econo
 shipped dense scheme spends ``~sqrt(A)`` points on this axis, and this spends a
 constant.
 
+THAT ECONOMY IS CLAIMED ONLY FOR WINDOWED CELLS.  A cell whose Newton centre is rejected
+is integrated WHOLE (see :func:`log_inner_u_integral`), and a whole cell is not narrow --
+it inherits the dense ``~sqrt(A)`` requirement.  Which cells fall back is data-dependent
+and the node count is static, so the production caller sizes for the fallback case with
+:func:`required_u_nodes` and declines when :func:`u_nodes_capped` says the sizing cannot
+be met.  The honest cost statement is therefore: constant on this axis wherever every
+cell is windowed, and ``~sqrt(A)`` where the caller must insure against a fallback.
+
 SCOPE OF THIS KERNEL.  The u axis is localized; the phi axis is a dense grid, scanned
 in chunks.  That is deliberately the same cost shape as the shipped ``laplace`` scheme
 (``~sqrt(A)`` on phi) and a strict improvement on its u treatment, which uses a blended
@@ -48,8 +56,10 @@ from jax import lax
 __all__ = [
     "required_n_phi",
     "required_u_nodes",
+    "u_nodes_capped",
     "U_WINDOW_SIGMA",
     "U_NODES_PER_CELL",
+    "U_NODES_CAP",
     "PHI_CHUNK_DEFAULT",
     "u_stationary_roots",
     "log_inner_u_integral",
@@ -73,17 +83,30 @@ U_WINDOW_SIGMA = 12.0
 #: THAT AMPLITUDE-INDEPENDENCE HOLDS FOR A WINDOWED CELL AND NOT FOR A FALLBACK ONE.
 #: A cell whose Newton centre is rejected (stalled on a boundary, large stationary
 #: residual) is integrated WHOLE, and 48 nodes then span the entire cell rather than
-#: +-12 sigma.  The numpy twin measured 1.7e-03 nats of inner-u error that way, so the
-#: honest statement is: this default resolves WINDOWED cells at any amplitude, and a
-#: caller that may hit fallback cells at high amplitude should size it with
-#: :func:`required_u_nodes` instead of relying on the default.
+#: +-12 sigma.  The numpy twin measured 1.7e-03 nats of inner-u error that way, so this
+#: default resolves WINDOWED cells at any amplitude and nothing more.  WHICH cells fall
+#: back is data-dependent and cannot be known at trace time, so a caller that may hit
+#: one -- every production caller -- must size the count for the fallback case with
+#: :func:`required_u_nodes` rather than take this default; the production entry point
+#: :func:`~RIFT.likelihood.jax_ile.anglemarg.fused_log_likelihood_distphipsimarg_peaklocal`
+#: does exactly that, and declines when the sizing cannot be met.
 U_NODES_PER_CELL = 48
+
+#: Cost ceiling on the derived fallback node count.  This is a REFUSAL threshold and not
+#: a clamp to fall back on: see :func:`u_nodes_capped`.
+U_NODES_CAP = 2048
 
 #: phi points per scan step.
 PHI_CHUNK_DEFAULT = 16
 
 
-def required_u_nodes(amplitude, pts_per_sigma=3.0, cap=2048):
+def _u_nodes_needed(amplitude, pts_per_sigma=3.0):
+    """The derived requirement, BEFORE any cap and before the windowed floor."""
+    a = max(float(amplitude), 1.0)
+    return int(np.ceil(2.0 * np.pi * np.sqrt(5.0 * a) * float(pts_per_sigma))) + 1
+
+
+def required_u_nodes(amplitude, pts_per_sigma=3.0, cap=U_NODES_CAP):
     """u nodes per cell adequate for a FALLBACK (whole-cell) integration at ``amplitude``.
 
     Derived, not tuned.  The u-spectrum has two terms, so ``|d2g/du2| <= M2u`` exactly,
@@ -97,15 +120,25 @@ def required_u_nodes(amplitude, pts_per_sigma=3.0, cap=2048):
     adaptation inside the kernel: shapes cannot depend on traced values.  The numpy twin
     derives the same quantity per call because it can.
 
-    ``cap`` bounds the cost.  When it binds the fallback cell may be under-resolved --
-    measured at the inner-u error recorded on U_NODES_PER_CELL before any derivation,
-    and 2.2e-04 with the curvature scale --
-    which is far below this rule's 23 nat acceptance tolerance but is NOT nothing, so it
-    is reported rather than absorbed silently.
+    ``cap`` bounds the cost, and the value returned when it binds is NOT adequate -- test
+    :func:`u_nodes_capped` and decline, do not integrate with it.  The certificate cannot
+    absorb the difference: the omitted-mass bound covers the mass OUTSIDE the cover and
+    the inner-u error lives INSIDE it, so a ``-23`` nat margin says nothing whatever about
+    a quadrature error of 2.2e-04 nats (log-relative -8.4, six orders of magnitude larger
+    than exp(-23) of the mass).  An under-resolved cell is a declined row, not a caveat.
     """
-    a = max(float(amplitude), 1.0)
-    need = int(np.ceil(2.0 * np.pi * np.sqrt(5.0 * a) * float(pts_per_sigma))) + 1
-    return int(min(max(need, U_NODES_PER_CELL), int(cap)))
+    return int(min(max(_u_nodes_needed(amplitude, pts_per_sigma),
+                       U_NODES_PER_CELL), int(cap)))
+
+
+def u_nodes_capped(amplitude, pts_per_sigma=3.0, cap=U_NODES_CAP):
+    """True when ``cap`` binds, i.e. :func:`required_u_nodes` returns LESS than derived.
+
+    The one question a caller has to ask before using the returned count: below the cap
+    the fallback cells are resolved by construction, at the cap they are under-resolved
+    by an amount nothing downstream can measure.
+    """
+    return bool(_u_nodes_needed(amplitude, pts_per_sigma) > int(cap))
 
 
 def required_n_phi(amplitude, m_max=2):
@@ -240,8 +273,10 @@ def log_inner_u_integral(a, c1, c2, n_nodes=U_NODES_PER_CELL,
     # wrong, and the numpy twin measured the inner-u error recorded on
     # U_NODES_PER_CELL from it.)  JAX
     # cannot adapt n_nodes -- shapes may not depend on traced values -- so the sizing is
-    # exposed to the caller as required_u_nodes() rather than fixed here; see its docstring
-    # for why raising it by default is the wrong trade.
+    # exposed to the caller as required_u_nodes(), and the production caller passes it
+    # for EVERY cell: it cannot know at trace time which cells will fall back, so it
+    # insures all of them and declines when the derived count exceeds U_NODES_CAP.  The
+    # default here resolves the windowed case only and is not a production setting.
     g1s = _g_u(a, c1, c2, ustar, 1)
     g2s = _g_u(a, c1, c2, ustar, 2)
     m1u = jnp.abs(c1) + 2.0 * jnp.abs(c2)          # exact bound on |d g / du|
