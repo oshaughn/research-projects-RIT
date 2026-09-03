@@ -84,12 +84,17 @@ def test_the_honoured_configuration_is_accepted():
 
 def test_every_calibration_opt_in_is_accepted_on_the_honoured_configuration():
     """Each opt-in, one at a time, on the good configuration.  A rule keyed on the flag
-    rather than on the missing prerequisite would fail here."""
+    rather than on the missing prerequisite would fail here.
+
+    --calibration-burn-in-nmax is the one opt-in the envelope does not suffice for: it is
+    a cap on a burn-in that only --calibration-burn-in-neff switches on, so it is carried
+    with its dependency here and refused on its own below."""
     for flag, attr in oc.CAL_OPT_IN_FLAGS:
         value = 'x' if attr.endswith(('breadcrumb', 'responsibilities')) else True
         if attr.startswith('calibration_burn_in'):
             value = 10
-        opts = _honoured(**{attr: value})
+        extra = {'calibration_burn_in_neff': 100.} if attr.endswith('burn_in_nmax') else {}
+        opts = _honoured(**dict(extra, **{attr: value}))
         assert oc.refusals_from_opts(opts) == [], (flag, oc.refusals_from_opts(opts))
 
 
@@ -229,6 +234,26 @@ def test_pilot_with_the_fused_kernel_is_accepted_with_a_notice():
     assert oc.notices_from_opts(_honoured(calibration_fused_kernel=True)) == []
 
 
+# --------------------------------------------- R7: the burn-in cap needs the burn-in
+
+def test_burn_in_nmax_without_neff_is_refused():
+    """The envelope is NOT enough to make --calibration-burn-in-nmax live.  The driver
+    reads opts.calibration_burn_in_nmax only inside the `if opts.calibration_burn_in_neff`
+    branch, so on the otherwise-honoured configuration the cap is silently ignored and the
+    burn-in it was sizing never happens: the exact failure mode this gate exists for."""
+    r = oc.refusals_from_opts(_honoured(calibration_burn_in_nmax=4000))
+    assert len(r) == 1 and r[0].kind == oc.KIND_INERT, r
+    assert r[0].options == ('--calibration-burn-in-nmax', '--calibration-burn-in-neff'), r
+
+
+def test_burn_in_nmax_with_neff_is_accepted():
+    """The nearest legal neighbours: the cap together with the option that reads it, and
+    the burn-in target on its own (no cap needed -- it falls back to the run's --n-max)."""
+    assert oc.refusals_from_opts(
+        _honoured(calibration_burn_in_neff=100., calibration_burn_in_nmax=4000)) == []
+    assert oc.refusals_from_opts(_honoured(calibration_burn_in_neff=100.)) == []
+
+
 # ------------------------------------------------------ R6: opt-ins without the envelope
 
 def test_each_opt_in_without_the_envelope_directory_is_refused():
@@ -339,6 +364,9 @@ def test_driver_refuses_through_the_real_cli():
          '--force-xpy', 'ViaArrayVector (no NoLoop) takes no n_cal'),
         (['--calibration-fused-kernel'] + _HONOURED_CLI,
          '--calibration-envelope-directory', 'nothing to fuse'),
+        (['--calibration-envelope-directory', ENV_DIR,
+          '--calibration-burn-in-nmax', '4000'] + _HONOURED_CLI,
+         '--calibration-burn-in-neff', 'no burn-in for the cap to cap'),
     ]
     for args, expect, why in cases:
         out = _run(args)
@@ -354,6 +382,16 @@ def test_driver_accepts_the_honoured_calmarg_configuration():
     out = _run(['--calibration-envelope-directory', ENV_DIR] + _HONOURED_CLI)
     assert _REFUSED not in out, out[-600:]
     print('driver accepts the honoured calmarg configuration : OK')
+
+
+def test_driver_accepts_the_burn_in_cap_with_its_target():
+    """The over-broadness half of R7 at the CLI: the cap IS legal alongside the burn-in
+    target, and a rule wired to the wrong attribute would refuse it here."""
+    out = _run(['--calibration-envelope-directory', ENV_DIR,
+                '--calibration-burn-in-neff', '100',
+                '--calibration-burn-in-nmax', '4000'] + _HONOURED_CLI)
+    assert _REFUSED not in out, out[-600:]
+    print('driver accepts the burn-in cap with its target : OK')
 
 
 def test_driver_accepts_the_pilot_without_time_marginalization():

@@ -63,6 +63,10 @@ Refusal = collections.namedtuple("Refusal", "kind options message enable_require
 # --calibration-neff-cal-target, --calibration-n-realizations-max) is ALWAYS "set", so a
 # rule over those would refuse every run that merely left the defaults in place.
 #
+# --calibration-burn-in-nmax is listed here like the rest (it too does nothing without the
+# envelope), but it needs a SECOND rule below: the envelope alone does not make it live,
+# because the driver reads it only under --calibration-burn-in-neff.
+#
 # (cli_flag, opts_attribute).
 CAL_OPT_IN_FLAGS = (
     ("--calibration-fused-kernel", "calibration_fused_kernel"),
@@ -108,7 +112,9 @@ def calibration_refusals(calibration_envelope_directory=None,
                          xpy_evaluator=False,
                          rotation_slow=False,
                          freqresponse=False,
-                         dump_responsibilities=False):
+                         dump_responsibilities=False,
+                         burn_in_neff=None,
+                         burn_in_nmax=None):
     """Return the list of Refusals for one resolved ILE configuration (possibly empty).
 
     Pure: booleans in, Refusals out.  No option namespace, no I/O, no raising.
@@ -136,6 +142,10 @@ def calibration_refusals(calibration_envelope_directory=None,
         likelihood_function -- so it needs neither --time-marginalization nor an xpy
         evaluator.  Refusing it on those grounds would break the shipped adaptive
         pipeline (util_CalPilotStage.py).
+    burn_in_neff, burn_in_nmax : float/int or None
+        --calibration-burn-in-neff and --calibration-burn-in-nmax.  The cap is a
+        DEPENDENT option: the driver reads it only inside `if
+        opts.calibration_burn_in_neff:`, so on its own it is silently ignored.
     """
     out = []
 
@@ -188,6 +198,21 @@ def calibration_refusals(calibration_envelope_directory=None,
             _3G_ENABLE_REQUIRES.format(
                 precompute="PrecomputeLikelihoodTermsFreqResponse",
                 noloop="DiscreteFactoredLogLikelihoodFreqResponseNoLoop")))
+
+    if burn_in_nmax and not burn_in_neff:
+        # A DEPENDENT opt-in: unlike the others, the envelope directory is not enough to
+        # make it live.  The driver reads opts.calibration_burn_in_nmax only inside
+        # `if opts.calibration_burn_in_neff ...`, which is the option that switches the
+        # zero-cal burn-in on; with no burn-in there is nothing for the cap to cap.
+        out.append(_inert(
+            ("--calibration-burn-in-nmax", "--calibration-burn-in-neff"),
+            "--calibration-burn-in-nmax caps the zero-cal burn-in, but the burn-in is "
+            "switched on by --calibration-burn-in-neff and by nothing else -- the driver "
+            "reads the cap only inside that option's branch.  Set on its own the cap is "
+            "silently ignored, and the run goes straight to the full cal-marginalized "
+            "integration at the production sample budget, which is exactly the number of "
+            "samples the cap was meant to hold down.  Add --calibration-burn-in-neff "
+            "(the burn-in target), or drop --calibration-burn-in-nmax."))
 
     if not vectorized:
         out.append(_inert(
@@ -283,6 +308,8 @@ def refusals_from_opts(opts):
         rotation_slow=bool(getattr(opts, "rotation_slow", False)),
         freqresponse=bool(getattr(opts, "freqresponse", False)),
         dump_responsibilities=bool(getattr(opts, "calibration_dump_responsibilities", None)),
+        burn_in_neff=getattr(opts, "calibration_burn_in_neff", None),
+        burn_in_nmax=getattr(opts, "calibration_burn_in_nmax", None),
     )
 
 
