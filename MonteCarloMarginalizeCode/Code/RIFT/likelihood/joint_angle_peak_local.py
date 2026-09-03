@@ -175,8 +175,14 @@ def u_stationary_at_phi(C, phi):
     """
     k, q, w, KS = _kq(C)
     ph = (np.exp(1j * phi * k) * w).ravel()
-    c1 = complex((ph * C[:, KS + 1]).sum())
-    c2 = complex((ph * C[:, KS + 2]).sum()) if KS >= 2 else 0.0 + 0.0j
+    # both signs of q are stored, and Re[D_{-q} e^{-iqu}] = Re[conj(D_{-q}) e^{+iqu}],
+    # so the effective coefficient is D_{+q} + conj(D_{-q}).  Only the +q column was
+    # used here originally; the error was invisible because these roots are SEEDS that
+    # 2-D Newton then corrects -- the jax kernel, where the roots define the integration
+    # partition, is where it showed up.
+    _D = lambda qq: complex((ph * C[:, KS + qq]).sum())
+    c1 = _D(1) + np.conj(_D(-1))
+    c2 = (_D(2) + np.conj(_D(-2))) if KS >= 2 else 0.0 + 0.0j
     P = np.array([c2, c1 / 2.0, 0.0, -np.conj(c1) / 2.0, -np.conj(c2)])
     nz = np.nonzero(np.abs(P) > 0.0)[0]
     if nz.size < 2:
