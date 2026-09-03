@@ -193,6 +193,88 @@ calibration marginalization is active, else 1) and threads it into the three
 production `DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop` call sites
 (plain / distance-marg / distance+phase-marg).
 
+## Option-compatibility gate (which configurations are refused, and why)
+
+`RIFT/calmarg/option_compat.py`, called once at driver startup after `opts.gpu` is
+resolved and before any precompute.  It only **refuses**; it changes no accepted
+configuration's arithmetic.
+
+The problem it solves is structural.  In-loop calibration marginalization is switched
+on by exactly one option, `--calibration-envelope-directory`, but the `n_cal>1`
+reduction exists at exactly one family of call sites: the
+`DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop` calls inside the
+time-marginalized, `--vectorized`, xpy (`--gpu` / `--force-xpy`) branch.  Every other
+dispatch in the driver reaches a likelihood that takes no `n_cal` argument at all.  On
+those paths the realizations are drawn, precomputed and paid for, and then never enter
+the likelihood: the run costs more, carries `--calibration-envelope-directory` in its
+banner and its `.sub` file, and reports the **zero-calibration** answer.  Nothing
+raises.  This is the same failure the sub-sample stencil and
+`--time-marginalization-quadrature` gates already refuse in the same driver.
+
+Classification, traced from the source rather than from flag names:
+
+| Combination | Category | Source evidence |
+|---|---|---|
+| calmarg + `--rotation-slow` | **not implemented** | `if opts.rotation_slow:` precedes the `else:` that carries `n_cal`/`cal_method` at every production call site; `PrecomputeLikelihoodTermsWithRotation` takes no `calibration_realizations` and returns no cal cross terms |
+| calmarg + `--freqresponse` | **not implemented** | same dispatch structure via `elif opts.freqresponse:`; `PrecomputeLikelihoodTermsFreqResponse` likewise |
+| calmarg without `--vectorized` | **cannot take effect** | the packed rholm/cross-term arrays the reduction indexes are built only under `if opts.vectorized:`; the likelihood called is the scalar `FactoredLogLikelihoodTimeMarginalized` |
+| calmarg without `--time-marginalization` | **cannot take effect** | the `if not opts.time_marginalization:` branch calls `FactoredLogLikelihood`, which has no `n_cal` |
+| calmarg without `--gpu`/`--force-xpy` | **cannot take effect** | plain `--vectorized` calls `DiscreteFactoredLogLikelihoodViaArrayVector` (not `...NoLoop`), which has no `n_cal`.  `--gpu` is silently downgraded when cupy is absent, so `--gpu` alone on a CPU node lands here |
+| any calibration opt-in without `--calibration-envelope-directory` | **cannot take effect** | `calibration_marginalization` is set by that option and by nothing else; every opt-in is read only under it.  `--calibration-fused-kernel` in particular gates on `use_fused_calmarg = calibration_marginalization and opts.calibration_fused_kernel` — with no envelope there is nothing to fuse |
+| `--calibration-dump-responsibilities` (the cal pilot) | **legitimate** | a diagnostic pilot that deliberately uses `cal_method='loop'` and `return 0.0`s from inside the precompute block.  Its prerequisites are genuinely different — it needs `--vectorized` and nothing else — and `util_CalPilotStage.py` depends on that.  **Exempted** from the `--time-marginalization` and xpy rules, **not** from `--vectorized`, and **not** from the two 3G refusals (it evaluates the baseline packed arrays, so under `--rotation-slow` it would report responsibilities for a likelihood nobody asked for) |
+| `--calibration-dump-responsibilities` + `--calibration-fused-kernel` | **legitimate** (notice, not refusal) | `util_CalPilotStage.py` inherits the wide `args_ile.txt` verbatim, so a `--calmarg-fused-kernel` campaign hands its pilot this flag.  The pilot uses the loop reduction; the flag is inert here and the run says so |
+| `--calibration-export-posterior` on the wide stage | **legitimate** | `util_RIFT_pseudo_pipe.py` emits it there deliberately, documented as harmless (it fires only at the fairdraw stage) |
+
+### The two guards this replaces were inert
+
+`--rotation-slow` and `--freqresponse` each carried
+
+```python
+if opts.gpu and getattr(opts, 'calibration_marginalization', False):
+    raise ValueError("... does not support calibration/glitch marginalization (n_cal>1)")
+```
+
+There is no `--calibration-marginalization` option and nothing ever sets that attribute
+on `opts` — `calibration_marginalization` is a module-level variable assigned ~700 lines
+later — so the `getattr` default made both guards **always false**.  Verified by running
+the driver with `--rotation-slow --calibration-envelope-directory`: it proceeded.  They
+were also GPU-only and ran before `opts.gpu` is resolved, while the incompatibility is
+neither.  Both are removed in favour of the central gate.
+
+### Why "untested" is an empty category here — and why the boundary is still written down
+
+R. O'Shaughnessy's decision (2026-09) is that it is **fine for these paths not to be
+implemented, because calibration marginalization is not tested against the
+third-generation machinery at all** — so a combination that silently degrades produces
+plausible numbers from a path nothing has ever checked.  Failing loudly at startup is
+strictly better.
+
+The gate distinguishes *cannot take effect* from *not implemented*, and a
+`not implemented` refusal additionally carries `enable_requires`: what would have to
+exist first.  For both 3G refusals that is (a) the 3G precompute returning
+per-realization calibration cross terms as `PrecomputeLikelihoodTerms` does; (b) an
+`n_cal>1` reduction in the corresponding NoLoop, with the same per-realization
+self-term `<C_c h|C_c h>`; and (c) a brute-force agreement check of that reduction, of
+the kind `test_selfterm_reduction.py` applies to the baseline likelihood, wired into
+`calmarg-check`.
+
+A third category — *runnable, accepted, but unvalidated* — has **no members** in this
+driver, and that is a finding, not an omission: every calibration x 3G combination fails
+the stronger test first, because the dispatch does not exist.  There is therefore
+nothing to leave untested and no `UNTESTED` code path in the gate (an unused kind would
+itself be an inert guard).  If a 3G calibration reduction is ever implemented, that
+category becomes real and belongs here.
+
+### Tests
+
+`RIFT/calmarg/test_option_compat.py`, wired into the `calmarg-check` CI gate via
+`.travis/test-calmarg.sh`.  Every refusal is paired with the **nearest configuration
+that must still be accepted**, because these are all over-broad-condition risks and only
+the accepting edge can catch one.  All fourteen guards were mutation-checked: deleting
+each rule, and four over-broad mutations (removing the pilot exemption, making the 3G
+refusals pilot-exempt, applying the opt-in rule with an envelope present, and adding a
+numeric-default option to `CAL_OPT_IN_FLAGS`).
+
 ## Bug fixed
 
 In `ComputeModeIPTimeSeries`'s calibration branch the inner product was being taken
