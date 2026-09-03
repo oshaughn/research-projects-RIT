@@ -341,3 +341,40 @@ def test_the_quartic_roots_are_seeds_and_must_be_refined_in_cell():
             worst_resid = max(worst_resid, float(np.max(np.abs(g1)) / m1))
     assert n_off > 0, "fixture family must contain off-circle roots"
     assert worst_resid > 1e-6, worst_resid   # raw roots are NOT all stationary points
+
+
+def test_phi_regions_are_disjoint_on_the_CIRCLE():
+    """P1 from review.  Merging on the LINE never joins a window near 0 to one near
+    2*pi, but every region is integrated at mod(., 2*pi) -- so both regions cover both
+    peaks and the mass is counted twice.  Measured before the fix: +log 2 = +0.693 nats
+    returned with ok=True and margin -437, because the error is INSIDE the regions.
+
+    Asserted as an INVARIANT rather than hunted for with a value comparison: reduced to
+    the circle, the regions must not overlap and must not exceed one circuit."""
+    rng = np.random.default_rng(5)
+    checked = 0
+    for _ in range(40):
+        sc = 10.0 ** rng.uniform(0.0, 2.5)
+        A = (rng.normal(size=(3, 3)) + 1j * rng.normal(size=(3, 3))) * sc
+        B = (rng.normal(size=(5, 5)) + 1j * rng.normal(size=(5, 5))) * sc
+        B[0, 2] = abs(B[0, 2].real) + 3.0 * sc
+        C = J.joint_table(A, B, x=1.0)
+        _, _, rep = J.phi_local_marginalize(C)
+        regs = rep.get('phi_regions', [])
+        if not regs:
+            continue
+        checked += 1
+        total = sum(b - a for a, b in regs)
+        assert total <= 2 * np.pi + 1e-9, (total, regs)
+        # sample each region densely, reduce to the circle, and require no point to be
+        # covered twice
+        pts = []
+        for a, b in regs:
+            pts.append(np.mod(np.linspace(a, b, 512, endpoint=False), 2 * np.pi))
+        if len(pts) > 1:
+            for i in range(len(pts)):
+                for j in range(i + 1, len(pts)):
+                    d = np.abs(pts[i][:, None] - pts[j][None, :])
+                    d = np.minimum(d, 2 * np.pi - d)
+                    assert d.min() > 1e-6, ("regions overlap on the circle", regs)
+    assert checked > 5, checked

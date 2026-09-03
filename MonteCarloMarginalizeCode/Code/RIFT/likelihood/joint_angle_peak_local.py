@@ -702,14 +702,39 @@ def phi_local_marginalize(C, n_seed=64, w_sigma=12.0, n_nodes=64,
     hi = p + w_sigma * sig
     # 1-D merge: sort by lo and absorb overlaps.  Same argument as the time module --
     # merging is what stops the mass between two windows being counted twice.
-    idx = np.argsort(lo); lo, hi = lo[idx], hi[idx]
-    ml, mh = [lo[0]], [hi[0]]
-    for a, b in zip(lo[1:], hi[1:]):
+    # MERGE ON THE CIRCLE, NOT ON THE LINE.  A linear sweep over raw
+    # [p - W sigma, p + W sigma] never joins a window near 0 to one near 2 pi -- but
+    # each region is afterwards integrated at mod(., 2 pi), so BOTH regions cover BOTH
+    # peaks and that mass is counted twice.  Measured: +log 2 = +0.693 nats returned
+    # with ok=True and a margin of -437, because the error is INSIDE the regions and an
+    # omitted-mass certificate cannot see it.  Same family as the wrapped-circuit bug,
+    # one step over.
+    #
+    # Reduce every interval to the circle, SPLIT any that crosses the seam, merge the
+    # pieces linearly, then close the circle by joining a piece touching 2 pi to one
+    # touching 0.
+    pieces = []
+    for a, b in zip(lo, hi):
+        wdt = min(float(b - a), 2.0 * np.pi)
+        a = float(np.mod(a, 2.0 * np.pi))
+        if a + wdt <= 2.0 * np.pi:
+            pieces.append((a, a + wdt))
+        else:
+            pieces.append((a, 2.0 * np.pi))
+            pieces.append((0.0, a + wdt - 2.0 * np.pi))
+    pieces.sort()
+    ml, mh = [pieces[0][0]], [pieces[0][1]]
+    for a, b in pieces[1:]:
         if a <= mh[-1]:
             mh[-1] = max(mh[-1], b)
         else:
-            ml.append(a); mh.append(b)
-    ml, mh = np.array(ml), np.array(mh)
+            ml.append(a)
+            mh.append(b)
+    if len(ml) > 1 and ml[0] <= 1e-12 and mh[-1] >= 2.0 * np.pi - 1e-12:
+        ml[0] = ml[-1] - 2.0 * np.pi      # the two seam pieces are one region
+        ml.pop()
+        mh.pop()
+    ml, mh = np.array(ml, dtype=float), np.array(mh, dtype=float)
 
     # CLAMP TO ONE CIRCUIT.  At low amplitude F is nearly flat, so sigma is huge and
     # [p - W sigma, p + W sigma] spans far MORE than 2 pi; integrating that range
@@ -726,6 +751,10 @@ def phi_local_marginalize(C, n_seed=64, w_sigma=12.0, n_nodes=64,
         mh = ml + span
     covered = float(np.minimum(mh - ml, 2 * np.pi).sum())
     rep['n_phi_regions'] = int(ml.size)
+    # exposed so the disjointness invariant can be ASSERTED rather than inferred from a
+    # value comparison: overlapping regions double-count, and that error lives inside
+    # the regions where the omitted-mass certificate is blind to it.
+    rep['phi_regions'] = list(zip(ml.tolist(), mh.tolist()))
 
     parts = []
     for a, b in zip(ml, mh):
