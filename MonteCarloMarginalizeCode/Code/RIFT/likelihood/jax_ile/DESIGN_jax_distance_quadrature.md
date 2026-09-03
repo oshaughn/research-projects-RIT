@@ -1,10 +1,18 @@
 # Distance quadrature for the dense angle-marginalization schemes
 
-**This is an accuracy change, not a speedup.**  At the shipped tolerance it uses
-~46% MORE distance nodes than the current default and is ~2000x more accurate.
-(It was ~3% until the spacing was sized from the fail-safe's TRIP threshold
-rather than from `amp_sizing` itself -- see section 1's `rho_max` note.  The
-cost went up; the accuracy claim did not change.)
+**This is an accuracy change, not a speedup.**  At the shipped tolerance, ON THE
+REFERENCE CONFIGURATION (injected SNR 40), it uses ~46% MORE distance nodes than
+the current default and is ~2000x more accurate.  (It was ~3% until the spacing
+was sized from the fail-safe's TRIP threshold rather than from `amp_sizing`
+itself -- see section 1's `rho_max` note.  The cost went up; the accuracy claim
+did not change.)
+
+**That ~46% does not travel.**  The count is derived from the run's own
+amplitude, so it GROWS with it -- which is the scheme working as designed, not a
+defect.  At `rho_sampled = 163.08` the same contract derives n = 1558, i.e. ~6x
+the default rather than 1.46x.  Carrying "+46%" to a loud event is wrong by more
+than a factor of four; see "quote a node-count error only with its amplitude
+attached" in section 2a.
 Matched to the current default's own accuracy it is 2.0-2.6x cheaper on the
 distance axis, which is one axis of one kernel and does not rescue any campaign
 (section 3).  Read the cost section before citing a factor from this document.
@@ -330,6 +338,31 @@ Prior-draw cloud (S = 256):
 | log-uniform 256 | 256 | 0.0017 | +2.4e-5 |
 | `make_distance_grid_adaptive` (in tree) | 144 | **9.44** | -0.312 |
 
+**Quote a node-count error only with its AMPLITUDE attached.**  Every row in
+these two tables is at the header's operating point (injected SNR 40).  The
+distance peak narrows as `1/rho` against a grid fixed by the PRIOR range, so a
+256-node uniform grid is a different instrument at a different amplitude: the
+same family measures 0.170-0.216 nats here and 43.16 nats at `rho = 163.08`
+(paper-1 ladder, `snr160_laplace_gh0_dg256`).  Same rule, opposite sides of the
+threshold -- not a discrepancy.
+
+It is NOT a conversion, and two sessions have now been tempted to use it as one.
+Matching the two series on points-per-peak-width does not collapse them: on
+`N/rho` the louder series is 9.2-17.0x worse and roughly flat; on `N/rho^2` (the
+better-motivated scaling, since a grid uniform in `d` over a fixed range
+resolves a peak of width `d*/rho`, and `d* ~ 1/rho` when amplitude is set by
+injected distance) it is 0.67x, 0.52x, 0.06x -- overshooting and not flat.  The
+amplitude threshold is the dominant effect and explains the sign and most of the
+size; the residual is real, not constant, and carries the rest of the
+configuration (seglen, deltaF, probe points against a cloud max).  So compare
+grids WITHIN one operating point and re-measure across them.
+
+For scale at the loud end: `rho_sampled = 163.08` derives
+`rho_max = sqrt(ANGLE_AMP_MARGIN * AMP_FAILSAFE_TRIP_FACTOR) * rho = 326.16` and
+**n = 1558** at `tol = 1e-2` over `[1, 10^4]` Mpc -- against 4096 linear nodes
+for that rung's converged reference, so under a factor of three, not the ninth a
+transfer of the SNR-40 count (373) would suggest.
+
 Cloud concentrated near the injection (S = 256):
 
 | grid | n | max abs dL_s | dlnZ (nats) |
@@ -360,9 +393,11 @@ Read off:
 * **The shipped default's error is 0.17-0.22 nats**, not a chosen tolerance.
 * **Equal accuracy to the shipped default is reached at n ~ 100-128 log-uniform
   nodes: a 2.0-2.6x reduction on the distance axis.**
-* At the shipped tolerance default `tol = 1e-2` the derived count is **n = 373**
-  -- 3% *more* nodes than the default -- for **1.0e-4 nats instead of 0.216**,
-  i.e. ~2000x more accurate at ~1.46x the distance-axis cost.
+* At the shipped tolerance default `tol = 1e-2`, at the reference
+  configuration's amplitude, the derived count is **n = 373** -- ~46% *more*
+  nodes than the default -- for **1.0e-4 nats instead of 0.216**, i.e. ~2000x
+  more accurate at ~1.46x the distance-axis cost.  Both the count and the ratio
+  are amplitude-dependent: n = 1558 (~6x the default) at `rho_sampled = 163.08`.
 * **There is no 10.7x at fixed accuracy.**  `n_grid = 24` costs 27-73 nats of
   lnL and 1.6-34 nats of evidence.  See §4.
 
@@ -410,8 +445,9 @@ sequential A/B on a quiet host has overstated a speedup by ~50% on this code
 before.  Numbers in the PR body.
 
 **There is no speedup to quote at the recommended operating point**, and the
-matched-accuracy one is small.  At `tol = 1e-2` the derived count is 373 against
-the shipped 256: ~46% more distance work.  Matched to the shipped grid's own
+matched-accuracy one is small.  At `tol = 1e-2` and the reference amplitude the
+derived count is 373 against the shipped 256: ~46% more distance work -- and ~6x
+more at `rho_sampled = 163.08`, since the count follows the amplitude.  Matched to the shipped grid's own
 accuracy the count is ~100-128, i.e. 2.0-2.6x less work **on the distance axis
 only** — the dense `(phi, u)` lattice is unchanged by construction.  Combined
 with the other measured lever (per-distance-block phi sizing: 1.45x standalone,
