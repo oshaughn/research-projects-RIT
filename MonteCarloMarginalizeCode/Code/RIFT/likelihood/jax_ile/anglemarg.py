@@ -189,8 +189,23 @@ ANGLE_MARG_CROSSOVER_AMPLITUDE = 450.0     # A = rho^2/2; rho = 30.  NOTE the
 #       injection's sky position, while the exponent is sharp enough that 1 of
 #       9824 (sky, time) points sits within 23 nats of the peak.  A shortfall is
 #       expected by design there, and nothing here bounds it for another event.
-# So: at this injection the margin is load-bearing rather than decorative, and
-# that is the whole claim.  What actually protects the general case is
+# So: at this injection the margin is load-bearing rather than decorative -- by
+# about 1.5x -- and that is the whole claim.
+#
+# TWO OTHER RATIOS CIRCULATE FOR THIS LADDER AND NEITHER IS THE MARGIN.  Measured
+# on it: raw-estimator/(rho^2/2) = 0.1888 and margined-bound/guess = 7.069.  Both
+# are the SNR-GUESS DEFICIT SQUARED -- guess_amp == guess_snr^2/2 exactly, and
+# rho/guess_snr = 2.3014 constant, so 0.1888 = 1/2.3014^2 and 7.069 =
+# 2.3014^2 * 1.33465.  guess_snr is the ABANDONED sizing route (external review
+# removed it precisely because an underestimated SNR silently under-resolved the
+# dense quadrature).  If 7.069 lands here as "the margin" it inflates a ~1.5x
+# effect to 7x and credits the live estimator with the dead route's deficit.
+# They are easy to accept because they AGREE with the conclusion above -- for an
+# unrelated reason -- so they read as corroboration and are not.
+# The genuinely reportable fact in them: on this ladder guess_snr sits 2.30x
+# below the true rho, so the abandoned route would have sized the dense grids
+# from an amplitude 7.07x too small -- the docstring's stated failure mode
+# measured on a real configuration.  One injection, one guess_snr.  What actually protects the general case is
 # _runtime_amp_failsafe, which recomputes the amplitude from the tables at the
 # point of use and warns if it exceeds amp_sizing -- independent of whether the
 # margin was well chosen.  (Ratios measured by the paper-1 ladder session.)

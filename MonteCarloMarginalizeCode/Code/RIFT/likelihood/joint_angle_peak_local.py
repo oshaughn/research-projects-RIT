@@ -395,8 +395,15 @@ def _log_box_integral(C, c, h, pts_per_sigma=_PTS_PER_SIGMA, max_pts=_BOX_MAX_PT
     """``log int_box exp(g)`` by a tensor trapezoid sized from the LOCAL curvature.
 
     Returns ``(value, n_points, capped)``.  ``capped`` is True when ``max_pts`` bound the
-    curvature-derived count on either axis -- i.e. when this box is UNDER-RESOLVED and the
-    value is an estimate rather than the requested resolution.  It has to be reported,
+    curvature-derived count on either axis -- i.e. the sizing rule ASKED FOR MORE NODES
+    THAN IT GOT.  That is a truncated request, NOT a verdict that the value is wrong:
+    measured on the ladder, rung 1 (rho=40.77, amplitude ~2.5e3) caps on every
+    mass-carrying point and is still exact to 0.00000 nats against a converged reference,
+    while rung 3 (rho=163.08, amplitude ~2.8e4) caps and is 0.36 nats out.  The trapezoid
+    on a periodic integrand converges fast enough that the derived count is conservative
+    at low amplitude and binding at high.  So treat the flag as "look here", not "this is
+    broken" -- it is the only signal available, because the certificate cannot see inside
+    a box at all.  It has to be reported,
     because the certificate cannot see it: the omitted-mass bound covers what is OUTSIDE
     the boxes and says nothing about the quadrature inside one, so a capped box is exactly
     the case where ``margin`` can read ``-inf`` (nothing omitted at all) while the value is
@@ -465,8 +472,10 @@ def joint_marginalize_peak_local(C, n_phi=64, n_bound_grid=256,
         npts += k
         n_capped += int(capped)
     rep['n_local_points'] = int(npts)
-    # a capped box is under-resolved and the certificate CANNOT see it; surface it so the
-    # caller is never told 'nothing omitted' about a value the quadrature got wrong.
+    # a capped box had its node request truncated and the certificate CANNOT see inside a
+    # box at all, so surface it: it is the only available signal that 'nothing omitted'
+    # might be sitting on a quadrature error.  Capped does NOT mean wrong -- rung 1 caps
+    # everywhere and is exact -- it means this is where to look if a value is doubted.
     rep['n_boxes_pts_capped'] = int(n_capped)
     parts = np.array(parts)
     m = parts.max()
