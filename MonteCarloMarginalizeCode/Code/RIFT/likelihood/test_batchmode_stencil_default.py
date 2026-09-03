@@ -160,23 +160,35 @@ def test_default_is_a_real_stencil_and_is_sinc():
 
 
 def test_the_two_ile_drivers_ship_the_same_default():
-    """Issue #233 in one assertion.
+    """Issue #233 in one assertion, checked WITHOUT importing jax.
 
-    Skipped rather than failed when jax is unavailable -- the import pulls in jaxlib, which the
-    CPU CI image for this job does not carry.  That is a real hole and it is why the ALIAS in
-    jax_ile.core (JAX_INTERP_DEFAULT = TIME_INTERP_DEFAULT) matters more than this test does: the
-    alias makes drift impossible, this only notices it.
+    This used to `from RIFT.likelihood.jax_ile.core import JAX_INTERP_DEFAULT` and skip when the
+    import failed.  That skip fired in the very job this file belongs to -- q-window-stencil-check
+    runs on a numpy+lal image with no jaxlib by design -- so the one assertion tying the two
+    drivers together was the one assertion CI never evaluated.  A gate that is skipped exactly
+    where it is needed is not a gate.
+
+    What actually forbids drift is that core.py BINDS the name rather than copying the value, so
+    this reads the binding out of the source with ast and never imports the module.  That is a
+    stronger check than the old equality as well as a runnable one: two literals that happen to
+    read 'sinc' today would have satisfied the import version and would fail here.
     """
-    try:
-        from RIFT.likelihood.jax_ile.core import JAX_INTERP_DEFAULT
-    except Exception as exc:                      # pragma: no cover - env dependent
-        import pytest
-        pytest.skip("jax_ile unavailable: %s" % exc)
-    assert JAX_INTERP_DEFAULT == TIME_INTERP_DEFAULT, (
-        "the batchmode and jax drivers ship different default stencils (%r vs %r). A "
-        "cross-implementation comparison run at defaults would then be measuring a flag, and the "
-        "difference grows as SNR^2. See issue #233."
-        % (TIME_INTERP_DEFAULT, JAX_INTERP_DEFAULT))
+    core = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'jax_ile', 'core.py')
+    assert os.path.exists(core), core
+    with open(core) as handle:
+        tree = ast.parse(handle.read())
+    bound = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and any(
+                isinstance(t, ast.Name) and t.id == 'JAX_INTERP_DEFAULT' for t in node.targets):
+            bound = node.value
+    assert bound is not None, "no module-level JAX_INTERP_DEFAULT assignment in %s" % core
+    assert isinstance(bound, ast.Name) and bound.id == 'TIME_INTERP_DEFAULT', (
+        "jax_ile.core must ALIAS the shared default (JAX_INTERP_DEFAULT = TIME_INTERP_DEFAULT), "
+        "not re-type it: found %r. Two independently written literals are how the drivers came to "
+        "ship opposite defaults in the first place, and a comparison run at defaults then measures "
+        "a flag, with the difference growing as SNR^2. See issue #233."
+        % (ast.dump(bound),))
 
 
 # ---------------------------------------------------------------------------
