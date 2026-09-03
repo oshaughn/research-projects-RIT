@@ -735,6 +735,27 @@ axes if one is ever needed; this measurement says it is not needed to get the co
   hours after committing the rule against it — writing the rule is what makes you look,
   and looking is exactly what feels unnecessary right after you have corrected the
   paragraph in front of you.
+
+  **The sweep must group by VALUE, never by string and never by a fixed digit count.**
+  Grouping by string reports `7.069` and `7.07` as two unrelated numbers; grouping at
+  three significant figures puts `6.8966e-04` and `0.00069` in different buckets. Either
+  way *the tool built to find multi-spelling hides it from itself and reports clean* —
+  which is worse than not running it, because now you believe you checked. Group by
+  numeric value at ~4 s.f. and flag any group whose spellings differ:
+
+  ```python
+  key = float('%.4g' % value)      # NOT the token, NOT '%.3g'
+  ```
+
+  Two carve-outs, both requiring a same-quantity check by hand that no rule can do for
+  you: repeats inside ONE coherent block are fine, and a trailing zero holding column
+  alignment in a table (`0.25 / 0.50 / 1.00`, or a row label rounded to fit) is not a
+  second spelling. A normalization pass that cannot tell those from real duplicates does
+  damage.
+
+  Convention that avoids the whole problem: **quote one rounded form everywhere and let
+  the committed record carry the digits.** Full precision duplicated into a comment is not
+  an audit trail — the JSON records are — it is a second spelling that hides from the grep.
 * **Do not put a broad `except` around a certificate call, in shipped code OR in a
   harness.**  An error filter converts a bug into a result, and the result looks clean.
   Measured while sizing this note's own acceptance table: a broad `except Exception`

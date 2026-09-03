@@ -217,8 +217,9 @@ ANGLE_MARG_CROSSOVER_AMPLITUDE = 450.0     # A = rho^2/2; rho = 30.  NOTE the
 # _runtime_amp_failsafe, which recomputes the amplitude from the tables at the
 # point of use and warns if it exceeds amp_sizing -- independent of whether the
 # margin was well chosen.  (Ratios measured by the paper-1 ladder session.)
-# Early engagement is safe by measurement either way: laplace is at -1.8e-4 nats
-# by A = 200 on the injection ladder and improves upward, while exact remains
+# Early engagement is safe by measurement either way: laplace is at -1.8e-04 nats
+# by A = 200 on the injection ladder (the table above, spelled to match it so a
+# grep finds both) and improves upward, while exact remains
 # valid (crossover-floored sizing) below.
 # Dense-size rule N = ceil(K * sqrt(A)) points, from the trapezoid aliasing
 # error of exp(trig poly): relative error ~ exp(-c N^2 / A).  The constants

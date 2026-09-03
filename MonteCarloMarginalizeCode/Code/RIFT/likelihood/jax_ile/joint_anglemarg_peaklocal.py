@@ -98,7 +98,8 @@ def required_u_nodes(amplitude, pts_per_sigma=3.0, cap=2048):
     derives the same quantity per call because it can.
 
     ``cap`` bounds the cost.  When it binds the fallback cell may be under-resolved --
-    measured at 1.7e-03 nats before any derivation, 2.2e-04 with the curvature scale --
+    measured at the inner-u error recorded on U_NODES_PER_CELL before any derivation,
+    and 2.2e-04 with the curvature scale --
     which is far below this rule's 23 nat acceptance tolerance but is NOT nothing, so it
     is reported rather than absorbed silently.
     """
@@ -236,7 +237,8 @@ def log_inner_u_integral(a, c1, c2, n_nodes=U_NODES_PER_CELL,
     # |g_u|/M_1 = 0.33.  A cell failing it is integrated WHOLE -- which ADDS NO NODES, it
     # spreads the same n_nodes over the whole cell, so the fallback is COARSER than the
     # window it replaces.  (An earlier comment here claimed "can only add nodes"; that was
-    # wrong, and the numpy twin measured 1.7e-03 nats of inner-u error from it.)  JAX
+    # wrong, and the numpy twin measured the inner-u error recorded on
+    # U_NODES_PER_CELL from it.)  JAX
     # cannot adapt n_nodes -- shapes may not depend on traced values -- so the sizing is
     # exposed to the caller as required_u_nodes() rather than fixed here; see its docstring
     # for why raising it by default is the wrong trade.
