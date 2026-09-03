@@ -694,6 +694,22 @@ axes if one is ever needed; this measurement says it is not needed to get the co
   door.
 * **Do not carry cross-call state.**  Batch-local only; any persistent scale makes results
   batch-order-dependent.
+* **Do not let a comment outlive the code it describes.**  A comment that contradicts its
+  code is not a documentation defect — it is a place a bug can hide, because it answers
+  the reviewer's question before the reviewer reaches the code.  Measured, three times in
+  one week across three files by three authors.  This module's own instance: the JAX
+  fallback comment asserted the whole-cell branch "can only add nodes"; it adds none, it
+  spreads the same fixed count over the whole cell, so the fallback is COARSER than the
+  window it replaces.  1.7e-03 nats of inner-u error sat unexamined behind that sentence,
+  and it survived a rewrite of the numpy twin because nobody re-read the twin.  When a
+  claim in a comment is load-bearing for correctness, it is a test's job, not prose's.
+* **Do not put a broad `except` around a certificate call, in shipped code OR in a
+  harness.**  An error filter converts a bug into a result, and the result looks clean.
+  Measured while sizing this note's own acceptance table: a broad `except Exception`
+  around `joint_marginalize_peak_local` caught a tuple-unpack error and scored it as a
+  DECLINE, reporting a flat 0% acceptance at every amplitude — a uniform, plausible,
+  entirely fabricated headline that was caught only because it contradicted a number
+  already in hand.  A decline must come from the ledger, never from an exception.
 * **Do not silently widen.**  Every decline goes on the ledger under a named reason, with
   the reconcile invariant that the sub-counts sum to the declined rows.  A change that adds
   an unledgered decline path must fail a reconcile test.
