@@ -571,7 +571,7 @@ class JAXDistPhiPsiMargLikelihood:
         # actually ran -- callers must surface it in the run log.
         if angle_marg not in ANGLE_MARG_CHOICES:
             raise ValueError("angle_marg must be one of grid/exact/laplace/"
-                             "auto, got %r" % (angle_marg,))
+                             "peak-local/auto, got %r" % (angle_marg,))
         if dist_grid not in DIST_GRID_SCHEMES:
             # An unrecognised value must NEVER fall through to the default: a
             # typo that silently returns the old answer is precisely the
@@ -942,7 +942,7 @@ class JAXDistPhiPsiMargLikelihood:
         # replaces it inside the block above.
         xg, lwg, pg, sg = (self.x_grid, self.log_w_grid,
                            self._phi_grid, self._psi_grid)
-        if scheme in ("exact", "laplace"):
+        if scheme in ("exact", "laplace", "peak-local"):
             self.angle_marg_info["amp_sizing"] = amp_sizing
             self.angle_marg_info["sample_grid"] = tuple(
                 _anglemarg.angle_sample_grid_sizes(
@@ -956,6 +956,15 @@ class JAXDistPhiPsiMargLikelihood:
         elif scheme == "exact":
             def _fused(data_, ra, dec, incl, return_lnLt=False):
                 return _anglemarg.fused_log_likelihood_distphipsimarg_exact(
+                    data_, ra, dec, incl, xg, lwg, interp=interp,
+                    amp_sizing=amp_sizing, time_quadrature=time_quadrature,
+                    return_lnLt=return_lnLt)
+        elif scheme == "peak-local":
+            # psi localized on the exact cell partition, phi still dense.  Reachable
+            # only when asked for by name -- see the note on ANGLE_MARG_CHOICES for why
+            # it is not in 'auto' until a head-to-head pilot has run.
+            def _fused(data_, ra, dec, incl, return_lnLt=False):
+                return _anglemarg.fused_log_likelihood_distphipsimarg_peaklocal(
                     data_, ra, dec, incl, xg, lwg, interp=interp,
                     amp_sizing=amp_sizing, time_quadrature=time_quadrature,
                     return_lnLt=return_lnLt)
