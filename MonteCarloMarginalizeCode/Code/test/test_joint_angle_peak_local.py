@@ -474,8 +474,13 @@ def test_a_fully_covered_box_is_still_accurate_inside():
     all about the quadrature inside.  With the per-axis cap at its old value of 256 the
     value sat 0.36 nats from a converged reference while reporting -inf.
 
-    0.36 nats is not a rounding error -- it is half the saddle-point prototype's total
-    error at rho=40.77, arriving with a certificate that reads as exact.
+    0.36 nats is not a rounding error.  It is stated against the CONVERGED TORUS REFERENCE
+    below and against nothing else: an earlier version of this docstring compared it to a
+    saddle-point prototype's 0.654 nats, and that figure has since been RETRACTED by the
+    session that produced it -- its start-point search was unconverged, moving up to 1.2
+    nats per point and changing sign under refinement.  A ratio against a retracted
+    denominator is worse than no ratio, and this error needs no comparison to be a defect:
+    the certificate reported nothing omitted while the value was wrong.
     """
     C, _ = _production_tables()
     assert abs(np.sum(np.abs(C)) - 27569.1) < 1.0, "fixture drifted from the real tables"
