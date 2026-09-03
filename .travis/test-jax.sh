@@ -477,7 +477,16 @@ fi
 # test_joint_anglemarg_peaklocal.py (twice differentiable, and the gradient stays
 # finite as the quartic leading coefficient vanishes).  293 + 13 = 306, re-derived
 # by RUNNING the gate's own collection after rebasing over #221/#238/#223.
-EXPECTED_TESTS=308
+#
+# The u-FALLBACK branch adds 2 in test_joint_anglemarg_peaklocal.py (required_u_nodes
+# is derived and follows the sqrt-A law under a cap, and a whole-cell integration sized
+# by it agrees with a 4x finer one).  I first wrote 306 + 2 = 308 -- which is exactly
+# what the paragraph above tells you not to do -- and the collection then reported 311,
+# because the pre-existing floor on this base is 309 and not 306 after #239 merged.
+# The gate would still have PASSED at 308, silently under-promising by three tests and
+# masking three that could later be lost.  A >= floor set by arithmetic fails in the
+# safe-looking direction, which is why this number is only ever measured.
+EXPECTED_TESTS=311
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"
