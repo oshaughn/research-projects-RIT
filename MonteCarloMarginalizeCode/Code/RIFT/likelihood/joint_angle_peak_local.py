@@ -70,6 +70,8 @@ __all__ = [
     "outside_bound",
     "joint_marginalize_peak_local",
     "joint_marginalize_over_distance",
+    "u_profile",
+    "phi_local_marginalize",
 ]
 
 #: Local integration half-width, in units of the mode's MARGINAL Gaussian sigma, per
@@ -572,3 +574,294 @@ def joint_marginalize_over_distance(C_A_st, C_B_st, x_grid, log_w_grid,
             ok_all = False
             rep['declines'].append(('dropped-nodes', 'pre-filter bound too large'))
     return float(value), bool(ok_all), rep
+
+
+# ------------------------------------------------------------------ phi-local
+
+def _g_uu_at(C, phi, u):
+    """``d^2 g / du^2`` at one ``phi`` and several ``u``."""
+    return eval_g(C, np.full(np.size(u), float(phi)), np.asarray(u, dtype=float), (0, 2))
+
+
+def u_profile(C, phi, n_nodes=64, window_sigma=12.0):
+    """``F(phi) = log int du exp(g)``, and its first two EXACT derivatives.
+
+    The u integral is done on the cell partition (the sorted u-stationary points tile the
+    circle), so ``F`` is exact rather than a Laplace model.  Its derivatives come from
+    the same nodes at no extra evaluation cost, by differentiating under the integral:
+
+        F'  = E[d_phi g]
+        F'' = E[d^2_phi g] + Var(d_phi g)
+
+    with the expectation under the normalized ``exp(g) du`` on the same axis.  That
+    variance term is why the phi axis cannot inherit the u axis's economy: it grows with
+    amplitude, so ``F`` sharpens as the signal does even though ``g`` itself does not.
+
+    Returns ``(F, dF, ddF)``, each shaped like ``phi``.
+    """
+    phi = np.atleast_1d(np.asarray(phi, dtype=float))
+    k, q, w, KS = _kq(C)
+    out = np.empty((3, phi.size))
+    for i, p in enumerate(phi):
+        ph = (np.exp(1j * p * k) * w).ravel()
+        _D = lambda qq: complex((ph * C[:, KS + qq]).sum())
+        c1 = _D(1) + np.conj(_D(-1))
+        c2 = (_D(2) + np.conj(_D(-2))) if KS >= 2 else 0.0 + 0.0j
+        P = np.array([c2, c1 / 2.0, 0.0, -np.conj(c1) / 2.0, -np.conj(c2)])
+        nz = np.nonzero(np.abs(P) > 0.0)[0]
+        roots = (np.mod(np.angle(np.roots(P[nz[0]:])), 2 * np.pi)
+                 if nz.size >= 2 else np.linspace(0, 2 * np.pi, 4, endpoint=False))
+        u = np.sort(np.concatenate([roots, np.zeros(max(0, 4 - roots.size))]))[:4]
+        mid = 0.5 * (u + np.roll(u, -1) + np.where(np.arange(4) == 3, 2 * np.pi, 0.0))
+        lo_c = np.roll(mid, 1) - np.where(np.arange(4) == 0, 2 * np.pi, 0.0)
+
+        # WINDOW EACH CELL BY ITS OWN sigma, do not spread a fixed node count over the
+        # whole cell.  The cells do NOT shrink with amplitude -- the stationary points of
+        # g are invariant under g -> lambda g -- while the peak inside them does, so a
+        # fixed uniform rule over the full cell silently under-resolves as the signal
+        # sharpens.  Measured before this change, against a converged reference: error
+        # 8.8e-07 at exponent amplitude 1265 and 5.4e-04 at 4217, both of which fall to
+        # EXACTLY 0.0 when the node count is raised -- i.e. the entire residual was this
+        # rule, not the method.  A resolution that is a fixed number whose default is
+        # assumed ample is the defect this whole line of work exists to remove.
+        # REFINE THE CENTRE INSIDE EACH CELL FIRST.  The quartic roots are SEEDS, not
+        # located maxima: this module says elsewhere that they may leave the unit circle
+        # (a conjugate-reciprocal pair does exactly that), and a spurious root's angle is
+        # not a stationary point at all.  Windowing +-W sigma around the raw root then
+        # centres the window on the wrong place and takes sigma from the wrong curvature,
+        # which under-resolves the peak that IS in the cell -- an inside-cell quadrature
+        # error the phi omitted-mass certificate cannot see.  Measured on a constructed
+        # table before this change: -7.2e-04 nats returned with ok=True, converging to
+        # the reference only as n_nodes was raised.  The jax kernel already refines;
+        # this path did not, and the two must not differ on something load-bearing.
+        ustar = u.copy()
+        pv = np.full(ustar.size, float(p))
+        for _ in range(8):
+            g1 = eval_g(C, pv, ustar, (0, 1))
+            g2 = eval_g(C, pv, ustar, (0, 2))
+            step = np.where(np.abs(g2) > 0.0,
+                            -g1 / np.where(np.abs(g2) > 0.0, g2, 1.0), 0.0)
+            ustar = np.clip(ustar + np.clip(step, -0.5, 0.5), lo_c, mid)
+
+        # A CLIPPED NEWTON POINT IS NOT A PEAK, however negative the curvature there.
+        # The iteration is clamped to [lo_c, mid], so it can come to rest ON a cell
+        # boundary with a large stationary residual; classifying that as a maximum
+        # centres a +-W sigma window on a non-stationary point and sizes sigma from the
+        # wrong curvature.  Require, as well as g'' < 0, that the residual is small
+        # relative to the axis's own derivative bound AND that the point is interior.
+        # A cell failing either is integrated WHOLE rather than windowed, which is the
+        # conservative branch: it can only add nodes, never move the centre.
+        g1c = eval_g(C, pv, ustar, (0, 1))
+        g2c = _g_uu_at(C, p, ustar)
+        _m1u = max(derivative_bound(C, (0, 1)), 1e-300)
+        _edge = 1e-9 * max(float(np.max(mid - lo_c)), 1e-300)
+        peaked = ((g2c < 0.0)
+                  & (np.abs(g1c) <= 1e-8 * _m1u)
+                  & (ustar > lo_c + _edge) & (ustar < mid - _edge))
+        sig_c = np.where(peaked, 1.0 / np.sqrt(np.where(peaked, -g2c, 1.0)), np.inf)
+        lo = np.where(peaked, np.maximum(ustar - window_sigma * sig_c, lo_c), lo_c)
+        hi = np.where(peaked, np.minimum(ustar + window_sigma * sig_c, mid), mid)
+        # DERIVE THE NODE COUNT; the fallback cell is where a fixed one fails.  A
+        # windowed cell spans +-W sigma so a fixed count resolves it, but a cell that
+        # FELL BACK spans the whole cell with the same nodes -- and an earlier comment
+        # here claimed that branch "can only add nodes", which was simply false: it adds
+        # none and spreads them wider, so rejecting a peak made the resolution WORSE.
+        # Measured on a searched counterexample: 1.7e-03 nats at 64 nodes, converging
+        # only by n = 1024.
+        #
+        # The requirement is derived, not tuned: |d^2 g/du^2| <= M2u = |c1| + 4|c2|
+        # EXACTLY, so no feature of exp(g) on this axis is narrower than
+        # sigma_min = 1/sqrt(M2u), and a spacing of sigma_min/_PTS_PER_SIGMA resolves the
+        # sharpest thing the coefficients admit.
+        # SCALE, AND WHY THIS ONE.  |d2g/du2| <= M2u = |c1| + 4|c2| exactly, so nothing
+        # on this axis is narrower than sigma_min = 1/sqrt(M2u) and a spacing of
+        # sigma_min/_PTS_PER_SIGMA resolves the sharpest feature the coefficients admit.
+        # Measured on a searched counterexample, this takes the 64-vs-1024-node gap from
+        # 1.7e-03 to 2.2e-04 nats at essentially no cost.
+        #
+        # A BOUNDARY-PEAKED FALLBACK CELL IS NOT GAUSSIAN THERE -- exp(g) falls off like
+        # exp(-|g'| du), so full convergence would need a spacing set by 1/M1u, and that
+        # was measured to cost a 25x slowdown for the remaining 2.2e-04 nats.  Not taken:
+        # 2e-04 nats is orders below anything this rule is asked to decide, and the
+        # residual is reported (`n_fallback_cells`) rather than hidden.  If a future
+        # caller needs it, raise _PTS_PER_SIGMA or pass n_nodes -- both are honest knobs
+        # and both cost what they cost.
+        m2u = abs(c1) + 4.0 * abs(c2)
+        width_c = np.maximum(hi - lo, 0.0)
+        need = int(np.ceil(float(width_c.max()) * np.sqrt(max(m2u, 1e-300))
+                           * _PTS_PER_SIGMA)) + 1
+        n_use = int(np.clip(max(n_nodes, need), n_nodes, 8192))
+        s = np.linspace(0.0, 1.0, n_use)
+        uu = lo[:, None] + width_c[:, None] * s[None, :]
+        pp = np.full(uu.size, p)
+        g = eval_g(C, pp, uu.ravel())
+        gp = eval_g(C, pp, uu.ravel(), (1, 0))
+        gpp = eval_g(C, pp, uu.ravel(), (2, 0))
+        wq = np.full(n_use, 1.0 / (n_use - 1)); wq[0] *= 0.5; wq[-1] *= 0.5
+        lw = (np.log(np.maximum(hi - lo, 1e-300))[:, None] + np.log(wq)[None, :]).ravel()
+        m = g.max()
+        wgt = np.exp(g - m + lw)
+        Z = wgt.sum()
+        e1 = float((wgt * gp).sum() / Z)
+        out[0, i] = m + np.log(Z)
+        out[1, i] = e1
+        out[2, i] = float((wgt * (gpp + gp * gp)).sum() / Z) - e1 * e1
+    return out[0], out[1], out[2]
+
+
+def phi_local_marginalize(C, n_seed=64, w_sigma=12.0, n_nodes=64,
+                          n_bound_grid=512, tol_nats=OUTSIDE_TOL_NATS):
+    """``log[(2 pi)^-2 int int dphi du exp(g)]`` with BOTH axes localized.
+
+    u is exact on the cell partition; phi is localized around the maxima of the profile
+    ``F`` using its exact derivatives.  The phi axis has no algebraic completeness
+    warrant -- ``F`` is a log-integral, not a trig polynomial -- so it is the framework's
+    grid-seeded class and its correctness rests on the cover bound, exactly as the time
+    axis does.
+
+    Returns ``(value, ok, report)``; ``ok=False`` means the omitted-mass bound on phi
+    could not be made small enough and the caller must fall back.
+    """
+    rep = {'n_phi_modes': 0, 'n_phi_regions': 0, 'margin': np.inf, 'decline': None}
+    seeds = np.linspace(0.0, 2.0 * np.pi, int(n_seed), endpoint=False)
+    p = seeds.copy()
+    for _ in range(24):
+        _, d1, d2 = u_profile(C, p, n_nodes=n_nodes)
+        step = np.where(np.abs(d2) > 0, -d1 / np.where(np.abs(d2) > 0, d2, 1.0), 0.0)
+        p = np.mod(p + np.clip(step, -0.3, 0.3), 2.0 * np.pi)
+    F, d1, d2 = u_profile(C, p, n_nodes=n_nodes)
+    keep = (d2 < 0) & (np.abs(d1) < 1e-6 * max(derivative_bound(C, (1, 0)), 1e-300))
+    p, F, d2 = p[keep], F[keep], d2[keep]
+    if p.size == 0:
+        rep['decline'] = 'no phi modes'
+        return -np.inf, False, rep
+    order = np.argsort(p); p, F, d2 = p[order], F[order], d2[order]
+    uniq = np.concatenate([[True], np.diff(p) > 1e-6])
+    p, F, d2 = p[uniq], F[uniq], d2[uniq]
+    rep['n_phi_modes'] = int(p.size)
+
+    sig = 1.0 / np.sqrt(-d2)
+    lo = p - w_sigma * sig
+    hi = p + w_sigma * sig
+    # 1-D merge: sort by lo and absorb overlaps.  Same argument as the time module --
+    # merging is what stops the mass between two windows being counted twice.
+    # MERGE ON THE CIRCLE, NOT ON THE LINE.  A linear sweep over raw
+    # [p - W sigma, p + W sigma] never joins a window near 0 to one near 2 pi -- but
+    # each region is afterwards integrated at mod(., 2 pi), so BOTH regions cover BOTH
+    # peaks and that mass is counted twice.  Measured: +log 2 = +0.693 nats returned
+    # with ok=True and a margin of -437, because the error is INSIDE the regions and an
+    # omitted-mass certificate cannot see it.  Same family as the wrapped-circuit bug,
+    # one step over.
+    #
+    # Reduce every interval to the circle, SPLIT any that crosses the seam, merge the
+    # pieces linearly, then close the circle by joining a piece touching 2 pi to one
+    # touching 0.
+    pieces = []
+    for a, b in zip(lo, hi):
+        wdt = min(float(b - a), 2.0 * np.pi)
+        a = float(np.mod(a, 2.0 * np.pi))
+        if a + wdt <= 2.0 * np.pi:
+            pieces.append((a, a + wdt))
+        else:
+            pieces.append((a, 2.0 * np.pi))
+            pieces.append((0.0, a + wdt - 2.0 * np.pi))
+    pieces.sort()
+    ml, mh = [pieces[0][0]], [pieces[0][1]]
+    for a, b in pieces[1:]:
+        if a <= mh[-1]:
+            mh[-1] = max(mh[-1], b)
+        else:
+            ml.append(a)
+            mh.append(b)
+    if len(ml) > 1 and ml[0] <= 1e-12 and mh[-1] >= 2.0 * np.pi - 1e-12:
+        ml[0] = ml[-1] - 2.0 * np.pi      # the two seam pieces are one region
+        ml.pop()
+        mh.pop()
+    ml, mh = np.array(ml, dtype=float), np.array(mh, dtype=float)
+
+    # CLAMP TO ONE CIRCUIT.  At low amplitude F is nearly flat, so sigma is huge and
+    # [p - W sigma, p + W sigma] spans far MORE than 2 pi; integrating that range
+    # literally wraps the circle several times and counts the same mass repeatedly.
+    # Found on real coefficient tables, not synthetic ones: exponent amplitude 1.09,
+    # one merged region, +1.84 nats too high -- a factor of e^1.84 = 6.3, i.e. six
+    # circuits -- and ACCEPTED, because a region covering everything leaves nothing
+    # outside for the omitted-mass certificate to object to.  The certificate bounds
+    # what is OUTSIDE the regions; it cannot see an error made INSIDE one.
+    if float((mh - ml).sum()) >= 2.0 * np.pi:
+        ml, mh = np.array([0.0]), np.array([2.0 * np.pi])
+    else:
+        span = np.minimum(mh - ml, 2.0 * np.pi)
+        mh = ml + span
+    covered = float(np.minimum(mh - ml, 2 * np.pi).sum())
+    rep['n_phi_regions'] = int(ml.size)
+    # exposed so the disjointness invariant can be ASSERTED rather than inferred from a
+    # value comparison: overlapping regions double-count, and that error lives inside
+    # the regions where the omitted-mass certificate is blind to it.
+    rep['phi_regions'] = list(zip(ml.tolist(), mh.tolist()))
+
+    parts = []
+    for a, b in zip(ml, mh):
+        # spacing <= sigma/4 for the SHARPEST mode inside this region, and never fewer
+        # than 64 points across a full circuit -- a nearly-flat F has a huge sigma, so a
+        # sigma-derived count alone would leave a wrapped region with a handful of nodes.
+        inside_r = (p >= a - 1e-12) & (p <= b + 1e-12)
+        sloc = sig[inside_r].min() if np.any(inside_r) else sig.min()
+        n = int(np.ceil((b - a) / max(sloc, 1e-12) * 4)) + 1
+        n = max(n, int(np.ceil(64 * (b - a) / (2 * np.pi))) + 1)
+        n = max(16, min(2048, n))
+        gp = np.linspace(a, b, n)
+        Fv, _, _ = u_profile(C, np.mod(gp, 2 * np.pi), n_nodes=n_nodes)
+        wq = np.full(n, (b - a) / (n - 1)); wq[0] *= 0.5; wq[-1] *= 0.5
+        m = Fv.max()
+        parts.append(m + np.log(np.sum(wq * np.exp(Fv - m))))
+    parts = np.array(parts); m = parts.max()
+    value = m + np.log(np.exp(parts - m).sum()) - 2.0 * np.log(2.0 * np.pi)
+
+    # cover bound on phi: same slope-plus-curvature form as the 2-D outside bound, with
+    # F'' bounded by M_(2,0) + M_(1,0)^2 (the variance term cannot exceed the square of
+    # the first-derivative bound).
+    t = np.linspace(0.0, 2.0 * np.pi, int(n_bound_grid), endpoint=False)
+    inside = np.zeros(t.size, dtype=bool)
+    step_t = 2.0 * np.pi / n_bound_grid
+    for a, b in zip(ml, mh):
+        d = _wrap(t - 0.5 * (a + b))
+        inside |= np.abs(d) <= 0.5 * (b - a) - 0.5 * step_t
+    T_out = float((~inside).sum()) * step_t
+    if T_out <= 0.0 or covered >= 2 * np.pi:
+        rep['margin'] = -np.inf
+        return float(value), True, rep
+    # BOUND F THROUGH g, NOT THROUGH F''.  The obvious route -- Taylor on F with
+    # F'' <= M_(2,0) + M_(1,0)^2 -- is useless: that variance bound grows as the SQUARE
+    # of the amplitude, so the remainder swamped everything (measured margins of +51 and
+    # +1196 nats at amplitude 1265 and 4217, i.e. no bound at all).  Instead use
+    #     F(phi) = log int du exp(g) <= log(2 pi) + sup_u g(phi, u),
+    # and bound that supremum with the SAME slope-plus-M2 form already validated for the
+    # 2-D outside bound, whose remainder grows only linearly in amplitude.
+    phi_out = t[~inside]
+    # The u axis SETS the covering radius here: at n_bound_grid = 512 the phi half-step
+    # is 0.0061 while a 128-point u grid gives pi/128 = 0.0245, so u dominates r and the
+    # remainder is four times larger than it need be.  Tie the u resolution to the same
+    # knob so refining the bound refines BOTH axes; the cost is paid only on the
+    # UNCOVERED phi, which is the small set by construction.
+    n_ug = int(n_bound_grid)
+    ug = np.linspace(0.0, 2.0 * np.pi, n_ug, endpoint=False)
+    PH2, UU2 = np.meshgrid(phi_out, ug, indexing='ij')
+    # HALF-DIAGONAL OF THE CELL, with no extra factor.  The grid spacings are step_t in
+    # phi and 2*pi/128 in u, so the farthest a point can sit from its grid point is
+    # hypot(step_t/2, pi/128).  An earlier revision multiplied that by a further 0.5, so
+    # the Taylor remainder covered only half the cell and the "bound" was not one -- it
+    # happened not to be violated in the trials run, which is exactly why an unjustified
+    # constant is dangerous rather than harmless.
+    r = np.sqrt((0.5 * step_t) ** 2 + (np.pi / n_ug) ** 2)
+    g0 = eval_g(C, PH2.ravel(), UU2.ravel())
+    gpv = eval_g(C, PH2.ravel(), UU2.ravel(), (1, 0))
+    guv = eval_g(C, PH2.ravel(), UU2.ravel(), (0, 1))
+    m2 = (derivative_bound(C, (2, 0)) + 2.0 * derivative_bound(C, (1, 1))
+          + derivative_bound(C, (0, 2)))
+    sup_g = float((g0 + np.hypot(gpv, guv) * r + 0.5 * m2 * r * r).max())
+    sup_out = np.log(2.0 * np.pi) + sup_g
+    rep['margin'] = float(np.log(T_out) + sup_out - 2.0 * np.log(2 * np.pi) - value)
+    ok = rep['margin'] < tol_nats
+    if not ok:
+        rep['decline'] = 'phi omitted-mass bound too large'
+    return float(value), bool(ok), rep
