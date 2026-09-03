@@ -127,6 +127,32 @@ def test_calmarg_with_freqresponse_is_refused():
     assert 'NO test coverage against the third-generation machinery' in r[0].enable_requires
 
 
+def test_the_3g_refusals_do_not_depend_on_the_backend():
+    """The refusals must fire on the CPU-vectorized path too, not only under --gpu.
+
+    This is the regression the guards this gate replaced actually had.  They read
+    `opts.gpu and getattr(opts, 'calibration_marginalization', False)` -- two defects in
+    one line: the attribute does not exist (so they never fired at all), and even had it
+    existed the `opts.gpu and` would have left the CPU-vectorized replacement likelihood
+    unprotected.  Both --rotation-slow and --freqresponse are wired into the CPU
+    branch as well as the xpy one, and neither PrecomputeLikelihoodTermsWithRotation nor
+    PrecomputeLikelihoodTermsFreqResponse builds calibration cross terms on EITHER
+    backend, so the backend has nothing to do with it.
+
+    Asserted by MEMBERSHIP, not by `len(r) == 1`: at gpu=False the configuration also
+    earns the separate --gpu refusal (in-loop calmarg needs the xpy evaluator), so a
+    length assertion here would pass for the wrong reason.  Re-adding an `opts.gpu and`
+    condition to either rule must fail this test.
+    """
+    for kw, flag in ((dict(rotation_slow=True), '--rotation-slow'),
+                     (dict(freqresponse=True), '--freqresponse')):
+        r = oc.refusals_from_opts(_honoured(gpu=False, **kw))
+        match = [x for x in r
+                 if x.options == ('--calibration-envelope-directory', flag)]
+        assert len(match) == 1, (flag, r)
+        assert match[0].kind == oc.KIND_UNIMPLEMENTED, (flag, match)
+
+
 def test_the_3g_refusals_survive_the_pilot_exemption():
     """--calibration-dump-responsibilities exempts a configuration from the PRODUCTION
     likelihood's prerequisites.  It must NOT exempt it from the 3G refusals: the pilot
