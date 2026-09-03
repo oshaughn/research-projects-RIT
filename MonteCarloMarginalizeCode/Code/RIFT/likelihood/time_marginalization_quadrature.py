@@ -125,7 +125,10 @@ is the original defect.
 WHAT "EXACTLY" IS EXACT ABOUT (read before quoting the accuracy numbers)
 -----------------------------------------------------------------------
 The reconstruction is exact for the integrand THE CODE ACTUALLY FORMS, which is
-the true ``kappa(t)`` only when ``time_interp='nearest'`` -- the default -- where
+the true ``kappa(t)`` only when ``time_interp='nearest'`` -- which since 2026-09-02
+is no longer the ILE driver's default (issue #233; the driver now defaults to
+``time_interp_choice.TIME_INTERP_DEFAULT``), so the paragraph below is now the
+ORDINARY case rather than the exceptional one -- where
 the gathered values are exact samples of ``Q`` (on a grid offset by up to
 deltaT/2, which is a pre-existing property of that stencil).
 
@@ -140,7 +143,10 @@ Measured at srate 4096, peak lnL ~5300, peak centred: with 'nearest' this path i
 wins about half the cases.  Neither number says the quadrature is wrong -- they
 say that once a stencil is in use its own error dominates, and fixing the
 quadrature exposes it rather than adding to it.  The advantages quoted above are
-for the default stencil.
+for ``time_interp='nearest'``, which is NOT the driver default any more: pass
+``--interpolate-time nearest`` alongside ``--time-marginalization-quadrature
+bandlimited`` to reproduce them.  Re-measuring this pairing under the new default
+is an OPEN item, not a settled result.
 
 SCOPE
 -----

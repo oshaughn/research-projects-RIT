@@ -1403,11 +1403,21 @@ if opts.internal_ile_auto_logarithm_offset:
     cmd += " --internal-ile-auto-logarithm-offset "
 if opts.internal_ile_rotate_phase:
     cmd += " --internal-ile-rotate-phase "
-if resolve_interpolate_time_request(opts.internal_ile_interpolate_time) is not None:
+if (resolve_interpolate_time_request(opts.internal_ile_interpolate_time) is not None
+        or opts.internal_ile_interpolate_time is not None):
     # resolve_interpolate_time_request rather than a truthiness test: the flag takes a VALUE, so
     # '--internal-ile-interpolate-time False' passes the STRING 'False' (truthy in Python) and a
     # BARE flag passes a sentinel.  Both must be distinguished from "a stencil was named", and a
-    # bare flag must raise rather than silently forward nothing.
+    # bare flag must raise rather than silently forward nothing.  (The call is kept for that
+    # raise; it is no longer what decides whether to forward.)
+    #
+    # AN EXPLICIT OFF-REQUEST IS ALSO FORWARDED, since 2026-09-02.  It used to be dropped here --
+    # resolve_interpolate_time_request maps 'False'/'off'/'none' to None, exactly like an absent
+    # flag -- and dropping it was harmless only while the ILE default was 'nearest', because
+    # forwarding nothing and forwarding 'nearest' were the same answer.  The ILE default is now
+    # time_interp_choice.TIME_INTERP_DEFAULT, so they are opposites and dropping an off-request
+    # would have turned interpolation ON for a user who explicitly turned it off.  The helper
+    # re-expresses it as '--interpolate-time nearest'; this only has to stop swallowing it.
     # HELPER passthrough (not a raw ILE arg): the helper owns ILE argument construction, and it
     # also knows whether the maintained NoLoop path that --interpolate-time requires is in use --
     # which needs --time-marginalization AND --vectorized AND one of --gpu/--rotation-slow/

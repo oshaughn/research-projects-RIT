@@ -423,6 +423,176 @@ it); dropping the argument at either call site fails the second.
 A `lax.scan` variant was also measured and rejected -- it cut the temp only to 1427 MB and cost
 2.9x runtime, against the separable form's 1279 MB at 0.5x runtime.
 
+### 9.6 The batchmode default moved from `nearest` to `sinc` (2026-09-02)
+
+`bin/integrate_likelihood_extrinsic_batchmode`'s `--interpolate-time` defaulted to `False`, i.e.
+`nearest` — the stencil §3 measures at 200–443 nats and which reaches 1 nat of error by SNR 2–6.
+It now defaults to `RIFT.likelihood.time_interp_choice.TIME_INTERP_DEFAULT`, which is `'sinc'`.
+**This changes results for any ILE run that did not pass `--interpolate-time`,** which is
+essentially every pipeline-driven run: `helper_LDG_Events.py` emits the flag only when
+`--internal-ile-interpolate-time` is given. **Pass `--interpolate-time nearest` to reproduce a
+pre-2026-09-02 run.** Filed as issue #233.
+
+`JAX_INTERP_DEFAULT` is now an *alias* of the same constant rather than a second literal `"sinc"`.
+That is the structural half of #233: the two drivers previously shipped opposite defaults for the
+same physical choice, so any cross-implementation comparison run at defaults was measuring a flag,
+and — because stencil error grows as SNR² — the disagreement presented as an amplitude-dependent
+bug in one of the codes rather than as a configuration difference.
+
+**Why `sinc` and not `cubic`.** Same reasoning as §9.4, re-measured independently on a
+production-shaped grid (below): a default is chosen for its *worst* case. Over 15 (mass, fmin)
+points spanning 10–120 M☉ and fmin 20/30/100, `sinc`'s error stays inside **1.59–4.58 nats** while
+`cubic`'s ranges **0.078–27.0 nats**. `cubic` is the better choice over much of that grid and is
+one flag away; it is not the safer *default*.
+
+#### 9.6.1 Accuracy, re-measured (2026-09-02)
+
+`study_stencil_lnL_sensitivity.py --mode mass-ladder`, SEOBNRv4, H1L1V1 zero noise, aLIGO ZDHP,
+srate 4096, fmax 1700, Lmax 2, every mass normalised to SNR_lik = 100, K = 400 × 2 seeds, against
+the same exact FFT-zero-padded reference §3 uses. max|ΔlnL| in nats; **winner** in bold.
+
+| fmin | M/M☉ | nearest | cubic | sinc | winner, margin |
+|---|---|---|---|---|---|
+| 20 | 10 | 145.9 | 3.507 | **1.625** | sinc 2.16× |
+| 20 | 20 | 403.2 | 4.810 | **1.739** | sinc 2.77× |
+| 20 | 35 | 176.4 | **1.974** | 2.460 | cubic 1.25× |
+| 20 | 65 | 339.8 | **0.396** | 2.174 | cubic 5.49× |
+| 20 | 120 | 211.8 | **0.078** | 2.703 | cubic 34.5× |
+| 30 | 10 | 189.3 | 5.520 | **2.306** | sinc 2.39× |
+| 30 | 20 | 142.1 | 4.306 | **1.938** | sinc 2.22× |
+| 30 | 35 | 169.9 | **1.616** | 2.175 | cubic 1.35× |
+| 30 | 65 | 190.4 | **0.510** | 1.586 | cubic 3.11× |
+| 30 | 120 | 209.9 | **0.095** | 2.924 | cubic 30.7× |
+| 100 | 10 | 652.8 | 17.13 | **4.582** | sinc 3.74× |
+| 100 | 20 | 515.1 | 27.04 | **2.387** | sinc 11.3× |
+| 100 | 35 | 620.4 | 5.940 | **2.104** | sinc 2.82× |
+| 100 | 65 | 411.1 | **1.688** | 2.726 | cubic 1.61× |
+| 100 | 120 | 203.2 | **0.183** | 2.701 | cubic 14.8× |
+
+**Does this reproduce §3–§4?** The *winner* agrees at every one of the ten points these two
+measurements share, including the two cells §4 flags as flipping with fmin: M = 35 goes cubic at
+fmin 30 and **sinc at fmin 100**, exactly as §4 records. Ratios agree closely where §4 quotes one
+(M = 20, fmin 30: §4 2.2×, here 2.22×; M = 35, fmin 100: §4 2.5×, here 2.82×; M = 20, fmin 100:
+§4 8.6×, here 11.3×).
+
+**The ABSOLUTE numbers here are systematically smaller than §3's and that is expected, not a
+disagreement.** max|ΔlnL| is an extreme-value statistic over the drawn extrinsic points, and this
+table uses K = 400 × 2 seeds against §3's K = 2000 × 3. Compare the ratios, or re-run at §3's K
+before comparing the nats.
+
+**fmin 20 is new here** — §3–§4 start at fmin 20 only in the sweep, and §3's ladder is at fmin 30.
+It matters because fmin 20 is the O4 production value, and it is the fmin at which `cubic`'s
+advantage at high mass is largest (34.5× at 120 M☉). The default is still `sinc` because the
+comparison that decides a default is between the two WORST cases, and at fmin 20 those are
+`sinc` 2.70 nats against `cubic` 4.81 nats.
+
+#### 9.6.2 Cost, measured (2026-09-02)
+
+Per `DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop` call — **that is the denominator**: an ILE
+job's wall time also carries precompute and sampler overhead, so its end-to-end ratio is bounded
+above by these and was not measured. 3 detectors, Lmax 2, SEOBNRv4, srate 4096, fmax 1700. Median
+over repeats with the first call discarded (numba/cupy compile, first-touch allocation); on GPU
+every timed call is device-synchronized.
+
+**CPU** (`citlogin6`, uncapped and quiet — load average 3.6 before, 4.6 after; IGWN CVMFS python
+3.11, `OMP_NUM_THREADS=1`). K = 2000 extrinsic points, npts = 411, median of 5:
+
+| M/M☉ | fmin | nearest (s) | cubic (s) | sinc (s) | cubic/nearest | sinc/nearest | sinc/cubic |
+|---|---|---|---|---|---|---|---|
+| 20 | 20 | 0.108 | 0.520 | 1.897 | 4.83 | 17.6 | 3.65 |
+| 20 | 100 | 0.115 | 0.668 | 1.879 | 5.79 | 16.3 | 2.81 |
+| 35 | 20 | 0.107 | 0.504 | 1.864 | 4.70 | 17.4 | 3.70 |
+| 35 | 100 | 0.108 | 0.501 | 1.858 | 4.66 | 17.3 | 3.71 |
+| 65 | 20 | 0.112 | 0.508 | 1.829 | 4.54 | 16.4 | 3.60 |
+| 65 | 100 | 0.105 | 0.496 | 1.824 | 4.74 | 17.4 | 3.67 |
+
+**GPU** (`ldas-pcdev13` device 0, RTX PRO 4000 Blackwell, **idle — one job on the device**;
+`rift_o4d_cc90-120_cuda128_20260717.sif`, cupy 14.1.1). Time-marginalized (the production
+reduction), median of 7:
+
+| K (≈ `--n-chunk`) | npts | nearest (s) | cubic (s) | sinc (s) | cubic/nearest | sinc/nearest |
+|---|---|---|---|---|---|---|
+| 2000 | 411 | 0.0137 | 0.0140 | 0.0157 | 1.02 | 1.15 |
+| 10000 | 411 | 0.0165–0.0176 | 0.0175–0.0200 | 0.0205–0.0214 | 1.01–1.21 | 1.18–1.30 |
+| 40000 | 411 | 0.0386 | 0.0432 | 0.0543 | 1.12 | 1.41 |
+| 10000 | 1229 | 0.0263 | 0.0289 | 0.0372 | 1.10 | 1.42 |
+
+**Read the small-K rows as overhead-diluted, not as the cost of the stencil.** At K = 2000 the
+call is launch-bound and every stencil looks free; the ratio grows toward ~1.4× as K and npts rise
+into and past the production chunk. The K = 10000 row is quoted as a range because it was measured
+in two separate sweeps whose results differ by ~8% — run-to-run spread on a shared node, not a
+mass or fmin dependence (the six-point mass × fmin grid at K = 10000 is flat to 1.18–1.21×, which
+is what a stencil cost should do).
+
+**So the cost objection is a CPU objection.** Production ILE runs `--gpu`, where `sinc` costs
+1.15–1.42× `nearest` and `cubic` 1.01–1.21×. On CPU `sinc` costs 16.3–17.6× `nearest`, which
+reproduces the ~16× end-to-end figure reported in issue #233 and identifies that measurement as
+CPU-bound.
+
+**Two comparisons against §7 and the shipped help text, both with different denominators — do not
+read either as a contradiction.** §7's "~4.2–4.5× on CPU, ~1.6–3.0× on GPU" is `sinc` vs `cubic`
+**in the Q product alone**; measured here at the whole-likelihood level it is 2.8–3.7× on CPU
+(consistent) and 1.07–1.29× on GPU (much smaller, because the surrounding likelihood dominates).
+§7's end-to-end CPU figures (nearest 9.3 s, cubic 25.1 s, sinc 85.3 s → 2.7× and 9.2×) are at a
+fixed n_max on a different configuration; the per-call ratios here are larger. Quote whichever
+denominator matches what you are describing, and say which.
+
+#### 9.6.3 What a DEFAULT had to be prevented from doing
+
+The one-line change is not the whole change. `--interpolate-time` had three behaviours keyed on
+`!= 'nearest'` that were written when `nearest` was the default, and each would have fired on
+runs that pass no flag at all. The driver therefore distinguishes an **explicit request** from an
+**inherited default** (`opts._interp_time_from_default`, decided on `is None` before any string
+coercion, because `str(None) == 'none'` is itself a legal explicit spelling meaning `nearest`):
+
+1. **The honoured-path gate would have become a startup crash.** A stencil is only honoured under
+   `--time-marginalization --vectorized` plus one of `--gpu`/`--rotation-slow`/`--freqresponse`,
+   and anything else is *refused*. As a default that refusal turns every other configuration —
+   including a bare invocation — from working into `ValueError`, with no command line changed
+   anywhere. An explicit request is still refused, unchanged; a default falls back to `nearest`
+   and prints why.
+2. **The time-posterior export mode would have flipped.** `resolve_time_posterior_export_mode`
+   maps `auto` to `continuous` for any non-`nearest` stencil, so the same edit would have changed
+   the fair-draw time export of every `--resample-time-marginalization` run: a re-evaluation of
+   the whole likelihood on a ≥4× denser grid, a different draw algorithm, two extra output
+   columns, and `validate_time_posterior_working_set`'s `MemoryError` newly reachable. The export
+   now keys on an explicit stencil only. Asking for a stencil still opts in;
+   `--time-posterior-export continuous` still works on its own.
+3. **The fused calibration kernel would have been silently abandoned.** The fused calmarg kernels
+   implement `nearest` only (§9), and the driver's three NoLoop call sites fall back to
+   `cal_method='loop'` — and drop the `cal_distmarg` table — for any other stencil. A default must
+   not spend someone else's `--calibration-fused-kernel` that way, so it stays `nearest` there.
+   With an *explicit* stencil the behaviour is unchanged but is no longer silent: the driver now
+   prints that the fused kernel is not in use.
+
+A fourth, in the pipeline: `resolve_interpolate_time_request` collapses "flag absent" and an
+explicit off-request (`--internal-ile-interpolate-time False`) to the same `None`, and both used
+to emit nothing. While the driver default was `nearest` those were the same answer; they are now
+opposites, so `helper_LDG_Events.py` re-expresses an off-request as an explicit
+`--interpolate-time nearest`. Without that, **"off" would have meant "on"**.
+
+#### 9.6.4 The concerns, recorded because they are not resolved by the above
+
+- **High-mass, low-fmin BBH — much of the O4 catalogue — is the population this default is worse
+  for.** §9.6.1 measures `cubic` winning by 5.5× at 65 M☉ and 34.5× at 120 M☉ at fmin 20. The
+  mitigation is the same asymmetry §9.4 relied on and this table re-measures: `sinc`'s loss there
+  is bounded (2.17 and 2.70 nats at SNR 100), `cubic`'s loss in the other regime is not (27.0 nats
+  at M = 20, fmin 100). Anyone running a high-mass campaign should pass `--interpolate-time cubic`.
+- **`--time-marginalization-quadrature bandlimited` was measured against `nearest`.** That
+  module's own docstring records +0.0002 nats for `nearest` against an analytic truth where
+  Simpson is −521, but −2.29 for `sinc` where Simpson is +1.28, "and over a scan of seeds and
+  grid phases Simpson wins about half the cases". The stencil default change moves that opt-in
+  quadrature into the regime where its advantage is not established. **This pairing has not been
+  re-measured here and is an open item**, not a settled result.
+- **srate is still unswept.** Every crossover in this document is at srate 4096, which §8 names as
+  the numerator of the ratio §6 says sets the answer. If srate moves the crossover as strongly as
+  fmin did, this default should be revisited.
+- **The LISA twin was deliberately not changed.** `integrate_likelihood_extrinsic_batchmode_lisa`
+  keeps `--interpolate-time default=False` and its own `legacy_time_interpolation_enabled`
+  parsing. The two executables therefore now differ in default. That is a scope cut, not an
+  oversight: the LISA driver has a separate drift-ledger gate and its own export contract.
+
+
 ## 10. Provenance
 
 The fmin sweep was measured against a pinned `git archive` of the #97 merge commit `c1a2e2df`,

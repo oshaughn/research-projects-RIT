@@ -259,6 +259,15 @@ jobs:
         # restoring a bare flag that silently does nothing. All three mutations were checked to
         # fail these tests before they landed.
         #
+        # test_batchmode_stencil_default covers the one thing every other file here misses: what
+        # the driver does when --interpolate-time is ABSENT. Every other stencil test passes an
+        # explicit value, so the whole suite was blind to the default -- which is what essentially
+        # every production run uses, since the pipeline emits the flag only when asked. It is also
+        # subprocess-based (~2 min), and for the same reason: the interesting part of the
+        # 2026-09-02 default change is not the new value but the three places a DEFAULT must
+        # behave differently from a REQUEST (refusal, time-posterior export mode, fused calmarg
+        # kernel), and none of those is visible from a unit call.
+        #
         # The GPU parity files (test_q_window_interp_gpu, test_noloop_gpu_stencils) are
         # deliberately NOT here -- there is no GPU on these runners, and they would report as
         # skipped.  They are run by hand on a GPU node; the numbers are in PR #97.
@@ -273,7 +282,8 @@ jobs:
             MonteCarloMarginalizeCode/Code/RIFT/likelihood/test_time_interp_choice.py \
             MonteCarloMarginalizeCode/Code/RIFT/likelihood/test_calmarg_stencil_gating.py \
             MonteCarloMarginalizeCode/Code/RIFT/misc/test_psd_bandwidth.py \
-            MonteCarloMarginalizeCode/Code/RIFT/likelihood/test_interpolate_time_cli.py
+            MonteCarloMarginalizeCode/Code/RIFT/likelihood/test_interpolate_time_cli.py \
+            MonteCarloMarginalizeCode/Code/RIFT/likelihood/test_batchmode_stencil_default.py
 
   slowrot-check:
     needs: install
