@@ -324,8 +324,8 @@ def check_critical_and_report(opts, optp):
             fatal.append(
                 "--distance-grid-scheme %s requires --angle-marg-scheme "
                 "exact/laplace/auto: the log-uniform grid is sized from the "
-                "data-derived angle amplitude, which the default 'grid' scheme "
-                "does not compute" % dgs)
+                "data-derived angle amplitude, which the 'grid' scheme you "
+                "asked for does not compute" % dgs)
         if getattr(opts, "distance_grid_points", None) is not None:
             fatal.append("--distance-grid-points and --distance-grid-scheme %s "
                          "both set the distance node count; pass one or the "

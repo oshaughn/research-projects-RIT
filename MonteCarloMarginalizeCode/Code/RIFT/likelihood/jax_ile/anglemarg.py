@@ -161,10 +161,22 @@ ANGLE_MARG_CHOICES = ("grid", "exact", "laplace", "peak-local", "auto")
 
 # ---------------------------------------------------------------------------
 ANGLE_MARG_CROSSOVER_AMPLITUDE = 450.0     # A = rho^2/2; rho = 30.  NOTE the
-# auto selector compares the MARGINED data-derived bound (~2x the true
-# amplitude) to this, so laplace engages from true A ~ 225 (SNR ~ 21).  That
-# early engagement is safe by measurement: laplace is at -1.8e-4 nats by
-# A = 200 on the injection ladder and improves upward, while exact remains
+# auto selector compares the MARGINED data-derived bound to this, not the true
+# amplitude, so laplace engages below rho = 30.  TWO DIFFERENT NUMBERS LIVE HERE
+# and an earlier version of this comment ran them together:
+#   * the INTENDED margin is the `margin=2.0` argument of
+#     estimate_angle_amplitude -- a deliberate parameter, not an estimate;
+#   * the REALIZED ratio of that margined bound to the true amplitude was
+#     MEASURED on the injection ladder at rung 1 (rho = 40.77): bound 1109.17
+#     against rho^2/2 = 831.1, i.e. 1.335, not 2.
+# The realized number is the one that sets where the switch actually happens:
+# 450 / 1.335 puts true-A engagement at ~337, i.e. rho ~ 26.0, and it is rho 26
+# that the paper quotes.  This comment previously said rho ~ 21 by assuming the
+# factor equalled the margin; keep the measured ratio and the assumed margin
+# distinct, or the code and the manuscript quote different crossovers for the
+# same switch.  (Measurement from the paper-1 ladder's amplitude table.)
+# Early engagement is safe by measurement either way: laplace is at -1.8e-4 nats
+# by A = 200 on the injection ladder and improves upward, while exact remains
 # valid (crossover-floored sizing) below.
 # Dense-size rule N = ceil(K * sqrt(A)) points, from the trapezoid aliasing
 # error of exp(trig poly): relative error ~ exp(-c N^2 / A).  The constants
