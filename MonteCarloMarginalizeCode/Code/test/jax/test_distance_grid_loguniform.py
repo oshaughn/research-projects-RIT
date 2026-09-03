@@ -944,6 +944,52 @@ def test_a_peak_at_or_outside_an_edge_is_refused_before_clip_excess_trips():
             "endpoint term as zero is what let this build")
 
 
+def test_endpoint_scale_covers_subdominant_entries_not_just_the_sky_argmax():
+    """P1.  The endpoint term must cover EVERY reconstructed (phi, psi, time)
+    entry of a loud sky point, not only that point's dominant configuration.
+
+    A sky direction can have a far-interior maximum and a near-equal secondary
+    entry whose distance peak sits a width from an edge.  The secondary
+    contributes materially to the marginal and carries the full endpoint error;
+    the dominant one carries almost none.  An argmax-only scalar therefore
+    reads the safe entry and reports the sky point as clean.
+
+    This fixture is exactly that case: the DOMINANT peak is 4.77 widths inside
+    the support (its own contribution is rho^2 * bell(4.77) ~= 5.7e-3) and
+    clip_excess reads exactly 1.0, so neither the exterior guard nor the
+    dominant entry sees anything -- yet the true per-entry scale is ~44.5, a
+    factor ~7800 higher.  Under the argmax-only form this assertion fails by
+    four orders of magnitude.
+    """
+    from RIFT.likelihood.jax_ile import anglemarg as AM
+    data = _synth(scale=3.0, kappa_boost=4.0)
+    xg, _ = make_distance_grid(54.0, 10000.0, 64, "euclidean",
+                               distMpcRef=data.distMpcRef)
+    _, diag = AM.estimate_angle_amplitude(data, xg, interp="sinc",
+                                          return_diagnostics=True)
+    # the premises: the dominant entry is far interior, and nothing else fires
+    assert diag["peak_clearance"] > 4.0, (
+        "the dominant peak is no longer far from the edge (%.4g widths), so "
+        "this fixture no longer separates per-entry from argmax-only coverage"
+        % diag["peak_clearance"])
+    assert diag["clip_excess"] <= 1.0 + 1e-3, (
+        "the exterior guard fires here (%.6g), so it would catch this case "
+        "and the endpoint term is not what is being tested"
+        % diag["clip_excess"])
+    # what the DOMINANT entry alone could contribute, from the reported numbers
+    k = diag["peak_clearance"]
+    dominant_only = (diag["peak_rho"] ** 2) * float(AM._endpoint_bell(k))
+    assert diag["endpoint_scale"] > 100.0 * dominant_only, (
+        "endpoint_scale %.6g is within 100x of what the sky point's DOMINANT "
+        "entry alone contributes (%.6g).  That is the signature of an "
+        "argmax-only reduction: the sub-dominant entries one width from the "
+        "edge are not being counted."
+        % (diag["endpoint_scale"], dominant_only))
+    assert diag["endpoint_scale"] > 1.0, (
+        "endpoint_scale collapsed to %.6g on a fixture measured at ~44.5"
+        % diag["endpoint_scale"])
+
+
 def test_dist_grid_tol_is_forwarded_and_not_hardcoded():
     """F3/N1.  Hardcoding the module default at the call site leaves
     --distance-grid-tol silently inert while dist_grid_info keeps echoing the
@@ -1086,6 +1132,19 @@ def test_driver_refuses_the_bad_combinations_at_PARSE_time():
     opts, _ = optp.parse_args(["--mode", "flowmc-phipsimarg",
                                "--distance-grid-scheme", "loguniform"])
     mod.check_critical_and_report(opts, optp)   # must not raise
+    # ...and the getattr FALLBACK itself, which the parser can never exercise
+    # because optparse always sets the attribute.  It is reached only by a
+    # caller that builds opts some other way -- and it silently disagreed with
+    # analyze_one's fallback until this was pinned, so a mutation back to a
+    # hardcoded "grid" SURVIVED the whole file.
+    class _Bare:
+        mode = "flowmc-phipsimarg"
+        distance_grid_scheme = "loguniform"
+        distance_grid_points = None
+        distance_grid_tol = None
+    bare = _Bare()
+    assert not hasattr(bare, "angle_marg_scheme")
+    mod.check_critical_and_report(bare, optp)   # must not raise either
 
 
 def test_driver_reaches_and_uses_the_resolved_node_count_on_a_real_input():

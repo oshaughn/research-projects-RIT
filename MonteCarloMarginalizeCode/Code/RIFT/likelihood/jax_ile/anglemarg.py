@@ -495,6 +495,7 @@ def estimate_angle_amplitude(data, x_grid, interp=JAX_INTERP_DEFAULT,
         amps_unclipped = []
         pk_A = []
         pk_B = []
+        pk_ep = []
         for j in range(C_A.shape[2]):      # per-sky loop bounds the transient
             A_g = (E_A @ C_A[:, :, j].reshape(-1, C_A.shape[-1])).real
             B_g = np.maximum(
@@ -537,8 +538,35 @@ def estimate_angle_amplitude(data, x_grid, interp=JAX_INTERP_DEFAULT,
             i_hat = int(np.argmax(val))
             pk_A.append(float(A_g.ravel()[i_hat]))
             pk_B.append(float(B_g.ravel()[i_hat]))
+            # ...and the endpoint term over EVERY entry of this sky point, not
+            # just its dominant one.  A sky direction can have a far-interior
+            # maximum and a near-equal secondary (phi, psi, time) entry whose
+            # distance peak sits a width from an edge; that entry contributes
+            # materially to the marginal and carries the full endpoint error,
+            # while the dominant one scores ~0.  Reducing per sky to a scalar
+            # keeps the memory bounded (the arrays never leave this loop) and
+            # is CONSERVATIVE: it is a max over more entries than the band
+            # would keep, and the rho^2 factor self-limits the quiet ones.
+            # Measured under-read of the argmax-only form on a quiet
+            # synthetic: up to 7562x (external review, P1).
+            rho_e, klo_e, khi_e = _peak_clearance(A_g.ravel(), B_g.ravel(),
+                                                  x_min, x_max)
+            # The interior mask differs from no mask only when ONE edge is
+            # exterior and the OTHER is within a few widths -- i.e. on a
+            # support only a few 1/rho wide.  No prior this code is run with is
+            # anywhere near that: [1,1000], [1,10000] and [1,3000] Mpc are
+            # 69-947 widths across at rho 10-103, and even a narrow [100,2000]
+            # box is 30-308, so the far edge's bell underflows to exactly 0 and
+            # the two forms are numerically identical.  Dropping the mask
+            # therefore survives the gate, and that is an equivalent mutant
+            # rather than a coverage gap -- do not add a test for it.
+            ep = np.where((klo_e > 0.0) & (khi_e > 0.0),
+                          np.square(rho_e)
+                          * (_endpoint_bell(klo_e) + _endpoint_bell(khi_e)),
+                          0.0)
+            pk_ep.append(float(ep.max()) if ep.size else 0.0)
         return (np.array(amps), np.array(amps_unclipped),
-                np.array(pk_A), np.array(pk_B), C_A, C_B)
+                np.array(pk_A), np.array(pk_B), np.array(pk_ep), C_A, C_B)
 
     def _draw(n, rng):
         ra = rng.uniform(0.0, 2.0 * np.pi, n)
@@ -558,11 +586,11 @@ def estimate_angle_amplitude(data, x_grid, interp=JAX_INTERP_DEFAULT,
         dec = np.concatenate([dec, g_dec.ravel()])
         incl = np.concatenate([incl, np.full(g_ra.size, i0_)])
 
-    amps, amps_u, pk_A, pk_B, C_A, C_B = _per_sky_amps(ra, dec, incl)
+    amps, amps_u, pk_A, pk_B, pk_ep, C_A, C_B = _per_sky_amps(ra, dec, incl)
     # Concatenated across sky BATCHES, in the same idiom the two maxima use:
     # the near-boundary diagnostic is formed after the loop, so it must see the
     # re-drawn batches too or it reads a first batch that a later one displaced.
-    amps_cat, pk_A_cat, pk_B_cat = amps, pk_A, pk_B
+    amps_cat, pk_A_cat, pk_B_cat, pk_ep_cat = amps, pk_A, pk_B, pk_ep
     # split-half convergence check (mechanism 2 of the docstring): compare
     # the max WITHOUT the second half of the random draws against the max
     # with them; growth > 20% means the sky variation is under-sampled, so
@@ -582,7 +610,8 @@ def estimate_angle_amplitude(data, x_grid, interp=JAX_INTERP_DEFAULT,
         print("estimate_angle_amplitude: sky maximum still growing "
               "(%.4g -> %.4g); doubling the sample." % (amp_ref, amp_emp))
         ra2, dec2, incl2 = _draw(n_sky, rng)
-        amps2, amps_u2, pk_A2, pk_B2, _, _ = _per_sky_amps(ra2, dec2, incl2)
+        amps2, amps_u2, pk_A2, pk_B2, pk_ep2, _, _ = _per_sky_amps(
+            ra2, dec2, incl2)
         amp_ref = amp_emp
         amp_emp = max(amp_emp, float(amps2.max()))
         amp_u_emp = max(amp_u_emp, float(amps_u2.max()))
@@ -591,6 +620,7 @@ def estimate_angle_amplitude(data, x_grid, interp=JAX_INTERP_DEFAULT,
         amps_cat = np.concatenate([amps_cat, amps2])
         pk_A_cat = np.concatenate([pk_A_cat, pk_A2])
         pk_B_cat = np.concatenate([pk_B_cat, pk_B2])
+        pk_ep_cat = np.concatenate([pk_ep_cat, pk_ep2])
 
     # analytic cross-check (mechanism documented above; heuristic direction)
     w = np.ones(C_A.shape[0])
@@ -619,23 +649,28 @@ def estimate_angle_amplitude(data, x_grid, interp=JAX_INTERP_DEFAULT,
         # (core.loguniform_endpoint_error puts it back).  BOTH edges, summed:
         # they are separate corrections and a narrow support has both.
         #
-        # WHAT IS AND IS NOT COVERED.  One entry per sky point -- that point's
-        # DOMINANT configuration -- within ENDPOINT_GUARD_BAND of the maximum.
-        # Sub-dominant configurations are covered only by the rho^2 factor,
-        # which is the honest bound: an entry's endpoint error scales as
-        # (rho_entry/rho_max)^2, so anything quieter than ~0.36*rho_max is
-        # inside the shipped tolerance whatever its clearance, and the band
-        # between that and the peak is a stated residual (design note 1a).
+        # WHAT IS AND IS NOT COVERED.  EVERY reconstructed (phi, psi, time)
+        # entry of every sky point within ENDPOINT_GUARD_BAND of the maximum --
+        # not just each point's dominant configuration.  An earlier revision
+        # kept only the per-sky argmax, so a sky direction with a far-interior
+        # maximum and a near-equal secondary entry one width from an edge
+        # scored ~0 while the secondary carried the full endpoint error;
+        # measured under-read up to 7562x (external review, P1).  The per-entry
+        # max is formed inside _per_sky_amps and reduced to one scalar per sky
+        # there, so the per-entry arrays never leave that loop.  The band is
+        # still on the sky point, which makes this conservative: it covers
+        # entries a per-entry band would drop, and the rho^2 factor self-limits
+        # them.  The band is a threshold on the CLIPPED value, never on
+        # A^2/(2B): the A < 0 mirror is exactly degenerate under an
+        # unconstrained ranking and survives such a cut (trap in
+        # _per_sky_amps).
         # The band is a threshold on the CLIPPED value, never on A^2/(2B): the
         # A < 0 mirror is exactly degenerate under an unconstrained ranking and
         # survives such a cut, which is the trap recorded in _per_sky_amps.
         keep = amps_cat >= amp_emp - ENDPOINT_GUARD_BAND
         rho_pk, k_lo, k_hi = _peak_clearance(pk_A_cat, pk_B_cat, x_min, x_max)
-        interior = (k_lo > 0.0) & (k_hi > 0.0)
-        term = np.where(keep & interior,
-                        np.square(rho_pk)
-                        * (_endpoint_bell(k_lo) + _endpoint_bell(k_hi)), 0.0)
-        endpoint_scale = float(term.max()) if term.size else 0.0
+        endpoint_scale = (float(np.where(keep, pk_ep_cat, 0.0).max())
+                          if pk_ep_cat.size else 0.0)
         i_dom = int(np.argmax(amps_cat)) if amps_cat.size else 0
         return margin * amp_emp, dict(
             amp_clipped=float(amp_emp),
