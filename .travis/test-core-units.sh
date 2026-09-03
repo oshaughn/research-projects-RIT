@@ -122,10 +122,10 @@ EXPECTED_TESTS=278
 # test_dslice_device_native, and the xfail in test_uv_symmetry -- and a GitHub runner has no
 # GPU either, so they skip there too.
 #
-# NOT VERIFIED ON A RUNNER.  These floors come from CIT (python 3.11 / IGWN), not from the
-# job's python 3.10 + editable install.  If the runner's dependency set produces a different
-# skip count, this job's FIRST CI run is what says so, and the floors get corrected here in
-# the same PR rather than being loosened pre-emptively to whatever passes.
+# CONFIRMED ON A RUNNER.  The first CI run of this job (PR #243, ubuntu-latest, python 3.10 +
+# editable install) reported the same 278 / 266 / 12, in 24.7 s.  So these floors are exact on
+# both stacks, not merely the CIT numbers copied across, and a future divergence is a real
+# change rather than an environment difference to be explained away.
 EXPECTED_PASSED=266
 MAX_SKIPPED=12
 
