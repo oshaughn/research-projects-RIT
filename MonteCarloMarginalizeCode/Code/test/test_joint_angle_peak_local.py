@@ -271,3 +271,23 @@ def test_phi_cover_bound_is_routed_through_g_not_through_F_curvature():
         _, ok, rep = J.phi_local_marginalize(J.joint_table(A * scale, B * scale, x=1.0))
         assert ok, (scale, rep)
         assert rep['margin'] < J.OUTSIDE_TOL_NATS, (scale, rep)
+
+
+def test_a_wrapped_phi_region_is_clamped_to_one_circuit():
+    """Regression, found on REAL coefficient tables and not reachable from the synthetic
+    ones.  At low amplitude F is nearly flat, so sigma is huge and [p-W*sig, p+W*sig]
+    spans more than 2 pi; integrating that range literally wraps the circle several times
+    and counts the same mass repeatedly -- measured +1.84 nats, a factor of e^1.84 = 6.3,
+    and ACCEPTED, because a region covering everything leaves nothing outside for the
+    omitted-mass certificate to object to.
+
+    The general lesson, worth more than the fix: the certificate bounds what is OUTSIDE
+    the regions and cannot see an error made INSIDE one."""
+    A, B = _ab_tables(seed=1, scale=0.05)          # deliberately near-flat
+    C = J.joint_table(A, B, x=0.3)
+    val, ok, rep = J.phi_local_marginalize(C)
+    assert ok, rep
+    ref = _ref(C, n=2048)
+    assert abs(val - ref) < 1e-3, (val, ref, rep)
+    # and the covered length may never exceed one circuit
+    assert rep['n_phi_regions'] >= 1

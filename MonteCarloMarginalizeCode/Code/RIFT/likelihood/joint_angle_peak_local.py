@@ -578,6 +578,11 @@ def joint_marginalize_over_distance(C_A_st, C_B_st, x_grid, log_w_grid,
 
 # ------------------------------------------------------------------ phi-local
 
+def _g_uu_at(C, phi, u):
+    """``d^2 g / du^2`` at one ``phi`` and several ``u``."""
+    return eval_g(C, np.full(np.size(u), float(phi)), np.asarray(u, dtype=float), (0, 2))
+
+
 def u_profile(C, phi, n_nodes=64, window_sigma=12.0):
     """``F(phi) = log int du exp(g)``, and its first two EXACT derivatives.
 
@@ -608,15 +613,30 @@ def u_profile(C, phi, n_nodes=64, window_sigma=12.0):
                  if nz.size >= 2 else np.linspace(0, 2 * np.pi, 4, endpoint=False))
         u = np.sort(np.concatenate([roots, np.zeros(max(0, 4 - roots.size))]))[:4]
         mid = 0.5 * (u + np.roll(u, -1) + np.where(np.arange(4) == 3, 2 * np.pi, 0.0))
-        lo = np.roll(mid, 1) - np.where(np.arange(4) == 0, 2 * np.pi, 0.0)
+        lo_c = np.roll(mid, 1) - np.where(np.arange(4) == 0, 2 * np.pi, 0.0)
+
+        # WINDOW EACH CELL BY ITS OWN sigma, do not spread a fixed node count over the
+        # whole cell.  The cells do NOT shrink with amplitude -- the stationary points of
+        # g are invariant under g -> lambda g -- while the peak inside them does, so a
+        # fixed uniform rule over the full cell silently under-resolves as the signal
+        # sharpens.  Measured before this change, against a converged reference: error
+        # 8.8e-07 at exponent amplitude 1265 and 5.4e-04 at 4217, both of which fall to
+        # EXACTLY 0.0 when the node count is raised -- i.e. the entire residual was this
+        # rule, not the method.  A resolution that is a fixed number whose default is
+        # assumed ample is the defect this whole line of work exists to remove.
+        g2c = _g_uu_at(C, p, u)
+        peaked = g2c < 0.0
+        sig_c = np.where(peaked, 1.0 / np.sqrt(np.where(peaked, -g2c, 1.0)), np.inf)
+        lo = np.where(peaked, np.maximum(u - window_sigma * sig_c, lo_c), lo_c)
+        hi = np.where(peaked, np.minimum(u + window_sigma * sig_c, mid), mid)
         s = np.linspace(0.0, 1.0, n_nodes)
-        uu = lo[:, None] + (mid - lo)[:, None] * s[None, :]
+        uu = lo[:, None] + np.maximum(hi - lo, 0.0)[:, None] * s[None, :]
         pp = np.full(uu.size, p)
         g = eval_g(C, pp, uu.ravel())
         gp = eval_g(C, pp, uu.ravel(), (1, 0))
         gpp = eval_g(C, pp, uu.ravel(), (2, 0))
         wq = np.full(n_nodes, 1.0 / (n_nodes - 1)); wq[0] *= 0.5; wq[-1] *= 0.5
-        lw = (np.log(np.maximum(mid - lo, 1e-300))[:, None] + np.log(wq)[None, :]).ravel()
+        lw = (np.log(np.maximum(hi - lo, 1e-300))[:, None] + np.log(wq)[None, :]).ravel()
         m = g.max()
         wgt = np.exp(g - m + lw)
         Z = wgt.sum()
@@ -671,12 +691,33 @@ def phi_local_marginalize(C, n_seed=64, w_sigma=12.0, n_nodes=64,
         else:
             ml.append(a); mh.append(b)
     ml, mh = np.array(ml), np.array(mh)
+
+    # CLAMP TO ONE CIRCUIT.  At low amplitude F is nearly flat, so sigma is huge and
+    # [p - W sigma, p + W sigma] spans far MORE than 2 pi; integrating that range
+    # literally wraps the circle several times and counts the same mass repeatedly.
+    # Found on real coefficient tables, not synthetic ones: exponent amplitude 1.09,
+    # one merged region, +1.84 nats too high -- a factor of e^1.84 = 6.3, i.e. six
+    # circuits -- and ACCEPTED, because a region covering everything leaves nothing
+    # outside for the omitted-mass certificate to object to.  The certificate bounds
+    # what is OUTSIDE the regions; it cannot see an error made INSIDE one.
+    if float((mh - ml).sum()) >= 2.0 * np.pi:
+        ml, mh = np.array([0.0]), np.array([2.0 * np.pi])
+    else:
+        span = np.minimum(mh - ml, 2.0 * np.pi)
+        mh = ml + span
     covered = float(np.minimum(mh - ml, 2 * np.pi).sum())
     rep['n_phi_regions'] = int(ml.size)
 
     parts = []
     for a, b in zip(ml, mh):
-        n = max(16, min(512, int(np.ceil((b - a) / max(sig.min(), 1e-12) * 4)) + 1))
+        # spacing <= sigma/4 for the SHARPEST mode inside this region, and never fewer
+        # than 64 points across a full circuit -- a nearly-flat F has a huge sigma, so a
+        # sigma-derived count alone would leave a wrapped region with a handful of nodes.
+        inside_r = (p >= a - 1e-12) & (p <= b + 1e-12)
+        sloc = sig[inside_r].min() if np.any(inside_r) else sig.min()
+        n = int(np.ceil((b - a) / max(sloc, 1e-12) * 4)) + 1
+        n = max(n, int(np.ceil(64 * (b - a) / (2 * np.pi))) + 1)
+        n = max(16, min(2048, n))
         gp = np.linspace(a, b, n)
         Fv, _, _ = u_profile(C, np.mod(gp, 2 * np.pi), n_nodes=n_nodes)
         wq = np.full(n, (b - a) / (n - 1)); wq[0] *= 0.5; wq[-1] *= 0.5
