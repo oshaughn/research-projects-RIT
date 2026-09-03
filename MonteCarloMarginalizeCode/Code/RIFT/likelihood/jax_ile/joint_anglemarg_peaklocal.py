@@ -195,8 +195,19 @@ def log_inner_u_integral(a, c1, c2, n_nodes=U_NODES_PER_CELL,
 
     ustar, _ = lax.scan(_newton, u, None, length=8)
 
+    # A CLIPPED NEWTON POINT IS NOT A PEAK, however negative the curvature.  The
+    # iteration is clamped to [lo_c, mid], so it can come to rest ON a boundary with a
+    # large stationary residual; curvature alone then centres a +-W sigma window on a
+    # non-stationary point and sizes sigma from the wrong curvature.  Measured in the
+    # numpy twin: 18% of cells that g'' < 0 accepted fail this gate, the worst at
+    # |g_u|/M_1 = 0.33.  A cell failing it is integrated WHOLE, which can only add nodes.
+    g1s = _g_u(a, c1, c2, ustar, 1)
     g2s = _g_u(a, c1, c2, ustar, 2)
-    peaked = g2s < 0.0
+    m1u = jnp.abs(c1) + 2.0 * jnp.abs(c2)          # exact bound on |d g / du|
+    edge = 1e-9 * jnp.max(mid - lo_c)
+    peaked = ((g2s < 0.0)
+              & (jnp.abs(g1s) <= 1e-8 * jnp.maximum(m1u, 1e-300))
+              & (ustar > lo_c + edge) & (ustar < mid - edge))
     sigma = jnp.where(peaked, 1.0 / jnp.sqrt(jnp.where(peaked, -g2s, 1.0)), jnp.inf)
     # a cell with no interior maximum is integrated whole; a peaked one is integrated on
     # +-window_sigma, which is self-limiting -- when the integrand is flat sigma is large

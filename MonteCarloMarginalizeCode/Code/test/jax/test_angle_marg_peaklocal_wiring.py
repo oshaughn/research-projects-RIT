@@ -152,6 +152,7 @@ def test_peak_local_is_capped_by_the_batch_memory_rule():
     class _Like(object):
         data = _Data()
         angle_marg_scheme = "peak-local"
+        x_grid = np.zeros(256)
 
     class _Exact(_Like):
         angle_marg_scheme = "exact"
@@ -161,7 +162,17 @@ def test_peak_local_is_capped_by_the_batch_memory_rule():
 
     capped = S.angle_marg_eval_chunk(_Like(), 8000)
     assert capped < 8000
-    assert capped == S.angle_marg_eval_chunk(_Exact(), 8000)
+    # NOT "same cap as exact" -- that was the earlier assertion and review rightly
+    # objected that it pins the wrong invariant.  peak-local carries the WHOLE distance
+    # grid inside every phi chunk, so its live slab is ~770x the dense model's
+    # 8192 bytes/sample/time-point; a cap equal to exact's would look protective and
+    # would not be.  The scheme-specific model must therefore be STRICTLY tighter.
+    assert capped < S.angle_marg_eval_chunk(_Exact(), 8000), capped
+    # and it must scale with the distance grid, which is what makes it a model rather
+    # than a constant
+    class _Wide(_Like):
+        x_grid = np.zeros(1024)
+    assert S.angle_marg_eval_chunk(_Wide(), 8000) <= capped
     # the "grid" sentinel means "runs no dense angle scheme" and must stay uncapped
     assert S.angle_marg_eval_chunk(_NoScheme(), 8000) == 8000
 

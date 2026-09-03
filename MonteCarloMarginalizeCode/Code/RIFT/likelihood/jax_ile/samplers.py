@@ -271,11 +271,24 @@ def angle_marg_eval_chunk(like, chunk):
     npts = int(getattr(getattr(like, "data", None), "npts", 0) or 0)
     if npts <= 0:
         return chunk
+    bytes_per = _ANGLE_MARG_BYTES_PER_SAMPLE_PT
+    if getattr(like, "angle_marg_scheme", None) == "peak-local":
+        # ITS COST MODEL IS NOT THE DENSE ONE, and enrolling it in the cap without
+        # saying so was a review finding.  peak-local carries the WHOLE distance grid
+        # inside every phi chunk, so its live slab is
+        #     phi_chunk * n_x * (4 cells) * (u nodes) * 8 bytes
+        # per (sample, time-point) -- about 6.3 MB at phi_chunk=16 and n_x=256, roughly
+        # 770x the 8192-byte dense model, before intermediates.  Using the dense
+        # constant would have applied a cap that looks protective and is not.
+        from . import joint_anglemarg_peaklocal as _jp
+        n_x = int(np.size(getattr(like, "x_grid", ())) or 1)
+        bytes_per = max(
+            bytes_per,
+            _jp.PHI_CHUNK_DEFAULT * n_x * 4 * _jp.U_NODES_PER_CELL * 8)
+    cap = max(1, _ANGLE_MARG_BUFFER_TARGET // (bytes_per * npts))
+    return min(chunk, cap)
     # A floor larger than one defeats the memory bound for long, valid time
     # windows (for example npts=65537 made a floor of 64 request ~32 GiB).
-    cap = max(1, _ANGLE_MARG_BUFFER_TARGET
-              // (_ANGLE_MARG_BYTES_PER_SAMPLE_PT * npts))
-    return min(chunk, cap)
 
 
 def eval_lnL(like, theta, chunk=_EVAL_CHUNK):
