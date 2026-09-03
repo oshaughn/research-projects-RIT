@@ -46,6 +46,38 @@ cd "$(dirname "$0")/.." || { echo "test-q-window-stencil.sh: cannot cd to repo r
 # launches the RIFT scripts as real subprocesses, and they inherit this.)
 export PYTHONPATH="$PWD/MonteCarloMarginalizeCode/Code${PYTHONPATH:+:$PYTHONPATH}"
 
+# ---------------------------------------------------------------------------------
+# DISCOVERY RUNS FIRST, before the dependency probes below.
+#
+# Nothing here needs pytest, numpy or lal: finding the registered files is a grep.  Doing
+# it first is what lets this script answer RIFT_CI_GATE_LIST=1 (see below) for the
+# repo-wide census in .travis/test-ci-roster.py, which runs as its own job with NO
+# `needs: install` and so has none of those libraries.  Keep this above the probes.
+CODEDIR="MonteCarloMarginalizeCode/Code"
+
+# ---------------------------------------------------------------------------------
+# MEMBERSHIP.  A test file joins this gate by carrying this line, on its own, verbatim:
+#
+#     # RIFT-CI-GATE: q-window-stencil
+#
+# The match is whole-line and fixed-string (grep -x -F), so prose mentioning the tag --
+# including the explanatory line the registered files put directly underneath it -- does
+# NOT register a file.  Search is limited to test_*.py under Code/, so a doc or a script
+# quoting the tag cannot enrol itself either.
+MARKER="# RIFT-CI-GATE: q-window-stencil"
+
+mapfile -t FILES < <(grep -rlxF --include='test_*.py' -- "${MARKER}" "${CODEDIR}" 2>/dev/null | LC_ALL=C sort)
+
+# LIST MODE.  Print the files this gate would run, one per line, and stop.
+#
+# ci-roster-check honours marker-based membership ONLY for a gate whose own discovery it
+# can execute.  That is not fussiness: no text pattern distinguishes "uses the marker to
+# find files" from "uses the marker", and this script contains both -- the mapfile above,
+# and the `grep -qxF -- "${MARKER}"` further down that asserts an EXCLUDED file does NOT
+# carry it.  A census that pattern-matched would keep passing with the mapfile deleted.
+# So it asks, and this is the answer.
+if [ -n "${RIFT_CI_GATE_LIST:-}" ]; then printf '%s\n' "${FILES[@]}"; exit 0; fi
+
 PYTHON_BIN="${RIFT_QWINDOW_PYTHON:-${PYTHON:-python}}"
 if ! command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
   PYTHON_BIN="$(command -v python3)"
@@ -62,20 +94,7 @@ fi
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
 export MKL_NUM_THREADS="${MKL_NUM_THREADS:-1}"
 
-CODEDIR="MonteCarloMarginalizeCode/Code"
 
-# ---------------------------------------------------------------------------------
-# MEMBERSHIP.  A test file joins this gate by carrying this line, on its own, verbatim:
-#
-#     # RIFT-CI-GATE: q-window-stencil
-#
-# The match is whole-line and fixed-string (grep -x -F), so prose mentioning the tag --
-# including the explanatory line the registered files put directly underneath it -- does
-# NOT register a file.  Search is limited to test_*.py under Code/, so a doc or a script
-# quoting the tag cannot enrol itself either.
-MARKER="# RIFT-CI-GATE: q-window-stencil"
-
-mapfile -t FILES < <(grep -rlxF --include='test_*.py' -- "${MARKER}" "${CODEDIR}" 2>/dev/null | LC_ALL=C sort)
 
 if [ "${#FILES[@]}" -eq 0 ]; then
   echo "test-q-window-stencil.sh: no test file carries the marker line" >&2

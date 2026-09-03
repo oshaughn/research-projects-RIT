@@ -16,6 +16,20 @@ command -v "$PY" >/dev/null 2>&1 || PY="$(command -v python3)"
 CODE="MonteCarloMarginalizeCode/Code"
 export OMP_NUM_THREADS=1
 
+# INVARIANT: this gate tests THIS CHECKOUT, never an installed build.  Must PREPEND --
+# appending lets a caller's PYTHONPATH win.
+#
+# Without it the first check below runs as `python <path>/test_precompute_alignment.py`, which
+# puts the SCRIPT'S directory on sys.path and not Code/, so bare `import RIFT` resolves to
+# whatever is installed.  In CI that happens to be the editable install of this checkout, so
+# it passes; on a plain checkout with a real RIFT in the environment it silently tests the
+# INSTALLED code, and reports its staleness as a failure of this branch -- observed on CIT,
+# where the CVMFS IGWN RIFT predates a kwarg the checkout added:
+#   PrecomputeLikelihoodTerms() got an unexpected keyword argument 'calibration_realizations'
+# The `python -m RIFT.calmarg.*` runs below are already safe (cwd is on sys.path under -m);
+# this makes the whole script safe the same way its sibling gates are.
+export PYTHONPATH="$PWD/$CODE${PYTHONPATH:+:$PYTHONPATH}"
+
 # precompute alignment + identity-cal self-term cross terms == baseline
 "$PY" "$CODE/RIFT/calmarg/test_precompute_alignment.py"
 
