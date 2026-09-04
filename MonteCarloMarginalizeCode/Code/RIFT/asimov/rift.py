@@ -17,7 +17,7 @@ from asimov.pipeline import Pipeline, PipelineException, PipelineLogger
 try:
     from asimov.pipeline import PESummaryPipeline
 except ImportError:
-    # Asimov >= 0.7 supplies PESummary as a separate pipeline plugin.
+    # ASIMOV >= 0.7 supplies PESummary as a separate pipeline plugin.
     PESummaryPipeline = None
 
 from asimov.utils import update
@@ -92,7 +92,7 @@ class Rift(Pipeline):
                     section_data[section_arg] = {}
 
     def _get_psds(self, format="ascii"):
-        """Return PSD assets across the Asimov 0.5 and 0.6 APIs."""
+        """Return PSD assets across the ASIMOV 0.5 and 0.7 APIs."""
         legacy_getter = getattr(self.production, "get_psds", None)
         if callable(legacy_getter):
             assets = legacy_getter(format)
@@ -148,6 +148,7 @@ class Rift(Pipeline):
 
         data["frame cache"] = caches
         return caches
+
     # Top-level groups a PESummary metafile carries that are not analysis labels
     _PESUMMARY_RESERVED = ('version', 'history')
 
@@ -262,10 +263,19 @@ class Rift(Pipeline):
             for production in self.production.event.productions:
                 productions[production.name] = production
             for previous_job in self.production.dependencies:
-                self.logger.info("RIFT: previous job assets" + str( productions[previous_job].pipeline.collect_assets()))
                 try:
-                    if "samples" in productions[previous_job].pipeline.collect_assets():
-                        posterior_file = productions[previous_job].pipeline.collect_assets()['samples']
+                    previous_assets = productions[previous_job].pipeline.collect_assets()
+                    self.logger.info("RIFT: previous job assets" + str(previous_assets))
+                    if "samples" in previous_assets:
+                        posterior_file = previous_assets['samples']
+                        if isinstance(posterior_file, (list, tuple)):
+                            if len(posterior_file) != 1:
+                                raise PipelineException(
+                                    "RIFT bootstrap: {} publishes {} sample files; "
+                                    "need exactly one PESummary metafile".format(
+                                        previous_job, len(posterior_file)),
+                                    production=self.production.name)
+                            posterior_file = posterior_file[0]
                         self.production.meta['dataset'] = self._dataset_label(posterior_file)
                         return posterior_file
                 except PipelineException:
@@ -281,11 +291,28 @@ class Rift(Pipeline):
         else:
             self.logger.error("Could not find an analysis providing posterior samples to analyse.")
 
+    def _reuse_existing_bootstrap(self, bootstrap_file, posterior_file):
+        """Fail closed unless reuse of an unprovenanced grid is explicit."""
+        if not os.path.exists(bootstrap_file):
+            return False
+        if not self.production.meta['scheduler'].get(
+                'bootstrap reuse existing', False):
+            raise PipelineException(
+                "RIFT bootstrap: existing grid {} may come from a different "
+                "posterior than {}. Remove the grid, use a new analysis name, "
+                "or explicitly set scheduler: bootstrap reuse existing: true."
+                .format(bootstrap_file, posterior_file),
+                production=self.production.name)
+        self.logger.warning(
+            "RIFT bootstrap: explicitly reusing existing grid {} without "
+            "source provenance validation".format(bootstrap_file))
+        return True
+
     def after_completion(self):
         if PESummaryPipeline is None:
             self.logger.info(
                 "Job has completed. PESummary is managed by a separate "
-                "Asimov postprocessing analysis."
+                "ASIMOV postprocessing analysis."
             )
             super().after_completion()
             return
@@ -574,14 +601,8 @@ class Rift(Pipeline):
                     )
                 bootstrap_file_ascii = str(bootstrap_file) + "_ascii"
                 # test if bootstrap file already exists
-                if os.path.exists(bootstrap_file):
-                       # Rebuilding an analysis under the same name reuses this
-                       # silently, so a changed bootstrap source has no effect.
-                       self.logger.warning(
-                           "RIFT bootstrap: reusing existing grid {} and IGNORING {}; "
-                           "delete it (and its _ascii) to rebuild".format(
-                               bootstrap_file, posterior_file))
-                if not(os.path.exists(bootstrap_file)):
+                if not self._reuse_existing_bootstrap(
+                        bootstrap_file, posterior_file):
                        import RIFT.misc.samples_utils
                        RIFT.misc.samples_utils.dump_pesummary_samples_to_file_as_rift(posterior_file, self.production.meta['dataset'], bootstrap_file_ascii)
                        extra_args =''
@@ -929,7 +950,11 @@ class Rift(Pipeline):
 
     def collect_assets(self,absolute=False):
         """
-        Gather all of the results assets for this job.
+        Gather result assets for downstream ASIMOV/PESummary analyses.
+
+        ``samples`` is always a list, including calibration-reweighted output.
+        Consumers which run outside the RIFT working directory should request
+        absolute paths.
         """
         if absolute:
             rundir = os.path.abspath(self.production.rundir)
@@ -937,11 +962,58 @@ class Rift(Pipeline):
             rundir = self.production.rundir
         rift_all_lnL = os.path.join(rundir, 'all.net')
         samples_raw = os.path.join(rundir,'extrinsic_posterior_samples.dat')
-        dict_out = {"samples":self.samples(), "lnL_marg":rift_all_lnL, "samples_raw":samples_raw}
+        dict_out = {
+            "samples": self.samples(absolute=absolute),
+            "lnL_marg": rift_all_lnL,
+            "samples_raw": samples_raw,
+            "provenance": {
+                "pipeline": "rift",
+                "event": self.production.event.name,
+                "analysis": self.production.name,
+            },
+        }
         rewt_file_name  = os.path.join(rundir,'reweighted_posterior_samples.dat')
         if os.path.exists(rewt_file_name):
             dict_out['samples_calmarg'] = rewt_file_name
-            dict_out['samples'] = rewt_file_name
+            dict_out['samples'] = [rewt_file_name]
+
+        try:
+            ini = self.production.get_configuration().ini_loc
+            if not os.path.isabs(ini):
+                ini = os.path.join(
+                    self.production.event.repository.directory,
+                    self.category,
+                    ini,
+                )
+            dict_out["config"] = os.path.abspath(ini) if absolute else ini
+        except (AttributeError, IndexError, TypeError, ValueError):
+            self.logger.warning("RIFT configuration asset is not available")
+
+        psds = self._get_psds("ascii")
+        if psds:
+            dict_out["psds"] = {
+                ifo: (os.path.abspath(path) if os.path.isabs(path) else
+                      os.path.abspath(os.path.join(
+                          self.production.event.repository.directory, path)))
+                if absolute else path
+                for ifo, path in psds.items()
+            }
+
+        calibration = self.production.meta.get("data", {}).get("calibration", {})
+        if calibration:
+            dict_out["calibration"] = {
+                ifo: (os.path.abspath(path) if os.path.isabs(path) else
+                      os.path.abspath(os.path.join(
+                          self.production.event.repository.directory, path)))
+                if absolute else path
+                for ifo, path in calibration.items()
+            }
+
+        if dict_out["samples"] and "config" in dict_out:
+            dict_out["asset_contract"] = "rift-assets/v1"
+        else:
+            self.logger.warning(
+                "RIFT assets are incomplete; not advertising rift-assets/v1")
 
         return dict_out
 
