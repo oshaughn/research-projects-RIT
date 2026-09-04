@@ -215,6 +215,7 @@ parser.add_argument("--internal-n-iterations-subdag-max",default=10,type=int,hel
 parser.add_argument("--internal-n-evaluations-per-iteration",default=None,type=int,help="Number of ILE evaluation points per iteration, if not set then pipeline selects experience-based default.  Each ILE worker will do a fraction of this total workload.")
 parser.add_argument("--add-extrinsic",action='store_true')
 parser.add_argument("--add-extrinsic-time-resampling",action='store_true',help="adds the time resampling option.  Only deployed for vectorized calculations (which should be all that end-users can access)")
+parser.add_argument("--internal-ile-interpolate-time",action='store_true',help="Pass --interpolate-time True to ILE, enabling cubic interpolation of Q_lm at fractional detector arrival times in the maintained NoLoop likelihood.")
 parser.add_argument("--internal-ile-srate-time-resampling",default=None, help=" Adds --srate-resample-time-marginalization to ILE for  output, to provide higher-resolution time output ")
 parser.add_argument("--internal-ile-srate-internal",default=None, help=" Adds --srate-internal to ILE, modifying how calculations are performed internally to use a higher sampling rate ")
 parser.add_argument("--batch-extrinsic",action='store_true')
@@ -379,7 +380,7 @@ if (opts.use_ini):
         for item in rift_items:
             val = rift_items[item].strip()
             ile_condor_commands.append([item, val])
-            
+
 
 
 if opts.use_osg:
@@ -960,6 +961,8 @@ if opts.internal_ile_reset_adapt or ((opts.ile_sampler_method =='adaptive_cartes
     #   - requested or
     #   - AC + not freezeadapt
     line += " --force-reset-all "
+if opts.internal_ile_interpolate_time:
+    line += " --interpolate-time True "
 if not(opts.manual_extra_ile_args is None):
     line += " {} ".format(opts.manual_extra_ile_args)  # embed with space on each side, avoid collisions
     if '--declination ' in opts.manual_extra_ile_args:   # if we are pinning dec, we aren't using a cosine coordinate. Don't mess up.
@@ -1663,7 +1666,7 @@ if not(ile_condor_commands is None):
         for key, val in ile_condor_commands:
             f.write(key+ '  ' + val + '\n')
     cmd += " --ile-condor-commands `pwd`/ile_condor_commands.txt "
-    
+
 print(cmd)
 os.system(cmd)
 
