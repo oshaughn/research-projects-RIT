@@ -72,7 +72,8 @@ from scipy import integrate as _scipy_integrate
 
 # The 'sinc' stencil half-width, shared with the numpy/cupy/CUDA backends.  Imported from the
 # leaf module rather than from factored_likelihood so this stays free of numba and lal.
-from RIFT.likelihood.time_interp_choice import SINC_HALFWIDTH_DEFAULT
+from RIFT.likelihood.time_interp_choice import (SINC_HALFWIDTH_DEFAULT,
+                                                TIME_INTERP_DEFAULT)
 
 # Adaptive (per-sample) distance marginalization.  The distance integrand is
 # exp(K x - 0.5 R x^2) with x = d_ref/d -- a Gaussian in x (peak x*=K/R, width
@@ -386,7 +387,11 @@ _GATHERERS = {"nearest": _gather_nearest, "linear": _gather_linear,
 # linear is the worst stencil here at high SNR (worse than 'nearest'), this path is used
 # exclusively at high SNR, and 'sinc' is the option whose error is BOUNDED (measured flat at
 # 2.3-7.9 nats across the whole mass/fmin sweep) rather than the one with the best best-case.
-JAX_INTERP_DEFAULT = "sinc"
+# ALIAS, not a second literal (2026-09-02).  It was a re-typed "sinc", which is exactly how
+# the two drivers came to ship opposite defaults in the first place (issue #233); the value
+# now lives once, in time_interp_choice.TIME_INTERP_DEFAULT.  The NAME is kept because every
+# entry point in this package and bin/integrate_likelihood_extrinsic_jax import it.
+JAX_INTERP_DEFAULT = TIME_INTERP_DEFAULT
 
 
 def _guarded_window(data, guard):
@@ -1741,25 +1746,67 @@ def phi_ref_conditional_lnL(data, ra, dec, psi, incl, distMpc,
     return lnL_per_phi   # (nphi, S)
 
 
+def _distance_prior_density(d, d_prior):
+    """Unnormalized distance prior density on the nodes ``d``."""
+    if d_prior in ("euclidean", "volumetric"):
+        return d ** 2
+    if d_prior == "uniform":
+        return np.ones_like(d)
+    raise NotImplementedError("d_prior=%r" % d_prior)
+
+
+def _adaptive_distance_nodes(d_min, d_max, d_peak, sigma_d, n_fine_max, n_coarse,
+                             n_sigma, oversample):
+    """Node positions for the adaptive grid, or None if the request is degenerate."""
+    half = n_sigma * sigma_d                       # additive: peak is well-located
+    d_lo = max(float(d_min), d_peak - half)
+    d_hi = min(float(d_max), d_peak + half)
+    if not (d_hi > d_lo) or not (sigma_d > 0):
+        return None
+    n_fine = int(np.clip((d_hi - d_lo) / (sigma_d / float(oversample)),
+                         32, int(n_fine_max)))
+    fine = np.linspace(d_lo, d_hi, n_fine)
+    coarse = np.linspace(float(d_min), float(d_max), int(n_coarse))
+    return np.unique(np.concatenate([coarse, fine]))           # sorted, deduped
+
+
+def _trapezoidal_spacing(d):
+    dd = np.empty_like(d)                                    # trapezoidal spacing
+    dd[1:-1] = 0.5 * (d[2:] - d[:-2])
+    dd[0] = d[1] - d[0]
+    dd[-1] = d[-1] - d[-2]
+    return dd
+
+
 def make_distance_grid(d_min, d_max, n_grid=256, d_prior="euclidean",
-                       distMpcRef=DIST_MPC_REF):
+                       distMpcRef=DIST_MPC_REF, d_prior_range=None):
     """Build (x_grid, log_w_grid) for distance marginalization.
 
     Uniform grid in distance ``d``; ``x = distMpcRef/d``.  Returns the log
     quadrature weights ``log( p(d) * Delta_d )`` for the requested prior,
     normalized so ``sum_g exp(log_w_g) == 1`` (a proper distance average).
     ``d_prior='euclidean'`` is the volumetric ``p(d) ∝ d^2`` prior.
+
+    ``d_prior_range`` (the ILE ``--limit-distance`` hook) SPLITS the two roles
+    ``[d_min,d_max]`` otherwise plays at once.  Left at None the grid range is
+    also the normalization range -- the historical behaviour, and the reason a
+    narrowed grid used to renormalize the prior onto itself: the marginal comes
+    back looking "unchanged" while the evidence scale has silently moved.  Given
+    a ``(lo,hi)``, the NODES span ``[d_min,d_max]`` (the range actually
+    integrated) while the weights are divided by the prior mass over ``(lo,hi)``
+    (the physical range), computed with the SAME discrete rule -- so passing
+    ``d_prior_range == (d_min,d_max)`` reproduces the None branch bitwise.
     """
     d = np.linspace(d_min, d_max, n_grid)
     dd = d[1] - d[0]
-    if d_prior in ("euclidean", "volumetric"):
-        pd = d ** 2
-    elif d_prior == "uniform":
-        pd = np.ones_like(d)
-    else:
-        raise NotImplementedError("d_prior=%r" % d_prior)
+    pd = _distance_prior_density(d, d_prior)
     w = pd * dd
-    w = w / np.sum(w)               # normalize the distance average
+    if d_prior_range is None:
+        norm = np.sum(w)            # normalize the distance average
+    else:
+        D = np.linspace(d_prior_range[0], d_prior_range[1], n_grid)
+        norm = np.sum(_distance_prior_density(D, d_prior) * (D[1] - D[0]))
+    w = w / norm
     x = distMpcRef / d
     log_w = np.log(w)
     return jnp.asarray(x), jnp.asarray(log_w)
@@ -1842,7 +1889,7 @@ def estimate_distance_peak(data, guess_snr=None, n_sky=4000, seed=0, interp=JAX_
 
 def make_distance_grid_adaptive(d_min, d_max, d_peak, sigma_d, d_prior="euclidean",
                                 distMpcRef=DIST_MPC_REF, n_fine_max=160, n_coarse=48,
-                                n_sigma=12.0, oversample=4.0):
+                                n_sigma=12.0, oversample=4.0, d_prior_range=None):
     """Non-uniform distance grid: fine near the (SNR-set) peak, coarse on the tail.
 
     Concentrates resolution where the distance posterior lives while staying
@@ -1867,26 +1914,229 @@ def make_distance_grid_adaptive(d_min, d_max, d_peak, sigma_d, d_prior="euclidea
     nodes (8x LESS memory than a 256 static grid) and the 1/R only enters through
     stop_gradient -> gradient-stable.  That is a kernel change (TODO).
     """
-    half = n_sigma * sigma_d                       # additive: peak is well-located
-    d_lo = max(float(d_min), d_peak - half)
-    d_hi = min(float(d_max), d_peak + half)
-    if not (d_hi > d_lo) or not (sigma_d > 0):    # degenerate -> uniform fallback
-        return make_distance_grid(d_min, d_max, n_fine_max + n_coarse, d_prior, distMpcRef)
-    n_fine = int(np.clip((d_hi - d_lo) / (sigma_d / float(oversample)),
-                         32, int(n_fine_max)))
-    fine = np.linspace(d_lo, d_hi, n_fine)
-    coarse = np.linspace(float(d_min), float(d_max), int(n_coarse))
-    d = np.unique(np.concatenate([coarse, fine]))           # sorted, deduped
+    d = _adaptive_distance_nodes(d_min, d_max, d_peak, sigma_d, n_fine_max,
+                                 n_coarse, n_sigma, oversample)
+    if d is None:                                 # degenerate -> uniform fallback
+        return make_distance_grid(d_min, d_max, n_fine_max + n_coarse, d_prior,
+                                  distMpcRef, d_prior_range=d_prior_range)
+    w = _distance_prior_density(d, d_prior) * _trapezoidal_spacing(d)
+    if d_prior_range is None:
+        norm = np.sum(w)
+    else:
+        # --limit-distance: nodes span the narrowed range, but the weights carry the
+        # prior mass over the PHYSICAL range, evaluated with this same construction so
+        # d_prior_range == (d_min,d_max) reproduces the branch above bitwise.
+        D = _adaptive_distance_nodes(d_prior_range[0], d_prior_range[1], d_peak,
+                                     sigma_d, n_fine_max, n_coarse, n_sigma, oversample)
+        if D is None:
+            D = np.linspace(d_prior_range[0], d_prior_range[1], n_fine_max + n_coarse)
+            norm = np.sum(_distance_prior_density(D, d_prior) * (D[1] - D[0]))
+        else:
+            norm = np.sum(_distance_prior_density(D, d_prior) * _trapezoidal_spacing(D))
+    w = w / norm
+    return jnp.asarray(distMpcRef / d), jnp.asarray(np.log(w))
+
+
+# Log-uniform ("peak-resolving") distance quadrature.  Contract and evidence:
+# DESIGN_jax_distance_quadrature.md, beside this file.
+DIST_GRID_TOL_DEFAULT = 1e-2
+DIST_GRID_SCHEMES = ("uniform", "loguniform")
+
+
+def loguniform_spacing_for_tolerance(tol):
+    """Relative node spacing ``c`` (in ln d) that a Gaussian peak of unit
+    relative width tolerates at fractional quadrature error ``tol``.
+
+    The trapezoid rule on a Gaussian converges super-algebraically: by Poisson
+    summation the fractional error of ``sum_k h f(u_k)`` against ``int f du``
+    for ``f = exp(-(u-mu)^2 / 2 s^2)`` is ``2 exp(-2 pi^2 s^2 / h^2)`` (the
+    k = +-1 aliases; higher ones are negligible), independent of ``mu`` up to
+    its sign.  Setting that equal to ``tol`` and writing ``h = c * s``:
+
+        c = pi * sqrt(2 / ln(2 / tol))
+
+    So the spacing is DERIVED from a stated tolerance, not tuned.  ``tol`` is a
+    FRACTIONAL error on the distance integral, i.e. ~``tol`` nats on lnL.
+    """
+    tol = float(tol)
+    if not (0.0 < tol < 2.0):
+        raise ValueError("dist_grid_tol must be in (0, 2); got %r" % (tol,))
+    return float(np.pi * np.sqrt(2.0 / np.log(2.0 / tol)))
+
+
+ENDPOINT_ERROR_MARGIN = 2.0
+# The endpoint model below is the LEADING Euler-Maclaurin term, and c(tol) puts
+# the node spacing at ~2 sigma, which is not an asymptotic regime: against a
+# directly evaluated truncated trapezoid the leading term under-reads by ~1.5x
+# at one width of clearance (the h^4 term and the truncated normalization both
+# push the same way).  So the guard carries a stated 2x margin, in the same
+# spirit as anglemarg.ANGLE_AMP_MARGIN, rather than pretending the series is
+# converged.  test_endpoint_error_model_tracks_the_measured_truncated_trapezoid
+# pins the model against the measurement, which is what bounds this factor.
+
+
+def loguniform_endpoint_error(dlnd, endpoint_scale):
+    """Fractional error the PRIOR ENDPOINTS add to the alias law of
+    :func:`loguniform_spacing_for_tolerance`.
+
+    That law is Poisson summation on an UNTRUNCATED Gaussian: it bounds the
+    aliasing of an infinite trapezoid sum, and is independent of where the peak
+    sits.  A distance prior is finite, so the sum stops, and Euler-Maclaurin
+    contributes a term the alias law knows nothing about -- proportional to the
+    integrand's DERIVATIVE at each retained endpoint:
+
+        eps  =  h^2 / 12 * |g'(edge)| / integral(g)
+             =  h^2 / 12 * rho^2 k exp(-k^2/2) / sqrt(2 pi)
+
+    for a peak of width ``1/rho`` in ``ln d`` sitting ``k`` widths inside the
+    edge.  ``endpoint_scale`` is the ``rho^2 (k exp(-k^2/2))`` half of that,
+    summed over the two edges and maximized over the loud angle configurations
+    by ``anglemarg.estimate_angle_amplitude``; ``dlnd`` is the grid's spacing.
+
+    The two errors do NOT cancel and are not the same effect: a peak one width
+    inside an edge is ~11% wrong (measured) at the shipped ``tol = 1e-2``
+    spacing while the alias term is at its promised 1%.  A guard on ``tol``
+    alone therefore does not deliver ``tol``, which is what this exists to say.
+    """
+    # array-friendly: loguniform_min_clearance sweeps k through it
+    return (np.asarray(dlnd, dtype=float) ** 2
+            * np.asarray(endpoint_scale, dtype=float)
+            / (12.0 * np.sqrt(2.0 * np.pi)))
+
+
+def loguniform_min_clearance(tol=DIST_GRID_TOL_DEFAULT):
+    """Clearance, in peak widths, that an edge needs at the WORST spacing.
+
+    Solves ``ENDPOINT_ERROR_MARGIN * loguniform_endpoint_error(c(tol), k) =
+    tol`` for the peak that sizes the grid (``rho = rho_max``, so ``h = c``),
+    taking the LARGE root: ``k exp(-k^2/2)`` rises to 0.6065 at one width and
+    falls away on both sides, so the small root is the "endpoint on the peak"
+    case the alias law already covers and must not be reported as a requirement.
+    Reported in refusals; the guard itself uses the error, not this number,
+    because a quieter peak (``rho < rho_max``) is on a proportionally finer grid
+    and needs less.
+    """
+    c = loguniform_spacing_for_tolerance(tol)
+    k = np.linspace(0.0, 12.0, 24001)
+    over = (ENDPOINT_ERROR_MARGIN
+            * loguniform_endpoint_error(c, k * np.exp(-0.5 * np.square(k)))
+            > float(tol))
+    return float(k[over].max()) if np.any(over) else 0.0
+
+
+def loguniform_grid_size(d_min, d_max, rho_max, tol=DIST_GRID_TOL_DEFAULT):
+    """Node count for :func:`make_distance_grid_loguniform` (pure, testable)."""
+    rho_max = float(rho_max)
+    if not np.isfinite(rho_max) or rho_max <= 0.0:
+        raise ValueError(
+            "rho_max must be a finite positive matched-SNR bound; got %r.  "
+            "It is sqrt(2*A) with A the data-derived amplitude from "
+            "anglemarg.estimate_angle_amplitude on the FULL prior support; "
+            "there is deliberately no fallback -- a missing bound must not "
+            "silently produce an under-resolved grid." % (rho_max,))
+    if not (0.0 < float(d_min) < float(d_max)):
+        raise ValueError("need 0 < d_min < d_max; got (%r, %r)" % (d_min, d_max))
+    L = np.log(float(d_max) / float(d_min))
+    c = loguniform_spacing_for_tolerance(tol)
+    return int(np.ceil(rho_max * L / c)) + 1
+
+
+def make_distance_grid_loguniform(d_min, d_max, rho_max, d_prior="euclidean",
+                                  distMpcRef=DIST_MPC_REF,
+                                  tol=DIST_GRID_TOL_DEFAULT, n_max=8192):
+    """Distance grid whose RELATIVE spacing resolves every per-sample peak.
+
+    WHAT IS BEING INTEGRATED.  Per angle sample and time bin the distance
+    integrand is ``exp(K x - 0.5 R x^2)`` with ``x = distMpcRef / d``,
+    ``K = Re<h|d>`` and ``R = <h|h>`` at the reference distance.  That is a
+    Gaussian in ``x`` peaked at ``x* = K/R`` with standard deviation
+    ``1/sqrt(R) = x* / rho``, where ``rho = K / sqrt(R)`` is that sample's
+    matched SNR.  Its RELATIVE width ``sigma/x* = 1/rho`` is therefore SCALE
+    FREE: it does not depend on where the peak sits.
+
+    CONSEQUENCE, and the whole content of this function.  A grid that is
+    uniform in ``ln d`` has constant relative spacing, so ONE spacing resolves
+    every peak anywhere in ``[d_min, d_max]`` as soon as
+
+        Delta(ln d)  <=  c / rho_max,     c = loguniform_spacing_for_tolerance(tol)
+
+    with ``rho_max`` an estimate of the largest ``rho`` over the angles.  No
+    peak has to be located.  Contrast :func:`make_distance_grid_adaptive`, which
+    centres a window on an ESTIMATED peak and is wrong by ~13 nats when that
+    estimate is wrong (measured; DESIGN_jax_distance_quadrature.md).
+
+    PRECONDITION -- the contract above holds only where the integrand is a
+    Gaussian PEAK INSIDE ``[d_min, d_max]``.  If the maximizing distance
+    ``x* = A/B`` is EXTERIOR the integrand is a boundary layer at a prior edge
+    instead, and this grid is the wrong instrument for it: its absolute spacing
+    is coarsest exactly at ``d_max``, and refining it adds nodes proportionally
+    everywhere so the layer never resolves (measured 1.9-4.6 nats, WORSE than
+    the uniform default, and tightening ``tol`` from 0.5 to 1e-9 recovers only
+    5.23 -> 3.92).  Callers must detect and refuse that regime; the wrapper
+    does, via ``estimate_angle_amplitude(..., return_diagnostics=True)`` and
+    its ``clip_excess``.  Design note section 1a.
+
+    PRECONDITION, SECOND HALF -- interior is not enough: the peak must be
+    interior BY A MARGIN.  Poisson summation bounds an UNTRUNCATED trapezoid
+    sum; a support that cuts the peak's tail adds an Euler-Maclaurin endpoint
+    term the alias law does not see, and at the shipped ``tol = 1e-2`` spacing
+    (``c = 1.93``) a peak ONE width inside an edge is ~11% wrong while
+    ``clip_excess`` still reads exactly 1.  The requirement is on the error, not
+    on a bare distance: see :func:`loguniform_endpoint_error` and
+    :func:`loguniform_min_clearance`, which the wrapper evaluates on the loud
+    angle configurations and refuses on.  ``rho_max`` alone cannot express it --
+    two supports with the same ``rho_max`` differ entirely in this respect --
+    which is why this function still takes only ``rho_max`` and the check lives
+    with the estimator that knows where the peak is.
+
+    WHERE ``rho_max`` COMES FROM.  ``A = anglemarg.estimate_angle_amplitude``
+    is ``ANGLE_AMP_MARGIN`` times the ``max`` over a SAMPLED sky, and over the
+    distance support, of ``x A_ang - 0.5 x^2 B_ang``, whose closed-form maximum
+    in ``x`` is ``A_ang^2 / (2 B_ang) = rho^2 / 2``.  So
+    ``rho_max = sqrt(2 A) = sqrt(ANGLE_AMP_MARGIN) * rho_sampled_max``.  This is
+    deliberately NOT called an identity and NOT a proven bound -- that
+    estimator's own docstring says it is an estimator -- but it introduces no
+    NEW estimator: it is the same number that sizes the dense angle lattice, so
+    the two cannot disagree, and the kernels' runtime fail-safe
+    (``anglemarg._runtime_amp_failsafe``) rechecks it on every call.  That
+    fail-safe covers an underestimated INTERIOR peak; it is blind to the
+    exterior regime above, because it applies the identical clip.  ``A`` must be
+    computed on the FULL prior support, never on this grid.
+
+    WEIGHTS.  Trapezoidal ``p(d) * Delta d`` with HALF-WIDTH end intervals,
+    normalized to ``sum exp(log_w) == 1`` (the same "proper distance average"
+    convention as :func:`make_distance_grid`, whose own constant-``Delta d``
+    weights are a right-open rectangle rule).  The half-width endpoints matter
+    here and are not cosmetic: on a log grid the last interval is ~1% of
+    ``d_max``, and giving the last node a full interval (the convention
+    :func:`make_distance_grid_adaptive` uses) misplaces several percent of the
+    volumetric prior mass onto ``d_max`` -- measured as a ~0.018 nat error
+    floor that no refinement removes.
+
+    Returns ``(x_grid, log_w_grid)`` -- drop-in for every fused kernel.
+    """
+    n = loguniform_grid_size(d_min, d_max, rho_max, tol)
+    if n > int(n_max):
+        raise ValueError(
+            "loguniform distance grid needs %d nodes for rho_max=%.4g over "
+            "[%g, %g] Mpc at tol=%g, above n_max=%d.  Raise n_max (and accept "
+            "the cost, which is linear in the node count), loosen tol, or "
+            "narrow [d_min, d_max].  Clamping is deliberately NOT done: a "
+            "silently clamped grid violates the spacing contract this "
+            "function exists to provide."
+            % (n, float(rho_max), float(d_min), float(d_max), float(tol),
+               int(n_max)))
+    d = np.geomspace(float(d_min), float(d_max), n)
     if d_prior in ("euclidean", "volumetric"):
         pd = d ** 2
     elif d_prior == "uniform":
         pd = np.ones_like(d)
     else:
         raise NotImplementedError("d_prior=%r" % d_prior)
-    dd = np.empty_like(d)                                    # trapezoidal spacing
+    dd = np.empty_like(d)
     dd[1:-1] = 0.5 * (d[2:] - d[:-2])
-    dd[0] = d[1] - d[0]
-    dd[-1] = d[-1] - d[-2]
+    dd[0] = 0.5 * (d[1] - d[0])
+    dd[-1] = 0.5 * (d[-1] - d[-2])
     w = pd * dd
     w = w / np.sum(w)
     return jnp.asarray(distMpcRef / d), jnp.asarray(np.log(w))

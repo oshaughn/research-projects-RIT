@@ -248,6 +248,19 @@ RULES = [
      "one. If LISA ever models calibration, it wants derived_rng directly, not this wrapper."),
     (r"^FUNC:analyze_event\._cal_error_probe(\._draw_dist)?$", "NA",
      "Calibration Monte-Carlo error probe; see the --calibration-* reason."),
+    (r"^FUNC:fused_calmarg_in_use$", "NA",
+     "THE predicate for 'will the fused in-loop calibration kernel actually run?', shared by "
+     "the startup --interpolate-time guard and by use_fused_calmarg at dispatch so the "
+     "condition has one definition instead of two that drift (it drifted three times in a day "
+     "before being hoisted). Every one of its terms is a LIGO/Virgo calibration concept -- an "
+     "envelope directory, a realization count, --calibration-fused-kernel, the "
+     "responsibilities pilot -- and the LISA driver has NONE of them: it declares no "
+     "--calibration-* option, never sets cal_method, and models no instrument calibration at "
+     "all. See the --calibration-* reason. NOT a stencil gap despite being read by the "
+     "stencil guard: LISA's --interpolate-time is a separate boolean parsed by "
+     "legacy_time_interpolation_enabled, with no fused kernel to protect. If LISA ever models "
+     "calibration this predicate is the wrong shape for it, and the thing to port would be "
+     "the ONE-definition discipline, not this function."),
 
     # ------------------------------------------------------- ground-based detector geometry
     (r"^OPTION:--rotation-(slow|n-harmonics|p-max)$", "NA",
@@ -317,6 +330,43 @@ RULES = [
      "key names. So --limit-right-ascension bounds lambda and --limit-declination bounds "
      "beta; say exactly that in the help text. Port the post-PR#58 form including the "
      "cos(iota)/cos(dec) endpoint swap under the cosine samplers."),
+
+    (r"^OPTION:--limit-distance$", "PORT",
+     "Sampling-only distance box: narrows what distance is DRAWN from while the prior keeps "
+     "its full [--d-min,--d-max] normalization, so lnZ stays on the full-range scale. Port it, "
+     "and port the SPLIT rather than the option alone. VERIFIED 2026-09-02 that the LISA "
+     "driver still carries the one-range form the main driver was just moved off "
+     "(integrate_likelihood_extrinsic_batchmode_lisa:1021-1024: dist_sampler and "
+     "dist_prior_pdf are both built from param_limits['distance']), which normalizes the "
+     "Euclidean density over whatever the sampler happens to draw from -- so narrowing for "
+     "cost there would silently rescale the evidence. mcsampler.distance_sampler_kwargs() "
+     "already takes the sampling range and the prior range as two arguments and is shared "
+     "code -- but the port is NOT a pure call-site change, and what is missing is a prior "
+     "LISA SUPPORTS and the helper does not. VERIFIED 2026-09-03: the LISA driver has an "
+     "explicit 'elif opts.d_prior == uniform: dist_prior_pdf = dist_sampler' branch (:1029), "
+     "so --d-prior uniform WORKS there; the main driver has no such branch and raises "
+     "Exception('distance prior') on it. distance_sampler_kwargs() handles Euclidean and "
+     "pseudo_cosmo only and raises ValueError otherwise, so routing LISA through it as-is "
+     "would BREAK an existing LISA prior. EXTEND THE HELPER FIRST, with a uniform branch "
+     "normalized 1/(p_hi - p_lo) over the PRIOR range -- and note the trap while doing it: "
+     "LISA's uniform prior is literally the sampling density "
+     "(ret_uniform_samp_vector_alt(lo,hi) = 1/(hi-lo) over the SAMPLED range), which is "
+     "exactly the sampling/prior conflation this helper exists to split, so transcribing it "
+     "would reintroduce the defect the port is for. That extension also changes MAIN-driver "
+     "behaviour (--d-prior uniform stops raising and starts running), so it needs RO'S and "
+     "is not something to fold into the --limit-distance PR. The motivation is "
+     "STRONGER on LISA than on ground-based data: measured on real LIGO data at rho ~ 82, a "
+     "box tracking the posterior removes 0.37 +- 0.11 nats of sampling bias the full-range "
+     "run was carrying (4.16 nats with --no-adapt-distance), and MBHB SNRs are one to two "
+     "orders of magnitude higher, where the posterior is narrower still relative to the same "
+     "prior (RIFT_roboto_paper analyses/limit_distance_e2e/). CARRY THE REFUSALS, and note "
+     "only one of the three transfers today: LISA HAS --distance-marginalization (:245), so "
+     "refuse there for the same reason -- no distance sampler exists to narrow. It has "
+     "neither --d-prior-redshift nor --internal-reparam-dl-incl, so those two refusals have "
+     "nothing to attach to yet; --internal-reparam-dl-incl is itself a PORT item above, so "
+     "whichever of the two lands second owes the refusal. LISA's --d-prior set is also "
+     "different (Euclidean|uniform|pseudo_cosmo, no cosmo/cosmo_sourceframe), so the cosmo "
+     "branch of the main driver's narrowing block has no counterpart to port."),
 
     # --------------------------------------------------------------------- data / waveform io
     (r"^OPTION:--internal-data-storage-window-half$", "NA",

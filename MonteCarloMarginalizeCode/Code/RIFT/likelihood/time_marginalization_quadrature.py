@@ -125,7 +125,10 @@ is the original defect.
 WHAT "EXACTLY" IS EXACT ABOUT (read before quoting the accuracy numbers)
 -----------------------------------------------------------------------
 The reconstruction is exact for the integrand THE CODE ACTUALLY FORMS, which is
-the true ``kappa(t)`` only when ``time_interp='nearest'`` -- the default -- where
+the true ``kappa(t)`` only when ``time_interp='nearest'`` -- which since 2026-09-02
+is no longer the ILE driver's default (issue #233; the driver now defaults to
+``time_interp_choice.TIME_INTERP_DEFAULT``), so the paragraph below is now the
+ORDINARY case rather than the exceptional one -- where
 the gathered values are exact samples of ``Q`` (on a grid offset by up to
 deltaT/2, which is a pre-existing property of that stencil).
 
@@ -140,7 +143,10 @@ Measured at srate 4096, peak lnL ~5300, peak centred: with 'nearest' this path i
 wins about half the cases.  Neither number says the quadrature is wrong -- they
 say that once a stencil is in use its own error dominates, and fixing the
 quadrature exposes it rather than adding to it.  The advantages quoted above are
-for the default stencil.
+for ``time_interp='nearest'``, which is NOT the driver default any more: pass
+``--interpolate-time nearest`` alongside ``--time-marginalization-quadrature
+bandlimited`` to reproduce them.  Re-measuring this pairing under the new default
+is an OPEN item, not a settled result.
 
 SCOPE
 -----
@@ -177,7 +183,13 @@ __all__ = [
     "last_report",
 ]
 
-TIME_QUADRATURE_CHOICES = ("simpson", "bandlimited")
+TIME_QUADRATURE_CHOICES = ("simpson", "bandlimited", "peak-local")
+
+#: 'peak-local' lives in RIFT.likelihood.time_marginalization_peak_local and
+#: reuses this module's helpers wholesale (width estimator, derived factor, row
+#: classification, edge guard, Simpson hand-over).  It is named here rather than
+#: there so that validate_time_quadrature stays the single place a quadrature name
+#: is checked; the import runs the other way, so there is no cycle.
 
 #: ``h_dense <= sigma_t / UPSAMPLE_SAFETY``.  See the module docstring: at this
 #: value the trapezoidal rule's Poisson-summation error on a Gaussian peak is
@@ -636,6 +648,105 @@ def required_upsample_factors(sigma, dx, xpy=np):
     return factor.astype(np.int64)
 
 
+def _default_simps(simps, xpy):
+    """The caller's Simpson rule, defaulting to scipy's ONLY on the numpy backend.
+
+    scipy's ``simpson`` raises ``TypeError: Implicit conversion to a NumPy array is
+    not allowed`` on a cupy array, and that default is exactly how every
+    ``--vectorized --gpu`` run of this option crashed.  Refuse rather than leave the
+    trap armed -- and note the two rules are not interchangeable even where both run
+    (the vendored GPU copy is an old scipy with ``even='avg'``), so a fallback row
+    must be integrated by the rule the caller's own likelihood uses.
+    """
+    if simps is not None:
+        return simps
+    if xpy is not np:
+        raise ValueError(
+            "time marginalization: `simps` must be supplied for a non-numpy backend "
+            "-- scipy's Simpson rule cannot consume a device array, and the fallback "
+            "rows must use the rule the caller's own likelihood uses (on GPU, "
+            "optimized_gpu_tools.simps).")
+    from scipy import integrate
+    return getattr(integrate, 'simpson', None) or integrate.simps
+
+
+def _require_time_independent_rho_sq(rho_sq, xpy=np, rule='band-limited'):
+    """Verify the load-bearing precondition rather than trusting the caller.
+
+    A time-dependent self-term (the banded / slow-rotation response) would make the
+    refined ``lnL`` wrong in a way no downstream check would catch.
+
+    Compare only where both sides are finite.  A NaN self-term is NORMAL: the
+    defensive proposal component deliberately draws physically-extreme points where
+    the likelihood is NaN, and the historical path just returns NaN for that row and
+    lets the sampler move on.  A bare ``==`` makes ``nan != nan`` trip this tripwire
+    and abort the whole ILE process, blaming a rotating-response path that is not
+    even in use.
+    """
+    rho_col = rho_sq[..., :1]
+    _cmp = xpy.isfinite(rho_sq) & xpy.isfinite(xpy.broadcast_to(rho_col, rho_sq.shape))
+    if not bool(xpy.all(xpy.where(_cmp, rho_sq == rho_col, True))):
+        raise NotImplementedError(
+            "%s time marginalization requires a time-independent rho_sq; the supplied "
+            "self-term varies with time (banded / rotating-response path)" % rule)
+    return rho_col
+
+
+def _classify_rows(lnL_coarse, deltaT, npts, xpy=np):
+    """Which rule each row gets.  THE SINGLE DEFINITION, shared with 'peak-local'.
+
+    Returns ``(sigma, jmax, measurable, has_peak, flat, exposed, unmeasurable,
+    factors)``.  A row is REFINED by the caller iff ``has_peak & (factors > 1)``.
+
+    It lives here, and is called rather than copied, because
+    :mod:`RIFT.likelihood.time_marginalization_peak_local` promises to change WHERE the
+    refined grid is placed and nothing about WHICH rows get one.  That promise was made
+    good by duplication and it did not survive: three clauses below -- reflection's
+    demotion of the edge guard, ``boundary_unresolved``, and the guard's Simpson routing
+    -- reached this module and not that one, and each showed up as peak-local silently
+    returning a lower-accuracy value than this function for the same row.  Duplicated
+    policy that MUST agree is policy that will eventually not.
+
+    The boundary diagnostic applies only to rows that HAVE a resolvable peak: a row whose
+    lnL(t) is constant -- an extrinsic sample in an antenna null, where kappa is
+    numerically zero -- has an argmax of 0 by convention and would otherwise be reported
+    as boundary-exposed.  That is harmless numerically (Simpson is exact on a constant)
+    but it makes the diagnostic lie: measured on a random-sky batch of 4000, it reported
+    810 "wrap-exposed" rows, which in a production log reads as a mis-centred window
+    rather than as 810 rows with no signal in them.
+
+    ``boundary_unresolved``: at the first/last sample the centred stencil is clipped
+    inward, so for a severely under-resolved endpoint peak it can see positive curvature
+    away from the maximum and label a strongly varying row "flat".  That would silently
+    retain Simpson for exactly the truncated-boundary case we intend to report and
+    reconstruct.  Such rows get a small seed factor; dense-grid remeasurement takes over
+    as soon as the reflected peak is measurable.
+
+    ``exposed`` REPORTS possible physical truncation and selects nothing.  Reflection
+    removes the endpoint value jump, so neither boundary proximity nor a tail threshold
+    may select a Simpson fallback: crossing an arbitrary threshold cannot silently change
+    likelihood quality, and raising on such a row can be read upstream as a waveform
+    failure and silently excise that configuration.
+    """
+    sigma, jmax, measurable = peak_width_from_lnL(lnL_coarse, deltaT, xpy=xpy)
+    guard = max(1, int(npts * EDGE_GUARD_FRACTION))
+    finite_lnL = xpy.isfinite(lnL_coarse)
+    row_max = xpy.max(xpy.where(finite_lnL, lnL_coarse, -np.inf), axis=-1)
+    row_min = xpy.min(xpy.where(finite_lnL, lnL_coarse, np.inf), axis=-1)
+    varies = xpy.isfinite(row_max) & xpy.isfinite(row_min) & (row_max > row_min)
+    boundary_unresolved = (measurable & (~xpy.isfinite(sigma)) & varies
+                           & ((jmax == 0) | (jmax == npts - 1)))
+    has_peak = measurable & (xpy.isfinite(sigma) | boundary_unresolved)
+    flat = measurable & (~xpy.isfinite(sigma)) & (~boundary_unresolved)
+    exposed = has_peak & ((jmax < guard) | (jmax > npts - 1 - guard))
+    # Counted unconditionally, NOT `& ~exposed`: an all -inf row also has an argmax of 0,
+    # so a conditional counter would hide it behind the edge guard.
+    unmeasurable = ~measurable
+    factors = xpy.maximum(required_upsample_factors(sigma, deltaT, xpy=xpy), 1)
+    factors = xpy.where(boundary_unresolved, xpy.maximum(factors, 4), factors)
+    return (sigma, jmax, measurable, has_peak, flat, exposed, unmeasurable, factors)
+
+
 def _safe_offset(off, xpy=np):
     """Log-sum-exp offset, guarded for a row that is ``-inf`` everywhere.
 
@@ -825,19 +936,7 @@ def time_marginalize_bandlimited(kappa, rho_sq, deltaT, loglikelihood,
         With ``return_time_draw=True``, returns
         ``(lnL, time_draw, lnL_at_draw)``.
     """
-    if simps is None:
-        # Default ONLY for the numpy backend.  scipy's simpson raises
-        # `TypeError: Implicit conversion to a NumPy array is not allowed` on a
-        # cupy array, and that default is exactly how every --vectorized --gpu run
-        # of this option crashed.  Refuse rather than leave the trap armed.
-        if xpy is not np:
-            raise ValueError(
-                "time_marginalize_bandlimited: `simps` must be supplied for a "
-                "non-numpy backend -- scipy's Simpson rule cannot consume a device "
-                "array, and the fallback rows must use the rule the caller's own "
-                "likelihood uses (on GPU, optimized_gpu_tools.simps).")
-        from scipy import integrate
-        simps = getattr(integrate, 'simpson', None) or integrate.simps
+    simps = _default_simps(simps, xpy)
 
     kappa = xpy.asarray(kappa)
     rho_sq = xpy.asarray(rho_sq)
@@ -845,60 +944,16 @@ def time_marginalize_bandlimited(kappa, rho_sq, deltaT, loglikelihood,
     n_rows = kappa.shape[0]
     deltaT = float(deltaT)
 
-    # rho_sq time-independence is the load-bearing precondition, so verify it
-    # rather than trusting the caller: a time-dependent self-term (the banded /
-    # slow-rotation response) would make the upsampled lnL wrong in a way no
-    # downstream check would catch.
+    _require_time_independent_rho_sq(rho_sq, xpy=xpy, rule='band-limited')
     rho_col = rho_sq[..., :1]
-    # Compare only where both sides are finite.  A NaN self-term is NORMAL: the
-    # defensive proposal component deliberately draws physically-extreme points
-    # where the likelihood is NaN, and the historical path just returns NaN for
-    # that row and lets the sampler move on.  A bare `==` makes `nan != nan` trip
-    # this tripwire and abort the whole ILE process, blaming a rotating-response
-    # path that is not even in use.
-    _cmp = xpy.isfinite(rho_sq) & xpy.isfinite(xpy.broadcast_to(rho_col, rho_sq.shape))
-    if not bool(xpy.all(xpy.where(_cmp, rho_sq == rho_col, True))):
-        raise NotImplementedError(
-            "band-limited time marginalization requires a time-independent rho_sq; "
-            "the supplied self-term varies with time (banded / rotating-response path)")
 
     _term = (lambda k: xpy.abs(k)) if phase_marginalization else (lambda k: k.real)
     if lnL_coarse is None:
         lnL_coarse = loglikelihood(_term(kappa), rho_sq)
 
-    sigma, jmax, measurable = peak_width_from_lnL(lnL_coarse, deltaT, xpy=xpy)
-
-    # Classify the rows.  The boundary diagnostic applies only to rows that HAVE a
-    # resolvable peak: a row whose lnL(t) is constant -- an extrinsic sample in an
-    # antenna null, where kappa is numerically zero -- has an argmax of 0 by
-    # convention and would otherwise be reported as boundary-exposed.  That is
-    # harmless numerically (Simpson is exact on a constant) but it makes the
-    # diagnostic lie: measured on a random-sky batch of 4000, it reported 810
-    # "wrap-exposed" rows (the compatibility report key), which in a production
-    # log reads as a mis-centred window rather than as 810 rows with no signal
-    # in them.
-    guard = max(1, int(npts * EDGE_GUARD_FRACTION))
-    finite_lnL = xpy.isfinite(lnL_coarse)
-    row_max = xpy.max(xpy.where(finite_lnL, lnL_coarse, -np.inf), axis=-1)
-    row_min = xpy.min(xpy.where(finite_lnL, lnL_coarse, np.inf), axis=-1)
-    varies = xpy.isfinite(row_max) & xpy.isfinite(row_min) & (row_max > row_min)
-    # At the first/last sample the centred stencil is clipped inward.  For a
-    # severely under-resolved endpoint peak it can then see positive curvature
-    # away from the maximum and label a strongly varying row "flat".  That would
-    # silently retain Simpson for exactly the truncated-boundary case we intend
-    # to report and reconstruct.  Give such rows a small seed factor; dense-grid
-    # remeasurement takes over as soon as the reflected peak is measurable.
-    boundary_unresolved = (measurable & (~xpy.isfinite(sigma)) & varies
-                           & ((jmax == 0) | (jmax == npts - 1)))
-    has_peak = measurable & (xpy.isfinite(sigma) | boundary_unresolved)
-    flat = measurable & (~xpy.isfinite(sigma)) & (~boundary_unresolved)
-    exposed = has_peak & ((jmax < guard) | (jmax > npts - 1 - guard))
-    # Counted unconditionally, NOT `& ~exposed`: an all -inf row also has an
-    # argmax of 0, so a conditional counter would hide it behind the edge guard.
-    unmeasurable = ~measurable
-
-    factors = xpy.maximum(required_upsample_factors(sigma, deltaT, xpy=xpy), 1)
-    factors = xpy.where(boundary_unresolved, xpy.maximum(factors, 4), factors)
+    # THE SINGLE DEFINITION, shared with 'peak-local' -- see _classify_rows.
+    (sigma, jmax, measurable, has_peak, flat, exposed, unmeasurable,
+     factors) = _classify_rows(lnL_coarse, deltaT, npts, xpy=xpy)
 
     # A row is REFINED only if it has a trustworthy peak AND the derivation
     # actually asks for a finer grid.  Reflection removes the endpoint value

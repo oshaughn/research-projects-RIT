@@ -130,6 +130,20 @@ test_run:
     # numpy/scipy, seconds). Runs before the heavy scripts so a wrong prior fails
     # fast rather than after the end-to-end runs.
     - python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_cip_priors.py
+    # Per-extrinsic-sample time-marginalization offset in the vectorized NoLoop
+    # likelihood (issue #232).  numpy + lal, ~9 s, and it fails SILENTLY in the worst
+    # way: a batch-wide log-sum-exp offset underflows every extrinsic sample more than
+    # ~745 nats below the loudest one to lnL = -inf, which above rho ~ 40 is the bulk of
+    # the prior and collapses mcsamplerAV.  An unlisted test never runs in this CI, so
+    # the wiring ships with the fix.
+    - python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_noloop_time_marg_row_offset.py
+    # Same defect on the in-loop calibration-marginalization reduction (n_cal>1,
+    # cal_method='loop', which is the DEFAULT: the fused kernel is opt-in behind
+    # --calibration-fused-kernel).  Its streaming log-sum-exp offset was a SCALAR shared
+    # by every extrinsic sample, so rows more than ~745 nats below the loudest came back
+    # lnL = -inf (issue #232).  numpy + lal, ~10 s.  An unlisted test never runs in this
+    # CI, so the wiring ships with the fix.
+    - python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_calmarg_running_max_row_offset.py
     - . .travis/test-coord.sh
     - bash .travis/test-integrate.sh
     - . .travis/test-posterior.sh

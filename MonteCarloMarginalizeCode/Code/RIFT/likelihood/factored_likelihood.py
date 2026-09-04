@@ -64,6 +64,7 @@ from itertools import product, combinations
 import math
 
 from . import time_marginalization_quadrature as time_quadrature_module
+from . import time_marginalization_peak_local as time_peak_local_module
 from .time_marginalization_quadrature import TIME_QUADRATURE_CHOICES
 
 #: Time-marginalization quadrature used when a caller does not pass
@@ -2319,10 +2320,13 @@ def _sinc_Q_window_numpy(Q_block, start_indices, fractional_offsets, npts,
     RIFT/likelihood/DESIGN_q_window_stencil.md.  Automatic selection was removed as measurably
     unreliable.
 
-    NO stencil is applied by default -- time_interp defaults to 'nearest', as does
-    --interpolate-time when omitted, so a caller who asks for nothing gets the nearest-bin gather
-    and neither interpolating stencil; 'cubic' is only the legacy truthy --interpolate-time
-    mapping.
+    THE LIBRARY DEFAULT AND THE DRIVER DEFAULT ARE DIFFERENT, deliberately.  This function's
+    own ``time_interp`` argument still defaults to 'nearest', so a library caller who asks for
+    nothing gets the nearest-bin gather and no interpolating stencil -- every existing caller is
+    unaffected.  bin/integrate_likelihood_extrinsic_batchmode's --interpolate-time, by contrast,
+    defaults to ``time_interp_choice.TIME_INTERP_DEFAULT`` as of 2026-09-02 (issue #233), which is
+    what an ILE run now gets when the flag is omitted; 'cubic' remains only the legacy truthy
+    --interpolate-time mapping.
 
     COST, measured (not estimated from the tap count):
       CPU  ~4.2-4.5x cubic -- 2a=16 taps against 4, and this path IS tap-count bound.
@@ -2554,7 +2558,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         All three stencils have CPU and GPU implementations.  See _sinc_Q_window_numpy and
         RIFT/likelihood/DESIGN_q_window_stencil.md for the measured tables.
 
-    time_quadrature : {'simpson', 'bandlimited'} or None
+    time_quadrature : {'simpson', 'bandlimited', 'peak-local'} or None
         Rule used for the time integral.  None (the default) defers to the
         module-level ``TIME_QUADRATURE_DEFAULT``, which is 'simpson'.
 
@@ -2575,6 +2579,16 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         back.  A time draw returns ``(time_offset, lnL_at_draw)`` and uses the
         same validated dense representation as the integral.  Rationale, measured
         before/after and the exclusions: RIFT.likelihood.time_marginalization_quadrature.
+
+        'peak-local' is the same argument with the refined grid placed only where
+        the integrand has support: kappa's extrema are ENUMERATED on a small,
+        SNR-independent upsample, an interval of a few sigma_t is built around each,
+        overlapping intervals are MERGED into disjoint ones, and each is integrated
+        at its own derived spacing.  The mass left outside is bounded per row and
+        checked, not assumed; a row whose bound is not small enough, or whose local
+        grid would cost more than the dense one, is given the 'bandlimited' value.
+        Same exclusions as 'bandlimited', PLUS phase marginalization, which it
+        refuses.  RIFT.likelihood.time_marginalization_peak_local.
     """
     global distMpcRef
 
@@ -2594,20 +2608,33 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         raise ValueError(
             "return_time_draw requires time_quadrature='bandlimited'; the continuous "
             "draw must share the quadrature's validated reconstruction")
-    if time_quadrature == 'bandlimited':
+    if time_quadrature != 'simpson':
         # Refuse loudly wherever the band-limited argument does not hold, rather
         # than falling back to Simpson: a silently inert accuracy option is worse
-        # than an unavailable one.
+        # than an unavailable one.  'peak-local' rests on exactly the same argument
+        # as 'bandlimited' -- it only moves WHERE the refined grid is placed -- so it
+        # inherits the same exclusions rather than getting a parallel set.
         if n_cal != 1:
             raise NotImplementedError(
-                "time_quadrature='bandlimited' is not implemented for calibration "
+                "time_quadrature=%r is not implemented for calibration " % time_quadrature +
                 "marginalization (n_cal=%d).  The cal reduction sums exp() over "
                 "realizations, so each realization's kappa row must be refined and the "
                 "derived factor reconciled across them; that is untested." % n_cal)
         if return_cal_components:
             raise NotImplementedError(
-                "time_quadrature='bandlimited' is not implemented for "
-                "return_cal_components, which takes a per-realization time integral.")
+                "time_quadrature=%r is not implemented for return_cal_components, "
+                "which takes a per-realization time integral." % time_quadrature)
+        if time_quadrature == 'peak-local' and phase_marginalization:
+            # Refused BEFORE the integration runs, for the same reason the
+            # return_lnLt guard above is scoped the way it is: raising late means the
+            # whole run happens and then dies.  Production marginalizes over
+            # distance, not phase; under phase marginalization the peak's Laplace
+            # width picks up an (I1/I0)(|kappa|/D) factor that does not reduce.
+            # 'bandlimited' supports it and is unchanged.
+            raise NotImplementedError(
+                "time_quadrature='peak-local' does not support phase marginalization "
+                "(the local width is no longer derivable from rho_sq and the curvature "
+                "alone).  Use time_quadrature='bandlimited', which does.")
         if return_lnLt and _time_quadrature_explicit:
             # Explicitly ASKING for a quadrature on a call that takes no integral is
             # a caller error and is refused.  Merely INHERITING the module default is
@@ -2619,9 +2646,9 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
             # function with return_lnLt=True and no explicit quadrature -- so enabling
             # the option ran the whole integration and then died at the export step.
             raise NotImplementedError(
-                "time_quadrature='bandlimited' was requested explicitly on a "
-                "return_lnLt call, which returns lnL(t) on the original grid and takes "
-                "no time integral.  Drop the argument.")
+                "time_quadrature=%r was requested explicitly on a return_lnLt call, "
+                "which returns lnL(t) on the original grid and takes no time integral.  "
+                "Drop the argument." % time_quadrature)
 
     detectors = rholmsArrayDict.keys()
     npts = len(tvals)
@@ -2926,7 +2953,15 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
             lnL_t = loglikelihood(kappa_sq.real, rho_sq_here)
 
         # Take exponential of the log likelihood in-place.
-        lnLmax  = xpy.max(lnL_t)
+        # PER-ROW offset, not the batch max: lnL_t is (npts_extrinsic, npts_time), and a
+        # single scalar max shifts every extrinsic sample by the LOUDEST sample's peak.
+        # Any row more than ~745 nats below it then underflows exp() to 0 across the whole
+        # time axis -> L=0 -> lnL=-inf where the likelihood is finite.  With lnL~rho^2/2 at
+        # the peak and ~0 for a typical prior draw that fires above rho~40 and takes out the
+        # BULK of the prior, collapsing mcsamplerAV.  keepdims=True is load-bearing: with a
+        # bare axis=-1 the (n,) result broadcasts along the TIME axis instead, silently.
+        # See oshaughnessy-junior/research-projects-RIT#232.
+        lnLmax  = xpy.max(lnL_t, axis=-1, keepdims=True)
         if return_lnLt:
           return lnL_t  #- lnLmax    # we want the verbatim lnL_t values, no shift
 
@@ -2957,12 +2992,26 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
                 return _drawn_t, _drawn_lnL
             return _time_result
 
+        if time_quadrature == 'peak-local':
+            # Same integrand, same closed domain, same derived resolution criterion
+            # and the same fallback-to-Simpson row classification as 'bandlimited';
+            # what changes is that the refined grid is placed only around the
+            # enumerated peaks instead of over the whole window.  Rows this rule
+            # declines -- on its cost estimate, or because it could not bound the
+            # mass it left out -- are given the 'bandlimited' value, so the reviewed
+            # dense implementation is the backstop rather than Simpson.
+            return time_peak_local_module.time_marginalize_peak_local(
+                kappa_sq, rho_sq_here, float(deltaT), loglikelihood,
+                phase_marginalization=phase_marginalization, simps=simps,
+                lnL_coarse=lnL_t, xpy=xpy)
+
         L_t = xpy.exp(lnL_t - lnLmax, out=lnL_t)
 
         L = simps(L_t, dx=deltaT, axis=-1)
 
-        # Compute log likelihood in-place.
-        lnL = lnLmax + xpy.log(L, out=L)
+        # Compute log likelihood in-place.  lnLmax carries the kept trailing axis; drop it
+        # so the add-back lines up with L, which simps has already reduced over that axis.
+        lnL = lnLmax[..., 0] + xpy.log(L, out=L)
 
         return lnL
 
@@ -3092,12 +3141,34 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         # fold in this realization's importance log-weight
         lnL_t_c = lnL_t_c + cal_log_w[c]
 
-        m_c = xpy.max(lnL_t_c)
+        # PER-EXTRINSIC-SAMPLE offset, not the batch max.  lnL_t_c is
+        # (npts_extrinsic, npts_time) and `running_max` is the streaming log-sum-exp
+        # offset for S.  A SCALAR running_max shifts every extrinsic sample by the
+        # LOUDEST sample's peak, so any row more than ~745 nats below it underflows
+        # exp() to 0 across its whole time axis and every realization -> S row 0 ->
+        # lnL = -inf where the likelihood is finite.  With lnL~rho^2/2 at the peak and
+        # ~0 for a typical prior draw that fires above rho~40 and takes out the BULK of
+        # the prior, collapsing mcsamplerAV.  keepdims=True is load-bearing: a bare
+        # axis=-1 gives (n,), which broadcasts along the TIME axis instead -- silently,
+        # when npts_extrinsic == npts_time.  Same defect and same fix as the n_cal==1
+        # offset above, and as the return_cal_components branch a few lines up, which
+        # was already per-row.  See oshaughnessy-junior/research-projects-RIT#232.
+        m_c = xpy.max(lnL_t_c, axis=-1, keepdims=True)      # (npts_extrinsic, 1)
+        # A row that is -inf at every time (e.g. a distance-marginalization callback
+        # that rejects the whole row) has no finite offset of its own.  Offset it by 0
+        # instead: exp(-inf - 0) = 0 keeps its S row at 0 and its lnL at -inf, whereas
+        # exp(-inf - -inf) = nan would poison the running sum for that row for good.
+        # The scalar offset was shielded from this by any other finite row in the batch;
+        # a per-row offset is not, so the guard ships with the per-row offset.
+        m_c = xpy.where(xpy.isfinite(m_c), m_c, 0.0)
         if running_max is None:
             running_max = m_c
-        elif m_c > running_max:
-            S *= xpy.exp(running_max - m_c)
-            running_max = m_c
+        else:
+            # Elementwise: each row rescales S by its OWN change of offset (a no-op
+            # multiply by 1 for rows whose running max did not move).
+            new_max = xpy.maximum(running_max, m_c)
+            S *= xpy.exp(running_max - new_max)
+            running_max = new_max
         S += xpy.exp(lnL_t_c - running_max)
 
     if return_cal_components:
@@ -3114,7 +3185,10 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
 
     L = simps(S, dx=deltaT, axis=-1)
     # lnL = max + log( sum_c exp(log_w[c]) \int dt exp(lnL_t - max) ) - log(n_cal)
-    lnL = running_max + xpy.log(L) - cal_log_w_norm
+    # running_max carries the kept trailing axis; drop it so the add-back lines up with
+    # L, which simps has already reduced over that axis.  (The return_lnLt branch above
+    # keeps the axis on purpose -- there S is still (npts_extrinsic, npts_time).)
+    lnL = running_max[..., 0] + xpy.log(L) - cal_log_w_norm
 
     return lnL
 

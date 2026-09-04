@@ -252,16 +252,43 @@ def angle_marg_eval_chunk(like, chunk):
     pattern as the _GH_NODES shrink above.  Grid-scheme and 4/5-param
     likelihoods pass through unchanged.
     """
-    if getattr(like, "angle_marg_scheme", "grid") not in ("exact", "laplace"):
+    # NOT the scheme default.  "grid" here is a SENTINEL meaning "this object
+    # runs no dense angle scheme" -- it is what a JAXDistanceMarginalized/
+    # JAXExtrinsic likelihood, which has no angle_marg_scheme at all, must fall
+    # back to.  Do NOT sync it to ANGLE_MARG_DEFAULT: that would shrink the eval
+    # chunk for every likelihood that does not need it.  Two independent things
+    # that happened to be the same string; the last default move on this path
+    # (interp linear -> sinc) was bitten by exactly that.
+    # 'peak-local' is capped WITH the dense schemes, not exempted from them.  Its u
+    # axis is localized, but it still nests sample/time vmaps over the distance grid,
+    # phi chunks, four cells and 48 u nodes, so the batch multiplies the same way the
+    # dense schemes do; the laplace bytes-per-sample-point constant is used for it as
+    # the worst case, exactly as it already is for exact.  Leaving it out kept an
+    # uncapped 8000-sample batch and reopened the 36.4 GiB failure documented above.
+    if getattr(like, "angle_marg_scheme", "grid") not in ("exact", "laplace",
+                                                          "peak-local"):
         return chunk
     npts = int(getattr(getattr(like, "data", None), "npts", 0) or 0)
     if npts <= 0:
         return chunk
+    bytes_per = _ANGLE_MARG_BYTES_PER_SAMPLE_PT
+    if getattr(like, "angle_marg_scheme", None) == "peak-local":
+        # ITS COST MODEL IS NOT THE DENSE ONE, and enrolling it in the cap without
+        # saying so was a review finding.  peak-local carries the WHOLE distance grid
+        # inside every phi chunk, so its live slab is
+        #     phi_chunk * n_x * (4 cells) * (u nodes) * 8 bytes
+        # per (sample, time-point) -- about 6.3 MB at phi_chunk=16 and n_x=256, roughly
+        # 770x the 8192-byte dense model, before intermediates.  Using the dense
+        # constant would have applied a cap that looks protective and is not.
+        from . import joint_anglemarg_peaklocal as _jp
+        n_x = int(np.size(getattr(like, "x_grid", ())) or 1)
+        bytes_per = max(
+            bytes_per,
+            _jp.PHI_CHUNK_DEFAULT * n_x * 4 * _jp.U_NODES_PER_CELL * 8)
+    cap = max(1, _ANGLE_MARG_BUFFER_TARGET // (bytes_per * npts))
+    return min(chunk, cap)
     # A floor larger than one defeats the memory bound for long, valid time
     # windows (for example npts=65537 made a floor of 64 request ~32 GiB).
-    cap = max(1, _ANGLE_MARG_BUFFER_TARGET
-              // (_ANGLE_MARG_BYTES_PER_SAMPLE_PT * npts))
-    return min(chunk, cap)
 
 
 def eval_lnL(like, theta, chunk=_EVAL_CHUNK):

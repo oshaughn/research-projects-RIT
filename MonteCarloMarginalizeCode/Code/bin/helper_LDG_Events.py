@@ -31,7 +31,8 @@ import gzip
 from RIFT.misc.dag_utils_generic import which
 # leaf module: numpy only, so this does not drag numba/cupy into the helper
 from RIFT.likelihood.time_interp_choice import (
-    BARE_FLAG_SENTINEL, CROSSOVER_GUIDANCE, resolve_interpolate_time_request)
+    BARE_FLAG_SENTINEL, CROSSOVER_GUIDANCE, is_off_request,
+    resolve_interpolate_time_request)
 # Same leaf-module reasoning, and IMPORTED rather than re-typed: a second hand-written
 # copy of the choice tuple is how a typo becomes a silently different likelihood.
 from RIFT.likelihood.time_marginalization_quadrature import (
@@ -235,7 +236,7 @@ parser.add_argument("--internal-ile-rotate-phase", action='store_true')
 parser.add_argument("--internal-ile-auto-logarithm-offset",action='store_true',help="Passthrough to ILE")
 parser.add_argument("--internal-ile-use-lnL",action='store_true',help="Passthrough to ILE.  Will DISABLE auto-logarithm-offset and manual-logarithm-offset")
 parser.add_argument("--internal-ile-n-chunk",default=None,type=int,help="Override the extrinsic chunk size (--n-chunk) passed to ILE. Default: 40000, scaled linearly with SNR above 40 and capped at 160000. Rationale: at high SNR the posterior is a vanishing fraction of the prior volume, so a small chunk gives few informative samples per adaptation step; measured collapse on a truth-known SNR ladder falls 88%%->50%% (SNR160) and 69%%->25%% (SNR80) going 1e4->1.6e5, and the gain survives at fixed budget. Larger chunks cost GPU memory, so raise the ILE memory request if you raise this a lot.")
-parser.add_argument("--internal-ile-interpolate-time",nargs='?',const=BARE_FLAG_SENTINEL,default=None,type=str,help="Evaluate Q_lm at FRACTIONAL detector times instead of snapping to the nearest sample bin, in the maintained NoLoop likelihood (needs --time-marginalization --vectorized and one of --gpu/--rotation-slow/--freqresponse; the driver REFUSES rather than ignores otherwise). REQUIRES AN EXPLICIT STENCIL: nearest|cubic|sinc -- automatic selection was removed as measurably unreliable, and a bare flag is rejected rather than silently doing nothing. MEASURED GUIDANCE (SEOBNRv4, an IMR model): %s. 'nearest' is never competitive and is already unusable at O4 SNRs. Error grows as SNR^2, so this matters more at 3G. Cost: sinc is ~4.2-4.5x cubic on CPU, ~1.6-3.0x on GPU. Full tables, limitations and provenance: RIFT/likelihood/DESIGN_q_window_stencil.md. Default off." % CROSSOVER_GUIDANCE)
+parser.add_argument("--internal-ile-interpolate-time",nargs='?',const=BARE_FLAG_SENTINEL,default=None,type=str,help="Evaluate Q_lm at FRACTIONAL detector times instead of snapping to the nearest sample bin, in the maintained NoLoop likelihood (needs --time-marginalization --vectorized and one of --gpu/--rotation-slow/--freqresponse; the driver REFUSES rather than ignores otherwise). REQUIRES AN EXPLICIT STENCIL: nearest|cubic|sinc -- automatic selection was removed as measurably unreliable, and a bare flag is rejected rather than silently doing nothing. MEASURED GUIDANCE (SEOBNRv4, an IMR model): %s. 'nearest' is never competitive and is already unusable at O4 SNRs. Error grows as SNR^2, so this matters more at 3G. Cost: sinc is ~4.2-4.5x cubic on CPU, ~1.6-3.0x on GPU. Full tables, limitations and provenance: RIFT/likelihood/DESIGN_q_window_stencil.md. Default: emit nothing, so ILE uses its own default, which CHANGED 2026-09-02 from 'nearest' to time_interp_choice.TIME_INTERP_DEFAULT. To pin the historical behaviour pass 'nearest' (or an off-request such as 'False', which this helper now re-expresses as an explicit '--interpolate-time nearest' so that 'off' still means off)." % CROSSOVER_GUIDANCE)
 parser.add_argument("--internal-ile-time-marginalization-quadrature",default=None,type=str,choices=list(TIME_QUADRATURE_CHOICES),help="Rule for the TIME integral of the marginalized likelihood: %s. Default None = emit nothing, so ILE keeps its own default ('simpson', the historical fixed-deltaT Simpson rule) and args_ile.txt is byte-identical to today. 'bandlimited' resolves the INTEGRAND rather than the data: exp(lnL(t)) is a peak of width sigma_t = 1/(2 pi rho sigma_f), which shrinks as 1/rho, while deltaT=1/srate is fixed -- so production under-resolves its own integrand, worse at higher SNR (measured: scanning the grid phase moves the reported lnL by 1.649 nats at srate 4096, rho=40). Emitted as --time-marginalization-quadrature on the ILE command line, so a completed run's quadrature is readable off the .sub file. Requires --time-marginalization --vectorized --gpu and excludes --rotation-slow / --freqresponse / calibration marginalization; this helper REFUSES rather than emitting an inert flag. INI OVERRIDE: the RIFT ini parser overrides the command line for non-boolean options, so never set this string option in an ini that a Makefile also sets. Rationale and measured tables: RIFT/likelihood/DESIGN_time_marginalization_quadrature.md." % ("|".join(TIME_QUADRATURE_CHOICES),))
 parser.add_argument("--internal-cip-use-lnL",action='store_true')
 parser.add_argument("--ile-n-eff",default=50,type=int,help="Target n_eff passed to ILE.  Try to keep above 2")
@@ -287,6 +288,16 @@ opts=  parser.parse_args()
 # fails here rather than after a whole workflow has been built and submitted.  Returns None when
 # the feature is off; a canonical stencil name otherwise.
 time_interp_choice = resolve_interpolate_time_request(opts.internal_ile_interpolate_time)
+# "OFF" MUST STILL MEAN OFF once the ILE default is no longer 'nearest'.
+# resolve_interpolate_time_request collapses two different things to None: "flag absent" and an
+# explicit off-request ('False'/'off'/'none', OFF_REQUEST_TOKENS).  Both used to emit nothing,
+# and emitting nothing used to mean 'nearest' -- so they were the same answer.  Since the ILE
+# default became TIME_INTERP_DEFAULT (2026-09-02) they are opposites: emitting nothing now means
+# the new default, so "--internal-ile-interpolate-time False" would have turned interpolation ON.
+# An explicit off-request is therefore re-expressed as the explicit stencil that means off.
+if (time_interp_choice is None and opts.internal_ile_interpolate_time is not None
+        and is_off_request(opts.internal_ile_interpolate_time)):
+    time_interp_choice = 'nearest'
 
 # Same, for the time quadrature: argparse `choices` already rejects a typo, but validate through
 # the LIBRARY function too so this helper and the ILE driver can never disagree about the legal

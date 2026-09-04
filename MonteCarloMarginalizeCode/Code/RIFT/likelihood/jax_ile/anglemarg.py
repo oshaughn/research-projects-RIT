@@ -54,8 +54,11 @@ laplace : marginalize psi ANALYTICALLY by Laplace's method at every
 
 Both schemes marginalize distance with the same quadrature machinery as the
 grid path (:func:`core._logsumexp_grid_blocked`, or the adaptive
-:func:`core._distmarg_gh_logL` when JAX_ILE_DISTMARG_GH is set -- exact
-scheme only), and use the same normalization convention (mean over uniform
+:func:`core._distmarg_gh_logL` when JAX_ILE_DISTMARG_GH is set; the laplace
+scheme cannot call that function, whose nodes are placed per FIXED psi, and
+uses the psi-MARGINAL placement documented above
+:func:`_gh_psi_node_offsets` instead -- for m_max <= 2 only, raising above
+it), and use the same normalization convention (mean over uniform
 angle grids, i.e. the uniform priors dphi/2pi, dpsi/pi), so they are
 drop-in replacements for the grid function and agree with it wherever the
 grid is converged (pinned in test/jax/test_angle_marg_exact.py).
@@ -76,12 +79,17 @@ from .core import (JAX_INTERP_DEFAULT, TIME_QUAD_DEFAULT, _accumulate_unit,
                    make_distance_gh)
 
 __all__ = [
+    "ANGLE_MARG_DEFAULT",
+    "ANGLE_MARG_LEGACY",
+    "ANGLE_MARG_CHOICES",
     "angle_sample_grid_sizes",
     "angle_coefficient_tables",
     "estimate_angle_amplitude",
     "fused_log_likelihood_distphipsimarg_exact",
     "fused_log_likelihood_distphipsimarg_laplace",
     "choose_angle_marg_scheme",
+    "fused_log_likelihood_distphipsimarg_peaklocal",
+    "gh_laplace_supported",
     "ANGLE_MARG_CROSSOVER_AMPLITUDE",
 ]
 
@@ -108,6 +116,49 @@ __all__ = [
 # measured amplitude bound that drives it, and tests evaluate both schemes in
 # the overlap region and assert agreement -- the crossover is a validated
 # constant, not a tuning knob.
+# ---------------------------------------------------------------------------
+# THE (phi_ref, psi) SCHEME DEFAULT.  One definition; every entry point imports
+# it, so the driver flag and the wrapper argument cannot drift.  This is the
+# same discipline JAX_INTERP_DEFAULT already uses, and for the same reason: the
+# last default move on this path (interp linear -> sinc) had the value re-typed
+# in many places.
+#
+# CHANGED 2026-09-02: 'grid' -> 'exact'.  THIS CHANGES RESULTS for any caller
+# that does not pass the scheme explicitly.  Pass --angle-marg-scheme grid (or
+# angle_marg=ANGLE_MARG_LEGACY) to reproduce a pre-2026-09-02 run.
+#
+# Why 'exact' and not 'auto': 'auto' selects 'laplace' above
+# ANGLE_MARG_CROSSOVER_AMPLITUDE (rho ~21-30), which is an ACCURACY crossover.
+# But 'laplace' cannot use the per-sample adaptive distance quadrature and the
+# log-uniform distance grid is opt-in, so on the default uniform grid 'laplace'
+# was measured 43.2 nats from 'exact'+GH16 at rho 163 (mean; 16.3 median) -- an
+# error on the DISTANCE axis, not the angular one, which is ~1e-6 nats there.
+# A default that is correct and slow beats one that is fast and tens of nats
+# wrong.  'auto' becomes the right default once laplace has a sound distance
+# quadrature, and ANGLE_MARG_CROSSOVER_AMPLITUDE should then be re-derived from
+# COST as well as accuracy -- the measured cost crossover is rho ~200-326, an
+# order of magnitude above the accuracy one.
+#
+# Why not 'grid': its quadrature error grows without bound with SNR (it averages
+# exp(lnL), whose peak width is ~1/SNR, on n_phi x n_psi nodes).  Measured on
+# the paper-1 ladder-2 injection at rho 652: the best of the 4 distinct
+# n_phi=8 nodes is 37,419 nats below the true phi_ref profile peak, and the
+# recovered sky position is displaced 0.53 deg -- the grid scheme ranks that
+# artifact ABOVE the injection and the correct peak BELOW it, by 900.6 nats.
+# Evidence: RIFT_roboto_paper analyses/sky_offset_diagnosis/
+# RESULTS_phigrid_2026-09-02.md (commit 3f1f66f).
+ANGLE_MARG_DEFAULT = "exact"
+ANGLE_MARG_LEGACY = "grid"      # the spelling that reproduces pre-2026-09-02 runs
+ANGLE_MARG_CHOICES = ("grid", "exact", "laplace", "peak-local", "auto")
+
+#: 'peak-local' is deliberately NOT reachable from 'auto' yet.  It agrees with 'exact'
+#: to 1e-13 nats on the tables measured so far and is device-independent (the same answer
+#: on CPU and on an NVIDIA Blackwell GPU), but nothing has yet compared the two head to
+#: head on a production campaign, and a scheme that changes the likelihood must not
+#: become reachable by default on the strength of unit tests.  Explicit-only is what lets
+#: a pilot run both and decide; promoting it into `choose_angle_marg_scheme` is a
+#: separate change with its own evidence.
+
 # ---------------------------------------------------------------------------
 ANGLE_MARG_CROSSOVER_AMPLITUDE = 450.0     # A = rho^2/2; rho = 30.  NOTE the
 # auto selector compares the MARGINED data-derived bound (~2x the true
@@ -292,12 +343,66 @@ ANGLE_AMP_MARGIN = 2.0        # covers the finite sky sample: the amplitude is
                               # and the sizing error enters only through
                               # sqrt(amp), so a 2x margin in amplitude is a
                               # 1.4x margin in grid size
+ENDPOINT_GUARD_BAND = 15.0    # nats below the amplitude maximum within which a
+                              # sky point's dominant peak still counts for the
+                              # near-boundary diagnostic below.  Applied per sky
+                              # point against that point's own maximum AND again
+                              # against the global one, so what survives is
+                              # within [BAND, 2*BAND] nats of the global maximum
+                              # -- a bound worth stating, since the two-stage
+                              # form is what avoids a second pass over the
+                              # per-entry arrays the sky loop exists to keep
+                              # transient.
+
+
+def _endpoint_bell(k):
+    """``k exp(-k^2/2)``, the shape of a Gaussian's DERIVATIVE at a point ``k``
+    widths from its peak, clamped at 0 for exterior (non-positive) clearances.
+
+    This is the only ``k`` dependence in the truncated-endpoint error term of
+    :func:`core.loguniform_endpoint_error`; it is maximal (0.6065) at exactly
+    ONE width of clearance, and vanishes both far out in the tail AND at the
+    peak itself -- an endpoint sitting ON the peak is a stationary point, where
+    the Euler-Maclaurin endpoint term has nothing to correct.  So "closer to the
+    edge" is NOT monotonically worse, and a guard shaped as a bare minimum
+    clearance would refuse the k -> 0 case that the alias law already covers.
+    """
+    k = np.maximum(np.asarray(k, dtype=float), 0.0)
+    return k * np.exp(-0.5 * np.square(k))
+
+
+def _peak_clearance(A, B, x_min, x_max):
+    """``(rho, clearance from the d_min edge, clearance from the d_max edge)``.
+
+    The distance integrand ``exp(x A - x^2 B/2)`` is a Gaussian in ``x`` peaked
+    at ``x* = A/B``, whose width in ``ln d`` is ``1/rho`` with
+    ``rho = A/sqrt(B)`` -- scale free, which is the whole basis of the
+    log-uniform grid (see :func:`core.make_distance_grid_loguniform`).  The
+    clearances are that peak's distance from each prior edge IN THOSE UNITS,
+    which is what decides whether the untruncated alias law applies.
+
+    ``x = distMpcRef/d`` inverts the edges: the ``d_min`` edge is ``x_max``.
+    Non-positive clearances mean the maximizer is EXTERIOR -- the boundary-layer
+    regime section 1a refuses outright -- not a resolved peak, and callers must
+    treat them as such rather than as "very close to the edge".
+    """
+    A = np.asarray(A, dtype=float)
+    B = np.asarray(B, dtype=float)
+    Bs = np.maximum(B, 1e-300)
+    rho = np.where((A > 0.0) & (B > 0.0), A / np.sqrt(Bs), 0.0)
+    x_star = np.where(rho > 0.0, A / Bs, 0.0)
+    ok = x_star > 0.0
+    xs = np.where(ok, x_star, 1.0)
+    k_lo = np.where(ok, rho * np.log(float(x_max) / xs), 0.0)
+    k_hi = np.where(ok, rho * np.log(xs / float(x_min)), 0.0)
+    return rho, k_lo, k_hi
 
 
 def estimate_angle_amplitude(data, x_grid, interp=JAX_INTERP_DEFAULT,
                              n_sky=ANGLE_AMP_SKY_POINTS, seed=0,
                              margin=ANGLE_AMP_MARGIN,
-                             _n_phi_e=None, _n_u_e=24):
+                             _n_phi_e=None, _n_u_e=24,
+                             return_diagnostics=False):
     """DATA-DERIVED bound on the (phi, psi)-exponent amplitude A.
 
     This is the number that sizes the dense reconstruction grids, and it is
@@ -396,6 +501,11 @@ def estimate_angle_amplitude(data, x_grid, interp=JAX_INTERP_DEFAULT,
         E_A = _recon_matrix(C_A.shape[0], (C_A.shape[1] - 1) // 2)
         E_B = _recon_matrix(C_B.shape[0], (C_B.shape[1] - 1) // 2)
         amps = []
+        amps_unclipped = []
+        pk_A = []
+        pk_B = []
+        pk_ep = []
+        pk_ext = []
         for j in range(C_A.shape[2]):      # per-sky loop bounds the transient
             A_g = (E_A @ C_A[:, :, j].reshape(-1, C_A.shape[-1])).real
             B_g = np.maximum(
@@ -405,7 +515,81 @@ def estimate_angle_amplitude(data, x_grid, interp=JAX_INTERP_DEFAULT,
             x_hat = np.clip(A_g / np.maximum(B_g, 1e-300), x_min, x_max)
             val = x_hat * A_g - 0.5 * np.square(x_hat) * B_g
             amps.append(max(float(val.max()), 0.0))
-        return np.array(amps), C_A, C_B
+            # UNCLIPPED companion: the stationary value A^2/(2B) itself, which
+            # is what the exponent would reach if the maximizing distance were
+            # inside the prior support.  Only used to DETECT that it is not --
+            # the returned amplitude is unchanged.  A <= 0 puts the stationary
+            # point at negative x, where the max over x >= 0 is 0.
+            # The A_g > 0 arm is inert FOR THIS CONSUMER and load-bearing for
+            # a different one, which is the only useful thing to say about it.
+            # A^2 is even in A, so the arm changes nothing whenever the
+            # selection is an ARGMAX: the lattice maximum of A^2/(2B) sits at
+            # A > 0 anyway, and removing the arm leaves clip_excess
+            # bit-identical on every mode set tried ((2,+-2), +(2,+-1),
+            # +(3,+-3), interior and exterior supports).  Nothing here can fail
+            # if it is deleted.  It becomes load-bearing the moment a consumer
+            # selects a BAND rather than a maximum -- over a threshold the
+            # A < 0 branch is exactly degenerate with its mirror and survives
+            # the cut, which is a documented trap (a weight cut ranked on the
+            # unconstrained A^2/(2B) came out a factor ~300 wrong, and the tell
+            # was that the answer did not move between a 10-nat and a 100-nat
+            # threshold).  So: keep it, and if you add a banded selection here,
+            # that is the point at which it needs a test.
+            val_u = np.where(A_g > 0.0,
+                             np.square(A_g) / (2.0 * np.maximum(B_g, 1e-300)),
+                             0.0)
+            amps_unclipped.append(max(float(val_u.max()), 0.0))
+            # (A, B) of THIS sky point's DOMINANT configuration -- the entry
+            # that attains its clipped maximum, i.e. the one whose distance
+            # integral this sky direction's marginal is made of.  Kept (two
+            # scalars per sky point, not the arrays) so the near-boundary
+            # diagnostic below can be formed after the global maximum is known,
+            # without a second pass over the per-entry arrays.
+            i_hat = int(np.argmax(val))
+            pk_A.append(float(A_g.ravel()[i_hat]))
+            pk_B.append(float(B_g.ravel()[i_hat]))
+            # ...and the endpoint term over EVERY entry of this sky point, not
+            # just its dominant one.  A sky direction can have a far-interior
+            # maximum and a near-equal secondary (phi, psi, time) entry whose
+            # distance peak sits a width from an edge; that entry contributes
+            # materially to the marginal and carries the full endpoint error,
+            # while the dominant one scores ~0.  Reducing per sky to a scalar
+            # keeps the memory bounded (the arrays never leave this loop) and
+            # is CONSERVATIVE: it is a max over more entries than the band
+            # would keep, and the rho^2 factor self-limits the quiet ones.
+            # Measured under-read of the argmax-only form on a quiet
+            # synthetic: up to 7562x (external review, P1).
+            rho_e, klo_e, khi_e = _peak_clearance(A_g.ravel(), B_g.ravel(),
+                                                  x_min, x_max)
+            # The interior mask differs from no mask only when ONE edge is
+            # exterior and the OTHER is within a few widths -- i.e. on a
+            # support only a few 1/rho wide.  No prior this code is run with is
+            # anywhere near that: [1,1000], [1,10000] and [1,3000] Mpc are
+            # 69-947 widths across at rho 10-103, and even a narrow [100,2000]
+            # box is 30-308, so the far edge's bell underflows to exactly 0 and
+            # the two forms are numerically identical.  Dropping the mask
+            # therefore survives the gate, and that is an equivalent mutant
+            # rather than a coverage gap -- do not add a test for it.
+            ep = np.where((klo_e > 0.0) & (khi_e > 0.0),
+                          np.square(rho_e)
+                          * (_endpoint_bell(klo_e) + _endpoint_bell(khi_e)),
+                          0.0)
+            pk_ep.append(float(ep.max()) if ep.size else 0.0)
+            # ...and the loudest EXTERIOR entry of this sky point.  The
+            # endpoint term above cannot represent one: its bell is clamped at
+            # k <= 0, and the Euler-Maclaurin expansion is the wrong instrument
+            # for a peak outside the support anyway (that is a boundary layer,
+            # section 1a).  The exterior guards do not see it either --
+            # clip_excess is a ratio of GLOBAL maxima and peak_clearance
+            # describes the global argmax -- so an interior dominant entry with
+            # a near-equal exterior secondary reads completely clean.  Carried
+            # as its own scalar so the wrapper can band it.
+            _ext = ~((klo_e > 0.0) & (khi_e > 0.0))
+            pk_ext.append(float(val.ravel()[_ext].max()) if _ext.any()
+                          else -np.inf)
+        return (np.array(amps), np.array(amps_unclipped),
+                np.array(pk_A), np.array(pk_B), np.array(pk_ep),
+                np.array(pk_ext), C_A, C_B)
 
     def _draw(n, rng):
         ra = rng.uniform(0.0, 2.0 * np.pi, n)
@@ -425,13 +609,25 @@ def estimate_angle_amplitude(data, x_grid, interp=JAX_INTERP_DEFAULT,
         dec = np.concatenate([dec, g_dec.ravel()])
         incl = np.concatenate([incl, np.full(g_ra.size, i0_)])
 
-    amps, C_A, C_B = _per_sky_amps(ra, dec, incl)
+    (amps, amps_u, pk_A, pk_B, pk_ep, pk_ext,
+     C_A, C_B) = _per_sky_amps(ra, dec, incl)
+    # Concatenated across sky BATCHES, in the same idiom the two maxima use:
+    # the near-boundary diagnostic is formed after the loop, so it must see the
+    # re-drawn batches too or it reads a first batch that a later one displaced.
+    amps_cat, pk_A_cat, pk_B_cat = amps, pk_A, pk_B
+    pk_ep_cat, pk_ext_cat = pk_ep, pk_ext
     # split-half convergence check (mechanism 2 of the docstring): compare
     # the max WITHOUT the second half of the random draws against the max
     # with them; growth > 20% means the sky variation is under-sampled, so
     # draw again (at most twice) and say so.
     half = np.concatenate([amps[: n_sky // 2], amps[n_sky:]])   # + extremes
     amp_emp = float(amps.max())
+    # Accumulated in the SAME idiom as amp_emp, and adjacently: dropping the
+    # unclipped update in the re-draw loop below takes clip_excess below 1 and
+    # disarms the F1 exteriority refusal, with no observable difference on any
+    # fixture.  DESIGN_jax_distance_quadrature.md section 5(c);
+    # test_sky_doubling_updates_the_unclipped_maximum_too pins it at the source.
+    amp_u_emp = float(amps_u.max()) if len(amps_u) else 0.0
     amp_ref = float(half.max())
     grows = amp_emp > 1.2 * amp_ref + 1e-12
     n_extra = 0
@@ -439,11 +635,18 @@ def estimate_angle_amplitude(data, x_grid, interp=JAX_INTERP_DEFAULT,
         print("estimate_angle_amplitude: sky maximum still growing "
               "(%.4g -> %.4g); doubling the sample." % (amp_ref, amp_emp))
         ra2, dec2, incl2 = _draw(n_sky, rng)
-        amps2, _, _ = _per_sky_amps(ra2, dec2, incl2)
+        (amps2, amps_u2, pk_A2, pk_B2, pk_ep2, pk_ext2,
+         _, _) = _per_sky_amps(ra2, dec2, incl2)
         amp_ref = amp_emp
         amp_emp = max(amp_emp, float(amps2.max()))
+        amp_u_emp = max(amp_u_emp, float(amps_u2.max()))
         grows = amp_emp > 1.2 * amp_ref + 1e-12
         n_extra += n_sky
+        amps_cat = np.concatenate([amps_cat, amps2])
+        pk_A_cat = np.concatenate([pk_A_cat, pk_A2])
+        pk_B_cat = np.concatenate([pk_B_cat, pk_B2])
+        pk_ep_cat = np.concatenate([pk_ep_cat, pk_ep2])
+        pk_ext_cat = np.concatenate([pk_ext_cat, pk_ext2])
 
     # analytic cross-check (mechanism documented above; heuristic direction)
     w = np.ones(C_A.shape[0])
@@ -459,7 +662,85 @@ def estimate_angle_amplitude(data, x_grid, interp=JAX_INTERP_DEFAULT,
               "BELOW the empirical max %.6g (the review-flagged heuristic "
               "direction); the empirical value governs." % (amp_analytic,
                                                             amp_emp))
+    if return_diagnostics:
+        amp_unclipped = amp_u_emp
+        # NEAR-BOUNDARY diagnostic, for the log-uniform distance grid's OTHER
+        # precondition: clip_excess sees a maximizer that has left the support,
+        # but the spacing law is a statement about an effectively UNTRUNCATED
+        # Gaussian, and a peak that is interior yet only ~1 width inside an edge
+        # breaks it while clip_excess reads exactly 1.  Reduced here to one
+        # scalar the wrapper turns into an error with its own spacing:
+        # max over the loud sky points of rho^2 * (bell(k_lo) + bell(k_hi)),
+        # which is the Euler-Maclaurin endpoint term stripped of the grid factor
+        # (core.loguniform_endpoint_error puts it back).  BOTH edges, summed:
+        # they are separate corrections and a narrow support has both.
+        #
+        # WHAT IS AND IS NOT COVERED.  EVERY reconstructed (phi, psi, time)
+        # entry of every sky point within ENDPOINT_GUARD_BAND of the maximum --
+        # not just each point's dominant configuration.  An earlier revision
+        # kept only the per-sky argmax, so a sky direction with a far-interior
+        # maximum and a near-equal secondary entry one width from an edge
+        # scored ~0 while the secondary carried the full endpoint error;
+        # measured under-read up to 7562x (external review, P1).  The per-entry
+        # max is formed inside _per_sky_amps and reduced to one scalar per sky
+        # there, so the per-entry arrays never leave that loop.  The band is
+        # still on the sky point, which makes this conservative: it covers
+        # entries a per-entry band would drop, and the rho^2 factor self-limits
+        # them.  The band is a threshold on the CLIPPED value, never on
+        # A^2/(2B): the A < 0 mirror is exactly degenerate under an
+        # unconstrained ranking and survives such a cut (trap in
+        # _per_sky_amps).
+        # The band is a threshold on the CLIPPED value, never on A^2/(2B): the
+        # A < 0 mirror is exactly degenerate under an unconstrained ranking and
+        # survives such a cut, which is the trap recorded in _per_sky_amps.
+        keep = amps_cat >= amp_emp - ENDPOINT_GUARD_BAND
+        rho_pk, k_lo, k_hi = _peak_clearance(pk_A_cat, pk_B_cat, x_min, x_max)
+        endpoint_scale = (float(np.where(keep, pk_ep_cat, 0.0).max())
+                          if pk_ep_cat.size else 0.0)
+        _ext_best = (float(np.max(pk_ext_cat)) if pk_ext_cat.size
+                     and np.isfinite(pk_ext_cat).any() else -np.inf)
+        i_dom = int(np.argmax(amps_cat)) if amps_cat.size else 0
+        return margin * amp_emp, dict(
+            amp_clipped=float(amp_emp),
+            amp_unclipped=amp_unclipped,
+            # the Euler-Maclaurin endpoint term, grid-independent half
+            endpoint_scale=endpoint_scale,
+            # nats by which the loudest EXTERIOR entry sits BELOW the global
+            # maximum.  inf when there is none.  Small means a boundary-layer
+            # configuration is contributing materially while every other
+            # diagnostic here reads clean -- see the wrapper's refusal.
+            exterior_gap=(float(amp_emp - _ext_best)
+                          if np.isfinite(_ext_best) else float("inf")),
+            # the globally dominant peak itself, reported so a refusal can name
+            # a number the caller can act on (and so a test can BUILD a support
+            # with a chosen clearance rather than hunt for one)
+            peak_x=(float(pk_A_cat[i_dom] / max(pk_B_cat[i_dom], 1e-300))
+                    if amps_cat.size else 0.0),
+            peak_rho=float(rho_pk[i_dom]) if rho_pk.size else 0.0,
+            peak_clearance=float(min(k_lo[i_dom], k_hi[i_dom]))
+                           if rho_pk.size else 0.0,
+            # > 1 means the exponent's maximizing distance x* = A/B lies
+            # OUTSIDE [x_min, x_max] for the dominant angles, i.e. the
+            # distance posterior rails against a prior edge.  See
+            # DESIGN_jax_distance_quadrature.md section 1a.
+            clip_excess=(amp_unclipped / amp_emp) if amp_emp > 0.0
+                        else (float("inf") if amp_unclipped > 0.0 else 1.0),
+            x_min=x_min, x_max=x_max)
     return margin * amp_emp
+
+
+AMP_FAILSAFE_TRIP_FACTOR = 2.0
+# The multiple of amp_sizing at which _runtime_amp_failsafe speaks up, and
+# therefore the largest amplitude a run may reach while remaining UNLABELLED.
+# It is a named constant because a second consumer now sizes from it: the
+# log-uniform distance grid resolves peaks up to
+# rho = sqrt(2 * TRIP * amp_sizing), so that every call the guard admits in
+# silence is one the distance spacing already covers.  Sizing that grid from
+# amp_sizing itself (as an earlier draft did) leaves a factor sqrt(TRIP) in SNR
+# -- and hence, through the Gaussian alias law, a tol -> sqrt(2*tol) hole --
+# open BELOW the trigger, where nothing is printed and nothing is recorded.
+# Raise this and the distance grid follows automatically; that coupling is the
+# point of the constant.
 
 
 _AMP_FAILSAFE = {"tripped": False, "n_calls": 0, "worst_amp": 0.0,
@@ -537,20 +818,19 @@ def _runtime_amp_failsafe(C_A, C_B, x_grid, amp_sizing, scheme_name):
     amp_call = jnp.max(jnp.clip(
         x_hat * M_A - 0.5 * jnp.square(x_hat) * B0, 0.0, None))
     amp_call = jax.lax.stop_gradient(amp_call)
-    # FAIL CLOSED.  A warning printed from inside jit does not stop anything:
-    # a production run would finish and publish biased likelihoods, samples and
-    # evidence while the "fail-safe" scrolled past in a log.  So in addition to
-    # the message we return a POISON term the caller ADDS to its result, making
-    # the output non-finite.  A NaN lnL cannot be silently consumed -- samplers
-    # reject or abort on it -- whereas an under-resolved finite number is
-    # indistinguishable from a good one.  Kept under stop_gradient so the check
-    # never enters the AD graph.
+    # The hazard this check answers: a warning printed from inside jit does not stop
+    # anything, so a production run could finish and publish biased likelihoods, samples
+    # and evidence while the "fail-safe" scrolled past in a log.  The recourse chosen is
+    # a HOST-RECORDED LABEL, not a poisoned value -- see the block below, which gives the
+    # reasoning and the two rejected alternatives.  This function returns None; it alters
+    # no value.  Everything is under stop_gradient so the check never enters the AD graph.
     jax.lax.cond(
-        amp_call > 2.0 * amp_sizing,
+        amp_call > AMP_FAILSAFE_TRIP_FACTOR * amp_sizing,
         lambda a_: jax.debug.print(
             "WARNING anglemarg/" + scheme_name + ": this call's coefficient "
             "tables reach an amplitude scale ~{a:.4g} (analytic over-reading "
-            "expression), above 2x the amp_sizing=" + "%.4g" % amp_sizing
+            "expression), above "
+            + "%gx the amp_sizing=%.4g" % (AMP_FAILSAFE_TRIP_FACTOR, amp_sizing)
             + " the dense (phi,psi) grids were built for.  "
             "estimate_angle_amplitude underestimated the sky maximum; the "
             "marginal may be under-resolved at such points.  Rebuild the "
@@ -588,7 +868,7 @@ def _runtime_amp_failsafe(C_A, C_B, x_grid, amp_sizing, scheme_name):
     # call jax.effects_barrier() before reading or resetting the state, and must
     # not treat a clean read as proof of adequacy.
     jax.lax.cond(
-        amp_call > 2.0 * amp_sizing,
+        amp_call > AMP_FAILSAFE_TRIP_FACTOR * amp_sizing,
         lambda a_: jax.debug.callback(
             _record_amp_failsafe, True, a_,
             jnp.asarray(amp_sizing, dtype=jnp.float64), scheme_name),
@@ -1092,6 +1372,109 @@ def _laplace_psi_lnI_block(a, c1, c2):
     return jax.lax.switch(idx, branches, None)
 
 
+# ---------------------------------------------------------------------------
+# psi-marginal node placement for the adaptive distance quadrature
+# (JAX_ILE_DISTMARG_GH on the laplace path)
+#
+# core._distmarg_gh_logL places its frozen nodes at clip(K/R) +- 7/sqrt(R) for a
+# FIXED psi.  On this path psi has already been integrated out analytically, so
+# the nodes have to bracket the psi-MARGINAL distance integrand
+#     I(x) = (1/pi) int dpsi exp(x A(u) - x^2/2 B(u)),  u = 2 psi,
+# a mixture over u of Gaussians of centre x*(u) = A(u)/B(u) and width
+# 1/sqrt(B(u)).  Two facts make a closed-form bracket sufficient:
+#
+#   * every component is NARROWER than sigma = 1/sqrt(R_lo) with
+#     R_lo = B0 - |B1| - |B2| <= min_u B, so 7 sigma past the extreme
+#     component centre covers the mixture to the same 1e-11 the fixed-psi
+#     rule covers its single Gaussian;
+#   * the component centres that carry weight span a BOUNDED number of sigma.
+#
+# Both were measured on the ladder-2 injection (35+30 Msun, H1/L1/V1, SEOBNRv4,
+# l_max = 2 -> lms {(2,-2),(2,2)}), at the sky points the campaign's own
+# posterior occupies, over 235,776 (dense-phi, sample, time) bins per rung:
+#
+#   rho    W = sqrt(min_u B/R_lo)   C = |x*(u_cf)-x*(u_exact)|/sigma   S span/sigma
+#   40.77  median 1.0000 max 1.0000  median 0.0014 p99 0.636 max 0.689  p99 3.899 max 4.085
+#   163.1  median 1.0000 max 1.0000  median 0.0090 p99 0.097 max 0.112  p99 0.863 max 0.887
+#
+# with R_lo <= 0 at 0.0000% of ALL bins at both rungs.  W == 1 is an IDENTITY,
+# not a lucky bound: the spin-2 response F(psi) ~ e^{-2 i psi} puts the kappa
+# term at exactly one u-harmonic and the rho^2 term at exactly harmonics 0 and
+# 2, so A0 and B1 vanish for EVERY mode set -- measured |A0|/|A1| ~ 7e-17 and
+# |B1|/|B0| ~ 6e-16 on real IMRPhenomXHM data at m_max = 2, 3 AND 4, and on
+# synthetic data with random U/V.  Hence B(u) = B0 + Re(B2 e^{2iu}) and
+# R_lo = B0 - |B2| IS min_u B.  The m_max gate below is therefore CONSERVATIVE
+# rather than load-bearing for the width; it stands because the half-span
+# constant was measured on (2,+-2) fixtures and the higher-mode verdict is
+# owned by another session.
+#
+# CENTRING.  A0 == 0 makes A(u) a pure first harmonic, so the u that maximises
+# A is closed form; but the u that maximises the DISTANCE-maximum exponent
+# A(u)^2/(2 B(u)) is what the bracket must sit on, and the two part company as
+# |B2|/B0 grows.  With A0 = B1 = 0 the stationary condition 2 A' B = A B'
+# reduces, in z = e^{iu}, to
+#     z^2 (B0 A1 - conj(A1) B2) = conj(B0 A1 - conj(A1) B2)
+# so with w = B0*A1 - conj(A1)*B2 the maximiser is EXACTLY
+#     e^{i u*} = +- conj(w)/|w|            (sign chosen so A(u*) > 0)
+# -- closed form, angle-free, and equal to conj(A1)/|A1| when B2 = 0.  (B has
+# only even u-harmonics, so E(u) = E(u+pi) and the two roots of z^2 are the
+# same maximum; the other two stationary points are the A = 0 minima, divided
+# out.)  Checked against a 400,001-point brute-force argmax on 20,000 random
+# (A1, B0, B2) with |B2|/B0 up to 0.99999: the brute force never beats it by
+# more than 6.5e-16 relative.  Using argmax A instead costs nothing on the
+# ladder (the two centres differ by 0.64 sigma at rho 40.77, 0.10 at 163.08)
+# but is catastrophic elsewhere in the family -- see below.
+#
+# HALF-SPAN.  Because A0 = B1 = 0 hold for ANY mode set, the whole problem
+# reduces after scaling to three numbers -- rho = |A1|/sqrt(B0), r = |B2|/B0,
+# and the relative phase -- so the bracket can be scanned EXHAUSTIVELY instead
+# of sampled on a fixture.  Over 57,082 well-resolved points of that family
+# (r up to 0.999, rho 1..1500, 61 phases, v grid 262144, weight threshold 100
+# nats), the one-sided reach that the half-span must cover is
+#     centre = argmax A            : p50 8.1   p99 2701   MAX 7172   sigma
+#     centre = argmax A^2/(2B)     : p50 3.5   p99 13.1   MAX 14.14  sigma
+# and the 14.14 = sqrt(2 * 100 nats) bound is attained in the weak-signal
+# corner where the 100-nat window is the whole circle.  Hence 7 + 14.14 -> 22.
+# On the ladder-2 injection itself the requirement is far smaller (7 + 3.46 =
+# 10.5 sigma at rho 40.77, 7.8 at 163.08, 11.5 at 652), so the shipped span is
+# ~2x what the operating point needs.  ("Weight-carrying" = within 100 nats of
+# the bin's own maximum over u of the clipped exponent; psi below that
+# contribute < e^-100, and an under-reaching bracket can only UNDER-estimate
+# them, never inflate them, the trapezoid being exponentially accurate at this
+# spacing.)
+_GH_PSI_HALF_SIGMA = 22.0     # node half-span, in units of sigma = 1/sqrt(R_lo)
+_GH_PSI_MIN_NODES = 49        # floor: 44 sigma / 48 gaps = 0.92 sigma spacing,
+                              # trapezoid aliasing on a Gaussian ~ 2e^-2pi^2/h^2
+                              # = 2e-10 -- below the f64 noise of the result
+_GH_PSI_M_MAX = 2             # mode content the path is SHIPPED for.  The
+                              # A0 == B1 == 0 identity itself is structural and
+                              # measured through m_max = 4, but the higher-mode
+                              # verdict is owned elsewhere; keyed on mode
+                              # content the way angle_sample_grid_sizes is.
+
+
+def _gh_psi_node_offsets(n_nodes):
+    """Node offsets ``(z, z_prev, z_next, n)`` for the psi-marginal bracket.
+
+    ``z`` spans +-``_GH_PSI_HALF_SIGMA`` instead of the fixed-psi rule's +-7,
+    and the count is raised in proportion so the NODE DENSITY the caller asked
+    for through JAX_ILE_DISTMARG_GH is preserved rather than diluted by the
+    wider bracket (floored at ``_GH_PSI_MIN_NODES``).
+
+    ``z_prev``/``z_next`` are ``z`` with the INDEX clamped at the ends.  The
+    composite-trapezoid weight of node k is then 0.5*(x[k+1] - x[k-1]) with the
+    same end convention as :func:`core._distmarg_gh_logL`'s
+    ``diff``-and-concatenate form -- identical weights, but computable one
+    block at a time, so the distance axis stays scanned and memory stays
+    bounded by ``dist_block``.
+    """
+    n = max(int(_GH_PSI_MIN_NODES),
+            1 + int(np.ceil((int(n_nodes) - 1) * _GH_PSI_HALF_SIGMA / 7.0)))
+    z = np.linspace(-_GH_PSI_HALF_SIGMA, _GH_PSI_HALF_SIGMA, n)
+    idx = np.arange(n)
+    return (z, z[np.maximum(idx - 1, 0)], z[np.minimum(idx + 1, n - 1)], n)
+
+
 def fused_log_likelihood_distphipsimarg_laplace(
         data, ra, dec, incl, x_grid, log_w_grid,
         interp=JAX_INTERP_DEFAULT, amp_sizing=None,
@@ -1111,19 +1494,50 @@ def fused_log_likelihood_distphipsimarg_laplace(
 
     so no additional likelihood evaluations are needed.  Cost scales ~sqrt(A)
     (the dense phi axis) instead of ~A; the Laplace error is O(1/A) and
-    SHRINKS with SNR.  The adaptive distance quadrature
-    (JAX_ILE_DISTMARG_GH) is NOT supported on this path -- it would need a
-    psi-marginal node-placement rule this PR does not validate -- and raises
-    rather than being silently ignored.
+    SHRINKS with SNR.
+
+    The adaptive distance quadrature (JAX_ILE_DISTMARG_GH) is honoured for
+    ``m_max <= _GH_PSI_M_MAX`` via the psi-marginal node placement documented
+    above ``_gh_psi_node_offsets``; ``x_grid``/``log_w_grid`` then only supply
+    the support [x_min, x_max] and the prior normalization, exactly as on the
+    exact path.  Richer mode content still RAISES rather than being silently
+    accepted: the placement rests on an A0 == B1 == 0 identity that is
+    established for (2,+-2) only.
+
+    Two DIFFERENT axes, and conflating them has already misled a reader.  The
+    paragraph above is about the PER-SAMPLE adaptive quadrature.  The STATIC
+    distance grid is separate and is not restricted here at all:
+    ``--distance-grid-scheme loguniform`` is supported and gated on this path,
+    and needs no node-placement rule because it locates no peak -- one relative
+    spacing resolves every per-sample peak wherever it sits.  See
+    DESIGN_jax_distance_quadrature.md.  The two cannot be combined: with
+    JAX_ILE_DISTMARG_GH set the per-sample quadrature consumes only the SUPPORT
+    of ``x_grid``, so the log-uniform option would be bit-identically inert and
+    is refused rather than silently ignored.
 
     Memory is bounded by ``phi_chunk`` x ``dist_block``, never by grid sizes.
     """
+    # RESPONSE-MODEL PRECONDITION, before anything is built.  This function is
+    # public (__all__) and is called directly by the wrapper and by several test
+    # modules, so a wrapper-only gate leaves a live bypass: a direct call with a
+    # banded response and m_max <= 2 would execute the unsupported placement
+    # while the wrapper correctly refused it.  `feature` is a plain Python
+    # attribute -- static and trace-safe -- so unlike the numerical A0/B1
+    # measurement (which needs concrete tables and therefore stays in the
+    # wrapper) it costs nothing, and checking it here also avoids paying for a
+    # coefficient-table build that is about to be rejected.
     if _core._DISTMARG_GH_N > 0:
-        raise ValueError(
-            "JAX_ILE_DISTMARG_GH is set, but the 'laplace' angle-marg scheme "
-            "does not support the adaptive distance quadrature (its node "
-            "placement is defined per fixed-psi exponent).  Use "
-            "--angle-marg-scheme exact, or unset JAX_ILE_DISTMARG_GH.")
+        _feature = getattr(data, "feature", None)
+        if _feature not in _GH_PSI_STATIC_FEATURES:
+            raise ValueError(
+                "JAX_ILE_DISTMARG_GH is set, but the 'laplace' angle-marg "
+                "scheme's psi-marginal distance-node placement requires the "
+                "static detector response: it is DERIVED from A0 == 0 and "
+                "B1 == 0, which follow from F+(psi) + i Fx(psi) = "
+                "(F+(0) + i Fx(0)) e^{-2i psi}.  This data has feature=%r, "
+                "which does not have that factorization.  Use "
+                "--angle-marg-scheme exact, or unset JAX_ILE_DISTMARG_GH."
+                % (_feature,))
     x_grid = jnp.asarray(x_grid, dtype=jnp.float64)
     log_w_grid = jnp.asarray(log_w_grid, dtype=jnp.float64)
     C_A, C_B, meta = angle_coefficient_tables(data, ra, dec, incl, interp)
@@ -1131,7 +1545,26 @@ def fused_log_likelihood_distphipsimarg_laplace(
     S = ra.shape[0]
     npts = data.npts
 
+    _use_gh = _core._DISTMARG_GH_N > 0
+    # This runs under jit/grad, where C_A and C_B are TRACERS, so the identity
+    # cannot be measured here -- it is a property of the DATA and is enforced
+    # once, on concrete tables, by JAXDistPhiPsiMargLikelihood (which gates
+    # EVERY scheme, not just 'auto').  A caller invoking this kernel directly
+    # under GH is responsible for calling gh_laplace_supported itself; the
+    # m_max test below is the only check available at trace time.
+    if _use_gh and int(m_max) > _GH_PSI_M_MAX:
+        raise ValueError(
+            "JAX_ILE_DISTMARG_GH is set and the 'laplace' angle-marg scheme's "
+            "psi-marginal distance-node placement is validated for mode "
+            "content m_max <= %d only (it rests on the A0 == 0 / B1 == 0 "
+            "identity); this data has m_max = %d.  Use --angle-marg-scheme "
+            "exact, or unset JAX_ILE_DISTMARG_GH."
+            % (_GH_PSI_M_MAX, int(m_max)))
+
     amp_sizing = _require_amp_sizing(amp_sizing)
+    # x_grid is still the right argument under GH: the adaptive nodes are
+    # CLIPPED into [min x_grid, max x_grid], so the amplitude bound the
+    # failsafe computes over x_grid bounds the nodes actually used.
     _runtime_amp_failsafe(C_A, C_B, x_grid, amp_sizing, "laplace")
     nphi_d, _ = _dense_grid_sizes(amp_sizing, m_max=m_max)
     phi_d = np.linspace(0.0, 2.0 * np.pi, nphi_d, endpoint=False)
@@ -1165,25 +1598,42 @@ def fused_log_likelihood_distphipsimarg_laplace(
     xg_blk = x_pad.reshape(n_dblk, blk)
     lwg_blk = lw_pad.reshape(n_dblk, blk)
 
+    if _use_gh:
+        # Adaptive nodes replace the static grid entirely; x_grid survives only
+        # as the physical support and the (dref-independent) prior norm C0, the
+        # same two roles it plays inside core._distmarg_gh_logL.
+        x_min = jnp.min(x_grid)
+        x_max = jnp.max(x_grid)
+        gh_C0 = jnp.log(3.0) - jnp.log(jnp.min(x_grid) ** (-3.0)
+                                       - jnp.max(x_grid) ** (-3.0))
+        z_np, zp_np, zn_np, n_gh = _gh_psi_node_offsets(_core._DISTMARG_GH_N)
+        n_zblk = (n_gh + blk - 1) // blk
+        pad_z = n_zblk * blk - n_gh
+        pad_lw = np.zeros(n_gh)
+        if pad_z:
+            z_np = np.pad(z_np, (0, pad_z), mode="edge")
+            zp_np = np.pad(zp_np, (0, pad_z), mode="edge")
+            zn_np = np.pad(zn_np, (0, pad_z), mode="edge")
+            pad_lw = np.pad(pad_lw, (0, pad_z), constant_values=-np.inf)
+        zg_blk = jnp.asarray(z_np.reshape(n_zblk, blk), jnp.float64)
+        zpg_blk = jnp.asarray(zp_np.reshape(n_zblk, blk), jnp.float64)
+        zng_blk = jnp.asarray(zn_np.reshape(n_zblk, blk), jnp.float64)
+        zpad_blk = jnp.asarray(pad_lw.reshape(n_zblk, blk), jnp.float64)
+        # Never let the bracket exceed the physical support: as R_lo -> 0 (a
+        # bin with no response at all, where the exponent is flat in x) sigma
+        # would otherwise blow up and every node would clip onto one of the two
+        # rails.  Capped, such a bin degrades to a uniform-in-x tiling of the
+        # support instead of a 2-point one.  Inactive by ~3 orders of magnitude
+        # wherever the data carry signal (test_angle_marg_gh_laplace.py pins it).
+        gh_sigma_cap = (x_max - x_min) / (2.0 * _GH_PSI_HALF_SIGMA)
+
     def _step(carry, x):
         m, s = carry
         phw, lww = x                                          # (c,)
-        EA = jnp.exp(1j * phw[:, None] * kpA[None, :]) * wA[None, :]  # (c,KPA)
-        EB = jnp.exp(1j * phw[:, None] * kpB[None, :]) * wB[None, :]
-
-        def MA(ks_idx):
-            return jnp.einsum("ck,kst->cst", EA, C_A[:, ks_idx])
-
-        def MB(ks_idx):
-            return jnp.einsum("ck,kst->cst", EB, C_B[:, ks_idx])
-
-        # psi-Fourier coefficient FIELDS at the dense phi points (c,S,npts):
-        # A(u) = A0 + Re(A1 e^{iu});  B(u) = B0 + Re(B1 e^{iu}) + Re(B2 e^{2iu})
-        A0 = MA(1).real                       # ks index 1 == ks 0
-        A1 = MA(2) + jnp.conj(MA(0))          # ks +1 plus conj(ks -1)
-        B0 = MB(2).real
-        B1 = MB(3) + jnp.conj(MB(1))
-        B2 = MB(4) + jnp.conj(MB(0))
+        # psi-Fourier coefficient FIELDS at the dense phi points (c,S,npts).
+        # Shared with gh_laplace_supported so the identity that predicate
+        # measures IS the one this placement depends on.
+        A0, A1, B0, B1, B2 = psi_harmonics_at_phi(C_A, C_B, phw, m_max)
 
         # distance quadrature: blocked, vectorized over the block (AD-fast),
         # running log-sum-exp across blocks (a lax.scan; see the packing note
@@ -1198,6 +1648,63 @@ def fused_log_likelihood_distphipsimarg_laplace(
             c2 = -0.5 * jnp.square(xg) * B2[None]
             e = _laplace_psi_lnI_block(av, c1, c2) + lwg        # (g,c,S,npts)
             return _lse_update(mx, sx, e, axis=0), None
+
+        if _use_gh:
+            # ---- psi-marginal adaptive node placement, all FROZEN ----------
+            # Centre on the psi that maximises the (unclipped) distance-maximum
+            # exponent A(u)^2/(2 B(u)) -- available in CLOSED FORM here, see
+            # the derivation above _gh_psi_node_offsets:
+            #     e^{i u*} = +- conj(w)/|w|,  w = B0*A1 - conj(A1)*B2
+            # with the sign picking the branch where A(u*) > 0 (x must be
+            # positive).  Angle-free, so arg(0) never appears and w = 0 is a
+            # regular point; reduces to conj(A1)/|A1| -- the maximiser of A
+            # itself -- when B2 = 0.
+            w_st = B0 * A1 - jnp.conj(A1) * B2
+            ph1 = jnp.conj(w_st) / jnp.maximum(jnp.abs(w_st), 1e-300)
+            sgn = jnp.where((A1 * ph1).real >= 0, 1.0, -1.0)
+            ph1 = ph1 * sgn                                    # e^{i u*}
+            A_st = A0 + (A1 * ph1).real                        # A(u*)
+            B_st = B0 + (B1 * ph1).real + (B2 * ph1 * ph1).real
+            R_lo = B0 - jnp.abs(B1) - jnp.abs(B2)              # <= min_u B
+            gh_center = jax.lax.stop_gradient(
+                jnp.clip(A_st / jnp.maximum(B_st, 1e-30), x_min, x_max))
+            gh_sigma = jax.lax.stop_gradient(
+                jnp.minimum(1.0 / jnp.sqrt(jnp.maximum(R_lo, 1e-30)),
+                            gh_sigma_cap))
+
+            def _gh_dist_step(carry, zw):
+                mx, sx = carry
+                zb, zpb, znb, zpadb = zw                       # (blk,)
+
+                def _node(zz):
+                    return jnp.clip(
+                        gh_center[None] + gh_sigma[None] * zz[:, None, None, None],
+                        x_min, x_max)
+
+                xg = _node(zb)                                 # (g,c,S,npts)
+                # composite-trapezoid weight, index-clamped at both ends:
+                # identical to core._distmarg_gh_logL's diff/concatenate form.
+                w = 0.5 * (_node(znb) - _node(zpb))
+                pos = w > 0                                    # live (unclipped)
+                lwg = jnp.where(pos, jnp.log(jnp.where(pos, w, 1.0))
+                                - 4.0 * jnp.log(xg), -jnp.inf)
+                lwg = lwg + zpadb[:, None, None, None]         # -inf on pad slots
+                av = xg * A0[None] - 0.5 * jnp.square(xg) * B0[None]
+                c1 = xg * A1[None] - 0.5 * jnp.square(xg) * B1[None]
+                c2 = -0.5 * jnp.square(xg) * B2[None]
+                e = _laplace_psi_lnI_block(av, c1, c2) + lwg
+                return _lse_update(mx, sx, e, axis=0), None
+
+            mx0 = jnp.full((c, S, npts), -jnp.inf, dtype=jnp.float64)
+            sx0 = jnp.zeros((c, S, npts), dtype=jnp.float64)
+            (mx, sx), _ = jax.lax.scan(
+                _gh_dist_step, (mx0, sx0),
+                (zg_blk, zpg_blk, zng_blk, zpad_blk))
+            lnI = (mx + jnp.where(sx > 0, jnp.log(jnp.maximum(sx, 1e-300)),
+                                  -jnp.inf)
+                   + gh_C0 + lww[:, None, None])               # (c,S,npts)
+            m_new, s_new = _lse_update(m, s, lnI, axis=0)
+            return (m_new, s_new), None
 
         mx0 = jnp.full((c, S, npts), -jnp.inf, dtype=jnp.float64)
         sx0 = jnp.zeros((c, S, npts), dtype=jnp.float64)
@@ -1216,7 +1723,250 @@ def fused_log_likelihood_distphipsimarg_laplace(
     return _time_marginalize_terminal(lnL_t, data, time_quadrature)
 
 
-def choose_angle_marg_scheme(amplitude, gh_enabled=None):
+# Relative size at which A0 / B1 count as nonzero.  The identity the psi-marginal
+# node placement rests on (A0 == 0, B1 == 0, so R_lo = B0 - |B2| IS min_u B) is a
+# property of the SPIN-2 detector response, not of the source, and is measured at
+# ~1e-16 relative on every non-precessing mode set tried through m_max = 4.  It is
+# NOT measured under precession.
+#
+# WHY 1e-8, and what is NOT claimed for it.  The identity is a STRUCTURAL
+# precondition, not a numerical one: the closed-form psi maximiser below is
+# DERIVED from A0 == 0 and B1 == 0 (that is what reduces stationarity to
+# z^2 w = conj(w)).  So the tolerance's job is to separate "numerically zero"
+# from "structurally nonzero", not to bound an error.  Observed values are
+# ~1e-16 relative on every mode set tried, and the mutation sweep in
+# test_angle_marg_gh_selection.py shows planted harmonics at 1e-3 are caught,
+# so 1e-8 sits ~8 orders above the noise and ~5 below the smallest breach the
+# tests exercise.
+#
+# An earlier revision of this comment also claimed 1e-8 was "~8 orders below a
+# value that would move the bracket".  That was never measured and is removed
+# rather than left standing: an attempt to measure it produced a centre error
+# FLAT at ~2 sigma across six decades of planted A0/B1, including where the
+# identity holds -- a hand-rolled reimplementation of the maximiser failing its
+# own flatness check, not a property of the code.  If the upper end is ever
+# wanted, measure it through the shipped kernel, not a re-derivation.
+#
+# Values are not bit-portable: they come through BLAS-heavy reconstruction in
+# angle_coefficient_tables, so anything pinned off them needs a RELATIVE
+# tolerance.  This comparison is already relative and one-sided.
+GH_PSI_IDENTITY_TOL = 1e-8
+
+# The response models for which A0 == 0 / B1 == 0 hold at EVERY extrinsic point.
+# This is the angle-independent half of the gate and it is the actual guarantee:
+# the static path builds F = F+ + i Fx through compute_detamresponse (LAL's
+# ComputeDetAMResponse), where the polarization enters as an exact rotation,
+#     F+(psi) + i Fx(psi) = (F+(0) + i Fx(0)) e^{-2 i psi},
+# a SINGLE u-harmonic (u = 2 psi).  kappa is linear in F and rho^2 quadratic, so
+# A carries only u-harmonics +-1 and B only {0, +-2}, for every (ra, dec, incl).
+# The banded features do not use that response -- "freqresponse" and "rotation"
+# build their coefficients from the arm vectors and a time-varying orientation --
+# so the factorization, and with it the identity, is not guaranteed there.
+#
+# READ THE ALLOWLIST POSITIVELY, because the negative phrasing inverts: the ONLY
+# admitted value is the static response, which is the ABSENCE of a feature tag
+# (None).  Every named feature -- "rotation", "freqresponse", and anything added
+# later -- is refused.  Fail-closed by construction: a new response model must be
+# added to this tuple deliberately rather than inherit a placement whose premise
+# nobody checked.
+#
+# SCOPE, so this is not over-read: the identity and this gate are about the PSI
+# axis.  Under precession the PHI content of the coefficient tables IS
+# materially redistributed (measured 2026-09-02 on SEOBNRv5PHM: the A phi-slot-0
+# weight moves from 1.1e-16 aligned to 2.9e-2 precessing, while staying
+# band-limited to ~6e-15), and that is a property of the SOURCE, not the
+# detector.  It is not an identity failure and this gate is right to admit it --
+# the psi harmonics are unchanged -- but "the identity holds under precession"
+# must not be read as a statement about the phi axis.
+_GH_PSI_STATIC_FEATURES = (None,)
+
+# Bin denominators are floored at this fraction of their own global maximum, so
+# that response-free bins (numerator and denominator both ~0) are not scored as
+# 0/0 violations.  Small enough that a bin carrying any real response is judged
+# on its own scale.
+_GH_PSI_BIN_FLOOR = 1e-6
+
+
+def psi_harmonics_at_phi(C_A, C_B, phi, m_max):
+    """The psi-Fourier FIELDS (A0, A1, B0, B1, B2) at the given phi points.
+
+    A(u) = A0 + Re(A1 e^{iu});  B(u) = B0 + Re(B1 e^{iu}) + Re(B2 e^{2iu}), u = 2 psi.
+
+    THE ONLY DEFINITION.  Both the laplace kernel and :func:`gh_laplace_supported`
+    call this, so the identity the predicate measures is by construction the one
+    the kernel's node placement depends on.  They were separate once, and the
+    predicate silently measured a DIFFERENT quantity: it read the real part of the
+    coefficient SLICE ``C_A[:, 1]`` rather than of the phi-reconstruction
+    ``MA(1)``, so a purely imaginary coefficient gave a nonzero A0(phi) that the
+    check reported as zero; and it read only ``C_B[:, 3]`` while the field also
+    carries ``conj(C_B[:, 1])``.  Either could pass a dataset whose identity does
+    not hold.  Do not re-derive these five lines anywhere.
+    """
+    phi = jnp.asarray(phi, dtype=jnp.float64)
+    wA = _kp_weights(m_max + 1)
+    wB = _kp_weights(2 * m_max + 1)
+    kpA = jnp.arange(m_max + 1, dtype=jnp.float64)
+    kpB = jnp.arange(2 * m_max + 1, dtype=jnp.float64)
+    EA = jnp.exp(1j * phi[:, None] * kpA[None, :]) * wA[None, :]
+    EB = jnp.exp(1j * phi[:, None] * kpB[None, :]) * wB[None, :]
+    MA = lambda k: jnp.einsum("ck,kst->cst", EA, C_A[:, k])
+    MB = lambda k: jnp.einsum("ck,kst->cst", EB, C_B[:, k])
+    return (MA(1).real,                    # A0   (ks index 1 == ks 0)
+            MA(2) + jnp.conj(MA(0)),       # A1   (ks +1 plus conj(ks -1))
+            MB(2).real,                    # B0
+            MB(3) + jnp.conj(MB(1)),       # B1
+            MB(4) + jnp.conj(MB(0)))       # B2
+
+
+def gh_laplace_supported(C_A, C_B, m_max, feature=None):
+    """May 'laplace' use the per-sample adaptive distance quadrature on THIS data?
+
+    Returns ``(ok, info)``.  Two conditions, both necessary:
+
+    1. ``m_max <= _GH_PSI_M_MAX`` -- what the path is shipped and validated for.
+    2. The A0 == 0 / B1 == 0 identity actually HOLDS on these coefficient
+       tables, MEASURED rather than assumed.
+
+    (2) exists because (1) does not imply it.  m_max is the largest |m| in the
+    mode list, so a PRECESSING l=2 system has m_max = 2 and passes (1) while
+    breaking the aligned-spin symmetry h_{l,-m} = (-1)^l conj(h_lm) that the
+    identity has only ever been tested under.  Every measurement of the identity
+    to date -- IMRPhenomXHM through m_max = 4, and a zero-spin SEOBNRv5PHM run --
+    is non-precessing.  The analytic argument (F+ + i Fx ~ e^{-2i psi} is one
+    psi-harmonic, so A is linear in it and B quadratic, making this a property of
+    the DETECTOR) says it should extend; what has been measured is the CODE's
+    tables, and two non-precessing tests cannot separate those.  So the code
+    CHECKS instead of trusting the argument: cost is O(size of the coefficient
+    tables), once, at build time.
+    """
+    import numpy as _np
+    # Measure the RECONSTRUCTED fields the kernel uses, on a phi grid dense
+    # enough to resolve their phi content (harmonics to 2*m_max), NOT the
+    # coefficient slices -- see psi_harmonics_at_phi's docstring for the two
+    # ways reading slices gave the wrong answer.
+    ok_modes = int(m_max) <= _GH_PSI_M_MAX
+    if not ok_modes:
+        # Return before reconstructing: the tables are SIZED by m_max, so a
+        # mismatched m_max is a shape error rather than a measurement.
+        return False, dict(gh_laplace_ok=False, m_max=int(m_max),
+                           identity_A0_over_A1=None, identity_B1_over_B0=None,
+                           feature=feature,
+                           gh_laplace_reason="mode content m_max=%d above the "
+                                             "validated %d"
+                                             % (int(m_max), _GH_PSI_M_MAX))
+    # ANGLE-INDEPENDENT CONDITION, and the one that actually generalises.  A
+    # numerical check can only ever speak for the angles it was evaluated at,
+    # and the placement runs at arbitrary sampled angles; the response model is
+    # a property of the packed data and holds for all of them.
+    if feature not in _GH_PSI_STATIC_FEATURES:
+        return False, dict(gh_laplace_ok=False, m_max=int(m_max),
+                           identity_A0_over_A1=None, identity_B1_over_B0=None,
+                           feature=feature,
+                           gh_laplace_reason="response model %r does not give "
+                                             "the exact e^{-2i psi} polarization "
+                                             "factorization the A0 == 0 / B1 == 0 "
+                                             "identity rests on" % (feature,))
+    n_phi_probe = max(8 * int(m_max) + 8, 16)
+    phi_probe = _np.linspace(0.0, 2.0 * _np.pi, n_phi_probe, endpoint=False)
+    A0f, A1f, B0f, B1f, B2f = psi_harmonics_at_phi(C_A, C_B, phi_probe, m_max)
+    A0f = _np.abs(_np.asarray(A0f)); A1f = _np.abs(_np.asarray(A1f))
+    B0f = _np.abs(_np.asarray(B0f)); B1f = _np.abs(_np.asarray(B1f))
+    # POINTWISE, not a ratio of global maxima.  The placement uses the centre
+    # and width computed at EACH (phi, sample, time) bin independently, so a
+    # single locally invalid bin is enough to invalidate it there -- and
+    # max|A0| / max|A1| hides exactly that, because a large A1 somewhere else
+    # shrinks the ratio (bins (1e-3, 1) and (0, 1e6) give a passing 1e-9 while
+    # the first violates by 1e-3).  Denominators are floored at a small fraction
+    # of their own global maximum so that bins with no response at all -- where
+    # numerator and denominator are both ~0 and nothing is at stake -- do not
+    # register as 0/0 violations.
+    a_floor = _GH_PSI_BIN_FLOOR * A1f.max() if A1f.size else 0.0
+    b_floor = _GH_PSI_BIN_FLOOR * B0f.max() if B0f.size else 0.0
+    r_A0 = float((A0f / _np.maximum(A1f, a_floor)).max()) if a_floor > 0 else _np.inf
+    r_B1 = float((B1f / _np.maximum(B0f, b_floor)).max()) if b_floor > 0 else _np.inf
+    ok_ident = (r_A0 <= GH_PSI_IDENTITY_TOL) and (r_B1 <= GH_PSI_IDENTITY_TOL)
+    if not ok_ident:
+        reason = ("the A0==0/B1==0 identity does NOT hold pointwise on this data "
+                  "(worst-bin |A0|/|A1|=%.3g, |B1|/B0=%.3g, tol %.0e)"
+                  % (r_A0, r_B1, GH_PSI_IDENTITY_TOL))
+    else:
+        reason = ("m_max=%d, response %r, and the A0==0/B1==0 identity holds at "
+                  "every probed bin" % (int(m_max), feature))
+    return ok_ident, dict(gh_laplace_ok=bool(ok_ident), feature=feature,
+                                         gh_laplace_reason=reason,
+                                         identity_A0_over_A1=r_A0,
+                                         identity_B1_over_B0=r_B1,
+                                         m_max=int(m_max))
+
+
+def fused_log_likelihood_distphipsimarg_peaklocal(
+        data, ra, dec, incl, x_grid, log_w_grid,
+        interp=JAX_INTERP_DEFAULT, amp_sizing=None,
+        time_quadrature=TIME_QUAD_DEFAULT, return_lnLt=False,
+        phi_chunk=None):
+    """Distance-, phi_ref- AND psi-marginalized lnL: PEAK-LOCAL scheme.
+
+    Same contract and normalization as
+    :func:`fused_log_likelihood_distphipsimarg_exact`.  What changes is the psi axis:
+    rather than a dense grid sized ``~sqrt(A)``, the u-stationary points are obtained
+    EXACTLY -- they are the unit-circle roots of a quartic, the u-degree being pinned at
+    2 for any mode set -- the sorted points partition the circle, and each cell is
+    integrated on a window set by its own curvature.  The node count on that axis is
+    therefore INDEPENDENT of amplitude: 4 cells x 48 nodes, against the dense rule's 896
+    at amplitude 1.25e4.
+
+    THE PHI AXIS IS STILL DENSE HERE and is sized by
+    :func:`~RIFT.likelihood.jax_ile.joint_anglemarg_peaklocal.required_n_phi` from the
+    same ``amp_sizing`` the other schemes use.  Localizing phi as well exists as a numpy
+    reference; it is not in this jitted path.  See DESIGN_peak_local_framework.md.
+
+    Measured against ``..._exact``: -3.6e-05, -7.1e-15 and -9.1e-13 nats at kappa boost
+    1, 10 and 100, and the same figure on a CUDA device as on CPU.
+
+    The adaptive distance quadrature (``JAX_ILE_DISTMARG_GH``) is REFUSED rather than
+    silently ignored, for the reason the laplace branch refuses it: this kernel sums the
+    caller's distance grid directly and implements no psi-marginal node placement.
+    """
+    if _core._DISTMARG_GH_N > 0:
+        raise ValueError(
+            "JAX_ILE_DISTMARG_GH is set, but the 'peak-local' angle-marg scheme does "
+            "not implement the adaptive distance quadrature (it sums the caller's "
+            "distance grid directly).  Use --angle-marg-scheme exact, or unset "
+            "JAX_ILE_DISTMARG_GH.")
+    _require_amp_sizing(amp_sizing)
+    from . import joint_anglemarg_peaklocal as _jp
+
+    C_A, C_B, _meta = angle_coefficient_tables(data, ra, dec, incl, interp=interp)
+
+    # THE RUNTIME AMPLITUDE FAILSAFE APPLIES HERE TOO, and omitting it was a review
+    # finding rather than a judgement call.  The u axis is localized and needs no
+    # sizing, but THE PHI AXIS IS STILL DENSE and is sized from `amp_sizing`, which
+    # `estimate_angle_amplitude` is explicit about being an estimator and NOT a proven
+    # bound -- so a hotter sampled sky location can under-resolve phi exactly as it can
+    # for the exact and laplace schemes.  Skipping the check would publish that
+    # silently, and would also leave the artifact without the standing best-effort
+    # label, which is worse than the undersizing itself.
+    _runtime_amp_failsafe(C_A, C_B, x_grid, amp_sizing, "peak-local")
+
+    n_phi = _jp.required_n_phi(amp_sizing, m_max=_data_m_max(data))
+    kw = {} if phi_chunk is None else {"phi_chunk": int(phi_chunk)}
+
+    # tables are (KP, 2KS+1, S, npts); move the batch axes to the front so one nested
+    # vmap covers both and the kernel sees a plain 2-D table per (sample, time).
+    A = jnp.moveaxis(jnp.asarray(C_A), (2, 3), (0, 1))
+    B = jnp.moveaxis(jnp.asarray(C_B), (2, 3), (0, 1))
+
+    def _one(a, b):
+        return _jp.joint_lnL_phi_dense(a, b, x_grid, log_w_grid, n_phi=n_phi, **kw)
+
+    lnL_t = jax.vmap(jax.vmap(_one))(A, B)          # (S, npts)
+    if return_lnLt:
+        return lnL_t
+    return _time_marginalize_terminal(lnL_t, data, time_quadrature)
+
+
+def choose_angle_marg_scheme(amplitude, gh_enabled=None,
+                             gh_laplace_ok=None):
     """Select 'exact' or 'laplace' from a measured amplitude bound.
 
     ``amplitude`` is the DATA-DERIVED bound from
@@ -1245,11 +1995,25 @@ def choose_angle_marg_scheme(amplitude, gh_enabled=None):
                              amplitude=None,
                              crossover=ANGLE_MARG_CROSSOVER_AMPLITUDE)
     amp = float(amplitude)
-    if gh_enabled:
-        return "exact", dict(reason="JAX_ILE_DISTMARG_GH set: laplace does "
-                                    "not support the adaptive distance "
-                                    "quadrature", amplitude=amp,
+    if gh_enabled and not gh_laplace_ok:
+        # 'laplace' CAN use the adaptive distance quadrature now, but only where
+        # gh_laplace_supported() says so.  Selecting it anywhere else would route
+        # 'auto' into the raise inside the laplace kernel, so this branch is
+        # deliberately more conservative than that kernel's own gate: when the
+        # caller does not supply the predicate at all (gh_laplace_ok=None) we
+        # take the safe branch rather than guess.
+        return "exact", dict(reason="JAX_ILE_DISTMARG_GH set and the laplace "
+                                    "psi-marginal node placement is not "
+                                    "available for this data",
+                             amplitude=amp,
                              crossover=ANGLE_MARG_CROSSOVER_AMPLITUDE)
+    # NOTE, and it is a live limitation rather than a subtlety:
+    # ANGLE_MARG_CROSSOVER_AMPLITUDE is an ACCURACY crossover (A=450, rho~30) --
+    # the point above which BOTH schemes are accurate.  The measured COST
+    # crossover is rho ~200-326 (A ~2e4-5e4), an order of magnitude higher, so
+    # between them 'auto' picks the accurate-but-slower scheme.  Re-deriving the
+    # constant from cost as well as accuracy is a separate, measured change; it
+    # is deliberately NOT folded in here.
     scheme = "laplace" if amp >= ANGLE_MARG_CROSSOVER_AMPLITUDE else "exact"
     return scheme, dict(reason="measured amplitude bound %s crossover"
                                % ("above" if scheme == "laplace" else "below"),
