@@ -862,7 +862,7 @@ def plot_corner(sorted_posterior_file_paths, plot_title, iterations = None, para
     title = f"max_lnL={max_lnL:0.2f},points_cut={no_points}" 
 
     # Plotting command begins
-    plotting_command = f"python {corner_plot_exe} --plot-1d-extra --quantiles None --ci-list [0.9] --use-title {title} "
+    plotting_command = f"python {corner_plot_exe} --plot-1d-extra --quantiles None --ci-list [0.9] --use-title {title} --no-special-param-ranges "
 
     if plot_title != "extrinsic" and "Main" in plot_title:
         plotting_command += f"--composite-file {all_net_path} --lnL-cut 15 --sigma-cut 0.4 "
@@ -1198,8 +1198,8 @@ def evaluate_run(run_diagnostics):
             if expected_median - average_lnL > 1.5:
                 f.write(f"\t--> The expected median max lnL ({expected_median:0.2f}) is more than 1.5 above the average sampled max lnL ({average_lnL}). CIP may not be sampling the peak well enough, or there may be interpolation error near the peak.\n")
                 sampling_is_good = False
-            if run_diagnostics.get("run_is_complete") == False:
-                f.write(f"\t--> Since the run is incomplete, this warning can be ignored.\n")
+            	if run_diagnostics.get("run_is_complete") == False:
+                	f.write(f"\t--> Since the run is incomplete, this warning can be ignored.\n")
         except Exception:
             f.write("\tCould not compute the expected median lnL.\n")
 
