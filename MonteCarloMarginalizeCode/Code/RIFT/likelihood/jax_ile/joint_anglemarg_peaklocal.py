@@ -623,23 +623,30 @@ def phi_local_lnI(C, n_seed=PHI_SEEDS, w_sigma=PHI_WINDOW_SIGMA,
     and is not what the table above measures -- and that has not been measured.  Recorded
     as the direction, not as a solution.
 
-    The (2,+-2) tables also make ``F`` pi-PERIODIC, which halves the bound grid -- worth 2x
-    against a shortfall of 80x, real but not the answer.  MEASURED ON THE COMBINED TABLE,
-    because an earlier version of this note had the mechanism wrong.  In ``C``'s own
-    ``(k, q)`` indexing the vanishing set is ``k`` ODD (max ``|C|`` there 5.7e-12 against
-    an overall 1.37e+04), so the exact invariance is
+    The (2,+-2) tables carry an EXACT ORDER-4 SYMMETRY, which reduces the bound grid to a
+    QUARTER domain -- worth 4x against a shortfall of 80x, real but not the answer.
+    Measured on the exponent itself, which is the object this code evaluates, and not on
+    the coefficient table it is built from:
 
-        g(phi + pi, u) = g(phi, u)          relative deviation 2.6e-15
+        S : (phi, u) -> (phi + pi/2, u + pi)      generator, order 4
 
-    and NOT ``g(phi + pi, u + pi)``, which this table does not satisfy at all (relative
-    deviation 1.32).  ``q`` odd is emphatically NOT zero -- 1.35e+04 -- so there is no u
-    half-period.  The earlier note claimed the ``(phi + pi, u + pi)`` form on a parity
-    reported for the RAW ``C_A``/``C_B`` tables in a different index convention; the
-    conclusion survived the error because both forms imply ``F(phi + pi) = F(phi)``, which
-    is verified directly here at 1.4e-12 (rung 1) and 2.2e-11 (rung 3) against 20 for a
-    random control.  THE MULTIPLICITY CONSEQUENCE DOES NOT SURVIVE: a phi half-period alone
-    gives every maximum TWO copies, not four.
-    """
+        rung 1   S^1..S^4 deviations   2.2e-15  2.6e-15  4.0e-15  3.8e-15
+        rung 3                         2.8e-15  2.8e-15  4.6e-15  4.3e-15
+
+    ``S^2 = (phi + pi, u)`` is therefore also exact, which is where the phi half-period
+    comes from; ``(phi, u + pi)`` and ``(phi + pi, u + pi)`` are NOT symmetries (relative
+    deviation 1.32 each), so there is no u half-period on its own.  Every maximum carries
+    exactly FOUR copies and the enumeration confirms it: rung 3's four maxima are ONE orbit
+    of four (one distinct maximum, which is why they are exactly degenerate), and rung 1's
+    eight are TWO orbits of four, matching its two distinct exponent values.
+
+    TWO EARLIER VERSIONS OF THIS NOTE WERE WRONG HERE, in opposite directions, and both
+    times the CONCLUSION that ``F`` is pi-periodic survived: first ``(phi+pi, u+pi)`` with
+    multiplicity four, taken from a coefficient parity measured in another convention; then
+    ``(phi+pi, u)`` with multiplicity two, from testing only the shifts I had thought to
+    list.  The generator was never among them.  Enumerate the group from the maxima's own
+    offsets rather than guessing which shifts to test.
+        """
     prof = lambda p: u_profile(C, p, n_nodes=u_nodes)
     seeds = jnp.linspace(0.0, 2.0 * jnp.pi, n_seed, endpoint=False)
 
