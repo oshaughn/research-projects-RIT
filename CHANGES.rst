@@ -255,6 +255,10 @@ development tree is rift_O4d.
     certify correctness; k-hat does not catch confidently-wrong runs from support mismatch; the L0 'doubles
     landed fraction' claim and the cap24 lnZ-bias claim are retracted).
 
+0.0.17.13
+---------
+MR https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/55  , for ln(e) parameter access in pipeline
+
 0.0.17.12
 ---------
 MR https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/54  , for eccentricity prior (log-uniform)
