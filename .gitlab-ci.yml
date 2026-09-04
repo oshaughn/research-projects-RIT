@@ -11,7 +11,7 @@ default:
 
 stages:
   - system tests
-  - unit tests # TODO: write some
+  - unit tests
   - docs
 #  - docker image
 #  - deploy
@@ -46,6 +46,14 @@ import_check:
   stage: system tests
   script:
     - python .travis/test-all-mod.py
+
+# Named unit tests.  CI runs FILES BY NAME here: a test file that is not listed
+# below never runs.  Add new regression tests to this list in the same commit
+# that adds the file.
+unit_tests:
+  stage: unit tests
+  script:
+    - python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_time_marginalization_perrow_offset.py
 
 test_run:
   stage: system tests

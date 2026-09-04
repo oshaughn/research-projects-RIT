@@ -2030,7 +2030,14 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         lnL_t = loglikelihood(kappa_sq.real, rho_sq)
 
     # Take exponential of the log likelihood in-place.
-    lnLmax  = xpy.max(lnL_t)
+    # The offset must be PER EXTRINSIC SAMPLE (axis=-1 is time).  A batch-wide
+    # offset underflows exp() to zero across the whole time axis for any row
+    # peaking more than ~745 nats below the loudest row in the batch, returning
+    # -inf where the likelihood is finite (onset near max lnL ~ 745, rho ~ 40).
+    # keepdims=True is load-bearing: a (npts_extrinsic,) offset would broadcast
+    # along the time axis instead.  See issue oshaughnessy-junior/
+    # research-projects-RIT#232.
+    lnLmax  = xpy.max(lnL_t, axis=-1, keepdims=True)
     if return_lnLt:
       return lnL_t  #- lnLmax    # we want the verbatim lnL_t values, no shift
     L_t = xpy.exp(lnL_t - lnLmax, out=lnL_t)
@@ -2038,7 +2045,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
     L = simps(L_t, dx=deltaT, axis=-1)
 
     # Compute log likelihood in-place.
-    lnL = lnLmax + xpy.log(L, out=L)
+    lnL = lnLmax[...,0] + xpy.log(L, out=L)
 
     return lnL
 
