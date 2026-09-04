@@ -623,11 +623,22 @@ def phi_local_lnI(C, n_seed=PHI_SEEDS, w_sigma=PHI_WINDOW_SIGMA,
     and is not what the table above measures -- and that has not been measured.  Recorded
     as the direction, not as a solution.
 
-    The (2,+-2) tables also make ``F`` pi-PERIODIC: every coefficient with ``kp + ks`` odd
-    is zero to machine precision (ratio ~2e-16 on the production tables), so
-    ``g(phi + pi, u + pi) = g(phi, u)`` identically and every maximum carries exactly four
-    copies.  That halves the bound grid, which is worth 2x against a shortfall of 80x --
-    real but not the answer.
+    The (2,+-2) tables also make ``F`` pi-PERIODIC, which halves the bound grid -- worth 2x
+    against a shortfall of 80x, real but not the answer.  MEASURED ON THE COMBINED TABLE,
+    because an earlier version of this note had the mechanism wrong.  In ``C``'s own
+    ``(k, q)`` indexing the vanishing set is ``k`` ODD (max ``|C|`` there 5.7e-12 against
+    an overall 1.37e+04), so the exact invariance is
+
+        g(phi + pi, u) = g(phi, u)          relative deviation 2.6e-15
+
+    and NOT ``g(phi + pi, u + pi)``, which this table does not satisfy at all (relative
+    deviation 1.32).  ``q`` odd is emphatically NOT zero -- 1.35e+04 -- so there is no u
+    half-period.  The earlier note claimed the ``(phi + pi, u + pi)`` form on a parity
+    reported for the RAW ``C_A``/``C_B`` tables in a different index convention; the
+    conclusion survived the error because both forms imply ``F(phi + pi) = F(phi)``, which
+    is verified directly here at 1.4e-12 (rung 1) and 2.2e-11 (rung 3) against 20 for a
+    random control.  THE MULTIPLICITY CONSEQUENCE DOES NOT SURVIVE: a phi half-period alone
+    gives every maximum TWO copies, not four.
     """
     prof = lambda p: u_profile(C, p, n_nodes=u_nodes)
     seeds = jnp.linspace(0.0, 2.0 * jnp.pi, n_seed, endpoint=False)
