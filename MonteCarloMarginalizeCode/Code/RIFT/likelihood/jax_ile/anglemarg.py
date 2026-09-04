@@ -2004,7 +2004,15 @@ def fused_log_likelihood_distphipsimarg_peaklocal(
     _runtime_amp_failsafe(C_A, C_B, x_grid, amp_sizing, "peak-local")
 
     n_phi = _jp.required_n_phi(amp_sizing, m_max=_data_m_max(data))
-    kw = {} if phi_chunk is None else {"phi_chunk": int(phi_chunk)}
+    # Size the u axis through the SINGLE SOURCE OF TRUTH rather than letting the kernel
+    # fall back to its own constant: the batch-memory guard in samplers.py models this
+    # same number from the same amp_sizing, and the two live in different files.  Passing
+    # it explicitly is what makes them provably the same value rather than two defaults
+    # that happen to agree.  u_nodes_in_use ignores amp_sizing today, so this is
+    # bit-identical; it is threaded so a future amplitude-dependent sizing moves both.
+    kw = {"n_nodes": _jp.u_nodes_in_use(amp_sizing)}
+    if phi_chunk is not None:
+        kw["phi_chunk"] = int(phi_chunk)
 
     # tables are (KP, 2KS+1, S, npts); move the batch axes to the front so one nested
     # vmap covers both and the kernel sees a plain 2-D table per (sample, time).

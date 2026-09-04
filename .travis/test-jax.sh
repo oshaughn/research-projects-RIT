@@ -492,7 +492,7 @@ fi
 # Arithmetic lands below the truth and passes; a mis-set-up local collection lands above
 # it and fails.  Read the floor off this job's "collected N tests from 27 files" line --
 # the only source that is not a guess.
-EXPECTED_TESTS=310
+EXPECTED_TESTS=311
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"

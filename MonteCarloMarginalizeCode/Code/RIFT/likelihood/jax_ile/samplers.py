@@ -286,10 +286,14 @@ def angle_marg_eval_chunk(like, chunk):
         # U_NODES_PER_CELL here made this guard silently wrong the moment anything sized
         # the kernel from amplitude: at the production floor amp_sizing=450 that is 896
         # nodes against a modeled 48, taking the documented live slab from 3.6 GiB to
-        # 67 GiB at chunk one.  u_nodes_in_use() is the one place both sides read.
+        # 67 GiB at chunk one.  u_nodes_in_use() is the one place both sides read, and
+        # the SAME amp_sizing the kernel is given is passed here -- calling it with no
+        # argument on one side and with one on the other would reintroduce the divergence
+        # the moment the helper starts using it.
+        amp_sizing = (getattr(like, "angle_marg_info", None) or {}).get("amp_sizing")
         bytes_per = max(
             bytes_per,
-            _jp.PHI_CHUNK_DEFAULT * n_x * 4 * _jp.u_nodes_in_use() * 8)
+            _jp.PHI_CHUNK_DEFAULT * n_x * 4 * _jp.u_nodes_in_use(amp_sizing) * 8)
     cap = max(1, _ANGLE_MARG_BUFFER_TARGET // (bytes_per * npts))
     return min(chunk, cap)
     # A floor larger than one defeats the memory bound for long, valid time

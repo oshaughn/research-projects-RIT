@@ -96,9 +96,17 @@ def u_nodes_in_use(amp_sizing=None):
     documented live slab goes from 3.6 GiB to 67 GiB at chunk one.  An automated agent
     then did exactly that wiring, and left the guard untouched, which is the trap firing.
 
-    Both sides now call this.  It returns the default today; a future change that sizes
-    the kernel from amplitude changes it HERE and the guard follows, so the two cannot
-    diverge again.  Do not read ``U_NODES_PER_CELL`` directly from outside this module.
+    Both the kernel (:func:`joint_lnL_phi_dense`, whose ``n_nodes`` defaults to ``None``
+    and resolves here) and the guard call this, and the fused caller passes the same
+    ``amp_sizing`` to both.  An earlier version of this docstring claimed that while only
+    the guard called it and the kernel still defaulted straight to ``U_NODES_PER_CELL`` --
+    a single source of truth that only one side read, which is no single source of truth
+    at all and is exactly the divergence this helper exists to prevent.  Caught in review.
+
+    It returns the default at every amplitude today, so ``amp_sizing`` changes nothing and
+    every result is bit-identical; the argument is threaded so that a future change sizing
+    the kernel from amplitude changes it HERE and both sides follow.  Do not read
+    ``U_NODES_PER_CELL`` directly from outside this module.
     """
     return U_NODES_PER_CELL
 
@@ -298,7 +306,7 @@ def _joint_table(C_A, C_B, x):
 
 def joint_lnL_phi_dense(C_A, C_B, x_grid, log_w_grid, n_phi=256,
                         phi_chunk=PHI_CHUNK_DEFAULT,
-                        n_nodes=U_NODES_PER_CELL):
+                        n_nodes=None):
     """Distance-, phi- and psi-marginalized value at one ``(sample, time)``.
 
     Same normalization as ``anglemarg.fused_log_likelihood_distphipsimarg_*``: uniform
@@ -307,6 +315,8 @@ def joint_lnL_phi_dense(C_A, C_B, x_grid, log_w_grid, n_phi=256,
 
     ``phi`` is a dense grid scanned in chunks; ``u`` is exact per the cell partition.
     """
+    if n_nodes is None:
+        n_nodes = u_nodes_in_use()
     C_A = jnp.asarray(C_A, dtype=jnp.complex128)
     C_B = jnp.asarray(C_B, dtype=jnp.complex128)
     x_grid = jnp.asarray(x_grid, dtype=jnp.float64).ravel()

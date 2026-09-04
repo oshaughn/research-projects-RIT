@@ -195,3 +195,73 @@ def test_peak_local_artifacts_carry_the_standing_best_effort_label():
     note = mod.angle_grid_suspect_note("peak-local")
     assert note.startswith("ANGLE-GRID-CHECK=BEST-EFFORT"), note
     assert mod.angle_grid_suspect_note("grid") == ""
+
+
+def test_kernel_and_memory_guard_read_the_same_node_count():
+    """Review P2.  ``u_nodes_in_use`` was introduced as the single source of truth for the
+    u-node count, and its docstring said both the kernel and the batch-memory guard call
+    it -- but only the guard did.  ``joint_lnL_phi_dense`` still defaulted straight to
+    ``U_NODES_PER_CELL`` and the fused caller passed no ``n_nodes``, so an
+    amplitude-dependent change would have moved the guard and left the kernel behind.  A
+    single source of truth that only one side reads is not one.
+
+    The invariant is NOT "both currently equal 48" -- that passes even if neither side
+    reads the helper.  It is that changing the HELPER moves BOTH, so the helper is patched
+    and each side is observed.  Today ``u_nodes_in_use`` ignores ``amp_sizing`` and returns
+    the constant at every amplitude, so the wiring is bit-identical; this test is what
+    keeps that an implementation detail rather than the thing holding the two together.
+
+    The shape is deliberately NOT the production one.  At npts=614 with 256 distance nodes
+    the cap is already pinned at its floor of 1 -- the measured "peak-local batches one
+    sample" result -- so quadrupling the node count cannot move it, and the guard assertion
+    would read ``1 < 1`` and fail while the wiring was correct.  A saturated observable
+    cannot test the thing it saturates on.  npts=64 with 32 nodes gives 85, clear of the
+    floor and of the 8000 ceiling.
+    """
+    from RIFT.likelihood.jax_ile import samplers as S
+    from RIFT.likelihood.jax_ile import joint_anglemarg_peaklocal as JP
+
+    class _Data(object):
+        npts = 64
+
+    class _Like(object):
+        data = _Data()
+        angle_marg_scheme = "peak-local"
+        x_grid = np.zeros(32)
+        angle_marg_info = {"amp_sizing": 450.0}
+
+    seen = []
+    real_helper = JP.u_nodes_in_use
+    real_inner = JP.log_inner_u_integral
+
+    def _spy_inner(a, c1, c2, n_nodes=JP.U_NODES_PER_CELL, **kw):
+        seen.append(int(n_nodes))
+        return real_inner(a, c1, c2, n_nodes, **kw)
+
+    baseline_cap = S.angle_marg_eval_chunk(_Like(), 8000)
+    assert 1 < baseline_cap < 8000, baseline_cap      # the observable is not saturated
+
+    JP.u_nodes_in_use = lambda amp_sizing=None: 4 * real_helper(amp_sizing)
+    JP.log_inner_u_integral = _spy_inner
+    try:
+        # the GUARD must follow the helper: 4x the nodes is 4x the modelled slab, so the
+        # cap must shrink.  If it still read the constant this would be unchanged.
+        raised_cap = S.angle_marg_eval_chunk(_Like(), 8000)
+        assert raised_cap < baseline_cap, (baseline_cap, raised_cap)
+
+        # the KERNEL must follow it too, via n_nodes=None resolving through the helper
+        rng = np.random.default_rng(0)
+        C_A = rng.normal(size=(3, 3)) + 1j * rng.normal(size=(3, 3))
+        C_B = rng.normal(size=(5, 5)) + 1j * rng.normal(size=(5, 5))
+        C_B[0, 2] = abs(C_B[0, 2].real) + 3.0
+        x_grid = jnp.asarray(np.linspace(0.5, 2.0, 8))
+        lw = jnp.zeros(8)
+        JP.joint_lnL_phi_dense(jnp.asarray(C_A), jnp.asarray(C_B), x_grid, lw, n_phi=8)
+        assert seen, "kernel never reached log_inner_u_integral"
+        assert set(seen) == {4 * real_helper(None)}, (seen, real_helper(None))
+    finally:
+        JP.u_nodes_in_use = real_helper
+        JP.log_inner_u_integral = real_inner
+
+    # restoring the helper restores the cap exactly -- no hidden state
+    assert S.angle_marg_eval_chunk(_Like(), 8000) == baseline_cap
