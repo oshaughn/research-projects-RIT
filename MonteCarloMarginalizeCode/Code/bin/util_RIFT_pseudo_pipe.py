@@ -451,8 +451,6 @@ parser.add_argument("--assume-matter-but-primary-bh",action='store_true',help="I
 parser.add_argument("--internal-tabular-eos-file",type=str,default=None,help="Tabular file of EOS to use.  The default prior will be UNIFORM in this table!")
 parser.add_argument("--sample-eccentricity-squared",action='store_true', help="Option for sampling as well as fitting in eccentricity_squared instead of fitting in eccentricity_squared and sampling in eccentricity (also need option --use-eccentricity-squared")
 parser.add_argument("--use-eccentricity-squared",action='store_true', help="Allows for fitting and sampling in eccentricity_squared instead of eccentricity")
-parser.add_argument("--sample-eccentricity-ln",action='store_true', help="Option for sampling as well as fitting in eccentricity_ln instead of fitting in eccentricity_ln and sampling in eccentricity (also need option --use-eccentricity-ln")
-parser.add_argument("--use-eccentricity-ln",action='store_true', help="Allows for fitting and sampling in eccentricity_ln instead of eccentricity")
 parser.add_argument("--assume-eccentric",action='store_true', help="Add eccentric options for each part of analysis")
 parser.add_argument("--use-meanPerAno",action='store_true', help="Add meanPerAno options for each part of analysis")
 parser.add_argument("--use-EOB-parameters",action='store_true', help="Add sampling in EOB parameters; currently only a6c")
@@ -1936,8 +1934,6 @@ for indx in np.arange(len(instructions_cip)):
             line += " --parameter meanPerAno --use-meanPerAno "
         if opts.use_eccentricity_squared:
             line += " --use-eccentricity --parameter eccentricity_squared "
-        elif opts.use_eccentricity_ln:
-            line += " --use-eccentricity --parameter eccentricity_ln "
         else:
             line += " --use-eccentricity --parameter eccentricity "
         # if opts.use_eccentricity_squared:
@@ -2297,8 +2293,6 @@ if opts.assume_eccentric:
     cmd += " --use-eccentricity "
     if opts.sample_eccentricity_squared:
         cmd += " --use-eccentricity-squared-sampling "
-    if opts.sample_eccentricity_ln:
-        cmd += " --use-eccentricity-ln-sampling "
     if opts.use_meanPerAno:
         cmd += " --use-meanPerAno "
 if opts.assume_hyperbolic:

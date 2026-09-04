@@ -969,9 +969,7 @@ def log_eccentricity_prior(x):
     # AttributeError as soon as the prior was evaluated) with a (ECC_MAX-ECC_MIN)
     # normalization, which is the uniform prior's normalization, not this one's:
     # \int_ECC_MIN^ECC_MAX dx/(x*C) = 1  =>  C = ln(ECC_MAX/ECC_MIN).
-    # The statement below is byte-identical to rift_O4c 0.0.17.13, which reached the same
-    # fix independently; keep it that way so future O4c->O4d merges do not conflict here.
-    return np.ones(x.shape) / (x*np.log(ECC_MAX/ECC_MIN)) # log uniform over the interval [ECC_MIN, ECC_MAX]; if ECC_MIN=0.0, auto corrects to ECC_MIN=0.001
+    return np.ones(x.shape) / (x*np.log(ECC_MAX/ECC_MIN)) # log uniform over the interval [ECC_MIN, ECC_MAX]
 
 def uniform_eccentricity_ln_prior(x):
     return np.ones(x.shape) / ((np.log(ECC_MAX/ECC_MIN))) # log uniform over the interval [ECC_MIN, ECC_MAX]; if ECC_MIN=0.0, auto corrects to ECC_MIN=0.001

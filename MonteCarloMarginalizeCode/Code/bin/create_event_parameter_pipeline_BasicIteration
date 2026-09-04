@@ -296,7 +296,6 @@ parser.add_argument("--use-hyperbolic",default=False,action='store_true')
 parser.add_argument("--use-eccentricity",default=False,action='store_true')
 parser.add_argument("--use-meanPerAno",default=False,action='store_true')
 parser.add_argument("--use-eccentricity-squared-sampling",default=False,action='store_true')
-parser.add_argument("--use-eccentricity-ln-sampling",default=False,action='store_true')
 parser.add_argument("--use-tabular-eos-file",default=False,action='store_true')
 parser.add_argument("--test-exe",default=None,help="filename of test code or equivalent executable.  Must have a --test-output <fname> argument.  Used for convergence testing or other termination. NOT ACTIVE; see 'convergence_test_samples.py' for example")
 parser.add_argument("--plot-exe",default=None,help="filename of plot code or equivalent executable.  Will default to `which plot_posterior_corner.py`.  Default is to plot last set of samples")
@@ -1450,8 +1449,6 @@ else:
                cip_args_extra +=" --n-eff {} --n-output-samples {} ".format(n_samples_per_job,n_samples_per_job)
                if not (opts.use_eccentricity_squared_sampling):
                    cip_args_lines[indx] = cip_args_lines[indx].replace(' --parameter eccentricity_squared ',' --parameter-implied eccentricity_squared --parameter-nofit eccentricity ')
-               if not (opts.use_eccentricity_ln_sampling):
-                   cip_args_lines[indx] = cip_args_lines[indx].replace(' --parameter eccentricity_ln ',' --parameter-implied eccentricity_ln --parameter-nofit eccentricity ')
            transfer_files_cip=['../all.net']
            if opts.use_osg_cip and 'fit-method gp' in cip_args_base:
                transfer_files_cip += ['my_fit.pkl']  # transfer current working directory fit
