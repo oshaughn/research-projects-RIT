@@ -641,6 +641,7 @@ parser.add_argument("--force-scatter-grids",action='store_true',help="Eliminates
 parser.add_argument("--force-plunge-grids",action='store_true',help="Eliminates all non-plunge intrinsic points from hyperbolic grids throughout the workflow.")
 parser.add_argument("--force-zoomwhirl-grids",action='store_true',help="Eliminates all non-zoomwhirl intrinsic points from hyperbolic grids throughout the workflow.")
 parser.add_argument("--force-hyperbolic-22", action='store_true', help='Forces just the 22 modes for hyperbolic waveforms')
+parser.add_argument("--adapt-range-in-distance-and-sky", action='store_true', default=False, help="Adapt the distance and sky ranges when sampling using AV, useful for high SNR signals where sky parameters can occupy a much narrow parameter space than the prior space and this helps AV reach the bin resolution needed to sample efficiently.")
 opts=  parser.parse_args()
 
 # Resolve the sub-sample stencil request IMMEDIATELY, so a bare flag / retired 'True' / typo
@@ -1601,6 +1602,8 @@ if opts.internal_ile_sky_network_coordinates_raw:
     line += " --internal-sky-network-coordinates-raw "
 if opts.ile_no_gpu or opts.ile_sampler_method ==  "AV":  # make sure we are using the standard code path if not using GPUs
     line += " --force-xpy " 
+if opts.adapt_range_in_distance_and_sky:
+    line += " --adapt-range-in-distance-and-sky "
 if opts.internal_ile_force_noreset_adapt:
     line = line.replace(' --force-reset-all ', ' ')
 if opts.internal_mitigate_fd_J_frame == 'L_frame':

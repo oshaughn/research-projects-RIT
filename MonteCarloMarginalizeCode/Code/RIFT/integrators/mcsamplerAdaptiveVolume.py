@@ -1563,6 +1563,7 @@ class MCSampler(SamplerOutputMixin, object):
         n = int(kwargs["n"] if "n" in kwargs else min(100000, nmax))
         convergence_tests = kwargs["convergence_tests"] if "convergence_tests" in kwargs else None
         save_no_samples = kwargs["save_no_samples"] if "save_no_samples" in kwargs else None
+        adapt_range_in_distance_and_sky = kwargs["adapt-range-in-distance-and-sky"] if "adapt-range-in-distance-and-sky" in kwargs else False
 
 
         #
@@ -1628,8 +1629,6 @@ class MCSampler(SamplerOutputMixin, object):
         maxval=0   # max weight
         outvals=None  # define in top level scope
         self.ntotal = 0
-        if bShowEvaluationLog:
-            print("iteration Neff  sqrt(2*lnLmax) sqrt(2*lnLmarg) ln(Z/Lmax) int_var")
 
         self.n_chunk = n
         self.setup()  # sets up self.my_ranges, self.dx initially
@@ -1696,6 +1695,15 @@ class MCSampler(SamplerOutputMixin, object):
         loglkl_thr_prev = loglkl_thr
 
         ntotal_true = 0
+        if adapt_range_in_distance_and_sky:
+            original_ranges = self.my_ranges
+            ra_index, dec_index, dist_index = (self.params_ordered.index(p) if p in self.params_ordered else None for p in ('right_ascension', 'declination', 'distance'))
+            adapt_params = [p for p, idx in zip(('right_ascension', 'declination', 'distance'), (ra_index, dec_index, dist_index)) if idx is not None]
+            if adapt_params:
+                print("Adapting ranges for:", ", ".join(adapt_params))
+        if bShowEvaluationLog:
+            print("iteration Neff  sqrt(2*lnLmax) sqrt(2*lnLmarg) ln(Z/Lmax) int_var")
+
         while (eff_samp < neff and ntotal_true < nmax ): #  and (not bConvergenceTests):
             # Draw samples. Note state variables binunique, ninbin -- so we can re-use the sampler later outside the loop
             rv, log_joint_p_prior = self.draw_simple()  # Beware reversed order of rv
@@ -1838,15 +1846,31 @@ class MCSampler(SamplerOutputMixin, object):
             # Redefine bin sizes, reassign points to redefined hypercube set. [Asymptotically this becomes stationary]
             # Note hypercube calculation is on CPU at present, always
             if self.d_adaptive > 0:
-              # per-axis (anisotropic) or equal (default) split; same total bin budget either way
-              self.nbins = self._allocate_nbins(allx, delta_V, ndim)
-              self.nbins[self.indx_not_adaptive] = 1  # reset to 1 bin for non-adaptive dimensions
+              # if adapting ranges, request more starting bins. For low SNR, the isotropic nbins is close to this
+              if adapt_range_in_distance_and_sky:
+                rand_numb = np.random.uniform(9, 11, 1)[0]
+                self.nbins = np.ones(ndim)*np.maximum(rand_numb, (1 / delta_V) ** (1 / self.d_adaptive))
+              else:
+                # per-axis (anisotropic) or equal (default) split; same total bin budget either way
+                self.nbins = self._allocate_nbins(allx, delta_V, ndim)
+                self.nbins[self.indx_not_adaptive] = 1  # reset to 1 bin for non-adaptive dimensions
             else:
               self.nbins = np.ones(ndim) # why are we even doing this!
 
             # bin sizes integers?  May slow us down
             if enforce_bounds:
               self.nbins = np.floor(self.nbins)
+            
+            # adapt ranges
+            if adapt_range_in_distance_and_sky:
+                lower = np.min(allx, axis=0)
+                upper = np.max(allx, axis=0)
+                self.my_ranges = original_ranges.copy()
+                for idx in (ra_index, dec_index, dist_index):
+                    if idx is not None:
+                        lo = max(lower[idx] - 2 * self.dx[idx], original_ranges[idx, 0])
+                        hi = min(upper[idx] + 2 * self.dx[idx], original_ranges[idx, 1])
+                        self.my_ranges[idx] = (lo, hi) 
 
             self.dx = np.diff(self.my_ranges, axis = 1).flatten() / self.nbins   # update bin widths
             binidx = ( (( identity_convert(allx) - self.my_ranges.T[0]) / self.dx.T).astype(int)  ) #bin indexs of the samples ... sent back to CPU as needed
@@ -1871,6 +1895,10 @@ class MCSampler(SamplerOutputMixin, object):
                 break
 
         # VT approach was to accumulate samples, but then prune them.  So we have all the lnL and x draws
+        if adapt_range_in_distance_and_sky:
+            print(self.params_ordered)
+            print('ranges', np.array(self.my_ranges, dtype=float))
+            print('dx', self.dx)
 
         if len(allloglkl) == 0:
             # Every cycle came back empty: the integrand never returned a finite value inside
