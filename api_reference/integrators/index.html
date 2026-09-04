@@ -429,6 +429,28 @@ inverted request.  Returns (z_lo, z_hi) with z_lo &lt; z_hi.</p>
 <dd></dd></dl>
 
 <dl class="py function">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsampler.distance_limit_range">
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsampler.</span></span><span class="sig-name descname"><span class="pre">distance_limit_range</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">d_min</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">d_max</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsampler.distance_limit_range" title="Link to this definition"></a></dt>
+<dd><p>Parse and validate a –limit-distance ‘LO,HI’ request (Mpc).</p>
+<p>Returns (lo, hi) as floats with d_min &lt;= lo &lt; hi &lt;= d_max.  Raises ValueError
+on an unparseable, non-finite, empty, inverted, or out-of-prior-range request:
+a box outside [d_min,d_max] would ask the sampler for distances the prior gives
+zero mass, which is a configuration error, not something to clip silently.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsampler.distance_sampler_kwargs">
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsampler.</span></span><span class="sig-name descname"><span class="pre">distance_sampler_kwargs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">sampler_module</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sampling_range</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prior_range</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">d_prior='Euclidean'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">adaptive_sampling=False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsampler.distance_sampler_kwargs" title="Link to this definition"></a></dt>
+<dd><p>Build the add_parameter() kwargs for the distance coordinate.</p>
+<p><cite>sampler_module</cite> supplies the backend-appropriate uniform sampler helpers
+(mcsampler / mcsamplerGPU / mcsamplerAdaptiveVolume all export them, and the
+GPU ones return device arrays).  <cite>sampling_range</cite> sets the sampler’s proposal
+and its (llim, rlim); <cite>prior_range</cite> sets the normalization of <cite>prior_pdf</cite> and
+is the ONLY thing that determines the reported evidence scale.  Pass them equal
+for the historical behaviour.</p>
+</dd></dl>
+
+<dl class="py function">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsampler.gauss_samp">
 <span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsampler.</span></span><span class="sig-name descname"><span class="pre">gauss_samp</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mu</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">std</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsampler.gauss_samp" title="Link to this definition"></a></dt>
 <dd></dd></dl>

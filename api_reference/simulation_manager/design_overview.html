@@ -663,6 +663,65 @@ writes would replace its line rather than extend it — and
 <cite>periodic_release</cite> are therefore refused in <cite>extra_condor_cmds</cite>
 (case-insensitively; HTCondor command names are). Each has an
 append-only alternative:</p>
+<p><cite>universe</cite> is <strong>not</strong> refused. Setting <cite>container_image</cite> selects the
+container universe for you, but declaring <cite>universe</cite> yourself is legal
+and sometimes necessary (<cite>local</cite>, <cite>scheduler</cite>, <cite>grid</cite>).</p>
+</section>
+<section id="containers">
+<h3>Containers<a class="headerlink" href="#containers" title="Link to this heading"></a></h3>
+<p><cite>container_image</cite> selects HTCondor’s container universe and supplies the
+image in one argument. Not because the two can disagree — measured
+against condor 25.13.1, <cite>vanilla</cite> + <cite>container_image</cite>, <cite>container</cite> +
+<cite>container_image</cite>, and declaring no universe at all produce byte-identical
+job ads, and the JDL says <cite>universe</cite> “can either be optionally set to
+<cite>container</cite> or not declared at all”. It is one argument because that is
+one fewer thing to state, not because stating it twice is dangerous:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">DualCondorRunQueue</span><span class="p">(</span>
+    <span class="n">container_image</span><span class="o">=</span><span class="s2">"osdf:///ospool/ap41/data/&lt;user&gt;/supernu-v2.sif"</span><span class="p">,</span>
+    <span class="n">when_to_transfer_output</span><span class="o">=</span><span class="s2">"ON_SUCCESS"</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>Both are keyword-only, and last in the signature: they arrived after the
+constructor’s positional sequence was already in use, and inserting them
+in the middle would have rebound every positional argument after them.</p>
+<p>The reference is not resolved or fetched. An <cite>osdf://</cite> or <cite>docker://</cite> URL
+is not readable from the submit host, so requiring that would refuse the
+ordinary OSG case; only a value that could corrupt the submit file is
+rejected.</p>
+<p><cite>use_singularity</cite> / <cite>singularity_image</cite> remain, for sites that honour only
+the legacy <cite>+SingularityImage</cite> form. Setting <strong>both</strong> is refused: emitted
+together, which one takes effect is decided by the site.</p>
+<p><cite>when_to_transfer_output</cite> takes HTCondor’s three legal values —
+<cite>ON_EXIT</cite> (default), <cite>ON_EXIT_OR_EVICT</cite>, <cite>ON_SUCCESS</cite>. <cite>NEVER</cite> is <strong>not</strong>
+one of them: condor accepts it with rc=0 and silently materialises
+<cite>ON_EXIT</cite>, so a caller setting it to suppress transfer gets transfer.</p>
+<p><cite>ON_EXIT_OR_EVICT</cite> is <strong>refused by this queue</strong>, and the refusal explains
+why. HTCondor: <em>“If a file listed in transfer_output_files does not exist
+at eviction time, the job will go on hold.”</em> This queue always emits an
+explicit <cite>transfer_output_files</cite> led by <cite>level_&lt;N&gt;.json</cite>, which the
+bootstrap writes only after the generator returns — so every mid-run
+eviction would hold the job rather than reschedule it, which is worse
+than the <cite>ON_EXIT</cite> behaviour the setting gets reached for. It also spools
+the evicted sandbox to the access point’s <cite>SPOOL</cite>, a shared volume that
+is easy to fill. To preserve partial work, use HTCondor
+self-checkpointing (<cite>checkpoint_exit_code</cite> / <cite>transfer_checkpoint_files</cite>),
+which does not require the final outputs to exist.</p>
+<p>The trap is specific to <strong>listing an output that only exists on success</strong>,
+not to <cite>ON_EXIT_OR_EVICT</cite> itself. A submitter whose <cite>transfer_output_files</cite>
+names only paths created early — a working directory, say — can use it
+safely. This queue cannot, because it always leads that list with the
+level marker. If that ever changes, this refusal should lift with it.</p>
+<p><cite>container_image</cite>, a non-default <cite>when_to_transfer_output</cite>, and the
+<cite>extra_transfer_*</cite> lists are all emitted by <cite>build_worker</cite> — which
+<cite>submit()</cite> bypasses when <cite>subdag_factory</cite> is set, because the sub-DAG
+writes its own submit descriptions. Combining any of them with a factory
+is therefore <strong>refused</strong>, in the constructor and again in <cite>submit()</cite>
+(both are plain attributes, so a constructor-only check is walked past by
+assigning either one afterwards). Put the setting in the DAG the factory
+generates. For <cite>ON_EXIT_OR_EVICT</cite> the refusal does double duty: the
+sub-DAG path never reaches the check in <cite>build_worker</cite>, so accepting it
+would route the one value this queue rejects around its own rejection.</p>
 <p><cite>extra_periodic_release</cite> takes a single-line ClassAd expression for
 sites whose pool holds jobs for reasons the queue does not model — an
 opportunistic pool produces transient holds a dedicated cluster never

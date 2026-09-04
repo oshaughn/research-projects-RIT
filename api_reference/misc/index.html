@@ -452,6 +452,17 @@ NOTE: This is definitely not the best way to do this.</p>
 </dd></dl>
 
 <dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.xmlutils.gps_add_seconds_exact">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.xmlutils.</span></span><span class="sig-name descname"><span class="pre">gps_add_seconds_exact</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">gps_seconds</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gps_nanoseconds</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">offset_seconds</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.xmlutils.gps_add_seconds_exact" title="Link to this definition"></a></dt>
+<dd><p>Add float relative offsets to an exact GPS pair using integer nanoseconds.</p>
+<p>The offset is rounded once to the SimInspiral schema’s nanosecond resolution.
+Absolute GPS arithmetic is never performed in float64, whose spacing at
+current epochs is coarser than some sub-sample time-posterior draws.
+Returns arrays <code class="docutils literal notranslate"><span class="pre">(seconds,</span> <span class="pre">nanoseconds)</span></code> with nanoseconds normalized to
+<code class="docutils literal notranslate"><span class="pre">[0,</span> <span class="pre">1e9)</span></code>; negative offsets and second-boundary carries are supported.</p>
+</dd></dl>
+
+<dl class="py function">
 <dt class="sig sig-object py" id="RIFT.misc.xmlutils.likelihood_to_snglinsp_row">
 <span class="sig-prename descclassname"><span class="pre">RIFT.misc.xmlutils.</span></span><span class="sig-name descname"><span class="pre">likelihood_to_snglinsp_row</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">table</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">loglikelihood</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">neff</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">converged</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">cols</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.xmlutils.likelihood_to_snglinsp_row" title="Link to this definition"></a></dt>
 <dd></dd></dl>
