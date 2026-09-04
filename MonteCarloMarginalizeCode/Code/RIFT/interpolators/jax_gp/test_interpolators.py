@@ -17,6 +17,22 @@ import os
 
 import numpy as np
 
+# These interpolators are a jax stack -- jax for the models, optax for their optimisers -- and
+# neither is in requirements.txt.  SKIP when they are absent rather than letting the ImportError
+# escape: an import error at collection reports as ten FAILING tests, which is what "not
+# installed" looked like here, and a suite that fails for environmental reasons is a suite people
+# learn to ignore.  Guarded so a direct `python -m ...` run (see the docstring) still raises the
+# real ImportError instead of depending on pytest.
+try:  # pragma: no cover - environment probe
+    import jax  # noqa: F401
+    import optax  # noqa: F401
+except ImportError as _exc:  # pragma: no cover - environment probe
+    try:
+        import pytest as _pytest
+    except ImportError:
+        raise _exc
+    _pytest.skip("jax_gp interpolators need jax and optax: %s" % _exc, allow_module_level=True)
+
 
 def _target(X):
     # smooth, anisotropic quadratic bowl -- exactly representable-ish, known grad

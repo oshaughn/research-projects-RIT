@@ -96,7 +96,7 @@ MonteCarloMarginalizeCode/Code/demo/rift/export_likelihoods/head_to_head/run_tes
 # installs a CPU jax stack, so adding them there costs only optax and a raised EXPECTED_TESTS.
 # Not done here because that job's counts are pinned and this PR does not own them.
 MonteCarloMarginalizeCode/Code/RIFT/interpolators/jax_gp/test_coordinates.py   OPTDEP  needs jax; belongs in jax-ile-check, which already installs a CPU jax stack
-MonteCarloMarginalizeCode/Code/RIFT/interpolators/jax_gp/test_interpolators.py OPTDEP  needs jax and optax; 10 collected, all 10 error on ModuleNotFoundError optax rather than skipping
+MonteCarloMarginalizeCode/Code/RIFT/interpolators/jax_gp/test_interpolators.py OPTDEP  needs jax and optax; skips cleanly without them, 10 tests where both are installed
 # The two cupy parity legs are NOT listed here.  PR #242 landed, and its
 # .travis/test-q-window-stencil.sh names both in an EXCLUDED array -- with the same reason,
 # and with its own fail-closed check that an EXCLUDED path still exists and does not carry
@@ -114,23 +114,23 @@ MonteCarloMarginalizeCode/Code/test/integrators/test_mcsamp_vegas.py           O
 MonteCarloMarginalizeCode/Code/test/integrators/test_mcsampler_rosenbrock.py   HANDRUN  Rosenbrock sampler study; its docstring pairs it with plot_posterior_corner.py by hand
 MonteCarloMarginalizeCode/Code/test/test_eosmanager_misc.py                    OPTDEP  needs LALSIMULATION_DATADIR set; raises KeyError at import without it
 MonteCarloMarginalizeCode/Code/test/test_skysamp.py                            LEGACY  imports lalinference.bayestar.fits, removed upstream; cannot be imported
-MonteCarloMarginalizeCode/Code/test/test_mcsampler_foridiots.py                BROKEN  NameError int_vals at import; a plotting demo that no longer runs at all
+# test_mcsampler_foridiots.py is HANDRUN rather than BROKEN because it is a demo script with no
+# test functions -- it was never going to be gated.  But it fails for a reason that is NOT the
+# demo's: it dies in RIFT/integrators/mcsamplerGPU.py:1324, inside integrate(), on
+#
+#     weights_alt = int_vals**tempering_exp        # NameError: int_vals is not defined
+#
+# the `not save_intg` branch of the adaptation weighting.  `int_vals` exists nowhere in that
+# scope; the sibling branches use self._rvs["integrand"][-n_history:], and the local holding the
+# same values when nothing is being saved is `fval` (a commented-out line two above prints it),
+# so `fval**tempering_exp` is the near-certain intent.  This branch cannot ever have run.
+#
+# NOT FIXED HERE: that is core sampler code, and guessing the intended expression is exactly the
+# kind of change that should be RO'S call rather than a side effect of a test-hygiene PR.
+# Reported instead.  Reachable on CPU -- this demo hit it with no GPU involved.
+MonteCarloMarginalizeCode/Code/test/test_mcsampler_foridiots.py                HANDRUN  plotting demo with no test functions; dies in mcsamplerGPU.integrate on an undefined int_vals (see note above)
 
 # ---------------------------------------------------------------------------------------
 # EXPENSIVE -- correctly gated already, by an env var rather than by CI membership.
 MonteCarloMarginalizeCode/Code/test/expensive_before_merging/integrators/test_shape_recovery.py          EXPENSIVE  4 collected, all skip unless RIFT_RUN_EXPENSIVE=1
 MonteCarloMarginalizeCode/Code/test/expensive_before_merging/integrators/test_escaped_mass_diagnostic.py EXPENSIVE  5 collected, all skip unless RIFT_RUN_EXPENSIVE=1
-
-# ---------------------------------------------------------------------------------------
-# BROKEN -- collects and FAILS on rift_O4d today.  Found only because this audit ran them.
-#
-# test_replica_pooling.py is the clearest argument for the census.  It loads six helpers out of
-# bin/integrate_likelihood_extrinsic_batchmode by REGEX and exec()s them into a synthetic
-# module.  The driver has since been refactored so that _lnZ_of_rvs and _kish_neff_of_rvs
-# delegate to a seventh helper, _lw_of, which the regex list does not extract.  Inside the
-# exec'd module _lw_of is undefined; the driver's own `except Exception: return None` swallows
-# the NameError, both helpers return None, and 10 of 15 tests die on `None - float`.  Adding
-# "_lw_of" to the slice list in the test is the immediate fix.  The reimplemented-harness shape
-# is the real problem and outlives that fix.
-MonteCarloMarginalizeCode/Code/test/integrators/test_replica_pooling.py  BROKEN  10 of 15 fail; its regex helper-slicer misses _lw_of, added to the driver after the test was written
-MonteCarloMarginalizeCode/Code/test/hyperpipe/tests/test_marg_list.py    BROKEN  2 of 3 fail; _stage_event_file writes event-N.net into base_dir while the test and assemble_marg_list's own run_dir docstring say run_dir
