@@ -595,9 +595,39 @@ def phi_local_lnI(C, n_seed=PHI_SEEDS, w_sigma=PHI_WINDOW_SIGMA,
     the certificate that makes the integration trustworthy does not share it, and an
     uncertified value is what external review correctly refused.  The whole gap is one
     term: ``Var(d_phi g) <= M10^2`` is 99.5% of ``M2F``, and it is loose because a peaked
-    ``exp(g)`` does not explore the full range of ``d_phi g``.  A tighter exact bound on
-    that variance is the open question that decides whether phi-localization can pay for
-    itself; nothing else in this construction is the obstacle.
+    ``exp(g)`` does not explore the full range of ``d_phi g``.
+
+    A TIGHTER VARIANCE BOUND IS NOT THE MOST PROMISING ROUTE, and an earlier version of
+    this note said it was.  The linear scaling comes from bounding a supremum with a GRID
+    at all: any grid lift of a function whose Lipschitz constant is ``~A`` needs spacing
+    ``~1/A``, whatever the remainder term.  The route that removes it is to bound the
+    supremum ANALYTICALLY.  At fixed phi the u-exponent is
+    ``a(phi) + Re(c1(phi) e^{iu}) + Re(c2(phi) e^{2iu})``, so
+
+        F(phi) <= log(2 pi) + a(phi) + |c1(phi)| + |c2(phi)|
+
+    and ``a``, ``|c1|``, ``|c2|`` are low-degree trig polynomials in phi whose supremum
+    over an interval is itself an algebraic enumeration -- the same companion-matrix
+    machinery this module already uses on u.  Measured against the grid lift at
+    ``n_bound = 256`` (bound value, lower is tighter):
+
+        amplitude      true max F     analytic       grid lift
+        1e2                71.290       88.672          73.821   <- grid wins
+        1e3               722.252      870.178         973.324
+        1e4              7242.271     8685.239       32329.270
+        1e5             72452.823    86835.848     2580950.613   <- 30x tighter
+
+    So the analytic form is O(1) in COST where the grid is O(A).  It is NOT yet known to
+    accept: it still sits ~20% above ``max F``, and that excess scales with A.  What
+    decides it is the supremum over the OUTSIDE intervals only -- which excludes the peaks
+    and is not what the table above measures -- and that has not been measured.  Recorded
+    as the direction, not as a solution.
+
+    The (2,+-2) tables also make ``F`` pi-PERIODIC: every coefficient with ``kp + ks`` odd
+    is zero to machine precision (ratio ~2e-16 on the production tables), so
+    ``g(phi + pi, u + pi) = g(phi, u)`` identically and every maximum carries exactly four
+    copies.  That halves the bound grid, which is worth 2x against a shortfall of 80x --
+    real but not the answer.
     """
     prof = lambda p: u_profile(C, p, n_nodes=u_nodes)
     seeds = jnp.linspace(0.0, 2.0 * jnp.pi, n_seed, endpoint=False)
