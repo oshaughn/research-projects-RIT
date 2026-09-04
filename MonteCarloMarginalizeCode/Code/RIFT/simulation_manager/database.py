@@ -286,6 +286,69 @@ def _validate_subcode_exclusions(value: Any, *, what: str
     return out
 
 
+#: HTCondor's `when_to_transfer_output` vocabulary, as the JDL defines
+#: it. Three values, not four: NEVER is NOT one of them, and condor does
+#: not say so -- measured against condor 25.13.1, `NEVER` submits with
+#: rc=0 and materialises as `WhenToTransferOutput="ON_EXIT"`, silently.
+#: A caller setting it to suppress transfer gets transfer. `BANANA` is
+#: rejected loudly, so listing NEVER blessed the one value condor
+#: discards while catching nothing condor would not have caught.
+WHEN_TO_TRANSFER_OUTPUT = ("ON_EXIT", "ON_EXIT_OR_EVICT", "ON_SUCCESS")
+DEFAULT_WHEN_TO_TRANSFER_OUTPUT = "ON_EXIT"
+
+def _validate_when_to_transfer(value: Any) -> str:
+    """One of HTCondor's four, normalised to upper case."""
+    if value is None:
+        return DEFAULT_WHEN_TO_TRANSFER_OUTPUT
+    if not isinstance(value, str):
+        raise TypeError(
+            "when_to_transfer_output must be a string, got {0!r}".format(
+                type(value).__name__))
+    text = value.strip().upper()
+    if text not in WHEN_TO_TRANSFER_OUTPUT:
+        raise ValueError(
+            "when_to_transfer_output must be one of {0}, got {1!r}".format(
+                ", ".join(WHEN_TO_TRANSFER_OUTPUT), value))
+    return text
+
+
+def _validate_container_image(value: Any) -> str:
+    """A container image reference for `universe = container`.
+
+    Not resolved or fetched. The reference is routinely an osdf:// or
+    docker:// URL the submit host cannot read, so a checker demanding
+    local readability would refuse the ordinary OSG case. Only the shape
+    that could corrupt the submit file is refused.
+    """
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise TypeError(
+            "container_image must be a string, got {0!r}".format(
+                type(value).__name__))
+    text = value.strip()
+    if not text:
+        return ""
+    if "\n" in text or "\r" in text:
+        raise ValueError(
+            "container_image must be a single line: a newline would end "
+            "the submit command and let the rest be read as further "
+            "commands")
+    if text.endswith("\\"):
+        # A trailing backslash is a submit-file line continuation, so the
+        # NEXT command is swallowed into this value. Measured: it eats
+        # `arguments`, condor_submit returns 0, and every worker then
+        # runs the bootstrap with no --sim-name/--level, exiting 2 with
+        # nothing in the submit file to explain it.
+        raise ValueError(
+            "container_image must not end in a backslash: the submit "
+            "parser reads it as a line continuation and swallows the "
+            "next command")
+    if "\x00" in text:
+        raise ValueError("container_image must not contain a NUL byte")
+    return text
+
+
 def _validate_release_expression(value: Any, *, what: str) -> str:
     """Check a ClassAd expression destined for a submit command.
 
@@ -408,6 +471,21 @@ _PROTECTED_SUBMIT_COMMANDS = frozenset({
     # than losing the release arm. Per-sim sizes go through
     # Archive.set_resources, which composes rather than substitutes.
     "request_memory",
+    # Composed by the queue since container support landed, and each has
+    # an argument now, so extra_condor_cmds would silently replace a line
+    # the queue had already written.
+    #
+    # `universe` is deliberately NOT here. An earlier draft protected it
+    # on the claim that a container_image under a vanilla universe is
+    # ignored by condor. Measured against condor 25.13.1 that is false:
+    # vanilla+container_image, container+container_image, and declaring
+    # no universe at all produce byte-identical job ads, and the JDL says
+    # universe "can either be optionally set to container or not declared
+    # at all". Protecting it would be a breaking change with no defect
+    # behind it, and would leave no route to `local`, `scheduler` or
+    # `grid` at all.
+    "container_image",
+    "when_to_transfer_output",
 })
 
 #: What to use instead of each refused key. Kept beside the set so a new
@@ -422,6 +500,8 @@ _PROTECTED_ALTERNATIVES = {
                         "expression instead of replacing it",
     "request_memory": "the request_memory argument, or "
                       "Archive.set_resources for a per-sim override",
+    "container_image": "the container_image argument",
+    "when_to_transfer_output": "the when_to_transfer_output argument",
 }
 
 #: Basenames the archive itself stages into the worker sandbox. Condor
@@ -1680,6 +1760,26 @@ class DualCondorRunQueue(RunQueue):
                                    them); the allowlist is the OSG-blessed
                                    alternative. Pass getenv='True'
                                    explicitly only on sites that allow it.
+        container_image  : str  -- KEYWORD-ONLY. Image reference for
+                                   HTCondor's container universe
+                                   (`osdf://`, `docker://`, a local
+                                   .sif). Setting it switches the job
+                                   from vanilla to `universe =
+                                   container`. Mutually exclusive with
+                                   use_singularity, which is the legacy
+                                   +SingularityImage form.
+        when_to_transfer_output: str -- KEYWORD-ONLY. One of ON_EXIT
+                                   (default),
+                                   ON_EXIT_OR_EVICT, ON_SUCCESS, NEVER.
+                                   ON_EXIT discards the sandbox on
+                                   eviction, so a preemptable pool loses
+                                   whatever the job had already written.
+                                   Like container_image and the transfer
+                                   extras, this is emitted by build_worker
+                                   and so is refused together with
+                                   subdag_factory: a sub-DAG writes its own
+                                   submit descriptions, and its nodes would
+                                   transfer at the default instead.
         use_singularity  : bool
         singularity_image: str   -- required if use_singularity=True
         oom_hold_codes   : seq  -- hold codes this site reports when a
@@ -1782,21 +1882,52 @@ class DualCondorRunQueue(RunQueue):
                  oom_memory_factor: float = 1.5,
                  subdag_factory: Optional[Callable[[Any, str, int], str]] = None,
                  submit_mode: str = "submit",
+                 # Keyword-only, and last: these arrived after the
+                 # positional sequence above was already in use. Splicing
+                 # them in next to use_singularity, where they belong by
+                 # topic, would have rebound every positional argument
+                 # from that point on — a caller's positional True for
+                 # use_singularity would land in container_image and
+                 # raise TypeError from its validator.
+                 *,
+                 container_image: Optional[str] = None,
+                 when_to_transfer_output: Optional[str] = None,
                  **submit_kwargs: Any):
         self.run_pool = run_pool
         self.run_collector = run_collector
         self.extra_transfer_input_files = extra_transfer_input_files
         self.extra_transfer_output_files = extra_transfer_output_files
-        if (self.extra_transfer_input_files or self.extra_transfer_output_files) \
-                and subdag_factory is not None:
+        self.container_image = container_image
+        # Assigned before the guards below, which read it: the setter
+        # normalises None to the ON_EXIT default, and what the guard asks
+        # is whether a NON-default policy was requested.
+        self.when_to_transfer_output = when_to_transfer_output
+        if (self.extra_transfer_input_files or self.extra_transfer_output_files
+                or self.container_image) and subdag_factory is not None:
             # Fail early for the common case. submit() re-checks, because
             # both of these are plain attributes and assigning either after
             # construction reaches the same silently-ignoring path.
             raise ValueError(
-                "extra_transfer_{input,output}_files are applied by "
-                "build_worker, which is bypassed when subdag_factory is set: "
-                "the sub-DAG owns its own submit descriptions. Put the extra "
-                "entries in the sub-DAG the factory generates instead.")
+                "extra_transfer_{input,output}_files and container_image are "
+                "applied by build_worker, which is bypassed when "
+                "subdag_factory is set: the sub-DAG owns its own submit "
+                "descriptions. Put them in the sub-DAG the factory generates "
+                "instead.")
+        if (self.when_to_transfer_output != DEFAULT_WHEN_TO_TRANSFER_OUTPUT
+                and subdag_factory is not None):
+            # Same bypass, and worse than merely dropped: build_worker is
+            # also where ON_EXIT_OR_EVICT is REFUSED, so accepting it here
+            # would route the one value this queue rejects around its own
+            # rejection while the sub-DAG's nodes ran under the default.
+            raise ValueError(
+                "when_to_transfer_output={0} is applied by build_worker, "
+                "which is bypassed when subdag_factory is set: the sub-DAG "
+                "owns its own submit descriptions, so its nodes would "
+                "transfer at the default {1} with nothing to show the "
+                "request was dropped. Set the timing in the sub-DAG the "
+                "factory generates instead.".format(
+                    self.when_to_transfer_output,
+                    DEFAULT_WHEN_TO_TRANSFER_OUTPUT))
         self.request_memory = int(request_memory)
         self.request_disk = request_disk
         self.accounting_group = accounting_group or os.environ.get("LIGO_ACCOUNTING")
@@ -1899,6 +2030,22 @@ class DualCondorRunQueue(RunQueue):
     def extra_periodic_release(self, value: Any) -> None:
         self._extra_periodic_release = _validate_release_expression(
             value, what="extra_periodic_release")
+
+    @property
+    def container_image(self) -> str:
+        return self._container_image
+
+    @container_image.setter
+    def container_image(self, value: Any) -> None:
+        self._container_image = _validate_container_image(value)
+
+    @property
+    def when_to_transfer_output(self) -> str:
+        return self._when_to_transfer_output
+
+    @when_to_transfer_output.setter
+    def when_to_transfer_output(self, value: Any) -> None:
+        self._when_to_transfer_output = _validate_when_to_transfer(value)
 
     @property
     def oom_hold_codes(self) -> Tuple[int, ...]:
@@ -2085,9 +2232,22 @@ class DualCondorRunQueue(RunQueue):
         lines: List[str] = [
             "# Auto-generated by RIFT.simulation_manager.database."
             "DualCondorRunQueue",
-            "universe                = vanilla",
+            "universe                = {}".format(
+                "container" if self.container_image else "vanilla"),
             "executable              = {}".format(bootstrap),
         ]
+        if self.container_image:
+            if self.use_singularity:
+                # Two ways to say "run this in a container", emitted
+                # together, resolved by the site. Refuse rather than let
+                # the job run under whichever the pool happens to honour.
+                raise ValueError(
+                    "container_image and use_singularity are alternative "
+                    "ways to request a container: the modern container "
+                    "universe and the legacy +SingularityImage form. Set "
+                    "one. container_image is the one OSG documents now.")
+            lines.append("container_image         = {}".format(
+                self.container_image))
         args_tail = ["--sim-name", sim_name, "--level", str(int(level))]
         if prev_basenames:
             args_tail.append("--prev-levels")
@@ -2097,7 +2257,34 @@ class DualCondorRunQueue(RunQueue):
         if transfer_in:
             lines.append("transfer_input_files    = {}".format(",".join(transfer_in)))
         lines.append("should_transfer_files   = YES")
-        lines.append("when_to_transfer_output = ON_EXIT")
+        if self.when_to_transfer_output == "ON_EXIT_OR_EVICT":
+            # Refused, not emitted. HTCondor: "If a file listed in
+            # transfer_output_files does not exist at eviction time, the
+            # job will go on hold." This queue ALWAYS writes an explicit
+            # transfer_output_files led by level_<N>.json, and the
+            # bootstrap writes that marker only after run() returns -- so
+            # every mid-run eviction would hold the job instead of
+            # rescheduling it. That is strictly worse than the ON_EXIT
+            # behaviour the setting gets reached for.
+            #
+            # It also spools the evicted sandbox to the AP. On the access
+            # point this was developed against, /var/lib/condor/spool is
+            # 100% full with 28 MB free and shared by every user; filling
+            # it has caused a campaign-wide outage before.
+            #
+            # What does preserve partial work is HTCondor
+            # self-checkpointing, which does not require the final
+            # outputs to exist. That is an archive-design change, not a
+            # knob, so this raises rather than pretending to offer it.
+            raise ValueError(
+                "when_to_transfer_output=ON_EXIT_OR_EVICT cannot be used "
+                "with this queue: it emits transfer_output_files led by "
+                "level_<N>.json, which does not exist until the job "
+                "succeeds, and HTCondor holds a job whose listed output "
+                "is missing at eviction. Use checkpoint_exit_code / "
+                "transfer_checkpoint_files to preserve partial work.")
+        lines.append("when_to_transfer_output = {}".format(
+            self.when_to_transfer_output))
         # Backend-supplied products, beyond the level_<N>.json marker.
         # transfer_output_files is explicit, so HTCondor returns ONLY what
         # is named here: anything else the worker wrote is destroyed with
@@ -2296,6 +2483,35 @@ class DualCondorRunQueue(RunQueue):
                             "sub-DAG owns its own submit descriptions. Put the "
                             "entries in the DAG the factory generates, or clear "
                             "subdag_factory.")
+                    # Same reasoning, same path. Without this a queue
+                    # configured with a container image submits a sub-DAG
+                    # whose nodes run the science OUTSIDE the container,
+                    # with no error and nothing in the submit files to
+                    # show it -- the exact silent substitution the
+                    # container argument exists to remove.
+                    if self.container_image:
+                        raise ValueError(
+                            "container_image is applied by build_worker, which "
+                            "this sub-DAG path bypasses, so the sub-DAG's nodes "
+                            "would run outside the container. Set the container "
+                            "in the DAG the factory generates, or clear "
+                            "subdag_factory.")
+                    # And the transfer timing, which build_worker both
+                    # emits and polices. Silently ignoring it here loses a
+                    # deliberate ON_SUCCESS, and lets ON_EXIT_OR_EVICT --
+                    # the one value build_worker refuses outright -- reach
+                    # a submit with no complaint from either end.
+                    if (self.when_to_transfer_output
+                            != DEFAULT_WHEN_TO_TRANSFER_OUTPUT):
+                        raise ValueError(
+                            "when_to_transfer_output={0} is applied by "
+                            "build_worker, which this sub-DAG path bypasses, "
+                            "so the sub-DAG's nodes would transfer at the "
+                            "default {1} instead. Set the timing in the DAG "
+                            "the factory generates, or clear "
+                            "subdag_factory.".format(
+                                self.when_to_transfer_output,
+                                DEFAULT_WHEN_TO_TRANSFER_OUTPUT))
                     work_path = self.subdag_factory(archive, sim, lvl)
                     nodes.append((sim, lvl, work_path, True))
                 else:

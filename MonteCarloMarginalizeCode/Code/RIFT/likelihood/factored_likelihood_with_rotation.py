@@ -786,6 +786,21 @@ def DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation(
     array_output=True returns lnL_t of shape (npts_ex, npts) (before time marginalization);
     array_output=False returns the time-marginalized lnL of shape (npts_ex,).
     """
+    # The band-limited time quadrature is REFUSED here, not silently ignored.  Its
+    # correctness rests on lnL(t) being a pointwise function of a band-limited
+    # kappa(t) and a CONSTANT self-term; on this path rho_sq is time-dependent
+    # (and the antenna response carries sidereal post-phases), so the samples on
+    # the deltaT grid do NOT determine the continuous integrand and refining it
+    # by FFT would produce a confident wrong number.  A caller that set the
+    # module-level default globally must be told, not quietly given Simpson.
+    from . import factored_likelihood as _fl
+    if getattr(_fl, 'TIME_QUADRATURE_DEFAULT', 'simpson') != 'simpson':
+        raise NotImplementedError(
+            "factored_likelihood.TIME_QUADRATURE_DEFAULT=%r, but the slow-rotation likelihood has a "
+            "time-DEPENDENT rho_sq, so the band-limited argument does not apply here. "
+            "Audit this path separately rather than enabling the option globally."
+            % (_fl.TIME_QUADRATURE_DEFAULT,))
+
     require_post_phase_bank(
         meta, 'DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation')
 

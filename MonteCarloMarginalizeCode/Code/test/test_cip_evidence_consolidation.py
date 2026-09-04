@@ -114,6 +114,16 @@ def test_pipeline_has_terminal_prior_then_strict_final_evidence(pipeline):
     assert "--cip-prefix overlap-grid-$(macroiterationnext)" in source
 
 
+@pytest.mark.parametrize("pipeline", PIPELINES)
+def test_pipeline_points_in_loop_evidence_at_non_exploded_cip_output(pipeline):
+    source = open(pipeline).read()
+    assert 'evidence_source = " --cip-dir iteration_$(macroiteration)_cip"' in source
+    assert 'evidence_source = " --cip-dir . --cip-prefix overlap-grid-$(macroiterationnext)"' in source
+    macro_api = ("add_variable" if os.path.basename(pipeline) == "cepp_basic_htcondor"
+                 else "add_macro")
+    assert 'evidence_node.{}("macroiterationnext",it)'.format(macro_api) in source
+
+
 def test_prior_mode_is_independent_and_reweighted_evidence_restores_shift():
     source = open(CIP).read()
     assert 'parser.add_argument("--integrate-prior"' in source

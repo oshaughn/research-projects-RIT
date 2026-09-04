@@ -1,0 +1,378 @@
+"""Regression tests for adaptive, primitive-field time marginalization."""
+import ast
+import inspect
+
+import jax
+import jax.numpy as jnp
+import numpy as np
+import pytest
+
+jax.config.update("jax_enable_x64", True)
+_trapezoid = getattr(np, "trapezoid", None)
+if _trapezoid is None:
+    _trapezoid = np.trapz
+
+from RIFT.likelihood.jax_ile import anglemarg, core, wrapper
+
+
+@pytest.mark.parametrize("n", [31, 32])
+def test_even_extension_reproduces_odd_and_even_samples(n):
+    rng = np.random.default_rng(10 + n)
+    x = rng.normal(size=(2, n))
+    for factor in (2, 4, 8):
+        dense = np.asarray(core._reflected_fft_upsample(jnp.asarray(x), factor))
+        assert dense.shape[-1] == (n - 1) * factor + 1
+        np.testing.assert_allclose(dense[..., ::factor], x, atol=2e-12, rtol=0)
+
+
+@pytest.mark.parametrize("n", [31, 32])
+def test_constant_integrand_has_exact_interval_normalization(n):
+    dt, c = 1.0 / 8192, 17.0
+    row = jnp.full((2, n), c)
+    exact = c + np.log((n - 1) * dt)
+    for factor in (1, 2, 8, 32):
+        got, resolved = core._terminal_reflected_fft_at_factor(row, dt, factor)
+        np.testing.assert_allclose(np.asarray(got), exact, atol=2e-12, rtol=0)
+        assert np.all(np.asarray(resolved))
+
+
+def _event_b_like_row(phase=0.37):
+    n, dt, amp = 491, 1.0 / 8192, 600.0 ** 2 / 2.0
+    x = np.arange(n) - n // 2 - phase
+    # Broad, reconstructible terminal lnL; exp(lnL) is narrower than one input
+    # sample by sqrt(amp), which is the Event-B high-SNR failure geometry.
+    return amp * np.exp(-0.5 * (x / 3.0) ** 2), dt, amp
+
+
+def test_event_b_scale_adaptive_integral_matches_local_dense_truth():
+    row, dt, amp = _event_b_like_row()
+    got = float(core._time_marginalize_reflected_primitive(
+        jnp.asarray(row[None, :], dtype=jnp.complex128),
+        jnp.zeros((1, row.size)), dt)[0])
+    sigma_t = 3.0 * dt / np.sqrt(amp)
+    want = amp + np.log(np.sqrt(2.0 * np.pi) * sigma_t)
+    assert abs(got - want) < 2e-3
+
+
+def test_nonfinite_row_falls_back_to_historical_simpson():
+    n, dt = 31, 1.0 / 4096
+    row = np.linspace(-4.0, 0.0, n)[None, :]
+    row[0, 3] = -np.inf
+    w = jnp.asarray(core._simpson_weights(n, dt))
+    got = core._time_marginalize_reflected_fft(jnp.asarray(row), dt, w)
+    want = core._time_marginalize(jnp.asarray(row), w)
+    np.testing.assert_allclose(np.asarray(got), np.asarray(want), rtol=0, atol=0)
+
+
+def test_adaptive_primitive_value_gradient_and_hessian_are_finite_and_rematerialized():
+    n, dt = 25, 1.0 / 4096
+    x = jnp.arange(n, dtype=jnp.float64) - 12.2
+
+    def f(scale):
+        kappa = (scale * jnp.exp(-0.5 * (x / 3.0) ** 2))[None, :].astype(
+            jnp.complex128)
+        return core._time_marginalize_reflected_primitive(
+            kappa, jnp.zeros((1, n)), dt)[0]
+
+    value = f(600.0)
+    grad = jax.grad(f)(600.0)
+    hess = jax.hessian(f)(600.0)
+    assert np.all(np.isfinite(np.asarray([value, grad, hess])))
+    assert "jax.checkpoint(refine_one)" in inspect.getsource(
+        core._time_marginalize_reflected_primitive)
+
+
+def test_phase_marginalization_refines_kappa_before_abs_near_nyquist():
+    n, dt, amp = 17, 1.0, 5.0
+    kappa = amp * (-1.0) ** np.arange(n)
+    rho = np.zeros((1, n))
+    factor = 64
+    dense = np.asarray(core._reflected_fft_upsample(
+        jnp.asarray(kappa[None, :]), factor))[0].real
+    x = np.arange((n - 1) * factor + 1) / factor
+    np.testing.assert_allclose(dense, amp * np.cos(np.pi * x),
+                               rtol=0, atol=2e-12)
+    got = float(core._time_marginalize_reflected_primitive(
+        jnp.asarray(kappa[None, :]), jnp.asarray(rho), dt,
+        phase_marginalization=True)[0])
+    # On the input grid abs(kappa) is identically amp, so interpolating the
+    # already-marginalized field returns this demonstrably wrong constant-row
+    # result.  The band-limited primitive is amp*cos(pi*t), with zeros at every
+    # half sample; integrate that independent continuous model densely.
+    wrong = amp + np.log((n - 1) * dt)
+    x_truth = np.linspace(0.0, n - 1.0, (n - 1) * 8192 + 1)
+    y = np.exp(amp * np.abs(np.cos(np.pi * x_truth)) - amp)
+    want = amp + np.log(_trapezoid(y, x=x_truth))
+    assert abs(want - wrong) > 0.5
+    # This adversary has likelihood maxima at both window endpoints and lies
+    # outside the documented spectral-headroom regime.  The reconstruction is
+    # mathematically correct, but the production adapter must refuse to trust
+    # a boundary condition carrying material posterior mass.
+    assert np.isnan(got)
+
+
+@pytest.mark.parametrize("n_harmonics", [14, 88])
+def test_guarded_cosine_pad_matches_independent_dense_high_snr_truth(n_harmonics):
+    n, center, amp = 491, 245.37, 600.0 ** 2 / 2.0
+    g_initial = 1 << int(np.ceil(np.log2(core.default_time_guard(n))))
+    guard = 2 * g_initial
+    harmonics = np.arange(1, n_harmonics + 1, dtype=float)
+
+    def primitive(t):
+        phase = 2.0 * np.pi * harmonics[:, None] * (
+            np.asarray(t)[None, :] - center) / n
+        return amp * np.mean(np.cos(phase), axis=0)
+
+    samples = primitive(np.arange(-guard, n + guard))
+    got = float(core._time_marginalize_reflected_primitive(
+        jnp.asarray(samples[None, :], dtype=jnp.complex128),
+        jnp.zeros((1, samples.size)), 1.0, guard=guard)[0])
+    factor_truth = 8192
+    # At rho~600 the principal posterior peak is far narrower than this
+    # four-sample independent continuous interval; all omitted contributions
+    # underflow relative to it, while this avoids a needlessly huge K x N array.
+    t = np.arange(center - 2.0, center + 2.0 + 0.5 / factor_truth,
+                  1.0 / factor_truth)
+    truth = primitive(t)
+    peak = np.max(truth)
+    want = peak + np.log(
+        _trapezoid(np.exp(truth - peak), dx=1.0 / factor_truth))
+    assert abs(got - want) < 1e-3
+
+
+def test_refinement_is_batch_composition_independent():
+    sharp, dt, _ = _event_b_like_row(phase=0.41)
+    broad = 20.0 * np.exp(-0.5 * ((np.arange(sharp.size) - 245.1) / 20.0) ** 2)
+    w = jnp.asarray(core._simpson_weights(sharp.size, dt))
+    alone = core._time_marginalize_reflected_fft(jnp.asarray(sharp[None, :]), dt, w)
+    paired = core._time_marginalize_reflected_fft(
+        jnp.asarray(np.stack((broad, sharp))), dt, w)
+    np.testing.assert_allclose(np.asarray(alone[0]), np.asarray(paired[1]),
+                               rtol=0, atol=1e-10)
+
+
+def test_all_terminal_kernels_expose_one_canonical_selector():
+    kernels = [
+        core.fused_log_likelihood,
+        core.fused_log_likelihood_distmarg,
+        core.fused_log_likelihood_phimarg,
+        core.fused_log_likelihood_distphimarg,
+        core.fused_log_likelihood_distphipsimarg,
+        core.fused_log_likelihood_distpsimarg,
+        anglemarg.fused_log_likelihood_distphipsimarg_exact,
+        anglemarg.fused_log_likelihood_distphipsimarg_laplace,
+        core.phi_ref_conditional_lnL,
+    ]
+    for fn in kernels:
+        assert "time_quadrature" in inspect.signature(fn).parameters, fn.__name__
+
+
+def test_all_wrappers_expose_quadrature_but_nonlinear_path_refuses_bandlimited():
+    classes = [wrapper.JAXExtrinsicLikelihood,
+               wrapper.JAXDistanceMarginalizedLikelihood,
+               wrapper.JAXDistPhiMargLikelihood,
+               wrapper.JAXDistPhiPsiMargLikelihood,
+               wrapper.JAXDistPsiMargLikelihood]
+    for cls in classes:
+        assert "time_quadrature" in inspect.signature(cls.__init__).parameters
+    with pytest.raises(ValueError, match="primitive time fields"):
+        wrapper._validate_nonlinear_time_quadrature(
+            "bandlimited", "distance/phase marginalization")
+    required, g0, gcert = wrapper.bandlimited_storage_requirement(
+        1.0 / 4096, 0.075)
+    assert g0 == 512 and gcert == 1024
+    assert required > 0.15  # the historical 2:1 buffer is provably insufficient
+    accumulator_source = inspect.getsource(core._accumulate_unit)
+    assert "support_valid" in accumulator_source
+    assert "jnp.nan + 0.0j" in accumulator_source
+
+
+@pytest.mark.parametrize("feature", [None, "freqresponse"])
+def test_missing_guard_support_poisoned_for_baseline_and_banded(monkeypatch, feature):
+    import types
+    monkeypatch.setattr(core, "compute_detamresponse",
+                        lambda *args: jnp.ones((1,), dtype=jnp.complex128))
+    monkeypatch.setattr(core, "time_delay_from_earth_center",
+                        lambda *args: jnp.zeros((1,)))
+    monkeypatch.setattr(core, "spherical_harmonics_vectorized",
+                        lambda *args, **kwargs: jnp.ones((1, 1), dtype=jnp.complex128))
+    monkeypatch.setattr(core, "_banded_coefficients",
+                        lambda *args: jnp.ones((1, 1), dtype=jnp.complex128))
+    common = dict(lms=[(2, 2)], l_max=2, response=np.zeros((3, 3)),
+                  location=np.zeros(3))
+    if feature is None:
+        detector = dict(common, Q=jnp.ones((4, 1), dtype=jnp.complex128),
+                        U=jnp.zeros((1, 1), dtype=jnp.complex128),
+                        V=jnp.zeros((1, 1), dtype=jnp.complex128))
+    else:
+        detector = dict(common,
+                        Q_bank=jnp.ones((1, 4, 1), dtype=jnp.complex128),
+                        U_bank=jnp.zeros((1, 1, 1, 1), dtype=jnp.complex128),
+                        V_bank=jnp.zeros((1, 1, 1, 1), dtype=jnp.complex128))
+    data = types.SimpleNamespace(
+        feature=feature, detectors={"X": detector}, detector_names=["X"],
+        band={"refl_idx": np.array([0])}, gmst=0.0, deltaT=1.0,
+        npts=3, tval0=1.0, tref_minus_epoch=lambda det: 0.0)
+    args = [jnp.zeros((1,))] * 5
+    kappa, rho = core._accumulate_unit(
+        data, *args, interp="nearest", phase_marginalization=False, guard=2)
+    assert np.all(np.isnan(np.asarray(kappa)))
+    assert np.all(np.isnan(np.asarray(rho)))
+
+
+def test_jax_driver_uses_conventional_ile_flag_names():
+    import pathlib
+    driver = pathlib.Path(__file__).parents[2] / "bin" / "integrate_likelihood_extrinsic_jax"
+    src = driver.read_text()
+    for flag in ("--time-marginalization-quadrature",
+                 "--resample-time-marginalization",
+                 "--srate-resample-time-marginalization",
+                 "--time-posterior-export",
+                 "--interpolate-time"):
+        assert flag in src
+
+
+def _declared_option_actions(path):
+    """Return long option -> arity class without executing an ILE driver."""
+    tree = ast.parse(path.read_text())
+    out = {}
+    pinnable = []
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Assign) and
+                any(isinstance(target, ast.Name) and
+                    target.id == "LIKELIHOOD_PINNABLE_PARAMS"
+                    for target in node.targets)):
+            pinnable = ast.literal_eval(node.value)
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and
+                isinstance(node.func, ast.Attribute) and
+                node.func.attr == "add_option"):
+            continue
+        names = [arg.value for arg in node.args
+                 if isinstance(arg, ast.Constant) and
+                 isinstance(arg.value, str) and arg.value.startswith("--")]
+        if not names:
+            continue
+        action = "store"
+        for keyword in node.keywords:
+            if (keyword.arg == "action" and
+                    isinstance(keyword.value, ast.Constant)):
+                action = keyword.value.value
+        if action in ("store_true", "store_false"):
+            arity = "bool"
+        elif action == "append":
+            arity = "append"
+        else:
+            arity = "value"
+        out[names[0]] = arity
+    # Conventional ILE registers these options in a loop, so there is no
+    # literal ``--flag`` argument for the AST walk above to discover.
+    out.update(("--" + name.replace("_", "-"), "value")
+               for name in pinnable)
+    return out
+
+
+def test_jax_dropin_manifest_covers_every_batchmode_option_with_same_arity():
+    """A new conventional ILE flag must not make executable swapping fail.
+
+    This is intentionally mechanical.  The compatibility table had drifted by
+    77 options while still claiming complete coverage; checking a hand-picked
+    list of headline flags did not detect that class of failure.
+    """
+    import pathlib
+    code = pathlib.Path(__file__).parents[2]
+    conventional = _declared_option_actions(
+        code / "bin" / "integrate_likelihood_extrinsic_batchmode")
+    drv = _load_driver()
+    parser = drv.build_parser()
+    jax_actions = {}
+    for option in parser._get_all_options():
+        if option.action in ("store_true", "store_false"):
+            arity = "bool"
+        elif option.action == "append":
+            arity = "append"
+        else:
+            arity = "value"
+        for name in option._long_opts:
+            jax_actions[name] = arity
+    missing = sorted(set(conventional) - set(jax_actions))
+    mismatched = sorted(
+        (name, conventional[name], jax_actions[name])
+        for name in set(conventional) & set(jax_actions)
+        if conventional[name] != jax_actions[name])
+    assert not missing
+    assert not mismatched
+
+
+def _load_driver():
+    import importlib.machinery
+    import importlib.util
+    import pathlib
+    path = pathlib.Path(__file__).parents[2] / "bin" / "integrate_likelihood_extrinsic_jax"
+    loader = importlib.machinery.SourceFileLoader("_jax_tmarg_driver", str(path))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    mod = importlib.util.module_from_spec(spec)
+    loader.exec_module(mod)
+    return mod
+
+
+def test_driver_parses_readback_and_conflict_checks_ile_aliases():
+    drv = _load_driver()
+    parser = drv.build_parser()
+    argv = ["--time-marginalization-quadrature", "bandlimited",
+            "--interpolate-time", "sinc"]
+    opts, _ = parser.parse_args(argv)
+    drv.record_supplied_options(opts, argv, parser)
+    drv.resolve_ile_interface_aliases(opts, parser)
+    drv.check_critical_and_report(opts, parser)
+    assert opts.time_marginalization_quadrature == "bandlimited"
+    assert opts.interp == "sinc"
+
+    # The high-level ILE_extr job emits these conventional export arguments.
+    # JAX keeps time terminally marginalized, but executable substitution must
+    # not die during option parsing or the compatibility check.
+    argv = ["--resample-time-marginalization",
+            "--srate-resample-time-marginalization", "8192",
+            "--time-posterior-export", "grid"]
+    opts, _ = parser.parse_args(argv)
+    drv.record_supplied_options(opts, argv, parser)
+    drv.check_critical_and_report(opts, parser)
+
+    # Legacy conventional ILE spellings remain valid when an old args_ile.txt
+    # is pointed at the JAX executable.
+    for value, expected in (("True", "cubic"), ("False", "nearest")):
+        argv = ["--interpolate-time", value]
+        opts, _ = parser.parse_args(argv)
+        drv.record_supplied_options(opts, argv, parser)
+        drv.resolve_ile_interface_aliases(opts, parser)
+        assert opts.interp == expected
+    assert drv._normalize_interpolate_time_argv(
+        ["--interpolate-time", "--gpu"]) == [
+            "--interpolate-time", "True", "--gpu"]
+
+    argv = ["--interp", "linear", "--interpolate-time", "sinc"]
+    opts, _ = parser.parse_args(argv)
+    drv.record_supplied_options(opts, argv, parser)
+    with pytest.raises(SystemExit):
+        drv.resolve_ile_interface_aliases(opts, parser)
+
+
+def test_headline_phase_marginalized_export_keeps_sky_and_psi_not_phi_or_time(tmp_path):
+    import types
+    drv = _load_driver()
+    opts = types.SimpleNamespace(
+        output_file=str(tmp_path / "ile"), save_samples=True, seed=19,
+        mode="nuts", phase_marginalization=True)
+    theta = np.arange(24.0).reshape(4, 6)
+    drv.write_samples(opts, 0, theta, np.arange(4.0), with_distance=True)
+    path = tmp_path / "ile_0_samples.dat"
+    lines = path.read_text().splitlines()
+    assert lines[0].lstrip("# ") == (
+        "right_ascension declination distance inclination psi loglikelihood")
+    assert "phi_orb" not in lines[0]
+    assert "t_ref" not in lines[0]
+    assert "phase=analytically-marginalized" in lines[1]
+    values = np.loadtxt(path)
+    np.testing.assert_array_equal(values[:, 0], theta[:, 0])
+    np.testing.assert_array_equal(values[:, 1], theta[:, 1])
+    np.testing.assert_array_equal(values[:, 4], theta[:, 2])

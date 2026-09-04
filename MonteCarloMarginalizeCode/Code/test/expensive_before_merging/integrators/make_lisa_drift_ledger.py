@@ -223,6 +223,11 @@ RULES = [
      "is 5, so adopting main's default verbatim would silently shrink every LISA "
      "export by orders of magnitude. Port the flag with LISA's present behaviour as "
      "its default."),
+    (r"^FUNC:_equal_weight_fairdraw_for_serialization$", "PORT",
+     "Completes a sampler-side fair draw that intentionally did not fire because it "
+     "would not shrink a tiny retained record, but only on the copy written to XML. "
+     "LISA has the same skip-on-no-shrink and serialization boundary, so port this "
+     "with --fairdraw-extrinsic-output-n-max while preserving its larger LISA default."),
 
     # ------------------------------------------------------- LIGO/Virgo calibration envelopes
     (r"^OPTION:--calibration-", "NA",
@@ -243,6 +248,19 @@ RULES = [
      "one. If LISA ever models calibration, it wants derived_rng directly, not this wrapper."),
     (r"^FUNC:analyze_event\._cal_error_probe(\._draw_dist)?$", "NA",
      "Calibration Monte-Carlo error probe; see the --calibration-* reason."),
+    (r"^FUNC:fused_calmarg_in_use$", "NA",
+     "THE predicate for 'will the fused in-loop calibration kernel actually run?', shared by "
+     "the startup --interpolate-time guard and by use_fused_calmarg at dispatch so the "
+     "condition has one definition instead of two that drift (it drifted three times in a day "
+     "before being hoisted). Every one of its terms is a LIGO/Virgo calibration concept -- an "
+     "envelope directory, a realization count, --calibration-fused-kernel, the "
+     "responsibilities pilot -- and the LISA driver has NONE of them: it declares no "
+     "--calibration-* option, never sets cal_method, and models no instrument calibration at "
+     "all. See the --calibration-* reason. NOT a stencil gap despite being read by the "
+     "stencil guard: LISA's --interpolate-time is a separate boolean parsed by "
+     "legacy_time_interpolation_enabled, with no fused kernel to protect. If LISA ever models "
+     "calibration this predicate is the wrong shape for it, and the thing to port would be "
+     "the ONE-definition discipline, not this function."),
 
     # ------------------------------------------------------- ground-based detector geometry
     (r"^OPTION:--rotation-(slow|n-harmonics|p-max)$", "NA",
@@ -313,6 +331,43 @@ RULES = [
      "beta; say exactly that in the help text. Port the post-PR#58 form including the "
      "cos(iota)/cos(dec) endpoint swap under the cosine samplers."),
 
+    (r"^OPTION:--limit-distance$", "PORT",
+     "Sampling-only distance box: narrows what distance is DRAWN from while the prior keeps "
+     "its full [--d-min,--d-max] normalization, so lnZ stays on the full-range scale. Port it, "
+     "and port the SPLIT rather than the option alone. VERIFIED 2026-09-02 that the LISA "
+     "driver still carries the one-range form the main driver was just moved off "
+     "(integrate_likelihood_extrinsic_batchmode_lisa:1021-1024: dist_sampler and "
+     "dist_prior_pdf are both built from param_limits['distance']), which normalizes the "
+     "Euclidean density over whatever the sampler happens to draw from -- so narrowing for "
+     "cost there would silently rescale the evidence. mcsampler.distance_sampler_kwargs() "
+     "already takes the sampling range and the prior range as two arguments and is shared "
+     "code -- but the port is NOT a pure call-site change, and what is missing is a prior "
+     "LISA SUPPORTS and the helper does not. VERIFIED 2026-09-03: the LISA driver has an "
+     "explicit 'elif opts.d_prior == uniform: dist_prior_pdf = dist_sampler' branch (:1029), "
+     "so --d-prior uniform WORKS there; the main driver has no such branch and raises "
+     "Exception('distance prior') on it. distance_sampler_kwargs() handles Euclidean and "
+     "pseudo_cosmo only and raises ValueError otherwise, so routing LISA through it as-is "
+     "would BREAK an existing LISA prior. EXTEND THE HELPER FIRST, with a uniform branch "
+     "normalized 1/(p_hi - p_lo) over the PRIOR range -- and note the trap while doing it: "
+     "LISA's uniform prior is literally the sampling density "
+     "(ret_uniform_samp_vector_alt(lo,hi) = 1/(hi-lo) over the SAMPLED range), which is "
+     "exactly the sampling/prior conflation this helper exists to split, so transcribing it "
+     "would reintroduce the defect the port is for. That extension also changes MAIN-driver "
+     "behaviour (--d-prior uniform stops raising and starts running), so it needs RO'S and "
+     "is not something to fold into the --limit-distance PR. The motivation is "
+     "STRONGER on LISA than on ground-based data: measured on real LIGO data at rho ~ 82, a "
+     "box tracking the posterior removes 0.37 +- 0.11 nats of sampling bias the full-range "
+     "run was carrying (4.16 nats with --no-adapt-distance), and MBHB SNRs are one to two "
+     "orders of magnitude higher, where the posterior is narrower still relative to the same "
+     "prior (RIFT_roboto_paper analyses/limit_distance_e2e/). CARRY THE REFUSALS, and note "
+     "only one of the three transfers today: LISA HAS --distance-marginalization (:245), so "
+     "refuse there for the same reason -- no distance sampler exists to narrow. It has "
+     "neither --d-prior-redshift nor --internal-reparam-dl-incl, so those two refusals have "
+     "nothing to attach to yet; --internal-reparam-dl-incl is itself a PORT item above, so "
+     "whichever of the two lands second owes the refusal. LISA's --d-prior set is also "
+     "different (Euclidean|uniform|pseudo_cosmo, no cosmo/cosmo_sourceframe), so the cosmo "
+     "branch of the main driver's narrowing block has no counterpart to port."),
+
     # --------------------------------------------------------------------- data / waveform io
     (r"^OPTION:--internal-data-storage-window-half$", "NA",
      "Half-width of the main driver's internal precompute storage window. The LISA "
@@ -344,6 +399,22 @@ RULES = [
     (r"^FUNC:_normalize_interpolate_time_argv$", "PORT",
      "Normalizes --interpolate-time argv forms. LISA exposes --interpolate-time, so "
      "the same normalization applies."),
+    (r"^OPTION:--time-marginalization-quadrature$", "PORT",
+     "Selects the rule for the TIME integral of the marginalized likelihood "
+     "(simpson, the unchanged default, or the opt-in band-limited refinement). LISA "
+     "carries the SAME defect this addresses: factored_likelihood_LISA.py integrates "
+     "exp(lnL(t)) with Simpson at the fixed data spacing, while the integrand's width "
+     "sigma_t = 1/(2 pi rho sigma_f) is set by the signal and shrinks as 1/rho -- so it "
+     "under-resolves its own integrand, worse at higher SNR. PORT, not NA. But porting "
+     "is NOT just wiring the flag through, and the prerequisite is the whole question: "
+     "the band-limited argument needs kappa band-limited below Nyquist AND rho_sq "
+     "time-INDEPENDENT. The main driver refuses --rotation-slow and --freqresponse for "
+     "exactly that second condition, and a response that varies across the observation "
+     "is the normal case for LISA, not an exotic one. So the LISA port must first "
+     "establish whether its self-term is time-independent over the integration window; "
+     "if it is not, the honest outcome is a documented refusal on that path rather than "
+     "a flag that silently integrates the wrong thing. Note also that the LISA site "
+     "integrates on axis=0, not the last axis."),
     (r"^OPTION:--internal-precompute-ignore-threshold$", "PORT",
      "Drops negligible modes during precompute. LISA is mode-heavy (--modes, "
      "--restricted-mode-list-file) and pays more per mode than a ground-based run, so "
@@ -362,6 +433,10 @@ RULES = [
      "Exports the eccentric mean anomaly. Tied to the ground-based eccentric waveform "
      "path (see --e-freq); the LISA driver's own eccentricity export is "
      "--save-eccentricity."),
+    (r"^OPTION:--(force-hyperbolic-22|save-EOB-parameters|save-hyperbolic)$", "NA",
+     "Controls or exports the ground-based external-TEOBResumS advanced-physics path. "
+     "The LISA driver does not call that waveform path or write its a6c/E0/p_phi0 "
+     "composite layout."),
     (r"^OPTION:--calibration-spline-count$", "NA", "See the --calibration-* reason."),
     (r"^CONST:_SEQ_WS_PENDING$", "PORT",
      "Sentinel for the deferred sequential warm-start capture; ports with "

@@ -17,6 +17,24 @@ def assign_time(row, t):
     setattr(row, "geocent_end_time",( int(t)))
     setattr(row, "geocent_end_time_ns",int( (t-int(t))*1e9 ) )
 
+
+def gps_add_seconds_exact(gps_seconds, gps_nanoseconds, offset_seconds):
+    """Add float relative offsets to an exact GPS pair using integer nanoseconds.
+
+    The offset is rounded once to the SimInspiral schema's nanosecond resolution.
+    Absolute GPS arithmetic is never performed in float64, whose spacing at
+    current epochs is coarser than some sub-sample time-posterior draws.
+    Returns arrays ``(seconds, nanoseconds)`` with nanoseconds normalized to
+    ``[0, 1e9)``; negative offsets and second-boundary carries are supported.
+    """
+    billion = numpy.int64(1000000000)
+    offset_ns = numpy.rint(numpy.asarray(offset_seconds, dtype=float) * 1.e9).astype(numpy.int64)
+    total_ns = (numpy.int64(gps_seconds) * billion
+                + numpy.int64(gps_nanoseconds) + offset_ns)
+    return (numpy.floor_divide(total_ns, billion).astype(numpy.int64),
+            numpy.mod(total_ns, billion).astype(numpy.int64))
+
+
 CMAP = { "right_ascension": "longitude",
     "longitude":"longitude",
     "latitude":"latitude",
@@ -24,6 +42,13 @@ CMAP = { "right_ascension": "longitude",
     "inclination": "inclination",
     "polarization": "polarization",
     "t_ref": assign_time,#r.set_time_geocent(LIGOTimeGPS(float(t))),
+    # Exact fields, when present, deliberately follow t_ref and overwrite the
+    # legacy float decomposition.  float64 absolute GPS times are only spaced by
+    # ~0.12--0.24 microseconds at current epochs, while SimInspiral stores an
+    # integer nanosecond field and band-limited time export can resolve below the
+    # float spacing.
+    "t_ref_gps_seconds": "geocent_end_time",
+    "t_ref_gps_nanoseconds": "geocent_end_time_ns",
     "coa_phase": "coa_phase",
     "distance": "distance",
     "mass1": "mass1",
@@ -37,11 +62,17 @@ CMAP = { "right_ascension": "longitude",
     "alpha4":"alpha4",
     "alpha5":"alpha5",
     "alpha6":"alpha6",
+    "psi3":"psi3",
+    "beta":"beta",
+    "psi0":"psi0",
     "loglikelihood": "alpha1",
     "joint_prior": "alpha2",
     "joint_s_prior": "alpha3",
     "eccentricity":"alpha4",
     "meanPerAno":"alpha",
+    "E0":"psi3",
+    "p_phi0":"beta",
+    "a6c":"psi0",
     "lambda1":"alpha5",
     "lambda2":"alpha6",
     "spin1x":"spin1x",
@@ -54,7 +85,7 @@ CMAP = { "right_ascension": "longitude",
 
 # FIXME: Find way to intersect given cols with valid cols when making table.
 # Otherwise, we'll have to add them manually and ensure they all exist
-sim_valid_cols = ["simulation_id", "inclination", "longitude", "latitude", "polarization", "geocent_end_time", "geocent_end_time_ns", "coa_phase", "distance", "mass1", "mass2", "alpha", "alpha1", "alpha2", "alpha3", "alpha4", "alpha5", "alpha6", "spin1x", "spin1y", "spin1z", "spin2x", "spin2y", "spin2z"]
+sim_valid_cols = ["simulation_id", "inclination", "longitude", "latitude", "polarization", "geocent_end_time", "geocent_end_time_ns", "coa_phase", "distance", "mass1", "mass2", "alpha", "alpha1", "alpha2", "alpha3", "alpha4", "alpha5", "alpha6","psi3","beta", "spin1x", "spin1y", "spin1z", "spin2x", "spin2y", "spin2z","psi0"]
 sngl_valid_cols = [ "event_id", "snr", "tau0", "tau3"]
 multi_valid_cols = ["process_id", "event_id", "snr"]
 

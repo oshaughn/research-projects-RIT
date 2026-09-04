@@ -2,6 +2,47 @@
 0.0.18.0
 ------------
 development tree is rift_O4d.
+
+** BEHAVIOUR CHANGE, jax ILE: flow re-use across ``--n-events-to-analyze`` is now
+   OFF by default.  ``--flow-reuse`` restores the old behaviour; ``--no-flow-reuse``
+   is kept and now restates the default, so existing command lines keep working.
+   Measured over an 8-event batch at two seeds: re-using the trained flow contracts
+   the extrinsic posterior monotonically in slot index -- psi to ~40% of its
+   no-re-use width by slot 7, on BOTH seeds, with slot 0 (where no re-use has yet
+   happened) at ~1.0 as a control -- while costing no measurable wall time (1589 s
+   mean with re-use, 1567 s without; the seed-to-seed spread is larger than the
+   difference and its sign flips).  Anyone relying on re-use to amortize a batch
+   must now pass ``--flow-reuse`` explicitly, and should not do so for any run whose
+   extrinsic SAMPLES are used.  Evidence is less affected than samples.
+
+** jax ILE ``--save-samples`` is now a FAIR DRAW.  Previously the driver wrote
+   whatever cloud the sampler produced, with no weight column, so every consumer
+   read a Gaussian-proposal cloud (``--mode laplace-is``, the default) or raw
+   PRIOR draws (``--mode prior-mc``) as if it were a posterior.  Each estimator
+   now returns its per-sample importance weight and the export is
+   multinomial-resampled against it, matching production ILE's convention
+   (``RIFT/integrators/mcsampler.py::integrate``).  The data columns and their
+   header line are unchanged for a given ``--mode``; a second header line now
+   records the mode and the export ESS.  ``--fairdraw-extrinsic-output``,
+   ``--fairdraw-extrinsic-output-n-max`` and ``--n-fairdraw-extrinsic-samples``
+   are implemented (gated per mode, and honoured as a COUNT contract even when
+   the weights are uniform).  The requested count is clamped ONLY by the rows
+   available; those already carry ILE's ``1.5*ESS`` cap wherever the export
+   weights were non-uniform, applied against the EXPORT weights.  There is
+   deliberately no second clamp by the evidence estimator's ``neff``: on the
+   flowMC modes and on ``laplace-is`` that number describes a separate cloud
+   (the moment-matched Gaussian evidence proposal, or the annealing ladder's
+   minimum rung ESS), and clamping by it truncated valid equal-weight chains.  NOTE ``--fairdraw-extrinsic-output-n-max``
+   defaults to 5, as in ILE, so passing ``--fairdraw-extrinsic-output`` without
+   an explicit maximum now yields 5 rows where it previously yielded the whole
+   cloud.  If the weights admit no fair draw at all (degenerate or
+   unnormalizable), the driver writes NO ``*_samples.dat`` -- and deletes a stale
+   one at that path -- and fails the event (``--soft-fail-event-range`` still
+   skips to the next one) rather than exporting an unreweighted cloud under the
+   name that means "posterior draws".  That check runs BEFORE the
+   ``<output>_<index>_.dat`` result row is written, so such an event leaves no
+   normal ILE result behind either (a stale row is likewise removed); otherwise a
+   soft-failed, collapsed integration was still collectable as a success.
   - (rc0) O4d base refresh, from rift_O4c to rift_O4d: Python/numpy CI modernization (py3.10-py3.13,
     numpy 2.x checks), Asimov/RIFT smoke tests, docs deployment, pluggable workflow backends and
     simulation-manager prototypes, distance-grid/distance-slice likelihood export, container-family and pixi/SWIG
@@ -213,10 +254,6 @@ development tree is rift_O4d.
     Measured NEGATIVE results and retractions are recorded alongside the positive ones (n_eff does not
     certify correctness; k-hat does not catch confidently-wrong runs from support mismatch; the L0 'doubles
     landed fraction' claim and the cap24 lnZ-bias claim are retracted).
-
-0.0.17.13
----------
-MR https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/55  , for ln(e) parameter access in pipeline
 
 0.0.17.12
 ---------

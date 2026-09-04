@@ -70,7 +70,7 @@ def main():
                     interp=ti))[0])
                   for ti in ("nearest", "cubic")}
             print("  t_win=%.2f tvals=+/-%.2f : cupy(near/cubic)=%.1f/%.1f  "
-                  "JAX(near/lin)=%.1f/%.1f  half-cupy_near=%.1f (%.2f%%)"
+                  "JAX(near/cubic)=%.1f/%.1f  half-cupy_near=%.1f (%.2f%%)"
                   % (t_window, iwh, cu["nearest"], cu["cubic"], jx["nearest"], jx["cubic"],
                      half_dd - cu["nearest"], 100 * (half_dd - cu["nearest"]) / half_dd))
     print("DEBUG2 DONE")

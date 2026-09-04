@@ -1,11 +1,13 @@
 #!/usr/bin/env python
 """Operational smoke test for the LISA likelihood path."""
 
+import inspect
 import os
 
 import lal
 import lalsimulation as lalsim
 import numpy as np
+import pytest
 
 import RIFT.LISA.lalsimutils_compat as lisa_lalsimutils_compat
 import RIFT.lalsimutils as lalsimutils
@@ -81,7 +83,14 @@ def _evaluate_lisa_lnL(rholms, cross_terms, modes, P, psi=None, inclination=None
     )[0]
 
 
-def test_synthetic_lisa_tdi_precompute_and_likelihood(tmp_path):
+@pytest.fixture(scope="module")
+def lisa_precompute(tmp_path_factory):
+    """Build the synthetic TDI data and precompute once for the whole module.
+
+    Module-scoped because the build costs several seconds and every test here
+    consumes exactly the same product.
+    """
+    tmp_path = tmp_path_factory.mktemp("lisa_synthetic")
     P = _synthetic_lisa_params()
     modes = [(2, 2)]
 
@@ -128,6 +137,12 @@ def test_synthetic_lisa_tdi_precompute_and_likelihood(tmp_path):
     )
 
     modes_array = np.array(list(hlms.keys()))
+    return P, modes_array, rholms, cross_terms
+
+
+def test_synthetic_lisa_tdi_precompute_and_likelihood(lisa_precompute):
+    P, modes_array, rholms, cross_terms = lisa_precompute
+
     lnL_at_injection = _evaluate_lisa_lnL(rholms, cross_terms, modes_array, P)
     lnL_offset = _evaluate_lisa_lnL(
         rholms, cross_terms, modes_array, P, psi=P.psi + 0.8, inclination=P.incl + 0.5
@@ -136,3 +151,45 @@ def test_synthetic_lisa_tdi_precompute_and_likelihood(tmp_path):
     assert np.isfinite(lnL_at_injection)
     assert np.isfinite(lnL_offset)
     assert lnL_at_injection > lnL_offset
+
+
+def test_lisa_likelihood_names_a_host_backend_for_spherical_harmonics(
+    lisa_precompute, monkeypatch
+):
+    """The LISA likelihood must name numpy when it calls SphericalHarmonicsVectorized.
+
+    `SphericalHarmonicsVectorized` resolves to cupy on any host where cupy merely
+    imports, while this routine works entirely in host numpy.  Omitting `xpy`
+    here used to raise `TypeError: Unsupported type <class 'numpy.ndarray'>` from
+    `cupy._core._kernel._preprocess_args` on every GPU host, and pass everywhere
+    else -- so assert on the argument, not on the outcome, and this gate holds on
+    a cupy-free CI runner too.
+    """
+    P, modes_array, rholms, cross_terms = lisa_precompute
+
+    real = factored_likelihood_LISA.SphericalHarmonicsVectorized
+    seen = []
+
+    unset = object()
+    signature = inspect.signature(real)
+
+    def spy(*args, **kwargs):
+        # Bind through the real signature: a call site that passes xpy
+        # POSITIONALLY is equally correct and must not be misreported as a
+        # failure to name a backend.
+        bound = signature.bind(*args, **kwargs)
+        seen.append((bound.arguments["theta"], bound.arguments.get("xpy", unset)))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(
+        factored_likelihood_LISA, "SphericalHarmonicsVectorized", spy
+    )
+    _evaluate_lisa_lnL(rholms, cross_terms, modes_array, P)
+
+    assert seen, "SphericalHarmonicsVectorized was never called"
+    for theta, xpy in seen:
+        assert xpy is np, (
+            "LISA likelihood left xpy unset (or non-numpy: %r) for a %s theta; "
+            "host arrays must be computed with numpy"
+            % ("unset" if xpy is unset else xpy, type(theta).__name__)
+        )

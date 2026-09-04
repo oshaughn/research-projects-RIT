@@ -50,11 +50,14 @@ Output (matches ILE conventions):
      ``lnL`` = log marginal likelihood (evidence) over extrinsic parameters,
      ``sigma_lnL = sqrt(var)/Z`` (ILE's ``sqrt(var)/res``).  Masses in M_sun.
   <output>_<event>_samples.dat (--save-samples) : per-sample extrinsic params +
-     loglikelihood with ILE-style column names.
+     loglikelihood with ILE-style column names.  Equal-weight FAIR DRAW rows
+     (no weight column), so a collapsed integration whose weights admit no fair
+     draw writes NO samples file and fails the event instead.
 """
 
 from __future__ import print_function
 
+import os
 import sys
 from optparse import OptionParser, OptionGroup
 
@@ -68,6 +71,13 @@ import lalsimulation as lalsim
 
 import RIFT.lalsimutils as lalsimutils
 from RIFT.likelihood.jax_ile import build_data_from_precompute
+from RIFT.likelihood.jax_ile.wrapper import bandlimited_storage_requirement
+from RIFT.likelihood.jax_ile import anglemarg as _anglemarg
+from RIFT.likelihood.jax_ile.samplers import angle_marg_eval_chunk as _angle_marg_eval_chunk
+from RIFT.likelihood.jax_ile.core import _GATHERERS as _JAX_GATHERERS, JAX_INTERP_DEFAULT
+from RIFT.likelihood.jax_ile.anglemarg import (ANGLE_MARG_DEFAULT, ANGLE_MARG_LEGACY,
+                                               ANGLE_MARG_CHOICES)
+_JAX_GATHERER_NAMES = tuple(_JAX_GATHERERS)
 from RIFT.likelihood.jax_ile.wrapper import (
     JAXExtrinsicLikelihood, JAXDistanceMarginalizedLikelihood,
 )
@@ -90,14 +100,42 @@ FULL_NAMES = ("ra", "dec", "psi", "incl", "phiref", "distMpc")
 # here as accepted-but-ignored (with the correct arity so parsing succeeds), and
 # a small set that would silently change the *science* if ignored is failed on.
 
+# ILE's default cap for --fairdraw-extrinsic-output (integrate_likelihood_
+# extrinsic_batchmode: --fairdraw-extrinsic-output-n-max default=5).
+_FAIRDRAW_N_MAX_DEFAULT = 5
+# Below this many effective samples the exported cloud is not a usable posterior
+# sample however it is drawn.  ONE definition: fairdraw_indices warns at it, the
+# tempering guard refuses at it, and --allow-degenerate-tempering's help quotes
+# it, so the three cannot drift apart.
+_USABLE_EXPORT_ESS = 200
+# Default export-ESS budget for --auto-adapt-weight-exponent.  Named so the
+# parser default and the "was this actually passed?" check are ONE value.
+_TARGET_EXPORT_ESS_FRAC_DEFAULT = 0.9
+# Modes whose sampler actually implements the anneal.  samplers.flowmc_sample_phimarg
+# takes temper_adapt; samplers.flowmc_sample (plain `flowmc`) does not.
+_ADAPT_ADAPT_MODES = frozenset((
+    "flowmc-phimarg", "flowmc-phipsimarg", "flowmc-dpsimarg"))
+
+# Modes whose sampler reports a TEMPERED state plus a genuine importance weight
+# (post_weight = L^(1-inv_T)); only these honour --adapt-weight-exponent, and
+# only these consume post_weight at export.
+_TEMPERED_MODES = frozenset((
+    "flowmc", "flowmc-phimarg", "flowmc-phipsimarg", "flowmc-dpsimarg"))
+# Modes whose --save-samples export is a reweighted FAIR DRAW.  Only here do the
+# fair-draw count options do anything; elsewhere the export is the sampler's own
+# chain and the count flags are inert (and must be reported as ignored).
+_FAIRDRAW_MODES = _TEMPERED_MODES | frozenset(("prior-mc", "laplace-is"))
+
 # Boolean (zero-argument) ILE options (action=store_true/false).
 _ILE_BOOL_OPTS = {
+    "--calibration-conjugate-phase", "--calibration-global-norm",
     "--check-good-enough", "--zero-likelihood", "--random-event",
     "--soft-fail-event-range", "--fmin-template-correct-for-lmax",
     "--internal-use-gwpy", "--nr-lookup", "--nr-hybrid-use", "--rom-use-basis",
     "--rom-integrate-intrinsic", "--nr-perturbative-extraction",
     "--nr-perturbative-extraction-full", "--nr-use-provided-strain",
-    "--no-memory", "--use-gwsignal", "--maximize-only", "--time-marginalization",
+    "--no-memory", "--use-gwsignal", "--use-external-EOB", "--maximize-only",
+    "--dump-lnL-time-series", "--time-marginalization",
     "--resample-time-marginalization", "--distance-marginalization",
     "--calibration-fused-kernel", "--calibration-export-posterior",
     "--extrinsic-proposal-adapt", "--vectorized", "--gpu", "--force-gpu-only",
@@ -113,15 +151,32 @@ _ILE_BOOL_OPTS = {
     "--internal-sky-network-coordinates-raw", "--auto-logarithm-offset",
     "--pin-distance-to-sim", "--export-eos-index",
     "--export-marginal-distance-grid", "--adapt-intrinsic",
+    "--reject-collapsed-live-volume", "--rotation-slow", "--freqresponse",
+    "--internal-waveform-fd-L-frame", "--save-EOB-parameters",
+    "--save-hyperbolic", "--force-hyperbolic-22", "--save-meanPerAno",
+    "--internal-gmm-correlate-all", "--internal-gmm-adaptive-components",
+    "--portfolio-varaha-never-freeze", "--portfolio-varaha-can-freeze",
+    "--portfolio-adaptive-alloc", "--sampler-sequential-warmstart",
+    "--sampler-l0-rescue-accept-truncated", "--sampler-anisotropic-bins",
+    "--internal-reparam-dl-incl", "--internal-use-lnL",
+    "--distance-slice-all-fresh",
+    "--distance-slice-randomize",
 }
 # ILE options taking repeated values (action=append).
-_ILE_APPEND_OPTS = {"--channel-name", "--psd-file"}
+_ILE_APPEND_OPTS = {
+    "--channel-name", "--psd-file", "--fmin-ifo", "--nr-lookup-group",
+    "--parameter", "--parameter-range", "--sampler-portfolio",
+    "--sampler-portfolio-args",
+}
 # The full ILE option set (so anything not implemented is still accepted).
 _ILE_ALL_OPTS = {
     "--adapt-adapt", "--adapt-floor-level", "--adapt-intrinsic", "--adapt-log",
     "--adapt-weight-exponent", "--amp-order", "--approximant",
     "--auto-logarithm-offset", "--cache-file", "--calibration-burn-in-neff",
     "--calibration-burn-in-nmax", "--calibration-dump-responsibilities",
+    "--calibration-conjugate-phase", "--calibration-global-norm",
+    "--calibration-mc-error-extrinsic", "--calibration-n-realizations-max",
+    "--calibration-neff-cal-target",
     "--calibration-envelope-directory", "--calibration-export-posterior",
     "--calibration-fused-kernel", "--calibration-n-realizations",
     "--calibration-pilot-extrinsic", "--calibration-proposal-breadcrumb",
@@ -129,37 +184,72 @@ _ILE_ALL_OPTS = {
     "--coinc-xml", "--convergence-tests-on", "--data-end-time",
     "--data-integration-window-half", "--data-start-time",
     "--declination-cosine-sampler", "--deff-lambda", "--distance-marginalization",
-    "--distance-marginalization-lookup-table", "--distance-slice-skip-threshold",
+    "--distance-marginalization-lookup-table", "--distance-slice-all-fresh",
+    "--distance-slice-chunk", "--distance-slice-randomize",
+    "--distance-slice-skip-threshold", "--distance-slice-wing-delta-lnL",
     "--distance-slice-wing-neff", "--distance-slice-wing-nmax", "--d-max",
     "--d-min", "--d-prior", "--d-prior-redshift", "--eff-lambda", "--e-freq",
-    "--event", "--event-time", "--export-distance-slices", "--export-eos-index",
+    "--dump-lnL-time-series", "--event", "--event-time",
+    "--export-distance-slices", "--export-eos-index",
     "--export-marginal-distance-grid", "--extrinsic-proposal-adapt",
     "--extrinsic-proposal-breadcrumb", "--extrinsic-proposal-output",
+    "--extrinsic-proposal-field", "--extrinsic-proposal-field-cover-frac",
+    "--extrinsic-proposal-field-inflate",
     "--fairdraw-extrinsic-output", "--fairdraw-extrinsic-output-n-max", "--fmax",
     "--fmin-ifo", "--fmin-template", "--fmin-template-correct-for-lmax",
-    "--force-adapt-all", "--force-gpu-only", "--force-reset-all", "--force-xpy",
-    "--gpu", "--inclination-cosine-sampler",
+    "--force-adapt-all", "--force-gpu-only", "--force-hyperbolic-22",
+    "--force-reset-all", "--force-xpy", "--freqresponse",
+    "--freqresponse-arm-length", "--freqresponse-qmax", "--gpu",
+    "--inclination-cosine-sampler", "--internal-gmm-adaptive-components",
+    "--internal-gmm-correlate-all", "--internal-gmm-defensive-frac",
+    "--internal-gmm-inflate", "--internal-gmm-max-components",
+    "--internal-gmm-phase-components", "--internal-gmm-sky-components",
     "--internal-data-storage-window-half", "--internal-hard-fail-on-error",
     "--internal-make-empty-file-on-error", "--internal-precompute-ignore-threshold",
     "--internal-rotate-phase", "--internal-sky-network-coordinates",
     "--internal-sky-network-coordinates-raw", "--internal-soft-fail-on-cuda-error",
-    "--internal-use-gwpy", "--internal-waveform-extra-kwargs",
+    "--internal-reparam-dl-incl", "--internal-use-gwpy", "--internal-use-lnL",
+    "--internal-waveform-extra-kwargs",
     "--internal-waveform-extra-lalsuite-args", "--internal-waveform-fd-no-condition",
-    "--internal-waveform-taper", "--interpolate-time", "--inv-spec-trunc-time",
-    "--l-max", "--manual-logarithm-offset", "--mass1", "--mass2",
+    "--internal-waveform-fd-L-frame", "--internal-waveform-taper",
+    "--interpolate-time", "--inv-spec-trunc-time", "--l-max",
+    "--limit-declination", "--limit-distance", "--limit-inclination", "--limit-psi",
+    "--limit-right-ascension", "--manual-logarithm-offset", "--mass1", "--mass2",
+    "--mc-error-ess-trigger", "--mc-error-khat-trigger", "--mc-error-replicas",
+    "--mc-error-sigma-trigger",
     "--maximize-only", "--n-chunk", "--n-distance-slice-core", "--n-eff",
     "--n-events-to-analyze", "--n-fairdraw-extrinsic-samples", "--n-max",
     "--n-distance-slice-wing", "--no-adapt", "--no-adapt-after-first",
-    "--no-adapt-distance", "--no-memory", "--nr-hybrid-method", "--nr-hybrid-use",
-    "--nr-index", "--nr-lookup", "--nr-lookup-group", "--nr-params",
+    "--no-adapt-distance", "--no-memory", "--nf-flow-load", "--nf-flow-save",
+    "--nr-group", "--nr-hybrid-method", "--nr-hybrid-use", "--nr-index",
+    "--nr-lookup", "--nr-lookup-group", "--nr-param", "--nr-params",
     "--nr-perturbative-extraction", "--nr-perturbative-extraction-full",
     "--nr-use-provided-strain", "--output-file", "--output-format",
-    "--parameter", "--parameter-range", "--pin-distance-to-sim", "--psd-file",
+    "--parameter", "--parameter-range", "--pin-distance-to-sim",
+    "--right-ascension", "--declination", "--psi", "--distance",
+    "--phi-orb", "--t-ref", "--inclination",
+    "--portfolio-adaptive-alloc", "--portfolio-alloc-exponent",
+    "--portfolio-freeze-wt", "--portfolio-grace-iters",
+    "--portfolio-probe-period", "--portfolio-quality-signal",
+    "--portfolio-revive-period", "--portfolio-varaha-can-freeze",
+    "--portfolio-varaha-max-frac", "--portfolio-varaha-min-frac",
+    "--portfolio-varaha-never-freeze", "--portfolio-weight-clip", "--psd-file",
     "--psd-window-shape", "--random-event", "--reference-freq",
     "--resample-time-marginalization", "--restricted-mode-list-file",
     "--rom-group", "--rom-integrate-intrinsic", "--rom-limit-basis-size-to",
-    "--rom-param", "--rom-use-basis", "--sampler-method", "--sampler-portfolio",
-    "--sampler-portfolio-args", "--sampler-xpy", "--save-eccentricity",
+    "--reject-collapsed-live-volume", "--rom-param", "--rom-use-basis",
+    "--rotation-n-harmonics", "--rotation-p-max", "--rotation-slow",
+    "--sampler-anisotropic-bins", "--sampler-l0-rescue-accept-truncated",
+    "--sampler-l0-rescue-puff-factor", "--sampler-l0-rescue-puff-scale",
+    "--sampler-l0-rescue-puff-width-frac", "--sampler-l0-rescue-reject-dlnZ",
+    "--sampler-load-state", "--sampler-method", "--sampler-portfolio",
+    "--sampler-portfolio-args", "--sampler-save-state",
+    "--sampler-sequential-warmstart", "--sampler-sequential-warmstart-cover-frac",
+    "--sampler-sequential-warmstart-deltalnL", "--sampler-warmstart-cover-frac",
+    "--sampler-warmstart-inflate", "--sampler-warmstart-retry-neff",
+    "--sampler-warmstart-samples", "--sampler-xpy", "--save-EOB-parameters",
+    "--save-P", "--save-deltalnL", "--save-eccentricity", "--save-hyperbolic",
+    "--save-meanPerAno",
     "--save-samples", "--save-samples-process-params", "--seed", "--sim-grid",
     "--sim-xml", "--skymap-file", "--soft-fail-event-range", "--spin1z",
     "--spin2z", "--srate", "--srate-internal",
@@ -167,7 +257,8 @@ _ILE_ALL_OPTS = {
     "--supplementary-likelihood-factor-code",
     "--supplementary-likelihood-factor-function",
     "--supplementary-likelihood-factor-ini", "--time-marginalization",
-    "--use-gwsignal", "--use-gwsignal-lmax-nyquist", "--vectorized", "--verbose",
+    "--time-posterior-export", "--use-external-EOB", "--use-gwsignal",
+    "--use-gwsignal-lmax-nyquist", "--vectorized", "--verbose",
     "--window-shape", "--zero-likelihood",
 }
 
@@ -220,6 +311,50 @@ def check_critical_and_report(opts, optp):
         fatal.append("--zero-likelihood is not implemented")
     if is_set("--maximize-only"):
         fatal.append("--maximize-only is not implemented (this driver integrates)")
+    # Distance-grid option combinations that the wrapper would reject anyway --
+    # caught HERE, at parse time, so the user is not made to sit through a full
+    # precompute first (F8 of external review).
+    dgs = getattr(opts, "distance_grid_scheme", "uniform")
+    if dgs != "uniform":
+        if getattr(opts, "mode", None) != "flowmc-phipsimarg":
+            fatal.append("--distance-grid-scheme %s applies only to --mode "
+                         "flowmc-phipsimarg (it is validated only for the dense "
+                         "angle-marginalization schemes)" % dgs)
+        elif getattr(opts, "angle_marg_scheme", ANGLE_MARG_DEFAULT) == "grid":
+            fatal.append(
+                "--distance-grid-scheme %s requires --angle-marg-scheme "
+                "exact/laplace/auto: the log-uniform grid is sized from the "
+                "data-derived angle amplitude, which the default 'grid' scheme "
+                "does not compute" % dgs)
+        if getattr(opts, "distance_grid_points", None) is not None:
+            fatal.append("--distance-grid-points and --distance-grid-scheme %s "
+                         "both set the distance node count; pass one or the "
+                         "other" % dgs)
+        _tol = getattr(opts, "distance_grid_tol", None)
+        if _tol is not None and not (0.0 < float(_tol) < 2.0):
+            # The option's VALUE, checked beside its combinations.  The range
+            # is closed form -- c(tol) = pi*sqrt(2/ln(2/tol)) needs
+            # 0 < tol < 2 -- so making the user sit through a full precompute
+            # to be told otherwise is the same avoidable cost F8 removed for
+            # the combinations.
+            fatal.append("--distance-grid-tol must be in (0, 2): it is a "
+                         "FRACTIONAL error on the distance integral (~nats on "
+                         "lnL), not a node count; got %r.  Note the interval "
+                         "is the DERIVATION's domain, not a range of sensible "
+                         "values: c(tol) diverges as tol -> 2, so 1.999 asks "
+                         "for a 2-node grid.  The shipped default is %g."
+                         % (_tol, _jax_core_dist_tol_default()))
+        if int(os.environ.get("JAX_ILE_DISTMARG_GH", "0")) > 0:
+            fatal.append(
+                "--distance-grid-scheme %s cannot be combined with "
+                "JAX_ILE_DISTMARG_GH: the per-sample Gauss-Hermite distance "
+                "quadrature uses only the SUPPORT of the grid, so the option "
+                "would be bit-identically inert while still being reported as "
+                "active" % dgs)
+    elif getattr(opts, "distance_grid_tol", None) is not None:
+        fatal.append("--distance-grid-tol applies only to "
+                     "--distance-grid-scheme loguniform; it would be silently "
+                     "inert here")
     if fatal:
         optp.error("Cannot run as a faithful drop-in: " + "; ".join(fatal)
                    + ".  (These would silently change the result if ignored.)")
@@ -234,14 +369,43 @@ def check_critical_and_report(opts, optp):
                    "--reference-freq", "--fmax", "--srate",
                    "--data-integration-window-half",
                    "--internal-data-storage-window-half", "--d-min", "--d-max",
-                   "--d-prior", "--n-max", "--n-chunk", "--output-file",
+                   "--d-prior", "--limit-distance",
+                   "--n-max", "--n-chunk", "--output-file",
                    "--event", "--save-samples", "--verbose", "--seed",
                    "--sim-xml", "--sim-grid", "--n-events-to-analyze",
                    "--random-event", "--distance-marginalization",
-                   "--time-marginalization", "--vectorized", "--use-gwsignal"}
+                   "--time-marginalization", "--time-marginalization-quadrature",
+                   "--interpolate-time",
+                   "--vectorized", "--use-gwsignal"}
+    # These are implemented PER MODE.  Listing them unconditionally would claim
+    # they act under --mode laplace-is (the default), nuts, map, multistart-nuts
+    # and nuts-phimarg, where they are inert -- exactly the silent no-op this
+    # driver's compat layer exists to prevent.
+    mode = getattr(opts, "mode", None)
+    if mode in _TEMPERED_MODES:
+        # static tempering exponent (samplers.flowmc_sample*: inv_T = 1/temper)
+        implemented.add("--adapt-weight-exponent")
+    if mode in _FAIRDRAW_MODES:
+        implemented |= {"--fairdraw-extrinsic-output",
+                        "--fairdraw-extrinsic-output-n-max",
+                        "--n-fairdraw-extrinsic-samples"}
     for name in sorted(_ILE_ALL_OPTS - implemented):
         if is_set(name):
             ignored.append(name)
+    # JAX-NATIVE tempering flags.  These are not in _ILE_ALL_OPTS (they have no ILE
+    # counterpart), so the loop above cannot see them -- and they act ONLY on the
+    # tempered modes.  Report them explicitly rather than let a user's chooser
+    # request evaporate under --mode laplace-is, which is the driver default.
+    if mode not in _TEMPERED_MODES:
+        inert = [n for n in ("--auto-adapt-weight-exponent",
+                             "--allow-degenerate-tempering")
+                 if getattr(opts, _dest(n), False)]
+        if _target_ess_was_given(opts):
+            inert.append("--target-export-ess-frac")
+        if inert:
+            print("Note: %s only act on the tempered modes (%s); --mode %s ignores "
+                  "them." % (" ".join(sorted(set(inert))),
+                             " ".join(sorted(_TEMPERED_MODES)), mode))
     if ignored:
         print("Note: the following ILE options are accepted but IGNORED by the "
               "JAX driver (not yet implemented; behavior may differ from ILE):")
@@ -251,6 +415,15 @@ def check_critical_and_report(opts, optp):
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+DISTANCE_GRID_POINTS_DEFAULT = 256
+
+
+def _jax_core_dist_tol_default():
+    """Default distance-grid tolerance, read from the module that owns it."""
+    from RIFT.likelihood.jax_ile.core import DIST_GRID_TOL_DEFAULT
+    return DIST_GRID_TOL_DEFAULT
+
+
 def build_parser():
     optp = OptionParser(usage="%prog [options]", description=__doc__)
 
@@ -335,9 +508,29 @@ def build_parser():
     g.add_option("--num-samples", type=int, default=2000,
                  help="NUTS posterior samples per chain (--mode nuts).")
     g.add_option("--num-chains", type=int, default=1)
-    g.add_option("--no-flow-reuse", action="store_true", default=False,
-                 help="Disable bootstrapping the trained flow across "
-                      "--n-events-to-analyze (re-train from scratch each event).")
+    # DEFAULT IS OFF (no re-use).  Measured: across an 8-event batch at two seeds,
+    # re-using the trained flow contracts the extrinsic posterior monotonically in
+    # slot index -- psi to ~40% of its no-re-use width by slot 7, on BOTH seeds,
+    # with slot 0 (where no re-use has happened yet) sitting at ~1.0 as a control.
+    # It buys nothing to pay for that with: 1589 s mean wall with re-use vs 1567 s
+    # without, a difference smaller than the seed-to-seed spread and of flipping
+    # sign.  See analyses/jax_extrinsic_tempering/ in the paper repo.
+    #
+    # --no-flow-reuse is kept (now a no-op restating the default) so existing
+    # command lines and scripts that pass it keep working; --flow-reuse is the way
+    # back to the old behaviour.  Both write the same dest, so the LAST one on the
+    # command line wins.
+    g.add_option("--no-flow-reuse", action="store_true", dest="no_flow_reuse",
+                 default=True,
+                 help="Re-train the flow from scratch each event (the DEFAULT). "
+                      "Kept for compatibility: it now restates the default.")
+    g.add_option("--flow-reuse", action="store_false", dest="no_flow_reuse",
+                 help="Bootstrap the trained flow across --n-events-to-analyze "
+                      "instead of re-training per event.  NOT recommended for any "
+                      "run whose extrinsic SAMPLES are used: it contracts the "
+                      "posterior in later slots (measured ~40% of the no-re-use "
+                      "psi width by slot 7 of 8) for no measurable wall-time "
+                      "saving.  Its evidence is less affected than its samples.")
     # ILE-compatible semantics: store_true, default OFF.  When ON, distance is
     # marginalized analytically (5-D angular problem, well conditioned); when
     # OFF, distance is sampled explicitly (6-D).  Required for --mode nuts.
@@ -348,8 +541,65 @@ def build_parser():
     g.add_option("--n-chunk", type=int, default=8000)
     g.add_option("--d-min", type=float, default=1.0, help="Min distance (Mpc).")
     g.add_option("--d-max", type=float, default=10000.0, help="Max distance (Mpc).")
-    g.add_option("--distance-grid-points", type=int, default=256)
+
+    g.add_option("--distance-grid-points", type=int, default=None,
+                 help="Node count for the DEFAULT uniform-in-distance grid "
+                      "(default %d).  --distance-grid-scheme loguniform "
+                      "derives its own node count from the data, so passing "
+                      "both is REFUSED rather than silently ignoring this one."
+                      % DISTANCE_GRID_POINTS_DEFAULT)
+    g.add_option("--distance-grid-scheme", type="choice",
+                 choices=("uniform", "loguniform"), default="uniform",
+                 help="Distance quadrature for --mode flowmc-phipsimarg with "
+                      "--angle-marg-scheme exact/laplace/auto.  'uniform' "
+                      "(DEFAULT) is the historical fixed --distance-grid-points "
+                      "grid over the whole prior range, so existing command "
+                      "lines reproduce existing runs.  'loguniform' places the "
+                      "SAME kind of static grid uniformly in ln d, with a node "
+                      "count DERIVED from the run's own data-derived angle "
+                      "amplitude so that every per-sample distance peak "
+                      "(relative width 1/rho) is resolved anywhere in "
+                      "[--d-min, --d-max].  See --distance-grid-tol and "
+                      "RIFT/likelihood/jax_ile/DESIGN_jax_distance_quadrature.md.")
+    g.add_option("--distance-grid-tol", type=float, default=None,
+                 help="Target FRACTIONAL error of the distance quadrature "
+                      "(~nats on lnL) for --distance-grid-scheme loguniform; "
+                      "the node count follows from it in closed form.  "
+                      "Default %g.  Only valid with that scheme."
+                      % _jax_core_dist_tol_default())
+    g.add_option("--limit-distance", default=None,
+                 help="Restrict distance SAMPLING (and, when distance is "
+                      "marginalized, the distance QUADRATURE) to 'LO,HI' in Mpc, "
+                      "WITHOUT changing the prior or its normalization: the prior "
+                      "stays normalized over the full [--d-min,--d-max], so the "
+                      "reported lnZ needs no correction and stays comparable to a "
+                      "full-range run and to the batchmode ILE -- comparable to the "
+                      "SAMPLER's own systematic, not to machine precision: measured "
+                      "end to end on real data at rho ~ 82, the box truncates <= 0.003 "
+                      "nats of evidence while the observed lnZ difference is +0.37 +- "
+                      "0.11 nats the other way, being the full-range run's own bias "
+                      "that the box removes (RIFT_roboto_paper "
+                      "analyses/limit_distance_e2e/).  That benefit is a THRESHOLD "
+                      "in amplitude, not a general improvement: the same "
+                      "measurement at rho 41 gives +0.13 +- 0.08 nats, consistent "
+                      "with zero, because the full-range sampler is already "
+                      "healthy there.  Intended for high "
+                      "amplitude, where the distance posterior narrows as 1/rho.  "
+                      "Likelihood outside the box is simply not integrated, so keep "
+                      "the box comfortably wider than the posterior.  Must lie "
+                      "inside [--d-min,--d-max].")
     g.add_option("--phase-marginalization", action="store_true", default=False)
+    g.add_option("--time-marginalization-quadrature", type="choice",
+                 choices=("simpson", "bandlimited"), default="simpson",
+                 help="Rule for the terminal time integral: historical fixed-grid "
+                      "Simpson or adaptive reflected-FFT interpolation followed "
+                      "by a converged trapezoid. No resolution knob is exposed; "
+                      "the factor is derived and rechecked from lnL(t).")
+    g.add_option("--resample-time-marginalization", action="store_true",
+                 default=False,
+                 help="Conventional ILE option; currently unsupported by JAX ILE.")
+    g.add_option("--srate-resample-time-marginalization", type="int", default=None,
+                 help="Conventional ILE option; currently unsupported by JAX ILE.")
     g.add_option("--n-phi", type=int, default=32,
                  help="phi_ref grid size for --mode flowmc-phimarg (default 32; "
                       "use 64-128 for l-max>=4 or production quality).")
@@ -357,7 +607,39 @@ def build_parser():
                  help="psi (polarization) grid size for --mode flowmc-phipsimarg "
                       "(default 8; spin-2 -> exponential convergence, ~8 exact for "
                       "l_max=2).  Keep nphi*npsi small (~64) -- the (phi,psi) scan "
-                      "cost scales with it.")
+                      "cost scales with it.  CAVEAT: 'exact' above holds for "
+                      "SAMPLING the trig polynomial lnL, not for the quadrature "
+                      "of exp(lnL), whose peak width is ~1/SNR -- the grid "
+                      "scheme's marginalization error grows without bound with "
+                      "SNR (measured ~1e2 nats at SNR 40 for npsi=8).  See "
+                      "--angle-marg-scheme for the fix.")
+    # No type=: optparse infers type="choice" from choices=, and raises
+    # "must not supply choices for type 'string'" if both are given.  --interp
+    # above omits it for the same reason.
+    g.add_option("--angle-marg-scheme", default=ANGLE_MARG_DEFAULT,
+                 choices=sorted(ANGLE_MARG_CHOICES),
+                 help="(phi_ref, psi) marginalization scheme for --mode "
+                      "flowmc-phipsimarg.  DEFAULT '%s' since 2026-09-02; it "
+                      "was '%s' before, and passing '%s' reproduces a "
+                      "pre-2026-09-02 run exactly.  '%s': the historical "
+                      "--n-phi x --n-psi quadrature -- it averages exp(lnL), "
+                      "whose peak width is ~1/SNR, on those nodes, so its "
+                      "error grows WITHOUT BOUND with SNR; at rho 652 it "
+                      "displaced a recovered sky position by 0.53 deg and "
+                      "ranked that artifact ABOVE the injection.  Kept for "
+                      "reproducing archived runs, not for new ones.  'exact': "
+                      "Fourier-coefficient bootstrap + dense reconstruction; "
+                      "expensive likelihood calls fixed by MODE CONTENT, never "
+                      "by SNR (cost ~SNR^2).  'laplace': analytic Laplace in "
+                      "psi + dense phi, error O(1/SNR^2), cheaper than 'exact' "
+                      "above rho ~200 -- but it cannot use the per-sample "
+                      "adaptive distance quadrature, so on the default uniform "
+                      "distance grid it was measured 43 nats from 'exact' at "
+                      "rho 163.  'auto': select exact/laplace from the run's "
+                      "own data-derived amplitude.  The scheme that actually "
+                      "ran is printed.  See RIFT.likelihood.jax_ile.anglemarg."
+                      % (ANGLE_MARG_DEFAULT, ANGLE_MARG_LEGACY,
+                         ANGLE_MARG_LEGACY, ANGLE_MARG_LEGACY))
     # flowMC tuning (modes flowmc / flowmc-phimarg).  Defaults match
     # samplers.flowmc_sample*; exposed so pipeline Makefiles can tune them.
     g.add_option("--n-training-loops", type=int, default=4,
@@ -379,6 +661,27 @@ def build_parser():
                       "reweights to the true posterior. beta=1 (default) is OFF; "
                       "beta<1 broadens (helps the flow find sharp high-SNR peaks). "
                       "Maps to sampler temper = 1/beta (modes flowmc, flowmc-phimarg).")
+    g.add_option("--auto-adapt-weight-exponent", action="store_true", default=False,
+                 help="EXPERIMENTAL, and not sufficiently validated: the ESS "
+                      "model it inverts is calibrated at SNR ~= 23.8 only and is "
+                      "optimistic at higher SNR, so the fraction it targets is "
+                      "not guaranteed. No paper result uses it. "
+                      "Choose --adapt-weight-exponent automatically from the "
+                      "EXPORT budget instead of by hand: pick the smallest beta "
+                      "whose reweighted export keeps --target-export-ess-frac of "
+                      "the cloud.  Keyed on the SAMPLED DIMENSION, not on SNR -- "
+                      "the non-JAX helper's SNR rule does not transfer to this "
+                      "path (jax_ile/DESIGN_jax_tempering.md).  Tempered modes only.")
+    g.add_option("--target-export-ess-frac", type=float,
+                 default=_TARGET_EXPORT_ESS_FRAC_DEFAULT,
+                 help="Fraction of the sampler cloud the reweighted --save-samples "
+                      "export must retain, for --auto-adapt-weight-exponent "
+                      "(default 0.9).  ESS/N = [beta(2-beta)]^(dim/2).")
+    g.add_option("--allow-degenerate-tempering", action="store_true", default=False,
+                 help="Silence the warning issued when the ESTIMATED export ESS "
+                      "is below the %d-sample usability floor.  The estimate is "
+                      "advisory (calibrated at one SNR), so this suppresses a "
+                      "warning rather than overriding a refusal." % _USABLE_EXPORT_ESS)
     g.add_option("--adapt-adapt", action="store_true", default=False,
                  help="Adaptive likelihood tempering (flowmc-phimarg): anneal the "
                       "tempering exponent inv_T from --temper-init up to 1.0, "
@@ -420,7 +723,24 @@ def build_parser():
                       "(no flow training -> immune to the SNR>=640 NF-collapse). "
                       "Overrides the exported samples; TI evidence is unchanged. "
                       "0=off; ~40000 recommended at SNR>=640. Implies --fisher-precondition.")
-    g.add_option("--interp", default="linear", choices=["linear", "nearest"])
+    # Choices come from the gatherer registry rather than a literal list: a stencil added to
+    # _GATHERERS and not here would be unreachable from the command line, which is how 'cubic'
+    # spent a release being implemented but unselectable.
+    g.add_option("--interp", default=JAX_INTERP_DEFAULT, choices=sorted(_JAX_GATHERER_NAMES),
+                 help="Interpolation of the precomputed rholm timeseries in arrival time. "
+                      "DEFAULT CHANGED 2026-08-26 from 'linear' to '" + JAX_INTERP_DEFAULT + "': "
+                      "linear undershoots the rholm peak by an amount that depends on where it "
+                      "falls between samples, which biases the recovered arrival time and hence "
+                      "the sky, and at high SNR -- the only regime this driver is used in -- it "
+                      "is worse than 'nearest'. THIS CHANGES RESULTS for anyone who did not pass "
+                      "--interp; pass '--interp linear' to reproduce a pre-2026-08-26 run. "
+                      "'cubic' and 'sinc' mirror the production factored_likelihood stencils of "
+                      "the same names; which of the two is more accurate depends on how "
+                      "oversampled the rholm timeseries is (on fmin and srate as well as mass) "
+                      "and there is no automatic rule -- see "
+                      "RIFT/likelihood/DESIGN_q_window_stencil.md. COST: 'sinc' is ~1.33x "
+                      "'cubic' in GPU runtime and needs ~12x its XLA scratch (~512 MB against "
+                      "~40 MB at the default --n-chunk 8000; measured, see §9.5).")
     g.add_option("--sky-coordinates", default="equatorial",
                  choices=["equatorial", "network"],
                  help="Optional: 'network' samples the sky in the two-detector "
@@ -434,6 +754,24 @@ def build_parser():
     g = OptionGroup(optp, "Output")
     g.add_option("--output-file", default=None)
     g.add_option("--save-samples", action="store_true", default=False)
+    g.add_option("--fairdraw-extrinsic-output", action="store_true", default=False,
+                 help="Bound the fair-draw export to "
+                      "--fairdraw-extrinsic-output-n-max samples (as ILE does). "
+                      "The export is ALWAYS a fair draw when the sampler "
+                      "supplies importance weights; this only caps the count.")
+    g.add_option("--fairdraw-extrinsic-output-n-max", type=int, default=None,
+                 help="Cap on fair draws per evaluation when "
+                      "--fairdraw-extrinsic-output is set (ILE default 5).  "
+                      "Left as None when unset so the ignored-option report does "
+                      "not claim the user passed it; resolved to 5 downstream.")
+    g.add_option("--n-fairdraw-extrinsic-samples", type=int, default=None,
+                 help="Export exactly this many fair draws, clamped only by the "
+                      "rows available. Those already carry ILE's 1.5*ESS cap "
+                      "wherever the export weights were non-uniform, applied "
+                      "against the EXPORT weights; there is deliberately no "
+                      "second clamp by the evidence estimator's neff, which "
+                      "describes a different cloud. "
+                      "Overrides --fairdraw-extrinsic-output-n-max.")
     g.add_option("--verbose", action="store_true", default=False)
     optp.add_option_group(g)
 
@@ -570,6 +908,41 @@ def load_frames(opts, fiducial_epoch):
 # ---------------------------------------------------------------------------
 # Priors (the angular block is shared; distance added only when NOT marginalized)
 # ---------------------------------------------------------------------------
+def resolve_distance_limit(opts):
+    """(lo, hi) in Mpc that distance is actually SAMPLED / integrated over.
+
+    Equals (--d-min, --d-max) unless --limit-distance narrowed it.  The prior
+    normalization always stays on (--d-min, --d-max): see log_prior() and the
+    d_prior_range= argument threaded into the marginalized likelihoods.
+    """
+    v = getattr(opts, "limit_distance", None)
+    if not v:
+        return float(opts.d_min), float(opts.d_max)
+    from RIFT.integrators.mcsampler import distance_limit_range
+    try:
+        return distance_limit_range(v, opts.d_min, opts.d_max)
+    except ValueError as exc:
+        raise SystemExit(" --limit-distance: %s" % exc)
+
+
+def log_distance_box_correction(opts, with_distance):
+    """ln[ prior mass on (d_min,d_max) / prior mass on the sampled box ]; 0.0 unless
+    --limit-distance narrowed the box.
+
+    sample_prior() draws distance from the prior RESTRICTED to the box, so its
+    density is the prior divided by that mass.  Estimators that assume
+    "proposal == prior" (run_prior_mc) must subtract this; estimators that form
+    ln w = lnL + ln p - ln q explicitly (run_laplace_is) already have it right
+    and must NOT subtract it again.
+    """
+    if not with_distance:
+        return 0.0
+    lo, hi = resolve_distance_limit(opts)
+    if lo == float(opts.d_min) and hi == float(opts.d_max):
+        return 0.0
+    return float(np.log((opts.d_max ** 3 - opts.d_min ** 3) / (hi ** 3 - lo ** 3)))
+
+
 def sample_prior(n, opts, rng, with_distance):
     ra = rng.uniform(0.0, 2 * np.pi, n)
     dec = np.arcsin(rng.uniform(-1.0, 1.0, n))
@@ -579,7 +952,9 @@ def sample_prior(n, opts, rng, with_distance):
     cols = [ra, dec, psi, incl, phiref]
     if with_distance:
         u = rng.uniform(0.0, 1.0, n)
-        dmin3, dmax3 = opts.d_min ** 3, opts.d_max ** 3
+        # the SAMPLED range (== [d_min,d_max] unless --limit-distance)
+        d_lo, d_hi = resolve_distance_limit(opts)
+        dmin3, dmax3 = d_lo ** 3, d_hi ** 3
         cols.append((dmin3 + u * (dmax3 - dmin3)) ** (1.0 / 3.0))
     theta = np.stack(cols, axis=-1)
     return theta, log_prior(theta, opts, with_distance)
@@ -596,7 +971,11 @@ def log_prior(theta, opts, with_distance):
                 - np.log(2 * np.pi) - np.log(np.pi) - np.log(2 * np.pi))
         if with_distance:
             dist = theta[..., 5]
-            inb = inb & (dist >= opts.d_min) & (dist <= opts.d_max)
+            # SUPPORT is the sampled box (--limit-distance); the NORMALIZATION is
+            # always over the physical [d_min,d_max], so lnZ keeps its full-range
+            # scale and does not have to be corrected before comparison.
+            d_lo, d_hi = resolve_distance_limit(opts)
+            inb = inb & (dist >= d_lo) & (dist <= d_hi)
             dmin3, dmax3 = opts.d_min ** 3, opts.d_max ** 3
             logp = logp + np.log(3.0) + 2 * np.log(dist) - np.log(dmax3 - dmin3)
     return np.where(inb, logp, -np.inf)
@@ -608,10 +987,21 @@ def log_prior(theta, opts, with_distance):
 def eval_lnL(like, theta, opts, with_distance):
     N = theta.shape[0]
     out = np.empty(N)
-    for i in range(0, N, opts.n_chunk):
-        sl = slice(i, min(i + opts.n_chunk, N))
+    # anglemarg schemes multiply the batch by (quad, dist_block, phi_chunk)
+    # transients; --n-chunk 8000 is sized for the grid scheme.  Independent
+    # slices, so the cap changes peak memory and nothing else.
+    chunk = _angle_marg_eval_chunk(like, opts.n_chunk)
+    for i in range(0, N, chunk):
+        sl = slice(i, min(i + chunk, N))
         cols = [theta[sl, j] for j in range(theta.shape[1])]
         out[sl] = np.asarray(like.log_likelihood(*cols))
+        if (getattr(like, "time_quadrature", "simpson") == "bandlimited"
+                and np.any(np.isnan(out[sl]))):
+            raise RuntimeError(
+                "adaptive reflected-FFT time marginalization failed its width/"
+                "doubling convergence or endpoint-mass check; no coarse "
+                "likelihood is substituted. Increase the input/rholm sample "
+                "rate or integration/storage window.")
     return out
 
 
@@ -658,8 +1048,15 @@ def _moment_match(theta, logL):
 def run_prior_mc(like, opts, rng, dim, with_distance):
     theta, _ = sample_prior(opts.n_max, opts, rng, with_distance)
     lnL = eval_lnL(like, theta, opts, with_distance)
-    logZ, sig, neff = evidence_from_logweights(lnL)  # draw from prior -> w = L
-    return logZ, sig, neff, opts.n_max, theta, lnL
+    # p_s == p (the proposal IS the prior), so ln w = lnL -- EXCEPT under
+    # --limit-distance, where the proposal is the prior restricted to the box while
+    # the prior keeps its full-range normalization; the constant below is exactly
+    # 0.0 without that option, so the historical path is untouched.
+    logw = lnL - log_distance_box_correction(opts, with_distance)
+    logZ, sig, neff = evidence_from_logweights(logw)
+    # These raw draws are PRIOR samples, not posterior ones: they must be
+    # fair-drawn before export.
+    return logZ, sig, neff, opts.n_max, theta, lnL, logw
 
 
 def run_laplace_is(like, opts, rng, dim, with_distance, n_adapt=2):
@@ -692,7 +1089,9 @@ def run_laplace_is(like, opts, rng, dim, with_distance, n_adapt=2):
     theta = np.concatenate(all_theta); logw = np.concatenate(all_logw)
     lnL = np.concatenate(all_lnL)
     logZ, sig, neff = evidence_from_logweights(logw)
-    return logZ, sig, neff, len(theta), theta, lnL
+    # theta follows the GAUSSIAN PROPOSAL q, not the posterior; logw is what
+    # turns it into one.  Returned so write_samples() can fair-draw.
+    return logZ, sig, neff, len(theta), theta, lnL, logw
 
 
 def run_nuts(like, opts, rng, with_distance):
@@ -773,7 +1172,13 @@ def run_nuts(like, opts, rng, with_distance):
         lnL_is[valid] = eval_lnL(like, th_is[valid], opts, with_distance=False)
     logw = np.where(valid, lnL_is + logp - logq, -np.inf)
     logZ, sig, neff = evidence_from_logweights(logw)
-    return logZ, sig, neff, n_is, theta, lnL
+    # theta/lnL are the NUTS chain (already targets the posterior); the IS cloud
+    # th_is/logw is only the evidence estimator, so there is nothing to reweight.
+    # `neff` below therefore describes th_is, NOT the exported chain -- it must
+    # never reach the export count.  It used to: fairdraw_size clamped the export
+    # by 1.5*neff, truncating this chain by an unrelated cloud's ESS on what is
+    # the driver's DEFAULT mode.  write_samples no longer accepts a neff at all.
+    return logZ, sig, neff, n_is, theta, lnL, None
 
 
 def run_map(like, opts, rng, dim, with_distance):
@@ -781,7 +1186,7 @@ def run_map(like, opts, rng, dim, with_distance):
     from scipy.optimize import minimize
     ang_bounds = [(0, 2 * np.pi), (-np.pi / 2 + 1e-3, np.pi / 2 - 1e-3),
                   (0, np.pi), (1e-3, np.pi - 1e-3), (0, 2 * np.pi)]
-    bounds = ang_bounds + ([(opts.d_min, opts.d_max)] if with_distance else [])
+    bounds = ang_bounds + ([resolve_distance_limit(opts)] if with_distance else [])
     theta_seed, _ = sample_prior(4000, opts, rng, with_distance)
     lnL_seed = eval_lnL(like, theta_seed, opts, with_distance)
     x0 = theta_seed[np.argmax(lnL_seed)]
@@ -798,53 +1203,586 @@ def run_map(like, opts, rng, dim, with_distance):
 # ---------------------------------------------------------------------------
 # Output
 # ---------------------------------------------------------------------------
-def write_dat(opts, P, out_index, event_id, logZ, sigma_over_Z, ntotal, neff):
+def dat_path(opts, out_index):
+    """Path of the normal per-event ILE result row (evidence, sigma, neff)."""
+    return opts.output_file + "_" + str(out_index) + "_" + ".dat"
+
+
+def samples_path(opts, out_index):
+    """Path of this event's exported extrinsic samples."""
+    return opts.output_file + "_" + str(out_index) + "_samples.dat"
+
+
+def angle_grid_suspect_note(scheme=None):
+    """Label describing the angle-grid amplitude check for this event.
+
+    Returns one of three things, and the THIRD is the point:
+
+      ""                              -- the grid schemes were not used
+      "SUSPECT-ANGLE-GRID ..."        -- undersizing was DETECTED
+      "ANGLE-GRID-CHECK=BEST-EFFORT"  -- schemes used, nothing detected
+
+    The third case exists because absence of a detection is NOT evidence of
+    adequacy.  The detector is a jax.debug.callback, and JAX explicitly permits
+    such callbacks to be dropped under transformation -- in which case the host
+    state stays clean, effects_barrier has nothing to wait for, and the artifact
+    would otherwise be published looking verified.  That is a scientific false
+    negative, and calling it "best effort" in a docstring does not fix it for a
+    consumer reading the file six months later.
+
+    So every artifact produced by the exact/laplace schemes carries a standing
+    statement that this check CANNOT distinguish an adequate grid from an
+    undetected undersizing.  A reader is then never entitled to infer
+    verification from silence.  The honest recourse, named in the artifact, is
+    to rebuild at a larger amp_sizing if the result matters.
+    """
+    st = _anglemarg.amp_failsafe_state()
+    if st.get("tripped"):
+        return ("SUSPECT-ANGLE-GRID amp_failsafe=TRIPPED worst_amp=%.6g "
+                "amp_sizing=%.6g scheme=%s"
+                % (st.get("worst_amp", float("nan")),
+                   st.get("amp_sizing", float("nan")), st.get("scheme")))
+    # 'peak-local' belongs here for the same reason it belongs in the failsafe: its phi
+    # axis is dense and amp-sized, so its artifacts are entitled to no more confidence
+    # than the other two, and a scheme missing from this list would publish output with
+    # NO standing label at all -- the silence a reader would read as verification.
+    if scheme in ("exact", "laplace", "peak-local"):
+        return ("ANGLE-GRID-CHECK=BEST-EFFORT (no undersizing detected; the "
+                "detector may be dropped under jax transformation, so this is "
+                "NOT a verification -- rebuild at larger amp_sizing if it matters)")
+    return ""
+
+
+def write_dat(opts, P, out_index, event_id, logZ, sigma_over_Z, ntotal, neff,
+              angle_note=""):
     if not opts.output_file:
         return
     m1, m2 = P.m1 / MSUN, P.m2 / MSUN
-    fname = opts.output_file + "_" + str(out_index) + "_" + ".dat"
+    fname = dat_path(opts, out_index)
     row = np.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y,
                      P.s2z, logZ, sigma_over_Z, ntotal, neff]])
-    np.savetxt(fname, row,
-               header="event_id m1 m2 s1x s1y s1z s2x s2y s2z lnL sigma_lnL ntotal neff")
+    hdr = "event_id m1 m2 s1x s1y s1z s2x s2y s2z lnL sigma_lnL ntotal neff"
+    # The EVIDENCE artifact must carry the label independently of sample export:
+    # write_samples() early-returns without --save-samples/--output-file, so a
+    # run with export disabled would otherwise publish a numeric evidence row
+    # indistinguishable from a clean integration.
+    if angle_note:
+        hdr += "\n" + angle_note
+    np.savetxt(fname, row, header=hdr)
     print("Wrote %s" % fname)
 
 
-def write_samples(opts, out_index, theta, lnL, with_distance):
+def tempered_cloud_size(opts, n_starts):
+    """Rows flowMC hands to the exporter: chains x loops x (local + global) steps.
+
+    Verified against a real run: 20 chains, 6 production loops, 20 local + 20
+    global steps -> 4800, the ntotal the driver reported.
+    """
+    n_chains = max(n_starts, 20)
+    return int(n_chains * opts.n_production_loops
+               * (opts.n_local_steps + opts.n_global_steps))
+
+
+def record_supplied_options(opts, argv, parser=None):
+    """Record which long option TOKENS appeared on the command line.
+
+    Everything below used to infer "did the user pass this?" from "does its value
+    differ from the default?".  That is wrong whenever the user explicitly passes
+    the default: `--auto-adapt-weight-exponent --adapt-weight-exponent 1.0` was
+    silently ACCEPTED and the chooser then replaced the user's explicit untempered
+    target, which is the opposite of the documented conflict behaviour.  Handles
+    both `--opt value` and `--opt=value`.
+    """
+    supplied = set()
+    for tok in (argv if argv is not None else sys.argv[1:]):
+        if not (isinstance(tok, str) and tok.startswith("--")):
+            continue
+        name = tok.split("=", 1)[0]
+        # CANONICALISE.  optparse accepts unambiguous long-option PREFIXES, so
+        # `--adapt-weight-exp=1.0` parses and sets the value while recording a
+        # token that no was_supplied() query matches -- auto then silently
+        # overwrote the user's explicit exponent.  Ask the parser what the token
+        # actually resolved to.  Reported by review on #186.
+        if parser is not None:
+            try:
+                name = parser._match_long_opt(name)
+            except Exception:
+                pass          # unknown/ambiguous: record it verbatim
+        supplied.add(name)
+    opts._supplied_options = supplied
+    return supplied
+
+
+def was_supplied(opts, flag):
+    """True when ``flag`` was named on the command line.
+
+    Falls back to False when the record is absent (a caller that built an options
+    object directly rather than parsing), which is the safe direction: it means
+    "assume the user did not pass it" and so never fabricates a conflict.
+    """
+    return flag in getattr(opts, "_supplied_options", set())
+
+
+def resolve_ile_interface_aliases(opts, optp):
+    """Resolve conventional ILE spellings into JAX-native option values."""
+    if getattr(opts, "interpolate_time", None) is not None:
+        ile_interp = str(opts.interpolate_time).strip().lower()
+        # Conventional ILE accepted this as a boolean before it accepted the
+        # explicit stencil names.  Production args_ile.txt files containing
+        # either spelling must remain swappable into this driver.
+        if ile_interp in ("1", "true", "t", "yes", "y", "on"):
+            ile_interp = "cubic"
+        elif ile_interp in ("0", "false", "f", "no", "n", "off", "none"):
+            ile_interp = "nearest"
+        if ile_interp not in _JAX_GATHERER_NAMES:
+            optp.error("--interpolate-time must be one of %s or a legacy boolean" %
+                       ", ".join(sorted(_JAX_GATHERER_NAMES)))
+        if was_supplied(opts, "--interp") and opts.interp != ile_interp:
+            optp.error("--interp %r and --interpolate-time %r disagree" %
+                       (opts.interp, ile_interp))
+        opts.interp = ile_interp
+    return opts
+
+
+def _normalize_interpolate_time_argv(argv):
+    """Give conventional ILE's historical bare flag its ``True`` value."""
+    raw = list(sys.argv[1:] if argv is None else argv)
+    out = []
+    for i, token in enumerate(raw):
+        out.append(token)
+        if (token == "--interpolate-time" and
+                (i + 1 == len(raw) or raw[i + 1].startswith("--"))):
+            out.append("True")
+    return out
+
+
+def _target_ess_was_given(opts):
+    """True when --target-export-ess-frac was named on the command line."""
+    return was_supplied(opts, "--target-export-ess-frac")
+
+
+def resolve_tempering_exponent(opts, n_dim, n_cloud):
+    """Settle --adapt-weight-exponent for a tempered mode, and refuse a dead one.
+
+    Two jobs, both of which exist because beta means something different here
+    than it does in non-JAX RIFT (jax_ile/DESIGN_jax_tempering.md):
+
+      * ``--auto-adapt-weight-exponent`` picks beta from the EXPORT budget via
+        ``samplers.beta_for_export_ess``, i.e. from the sampled dimension.  There
+        is no SNR term, deliberately: the reweight cost
+        ``ESS/N = [beta(2-beta)]^(n_dim/2)`` is independent of lnLmax, so the
+        non-JAX helper's SNR-keyed rule would be keying on the wrong variable.
+      * whatever beta ends up in force, the predicted export ESS is REPORTED, and
+        a beta that cannot support a usable export RAISES.  Printing a warning
+        above a 199-row file is the silent degradation this exists to remove.
+
+    ``--adapt-adapt`` anneals inv_T up to 1 and therefore exports at full ESS;
+    it is left alone here.
+
+    RETURNS the exponent to use and does NOT write it back to ``opts``.  It used
+    to assign ``opts.adapt_weight_exponent``, which gave per-RUN state a per-EVENT
+    meaning: ``analyze_one`` is called once per intrinsic template with the SAME
+    opts, so on event 1 the chooser read its own event-0 output as a
+    user-supplied exponent and aborted the batch with SystemExit.  Reproduced
+    with ``--n-events-to-analyze 3``; ILE_extr.sub runs batches.
+    """
+    from RIFT.likelihood.jax_ile.samplers import (
+        beta_for_export_ess, export_ess_estimate)
+
+    if opts.adapt_adapt and opts.mode not in _ADAPT_ADAPT_MODES:
+        # samplers.flowmc_sample (the plain 5-D `flowmc` mode) has NO temper_adapt
+        # argument -- it takes `temper` and samples a STATIC beta.  Returning the
+        # "annealed to beta=1, full ESS" answer here reported annealing that never
+        # happened AND skipped the degenerate-export check, so
+        # `--mode flowmc --adapt-adapt --adapt-weight-exponent 0.1` sampled at
+        # beta=0.1 unguarded while claiming full ESS.  Reported by review on #186.
+        raise SystemExit(
+            "--adapt-adapt is not implemented for --mode %s: its sampler "
+            "(samplers.flowmc_sample) takes a STATIC tempering exponent and has "
+            "no annealing path, so the flag would be silently ignored while the "
+            "run reported annealing.  Use one of %s, or drop --adapt-adapt and "
+            "set --adapt-weight-exponent explicitly."
+            % (opts.mode, " ".join(sorted(_ADAPT_ADAPT_MODES))))
+
+    if opts.adapt_adapt:
+        if opts.auto_adapt_weight_exponent:
+            raise SystemExit(
+                "--auto-adapt-weight-exponent and --adapt-adapt both set.  The "
+                "anneal already finishes at beta=1 (full export ESS), so there "
+                "is no static exponent for the chooser to pick.  Use one.")
+        print("Tempering: --adapt-adapt (anneal inv_T -> 1); export is untempered, "
+              "full ESS.")
+        return float(opts.adapt_weight_exponent)
+
+    # --smc-puffball routes these modes to samplers.smc_puffball_sample, whose
+    # signature swallows `temper` in **_ignore: it runs its OWN adaptive SMC
+    # ladder, so --adapt-weight-exponent has NO effect there.  Guarding it would
+    # REFUSE a run over a number that does nothing.  Report the no-op instead; a
+    # silent one is what this driver's compat layer exists to prevent.
+    #
+    # (That sampler now reports the inv_T its ladder actually reached and a
+    # matching L^(1-inv_T) post_weight -- so its export weights are uniform only
+    # because analyze_one REFUSES the event unless the ladder finished at
+    # inv_T=1.  The exponent being inert here does not depend on that, but do not
+    # re-derive "its weights are always uniform" from this branch.)
+    if getattr(opts, "smc_puffball", False):
+        if opts.auto_adapt_weight_exponent or was_supplied(opts, "--adapt-weight-exponent"):
+            print("Note: --smc-puffball ignores --adapt-weight-exponent / "
+                  "--auto-adapt-weight-exponent (smc_puffball_sample runs its own "
+                  "SMC temperature ladder; the event is refused unless that "
+                  "ladder finishes at inv_T=1).")
+        return 1.0
+
+    if not opts.auto_adapt_weight_exponent and _target_ess_was_given(opts):
+        # Setting a target and no chooser does nothing at all.  Say so rather than
+        # let the request evaporate -- the same reason the ILE compat layer reports
+        # accepted-but-ignored options.
+        print("Note: --target-export-ess-frac %g has no effect without "
+              "--auto-adapt-weight-exponent." % opts.target_export_ess_frac)
+
+    if opts.auto_adapt_weight_exponent:
+        # An explicit --adapt-weight-exponent alongside --auto is a contradiction.
+        # Silently overriding it would be the worst of both: the run reports a
+        # chooser it did not obey the user about.
+        if was_supplied(opts, "--adapt-weight-exponent"):
+            raise SystemExit(
+                "--auto-adapt-weight-exponent was given together with an explicit "
+                "--adapt-weight-exponent %g.  The chooser would overwrite it.  Pass "
+                "one or the other.  (Detected from the command line, not from the "
+                "value: passing the default explicitly, --adapt-weight-exponent 1.0, "
+                "is still an explicit choice of an untempered target.)"
+                % float(opts.adapt_weight_exponent))
+        beta = beta_for_export_ess(opts.target_export_ess_frac, n_dim)
+        print("Tempering: AUTO beta=%.5f for %.0f%% export ESS in %d-D "
+              "(ESS/N=[beta(2-beta)]^(dim/2); no SNR term -- see "
+              "jax_ile/DESIGN_jax_tempering.md)"
+              % (beta, 100.0 * opts.target_export_ess_frac, n_dim))
+    else:
+        beta = float(opts.adapt_weight_exponent)
+
+    if beta > 1.0:
+        # NOT harmless, and NOT "untempered": samplers.flowmc_sample* take
+        # temper = 1/beta, so beta>1 gives inv_T>1 -- it SHARPENS the target past
+        # the posterior, and the export reweight L^(1-beta) has
+        # ESS/N = [beta(2-beta)]^(dim/2), which is 0 at beta=2 and undefined
+        # beyond.  An earlier version of this branch tested `beta >= 1.0` and
+        # printed "beta=1 (untempered target)" here, which was false for every
+        # beta > 1.
+        raise SystemExit(
+            "--adapt-weight-exponent %g is greater than 1.  On this path the "
+            "exponent is applied to the SAMPLED target (inv_T = %g), so a value "
+            "above 1 samples a target sharper than the posterior and the export "
+            "reweight L^(1-beta) diverges.  Use beta in (0, 1]." % (beta, beta))
+    if beta <= 0.0:
+        raise SystemExit(
+            "--adapt-weight-exponent %g must be positive: beta=0 samples the "
+            "prior and the export reweight carries the entire likelihood."
+            % beta)
+    if beta == 1.0:
+        print("Tempering: beta=1 (untempered target); export ESS is the full cloud.")
+        return beta
+    # An ESTIMATE, calibrated at SNR ~= 23.8 -- NOT a bound.  This used to REFUSE
+    # a run below the floor, which is a guarantee the number cannot support: the
+    # SNR ladder measures 0.00823 at beta=0.1/d=4/SNR~67 against an estimate of
+    # 0.0285.  Refusing on it would be false precision in one direction and false
+    # confidence in the other, so it now WARNS.  Reported by review on #186.
+    frac = export_ess_estimate(beta, n_dim)
+    ess = frac * n_cloud
+    print("Tempering: beta=%.5f in %d-D -> export ESS/N >= %.4f "
+          "(measured-calibrated lower bound), "
+          "ESS~%.0f of %d rows" % (beta, n_dim, frac, ess, n_cloud))
+    if ess < _USABLE_EXPORT_ESS and not opts.allow_degenerate_tempering:
+        print(
+            "  WARNING: --adapt-weight-exponent %g gives an ESTIMATED export ESS "
+            "of %.0f (< %d), so the reweighted --save-samples cloud is unlikely "
+            "to be a usable posterior sample.\n"
+            "  This is the trap the non-JAX helper's rule sets here: it picks "
+            "beta from the SNR (beta=0.1 at SNR<=22.5, 0.1*(22.5/SNR)^2 above), "
+            "which is correct where beta only shapes a PROPOSAL, but on this "
+            "path beta is the exponent of the SAMPLED target.\n"
+            "  The estimate is calibrated at SNR ~= 23.8 and is OPTIMISTIC at "
+            "higher SNR (measured 0.00823 vs an estimated 0.0285 at beta=0.1, "
+            "d=4, SNR ~= 67), so the true figure may be several times worse.  "
+            "It is a warning rather than a refusal precisely because it cannot "
+            "support a hard floor; check the ESS the export actually reports."
+            % (beta, ess, _USABLE_EXPORT_ESS), file=sys.stderr)
+    return beta
+
+
+def fairdraw_indices(logw, rng):
+    """Indices that turn a WEIGHTED cloud into an equal-weight one, or ``None``.
+
+    Production ILE convention (``RIFT/integrators/mcsampler.py::integrate`` and
+    the identical block in mcsamplerGPU / mcsamplerAdaptiveVolume /
+    mcsamplerEnsemble / mcsamplerPortfolio): normalise ``w = L * p / p_s`` and
+    multinomial-resample WITH replacement, so the exported rows are equal weight
+    and carry no weight column.  Capped at ``1.5*ESS``: never claim more fair
+    draws than the weights support, or the file looks like N independent draws
+    while holding ~ESS distinct points.
+
+    This function does REWEIGHTING ONLY.  The export count requested by
+    ``--n-fairdraw-extrinsic-samples`` / ``--fairdraw-extrinsic-output-n-max``
+    is applied by the caller, on every path -- including this one's ``None``
+    returns -- so that the count contract has exactly one implementation and
+    cannot be quietly skipped for some configurations.
+
+    Returns ``(indices_or_None, note)``; the note always records the ESS.  A
+    ``FAILED`` note means the cloud CANNOT be fair-drawn: ``write_samples``
+    refuses to write an export at all in that case, rather than passing the
+    unreweighted cloud off as one.
+    """
+    logw = np.asarray(logw, dtype=float)
+    fin = np.isfinite(logw)
+    # FAIL LOUDLY, NOT OPEN.  "cannot compute weights" and "weights are already
+    # uniform" both used to return None, so a degenerate weight vector silently
+    # wrote the UNCORRECTED cloud under a header that promises a fair draw.
+    if fin.sum() < 2:
+        return None, ("FAILED: %d of %d weights are finite ESS=n/a n_in=%d"
+                      % (int(fin.sum()), len(logw), len(logw)))
+    lw = logw[fin] - np.max(logw[fin])
+    w = np.exp(lw)
+    tot = w.sum()
+    if not np.isfinite(tot) or tot <= 0:
+        return None, ("FAILED: weight sum is %r (overflow or all-zero) "
+                      "ESS=n/a n_in=%d" % (tot, len(logw)))
+    w = w / tot
+    neff = 1.0 / np.sum(w ** 2)
+    idx_fin = np.where(fin)[0]
+    if np.allclose(w, w[0]):
+        # Already equal weight -- the DEFAULT for the flowMC modes, since
+        # --adapt-weight-exponent defaults to 1.  Nothing to reweight; the
+        # caller still applies any requested count.
+        # NOT an effective sample size: the weights carry no information about
+        # how correlated the underlying chain is, so reporting the row count as
+        # "ESS" would be a number that looks measured and is not.
+        return None, "none (weights uniform) ESS=n/a n_in=%d" % (len(logw),)
+    n_out = int(max(1, min(int(np.ceil(1.5 * neff)), len(logw))))
+    print("  fairdraw: %d weighted samples (ESS=%.1f) -> %d equal-weight draws"
+          % (len(logw), neff, n_out))
+    if neff < _USABLE_EXPORT_ESS:
+        print("  fairdraw: WARNING ESS=%.1f -- the proposal barely covers this "
+              "posterior; the exported cloud is NOT a usable posterior sample "
+              "however it is drawn." % neff, file=sys.stderr)
+    note = "reweighted ESS=%.1f n_in=%d" % (neff, len(logw))
+    return idx_fin[rng.choice(len(idx_fin), size=n_out, replace=True, p=w)], note
+
+
+def fairdraw_size(opts, n_have):
+    """Requested number of fair draws, or ``None`` for "as many as the weights
+    support".
+
+    ``--n-fairdraw-extrinsic-samples`` is an exact request;
+    ``--fairdraw-extrinsic-output-n-max`` caps the count per evaluation.  Both
+    are clamped by ``n_have`` and by nothing else.
+
+    WHY THERE IS NO ESS TERM HERE, though ILE appears to have one.
+    ``mcsampler.integrate`` clamps with
+    ``n_extr = min(n_extr, 1.5*eff_samp, 1.5*neff)``, but there ``eff_samp``,
+    ``neff`` and the fair draw are all properties of the SAME importance-weight
+    vector ``wt`` that the draw then samples from -- one weight stream, so the
+    clamp is self-consistent.
+
+    That does not hold on this path.  For every flowMC mode ``theta`` is the
+    production chain while ``res["neff"]`` comes from a SEPARATE estimator: the
+    moment-matched Gaussian importance cloud built for the evidence, or (under
+    ``--adapt-adapt``) the annealing ladder's minimum inter-stage ESS.  Neither
+    describes the exported rows.  Clamping the export by it truncated a
+    perfectly good equal-weight chain to a couple of rows whenever that
+    unrelated proposal happened to have low ESS.
+
+    The ESS that DOES bound this export is the one ``fairdraw_indices``
+    computes from the export weights -- and it has already applied it, as
+    ``n_out = min(ceil(1.5*ESS), n_in)``.  So ``n_have`` already carries the
+    1.5*ESS cap wherever weights were non-uniform, and where they were uniform
+    there is no computed chain ESS to clamp by (an autocorrelation-based one
+    would be a different, unimplemented quantity).  Reported by review on #180."""
+    n_req = getattr(opts, "n_fairdraw_extrinsic_samples", None)
+    if n_req is None and getattr(opts, "fairdraw_extrinsic_output", False):
+        # ILE's default cap is 5; kept out of the parser so an unset flag is not
+        # reported as one the user passed.
+        n_req = getattr(opts, "fairdraw_extrinsic_output_n_max", None)
+        if n_req is None:
+            n_req = _FAIRDRAW_N_MAX_DEFAULT
+    if n_req is None:
+        return None
+    n_asked = int(n_req)
+    n_req = max(1, min(n_asked, n_have))
+    if n_req != n_asked:
+        # ILE prints "Fairdraw size : n" whenever it clamps; silence here meant a
+        # laplace-is run quietly turned a request for 137 into 32.
+        print("  Fairdraw size : %d (requested %d, clamped by the %d available "
+              "rows; those already carry the 1.5*ESS cap from fairdraw_indices "
+              "when the weights were non-uniform)" % (n_req, n_asked, n_have))
+    return n_req
+
+
+def _remove_stale_artifact(path, what="export"):
+    """Delete a leftover file at a path this failed event refuses to publish.
+
+    The run was going to overwrite ``path``; if it is left behind, a re-run in
+    an existing output directory leaves the PREVIOUS run's file where the
+    pipeline looks for this one's, which is the same "read a file that is not
+    this event's" failure the refusal exists to prevent."""
+    if not os.path.exists(path):
+        return
+    try:
+        os.remove(path)
+    except OSError as e:
+        print("  *** could not remove the stale %s %s (%s) -- it is NOT "
+              "this run's output. ***" % (what, path, e), file=sys.stderr)
+    else:
+        print("  removed the stale %s %s (this event produced no valid result)"
+              % (what, path), file=sys.stderr)
+
+
+def write_samples(opts, out_index, theta, lnL, with_distance, logw=None,
+                  angle_note=""):
+    """Write the exported extrinsic samples.
+
+    ``logw`` are per-sample LOG IMPORTANCE WEIGHTS ``ln(L p / p_s)`` for the
+    rows of ``theta`` (``None`` when the sampler already targets the posterior,
+    e.g. an untempered MCMC chain).  When they are non-uniform the cloud is
+    fair-drawn against them BEFORE writing, so the exported rows are equal
+    weight -- the same contract production ILE's ``--fairdraw-extrinsic-output``
+    provides, and the one every downstream consumer of these files assumes.
+
+    If the fair draw CANNOT be performed (degenerate or unnormalizable weights)
+    no file is written and ``RuntimeError`` is raised: the alternative is to ship
+    the raw proposal/prior cloud under the product name that means "posterior
+    draws".  ``analyze_one`` calls this BEFORE ``write_dat``, so that refusal
+    also leaves the event without a normal ILE result row.
+    """
     if not (opts.output_file and opts.save_samples) or theta is None:
         return
+    sname = samples_path(opts, out_index)
+    # The export RNG is derived here and NOWHERE ELSE.  It must never be the
+    # generator that feeds the samplers/estimators: --save-samples is an OUTPUT
+    # flag and consuming the science stream made it change the lnL/logZ of every
+    # later event in a batch.  There is deliberately no rng parameter, so that
+    # mistake cannot be reintroduced by a caller.
+    rng = np.random.default_rng((opts.seed, out_index))
+    # n_in is the cloud as the sampler handed it over, before any filtering or
+    # counting, so the header records what went in as well as what came out.
+    note = ("not applicable (sampler targets the posterior) ESS=n/a n_in=%d"
+            % len(theta))
+    if logw is not None and len(logw) != len(theta):
+        # FAIL LOUDLY, NOT OPEN.  This used to be a silent `and len(...) ==` in
+        # the guard below, so a mismatched weight vector fell through to the
+        # "not applicable (sampler targets the posterior)" note -- writing an
+        # UNREWEIGHTED tempered cloud under a header claiming none was needed.
+        # A length mismatch is a sampler bug, not a configuration; say so.
+        raise RuntimeError(
+            "export weights and samples disagree in length (%d weights, %d "
+            "rows) for --mode %s.  Refusing to write: the fair draw cannot be "
+            "performed and labelling the raw cloud 'not applicable' would be a "
+            "false provenance line."
+            % (len(logw), len(theta), opts.mode))
+    if logw is not None:
+        idx, note = fairdraw_indices(logw, rng)
+        if idx is not None:
+            theta, lnL = theta[idx], np.asarray(lnL)[idx]
+        elif note.startswith("FAILED"):
+            # NO ARTIFACT WHEN THE FAIR DRAW FAILS.  Writing the raw cloud here
+            # put proposal/prior draws into the standard, weightless
+            # `*_samples.dat` product under the ONE name every consumer reads as
+            # equal-weight posterior draws -- and none of them is obliged to read
+            # the provenance line -- so the contract broke precisely on the
+            # collapsed integrations where the difference is largest.  Refuse to
+            # produce the file at all: the event fails loudly (and
+            # --soft-fail-event-range still skips to the next one).
+            #
+            # The `.dat` result row goes too.  analyze_one validates the export
+            # BEFORE write_dat, so this run has not written one -- but a file
+            # left at that path by an earlier run would be collected as this
+            # event's successful integration, which is the same stale-artifact
+            # failure as for the samples file.
+            _remove_stale_artifact(sname, "export")
+            _remove_stale_artifact(dat_path(opts, out_index), "result")
+            raise RuntimeError(
+                "fair draw failed for output index %d (%s): the exported cloud "
+                "would be the raw, UNREWEIGHTED sampler/proposal samples, which "
+                "is not a posterior sample.  No %s written.  This integration "
+                "collapsed -- fix the run (more samples, better proposal, "
+                "sanity-check the likelihood) rather than reading the cloud."
+                % (out_index, note, sname))
+    # Drop non-finite lnL FIRST.  Doing it last meant the count was applied to
+    # rows that were then discarded, and the provenance n_out counted them: a
+    # header saying n_out=1000 above a 963-row file, and 137 above 129 -- wrong
+    # exactly when the likelihood misbehaved, which is when someone reads it.
+    lnL = np.asarray(lnL)
     good = np.isfinite(lnL)
+    if not good.all():
+        theta, lnL = theta[good], lnL[good]
+    # THE count contract, applied once.  Gated on _FAIRDRAW_MODES -- the SAME set
+    # check_critical_and_report uses to decide whether to report these flags as
+    # ignored, so report and behaviour cannot disagree.  Applying it everywhere
+    # meant `--mode nuts --fairdraw-extrinsic-output` printed "IGNORED" and then
+    # silently wrote 5 rows instead of 300; --fairdraw-extrinsic-output is in
+    # ILE_extr.sub, so that is a real production command line losing 60x of its
+    # export under a banner saying the flag did nothing.
+    # Rows are equal weight by this point, so subsample WITHOUT replacement -- a
+    # random subset of an equal-weight cloud is still a fair draw (verified) and
+    # manufactures no duplicates.
+    if opts.mode in _FAIRDRAW_MODES:
+        # NO evidence-neff argument, deliberately: this function has no parameter
+        # that could carry one.  See fairdraw_size for why an ESS term here was
+        # wrong on the flowMC modes.
+        n_req = fairdraw_size(opts, len(theta))
+        if n_req is not None and n_req < len(theta):
+            n_before = len(theta)
+            sub = rng.choice(n_before, size=int(n_req), replace=False)
+            theta, lnL = theta[sub], lnL[sub]
+            print("  fairdraw: exporting %d of %d rows (requested count)"
+                  % (int(n_req), n_before))
+    provenance = "fairdraw: %s n_out=%d" % (note, len(theta))
+    if angle_note:
+        provenance += " " + angle_note
+    phase_marginalized = bool(getattr(opts, "phase_marginalization", False))
+    if phase_marginalized:
+        provenance += " phase=analytically-marginalized"
+
     ndim = theta.shape[1] if theta.ndim == 2 else len(theta)
     if with_distance:
         # 6-D: ra, dec, psi, incl, phiref, dist
-        cols = np.column_stack([theta[good, 0], theta[good, 1], theta[good, 5],
-                                theta[good, 3], theta[good, 2], theta[good, 4],
-                                lnL[good]])
-        hdr = "right_ascension declination distance inclination psi phi_orb loglikelihood"
+        if phase_marginalized:
+            cols = np.column_stack([theta[:, 0], theta[:, 1], theta[:, 5],
+                                    theta[:, 3], theta[:, 2], lnL])
+            hdr = "right_ascension declination distance inclination psi loglikelihood"
+        else:
+            cols = np.column_stack([theta[:, 0], theta[:, 1], theta[:, 5],
+                                    theta[:, 3], theta[:, 2], theta[:, 4], lnL])
+            hdr = "right_ascension declination distance inclination psi phi_orb loglikelihood"
     elif ndim == 4 and opts.mode == "flowmc-dpsimarg":
         # 4-D (flowmc-dpsimarg): theta = ra, dec, phiref, incl (psi marginalised,
         # phi_ref sampled).  Write ra, dec, incl, phi_orb.
-        cols = np.column_stack([theta[good, 0], theta[good, 1],
-                                theta[good, 3], theta[good, 2], lnL[good]])
+        cols = np.column_stack([theta[:, 0], theta[:, 1],
+                                theta[:, 3], theta[:, 2], lnL])
         hdr = "right_ascension declination inclination phi_orb loglikelihood"
     elif ndim == 4:
         # 4-D (flowmc-phimarg): ra, dec, psi, incl (phi_ref marginalised out)
-        cols = np.column_stack([theta[good, 0], theta[good, 1],
-                                theta[good, 3], theta[good, 2], lnL[good]])
+        cols = np.column_stack([theta[:, 0], theta[:, 1],
+                                theta[:, 3], theta[:, 2], lnL])
         hdr = "right_ascension declination inclination psi loglikelihood"
     elif ndim == 3:
         # 3-D (flowmc-phipsimarg): ra, dec, incl (phi_ref AND psi marginalised out)
-        cols = np.column_stack([theta[good, 0], theta[good, 1],
-                                theta[good, 2], lnL[good]])
+        cols = np.column_stack([theta[:, 0], theta[:, 1],
+                                theta[:, 2], lnL])
         hdr = "right_ascension declination inclination loglikelihood"
     else:
         # 5-D: ra, dec, psi, incl, phiref
-        cols = np.column_stack([theta[good, 0], theta[good, 1], theta[good, 3],
-                                theta[good, 2], theta[good, 4], lnL[good]])
-        hdr = "right_ascension declination inclination psi phi_orb loglikelihood"
-    sname = opts.output_file + "_" + str(out_index) + "_samples.dat"
-    np.savetxt(sname, cols, header=hdr)
-    print("Wrote %s (%d samples)" % (sname, int(good.sum())))
+        if phase_marginalized:
+            cols = np.column_stack([theta[:, 0], theta[:, 1], theta[:, 3],
+                                    theta[:, 2], lnL])
+            hdr = "right_ascension declination inclination psi loglikelihood"
+        else:
+            cols = np.column_stack([theta[:, 0], theta[:, 1], theta[:, 3],
+                                    theta[:, 2], theta[:, 4], lnL])
+            hdr = "right_ascension declination inclination psi phi_orb loglikelihood"
+    # Column line FIRST (unchanged, so `head -1` parsers keep working); the
+    # provenance line follows, so the artifact records how it was produced --
+    # notably the export ESS, which was previously written nowhere.
+    np.savetxt(sname, cols, header=hdr + "\nmode=%s %s" % (opts.mode, provenance))
+    print("Wrote %s (%d samples)" % (sname, len(cols)))
 
 
 def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
@@ -854,6 +1792,21 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
     Returns ``(value, flow_state)`` where ``flow_state`` is the trained-flow
     state to bootstrap the next event (``--mode flowmc`` only; ``None`` else).
     """
+    # Per-EVENT state: a batch run analyzes several events in one process, and
+    # an undersizing on event 0 must not label event 1.
+    _anglemarg.reset_amp_failsafe()
+    tq = opts.time_marginalization_quadrature
+    if tq == "bandlimited":
+        required, g0, gcert = bandlimited_storage_requirement(
+            P.deltaT, opts.data_integration_window_half)
+        if opts.internal_data_storage_window_half < required:
+            print("  widening rholm storage for bandlimited time support: "
+                  "%.6g -> %.6g s" %
+                  (opts.internal_data_storage_window_half, required))
+            opts.internal_data_storage_window_half = required
+        print("  precompute time support: guard_initial=%d guard_certificate=%d "
+              "samples storage_half=%.6g s" %
+              (g0, gcert, opts.internal_data_storage_window_half))
     print("Building JAX likelihood (PrecomputeLikelihoodTerms + pack)...")
     like_data, extras = build_data_from_precompute(
         P.copy(), data_dict, psd_dict, fiducial_epoch,
@@ -865,6 +1818,38 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
     print("  modes:", like_data.lms, "  guessed SNR:", extras["guess_snr"])
 
     with_distance = not opts.distance_marginalization
+    # --limit-distance: (d_lo,d_hi) is what is SAMPLED / quadratured; the prior is
+    # always normalized over (opts.d_min, opts.d_max), which is what keeps the
+    # reported lnZ on the same scale as a full-range run.
+    d_lo, d_hi = resolve_distance_limit(opts)
+    if (d_lo, d_hi) != (float(opts.d_min), float(opts.d_max)):
+        print("  [limit] restricting distance sampling/quadrature to [%.4f, %.4f] Mpc "
+              "(prior normalization UNCHANGED over [%.4f, %.4f] Mpc)"
+              % (d_lo, d_hi, opts.d_min, opts.d_max))
+    # Fail closed on a flag that would otherwise be silently inert.  The
+    # log-uniform distance quadrature is wired -- and validated -- only for the
+    # dense (phi,psi) schemes of --mode flowmc-phipsimarg.
+    if (getattr(opts, "distance_grid_scheme", "uniform") != "uniform"
+            and getattr(opts, "distance_grid_points", None) is not None):
+        raise SystemExit(
+            "--distance-grid-points and --distance-grid-scheme loguniform both "
+            "set the distance node count.  The log-uniform grid derives its "
+            "count from the data (see --distance-grid-tol); pass one or the "
+            "other, not both.")
+    # Resolved into a LOCAL, never written back onto opts: this driver has a
+    # documented history of an option written back on event 0 being read as
+    # event 1's choice in a batch loop.
+    n_dist_grid = (DISTANCE_GRID_POINTS_DEFAULT
+                   if opts.distance_grid_points is None
+                   else int(opts.distance_grid_points))
+    if (getattr(opts, "distance_grid_scheme", "uniform") != "uniform"
+            or getattr(opts, "distance_grid_tol", None) is not None):
+        if opts.mode != "flowmc-phipsimarg":
+            raise SystemExit(
+                "--distance-grid-scheme/--distance-grid-tol apply only to "
+                "--mode flowmc-phipsimarg (they are validated only for the "
+                "dense angle-marginalization schemes); got --mode %s."
+                % opts.mode)
     if opts.mode in ("flowmc-phimarg", "nuts-phimarg"):
         # phi_ref-marginalised: requires distance marginalisation (baked in);
         # produces a 4-D (ra, dec, psi, incl) posterior.
@@ -874,11 +1859,12 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
         from RIFT.likelihood.jax_ile.wrapper import JAXDistPhiMargLikelihood
         nphi = getattr(opts, "n_phi", 32)
         print("Distance + phi_ref marginalization: ON (grid=%d, nphi=%d, d in [%g,%g] Mpc)"
-              % (opts.distance_grid_points, nphi, opts.d_min, opts.d_max))
+              % (n_dist_grid, nphi, d_lo, d_hi))
         like = JAXDistPhiMargLikelihood(
-            like_data, opts.d_min, opts.d_max,
-            nphi=nphi, n_grid=opts.distance_grid_points,
-            interp=opts.interp, guess_snr=extras["guess_snr"])
+            like_data, d_lo, d_hi,
+            nphi=nphi, n_grid=n_dist_grid,
+            interp=opts.interp, guess_snr=extras["guess_snr"],
+            time_quadrature=tq, d_prior_range=(opts.d_min, opts.d_max))
         if getattr(like, "dist_grid_info", {}).get("mode") == "adaptive":
             gi = like.dist_grid_info
             print("  distance grid: ADAPTIVE  d_peak=%.3g Mpc  sigma_d=%.3g Mpc  npts=%d"
@@ -892,16 +1878,33 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
         from RIFT.likelihood.jax_ile.wrapper import JAXDistPhiPsiMargLikelihood
         nphi = getattr(opts, "n_phi", 32)
         npsi = getattr(opts, "n_psi", 16)
+        angle_marg = getattr(opts, "angle_marg_scheme", ANGLE_MARG_DEFAULT)
         print("Distance + phi_ref + psi marginalization: ON (grid=%d, nphi=%d, npsi=%d, d in [%g,%g] Mpc)"
-              % (opts.distance_grid_points, nphi, npsi, opts.d_min, opts.d_max))
+              % (n_dist_grid, nphi, npsi, d_lo, d_hi))
+        dist_grid = getattr(opts, "distance_grid_scheme", "uniform")
+        dist_tol = getattr(opts, "distance_grid_tol", None)
+        if dist_tol is None:
+            dist_tol = _jax_core_dist_tol_default()
+        elif dist_grid == "uniform":
+            raise SystemExit(
+                "--distance-grid-tol only applies to --distance-grid-scheme "
+                "loguniform; it would be silently inert here.")
         like = JAXDistPhiPsiMargLikelihood(
-            like_data, opts.d_min, opts.d_max, nphi=nphi, npsi=npsi,
-            n_grid=opts.distance_grid_points, interp=opts.interp,
-            guess_snr=extras["guess_snr"])
-        if getattr(like, "dist_grid_info", {}).get("mode") == "adaptive":
-            gi = like.dist_grid_info
-            print("  distance grid: ADAPTIVE  d_peak=%.3g Mpc  sigma_d=%.3g Mpc  npts=%d"
-                  % (gi["d_peak"], gi["sigma_d"], gi["n"]))
+            like_data, d_lo, d_hi, nphi=nphi, npsi=npsi,
+            n_grid=n_dist_grid, interp=opts.interp,
+            guess_snr=extras["guess_snr"], angle_marg=angle_marg,
+            time_quadrature=tq, d_prior_range=(opts.d_min, opts.d_max),
+            dist_grid=dist_grid, dist_grid_tol=dist_tol)
+        # ALWAYS report the resolved scheme (requested may be 'auto'; this
+        # pipeline has a documented history of silently-inert flags).
+        print("  angle-marg scheme: %s (requested %s): %s"
+              % (like.angle_marg_scheme, angle_marg,
+                 "; ".join("%s=%s" % kv for kv in
+                           sorted(like.angle_marg_info.items())
+                           if kv[0] not in ("scheme", "requested"))))
+        print("  distance grid: %s"
+              % "; ".join("%s=%s" % kv
+                          for kv in sorted(getattr(like, "dist_grid_info", {}).items())))
         with_distance = False
         dim = 3
     elif opts.mode == "flowmc-dpsimarg":
@@ -912,11 +1915,12 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
         npsi = getattr(opts, "n_psi", 8)
         print("Distance + psi marginalization (phi_ref sampled): ON "
               "(grid=%d, npsi=%d, d in [%g,%g] Mpc)"
-              % (opts.distance_grid_points, npsi, opts.d_min, opts.d_max))
+              % (n_dist_grid, npsi, d_lo, d_hi))
         like = JAXDistPsiMargLikelihood(
-            like_data, opts.d_min, opts.d_max, npsi=npsi,
-            n_grid=opts.distance_grid_points, interp=opts.interp,
-            guess_snr=extras["guess_snr"])
+            like_data, d_lo, d_hi, npsi=npsi,
+            n_grid=n_dist_grid, interp=opts.interp,
+            guess_snr=extras["guess_snr"], time_quadrature=tq,
+            d_prior_range=(opts.d_min, opts.d_max))
         if getattr(like, "dist_grid_info", {}).get("mode") == "adaptive":
             gi = like.dist_grid_info
             print("  distance grid: ADAPTIVE  d_peak=%.3g Mpc  sigma_d=%.3g Mpc  npts=%d"
@@ -925,16 +1929,28 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
         dim = 4
     elif opts.distance_marginalization:
         print("Distance marginalization: ON (grid=%d, d in [%g,%g] Mpc)"
-              % (opts.distance_grid_points, opts.d_min, opts.d_max))
+              % (n_dist_grid, d_lo, d_hi))
         like = JAXDistanceMarginalizedLikelihood(
-            like_data, opts.d_min, opts.d_max, n_grid=opts.distance_grid_points,
-            interp=opts.interp, phase_marginalization=opts.phase_marginalization)
+            like_data, d_lo, d_hi, n_grid=n_dist_grid,
+            interp=opts.interp, phase_marginalization=opts.phase_marginalization,
+            time_quadrature=tq, d_prior_range=(opts.d_min, opts.d_max))
         dim = 5
     else:
         like = JAXExtrinsicLikelihood(
             like_data, interp=opts.interp,
-            phase_marginalization=opts.phase_marginalization)
+            phase_marginalization=opts.phase_marginalization,
+            time_quadrature=tq)
         dim = 6
+
+    if like.time_quadrature != tq:
+        raise RuntimeError("constructed likelihood changed time quadrature: %r != %r"
+                           % (like.time_quadrature, tq))
+    print("  time-marginalization quadrature: %s (interpolate-time: %s)"
+          % (like.time_quadrature, opts.interp))
+    if like.time_quadrature == "bandlimited":
+        print("  time guard: derived_initial=%d samples certified=%d samples; "
+              "fine factor is curvature-derived per row with one doubling certificate"
+              % (like.time_guard_initial, like.time_guard_certified))
 
     if opts.mode == "map":
         theta_map, lnL_map = run_map(like, opts, rng, dim, with_distance)
@@ -956,6 +1972,12 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
                              "(it samples the 5-D angular posterior)." % opts.mode)
         from RIFT.likelihood.jax_ile import samplers as _samplers
         n_starts = opts.num_chains if opts.num_chains and opts.num_chains > 1 else 8
+        # Resolved per event and used directly.  Deliberately a LOCAL: writing it
+        # back to opts made event 1 of a batch read event 0's choice.
+        resolved_beta = float(opts.adapt_weight_exponent)
+        if opts.mode in _TEMPERED_MODES:
+            resolved_beta = resolve_tempering_exponent(
+                opts, dim, tempered_cloud_size(opts, n_starts))
         if opts.mode == "nuts-phimarg":
             # Fisher-whitened multi-start NUTS on the 4-D phimarg posterior.
             res = _samplers.fisher_nuts_sample_phimarg(
@@ -982,12 +2004,35 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
                 max_stages=max(opts.temper_max_stages, 80),
                 puff_scale=opts.smc_puff_scale,
                 seed=opts.seed, verbose=opts.verbose)
+            # AN UNFINISHED LADDER IS NOT A POSTERIOR DRAW.  smc_puffball_sample
+            # also stops at max_stages (and on a cloud that has lost its finite
+            # lnL), leaving a cloud that targets L**inv_T * prior -- reachable
+            # exactly in the sharp high-SNR regime this fallback exists for, where
+            # the ESS rule picks very small temperature steps.  NEITHER artifact
+            # may be published from that state: the export would ship a TEMPERED
+            # cloud as an equal-weight posterior draw, and the `.dat` would carry
+            # the SMC log Z(inv_T) rather than log Z.  Fail the event here, before
+            # write_samples/write_dat, and clear anything an earlier run left at
+            # those paths (--soft-fail-event-range still skips to the next event).
+            _inv_T = res.get("inv_T")
+            if _inv_T is None or not float(_inv_T) >= 1.0 - 1e-9:
+                _remove_stale_artifact(samples_path(opts, out_index), "export")
+                _remove_stale_artifact(dat_path(opts, out_index), "result")
+                raise RuntimeError(
+                    "--smc-puffball: the SMC temperature ladder reached inv_T=%s, "
+                    "not 1, so the cloud still targets L**inv_T * prior and is "
+                    "neither a posterior sample nor an evidence.  Nothing written "
+                    "for output index %d.  Give the ladder room to finish (raise "
+                    "--temper-max-stages / --smc-walkers, or lower "
+                    "--temper-ess-frac) rather than exporting the tempered cloud."
+                    % ("(not reported by the installed sampler)" if _inv_T is None
+                       else "%.4g" % float(_inv_T), out_index))
         elif opts.mode in ("flowmc-phimarg", "flowmc-phipsimarg", "flowmc-dpsimarg"):
             # 4-D phi-marg (ra,dec,psi,incl), 3-D phi+psi-marg (ra,dec,incl), or
             # 4-D d+psi-marg (ra,dec,phiref,incl); flowmc_sample_phimarg is
             # dimension-agnostic (helpers chosen from ANGULAR_PARAM_ORDER).
             # Static tempering: beta = --adapt-weight-exponent -> temper = 1/beta.
-            _beta = float(opts.adapt_weight_exponent)
+            _beta = resolved_beta
             _temper = 1.0 / _beta if _beta > 0 else 1.0
             res = _samplers.flowmc_sample_phimarg(
                 like, opts.d_min, opts.d_max,
@@ -1008,7 +2053,7 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
                 seed=opts.seed, reuse_state=flow_state, verbose=opts.verbose)
             out_flow_state = res.get("flow_state")
         else:
-            _beta = float(opts.adapt_weight_exponent)
+            _beta = resolved_beta
             _temper = 1.0 / _beta if _beta > 0 else 1.0
             res = _samplers.flowmc_sample(
                 like, opts.d_min, opts.d_max, n_chains=max(n_starts, 20),
@@ -1022,18 +2067,84 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
             out_flow_state = res.get("flow_state")  # bootstrap the next event
         theta, lnL = res["theta"], res["lnL"]
         logZ, sig, neff, ntot = res["logZ"], res["sigma_over_Z"], res["neff"], len(theta)
+        # post_weight means DIFFERENT things per sampler, so only consume it
+        # where it is an importance weight.
+        #  * flowMC modes: L^(1-inv_T), the correction from the TEMPERED state
+        #    actually sampled (exponent = --adapt-weight-exponent) to the exact
+        #    posterior.  Uniform only at inv_T == 1.  This is a genuine w.
+        #    Under --smc-puffball the same key carries the SMC ladder's
+        #    L^(1-inv_T) correction, and the gate above has already refused the
+        #    event unless the ladder finished -- so it is uniform by then.
+        #  * multistart-nuts / nuts-phimarg: NOT an importance weight.
+        #    samplers.py builds np.full(n_per[k], mass[k]/n_per[k]) -- a
+        #    per-chain Laplace MODE-EVIDENCE weight, constant within a chain
+        #    (multistart_nuts estimates it as peak_k + 0.5*logdet(sky cov),
+        #    which its own comment flags as approximate).  Fair-drawing against
+        #    it would re-weight whole chains by that estimator and duplicate
+        #    ~half the rows, not correct any proposal mismatch.  It may well fix
+        #    a real mode-mass bias, but that is unvalidated -- so these modes
+        #    export their chains unreweighted until it is measured.
+        _pw = res.get("post_weight") if opts.mode in _TEMPERED_MODES else None
+        if _pw is not None and len(_pw) != len(theta):
+            # Silently dropping the weights here made the export claim no
+            # reweighting was needed; write_samples now refuses a mismatch, and
+            # this raises at the source so the mode is named in the message.
+            raise RuntimeError(
+                "--mode %s returned %d post_weight entries for %d samples; the "
+                "tempering correction cannot be applied."
+                % (opts.mode, len(_pw), len(theta)))
+        logw_export = (np.log(np.asarray(_pw, dtype=float))
+                       if _pw is not None else None)
     elif opts.mode == "prior-mc":
-        logZ, sig, neff, ntot, theta, lnL = run_prior_mc(like, opts, rng, dim, with_distance)
+        logZ, sig, neff, ntot, theta, lnL, logw_export = run_prior_mc(like, opts, rng, dim, with_distance)
     elif opts.mode == "nuts":
-        logZ, sig, neff, ntot, theta, lnL = run_nuts(like, opts, rng, with_distance)
+        logZ, sig, neff, ntot, theta, lnL, logw_export = run_nuts(like, opts, rng, with_distance)
     else:
-        logZ, sig, neff, ntot, theta, lnL = run_laplace_is(like, opts, rng, dim, with_distance)
+        logZ, sig, neff, ntot, theta, lnL, logw_export = run_laplace_is(like, opts, rng, dim, with_distance)
 
     print("\n==== Result (event %d) ====" % event_id)
     print("  log evidence (lnL marginal over extrinsic) = %.5f" % logZ)
     print("  sigma_lnL = %.4g    neff = %.1f    ntotal = %d" % (sig, neff, ntot))
-    write_dat(opts, P, out_index, event_id, logZ, sig, ntot, neff)
-    write_samples(opts, out_index, theta, lnL, with_distance)
+    # EXPORT FIRST, THEN PUBLISH THE RESULT ROW.  write_samples raises when the
+    # cloud admits no fair draw, and that refusal means the integration itself
+    # collapsed -- so the event must leave NO artifact behind.  Writing the
+    # `.dat` first published a normal ILE result row (a finite, collapsed
+    # evidence in the one-finite-weight case) that --soft-fail-event-range then
+    # left in place for downstream collectors while the batch carried on.
+    #
+    # write_samples takes NO rng: it derives its own from (seed, out_index).
+    # Passing the shared `rng` here -- which also feeds run_laplace_is /
+    # run_prior_mc and the samplers -- made --save-samples, an OUTPUT flag,
+    # change the lnL/logZ of every later event in the batch.
+    # Report ONCE per event, here, BEFORE either artifact is written -- and
+    # independently of --save-samples/--output-file, since write_samples()
+    # early-returns when export is off and a run with export disabled would
+    # otherwise get no warning and no persistent label at all.
+    # Compute ONCE from the RESOLVED scheme and hand the same string to both
+    # writers.  Recomputing inside each writer with no argument left `scheme`
+    # None, so the standing BEST-EFFORT label never emitted and every artifact
+    # stayed silent -- an inert guard, which is the exact failure mode this
+    # label exists to prevent.
+    _scheme = getattr(like, "angle_marg_scheme", None)
+    _ev_note = angle_grid_suspect_note(_scheme)
+    if _ev_note.startswith("SUSPECT-ANGLE-GRID"):
+        sys.stderr.write(
+            "WARNING integrate_likelihood_extrinsic_jax: angle-marginalization "
+            "dense grids were UNDERSIZED at some evaluated points this event "
+            "(%s).  Samples and evidence are LABELLED SUSPECT in their headers; "
+            "rebuild with a larger amp_sizing before using them.  The run was "
+            "NOT aborted and no points were discarded -- discarding would excise "
+            "exactly the region the estimator missed.\n" % _ev_note)
+    elif _ev_note:
+        # BEST-EFFORT: nothing detected.  Say so WITHOUT claiming a clean run --
+        # announcing "UNDERSIZED" here would be a false alarm, and saying
+        # nothing would let silence read as verification.
+        sys.stderr.write(
+            "NOTE integrate_likelihood_extrinsic_jax: %s\n" % _ev_note)
+    write_samples(opts, out_index, theta, lnL, with_distance, angle_note=_ev_note,
+                  logw=logw_export)
+    write_dat(opts, P, out_index, event_id, logZ, sig, ntot, neff,
+              angle_note=_ev_note)
     return logZ, out_flow_state
 
 
@@ -1042,7 +2153,11 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
 # ---------------------------------------------------------------------------
 def main(argv=None):
     optp = build_parser()
+    argv = _normalize_interpolate_time_argv(argv)
     opts, _ = optp.parse_args(argv)
+    # BEFORE anything reads an option: which tokens did the user actually type?
+    record_supplied_options(opts, argv, optp)
+    resolve_ile_interface_aliases(opts, optp)
     check_critical_and_report(opts, optp)
 
     if opts.event_time is None:

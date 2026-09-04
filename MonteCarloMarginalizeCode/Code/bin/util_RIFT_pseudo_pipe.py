@@ -58,6 +58,13 @@ from RIFT.misc.cip_pipeline import flag_final_group_unique
 # leaf module: numpy only, so this does not drag numba/cupy into the pipeline script
 from RIFT.likelihood.time_interp_choice import (
     BARE_FLAG_SENTINEL, CROSSOVER_GUIDANCE, resolve_interpolate_time_request)
+# Same reason (numpy-only leaf module), and IMPORTED rather than re-typed: a second
+# hand-written copy of the choice tuple is how a typo becomes a silently different
+# likelihood -- the pipeline would accept 'bandlimted', forward it, and the mistake
+# would only surface when the first ILE job died.
+from RIFT.likelihood.time_marginalization_quadrature import (
+    TIME_QUADRATURE_CHOICES, validate_time_quadrature,
+    refuse_unhonourable_time_quadrature, refuse_unless_time_quadrature_emitted)
 ligolw_prefix = 'igwn_'
 if not(which(ligolw_prefix + "ligolw_add")):
     ligolw_prefix = ''
@@ -137,6 +144,15 @@ def retrieve_event_from_coinc(fname_coinc):
     else:
         event_dict["eccentricity"] = None
         event_dict["meanPerAno"] = None
+    try:
+        event_dict["E0"] = row.psi3
+    except:
+        event_dict["E0"] = 0.0
+    try:
+        event_dict["p_phi0"] = row.beta
+    except:
+        event_dict["p_phi0"] = 0.0
+
     event_dict["IFOs"] = list(set(ifo_list))
     max_snr_idx = snr_list.index(max(snr_list))
     event_dict['SNR'] = snr_list[max_snr_idx]
@@ -349,7 +365,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--skip-reproducibility",action='store_true')
 parser.add_argument("--use-production-defaults",action='store_true',help="Use production defaults. Intended for use with tools like asimov or by nonexperts who just want something to run on a real event.  Will require manual setting of other arguments!")
 parser.add_argument("--use-subdags",action='store_true',help="Use CEPP_Alternate instead of CEPP_BasicIteration. Note this writes an adaptively-sized DAG each iteration, but doesn't otherwise optimize yet.")
-parser.add_argument("--pipeline-builder",default=None,choices=["BasicIteration","AlternateIteration"],help="Explicitly select the create_event_parameter_pipeline_* iteration builder, as a drop-in hot-swap for side-by-side A/B testing. Overrides the implicit --use-subdags routing. If unset, the builder is chosen by --use-subdags (Alternate) vs. the default (Basic).")
+parser.add_argument("--pipeline-builder",default=None,choices=["BasicIteration","AlternateIteration","BasicMultiApproxIteration"],help="Explicitly select the create_event_parameter_pipeline_* iteration builder, as a drop-in hot-swap for side-by-side A/B testing. Overrides the implicit --use-subdags routing. If unset, the builder is chosen by --use-subdags (Alternate) vs. the default (Basic).")
 parser.add_argument("--use-ile-subdags",action='store_true',help="Use ILE subdag system (new)")
 parser.add_argument("--bilby-ini-file",default=None,type=str,help="Pass ini file for parsing. Intended to use for calibration reweighting. Full path recommended")
 parser.add_argument("--bilby-pickle-file",default=None,type=str,help="Bilby Pickle file with event settings. Intended to use for calibration reweighting. Full path recommended")
@@ -417,6 +433,10 @@ parser.add_argument("--lisa-zero-likelihood",action='store_true',help="With --li
 parser.add_argument("--calibration",default="C00",type=str)
 parser.add_argument("--playground-data",action='store_true', help="Passed through to helper_LDG_events, and changes name prefix")
 parser.add_argument("--approx",default=None,type=str,help="Approximant. REQUIRED")
+parser.add_argument("--approx-extra",default=None,action='append',help="Additional waveform model, repeatable.  Selects the cross-model workflow: every model is evaluated on ONE shared intrinsic grid and marginalized over point by point, and the terminal stage forks to give each model its own posterior and evidence.  Implies --pipeline-builder BasicMultiApproxIteration.  See RIFT/misc/DESIGN_multiapprox_marginalization.md")
+parser.add_argument("--approx-prior",default=None,action='append',help="APPROX=WEIGHT prior p(m) over waveform models, repeatable.  Default uniform.  NOT sampling weights.")
+parser.add_argument("--approx-extra-gwsignal",default=None,action='append',help="An --approx-extra model that must be generated through gwsignal.  The primary --approx inherits --use-gwsignal automatically.  The generator route is PER MODEL: the phenom family has no time-domain mode generator in gwsignal, so a single global route cannot serve an EOB-vs-phenom comparison.")
+parser.add_argument("--require-all-approx",action='store_true',help="Drop intrinsic points not successfully evaluated under EVERY model, instead of marginalizing over whichever subset survived.")
 parser.add_argument("--use-gwsurrogate",action='store_true',help="Attempt to use gwsurrogate instead of lalsuite.")
 parser.add_argument("--use-gwsignal",action='store_true',help="Attempt to use gwsignal interface.")
 parser.add_argument("--l-max",default=2,type=int)
@@ -431,10 +451,10 @@ parser.add_argument("--assume-matter-but-primary-bh",action='store_true',help="I
 parser.add_argument("--internal-tabular-eos-file",type=str,default=None,help="Tabular file of EOS to use.  The default prior will be UNIFORM in this table!")
 parser.add_argument("--sample-eccentricity-squared",action='store_true', help="Option for sampling as well as fitting in eccentricity_squared instead of fitting in eccentricity_squared and sampling in eccentricity (also need option --use-eccentricity-squared")
 parser.add_argument("--use-eccentricity-squared",action='store_true', help="Allows for fitting and sampling in eccentricity_squared instead of eccentricity")
-parser.add_argument("--sample-eccentricity-ln",action='store_true', help="Option for sampling as well as fitting in eccentricity_ln instead of fitting in eccentricity_ln and sampling in eccentricity (also need option --use-eccentricity-ln")
-parser.add_argument("--use-eccentricity-ln",action='store_true', help="Allows for fitting and sampling in eccentricity_ln instead of eccentricity")
 parser.add_argument("--assume-eccentric",action='store_true', help="Add eccentric options for each part of analysis")
 parser.add_argument("--use-meanPerAno",action='store_true', help="Add meanPerAno options for each part of analysis")
+parser.add_argument("--use-EOB-parameters",action='store_true', help="Add sampling in EOB parameters; currently only a6c")
+parser.add_argument("--assume-hyperbolic",action='store_true', help="Add hyperbolic options for each part of analysis")
 parser.add_argument("--internal-cip-use-periodic-ecc-vars",action='store_true', help="use e cos ell, e sin ell as fitting variables ")
 parser.add_argument("--assume-lowlatency-tradeoffs",action='store_true', help="Force analysis with various low-latency tradeoffs (e.g., drop spin 2, use aligned, etc)")
 parser.add_argument("--assume-highq",action='store_true', help="Force analysis with the high-q strategy, neglecting spin2. Passed to 'helper'")
@@ -474,6 +494,7 @@ parser.add_argument("--add-extrinsic-time-resampling",action='store_true',help="
 parser.add_argument("--internal-ile-srate-time-resampling",default=None, help=" Adds --srate-resample-time-marginalization to ILE for  output, to provide higher-resolution time output ")
 parser.add_argument("--internal-ile-srate-internal",default=None, help=" Adds --srate-internal to ILE, modifying how calculations are performed internally to use a higher sampling rate ")
 parser.add_argument("--internal-ile-interpolate-time",nargs='?',const=BARE_FLAG_SENTINEL,default=None,type=str,help="Enable sub-sample interpolation of Q_lm at fractional detector arrival times in the maintained NoLoop likelihood. REQUIRES AN EXPLICIT STENCIL: nearest|cubic|sinc -- automatic selection was removed as measurably unreliable, and a bare flag is rejected rather than silently doing nothing. MEASURED GUIDANCE (SEOBNRv4, an IMR model): %s. Forwarded verbatim to helper_LDG_Events.py, which validates it. Full tables, limitations and provenance: RIFT/likelihood/DESIGN_q_window_stencil.md." % CROSSOVER_GUIDANCE)
+parser.add_argument("--internal-ile-time-marginalization-quadrature",default=None,type=str,choices=list(TIME_QUADRATURE_CHOICES),help="Rule for the TIME integral of the marginalized likelihood in ILE: %s. Default None = pass nothing, so the ILE default ('simpson', the historical fixed-deltaT Simpson rule) is unchanged and the emitted args_ile.txt is byte-identical to today. 'bandlimited' resolves the integrand instead of the data: exp(lnL(t)) is a peak of width sigma_t = 1/(2 pi rho sigma_f), which SHRINKS AS 1/rho, while the grid spacing deltaT=1/srate is fixed by the data -- so production under-resolves its own integrand, worse at higher SNR (measured: rigidly scanning the grid phase moves the reported lnL by 1.649 nats at srate 4096, rho=40). Forwarded verbatim to helper_LDG_Events.py, which validates it and puts --time-marginalization-quadrature on the ILE command line; from args_ile.txt it reaches every ILE*.sub INCLUDING ILE_extr.sub. REFUSED, not ignored, at DAG-BUILD TIME if this workflow cannot honour it (calibration marginalization, --rotation-slow, --freqresponse, or a configuration without --time-marginalization/--vectorized/--gpu). IMPORTANT -- INI OVERRIDE: the RIFT ini parser OVERRIDES the command line for non-boolean options, and this is a string option, so NEVER set it in a --use-ini that a Makefile or wrapper also sets on the command line; the ini value would win silently. Rationale, measured tables and exclusions: RIFT/likelihood/DESIGN_time_marginalization_quadrature.md." % ("|".join(TIME_QUADRATURE_CHOICES),))
 parser.add_argument("--internal-ile-n-chunk",default=None,type=int,help="Override the extrinsic chunk size (--n-chunk) passed to ILE, via the helper. Default behaviour (helper): 40000, scaled linearly with SNR above 40 and capped at 160000, because at high SNR the posterior is a vanishing fraction of the prior volume and a small chunk gives few informative samples per adaptation step. Larger chunks cost GPU memory but measured HOST memory (what RequestMemory governs) is flat, so no memory-request change is normally needed. EXPERTS ONLY.")
 parser.add_argument("--batch-extrinsic",action='store_true')
 parser.add_argument("--fmin",default=20,type=int,help="Mininum frequency for integration. template minimum frequency (we hope) so all modes resolved at this frequency")  # should be 23 for the BNS
@@ -502,18 +523,26 @@ parser.add_argument("--eccentricity-prior",default='uniform',type=str,choices=['
 parser.add_argument("--force-lambda-max",default=None,type=float,help="Provide this value to override the value of lambda-max provided") 
 parser.add_argument("--force-lambda-small-max",default=None,type=float,help="Provide this value to override the value of lambda-small-max provided") 
 parser.add_argument("--force-lambda-no-linear-init",action='store_true',help="Disables use of priors focused towards small lambda for initial iterations. Designed for PP plot tests with wide/uniform priors.")
-parser.add_argument("--force-chi-max",default=None,type=float,help="Provide this value to override the value of chi-max provided") 
-parser.add_argument("--force-chi-small-max",default=None,type=float,help="Provide this value to override the value of chi-max provided") 
-parser.add_argument("--force-ecc-max",default=None,type=float,help="Provide this value to override the value of ecc-max provided")
-parser.add_argument("--force-ecc-min",default=None,type=float,help="Provide this value to override the value of ecc-min provided")
-parser.add_argument("--force-comp-max",default=1000,type=float,help="Provide this value to override the value of the max component mass in CIP provided")
-parser.add_argument("--force-comp-min",default=1,type=float,help="Provide this value to override the value of min component mass in CIP provided")
-parser.add_argument("--force-meanPerAno-max",default=None,type=float,help="Provide this value to override the value of meanPerAno-max provided")
-parser.add_argument("--force-meanPerAno-min",default=None,type=float,help="Provide this value to override the value of meanPerAno-min provided")
+
+parser.add_argument("--force-chi-max",default=None,type=float,help="Provde this value to override the value of chi-max provided")
+parser.add_argument("--force-chi-small-max",default=None,type=float,help="Provde this value to override the value of chi-max provided")
+parser.add_argument("--force-a6c-max",default=-20,type=float,help="Provde this value to override the value of a6c-max provided")
+parser.add_argument("--force-a6c-min",default=-80,type=float,help="Provde this value to override the value of a6c-min provided")
+parser.add_argument("--force-E0-max",default=None,type=float,help="Provide this value to override the value of E0-max provided")
+parser.add_argument("--force-E0-min",default=None,type=float,help="Provide this value to override the value of E0-min provided")
+parser.add_argument("--force-pphi0-max",default=None,type=float,help="Provide this value to override the value of pphi0-max provided")
+parser.add_argument("--force-pphi0-min",default=None,type=float,help="Provide this value to override the value of pphi0-min provided")
+parser.add_argument("--force-ecc-max",default=None,type=float,help="Provde this value to override the value of ecc-max provided")
+parser.add_argument("--force-ecc-min",default=None,type=float,help="Provde this value to override the value of ecc-min provided")
+parser.add_argument("--force-comp-max",default=1000,type=float,help="Provde this value to override the value of the max component mass in CIP provided")
+parser.add_argument("--force-comp-min",default=1,type=float,help="Provde this value to override the value of min component mass in CIP provided")
+parser.add_argument("--force-meanPerAno-max",default=None,type=float,help="Provde this value to override the value of meanPerAno-max provided")
+parser.add_argument("--force-meanPerAno-min",default=None,type=float,help="Provde this value to override the value of meanPerAno-min provided")
 parser.add_argument("--scale-mc-range",type=float,default=None,help="If using the auto-selected mc, scale the ms range proposed by a constant factor. Recommend > 1. . ini file assignment will override this.")
 parser.add_argument("--limit-mc-range",default=None,type=str,help="Pass this argumen through to the helper to set the mc range")
 parser.add_argument("--force-mc-range",default=None,type=str,help="Pass this argumen through to the helper to set the mc range")
 parser.add_argument("--force-eta-range",default=None,type=str,help="Pass this argumen through to the helper to set the eta range")
+parser.add_argument("--force-mtot-range",default=None,type=str,help="Pass this argument through to the helper to set the mtot range. Overrides mc parameter with mtot parameter broadly throughout the pipeline.")
 parser.add_argument("--allow-subsolar", action='store_true', help="Override limits which otherwise prevent subsolar mass PE")
 parser.add_argument("--force-hint-snr",default=None,type=str,help="Pass this argumen through to the helper to control source amplitude effects")
 parser.add_argument("--force-initial-grid-size",default=None,type=float,help="Only used for automated grids.  Passes --force-initial-grid-size down to helper")
@@ -606,6 +635,12 @@ parser.add_argument("--archive-pesummary-label",default=None,help="If provided, 
 parser.add_argument("--archive-pesummary-event-label",default="this_event",help="Label to use on the pesummary page itself")
 parser.add_argument("--internal-mitigate-fd-J-frame",default="L_frame",help="L_frame|rotate, choose method to deal with ChooseFDWaveform being in wrong frame. Default is to request L frame for inputs")
 parser.add_argument("--internal-force-puff-iterations", default=4, type=int, help="Number of iterations to be puffed")
+parser.add_argument("--first-iteration-jumpstart",action='store_true',help="No ILE jobs the first iteration.  Assumes you already have .composite files and want to get going. Particularly helpful for subdag systems")
+parser.add_argument("--use-mtot-coords",action='store_true',help="Passed to the helper to configure CIP and PUFF for mtot instead of mc.")
+parser.add_argument("--force-scatter-grids",action='store_true',help="Eliminates all non-scatter intrinsic points from hyperbolic grids throughout the workflow.")
+parser.add_argument("--force-plunge-grids",action='store_true',help="Eliminates all non-plunge intrinsic points from hyperbolic grids throughout the workflow.")
+parser.add_argument("--force-zoomwhirl-grids",action='store_true',help="Eliminates all non-zoomwhirl intrinsic points from hyperbolic grids throughout the workflow.")
+parser.add_argument("--force-hyperbolic-22", action='store_true', help='Forces just the 22 modes for hyperbolic waveforms')
 opts=  parser.parse_args()
 
 # Resolve the sub-sample stencil request IMMEDIATELY, so a bare flag / retired 'True' / typo
@@ -613,12 +648,22 @@ opts=  parser.parse_args()
 # the call is for its validation side effect; the helper resolves it again for the emission.
 resolve_interpolate_time_request(opts.internal_ile_interpolate_time)
 
+
 # Multi-GPU ILE fan-out: --ile-gpu-fanout funnels through RIFT_ILE_GPU_FANOUT, which
 # create_event_parameter_pipeline_BasicIteration (run via os.system, inheriting this
 # environment) and dag_utils read at DAG-build time to size request_GPUs/CPUs and bake
 # the value into ile_pre.sh.  A CLI value wins over any inherited environment value.
 if opts.ile_gpu_fanout is not None:
     os.environ['RIFT_ILE_GPU_FANOUT'] = str(opts.ile_gpu_fanout)
+
+# Ensure --assume-hyperbolic is set when using any --force-X-grids option
+# Ensure only ONE of the --force-X-grids options is set
+force_grids = [opts.force_scatter_grids, opts.force_plunge_grids, opts.force_zoomwhirl_grids]
+if any(force_grids) and not opts.assume_hyperbolic:
+    parser.error("Using --force-scatter-grids, --force-plunge-grids, or "
+                 "--force-zoomwhirl-grids requires --assume-hyperbolic!")
+if sum(bool(x) for x in force_grids) > 1:
+    parser.error("CANNOT use multiple --force-X-grids options at the same time!")
 
 config_stored=None; config_dict=None
 ile_condor_commands = None
@@ -685,6 +730,40 @@ if (opts.use_ini):
 # size request_GPUs/CPUs and bake the value into ile_pre.sh.
 if opts.ile_gpu_fanout is not None:
     os.environ['RIFT_ILE_GPU_FANOUT'] = str(opts.ile_gpu_fanout)
+
+# TIME-MARGINALIZATION QUADRATURE, part 1 of 2: everything refusable WITHOUT running the
+# helper.  Deliberately placed AFTER the --use-ini block above: the ini parser OVERRIDES the
+# command line for non-boolean options, so a validate above it checks a value that the ini is
+# about to replace, and a bad ini value would surface downstream as "helper call failed to
+# generate required file" instead of as a quadrature diagnostic.
+if opts.internal_ile_time_marginalization_quadrature is not None:
+    # Validate through the LIBRARY function as well as argparse `choices`, so this script and
+    # the ILE driver can never disagree about what the legal set is.
+    validate_time_quadrature(opts.internal_ile_time_marginalization_quadrature)
+    if opts.lisa_known_sky:
+        # --lisa-known-sky exits below, before both the forward to the helper and the
+        # args_ile.txt guard, and builds its own ILE arguments through helper_LISA_Events.py
+        # which does not know this option.  Refuse rather than silently dropping it.
+        raise ValueError(
+            "--internal-ile-time-marginalization-quadrature is not supported on the "
+            "--lisa-known-sky path: that path builds args_ile.txt through "
+            "helper_LISA_Events.py, which does not carry the option, so the request would be "
+            "silently dropped.")
+    # What this script knows before the helper runs: calibration marginalization is added HERE,
+    # not by the helper, and --manual-extra-ile-args can carry any ILE flag at all.
+    _tq_early = ""
+    if opts.calmarg_envelope_directory:
+        _tq_early += " --calibration-envelope-directory " + str(opts.calmarg_envelope_directory)
+    if opts.manual_extra_ile_args:
+        _tq_early += " " + str(opts.manual_extra_ile_args)
+    if _tq_early:
+        # Only the EXCLUSIONS are checkable this early -- the required flags are added by the
+        # helper -- so append the requirements to keep the message about what is actually wrong.
+        refuse_unhonourable_time_quadrature(
+            opts.internal_ile_time_marginalization_quadrature,
+            "--time-marginalization --vectorized --gpu " + _tq_early,
+            "this pipeline's own options (checked before the helper runs, so the failure is "
+            "immediate rather than after a workflow has been built)")
 
 if opts.lisa_known_sky:
     run_lisa_known_sky_surface(opts)
@@ -875,15 +954,33 @@ if opts.choose_data_LI_seglen:
 
 is_analysis_precessing =False
 is_analysis_eccentric =False
+is_analysis_hyperbolic =False
 if opts.approx == "SEOBNRv3" or opts.approx == "NRSur7dq2" or opts.approx == "NRSur7dq4" or (opts.approx == 'SEOBNv3_opt') or (opts.approx == 'IMRPhenomPv2') or (opts.approx =="SEOBNRv4P" ) or (opts.approx == "SEOBNRv4PHM") or (opts.approx == "SEOBNRv5PHM") or ('SpinTaylor' in opts.approx) or ('IMRPhenomTP' in opts.approx or ('IMRPhenomXP' in opts.approx)):
-        is_analysis_precessing=True
+    is_analysis_precessing = True
 if opts.assume_precessing:
-        is_analysis_precessing = True
+    is_analysis_precessing = True
 if opts.assume_nonprecessing:
-        is_analysis_precessing = False
+    is_analysis_precessing = False
 if opts.assume_eccentric:
-        is_analysis_eccentric = True
+    is_analysis_eccentric = True
+if opts.assume_hyperbolic:
+    is_analysis_hyperbolic = True
 
+# Resolve ONE effective hyperbolic prior range for the whole workflow.  Each
+# consumer carries its own default and they do not agree: initial points are
+# generated out to p_phi0=10, while CIP defaults to 5.4, so a bare
+# --assume-hyperbolic evaluates likelihood at points the posterior then throws
+# away.  Fix the range here (defaults matching grid generation) and forward it
+# explicitly to grid generation, CIP, and puffing, override or not.
+hyperbolic_range = {'E0_min': 1.0, 'E0_max': 1.2, 'pphi0_min': 0.0, 'pphi0_max': 10.0}
+for _name in hyperbolic_range:
+    _val = getattr(opts, 'force_' + _name)
+    if not(_val is None):
+        hyperbolic_range[_name] = _val
+if is_analysis_hyperbolic:
+    if hyperbolic_range['E0_min'] >= hyperbolic_range['E0_max'] or hyperbolic_range['pphi0_min'] >= hyperbolic_range['pphi0_max']:
+        raise ValueError(" Empty hyperbolic prior range requested: check --force-E0-min/max and --force-pphi0-min/max ")
+    print(" Hyperbolic prior range (grid generation, CIP, puff): E0 [{},{}], p_phi0 [{},{}] ".format(hyperbolic_range['E0_min'],hyperbolic_range['E0_max'],hyperbolic_range['pphi0_min'],hyperbolic_range['pphi0_max']))
 
 dirname_run = gwid+ "_" + opts.calibration+ "_"+ opts.approx+"_fmin" + str(fmin) +"_fmin-template"+str(fmin_template) +"_lmax"+str(opts.l_max) + "_"+opts.spin_magnitude_prior
 if opts.online:
@@ -901,7 +998,9 @@ if opts.assume_matter:
 if opts.assume_eccentric:
     dirname_run += "_with_eccentricity"
     if opts.use_meanPerAno:
-        dirname_run += "_and_meanPerAno"
+        dirname_run += "_with_eccentricity_and_meanPerAno"
+if opts.assume_hyperbolic:
+    dirname_run += "_with_hyperbolic"
 if opts.no_matter:
     dirname_run += "_no_matter"
 if opts.assume_highq:
@@ -952,12 +1051,17 @@ if not(opts.use_ini is None):
         P.eccentricity = event_dict["eccentricity"]
     if not(event_dict['meanPerAno'] is None):
         P.meanPerAno = event_dict["meanPerAno"]
+    if event_dict['E0'] is not None:
+        P.E0 = event_dict['E0']
+        P.p_phi0 = event_dict['p_phi0']
     # Write 'target_params' file -- hyperpipeline .dat or legacy XML.
     if _use_hpip_pp:
         from RIFT.misc import hyperpipeline_io as _hpio
         _cols = _hpio.build_column_list(
             use_eccentricity=(P.eccentricity != 0),
-            use_meanPerAno=(P.meanPerAno != 0))
+            use_meanPerAno=(P.meanPerAno != 0),
+            use_eob_parameters=opts.use_EOB_parameters,
+            use_hyperbolic=opts.assume_hyperbolic)
         _hpio.write_grid_from_P_list("target_params", [P], _cols,
                                      lal_module=lal,
                                      lalsimutils_module=lalsimutils)
@@ -1074,6 +1178,7 @@ if opts.internal_cip_transverse_tails:
     print("  [transverse-tails] raising NET interim sampling: cip-cap-neff -> {}, n-output-samples -> {} (worker count scaled x{} below); convergence test -> {}; puff tail-guard chi1_perp fraction {}".format(opts.internal_cip_cap_neff, opts.n_output_samples, opts.internal_cip_transverse_tails_worker_scale, opts.internal_test_convergence_method, opts.internal_cip_transverse_tails_puff_fraction))
 
 cmd = " helper_LDG_Events.py --force-notune-initial-grid   --propose-fit-strategy --propose-ile-convergence-options  --fmin " + str(fmin) + " --fmin-template " + str(fmin_template) + " --working-directory " + base_dir + "/" + dirname_run  + helper_psd_args  + " --no-enforce-duration-bound --test-convergence "
+cmd += " --internal-initial-grid-approximant {} ".format(opts.approx)
 if opts.internal_test_convergence_method:
     cmd += " --internal-test-convergence-method {} ".format(opts.internal_test_convergence_method)
 if opts.internal_use_gracedb_bayestar:
@@ -1088,6 +1193,8 @@ if not(opts.internal_use_amr) and not(opts.manual_initial_grid and not(opts.manu
     cmd+= " --propose-initial-grid "
 if opts.force_initial_grid_size:
     cmd += " --force-initial-grid-size {} ".format(int(opts.force_initial_grid_size))
+if opts.use_EOB_parameters:
+    cmd += " --use-EOB-parameters "
 if opts.assume_matter:
         cmd += " --assume-matter "
         npts_it = 1000
@@ -1111,6 +1218,20 @@ if is_analysis_eccentric:
     if opts.use_meanPerAno:
         cmd += " --use-meanPerAno "
         npts_it = int(npts_it*1.5)
+if is_analysis_hyperbolic:
+    cmd += " --assume-hyperbolic "
+    npts_it = int(npts_it*2.25)
+    # always pass the resolved range, so grid generation, CIP, and puff agree
+    cmd += " --E0-max {}  --E0-min {}  ".format(hyperbolic_range['E0_max'],hyperbolic_range['E0_min'])
+    cmd += " --pphi0-max {}  --pphi0-min {}  ".format(hyperbolic_range['pphi0_max'],hyperbolic_range['pphi0_min'])
+    if opts.force_scatter_grids:
+        cmd += " --force-scatter-grids "
+    if opts.force_plunge_grids:
+        cmd += " --force-plunge-grids "
+    if opts.force_zoomwhirl_grids:
+        cmd += " --force-zoomwhirl-grids "
+    if opts.force_hyperbolic_22:
+        cmd += " --force-hyperbolic-22 "
 if opts.assume_highq:
     cmd+= ' --assume-highq  --force-grid-stretch-mc-factor 2'  # the mc range, tuned to equal-mass binaries, is probably too narrow. Workaround until fixed in helper
     npts_it =1000
@@ -1157,6 +1278,10 @@ elif opts.scale_mc_range:
     cmd += " --scale-mc-range  " + str(opts.scale_mc_range).replace(' ','')
 if not(opts.force_eta_range is None):
     cmd+= " --force-eta-range  " + str(opts.force_eta_range).replace(' ','')
+if not(opts.force_mtot_range is None):
+    cmd+= " --force-mtot-range  " + str(opts.force_mtot_range).replace(' ','')
+if opts.use_mtot_coords:
+    cmd+= " --use-mtot-coords "
 if opts.allow_subsolar:
     cmd += " --allow-subsolar "
 if opts.force_chi_max:
@@ -1222,11 +1347,35 @@ if opts.use_ini:
 else:
     cmd += " --calibration-version " + opts.calibration 
 if opts.use_online_psd_file:
-    # Get IFO list from ini file
-##    import ConfigParser
-#    config = ConfigParser.ConfigParser()
-#    config.read(opts.use_ini)
-    ifo_list = eval(config.get('analysis','ifos'))
+    # Which instruments does that PSD file cover?
+    #
+    # This used to read the ini's [analysis] ifos unconditionally, but `config`
+    # only exists on the --use-ini path, so --use-online-psd-file without an ini
+    # -- the natural way to run a synthetic injection -- died with
+    # "NameError: name 'config' is not defined".
+    #
+    # Prefer the ini when there is one (it is the run's declared instrument
+    # list), then an explicit --manual-ifo-list, and otherwise ask the PSD file
+    # itself, which names its own instruments and cannot disagree with itself.
+    ifo_list = None
+    if opts.use_ini:
+        ifo_list = eval(config.get('analysis','ifos'))
+    elif opts.manual_ifo_list:
+        ifo_list = eval(opts.manual_ifo_list)
+    else:
+        try:
+            import lal.series
+            from igwn_ligolw import utils as _ligolw_utils, ligolw as _ligolw
+            _xmldoc = _ligolw_utils.load_filename(
+                opts.use_online_psd_file, contenthandler=lal.series.PSDContentHandler)
+            ifo_list = sorted(lal.series.read_psd_xmldoc(_xmldoc).keys())
+            print(" pseudo_pipe: instruments read from {}: {}".format(
+                opts.use_online_psd_file, ifo_list))
+        except Exception as exc:
+            print(" pseudo_pipe: --use-online-psd-file needs an instrument list, and "
+                  "neither --use-ini nor --manual-ifo-list was given, and the PSD file "
+                  "could not be read ({}) ".format(exc))
+            sys.exit(1)
     # Create command line arguments for those IFOs, so helper can correctly pass then downward
     for ifo in ifo_list:
         cmd+= " --psd-file {}={}".format(ifo,opts.use_online_psd_file)
@@ -1254,11 +1403,21 @@ if opts.internal_ile_auto_logarithm_offset:
     cmd += " --internal-ile-auto-logarithm-offset "
 if opts.internal_ile_rotate_phase:
     cmd += " --internal-ile-rotate-phase "
-if resolve_interpolate_time_request(opts.internal_ile_interpolate_time) is not None:
+if (resolve_interpolate_time_request(opts.internal_ile_interpolate_time) is not None
+        or opts.internal_ile_interpolate_time is not None):
     # resolve_interpolate_time_request rather than a truthiness test: the flag takes a VALUE, so
     # '--internal-ile-interpolate-time False' passes the STRING 'False' (truthy in Python) and a
     # BARE flag passes a sentinel.  Both must be distinguished from "a stencil was named", and a
-    # bare flag must raise rather than silently forward nothing.
+    # bare flag must raise rather than silently forward nothing.  (The call is kept for that
+    # raise; it is no longer what decides whether to forward.)
+    #
+    # AN EXPLICIT OFF-REQUEST IS ALSO FORWARDED, since 2026-09-02.  It used to be dropped here --
+    # resolve_interpolate_time_request maps 'False'/'off'/'none' to None, exactly like an absent
+    # flag -- and dropping it was harmless only while the ILE default was 'nearest', because
+    # forwarding nothing and forwarding 'nearest' were the same answer.  The ILE default is now
+    # time_interp_choice.TIME_INTERP_DEFAULT, so they are opposites and dropping an off-request
+    # would have turned interpolation ON for a user who explicitly turned it off.  The helper
+    # re-expresses it as '--interpolate-time nearest'; this only has to stop swallowing it.
     # HELPER passthrough (not a raw ILE arg): the helper owns ILE argument construction, and it
     # also knows whether the maintained NoLoop path that --interpolate-time requires is in use --
     # which needs --time-marginalization AND --vectorized AND one of --gpu/--rotation-slow/
@@ -1266,6 +1425,11 @@ if resolve_interpolate_time_request(opts.internal_ile_interpolate_time) is not N
     # resolved there -- so forward the request verbatim rather than resolving it here, and let the
     # helper's log line be the single record of what was chosen.
     cmd += " --internal-ile-interpolate-time " + str(opts.internal_ile_interpolate_time) + " "
+if opts.internal_ile_time_marginalization_quadrature is not None:
+    # HELPER passthrough, exactly like the stencil above and for the same reason: the helper owns
+    # ILE argument construction, so the flag must enter args_ile.txt where every other ILE
+    # argument does.  `is not None` rather than a truthiness test -- the option takes a VALUE.
+    cmd += " --internal-ile-time-marginalization-quadrature " + str(opts.internal_ile_time_marginalization_quadrature) + " "
 if not(opts.internal_ile_n_chunk is None):
     cmd += " --internal-ile-n-chunk {} ".format(int(opts.internal_ile_n_chunk))
 # If user provides ini file *and* ini file has fake-cache field, generate a local.cache file, and pass it as argument
@@ -1281,11 +1445,41 @@ if opts.use_ini:
         cmd += " --cache local.cache --fake-data  "
 if opts.fake_data_cache:
     cmd += " --cache {} --fake-data  ".format(opts.fake_data_cache)
+    # event_dict["IFOs"] is populated on the --use-ini path (and by the gracedb
+    # lookup), but NOT by --event-time + --fake-data-cache, which is the natural
+    # way to set up a synthetic injection.  That combination used to die here
+    # with KeyError: 'IFOs'.  Resolve it from --manual-ifo-list, or from the
+    # instruments already read off the PSD file, and store it so the later
+    # consumers of event_dict["IFOs"] see it too.
+    _ifos = event_dict.get("IFOs")
+    if not _ifos and opts.manual_ifo_list:
+        _ifos = eval(opts.manual_ifo_list)
+    if not _ifos:
+        try:
+            _ifos = list(ifo_list)
+        except NameError:
+            _ifos = None
+    if not _ifos:
+        print(" pseudo_pipe: --fake-data-cache needs an instrument list.  Give "
+              "--manual-ifo-list \"['H1','L1']\", or --use-online-psd-file whose "
+              "instruments can be read. ")
+        sys.exit(1)
+    event_dict["IFOs"] = list(_ifos)
     if len(event_dict["IFOs"]) >0 :
         short_list = " {} ".format(event_dict['IFOs'])        
         cmd += " --manual-ifo-list {} ".format(short_list.replace(' ',''))
 print( cmd)
-os.system(cmd)
+if os.path.exists('helper_ile_args.txt'):
+    # This is generated output, not an input.  Remove it before invoking the
+    # helper so a failed helper cannot be mistaken for fresh success in a
+    # re-used directory.  The emitted-byte guard below cannot distinguish a
+    # stale file from a fresh one when both carry the same requested value.
+    os.unlink('helper_ile_args.txt')
+_helper_rc = os.system(cmd)
+if _helper_rc != 0:
+    print(" FAILURE: helper call exited nonzero; refusing to use any pre-existing "
+          "helper_ile_args.txt")
+    sys.exit(1)
 # we MUST make helper_ile_args.txt
 if not(os.path.exists('helper_ile_args.txt')):
     print(" FAILURE: helper call failed to generate required file helper_ile_args.txt")
@@ -1366,8 +1560,10 @@ if opts.use_gwsignal:
     line += " --use-gwsignal  --approx " + opts.approx
 elif not 'NR' in opts.approx:
         line += " --approx " + opts.approx
-elif opts.use_gwsurrogate and 'NRHybSur' in opts.approx:
+elif opts.use_gwsurrogate and 'NRHybSur' in opts.approx and 'Tidal' not in opts.approx:
         line += " --rom-group {} --rom-param NRHybSur3dq8.h5 --approx {} ".format(sur_location_prefix,opts.approx)
+elif opts.use_gwsurrogate and 'NRHybSur' in opts.approx and 'Tidal' in opts.approx:
+        line += " --rom-group {} --rom-param NRHybSur3dq8Tidal --approx {} ".format(sur_location_prefix,opts.approx)
 elif opts.use_gwsurrogate and "NRSur7dq2" in opts.approx:
         line += " --rom-group {} --rom-param NRSur7dq2.h5 --approx {}  ".format(sur_location_prefix,opts.approx)
 elif opts.use_gwsurrogate and "NRSur7dq4" in opts.approx:
@@ -1496,6 +1692,26 @@ if opts.extrinsic_handoff:
             open(_ext_ph_path, "a").close()
     else:
         line += " --extrinsic-proposal-breadcrumb {}/extr_consolidated_$(macroiterationprev).npz ".format(os.getcwd())
+
+# TIME-MARGINALIZATION QUADRATURE, part 2 of 2: the LAST chance to refuse, and the only place
+# with the whole picture.  This checks the BYTES about to be written, not the parsed options --
+# an earlier version keyed the guard on `opts` and read only the PREREQUISITES from `line`, so it
+# happily approved an args_ile.txt that had never received the flag at all.  Three ways that
+# happens, all ending in a silent fall back to Simpson while the pipeline logs the opposite:
+#
+#   * the helper is invoked by NAME through PATH, so version skew can make an older helper
+#     argparse-error on the new option.  The caller now removes stale generated output and checks
+#     the helper status; this byte check is the independent defence against a successful helper
+#     that nevertheless drops the emission;
+#   * --manual-extra-ile-args is appended AFTER the helper's arguments and optparse takes the
+#     LAST occurrence, so a hand-passed 'simpson' silently overrides the requested value while
+#     the .sub file still shows both;
+#   * any future refactor that drops the emission.
+#
+# It also holds a hand-passed quadrature (manual args, ini) to the same standard, which the
+# opts-keyed version skipped entirely.  Called unconditionally for that reason.
+refuse_unless_time_quadrature_emitted(
+    opts.internal_ile_time_marginalization_quadrature, line, "args_ile.txt")
 
 with open('args_ile.txt','w') as f:
         f.write(line)
@@ -1644,6 +1860,9 @@ for indx in np.arange(len(instructions_cip)):
         line = line.replace('parameter delta_mc', 'parameter-implied eta --parameter-nofit delta_mc')     # quadratic or cov fit needs eta coordinate
     if opts.force_lambda_no_linear_init:
         line = line.replace("--prior-lambda-linear", "")  # remove this line, usually used in iteration0
+    if opts.use_mtot_coords:
+        line = line.replace('parameter mc', 'parameter-implied mc --parameter-nofit mtot --parameter-nofit q')
+        line = line.replace('parameter delta_mc', 'parameter-implied delta_mc')
     if opts.hierarchical_merger_prior_1g:
         # Must use mtotal, q coordinates!  Change defaults
         line = line.replace('parameter mc', 'parameter mtot')
@@ -1718,13 +1937,13 @@ for indx in np.arange(len(instructions_cip)):
     if opts.fit_save_gp:
         line += " --fit-save-gp my_gp "  # fiducial filename, stored in each iteration
     line += " --eccentricity-prior {}".format(opts.eccentricity_prior)
+    if opts.use_EOB_parameters:
+        line += " --use-EOB-parameters --parameter a6c --a6c-min {} --a6c-max {} ".format(opts.force_a6c_min,opts.force_a6c_max)
     if opts.assume_eccentric:
         if opts.use_meanPerAno:
             line += " --parameter meanPerAno --use-meanPerAno "
         if opts.use_eccentricity_squared:
             line += " --use-eccentricity --parameter eccentricity_squared "
-        elif opts.use_eccentricity_ln:
-            line += " --use-eccentricity --parameter eccentricity_ln "
         else:
             line += " --use-eccentricity --parameter eccentricity "
         # if opts.use_eccentricity_squared:
@@ -1761,6 +1980,21 @@ for indx in np.arange(len(instructions_cip)):
         if not(opts.force_meanPerAno_min is None):
             meanPerAno_min = opts.force_meanPerAno_min
             line += " --meanPerAno-min {}  ".format(meanPerAno_min)
+    if opts.assume_hyperbolic:
+        line += " --parameter E0 --parameter p_phi0 --use-hyperbolic "
+        # always pass the resolved range: CIP's own defaults are narrower than
+        # the range used to generate the points it is fitting
+        line += " --E0-max {}  --E0-min {}  ".format(hyperbolic_range['E0_max'],hyperbolic_range['E0_min'])
+        line += " --pphi0-max {}  --pphi0-min {}  ".format(hyperbolic_range['pphi0_max'],hyperbolic_range['pphi0_min'])
+
+        if opts.force_scatter_grids:
+            line += " --force-scatter "
+
+        if opts.force_plunge_grids:
+            line += " --force-plunge "
+
+        if opts.force_zoomwhirl_grids:
+            line += " --force-zoomwhirl "
     if not(opts.manual_extra_cip_args is None):
         line += " {} ".format(opts.manual_extra_cip_args)  # embed with space on each side, avoid collisions
     line += "\n"
@@ -1857,8 +2091,24 @@ if opts.internal_cip_transverse_tails:
 if opts.assume_matter:
 #    puff_params += " --parameter LambdaTilde "  # should already be present
     puff_max_it +=5   # make sure we resolve the correlations
+if opts.use_EOB_parameters:
+    puff_params += " --downselect-parameter a6c --downselect-parameter-range [{},{}] ".format(opts.force_a6c_min,opts.force_a6c_max)
 if opts.assume_eccentric:
-        puff_params += " --downselect-parameter eccentricity --downselect-parameter-range [{},{}] ".format(opts.force_ecc_min,opts.force_ecc_max)
+    puff_params += " --downselect-parameter eccentricity --downselect-parameter-range [{},{}] ".format(opts.force_ecc_min,opts.force_ecc_max)
+if opts.assume_hyperbolic:
+#    puff_params += " --parameter E0 "
+    # always downselect to the resolved range (a one-sided override used to
+    # write 'None' into the other end of the range here)
+    puff_params += " --downselect-parameter E0 --downselect-parameter-range [{},{}] ".format(hyperbolic_range['E0_min'],hyperbolic_range['E0_max'])
+#    puff_params += " --parameter p_phi0 "
+    puff_params += " --downselect-parameter p_phi0 --downselect-parameter-range [{},{}] ".format(hyperbolic_range['pphi0_min'],hyperbolic_range['pphi0_max'])
+    if opts.force_scatter_grids:
+        puff_params += ' --force-scatter '
+    if opts.force_plunge_grids:
+        puff_params += ' --force-plunge '
+    if opts.force_zoomwhirl_grids:
+        puff_params += ' --force-zoomwhirl '
+
 if opts.assume_highq:
         puff_params = puff_params.replace(' delta_mc ', ' eta ')  # use natural coordinates in the high q strategy. May want to do this always
         puff_max_it +=3
@@ -1969,21 +2219,57 @@ if opts.internal_cip_request_memory:
 cepp = "create_event_parameter_pipeline_BasicIteration"
 if opts.use_subdags:
     cepp = "create_event_parameter_pipeline_AlternateIteration"
+if opts.approx_extra and not opts.pipeline_builder:
+    # asking for more than one waveform model IS asking for the cross-model
+    # builder; make the user say it twice only if they disagree
+    opts.pipeline_builder = "BasicMultiApproxIteration"
+use_multiapprox = (opts.pipeline_builder == "BasicMultiApproxIteration")
+if use_multiapprox and not opts.approx_extra:
+    print(" --pipeline-builder BasicMultiApproxIteration needs at least one --approx-extra ")
+    sys.exit(1)
+# The builder itself accepts pseudo_pipe's option surface and refuses the parts
+# it does not implement, so there is no allow-list to maintain here.
 if opts.pipeline_builder:  # explicit override wins, for clean side-by-side A/B testing of the two builders
     if opts.use_subdags and opts.pipeline_builder != "AlternateIteration":
         # use_subdags is set either by the user or force-set by --internal-use-amr (which REQUIRES the Alternate builder)
         print(" WARNING: --pipeline-builder {} overrides --use-subdags routing; AMR/subdag runs require AlternateIteration ".format(opts.pipeline_builder))
     cepp = "create_event_parameter_pipeline_" + opts.pipeline_builder
 print(" Pipeline builder (create_event_parameter_pipeline_*): ", cepp)
-cmd =cepp+ "  --ile-n-events-to-analyze {} --input-grid proposed-grid.{} --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args `pwd`/args_ile.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP {} --request-memory-ILE {} --n-samples-per-job ".format(n_jobs_per_worker,grid_suffix_pp,cip_mem,ile_mem) + str(npts_it) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + " --n-iterations-subdag-max {} ".format(opts.internal_n_iterations_subdag_max) + "  --n-copies {} ".format(opts.ile_copies) + "   --ile-retries "+ str(opts.ile_retries) + " --general-retries " + str(opts.general_retries)
+cmd =cepp+ "  --ile-n-events-to-analyze {} --input-grid proposed-grid.{} --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args `pwd`/args_ile.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP {} --request-memory-ILE {} --n-samples-per-job ".format(n_jobs_per_worker,grid_suffix_pp,cip_mem,ile_mem) + str(npts_it) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + ("" if use_multiapprox else " --n-iterations-subdag-max {} ".format(opts.internal_n_iterations_subdag_max)) + "  --n-copies {} ".format(opts.ile_copies) + "   --ile-retries "+ str(opts.ile_retries) + " --general-retries " + str(opts.general_retries)
+if use_multiapprox:
+    # Every model on the SAME grid.  --approx is the primary; --approx-extra the
+    # rest.  The builder marginalizes over them point by point in the loop and
+    # forks per model at the terminal stage.
+    for _ap in [opts.approx] + list(opts.approx_extra):
+        cmd += " --approx {} ".format(_ap)
+    # Forward the generator ROUTE per model.  Without this the builder never sees
+    # --approx-gwsignal, so it does not strip the global --use-gwsignal and every
+    # model is sent through gwsignal -- where the phenom family cannot be
+    # generated at all, its ILE jobs contribute zero rows, and the run silently
+    # degrades to a single model.
+    _gw = []
+    if opts.use_gwsignal:
+        _gw.append(opts.approx)                      # the primary is what --use-gwsignal meant
+    _gw += list(opts.approx_extra_gwsignal or [])
+    for _m in _gw:
+        if _m not in [opts.approx] + list(opts.approx_extra):
+            print(" --approx-extra-gwsignal names {}, which is not among the models {}".format(
+                _m, [opts.approx] + list(opts.approx_extra))); sys.exit(1)
+        cmd += " --approx-gwsignal {} ".format(_m)
+    for _pr in (opts.approx_prior or []):
+        cmd += " --approx-prior '{}' ".format(_pr)
+    if opts.require_all_approx:
+        cmd += " --require-all-approx "
 if opts.ile_jobs_per_worker_first:
     cmd += " --ile-n-events-to-analyze-first {} ".format(opts.ile_jobs_per_worker_first)
-if opts.assume_matter or opts.assume_eccentric:
+if opts.assume_matter or opts.assume_eccentric or opts.assume_hyperbolic:
     cmd +=  " --convert-args `pwd`/helper_convert_args.txt "
 if not(opts.ile_runtime_max_minutes is None):
     cmd += " --ile-runtime-max-minutes {} ".format(opts.ile_runtime_max_minutes)
 if not(opts.internal_use_amr) or opts.internal_use_amr_puff:
     cmd+= " --puff-exe `which util_ParameterPuffball.py` --puff-cadence 1 --puff-max-it " + str(puff_max_it)+ " --puff-args `pwd`/args_puff.txt "
+if opts.use_EOB_parameters:
+    cmd += " --use-EOB-parameters "
 if opts.calmarg_pilot:
     cmd += " --calmarg-pilot --calmarg-pilot-cadence {} --calmarg-pilot-max-it {} --calmarg-pilot-top-fraction {} --calmarg-pilot-max-points {} ".format(
         opts.calmarg_pilot_cadence, opts.calmarg_pilot_max_it, opts.calmarg_pilot_top_fraction, opts.calmarg_pilot_max_points)
@@ -2017,10 +2303,10 @@ if opts.assume_eccentric:
     cmd += " --use-eccentricity "
     if opts.sample_eccentricity_squared:
         cmd += " --use-eccentricity-squared-sampling "
-    if opts.sample_eccentricity_ln:
-        cmd += " --use-eccentricity-ln-sampling "
     if opts.use_meanPerAno:
         cmd += " --use-meanPerAno "
+if opts.assume_hyperbolic:
+    cmd += " --use-hyperbolic "
 if opts.calibration_reweighting and (not opts.bilby_pickle_file):
     cmd += " --calibration-reweighting --calibration-reweighting-exe `which calibration_reweighting.py` --bilby-ini-file {} --bilby-pickle-exe `which bilby_pipe_generation` ".format(str(opts.bilby_ini_file))
     if opts.calibration_reweighting_count:
@@ -2051,6 +2337,8 @@ if opts.distance_reweighting:
     cmd += " --comov-distance-reweighting --comov-distance-reweighting-exe `which make_uni_comov_skymap.py` --convert-ascii2h5-exe `which convert_output_format_ascii2h5.py` "
 if opts.use_gauss_early:
     cmd += " --cip-exe-G `which util_ConstructIntrinsicPosterior_GaussianResampling.py ` "
+if opts.first_iteration_jumpstart:
+    cmd += " --first-iteration-jumpstart "
 if opts.internal_use_amr:
     print(" AMR prototype: Using hardcoded aligned-spin settings, assembling grid, requires coinc!")
     if _use_hpip_pp and opts.manual_initial_grid is None:
@@ -2136,7 +2424,7 @@ if opts.add_extrinsic:
     if opts.internal_last_iteration_extrinsic_samples_per_ile:
         cmd += " --last-iteration-extrinsic-samples-per-ile {}".format(opts.internal_last_iteration_extrinsic_samples_per_ile)
     if opts.internal_last_iteration_extrinsic_samples_per_ile_internal:
-        cmd += " --last-iteration-extrinsic-samples-per-ile-internal {}".format(opts.internal_last_iteration_extrinsic_samples_per_ile_internal)        
+        cmd += " --last-iteration-extrinsic-samples-per-ile-internal {}".format(opts.internal_last_iteration_extrinsic_samples_per_ile_internal)
     if opts.add_extrinsic_time_resampling:
         cmd+= " --last-iteration-extrinsic-time-resampling "
 if opts.batch_extrinsic:
@@ -2193,7 +2481,7 @@ if opts.condor_local_nonworker:
 if opts.condor_nogrid_nonworker:
     cmd += " --condor-nogrid-nonworker "
 if opts.use_osg_simple_requirements:
-    cmd += " --use-osg-simple-reqirements "
+    cmd += " --use-osg-simple-requirements "
 if opts.archive_pesummary_label:
 #    cmd += " --plot-exe `which summarypages` --plot-args  args_plot.txt "
     cmd += " --plot-exe summarypages --plot-args  args_plot.txt "
@@ -2300,12 +2588,18 @@ if opts.export_distance_slices and opts.export_distance_slices > 0:
         cmd += " --last-iteration-export-distance-slices-skip-threshold {} ".format(opts.export_distance_slices_skip_threshold)
 
 print(cmd)
-os.system(cmd)
+_rc = os.system(cmd)
+if _rc != 0:
+    # A failed builder used to leave pseudo_pipe reporting success with no DAG in
+    # the run directory -- the args_*.txt are all there, so it looks finished.
+    print(" pseudo_pipe: the pipeline builder FAILED (exit {}); no DAG was written. "
+          "See the output above.".format(_rc >> 8 if _rc > 255 else _rc))
+    sys.exit(1)
 
 if opts.internal_ile_check_good_enough:
     # Populate 'ile_check_good_enough' through all subdirectories
     cmd_enough = r"find . -name 'iter*ile' -type d -exec touch {}/ile_good_enough \; "
-    os.system(cmd)
+    os.system(cmd_enough)   # was os.system(cmd): re-ran the pipeline builder
 
 if opts.use_osg_file_transfer and opts.internal_truncate_files_for_osg_file_transfer:
     if opts.fake_data_cache:

@@ -1,5 +1,20 @@
 # `jax_ile` — an AD-compatible JAX reimplementation of the ILE extrinsic likelihood
 
+> **`--save-samples` output is a FAIR DRAW**, not the raw sampler cloud:
+> equal-weight rows, no weight column, and the same columns as before *for a
+> given `--mode`* (different modes export different column sets — see the Driver
+> section). A second header line records the mode and the export ESS, e.g.
+> `# mode=laplace-is fairdraw: ESS=5.5 n_in=300000 n_out=9`. **Check that ESS
+> before trusting a file**: a low-ESS export is not a usable posterior sample
+> however it is drawn, and the driver warns on stderr when it is below 200.
+> When the weights admit no fair draw at all (degenerate/unnormalizable), the
+> event fails and **no samples file is written** (any stale one at that path is
+> removed) — there is no mode in which this product holds unreweighted rows.
+> That refusal is checked *before* the `<output>_<index>_.dat` result row is
+> written, so a failed event leaves **no result row either** (a stale one is
+> removed too): with `--soft-fail-event-range` the batch goes on, and a row left
+> behind would be collected as a successful integration.
+
 A `jax.numpy`, automatic-differentiation-compatible reimplementation of RIFT's
 ILE extrinsic likelihood, mirroring the production
 `factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop`
@@ -26,6 +41,69 @@ reading and inner products are fiddly and already correct):
 response, geometric time delay, spin-(-2) spherical harmonics, the
 `kappa`/`rho^2` assembly, continuous time-shift interpolation, time
 marginalization, and **analytic distance marginalization**.
+
+### Time quadrature
+
+All JAX likelihood wrappers accept the conventional ILE keyword
+`time_quadrature={"simpson","bandlimited"}`.  Simpson remains the default.
+The opt-in `bandlimited` path is currently supported by
+`JAXExtrinsicLikelihood`, including analytic phase marginalization.  It forms
+the endpoint-nonduplicating even extension
+`[kappa[0], ..., kappa[-1], kappa[-2], ..., kappa[1]]`, FFT-interpolates it,
+applies the phase reduction on the
+fine grid, and integrates the original closed interval with a stable trapezoid
+rule.  The per-row power-of-two factor is derived from fine-grid peak curvature,
+remeasured after interpolation, and doubled until the integral agrees within
+1e-3 nat.  Row-local `lax.map` execution bounds scratch memory independently of
+the sampler batch.  There is deliberately no public factor knob; a row that
+cannot meet the criterion fails closed.
+
+The supported signal regime assumes spectral headroom below the sampled
+Nyquist frequency and negligible likelihood mass at both ends of the short
+integration window.  The latter is checked on the refined grid: either endpoint
+must be at least 15 natural-log units below the peak, otherwise `bandlimited`
+fails closed rather than trusting a boundary extension that can affect the
+answer.  Increase the physical time window or use Simpson when this diagnostic
+fires.
+
+The primitive gather includes support outside that window.  Its initial guard
+is the established half-window default rounded up to a power of two; one guard
+doubling is gathered at the same time.  A raised-cosine pad acts only across
+the support samples, reaching exactly one at the integration crop and zero
+with zero slope at the remote even-reflection turns.  The value is accepted
+only when both guard widths agree within 1e-3 nat, independently of the fine
+quadrature-factor doubling check.  Thus short-window truncation and fine-grid
+resolution have separate certificates.
+
+The JAX driver derives this support requirement before waveform precompute and
+widens `--internal-data-storage-window-half` when necessary.  It includes the
+full certified guard, a conservative 50 ms detector-delay allowance (larger
+than the Earth-diameter light time), and the
+largest shipped interpolation stencil.  The accumulator also validates every
+guarded gather index per row; missing support produces a fail-closed likelihood
+instead of inheriting the ordinary gatherer's out-of-buffer zero fill.  The
+baseline and banded finite-size/frequency-response accumulators enforce the
+same check; rotation remains refused because its norm depends on arrival time.
+The
+curvature-derived starting fine factor is capped at 1024 and certified once at
+2048; a sharper row is refused with guidance to increase the input/rholm sample
+rate rather than allocating multi-gigabyte FFT branches.
+
+Distance, phi, psi, exact-angle, and Laplace-marginalized wrappers currently
+refuse `bandlimited`.  Those nonlinear reductions generate time harmonics, so
+interpolating their already-reduced `lnL(t)` can converge to the wrong function;
+they require endpoint-specific primitive refinement before they can safely opt
+in.  They continue to use the unchanged Simpson default.
+The driver exposes the same public spelling as conventional ILE:
+`--time-marginalization-quadrature`.  `--interpolate-time` is an alias for the
+JAX-native `--interp` with conflict detection.  Conditional nuisance recovery
+is outside this implementation.  For drop-in CLI compatibility,
+`--resample-time-marginalization`, `--srate-resample-time-marginalization`, and
+`--time-posterior-export` are accepted and reported as ignored: JAX ILE's
+sample export keeps time terminally marginalized rather than reconstructing one
+conditional time per exported row.  This intentionally differs from
+conventional ILE's XML export semantics, but a high-level DAG can swap
+executables without dying during option parsing.
 
 ## Modules
 
@@ -136,13 +214,27 @@ Modes (`--mode`):
 sample the 5-D angular posterior).  Implemented in `samplers.py`.
 
 **Efficiency / robustness options:**
-- **Flow re-use across a batch** (`--mode flowmc` + `--n-events-to-analyze`):
-  the trained normalizing flow is bootstrapped from one intrinsic template to
-  the next (its NF weights warm-start the next event and its posterior draws
-  initialize the chains).  For nearby templates the posterior changes slowly, so
-  this is the partial-flow-reuse win — most visible at scale and at high SNR.
-  `--no-flow-reuse` disables it (re-train each event).  Validated: a re-used run
-  recovers the truth sky with neff ≥ the fresh run (`test/jax/test_flow_reuse.py`).
+- **Flow re-use across a batch** (`--mode flowmc` + `--n-events-to-analyze`) —
+  **OFF by default; opt in with `--flow-reuse`.**  When enabled, the trained
+  normalizing flow is bootstrapped from one intrinsic template to the next (its
+  NF weights warm-start the next event and its posterior draws initialize the
+  chains).  `--no-flow-reuse` is accepted and now restates the default.
+
+  **Do not enable it for any run whose extrinsic SAMPLES are used.**  Re-use
+  contracts the posterior in later slots: across an 8-event batch at two seeds,
+  psi fell to ~40% of its no-re-use width by slot 7 on both seeds, with slot 0
+  (no re-use yet) at ~1.0 as a control, and inclination to 0.49/0.61.  Confirmed
+  against independent per-slot references, not just arm-vs-arm.  It also
+  reproduces an earlier, independent measurement (mean incl 0.5795 → 0.3465,
+  sd(psi) 0.9122 → 0.3738) that caused an amortization claim to be retracted from
+  the companion paper.
+
+  *What the earlier validation actually showed.* `test/jax/test_flow_reuse.py`
+  checks that a re-used run **recovers the truth sky with neff ≥ the fresh run**.
+  That remains true and is not contradicted here — it tests sky location and an
+  evidence-side neff, neither of which is posterior *width*.  The contraction is
+  in the width of the orientation parameters, an observable that check does not
+  look at.
 - **Network sky coordinates** (`--sky-coordinates network`, `multistart-nuts`
   only): sample the sky in the two-detector baseline frame `(cosθ_n, φ_n)` to
   fold the time-delay ring (the prior stays uniform there).  Falls back to
@@ -158,8 +250,14 @@ neff / wall time — the data for the skymap-vs-SNR figure and the high-SNR
 efficiency comparison vs the adaptive (AV) integrator.  Preliminary small-budget
 run (H1/L1/V1): the flow **recovers the truth sky at every SNR through 640**, the
 90% sky credible area shrinks with SNR (≈0.05 deg² at 40 → 3.6e-5 deg² at 80 →
-sub-sample-resolution above), and **flow re-use cuts the per-event wall time ~2×**
-(first event ≈114 s, warm-started events ≈60 s).  The simple moment-matched
+sub-sample-resolution above), and in **that small-budget configuration** flow
+re-use cut the per-event wall time ~2× (first event ≈114 s, warm-started events
+≈60 s).  **That saving does not carry to production settings:** on an 8-event BNS
+batch at full settings it measured 1589 s with re-use against 1567 s without
+(1549/1629 vs 1644/1489 across two seeds) — a difference smaller than the
+seed-to-seed spread, with its sign flipping.  Treat the ~2× as specific to the
+small-budget benchmark, not as a general amortization argument, and see the
+accuracy warning above before enabling re-use at all.  The simple moment-matched
 Gaussian importance evidence is reliable only at moderate SNR (it is flagged
 `nan` once `neff` collapses, since `logZ ≤ lnL_max` is violated by an
 ill-conditioned proposal at sub-resolution peaks) — a robust narrow-peak evidence
@@ -178,8 +276,13 @@ Self-test (no frames needed):
 ```
 PYTHONPATH=<...>/Code python bin/integrate_likelihood_extrinsic_jax \
    --inj-mode --mass1 35 --mass2 30 --spin1z 0.1 --spin2z -0.2 \
-   --mode nuts --d-max 5000 --save-samples --output-file out
+   --mode nuts --distance-marginalization --d-max 5000 \
+   --save-samples --output-file out
 ```
+
+(`--mode nuts` requires `--distance-marginalization`: `run_nuts` raises
+`SystemExit` without it, because the bare 5-D angular+distance likelihood is
+degenerate.  The command above previously omitted the flag and could not run.)
 
 Output: `out_0_.dat` (`event_id m1 m2 s1x..s2z lnL sigma_lnL ntotal neff`) and,
 with `--save-samples`, `out_0_samples.dat`.

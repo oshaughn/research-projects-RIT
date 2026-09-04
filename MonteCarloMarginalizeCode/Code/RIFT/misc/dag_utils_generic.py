@@ -3320,7 +3320,7 @@ def write_extrconsolidate_sub(tag='extrconsolidate', exe=None, log_dir=None, uni
     return job, sub_name
 
 
-def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,universe="vanilla",arg_str=None,log_dir=None, use_eos=False,ncopies=1,no_grid=False, max_runtime_minutes=60,extra_text='',**kwargs):
+def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,universe="vanilla",arg_str=None,log_dir=None, use_eos=False,ncopies=1,no_grid=False, max_runtime_minutes=60,extra_text='',script_name=None,glob_pattern='*.composite',fail_on_error=False,**kwargs):
     """
     Write a submit file for launching a consolidation job
        util_ILEdagPostprocess.sh   # suitable for ILE consolidation.  
@@ -3342,34 +3342,53 @@ def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,universe
     # Write unify.sh
     #    - problem of globbing inside condor commands
     #    - problem that *.composite files from intermediate results will generally NOT be present 
-    cmdname ='unify.sh'
+    # script_name: a workflow with more than one unify job (e.g. a pooled
+    # cross-model net AND a per-model net) needs a distinct script per job,
+    # or the second write clobbers the first.
+    cmdname = script_name if script_name else 'unify.sh'
     base_str = ''
     if not (base is None):
         base_str = ' ' + base +"/"
+    # A condor macro CANNOT be interpolated into this shell script: inside bash,
+    # $(macroapprox) is COMMAND SUBSTITUTION, so it runs a nonexistent command,
+    # expands to the empty string, and the glob silently matches nothing.  When
+    # the pattern carries a macro, pass it as an ARGUMENT ($1) and let condor
+    # expand it in the submit file -- which is how join_grids.sh already works.
+    pattern_is_macro = "$(" in glob_pattern
+    glob_str = base_str + ("$1" if pattern_is_macro else glob_pattern)
     with open(cmdname,'w') as f:        
         f.write("#! /usr/bin/env bash\n")
         if len(extra_text) > 0:
             f.write(extra_text+"\n")
-        f.write( "ls " + base_str+"*.composite  1>&2 \n")  # write filenames being concatenated to stderr
+        f.write( "ls " + glob_str+"  1>&2 \n")  # write filenames being concatenated to stderr
         # Sometimes we need to pass --eccentricity or --tabular-eos-file etc to util_CleanILE.py
         extra_args = ''
         if arg_str:
             extra_args = arg_str
-        f.write( exe + extra_args+ base_str+ "*.composite \n")
-        # Backstop code for untify.sh
+        f.write( exe + extra_args+ glob_str+ " \n")
+        # Historical single-model workflows fall back to raw concatenation if
+        # CleanILE fails.  A model-aware workflow must fail closed: otherwise
+        # a validation error silently changes model marginalization into flat
+        # replica pooling while the DAG reports success.
         f.write("""ret_value=$?
 if [ $ret_value -eq 0 ]; then
   exit 0
-else
+""")
+        if fail_on_error:
+            f.write("else\n  exit $ret_value\n")
+        else:
+            f.write("""else
   cat {}
-fi
-""".format(base_str+"*.composite"))
+""".format(glob_str))
+        f.write("fi\n")
     st = os.stat(cmdname)
     import stat
     os.chmod(cmdname, st.st_mode | stat.S_IEXEC)
 
 
     ile_job = CondorDAGJob(universe=universe, executable=base_str+cmdname) # force full prefix
+    if pattern_is_macro:
+        ile_job.add_arg(glob_pattern)   # condor expands the macro here, not bash
     requirements=[]
     if universe=='local':
         requirements.append("IS_GLIDEIN=?=undefined")
@@ -3443,7 +3462,10 @@ def write_convert_sub(tag='convert', exe=None, file_input=None,file_output=None,
         arg_str = arg_str.lstrip('-')
         ile_job.add_opt(arg_str,'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
 #        ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
-    ile_job.add_arg(file_input)
+    if file_input is not None:
+        # a tool whose inputs are all named options has no trailing positional;
+        # adding one unguarded appends the literal string "None" to the command
+        ile_job.add_arg(file_input)
     
     #
     # Logging options
@@ -4099,7 +4121,11 @@ def write_resample_sub(tag='resample', exe=None, file_input=None,file_output=Non
 
 
 
-def write_cat_sub(tag='cat', exe=None, file_prefix=None,file_postfix=None,file_output=None,universe="vanilla",arg_str='',log_dir=None, use_eos=False,ncopies=1, no_grid=False,**kwargs):
+def write_cat_sub(tag='cat', exe=None, file_prefix=None,file_postfix=None,
+                  file_output=None, universe="vanilla",
+                  arg_str='',log_dir=None, use_eos=False,ncopies=1,
+                  no_grid=False, search_root='.', expected_batches=None,
+                  events_per_batch=None, **kwargs):
     """
     Write a submit file for launching a 'resample' job
        util_ResampleILEOutputWithExtrinsic.py
@@ -4110,10 +4136,26 @@ def write_cat_sub(tag='cat', exe=None, file_prefix=None,file_postfix=None,file_o
     exe_switch = which("switcheroo")  # tool for patterend search-replace, to fix first line of output file
 
     cmdname = 'catjob.sh'
+    # Condor expands macros only in submit-file fields, never inside the shell
+    # script.  Pass BOTH the search root and output name as arguments.  Besides
+    # avoiding bash command substitution for $(macroapprox), this lets callers
+    # scope the input tree per model instead of running `find .` over a shared
+    # top-level directory and mixing every model's posterior samples.
     with open(cmdname,'w') as f:
         f.write("#! /bin/bash\n")
-        f.write(exe+"  . -name '"+file_prefix+"*"+file_postfix+r"' -exec cat {} \; | sort -r | uniq > "+file_output+";\n")
-        f.write(exe_switch + " 'm1 ' '# m1 ' "+file_output)  # add standard prefix
+        if expected_batches is not None and events_per_batch is not None:
+            f.write("set -e -o pipefail\n")
+            f.write("{ for ((batch=0; batch<$3; batch++)); do "
+                    "event=$((batch*$4)); "
+                    "for ((idx=0; idx<$4; idx++)); do "
+                    "file=\"$1/EXTR_out-${event}.xml_${idx}_.dat\"; "
+                    "if [ ! -s \"$file\" ]; then "
+                    "echo \"catjob: missing expected input $file\" >&2; exit 1; fi; "
+                    "cat \"$file\"; done; done; } | sort -r | uniq > \"$2\";\n")
+        else:
+            f.write(exe+"  \"$1\" -name '"+file_prefix+"*"+file_postfix+
+                    "' -exec cat {} \\; | sort -r | uniq > \"$2\";\n")
+        f.write(exe_switch + " 'm1 ' '# m1 ' \"$2\"")  # add standard prefix
         os.system("chmod a+x "+cmdname)
 
     ile_job = CondorDAGJob(universe=universe, executable='catjob.sh')
@@ -4135,6 +4177,11 @@ def write_cat_sub(tag='cat', exe=None, file_prefix=None,file_postfix=None,file_o
 
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
+    ile_job.add_arg(search_root or '.')
+    ile_job.add_arg(file_output)
+    if expected_batches is not None and events_per_batch is not None:
+        ile_job.add_arg(str(expected_batches))
+        ile_job.add_arg(str(events_per_batch))
 
 
 #    ile_job.add_arg(" . -name '" + file_prefix + "*" +file_postfix+"' -exec cat {} \; ")
@@ -4449,10 +4496,33 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
 
     singularity_image_used = "{}".format(singularity_image) # make copy
     extra_files = []
-    if singularity_image:
-            if 'osdf:' in singularity_image:
-                singularity_image_used  = "./{}".format(singularity_image.split('/')[-1])
-                extra_files += [singularity_image]
+    # Calibration reweighting is CPU-only.  A container-family capability
+    # expression cannot be evaluated on a CPU slot, so collapse the family to
+    # its explicitly configured fallback image (the same policy as CIP).
+    # Never pass the manifest YAML itself to the container runtime.
+    singularity_is_family = False
+    singularity_container_universe = False
+    singularity_container_image = None
+    singularity_fallback_runtime = None
+    if singularity_image and is_container_manifest(singularity_image):
+        singularity_is_family = True
+        _manifest = load_container_manifest(singularity_image)
+        singularity_container_universe = bool(
+            use_singularity and os.environ.get('RIFT_CONTAINER_UNIVERSE')
+        )
+        if singularity_container_universe:
+            singularity_container_image = build_container_image_select(
+                _manifest, request_gpu=False
+            )
+        else:
+            singularity_fallback_runtime, _fb_transfer = build_fallback_single_image(
+                _manifest
+            )
+            if _fb_transfer:
+                extra_files += [_fb_transfer]
+    elif singularity_image and 'osdf:' in singularity_image:
+        singularity_image_used = "./{}".format(singularity_image.split('/')[-1])
+        extra_files += [singularity_image]
 
 
     
@@ -4471,7 +4541,10 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
             singularity_base_exe_path = "/usr/bin/"  # should not hardcode this ...!
         exe=singularity_base_exe_path + exe_base
 
-    ile_job = CondorDAGJob(universe="vanilla", executable=exe)
+    ile_job = CondorDAGJob(
+        universe=("container" if singularity_container_universe else "vanilla"),
+        executable=exe,
+    )
     # This is a hack since CondorDAGJob hides the queue property
     ile_job._CondorJob__queue = ncopies
 
@@ -4487,8 +4560,18 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
         # Compare to https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
         ile_job.add_condor_cmd('request_CPUs', str(1))
         ile_job.add_condor_cmd('transfer_executable', 'False')
-        ile_job.add_condor_cmd("MY.SingularityBindCVMFS", 'True')
-        ile_job.add_condor_cmd("MY.SingularityImage", '"' + singularity_image_used + '"')
+        if singularity_container_universe:
+            ile_job.add_condor_cmd("container_image", singularity_container_image)
+        else:
+            ile_job.add_condor_cmd("MY.SingularityBindCVMFS", 'True')
+            if singularity_is_family:
+                ile_job.add_condor_cmd(
+                    "MY.SingularityImage", '"' + singularity_fallback_runtime + '"'
+                )
+            else:
+                ile_job.add_condor_cmd(
+                    "MY.SingularityImage", '"' + singularity_image_used + '"'
+                )
         ile_job.add_condor_cmd("transfer_output_files", "weight_files")
         requirements.append("HAS_SINGULARITY=?=TRUE")
         print(" WARNING: cal reweighting requires bilby. Directories are moved to cal_evelopes")

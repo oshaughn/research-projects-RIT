@@ -127,8 +127,14 @@ for indx in range(len(opts.ifo)):
         sngl.snr = opts.injected_snr  # made up, needed for some algorithms to work                                                                         
     else:
         sngl.snr = 20.  # made up, needed for some algorithms to work
+    # Eccentric Parameters
     sngl.alpha4 = P.eccentricity
     sngl.alpha = P.meanPerAno
+    # EOB Parameters
+    sngl.psi0 = P.a6c
+    # Hyperbolic Parameters
+    sngl.psi3 = P.E0
+    sngl.beta = P.p_phi0
     # add to table
     sngl_table.append(sngl)
 

@@ -197,6 +197,14 @@ jobs:
           python -m pip install coverage pytest --break-system-packages
           python -m pip install --editable . --break-system-packages
       - name: Run probe confirm-on-fail accounting and CIP intrinsic-prior tests
+        # The multi-approximant marginalization suite rides along too (~11 s, and it
+        # builds its own DAG from synthetic inputs, so it needs no rundir).  It guards a
+        # combination that is silently wrong rather than loud: pooling several waveform
+        # models flat weights them by REPLICA COUNT instead of by p(m), which shifts lnL
+        # by a few tenths of a nat and raises nothing.  Its DAG cases build with TWO
+        # approximants deliberately -- with one, every cross-model path is vacuously
+        # satisfied, which is how that builder kept a severed grid handoff for years.
+        #
         # The CIP prior suite rides along here for the same reason: it is pure logic that
         # runs in seconds (it reads CIP's source with ast instead of importing it, so it
         # needs only numpy/scipy), and a wrong prior density or a mis-wired
@@ -205,8 +213,14 @@ jobs:
         run: |
           python -m pytest -q \
             MonteCarloMarginalizeCode/Code/test/expensive_before_merging/integrators/test_probe_confirm.py \
+            MonteCarloMarginalizeCode/Code/test/expensive_before_merging/integrators/test_confirm_regressions.py \
+            MonteCarloMarginalizeCode/Code/test/expensive_before_merging/integrators/test_rift_provenance_guard.py \
+            MonteCarloMarginalizeCode/Code/test/expensive_before_merging/integrators/test_seq_gmm_check.py \
             MonteCarloMarginalizeCode/Code/test/test_cip_priors.py \
-            MonteCarloMarginalizeCode/Code/test/test_cosmology_single_source.py
+            MonteCarloMarginalizeCode/Code/test/test_cip_gp_kernel_bounds.py \
+            MonteCarloMarginalizeCode/Code/test/test_cosmology_single_source.py \
+            MonteCarloMarginalizeCode/Code/test/test_multiapprox_marginalization.py \
+            MonteCarloMarginalizeCode/Code/test/test_multiapprox_pseudo_pipe.py
 
   q-window-stencil-check:
     needs: install
@@ -231,38 +245,103 @@ jobs:
         # SILENTLY: picking the wrong sub-sample stencil raises nothing, it just makes Q_lm(t)
         # less accurate, which surfaces only as a slightly wrong likelihood surface.
         #
-        # test_q_window_interp asserts the cubic/sinc crossover in BOTH directions on purpose.
-        # sinc winning everywhere would mean the Lanczos window had been widened until it was no
-        # longer a local stencil, so neither direction may be relaxed to make a change pass.
-        # test_time_interp_choice pins the pipeline thresholds inside the measured ambiguous
-        # band, and checks the decision uses the sampling rate the run is actually on.
+        # MEMBERSHIP IS NO LONGER A LIST HERE.  It used to be a backslash-continued pytest
+        # invocation in this block; three PRs appended to that one list in two days and it
+        # conflicted twice, and taking one side of such a conflict silently unregisters the
+        # other side's test -- which in this CI simply never runs again, green forever.
+        # A test file now joins this job by carrying, on its own line,
         #
-        # test_calmarg_stencil_gating runs its CPU arms without a GPU (its GPU arm is additive),
-        # so it belongs here: it is what stops cubic/sinc being routed to the fused calibration
-        # kernel, which is implemented for 'nearest' only.
+        #     # RIFT-CI-GATE: q-window-stencil
         #
-        # test_interpolate_time_cli runs the three scripts as real SUBPROCESSES (~30 s). That
-        # cost is the point: the unit tests exercise the resolver and the gate predicate, but
-        # neither can see whether the SCRIPTS are still wired to them. Reverting a parser to
-        # const=None, or deleting a script's resolver call, leaves every unit test green while
-        # restoring a bare flag that silently does nothing. All three mutations were checked to
-        # fail these tests before they landed.
+        # so a PR adding a test edits only its own new file.  .travis/test-q-window-stencil.sh
+        # discovers those files, and its MANIFEST fails the job if a file matching one of the
+        # filename patterns this job owns carries no marker and is not explicitly excluded --
+        # so forgetting to register a test is RED, not silent.  It also pins a per-file
+        # collection floor of 1 (pytest exits 5, "no tests ran", on a file that collects
+        # nothing), a total collection floor, and a junit OUTCOME floor on tests that actually
+        # PASSED.  Modelled on .travis/test-slowrot.sh, which solves the same problem for
+        # slowrot-check; the per-file rationale that used to sit in this block now lives in
+        # each test file's header, beside its marker.
         #
         # The GPU parity files (test_q_window_interp_gpu, test_noloop_gpu_stencils) are
-        # deliberately NOT here -- there is no GPU on these runners, and they would report as
-        # skipped.  They are run by hand on a GPU node; the numbers are in PR #97.
+        # deliberately NOT run -- there is no GPU on these runners, and they would report as
+        # skipped.  They are run by hand on a GPU node; the numbers are in PR #97.  They are
+        # in the script's EXCLUDED list, which is what keeps the manifest from demanding them.
         #
         # test_slowrot_* files do NOT belong here.  They are gated by slowrot-check, whose
         # manifest requires every test_slowrot_*.py in this directory to be listed or
         # explicitly excluded; a copy in this job's list is invisible to that manifest and
-        # would simply run the file twice (issue #169).
+        # would simply run the file twice (issue #169).  This job's scope patterns exclude
+        # that prefix on purpose.
+        env:
+          OMP_NUM_THREADS: 1
+        run: bash .travis/test-q-window-stencil.sh
+
+  ci-roster-check:
+    runs-on: ubuntu-latest
+    # Census, one level above every other gate in this file.  CI membership here is per-file and
+    # hand-listed -- ci.yml and .gitlab-ci.yml name individual files, .travis/*.sh name individual
+    # files, and three directories are handed to pytest whole.  Two mechanisms already defend a
+    # SINGLE job's list against silent loss: .travis/test-slowrot.sh (an explicit FILES manifest,
+    # issue #169) and .travis/test-q-window-stencil.sh (a marker line inside each test file, PR
+    # #242).  Neither can answer "is this file registered with ANY job?", and on 2026-09-03 the
+    # answer for 86 of 200 test files under Code/ was no.
+    #
+    # This job does not run any test.  It asserts that every test file is either reachable from
+    # CI configuration or carries a line in .travis/ci_roster.txt saying why it is not, so a new
+    # test dropped into a directory no job runs goes RED instead of sitting unrun forever.
+    #
+    # No `needs: install`: stdlib only, no numpy and no RIFT import, so it runs in seconds and
+    # reports independently of whether the install matrix is healthy.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Census every test file against the CI roster
+        run: python .travis/test-ci-roster.py
+
+  core-unit-check:
+    needs: install
+    runs-on: ubuntu-latest
+    # The tests the census found unrun and that SHOULD run: ordinary pytest suites, numpy /
+    # scipy / lal / sklearn only, that collect and pass in ~50 s, spanning calmarg, likelihood
+    # dispatch, integrator seeding and allocation, CIP evidence, distance export, hyperpipe, and
+    # the packaging/config contracts.  They guard quantities that regress SILENTLY -- an evidence
+    # normalization, a seeding path, a distance grid, a container manifest -- where a wrong value
+    # is still a plausible value and nothing raises.
+    #
+    # See .travis/test-core-units.sh for why it counts collection PER FILE and asserts on junit
+    # OUTCOMES rather than invoking pytest on a directory: several files in these same
+    # directories collect ZERO items, and pytest exits 5, "no tests ran", which reads as a pass.
+    #
+    # Membership is an explicit FILES manifest, not the marker line of q-window-stencil-check.
+    # That is deliberate: this set spans six unrelated subject areas with no shared filename
+    # pattern, so the marker's SCOPE_GLOBS check -- the half that makes a marker fail-closed --
+    # would have nothing to scope over.  The census job above is what keeps this set honest.
+    #
+    # Python 3.10 to match the sibling numpy jobs.  timeout-minutes is a runaway backstop, an
+    # order of magnitude above the 49 s measured on CIT, not a budget.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+      - name: Enable symlink
+        run: sudo ln -sf $(which python3) /usr/bin/python
+      - name: Install dependencies
         run: |
-          python -m pytest -q \
-            MonteCarloMarginalizeCode/Code/RIFT/likelihood/test_q_window_interp.py \
-            MonteCarloMarginalizeCode/Code/RIFT/likelihood/test_time_interp_choice.py \
-            MonteCarloMarginalizeCode/Code/RIFT/likelihood/test_calmarg_stencil_gating.py \
-            MonteCarloMarginalizeCode/Code/RIFT/misc/test_psd_bandwidth.py \
-            MonteCarloMarginalizeCode/Code/RIFT/likelihood/test_interpolate_time_cli.py
+          python -m pip install --upgrade pip --break-system-packages
+          python -m pip install -r requirements.txt --break-system-packages
+          python -m pip install coverage pytest --break-system-packages
+          python -m pip install --editable . --break-system-packages
+      - name: Run core unit gate
+        env:
+          OMP_NUM_THREADS: 1
+        run: bash .travis/test-core-units.sh
 
   slowrot-check:
     needs: install
@@ -329,9 +408,20 @@ jobs:
     # and means a breaking upstream jax release can redden this job outside any PR's
     # control. If that becomes noisy, pin here rather than deleting the job.
     #
-    # Cost.  CURRENT (EXPECTED_TESTS=27 in .travis/test-jax.sh): 27 tests, measured
-    # 578-834 s of pytest across repeat runs on quiet CPU nodes (ldas-pcdev11/13, jax
-    # 0.9.2, JAX_PLATFORMS=cpu, JAX_ENABLE_X64=1, OMP_NUM_THREADS=1).
+    # Cost.  CURRENT (EXPECTED_TESTS=144 in .travis/test-jax.sh): 144 tests, measured
+    # 859 s of pytest on ldas-pcdev11 pinned to 16 cores (jax 0.9.2,
+    # JAX_PLATFORMS=cpu, OMP_NUM_THREADS=1).  The count grew 27 -> 48 -> 64
+    # (#180, fair-draw export) -> 95 (this PR, the tempering chooser), and #190
+    # Cost.  CURRENT (EXPECTED_TESTS=153 in .travis/test-jax.sh): 153 tests, the 139
+    # previously measured at 859 s of pytest on ldas-pcdev11 pinned to 16 cores
+    # (jax 0.9.2, JAX_PLATFORMS=cpu, OMP_NUM_THREADS=1) plus test_angle_marg_exact.py
+    # (30 tests, ~600 s local on ldas-grid, 16 cores, same stack -- the sizing
+    # regressions run a deliberately large dense grid once).  The count grew
+    # 27 -> 48 -> 64
+    # (#180, fair-draw export) -> 95 (the tempering chooser) -> 139 -> 169 (the
+    # exact angle-marginalization schemes + their review fixes), and #190
+    # added test_interp_choices.py along the way; this note sat at 27 through
+    # several of those, so re-derive it from the gate rather than trusting it.
     # test_jax_slowrot.py dominates (the p_max=0/p_max=1 rotation ladders and
     # freqresponse, each followed by the AD/jit/vmap/hessian checks); it is the first
     # thing to trim if CI minutes ever bite.  timeout-minutes is generous so a slower
@@ -342,7 +432,9 @@ jobs:
     # the actual runner (job 95750869285, python 3.11.15, jax 0.10.2, numpyro 0.21.0) --
     # ~10x headroom, with the unpinned install already a jax minor version ahead of the
     # 0.9.2 measured locally.  Do NOT read the 14 as a current count; the file list has
-    # grown since and the gate asserts 27.
+    # grown since and the gate asserts 169.  That runner-vs-local ratio (286 s runner
+    # for 964 s local, ~3.4x) is why 859 s local is not a timeout concern at 60
+    # minutes.
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -370,6 +462,15 @@ jobs:
           OMP_NUM_THREADS: 1
         run: bash .travis/test-jax.sh
 
+  # CPU ONLY.  GitHub runners have no GPU and no cupy, so this lane cannot
+  # exercise the cupy branch of RIFT/likelihood/SphericalHarmonics_gpu.py -- the
+  # branch that used to break every LISA likelihood evaluation on a GPU host
+  # while passing here.  The tests it runs therefore assert on the BACKEND
+  # ARGUMENT rather than only on the outcome (test_spherical_harmonics_backend.py
+  # fakes the GPU module; test_lisa_operational_synthetic.py spies on the call
+  # site), so this lane does catch that class of defect without a device.  The
+  # real-cupy run lives in .travis/test-lisa-gpu.sh, driven by the gpu_integration
+  # job in .gitlab-ci.yml.
   lisa-check:
     needs: install
     runs-on: ubuntu-latest
@@ -470,6 +571,52 @@ jobs:
       - name: Run Asimov integration test
         run: bash .travis/test-asimov.sh
 
+  rimsky-integration:
+    needs: install
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rimsky-series: '0.1.0rc1'
+            rimsky-spec: 'rimsky==0.1.0rc1'
+            python-version: '3.12'
+          - rimsky-series: 'main-2621d15'
+            rimsky-spec: 'git+https://git.ligo.org/colm.talbot/rimsky.git@2621d15cf9a39ce01145ac5b81c92e1173a1d2d0'
+            python-version: '3.14'
+    name: rimsky-integration (${{ matrix.rimsky-series }})
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+      - name: Enable symlink
+        run: sudo ln -sf $(which python3) /usr/bin/python
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libgsl-dev
+      - name: Install RIFT and Rimsky orchestration stack
+        run: |
+          retry_pip_install() {
+            local attempt
+            for attempt in 1 2 3; do
+              if python -m pip install "$@" --break-system-packages; then
+                return 0
+              fi
+              echo "pip install failed (attempt ${attempt}/3)"
+              sleep 10
+            done
+            return 1
+          }
+          python -m pip install --upgrade pip --break-system-packages
+          retry_pip_install '${{ matrix.rimsky-spec }}'
+          retry_pip_install --upgrade 'asimov>=0.7,<0.8' 'bilby_pipe @ git+https://git.ligo.org/lscsoft/bilby_pipe.git@be6c77021db809690c781a7744f40564e62dd72f'
+          python -m pip install pytest packaging --break-system-packages
+          python -m pip install --editable . --no-deps --break-system-packages
+      - name: Run Rimsky to RIFT end-to-end test
+        run: python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_rimsky_end_to_end.py
+
   test-run:
     needs: install
     runs-on: ubuntu-latest
@@ -516,7 +663,10 @@ jobs:
         # Also run by .travis/test-integrate.sh (integration-check, py3.10). Repeated here
         # because this job is the only one matrixed over BOTH numpy lanes, and these tests
         # are the kind that break on numpy API removals (e.g. np.trapz -> np.trapezoid).
-        run: python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_limit_cosine_samplers.py
+        run: |
+          python -m pytest -q \
+            MonteCarloMarginalizeCode/Code/test/test_limit_cosine_samplers.py \
+            MonteCarloMarginalizeCode/Code/test/test_limit_distance.py
       - name: Run NAL / supplementary-likelihood hook tests
         # Also run by .travis/test-integrate.sh (integration-check, py3.10). Repeated here for the
         # same reason as above: nal_io is pure numpy and has a legacy-numpy fallback for

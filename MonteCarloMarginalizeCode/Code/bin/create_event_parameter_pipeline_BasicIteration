@@ -291,10 +291,11 @@ parser.add_argument("--ile-runtime-max-minutes",default=None,type=int,help="If n
 parser.add_argument("--cip-exe",default=None,help="filename of CIP or equivalent executable. Will default to `which util_ConstructIntrinsicPosterior_GenericCoordinates` in low-level code")
 parser.add_argument("--cip-post-exe",default=None,help="filename of script to execute with SCRIPT POST joblist scripname JOBID RETURN worklevel in the dag. This will be run after each CIP completes in the main dag. Objective is to enable larger-scale CIP queues which work efficiently to a target work level (e.g,, n_eff). Note this script is responsible for reading htcondor logs to identify the run directory!")
 parser.add_argument("--cip-exe-G",default=None,help="filename of CIP or equivalent executable, as ALTERNATE CIP used when a 'G' iteration is requested ")
+parser.add_argument("--use-EOB-parameters",default=False,action='store_true')
+parser.add_argument("--use-hyperbolic",default=False,action='store_true')
 parser.add_argument("--use-eccentricity",default=False,action='store_true')
 parser.add_argument("--use-meanPerAno",default=False,action='store_true')
 parser.add_argument("--use-eccentricity-squared-sampling",default=False,action='store_true')
-parser.add_argument("--use-eccentricity-ln-sampling",default=False,action='store_true')
 parser.add_argument("--use-tabular-eos-file",default=False,action='store_true')
 parser.add_argument("--test-exe",default=None,help="filename of test code or equivalent executable.  Must have a --test-output <fname> argument.  Used for convergence testing or other termination. NOT ACTIVE; see 'convergence_test_samples.py' for example")
 parser.add_argument("--plot-exe",default=None,help="filename of plot code or equivalent executable.  Will default to `which plot_posterior_corner.py`.  Default is to plot last set of samples")
@@ -1077,6 +1078,10 @@ sed 1d ./tmp_converted.dat  {extra_shuffle_command} >> ./extrinsic_posterior_sam
 ##   Consolidate job(s)
 #   - consolidate output of single previous job
 con_arg_str = ''
+if opts.use_EOB_parameters:
+    con_arg_str += " --a6c "
+if opts.use_hyperbolic:
+    con_arg_str += " --hyperbolic "
 if opts.use_eccentricity:
     con_arg_str += " --eccentricity "
     if opts.use_meanPerAno:
@@ -1102,6 +1107,10 @@ con_job.write_sub_file()
 ##   Unify job
 #   - update 'all.net' to include all previous events
 unify_arg_str = ''
+if opts.use_EOB_parameters:
+    unify_arg_str += " --a6c "
+if opts.use_hyperbolic:
+    unify_arg_str += " --hyperbolic "
 if opts.use_eccentricity:
     unify_arg_str += " --eccentricity "
     if opts.use_meanPerAno:
@@ -1125,7 +1134,10 @@ unify_job.write_sub_file()
 
 # Evidence job
 exe_evidence = which('util_CIPDirSummarizeEvidence.py')
-evidence_job, evidence_job_name = dag_utils.write_convert_sub(tag='evidence', exe=exe_evidence, log_dir='', file_input='',  arg_str=" --cip-dir iteration_$(macroiteration)_cip --output evidence_$(macroiteration) ",  universe=local_worker_universe, no_grid=no_worker_grid)
+evidence_source = " --cip-dir iteration_$(macroiteration)_cip"
+if opts.cip_explode_jobs is None:
+    evidence_source = " --cip-dir . --cip-prefix overlap-grid-$(macroiterationnext)"
+evidence_job, evidence_job_name = dag_utils.write_convert_sub(tag='evidence', exe=exe_evidence, log_dir='', file_input='',  arg_str=evidence_source+" --output evidence_$(macroiteration) ",  universe=local_worker_universe, no_grid=no_worker_grid)
 evidence_job.add_condor_cmd("initialdir",opts.working_directory)
 evidence_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/evidence-$(cluster)-$(process).log")
 evidence_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/evidence-$(cluster)-$(process).err")
@@ -1437,8 +1449,6 @@ else:
                cip_args_extra +=" --n-eff {} --n-output-samples {} ".format(n_samples_per_job,n_samples_per_job)
                if not (opts.use_eccentricity_squared_sampling):
                    cip_args_lines[indx] = cip_args_lines[indx].replace(' --parameter eccentricity_squared ',' --parameter-implied eccentricity_squared --parameter-nofit eccentricity ')
-               if not (opts.use_eccentricity_ln_sampling):
-                   cip_args_lines[indx] = cip_args_lines[indx].replace(' --parameter eccentricity_ln ',' --parameter-implied eccentricity_ln --parameter-nofit eccentricity ')
            transfer_files_cip=['../all.net']
            if opts.use_osg_cip and 'fit-method gp' in cip_args_base:
                transfer_files_cip += ['my_fit.pkl']  # transfer current working directory fit
@@ -1862,6 +1872,7 @@ for it in np.arange(it_start,opts.n_iterations):
     # It is also *backward looking*
     evidence_node = pipeline.CondorDAGNode(evidence_job)
     evidence_node.add_macro("macroiteration",it-1)  # LAST ITERATION being analyzed, not this one
+    evidence_node.add_macro("macroiterationnext",it)
     evidence_node.set_retry(opts.general_retries)
     if it > it_start:
         evidence_node.add_parent(parent_fit_node)  # run evidence after previous iteration, on previous
@@ -2017,6 +2028,10 @@ for it in np.arange(it_start,opts.n_iterations):
         cmd += " --neff-threshold {} ".format(opts.neff_threshold)
         cmd += " --general-request-disk {} --ile-request-disk {} --cip-request-disk {} ".format(opts.general_request_disk,opts.ile_request_disk,opts.cip_request_disk)
         cmd += " --request-memory-ILE {} --request-memory-CIP {} ".format(opts.request_memory_ILE,opts.request_memory_CIP)
+        if opts.use_EOB_parameters:
+            cmd += " --use-EOB-parameters "
+        if opts.use_hyperbolic:
+            cmd += " --use-hyperbolic "
         if opts.use_eccentricity:
             cmd += " --use-eccentricity "
             if opts.use_meanPerAno:

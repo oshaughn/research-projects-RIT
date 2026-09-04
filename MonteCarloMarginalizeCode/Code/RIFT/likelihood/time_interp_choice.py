@@ -27,6 +27,30 @@ from __future__ import division
 # factored_likelihood.TIME_INTERP_CHOICES must agree and test_time_interp_choice asserts it does.
 TIME_INTERP_CHOICES = ('nearest', 'cubic', 'sinc')
 
+# Taps per SIDE for the 'sinc' stencil (the full stencil is 2a wide).  It lives in this leaf
+# module, rather than beside the weight builder in factored_likelihood, because three backends
+# now need it -- the CPU window builder, the cupy kernel wrapper, and the JAX gatherer -- and the
+# JAX path must not pay factored_likelihood's numba/lal import cost to learn one integer.
+# factored_likelihood re-exports it, so `FL.SINC_HALFWIDTH_DEFAULT` keeps working.
+SINC_HALFWIDTH_DEFAULT = 8
+
+# THE DEFAULT SUB-SAMPLE STENCIL, for every driver.  ONE definition, because the two ILE drivers
+# previously shipped OPPOSITE defaults for the same physical choice -- batchmode 'nearest' and
+# jax 'sinc' (issue #233) -- so a cross-implementation comparison run at defaults was measuring a
+# flag, and the discrepancy grew as SNR^2, which reads as an amplitude-dependent bug in one of the
+# codes rather than as a configuration difference.  jax_ile.core.JAX_INTERP_DEFAULT is now an
+# alias of this constant and test_batchmode_stencil_default pins that they are equal, so the two
+# cannot drift apart again.
+#
+# WHY 'sinc' AND NOT 'cubic'.  A default is chosen for its WORST case, not its average, because
+# it is what people get without thinking.  sinc's error is measured FLAT (3.1-7.9 nats over the
+# fmin-30 mass ladder, 2.3-5.6 over the 20-point fmin sweep) while all the variation belongs to
+# cubic (0.143-69.3 nats over the same points); error grows as SNR^2.  This is the same reasoning,
+# on the same measurements, that DESIGN_q_window_stencil.md 9.4 recorded for the JAX default.
+# High-mass low-fmin campaigns are the population where cubic is measurably better and should
+# pass '--interpolate-time cubic' explicitly -- see 9.6 of that document.
+TIME_INTERP_DEFAULT = 'sinc'
+
 # Values of --internal-ile-interpolate-time that mean "don't interpolate at all".  These matter
 # because the flag takes a VALUE: '--internal-ile-interpolate-time False' passes the STRING
 # 'False', which is truthy in Python, so without this it would sail past an `if opts...:` guard

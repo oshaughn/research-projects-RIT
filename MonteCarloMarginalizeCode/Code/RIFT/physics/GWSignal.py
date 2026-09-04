@@ -12,6 +12,7 @@
 import lal
 import lalsimulation as lalsim
 import RIFT.lalsimutils as lalsimutils
+from RIFT.physics import teobresums_compat
 import numpy as np
 import astropy.units as u
 from astropy.time import Time
@@ -86,13 +87,16 @@ def hlmoft(P, Lmax=2,approx_string=None,no_trust_align_method=None,internal_phas
         approx_string (str): Approximant string. If None, P.approx is used.
         no_trust_align_method (str): If 'peak', shifts epoch to the peak of the total signal power.
         internal_phase_shift (float): Phase shift applied to the modes. Default is pi/2.
-        **kwargs: Additional arguments (e.g., 'lmax_nyquist').
+        **kwargs: Additional arguments (e.g., 'lmax_nyquist', 'force_22_mode').
+            force_22_mode (bool): If True, return only the (2,+-2) modes.
 
     Returns:
         dict: A dictionary mapping (l, m) to LAL COMPLEX16TimeSeries objects.
     """
 
     assert Lmax >= 2
+
+    force_22_mode = kwargs.get('force_22_mode', False)
 
     # Check that masses are not nan!
     assert (not np.isnan(P.m1)) and (not np.isnan(P.m2)), " masses are NaN "
@@ -127,6 +131,16 @@ def hlmoft(P, Lmax=2,approx_string=None,no_trust_align_method=None,internal_phas
     if not(approx_string):
         approx_string_here = lalsim.GetStringFromApproximant(P.approx)
 
+    # DO NOT remove this as cosmetic spin rounding.  TEOBResumS-DALI's C code
+    # classifies sum(chi_perp) <= 1e-4 as aligned, while its GWSignal wrapper
+    # requests inertial modes for any exactly nonzero transverse component.
+    # That disagreement segfaults EOBRunPy in production DALI builds.  Zeroing
+    # only the backend's own aligned interval makes both layers take the same
+    # path; genuinely precessing spins above the boundary remain untouched.
+    python_dict = teobresums_compat.guard_gwsignal_transverse_spins(
+        python_dict, approx_string_here
+    )
+
     # Fork on calling different generators
     gen = gws.models.gwsignal_get_waveform_generator(approx_string_here)
     # if "NRSur7dq4_gwsurr" == approx_string_here:
@@ -147,6 +161,13 @@ def hlmoft(P, Lmax=2,approx_string=None,no_trust_align_method=None,internal_phas
         if isinstance(mode, str):  # skip 'time_array'
             continue
         if mode[0] > Lmax:  # skip modes with L > Lmax
+            continue
+        # force_22_mode must actually produce a 22-only waveform here too, not
+        # just on the lalsimutils path.  The restriction is applied to the
+        # returned modes rather than to the generator arguments, because the
+        # mode-restriction keyword is not uniformly supported by the generators
+        # reachable through gwsignal_get_waveform_generator.
+        if force_22_mode and not(mode[0] == 2 and abs(mode[1]) == 2):
             continue
         # 
         h = lal.CreateCOMPLEX16TimeSeries("hlm",
@@ -277,6 +298,13 @@ def hoft(P, Fp=None, Fc=None,approx_string=None, **kwargs):
     if not(approx_string):
         approx_string_here = lalsim.GetStringFromApproximant(P.approx)
 
+    # Apply the same native-backend safety boundary as hlmoft.  Keep this on
+    # the polarization path too: callers may reach TEOBResumS through either
+    # GWSignal entry point.
+    python_dict = teobresums_compat.guard_gwsignal_transverse_spins(
+        python_dict, approx_string_here
+    )
+
     # Fork on calling different generators
     gen = gws.models.gwsignal_get_waveform_generator(approx_string_here)
 
@@ -388,6 +416,12 @@ def complex_hoft(P, Fp=None, Fc=None,approx_string=None,sgn=-1, **kwargs):
     approx_string_here = approx_string
     if not(approx_string):
         approx_string_here = lalsim.GetStringFromApproximant(P.approx)
+
+    # complex_hoft reaches the same GWSignal polarization generator as hoft;
+    # keep its ResumS native call behind the same near-aligned safety boundary.
+    python_dict = teobresums_compat.guard_gwsignal_transverse_spins(
+        python_dict, approx_string_here
+    )
 
     # Fork on calling different generators
     gen = gws.models.gwsignal_get_waveform_generator(approx_string_here)

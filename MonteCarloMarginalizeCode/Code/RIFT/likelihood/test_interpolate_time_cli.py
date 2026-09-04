@@ -1,4 +1,20 @@
 #!/usr/bin/env python3
+# RIFT-CI-GATE: q-window-stencil
+# ^ registers this file with .travis/test-q-window-stencil.sh, run by ci.yml's
+#   q-window-stencil-check job.  Membership lives here, in the test file, so that
+#   adding a test needs no edit to any shared list.  Do not reword the line above.
+# ---------------------------------------------------------------------------------
+# WHY THIS FILE IS IN q-window-stencil-check.  Moved verbatim from the comment block
+# above that job's hand-maintained file list in .github/workflows/ci.yml; it lives
+# here now so that registering a test needs no edit to a shared file.
+#
+# test_interpolate_time_cli runs the three scripts as real SUBPROCESSES (~30 s). That
+# cost is the point: the unit tests exercise the resolver and the gate predicate, but
+# neither can see whether the SCRIPTS are still wired to them. Reverting a parser to
+# const=None, or deleting a script's resolver call, leaves every unit test green while
+# restoring a bare flag that silently does nothing. All three mutations were checked to
+# fail these tests before they landed.
+# ---------------------------------------------------------------------------------
 """test_interpolate_time_cli -- the stencil flag AT THE COMMAND LINE, in real subprocesses.
 
 WHY SUBPROCESSES AND NOT UNIT CALLS.  test_time_interp_choice exercises
@@ -196,16 +212,26 @@ def test_driver_refuses_configurations_that_cannot_honour_the_stencil():
         print("driver rejects, missing %-22s : OK" % expect_missing)
 
 
-def test_driver_does_not_gate_the_default_stencil():
+def test_driver_does_not_gate_an_explicit_nearest():
     """'nearest' is the historical behaviour and must never be refused.
 
-    Without this, the gate could be tightened into breaking every run that does not ask for
-    interpolation at all -- a far worse regression than the one it prevents.
+    Without this, the gate could be tightened into breaking every run that asks for the
+    nearest-bin gather -- a far worse regression than the one it prevents.
+
+    THIS TEST PASSES 'nearest' EXPLICITLY, so it says nothing about what an OMITTED
+    --interpolate-time does.  While 'nearest' was also the default the two were the same case and
+    the name of this test did not lie; since 2026-09-02 the default is
+    time_interp_choice.TIME_INTERP_DEFAULT and they are different cases.  The omitted-flag case --
+    the one essentially every production run takes, and the one that would have been converted
+    into a startup ValueError by the same gate -- is covered by
+    test_batchmode_stencil_default.test_unhonourable_configuration_downgrades_the_default_instead_of_refusing.
+    Renamed rather than left alone precisely so this file cannot go on reporting green under a
+    name that claims coverage it does not have.
     """
     out = _squash(_run(DRIVER, ['--interpolate-time', 'nearest', '--vectorized']))
     assert 'cannot honour it' not in out, \
-        "the gate must not fire for the default 'nearest' stencil: %s" % out[-400:]
-    print("driver does not gate 'nearest': OK")
+        "the gate must not fire for an explicit 'nearest' stencil: %s" % out[-400:]
+    print("driver does not gate an explicit 'nearest': OK")
 
 
 if __name__ == "__main__":
@@ -215,5 +241,5 @@ if __name__ == "__main__":
     test_help_text_carries_the_same_crossover_guidance_in_both_entry_points()
     test_error_messages_carry_the_canonical_guidance_too()
     test_driver_refuses_configurations_that_cannot_honour_the_stencil()
-    test_driver_does_not_gate_the_default_stencil()
+    test_driver_does_not_gate_an_explicit_nearest()
     print("\nPASS")

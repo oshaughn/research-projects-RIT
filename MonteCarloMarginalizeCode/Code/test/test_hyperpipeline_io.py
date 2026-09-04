@@ -73,6 +73,32 @@ def test_tides_with_eos_index():
     print("test_tides_with_eos_index: OK")
 
 
+def test_eccentric_tides_eob_hyperbolic_columns():
+    """All JL physics groups survive named I/O and legacy adaptation together."""
+    kw = dict(use_eccentricity=True, use_meanPerAno=True,
+              use_tides=True, use_eob_parameters=True,
+              use_hyperbolic=True)
+    cols = hpio.build_column_list(**kw)
+    values = {
+        "lnL": -3.5, "sigma_lnL": 0.02,
+        "m1": 2.0, "m2": 1.4,
+        "a1x": 0.0, "a1y": 0.0, "a1z": 0.1,
+        "a2x": 0.0, "a2y": 0.0, "a2z": -0.1,
+        "eccentricity": 0.2, "meanPerAno": 1.1,
+        "lambda1": 0.0, "lambda2": 300.0,
+        "a6c": -45.0, "E0": 1.05, "p_phi0": 4.2,
+    }
+    arr = _roundtrip(cols, [[values[c] for c in cols]])
+    legacy = hpio.to_legacy_dat(arr, **kw)
+    ix = hpio.legacy_column_indices(**kw)
+    for name in ("lambda1", "a6c", "E0", "p_phi0",
+                 "eccentricity", "meanPerAno", "lnL", "sigma_lnL"):
+        assert ix[name] is not None, (name, ix)
+        np.testing.assert_allclose(legacy[:, ix[name]], [values[name]])
+    assert ix["lambda1"] < ix["a6c"] < ix["E0"] < ix["eccentricity"] < ix["lnL"]
+    print("test_eccentric_tides_eob_hyperbolic_columns: OK")
+
+
 def test_sky_columns():
     cols = hpio.build_column_list(use_sky=True)
     assert cols[-2:] == ("ecliptic_longitude", "ecliptic_latitude")
@@ -119,6 +145,10 @@ def test_legacy_column_indices_consistency():
         dict(use_eccentricity=True),
         dict(use_eccentricity=True, use_meanPerAno=True),
         dict(use_distance=True, use_tides=True),
+        dict(use_eob_parameters=True),
+        dict(use_hyperbolic=True),
+        dict(use_tides=True, use_eob_parameters=True, use_hyperbolic=True,
+             use_eccentricity=True, use_meanPerAno=True),
     ]
     for kw in combos:
         cols = hpio.build_column_list(**kw)
@@ -136,6 +166,10 @@ def test_legacy_column_indices_consistency():
             assert ix["lambda1"] is not None
         if kw.get("use_eccentricity"):
             assert ix["eccentricity"] is not None
+        if kw.get("use_eob_parameters"):
+            assert ix["a6c"] is not None
+        if kw.get("use_hyperbolic"):
+            assert ix["E0"] is not None and ix["p_phi0"] is not None
     print("test_legacy_column_indices_consistency: OK")
 
 
@@ -283,6 +317,7 @@ class _FakeP(object):
         self.s2x = 0.0; self.s2y = 0.0; self.s2z = 0.0
         self.lambda1 = 0.0; self.lambda2 = 0.0
         self.eccentricity = 0.0; self.meanPerAno = 0.0
+        self.a6c = 10000.0; self.E0 = 0.0; self.p_phi0 = 0.0
         self.eos_table_index = 0.0
         self.dist = 0.0
         self.phi = 0.0
@@ -494,6 +529,7 @@ if __name__ == "__main__":
     test_default_roundtrip()
     test_eccentricity_columns()
     test_tides_with_eos_index()
+    test_eccentric_tides_eob_hyperbolic_columns()
     test_sky_columns()
     test_to_legacy_dat_default()
     test_legacy_column_indices_consistency()
