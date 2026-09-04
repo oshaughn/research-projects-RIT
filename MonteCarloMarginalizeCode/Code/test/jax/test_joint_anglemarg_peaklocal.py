@@ -245,7 +245,7 @@ def test_u_profile_derivatives_match_the_numpy_reference():
     C = _joint(A, B)
     f = jax.jit(JP.u_profile)
     for phi in np.linspace(0.4, 5.6, 5):
-        F, d1, d2 = f(jnp.asarray(C), float(phi))
+        F, d1, d2, _ = f(jnp.asarray(C), float(phi))
         Fn, d1n, d2n = JN.u_profile(C, np.array([phi]))
         assert abs(float(F) - Fn[0]) < 1e-4, (phi, F, Fn[0])
         scale = max(1.0, abs(d1n[0]))
@@ -256,8 +256,8 @@ def test_u_profile_derivatives_match_the_numpy_reference():
 def test_phi_local_matches_a_dense_torus_reference(scale):
     A, B = _tables_scaled(3, 1.0)
     C = _joint(A * scale, B * scale)
-    got = float(jax.jit(JP.phi_local_lnI)(jnp.asarray(C)))
-    assert abs(got - _torus_ref(C)) < 1e-4, (scale, got)
+    got, ok, info = jax.jit(JP.phi_local_lnI)(jnp.asarray(C))
+    assert abs(float(got) - _torus_ref(C)) < 1e-4, (scale, float(got))
 
 
 def test_empty_merge_slots_do_not_poison_the_sum_with_nan():
@@ -268,8 +268,8 @@ def test_empty_merge_slots_do_not_poison_the_sum_with_nan():
     off.  Every amplitude above ~400 returned NaN before the position was neutralized."""
     for scale in (10.0, 30.0, 100.0, 300.0):
         A, B = _tables_scaled(3, 1.0)
-        got = float(jax.jit(JP.phi_local_lnI)(jnp.asarray(_joint(A * scale, B * scale))))
-        assert np.isfinite(got), (scale, got)
+        got, _ok, _info = jax.jit(JP.phi_local_lnI)(jnp.asarray(_joint(A * scale, B * scale)))
+        assert np.isfinite(float(got)), (scale, float(got))
 
 
 def test_phi_local_cost_is_flat_in_amplitude():
@@ -283,7 +283,7 @@ def test_phi_local_cost_is_flat_in_amplitude():
     for scale in (1.0, 10.0, 100.0):
         C = jnp.asarray(_joint(A * scale, B * scale))
         shapes.add(C.shape)
-        assert np.isfinite(float(f(C)))
+        assert np.isfinite(float(f(C)[0]))
     assert len(shapes) == 1, shapes      # one shape => one compilation
 
 
@@ -338,3 +338,36 @@ def test_u_profile_rejects_a_clipped_newton_point_as_a_peak():
     assert total > 0
     assert rejected > 0, "gate rejected nothing -- it is decoration, not a check"
     assert worst > 1e-3, "worst rejected residual %.3g is within tolerance of stationary" % worst
+
+
+def test_phi_local_returns_a_certificate_that_actually_declines():
+    """External-review P1: ``phi_local_lnI`` returned a bare float -- no bound, no validity
+    result, no fallback signal -- while its docstring claimed correctness rested on "the
+    caller's cover bound", a contract no caller implemented.  Fixed seeds are targeting,
+    not an enumeration, so a missed maximum came back as a finite likelihood.
+
+    It now returns ``(value, ok, info)`` with an omitted-mass bound on the phi axis:
+    ``area_outside * exp(sup_outside F)``, the supremum obtained by LIFTING grid values of
+    ``F`` with a true remainder from ``profile_derivative_bounds`` -- never the grid
+    maximum, which is a lower bound on a supremum.
+
+    The assertion that matters is that it DECLINES: a certificate that always accepts is
+    decoration, and would have passed every other test in this file.
+    """
+    rng = np.random.default_rng(0)
+    verdicts = []
+    for scale in (0.3, 3.0, 40.0, 200.0):
+        C = (rng.normal(size=(3, 5)) + 1j * rng.normal(size=(3, 5))) * scale
+        val, ok, info = JP.phi_local_lnI(jnp.asarray(C))
+        assert np.isfinite(float(val))
+        for key in ("margin", "area_outside", "sup_outside", "n_phi_regions",
+                    "n_u_fallback"):
+            assert key in info, key
+        # the contract: ok is exactly the margin test, never anything softer
+        assert bool(ok) == (float(info["margin"]) < JP.OUTSIDE_TOL_NATS)
+        # a fully covering cover leaves nothing outside, and must then be accepted
+        if float(info["area_outside"]) == 0.0:
+            assert bool(ok) and float(info["margin"]) == -np.inf
+        verdicts.append(bool(ok))
+    assert any(verdicts), "certificate declined everything -- it is unusable, not strict"
+    assert not all(verdicts), "certificate accepted everything -- it is decoration"

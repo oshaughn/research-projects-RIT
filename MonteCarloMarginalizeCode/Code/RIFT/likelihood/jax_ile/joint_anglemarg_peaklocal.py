@@ -63,6 +63,10 @@ __all__ = [
     "PHI_SEEDS",
     "PHI_WINDOW_SIGMA",
     "PHI_NODES_PER_REGION",
+    "PHI_BOUND_GRID",
+    "OUTSIDE_TOL_NATS",
+    "phi_derivative_bound",
+    "profile_derivative_bounds",
 ]
 
 #: Local u-window half-width in units of the local sigma, CLIPPED to the cell.  The cell
@@ -408,6 +412,42 @@ PHI_SEEDS = 32
 PHI_WINDOW_SIGMA = 12.0
 PHI_NODES_PER_REGION = 96
 
+#: Grid on which the phi omitted-mass bound is evaluated.  Not a tuning knob: it sets the
+#: half-spacing ``delta`` of the second-order lift, so a coarser grid gives a LOOSER
+#: (still valid) bound and more declines, never a wrong accept.
+PHI_BOUND_GRID = 256
+
+#: Accept when the certified mass outside the covered phi regions is this many nats below
+#: the value.  Same number and same meaning as the numpy reference's OUTSIDE_TOL_NATS.
+OUTSIDE_TOL_NATS = -23.0
+
+
+def phi_derivative_bound(C, order=0):
+    """TRUE bound on ``|d^order_phi g|`` by the triangle inequality on the table.
+
+    The one construction here that cannot be a fit -- the 1-D phi analogue of the numpy
+    reference's :func:`~RIFT.likelihood.joint_angle_peak_local.derivative_bound`.
+    """
+    KP = C.shape[0]
+    k = jnp.arange(KP)[:, None]
+    w = jnp.where(k > 0, 2.0, 1.0)          # k>0 stored once, counted twice (real field)
+    return (w * jnp.abs(C) * (jnp.abs(k) ** order)).sum()
+
+
+def profile_derivative_bounds(C):
+    """Exact bounds ``(M1F, M2F)`` on ``|F'|`` and ``|F''|`` for the u-profile ``F``.
+
+    The envelope identities are ``F' = E[d_phi g]`` and ``F'' = E[d^2_phi g] +
+    Var(d_phi g)``, the expectation being under the normalized ``exp(g) du``.  So
+    ``|F'| <= sup|d_phi g| <= M10`` and, since a variable confined to a range of width
+    ``2 M10`` has variance at most ``M10^2``, ``|F''| <= M20 + M10^2``.  Both follow from
+    the coefficient table alone -- no sample, no fit, and in particular NOT the measured
+    ``F''`` at a point, which is what an estimate-promoted-to-bound would use here.
+    """
+    m10 = phi_derivative_bound(C, 1)
+    m20 = phi_derivative_bound(C, 2)
+    return m10, m20 + m10 * m10
+
 
 def eval_g2(C, phi, u, order=(0, 0)):
     """``d^a_phi d^b_u g`` at matching ``(phi, u)``, from the 2-D table."""
@@ -424,7 +464,8 @@ def eval_g2(C, phi, u, order=(0, 0)):
 
 
 def u_profile(C, phi, n_nodes=U_NODES_PER_CELL, window_sigma=U_WINDOW_SIGMA):
-    """``F(phi) = log int du exp(g)`` and its first two EXACT phi-derivatives.
+    """``F(phi) = log int du exp(g)``, its first two EXACT phi-derivatives, and the
+    number of u cells that fell back to whole-cell integration.
 
     Differentiating under the integral gives them from the SAME nodes at no extra
     evaluation cost:
@@ -495,7 +536,12 @@ def u_profile(C, phi, n_nodes=U_NODES_PER_CELL, window_sigma=U_WINDOW_SIGMA):
     e1 = (wt * gp).sum() / Z
     F = m + jnp.log(Z)
     ddF = (wt * (gpp + gp * gp)).sum() / Z - e1 * e1
-    return F, e1, ddF
+    # how many of the four cells were integrated WHOLE rather than windowed.  Reported
+    # because a fallback cell spreads the same static node count over a wider interval, so
+    # it is the one place F itself can be inaccurate -- and no bound on this axis can see
+    # that, since the omitted-mass certificate covers what is outside the regions.
+    n_fallback = (~peaked).sum()
+    return F, e1, ddF, n_fallback
 
 
 def _merge_sorted_intervals(lo, hi, n):
@@ -521,25 +567,48 @@ def _merge_sorted_intervals(lo, hi, n):
 
 
 def phi_local_lnI(C, n_seed=PHI_SEEDS, w_sigma=PHI_WINDOW_SIGMA,
-                  n_nodes=PHI_NODES_PER_REGION, u_nodes=U_NODES_PER_CELL):
+                  n_nodes=PHI_NODES_PER_REGION, u_nodes=U_NODES_PER_CELL,
+                  n_bound=PHI_BOUND_GRID, tol_nats=OUTSIDE_TOL_NATS):
     """``log int dphi int du exp(g)`` with BOTH axes localized, jittable.
+
+    Returns ``(value, ok, info)``.  ``ok`` is False when the omitted-mass bound on the phi
+    axis could not be made small enough; the value is returned either way for diagnosis,
+    but a value with ``ok=False`` is NOT to be used.
 
     u is exact on the cell partition; phi is localized around the maxima of the profile
     ``F`` using its exact derivatives (see :func:`u_profile`).  phi has no algebraic
-    completeness warrant -- ``F`` is a log-integral, not a trig polynomial -- so the
-    seeds are targeting only and correctness rests on the caller's cover bound, exactly
-    as on the time axis.
+    completeness warrant -- ``F`` is a log-integral, not a trig polynomial -- so the seeds
+    are targeting only and correctness rests on the certificate below.
+
+    READ THIS BEFORE PROMOTING THIS PATH.  Certifying phi costs MORE than the dense phi
+    grid it replaces, at every amplitude tested, and the gap widens.  The bound needs
+    ``0.5 * M2F * delta^2`` small, so ``n_bound ~ sqrt(M2F) ~ M1F ~ A`` -- LINEAR in
+    amplitude -- while ``required_n_phi ~ sqrt(A)``:
+
+        amplitude     required_n_phi     n_bound needed     ratio
+        1e2                      160                408       2.5
+        1e3                      512               4057       7.9
+        1e4                     1600              40548      25.3
+        1e5                     5072             405459      79.9
+
+    So the flat-cost property this function is built for holds only for the INTEGRATION;
+    the certificate that makes the integration trustworthy does not share it, and an
+    uncertified value is what external review correctly refused.  The whole gap is one
+    term: ``Var(d_phi g) <= M10^2`` is 99.5% of ``M2F``, and it is loose because a peaked
+    ``exp(g)`` does not explore the full range of ``d_phi g``.  A tighter exact bound on
+    that variance is the open question that decides whether phi-localization can pay for
+    itself; nothing else in this construction is the obstacle.
     """
     prof = lambda p: u_profile(C, p, n_nodes=u_nodes)
     seeds = jnp.linspace(0.0, 2.0 * jnp.pi, n_seed, endpoint=False)
 
     def _newton(p, _):
-        _, d1, d2 = jax.vmap(prof)(p)
+        _, d1, d2, _ = jax.vmap(prof)(p)
         step = jnp.where(d2 < 0, -d1 / jnp.where(d2 < 0, d2, -1.0), 0.0)
         return jnp.mod(p + jnp.clip(step, -0.3, 0.3), 2.0 * jnp.pi), None
 
     p, _ = lax.scan(_newton, seeds, None, length=24)
-    F, d1, d2 = jax.vmap(prof)(p)
+    F, d1, d2, n_fb = jax.vmap(prof)(p)
     peaked = d2 < 0.0
     sig = jnp.where(peaked, 1.0 / jnp.sqrt(jnp.where(peaked, -d2, 1.0)), 0.0)
 
@@ -590,9 +659,67 @@ def phi_local_lnI(C, n_seed=PHI_SEEDS, w_sigma=PHI_WINDOW_SIGMA,
 
     s = jnp.linspace(0.0, 1.0, n_nodes)
     pp = (seg_lo[:, None] + width[:, None] * s[None, :]).ravel()
-    Fv, _, _ = jax.vmap(prof)(jnp.mod(pp, 2.0 * jnp.pi))
+    Fv, _, _, _ = jax.vmap(prof)(jnp.mod(pp, 2.0 * jnp.pi))
     wq = jnp.full(n_nodes, 1.0 / (n_nodes - 1)).at[0].mul(0.5).at[-1].mul(0.5)
     lw = (jnp.log(jnp.where(width > 0, width, 1e-300))[:, None]
           + jnp.log(wq)[None, :]).ravel()
     lw = jnp.where(jnp.repeat(width > 0, n_nodes), lw, -jnp.inf)
-    return jax.scipy.special.logsumexp(Fv + lw)
+    value = jax.scipy.special.logsumexp(Fv + lw)
+
+    # ---------------------------------------------------------------- the phi certificate
+    # WITHOUT THIS THE RETURN VALUE IS AN ESTIMATE WEARING A LIKELIHOOD'S CLOTHES.  The
+    # seeds are targeting, not an enumeration -- phi has no algebraic completeness warrant
+    # because F is a log-integral, not a trig polynomial -- so a missed maximum or an
+    # unconverged seed is silently omitted and a finite number comes back regardless.
+    # External review found this exposed with no bound, no validity result and no fallback
+    # signal, and it is the house rule of this whole family violated in its own code.
+    #
+    # The bound: mass outside the covered regions is at most
+    #     area_outside * exp(sup_outside F),
+    # and sup_outside F is obtained from a grid of F values LIFTED by a true remainder,
+    # never from the grid maximum itself -- a grid max is a LOWER bound on a supremum and
+    # the gap grows with amplitude.  Both F and F' come back from u_profile at no extra
+    # cost, so the lift is second order:
+    #     F(x) <= F(x_i) + |F'(x_i)| * delta + M2F * delta^2 / 2,   delta = half spacing
+    # with M2F from profile_derivative_bounds, i.e. from the coefficient table alone.
+    # A first-order Lipschitz lift was tried first in the numpy twin and is USELESS at
+    # amplitude -- it put the bound above the integral by +1225 nats.
+    gb = jnp.linspace(0.0, 2.0 * jnp.pi, n_bound, endpoint=False)
+    delta = jnp.pi / n_bound                      # half of the grid spacing
+    Fb, d1b, _, _ = jax.vmap(prof)(gb)
+    m1f, m2f = profile_derivative_bounds(C)
+    ub = Fb + jnp.abs(d1b) * delta + 0.5 * m2f * delta * delta
+
+    # A GRID POINT COUNTS AS OUTSIDE UNLESS ITS WHOLE delta-BALL IS COVERED.  Testing the
+    # point alone leaves a band of width delta beside every region boundary belonging to
+    # no test at all, and the bound would then be a bound on the wrong set.  Regions are
+    # therefore ERODED by delta before the test, which over-estimates the outside -- the
+    # safe direction.  A region already spanning the circle stays covering: that is the
+    # low-amplitude case where the rule has degenerated into the dense grid on purpose,
+    # and eroding it would report an uncovered band and decline every such row.
+    full = width >= 2.0 * jnp.pi - 1e-12
+    eff_lo = jnp.where(full, -1.0, seg_lo + delta)
+    eff_hi = jnp.where(full, 2.0 * jnp.pi + 1.0, seg_lo + width - delta)
+    d = gb[None, :] - eff_lo[:, None]
+    covered = (((d >= 0.0) & (gb[None, :] <= eff_hi[:, None]))
+               | ((d + 2.0 * jnp.pi >= 0.0)
+                  & (gb[None, :] + 2.0 * jnp.pi <= eff_hi[:, None]))).any(axis=0)
+
+    area_outside = jnp.clip(2.0 * jnp.pi - width.sum(), 0.0, 2.0 * jnp.pi)
+    sup_outside = jnp.max(jnp.where(covered, -jnp.inf, ub))
+    outside = jnp.where(area_outside > 0.0,
+                        jnp.log(jnp.where(area_outside > 0.0, area_outside, 1.0))
+                        + sup_outside,
+                        -jnp.inf)
+    margin = outside - value
+    ok = margin < tol_nats
+
+    info = {"margin": margin,
+            "area_outside": area_outside,
+            "sup_outside": sup_outside,
+            "n_phi_regions": (width > 0).sum(),
+            # INTERNAL accuracy, which the certificate above CANNOT see: it bounds the
+            # mass left OUTSIDE the regions and says nothing about the quadrature inside
+            # one.  Reported separately and never folded into `margin`.
+            "n_u_fallback": n_fb.sum()}
+    return value, ok, info
