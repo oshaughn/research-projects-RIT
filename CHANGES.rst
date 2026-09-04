@@ -1,3 +1,11 @@
+0.0.17.14
+---------
+Development tree is rift_O4c.
+
+  - (rc0) PR 187 stabilizes vectorized time marginalization for loud signals;
+    PR 183 (including PR 163) corrects ChooseFDModes conditioning and J-to-L
+    frame rotation; PR 176 adds ASIMOV 0.7 and PESummary handoff compatibility.
+
 0.0.17.13
 ---------
 MR https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/55  , for ln(e) parameter access in pipeline
