@@ -241,7 +241,47 @@ def _log_prior_jax(theta5):
 # dense reconstruction has the same batch-multiplied structure (smaller
 # constant); the laplace constant is used for both as the worst case.
 _ANGLE_MARG_BYTES_PER_SAMPLE_PT = 8192
-_ANGLE_MARG_BUFFER_TARGET = 4 << 30      # ~4 GiB largest single buffer
+
+#: Largest single buffer we will let the anglemarg eval request.  4 GiB was chosen on
+#: 2026-08-28 against the 25 GiB per-UID cgroup of the machine the OOM was reproduced on,
+#: with a deliberate ~6x margin.  It is a FLOOR, not a ceiling: on a card with more memory
+#: it throttles the accurate schemes for no reason -- at npts=1230 it caps the eval chunk
+#: at 426 where the nominal chunk is 1000, so `exact`/`laplace`/`peak-local` run at under
+#: half the batch `grid` gets, and small batches are exactly where their per-sample cost is
+#: worst.
+#: So DERIVE it from the device when we can see one, and keep 4 GiB as the fallback for the
+#: machine we cannot measure.  Deliberately a fraction of free VRAM rather than all of it:
+#: this bounds ONE buffer, and the rest of the graph has to live alongside it.
+_ANGLE_MARG_BUFFER_TARGET_FALLBACK = 4 << 30
+_ANGLE_MARG_BUFFER_FRACTION = 0.25
+
+
+def _angle_marg_buffer_target():
+    """Bytes to allow for the largest single anglemarg buffer.
+
+    Queried from the device rather than assumed, because the constant this replaces was
+    sized on the smallest machine anyone had run on.  Any failure to read the device --
+    no jax, no GPU, an API that moved -- returns the historical 4 GiB, so a machine we
+    cannot interrogate behaves exactly as before rather than getting a larger number by
+    accident.
+    """
+    try:
+        import jax
+        devs = [d for d in jax.devices() if getattr(d, "platform", "") == "gpu"]
+        if not devs:
+            return _ANGLE_MARG_BUFFER_TARGET_FALLBACK
+        stats = devs[0].memory_stats() or {}
+        limit = stats.get("bytes_limit") or stats.get("bytes_reservable_limit")
+        if not limit:
+            return _ANGLE_MARG_BUFFER_TARGET_FALLBACK
+        return max(_ANGLE_MARG_BUFFER_TARGET_FALLBACK,
+                   int(limit * _ANGLE_MARG_BUFFER_FRACTION))
+    except Exception:
+        return _ANGLE_MARG_BUFFER_TARGET_FALLBACK
+
+
+#: Kept as a module attribute so existing readers (and tests) still see a number.
+_ANGLE_MARG_BUFFER_TARGET = _ANGLE_MARG_BUFFER_TARGET_FALLBACK
 
 
 def angle_marg_eval_chunk(like, chunk):
@@ -285,7 +325,7 @@ def angle_marg_eval_chunk(like, chunk):
         bytes_per = max(
             bytes_per,
             _jp.PHI_CHUNK_DEFAULT * n_x * 4 * _jp.U_NODES_PER_CELL * 8)
-    cap = max(1, _ANGLE_MARG_BUFFER_TARGET // (bytes_per * npts))
+    cap = max(1, _angle_marg_buffer_target() // (bytes_per * npts))
     return min(chunk, cap)
     # A floor larger than one defeats the memory bound for long, valid time
     # windows (for example npts=65537 made a floor of 64 request ~32 GiB).
