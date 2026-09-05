@@ -610,52 +610,63 @@ the symmetry can be broken at roundoff.  A symmetry assumed exact when it is 1e-
 the same defect in a new costume.  Correct layering: numerical clustering stays load-bearing;
 a declared symmetry may SEED clustering and tighten the budget, and the certificate verifies.
 
-### The 2-D enumerator COMPOSES the 1-D one — the pencil may not be needed at all
+### The 2-D enumerator is a finite resultant, not a φ grid
 
-The obvious route to joint (φ,ψ) is a full 2-D algebraic solve: two Laurent equations, BKK
-mixed volume `8mn = 64` as the certificate, hidden-variable pencil to solve it.  The flagged
-blocker was that pencil's conditioning on the machine-degenerate production tables — the 2-D
-analogue of the on-circle-tolerance trap.
+The earlier hybrid in this section solved the degree-four u polynomial at 64 sampled φ
+values.  That cost was amplitude-independent, but it was still GRID SEEDING and therefore
+was not enumeration of the known finite stationary set.  Higher-mode likelihoods know both
+orders: the exponent is a real Laurent polynomial of bidegree `(K,Q)=(2 m_max,2)`.  There is
+no reason to replace that information by an angular resolution.
 
-**That blocker is dissolved rather than solved, by composition.**  The u-degree is pinned at
-2 for ANY mode set, so at every fixed φ the u-critical points are the unit-circle roots of
-the SAME degree-4 polynomial the ψ primitive already solves.  The variety `{∂_u g = 0}` is
-therefore obtained EXACTLY, with no grid in u and no tolerance.  The 2-D critical points lie
-on that curve, so the remaining search is **one-dimensional in φ along a curve known
-exactly** — no resultant, no pencil, no BKK machinery.
+`bivariate_trig_stationary.py` now implements the host reference construction.  Expand the
+stored half-table into its full Hermitian Laurent table and form
 
-Measured on the shipped tables (`make_synth`, bidegree (4,2) — note `A` and `B` have
-DIFFERENT bidegrees, `A` linear in the waveform (φ≤m_max, u≤1) and `B` quadratic
-(φ≤2m_max, u≤2), which is why `c2` carries no `A` contribution exactly as
-`_laplace_psi_lnI` states):
+```
+F(z,w) = partial_phi g,       G(z,w) = partial_u g,
+z = exp(i phi),               w = exp(i u).
+```
 
-| κ boost | 1 | 10 | 100 | 1000 |
-|---|---|---|---|---|
-| mass-carrying maxima (brute force) | 16 | 12 | 12 | 12 |
-| **recovered, at 64 φ-seeds** | **16** | **12** | **12** | **12** |
-| worst candidate-to-maximum gap (rad) | 0.067 | 0.026 | 0.070 | 0.069 |
+After clearing negative powers these are ordinary bivariate polynomials.  A coordinate
+resultant is a poor numerical choice because several real modes commonly have exactly the
+same φ (or u), making the hidden root multiple.  Instead choose a generic affine hidden
+variable `t = z + alpha w`, substitute `z=t-alpha w`, and eliminate `w` with the Sylvester
+matrix polynomial `S(t)`.  A block companion linearization turns `det S(t)=0` into one
+generalized eigenproblem.  The Newton polygons give the exact mixed-volume budget; for the
+full rectangular derivative supports it is `8 K Q` (64 at `(4,2)`).  This is the finite
+object that exhausts the isolated complex stationary set.
 
-Every mass-carrying maximum is recovered at every amplitude, and the gap shrinks as φ is
-refined (0.070 → 0.039 at 128 seeds).  Candidate count is `4 × N_φ` — **amplitude-independent**.
+The numerical certificate has four gates, all fail closed:
 
-Against the SHIPPED `_dense_grid_sizes` product grid:
+1. recover the mixed-volume number of verified roots in `(C*)^2`;
+2. require nonsingular, adequately conditioned stationary Jacobians and a backward-stable
+   generalized eigenproblem;
+3. classify torus roots with the Laurent system's reciprocal-conjugate involution, not an
+   `abs(|z|-1)<tol` filter — a close off-torus pair is ambiguous and declines; and
+4. repeat with an independent `alpha` and require the complete torus sets to match.
 
-| amplitude | 325 | 3 250 | 3.25e4 | 3.25e5 |
-|---|---|---|---|---|
-| dense (φ,u) points | 48 640 | 430 592 | 4 216 576 | 41 806 336 |
-| composed (4 × 64) | 256 | 256 | 256 | 256 |
-| **ratio** | 190× | 1 682× | 16 471× | 163 306× |
+This preserves all isolated co-dominant maxima.  The adversarial reference tests include a
+Cartesian mode lattice whose points collide under either coordinate projection, a
+max/min pair closer than a 4096-point φ spacing, and exact annihilation.  The first two are
+fully enumerated; the last is correctly marked non-regular.
 
-The ratio grows linearly in `A`, which is the amplitude-independence argument made concrete.
+**Incomplete algebraic accounting is not a waveform failure.**  The hierarchy is:
 
-**Be precise about what is and is not certified here.**  This is a HYBRID: the u axis is
-certified at enumeration time (exact quartic, all roots, no filtering), while the φ axis is
-GRID-SEEDED and therefore is not — it carries exactly the same "a grid is a resolution, not
-a certificate" caveat as the time axis.  Correctness on φ must come from the cover bound, as
-it does for time.  What composition buys is not a φ certificate; it is the removal of the
-entire 2-D algebraic apparatus and its conditioning risk, at a cost that does not grow with
-amplitude.  A full 2-D solve remains the route to an enumeration-time certificate on BOTH
-axes if one is ever needed; this measurement says it is not needed to get the cost win.
+1. use the complete algebraic set when all gates pass;
+2. otherwise retain every definitely-real candidate from every projection and use it only
+   if the existing outside-cover supremum bound proves the omitted impact below budget and
+   a doubled local rule verifies the quadrature inside that cover;
+3. if that bound does not pass, compute the finite dense-φ/exact-u fallback and record the
+   expected/found roots, conditioning, and fallback reason.
+
+A missing root can therefore cost performance, but it cannot silently delete a likelihood
+sample or produce `-inf`.  Calling level 2 "enumeration" would still be wrong; reports name
+it `algebraic-best-effort/bound-certified`.
+
+The reference is intentionally host-side.  Generalized QZ, a variable finite-root count,
+cross-projection matching, and these conditioning gates do not yet have an honest
+static-shape JAX transcription.  The defensible JAX route is a fixed-capacity device plan
+built from this host solve, with the same dense fallback.  Replacing it by a sampled φ grid
+and calling that algebraic enumeration is explicitly out of scope.
 
 ### Where enumeration loses — the exclusion region is part of the design
 

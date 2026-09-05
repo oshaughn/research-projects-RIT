@@ -128,6 +128,12 @@ executables without dying during option parsing.
   - `make_distance_grid(...)`, `JAXLikelihoodData`, `build_likelihood_data`.
 - `time_first_peaklocal.py` — experimental primitive-first time-cover planner
   and distance adapter; not selected by any production endpoint.
+- `../bivariate_trig_stationary.py` — host reference for complete finite-order
+  `(phi_ref, 2 psi)` stationary enumeration by a Sylvester resultant and
+  generalized eigenproblem.  It records BKK expected/found counts,
+  conditioning, cross-projection agreement, and supplies best-effort targets
+  only behind an outside-cover bound; no sampled phi grid is called
+  enumeration.  A fixed-capacity JAX plan adapter remains future work.
 - `wrapper.py` — `build_data_from_precompute` (runs the production precompute +
   packing and returns a device-resident `JAXLikelihoodData`), and the
   convenience classes `JAXExtrinsicLikelihood` (6-D, value/grad/Fisher) and

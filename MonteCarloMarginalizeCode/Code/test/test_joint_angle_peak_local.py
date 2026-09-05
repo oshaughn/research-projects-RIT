@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from RIFT.likelihood import joint_angle_peak_local as J
+from RIFT.likelihood import bivariate_trig_stationary as BTS
 
 
 def synth_table(seed=0, scale=1.0, bidegree=(4, 2)):
@@ -16,6 +17,133 @@ def synth_table(seed=0, scale=1.0, bidegree=(4, 2)):
     rng = np.random.default_rng(seed)
     C = rng.normal(size=(KP, 2 * KS + 1)) + 1j * rng.normal(size=(KP, 2 * KS + 1))
     return scale * C
+
+
+def _periodic_set_error(got, want):
+    """Symmetric nearest-neighbour error for two small point sets on the torus."""
+    got = np.asarray(got, dtype=float).reshape((-1, 2))
+    want = np.asarray(want, dtype=float).reshape((-1, 2))
+    if len(got) != len(want):
+        return np.inf
+    d = (got[:, None, :] - want[None, :, :] + np.pi) % (2 * np.pi) - np.pi
+    r = np.linalg.norm(d, axis=-1)
+    return max(float(np.max(np.min(r, axis=0))),
+               float(np.max(np.min(r, axis=1))))
+
+
+def _separable_table(m=3, n=2, a=7.0, b=4.0):
+    """Exactly ``a cos(m phi) + b cos(n u)`` in the RIFT storage convention."""
+    C = np.zeros((m + 1, 2 * n + 1), dtype=complex)
+    C[m, n] = 0.5 * a                 # k>0 is doubled by the evaluator
+    C[0, 2 * n] = b                   # q=+n; taking Re supplies q=-n
+    return C
+
+
+def test_algebraic_canonical_table_matches_the_shipped_field_convention():
+    """Laurent conversion is exact, including k=0 overlap and both q signs."""
+    C = synth_table(seed=91, scale=2.3, bidegree=(3, 2))
+    A = BTS.canonical_laurent_table(C)
+    rng = np.random.default_rng(123)
+    p = rng.uniform(0, 2 * np.pi, size=(37, 2))
+    k = np.arange(-3, 4)[None, :, None]
+    q = np.arange(-2, 3)[None, None, :]
+    full = np.real(np.sum(
+        A[None] * np.exp(1j * (p[:, 0, None, None] * k
+                                + p[:, 1, None, None] * q)), axis=(1, 2)))
+    assert np.allclose(full, J.eval_g(C, p[:, 0], p[:, 1]), rtol=0, atol=2e-13)
+
+
+def test_algebraic_enumerator_preserves_every_codominant_separable_maximum():
+    """Generic projection must not collapse modes sharing the same phi or u.
+
+    A coordinate resultant has repeated projected roots on this Cartesian mode
+    lattice.  The affine hidden variable separates them and returns all six equal
+    maxima, without any angular samples.
+    """
+    C = _separable_table(m=3, n=2)
+    out = BTS.enumerate_torus_maxima(C)
+    want = np.array([(2 * np.pi * j / 3, np.pi * k)
+                     for j in range(3) for k in range(2)])
+    assert out.ok, out.report
+    assert out.report["mixed_volume"] == 24
+    assert out.stationary_points.shape == (24, 2)
+    assert out.points.shape == (6, 2)
+    assert _periodic_set_error(out.points, want) < 2e-9
+    assert np.ptp(out.values) < 2e-12
+
+
+def test_algebraic_enumerator_resolves_near_annihilating_stationary_points():
+    """A close max/min pair is part of the polynomial, not a resolution choice."""
+    ratio = 3.9999999
+    C = np.zeros((3, 5), dtype=complex)
+    C[1, 2] = 0.5 * ratio
+    C[2, 2] = 0.5
+    C[0, 4] = 2.0
+    out = BTS.enumerate_torus_maxima(C)
+    assert out.ok, out.report
+    assert out.stationary_points.shape == (16, 2)
+    assert out.points.shape == (4, 2)
+
+    # The two additional phi stationary points approach pi from either side.
+    # Their separation is smaller than a 4096-point circle spacing; retaining
+    # both demonstrates that no sampled phi resolution controls enumeration.
+    expected_phi = np.mod(np.array([
+        0.0, np.pi,
+        np.arccos(-ratio / 4.0),
+        2.0 * np.pi - np.arccos(-ratio / 4.0),
+    ]), 2.0 * np.pi)
+    got_phi = np.unique(np.round(out.stationary_points[:, 0], 11))
+    circ = np.abs((got_phi[:, None] - expected_phi[None, :] + np.pi)
+                  % (2 * np.pi) - np.pi)
+    assert got_phi.size == 4
+    assert np.max(np.min(circ, axis=0)) < 2e-8
+    close_sep = 2.0 * (np.pi - np.arccos(-ratio / 4.0))
+    assert close_sep < 2.0 * np.pi / 4096
+
+
+def test_algebraic_enumerator_declines_at_exact_stationary_degeneracy():
+    """At annihilation certification declines, while safe targets stay available."""
+    C = np.zeros((3, 5), dtype=complex)
+    C[1, 2] = 2.0                    # ratio c1/c2 == 4 exactly
+    C[2, 2] = 0.5
+    C[0, 4] = 2.0
+    out = BTS.enumerate_torus_maxima(C)
+    assert not out.ok
+    assert out.points.shape[0] == 2
+    assert all(p["decline"] is not None for p in out.report["projections"])
+    assert min(p["min_jacobian_rcond"] for p in out.report["projections"]) < 2e-10
+    assert np.all(np.linalg.eigvalsh(out.hessians) < 0.0)
+
+
+def test_algebraic_enumeration_size_and_modes_are_amplitude_independent():
+    """Scaling the exponent changes widths, never its algebraic candidate set."""
+    C = synth_table(seed=17, bidegree=(2, 2))
+    low = BTS.enumerate_torus_maxima(C)
+    high = BTS.enumerate_torus_maxima(1.0e8 * C)
+    assert low.ok and high.ok, (low.report, high.report)
+    assert low.report["mixed_volume"] == high.report["mixed_volume"] == 32
+    assert [p["pencil_size"] for p in low.report["projections"]] == [
+        p["pencil_size"] for p in high.report["projections"]]
+    assert _periodic_set_error(low.points, high.points) < 2e-8
+
+
+def test_incomplete_algebraic_accounting_never_drops_the_likelihood_sample():
+    """A root deficit is either cover-certified or sent to the dense fallback."""
+    C = synth_table(seed=3, scale=1.0)
+    value, ok, report = J.joint_marginalize_peak_local(
+        C, n_phi=64, n_bound_grid=128)
+    assert ok and np.isfinite(value), report
+    assert not report["enumeration_certified"]
+    assert report["result_path"] in {
+        "algebraic-best-effort/bound-certified", "dense-phi/exact-u"}
+    projections = report["enumeration"]["projections"]
+    assert any(p["verified_complex_roots"] < p["expected_roots"]
+               for p in projections)
+    assert all("min_jacobian_rcond" in p for p in projections)
+    if report["result_path"] == "algebraic-best-effort/bound-certified":
+        assert report["margin"] < J.OUTSIDE_TOL_NATS
+    else:
+        assert report["fallback_reason"]
 
 
 def _ref(C, n=2048):
@@ -82,9 +210,9 @@ def test_eval_g_chunking_cannot_change_the_answer():
     assert a.tobytes() == b.tobytes()
 
 
-def test_an_undersized_region_is_DECLINED_not_returned():
+def test_an_undersized_region_falls_back_instead_of_returning_local_value():
     """The load-bearing behaviour.  W_SIGMA too small leaves mass outside the cover;
-    the value may still be right, but the rule cannot PROVE it and must decline.
+    the local value may still be right, but the rule cannot PROVE it and must fall back.
     Measured on the shipped tables: at W = 8 the margin is -18 nats against a -23
     tolerance, and at 14 it is -71 -- with the returned value identical at both."""
     C = synth_table(seed=3, scale=12.0)
@@ -96,9 +224,11 @@ def test_an_undersized_region_is_DECLINED_not_returned():
         val_big, ok_big, _ = J.joint_marginalize_peak_local(C, n_phi=96)
     finally:
         J.W_SIGMA = keep
-    assert not ok_small, rep_small
-    assert rep_small['decline'] == 'omitted-mass bound too large'
+    assert ok_small, rep_small
+    assert rep_small['result_path'] == 'dense-phi/exact-u'
+    assert 'omitted-mass bound too large' in rep_small['fallback_reason']
     assert ok_big
+    assert abs(val_small - val_big) < 1e-6
 
 
 def test_regions_merge_rather_than_double_counting():
@@ -491,9 +621,16 @@ def test_a_fully_covered_box_is_still_accurate_inside():
     assert abs(np.sum(np.abs(C)) - 24164.9) < 1.0, "fixture drifted"
     lnZ, ok, rep = J.joint_marginalize_peak_local(C)
     assert ok, rep
-    # the structure that makes this case interesting must actually be present
-    assert rep['area_outside'] == 0.0, rep       # cover IS the whole torus
-    assert rep['margin'] == -np.inf, rep         # certificate claims nothing omitted
+    # A complete algebraic cover retains the original inside-box regression.  An
+    # incomplete solve may expose less covered area; the new hierarchy must then
+    # take the finite dense fallback instead of treating the row as -inf.
+    if rep['result_path'].startswith('algebraic'):
+        assert rep['area_outside'] == 0.0, rep
+        assert rep['margin'] == -np.inf, rep
+    else:
+        assert rep['result_path'] == 'dense-phi/exact-u', rep
+        assert rep['fallback_reason'], rep
+        assert rep['dense_fallback']['doubling_error'] < 1e-4, rep
     err = abs(lnZ - _torus_reference(C))
     assert err < 1.0e-2, "inside-the-cover error %.4f nats (cap 256 gave 0.36)" % err
 
