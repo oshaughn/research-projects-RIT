@@ -261,10 +261,9 @@ def angle_marg_eval_chunk(like, chunk):
     # (interp linear -> sinc) was bitten by exactly that.
     # 'peak-local' is capped WITH the dense schemes, not exempted from them.  Its u
     # axis is localized, but it still nests sample/time vmaps over the distance grid,
-    # phi chunks, four cells and 48 u nodes, so the batch multiplies the same way the
-    # dense schemes do; the laplace bytes-per-sample-point constant is used for it as
-    # the worst case, exactly as it already is for exact.  Leaving it out kept an
-    # uncapped 8000-sample batch and reopened the 36.4 GiB failure documented above.
+    # phi chunks, four cells and a streamed u-node block, so the batch multiplies the
+    # same way the dense schemes do.  Leaving it out kept an uncapped 8000-sample batch
+    # and reopened the 36.4 GiB failure documented above.
     if getattr(like, "angle_marg_scheme", "grid") not in ("exact", "laplace",
                                                           "peak-local"):
         return chunk
@@ -276,24 +275,23 @@ def angle_marg_eval_chunk(like, chunk):
         # ITS COST MODEL IS NOT THE DENSE ONE, and enrolling it in the cap without
         # saying so was a review finding.  peak-local carries the WHOLE distance grid
         # inside every phi chunk, so its live slab is
-        #     phi_chunk * n_x * (4 cells) * (u nodes) * 8 bytes
-        # per (sample, time-point) -- about 6.3 MB at phi_chunk=16 and n_x=256, roughly
-        # 770x the 8192-byte dense model, before intermediates.  Using the dense
+        #     phi_chunk * n_x * (4 cells) * (live u nodes) * 8 bytes
+        # per (sample, time-point) -- about 1.0 MB at phi_chunk=16, n_x=256 and an
+        # 8-node stream block, roughly 128x the 8192-byte dense model before
+        # intermediates.  Using the dense
         # constant would have applied a cap that looks protective and is not.
         from . import joint_anglemarg_peaklocal as _jp
         n_x = int(np.size(getattr(like, "x_grid", ())) or 1)
-        # Size from what the kernel WILL REQUEST, never from the constant.  Reading
-        # U_NODES_PER_CELL here made this guard silently wrong the moment anything sized
-        # the kernel from amplitude: at the production floor amp_sizing=450 that is 896
-        # nodes against a modeled 48, taking the documented live slab from 3.6 GiB to
-        # 67 GiB at chunk one.  u_nodes_in_use() is the one place both sides read, and
-        # the SAME amp_sizing the kernel is given is passed here -- calling it with no
-        # argument on one side and with one on the other would reintroduce the divergence
-        # the moment the helper starts using it.
+        # The kernel requests the accurate amplitude-derived TOTAL but streams its node
+        # axis.  Model the live block, not the total work: using all 896 production-floor
+        # nodes here would be safe but would collapse the batch cap as though the old
+        # 67-GiB materialization still existed.  The same amp_sizing is nevertheless read
+        # here so this guard remains coupled to the production policy.
         amp_sizing = (getattr(like, "angle_marg_info", None) or {}).get("amp_sizing")
+        n_u_live = min(_jp.u_nodes_in_use(amp_sizing), _jp.U_NODE_STREAM_CHUNK)
         bytes_per = max(
             bytes_per,
-            _jp.PHI_CHUNK_DEFAULT * n_x * 4 * _jp.u_nodes_in_use(amp_sizing) * 8)
+            _jp.PHI_CHUNK_DEFAULT * n_x * 4 * n_u_live * 8)
     cap = max(1, _ANGLE_MARG_BUFFER_TARGET // (bytes_per * npts))
     return min(chunk, cap)
     # A floor larger than one defeats the memory bound for long, valid time

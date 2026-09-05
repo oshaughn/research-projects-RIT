@@ -11,8 +11,8 @@ quartic.  On the circle maxima and minima ALTERNATE, so the sorted stationary po
 already tile the domain: the cell of a maximum is the arc between its two neighbouring
 minima.  Those cells are disjoint by construction and cover the circle, so there is
 nothing to merge and nothing to double-count -- the failure the reference spends
-``_merge_boxes`` on cannot arise.  Everything is then static: 4 roots, 4 candidate
-cells, a fixed number of quadrature nodes in each.
+``_merge_boxes`` on cannot arise.  Everything is then static at trace time: 4 roots,
+4 candidate cells, and an amplitude-derived quadrature count streamed in fixed blocks.
 
 WHY THE ROOTS ARE TAKEN WITHOUT A ``|z| = 1`` FILTER.  At exact multiplicity the
 computed roots smear off the unit circle by ``eps^(1/m)`` -- measured 4.6e-6 for a
@@ -23,10 +23,10 @@ zero-length or redundant cell, which is harmless, whereas a dropped one loses ma
 WHAT SCALES WITH AMPLITUDE AND WHAT DOES NOT.  The stationary points of ``g`` do not
 move when the data amplitude grows -- ``g -> lambda g`` leaves them fixed -- so the
 CELLS are amplitude-independent, while the peak inside each cell narrows as
-``A^-1/2``.  The local window is therefore sized from the local curvature and clipped
-to the cell, which keeps the node count fixed.  This is the u axis's whole economy: the
-shipped dense scheme spends ``~sqrt(A)`` points on this axis, and this spends a
-constant.
+``A^-1/2``.  A local window therefore needs a fixed count, but a rejected Newton centre
+falls back to a whole cell and needs ``~sqrt(A)`` nodes.  Production uses that conservative
+count for every cell because fallback is data-dependent; streaming preserves the memory
+economy even though the arithmetic cost is no longer claimed constant.
 
 SCOPE OF THIS KERNEL.  The u axis is localized; the phi axis is a dense grid, scanned
 in chunks.  That is deliberately the same cost shape as the shipped ``laplace`` scheme
@@ -35,8 +35,9 @@ O(1/A) width model rather than the exact stationary points.  Localizing phi as w
 the (phi localized, psi localized) cell of the family -- needs the profile ``F(phi)``
 and its envelope derivative, and is not attempted here.
 
-MEMORY.  Bounded by ``phi_chunk`` through ``lax.scan``, never by the grid: the largest
-transient is ``(phi_chunk, n_x, 4, n_u)``.  It is a cost knob and cannot change the
+MEMORY.  Bounded by ``phi_chunk`` and ``U_NODE_STREAM_CHUNK`` through rolled loops, never
+by the full phi or u grids: the largest u transient is
+``(phi_chunk, n_x, 4, U_NODE_STREAM_CHUNK)``.  These are cost knobs and cannot change the
 result beyond floating-point reassociation.
 """
 
@@ -51,6 +52,7 @@ __all__ = [
     "u_nodes_in_use",
     "U_WINDOW_SIGMA",
     "U_NODES_PER_CELL",
+    "U_NODE_STREAM_CHUNK",
     "PHI_CHUNK_DEFAULT",
     "u_stationary_roots",
     "log_inner_u_integral",
@@ -75,10 +77,15 @@ U_WINDOW_SIGMA = 12.0
 #: A cell whose Newton centre is rejected (stalled on a boundary, large stationary
 #: residual) is integrated WHOLE, and 48 nodes then span the entire cell rather than
 #: +-12 sigma.  The numpy twin measured 1.7e-03 nats of inner-u error that way, so the
-#: honest statement is: this default resolves WINDOWED cells at any amplitude, and a
-#: caller that may hit fallback cells at high amplitude should size it with
-#: :func:`required_u_nodes` instead of relying on the default.
+#: honest statement is: this default resolves WINDOWED cells at any amplitude.  The
+#: production caller may hit a fallback at any phi/distance point, so it uses the
+#: amplitude-derived :func:`u_nodes_in_use` policy instead of relying on this floor.
 U_NODES_PER_CELL = 48
+
+#: Maximum number of u nodes materialized at once.  The production count grows as
+#: sqrt(amplitude), but the quadrature is accumulated through a rolled scan so that its
+#: live node axis -- and therefore the batch-memory model -- stays bounded.
+U_NODE_STREAM_CHUNK = 8
 
 #: phi points per scan step.
 PHI_CHUNK_DEFAULT = 16
@@ -103,15 +110,18 @@ def u_nodes_in_use(amp_sizing=None):
     a single source of truth that only one side read, which is no single source of truth
     at all and is exactly the divergence this helper exists to prevent.  Caught in review.
 
-    It returns the default at every amplitude today, so ``amp_sizing`` changes nothing and
-    every result is bit-identical; the argument is threaded so that a future change sizing
-    the kernel from amplitude changes it HERE and both sides follow.  Do not read
-    ``U_NODES_PER_CELL`` directly from outside this module.
+    A direct low-level call without an amplitude retains the validated 48-node windowed
+    floor.  Production always supplies ``amp_sizing`` and therefore gets the derived,
+    uncapped whole-cell requirement.  The quadrature streams that count in
+    ``U_NODE_STREAM_CHUNK``-sized blocks, so accuracy grows with amplitude without making
+    the live node dimension grow with it.
     """
-    return U_NODES_PER_CELL
+    if amp_sizing is None:
+        return U_NODES_PER_CELL
+    return required_u_nodes(amp_sizing)
 
 
-def required_u_nodes(amplitude, pts_per_sigma=3.0, cap=2048):
+def required_u_nodes(amplitude, pts_per_sigma=3.0, cap=None):
     """u nodes per cell adequate for a FALLBACK (whole-cell) integration at ``amplitude``.
 
     Derived, not tuned.  The u-spectrum has two terms, so ``|d2g/du2| <= M2u`` exactly,
@@ -125,15 +135,15 @@ def required_u_nodes(amplitude, pts_per_sigma=3.0, cap=2048):
     adaptation inside the kernel: shapes cannot depend on traced values.  The numpy twin
     derives the same quantity per call because it can.
 
-    ``cap`` bounds the cost.  When it binds the fallback cell may be under-resolved --
-    measured at the inner-u error recorded on U_NODES_PER_CELL before any derivation,
-    and 2.2e-04 with the curvature scale --
-    which is far below this rule's 23 nat acceptance tolerance but is NOT nothing, so it
-    is reported rather than absorbed silently.
+    ``cap`` is available only for explicit diagnostic callers.  It is deliberately
+    ``None`` in production: truncating the requested count recreates the inside-cover
+    accuracy failure this policy exists to prevent.  Memory is bounded independently by
+    streaming the node axis rather than by silently reducing the quadrature.
     """
     a = max(float(amplitude), 1.0)
     need = int(np.ceil(2.0 * np.pi * np.sqrt(5.0 * a) * float(pts_per_sigma))) + 1
-    return int(min(max(need, U_NODES_PER_CELL), int(cap)))
+    need = max(need, U_NODES_PER_CELL)
+    return int(need if cap is None else min(need, int(cap)))
 
 
 def required_n_phi(amplitude, m_max=2):
@@ -285,13 +295,33 @@ def log_inner_u_integral(a, c1, c2, n_nodes=U_NODES_PER_CELL,
     hi = jnp.where(peaked, jnp.minimum(ustar + window_sigma * sigma, hi_c), hi_c)
     width = jnp.maximum(hi - lo, 0.0)
 
-    s = jnp.linspace(0.0, 1.0, n_nodes)                          # (n,)
-    uu = lo[:, None] + width[:, None] * s[None, :]               # (4, n)
-    gg = _g_u(a, c1, c2, uu, 0)
-    wq = jnp.full(n_nodes, 1.0 / (n_nodes - 1))
-    wq = wq.at[0].mul(0.5).at[-1].mul(0.5)
-    logw = jnp.log(wq)[None, :] + jnp.log(jnp.where(width > 0, width, 1.0))[:, None]
-    cell = jax.scipy.special.logsumexp(gg + logw, axis=-1)       # (4,)
+    # STREAM THE NODE AXIS.  Materializing (4, n_nodes) here is multiplied by the outer
+    # phi, distance, time and sample batches.  At the production floor the accurate
+    # fallback policy asks for 896 nodes, which would turn the documented 48-node live
+    # slab into ~67 GiB even at sample chunk one.  A rolled scan keeps only
+    # U_NODE_STREAM_CHUNK nodes live while accumulating the identical trapezoid sum.
+    n_nodes = int(n_nodes)
+    if n_nodes < 2:
+        raise ValueError("n_nodes must be at least 2")
+    n_blocks = int(np.ceil(n_nodes / U_NODE_STREAM_CHUNK))
+    local_idx = jnp.arange(U_NODE_STREAM_CHUNK)
+
+    def _node_block(block_i, log_sum):
+        idx = block_i * U_NODE_STREAM_CHUNK + local_idx
+        live = idx < n_nodes
+        s = idx / float(n_nodes - 1)
+        uu = lo[:, None] + width[:, None] * s[None, :]
+        gg = _g_u(a, c1, c2, uu, 0)
+        endpoint = (idx == 0) | (idx == n_nodes - 1)
+        log_trap = jnp.where(endpoint, -jnp.log(2.0), 0.0)
+        terms = jnp.where(live[None, :], gg + log_trap[None, :], -jnp.inf)
+        block = jax.scipy.special.logsumexp(terms, axis=-1)
+        return jnp.logaddexp(log_sum, block)
+
+    cell_sum = lax.fori_loop(0, n_blocks, jax.checkpoint(_node_block),
+                             jnp.full(4, -jnp.inf))
+    log_scale = jnp.log(jnp.where(width > 0, width, 1.0)) - jnp.log(n_nodes - 1)
+    cell = cell_sum + log_scale
     cell = jnp.where(width > 0, cell, -jnp.inf)
     return jax.scipy.special.logsumexp(cell)
 

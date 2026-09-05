@@ -1966,9 +1966,10 @@ def fused_log_likelihood_distphipsimarg_peaklocal(
     rather than a dense grid sized ``~sqrt(A)``, the u-stationary points are obtained
     EXACTLY -- they are the unit-circle roots of a quartic, the u-degree being pinned at
     2 for any mode set -- the sorted points partition the circle, and each cell is
-    integrated on a window set by its own curvature.  The node count on that axis is
-    therefore INDEPENDENT of amplitude: 4 cells x 48 nodes, against the dense rule's 896
-    at amplitude 1.25e4.
+    integrated on a window set by its own curvature.  Windowed cells need only 48 nodes,
+    but rejected Newton centres span whole cells, so production sizes the shared static
+    count from ``amp_sizing``.  The node axis is streamed in fixed-size blocks; cost grows
+    as sqrt(amplitude), while its live memory does not.
 
     THE PHI AXIS IS STILL DENSE HERE and is sized by
     :func:`~RIFT.likelihood.jax_ile.joint_anglemarg_peaklocal.required_n_phi` from the
@@ -2008,8 +2009,8 @@ def fused_log_likelihood_distphipsimarg_peaklocal(
     # fall back to its own constant: the batch-memory guard in samplers.py models this
     # same number from the same amp_sizing, and the two live in different files.  Passing
     # it explicitly is what makes them provably the same value rather than two defaults
-    # that happen to agree.  u_nodes_in_use ignores amp_sizing today, so this is
-    # bit-identical; it is threaded so a future amplitude-dependent sizing moves both.
+    # that happen to agree.  The derived count is streamed inside the kernel, so raising
+    # accuracy does not materialize that entire axis across the outer batches.
     kw = {"n_nodes": _jp.u_nodes_in_use(amp_sizing)}
     if phi_chunk is not None:
         kw["phi_chunk"] = int(phi_chunk)

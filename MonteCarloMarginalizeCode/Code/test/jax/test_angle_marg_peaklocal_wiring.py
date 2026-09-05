@@ -205,18 +205,16 @@ def test_kernel_and_memory_guard_read_the_same_node_count():
     amplitude-dependent change would have moved the guard and left the kernel behind.  A
     single source of truth that only one side reads is not one.
 
-    The invariant is NOT "both currently equal 48" -- that passes even if neither side
-    reads the helper.  It is that changing the HELPER moves BOTH, so the helper is patched
-    and each side is observed.  Today ``u_nodes_in_use`` ignores ``amp_sizing`` and returns
-    the constant at every amplitude, so the wiring is bit-identical; this test is what
-    keeps that an implementation detail rather than the thing holding the two together.
+    The invariant is NOT "both currently equal 48" -- production uses the uncapped
+    derived count.  Both sides must read the same amplitude, while the guard models only
+    the streamed live block rather than the total quadrature work.
 
     The shape is deliberately NOT the production one.  At npts=614 with 256 distance nodes
     the cap is already pinned at its floor of 1 -- the measured "peak-local batches one
     sample" result -- so quadrupling the node count cannot move it, and the guard assertion
     would read ``1 < 1`` and fail while the wiring was correct.  A saturated observable
-    cannot test the thing it saturates on.  npts=64 with 32 nodes gives 85, clear of the
-    floor and of the 8000 ceiling.
+    cannot test the thing it saturates on.  npts=64 with 32 distance nodes stays clear of
+    both the floor and the 8000 ceiling.
     """
     from RIFT.likelihood.jax_ile import samplers as S
     from RIFT.likelihood.jax_ile import joint_anglemarg_peaklocal as JP
@@ -241,13 +239,19 @@ def test_kernel_and_memory_guard_read_the_same_node_count():
     baseline_cap = S.angle_marg_eval_chunk(_Like(), 8000)
     assert 1 < baseline_cap < 8000, baseline_cap      # the observable is not saturated
 
-    JP.u_nodes_in_use = lambda amp_sizing=None: 4 * real_helper(amp_sizing)
+    helper_args = []
+    def _raised_policy(amp_sizing=None):
+        helper_args.append(amp_sizing)
+        return 4 * real_helper(amp_sizing)
+
+    JP.u_nodes_in_use = _raised_policy
     JP.log_inner_u_integral = _spy_inner
     try:
-        # the GUARD must follow the helper: 4x the nodes is 4x the modelled slab, so the
-        # cap must shrink.  If it still read the constant this would be unchanged.
+        # The guard must consult the helper with the production amplitude.  Its cap does
+        # not shrink because the extra total work is streamed through the same live block.
         raised_cap = S.angle_marg_eval_chunk(_Like(), 8000)
-        assert raised_cap < baseline_cap, (baseline_cap, raised_cap)
+        assert raised_cap == baseline_cap, (baseline_cap, raised_cap)
+        assert 450.0 in helper_args, helper_args
 
         # the KERNEL must follow it too, via n_nodes=None resolving through the helper
         rng = np.random.default_rng(0)

@@ -698,9 +698,9 @@ axes if one is ever needed; this measurement says it is not needed to get the co
   code is not a documentation defect — it is a place a bug can hide, because it answers
   the reviewer's question before the reviewer reaches the code.  Measured, three times in
   one week across three files by three authors.  This module's own instance: the JAX
-  fallback comment asserted the whole-cell branch "can only add nodes"; it adds none, it
-  spreads the same fixed count over the whole cell, so the fallback is COARSER than the
-  window it replaces.  1.7e-03 nats of inner-u error sat unexamined behind that sentence,
+  fallback comment asserted the whole-cell branch "can only add nodes"; at the time it
+  added none and spread the same fixed count over the whole cell, so the fallback was
+  COARSER than the window it replaced.  1.7e-03 nats of inner-u error sat behind that sentence,
   and it survived a rewrite of the numpy twin because nobody re-read the twin.  When a
   claim in a comment is load-bearing for correctness, it is a test's job, not prose's.
 
