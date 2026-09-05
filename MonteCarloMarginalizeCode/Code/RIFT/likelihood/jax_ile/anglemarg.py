@@ -1102,15 +1102,21 @@ _LAPLACE_MAX_ROOTS = 4
 #:
 #:     16 * 4 * 16 * LAPLACE_POINT_BLOCK * sizeof(float64) = 32 MiB.
 #:
+#: This is a bound on the EXPLICIT sample/time axes of a direct kernel call,
+#: not on arbitrary enclosing transformations: an outer ``vmap`` (flowMC maps
+#: its scalar AD target over chains) adds another batch axis that this function
+#: cannot see when it chooses ``pblk``.
+#:
 #: Before this point axis was rolled, that last factor was ``S * npts``.  The
-#: production failure at ``S=4000, npts=1193`` therefore asked XLA for one
-#: 36.41-GiB buffer.  The sampler-side device cap can reduce S for callers that
-#: happen to go through it, but direct ``log_likelihood`` calls do not, and a
-#: device-memory fraction does not bound the total live graph or its AD
-#: residuals.  Rolling the mathematically independent point axis gives the
-#: kernel itself a device-independent bound.  The coefficient tables and the
-#: output still scale as O(S*npts); this constant removes only the multiplicative
-#: quadrature slab, which is the measured allocation wall.
+#: historical pre-cap JAX acceptance call at ``S=4000, npts=1193`` therefore
+#: asked XLA for one 36.41-GiB buffer.  That number is the repository-recorded
+#: allocation request for this ONE logical f64 value, not a measurement of
+#: current production ILE peak memory.  The sampler-side device cap reduces S
+#: for current host-batched callers, but direct ``log_likelihood`` calls do not,
+#: and a device-memory fraction does not bound the total live graph or its AD
+#: residuals.  The coefficient tables and the output still scale as O(S*npts);
+#: this constant removes only that multiplicative quadrature slab for explicit
+#: batches.
 LAPLACE_POINT_BLOCK = 4096
 
 
