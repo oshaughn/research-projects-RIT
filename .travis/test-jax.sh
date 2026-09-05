@@ -331,7 +331,7 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         capacity ledger, jit/AD, and rejection of an
 #                                         already-marginalized time row.
 #   test_direct_marginalization_planner.py
-#                                      18  strict error/resource-budget selection,
+#                                      21  strict error/resource-budget selection,
 #                                         compatibility and warrant gates, explicit
 #                                         best-effort authority, provenance ledgers,
 #                                         unchanged legacy selector defaults, and
@@ -513,9 +513,9 @@ fi
 # The production-policy follow-up adds one mutation-bearing streaming test; this job's
 # own collection reports 312.  The sample-time point tiling adds two mutation-bearing
 # compile-cost tests, the time-first peak-local prototype adds six, and the
-# budget planner adds eighteen, raising the measured collection floor from 312
-# to 338.
-EXPECTED_TESTS=338
+# budget planner and review regressions add twenty-one, raising the measured
+# collection floor from 312 to 341.
+EXPECTED_TESTS=341
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"
