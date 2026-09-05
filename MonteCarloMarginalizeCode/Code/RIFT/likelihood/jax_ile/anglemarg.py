@@ -128,7 +128,8 @@ __all__ = [
 # angle_marg=ANGLE_MARG_LEGACY) to reproduce a pre-2026-09-02 run.
 #
 # Why 'exact' and not 'auto': 'auto' selects 'laplace' above
-# ANGLE_MARG_CROSSOVER_AMPLITUDE (rho ~21-30), which is an ACCURACY crossover.
+# ANGLE_MARG_CROSSOVER_AMPLITUDE (rho ~26-30; see that constant's note for why
+# 26 and not the 21 this line used to say), which is an ACCURACY crossover.
 # But 'laplace' cannot use the per-sample adaptive distance quadrature and the
 # log-uniform distance grid is opt-in, so on the default uniform grid 'laplace'
 # was measured 43.2 nats from 'exact'+GH16 at rho 163 (mean; 16.3 median) -- an
@@ -161,10 +162,64 @@ ANGLE_MARG_CHOICES = ("grid", "exact", "laplace", "peak-local", "auto")
 
 # ---------------------------------------------------------------------------
 ANGLE_MARG_CROSSOVER_AMPLITUDE = 450.0     # A = rho^2/2; rho = 30.  NOTE the
-# auto selector compares the MARGINED data-derived bound (~2x the true
-# amplitude) to this, so laplace engages from true A ~ 225 (SNR ~ 21).  That
-# early engagement is safe by measurement: laplace is at -1.8e-4 nats by
-# A = 200 on the injection ladder and improves upward, while exact remains
+# auto selector compares the MARGINED data-derived bound to this, so laplace
+# engages below rho = 30.  TWO DIFFERENT NUMBERS LIVE HERE and an earlier version
+# of this comment ran them together:
+#   * the INTENDED margin is the `margin=2.0` argument of
+#     estimate_angle_amplitude -- a deliberate parameter, not an estimate;
+#   * the ratio the SWITCH actually keys on was measured AT THE LADDER INJECTION
+#     (rho = 40.77): bound 1109.17 against the nominal rho^2/2 = 831.1, i.e.
+#     1.335, not 2.
+# That gives 450 / 1.335 -> engagement at nominal A ~ 337, rho ~ 26.0, which is
+# what the manuscript quotes; this comment previously said rho ~ 21 by assuming
+# the factor equalled the margin.  Keep the two distinct or the code and the
+# paper quote different crossovers for the same switch.
+#
+# THREE LIMITS ON 1.335, so it is not read as more than it is:
+#   (a) the denominator is the NOMINAL rho^2/2, not a measured maximum of the
+#       (phi,psi) exponent.  Reading "the raw estimator sits at 0.667x TRUE A"
+#       goes through the identification true A == rho^2/2, which is this file's
+#       own convention but is not a measurement.
+#   (b) the ratio is constant to 6e-5 across rungs rho = 40.77 ... 652.31.  That
+#       is ARITHMETIC, NOT EVIDENCE: the ladder is one injection replayed at
+#       scaled amplitudes, so the exponent rescales uniformly and the ratio is
+#       forced.  Four decades of agreement validate nothing about the margin.
+#   (c) it is ONE injection's sky-sample realization.  The shortfall's size is
+#       set by how sharp the sky peak is relative to the sample -- the sample is
+#       random draws plus a coarse uniform grid and does not contain the
+#       injection's sky position, while the exponent is sharp enough that 1 of
+#       9824 (sky, time) points sits within 23 nats of the peak.  A shortfall is
+#       expected by design there, and nothing here bounds it for another event.
+# So: at this injection the margin is load-bearing rather than decorative -- by
+# about 1.5x -- and that is the whole claim.
+#
+# TWO OTHER RATIOS CIRCULATE FOR THIS LADDER AND NEITHER IS THE MARGIN.  Measured
+# on it: raw-estimator/(rho^2/2) = 0.1888 and margined-bound/guess = 7.069.  Both
+# are the SNR-GUESS DEFICIT SQUARED -- guess_amp == guess_snr^2/2 exactly, and
+# rho/guess_snr = 2.3014 constant, so 0.1888 = 1/2.3014^2 and 7.069 =
+# 2.3014^2 * 1.33465.  guess_snr is the ABANDONED sizing route (external review
+# removed it precisely because an underestimated SNR silently under-resolved the
+# dense quadrature).  If 7.069 lands here as "the margin" it inflates a ~1.5x
+# effect to 7x and credits the live estimator with the dead route's deficit.
+# They are easy to accept because they AGREE with the conclusion above -- for an
+# unrelated reason -- so they read as corroboration and are not.
+# The genuinely reportable fact in them: on this ladder guess_snr sits 2.30x
+# below the true rho, so the abandoned route would have sized the dense grids
+# from an amplitude too small BY A FACTOR THAT DEPENDS ON WHAT YOU DIVIDE BY --
+#     7.069x against the LIVE data-derived bound (the thing that sizes grids
+#            today, so this is the operative figure), and
+#     5.296x against the nominal rho^2/2,
+# the two differing by exactly the 1.335 above.  A reader handed "7.069x" with no
+# denominator cannot tell which, and will be off by 1.335 either way: that is the
+# same unnamed-denominator defect this block exists to guard against, and I
+# shipped it here one commit before fixing it.  The docstring's stated failure
+# mode, measured on a real configuration.  One injection, one guess_snr.  What actually protects the general case is
+# _runtime_amp_failsafe, which recomputes the amplitude from the tables at the
+# point of use and warns if it exceeds amp_sizing -- independent of whether the
+# margin was well chosen.  (Ratios measured by the paper-1 ladder session.)
+# Early engagement is safe by measurement either way: laplace is at -1.8e-04 nats
+# by A = 200 on the injection ladder (the table above, spelled to match it so a
+# grep finds both) and improves upward, while exact remains
 # valid (crossover-floored sizing) below.
 # Dense-size rule N = ceil(K * sqrt(A)) points, from the trapezoid aliasing
 # error of exp(trig poly): relative error ~ exp(-c N^2 / A).  The constants
@@ -1911,9 +1966,10 @@ def fused_log_likelihood_distphipsimarg_peaklocal(
     rather than a dense grid sized ``~sqrt(A)``, the u-stationary points are obtained
     EXACTLY -- they are the unit-circle roots of a quartic, the u-degree being pinned at
     2 for any mode set -- the sorted points partition the circle, and each cell is
-    integrated on a window set by its own curvature.  The node count on that axis is
-    therefore INDEPENDENT of amplitude: 4 cells x 48 nodes, against the dense rule's 896
-    at amplitude 1.25e4.
+    integrated on a window set by its own curvature.  Windowed cells need only 48 nodes,
+    but rejected Newton centres span whole cells, so production sizes the shared static
+    count from ``amp_sizing``.  The node axis is streamed in fixed-size blocks; cost grows
+    as sqrt(amplitude), while its live memory does not.
 
     THE PHI AXIS IS STILL DENSE HERE and is sized by
     :func:`~RIFT.likelihood.jax_ile.joint_anglemarg_peaklocal.required_n_phi` from the
@@ -1949,7 +2005,15 @@ def fused_log_likelihood_distphipsimarg_peaklocal(
     _runtime_amp_failsafe(C_A, C_B, x_grid, amp_sizing, "peak-local")
 
     n_phi = _jp.required_n_phi(amp_sizing, m_max=_data_m_max(data))
-    kw = {} if phi_chunk is None else {"phi_chunk": int(phi_chunk)}
+    # Size the u axis through the SINGLE SOURCE OF TRUTH rather than letting the kernel
+    # fall back to its own constant: the batch-memory guard in samplers.py models this
+    # same number from the same amp_sizing, and the two live in different files.  Passing
+    # it explicitly is what makes them provably the same value rather than two defaults
+    # that happen to agree.  The derived count is streamed inside the kernel, so raising
+    # accuracy does not materialize that entire axis across the outer batches.
+    kw = {"n_nodes": _jp.u_nodes_in_use(amp_sizing)}
+    if phi_chunk is not None:
+        kw["phi_chunk"] = int(phi_chunk)
 
     # tables are (KP, 2KS+1, S, npts); move the batch axes to the front so one nested
     # vmap covers both and the kernel sees a plain 2-D table per (sample, time).
