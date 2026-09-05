@@ -14,20 +14,68 @@ import numpy
 
 
 def _load_driver_helpers():
-    """Import the helpers out of the driver script without executing it."""
+    """Import the helpers out of the driver script without executing it.
+
+    THE FAILURE MODE THIS GUARDS.  Slicing functions out by regex means the copy here goes
+    stale silently whenever the driver grows a helper.  It did: _lnZ_of_rvs and
+    _kish_neff_of_rvs were refactored to delegate to _lw_of, which was not on this list, so
+    inside the exec'd module _lw_of was undefined -- and the driver's own
+    `except Exception: return None` swallowed the NameError and returned None.  Ten of the
+    fifteen tests then died on `None - float`, a diagnosis three steps from the cause, and the
+    file was reachable from no CI job so nobody saw it for weeks.
+
+    So the name list is no longer the only defence.  After exec, every global each sliced
+    function references must resolve, and the error names the missing helper.  That turns "the
+    driver grew a helper" from a puzzle into a one-line fix.
+    """
     here = os.path.dirname(os.path.abspath(__file__))
     path = os.path.join(here, "..", "..", "bin", "integrate_likelihood_extrinsic_batchmode")
     src = open(os.path.normpath(path)).read()
     mod = types.ModuleType("drv")
     mod.numpy = numpy
     # ln_weights_from_rvs first: the others now delegate to it (one canonical definition of the
-    # importance weight, see the driver docstring).
-    for fn in ("_rvs_lnL_convention", "ln_weights_from_rvs", "_rvs_len", "_pool_replica_rvs",
-               "_lnZ_of_rvs", "_kish_neff_of_rvs"):
+    # importance weight, see the driver docstring).  _lw_of is the shared weight reconstruction
+    # that _lnZ_of_rvs and _kish_neff_of_rvs both call.
+    names = ("_rvs_lnL_convention", "ln_weights_from_rvs", "_rvs_len", "_lw_of",
+             "_pool_replica_rvs", "_lnZ_of_rvs", "_kish_neff_of_rvs")
+    for fn in names:
         m = re.search(r"^def %s\(.*?(?=\n\ndef |\n\nclass )" % fn, src, re.S | re.M)
         assert m, "helper %s not found in the driver" % fn
         exec(compile(m.group(0), "<drv>", "exec"), mod.__dict__)
+    _assert_globals_resolve(mod, names)
     return mod
+
+
+def _assert_globals_resolve(mod, names):
+    """Every global name the sliced functions reference must exist in the sliced module.
+
+    Without this the next helper the driver factors out reaches these tests as a None return
+    (the driver catches Exception broadly) rather than as a missing name.
+    """
+    import builtins
+
+    def _referenced(code, seen):
+        for n in code.co_names:
+            seen.add(n)
+        for c in code.co_consts:
+            if isinstance(c, types.CodeType):
+                _referenced(c, seen)
+        return seen
+
+    missing = set()
+    for fn in names:
+        for n in _referenced(getattr(mod, fn).__code__, set()):
+            if n in mod.__dict__ or hasattr(builtins, n):
+                continue
+            # Attribute names appear in co_names too (numpy.log -> "log"); only flag names
+            # that look like the driver's own module-level helpers.
+            if n.startswith("_") or n.endswith("_of_rvs") or n.startswith("ln_weights"):
+                missing.add((fn, n))
+    assert not missing, (
+        "sliced helpers reference names that were not sliced out of the driver: %s.\n"
+        "The driver factored out a helper these delegate to; add it to `names` above. "
+        "Without this check it arrives as a None return and fails as `None - float`."
+        % sorted(missing))
 
 
 DRV = _load_driver_helpers()

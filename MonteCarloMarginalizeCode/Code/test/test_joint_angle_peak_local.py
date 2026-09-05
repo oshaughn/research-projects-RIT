@@ -424,3 +424,92 @@ def test_phi_regions_are_disjoint_on_the_CIRCLE():
                     d = np.minimum(d, 2 * np.pi - d)
                     assert d.min() > 1e-6, ("regions overlap on the circle", regs)
     assert checked > 5, checked
+
+
+# --------------------------------------------- internal accuracy inside the cover
+
+def _torus_reference(C, n=2048):
+    """log (2pi)^-2 int int exp(g) over the WHOLE torus, independent of the peak-local path."""
+    ph = np.linspace(0.0, 2.0 * np.pi, n)
+    P, U = np.meshgrid(ph, ph, indexing='ij')
+    g = J.eval_g(C, P.ravel(), U.ravel()).reshape(n, n)
+    w = np.full(n, 2.0 * np.pi / (n - 1)); w[0] *= 0.5; w[-1] *= 0.5
+    W = np.log(w)[:, None] + np.log(w)[None, :] - 2.0 * np.log(2.0 * np.pi)
+    m = g.max()
+    return m + np.log(np.sum(np.exp(g - m + W)))
+
+
+def _degenerate_ridge_tables(seed=113, scale=1.0):
+    """SYNTHETIC coefficients reproducing the torus-spanning collapse.  No run data.
+
+    An earlier version of this fixture hard-coded coefficients read out of an actual
+    production evaluation, together with its sky/time indices.  External review was right
+    that merging it would publish run-derived scientific data in a test, so it is replaced
+    by a seeded synthetic draw.
+
+    What could NOT be replaced is the structure, and it took a seed search to find it.  A
+    hand-built table with the same sparsity PATTERN -- A only at k=2 with q=+-1 and
+    strongly asymmetric, B almost entirely the real (k=0,ks=0) term -- does not reproduce
+    the collapse: with round numbers it gives n_regions=4, area_outside=31.7 and no error
+    at all.  The relative PHASES decide whether the enumerated regions merge into one that
+    spans the torus, so the fixture is a search over seeded phases for a draw that does.
+    Seed 113 of 200 is the strongest.  This is why random-coefficient tests never reached
+    this branch: the landscape is a near-degenerate ridge, not isolated peaks.
+    """
+    rng = np.random.default_rng(seed)
+    A = np.zeros((3, 3), dtype=complex)
+    B = np.zeros((5, 5), dtype=complex)
+    A[2, 2] = 3000.0 * scale * np.exp(1j * rng.uniform(0.0, 2 * np.pi))
+    A[2, 0] = A[2, 2] * 0.013 * np.exp(1j * rng.uniform(0.0, 2 * np.pi))
+    B[0, 2] = 1550.0 * scale
+    B[0, 0] = 21.5 * scale * np.exp(1j * rng.uniform(0.0, 2 * np.pi))
+    B[0, 4] = np.conj(B[0, 0])
+    B[4, 2] = 0.0036 * scale * np.exp(1j * rng.uniform(0.0, 2 * np.pi))
+    B[4, 4] = 0.0886 * scale * np.exp(1j * rng.uniform(0.0, 2 * np.pi))
+    k, q, w, _ = J._kq(A)
+    x = float(np.sum(w * np.abs(A))) / float(B[0, 2].real)
+    return J.joint_table(A, B, x), x
+
+
+def test_a_fully_covered_box_is_still_accurate_inside():
+    """OMITTED-MASS CONTROL IS NOT INTERNAL ACCURACY, and this is the case that proves the
+    two are independent.  On the production tables the cover collapses to a single region
+    spanning the whole torus, so ``area_outside == 0`` and ``margin == -inf``: the
+    certificate reports that NOTHING is omitted, which is true and which says nothing at
+    all about the quadrature inside.  With the per-axis cap at its old value of 256 the
+    value sat 0.36 nats from a converged reference while reporting -inf.
+
+    0.36 nats is not a rounding error.  It is stated against the CONVERGED TORUS REFERENCE
+    below and against nothing else: an earlier version of this docstring compared it to a
+    saddle-point prototype's 0.654 nats, and that figure has since been RETRACTED by the
+    session that produced it -- its start-point search was unconverged, moving up to 1.2
+    nats per point and changing sign under refinement.  A ratio against a retracted
+    denominator is worse than no ratio, and this error needs no comparison to be a defect:
+    the certificate reported nothing omitted while the value was wrong.
+    """
+    C, _ = _degenerate_ridge_tables()
+    assert abs(np.sum(np.abs(C)) - 24164.9) < 1.0, "fixture drifted"
+    lnZ, ok, rep = J.joint_marginalize_peak_local(C)
+    assert ok, rep
+    # the structure that makes this case interesting must actually be present
+    assert rep['area_outside'] == 0.0, rep       # cover IS the whole torus
+    assert rep['margin'] == -np.inf, rep         # certificate claims nothing omitted
+    err = abs(lnZ - _torus_reference(C))
+    assert err < 1.0e-2, "inside-the-cover error %.4f nats (cap 256 gave 0.36)" % err
+
+
+def test_a_capped_box_is_reported_and_never_silent():
+    """A box whose curvature-derived node count hits the ceiling is under-resolved, and the
+    certificate cannot express that.  It must therefore be COUNTED -- otherwise the caller
+    is handed 'nothing omitted' about a value the quadrature got wrong.
+    """
+    C, _ = _degenerate_ridge_tables()
+    _, ok, rep = J.joint_marginalize_peak_local(C)
+    assert ok
+    assert 'n_boxes_pts_capped' in rep
+    assert rep['n_boxes_pts_capped'] >= 1, rep   # this amplitude DOES still cap at 512
+    # and a much flatter case must NOT be flagged, or the counter says nothing
+    C_lo, _ = _degenerate_ridge_tables(scale=1.0e-4)
+    _, ok2, rep2 = J.joint_marginalize_peak_local(C_lo)
+    assert ok2, rep2
+    assert rep2['n_boxes_pts_capped'] == 0, rep2

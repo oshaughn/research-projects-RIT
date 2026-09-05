@@ -477,7 +477,24 @@ fi
 # test_joint_anglemarg_peaklocal.py (twice differentiable, and the gradient stays
 # finite as the quartic leading coefficient vanishes).  293 + 13 = 306, re-derived
 # by RUNNING the gate's own collection after rebasing over #221/#238/#223.
-EXPECTED_TESTS=306
+#
+# The u-FALLBACK branch adds 2 in test_joint_anglemarg_peaklocal.py (required_u_nodes
+# is derived and follows the sqrt-A law under a cap, and a whole-cell integration sized
+# by it agrees with a 4x finer one).  The floor is 310, READ FROM THIS JOB'S OWN LOG.
+# Two wrong numbers preceded it, failing in opposite directions:
+#   308 -- by adding 2 to the previous 306, which is exactly what the paragraph above
+#          says not to do.  The base is 309 after #239 merged, so 308 would still have
+#          PASSED while silently under-promising three tests.
+#   311 -- by running the collection on a dev host.  Wrong by exactly one, because the
+#          harness sliced this script by line number to reuse FILES and stopped before
+#          the loop that populates DESELECT from DESELECTED_TESTS -- so it counted
+#          test_gpu_gather_parity_against_numpy_window, which THIS job deselects.
+# Arithmetic lands below the truth and passes; a mis-set-up local collection lands above
+# it and fails.  Read the floor off this job's "collected N tests from 27 files" line --
+# the only source that is not a guess.
+# The production-policy follow-up adds one mutation-bearing streaming test; this job's
+# own collection reports 312.
+EXPECTED_TESTS=312
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"

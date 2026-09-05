@@ -145,3 +145,70 @@ def test_gradient_is_finite_as_the_quartic_leading_coefficient_vanishes():
     assert all(np.isfinite(v) for v in vals), vals
     # and stable, not merely finite, across 24 orders of magnitude in c2
     assert abs(vals[1] - vals[3]) < 1e-3, vals
+
+
+def test_required_u_nodes_is_derived_and_grows_like_sqrt_amplitude():
+    """P1 from review: the fallback (whole-cell) branch integrates with the SAME fixed
+    node count spread over the entire cell, so rejecting a stalled Newton centre makes
+    the resolution worse rather than safer.  JAX cannot adapt the count -- shapes may not
+    depend on traced values -- so the sizing is exposed as a caller-side helper, derived
+    from the exact bound |d2g/du2| <= M2u ~ 5A.
+
+    Production uses this count because fallback is data-dependent.  It is intentionally
+    uncapped: memory is bounded by streaming the node axis, not by truncating an accuracy
+    request inside a region the omitted-mass certificate cannot inspect.
+    """
+    lo = JP.required_u_nodes(1.0)
+    mid = JP.required_u_nodes(100.0)
+    hi = JP.required_u_nodes(1.0e4)
+    assert lo == JP.U_NODES_PER_CELL          # never below the windowed default
+    assert lo < mid < hi                       # grows with amplitude
+    assert JP.u_nodes_in_use(450.0) == JP.required_u_nodes(450.0)
+    assert hi > 2048                           # production does not silently cap accuracy
+    # the growth is the sqrt law, not something steeper
+    assert 5.0 < mid / np.sqrt(100.0) < 60.0, mid
+
+
+def test_a_fallback_cell_is_resolved_when_the_caller_sizes_it():
+    """The helper must actually buy resolution: a whole-cell integration at a raised node
+    count must agree with a much finer one."""
+    rng = np.random.default_rng(0)
+    worst = 0.0
+    for _ in range(6):
+        sc = 10.0 ** rng.uniform(0.5, 2.0)
+        c1 = sc * (rng.normal() + 1j * rng.normal())
+        c2 = sc * (rng.normal() + 1j * rng.normal())
+        amp = abs(c1) + 2 * abs(c2)
+        n = JP.required_u_nodes(amp)
+        a = float(JP.log_inner_u_integral(0.0, c1, c2, n_nodes=n))
+        b = float(JP.log_inner_u_integral(0.0, c1, c2, n_nodes=min(4 * n, 4096)))
+        worst = max(worst, abs(a - b))
+    assert worst < 1e-4, worst
+
+
+def test_large_fallback_policy_streams_a_fixed_live_node_block():
+    """The accurate production count must not reappear as a materialized node axis.
+
+    At the sizing floor the policy requests hundreds of nodes.  Observe the shape handed
+    to the exponent evaluator while tracing the rolled loop: its live last axis must stay
+    at the stream chunk, independent of the total quadrature count.
+    """
+    n = JP.u_nodes_in_use(450.0)
+    assert n > JP.U_NODE_STREAM_CHUNK
+    shapes = []
+    real_g = JP._g_u
+
+    def _spy_g(a, c1, c2, u, order=0):
+        if order == 0 and getattr(u, "ndim", 0) == 2:
+            shapes.append(tuple(u.shape))
+        return real_g(a, c1, c2, u, order)
+
+    JP._g_u = _spy_g
+    try:
+        out = JP.log_inner_u_integral(0.0, 2.0 + 1j, 0.7 - 0.3j, n_nodes=n)
+        assert np.isfinite(float(out))
+    finally:
+        JP._g_u = real_g
+
+    assert shapes, "stream body never reached the exponent evaluator"
+    assert max(shape[-1] for shape in shapes) <= JP.U_NODE_STREAM_CHUNK, shapes
