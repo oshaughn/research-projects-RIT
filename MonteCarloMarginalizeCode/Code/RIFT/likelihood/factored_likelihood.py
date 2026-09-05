@@ -226,6 +226,32 @@ def _detector_geometry(det, xpy):
     return hit
 
 
+# --- Simpson quadrature weights, cached across likelihood calls ---------------
+# The time integral is a FIXED linear functional at fixed dx, so simps(y) == y . w with
+# w = simps(I).  Evaluating it as one matrix-vector product reads the (npts_extrinsic,
+# npts) integrand once, instead of the several strided slices and full-size temporaries
+# the composite-Simpson implementation builds; measured 1.765 ms -> 0.049 ms at
+# production shapes.  npts and deltaT are fixed for a run, so the weights are built once.
+#
+# NOT bitwise against simps(): a gemv reassociates the summation.  The RULE is identical
+# -- the weights come from the very same simps implementation the call site would have
+# used, so the even='avg'-vs-Cartwright distinction that separates the vendored GPU copy
+# from scipy's is preserved, and only the order of the additions changes.  The measured
+# discrepancy is at the floating-point noise floor; see
+# DESIGN_noloop_per_detector_glue.md for the number.
+_SIMPS_WEIGHTS_CACHE = {}
+
+
+def _simps_weights(simps, npts, deltaT, xpy):
+    """Quadrature weight vector w with simps(y, dx=deltaT, axis=-1) == y . w."""
+    key = (int(npts), float(deltaT), id(xpy))
+    w = _SIMPS_WEIGHTS_CACHE.get(key)
+    if w is None:
+        w = simps(xpy.eye(int(npts), dtype=np.float64), dx=deltaT, axis=-1)
+        _SIMPS_WEIGHTS_CACHE[key] = w
+    return w
+
+
 # --- mode-list identity, cached across likelihood calls -----------------------
 # The Ylm array depends only on (modes, inclination, phiref) -- NOT on the detector --
 # but was recomputed once per detector per call.  To share it we need to know which
@@ -3114,7 +3140,8 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
 
         L_t = xpy.exp(lnL_t - lnLmax, out=lnL_t)
 
-        L = simps(L_t, dx=deltaT, axis=-1)
+        # simps(L_t, dx, axis=-1) as a single matrix-vector product; see _simps_weights.
+        L = L_t.dot(_simps_weights(simps, npts, deltaT, xpy))
 
         # Compute log likelihood in-place.  lnLmax carries the kept trailing axis; drop it
         # so the add-back lines up with L, which simps has already reduced over that axis.
@@ -3163,7 +3190,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         N_window_block = cal_cache[dets[0]][3]
         # Simpson quadrature weight vector (incl. dx=deltaT), so time integration
         # matches the loop path's simps() exactly.  simps is linear -> weights = simps(I).
-        w_t = simps(xpy.eye(npts, dtype=np.float64), dx=deltaT, axis=-1)
+        w_t = _simps_weights(simps, npts, deltaT, xpy)
         # invDistMpc is a scalar when distance is marginalized (P.dist fixed at the
         # fiducial) and a vector when distance is sampled; the kernel wants one value
         # per extrinsic sample, so broadcast to (npts_extrinsic,).
@@ -3244,7 +3271,8 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
             # RAW per-realization time-integrated log L (no importance weight), stable:
             #   log( simps_t exp(lnL_t,c) ) = m + log( simps_t exp(lnL_t,c - m) )
             m_raw = xpy.max(lnL_t_c, axis=-1, keepdims=True)
-            cal_components[:, c] = m_raw[:, 0] + xpy.log(simps(xpy.exp(lnL_t_c - m_raw), dx=deltaT, axis=-1))
+            cal_components[:, c] = m_raw[:, 0] + xpy.log(
+                xpy.exp(lnL_t_c - m_raw).dot(_simps_weights(simps, npts, deltaT, xpy)))
         # fold in this realization's importance log-weight
         lnL_t_c = lnL_t_c + cal_log_w[c]
 
@@ -3290,7 +3318,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         # (the time integral is NOT taken; downstream resamples this timeseries).
         return running_max + xpy.log(S) - cal_log_w_norm
 
-    L = simps(S, dx=deltaT, axis=-1)
+    L = S.dot(_simps_weights(simps, npts, deltaT, xpy))
     # lnL = max + log( sum_c exp(log_w[c]) \int dt exp(lnL_t - max) ) - log(n_cal)
     # running_max carries the kept trailing axis; drop it so the add-back lines up with
     # L, which simps has already reduced over that axis.  (The return_lnLt branch above

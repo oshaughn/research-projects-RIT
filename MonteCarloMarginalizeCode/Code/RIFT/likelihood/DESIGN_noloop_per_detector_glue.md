@@ -174,11 +174,50 @@ implementation written the original way, with `array_equal` rather than a tolera
 one, two and three detectors. The reference passes against the unpatched tree as well,
 which is what makes it a check on the change rather than a transcription of it.
 
-## The next one is not free
+## Round 3: the time integral, and the one change that is not bitwise
 
-`simps` is 1.765 ms/call. It is a fixed linear functional at fixed `dx`, so it equals a
+`simps` was 1.765 ms/call. It is a fixed linear functional at fixed `dx`, so it equals a
 matrix-vector product against precomputed weights — measured at **0.049 ms**, a 36x
-saving, and the fused calmarg path already builds exactly those weights with
-`w_t = simps(eye(npts))`. But a `gemv` reassociates the summation, so unlike everything
-above it is **not** bitwise. It is deliberately left out of this change and needs its own
-accuracy argument.
+saving. The fused calmarg path already built exactly those weights by hand with
+`w_t = simps(eye(npts))`; that is now a single cached helper, `_simps_weights`, so the
+tree carries one definition of the equivalence instead of two.
+
+A `gemv` reassociates the summation, so unlike everything above this is **not** bitwise.
+It is the same RULE: the weights come from the very `simps` implementation the call site
+would otherwise have used, so the `even='avg'`-versus-Cartwright distinction that
+separates the vendored GPU copy from scipy's is preserved exactly. Only the order of the
+additions changes.
+
+**Measured discrepancy**, over 10 000 real extrinsic samples spanning lnL from
+-2.2e6 to +116:
+
+| | |
+|---|---|
+| max abs difference | **2.8e-14 nats** |
+| median abs difference | exactly 0 |
+| max relative difference | 7.1e-14 |
+| float64 rounding scale of the values themselves (`eps x max abs lnL`) | 4.9e-10 |
+
+The difference is below the rounding scale of the quantities being compared, and both
+paths are deterministic run to run. For physical scale, the errors already present in
+this integral are between eleven and sixteen orders of magnitude larger: the two `simps`
+variants in this tree disagree by **0.405 nats** on an under-resolved peak, and the
+`nearest` time stencil costs **200-443 nats at SNR 100** (`--interpolate-time` help text,
+issue #233). Simpson's real accuracy limit here is sub-sample resolution of a peak whose
+width is set by the signal rather than by the sample rate — which is what the
+`time_quadrature` and stencil work addresses — not the order of its additions.
+
+`test/test_noloop_accumulator_shapes.py` splits the two guarantees rather than blurring
+them: the accumulators are checked with `array_equal` at `return_lnLt=True`, before the
+integral, and the quadrature is checked separately against `simps` at a tolerance far
+tighter than anything physical. A failure of the second means the rule changed, not that
+rounding drifted.
+
+## Where the remaining time goes
+
+After all three rounds, at three detectors and `n_chunk 10000`, no single item dominates:
+the Q kernel (~1.2 ms), the detector-response contraction (~1.9 ms), and the
+`exp`/`max`/subtract reduction (~1.4 ms) are the three largest, and none has an obvious
+order-preserving win left. The response contraction is the best remaining candidate —
+four `inner` calls per detector against a 3x3 matrix — but batching it over stacked
+detectors reassociates, for a much smaller payoff than this round bought.

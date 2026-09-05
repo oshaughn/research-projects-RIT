@@ -51,8 +51,12 @@ def _inputs(n_ex=64, npts=32, n_time=512, dets=("H1", "L1", "V1"), seed=20260905
     return tvals, _P(n_ex, rng), lookup, rholms, ctU, ctV, epoch
 
 
-def _reference(tvals, P, lookup, rholms, ctU, ctV, epoch, Lmax=2):
-    """The pre-optimization arithmetic: dense rho_sq, zero-initialized kappa_sq."""
+def _reference(tvals, P, lookup, rholms, ctU, ctV, epoch, Lmax=2, integrate=True):
+    """The pre-optimization arithmetic: dense rho_sq, zero-initialized kappa_sq.
+
+    With ``integrate=False`` it stops at lnL(t), before the time quadrature, which is
+    the only part of the chain that is deliberately not bit-exact.
+    """
     import lal
     import lalsimulation as lalsim
     from RIFT.likelihood.SphericalHarmonics_gpu import SphericalHarmonicsVectorized
@@ -90,19 +94,55 @@ def _reference(tvals, P, lookup, rholms, ctU, ctV, epoch, Lmax=2):
         rho_sq += rho_det[..., None]
 
     lnL_t = kappa_sq.real - 0.5 * rho_sq
+    if not integrate:
+        return lnL_t
     lnLmax = np.max(lnL_t, axis=-1, keepdims=True)
     L = fl.my_simps(np.exp(lnL_t - lnLmax), dx=P.deltaT, axis=-1)
     return (lnLmax[:, 0] + np.log(L))
 
 
 @pytest.mark.parametrize("dets", [("H1",), ("H1", "L1"), ("H1", "L1", "V1")])
-def test_noloop_matches_dense_accumulator_reference(dets):
+def test_accumulators_are_bit_exact(dets):
+    """The accumulators themselves must be exact, so check lnL(t) BEFORE the integral.
+
+    Taking the comparison at return_lnLt=True is what makes this a test of the
+    accumulators rather than of the quadrature: the time integral is a matvec against
+    precomputed Simpson weights and is deliberately not bit-exact (see the quadrature
+    test below), so integrating first would blur the two and this test would have to be
+    weakened to a tolerance it does not need.
+    """
     args = _inputs(dets=dets)
-    got = fl.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(*args, Lmax=2, xpy=np)
-    want = _reference(*args)
-    # Same operations on the same scalars in the same order: demand exactness, not a
-    # tolerance, so that a reassociating "optimization" cannot slip through.
+    got = fl.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(
+        *args, Lmax=2, xpy=np, return_lnLt=True)
+    want = _reference(*args, integrate=False)
     assert np.array_equal(np.asarray(got), want)
+
+
+@pytest.mark.parametrize("dets", [("H1",), ("H1", "L1"), ("H1", "L1", "V1")])
+def test_time_quadrature_matches_simps_to_roundoff(dets):
+    """The matvec quadrature reproduces simps() to floating-point noise.
+
+    It is the SAME rule -- the weights come from the very simps implementation the call
+    site would otherwise have used -- so only the summation order differs.  The bound
+    here is deliberately far tighter than anything that matters physically: the two
+    simps variants already in this tree disagree by 0.405 nats on an under-resolved
+    peak, and the 'nearest' time stencil costs 200-443 nats at SNR 100.  If this
+    assertion ever fails it means the RULE changed, not that rounding drifted.
+    """
+    args = _inputs(dets=dets)
+    got = np.asarray(fl.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(
+        *args, Lmax=2, xpy=np))
+    want = _reference(*args)
+    assert np.allclose(got, want, rtol=1e-11, atol=1e-11)
+
+
+def test_simps_weights_reproduce_simps_on_random_data():
+    """simps is linear at fixed dx, which is the whole basis for the matvec."""
+    rng = np.random.RandomState(7)
+    npts, dx = 614, 1.0 / 4096.0          # production shape and spacing
+    y = rng.normal(size=(23, npts))
+    w = fl._simps_weights(fl.my_simps, npts, dx, np)
+    assert np.allclose(y.dot(w), fl.my_simps(y, dx=dx, axis=-1), rtol=1e-12, atol=0.0)
 
 
 def test_rho_sq_view_is_not_writable_into():
