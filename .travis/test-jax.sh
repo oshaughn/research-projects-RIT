@@ -495,12 +495,25 @@ fi
 # the only source that is not a guess.
 # The production-policy follow-up adds one mutation-bearing streaming test; this job's
 # own collection reports 312.
-# +27 for the #250 review follow-up: test_anglemarg_buffer_cap.py went from 7 collected
-# to 34 when its stubbed-out probe coverage was replaced with real device fakes.  Derived
-# by ARITHMETIC on a measured standalone delta (7 -> 34, and this job deselects nothing in
-# that file), which per the note above is the direction that errs low and passes.  Re-read
-# it off this job's own "collected N tests" line at the next opportunity.
-EXPECTED_TESTS=339
+# +57 for #250: test_anglemarg_buffer_cap.py.  THE DELTA IS AGAINST THE BASE, NOT
+# AGAINST AN EARLIER STATE OF THIS BRANCH -- an earlier revision of this line said +27
+# and set 339, computed from the file's WITHIN-PR growth (7 collected -> 34) after a
+# review round expanded it.  That is the wrong subtraction.  On base rift_O4d
+# (314d53ac) the floor is 312, the file does not exist in the tree, and it is not in the
+# FILES array above, so the 312 accounts for NONE of its tests: the relevant delta is
+# 0 -> 57, not 7 -> 34.  Getting this wrong is silent, because it errs LOW and a low
+# floor passes.
+#
+#   312 (base rift_O4d, 314d53ac) + 57 (this file, whole) = 369
+#
+# 57 is a measured standalone collection of the file at this head, and this job
+# deselects nothing in it (DESELECTED_TESTS names only test_jax_stencil_parity.py), so
+# the standalone count and this job's contribution are the same number.  The 369 is
+# still ARITHMETIC and therefore provisional in the direction that passes; per the note
+# above, read it off this job's own "collected N tests from N files" line at the next
+# opportunity and replace it with the measured value.  Do NOT re-derive it by adding
+# branch-local deltas -- that is exactly how 339 happened.
+EXPECTED_TESTS=369
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"

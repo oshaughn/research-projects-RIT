@@ -240,6 +240,13 @@ def _log_prior_jax(theta5):
 # so this execution-side wall was previously unreachable.  The exact scheme's
 # dense reconstruction has the same batch-multiplied structure (smaller
 # constant); the laplace constant is used for both as the worst case.
+#
+# "BOTH" MEANS EXACT AND LAPLACE, AND NOTHING ELSE.  A reviewer read it as covering
+# every scheme and concluded this constant understates peak-local by ~128x.  It does --
+# peak-local's live slab is about 1 MiB per sample-point, not 8 KiB -- but peak-local
+# does not USE this number as its model: angle_marg_eval_chunk raises `bytes_per` to a
+# scheme-specific peak-local model with max(), so 8192 acts only as a floor there.  The
+# two figures are both right, for different schemes.  Do not "reconcile" them.
 _ANGLE_MARG_BYTES_PER_SAMPLE_PT = 8192
 
 #: Largest single buffer we will let the anglemarg eval request.  4 GiB was chosen on
@@ -309,6 +316,47 @@ def _read_buffer_fraction(env=None):
 _ANGLE_MARG_BUFFER_FRACTION = _read_buffer_fraction()
 
 
+def _read_buffer_bytes(env=None):
+    """Parse RIFT_ANGLEMARG_BUFFER_BYTES, an ABSOLUTE allowance in bytes, or None.
+
+    WHY A SECOND KNOB EXISTS.  ``angle_marg_eval_chunk`` now REFUSES a configuration
+    whose single sample already exceeds the allowance, because returning a chunk of 1
+    there breaks the bound it advertises.  On a machine whose device we cannot read, the
+    allowance being refused against is ``_ANGLE_MARG_BUFFER_TARGET_FALLBACK`` -- a
+    documented guess that the comment above is explicit carries no guarantee.  Failing
+    closed against a guess with no way to override it turns "we could not see your
+    device" into "you may not run", which is an outage, not a bound.
+
+    RIFT_ANGLEMARG_BUFFER_FRACTION cannot serve this purpose: it is a fraction OF a
+    reported limit, and the path that needs the escape is exactly the one with no
+    reported limit to take a fraction of.
+
+    Read per call rather than once at import so a caller can set it before the eval
+    without re-importing the module.  Refused loudly on garbage, for the same reason the
+    fraction is: an override that is silently dropped leaves the caller believing a
+    bound is in force that is not.
+    """
+    if env is None:
+        env = os.environ
+    raw = env.get("RIFT_ANGLEMARG_BUFFER_BYTES")
+    if raw is None:
+        return None
+    try:
+        val = int(float(raw))
+    except (TypeError, ValueError, OverflowError):
+        # OverflowError is in the list because int(float('inf')) raises it and not
+        # ValueError, so 'inf' would otherwise escape as an unhandled OverflowError
+        # instead of the actionable message.  'nan' goes the ValueError route.
+        raise ValueError(
+            "RIFT_ANGLEMARG_BUFFER_BYTES=%r is not a usable number of bytes; give a "
+            "positive integer, e.g. %d for 12 GiB" % (raw, 12 << 30))
+    if val <= 0:
+        raise ValueError(
+            "RIFT_ANGLEMARG_BUFFER_BYTES=%r is not positive; a non-positive allowance "
+            "bounds nothing and refuses every chunk" % (raw,))
+    return val
+
+
 def _angle_marg_buffer_target():
     """Bytes to allow for the largest single anglemarg buffer.
 
@@ -317,7 +365,15 @@ def _angle_marg_buffer_target():
     no jax, no GPU, an API that moved -- returns the historical 4 GiB, so a machine we
     cannot interrogate behaves exactly as before rather than getting a larger number by
     accident.
+
+    An explicit RIFT_ANGLEMARG_BUFFER_BYTES wins over both, and is read OUTSIDE the
+    try below on purpose: inside it, the blanket `except Exception` would swallow the
+    ValueError from a malformed override and hand back the fallback -- silently ignoring
+    the one number in this function a human asserted about the machine in front of them.
     """
+    explicit = _read_buffer_bytes()
+    if explicit is not None:
+        return explicit
     try:
         import jax
         devs = [d for d in jax.devices() if getattr(d, "platform", "") == "gpu"]
@@ -331,8 +387,15 @@ def _angle_marg_buffer_target():
         # point in the one direction that matters for safety: a card reporting 6 GiB
         # would be handed a 4 GiB single buffer, and one reporting under 4 GiB would be
         # handed more than it has.  That is the failure this function exists to prevent,
-        # wearing device awareness as a costume.  A small device gets a small allowance;
-        # angle_marg_eval_chunk floors the CHUNK at 1, so such a run goes slow, not wrong.
+        # wearing device awareness as a costume.  A small device gets a small allowance.
+        #
+        # AN EARLIER VERSION OF THIS COMMENT SAID a device too small for the model merely
+        # "goes slow, not wrong", because angle_marg_eval_chunk floored the chunk at 1.
+        # That was false and review caught it: a chunk of one still requests
+        # bytes_per * npts, so once ONE sample exceeds the allowance the floor returns a
+        # chunk that BREAKS the bound rather than a chunk that is slow.  There is no
+        # kernel-level tiling of that buffer -- the sample axis is the only axis this cap
+        # can divide -- so angle_marg_eval_chunk now refuses instead of pretending.
         return max(1, int(limit * _ANGLE_MARG_BUFFER_FRACTION))
     except Exception:
         return _ANGLE_MARG_BUFFER_TARGET_FALLBACK
@@ -390,10 +453,52 @@ def angle_marg_eval_chunk(like, chunk):
         bytes_per = max(
             bytes_per,
             _jp.PHI_CHUNK_DEFAULT * n_x * 4 * n_u_live * 8)
-    cap = max(1, _angle_marg_buffer_target() // (bytes_per * npts))
+    target = _angle_marg_buffer_target()
+    per_sample = bytes_per * npts
+    if per_sample > target:
+        # FAIL CLOSED.  This branch used to be `cap = max(1, target // per_sample)`,
+        # which returns 1 here and therefore hands back a chunk whose buffer is
+        # `per_sample` bytes -- larger than the target this function exists to enforce.
+        # The floor made the bound silently untrue on any device small enough, which is
+        # not the same failure as being slow.  peak-local reaches it at production
+        # dimensions: phi_chunk 16, n_x 256, four cells, an 8-node stream block and
+        # npts 1230 is 1.20 GiB for ONE sample, so a 2 GiB card (1 GiB allowance at the
+        # default fraction) cannot honour the bound at any chunk size.
+        #
+        # The alternative repair is kernel-level tiling of the buffer itself.  That is a
+        # real option and a much larger change; until someone does it, the honest thing
+        # is to say the bound cannot be met rather than to report a chunk that breaks it.
+        #
+        # MemoryError, matching RIFT.likelihood.time_posterior's
+        # validate_time_posterior_working_set: same shape (a preflight refusal of a
+        # dense working set, with the estimate, the dimensions, the limit and the knobs
+        # in the message), so it gets the same type.  It also lets a caller that wants
+        # to fall back to a cheaper scheme catch this narrowly instead of every
+        # RuntimeError the eval path can raise.
+        raise MemoryError(
+            "anglemarg scheme %r cannot honour the buffer bound at ANY chunk size: one "
+            "sample needs %d bytes (%.2f GiB) -- %d bytes per sample per time point x "
+            "npts=%d -- against an allowance of %d bytes (%.2f GiB).  Returning a chunk "
+            "of 1 would ask the device for the full %.2f GiB and OOM, so this refuses "
+            "instead.  Act on one of: raise the allowance with "
+            "RIFT_ANGLEMARG_BUFFER_FRACTION (a fraction, at most 1.0, of the limit the "
+            "device reports -- it has no effect when the device could not be read) or "
+            "RIFT_ANGLEMARG_BUFFER_BYTES (an absolute byte allowance, which wins over "
+            "both the device probe and the %d-byte fallback); shorten the time window "
+            "(npts); shrink the distance grid (n_x), which drives the peak-local model; "
+            "or run a cheaper angle_marg_scheme.  The sample axis is the only axis this "
+            "cap can divide, so no chunk size is a fix."
+            % (getattr(like, "angle_marg_scheme", None), per_sample,
+               per_sample / float(1 << 30), bytes_per, npts, target,
+               target / float(1 << 30), per_sample / float(1 << 30),
+               _ANGLE_MARG_BUFFER_TARGET_FALLBACK))
+    # No max(..., 1) here, deliberately: the refusal above is what guarantees
+    # `per_sample <= target`, so the floor division is already at least 1.  Restoring the
+    # floor would restore the defect -- it is the floor, not the division, that broke the
+    # bound.  And a floor LARGER than one breaks it in the other direction for long but
+    # valid time windows (npts=65537 with a floor of 64 requested ~32 GiB).
+    cap = target // per_sample
     return min(chunk, cap)
-    # A floor larger than one defeats the memory bound for long, valid time
-    # windows (for example npts=65537 made a floor of 64 request ~32 GiB).
 
 
 def eval_lnL(like, theta, chunk=_EVAL_CHUNK):
