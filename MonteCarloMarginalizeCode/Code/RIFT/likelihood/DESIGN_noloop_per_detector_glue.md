@@ -93,3 +93,92 @@ dominated by the `(n_extrinsic, npts, n_lms)` window build, not by this glue.
 - The post-kernel reduction is untouched. Routing `n_cal == 1` through the existing
   `Q_fused_calmarg` kernel measured a further ~24%, agreeing within Monte Carlo error
   but not bitwise. Also a separate change.
+
+---
+
+# Round 2: the accumulators, and a per-operation cost table
+
+After the hoist above, stage attribution became misleading: it device-syncs after every
+wrapped call, so a function called once per *detector* is charged three times the sync
+penalty of one called once per *likelihood call*, and the mode inflated the total by 26%.
+The numbers below come instead from timing each operation in a tight loop with a single
+sync (`bench/micro_ops.py` in the profiling archive), at production shapes
+`n_extrinsic = 10000`, `npts = 614`, three detectors, on an RTX PRO 4000 Blackwell. They
+sum to 11.87 ms against a measured 12.10 ms/call, i.e. they account for 98% of the
+function.
+
+| operation | ms/op | x per call | ms per NoLoop call |
+|---|---|---|---|
+| `kappa_sq += Q_prod * invDist` | 1.519 | 3 | **4.556** |
+| `ComputeDetAMResponsePrecomputed` | 0.628 | 3 | 1.885 |
+| `simps` over `(10000, 614)` | 1.765 | 1 | 1.765 |
+| `Q_inner_product_cupy` | 0.391 | 3 | 1.173 |
+| `kappa.real - 0.5*rho` (stride-0 view) | 0.619 | 1 | 0.619 |
+| `exp` in place | 0.499 | 1 | 0.499 |
+| `SphericalHarmonicsVectorized` | 0.401 | 1 | 0.401 |
+| `SourcePolarizationBasis` | 0.367 | 1 | 0.367 |
+| `max(axis=-1, keepdims)` | 0.264 | 1 | 0.264 |
+| `TimeDelayFromEarthCenterPrecomputed` | 0.062 | 3 | 0.187 |
+| `SourcePropagationDirection` | 0.127 | 1 | 0.127 |
+| `rho_sq` vector accumulate | 0.008 | 3 | 0.024 |
+
+The data term dominates, and it dominates because of how it is *stored*, not what is
+computed into it.
+
+## rho_sq was 49 MB of duplicated scalars
+
+`rho_sq` is the `<h|h>` term. Every detector contributes `rho_sq_det` of shape
+`(npts_extrinsic,)` — it has no time dependence at all — and that was being broadcast
+into a dense `(npts_extrinsic, npts)` accumulator: a 49 MB zero-fill, then one 49 MB
+read-modify-write per detector, to store `npts` identical copies of each value.
+
+It is now summed as a vector and exposed as a stride-0 `broadcast_to` view. Measured:
+dense accumulate 0.121 ms/detector against 0.008 for the vector, and the downstream
+`kappa.real - 0.5*rho` drops from 0.758 ms to 0.619 ms because the subtrahend now fits
+in cache. The calibration path already did exactly this for `rho_sq_cal`; this brings
+the ordinary path in line.
+
+Consumers that need real backing memory go through `_dense_rho_sq()` and pay what they
+paid before. There are two classes: the fused calmarg CUDA kernels, which index raw
+device pointers and would read garbage from a stride-0 view, and the non-Simpson
+quadrature helpers, which are free to write into what they are handed.
+
+## kappa_sq did not need to start at zero
+
+`kappa_sq` is 98 MB of complex128. It was zero-filled, then for each detector the
+distance scaling allocated another full-size temporary and the result was accumulated in
+— so a three-detector network paid one 98 MB fill, three 98 MB temporaries, and three
+98 MB read-modify-writes. It now scales the Q kernel's own freshly allocated output
+buffer in place and takes the first detector's buffer as the accumulator.
+
+The one arithmetic caveat: `0.0 + x` is exactly `x` for every finite `x`, and for Inf and
+NaN, but `0.0 + (-0.0)` is `+0.0` while starting from the buffer preserves `-0.0`. A
+signed zero in `kappa_sq` is unobservable downstream — it survives `.real`, and
+`exp(-0.0) == exp(+0.0) == 1.0` — so this is noted for completeness rather than as a
+behavioural difference.
+
+## Measured, cumulative, all bitwise
+
+Same captured NoLoop arguments replayed through each tree, H1 L1 V1, `nearest`,
+`n_chunk 10000`, 100 calls per timing:
+
+| tree | ms/call | vs base |
+|---|---|---|
+| `rift_O4d` | 17.06 | — |
+| \+ hoist source-only geometry | 13.08 | −23.3% |
+| \+ `rho_sq` as a vector | 12.10 | −29.1% |
+| \+ `kappa_sq` in-place | 11.12 | **−34.8%** |
+
+`test/test_noloop_accumulator_shapes.py` pins both accumulators against a reference
+implementation written the original way, with `array_equal` rather than a tolerance, at
+one, two and three detectors. The reference passes against the unpatched tree as well,
+which is what makes it a check on the change rather than a transcription of it.
+
+## The next one is not free
+
+`simps` is 1.765 ms/call. It is a fixed linear functional at fixed `dx`, so it equals a
+matrix-vector product against precomputed weights — measured at **0.049 ms**, a 36x
+saving, and the fused calmarg path already builds exactly those weights with
+`w_t = simps(eye(npts))`. But a `gemv` reassociates the summation, so unlike everything
+above it is **not** bitwise. It is deliberately left out of this change and needs its own
+accuracy argument.

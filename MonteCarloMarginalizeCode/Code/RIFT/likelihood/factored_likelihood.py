@@ -2732,8 +2732,23 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
 
     # Used to accumulate kappa^2 and rho^2 over all detectors.  They are just
     # the sum in quadrature of the individual detector contributions.
-    kappa_sq = xpy.zeros((npts_extrinsic, npts), dtype=np.complex128)
-    rho_sq = xpy.zeros((npts_extrinsic, npts), dtype=np.float64)
+    # kappa_sq is the (npts_extrinsic, npts) data term: 98 MB of complex128 at production
+    # shapes, and the single most expensive thing in this function.  It used to be
+    # zero-filled and then read-modify-written once per detector, with the distance scaling
+    # allocating a further full-size temporary each time.  Start from the first detector's
+    # own output buffer and scale it in place instead: same arithmetic, three fewer
+    # full-size passes over 98 MB for a three-detector network.
+    kappa_sq = None
+    # rho_sq is the <h|h> term.  It is TIME-INDEPENDENT: every detector contributes
+    # rho_sq_det of shape (npts_extrinsic,), which used to be broadcast into a dense
+    # (npts_extrinsic, npts) accumulator.  At production shapes that is ~49 MB of float64
+    # zero-filled once and read-modify-written once per detector, to store npts identical
+    # copies of each value.  Accumulate the vector instead and expose the 2-D shape as a
+    # stride-0 view after the loop; downstream arithmetic is elementwise and sees no
+    # difference, and the additions happen in the same order on the same scalars, so the
+    # result is bitwise unchanged.  (The calibration path already did exactly this with
+    # broadcast_to for rho_sq_cal; this brings the ordinary path in line.)
+    rho_sq_vec = xpy.zeros(npts_extrinsic, dtype=np.float64)
 
     # When marginalizing over calibration (n_cal>1), cache the per-detector data
     # term inputs here; the calibration-independent rho_sq is still accumulated
@@ -2984,7 +2999,14 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
                   np.conj(FY_dummy_t), Qlms,
                   )
 
-          kappa_sq += Q_prod_result * (distMpcRef/distMpc)[..., np.newaxis]
+          # Scale in place into the buffer the Q kernel just handed us -- it is freshly
+          # allocated per detector and not aliased anywhere -- rather than allocating a
+          # full-size temporary for the product.
+          xpy.multiply(Q_prod_result, invDistMpc[..., np.newaxis], out=Q_prod_result)
+          if kappa_sq is None:
+              kappa_sq = Q_prod_result
+          else:
+              kappa_sq += Q_prod_result
         else:
           # ---- calibration-marginalization path (Option B): cache pieces ----
           # The rholm timeseries hold n_cal contiguous realizations; realization c
@@ -3005,7 +3027,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
 
         # Accumulate term2 into the time-dependent log likelihood.
         # Have to create a view with an extra axis so they broadcast.
-        rho_sq += rho_sq_det[..., np.newaxis]
+        rho_sq_vec += rho_sq_det
         # lnL_t_accum += term2[..., np.newaxis]
 
 #        print lnL_t_accum.shape, lnL_t.shape
@@ -3013,10 +3035,24 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
 #        lnL_t_accum += lnL_t
 
 
+    # The (npts_extrinsic, npts) shape every consumer below expects, as a stride-0 view
+    # over the vector accumulated above.  Consumers that need real backing memory -- the
+    # fused CUDA kernels, which index raw device pointers, and the non-Simpson quadrature
+    # helpers, which are free to write -- go through _dense_rho_sq() and pay exactly what
+    # they paid before.
+    rho_sq = xpy.broadcast_to(rho_sq_vec[:, np.newaxis], (npts_extrinsic, npts))
+
+    def _dense_rho_sq(a):
+        """A writable, contiguous copy of a possibly stride-0 rho_sq view."""
+        return a if getattr(a, "flags", None) is not None and a.flags.c_contiguous \
+            else xpy.ascontiguousarray(a)
+
     if n_cal == 1:
         # Fused-calmarg self-term fix also applies to a SINGLE calibration draw: the data
         # carries C_0, so its self-term is rho_sq_c = <C_0 h|C_0 h> = rho_sq_cal[0], not the
         # cal-independent <h|h>.  Falls back to rho_sq for the ordinary (no-cal) likelihood.
+        if kappa_sq is None:   # no detectors: preserve the old all-zeros behaviour
+            kappa_sq = xpy.zeros((npts_extrinsic, npts), dtype=np.complex128)
         rho_sq_here = rho_sq if not _use_rho_sq_cal else xpy.broadcast_to(rho_sq_cal[0][:, np.newaxis], (npts_extrinsic, npts))
         if phase_marginalization:
             lnL_t = loglikelihood(xpy.abs(kappa_sq), rho_sq_here)
@@ -3054,7 +3090,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
             # this also made the module default to scipy, which RAISES on a cupy
             # array: every --vectorized --gpu run of this option crashed.
             _time_result = time_quadrature_module.time_marginalize_bandlimited(
-                kappa_sq, rho_sq_here, float(deltaT), loglikelihood,
+                kappa_sq, _dense_rho_sq(rho_sq_here), float(deltaT), loglikelihood,
                 phase_marginalization=phase_marginalization, simps=simps,
                 lnL_coarse=lnL_t, return_time_draw=return_time_draw,
                 draw_uniforms=time_draw_uniforms, t0=float(tvals[0]), xpy=xpy)
@@ -3072,7 +3108,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
             # mass it left out -- are given the 'bandlimited' value, so the reviewed
             # dense implementation is the backstop rather than Simpson.
             return time_peak_local_module.time_marginalize_peak_local(
-                kappa_sq, rho_sq_here, float(deltaT), loglikelihood,
+                kappa_sq, _dense_rho_sq(rho_sq_here), float(deltaT), loglikelihood,
                 phase_marginalization=phase_marginalization, simps=simps,
                 lnL_coarse=lnL_t, xpy=xpy)
 
@@ -3138,17 +3174,17 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         if xpy is np:
             # CPU: pure-numpy fused (no CUDA); independent cross-check of the kernel
             return Q_fused_calmarg.Q_fused_calmarg_numpy(
-                Q_stack, A_stack, ifirst_stack, invDist_vec, rho_sq, w_t,
+                Q_stack, A_stack, ifirst_stack, invDist_vec, _dense_rho_sq(rho_sq), w_t,
                 n_cal, N_window_block, distmarg=cal_distmarg, cal_log_weights=cal_log_weights,
                 phase_marginalization=phase_marginalization, rho_sq_cal=rho_sq_cal)
         if cal_distmarg is None:
             return Q_fused_calmarg.Q_fused_calmarg_cupy(
-                Q_stack, A_stack, ifirst_stack, invDist_vec, rho_sq, w_t,
+                Q_stack, A_stack, ifirst_stack, invDist_vec, _dense_rho_sq(rho_sq), w_t,
                 n_cal, N_window_block, cal_log_weights=cal_log_weights,
                 phase_marginalization=phase_marginalization, rho_sq_cal=rho_sq_cal)
         else:
             return Q_fused_calmarg.Q_fused_calmarg_distmarg_cupy(
-                Q_stack, A_stack, ifirst_stack, invDist_vec, rho_sq, w_t,
+                Q_stack, A_stack, ifirst_stack, invDist_vec, _dense_rho_sq(rho_sq), w_t,
                 n_cal, N_window_block, cal_distmarg, cal_log_weights=cal_log_weights,
                 phase_marginalization=phase_marginalization, rho_sq_cal=rho_sq_cal)
 
