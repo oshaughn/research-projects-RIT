@@ -110,6 +110,22 @@ def test_missing_budget_declines_with_no_selection(
         decision.require_selection()
 
 
+def test_repeated_required_axis_declines_instead_of_planning_it_twice():
+    """One scheme per axis: a repeated axis is a malformed request, not a plan."""
+    decision = P.plan_direct_marginalization(
+        (_offer("angle", "exact", 1e-5, 10),), {"angle": 1e-2},
+        P.ResourceBudget(1000.0, 1024), required_axes=("angle", "angle"))
+    assert decision.action == "decline"
+    assert decision.reason_code == "duplicate-axis"
+    assert decision.selected == ()
+    assert decision.resource_use is None
+    assert decision.ledger["details"]["duplicate_axes"] == ["angle"]
+    assert decision.ledger["combinations"] == []
+    with pytest.raises(P.MarginalizationPlanDeclined, match="duplicate-axis"):
+        decision.require_selection()
+    json.dumps(decision.as_dict())
+
+
 def test_shipped_peak_local_plus_gh_is_an_unsupported_combination():
     """The real JAX profile declares this once; the planner refuses the pair."""
     def validated(label):

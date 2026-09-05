@@ -467,6 +467,17 @@ def plan_direct_marginalization(offers, error_budget, resource_budget, *,
             "missing-axis", "no marginalization axes were requested", axes,
             error_budget, resource_budget, capabilities, {})
 
+    duplicate_axes = sorted(set(axis for axis in axes if axes.count(axis) > 1))
+    if duplicate_axes:
+        # One scheme per axis is the planner's contract.  A repeated axis would
+        # otherwise enter the Cartesian product twice, select the same offer
+        # twice and double-count its compute and memory.
+        return _preflight_decline(
+            "duplicate-axis",
+            "required axes repeat %r; each axis may be marginalized once"
+            % duplicate_axes, axes, error_budget, resource_budget,
+            capabilities, dict(duplicate_axes=duplicate_axes))
+
     by_axis = {axis: tuple(o for o in offers if o.axis == axis) for axis in axes}
     unsupported = [axis for axis in axes if not by_axis[axis]]
     if unsupported:
