@@ -651,11 +651,13 @@ fully enumerated; the last is correctly marked non-regular.
 
 **Incomplete algebraic accounting is not a waveform failure.**  The hierarchy is:
 
-1. use the complete algebraic set when all gates pass;
-2. otherwise retain every definitely-real candidate from every projection and use it only
-   if the existing outside-cover supremum bound proves the omitted impact below budget and
-   a doubled local rule verifies the quadrature inside that cover;
-3. if that bound does not pass, compute the finite dense-φ/exact-u fallback and record the
+1. use the complete algebraic set as the target set when all enumeration gates pass;
+2. otherwise retain every definitely-real candidate from every projection as a partial
+   target set;
+3. in either case, use the target union only if the existing outside-cover supremum bound
+   proves the omitted impact below budget and a doubled local rule verifies the quadrature
+   inside that cover — enumeration completeness cannot certify inside-box quadrature;
+4. if either check does not pass, compute the finite dense-φ/exact-u fallback and record the
    expected/found roots, conditioning, and fallback reason.
 
 A missing root can therefore cost performance, but it cannot silently delete a likelihood

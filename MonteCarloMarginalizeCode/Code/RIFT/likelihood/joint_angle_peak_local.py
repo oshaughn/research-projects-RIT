@@ -47,6 +47,9 @@ WHAT IS CERTIFIED, AND WHAT IS NOT.  Read this before quoting the accuracy.
     upper bound on ``g`` outside the covered set: a grid maximum plus the Lipschitz
     remainder ``M_1 * h / 2``, with ``M_1 = sum |C_kq| |k| (or |q|)`` by the triangle
     inequality over the exact coefficient table.  Nothing there is fitted.
+  * Every retained cover, including one built from a complete root set, must pass
+    an independent doubled-rule check on its inside-box quadrature.  Root
+    completeness and an omitted-mass bound say nothing about that error.
 
   An incomplete algebraic set is used only when that omitted-mass bound passes.
   Otherwise this reference executes its dense-phi/exact-u fallback and returns a
@@ -98,6 +101,14 @@ MERGE_MAX_PASSES = 12
 #: Accept a row when log(omitted area) + sup_outside - log(integral) is below this.
 #: exp(-23) ~ 1e-10 of the mass.
 OUTSIDE_TOL_NATS = -23.0
+
+# Keep the host fallback independent of the optional JAX stack.  These are the
+# phi-axis pieces of jax_ile.anglemarg._dense_grid_sizes: the calibration point
+# is m_max=2 and the count is rounded up to a multiple of 16.  Importing that
+# private helper here made the advertised NumPy fallback fail before producing
+# a value whenever JAX was not installed.
+_DENSE_K_PHI = 16.0
+_DENSE_FLOOR_PHI = 128
 
 
 def joint_table(C_A, C_B, x=1.0):
@@ -350,6 +361,10 @@ def outside_bound(C, cen, half, n_grid=256):
 #: recorded rather than hidden because "bit-identical" would have been the wrong claim.
 _PTS_PER_SIGMA = 3
 
+# A local-cover value is accepted only after this independent doubled-rule
+# comparison.  The outside bound cannot diagnose quadrature error inside a box.
+_LOCAL_QUADRATURE_TOL_NATS = 1.0e-6
+
 
 def _log_box_integral(C, c, h, pts_per_sigma=_PTS_PER_SIGMA, max_pts=_BOX_MAX_PTS):
     """``log int_box exp(g)`` by a tensor trapezoid sized from the LOCAL curvature.
@@ -402,12 +417,14 @@ def dense_phi_exact_u_marginalize(C, n_phi=None, n_u_nodes=64):
     input.  A doubled-phi comparison is reported rather than silently treating
     the requested floor as proof of convergence.
     """
-    from .jax_ile.anglemarg import _dense_grid_sizes
-
     C = np.asarray(C, dtype=np.complex128)
     m_max = max(1, int(np.ceil((C.shape[0] - 1) / 2.0)))
     amplitude_bound = max(derivative_bound(C, (0, 0)), 25.0)
-    derived, _ = _dense_grid_sizes(amplitude_bound, m_max=m_max)
+    m_scale = max(1.0, float(m_max) / 2.0)
+    derived = max(int(np.ceil(_DENSE_FLOOR_PHI * m_scale)),
+                  int(np.ceil(_DENSE_K_PHI * m_scale
+                              * np.sqrt(amplitude_bound))))
+    derived = ((derived + 15) // 16) * 16
     base = max(int(derived), int(n_phi) if n_phi is not None else 0)
 
     def one(count):
@@ -435,7 +452,7 @@ def joint_marginalize_peak_local(C, n_phi=64, n_bound_grid=256,
     Returns ``(value, ok, report)`` with an explicit three-level hierarchy:
 
     1. use the BKK-complete algebraic maxima when enumeration is certified;
-    2. if algebraic accounting is incomplete, use its candidate union only when
+    2. use either a complete or partial candidate union only when
        :func:`outside_bound` proves omitted impact below ``tol_nats`` and a doubled
        local rule verifies inside-cover quadrature;
     3. otherwise return :func:`dense_phi_exact_u_marginalize`.
@@ -512,30 +529,38 @@ def joint_marginalize_peak_local(C, n_phi=64, n_bound_grid=256,
     local_value = float(log_inside - 2.0 * np.log(2.0 * np.pi))
     bound_ok = rep['margin'] < tol_nats
     if bound_ok:
+        # The outside bound certifies MISSED modes, not quadrature inside the
+        # retained regions.  Enumeration completeness cannot change that: a
+        # complete cover can have area_outside == 0 while a narrow diagonal
+        # ridge is badly under-resolved by an axis-aligned tensor rule.  Always
+        # perform a doubled local rule before accepting the cover.  If that
+        # independent error budget fails, level three of the hierarchy is the
+        # finite dense fallback -- never a sample deletion.
+        parts_hi = []
+        capped_hi = False
+        for c, h in zip(cen, half):
+            v_hi, _, cap_hi = _log_box_integral(
+                C, c, h, pts_per_sigma=2 * _PTS_PER_SIGMA,
+                max_pts=2 * _BOX_MAX_PTS)
+            parts_hi.append(v_hi)
+            capped_hi |= bool(cap_hi)
+        parts_hi = np.asarray(parts_hi)
+        mh = float(np.max(parts_hi))
+        log_inside_hi = mh + np.log(np.exp(parts_hi - mh).sum())
+        quadrature_error = float(abs(log_inside_hi - log_inside))
+        rep['local_quadrature_error'] = quadrature_error
+        rep['local_quadrature_capped'] = bool(capped_hi)
+        # Preserve the existing best-effort ledger names for consumers of an
+        # incomplete algebraic solve; the common names above cover both paths.
         if not enum_ok:
-            # The outside bound certifies MISSED modes, not quadrature inside
-            # the retained regions.  On a best-effort algebraic set, perform a
-            # doubled local rule before accepting it.  If that independent
-            # error budget fails, level three of the hierarchy is the dense
-            # fallback -- never a sample deletion.
-            parts_hi = []
-            capped_hi = False
-            for c, h in zip(cen, half):
-                v_hi, _, cap_hi = _log_box_integral(
-                    C, c, h, pts_per_sigma=2 * _PTS_PER_SIGMA,
-                    max_pts=2 * _BOX_MAX_PTS)
-                parts_hi.append(v_hi)
-                capped_hi |= bool(cap_hi)
-            parts_hi = np.asarray(parts_hi)
-            mh = float(np.max(parts_hi))
-            log_inside_hi = mh + np.log(np.exp(parts_hi - mh).sum())
-            rep['best_effort_quadrature_error'] = float(
-                abs(log_inside_hi - log_inside))
+            rep['best_effort_quadrature_error'] = quadrature_error
             rep['best_effort_quadrature_capped'] = bool(capped_hi)
-            if (capped_hi or rep['best_effort_quadrature_error'] > 1e-6):
-                return dense_fallback(
-                    'best-effort inside-cover quadrature did not converge')
-            local_value = float(log_inside_hi - 2.0 * np.log(2.0 * np.pi))
+        if capped_hi or quadrature_error > _LOCAL_QUADRATURE_TOL_NATS:
+            return dense_fallback(
+                'inside-cover quadrature did not converge '
+                '(doubled_error=%.6g, doubled_capped=%s)'
+                % (quadrature_error, bool(capped_hi)))
+        local_value = float(log_inside_hi - 2.0 * np.log(2.0 * np.pi))
         rep['result_path'] = ('algebraic-certified' if enum_ok
                               else 'algebraic-best-effort/bound-certified')
         if not enum_ok:

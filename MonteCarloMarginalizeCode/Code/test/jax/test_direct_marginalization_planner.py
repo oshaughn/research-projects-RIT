@@ -362,6 +362,42 @@ def test_incomplete_root_enumeration_replaces_method_not_likelihood_point():
     assert "incomplete-root-enumeration" in str(resolution.as_dict())
 
 
+def test_axisless_runtime_decline_requires_full_plan_replacement():
+    """An unknown declined axis cannot leave any preferred method in service."""
+    angle_fast = _offer("angle", "root-shortcut", 1e-5, 5)
+    time_fast = _offer("time", "time-shortcut", 1e-5, 5)
+    decision = P.plan_direct_marginalization(
+        (angle_fast, time_fast), {"angle": 1e-3, "time": 1e-3},
+        P.ResourceBudget(100, 256), required_axes=("angle", "time"))
+    assert decision.action == "run"
+    decline = P.MethodDecline(
+        "runtime-warrant-lost", "runtime check did not identify its axis",
+        "fixture: axis-less runtime callback")
+    time_only = P.ConservativeFallbackPolicy(
+        (_offer("time", "simpson", 1e-6, 10),),
+        P.ResourceBudget(100, 256), "fixture: partial reserve",
+        "fixture: finite time support")
+
+    with pytest.raises(P.FallbackConfigurationError,
+                       match="does not replace declined axes.*angle"):
+        P.resolve_plan_for_production(
+            decision, time_only, method_decline=decline)
+
+    complete = P.ConservativeFallbackPolicy(
+        (_offer("angle", "dense", 1e-6, 20),
+         _offer("time", "simpson", 1e-6, 10)),
+        P.ResourceBudget(100, 256), "fixture: complete reserve",
+        "fixture: finite full-axis support")
+    resolution = P.resolve_plan_for_production(
+        decision, complete, method_decline=decline)
+
+    assert [offer.key for offer in resolution.require_selection()] == [
+        "angle:dense", "time:simpson"]
+    assert resolution.drops_sample is False
+    assert resolution.method_decline is decline
+    assert resolution.waveform_failure is None
+
+
 def test_method_decline_without_fallback_is_configuration_error_not_drop():
     preferred = _offer("angle", "shortcut", 1e-5, 5)
     decision = P.plan_direct_marginalization(

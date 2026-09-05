@@ -331,11 +331,13 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         capacity ledger, jit/AD, and rejection of an
 #                                         already-marginalized time row.
 #   test_direct_marginalization_planner.py
-#                                      21  strict error/resource-budget selection,
+#                                      22  strict error/resource-budget selection,
 #                                         compatibility and warrant gates, explicit
 #                                         best-effort authority, provenance ledgers,
 #                                         unchanged legacy selector defaults, and
-#                                         finite production fallback resolution.
+#                                         finite production fallback resolution,
+#                                         including full-plan replacement when a
+#                                         runtime decline does not identify its axis.
 
 FILES=(
   "${JAXDIR}/test_jax_time_quadrature.py"
@@ -513,9 +515,9 @@ fi
 # The production-policy follow-up adds one mutation-bearing streaming test; this job's
 # own collection reports 312.  The sample-time point tiling adds two mutation-bearing
 # compile-cost tests, the time-first peak-local prototype adds six, and the
-# budget planner and review regressions add twenty-one, raising the measured
-# collection floor from 312 to 341.
-EXPECTED_TESTS=341
+# budget planner and review regressions add twenty-two, raising the measured
+# collection floor from 312 to 342.
+EXPECTED_TESTS=342
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"

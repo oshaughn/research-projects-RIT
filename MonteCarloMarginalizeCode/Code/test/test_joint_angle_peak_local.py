@@ -4,8 +4,11 @@ Reference is a converged periodic trapezoid on the torus -- the mathematical con
 of the shipped `anglemarg` exact scheme -- so accuracy is measured against a
 quadrature, never against another peak-local run.
 """
+import builtins
+
 import numpy as np
 import pytest
+from scipy import special
 
 from RIFT.likelihood import joint_angle_peak_local as J
 from RIFT.likelihood import bivariate_trig_stationary as BTS
@@ -144,6 +147,60 @@ def test_incomplete_algebraic_accounting_never_drops_the_likelihood_sample():
         assert report["margin"] < J.OUTSIDE_TOL_NATS
     else:
         assert report["fallback_reason"]
+
+
+def test_certified_enumeration_cannot_certify_capped_local_quadrature(monkeypatch):
+    """A complete root set does not certify integration inside its cover.
+
+    ``s cos(phi-u) + cos(phi+u)`` has the exact normalized integral
+    ``I0(s) I0(1)``.  Its weak direction makes the mode boxes cover the torus,
+    while its strong diagonal direction is much narrower than either capped
+    axis-aligned rule.  The outside ledger therefore says that no area was
+    omitted even though the local quadrature is unresolved.
+    """
+    strength = 1.0e8
+    C = np.zeros((2, 5), dtype=complex)
+    C[1, 1] = 0.5 * strength       # strength * cos(phi-u)
+    C[1, 3] = 0.5                  # cos(phi+u)
+    exact = (np.log(special.i0e(strength)) + strength
+             + np.log(special.i0e(1.0)) + 1.0)
+    fallback_calls = []
+
+    def finite_fallback(table, n_phi=None, n_u_nodes=64):
+        fallback_calls.append((table, n_phi, n_u_nodes))
+        return exact, {"doubling_error": 0.0, "fixture": "known integral"}
+
+    monkeypatch.setattr(J, "dense_phi_exact_u_marginalize", finite_fallback)
+    value, ok, report = J.joint_marginalize_peak_local(C)
+
+    assert ok and value == exact
+    assert report["enumeration_certified"], report["enumeration"]
+    assert report["area_outside"] == 0.0
+    assert report["n_boxes_pts_capped"] >= 1
+    assert report["local_quadrature_capped"]
+    assert report["local_quadrature_error"] > 0.1
+    assert report["result_path"] == "dense-phi/exact-u"
+    assert "inside-cover quadrature did not converge" in report["fallback_reason"]
+    assert len(fallback_calls) == 1
+
+
+def test_numpy_dense_fallback_does_not_import_the_optional_jax_stack(monkeypatch):
+    """The final fallback remains usable in an installation without JAX."""
+    real_import = builtins.__import__
+
+    def reject_jax(name, globals=None, locals=None, fromlist=(), level=0):
+        if "jax_ile" in name or name == "jax" or name.startswith("jax."):
+            raise AssertionError("the NumPy fallback attempted to import JAX")
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", reject_jax)
+    C = np.zeros((2, 5), dtype=complex)
+    C[1, 2] = 0.25
+    value, report = J.dense_phi_exact_u_marginalize(C, n_phi=16)
+
+    assert np.isfinite(value)
+    assert report["n_phi_coarse"] == 128
+    assert report["n_phi"] == 256
 
 
 def _ref(C, n=2048):

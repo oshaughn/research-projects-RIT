@@ -917,17 +917,25 @@ def resolve_plan_for_production(preferred_decision, fallback_policy=None, *,
     if extra:
         raise FallbackConfigurationError(
             "fallback contains unrequested axes %r" % extra)
-    if (method_decline.axis is not None
-            and method_decline.axis not in fallback_by_axis):
+    # A runtime decline without an axis cannot identify which selected method
+    # lost its warrant.  Treat it conservatively as a decline of the complete
+    # selected plan: every requested axis must be supplied by the explicit
+    # fallback policy.  Retaining the preferred plan and replacing only an
+    # unrelated axis would report a runnable resolution that still contains the
+    # method that may have declined.
+    declined_axes = (required_axes if method_decline.axis is None
+                     else (method_decline.axis,))
+    missing_replacements = [axis for axis in declined_axes
+                            if axis not in fallback_by_axis]
+    if missing_replacements:
         raise FallbackConfigurationError(
-            "fallback does not replace declined %s method"
-            % method_decline.axis)
-    if method_decline.axis is not None and method_decline.axis in base:
-        if fallback_by_axis[method_decline.axis].key == base[
-                method_decline.axis].key:
+            "fallback does not replace declined axes %r"
+            % missing_replacements)
+    for axis in declined_axes:
+        if axis in base and fallback_by_axis[axis].key == base[axis].key:
             raise FallbackConfigurationError(
                 "fallback repeats declined method %s"
-                % base[method_decline.axis].key)
+                % base[axis].key)
     base.update(fallback_by_axis)
     missing = [axis for axis in required_axes if axis not in base]
     if missing:

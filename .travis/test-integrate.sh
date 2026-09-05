@@ -140,10 +140,11 @@ fi
 # against the computed value, and that an undersized region is routed to the finite
 # dense fallback rather than returned locally.  The algebraic follow-up also pins
 # the BKK/resultant enumerator on co-dominant, near-annihilating, exactly degenerate,
-# and amplitude-scaled systems.
+# and amplitude-scaled systems, requires inside-cover convergence even after a
+# complete enumeration, and keeps the NumPy fallback independent of optional JAX.
 _JOINT_PL_TESTS=MonteCarloMarginalizeCode/Code/test/test_joint_angle_peak_local.py
 # Raise EXPECTED by RUNNING collection, never by arithmetic.
-_JOINT_PL_EXPECTED=34
+_JOINT_PL_EXPECTED=36
 _JOINT_PL_FOUND=$(python -m pytest -q --collect-only "$_JOINT_PL_TESTS" 2>/dev/null | grep -c '::' || true)
 if [ "$_JOINT_PL_FOUND" -ne "$_JOINT_PL_EXPECTED" ]; then
     echo "joint peak-local gate: collected $_JOINT_PL_FOUND tests, expected $_JOINT_PL_EXPECTED" >&2

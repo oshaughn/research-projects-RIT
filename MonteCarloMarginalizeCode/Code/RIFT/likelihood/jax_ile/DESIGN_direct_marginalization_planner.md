@@ -164,10 +164,12 @@ methods as error-certified.  The resolution ledger reports their actual error
 evidence and whether it meets the original request.
 
 A runtime decline on one axis replaces that axis and retains the other selected
-axes.  A planning decline has no executable partial selection, so its fallback
-must cover all requested axes.  Missing coverage, incompatibility, or excess of
-the reserve budget raises `FallbackConfigurationError` during resolution; none
-of those configuration defects is returned as an invalid likelihood sample.
+axes.  A runtime decline with no axis cannot identify which selected warrant was
+lost, so it conservatively replaces the complete selected plan.  A planning
+decline likewise has no executable partial selection, so its fallback must cover
+all requested axes.  Missing coverage, incompatibility, or excess of the reserve
+budget raises `FallbackConfigurationError` during resolution; none of those
+configuration defects is returned as an invalid likelihood sample.
 The ledger preserves the original warrant/resource refusal, the runtime root
 postcondition when present, the chosen reserve, both budgets, and all
 provenance.  `ProductionResolution.require_selection()` returns either the
