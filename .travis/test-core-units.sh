@@ -62,6 +62,7 @@ FILES=(
   "$C/test/test_ile_scalar_edge_cases.py"
   "$C/test/test_srate_resample_time_marginalization.py"
   "$C/test/test_vectorized_lal_tools_split.py"
+  "$C/test/test_noloop_accumulator_shapes.py"
   # -- integrators: seeding, allocation, weight derivation
   "$C/test/integrators/test_convergence_sample_order.py"
   "$C/test/integrators/test_gmm_adaptive.py"
@@ -128,7 +129,14 @@ done
 # +3/+3 for test_vectorized_lal_tools_split.py: three unconditional test functions, no skip
 # and no xfail, numpy / lal / lalsimulation only, so both floors move by the same amount and
 # MAX_SKIPPED does not.
-EXPECTED_TESTS=299
+#
+# +8/+8 for test_noloop_accumulator_shapes.py: two parametrized over three detector networks
+# (1/2/3 IFOs) plus two unconditional, so 8 collected and 8 passed, no skip and no xfail.
+# numpy / lal / lalsimulation only -- it builds synthetic inputs and calls the NoLoop
+# likelihood on the CPU backend, so it needs no cupy and no GPU, and both floors move by the
+# same amount while MAX_SKIPPED does not.  MEASURED 2026-09-05 on CIT with the same conda
+# python as the line above: 8 collected, 8 passed, 0 skipped, 4.9 s.
+EXPECTED_TESTS=307
 # Outcomes, not just exit status: a collection floor cannot see a test that collects, runs and
 # asserts nothing, and a pytest.skip can quietly absorb a lost gate.  The 12 skips are
 # environment legs -- cupy in test_seeding_reproducibility, device legs in
@@ -139,7 +147,7 @@ EXPECTED_TESTS=299
 # editable install) reported the same 278 / 266 / 12, in 24.7 s.  So these floors are exact on
 # both stacks, not merely the CIT numbers copied across, and a future divergence is a real
 # change rather than an environment difference to be explained away.
-EXPECTED_PASSED=287
+EXPECTED_PASSED=295
 MAX_SKIPPED=12
 
 junit="$(mktemp -t core-units-junit-XXXXXX.xml)"
