@@ -99,20 +99,31 @@ so the current production call path does not submit `S=4000`. Scalar
 value/gradient/Hessian calls use explicit `S=1`; flowMC normally maps those over
 20 chains.
 
-There is nevertheless a real weakness in the current heuristic: on a GPU whose
-total reported limit is 4 GiB, `_angle_marg_buffer_target()` still returns its
-4-GiB floor, and the resulting `S=439` cap budgets 3.996 GiB for this one old
-slab alone. That is not a defensible total-memory bound. It is a theoretical
-finding here, not a measured 4-GB JAX failure; direct `log_likelihood` calls also
-bypass the cap altogether.
+When a device limit is known, `_angle_marg_buffer_target()` now always applies
+the configured fraction: a reported 4-GiB card therefore gets a 2-GiB target at
+the default fraction. The historical 4-GiB value is reserved for the
+unknown-device fallback. If the modeled payload for one sample exceeds the
+target, the evaluation helper raises a resource preflight error instead of
+returning a fictitious chunk size of one. This remains a source-level working-set
+model, not a bound on total allocator use; direct `log_likelihood` calls bypass
+the helper altogether.
 
 ## Peak-local
 
 The u-node axis is already streamed with `U_live<=8`, and phi with `F=16`.
-The documented node slab per sample-time point is
-`8 F N_x 4 U_live` bytes: 1 MiB at `N_x=256`. Nested
-`vmap(vmap(_one))` still multiplies it by `S T`. A follow-up should roll those
-axes around `_one` and GPU-profile a suitably smaller point tile.
+The node body per sample-time point is `8 F N_x 4 U_live` bytes: 1 MiB at
+`N_x=256`. The phi scan also returns every step before reducing it, so its
+stacked `(n_phi,N_x)` f64 result adds `8 n_phi N_x` bytes per sample-time point.
+The outer evaluation cap budgets the sum and refuses a call when even one sample
+does not fit. For example, at `T=1193,N_x=256,m_max=2`, `A=450` gives
+`n_phi=352` and a 1.966-GiB one-sample model, while `A=12500` gives
+`n_phi=1792` and a 5.242-GiB model.
+
+This does not fix hidden transformed axes. Nested `vmap(vmap(_one))` still
+multiplies the body and scan result by explicit `S T`, and flowMC applies an
+additional outer chain `vmap` to the scalar likelihood that this preflight
+cannot see. A follow-up must roll those axes around `_one` and GPU-profile a
+suitably smaller point tile before peak-local can claim a total-memory bound.
 
 ## Validation boundary
 
