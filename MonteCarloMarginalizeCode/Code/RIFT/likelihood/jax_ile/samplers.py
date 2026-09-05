@@ -244,14 +244,17 @@ _ANGLE_MARG_BYTES_PER_SAMPLE_PT = 8192
 
 #: Largest single buffer we will let the anglemarg eval request.  4 GiB was chosen on
 #: 2026-08-28 against the 25 GiB per-UID cgroup of the machine the OOM was reproduced on,
-#: with a deliberate ~6x margin.  It is a FLOOR, not a ceiling: on a card with more memory
-#: it throttles the accurate schemes for no reason -- at npts=1230 it caps the eval chunk
-#: at 426 where the nominal chunk is 1000, so `exact`/`laplace`/`peak-local` run at under
-#: half the batch `grid` gets, and small batches are exactly where their per-sample cost is
-#: worst.
+#: with a deliberate ~6x margin.  On a card with more memory it throttles the accurate
+#: schemes for no reason -- at npts=1230 it caps the eval chunk at 426 where the nominal
+#: chunk is 1000, so `exact`/`laplace`/`peak-local` run at under half the batch `grid`
+#: gets, and small batches are exactly where their per-sample cost is worst.
 #: So DERIVE it from the device when we can see one, and keep 4 GiB as the fallback for the
 #: machine we cannot measure.  Deliberately a fraction of free VRAM rather than all of it:
 #: this bounds ONE buffer, and the rest of the graph has to live alongside it.
+#:
+#: THIS IS NOT A FLOOR, and an earlier revision of this file wrongly said it was.  4 GiB is
+#: what we use when we cannot SEE the device; it carries no guarantee about a device we can.
+#: It was measured safe against one 25 GiB cgroup and says nothing about a 6 GiB card.
 _ANGLE_MARG_BUFFER_TARGET_FALLBACK = 4 << 30
 
 #: Fraction of the device's reported limit to allow for this ONE buffer.
@@ -268,8 +271,42 @@ _ANGLE_MARG_BUFFER_TARGET_FALLBACK = 4 << 30
 #:     RIFT_ANGLEMARG_BUFFER_FRACTION=0.8
 #: and if you measure the true overhead, replace this constant with the measurement and say
 #: so here.
-_ANGLE_MARG_BUFFER_FRACTION = float(
-    os.environ.get("RIFT_ANGLEMARG_BUFFER_FRACTION", "0.5"))
+_ANGLE_MARG_BUFFER_FRACTION_DEFAULT = 0.5
+
+
+def _read_buffer_fraction(env=None):
+    """Parse RIFT_ANGLEMARG_BUFFER_FRACTION, refusing a value that cannot bound anything.
+
+    Refuses LOUDLY rather than quietly substituting the default.  An override that is
+    silently ignored is worse than no override at all: the caller goes on believing a
+    bound is in force that is not, which is precisely how the buffer gets sized wrong.
+    Not being set is not an error -- only a value we were handed and cannot use.
+
+    Above 1.0 is rejected rather than clamped because it asks for a buffer larger than
+    the device reports having, i.e. it asks this function to cause the OOM it exists to
+    prevent.  A caller who really wants the whole card writes 1.0.
+    """
+    if env is None:
+        env = os.environ
+    raw = env.get("RIFT_ANGLEMARG_BUFFER_FRACTION")
+    if raw is None:
+        return _ANGLE_MARG_BUFFER_FRACTION_DEFAULT
+    try:
+        val = float(raw)
+    except (TypeError, ValueError):
+        raise ValueError(
+            "RIFT_ANGLEMARG_BUFFER_FRACTION=%r is not a number; give a fraction in "
+            "(0, 1], e.g. 0.8" % (raw,))
+    # NaN fails this comparison too, which is the intent.
+    if not (0.0 < val <= 1.0):
+        raise ValueError(
+            "RIFT_ANGLEMARG_BUFFER_FRACTION=%r is outside (0, 1]; above 1 would size this "
+            "buffer larger than the device reports, and at or below 0 it bounds nothing"
+            % (raw,))
+    return val
+
+
+_ANGLE_MARG_BUFFER_FRACTION = _read_buffer_fraction()
 
 
 def _angle_marg_buffer_target():
@@ -290,8 +327,13 @@ def _angle_marg_buffer_target():
         limit = stats.get("bytes_limit") or stats.get("bytes_reservable_limit")
         if not limit:
             return _ANGLE_MARG_BUFFER_TARGET_FALLBACK
-        return max(_ANGLE_MARG_BUFFER_TARGET_FALLBACK,
-                   int(limit * _ANGLE_MARG_BUFFER_FRACTION))
+        # NO max() WITH THE FALLBACK HERE.  Flooring at 4 GiB would defeat the whole
+        # point in the one direction that matters for safety: a card reporting 6 GiB
+        # would be handed a 4 GiB single buffer, and one reporting under 4 GiB would be
+        # handed more than it has.  That is the failure this function exists to prevent,
+        # wearing device awareness as a costume.  A small device gets a small allowance;
+        # angle_marg_eval_chunk floors the CHUNK at 1, so such a run goes slow, not wrong.
+        return max(1, int(limit * _ANGLE_MARG_BUFFER_FRACTION))
     except Exception:
         return _ANGLE_MARG_BUFFER_TARGET_FALLBACK
 
