@@ -359,6 +359,7 @@ FILES=(
   "${JAXDIR}/test_jax_stencil_parity.py"
   "${JAXDIR}/test_flow_reuse_default.py"
   "${JAXDIR}/test_angle_marg_sizing_rule.py"
+  "${JAXDIR}/test_anglemarg_buffer_cap.py"
   "${JAXDIR}/test_angle_marg_smoke.py"
   "${JAXDIR}/test_angle_marg_compile_cost.py"
   "${JAXDIR}/test_angle_marg_block_dispatch.py"
@@ -513,11 +514,17 @@ fi
 # it and fails.  Read the floor off this job's "collected N tests from 27 files" line --
 # the only source that is not a guess.
 # The production-policy follow-up adds one mutation-bearing streaming test; this job's
-# own collection reports 312.  The sample-time point tiling adds two mutation-bearing
-# compile-cost tests, the time-first peak-local prototype adds six, and the
-# budget planner and review regressions add twenty-two, raising the measured
-# collection floor from 312 to 342.
-EXPECTED_TESTS=342
+# own collection reports 312.
+# +27 for the #250 review follow-up: test_anglemarg_buffer_cap.py went from 7 collected
+# to 34 when its stubbed-out probe coverage was replaced with real device fakes.  Derived
+# by ARITHMETIC on a measured standalone delta (7 -> 34, and this job deselects nothing in
+# that file), which per the note above is the direction that errs low and passes.  Re-read
+# it off this job's own "collected N tests" line at the next opportunity.
+# After merging both lines, this job's own manifest collects 381 tests locally
+# after its one explicit deselection.  This environment is documented above to
+# collect one more than the CI runner, so the CI floor is 380; do not reconstruct
+# it by adding branch-local deltas, which misses overlapping test-file changes.
+EXPECTED_TESTS=380
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"
