@@ -371,3 +371,49 @@ def test_phi_local_returns_a_certificate_that_actually_declines():
         verdicts.append(bool(ok))
     assert any(verdicts), "certificate declined everything -- it is unusable, not strict"
     assert not all(verdicts), "certificate accepted everything -- it is decoration"
+
+
+def test_algebraic_phi_seeds_are_complete_and_agree_where_the_cover_is_partial():
+    """phi HAS an algebraic warrant, through g rather than through F.  The orbital phase
+    enters as e^{-i m phi}, so the table's k_max = KP-1 = 2 m_max is exact, and the
+    resultant's z-roots are every phi at which a 2-D stationary point exists -- a complete
+    seed set, which a uniform linspace cannot claim to be.
+
+    Asserted here: the seed count is fixed by the MODE CONTENT (16 k_max), and where the
+    cover is partial the two seedings agree on the value.
+    """
+    KS = 2
+    for KP in (5, 9):
+        rng = np.random.default_rng(101)
+        C = rng.normal(size=(KP, 2 * KS + 1)) + 1j * rng.normal(size=(KP, 2 * KS + 1))
+        C = jnp.asarray(C * (1e4 / np.sum(np.abs(C))))
+        seeds = JP.phi_seeds_algebraic(C)
+        assert seeds.shape[0] == (2 * (KP - 1)) * (2 * KS) * 2, (KP, seeds.shape)
+        assert np.isfinite(np.asarray(seeds)).all()
+        vu, _, iu = JP.phi_local_lnI(C, algebraic_seeds=False)
+        va, _, ia = JP.phi_local_lnI(C, algebraic_seeds=True)
+        if float(ia["area_outside"]) > 0 and float(iu["area_outside"]) > 0:
+            assert abs(float(vu) - float(va)) < 1e-2, (KP, float(vu), float(va))
+
+
+def test_algebraic_seeds_stay_off_by_default_until_the_covering_path_is_resolved():
+    """Better seeds make an EXISTING defect more reachable, so the default must stay off.
+
+    A fuller cover leaves ``area_outside = 0``, which gives ``margin = -inf`` and an
+    unconditional accept while saying nothing about the quadrature inside.  Measured at
+    KP=13, amplitude 1e2: uniform declines (3 regions, 0.264 rad uncovered); algebraic
+    ACCEPTS with the value 0.777 nats wrong.  Same gap the numpy reference had at
+    ``area_outside = 0`` and fixed by sizing the box nodes to the curvature.
+
+    This test pins the default AND the reason, so flipping it silently fails here.
+    """
+    import inspect
+    assert inspect.signature(JP.phi_local_lnI).parameters["algebraic_seeds"].default is False
+    KS = 2
+    rng = np.random.default_rng(101)
+    C = rng.normal(size=(13, 2 * KS + 1)) + 1j * rng.normal(size=(13, 2 * KS + 1))
+    C = jnp.asarray(C * (1e2 / np.sum(np.abs(C))))
+    _, ok_a, info_a = JP.phi_local_lnI(C, algebraic_seeds=True)
+    # the hazard is real and this is the shape of it: full cover -> unconditional accept
+    assert float(info_a["area_outside"]) == 0.0
+    assert bool(ok_a) and float(info_a["margin"]) == -np.inf
