@@ -95,8 +95,8 @@ MonteCarloMarginalizeCode/Code/demo/rift/export_likelihoods/head_to_head/run_tes
 # The two jax_gp files are the strongest candidates for promotion: jax-ile-check already
 # installs a CPU jax stack, so adding them there costs only optax and a raised EXPECTED_TESTS.
 # Not done here because that job's counts are pinned and this PR does not own them.
-MonteCarloMarginalizeCode/Code/RIFT/interpolators/jax_gp/test_coordinates.py   OPTDEP  needs jax; belongs in jax-ile-check, which already installs a CPU jax stack
-MonteCarloMarginalizeCode/Code/RIFT/interpolators/jax_gp/test_interpolators.py OPTDEP  needs jax and optax; skips cleanly without them, 10 tests where both are installed
+MonteCarloMarginalizeCode/Code/RIFT/interpolators/jax_gp/test_coordinates.py   OPTDEP  needs jax; skips cleanly without it, 2 tests with it; belongs in jax-ile-check, which already installs a CPU jax stack
+MonteCarloMarginalizeCode/Code/RIFT/interpolators/jax_gp/test_interpolators.py OPTDEP  needs jax and optax; skips cleanly without either, 10 tests where both are installed
 # The two cupy parity legs are NOT listed here.  PR #242 landed, and its
 # .travis/test-q-window-stencil.sh names both in an EXCLUDED array -- with the same reason,
 # and with its own fail-closed check that an EXCLUDED path still exists and does not carry
