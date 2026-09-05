@@ -508,11 +508,13 @@ fi
 #
 # 57 is a measured standalone collection of the file at this head, and this job
 # deselects nothing in it (DESELECTED_TESTS names only test_jax_stencil_parity.py), so
-# the standalone count and this job's contribution are the same number.  The 369 is
-# still ARITHMETIC and therefore provisional in the direction that passes; per the note
-# above, read it off this job's own "collected N tests from N files" line at the next
-# opportunity and replace it with the measured value.  Do NOT re-derive it by adding
-# branch-local deltas -- that is exactly how 339 happened.
+# the standalone count and this job's contribution are the same number.
+#
+# CONFIRMED, not arithmetic: run 33982072139 on 0cf4c03bf reported
+#     collected 369 tests from 28 files
+#     369 passed, 1 deselected, 14 warnings in 2535.76s
+# which is this job's own line, the only source the note above accepts.  Do NOT
+# re-derive it by adding branch-local deltas -- that is exactly how 339 happened.
 EXPECTED_TESTS=369
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
