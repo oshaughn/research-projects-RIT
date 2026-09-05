@@ -350,6 +350,8 @@ FILES=(
   "${JAXDIR}/test_joint_anglemarg_peaklocal.py"
   "${JAXDIR}/test_angle_marg_peaklocal_wiring.py"
   "${JAXDIR}/test_limit_distance_jax.py"
+  "${JAXDIR}/test_direct_marginalization_planner.py"
+  "${JAXDIR}/test_time_first_peaklocal.py"
 )
 
 # EXCLUDED: files in JAXDIR matching test_*.py that are deliberately NOT gated.  The
