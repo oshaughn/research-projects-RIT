@@ -245,7 +245,7 @@ def test_u_profile_derivatives_match_the_numpy_reference():
     C = _joint(A, B)
     f = jax.jit(JP.u_profile)
     for phi in np.linspace(0.4, 5.6, 5):
-        F, d1, d2, _, _ = f(jnp.asarray(C), float(phi))
+        F, d1, d2, _, _, _ = f(jnp.asarray(C), float(phi))
         Fn, d1n, d2n = JN.u_profile(C, np.array([phi]))
         assert abs(float(F) - Fn[0]) < 1e-4, (phi, F, Fn[0])
         scale = max(1.0, abs(d1n[0]))
@@ -523,38 +523,84 @@ def _separable_phi_table(kappa, shift, r=6.0, KS=2):
 
 
 def test_the_halving_check_is_blind_at_the_sampling_harmonic():
-    """Adversarial review, second pass.  ``conv`` halves the nodes -- but the n and n/2
-    periodic rules alias at multiples of n and n/2, and the second set CONTAINS the first,
-    so the leading error term cancels out of the difference.  No subset of the nodes
-    already evaluated can ever see it; that is Nyquist, not an implementation shortfall.
+    """Adversarial review.  ``conv`` halves the nodes -- but the n and n/2 periodic rules
+    alias at multiples of n and n/2, and the second set CONTAINS the first, so the leading
+    error term cancels out of the difference.  No subset of the nodes already evaluated can
+    ever see it; that is Nyquist, not an implementation shortfall.
 
     Review's case: ``F = 1000 cos(phi - pi/96)`` on the full circle at 96 intervals.  The
     phase makes the c_48 alias vanish exactly and leaves c_96, so the 96- and 48-interval
     rules agree to 1e-13 while both are 0.02017 nats wrong.  ``k_max = 1`` here, so the
     ``n_nodes > 2 k_max`` guard reports it safe at 97 > 2 and cannot help.
 
-    The composite midpoint companion samples the interval midpoints -- points the
-    trapezoid does not touch -- so on a periodic region it is the half-shifted rule and
-    its difference from ``value`` IS the leading alias.  It must decline this, and it must
-    not decline the same table resolved.
+    THE FIX IS THE NODE COUNT, NOT A SECOND GRID.  Because a rule's own aliases are
+    invisible in its own samples, the probes can only ever certify the COARSE rule, so the
+    answer has to ride a level finer than the probes.  With the nested grid at 193 the
+    answer IS the fine rule and comes back right, while the probes still fire because the
+    97-node rule they measure was bad -- fail-closed, and correct as well.
+
+    Both halves are asserted, including the blind one: at 97 the probes read ~1e-13 on a
+    0.02-nat error.  That is the measurement the default rests on, and it is a statement
+    about Nyquist, so it will not stop being true.
     """
     C, exact = _separable_phi_table(1000.0, np.pi / 96)
 
     # w_sigma forces the wrapped branch: one region spanning 2 pi, which is where a
     # periodic aliasing family can exist at all.
-    v, ok, info = JP.phi_local_lnI(C, w_sigma=200.0, n_nodes=97)
+    v, ok, info = JP.phi_local_lnI(C, w_sigma=200.0)
     assert int(info["n_phi_regions"]) == 1, int(info["n_phi_regions"])
-    assert abs(float(v) - exact) > 1e-2, float(v) - exact       # genuinely wrong
-    assert float(info["phi_convergence"]) < 1e-9                # halving is blind
-    assert bool(info["phi_alias_safe"])                         # the old guard says safe
+    assert abs(float(v) - exact) < 1e-4, float(v) - exact       # the ANSWER is now right
     assert float(info["phi_convergence_shift"]) > JP.PHI_CONVERGENCE_NATS
-    assert not bool(ok), "a value 0.02 nats wrong must not be accepted"
+    assert not bool(ok), "the coarse rule was bad; declining is the conservative direction"
 
-    # ...and the companion is not merely a decline switch: resolved, the same table accepts.
-    v2, ok2, info2 = JP.phi_local_lnI(C, w_sigma=200.0, n_nodes=385)
-    assert abs(float(v2) - exact) < 1e-4, float(v2) - exact
+    # why the default is 193 and not 97: at 97 BOTH probes are blind to the error, so the
+    # same table would come back wrong and unflagged.
+    v9, _, info9 = JP.phi_local_lnI(C, w_sigma=200.0, n_nodes=97)
+    assert abs(float(v9) - exact) > 1e-2, float(v9) - exact
+    assert float(info9["phi_convergence"]) < 1e-9
+    assert float(info9["phi_convergence_shift"]) < 1e-9
+    assert bool(info9["phi_alias_safe"])        # and the k_max guard says "safe"
+
+    # ...and the companion is not merely a decline switch: resolved, the table accepts.
+    v2, ok2, info2 = JP.phi_local_lnI(C, w_sigma=200.0, n_nodes=769)
+    assert abs(float(v2) - exact) < 1e-6, float(v2) - exact
     assert float(info2["phi_convergence_shift"]) < JP.PHI_CONVERGENCE_NATS
     assert bool(ok2), dict(info2)
+
+
+def test_the_phi_grid_is_nested_so_no_evaluation_is_spent_on_a_probe_alone():
+    """The first version of the companion evaluated a SECOND grid of n-1 midpoints, used
+    only for the probe and then discarded: 1.85x the cost for a diagnostic.  With an odd
+    node count one grid already contains both sub-rules -- even indices are a trapezoid at
+    half the density, odd indices are exactly its midpoints -- so both probes are free and
+    the returned value is the fine rule.
+
+    Counted at the GRID level, which is the level that costs: under ``jax.vmap`` the
+    profile is traced once per grid, so the number of ``u_profile`` invocations is the
+    number of distinct grids the kernel builds.  There are four -- the Newton step, the
+    seed evaluation, the quadrature grid and the bound grid -- and a separate midpoint
+    grid would make five.  The probes must come out of the quadrature grid by striding,
+    not out of a grid of their own.
+    """
+    calls = []
+    real = JP.u_profile
+
+    def counting(*a, **kw):
+        calls.append(1)
+        return real(*a, **kw)
+
+    C, _ = _separable_phi_table(30.0, 0.3)
+    JP.u_profile = counting
+    try:
+        _, _, info = JP.phi_local_lnI(C, n_slots=4, n_seed=4)
+    finally:
+        JP.u_profile = real
+    assert len(calls) == 4, (len(calls), "a fifth grid means a probe is paying its own way")
+    assert "phi_convergence_shift" in info
+
+    # and the striding is exact only for an odd count: the even indices must span the same
+    # interval and the odd ones must be their midpoints.
+    assert JP.PHI_NODES_PER_REGION % 2 == 1
 
 
 def test_the_outside_bound_gates_on_the_fallback_that_can_invert_it():
@@ -606,8 +652,8 @@ def test_the_bound_grid_adequacy_gate_fires_and_is_cleared_by_sizing():
 
     fired = cleared = 0
     for phi in np.linspace(0.0, 2 * np.pi, 12, endpoint=False):
-        _, _, _, fb_lo, risk_lo = JP.u_profile(C, float(phi), n_nodes=48)
-        _, _, _, fb_hi, risk_hi = JP.u_profile(C, float(phi), n_nodes=1024)
+        _, _, _, fb_lo, risk_lo, _ = JP.u_profile(C, float(phi), n_nodes=48)
+        _, _, _, fb_hi, risk_hi, _ = JP.u_profile(C, float(phi), n_nodes=1024)
         assert int(fb_lo) > 0                      # minima always fall back; that is fine
         fired += int(risk_lo) > 0
         cleared += int(risk_hi) == 0

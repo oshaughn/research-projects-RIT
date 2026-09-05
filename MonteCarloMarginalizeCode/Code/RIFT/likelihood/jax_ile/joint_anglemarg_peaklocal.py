@@ -423,10 +423,20 @@ PHI_SEEDS = 32
 #: Same Poisson-summation argument as U_NODES_PER_CELL: at +-12 sigma with 96 nodes the
 #: spacing is sigma/4 and the trapezoid error on a Gaussian is ~1e-137.
 PHI_WINDOW_SIGMA = 12.0
-#: Odd so that HALVING is exact -- indices 0, 2, ... n-1 span the same interval at double
-#: the spacing, which is what makes the convergence check below free rather than a second
-#: integration.
-PHI_NODES_PER_REGION = 97
+#: Odd, so the grid is NESTED and both probes are free: the even indices are a trapezoid
+#: at half the density and the odd indices are exactly its midpoints.  Every point
+#: evaluated enters the answer; neither probe costs an evaluation.
+#:
+#: 193 rather than 97, and the count is set by what the probes can see rather than by the
+#: accuracy of the answer.  A rule's own aliases are invisible in its own samples, so the
+#: probes always certify the COARSE rule -- here the 97-node one -- and the answer rides
+#: a level finer.  At 97 the probes drop to 49/48 and the measured consequence is not
+#: subtle: on the aliasing counterexample both probes read 1.1e-13 while the answer is
+#: 0.02017 nats wrong, i.e. it ACCEPTS.  At 193 the same case returns the right answer to
+#: 1e-6 and still declines, because the coarse rule was bad.  This is the same evaluation
+#: count the discarded second grid used to cost, spent on the answer instead of a
+#: diagnostic.
+PHI_NODES_PER_REGION = 193
 
 #: Grid on which the phi omitted-mass bound is evaluated.  Not a tuning knob: it sets the
 #: half-spacing ``delta`` of the second-order lift, so a coarser grid gives a LOOSER
@@ -481,9 +491,11 @@ def eval_g2(C, phi, u, order=(0, 0)):
 
 def u_profile(C, phi, n_nodes=U_NODES_PER_CELL, window_sigma=U_WINDOW_SIGMA):
     """``F(phi) = log int du exp(g)``, its first two EXACT phi-derivatives, and TWO
-    fallback counts: how many u cells were integrated whole, and how many of those could
-    have hidden a maximum.  Only the second can invert a bound built on ``F``; see the
-    note beside ``n_risky`` for why gating on the first declines every table there is.
+    THREE fallback counts: how many u cells were integrated whole, how many of those were
+    also under-sampled for the narrowest STATIONARY scale the coefficients admit, and how
+    many were under-sampled for the narrower non-stationary scale ``1/M1u``.  Only the
+    second is gated; see the notes beside them for why the first declines every table
+    there is and why the third is a measure of the gap rather than a usable requirement.
 
     Differentiating under the integral gives them from the SAME nodes at no extra
     evaluation cost:
@@ -586,7 +598,16 @@ def u_profile(C, phi, n_nodes=U_NODES_PER_CELL, window_sigma=U_WINDOW_SIGMA):
     m2u = jnp.abs(c1) + 4.0 * jnp.abs(c2)              # exact bound on |d2 g / du2|
     need_u = width * jnp.sqrt(m2u) * U_PTS_PER_SIGMA + 1.0
     n_risky = ((g2s < 0.0) & (~peaked) & (need_u > n_nodes)).sum()
-    return F, e1, ddF, n_fallback, n_risky
+    # ...and the STRICTER criterion, reported and never gated.  Where g is steep but not
+    # turning, exp(g) varies on 1/M1u rather than 1/sqrt(M2u), and that boundary-layer
+    # scale -- not the stationary one -- is what the integrand actually has there.  This
+    # is the count against that scale.  It is the honest measure of how far the whole-cell
+    # quadrature is from something that could certify, and gating on it declines rows
+    # accurate to 1e-5, which is precisely why this axis is described as empirically
+    # gated rather than bounded.
+    need_strict = width * jnp.maximum(jnp.sqrt(m2u), m1u) * U_PTS_PER_SIGMA + 1.0
+    n_strict = ((~peaked) & (need_strict > n_nodes)).sum()
+    return F, e1, ddF, n_fallback, n_risky, n_strict
 
 
 def _merge_sorted_intervals(lo, hi, n):
@@ -653,6 +674,29 @@ def phi_local_lnI(C, n_seed=PHI_SEEDS, w_sigma=PHI_WINDOW_SIGMA,
     ``F`` using its exact derivatives (see :func:`u_profile`).  phi has no algebraic
     completeness warrant -- ``F`` is a log-integral, not a trig polynomial -- so the seeds
     are targeting only and correctness rests on the certificate below.
+
+    WHAT ``ok`` ACTUALLY ASSERTS, because two reviews found this overstated in two
+    different places.  It is ONE genuine bound and TWO empirical gates, and the chain is
+    only as strong as its weakest link:
+
+      * ``margin`` IS a bound.  Mass outside the covered regions is at most
+        ``area_outside * exp(sup_outside F)``, with ``sup_outside F`` lifted from a grid by
+        an exact second-order remainder built from the coefficient table.
+      * ``resolved`` is NOT.  It compares nested quadrature rules, and no rule can see its
+        own aliases in its own samples, so it certifies the COARSE rule and infers the fine
+        one.  The shifted companion adds the odd multiples of the coarse sampling frequency
+        and still shares the even ones.  Estimates, used only to decline.
+      * ``u_sizing_ok`` is NOT.  Three samples per curvature length is a sampling rule, not
+        an enclosure of the quadrature error, and it uses the stationary scale
+        ``1/sqrt(M2u)`` where a boundary layer has the narrower ``1/M1u``.
+
+    And ``margin``'s own soundness runs through ``Fb``, which the empirical gates are what
+    stand behind -- so the chain is empirical END TO END.  THIS PATH IS EMPIRICALLY GATED,
+    NOT FAIL-CLOSED, and it must not be described as certified.  Bounds tight enough to
+    replace the gates were looked for and do not appear to exist at usable tightness: the
+    exact ``M2F`` requirement demands 3.8e3-2.3e4 phi nodes for cases right to 1e-4, and the
+    ``1/M1u`` requirement declines rows right to 1e-5.  Both collapse to "always decline",
+    which is why the claims are narrowed instead.
 
     READ THIS BEFORE PROMOTING THIS PATH -- AND THE COST ARGUMENT BELOW IS WITHDRAWN.
 
@@ -754,12 +798,12 @@ def phi_local_lnI(C, n_seed=PHI_SEEDS, w_sigma=PHI_WINDOW_SIGMA,
         seeds = jnp.linspace(0.0, 2.0 * jnp.pi, n_seed, endpoint=False)
 
     def _newton(p, _):
-        _, d1, d2, _, _ = jax.vmap(prof)(p)
+        _, d1, d2, _, _, _ = jax.vmap(prof)(p)
         step = jnp.where(d2 < 0, -d1 / jnp.where(d2 < 0, d2, -1.0), 0.0)
         return jnp.mod(p + jnp.clip(step, -0.3, 0.3), 2.0 * jnp.pi), None
 
     p, _ = lax.scan(_newton, seeds, None, length=24)
-    F, d1, d2, n_fb, _ = jax.vmap(prof)(p)
+    F, d1, d2, n_fb, _, _ = jax.vmap(prof)(p)
     peaked = d2 < 0.0
     sig = jnp.where(peaked, 1.0 / jnp.sqrt(jnp.where(peaked, -d2, 1.0)), 0.0)
 
@@ -811,13 +855,26 @@ def phi_local_lnI(C, n_seed=PHI_SEEDS, w_sigma=PHI_WINDOW_SIGMA,
 
     s = jnp.linspace(0.0, 1.0, n_nodes)
     pp = (seg_lo[:, None] + width[:, None] * s[None, :]).ravel()
-    Fv, _, _, nfb_v, _ = jax.vmap(prof)(jnp.mod(pp, 2.0 * jnp.pi))
+    Fv, _, _, nfb_v, _, _ = jax.vmap(prof)(jnp.mod(pp, 2.0 * jnp.pi))
     wq = jnp.full(n_nodes, 1.0 / (n_nodes - 1)).at[0].mul(0.5).at[-1].mul(0.5)
     lw = (jnp.log(jnp.where(width > 0, width, 1e-300))[:, None]
           + jnp.log(wq)[None, :]).ravel()
     lw = jnp.where(jnp.repeat(width > 0, n_nodes), lw, -jnp.inf)
     value = jax.scipy.special.logsumexp(Fv + lw)
 
+    # NESTED, SO NOTHING IS EVALUATED THAT DOES NOT ENTER THE ANSWER.  The first version
+    # of the companion evaluated a SECOND grid of n-1 midpoints used only for the probe
+    # and then thrown away -- 1.85x the cost for a diagnostic.  With an odd n_nodes the
+    # one grid already contains both sub-rules: the even indices are a trapezoid at half
+    # the density, and the odd indices are exactly ITS midpoints.  Same evaluation count,
+    # and the returned value is the FINE rule rather than the coarse one.
+    #
+    # That is not only cheaper, it is more accurate where it matters.  On the aliasing
+    # counterexample the old arrangement returned the 97-node rule, which is 0.02017 nats
+    # wrong, and used 96 extra points to notice.  The nested arrangement spends the same
+    # points on the answer and returns it correct to 1e-6, with the probes still firing
+    # because the COARSE rule was bad.
+    Fr = Fv.reshape(-1, n_nodes)
     # CONVERGENCE, MEASURED, FROM THE NODES ALREADY EVALUATED.  n_nodes is odd, so indices
     # 0, 2, ... n-1 span the same interval at double the spacing: a half-resolution estimate
     # for free, no second integration.  This replaces two gates that did not work -- the
@@ -828,13 +885,12 @@ def phi_local_lnI(C, n_seed=PHI_SEEDS, w_sigma=PHI_WINDOW_SIGMA,
     #
     # It is an ESTIMATE of the discretization error, not a bound, and is used ONLY to
     # decline -- the conservative direction.  It cannot certify; it can only refuse.
-    hs = s[::2]
-    whq = jnp.full(hs.shape[0], 1.0 / (hs.shape[0] - 1)).at[0].mul(0.5).at[-1].mul(0.5)
+    n_h = (n_nodes + 1) // 2
+    whq = jnp.full(n_h, 1.0 / (n_h - 1)).at[0].mul(0.5).at[-1].mul(0.5)
     lwh = (jnp.log(jnp.where(width > 0, width, 1e-300))[:, None]
            + jnp.log(whq)[None, :]).ravel()
-    lwh = jnp.where(jnp.repeat(width > 0, hs.shape[0]), lwh, -jnp.inf)
-    Fh = Fv.reshape(-1, n_nodes)[:, ::2].ravel()
-    value_half = jax.scipy.special.logsumexp(Fh + lwh)
+    lwh = jnp.where(jnp.repeat(width > 0, n_h), lwh, -jnp.inf)
+    value_half = jax.scipy.special.logsumexp(Fr[:, ::2].ravel() + lwh)
     conv = jnp.abs(value - value_half)
 
     # THE HALVING CHECK CANNOT SEE THE ERROR THAT MATTERS, and no subset of the nodes
@@ -858,17 +914,19 @@ def phi_local_lnI(C, n_seed=PHI_SEEDS, w_sigma=PHI_WINDOW_SIGMA,
     # The midpoint companion reads 3.99e-2 and declines.  On every accurate case measured
     # (kappa 4.5-1e4, windows of 3-12 sigma, and the same table resolved at n = 385) it
     # reads 0.0 to 1.3e-5, so it does not cost a single good row.
-    sm = (jnp.arange(n_nodes - 1) + 0.5) / (n_nodes - 1)
-    pm = (seg_lo[:, None] + width[:, None] * sm[None, :]).ravel()
-    Fm, _, _, nfb_m, _ = jax.vmap(prof)(jnp.mod(pm, 2.0 * jnp.pi))
+    n_m = n_nodes // 2
     lwm = jnp.broadcast_to((jnp.log(jnp.where(width > 0, width, 1e-300))
-                            - jnp.log(float(n_nodes - 1)))[:, None],
-                           (width.shape[0], n_nodes - 1)).ravel()
-    lwm = jnp.where(jnp.repeat(width > 0, n_nodes - 1), lwm, -jnp.inf)
-    value_mid = jax.scipy.special.logsumexp(Fm + lwm)
-    conv_shift = jnp.abs(value - value_mid)
+                            - jnp.log(float(n_m)))[:, None],
+                           (width.shape[0], n_m)).ravel()
+    lwm = jnp.where(jnp.repeat(width > 0, n_m), lwm, -jnp.inf)
+    value_mid = jax.scipy.special.logsumexp(Fr[:, 1::2].ravel() + lwm)
+    # compared against the COARSE rule, which is the rule it is the midpoint companion
+    # OF.  Comparing it to the fine value would conflate a shift with a refinement.
+    conv_shift = jnp.abs(value_half - value_mid)
 
-    # ---------------------------------------------------------------- the phi certificate
+    # ------------------------------------------------- the phi omitted-mass bound
+    # THE ONE PART OF `ok` THAT IS A BOUND.  Everything else gating this return is an
+    # empirical convergence estimate; see the note in the docstring.
     # WITHOUT THIS THE RETURN VALUE IS AN ESTIMATE WEARING A LIKELIHOOD'S CLOTHES.  The
     # seeds are targeting, not an enumeration -- phi has no algebraic completeness warrant
     # because F is a log-integral, not a trig polynomial -- so a missed maximum or an
@@ -888,7 +946,7 @@ def phi_local_lnI(C, n_seed=PHI_SEEDS, w_sigma=PHI_WINDOW_SIGMA,
     # amplitude -- it put the bound above the integral by +1225 nats.
     gb = jnp.linspace(0.0, 2.0 * jnp.pi, n_bound, endpoint=False)
     delta = jnp.pi / n_bound                      # half of the grid spacing
-    Fb, d1b, _, nfb_b, nrisk_b = jax.vmap(prof)(gb)
+    Fb, d1b, _, nfb_b, nrisk_b, nstrict_b = jax.vmap(prof)(gb)
     m1f, m2f = profile_derivative_bounds(C)
     ub = Fb + jnp.abs(d1b) * delta + 0.5 * m2f * delta * delta
 
@@ -1006,8 +1064,22 @@ def phi_local_lnI(C, n_seed=PHI_SEEDS, w_sigma=PHI_WINDOW_SIGMA,
     # generic table -- so the count that matters is the cells with negative curvature that
     # failed the stationarity or interior test, which are the ones that can hide a maximum
     # and underestimate Fb.  See u_profile for why the other two are safe.
-    bound_exact = nrisk_b.sum() == 0
-    ok = (margin < tol_nats) & resolved & bound_exact
+    # NOT AN ERROR BOUND, AND NO LONGER NAMED AS IF IT WERE.  `need_u` is
+    # width*sqrt(M2u)*U_PTS_PER_SIGMA: bounding |d2g/du2| identifies the narrowest
+    # STATIONARY scale the coefficients admit, but choosing three samples per scale is a
+    # sampling rule and does not enclose the quadrature error.  Review is right that
+    # calling the result `bound_exact` promoted an estimate into a certificate.
+    #
+    # It also misses the non-stationary case: where g is steep but not turning, exp(g)
+    # varies on 1/M1u, not 1/sqrt(M2u), and that is the scale the integrand actually has
+    # in a boundary layer.  The numpy twin says the same thing at its own u integral and
+    # leaves a measured residual.  `n_u_understood_bound` below reports the count against
+    # THAT criterion.  It is deliberately reported and not gated: applying it declines the
+    # amplitude-19 case that is accurate to 1e-5, so it would be a wall rather than a
+    # requirement -- which is exactly the evidence that this axis is empirically gated and
+    # not certified, and it belongs in the info dict where a caller can see it.
+    u_sizing_ok = nrisk_b.sum() == 0
+    ok = (margin < tol_nats) & resolved & u_sizing_ok
 
     info = {"margin": margin,
             "area_outside": area_outside,
@@ -1021,8 +1093,10 @@ def phi_local_lnI(C, n_seed=PHI_SEEDS, w_sigma=PHI_WINDOW_SIGMA,
             # certificate is an upper bound at all), the quadrature grid is reported.
             "n_u_fallback_bound": nfb_b.sum(),
             "n_u_risky_bound": nrisk_b.sum(),
-            "n_u_fallback_quad": nfb_v.sum() + nfb_m.sum(),
-            "bound_exact": bound_exact,
+            # the stricter 1/M1u criterion: reported, never gated.  See u_profile.
+            "n_u_understood_bound": nstrict_b.sum(),
+            "n_u_fallback_quad": nfb_v.sum(),
+            "u_sizing_ok": u_sizing_ok,
             # INTERNAL accuracy, reported beside the omitted-mass margin and never folded
             # into it: they are independent failures and both are needed.
             # the M2F-derived requirement is a TRUE bound and is reported; it is not the
