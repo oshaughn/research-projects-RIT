@@ -363,11 +363,19 @@ def test_phi_local_returns_a_certificate_that_actually_declines():
         for key in ("margin", "area_outside", "sup_outside", "n_phi_regions",
                     "n_u_fallback"):
             assert key in info, key
-        # the contract: ok is exactly the margin test, never anything softer
-        assert bool(ok) == (float(info["margin"]) < JP.OUTSIDE_TOL_NATS)
-        # a fully covering cover leaves nothing outside, and must then be accepted
+        # THE CONTRACT CHANGED AND THIS TEST USED TO PIN THE DEFECT.  It asserted that ok
+        # was exactly the margin test and that a full cover MUST be accepted -- which is
+        # precisely the conflation test_a_full_cover_no_longer_accepts_unconditionally
+        # exists to remove.  Both assertions passed only because this test's four fixtures
+        # all happen to converge; adversarial review found them contradicting each other
+        # across files.  ok is now the margin test AND the resolution test.
+        assert bool(ok) == (float(info["margin"]) < JP.OUTSIDE_TOL_NATS
+                            and bool(info["phi_resolved"]))
         if float(info["area_outside"]) == 0.0:
-            assert bool(ok) and float(info["margin"]) == -np.inf
+            # nothing omitted, so the margin is -inf; whether that ACCEPTS now depends on
+            # the integration having converged, which is the whole point of the change.
+            assert float(info["margin"]) == -np.inf
+            assert bool(ok) == bool(info["phi_resolved"])
         verdicts.append(bool(ok))
     assert any(verdicts), "certificate declined everything -- it is unusable, not strict"
     assert not all(verdicts), "certificate accepted everything -- it is decoration"
@@ -390,6 +398,18 @@ def test_algebraic_phi_seeds_are_complete_and_agree_where_the_cover_is_partial()
         seeds = JP.phi_seeds_algebraic(C)
         assert seeds.shape[0] == (2 * (KP - 1)) * (2 * KS) * 2, (KP, seeds.shape)
         assert np.isfinite(np.asarray(seeds)).all()
+        # THE SHAPE IDENTITY ABOVE IS NOT COMPLETENESS -- it holds whatever the roots are,
+        # and it passed while the roots were the REFLECTION of the true ones (the FFT-sign
+        # defect).  Adversarial review named it vacuous, correctly.  This is the property
+        # that actually distinguishes an enumeration: every true stationary phi must be AT
+        # a seed, before any Newton step.
+        from RIFT.likelihood import joint_angle_peak_local as _JN
+        G, _ = _JN.enumerate_modes(np.asarray(C), n_phi=256)
+        if G.shape[0]:
+            sd = np.asarray(seeds)
+            worst = max(float(np.abs(((G[i, 0] - sd + np.pi) % (2 * np.pi)) - np.pi).min())
+                        for i in range(G.shape[0]))
+            assert worst < 1e-6, (KP, worst)
         vu, _, iu = JP.phi_local_lnI(C, algebraic_seeds=False)
         va, _, ia = JP.phi_local_lnI(C, algebraic_seeds=True)
         if float(ia["area_outside"]) > 0 and float(iu["area_outside"]) > 0:
@@ -400,7 +420,7 @@ def test_a_full_cover_no_longer_accepts_unconditionally():
     """The covering path used to conflate two different statements.  ``area_outside = 0``
     says nothing was left OUT; it says nothing about the quadrature INSIDE, yet it gave
     ``margin = -inf`` and an unconditional accept.  Measured before the fix at KP=13,
-    amplitude 1e2 with algebraic seeds: full cover, accepted, value 0.777 nats wrong -- the
+    amplitude 1e2 with algebraic seeds: full cover, accepted, value 0.196 nats wrong -- the
     same conflation that cost the numpy reference 0.36 nats on production tables.
 
     ``ok`` now also requires the integration to have CONVERGED, measured by halving the
@@ -443,3 +463,38 @@ def test_algebraic_seeds_stay_off_by_default():
     rows return a value is a separate decision from making it safe to switch."""
     import inspect
     assert inspect.signature(JP.phi_local_lnI).parameters["algebraic_seeds"].default is False
+
+
+def test_the_convergence_check_is_guarded_against_its_own_blind_spot():
+    """Adversarial review F3.  ``conv`` halves the nodes and compares -- but the n and n/2
+    trapezoids share EVERY aliased harmonic at multiples of n, so it measures the n/2
+    aliasing and infers the rest from smoothness.  Content at exactly harmonic n is
+    invisible to it: review built a table with a phi ripple at n and got values 0.83-0.99
+    nats wrong with ``conv`` as low as 1.3e-04 -- BELOW the 1e-3 gate, so ``conv`` alone
+    accepted them.
+
+    The assumption is enforceable because the mode content is exact: ``g`` is a trig
+    polynomial in phi of degree ``k_max = KP-1 = 2 m_max``, so requiring the node count to
+    Nyquist-resolve ``k_max`` rules out content at the sampling harmonic by construction.
+
+    Tested through ``n_nodes`` rather than by building the degree-1552 counterexample,
+    which is correct-but-unaffordable in CI: the guard is ``n_nodes > 2 k_max`` either way.
+    """
+    KS = 2
+    rng = np.random.default_rng(101)
+    C = rng.normal(size=(9, 2 * KS + 1)) + 1j * rng.normal(size=(9, 2 * KS + 1))
+    C = jnp.asarray(C * (1e2 / np.sum(np.abs(C))))
+    k_max = 8                                            # KP - 1
+
+    # under-resolved: the check cannot see harmonic n, so it must not be believed
+    _, ok_bad, info_bad = JP.phi_local_lnI(C, n_nodes=2 * k_max - 1)
+    assert not bool(info_bad["phi_alias_safe"])
+    assert not bool(ok_bad), "an unresolvable node count must never accept"
+
+    # comfortably resolved: the guard must not be what blocks an otherwise good case
+    _, _, info_ok = JP.phi_local_lnI(C, n_nodes=JP.PHI_NODES_PER_REGION)
+    assert bool(info_ok["phi_alias_safe"]), (JP.PHI_NODES_PER_REGION, k_max)
+
+    # and the guard is load-bearing, not decoration: it must be able to veto a case whose
+    # conv is below the threshold, which is exactly what the counterexample showed.
+    assert JP.PHI_NODES_PER_REGION > 2 * k_max

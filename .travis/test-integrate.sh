@@ -158,7 +158,7 @@ python -m pytest -q "$_JOINT_PL_TESTS"
 # 2.9e-02 off the circle and was discarded by a 1e-3 test.
 _JOINT_ALG_TESTS=MonteCarloMarginalizeCode/Code/test/test_joint_angle_algebraic.py
 # Raise EXPECTED by RUNNING collection, never by arithmetic.
-_JOINT_ALG_EXPECTED=7
+_JOINT_ALG_EXPECTED=10
 _JOINT_ALG_FOUND=$(python -m pytest -q --collect-only "$_JOINT_ALG_TESTS" 2>/dev/null | grep -c '::' || true)
 if [ "$_JOINT_ALG_FOUND" -ne "$_JOINT_ALG_EXPECTED" ]; then
     echo "joint algebraic gate: collected $_JOINT_ALG_FOUND tests, expected $_JOINT_ALG_EXPECTED" >&2

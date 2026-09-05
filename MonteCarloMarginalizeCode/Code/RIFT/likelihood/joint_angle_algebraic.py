@@ -102,7 +102,17 @@ def stationary_points(C, newton_iters=24, res_tol=1e-8):
     # a polynomial with no roots on the circle -- the whole enumeration returned nothing.
     # Multiply through by z^h (a shift, which cannot move a root) to clear the negatives.
     h = deg // 2
-    raw = np.fft.ifft(vals)
+    # COEFFICIENTS COME FROM fft/N, NOT ifft.  The determinant is sampled at
+    # z_k = exp(+2 pi i k / N), so for f(z) = sum_j a_j z^j,
+    #     fft(vals)[m] = sum_k sum_j a_j e^{2pi i jk/N} e^{-2pi i mk/N} = N a_m,
+    # while ifft(vals)[n] = a_{-n} -- the REVERSED polynomial, whose roots are the
+    # reciprocals 1/z.  On the unit circle 1/z = conj(z), so the seeds came out at -phi.
+    # This shipped, and the completeness validation PASSED anyway: 256 Newton starts
+    # scattered over the torus recover the maxima wherever they begin, so the construction
+    # was working as a multi-start SEARCH while claiming to be an enumeration.  Measured
+    # after external review: reconstructing the sampled determinant from the ifft
+    # coefficients gives relative error 0.98-1.00; from fft/N it gives 1.3e-15.
+    raw = np.fft.fft(vals) / N
     coeffs = np.concatenate([raw[N - h:], raw[:h + 1]])      # ascending, j = -h .. +h
     nz = np.nonzero(np.abs(coeffs) > 1e-9 * max(np.abs(coeffs).max(), 1e-300))[0]
     if nz.size < 2:

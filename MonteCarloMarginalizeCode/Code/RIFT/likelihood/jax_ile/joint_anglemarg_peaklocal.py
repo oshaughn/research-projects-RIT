@@ -692,7 +692,7 @@ def phi_local_lnI(C, n_seed=PHI_SEEDS, w_sigma=PHI_WINDOW_SIGMA,
     # gives margin = -inf and an UNCONDITIONAL accept -- while saying nothing whatever
     # about the quadrature inside.  Measured at KP=13, amplitude 1e2: uniform seeds find 3
     # regions, leave 0.264 rad uncovered and DECLINE; algebraic seeds find 1 region, cover
-    # everything, ACCEPT, and the value is 0.777 nats wrong.
+    # everything, ACCEPT, and the value is 0.196 nats wrong.
     #
     # That is the same gap the numpy reference had on production tables -- area_outside 0,
     # margin -inf, 0.36 nats out -- and fixed there by sizing _BOX_MAX_PTS to the curvature
@@ -838,7 +838,7 @@ def phi_local_lnI(C, n_seed=PHI_SEEDS, w_sigma=PHI_WINDOW_SIGMA,
     # AN EMPTY OUTSIDE IS NOT A CORRECT ANSWER.  area_outside = 0 says nothing was left
     # OUT; it says nothing whatever about the quadrature INSIDE, and the two were being
     # conflated -- a full cover gave margin = -inf and an unconditional accept.  Measured
-    # at KP=13, amplitude 1e2: full cover, margin -inf, accepted, value 0.777 nats wrong.
+    # at KP=13, amplitude 1e2: full cover, margin -inf, accepted, value 0.196 nats wrong.
     # The same conflation cost the numpy reference 0.36 nats on production tables.
     #
     # So the accept now also requires that every non-empty region is RESOLVED at the node
@@ -871,14 +871,30 @@ def phi_local_lnI(C, n_seed=PHI_SEEDS, w_sigma=PHI_WINDOW_SIGMA,
     # region that grew -- merged, or the whole circle after `wrapped` -- the width no longer
     # tracks the curvature and the requirement can exceed 96.  Measured: at amplitude 4.5 a
     # full circle needs ~40 nodes and is right to 1e-5; at amplitude 1e2 with KP=13 it needs
-    # ~190 and is 0.777 nats wrong at 96.  The gate separates exactly those.
+    # ~190 and is 0.196 nats wrong at 96.  The gate separates exactly those.
     #
     # M2F was tried as the curvature and is useless here: 99.5% of it is the M10^2 variance
     # term, so it demands 3.8e3-2.3e4 nodes for cases right to 1e-4 and declines everything.
     # A bound too loose to tell the good case from the bad one cannot be the gate.  It is
     # still reported, because it IS a bound and the measured curvature is not.
+    # THE HALVING CHECK IS BLIND TO ITS OWN LEADING ERROR TERM, and that has to be closed
+    # by an assumption made explicit rather than left implicit.  The n-node and n/2-node
+    # trapezoids share EVERY aliased harmonic at multiples of n, so `conv` measures the
+    # n/2 aliasing and infers the n aliasing from smoothness.  Adversarial review built the
+    # counterexample: a table with phi-content at exactly harmonic n makes F periodic on the
+    # node spacing, both rules sample one phase, conv comes back at 1e-7 and the value is
+    # 0.02-0.066 nats wrong -- accepted.
+    #
+    # The assumption is enforceable here because the mode content is EXACT: g is a trig
+    # polynomial in phi of degree k_max = KP-1 = 2 m_max, so requiring the node count to
+    # Nyquist-resolve k_max rules out content at the sampling harmonic by construction.
+    # Production (k_max = 4) needs 8 and has 97; the counterexample (k_max = 96) needs 192,
+    # has 97, and now DECLINES instead of accepting.  This is the phi warrant paying for
+    # itself a second time.
+    k_max = C.shape[0] - 1
+    alias_safe = n_nodes > 2 * k_max
     need_max = jnp.max(jnp.where(width > 0, required_phi_nodes(width, m2f), 0.0))
-    resolved = conv < PHI_CONVERGENCE_NATS
+    resolved = jnp.logical_and(conv < PHI_CONVERGENCE_NATS, alias_safe)
     margin = outside - value
     ok = (margin < tol_nats) & resolved
 
@@ -896,6 +912,9 @@ def phi_local_lnI(C, n_seed=PHI_SEEDS, w_sigma=PHI_WINDOW_SIGMA,
             # gate, because it is too loose to separate the good case from the bad one.
             "phi_nodes_needed": need_max,
             "phi_convergence": conv,
+            # separate from conv: conv can be small because the check is blind, and this
+            # says whether it was entitled to be believed at all.
+            "phi_alias_safe": jnp.asarray(alias_safe),
             "phi_resolved": resolved}
     return value, ok, info
 
@@ -972,7 +991,17 @@ def stationary_points_algebraic(C, newton_iters=24, res_tol=1e-8):
     # the array, so truncating to [:deg+1] throws away half the polynomial and leaves
     # something with no roots on the circle at all.
     h = deg // 2
-    raw = jnp.fft.ifft(vals)
+    # COEFFICIENTS COME FROM fft/N, NOT ifft.  The determinant is sampled at
+    # z_k = exp(+2 pi i k / N), so for f(z) = sum_j a_j z^j,
+    #     fft(vals)[m] = sum_k sum_j a_j e^{2pi i jk/N} e^{-2pi i mk/N} = N a_m,
+    # while ifft(vals)[n] = a_{-n} -- the REVERSED polynomial, whose roots are the
+    # reciprocals 1/z.  On the unit circle 1/z = conj(z), so the seeds came out at -phi.
+    # This shipped, and the completeness validation PASSED anyway: 256 Newton starts
+    # scattered over the torus recover the maxima wherever they begin, so the construction
+    # was working as a multi-start SEARCH while claiming to be an enumeration.  Measured
+    # after external review: reconstructing the sampled determinant from the ifft
+    # coefficients gives relative error 0.98-1.00; from fft/N it gives 1.3e-15.
+    raw = jnp.fft.fft(vals) / N
     coeffs = jnp.concatenate([raw[N - h:], raw[:h + 1]])     # ascending, j = -h .. +h
 
     zr = _poly_roots(coeffs)                                  # (deg,)
@@ -1064,7 +1093,7 @@ def phi_seeds_algebraic(C):
     for r in range(n1):
         S = S.at[:, n2 + r, r:r + n2 + 1].set(c2[:, ::-1])
     h = deg // 2
-    raw = jnp.fft.ifft(jnp.linalg.det(S))
+    raw = jnp.fft.fft(jnp.linalg.det(S)) / N
     coeffs = jnp.concatenate([raw[N - h:], raw[:h + 1]])
     zr = _poly_roots(coeffs)
     return jnp.where(jnp.isfinite(jnp.angle(zr)), jnp.mod(jnp.angle(zr), 2 * jnp.pi), 0.0)
