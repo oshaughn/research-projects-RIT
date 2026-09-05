@@ -72,7 +72,7 @@ _TMARG_TESTS=(
 # catches a total collection failure (pytest exits 5), but a silent shrink from 60
 # tests to 3 -- a rename, a stale -k, a decorator that stops matching -- reads as
 # green.  Raise EXPECTED by RUNNING collection, never by arithmetic.
-_TMARG_EXPECTED=161
+_TMARG_EXPECTED=171
 _TMARG_FOUND=$(python -m pytest -q --collect-only "${_TMARG_TESTS[@]}" 2>/dev/null | grep -c '::' || true)
 if [ "$_TMARG_FOUND" -ne "$_TMARG_EXPECTED" ]; then
     echo "time-marginalization gate: collected $_TMARG_FOUND tests, expected $_TMARG_EXPECTED" >&2
@@ -137,34 +137,20 @@ fi
 # protect: that the outside supremum is CERTIFIED (a straddling cell must count as
 # outside -- classifying grid centres once returned "nothing uncovered" and accepted
 # unconditionally), that a distance node is only dropped when the drop is provable
-# against the computed value, and that an undersized region is DECLINED rather than
-# returned.
+# against the computed value, and that an undersized region is routed to the finite
+# dense fallback rather than returned locally.  The algebraic follow-up also pins
+# the BKK/resultant enumerator on co-dominant, near-annihilating, exactly degenerate,
+# and amplitude-scaled systems, requires inside-cover convergence even after a
+# complete enumeration, and keeps the NumPy fallback independent of optional JAX.
 _JOINT_PL_TESTS=MonteCarloMarginalizeCode/Code/test/test_joint_angle_peak_local.py
 # Raise EXPECTED by RUNNING collection, never by arithmetic.
-_JOINT_PL_EXPECTED=28
+_JOINT_PL_EXPECTED=36
 _JOINT_PL_FOUND=$(python -m pytest -q --collect-only "$_JOINT_PL_TESTS" 2>/dev/null | grep -c '::' || true)
 if [ "$_JOINT_PL_FOUND" -ne "$_JOINT_PL_EXPECTED" ]; then
     echo "joint peak-local gate: collected $_JOINT_PL_FOUND tests, expected $_JOINT_PL_EXPECTED" >&2
     exit 1
 fi
 python -m pytest -q "$_JOINT_PL_TESTS"
-
-# The phi axis's ALGEBRAIC warrant, which the gate above does not cover: enumerate_modes
-# seeds a phi GRID, so it can only claim what its density happens to catch.  These pin the
-# resultant enumeration -- complete by construction, degree fixed by the mode content since
-# k_max = 2 m_max -- against a dense grid at five mode orders, and pin that NO |z| = 1
-# tolerance is applied to the roots.  That last is the u axis's own rule, and the first
-# version of this construction violated it: at degree 128 a genuinely stationary maximum sat
-# 2.9e-02 off the circle and was discarded by a 1e-3 test.
-_JOINT_ALG_TESTS=MonteCarloMarginalizeCode/Code/test/test_joint_angle_algebraic.py
-# Raise EXPECTED by RUNNING collection, never by arithmetic.
-_JOINT_ALG_EXPECTED=10
-_JOINT_ALG_FOUND=$(python -m pytest -q --collect-only "$_JOINT_ALG_TESTS" 2>/dev/null | grep -c '::' || true)
-if [ "$_JOINT_ALG_FOUND" -ne "$_JOINT_ALG_EXPECTED" ]; then
-    echo "joint algebraic gate: collected $_JOINT_ALG_FOUND tests, expected $_JOINT_ALG_EXPECTED" >&2
-    exit 1
-fi
-python -m pytest -q "$_JOINT_ALG_TESTS"
 
 python MonteCarloMarginalizeCode/Code/test/test_mcsamplerEnsemble_extended.py --as-test --n-max 100000
 

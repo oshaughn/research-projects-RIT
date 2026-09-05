@@ -381,41 +381,6 @@ def test_phi_local_returns_a_certificate_that_actually_declines():
     assert not all(verdicts), "certificate accepted everything -- it is decoration"
 
 
-def test_algebraic_phi_seeds_are_complete_and_agree_where_the_cover_is_partial():
-    """phi HAS an algebraic warrant, through g rather than through F.  The orbital phase
-    enters as e^{-i m phi}, so the table's k_max = KP-1 = 2 m_max is exact, and the
-    resultant's z-roots are every phi at which a 2-D stationary point exists -- a complete
-    seed set, which a uniform linspace cannot claim to be.
-
-    Asserted here: the seed count is fixed by the MODE CONTENT (16 k_max), and where the
-    cover is partial the two seedings agree on the value.
-    """
-    KS = 2
-    for KP in (5, 9):
-        rng = np.random.default_rng(101)
-        C = rng.normal(size=(KP, 2 * KS + 1)) + 1j * rng.normal(size=(KP, 2 * KS + 1))
-        C = jnp.asarray(C * (1e4 / np.sum(np.abs(C))))
-        seeds = JP.phi_seeds_algebraic(C)
-        assert seeds.shape[0] == (2 * (KP - 1)) * (2 * KS) * 2, (KP, seeds.shape)
-        assert np.isfinite(np.asarray(seeds)).all()
-        # THE SHAPE IDENTITY ABOVE IS NOT COMPLETENESS -- it holds whatever the roots are,
-        # and it passed while the roots were the REFLECTION of the true ones (the FFT-sign
-        # defect).  Adversarial review named it vacuous, correctly.  This is the property
-        # that actually distinguishes an enumeration: every true stationary phi must be AT
-        # a seed, before any Newton step.
-        from RIFT.likelihood import joint_angle_peak_local as _JN
-        G, _ = _JN.enumerate_modes(np.asarray(C), n_phi=256)
-        if G.shape[0]:
-            sd = np.asarray(seeds)
-            worst = max(float(np.abs(((G[i, 0] - sd + np.pi) % (2 * np.pi)) - np.pi).min())
-                        for i in range(G.shape[0]))
-            assert worst < 1e-6, (KP, worst)
-        vu, _, iu = JP.phi_local_lnI(C, algebraic_seeds=False)
-        va, _, ia = JP.phi_local_lnI(C, algebraic_seeds=True)
-        if float(ia["area_outside"]) > 0 and float(iu["area_outside"]) > 0:
-            assert abs(float(vu) - float(va)) < 1e-2, (KP, float(vu), float(va))
-
-
 def test_a_full_cover_no_longer_accepts_unconditionally():
     """The covering path used to conflate two different statements.  ``area_outside = 0``
     says nothing was left OUT; it says nothing about the quadrature INSIDE, yet it gave
@@ -423,18 +388,24 @@ def test_a_full_cover_no_longer_accepts_unconditionally():
     amplitude 1e2 with algebraic seeds: full cover, accepted, value 0.196 nats wrong -- the
     same conflation that cost the numpy reference 0.36 nats on production tables.
 
-    ``ok`` now also requires the integration to have CONVERGED, measured by halving the
-    nodes -- free, because ``PHI_NODES_PER_REGION`` is odd so indices 0,2,...,n-1 span the
-    same interval at double the spacing.  Two gates were tried first and rejected on
-    evidence: the exact ``M2F`` bound demands 3.8e3-2.3e4 nodes and declines cases right to
-    1e-4, and a local-curvature rule declines cases right to 1e-5, because a periodic
-    trapezoid converges spectrally and any points-per-sigma rule is far too conservative.
+    ``ok`` now also requires the integration to have CONVERGED, measured from the nested
+    grid -- free, because ``PHI_NODES_PER_REGION`` is odd so the even indices are a
+    trapezoid at half the density and the odd ones are exactly its midpoints.  Two gates
+    were tried first and rejected on evidence: the exact ``M2F`` bound demands 3.8e3-2.3e4
+    nodes and declines cases right to 1e-4, and a local-curvature rule declines cases right
+    to 1e-5, because a periodic trapezoid converges spectrally and any points-per-sigma
+    rule is far too conservative.
+
+    The full cover is forced with ``w_sigma`` rather than with the algebraic seeder that
+    used to produce one here.  That seeder has been removed -- it duplicated
+    ``bivariate_trig_stationary`` more weakly -- and the ``wrapped`` branch is the other
+    way a cover comes to span the circle, so the defect is still reachable.
     """
     KS = 2
     rng = np.random.default_rng(101)
     C = rng.normal(size=(13, 2 * KS + 1)) + 1j * rng.normal(size=(13, 2 * KS + 1))
     C = jnp.asarray(C * (1e2 / np.sum(np.abs(C))))
-    v, ok, info = JP.phi_local_lnI(C, algebraic_seeds=True)
+    v, ok, info = JP.phi_local_lnI(C, w_sigma=400.0)
     assert float(info["area_outside"]) == 0.0            # the cover IS full
     assert not bool(info["phi_resolved"])                # but the integration is not converged
     assert not bool(ok), "a full cover must not accept an unconverged integration"
@@ -456,13 +427,6 @@ def test_the_convergence_gate_does_not_decline_accurate_results():
         assert float(info["phi_convergence"]) < JP.PHI_CONVERGENCE_NATS, (amp,)
         accepted += bool(ok)
     assert accepted == 2, accepted
-
-
-def test_algebraic_seeds_stay_off_by_default():
-    """Still off: the completeness gain is real, but switching a default that changes which
-    rows return a value is a separate decision from making it safe to switch."""
-    import inspect
-    assert inspect.signature(JP.phi_local_lnI).parameters["algebraic_seeds"].default is False
 
 
 def test_the_convergence_check_is_guarded_against_its_own_blind_spot():

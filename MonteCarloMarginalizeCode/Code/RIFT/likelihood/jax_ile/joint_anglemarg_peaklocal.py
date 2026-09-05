@@ -1,9 +1,24 @@
 """Joint (phi, psi) peak-local angle marginalization, JAX kernel.
 
-The numpy reference is ``RIFT.likelihood.joint_angle_peak_local``; this is the jittable
-form of the same rule.  It is NOT a transcription -- the reference builds 2-D regions
-and merges overlapping ones, which is data-dependent control flow and does not jit.  The
-formulation here removes the need to merge at all.
+The NumPy reference ``RIFT.likelihood.joint_angle_peak_local`` obtains BOTH-angle targets
+from the finite algebraic stationary set implemented in
+``RIFT.likelihood.bivariate_trig_stationary``.  This device kernel is NOT a transcription
+of that rule and does not enumerate: it is exact in u on the cell partition, and on phi it
+offers two paths, a dense scan (:func:`joint_lnL_phi_dense`) and a peak-local rule
+(:func:`phi_local_lnI`) that Newton-iterates from a phi GRID of seeds.
+
+A SAMPLED PHI GRID IS NOT ALGEBRAIC ENUMERATION, and phi_local_lnI does not claim to be
+one.  What stands behind it is an omitted-mass bound -- a seed the grid misses raises
+``area_outside`` and the row declines -- gated further by empirical convergence checks
+that are labelled as estimates where they are used.  See :func:`phi_local_lnI` for exactly
+which part of ``ok`` is a bound and which parts are not.
+
+An in-kernel Sylvester-resultant seeder was built here and removed: it duplicated
+``bivariate_trig_stationary`` without that module's BKK root count, Jacobian conditioning,
+torus classification, cross-projection agreement or ``ok`` flag, and solving it inside a
+traced function is the substitution that module says must not be made.  Production wiring
+stays unchanged until a host-built, fixed-capacity algebraic plan and its dense fallback
+can cross the JAX boundary honestly.
 
 THE PARTITION THAT REPLACES MERGING.  At fixed ``phi`` the exponent is
 ``a + Re(c1 e^{iu}) + Re(c2 e^{2iu})``, whose u-stationary points are the roots of a
@@ -61,8 +76,6 @@ __all__ = [
     "u_profile",
     "eval_g2",
     "phi_local_lnI",
-    "stationary_points_algebraic",
-    "phi_seeds_algebraic",
     "PHI_SEEDS",
     "PHI_WINDOW_SIGMA",
     "PHI_NODES_PER_REGION",
@@ -663,7 +676,7 @@ def required_phi_nodes(width, m2f, pts_per_sigma=PHI_PTS_PER_SIGMA):
 def phi_local_lnI(C, n_seed=PHI_SEEDS, w_sigma=PHI_WINDOW_SIGMA,
                   n_nodes=PHI_NODES_PER_REGION, u_nodes=U_NODES_PER_CELL,
                   n_bound=PHI_BOUND_GRID, tol_nats=OUTSIDE_TOL_NATS,
-                  algebraic_seeds=False, n_slots=None):
+                  n_slots=None):
     """``log int dphi int du exp(g)`` with BOTH axes localized, jittable.
 
     Returns ``(value, ok, info)``.  ``ok`` is False when the omitted-mass bound on the phi
@@ -770,32 +783,26 @@ def phi_local_lnI(C, n_seed=PHI_SEEDS, w_sigma=PHI_WINDOW_SIGMA,
     offsets rather than guessing which shifts to test.
         """
     prof = lambda p: u_profile(C, p, n_nodes=u_nodes)
-    # SEEDS.  A uniform linspace has no completeness claim and measurably under-resolves:
-    # at m_max = 6 it finds 14-19 regions where 64+ seeds find 19-21.  The algebraic seeds
-    # are the resultant's z-roots -- every phi at which a 2-D stationary point of g exists,
-    # a count fixed by the mode content (16 k_max) rather than chosen.  The merge below
-    # still emits a FIXED slot count, so the integration cost is unchanged; what changes is
-    # that the seeds can no longer miss a region the table actually has.
+    # SEEDS ARE TARGETING, NOT AN ENUMERATION, and this file no longer pretends otherwise.
+    # A uniform linspace has no completeness claim and measurably under-resolves: at
+    # m_max = 6 it finds 14-19 regions where 64+ seeds find 19-21.  The omitted-mass bound
+    # is what stands behind that -- a missed region raises area_outside and the row
+    # declines -- and it is the only thing that does.
     #
-    # DEFAULT OFF, AND THE REASON IS NOT THAT IT IS WRONG.  It is complete and it works;
-    # turning it on makes an EXISTING defect more reachable.  Better seeds merge into a
-    # cover that spans the whole circle, and a full cover leaves area_outside = 0, which
-    # gives margin = -inf and an UNCONDITIONAL accept -- while saying nothing whatever
-    # about the quadrature inside.  Measured at KP=13, amplitude 1e2: uniform seeds find 3
-    # regions, leave 0.264 rad uncovered and DECLINE; algebraic seeds find 1 region, cover
-    # everything, ACCEPT, and the value is 0.196 nats wrong.
+    # AN IN-KERNEL ALGEBRAIC SEEDER WAS BUILT HERE AND HAS BEEN REMOVED.  It solved the
+    # Sylvester resultant on the roots of unity inside the traced function, which bought
+    # completeness of the seed set but is exactly the substitution
+    # :mod:`RIFT.likelihood.bivariate_trig_stationary` says must not be made: that module
+    # is the authoritative enumerator, it is fail-closed on the BKK root count, Jacobian
+    # conditioning, torus classification and cross-projection agreement, and it is host
+    # side because none of those has an honest static-shape JAX transcription.  A second,
+    # weaker enumerator with no ``ok`` flag living in this tree was the duplication both
+    # integration reviews asked not to carry.
     #
-    # That is the same gap the numpy reference had on production tables -- area_outside 0,
-    # margin -inf, 0.36 nats out -- and fixed there by sizing _BOX_MAX_PTS to the curvature
-    # (256 -> 512).  The equivalent fix here is to size PHI_NODES_PER_REGION for the
-    # region's WIDTH and amplitude rather than fixing it at 96, because a region spanning
-    # 2 pi gets the same 96 nodes as one spanning a few sigma.  Until that exists, enabling
-    # algebraic seeds trades a decline for a wrong answer, which is the wrong direction.
-    if algebraic_seeds:
-        seeds = phi_seeds_algebraic(C)
-        n_seed = int(seeds.shape[0])
-    else:
-        seeds = jnp.linspace(0.0, 2.0 * jnp.pi, n_seed, endpoint=False)
+    # The honest way back to algebraic seeds is a host-built fixed-capacity plan passed IN
+    # as ``seeds``, built from ``enumerate_torus_maxima`` and declining when its ``ok`` is
+    # false.  That is not implemented; until it is, these are a grid and are labelled one.
+    seeds = jnp.linspace(0.0, 2.0 * jnp.pi, n_seed, endpoint=False)
 
     def _newton(p, _):
         _, d1, d2, _, _, _ = jax.vmap(prof)(p)
@@ -1111,183 +1118,3 @@ def phi_local_lnI(C, n_seed=PHI_SEEDS, w_sigma=PHI_WINDOW_SIGMA,
             "phi_alias_safe": jnp.asarray(alias_safe),
             "phi_resolved": resolved}
     return value, ok, info
-
-
-# ---------------------------------------------------------------- algebraic phi warrant
-
-def _laurent_D(C):
-    """Hermitian Laurent coefficients ``D[k+K, q+Q]`` of ``g`` from the ``(KP, 2KS+1)`` table."""
-    KP = C.shape[0]
-    KS = (C.shape[1] - 1) // 2
-    k = jnp.arange(KP)
-    w = jnp.where(k > 0, 2.0, 1.0)[:, None]
-    half = 0.5 * w * C                                     # (KP, 2KS+1)
-    D = jnp.zeros((2 * (KP - 1) + 1, 2 * KS + 1), dtype=C.dtype)
-    D = D.at[KP - 1:, :].add(half)                         # +k, +q
-    D = D.at[:KP, :].add(jnp.conj(half)[::-1, ::-1])       # -k, -q
-    return D
-
-
-def stationary_points_algebraic(C, newton_iters=24, res_tol=1e-8):
-    """EVERY ``(phi, u)`` with ``dg/dphi = dg/du = 0``, static shapes throughout.
-
-    The phi warrant comes from the MODE CONTENT and not from a grid: the orbital phase
-    enters as ``e^{-i m phi}``, so ``A`` reaches phi-harmonic ``m_max`` and ``B``, quadratic,
-    reaches ``2 m_max`` -- the table's ``k_max = KP-1 = 2 m_max`` is exact.  With
-    ``z = e^{i phi}``, ``w = e^{i u}`` the stationary system is two Laurent polynomials of
-    bidegree ``(2K, 2Q)``; eliminating ``w`` by the Sylvester resultant leaves degree
-    ``16 k_max`` in ``z``, the mixed-volume bound.
-
-    ``det S(z)`` is obtained by evaluating on roots of unity and inverse-FFT rather than by
-    symbolic algebra, which is what keeps every shape static.
-
-    NO ``|z| = 1`` FILTER, for the reason the u axis has none: an on-circle tolerance on an
-    ill-conditioned root-find discards real solutions (measured at degree 128: a genuinely
-    stationary maximum 2.9e-02 off the circle).  All roots are SEEDS; the post-Newton
-    residual decides.  Returns ``(points, valid)`` -- points is ``(deg*2Q, 2)`` with a
-    boolean mask, never compacted, because compaction is not a static operation.
-    """
-    C = jnp.asarray(C)
-    scale = jnp.max(jnp.abs(C))
-    # the stationary set is invariant under g -> g/s, and the resultant's coefficients are
-    # products of 2Q Sylvester entries, so they scale as amplitude^(2Q).  Unnormalised that
-    # is ~1e32 at amplitude 1e4 and the roots come back 1e-2 wrong.
-    C = C / jnp.where(scale > 0, scale, 1.0)
-    KP = C.shape[0]
-    KS = (C.shape[1] - 1) // 2
-    K = KP - 1
-    Q = KS
-    D = _laurent_D(C)
-    kk = jnp.arange(-K, K + 1)[:, None]
-    qq = jnp.arange(-Q, Q + 1)[None, :]
-    A1 = (1j * kk) * D
-    A2 = (1j * qq) * D
-
-    deg = (2 * K) * (2 * Q) * 2
-    N = 1
-    while N <= deg + 2:
-        N *= 2
-    zs = jnp.exp(2j * jnp.pi * jnp.arange(N) / N)
-    zpow = zs[:, None] ** jnp.arange(-K, K + 1)[None, :]
-    c1 = zpow @ A1
-    c2 = zpow @ A2
-
-    n1 = n2 = 2 * Q
-    S = jnp.zeros((N, n1 + n2, n1 + n2), dtype=c1.dtype)
-    for r in range(n2):
-        S = S.at[:, r, r:r + n1 + 1].set(c1[:, ::-1])
-    for r in range(n1):
-        S = S.at[:, n2 + r, r:r + n2 + 1].set(c2[:, ::-1])
-    vals = jnp.linalg.det(S)
-
-    # det S(z) is LAURENT in z, spanning z^-h..z^+h: the Sylvester entries carry z^-K..z^+K
-    # and the negative powers were never cleared.  ifft puts the negative half at the TOP of
-    # the array, so truncating to [:deg+1] throws away half the polynomial and leaves
-    # something with no roots on the circle at all.
-    h = deg // 2
-    # COEFFICIENTS COME FROM fft/N, NOT ifft.  The determinant is sampled at
-    # z_k = exp(+2 pi i k / N), so for f(z) = sum_j a_j z^j,
-    #     fft(vals)[m] = sum_k sum_j a_j e^{2pi i jk/N} e^{-2pi i mk/N} = N a_m,
-    # while ifft(vals)[n] = a_{-n} -- the REVERSED polynomial, whose roots are the
-    # reciprocals 1/z.  On the unit circle 1/z = conj(z), so the seeds came out at -phi.
-    # This shipped, and the completeness validation PASSED anyway: 256 Newton starts
-    # scattered over the torus recover the maxima wherever they begin, so the construction
-    # was working as a multi-start SEARCH while claiming to be an enumeration.  Measured
-    # after external review: reconstructing the sampled determinant from the ifft
-    # coefficients gives relative error 0.98-1.00; from fft/N it gives 1.3e-15.
-    raw = jnp.fft.fft(vals) / N
-    coeffs = jnp.concatenate([raw[N - h:], raw[:h + 1]])     # ascending, j = -h .. +h
-
-    zr = _poly_roots(coeffs)                                  # (deg,)
-    # u-roots at each z: dg/du = 0 is the same quartic the u axis already solves
-    zp = zr[:, None] ** jnp.arange(-K, K + 1)[None, :]
-    cu = zp @ A2                                              # (deg, 2Q+1)
-    wr = jax.vmap(_poly_roots)(cu)                            # (deg, 2Q)
-    phi = jnp.repeat(jnp.angle(zr), 2 * Q)
-    u = jnp.angle(wr).ravel()
-    P = jnp.stack([jnp.mod(phi, 2 * jnp.pi), jnp.mod(u, 2 * jnp.pi)], -1)
-    P = jnp.where(jnp.isfinite(P), P, 0.0)
-
-    def _d(p, a, b):
-        kkk = jnp.arange(-K, K + 1)[None, :, None]
-        qqq = jnp.arange(-Q, Q + 1)[None, None, :]
-        E = jnp.exp(1j * (p[:, 0][:, None, None] * kkk + p[:, 1][:, None, None] * qqq))
-        return jnp.real((E * ((1j * kkk) ** a) * ((1j * qqq) ** b) * D[None]).sum((1, 2)))
-
-    def _step(p, _):
-        gp, gu = _d(p, 1, 0), _d(p, 0, 1)
-        gpp, guu, gpu = _d(p, 2, 0), _d(p, 0, 2), _d(p, 1, 1)
-        det = gpp * guu - gpu * gpu
-        ok = jnp.abs(det) > 1e-300
-        dd = jnp.where(ok, det, 1.0)
-        dp = jnp.where(ok, -(guu * gp - gpu * gu) / dd, 0.0)
-        du = jnp.where(ok, -(-gpu * gp + gpp * gu) / dd, 0.0)
-        st = jnp.hypot(dp, du)
-        sc = jnp.where(st > 0.5, 0.5 / jnp.maximum(st, 1e-300), 1.0)
-        return jnp.stack([jnp.mod(p[:, 0] + dp * sc, 2 * jnp.pi),
-                          jnp.mod(p[:, 1] + du * sc, 2 * jnp.pi)], -1), None
-
-    P, _ = lax.scan(jax.checkpoint(_step), P, None, length=int(newton_iters))
-    m1 = jnp.abs(A1).sum() + jnp.abs(A2).sum()
-    valid = jnp.hypot(_d(P, 1, 0), _d(P, 0, 1)) <= res_tol * jnp.maximum(m1, 1e-300)
-    gpp, guu, gpu = _d(P, 2, 0), _d(P, 0, 2), _d(P, 1, 1)
-    is_max = valid & (gpp < 0) & (gpp * guu - gpu * gpu > 0)
-    return P, is_max
-
-
-def _poly_roots(c):
-    """Roots of ``sum_j c[j] z^j`` via the companion matrix, static shape ``len(c)-1``.
-
-    Leading zeros are not compacted -- that is not static -- so a degenerate leading
-    coefficient yields non-finite roots, which the residual test downstream rejects.
-    """
-    n = c.shape[0] - 1
-    lead = c[-1]
-    safe = jnp.where(jnp.abs(lead) > 0, lead, 1.0)
-    comp = jnp.zeros((n, n), dtype=c.dtype)
-    comp = comp.at[1:, :-1].set(jnp.eye(n - 1, dtype=c.dtype))
-    comp = comp.at[:, -1].set(-c[:-1] / safe)
-    return jnp.linalg.eigvals(jax.lax.stop_gradient(comp))
-
-
-def phi_seeds_algebraic(C):
-    """phi values where a 2-D stationary point of ``g`` EXISTS -- a complete seed set.
-
-    The resultant's z-roots are exactly the ``phi`` at which ``dg/dphi`` and ``dg/du`` share
-    a root, so their arguments cover every stationary ``phi`` with no grid and no arbitrary
-    count: ``deg = 16 k_max`` of them, fixed by the mode content since ``k_max = 2 m_max``.
-    This is the seed set ``PHI_SEEDS`` linspace cannot claim to be -- measured, 32 uniform
-    seeds find 14-19 regions at ``m_max = 6`` where 64+ find 19-21.
-
-    Cheaper than the full enumeration: no u pairing and no 2-D Newton, just the resultant
-    and one companion eigensolve.  Returns ``deg`` angles; non-finite roots map to 0.0 and
-    are harmless as seeds.
-    """
-    C = jnp.asarray(C)
-    scale = jnp.max(jnp.abs(C))
-    C = C / jnp.where(scale > 0, scale, 1.0)
-    KP = C.shape[0]
-    KS = (C.shape[1] - 1) // 2
-    K, Q = KP - 1, KS
-    D = _laurent_D(C)
-    kk = jnp.arange(-K, K + 1)[:, None]
-    qq = jnp.arange(-Q, Q + 1)[None, :]
-    A1, A2 = (1j * kk) * D, (1j * qq) * D
-    deg = (2 * K) * (2 * Q) * 2
-    N = 1
-    while N <= deg + 2:
-        N *= 2
-    zs = jnp.exp(2j * jnp.pi * jnp.arange(N) / N)
-    zpow = zs[:, None] ** jnp.arange(-K, K + 1)[None, :]
-    c1, c2 = zpow @ A1, zpow @ A2
-    n1 = n2 = 2 * Q
-    S = jnp.zeros((N, n1 + n2, n1 + n2), dtype=c1.dtype)
-    for r in range(n2):
-        S = S.at[:, r, r:r + n1 + 1].set(c1[:, ::-1])
-    for r in range(n1):
-        S = S.at[:, n2 + r, r:r + n2 + 1].set(c2[:, ::-1])
-    h = deg // 2
-    raw = jnp.fft.fft(jnp.linalg.det(S)) / N
-    coeffs = jnp.concatenate([raw[N - h:], raw[:h + 1]])
-    zr = _poly_roots(coeffs)
-    return jnp.where(jnp.isfinite(jnp.angle(zr)), jnp.mod(jnp.angle(zr), 2 * jnp.pi), 0.0)
