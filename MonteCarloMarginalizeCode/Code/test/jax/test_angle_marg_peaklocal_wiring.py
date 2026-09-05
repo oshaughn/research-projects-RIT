@@ -32,10 +32,27 @@ def test_peak_local_is_NOT_reachable_from_auto():
         assert scheme != "peak-local", (amp, scheme)
 
 
-@pytest.mark.parametrize("boost", [1.0, 30.0])
+@pytest.mark.parametrize("boost", [1.0, 10.0])
 def test_wrapper_peak_local_matches_exact(boost):
     """The wiring's whole claim: asking for it by name gives the same likelihood as the
-    scheme it parallels."""
+    scheme it parallels.
+
+    BOOST 30 WAS REPLACED BY 10, AND IT COST 807 SECONDS FOR NO WIRING COVERAGE.  Since the
+    u node count became amplitude-derived and streamed, boost 30 puts amp_sizing at 2691
+    and asks for 2188 nodes in 274 sequential stream blocks; that one parametrisation was
+    807 s of a 1006 s file, and the jax gate went from ~24 min to 37-46 min.
+
+    It bought nothing this file is for.  `amp_sizing` FLOORS AT 450, so boost 1.0 already
+    requests 896 nodes -- 18.7x the U_NODES_PER_CELL floor -- and therefore already
+    exercises the amplitude-derived path end to end.  What boost 30 added was numerical
+    stress at production amplitude, and this module's own docstring delegates that: "The
+    kernel's own numerics are tested in test_joint_anglemarg_peaklocal.py."
+
+    10.0 is kept rather than dropping to a second floored value because it is the first
+    boost whose amp_sizing (624) CLEARS the 450 floor -- so the pair still demonstrates that
+    the sizing tracks amplitude rather than being pinned to the crossover, which is the one
+    wiring property the second point exists to show.
+    """
     data = make_synth(scale=2.0, kappa_boost=boost)
     kw = dict(nphi=32, npsi=8, interp=INTERP)
     ex = JAXDistPhiPsiMargLikelihood(data, 30.0, 3000.0, angle_marg="exact", **kw)

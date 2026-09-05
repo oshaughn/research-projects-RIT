@@ -497,14 +497,21 @@ fi
 # the only source that is not a guess.
 # The production-policy follow-up adds one mutation-bearing streaming test; this job's
 # own collection reports 312.
-# PR #250 and the integration review make test_anglemarg_buffer_cap.py 62 tests
-# (including the zero-free-device regression).  This integrated branch also carries
-# the other marginalization test files listed above.  Its measured pre-parent local
-# collection was 381 after deselection; replacing the former 34-test cap file with the
-# reconciled 62-test file yields 409 locally.  This environment is documented above to
-# collect one more than CI, hence the provisional CI floor 408.  Replace this derivation
-# with the new CI job's own collection line once run; a low floor is a silent failure.
-EXPECTED_TESTS=408
+# PR #250 adds test_anglemarg_buffer_cap.py, test_direct_marginalization_planner.py and
+# test_time_first_peaklocal.py; 247 adds four tests to test_joint_anglemarg_peaklocal.py
+# and REMOVES test_joint_angle_algebraic.py with the duplicate enumerator it covered.
+# Neither branch guessed well: 250 derived a provisional 408 from arithmetic and said to
+# replace it with a real collection, and 247 measured 329 against a different file set.
+# This number is the MERGED collection, run over this job own FILES/DESELECT with the
+# DESELECT loop actually applied (the run reports "424/425 tests collected (1 deselected)").
+#
+# 250 also inferred a standing "this environment collects one more than CI" offset and
+# subtracted it.  There is no such offset: the 311 case documented above was wrong by one
+# because a harness sliced this script by line number and never ran the DESELECT loop, so
+# it counted the one test this job deselects.  That was a one-off setup bug, not a property
+# of the environment, and subtracting for it would under-promise by one -- which is the
+# failure direction this whole comment exists to warn about, because a low floor PASSES.
+EXPECTED_TESTS=424
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"
