@@ -242,12 +242,38 @@ def _detector_geometry(det, xpy):
 _SIMPS_WEIGHTS_CACHE = {}
 
 
-def _simps_weights(simps, npts, deltaT, xpy):
-    """Quadrature weight vector w with simps(y, dx=deltaT, axis=-1) == y . w."""
-    key = (int(npts), float(deltaT), id(xpy))
+def _simps_weights(simps, npts, deltaT, xpy, block=256):
+    """Quadrature weight vector w with simps(y, dx=deltaT, axis=-1) == y . w.
+
+    Built a BLOCK OF ROWS AT A TIME rather than from a full (npts, npts) identity.
+    npts is 2*data_integration_window_half*srate, and the batch driver's DEFAULT srate
+    is 16384, so npts is 2457 in the default configuration, not the 614 of an
+    srate-4096 run: a whole identity is then 48 MB, and cupy's pool holds ~97 MB
+    across the simps call -- a transient that lands inside the first likelihood
+    evaluation of every --vectorized --gpu run, in a function whose n_chunk is already
+    bounded by device memory.  Blocking caps it at block*npts*8 bytes (5 MB at the
+    default).  simps reduces along axis=-1, so rows are independent and the blocked
+    result is bitwise identical to the whole-identity one.
+
+    Keyed on the quadrature FUNCTION as well as (npts, dx, backend): on GPU `simps` is
+    the vendored old-scipy copy with even='avg' and on CPU it is scipy's Cartwright
+    form, and those two disagree by 0.405 nats on an under-resolved peak.  Today the
+    rule is a pure function of the backend so id(xpy) would suffice, but this helper is
+    module-level and nothing stops a future caller passing a different rule at the same
+    shape -- which would silently serve the other rule's weights.
+    """
+    key = (int(npts), float(deltaT), id(xpy), id(simps))
     w = _SIMPS_WEIGHTS_CACHE.get(key)
     if w is None:
-        w = simps(xpy.eye(int(npts), dtype=np.float64), dx=deltaT, axis=-1)
+        n = int(npts)
+        parts = []
+        for lo in range(0, n, int(block)):
+            hi = min(lo + int(block), n)
+            rows = xpy.zeros((hi - lo, n), dtype=np.float64)
+            idx = xpy.arange(hi - lo)
+            rows[idx, idx + lo] = 1.0
+            parts.append(simps(rows, dx=deltaT, axis=-1))
+        w = xpy.concatenate(parts) if len(parts) > 1 else parts[0]
         _SIMPS_WEIGHTS_CACHE[key] = w
     return w
 
@@ -2604,6 +2630,17 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
     cal_distmarg : dict or None
         Distance-marginalization table+params for the fused distmarg kernel; see
         RIFT.likelihood.Q_fused_calmarg.Q_fused_calmarg_distmarg_cupy.
+
+    loglikelihood : callable(kappa_sq, rho_sq) -> lnL(t)
+        MUST NOT WRITE INTO ``rho_sq``.  rho_sq is time-independent, so it is passed as
+        a stride-0 ``broadcast_to`` view over an ``(npts_extrinsic,)`` vector rather than
+        as a materialized ``(npts_extrinsic, npts)`` array.  Every ``npts`` column
+        therefore aliases one address: on CPU an in-place write raises
+        ``ValueError: output array is read-only``, but on GPU cupy's broadcast is
+        WRITABLE and an in-place write races, giving a wrong and irreproducible answer
+        with no error.  Every in-tree callback allocates (``_factored_lnL_helper`` and the
+        driver's ``distmarg_loglikelihood``), so nothing is broken today; a caller
+        supplying its own must allocate too, or call ``xpy.ascontiguousarray`` first.
 
     time_interp : {'nearest', 'cubic', 'sinc'}
         Detector-time sampling convention for the data term.  'nearest'

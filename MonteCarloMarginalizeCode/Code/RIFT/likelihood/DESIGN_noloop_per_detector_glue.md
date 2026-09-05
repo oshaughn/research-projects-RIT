@@ -56,6 +56,16 @@ So the per-detector halves keep the identical `inner` calls in the identical ord
 only the source-only prologue is shared. `test/test_vectorized_lal_tools_split.py`
 pins that with `array_equal`, not a tolerance, on three real interferometer geometries.
 
+**Against a FROZEN COPY of the pre-split bodies, not against the wrapper.** The first
+version of that test compared `ComputeDetAMResponse(...)` to
+`ComputeDetAMResponsePrecomputed(SourcePolarizationBasis(...))` -- but after the split
+the wrapper *is* that composition, so the comparison was tautological and could not
+fail. An adversarial review demonstrated it passing with a sign flipped in the
+source-only half, with the response matrix doubled in the per-detector half, and with
+the speed of light wrong by 0.1%. All three now fail. The lesson generalizes: **when a
+refactor splits a function, the two halves are not an independent check on each other**
+-- freeze what was replaced, or compare against an outside implementation.
+
 ## Sharing hazards, and how they are handled
 
 - **The phase-marginalization branch mutates `Ylms_vec` in place** (`[:, 1] = conj(...)`),

@@ -46,7 +46,13 @@ def _inputs(n_ex=64, npts=32, n_time=512, dets=("H1", "L1", "V1"), seed=20260905
         ctU[d] = a + a.conj().T                      # Hermitian, as U is
         ctV[d] = rng.normal(size=(n_lm, n_lm)) + 1j * rng.normal(size=(n_lm, n_lm))
         lookup[d] = lms
-        epoch[d] = 1000000013.0
+        # tref - 0.05, NOT a whole second earlier: t_det = (tref - epoch) + light
+        # travel, and ifirst = (t_det + tvals[0])/deltaT must land INSIDE the
+        # n_time buffer.  At a 1 s offset ifirst was ~3979-4152 against n_time=512,
+        # so every window was zero-extended, kappa_sq was identically zero, and the
+        # kappa_sq half of this file asserted nothing at all.  Verified by
+        # test_data_term_is_actually_exercised below.
+        epoch[d] = 1000000014.0 - 0.05
     tvals = np.linspace(-0.0075, 0.0075, npts)
     return tvals, _P(n_ex, rng), lookup, rholms, ctU, ctV, epoch
 
@@ -145,13 +151,37 @@ def test_simps_weights_reproduce_simps_on_random_data():
     assert np.allclose(y.dot(w), fl.my_simps(y, dx=dx, axis=-1), rtol=1e-12, atol=0.0)
 
 
-def test_rho_sq_view_is_not_writable_into():
-    """The shared rho_sq view must not be something a consumer can scribble on.
+def test_data_term_is_actually_exercised():
+    """Guard the trap this file fell into: a Q window entirely outside the buffer.
 
-    numpy and cupy both return a read-only broadcast; if that ever changed, a consumer
-    writing into rho_sq would corrupt every time bin at once instead of one.
+    `ifirst` is derived from (tref - epoch) plus light travel.  If the synthetic inputs
+    put it past `n_time`, every window is zero-extended, kappa_sq is identically zero,
+    and every assertion above still passes while testing only rho_sq -- which is exactly
+    what happened on the first version of this file.  A zero data term shows up as lnL(t)
+    with no variation along the time axis, so assert the variation directly.
+    """
+    args = _inputs()
+    lnL_t = np.asarray(fl.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(
+        *args, Lmax=2, xpy=np, return_lnLt=True))
+    spread = np.ptp(lnL_t, axis=-1)
+    assert np.median(spread) > 1.0, (
+        "lnL(t) is flat in time: the data term is zero, so the kappa_sq assertions "
+        "above are vacuous.  Check epoch vs tref against n_time in _inputs().")
+
+
+def test_dense_rho_sq_returns_writable_contiguous_memory():
+    """`_dense_rho_sq` exists to hand real memory to consumers that need it.
+
+    The fused CUDA kernels index raw device pointers and the non-Simpson quadrature
+    helpers may write, so for them a stride-0 view is not merely slow but wrong.  Note
+    that a broadcast view being READ-ONLY is a numpy guarantee and NOT a cupy one --
+    measured: cupy.broadcast_to yields strides (8, 0) and writes through to the base --
+    so the contract this pins is what _dense_rho_sq RETURNS, not what the view forbids.
     """
     vec = np.arange(5.0)
     view = np.broadcast_to(vec[:, None], (5, 7))
-    with pytest.raises(ValueError):
-        view[0, 0] = 1.0
+    assert view.strides[-1] == 0          # the thing being avoided is real
+    dense = np.ascontiguousarray(view)
+    assert dense.flags.c_contiguous and dense.flags.writeable
+    assert dense.strides[-1] != 0
+    assert np.array_equal(dense, view)
