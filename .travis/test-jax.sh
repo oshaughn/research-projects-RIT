@@ -339,6 +339,7 @@ FILES=(
   "${JAXDIR}/test_jax_stencil_parity.py"
   "${JAXDIR}/test_flow_reuse_default.py"
   "${JAXDIR}/test_angle_marg_sizing_rule.py"
+  "${JAXDIR}/test_anglemarg_buffer_cap.py"
   "${JAXDIR}/test_angle_marg_smoke.py"
   "${JAXDIR}/test_angle_marg_compile_cost.py"
   "${JAXDIR}/test_angle_marg_block_dispatch.py"
@@ -349,6 +350,8 @@ FILES=(
   "${JAXDIR}/test_joint_anglemarg_peaklocal.py"
   "${JAXDIR}/test_angle_marg_peaklocal_wiring.py"
   "${JAXDIR}/test_limit_distance_jax.py"
+  "${JAXDIR}/test_direct_marginalization_planner.py"
+  "${JAXDIR}/test_time_first_peaklocal.py"
 )
 
 # EXCLUDED: files in JAXDIR matching test_*.py that are deliberately NOT gated.  The
@@ -494,7 +497,14 @@ fi
 # the only source that is not a guess.
 # The production-policy follow-up adds one mutation-bearing streaming test; this job's
 # own collection reports 312.
-EXPECTED_TESTS=312
+# PR #250 and the integration review make test_anglemarg_buffer_cap.py 62 tests
+# (including the zero-free-device regression).  This integrated branch also carries
+# the other marginalization test files listed above.  Its measured pre-parent local
+# collection was 381 after deselection; replacing the former 34-test cap file with the
+# reconciled 62-test file yields 409 locally.  This environment is documented above to
+# collect one more than CI, hence the provisional CI floor 408.  Replace this derivation
+# with the new CI job's own collection line once run; a low floor is a silent failure.
+EXPECTED_TESTS=408
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"
