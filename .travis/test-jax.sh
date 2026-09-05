@@ -494,7 +494,7 @@ fi
 # the only source that is not a guess.
 # The production-policy follow-up adds one mutation-bearing streaming test; this job's
 # own collection reports 312.
-EXPECTED_TESTS=312
+EXPECTED_TESTS=324
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"
