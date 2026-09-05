@@ -110,6 +110,22 @@ def test_missing_budget_declines_with_no_selection(
         decision.require_selection()
 
 
+def test_repeated_required_axis_declines_instead_of_planning_it_twice():
+    """One scheme per axis: a repeated axis is a malformed request, not a plan."""
+    decision = P.plan_direct_marginalization(
+        (_offer("angle", "exact", 1e-5, 10),), {"angle": 1e-2},
+        P.ResourceBudget(1000.0, 1024), required_axes=("angle", "angle"))
+    assert decision.action == "decline"
+    assert decision.reason_code == "duplicate-axis"
+    assert decision.selected == ()
+    assert decision.resource_use is None
+    assert decision.ledger["details"]["duplicate_axes"] == ["angle"]
+    assert decision.ledger["combinations"] == []
+    with pytest.raises(P.MarginalizationPlanDeclined, match="duplicate-axis"):
+        decision.require_selection()
+    json.dumps(decision.as_dict())
+
+
 def test_shipped_peak_local_plus_gh_is_an_unsupported_combination():
     """The real JAX profile declares this once; the planner refuses the pair."""
     def validated(label):
@@ -179,15 +195,13 @@ def test_jax_direct_path_injects_the_nonlinear_time_incompatibility():
     """Callers cannot omit the wrapper fact that currently excludes bandlimited."""
     validated = P.AccuracyAssessment(
         P.EvidenceKind.VALIDATED, 1e-4, "fixture validation")
-    certified_time = P.AccuracyAssessment(
-        P.EvidenceKind.CERTIFIED, 1e-8, "fixture certificate")
     resources = P.ResourceEstimate(10.0, 10, "fixture cost")
     offers = (
         P.make_jax_scheme_offer("angle", "exact", validated, resources,
                                 provenance="fixture request"),
         P.make_jax_scheme_offer("distance", "uniform", validated, resources,
                                 provenance="fixture request"),
-        P.make_jax_scheme_offer("time", "bandlimited", certified_time,
+        P.make_jax_scheme_offer("time", "bandlimited", validated,
                                 resources, provenance="fixture request"),
     )
     decision = P.plan_jax_direct_marginalization(
@@ -392,3 +406,21 @@ def test_current_angle_profiles_cannot_be_mislabeled_certified():
         P.make_jax_scheme_offer(
             "angle", "exact", accuracy, resources,
             provenance="attempted invalid offer")
+
+
+def test_bandlimited_time_profile_cannot_be_mislabeled_certified():
+    """A derived-and-remeasured refinement factor is not a per-request bound."""
+    accuracy = P.AccuracyAssessment(
+        P.EvidenceKind.CERTIFIED, 1e-12, "invalid fixture claim")
+    resources = P.ResourceEstimate(1.0, 1, "fixture cost")
+    with pytest.raises(ValueError, match="no implemented certificate"):
+        P.make_jax_scheme_offer(
+            "time", "bandlimited", accuracy, resources,
+            provenance="attempted invalid offer")
+
+
+def test_no_shipped_profile_advertises_a_certificate_yet():
+    """cheapest-certified stays unreachable until some rule implements a bound."""
+    advertised = sorted(key for key, profile in P.JAX_SCHEME_PROFILES.items()
+                        if profile.warrant.certificate_available)
+    assert advertised == []

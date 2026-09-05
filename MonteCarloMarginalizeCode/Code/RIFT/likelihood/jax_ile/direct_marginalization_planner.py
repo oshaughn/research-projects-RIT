@@ -668,6 +668,17 @@ def plan_direct_marginalization(offers, error_budget, resource_budget, *,
             "missing-axis", "no marginalization axes were requested", axes,
             error_budget, resource_budget, capabilities, {})
 
+    duplicate_axes = sorted(set(axis for axis in axes if axes.count(axis) > 1))
+    if duplicate_axes:
+        # One scheme per axis is the planner's contract.  A repeated axis would
+        # otherwise enter the Cartesian product twice, select the same offer
+        # twice and double-count its compute and memory.
+        return _preflight_decline(
+            "duplicate-axis",
+            "required axes repeat %r; each axis may be marginalized once"
+            % duplicate_axes, axes, error_budget, resource_budget,
+            capabilities, dict(duplicate_axes=duplicate_axes))
+
     by_axis = {axis: tuple(o for o in offers if o.axis == axis) for axis in axes}
     unsupported = [axis for axis in axes if not by_axis[axis]]
     if unsupported:
@@ -1052,10 +1063,19 @@ _JAX_PROFILE_LIST = (
     _profile("time", "simpson",
              _warrant(WarrantKind.NONE, "fixed native time grid", False,
                       _TIME), _TIME),
+    # The band limit is a real structural fact, so this warrant kind COULD
+    # support a certificate.  The shipped implementation does not discharge one:
+    # it derives the refinement factor from a curvature-measured peak width and
+    # remeasures it on the dense grid, and its accuracy record is a table of
+    # measured nonzero reconstruction errors, not a per-request inequality on
+    # the marginalized log likelihood.  Advertising a certificate here would let
+    # any caller-supplied CERTIFIED assessment enter cheapest-certified with an
+    # arbitrarily tight budget and no executable proof, which is exactly the
+    # relabeling the warrant/certificate split exists to refuse.
     _profile("time", "bandlimited",
              _warrant(WarrantKind.EXACT_BAND_LIMIT,
                       "band-limited kappa with time-independent self term",
-                      True, _TIME), _TIME,
+                      False, _TIME), _TIME,
              requires=("time-exact-band-limit", "time-independent-rho-sq",
                        "n-cal-one"),
              conflicts=("jax-direct-nonlinear-time",)),
