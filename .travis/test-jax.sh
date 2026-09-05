@@ -325,10 +325,16 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         honest phase-marginalized sky/psi export,
 #                                         K=14/K=88 independent guarded references,
 #                                         and executable baseline/banded support refusal.
+#   test_time_first_peaklocal.py         6  primitive-first composition: closed-form
+#                                         distance x time and symmetric-angle x time
+#                                         integrals, certified cell bound, fail-closed
+#                                         capacity ledger, jit/AD, and rejection of an
+#                                         already-marginalized time row.
 
 FILES=(
   "${JAXDIR}/test_jax_time_quadrature.py"
   "${JAXDIR}/test_jax_terminal_time_marginalization.py"
+  "${JAXDIR}/test_time_first_peaklocal.py"
   "${JAXDIR}/test_jax_likelihood.py"
   "${JAXDIR}/test_jax_endtoend.py"
   "${JAXDIR}/test_jax_slowrot_coeffs.py"
@@ -499,9 +505,9 @@ fi
 # the only source that is not a guess.
 # The production-policy follow-up adds one mutation-bearing streaming test; this job's
 # own collection reports 312.  The sample-time point tiling adds two mutation-bearing
-# compile-cost tests (wiring/allocation shape and value+gradient parity), raising 312 ->
-# 314 without changing the file manifest.
-EXPECTED_TESTS=314
+# compile-cost tests and the time-first peak-local prototype adds six, raising the
+# measured collection floor from 312 to 320.
+EXPECTED_TESTS=320
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"

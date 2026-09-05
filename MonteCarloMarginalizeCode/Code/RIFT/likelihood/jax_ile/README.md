@@ -94,6 +94,13 @@ refuse `bandlimited`.  Those nonlinear reductions generate time harmonics, so
 interpolating their already-reduced `lnL(t)` can converge to the wrong function;
 they require endpoint-specific primitive refinement before they can safely opt
 in.  They continue to use the unchanged Simpson default.
+`time_first_peaklocal.py` contains an unwired, fixed-shape prototype of that
+primitive-first composition: it reconstructs one raw complex correlation per
+downstream distance/angle quadrature state, builds a certified time-cell cover,
+and only then performs the nonlinear reduction on local nodes.  It returns an
+explicit validity ledger and changes no wrapper or CLI default.  Production
+wiring still needs a tighter Hermite certificate, two-guard convergence, and an
+adapter from the coefficient-table angle kernels.
 The driver exposes the same public spelling as conventional ILE:
 `--time-marginalization-quadrature`.  `--interpolate-time` is an alias for the
 JAX-native `--interp` with conflict detection.  Conditional nuisance recovery
@@ -119,6 +126,8 @@ executables without dying during option parsing.
     lnL over the 5 angular parameters (regulates the amplitude degeneracy; see
     below).
   - `make_distance_grid(...)`, `JAXLikelihoodData`, `build_likelihood_data`.
+- `time_first_peaklocal.py` — experimental primitive-first time-cover planner
+  and distance adapter; not selected by any production endpoint.
 - `wrapper.py` — `build_data_from_precompute` (runs the production precompute +
   packing and returns a device-resident `JAXLikelihoodData`), and the
   convenience classes `JAXExtrinsicLikelihood` (6-D, value/grad/Fisher) and
