@@ -495,7 +495,12 @@ fi
 # the only source that is not a guess.
 # The production-policy follow-up adds one mutation-bearing streaming test; this job's
 # own collection reports 312.
-EXPECTED_TESTS=312
+# +27 for the #250 review follow-up: test_anglemarg_buffer_cap.py went from 7 collected
+# to 34 when its stubbed-out probe coverage was replaced with real device fakes.  Derived
+# by ARITHMETIC on a measured standalone delta (7 -> 34, and this job deselects nothing in
+# that file), which per the note above is the direction that errs low and passes.  Re-read
+# it off this job's own "collected N tests" line at the next opportunity.
+EXPECTED_TESTS=339
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"

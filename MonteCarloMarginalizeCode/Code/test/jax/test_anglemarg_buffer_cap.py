@@ -190,3 +190,31 @@ def test_an_unusable_override_is_refused_loudly(raw):
     """
     with pytest.raises(ValueError):
         sam._read_buffer_fraction({"RIFT_ANGLEMARG_BUFFER_FRACTION": raw})
+
+
+# --- the constant the whole bound rests on ----------------------------------
+
+def test_bytes_per_sample_point_still_reproduces_the_observed_allocation():
+    """Pin _ANGLE_MARG_BYTES_PER_SAMPLE_PT against a number the code does not own.
+
+    FOUND BY MUTATION, and it is why this test exists: halving the constant
+    8192 -> 4096 left all 33 other tests in this file passing.  Every one of them
+    computes the expected buffer as `got * sam._ANGLE_MARG_BYTES_PER_SAMPLE_PT * npts`
+    -- reading the same constant the production code reads -- so the assertion is
+    self-consistent for ANY value of it.  The bound would silently permit a buffer
+    twice the intended size and the suite would stay green.
+
+    The independent reference is XLA's own report from 2026-08-28: at chunk 4000
+    and npts 1193 the laplace path asked for a single buffer of 36.41 GiB.  8192
+    reproduces that to 0.01%.  This is an EXTERNAL measurement, not a restatement
+    of the constant, so it fails when the constant moves.
+    """
+    observed_gib = 36.41          # from the RESOURCE_EXHAUSTED message itself
+    chunk, npts = 4000, 1193      # the configuration that produced it
+    implied = chunk * npts * sam._ANGLE_MARG_BYTES_PER_SAMPLE_PT / float(GIB)
+    assert abs(implied / observed_gib - 1.0) < 0.01, (
+        "%d bytes/sample-point implies a %.2f GiB buffer at chunk %d / npts %d, but "
+        "the allocation this cap was built from was %.2f GiB.  If the per-point size "
+        "genuinely changed, re-measure it and update BOTH the constant and this "
+        "reference." % (sam._ANGLE_MARG_BYTES_PER_SAMPLE_PT, implied, chunk, npts,
+                        observed_gib))
