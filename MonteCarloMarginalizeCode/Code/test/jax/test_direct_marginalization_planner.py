@@ -238,6 +238,151 @@ def test_no_silent_fallback_and_best_effort_requires_explicit_authority():
     json.dumps(record)
 
 
+def test_resource_decline_uses_explicit_reserve_without_dropping_sample():
+    """A primary resource refusal remains recorded when dense exact is used."""
+    dense_exact = _offer(
+        "angle", "dense-exact", error=1e-6, compute=200, memory=20)
+    approximate_warrant = P.Warrant(
+        P.WarrantKind.EMPIRICAL_CALIBRATION, "measured approximation", False,
+        "test fixture: empirical envelope")
+    preferred = _offer(
+        "angle", "shortcut", error=1e-3, compute=5, memory=5,
+        evidence=P.EvidenceKind.VALIDATED,
+        warrant=approximate_warrant)
+    decision = P.plan_direct_marginalization(
+        (dense_exact, preferred), {"angle": 1e-2},
+        P.ResourceBudget(20, 100), required_axes=("angle",))
+    assert decision.action == "decline"
+    assert decision.reason_code == "resource-budget-exceeded"
+
+    fallback = P.ConservativeFallbackPolicy(
+        (dense_exact,), P.ResourceBudget(250, 100),
+        provenance="fixture: reserve-budget policy",
+        finite_output_contract="fixture: full finite angle grid")
+    resolution = P.resolve_plan_for_production(decision, fallback)
+
+    assert resolution.action is P.ResolutionAction.USE_CONSERVATIVE_FALLBACK
+    assert resolution.require_selection()[0].scheme == "dense-exact"
+    assert resolution.drops_sample is False
+    assert resolution.waveform_failure is None
+    assert resolution.method_decline.code == "resource-budget-exceeded"
+    assert resolution.certified is True
+    assert resolution.ledger["fallback_policy"]["provenance"]
+    assert (resolution.ledger["preferred_decision"]["reason_code"]
+            == "resource-budget-exceeded")
+    json.dumps(resolution.as_dict())
+
+
+def test_uncertified_jax_plan_resolves_to_registered_dense_fallback():
+    """Cannot certify preferred is a method result, not an invalid waveform."""
+    validated = P.AccuracyAssessment(
+        P.EvidenceKind.VALIDATED, 1e-4, "fixture validation")
+    resources = P.ResourceEstimate(10.0, 10, "fixture cost")
+    peak_local = P.make_jax_scheme_offer(
+        "angle", "peak-local", validated, resources,
+        provenance="fixture preferred request")
+    dense_exact = P.make_jax_scheme_offer(
+        "angle", "exact", validated,
+        P.ResourceEstimate(50.0, 20, "fixture dense fallback cost"),
+        provenance="fixture fallback request")
+    decision = P.plan_jax_direct_marginalization(
+        (peak_local,), {"angle": 1e-3}, P.ResourceBudget(100, 100),
+        required_axes=("angle",),
+        capabilities=("angle-amplitude-estimate",
+                      "angle-peak-local-warranted"))
+    assert decision.action == "decline"
+    assert decision.reason_code == "no-certified-plan"
+    fallback = P.make_jax_production_fallback_policy(
+        (dense_exact,), P.ResourceBudget(100, 100),
+        provenance="fixture: dense JAX reserve",
+        finite_output_contract="fixture: dense phi and psi cover full support")
+
+    resolution = P.resolve_plan_for_production(decision, fallback)
+
+    assert resolution.action is P.ResolutionAction.USE_CONSERVATIVE_FALLBACK
+    assert resolution.require_selection()[0].scheme == "exact"
+    assert resolution.certified is False
+    assert resolution.meets_error_budget is True
+    assert resolution.drops_sample is False
+    assert resolution.method_decline.code == "no-certified-plan"
+    assert resolution.waveform_failure is None
+
+
+def test_incomplete_root_enumeration_replaces_method_not_likelihood_point():
+    """Runtime root refusal switches to dense exact and retains the sample."""
+    validated = P.AccuracyAssessment(
+        P.EvidenceKind.VALIDATED, 1e-4, "fixture validation")
+    peak_local = P.make_jax_scheme_offer(
+        "angle", "peak-local", validated,
+        P.ResourceEstimate(10.0, 10, "fixture shortcut cost"),
+        provenance="fixture preferred request")
+    dense_exact = P.make_jax_scheme_offer(
+        "angle", "exact", validated,
+        P.ResourceEstimate(50.0, 20, "fixture dense fallback cost"),
+        provenance="fixture fallback request")
+    decision = P.plan_jax_direct_marginalization(
+        (peak_local,), {"angle": 1e-3}, P.ResourceBudget(100, 100),
+        required_axes=("angle",),
+        capabilities=("angle-amplitude-estimate",
+                      "angle-peak-local-warranted"),
+        allow_best_effort=True)
+    assert decision.action == "run"
+    fallback = P.make_jax_production_fallback_policy(
+        (dense_exact,), P.ResourceBudget(100, 100),
+        provenance="fixture: dense JAX reserve",
+        finite_output_contract="fixture: dense phi and psi cover full support")
+    root_decline = P.MethodDecline(
+        "incomplete-root-enumeration",
+        "stationary-root completeness check did not close",
+        "fixture: root enumeration postcondition", axis="angle",
+        stage="runtime-enumeration", ledger={"roots_found": 3})
+
+    resolution = P.resolve_plan_for_production(
+        decision, fallback, method_decline=root_decline)
+
+    assert resolution.action is P.ResolutionAction.USE_CONSERVATIVE_FALLBACK
+    assert resolution.require_selection()[0].scheme == "exact"
+    assert resolution.method_decline.ledger == {"roots_found": 3}
+    assert resolution.waveform_failure is None
+    assert resolution.drops_sample is False
+    assert "incomplete-root-enumeration" in str(resolution.as_dict())
+
+
+def test_method_decline_without_fallback_is_configuration_error_not_drop():
+    preferred = _offer("angle", "shortcut", 1e-5, 5)
+    decision = P.plan_direct_marginalization(
+        (preferred,), {"angle": 1e-3}, P.ResourceBudget(100, 100),
+        required_axes=("angle",))
+    decline = P.MethodDecline(
+        "incomplete-root-enumeration", "root postcondition failed",
+        "fixture: runtime postcondition", axis="angle")
+    with pytest.raises(P.FallbackConfigurationError,
+                       match="not a waveform failure"):
+        P.resolve_plan_for_production(decision, method_decline=decline)
+
+
+def test_only_explicit_waveform_failure_can_drop_sample():
+    preferred = _offer("angle", "dense", 1e-5, 5)
+    decision = P.plan_direct_marginalization(
+        (preferred,), {"angle": 1e-3}, P.ResourceBudget(100, 100),
+        required_axes=("angle",))
+    failure = P.WaveformFailure(
+        "waveform-generation-failed", "base waveform contains non-finite data",
+        "fixture: waveform validation", ledger={"finite": False})
+
+    resolution = P.resolve_plan_for_production(
+        decision, waveform_failure=failure)
+
+    assert resolution.action is P.ResolutionAction.WAVEFORM_FAILURE
+    assert resolution.drops_sample is True
+    assert resolution.selected == ()
+    assert resolution.method_decline is None
+    assert resolution.waveform_failure is failure
+    with pytest.raises(P.WaveformLikelihoodFailure,
+                       match="waveform-generation-failed"):
+        resolution.require_selection()
+
+
 def test_current_angle_profiles_cannot_be_mislabeled_certified():
     """Exact coefficients do not certify the amplitude-sized exp quadrature."""
     accuracy = P.AccuracyAssessment(

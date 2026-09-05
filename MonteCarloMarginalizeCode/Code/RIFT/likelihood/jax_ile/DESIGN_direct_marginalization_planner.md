@@ -121,11 +121,56 @@ suggestion as if it were a selection.
 Only `allow_best_effort=True` promotes that candidate to a runnable
 `most-accurate-affordable` decision.  Its record says `certified=False` and
 separately says whether its numerical assessments meet the requested budgets.
-This explicit authority is the only fallback path.
+This explicit authority is the only way for the *planner* to promote its own
+suggestion.  The production failure-resolution path below is separate and does
+not rewrite the planner's claim.
 
 Every result is JSON-ready through `PlanDecision.as_dict()`.  The record embeds
 the complete input budgets, capabilities, offer provenance, warrant provenance,
 resource provenance, selection basis, and combination decline ledger.
+
+## Production-safe method-decline resolution
+
+A marginalization method can fail its warrant at runtime even after selection.
+The important example is an incomplete stationary-root enumeration.  That
+event says that the preferred quadrature cannot certify or complete its result;
+it says nothing about whether the waveform or the underlying likelihood point
+is valid.  Converting it into the generic waveform-failure sentinel would
+silently drop a scientifically valid sample.
+
+`resolve_plan_for_production` therefore keeps three outcomes distinct:
+
+- `use-preferred` when the selected method remains runnable;
+- `use-conservative-fallback` after either a fail-closed planning decision or
+  an explicit runtime `MethodDecline`;
+- `waveform-failure` only when the waveform/base-likelihood layer explicitly
+  supplies an independent `WaveformFailure` record.
+
+The resolver never invents or silently selects a fallback.  Production setup
+must supply a `ConservativeFallbackPolicy` with exactly one reserve offer for
+each replaced axis, a separate hard reserve resource budget, provenance, and a
+finite-output contract.  For the shipped JAX catalog,
+`make_jax_production_fallback_policy` restricts this role to the historical
+support-covering, non-root-enumerating paths: angle `exact` (dense phi/psi),
+distance `uniform`, and time `simpson`.  This role does **not** relabel those
+methods as error-certified.  The resolution ledger reports their actual error
+evidence and whether it meets the original request.
+
+A runtime decline on one axis replaces that axis and retains the other selected
+axes.  A planning decline has no executable partial selection, so its fallback
+must cover all requested axes.  Missing coverage, incompatibility, or excess of
+the reserve budget raises `FallbackConfigurationError` during resolution; none
+of those configuration defects is returned as an invalid likelihood sample.
+The ledger preserves the original warrant/resource refusal, the runtime root
+postcondition when present, the chosen reserve, both budgets, and all
+provenance.  `ProductionResolution.require_selection()` returns either the
+preferred or reserve plan and raises only for an explicit waveform failure.
+
+This is still an adapter contract rather than live wrapper wiring.  A future
+wrapper must call the resolver at the root-enumeration postcondition, evaluate
+the selected dense reserve, verify that its returned value is finite, and only
+then classify any independent non-finite waveform/base-likelihood condition.
+It must not catch `MethodDecline` as a waveform exception.
 
 ## Why amplitude alone is insufficient
 
@@ -164,8 +209,9 @@ following from the concrete data and device:
 3. compute on a common measured unit and a conservative live-memory estimate;
 4. static and conditional compatibility tokens from the existing build-time
    predicates;
-5. a wrapper-level application test showing that a `decline` cannot become a
-   default scheme;
+5. a wrapper-level application test showing that a planner/runtime method
+   decline runs the configured finite reserve and cannot become either a
+   default scheme or a dropped waveform point;
 6. low/moderate/high-amplitude campaign measurements, including the overlap
    regions and device classes on which cost ordering changes.
 

@@ -14,6 +14,13 @@ or unknown offer can only be run when the caller explicitly sets
 ``allow_best_effort=True``; otherwise it is returned as a non-executable
 suggestion on a structured decline.
 
+Production callers may separately pass that fail-closed decision, or a runtime
+method-warrant refusal, to :func:`resolve_plan_for_production`.  This API never
+promotes the planner's suggestion.  It requires an explicitly provisioned
+support-covering fallback and records its real (possibly uncertified) accuracy
+label.  A method decline cannot become a waveform-failure/sample-drop result.
+Only independent waveform/base-likelihood evidence can authorize that outcome.
+
 By default, resource estimates are conservative additive contributions on a
 common unit: compute and peak-memory contributions are summed.  A nested JAX
 adapter can instead supply a combination-aware ``resource_model`` whose return
@@ -32,20 +39,30 @@ from types import MappingProxyType
 __all__ = [
     "AccuracyAssessment",
     "ConditionalRequirement",
+    "ConservativeFallbackPolicy",
     "EvidenceKind",
+    "FallbackConfigurationError",
+    "JAX_CONSERVATIVE_FALLBACK_SCHEMES",
     "JAX_DIRECT_MARGINALIZATION_AXES",
     "JAX_SCHEME_PROFILES",
     "MarginalizationPlanDeclined",
+    "MethodDecline",
     "PlanDecision",
+    "ProductionResolution",
+    "ResolutionAction",
     "ResourceBudget",
     "ResourceEstimate",
     "SchemeOffer",
     "SchemeProfile",
     "Warrant",
     "WarrantKind",
+    "WaveformFailure",
+    "WaveformLikelihoodFailure",
+    "make_jax_production_fallback_policy",
     "make_jax_scheme_offer",
     "plan_direct_marginalization",
     "plan_jax_direct_marginalization",
+    "resolve_plan_for_production",
 ]
 
 
@@ -72,6 +89,14 @@ class EvidenceKind(str, Enum):
     VALIDATED = "validated"
     ESTIMATED = "estimated"
     UNKNOWN = "unknown"
+
+
+class ResolutionAction(str, Enum):
+    """Production disposition, separate from the planner's proof claim."""
+
+    USE_PREFERRED = "use-preferred"
+    USE_CONSERVATIVE_FALLBACK = "use-conservative-fallback"
+    WAVEFORM_FAILURE = "waveform-failure"
 
 
 _POTENTIALLY_CERTIFYING_WARRANTS = frozenset((
@@ -293,6 +318,14 @@ class MarginalizationPlanDeclined(RuntimeError):
     """Raised when a caller tries to execute a declined decision."""
 
 
+class FallbackConfigurationError(RuntimeError):
+    """Raised when a method decline has no runnable fail-safe policy."""
+
+
+class WaveformLikelihoodFailure(RuntimeError):
+    """Raised only for an explicitly reported waveform/likelihood failure."""
+
+
 @dataclass(frozen=True)
 class PlanDecision:
     """Structured planner result.  ``action`` is either ``run`` or ``decline``."""
@@ -329,6 +362,174 @@ class PlanDecision:
                 else self.suggested_resource_use.as_dict()),
             certified=bool(self.certified),
             meets_error_budget=bool(self.meets_error_budget),
+            ledger=self.ledger)
+
+
+@dataclass(frozen=True)
+class MethodDecline:
+    """A planning or runtime marginalizer refusal, never a waveform failure.
+
+    Runtime implementations should use this record for events such as an
+    incomplete stationary-root enumeration.  Such an event invalidates the
+    preferred *method's* warrant, not the waveform or the likelihood point.
+    """
+
+    code: str
+    reason: str
+    provenance: str
+    axis: object = None
+    stage: str = "runtime"
+    ledger: dict = field(default_factory=dict)
+
+    def __post_init__(self):
+        if not self.code or not self.reason or not self.provenance:
+            raise ValueError(
+                "method decline code, reason and provenance must be non-empty")
+        if not self.stage:
+            raise ValueError("method decline stage must be non-empty")
+        if self.axis is not None and not self.axis:
+            raise ValueError("method decline axis must be non-empty or None")
+
+    def as_dict(self):
+        return dict(code=self.code, reason=self.reason,
+                    provenance=self.provenance, axis=self.axis,
+                    stage=self.stage, ledger=self.ledger)
+
+
+@dataclass(frozen=True)
+class WaveformFailure:
+    """Independent evidence that the waveform/base likelihood is unusable.
+
+    The production resolver never constructs this object from a planner or
+    marginalizer decline.  A caller must report it explicitly from the
+    waveform/base-likelihood layer.
+    """
+
+    code: str
+    reason: str
+    provenance: str
+    ledger: dict = field(default_factory=dict)
+
+    def __post_init__(self):
+        if not self.code or not self.reason or not self.provenance:
+            raise ValueError(
+                "waveform failure code, reason and provenance must be non-empty")
+
+    def as_dict(self):
+        return dict(code=self.code, reason=self.reason,
+                    provenance=self.provenance, ledger=self.ledger)
+
+
+@dataclass(frozen=True)
+class ConservativeFallbackPolicy:
+    """Explicit reserve plan used after a marginalization-method decline.
+
+    The fallback has its own hard resource budget because a resource-limited
+    preferred plan may need a finite, slower reserve path.  The non-empty
+    ``finite_output_contract`` is an adapter assertion that these offers cover
+    the full finite domain without relying on the declined shortcut.  It is
+    provenance, not an error certificate; accuracy labels remain unchanged.
+    """
+
+    offers: tuple
+    resource_budget: ResourceBudget
+    provenance: str
+    finite_output_contract: str
+
+    def __post_init__(self):
+        object.__setattr__(self, "offers", tuple(self.offers))
+        if not self.offers:
+            raise ValueError("a conservative fallback needs at least one offer")
+        if not all(isinstance(offer, SchemeOffer) for offer in self.offers):
+            raise TypeError("fallback offers must be SchemeOffer objects")
+        if not self.provenance or not self.finite_output_contract:
+            raise ValueError(
+                "fallback provenance and finite-output contract are required")
+        axes = [offer.axis for offer in self.offers]
+        if len(axes) != len(set(axes)):
+            raise ValueError(
+                "a conservative fallback may offer only one scheme per axis")
+        budget = self.resource_budget
+        if isinstance(budget, dict):
+            budget = ResourceBudget(budget.get("max_compute_units"),
+                                    budget.get("max_memory_bytes"))
+            object.__setattr__(self, "resource_budget", budget)
+        if not isinstance(budget, ResourceBudget):
+            raise TypeError("fallback resource_budget must be ResourceBudget")
+        missing = budget.validation_errors()
+        if missing:
+            raise ValueError("fallback resource budget is missing %r"
+                             % (missing,))
+
+    def as_dict(self):
+        return dict(offers=[offer.as_dict() for offer in self.offers],
+                    resource_budget=self.resource_budget.as_dict(),
+                    provenance=self.provenance,
+                    finite_output_contract=self.finite_output_contract)
+
+
+@dataclass(frozen=True)
+class ProductionResolution:
+    """Executable production disposition with complete failure provenance."""
+
+    action: ResolutionAction
+    selected: tuple
+    resource_use: object
+    certified: bool
+    meets_error_budget: bool
+    drops_sample: bool
+    method_decline: object
+    waveform_failure: object
+    ledger: dict
+
+    def __post_init__(self):
+        object.__setattr__(self, "action", _enum_value(
+            self.action, ResolutionAction, "resolution action"))
+        object.__setattr__(self, "selected", tuple(self.selected))
+        is_waveform_failure = self.action is ResolutionAction.WAVEFORM_FAILURE
+        if is_waveform_failure:
+            if self.waveform_failure is None or self.selected:
+                raise ValueError(
+                    "waveform-failure resolution needs failure evidence and "
+                    "no selection")
+            if self.method_decline is not None or not self.drops_sample:
+                raise ValueError(
+                    "waveform failure cannot be conflated with a method decline")
+        else:
+            if not self.selected or self.waveform_failure is not None:
+                raise ValueError(
+                    "runnable resolution needs a selection and no waveform "
+                    "failure")
+            if self.drops_sample:
+                raise ValueError("a runnable resolution cannot drop the sample")
+            if (self.action is ResolutionAction.USE_CONSERVATIVE_FALLBACK
+                    and self.method_decline is None):
+                raise ValueError("fallback resolution needs a method decline")
+            if (self.action is ResolutionAction.USE_PREFERRED
+                    and self.method_decline is not None):
+                raise ValueError("preferred resolution cannot carry a decline")
+
+    def require_selection(self):
+        """Return a runnable plan; raise only for explicit waveform failure."""
+        if self.action is ResolutionAction.WAVEFORM_FAILURE:
+            raise WaveformLikelihoodFailure(
+                "%s: %s" % (self.waveform_failure.code,
+                            self.waveform_failure.reason))
+        return self.selected
+
+    def as_dict(self):
+        return dict(
+            action=self.action.value,
+            selected=[offer.as_dict() for offer in self.selected],
+            resource_use=(None if self.resource_use is None
+                          else self.resource_use.as_dict()),
+            certified=bool(self.certified),
+            meets_error_budget=bool(self.meets_error_budget),
+            drops_sample=bool(self.drops_sample),
+            method_decline=(None if self.method_decline is None
+                            else self.method_decline.as_dict()),
+            waveform_failure=(None if self.waveform_failure is None
+                              else self.waveform_failure.as_dict()),
             ledger=self.ledger)
 
 
@@ -603,6 +804,168 @@ def plan_direct_marginalization(offers, error_budget, resource_budget, *,
         certified=False, meets_error_budget=False, ledger=ledger)
 
 
+def _decision_error_reasons(offers, decision, certified_only):
+    """Assess a resolved plan without manufacturing a missing error budget."""
+    error_budget = decision.ledger.get("error_budget")
+    required_axes = tuple(decision.ledger.get("required_axes", ()))
+    if not isinstance(error_budget, dict):
+        return ["the preferred request had no complete error budget"]
+    missing = [axis for axis in required_axes if axis not in error_budget]
+    if missing:
+        return ["the preferred request omitted error budgets for %r" % missing]
+    return _error_reasons(offers, error_budget, certified_only)
+
+
+def _planner_method_decline(decision):
+    return MethodDecline(
+        code=decision.reason_code,
+        reason=decision.reason,
+        provenance="fail-closed PlanDecision from the preferred planner",
+        stage="planning",
+        ledger=dict(basis=decision.basis,
+                    suggested=[offer.key for offer in decision.suggested]))
+
+
+def resolve_plan_for_production(preferred_decision, fallback_policy=None, *,
+                                method_decline=None, waveform_failure=None,
+                                capabilities=(), resource_model=None):
+    """Resolve proof failure separately from waveform/likelihood failure.
+
+    A runnable preferred decision passes through unchanged.  A fail-closed
+    planning decision, or an explicit runtime :class:`MethodDecline`, selects
+    the explicitly configured conservative fallback.  The fallback may use a
+    separate reserve resource budget but retains its real certification and
+    error labels.  Missing, incompatible, or unaffordable fallback setup is a
+    configuration error; it is never returned as an invalid likelihood point.
+
+    Only a separately constructed :class:`WaveformFailure` can produce a
+    ``drops_sample=True`` resolution.  In particular, callers must report an
+    incomplete root enumeration as ``method_decline``, not as an exception to
+    be caught and converted into a waveform failure.
+    """
+    if not isinstance(preferred_decision, PlanDecision):
+        raise TypeError("preferred_decision must be a PlanDecision")
+    if method_decline is not None and not isinstance(
+            method_decline, MethodDecline):
+        raise TypeError("method_decline must be a MethodDecline")
+    if waveform_failure is not None and not isinstance(
+            waveform_failure, WaveformFailure):
+        raise TypeError("waveform_failure must be a WaveformFailure")
+    if method_decline is not None and waveform_failure is not None:
+        raise ValueError(
+            "a marginalization-method decline is not a waveform failure")
+
+    if waveform_failure is not None:
+        return ProductionResolution(
+            action=ResolutionAction.WAVEFORM_FAILURE, selected=(),
+            resource_use=None, certified=False, meets_error_budget=False,
+            drops_sample=True, method_decline=None,
+            waveform_failure=waveform_failure,
+            ledger=dict(
+                preferred_decision=preferred_decision.as_dict(),
+                resolution_policy=(
+                    "sample invalidation requires independent waveform/base-"
+                    "likelihood failure evidence")))
+
+    if preferred_decision.action == "run" and method_decline is None:
+        return ProductionResolution(
+            action=ResolutionAction.USE_PREFERRED,
+            selected=preferred_decision.selected,
+            resource_use=preferred_decision.resource_use,
+            certified=preferred_decision.certified,
+            meets_error_budget=preferred_decision.meets_error_budget,
+            drops_sample=False, method_decline=None, waveform_failure=None,
+            ledger=dict(
+                preferred_decision=preferred_decision.as_dict(),
+                resolution_policy="preferred plan remained runnable"))
+
+    if preferred_decision.action == "decline" and method_decline is None:
+        method_decline = _planner_method_decline(preferred_decision)
+    elif preferred_decision.action not in ("run", "decline"):
+        raise ValueError("unknown PlanDecision action %r"
+                         % preferred_decision.action)
+
+    if fallback_policy is None:
+        raise FallbackConfigurationError(
+            "%s is a marginalization-method decline, not a waveform failure; "
+            "an explicit conservative fallback policy is required"
+            % method_decline.code)
+    if not isinstance(fallback_policy, ConservativeFallbackPolicy):
+        raise TypeError("fallback_policy must be ConservativeFallbackPolicy")
+
+    required_axes = tuple(preferred_decision.ledger.get(
+        "required_axes", ()))
+    if not required_axes:
+        required_axes = tuple(offer.axis for offer in
+                              preferred_decision.selected)
+    base = ({offer.axis: offer for offer in preferred_decision.selected}
+            if preferred_decision.action == "run" else {})
+    fallback_by_axis = {offer.axis: offer
+                        for offer in fallback_policy.offers}
+    extra = sorted(set(fallback_by_axis).difference(required_axes))
+    if extra:
+        raise FallbackConfigurationError(
+            "fallback contains unrequested axes %r" % extra)
+    if (method_decline.axis is not None
+            and method_decline.axis not in fallback_by_axis):
+        raise FallbackConfigurationError(
+            "fallback does not replace declined %s method"
+            % method_decline.axis)
+    if method_decline.axis is not None and method_decline.axis in base:
+        if fallback_by_axis[method_decline.axis].key == base[
+                method_decline.axis].key:
+            raise FallbackConfigurationError(
+                "fallback repeats declined method %s"
+                % base[method_decline.axis].key)
+    base.update(fallback_by_axis)
+    missing = [axis for axis in required_axes if axis not in base]
+    if missing:
+        raise FallbackConfigurationError(
+            "fallback does not cover requested axes %r" % missing)
+    selected = tuple(base[axis] for axis in required_axes)
+
+    active_capabilities = set(preferred_decision.ledger.get(
+        "capabilities", ()))
+    active_capabilities.update(capabilities)
+    compatibility_reasons = _compatibility_reasons(
+        selected, active_capabilities)
+    use = _resource_use(selected, resource_model)
+    resource_reasons = _resource_reasons(
+        use, fallback_policy.resource_budget)
+    if compatibility_reasons or resource_reasons:
+        details = compatibility_reasons + resource_reasons
+        raise FallbackConfigurationError(
+            "%s is a method decline, but its configured fallback is not "
+            "runnable: %s" % (method_decline.code, "; ".join(details)))
+
+    certified_error_reasons = _decision_error_reasons(
+        selected, preferred_decision, certified_only=True)
+    numeric_error_reasons = _decision_error_reasons(
+        selected, preferred_decision, certified_only=False)
+    fallback_record = dict(
+        schemes=[offer.key for offer in selected],
+        compatibility_reasons=compatibility_reasons,
+        resource_reasons=resource_reasons,
+        certified_error_reasons=certified_error_reasons,
+        numeric_error_reasons=numeric_error_reasons,
+        resource_use=use.as_dict())
+    return ProductionResolution(
+        action=ResolutionAction.USE_CONSERVATIVE_FALLBACK,
+        selected=selected, resource_use=use,
+        certified=not certified_error_reasons,
+        meets_error_budget=not numeric_error_reasons,
+        drops_sample=False, method_decline=method_decline,
+        waveform_failure=None,
+        ledger=dict(
+            preferred_decision=preferred_decision.as_dict(),
+            method_decline=method_decline.as_dict(),
+            fallback_policy=fallback_policy.as_dict(),
+            fallback_evaluation=fallback_record,
+            resolution_policy=(
+                "method/warrant failure selects the explicit finite fallback; "
+                "it does not invalidate the likelihood point")))
+
+
 @dataclass(frozen=True)
 class SchemeProfile:
     """Static compatibility and warrant facts for a shipped JAX scheme."""
@@ -701,6 +1064,13 @@ _JAX_PROFILE_LIST = (
 JAX_SCHEME_PROFILES = MappingProxyType(
     {profile.key: profile for profile in _JAX_PROFILE_LIST})
 JAX_DIRECT_MARGINALIZATION_AXES = ("angle", "distance", "time")
+JAX_CONSERVATIVE_FALLBACK_SCHEMES = MappingProxyType({
+    # These are support-covering, non-root-enumerating historical paths.  The
+    # designation is a finite-execution role, not an error certificate.
+    "angle": frozenset(("exact",)),
+    "distance": frozenset(("uniform",)),
+    "time": frozenset(("simpson",)),
+})
 
 
 def make_jax_scheme_offer(axis, scheme, accuracy, resources, *,
@@ -728,19 +1098,7 @@ def make_jax_scheme_offer(axis, scheme, accuracy, resources, *,
                                   + tuple(conditional_requirements)))
 
 
-def plan_jax_direct_marginalization(offers, error_budget, resource_budget, *,
-                                    capabilities=(), allow_best_effort=False,
-                                    required_axes=None, resource_model=None):
-    """RIFT-specific entry point; still entirely opt-in and side-effect free.
-
-    The static profile is rechecked here rather than trusted to the offer
-    builder.  A caller may use :func:`plan_direct_marginalization` for an
-    experimental catalog, but this entry point cannot be made to forget a
-    shipped incompatibility by manually constructing a weaker offer.
-    """
-    axes = (JAX_DIRECT_MARGINALIZATION_AXES if required_axes is None
-            else tuple(required_axes))
-    offers = tuple(offers)
+def _validate_jax_offer_profiles(offers):
     for offer in offers:
         try:
             profile = JAX_SCHEME_PROFILES[offer.key]
@@ -764,6 +1122,44 @@ def plan_jax_direct_marginalization(offers, error_budget, resource_budget, *,
         if missing_conditionals:
             raise ValueError("%s omits a shipped conditional requirement"
                              % offer.key)
+
+
+def make_jax_production_fallback_policy(
+        offers, resource_budget, *, provenance, finite_output_contract):
+    """Build an explicit JAX fallback from support-covering dense schemes.
+
+    This helper deliberately accepts no root-enumerating angle scheme.  It
+    still requires request-specific error/resource evidence through normal
+    offers and does not relabel the fallback as certified.
+    """
+    offers = tuple(offers)
+    _validate_jax_offer_profiles(offers)
+    unsupported = [offer.key for offer in offers
+                   if offer.scheme not in
+                   JAX_CONSERVATIVE_FALLBACK_SCHEMES.get(
+                       offer.axis, frozenset())]
+    if unsupported:
+        raise ValueError(
+            "schemes %r are not registered JAX conservative fallbacks"
+            % unsupported)
+    return ConservativeFallbackPolicy(
+        offers, resource_budget, provenance, finite_output_contract)
+
+
+def plan_jax_direct_marginalization(offers, error_budget, resource_budget, *,
+                                    capabilities=(), allow_best_effort=False,
+                                    required_axes=None, resource_model=None):
+    """RIFT-specific entry point; still entirely opt-in and side-effect free.
+
+    The static profile is rechecked here rather than trusted to the offer
+    builder.  A caller may use :func:`plan_direct_marginalization` for an
+    experimental catalog, but this entry point cannot be made to forget a
+    shipped incompatibility by manually constructing a weaker offer.
+    """
+    axes = (JAX_DIRECT_MARGINALIZATION_AXES if required_axes is None
+            else tuple(required_axes))
+    offers = tuple(offers)
+    _validate_jax_offer_profiles(offers)
 
     active_capabilities = set(capabilities)
     if "time" in axes and ("angle" in axes or "distance" in axes):
