@@ -4037,10 +4037,17 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 
                 print( " Using direct phase marginalization  ")
                 for det in lookupNKDict:
-                  if set((lm[0], lm[1]) for lm in lookupNKDict[det]) != {(2, 2), (2, -2)}:
+                  # ``lookupNKDict`` is moved to CuPy above.  Iterating its rows
+                  # yields device arrays (and, with current CuPy, unhashable
+                  # zero-dimensional array elements).  The inverse lookup stays
+                  # on the host and already has canonical ``(l,m)`` tuple keys,
+                  # so use it for this structural identity check.  This avoids a
+                  # device round trip and is representation-independent.
+                  modes_here = set(lookupKNDict[det])
+                  if modes_here != {(2, 2), (2, -2)}:
                     raise Exception(
                         " Phase marginalization is implemented only for 2-2 modes, "
-                        f"while the modes consired here are {lookupNKDict[det]}."
+                        f"while the modes considered here are {sorted(modes_here)}."
                     )
 
                 def likelihood_function(right_ascension, declination, inclination, psi):
