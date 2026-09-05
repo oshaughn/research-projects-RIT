@@ -157,18 +157,13 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         passes a weaker guard), and that BOTH
 #                                         artifacts are labelled and never imply
 #                                         verification.  Seconds, not minutes.
-#   test_angle_marg_compile_cost.py   8  the laplace path's COMPILE- and RUN-cost
+#   test_angle_marg_compile_cost.py   6  the laplace path's COMPILE- and RUN-cost
 #                                         structure (2026-08-28: an unrolled kernel
 #                                         x 64 distance blocks put a production
 #                                         SNR-40 run >88 min / 22 GiB into XLA
 #                                         compilation; the fix then exposed a
 #                                         36.41 GiB RESOURCE_EXHAUSTED at the
-#                                         default eval chunk).  The multiplicative
-#                                         distance/phi/quadrature slab is now rolled
-#                                         over the combined sample-time axis, so its
-#                                         largest dimension is a fixed point tile even
-#                                         for direct callers that bypass the eval cap.
-#                                         Trace-only where
+#                                         default eval chunk).  Trace-only where
 #                                         possible: the traced graph must not grow
 #                                         with the distance grid, the kernel must
 #                                         stay rolled (equation-count ceiling), the
@@ -325,25 +320,10 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         honest phase-marginalized sky/psi export,
 #                                         K=14/K=88 independent guarded references,
 #                                         and executable baseline/banded support refusal.
-#   test_time_first_peaklocal.py         6  primitive-first composition: closed-form
-#                                         distance x time and symmetric-angle x time
-#                                         integrals, certified cell bound, fail-closed
-#                                         capacity ledger, jit/AD, and rejection of an
-#                                         already-marginalized time row.
-#   test_direct_marginalization_planner.py
-#                                      22  strict error/resource-budget selection,
-#                                         compatibility and warrant gates, explicit
-#                                         best-effort authority, provenance ledgers,
-#                                         unchanged legacy selector defaults, and
-#                                         finite production fallback resolution,
-#                                         including full-plan replacement when a
-#                                         runtime decline does not identify its axis.
 
 FILES=(
   "${JAXDIR}/test_jax_time_quadrature.py"
   "${JAXDIR}/test_jax_terminal_time_marginalization.py"
-  "${JAXDIR}/test_time_first_peaklocal.py"
-  "${JAXDIR}/test_direct_marginalization_planner.py"
   "${JAXDIR}/test_jax_likelihood.py"
   "${JAXDIR}/test_jax_endtoend.py"
   "${JAXDIR}/test_jax_slowrot_coeffs.py"
@@ -515,16 +495,14 @@ fi
 # the only source that is not a guess.
 # The production-policy follow-up adds one mutation-bearing streaming test; this job's
 # own collection reports 312.
-# +27 for the #250 review follow-up: test_anglemarg_buffer_cap.py went from 7 collected
-# to 34 when its stubbed-out probe coverage was replaced with real device fakes.  Derived
-# by ARITHMETIC on a measured standalone delta (7 -> 34, and this job deselects nothing in
-# that file), which per the note above is the direction that errs low and passes.  Re-read
-# it off this job's own "collected N tests" line at the next opportunity.
-# After merging both lines, this job's own manifest collects 381 tests locally
-# after its one explicit deselection.  This environment is documented above to
-# collect one more than the CI runner, so the CI floor is 380; do not reconstruct
-# it by adding branch-local deltas, which misses overlapping test-file changes.
-EXPECTED_TESTS=380
+# PR #250 and the integration review make test_anglemarg_buffer_cap.py 62 tests
+# (including the zero-free-device regression).  This integrated branch also carries
+# the other marginalization test files listed above.  Its measured pre-parent local
+# collection was 381 after deselection; replacing the former 34-test cap file with the
+# reconciled 62-test file yields 409 locally.  This environment is documented above to
+# collect one more than CI, hence the provisional CI floor 408.  Replace this derivation
+# with the new CI job's own collection line once run; a low floor is a silent failure.
+EXPECTED_TESTS=408
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"

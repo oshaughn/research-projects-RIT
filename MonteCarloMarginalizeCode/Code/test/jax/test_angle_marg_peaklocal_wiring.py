@@ -189,7 +189,8 @@ def test_known_four_gib_device_uses_configured_fraction(monkeypatch):
         platform = "gpu"
 
         def memory_stats(self):
-            return {"bytes_limit": 4 << 30}
+            return {"bytes_limit": 4 << 30,
+                    "largest_free_block_bytes": 4 << 30}
 
     monkeypatch.setattr(S.jax, "devices", lambda: [_Device()])
     monkeypatch.setattr(S, "_ANGLE_MARG_BUFFER_FRACTION", 0.5)

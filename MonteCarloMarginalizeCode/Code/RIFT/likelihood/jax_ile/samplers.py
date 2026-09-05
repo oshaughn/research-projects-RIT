@@ -231,22 +231,30 @@ def _log_prior_jax(theta5):
 # ---------------------------------------------------------------------------
 # Batched lnL evaluation (chunked to bound memory)
 # ---------------------------------------------------------------------------
-# Historical largest single XLA buffer of the anglemarg laplace path, per
-# sample per time point: the (quad_chunk=16, dist_block=4, phi_chunk=16)
-# stacked quadrature block, 16*4*16*8 = 8192 bytes.  Measured 2026-08-28: at
-# chunk 4000 with npts=1193 XLA requested exactly 36.41 GiB and died
-# RESOURCE_EXHAUSTED on a 25 GiB cgroup.
+# Historical largest single XLA buffer of the anglemarg laplace path, per sample per
+# time point: the (quad_chunk=16, dist_block=4, phi_chunk=16) stacked
+# quadrature block, 16*4*16*8 = 8192 bytes.  Measured 2026-08-28: at the
+# default chunk 4000 with npts=1193 XLA requested exactly 36.41 GiB for that
+# buffer and the SNR-40 acceptance run died RESOURCE_EXHAUSTED on a 25 GiB
+# cgroup -- the pre-fix code never got past COMPILATION at production size,
+# so this execution-side wall was previously unreachable.  The exact scheme's
+# dense reconstruction has the same batch-multiplied structure (smaller
+# constant); the laplace constant is used for both as the worst case.
 #
-# The laplace kernel now rolls that combined sample-time axis internally at
-# LAPLACE_POINT_BLOCK, so this is no longer its literal largest-buffer model.
-# Keep the outer cap for now as a conservative bound on the still-live
-# coefficient tables and phi fields (both O(sample*npts)), and because exact
-# and peak-local do not yet share the point-axis tiler.  Removing or relaxing
-# it requires production-GPU peak-memory and throughput measurements across all
-# three schemes; a device-memory fraction alone is not that evidence.
+# The laplace kernel now tiles the combined sample-time point axis internally,
+# so this is no longer its literal largest-buffer model.  Keep the outer cap as
+# a conservative bound on still-live coefficient tables and phi fields, and for
+# exact, which does not share that tiler.
+#
+# "BOTH" MEANS EXACT AND LAPLACE, AND NOTHING ELSE.  A reviewer read it as covering
+# every scheme and concluded this constant understates peak-local by ~128x.  It does --
+# peak-local's live slab is about 1 MiB per sample-point, not 8 KiB -- but peak-local
+# does not USE this number as its model: angle_marg_eval_chunk raises `bytes_per` to a
+# scheme-specific peak-local model with max(), so 8192 acts only as a floor there.  The
+# two figures are both right, for different schemes.  Do not "reconcile" them.
 _ANGLE_MARG_BYTES_PER_SAMPLE_PT = 8192
 
-#: Fallback target when no GPU memory limit can be queried.  4 GiB was chosen on
+#: Largest single buffer we will let the anglemarg eval request.  4 GiB was chosen on
 #: 2026-08-28 against the 25 GiB per-UID cgroup of the machine the OOM was reproduced on,
 #: with a deliberate ~6x margin.  On a card with more memory it throttles the accurate
 #: schemes for no reason -- at npts=1230 it caps the eval chunk at 426 where the nominal
@@ -258,16 +266,17 @@ _ANGLE_MARG_BYTES_PER_SAMPLE_PT = 8192
 #:
 #: THIS IS NOT A FLOOR, and an earlier revision of this file wrongly said it was.  4 GiB is
 #: what we use when we cannot SEE the device; it carries no guarantee about a device we can.
-#: It was measured safe against one 25 GiB cgroup and says nothing about a 6 GiB card.  A
-#: known 4-GiB device at the default fraction below must budget 2 GiB, not the whole card.
+#: It was measured safe against one 25 GiB cgroup and says nothing about a 6 GiB card.
 _ANGLE_MARG_BUFFER_TARGET_FALLBACK = 4 << 30
 
-#: Fraction of the device's reported limit to allow for this ONE buffer.
-#: WHY A FRACTION AT ALL, and why it cannot go to 1.0: these cards are SHARED.  A
-#: contemporaneous survey of ldas-pcdev11 found all four GPUs at 100% utilisation with
-#: 18-22 GiB of 24 GiB already held by other users, and `bytes_limit` is what JAX believes
-#: it may have at the moment it is asked -- not a reservation.  Sizing at the full limit
-#: OOMs as soon as we share a card, which is the normal case here, not the exception.
+#: Fraction of the device's AVAILABLE memory to allow for this ONE buffer.
+#: NOT a fraction of the reported limit, and review caught that it was: `bytes_limit` and
+#: `bytes_reservable_limit` are capacity CEILINGS, not free memory.  These cards are
+#: SHARED -- a contemporaneous survey of the interactive hosts found all four GPUs at 100%
+#: utilisation with 18-22 GiB of 24 GiB already held by other users -- so half of a 24 GiB
+#: ceiling is 12 GiB on a card with 2 GiB left, i.e. exactly the RESOURCE_EXHAUSTED this
+#: cap exists to prevent, wearing device awareness as a costume.  The fraction is HEADROOM
+#: ON WHAT IS FREE; the ceiling never licenses an allowance by itself.
 #: WHY 0.5 RATHER THAN A MEASURED NUMBER: the remaining margin has to cover the rest of the
 #: graph alongside this buffer, and that has NOT been measured -- an attempt was defeated by
 #: the interactive hosts' thread cap.  0.5 is therefore a JUDGEMENT, not a result: it is
@@ -288,8 +297,8 @@ def _read_buffer_fraction(env=None):
     Not being set is not an error -- only a value we were handed and cannot use.
 
     Above 1.0 is rejected rather than clamped because it asks for a buffer larger than
-    the device reports having, i.e. it asks this function to cause the OOM it exists to
-    prevent.  A caller who really wants the whole card writes 1.0.
+    the device reports FREE, i.e. it asks this function to cause the OOM it exists to
+    prevent.  A caller who really wants everything currently free writes 1.0.
     """
     if env is None:
         env = os.environ
@@ -314,31 +323,137 @@ def _read_buffer_fraction(env=None):
 _ANGLE_MARG_BUFFER_FRACTION = _read_buffer_fraction()
 
 
+def _read_buffer_bytes(env=None):
+    """Parse RIFT_ANGLEMARG_BUFFER_BYTES, an ABSOLUTE allowance in bytes, or None.
+
+    WHY A SECOND KNOB EXISTS.  ``angle_marg_eval_chunk`` now REFUSES a configuration
+    whose single sample already exceeds the allowance, because returning a chunk of 1
+    there breaks the bound it advertises.  On a machine whose device we cannot read, the
+    allowance being refused against is ``_ANGLE_MARG_BUFFER_TARGET_FALLBACK`` -- a
+    documented guess that the comment above is explicit carries no guarantee.  Failing
+    closed against a guess with no way to override it turns "we could not see your
+    device" into "you may not run", which is an outage, not a bound.
+
+    RIFT_ANGLEMARG_BUFFER_FRACTION cannot serve this purpose: it is a fraction OF a
+    reported FREE figure, and the paths that need the escape -- no readable device, or a
+    device that reports a ceiling but never says how much of it is free -- are exactly
+    the ones with no such figure to take a fraction of.
+
+    Read per call rather than once at import so a caller can set it before the eval
+    without re-importing the module.  Refused loudly on garbage, for the same reason the
+    fraction is: an override that is silently dropped leaves the caller believing a
+    bound is in force that is not.
+    """
+    if env is None:
+        env = os.environ
+    raw = env.get("RIFT_ANGLEMARG_BUFFER_BYTES")
+    if raw is None:
+        return None
+    try:
+        val = int(float(raw))
+    except (TypeError, ValueError, OverflowError):
+        # OverflowError is in the list because int(float('inf')) raises it and not
+        # ValueError, so 'inf' would otherwise escape as an unhandled OverflowError
+        # instead of the actionable message.  'nan' goes the ValueError route.
+        raise ValueError(
+            "RIFT_ANGLEMARG_BUFFER_BYTES=%r is not a usable number of bytes; give a "
+            "positive integer, e.g. %d for 12 GiB" % (raw, 12 << 30))
+    if val <= 0:
+        raise ValueError(
+            "RIFT_ANGLEMARG_BUFFER_BYTES=%r is not positive; a non-positive allowance "
+            "bounds nothing and refuses every chunk" % (raw,))
+    return val
+
+
+def _device_available_bytes(stats):
+    """Bytes we can actually expect to get from the device NOW, or None if unknowable.
+
+    THE CEILING IS NOT THE ANSWER, which was a review finding on this file.  Neither
+    ``bytes_limit`` nor ``bytes_reservable_limit`` says anything about what is free: they
+    are what the allocator may grow to, on a card another process may already be sitting
+    on.  Sizing off either one returns a 12 GiB allowance on a shared 24 GiB GPU with
+    2 GiB left, which is the failure this cap exists to prevent.
+
+    Only keys that mean "free" are read:
+
+      * ``largest_free_block_bytes`` -- the largest contiguous block the allocator can
+        serve right now.  It answers the question actually being asked, because the thing
+        being bounded is ONE allocation, not a total.
+      * failing that, the reserved pool minus what we hold in it.  Memory already
+        reserved for this process cannot be taken by another one, so ``pool - in_use`` is
+        genuinely ours in a way the ceiling is not.
+
+    Returns None when neither is reported.  The caller must read that as "we could not
+    see how much of this device is free" -- NOT as zero, and emphatically not as the
+    ceiling that is sitting right there in the same dict.
+
+    A pool that is entirely in use returns 0, not None, and that is deliberate: it is a
+    reading, not a failure to read.  Falling back to the 4 GiB guess there would hand out
+    memory we have just been told does not exist.
+    """
+    block = stats.get("largest_free_block_bytes")
+    if block is not None:
+        return max(0, int(block))
+    pool = stats.get("pool_bytes") or stats.get("bytes_reserved")
+    if pool:
+        return max(0, int(pool) - int(stats.get("bytes_in_use") or 0))
+    return None
+
+
 def _angle_marg_buffer_target():
     """Bytes to allow for the largest single anglemarg buffer.
 
-    Queried from the device rather than assumed, because the constant this replaces was
-    sized on the smallest machine anyone had run on.  Any failure to read the device --
-    no jax, no GPU, an API that moved -- returns the historical 4 GiB, so a machine we
-    cannot interrogate behaves exactly as before rather than getting a larger number by
-    accident.
+    Derived from the device's FREE memory rather than assumed, because the constant this
+    replaces was sized on the smallest machine anyone had run on.  Any failure to read the
+    device -- no jax, no GPU, an API that moved, or stats that report a ceiling but no
+    availability -- returns the historical 4 GiB, so a machine we cannot interrogate
+    behaves exactly as before rather than getting a larger number by accident.
+
+    An explicit RIFT_ANGLEMARG_BUFFER_BYTES wins over both, and is read OUTSIDE the
+    try below on purpose: inside it, the blanket `except Exception` would swallow the
+    ValueError from a malformed override and hand back the fallback -- silently ignoring
+    the one number in this function a human asserted about the machine in front of them.
     """
+    explicit = _read_buffer_bytes()
+    if explicit is not None:
+        return explicit
     try:
         import jax
         devs = [d for d in jax.devices() if getattr(d, "platform", "") == "gpu"]
         if not devs:
             return _ANGLE_MARG_BUFFER_TARGET_FALLBACK
         stats = devs[0].memory_stats() or {}
-        limit = stats.get("bytes_limit") or stats.get("bytes_reservable_limit")
-        if not limit:
+        avail = _device_available_bytes(stats)
+        if avail is None:
+            # We can see a device but not how much of it is free.  The conservative
+            # fallback stands; an operator who knows their card asserts otherwise with
+            # RIFT_ANGLEMARG_BUFFER_BYTES.  Reaching for `bytes_limit` here instead is
+            # the exact regression review flagged -- see _device_available_bytes.
             return _ANGLE_MARG_BUFFER_TARGET_FALLBACK
+        # The ceiling is still worth reading, but only DOWNWARD: availability cannot
+        # legitimately exceed what the allocator may hold, so a runtime reporting a free
+        # block bigger than its own limit is misreporting and must not inflate this.
+        limit = stats.get("bytes_limit") or stats.get("bytes_reservable_limit")
+        if limit:
+            avail = min(avail, int(limit))
         # NO max() WITH THE FALLBACK HERE.  Flooring at 4 GiB would defeat the whole
-        # point in the one direction that matters for safety: a card reporting 6 GiB
-        # would be handed a 4 GiB single buffer, and one reporting under 4 GiB would be
+        # point in the one direction that matters for safety: a card with 6 GiB free
+        # would be handed a 4 GiB single buffer, and one with under 4 GiB free would be
         # handed more than it has.  That is the failure this function exists to prevent,
-        # wearing device awareness as a costume.  A small device gets a small allowance;
-        # angle_marg_eval_chunk refuses when even one modeled sample cannot fit.
-        return max(1, int(limit * _ANGLE_MARG_BUFFER_FRACTION))
+        # wearing device awareness as a costume.  A busy device gets a small allowance.
+        #
+        # AN EARLIER VERSION OF THIS COMMENT SAID a device too small for the model merely
+        # "goes slow, not wrong", because angle_marg_eval_chunk floored the chunk at 1.
+        # That was false and review caught it: a chunk of one still requests
+        # bytes_per * npts, so once ONE sample exceeds the allowance the floor returns a
+        # chunk that BREAKS the bound rather than a chunk that is slow.  There is no
+        # kernel-level tiling of that buffer -- the sample axis is the only axis this cap
+        # can divide -- so angle_marg_eval_chunk now refuses instead of pretending.
+        #
+        # max(0, ...), not max(1, ...): a device with nothing free must produce an
+        # allowance of nothing, and let angle_marg_eval_chunk refuse with the message
+        # that names the knobs.  A one-byte floor would be the same lie in miniature.
+        return max(0, int(avail * _ANGLE_MARG_BUFFER_FRACTION))
     except Exception:
         return _ANGLE_MARG_BUFFER_TARGET_FALLBACK
 
@@ -360,10 +475,11 @@ def _peaklocal_bytes_per_sample_pt(like):
 
     n_x = int(np.size(getattr(like, "x_grid", ())) or 1)
     info = getattr(like, "angle_marg_info", None) or {}
-    # Production wrappers always record the floored sizing amplitude.  Retain
-    # the same floor for small test doubles/legacy readers that omit the ledger;
-    # the fused production kernel itself refuses a missing amp_sizing.
-    amp_sizing = info.get("amp_sizing", _am.ANGLE_MARG_CROSSOVER_AMPLITUDE)
+    # Production wrappers record the floored sizing amplitude.  Preserve the
+    # same floor for small test doubles and legacy readers that omit the ledger.
+    amp_sizing = info.get("amp_sizing")
+    if amp_sizing is None:
+        amp_sizing = _am.ANGLE_MARG_CROSSOVER_AMPLITUDE
     n_u_live = min(_jp.u_nodes_in_use(amp_sizing), _jp.U_NODE_STREAM_CHUNK)
 
     data = getattr(like, "data", None)
@@ -373,8 +489,8 @@ def _peaklocal_bytes_per_sample_pt(like):
     n_phi = _jp.required_n_phi(amp_sizing, m_max=m_max)
 
     streamed_body = _jp.PHI_CHUNK_DEFAULT * n_x * 4 * n_u_live * 8
-    # lax.scan returns every phi chunk at lines 382--385 of the device kernel;
-    # the subsequent reshape/logsumexp therefore has (n_phi, n_x) f64 payload.
+    # lax.scan returns every phi chunk before the subsequent reshape/logsumexp;
+    # that stacked output therefore has (n_phi, n_x) f64 payload.
     stacked_scan_output = n_phi * n_x * 8
     return int(streamed_body + stacked_scan_output)
 
@@ -407,25 +523,61 @@ def angle_marg_eval_chunk(like, chunk):
         return chunk
     bytes_per = _ANGLE_MARG_BYTES_PER_SAMPLE_PT
     if getattr(like, "angle_marg_scheme", None) == "peak-local":
-        # Its cost model is not the dense one.  Besides the streamed
-        # (phi_chunk,n_x,4,u_live) body, lax.scan returns and stacks every
-        # (n_phi,n_x) value before the final reduction.  Omitting that output
-        # undercounts high-amplitude calls because n_phi grows as sqrt(A).
+        # Besides the streamed (phi_chunk,n_x,4,u_live) body, lax.scan returns
+        # and stacks every (n_phi,n_x) value before the final reduction.  Omitting
+        # that output undercounts high-amplitude calls because n_phi grows as
+        # sqrt(A).
         bytes_per = max(bytes_per, _peaklocal_bytes_per_sample_pt(like))
     target = _angle_marg_buffer_target()
-    one_sample = bytes_per * npts
-    if one_sample > target:
+    per_sample = bytes_per * npts
+    if per_sample > target:
+        # FAIL CLOSED.  This branch used to be `cap = max(1, target // per_sample)`,
+        # which returns 1 here and therefore hands back a chunk whose buffer is
+        # `per_sample` bytes -- larger than the target this function exists to enforce.
+        # The floor made the bound silently untrue on any device small enough, which is
+        # not the same failure as being slow.  peak-local reaches it at production
+        # dimensions: phi_chunk 16, n_x 256, four cells, an 8-node stream block, the
+        # stacked phi scan and npts 1230 is 2.03 GiB for ONE sample, so a 2 GiB card
+        # (1 GiB allowance at the
+        # default fraction) cannot honour the bound at any chunk size.
+        #
+        # The alternative repair is kernel-level tiling of the buffer itself.  That is a
+        # real option and a much larger change; until someone does it, the honest thing
+        # is to say the bound cannot be met rather than to report a chunk that breaks it.
+        #
+        # MemoryError, matching RIFT.likelihood.time_posterior's
+        # validate_time_posterior_working_set: same shape (a preflight refusal of a
+        # dense working set, with the estimate, the dimensions, the limit and the knobs
+        # in the message), so it gets the same type.  It also lets a caller that wants
+        # to fall back to a cheaper scheme catch this narrowly instead of every
+        # RuntimeError the eval path can raise.
         raise MemoryError(
-            "angle-marginalization resource preflight: scheme %s needs at "
-            "least %d modeled bytes for one %d-point sample, above the %d-byte "
-            "buffer target; reducing the outer evaluation chunk cannot make "
-            "this call fit"
-            % (getattr(like, "angle_marg_scheme", "unknown"), one_sample,
-               npts, target))
-    cap = target // one_sample
+            "angle-marginalization resource preflight: scheme %r cannot honour the "
+            "buffer bound at ANY chunk size: one "
+            "sample needs %d bytes (%.2f GiB) -- %d bytes per sample per time point x "
+            "npts=%d -- against an allowance of %d bytes (%.2f GiB).  Returning a chunk "
+            "of 1 would ask the device for the full %.2f GiB and OOM, so this refuses "
+            "instead.  Act on one of: raise the allowance with "
+            "RIFT_ANGLEMARG_BUFFER_FRACTION (a fraction, at most 1.0, of the memory the "
+            "device reports FREE -- it has no effect when that could not be read, and "
+            "note that the free figure moves with whoever else is on the card) or "
+            "RIFT_ANGLEMARG_BUFFER_BYTES (an absolute byte allowance, which wins over "
+            "both the device probe and the %d-byte fallback); shorten the time window "
+            "(npts); shrink the distance grid (n_x), which drives the peak-local model; "
+            "or run a cheaper angle_marg_scheme.  The sample axis is the only axis this "
+            "cap can divide, so no chunk size is a fix; reducing the outer "
+            "evaluation chunk cannot make this call fit."
+            % (getattr(like, "angle_marg_scheme", None), per_sample,
+               per_sample / float(1 << 30), bytes_per, npts, target,
+               target / float(1 << 30), per_sample / float(1 << 30),
+               _ANGLE_MARG_BUFFER_TARGET_FALLBACK))
+    # No max(..., 1) here, deliberately: the refusal above is what guarantees
+    # `per_sample <= target`, so the floor division is already at least 1.  Restoring the
+    # floor would restore the defect -- it is the floor, not the division, that broke the
+    # bound.  And a floor LARGER than one breaks it in the other direction for long but
+    # valid time windows (npts=65537 with a floor of 64 requested ~32 GiB).
+    cap = target // per_sample
     return min(chunk, cap)
-    # A floor larger than one defeats the memory bound for long, valid time
-    # windows (for example npts=65537 made a floor of 64 request ~32 GiB).
 
 
 def eval_lnL(like, theta, chunk=_EVAL_CHUNK):
