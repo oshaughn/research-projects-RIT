@@ -399,6 +399,25 @@ def test_rows_sharing_a_block_keep_their_individual_resolution():
     assert sum(hist.values()) == 2, hist
 
 
+def test_simpson_fallback_is_evaluated_only_for_unrefined_rows():
+    """Dense rows must not also pay for a coarse integration that is discarded."""
+    sharp = BandLimited(amp=1.0, peak_sample=NPTS // 2 + 0.25,
+                        n_period=8 * NPTS, m_hi=1400, background=0.12)
+    flat = np.full(NPTS, 0.12 + 0.0j)
+    k = np.stack((sharp.samples(), flat))
+    calls = []
+
+    def recording_simps(y, dx, axis):
+        calls.append(np.asarray(y).shape)
+        return simpson(y, dx=dx, axis=axis)
+
+    got = tmq.time_marginalize_bandlimited(
+        k, np.full(k.shape, RHO_SQ), DELTAT, _lnL, simps=recording_simps)
+    assert got.shape == (2,)
+    assert tmq.last_report()['n_refined_rows'] == 1
+    assert calls == [(1, NPTS)], calls
+
+
 # ------------------------------------------------------------- preconditions
 
 def test_time_dependent_rho_sq_is_refused():

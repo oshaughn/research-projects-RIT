@@ -161,6 +161,8 @@ each realization's kappa row would have to be upsampled and the derived factor
 reconciled across realizations, which is untested here.
 """
 
+import os
+
 import numpy as np
 
 __all__ = [
@@ -259,6 +261,32 @@ CURVATURE_STENCIL_HALFWIDTHS = (1, 2, 4, 8)
 #: the honest statement is that it cannot change the answer at any scale that
 #: is not floating-point noise.
 _DENSE_CHUNK_BYTES = 128 * 1024 * 1024
+
+
+def _cpu_fft_workers():
+    """Bounded CPU FFT parallelism, respecting scheduler CPU affinity.
+
+    The reflected transforms have awkward production lengths (for example
+    ``2*307``), and dominate the AV band-limited path.  SciPy's pocketfft can
+    parallelize the independent row transforms, while NumPy's public FFT API
+    cannot.  Never request more CPUs than the process affinity mask exposes;
+    ``RIFT_TIME_FFT_WORKERS`` can lower the cap or raise the default cap of four.
+    """
+    try:
+        available = len(os.sched_getaffinity(0))
+    except (AttributeError, OSError):
+        available = os.cpu_count() or 1
+    requested = int(os.environ.get("RIFT_TIME_FFT_WORKERS", "4"))
+    return max(1, min(requested, available))
+
+
+def _fft_rows(x, inverse=False, xpy=np):
+    if xpy is np:
+        from scipy import fft as scipy_fft
+        fn = scipy_fft.ifft if inverse else scipy_fft.fft
+        return fn(x, axis=-1, workers=_cpu_fft_workers())
+    fn = xpy.fft.ifft if inverse else xpy.fft.fft
+    return fn(x, axis=-1)
 
 _LAST_REPORT = {}
 
@@ -527,7 +555,7 @@ def bandlimited_upsample(x, factor, xpy=np):
         return x
     n = x.shape[-1]
     lead = x.shape[:-1]
-    X = xpy.fft.fft(x, axis=-1)
+    X = _fft_rows(x, xpy=xpy)
     Xup = xpy.zeros(lead + (n * factor,), dtype=xpy.asarray(X).dtype)
     n_pos = (n - 1) // 2                 # DC plus n_pos strictly-positive bins
     Xup[..., :n_pos + 1] = X[..., :n_pos + 1]
@@ -538,7 +566,7 @@ def bandlimited_upsample(x, factor, xpy=np):
         Xup[..., -n_pos:] = X[..., n // 2 + 1:]
     else:
         Xup[..., -n_pos:] = X[..., n_pos + 1:]
-    return xpy.fft.ifft(Xup, axis=-1) * factor
+    return _fft_rows(Xup, inverse=True, xpy=xpy) * factor
 
 
 def reflected_bandlimited_upsample(x, factor, xpy=np):
@@ -972,7 +1000,18 @@ def time_marginalize_bandlimited(kappa, rho_sq, deltaT, loglikelihood,
     # auditable claim.)
     refined = has_peak & (factors > 1)
 
-    out = _log_simps_rows(lnL_coarse, deltaT, simps, xpy=xpy)
+    # Do not pay for the historical coarse-grid integral on rows that we already
+    # know will be overwritten by the dense reconstruction below.  In ordinary
+    # AV ILE the coarse likelihood has already been evaluated for classification;
+    # the old unconditional call added another exp/reduction over every
+    # extrinsic×time point even when every row required refinement.  Allocate the
+    # result once and run Simpson only on the rows for which it is the answer.
+    out = xpy.empty((n_rows,), dtype=xpy.asarray(lnL_coarse).dtype)
+    unrefined = ~refined
+    if bool(xpy.any(unrefined)):
+        idx_unrefined = xpy.where(unrefined)[0]
+        out[idx_unrefined] = _log_simps_rows(
+            lnL_coarse[idx_unrefined], deltaT, simps, xpy=xpy)
     time_draw = None
     lnL_at_draw = None
     if return_time_draw:
@@ -1023,6 +1062,7 @@ def time_marginalize_bandlimited(kappa, rho_sq, deltaT, loglikelihood,
         n_unmeasurable_rows=int(xpy.sum(unmeasurable)),
         n_flat_rows=int(xpy.sum(flat)),
         n_refined_rows=int(xpy.sum(refined)),
+        cpu_fft_workers=(_cpu_fft_workers() if xpy is np else None),
     )
     if return_time_draw:
         return out, time_draw, lnL_at_draw
