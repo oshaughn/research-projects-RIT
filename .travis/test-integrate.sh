@@ -149,6 +149,23 @@ if [ "$_JOINT_PL_FOUND" -ne "$_JOINT_PL_EXPECTED" ]; then
 fi
 python -m pytest -q "$_JOINT_PL_TESTS"
 
+# The phi axis's ALGEBRAIC warrant, which the gate above does not cover: enumerate_modes
+# seeds a phi GRID, so it can only claim what its density happens to catch.  These pin the
+# resultant enumeration -- complete by construction, degree fixed by the mode content since
+# k_max = 2 m_max -- against a dense grid at five mode orders, and pin that NO |z| = 1
+# tolerance is applied to the roots.  That last is the u axis's own rule, and the first
+# version of this construction violated it: at degree 128 a genuinely stationary maximum sat
+# 2.9e-02 off the circle and was discarded by a 1e-3 test.
+_JOINT_ALG_TESTS=MonteCarloMarginalizeCode/Code/test/test_joint_angle_algebraic.py
+# Raise EXPECTED by RUNNING collection, never by arithmetic.
+_JOINT_ALG_EXPECTED=7
+_JOINT_ALG_FOUND=$(python -m pytest -q --collect-only "$_JOINT_ALG_TESTS" 2>/dev/null | grep -c '::' || true)
+if [ "$_JOINT_ALG_FOUND" -ne "$_JOINT_ALG_EXPECTED" ]; then
+    echo "joint algebraic gate: collected $_JOINT_ALG_FOUND tests, expected $_JOINT_ALG_EXPECTED" >&2
+    exit 1
+fi
+python -m pytest -q "$_JOINT_ALG_TESTS"
+
 python MonteCarloMarginalizeCode/Code/test/test_mcsamplerEnsemble_extended.py --as-test --n-max 100000
 
 python MonteCarloMarginalizeCode/Code/test/test_mcsamplerEnsemble_extended.py --as-test --n-max 100000 --use-lnL
