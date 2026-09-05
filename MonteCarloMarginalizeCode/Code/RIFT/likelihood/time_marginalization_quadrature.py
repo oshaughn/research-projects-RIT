@@ -162,6 +162,7 @@ reconciled across realizations, which is untested here.
 """
 
 import os
+import warnings
 
 import numpy as np
 
@@ -280,13 +281,226 @@ def _cpu_fft_workers():
     return max(1, min(requested, available))
 
 
-def _fft_rows(x, inverse=False, xpy=np):
+def _fft_rows(x, inverse=False, n=None, xpy=np):
     if xpy is np:
         from scipy import fft as scipy_fft
         fn = scipy_fft.ifft if inverse else scipy_fft.fft
-        return fn(x, axis=-1, workers=_cpu_fft_workers())
+        return fn(x, n=n, axis=-1, workers=_cpu_fft_workers())
     fn = xpy.fft.ifft if inverse else xpy.fft.fft
-    return fn(x, axis=-1)
+    return fn(x, n=n, axis=-1)
+
+
+class _RetainedFFTUnsupported(RuntimeError):
+    """The optional retained-grid transform cannot honour this input."""
+
+
+def _retained_fft_backend(xpy):
+    """Return the supported backend name without moving an array to the host."""
+    if xpy is np:
+        return "numpy"
+    if getattr(xpy, "__name__", None) == "cupy":
+        return "cupy"
+    raise _RetainedFFTUnsupported(
+        "retained-grid FFT supports only the numpy and cupy backends")
+
+
+def _retained_fft_plan(period, factor, dtype, xpy=np):
+    """Build stable Bluestein chirps for the forward half of a reflected row.
+
+    The plan evaluates the same Fourier polynomial as zero padding to
+    ``period * factor``, but only at the ``(period/2 - 1)*factor + 1`` samples
+    consumed by the finite-window integral.  Integer modular phases avoid the
+    unit-circle drift of forming a high power of one approximate complex root.
+    Plans live only for one marginalization call, so large GPU chirps cannot
+    become an unbounded process-wide cache.
+    """
+    _retained_fft_backend(xpy)
+    period = int(period)
+    factor = int(factor)
+    dtype = np.dtype(dtype)
+    if period < 4 or period % 2:
+        raise _RetainedFFTUnsupported(
+            "reflected FFT period must be even and at least four")
+    if factor <= 1 or factor & (factor - 1):
+        raise _RetainedFFTUnsupported(
+            "retained-grid FFT requires a power-of-two factor above one")
+    if dtype != np.dtype(np.complex128):
+        raise _RetainedFFTUnsupported(
+            "retained-grid FFT is certified only for complex128 spectra, got %s"
+            % dtype)
+
+    # The Nyquist coefficient is represented at both signed endpoints, hence
+    # period+1 input coefficients.  Linear Bluestein convolution needs the sum
+    # of input and output lengths minus one.  next_fast_len is a host-side
+    # integer calculation only; all arrays and FFTs stay on xpy's device.
+    n_coeff = period + 1
+    n_out = (period // 2 - 1) * factor + 1
+    n_chirp = max(n_coeff, n_out)
+    if n_chirp > 3037000499 or period * factor > np.iinfo(np.int64).max // 2:
+        raise _RetainedFFTUnsupported(
+            "retained-grid dimensions exceed the exact int64 chirp-phase range")
+    from scipy.fft import next_fast_len
+    n_fft = int(next_fast_len(n_coeff + n_out - 1))
+
+    k = xpy.arange(n_chirp, dtype=np.int64)
+    denominator = period * factor
+    # exp(+i*pi*k**2/denominator), reduced exactly modulo 2*denominator
+    # before conversion to float.  The largest supported production grid is
+    # safely within int64 (roughly 1e14 at npts=2457, factor=4096).
+    phase_index = (k * k) % (2 * denominator)
+    wk2 = xpy.exp((1j * np.pi / denominator) * phase_index)
+    wk2 = xpy.asarray(wk2, dtype=np.complex128)
+    kernel = 1.0 / xpy.concatenate(
+        (wk2[n_coeff - 1:0:-1], wk2[:n_out]))
+    kernel_fft = _fft_rows(kernel, n=n_fft, xpy=xpy)
+
+    j = xpy.arange(n_out, dtype=np.int64)
+    shift_index = j % (2 * factor)
+    signed_frequency_shift = xpy.exp(
+        (-1j * np.pi / factor) * shift_index)
+    post = (wk2[:n_out] * signed_frequency_shift) / float(period)
+    return {
+        "input_chirp": wk2[:n_coeff],
+        "kernel_fft": kernel_fft,
+        "post_chirp": post,
+        "n_fft": n_fft,
+        "n_out": n_out,
+        "period": period,
+        "factor": factor,
+    }
+
+
+def _reflected_bandlimited_upsample_retained(x, factor, plan_cache=None,
+                                               xpy=np):
+    """Evaluate exactly the retained forward grid of the reflected interpolant.
+
+    This is a pruned *evaluation* of :func:`reflected_bandlimited_upsample`, not
+    a different interpolant.  It preserves the literal ``[x, flip(x)]``
+    boundary condition and the half-weight split of the even-period Nyquist bin.
+    """
+    x = xpy.asarray(x)
+    factor = int(factor)
+    if factor == 1:
+        return x
+    n = int(x.shape[-1])
+    period = 2 * n
+    reflected = xpy.concatenate((x, xpy.flip(x, axis=-1)), axis=-1)
+    spectrum = _fft_rows(reflected, xpy=xpy)
+    dtype = np.dtype(spectrum.dtype)
+    cache_key = (period, factor, dtype.str)
+    if plan_cache is None:
+        plan_cache = {}
+    plan = plan_cache.get(cache_key)
+    if plan is None:
+        plan = _retained_fft_plan(period, factor, dtype, xpy=xpy)
+        plan_cache[cache_key] = plan
+
+    half = period // 2
+    # Consecutive signed-frequency coefficients k=-half,...,+half.  Splitting
+    # the Nyquist bin across the two endpoints is exactly what the full padded
+    # inverse FFT does in bandlimited_upsample for an even-length row.
+    coeff = xpy.empty(spectrum.shape[:-1] + (period + 1,), dtype=spectrum.dtype)
+    coeff[..., 0] = 0.5 * spectrum[..., half]
+    coeff[..., 1:half] = spectrum[..., half + 1:]
+    coeff[..., half] = spectrum[..., 0]
+    coeff[..., half + 1:period] = spectrum[..., 1:half]
+    coeff[..., period] = 0.5 * spectrum[..., half]
+
+    transformed = _fft_rows(
+        coeff * plan["input_chirp"], n=plan["n_fft"], xpy=xpy)
+    transformed *= plan["kernel_fft"]
+    convolved = _fft_rows(transformed, inverse=True, xpy=xpy)
+    retained = convolved[..., period:period + plan["n_out"]]
+    retained *= plan["post_chirp"]
+    if retained.shape[-1] != (n - 1) * factor + 1:
+        raise RuntimeError("retained-grid FFT returned an inconsistent shape")
+    return retained
+
+
+def _record_transform(report, key, n_rows, period, factor, plan=None):
+    report[key + "_batches"] += 1
+    report[key + "_rows"] += int(n_rows)
+    report["max_reflected_period"] = max(report["max_reflected_period"],
+                                         int(period))
+    report["max_dense_factor"] = max(report["max_dense_factor"], int(factor))
+    report["max_reference_full_fft_length"] = max(
+        report["max_reference_full_fft_length"], int(period) * int(factor))
+    if plan is not None:
+        report["max_retained_fft_length"] = max(
+            report["max_retained_fft_length"], int(plan["n_fft"]))
+        report["max_retained_grid_length"] = max(
+            report["max_retained_grid_length"], int(plan["n_out"]))
+
+
+def _new_transform_report():
+    return dict(
+        retained_fft_batches=0,
+        retained_fft_rows=0,
+        full_fft_selected_batches=0,
+        full_fft_selected_rows=0,
+        full_fft_selected_reasons={},
+        full_fft_fallback_batches=0,
+        full_fft_fallback_rows=0,
+        full_fft_fallback_reasons={},
+        warned_fallback_reasons=set(),
+        max_reflected_period=0,
+        max_dense_factor=1,
+        max_reference_full_fft_length=0,
+        max_retained_fft_length=0,
+        max_retained_grid_length=0,
+    )
+
+
+def _reflected_upsample_for_integration(x, factor, plan_cache,
+                                         transform_report, xpy=np):
+    """Use the retained-grid transform, visibly falling back to the reference.
+
+    An optimization failure is not a waveform or likelihood failure.  Any
+    unsupported input or transform exception therefore retries the established
+    full-padding implementation and records why.  The likelihood callback is
+    deliberately outside this function, so its failures are never mislabeled or
+    swallowed as FFT fallbacks.
+    """
+    period = 2 * int(x.shape[-1])
+    # Pocketfft measurements across all production npts found the retained
+    # convolution neutral-to-slower at factors 2 and 4; that small dense grid is
+    # not the bottleneck.  Preserve the cheaper reference algorithm there.  On
+    # CuPy the retained path won at every tested factor 2--64.
+    if xpy is np and int(factor) in (2, 4):
+        reason = "numpy factor %d is below the measured retained-FFT crossover" % factor
+        reasons = transform_report["full_fft_selected_reasons"]
+        reasons[reason] = reasons.get(reason, 0) + int(x.shape[0])
+        _record_transform(transform_report, "full_fft_selected", x.shape[0],
+                          period, factor)
+        return reflected_bandlimited_upsample(x, factor, xpy=xpy)
+    try:
+        out = _reflected_bandlimited_upsample_retained(
+            x, factor, plan_cache=plan_cache, xpy=xpy)
+        plan = next((value for (plan_period, plan_factor, _), value
+                     in plan_cache.items()
+                     if plan_period == period and plan_factor == int(factor)), None)
+        _record_transform(transform_report, "retained_fft", x.shape[0],
+                          period, factor, plan)
+        return out
+    except Exception as exc:
+        reason = "%s: %s" % (type(exc).__name__, str(exc))
+        reasons = transform_report["full_fft_fallback_reasons"]
+        reasons[reason] = reasons.get(reason, 0) + int(x.shape[0])
+        _record_transform(transform_report, "full_fft_fallback", x.shape[0],
+                          period, factor)
+        if reason not in transform_report["warned_fallback_reasons"]:
+            # Warning filters are allowed to promote RuntimeWarning to an
+            # exception.  Diagnostics must not turn a successful reference-path
+            # retry into a dropped likelihood point, so contain that policy here.
+            try:
+                warnings.warn(
+                    "retained-grid band-limited FFT unavailable ({}); using the "
+                    "established full-padding sinc reconstruction for these rows"
+                    .format(reason), RuntimeWarning, stacklevel=2)
+            except Exception:
+                pass
+            transform_report["warned_fallback_reasons"].add(reason)
+        return reflected_bandlimited_upsample(x, factor, xpy=xpy)
 
 _LAST_REPORT = {}
 
@@ -297,7 +511,16 @@ def last_report():
     Keys: ``upsample_factor`` (the largest used), ``factor_histogram``
     (factor -> row count, over the rows that were refined), ``n_refinements``,
     ``sigma_t_min``, ``n_rows``, ``n_wrap_exposed_rows``, ``n_unmeasurable_rows``,
-    ``n_flat_rows``, ``n_refined_rows``.
+    ``n_flat_rows``, ``n_refined_rows``, and retained-transform provenance.
+
+    ``bandlimited_fft_strategy`` says whether the production-only optimization
+    used the retained-grid ZoomFFT, intentionally selected the established full
+    transform below a measured CPU crossover, fell back to it after a transform
+    decline, used a mixture, or needed no dense transform.  The corresponding
+    ``*_batches`` and ``*_rows`` fields distinguish these cases; the reason maps
+    make a cost selection or declined optimization auditable without converting
+    either into a failed waveform point.  The reported reference, retained-grid,
+    and convolution lengths expose the padding mismatch for performance records.
 
     The diagnostic row counts are deliberately kept apart because they mean
     different things:
@@ -1030,6 +1253,11 @@ def time_marginalize_bandlimited(kappa, rho_sq, deltaT, loglikelihood,
     hist = {}
     n_refine_total = 0
     sigma_seen = np.inf
+    # Reuse chirps across every batch at a given factor, but only for this
+    # marginalization call.  In particular, do not pin successively larger GPU
+    # plans in a process-global cache after a high-SNR cell has finished.
+    retained_plan_cache = {}
+    transform_report = _new_transform_report()
     for f in xpy.unique(xpy.where(refined, factors, 1)):
         f = int(f)
         if f == 1:
@@ -1042,7 +1270,8 @@ def time_marginalize_bandlimited(kappa, rho_sq, deltaT, loglikelihood,
         vals, group_hist, n_ref, s_min, drawn_t, drawn_lnL = _integrate_group(
             kappa[idx], rho_col[idx], npts, deltaT, f, loglikelihood, _term,
             draw_uniforms_rows=(draw_uniforms[idx] if return_time_draw else None),
-            t0=t0, xpy=xpy)
+            t0=t0, retained_plan_cache=retained_plan_cache,
+            transform_report=transform_report, xpy=xpy)
         out[idx] = vals
         if return_time_draw:
             time_draw[idx] = drawn_t
@@ -1051,6 +1280,22 @@ def time_marginalize_bandlimited(kappa, rho_sq, deltaT, loglikelihood,
             hist[int(f_used)] = hist.get(int(f_used), 0) + int(n_used)
         n_refine_total += n_ref
         sigma_seen = min(sigma_seen, s_min)
+
+    strategies = []
+    if transform_report["retained_fft_batches"]:
+        strategies.append("retained-grid-zoomfft")
+    if transform_report["full_fft_selected_batches"]:
+        strategies.append("full-padding-selected")
+    if transform_report["full_fft_fallback_batches"]:
+        strategies.append("full-padding-fallback")
+    transform_strategy = (strategies[0] if len(strategies) == 1 else
+                          ("mixed:" + ",".join(strategies) if strategies
+                           else "not-used"))
+    transform_report.pop("warned_fallback_reasons")
+    transform_report.update(
+        bandlimited_fft_strategy=transform_strategy,
+        n_retained_fft_plans=len(retained_plan_cache),
+    )
 
     _LAST_REPORT.clear()
     _LAST_REPORT.update(
@@ -1064,6 +1309,7 @@ def time_marginalize_bandlimited(kappa, rho_sq, deltaT, loglikelihood,
         n_flat_rows=int(xpy.sum(flat)),
         n_refined_rows=int(xpy.sum(refined)),
         cpu_fft_workers=(_cpu_fft_workers() if xpy is np else None),
+        **transform_report
     )
     if return_time_draw:
         return out, time_draw, lnL_at_draw
@@ -1072,7 +1318,7 @@ def time_marginalize_bandlimited(kappa, rho_sq, deltaT, loglikelihood,
 
 def _integrate_group(kappa_rows, rho_col_rows, npts, deltaT, factor,
                      loglikelihood, _term, draw_uniforms_rows=None, t0=0.0,
-                     xpy=np):
+                     retained_plan_cache=None, transform_report=None, xpy=np):
     """Refine and integrate one group of rows that share a derived factor.
 
     Returns ``(values, factor_histogram, n_refinements, sigma_dense_min,
@@ -1080,6 +1326,10 @@ def _integrate_group(kappa_rows, rho_col_rows, npts, deltaT, factor,
     ``draw_uniforms_rows`` is supplied.
     """
     n_rows = kappa_rows.shape[0]
+    if retained_plan_cache is None:
+        retained_plan_cache = {}
+    if transform_report is None:
+        transform_report = _new_transform_report()
     n_refine = 0
     remaining = xpy.arange(n_rows)
     values = xpy.empty((n_rows,), dtype=np.float64)
@@ -1112,8 +1362,9 @@ def _integrate_group(kappa_rows, rho_col_rows, npts, deltaT, factor,
         sigma_pieces = []
         for start in range(0, n_remaining, chunk):
             take = remaining[start:start + chunk]
-            k_up = reflected_bandlimited_upsample(
-                kappa_rows[take], factor, xpy=xpy)
+            k_up = _reflected_upsample_for_integration(
+                kappa_rows[take], factor, retained_plan_cache,
+                transform_report, xpy=xpy)
             rho_up = xpy.broadcast_to(rho_col_rows[take], k_up.shape)
             lnL_up = loglikelihood(_term(k_up), rho_up)
             s_d, _, meas = peak_width_from_lnL(lnL_up, dx_dense, xpy=xpy)
