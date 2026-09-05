@@ -31,6 +31,7 @@ from __future__ import print_function, division
 
 import os
 import sys
+import warnings
 
 import numpy as np
 import pytest
@@ -222,6 +223,120 @@ def test_reflected_upsample_reproduces_the_finite_row_exactly():
     up = tmq.reflected_bandlimited_upsample(k[None, :], factor)[0]
     assert up.size == (NPTS - 1) * factor + 1
     assert np.allclose(up[::factor], k, atol=1e-11, rtol=0)
+
+
+@pytest.mark.parametrize("n,factor", [(614, 64), (1228, 32), (2457, 16)])
+def test_retained_fft_is_the_same_reflected_sinc_interpolant(n, factor):
+    """Pruning outputs must not change the reconstruction being evaluated.
+
+    Random complex rows populate every bin, including Nyquist, so this compares
+    the half-bin convention too.  The production 22 and higher-mode window sizes
+    are explicit rather than hidden behind a toy power-of-two transform.
+    """
+    rng = np.random.default_rng(90210 + n)
+    rows = rng.normal(size=(2, n)) + 1j * rng.normal(size=(2, n))
+    reference = tmq.reflected_bandlimited_upsample(rows, factor)
+    retained = tmq._reflected_bandlimited_upsample_retained(rows, factor)
+    assert retained.shape == reference.shape == (2, (n - 1) * factor + 1)
+    np.testing.assert_allclose(retained, reference, rtol=0, atol=2e-11)
+    np.testing.assert_allclose(retained[..., ::factor], rows, rtol=0, atol=2e-11)
+
+
+def test_retained_fft_removes_the_production_padding_mismatch():
+    period, factor = 2 * NPTS, 64
+    plan = tmq._retained_fft_plan(period, factor, np.complex128)
+    assert plan['n_out'] == (NPTS - 1) * factor + 1 == 39233
+    assert period * factor == 78592
+    # The optimized convolution is close to the retained half, not the discarded
+    # full reflected period.  Do not pin scipy's exact next-fast-length policy.
+    assert plan['n_out'] <= plan['n_fft'] < 0.53 * period * factor
+
+
+def test_transform_decline_retries_full_sinc_and_reports_provenance(monkeypatch):
+    """An optimization decline is not a failed waveform point.
+
+    Warning-as-error is included because a diagnostic warning must not undo the
+    successful reference-path retry in production environments with strict
+    warning filters.
+    """
+    sig = BandLimited(amp=0.17, peak_sample=NPTS // 2 + 0.25,
+                      n_period=8 * NPTS, m_hi=1400, background=0.12)
+    k = sig.samples()[None, :]
+    rho = np.full(k.shape, RHO_SQ)
+    retained = tmq.time_marginalize_bandlimited(k, rho, DELTAT, _lnL)
+    assert tmq.last_report()['bandlimited_fft_strategy'] == 'retained-grid-zoomfft'
+
+    def decline(*args, **kwargs):
+        raise tmq._RetainedFFTUnsupported('forced unsupported transform')
+
+    monkeypatch.setattr(tmq, '_reflected_bandlimited_upsample_retained', decline)
+    with warnings.catch_warnings():
+        warnings.simplefilter('error')
+        fallback = tmq.time_marginalize_bandlimited(k, rho, DELTAT, _lnL)
+    report = tmq.last_report()
+    assert np.isfinite(float(fallback[0]))
+    np.testing.assert_allclose(fallback, retained, rtol=0, atol=1e-9)
+    assert report['bandlimited_fft_strategy'] == 'full-padding-fallback'
+    assert report['retained_fft_batches'] == 0
+    assert report['full_fft_fallback_batches'] >= 1
+    assert report['full_fft_fallback_rows'] >= 1
+    assert report['full_fft_fallback_reasons'] == {
+        '_RetainedFFTUnsupported: forced unsupported transform':
+        report['full_fft_fallback_rows']}
+
+
+def test_unsupported_factor_falls_back_to_full_sinc_without_changing_values():
+    rng = np.random.default_rng(19)
+    rows = rng.normal(size=(2, 17)) + 1j * rng.normal(size=(2, 17))
+    report = tmq._new_transform_report()
+    with pytest.warns(RuntimeWarning, match='full-padding sinc reconstruction'):
+        got = tmq._reflected_upsample_for_integration(
+            rows, 3, {}, report, xpy=np)
+    reference = tmq.reflected_bandlimited_upsample(rows, 3)
+    np.testing.assert_array_equal(got, reference)
+    assert report['retained_fft_batches'] == 0
+    assert report['full_fft_fallback_batches'] == 1
+    assert '_RetainedFFTUnsupported' in next(iter(
+        report['full_fft_fallback_reasons']))
+
+
+def test_low_factor_numpy_reference_is_selected_not_mislabeled_as_failure():
+    rng = np.random.default_rng(23)
+    rows = rng.normal(size=(2, 17)) + 1j * rng.normal(size=(2, 17))
+    report = tmq._new_transform_report()
+    got = tmq._reflected_upsample_for_integration(
+        rows, 4, {}, report, xpy=np)
+    reference = tmq.reflected_bandlimited_upsample(rows, 4)
+    np.testing.assert_array_equal(got, reference)
+    assert report['full_fft_selected_batches'] == 1
+    assert report['full_fft_selected_rows'] == 2
+    assert report['full_fft_fallback_batches'] == 0
+    assert report['full_fft_fallback_reasons'] == {}
+    assert 'measured retained-FFT crossover' in next(iter(
+        report['full_fft_selected_reasons']))
+
+
+def test_likelihood_failure_is_not_mislabeled_as_transform_fallback(monkeypatch):
+    """Only the transform is guarded; callback failures retain their identity."""
+    class LikelihoodFailure(RuntimeError):
+        pass
+
+    sig = BandLimited(amp=0.17, peak_sample=NPTS // 2 + 0.25,
+                      n_period=8 * NPTS, m_hi=1400, background=0.12)
+    k = sig.samples()[None, :]
+    rho = np.full(k.shape, RHO_SQ)
+
+    def fail_on_dense(kappa_term, rho_sq):
+        if kappa_term.shape[-1] == NPTS:
+            return _lnL(kappa_term, rho_sq)
+        raise LikelihoodFailure('callback, not FFT')
+
+    def fallback_must_not_run(*args, **kwargs):
+        pytest.fail('a likelihood exception was incorrectly retried as an FFT decline')
+
+    monkeypatch.setattr(tmq, 'reflected_bandlimited_upsample', fallback_must_not_run)
+    with pytest.raises(LikelihoodFailure, match='callback, not FFT'):
+        tmq.time_marginalize_bandlimited(k, rho, DELTAT, fail_on_dense)
 
 
 def test_forward_backward_reflection_blocks_the_endpoint_gibbs_counterexample():
@@ -907,6 +1022,11 @@ def test_bandlimited_runs_on_the_gpu_backend_and_matches_numpy():
                 'n_flat_rows'):
         assert rep_np[key] == rep_cp[key], (key, rep_np[key], rep_cp[key])
     assert rep_np['n_refined_rows'] >= 1
+    for report in (rep_np, rep_cp):
+        assert report['bandlimited_fft_strategy'] == 'retained-grid-zoomfft', report
+        assert report['retained_fft_rows'] >= report['n_refined_rows']
+        assert report['full_fft_fallback_rows'] == 0, report
+        assert report['full_fft_fallback_reasons'] == {}, report
 
     # The REFINED rows integrate with trapezoid on the dense grid, which has no
     # even/odd Simpson ambiguity, so the two backends must agree to round-off.
