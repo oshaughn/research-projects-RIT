@@ -396,24 +396,50 @@ def test_algebraic_phi_seeds_are_complete_and_agree_where_the_cover_is_partial()
             assert abs(float(vu) - float(va)) < 1e-2, (KP, float(vu), float(va))
 
 
-def test_algebraic_seeds_stay_off_by_default_until_the_covering_path_is_resolved():
-    """Better seeds make an EXISTING defect more reachable, so the default must stay off.
+def test_a_full_cover_no_longer_accepts_unconditionally():
+    """The covering path used to conflate two different statements.  ``area_outside = 0``
+    says nothing was left OUT; it says nothing about the quadrature INSIDE, yet it gave
+    ``margin = -inf`` and an unconditional accept.  Measured before the fix at KP=13,
+    amplitude 1e2 with algebraic seeds: full cover, accepted, value 0.777 nats wrong -- the
+    same conflation that cost the numpy reference 0.36 nats on production tables.
 
-    A fuller cover leaves ``area_outside = 0``, which gives ``margin = -inf`` and an
-    unconditional accept while saying nothing about the quadrature inside.  Measured at
-    KP=13, amplitude 1e2: uniform declines (3 regions, 0.264 rad uncovered); algebraic
-    ACCEPTS with the value 0.777 nats wrong.  Same gap the numpy reference had at
-    ``area_outside = 0`` and fixed by sizing the box nodes to the curvature.
-
-    This test pins the default AND the reason, so flipping it silently fails here.
+    ``ok`` now also requires the integration to have CONVERGED, measured by halving the
+    nodes -- free, because ``PHI_NODES_PER_REGION`` is odd so indices 0,2,...,n-1 span the
+    same interval at double the spacing.  Two gates were tried first and rejected on
+    evidence: the exact ``M2F`` bound demands 3.8e3-2.3e4 nodes and declines cases right to
+    1e-4, and a local-curvature rule declines cases right to 1e-5, because a periodic
+    trapezoid converges spectrally and any points-per-sigma rule is far too conservative.
     """
-    import inspect
-    assert inspect.signature(JP.phi_local_lnI).parameters["algebraic_seeds"].default is False
     KS = 2
     rng = np.random.default_rng(101)
     C = rng.normal(size=(13, 2 * KS + 1)) + 1j * rng.normal(size=(13, 2 * KS + 1))
     C = jnp.asarray(C * (1e2 / np.sum(np.abs(C))))
-    _, ok_a, info_a = JP.phi_local_lnI(C, algebraic_seeds=True)
-    # the hazard is real and this is the shape of it: full cover -> unconditional accept
-    assert float(info_a["area_outside"]) == 0.0
-    assert bool(ok_a) and float(info_a["margin"]) == -np.inf
+    v, ok, info = JP.phi_local_lnI(C, algebraic_seeds=True)
+    assert float(info["area_outside"]) == 0.0            # the cover IS full
+    assert not bool(info["phi_resolved"])                # but the integration is not converged
+    assert not bool(ok), "a full cover must not accept an unconverged integration"
+    assert float(info["phi_convergence"]) > JP.PHI_CONVERGENCE_NATS
+
+
+def test_the_convergence_gate_does_not_decline_accurate_results():
+    """A gate that refuses correct answers is as useless as one that accepts wrong ones, and
+    the two gates tried before this one both did.  These cases are accurate to ~1e-5 against
+    a converged torus reference and MUST still accept."""
+    KS = 2
+    accepted = 0
+    for amp in (4.5, 19.0):
+        rng = np.random.default_rng(101)
+        C = rng.normal(size=(3, 2 * KS + 1)) + 1j * rng.normal(size=(3, 2 * KS + 1))
+        C = jnp.asarray(C * (amp / np.sum(np.abs(C))))
+        v, ok, info = JP.phi_local_lnI(C)
+        assert abs(float(v) - _torus_ref(np.asarray(C))) < 1e-3, (amp, float(v))
+        assert float(info["phi_convergence"]) < JP.PHI_CONVERGENCE_NATS, (amp,)
+        accepted += bool(ok)
+    assert accepted == 2, accepted
+
+
+def test_algebraic_seeds_stay_off_by_default():
+    """Still off: the completeness gain is real, but switching a default that changes which
+    rows return a value is a separate decision from making it safe to switch."""
+    import inspect
+    assert inspect.signature(JP.phi_local_lnI).parameters["algebraic_seeds"].default is False

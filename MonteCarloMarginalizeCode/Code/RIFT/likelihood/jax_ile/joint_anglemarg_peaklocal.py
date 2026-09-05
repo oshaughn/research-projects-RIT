@@ -412,7 +412,10 @@ PHI_SEEDS = 32
 #: Same Poisson-summation argument as U_NODES_PER_CELL: at +-12 sigma with 96 nodes the
 #: spacing is sigma/4 and the trapezoid error on a Gaussian is ~1e-137.
 PHI_WINDOW_SIGMA = 12.0
-PHI_NODES_PER_REGION = 96
+#: Odd so that HALVING is exact -- indices 0, 2, ... n-1 span the same interval at double
+#: the spacing, which is what makes the convergence check below free rather than a second
+#: integration.
+PHI_NODES_PER_REGION = 97
 
 #: Grid on which the phi omitted-mass bound is evaluated.  Not a tuning knob: it sets the
 #: half-spacing ``delta`` of the second-order lift, so a coarser grid gives a LOOSER
@@ -566,6 +569,34 @@ def _merge_sorted_intervals(lo, hi, n):
     seg_lo = jax.ops.segment_min(lo, gid, num_segments=n, indices_are_sorted=True)
     seg_hi = jax.ops.segment_max(hi, gid, num_segments=n, indices_are_sorted=True)
     return seg_lo, seg_hi
+
+
+#: Trapezoid points per curvature length inside a phi region.  Not a tolerance: it is the
+#: sampling density at which the trapezoid resolves a feature of scale ``1/sqrt(M2F)``.
+PHI_PTS_PER_SIGMA = 3.0
+
+#: Halving the phi nodes must move the answer by less than this for the integration to be
+#: called resolved.  A CHOICE, and stated as one -- but not a knife-edge: measured, cases
+#: accurate to ~1e-5 move by 1.4e-07 to 2.0e-05, and cases wrong by 0.16-0.78 nats move by
+#: 0.64 to 4.6.  Five decades separate them and this sits in the middle, so nothing turns
+#: on where in the gap it is placed.
+PHI_CONVERGENCE_NATS = 1.0e-3
+
+
+def required_phi_nodes(width, m2f, pts_per_sigma=PHI_PTS_PER_SIGMA):
+    """Nodes a phi region of ``width`` needs, from the EXACT bound ``|F''| <= m2f``.
+
+    Nothing in the region is narrower than ``1/sqrt(m2f)``, so ``width * sqrt(m2f)`` counts
+    the curvature lengths it spans and the requirement is that times the sampling density.
+    Bound, not estimate: ``m2f`` comes from :func:`profile_derivative_bounds`, i.e. from the
+    coefficient table.
+
+    This is what distinguishes a WINDOWED region from a COVERING one.  A window spans a few
+    ``sigma`` and needs a few tens of nodes at any amplitude; a region spanning the whole
+    circle spans ``2 pi sqrt(m2f)`` curvature lengths and needs thousands.  Both were given
+    the same fixed 96.
+    """
+    return width * jnp.sqrt(jnp.maximum(m2f, 0.0)) * pts_per_sigma
 
 
 def phi_local_lnI(C, n_seed=PHI_SEEDS, w_sigma=PHI_WINDOW_SIGMA,
@@ -740,6 +771,25 @@ def phi_local_lnI(C, n_seed=PHI_SEEDS, w_sigma=PHI_WINDOW_SIGMA,
     lw = jnp.where(jnp.repeat(width > 0, n_nodes), lw, -jnp.inf)
     value = jax.scipy.special.logsumexp(Fv + lw)
 
+    # CONVERGENCE, MEASURED, FROM THE NODES ALREADY EVALUATED.  n_nodes is odd, so indices
+    # 0, 2, ... n-1 span the same interval at double the spacing: a half-resolution estimate
+    # for free, no second integration.  This replaces two gates that did not work -- the
+    # exact M2F bound demands 3.8e3-2.3e4 nodes and declines cases right to 1e-4, and a
+    # local-curvature rule declines cases right to 1e-5, because the trapezoid on a periodic
+    # integrand converges spectrally and any real-space "points per sigma" is far too
+    # conservative for a region spanning the circle.
+    #
+    # It is an ESTIMATE of the discretization error, not a bound, and is used ONLY to
+    # decline -- the conservative direction.  It cannot certify; it can only refuse.
+    hs = s[::2]
+    whq = jnp.full(hs.shape[0], 1.0 / (hs.shape[0] - 1)).at[0].mul(0.5).at[-1].mul(0.5)
+    lwh = (jnp.log(jnp.where(width > 0, width, 1e-300))[:, None]
+           + jnp.log(whq)[None, :]).ravel()
+    lwh = jnp.where(jnp.repeat(width > 0, hs.shape[0]), lwh, -jnp.inf)
+    Fh = Fv.reshape(-1, n_nodes)[:, ::2].ravel()
+    value_half = jax.scipy.special.logsumexp(Fh + lwh)
+    conv = jnp.abs(value - value_half)
+
     # ---------------------------------------------------------------- the phi certificate
     # WITHOUT THIS THE RETURN VALUE IS AN ESTIMATE WEARING A LIKELIHOOD'S CLOTHES.  The
     # seeds are targeting, not an enumeration -- phi has no algebraic completeness warrant
@@ -785,8 +835,52 @@ def phi_local_lnI(C, n_seed=PHI_SEEDS, w_sigma=PHI_WINDOW_SIGMA,
                         jnp.log(jnp.where(area_outside > 0.0, area_outside, 1.0))
                         + sup_outside,
                         -jnp.inf)
+    # AN EMPTY OUTSIDE IS NOT A CORRECT ANSWER.  area_outside = 0 says nothing was left
+    # OUT; it says nothing whatever about the quadrature INSIDE, and the two were being
+    # conflated -- a full cover gave margin = -inf and an unconditional accept.  Measured
+    # at KP=13, amplitude 1e2: full cover, margin -inf, accepted, value 0.777 nats wrong.
+    # The same conflation cost the numpy reference 0.36 nats on production tables.
+    #
+    # So the accept now also requires that every non-empty region is RESOLVED at the node
+    # count actually used.  The requirement is a bound, not an estimate: nothing in a
+    # region is narrower than 1/sqrt(M2F), so a region spanning `width` needs
+    # width*sqrt(M2F) curvature lengths sampled.  A windowed region spans a few sigma and
+    # passes at any amplitude; a region spanning 2 pi does not, which is exactly the case
+    # that was being accepted wrongly.
+    # WHAT MAKES 96 NODES DEFENSIBLE IS THE WINDOW, NOT THE COUNT.  A region of +-w_sigma
+    # spans 2*w_sigma curvature lengths whatever the amplitude, so 2*w_sigma*PTS_PER_SIGMA
+    # = 72 nodes resolve it and 96 has margin -- that is where the constant came from, and
+    # it holds for as long as a region IS a window.
+    #
+    # It stops holding when the rule stops localizing.  The `wrapped` branch above fires
+    # when the windows already span the circle and replaces them with ONE region of width
+    # 2 pi: that is the rule degenerating into a dense grid on purpose, and 96 nodes across
+    # 2 pi is not the same claim as 96 nodes across 24 sigma.  It is also exactly the branch
+    # that leaves area_outside = 0 and so would otherwise accept unconditionally.
+    #
+    # Sizing this from the exact bound M2F instead was tried and is useless: M2F is 99.5%
+    # the M10^2 variance term, so it demands 3.8e3 - 2.3e4 nodes for cases that are right to
+    # 1e-4 at 96 and would decline everything.  A bound too loose to distinguish the good
+    # case from the bad one cannot be the gate, however true it is.
+    # THE GATE IS SHARPNESS, and it is the numpy reference's criterion: _log_box_integral
+    # sizes each box from the LOCAL curvature, so a region of `width` carrying a feature of
+    # scale 1/sqrt(|F''|) needs width*sqrt(|F''|)*PTS_PER_SIGMA nodes.
+    #
+    # For a WINDOW this is automatic and amplitude-free: width = 2*w_sigma/sqrt(|F''|), so
+    # the requirement is 2*w_sigma*PTS_PER_SIGMA = 72, which is where 96 came from.  For a
+    # region that grew -- merged, or the whole circle after `wrapped` -- the width no longer
+    # tracks the curvature and the requirement can exceed 96.  Measured: at amplitude 4.5 a
+    # full circle needs ~40 nodes and is right to 1e-5; at amplitude 1e2 with KP=13 it needs
+    # ~190 and is 0.777 nats wrong at 96.  The gate separates exactly those.
+    #
+    # M2F was tried as the curvature and is useless here: 99.5% of it is the M10^2 variance
+    # term, so it demands 3.8e3-2.3e4 nodes for cases right to 1e-4 and declines everything.
+    # A bound too loose to tell the good case from the bad one cannot be the gate.  It is
+    # still reported, because it IS a bound and the measured curvature is not.
+    need_max = jnp.max(jnp.where(width > 0, required_phi_nodes(width, m2f), 0.0))
+    resolved = conv < PHI_CONVERGENCE_NATS
     margin = outside - value
-    ok = margin < tol_nats
+    ok = (margin < tol_nats) & resolved
 
     info = {"margin": margin,
             "area_outside": area_outside,
@@ -795,7 +889,14 @@ def phi_local_lnI(C, n_seed=PHI_SEEDS, w_sigma=PHI_WINDOW_SIGMA,
             # INTERNAL accuracy, which the certificate above CANNOT see: it bounds the
             # mass left OUTSIDE the regions and says nothing about the quadrature inside
             # one.  Reported separately and never folded into `margin`.
-            "n_u_fallback": n_fb.sum()}
+            "n_u_fallback": n_fb.sum(),
+            # INTERNAL accuracy, reported beside the omitted-mass margin and never folded
+            # into it: they are independent failures and both are needed.
+            # the M2F-derived requirement is a TRUE bound and is reported; it is not the
+            # gate, because it is too loose to separate the good case from the bad one.
+            "phi_nodes_needed": need_max,
+            "phi_convergence": conv,
+            "phi_resolved": resolved}
     return value, ok, info
 
 
