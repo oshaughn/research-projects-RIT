@@ -90,12 +90,19 @@ sites.  It does not attach error or cost numbers to them.
 | distance `loguniform` | bounded stationary set, no implemented end-to-end certificate | requires full prior support, an interior peak, and a passing endpoint budget |
 | distance `gh` | bounded stationary set, no implemented error certificate | currently the volumetric-prior kernel |
 | time `simpson` | none | historical fixed grid |
-| time `bandlimited` | exact band limit with a certificate | the nonlinear JAX distance/angle wrappers currently refuse this ordering |
+| time `bandlimited` | exact band limit, no implemented per-request certificate | the nonlinear JAX distance/angle wrappers currently refuse this ordering |
 
-The last row is why a production three-axis error-budgeted plan is not merely
-waiting for an angle cost table.  On the direct distance/angle-marginalized JAX
-path, the one time rule with certificate-bearing structure is not compatible,
-while the compatible Simpson rule has no per-request error bound.
+The last row carries both kinds of caveat at once, and is why a production
+three-axis error-budgeted plan is not merely waiting for an angle cost table.
+The band limit is genuine structure, so the warrant kind could support a
+certificate; but the shipped rule derives its refinement factor from a measured
+peak width and remeasures it, and reports measured reconstruction errors rather
+than a proved bound on the marginalized log likelihood, so no certificate is
+advertised and `CERTIFIED` is refused at offer construction.  It is in any case
+not compatible on the direct distance/angle-marginalized JAX path, while the
+compatible Simpson rule has no per-request error bound either.  No shipped
+profile is therefore certificate-bearing today: `cheapest-certified` is
+reachable only for a future scheme that implements and validates its bound.
 
 ## Decision policy
 

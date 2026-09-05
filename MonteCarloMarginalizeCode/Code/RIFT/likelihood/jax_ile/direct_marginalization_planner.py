@@ -700,10 +700,19 @@ _JAX_PROFILE_LIST = (
     _profile("time", "simpson",
              _warrant(WarrantKind.NONE, "fixed native time grid", False,
                       _TIME), _TIME),
+    # The band limit is a real structural fact, so this warrant kind COULD
+    # support a certificate.  The shipped implementation does not discharge one:
+    # it derives the refinement factor from a curvature-measured peak width and
+    # remeasures it on the dense grid, and its accuracy record is a table of
+    # measured nonzero reconstruction errors, not a per-request inequality on
+    # the marginalized log likelihood.  Advertising a certificate here would let
+    # any caller-supplied CERTIFIED assessment enter cheapest-certified with an
+    # arbitrarily tight budget and no executable proof, which is exactly the
+    # relabeling the warrant/certificate split exists to refuse.
     _profile("time", "bandlimited",
              _warrant(WarrantKind.EXACT_BAND_LIMIT,
                       "band-limited kappa with time-independent self term",
-                      True, _TIME), _TIME,
+                      False, _TIME), _TIME,
              requires=("time-exact-band-limit", "time-independent-rho-sq",
                        "n-cal-one"),
              conflicts=("jax-direct-nonlinear-time",)),
