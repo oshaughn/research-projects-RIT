@@ -580,50 +580,47 @@ def phi_local_lnI(C, n_seed=PHI_SEEDS, w_sigma=PHI_WINDOW_SIGMA,
     completeness warrant -- ``F`` is a log-integral, not a trig polynomial -- so the seeds
     are targeting only and correctness rests on the certificate below.
 
-    READ THIS BEFORE PROMOTING THIS PATH.  Certifying phi costs MORE than the dense phi
-    grid it replaces, at every amplitude tested, and the gap widens.  The bound needs
-    ``0.5 * M2F * delta^2`` small, so ``n_bound ~ sqrt(M2F) ~ M1F ~ A`` -- LINEAR in
-    amplitude -- while ``required_n_phi ~ sqrt(A)``:
+    READ THIS BEFORE PROMOTING THIS PATH -- AND THE COST ARGUMENT BELOW IS WITHDRAWN.
 
-        amplitude     required_n_phi     n_bound needed     ratio
-        1e2                      160                408       2.5
-        1e3                      512               4057       7.9
-        1e4                     1600              40548      25.3
-        1e5                     5072             405459      79.9
+    THIS FUNCTION LOCALIZES ON THE WRONG OBJECT.  It Newton-iterates on the maxima of
+    ``F(phi) = log int du exp(g)`` from ``PHI_SEEDS`` arbitrary seeds.  ``F`` is a
+    log-integral and has no completeness warrant -- but ``g`` ITSELF DOES, and it is the
+    same warrant psi has.  The orbital phase enters the modes as ``e^{-i m phi}``, so ``A``
+    carries phi-harmonics to ``m_max`` and ``B``, being quadratic, to ``2 m_max``.  The
+    combined table's ``k_max = KP-1 = 2 m_max`` is therefore EXACT, and ``dg/dphi = 0``
+    under ``z = e^{i phi}`` is a polynomial of degree ``2 k_max``.  Knowing the mode
+    content fixes the stationary count; the 2-D system with ``dg/du = 0`` has a
+    mixed-volume bound of ``16 k_max``.  The numpy reference already does this --
+    :func:`~RIFT.likelihood.joint_angle_peak_local.enumerate_modes` solves the algebraic
+    system -- and it finds MORE maxima than the seeded search: 13 against 8 at ``KP=5``,
+    30 against 20 at ``KP=13``.
 
-    So the flat-cost property this function is built for holds only for the INTEGRATION;
-    the certificate that makes the integration trustworthy does not share it, and an
-    uncertified value is what external review correctly refused.  The whole gap is one
-    term: ``Var(d_phi g) <= M10^2`` is 99.5% of ``M2F``, and it is loose because a peaked
-    ``exp(g)`` does not explore the full range of ``d_phi g``.
+    So the earlier conclusion here -- that certifying phi costs more than the dense grid
+    because ``n_bound ~ A`` -- was reasoning about a construction chosen in this file, not
+    about the phi axis.  Seeded algebraically the region count is mode-order-bounded and
+    provable, and the cost comparison has to be redone on that basis.  It is NOT restated
+    here in a corrected form, because two successive versions of it were wrong; the
+    measurements are on the PR and the argument needs rebuilding, not patching.
 
-    A TIGHTER VARIANCE BOUND IS NOT THE MOST PROMISING ROUTE, and an earlier version of
-    this note said it was.  The linear scaling comes from bounding a supremum with a GRID
-    at all: any grid lift of a function whose Lipschitz constant is ``~A`` needs spacing
-    ``~1/A``, whatever the remainder term.  The route that removes it is to bound the
-    supremum ANALYTICALLY.  At fixed phi the u-exponent is
-    ``a(phi) + Re(c1(phi) e^{iu}) + Re(c2(phi) e^{2iu})``, so
-
-        F(phi) <= log(2 pi) + a(phi) + |c1(phi)| + |c2(phi)|
-
-    and ``a``, ``|c1|``, ``|c2|`` are low-degree trig polynomials in phi whose supremum
-    over an interval is itself an algebraic enumeration -- the same companion-matrix
-    machinery this module already uses on u.  Measured against the grid lift at
-    ``n_bound = 256`` (bound value, lower is tighter):
-
-        amplitude      true max F     analytic       grid lift
-        1e2                71.290       88.672          73.821   <- grid wins
-        1e3               722.252      870.178         973.324
-        1e4              7242.271     8685.239       32329.270
-        1e5             72452.823    86835.848     2580950.613   <- 30x tighter
-
-    So the analytic form is O(1) in COST where the grid is O(A).  It is NOT yet known to
-    accept: it still sits ~20% above ``max F``, and that excess scales with A.  What
-    decides it is the supremum over the OUTSIDE intervals only -- which excludes the peaks
-    and is not what the table above measures -- and that has not been measured.  Recorded
-    as the direction, not as a solution.
-
-    The (2,+-2) tables carry an EXACT ORDER-4 SYMMETRY, which reduces the bound grid to a
+    MEASURED LIMITS OF THE SHIPPED CONSTANTS (Blackwell, jax 0.9.2, x64):
+      * ``PHI_SEEDS = 32`` is an undocumented assumption about mode content.  At
+        ``m_max = 2`` the region count plateaus by 32 seeds (7-8 regions, unchanged at
+        64 and 128).  At ``m_max = 6`` it does NOT: 32 seeds find 14-19 regions where 64+
+        find 19-21.  FAIL-CLOSED -- every such case declines, none returns an accepted
+        wrong value -- and the missed regions are subdominant, changing the value by less
+        than 1e-5.  At ``m_max = 6`` the rule declines universally, so high mode content
+        is outside its reach for reasons beyond the seed count.
+      * 94-97% of the phi work is on EMPTY slots: ``2 * PHI_SEEDS = 64`` static slots are
+        allocated and 96 nodes evaluated in every one, while production tables use 2-4.
+        That is the price of static shapes without an enumeration; it is not recoverable
+        by shrinking the allocation, because shrinking starves the seeds as well and
+        converts silent waste into declines (measured: 2 regions accept at 8 seeds and
+        decline at 4).
+      * Per-evaluation device memory is 0.098 GiB against the dense path's 0.001 GiB, and
+        it scales LINEARLY with the vmap product because nothing here chunks.
+        :func:`joint_lnL_phi_dense` bounds its own memory with ``lax.scan`` over
+        ``phi_chunk`` and is flat in ``n_phi`` (0.39 GiB at 256, 1024 and 4096 alike).
+        The (2,+-2) tables carry an EXACT ORDER-4 SYMMETRY, which reduces the bound grid to a
     QUARTER domain -- worth 4x against a shortfall of 80x, real but not the answer.
     Measured on the exponent itself, which is the object this code evaluates, and not on
     the coefficient table it is built from:
