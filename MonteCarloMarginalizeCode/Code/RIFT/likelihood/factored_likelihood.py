@@ -76,6 +76,9 @@ from .time_marginalization_quadrature import TIME_QUADRATURE_CHOICES
 TIME_QUADRATURE_DEFAULT = 'simpson'
 
 from .vectorized_lal_tools import ComputeDetAMResponse,TimeDelayFromEarthCenter
+from .vectorized_lal_tools import (SourcePolarizationBasis, SourcePropagationDirection,
+                                   ComputeDetAMResponsePrecomputed,
+                                   TimeDelayFromEarthCenterPrecomputed)
 
 import os
 if 'PROFILE' not in os.environ:
@@ -202,6 +205,48 @@ else:
   useNR=False
 
 distMpcRef = 1000 # a fiducial distance for the template source.
+
+# --- per-detector constants, cached across likelihood calls -------------------
+# DetectorPrefixToLALDetector() plus two host->device transfers of a 3-vector and a
+# 3x3 matrix were being redone on EVERY likelihood evaluation, once per detector.
+# The values are fixed properties of the interferometer, so cache them keyed by
+# (prefix, backend).  Keyed on id(xpy) rather than the module object so numpy and
+# cupy arrays never get mixed.
+_DETECTOR_GEOMETRY_CACHE = {}
+
+
+def _detector_geometry(det, xpy):
+    """(location, response) for detector prefix ``det`` as ``xpy`` arrays, cached."""
+    key = (det, id(xpy))
+    hit = _DETECTOR_GEOMETRY_CACHE.get(key)
+    if hit is None:
+        detector = lalsim.DetectorPrefixToLALDetector(det)
+        hit = (xpy.asarray(detector.location), xpy.asarray(detector.response))
+        _DETECTOR_GEOMETRY_CACHE[key] = hit
+    return hit
+
+
+# --- mode-list identity, cached across likelihood calls -----------------------
+# The Ylm array depends only on (modes, inclination, phiref) -- NOT on the detector --
+# but was recomputed once per detector per call.  To share it we need to know which
+# detectors carry the same mode list, and lookupNKDict[det] may be a DEVICE array, so
+# comparing it per call would force a synchronization.  Instead memoize a hashable
+# host-side key per array OBJECT.  The array itself is kept in the cache so its id()
+# cannot be recycled onto a different object while the entry lives; the dicts are built
+# once per event by ILE, so this stays a handful of entries.
+_MODE_KEY_CACHE = {}
+
+
+def _mode_list_key(lms):
+    """Hashable host-side key identifying a mode list, memoized on the array object."""
+    hit = _MODE_KEY_CACHE.get(id(lms))
+    if hit is not None and hit[0] is lms:
+        return hit[1]
+    host = lms.get() if hasattr(lms, "get") else lms
+    key = tuple(map(tuple, np.asarray(host).tolist()))
+    _MODE_KEY_CACHE[id(lms)] = (lms, key)
+    return key
+
 tWindowExplore = [-0.15, 0.15] # Not used in main code.  Provided for backward compatibility for ROS. Should be consistent with t_ref_wind in ILE.
 rosDebugMessages = True
 rosDebugMessagesDictionary = {}   # Mutable after import (passed by reference). Not clear if it can be used by caling routines
@@ -2716,12 +2761,32 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
     else:
         raise NotImplementedError("Backend not supported: {}".format(xpy))
 
+    # ---- source-only geometry: built ONCE, shared by every detector -------------
+    # None of this depends on the interferometer, only on the extrinsic samples, but it
+    # used to be rebuilt inside the detector loop.  At production n_extrinsic these are
+    # small arrays, so the cost is launch-bound: ~30 kernels per detector, all but the
+    # response/location contractions redundant.  The per-detector calls below consume
+    # these and perform exactly the same contractions as before, so results are bitwise
+    # unchanged.
+    XY_basis = SourcePolarizationBasis(
+        RA, DEC, psi, greenwich_mean_sidereal_time_tref,
+        xpy=xpy,
+    )
+    ehat_src = SourcePropagationDirection(
+        RA, DEC, float(greenwich_mean_sidereal_time_tref),
+        xpy=xpy,
+    )
+
+    # Ylm depends on (modes, incl, phiref) only.  Detectors that share a mode list --
+    # in practice all of them, since the modes come from one waveform -- share the
+    # array.  Keyed by mode list so a genuinely heterogeneous dict still gets a correct
+    # (merely unshared) result rather than a wrong shared one.
+    _ylm_by_modes = {}
+
     # strings right now - need to change to make ufunc-able
     for det in detectors:
-        # Compute the detector's location and response matrix
-        detector = lalsim.DetectorPrefixToLALDetector(det)
-        detector_location = xpy.asarray(detector.location)
-        detector_response = xpy.asarray(detector.response)
+        # Compute the detector's location and response matrix (cached; fixed per IFO)
+        detector_location, detector_response = _detector_geometry(det, xpy)
 
         # These do not depend on extrinsic params.
         # Arrays of shape (n_lms, n_lms).
@@ -2734,19 +2799,27 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
 
         # These do depend on extrinsic params
         # Array of shape (npts_extrinsic, n_lms,)
-        Ylms_vec = SphericalHarmonicsVectorized(
-            lms, incl, -phiref,
-            xpy=xpy,
-            l_max=Lmax,
-        )
+        _mode_key = _mode_list_key(lms)
+        Ylms_vec = _ylm_by_modes.get(_mode_key)
+        if Ylms_vec is None:
+            Ylms_vec = SphericalHarmonicsVectorized(
+                lms, incl, -phiref,
+                xpy=xpy,
+                l_max=Lmax,
+            )
+            _ylm_by_modes[_mode_key] = Ylms_vec
+        if phase_marginalization:
+            # The phase-marginalization branch below CONJUGATES Ylms_vec in place, and
+            # rho_sq_det above must see the un-conjugated array.  Hand each detector its
+            # own copy so sharing cannot leak one detector's conjugation into the next
+            # detector's self-term.  A copy of an (n_extrinsic, n_lms) array is still far
+            # cheaper than rebuilding the harmonics.
+            Ylms_vec = Ylms_vec.copy()
 
         # Array of shape (npts_extrinsic,)
 #        F_vec_old = xpy.asarray(lalF(det, RA, DEC, psi, tref))
-        F_vec = ComputeDetAMResponse(
-            detector_response,
-            RA, DEC, psi,
-            greenwich_mean_sidereal_time_tref,
-            xpy=xpy
+        F_vec = ComputeDetAMResponsePrecomputed(
+            detector_response, XY_basis[0], XY_basis[1], xpy=xpy,
         )
 
         # Scalar -- is constant for each IFO
@@ -2756,10 +2829,8 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         # Note that to save on precision compared to ...NoLoopOrig, we CHANGE the t_det definition to be relative to the IFO statt time t_ref
         #    ... this means we don't keep a 1e9 out in front, so we have more significant digits in the event time (and can if needed reduce precision in GPU ops)
         # an array of shape (npts_extrinsic,)
-        t_det = float(tref - float(t_ref)) + TimeDelayFromEarthCenter(
-            detector_location, RA, DEC,
-            float(greenwich_mean_sidereal_time_tref),
-            xpy=xpy
+        t_det = float(tref - float(t_ref)) + TimeDelayFromEarthCenterPrecomputed(
+            detector_location, ehat_src, xpy=xpy,
         )
         if explicit_time_values:
             sample_at_times = ((t_det[:, None] +
