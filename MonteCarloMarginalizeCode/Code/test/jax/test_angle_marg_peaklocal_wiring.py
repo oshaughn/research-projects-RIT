@@ -32,10 +32,27 @@ def test_peak_local_is_NOT_reachable_from_auto():
         assert scheme != "peak-local", (amp, scheme)
 
 
-@pytest.mark.parametrize("boost", [1.0, 30.0])
+@pytest.mark.parametrize("boost", [1.0, 10.0])
 def test_wrapper_peak_local_matches_exact(boost):
     """The wiring's whole claim: asking for it by name gives the same likelihood as the
-    scheme it parallels."""
+    scheme it parallels.
+
+    BOOST 30 WAS REPLACED BY 10, AND IT COST 807 SECONDS FOR NO WIRING COVERAGE.  Since the
+    u node count became amplitude-derived and streamed, boost 30 puts amp_sizing at 2691
+    and asks for 2188 nodes in 274 sequential stream blocks; that one parametrisation was
+    807 s of a 1006 s file, and the jax gate went from ~24 min to 37-46 min.
+
+    It bought nothing this file is for.  `amp_sizing` FLOORS AT 450, so boost 1.0 already
+    requests 896 nodes -- 18.7x the U_NODES_PER_CELL floor -- and therefore already
+    exercises the amplitude-derived path end to end.  What boost 30 added was numerical
+    stress at production amplitude, and this module's own docstring delegates that: "The
+    kernel's own numerics are tested in test_joint_anglemarg_peaklocal.py."
+
+    10.0 is kept rather than dropping to a second floored value because it is the first
+    boost whose amp_sizing (624) CLEARS the 450 floor -- so the pair still demonstrates that
+    the sizing tracks amplitude rather than being pinned to the crossover, which is the one
+    wiring property the second point exists to show.
+    """
     data = make_synth(scale=2.0, kappa_boost=boost)
     kw = dict(nphi=32, npsi=8, interp=INTERP)
     ex = JAXDistPhiPsiMargLikelihood(data, 30.0, 3000.0, angle_marg="exact", **kw)
@@ -141,9 +158,9 @@ def test_peak_local_runs_the_runtime_amplitude_failsafe():
 
 def test_peak_local_is_capped_by_the_batch_memory_rule():
     """P1 from review.  peak-local still nests sample/time vmaps over the distance grid,
-    phi chunks, four cells and 48 u nodes, so the batch multiplies the same way the
-    dense schemes do.  Leaving it out of the cap kept an uncapped 8000-sample batch and
-    reopened a documented 36.4 GiB failure."""
+    phi chunks, four cells and the streamed u-node block, and its scan returns every
+    ``(phi,distance)`` value, so the batch multiplies the same way the dense schemes do.
+    Leaving it out of the cap kept an uncapped 8000-sample batch."""
     from RIFT.likelihood.jax_ile import samplers as S
 
     class _Data(object):
@@ -164,17 +181,95 @@ def test_peak_local_is_capped_by_the_batch_memory_rule():
     assert capped < 8000
     # NOT "same cap as exact" -- that was the earlier assertion and review rightly
     # objected that it pins the wrong invariant.  peak-local carries the WHOLE distance
-    # grid inside every phi chunk, so its live slab is ~770x the dense model's
-    # 8192 bytes/sample/time-point; a cap equal to exact's would look protective and
-    # would not be.  The scheme-specific model must therefore be STRICTLY tighter.
+    # grid inside every phi chunk and stacks the full phi-scan result; its production-
+    # floor model is ~216x the dense model's 8192 bytes/sample/time-point.  A cap equal
+    # to exact's would look protective and would not be.  The scheme-specific model must
+    # therefore be STRICTLY tighter.
     assert capped < S.angle_marg_eval_chunk(_Exact(), 8000), capped
     # and it must scale with the distance grid, which is what makes it a model rather
     # than a constant
     class _Wide(_Like):
         x_grid = np.zeros(1024)
-    assert S.angle_marg_eval_chunk(_Wide(), 8000) <= capped
+    # At this width the corrected body+scan model exceeds the fallback target
+    # even at S=1.  Returning a cap of one would claim protection it cannot give.
+    with pytest.raises(MemoryError, match="resource preflight"):
+        S.angle_marg_eval_chunk(_Wide(), 8000)
     # the "grid" sentinel means "runs no dense angle scheme" and must stay uncapped
     assert S.angle_marg_eval_chunk(_NoScheme(), 8000) == 8000
+
+
+def test_known_four_gib_device_uses_configured_fraction(monkeypatch):
+    """The unknown-device 4-GiB reserve must never become a known-device floor."""
+    from RIFT.likelihood.jax_ile import samplers as S
+
+    class _Device(object):
+        platform = "gpu"
+
+        def memory_stats(self):
+            return {"bytes_limit": 4 << 30,
+                    "largest_free_block_bytes": 4 << 30}
+
+    monkeypatch.setattr(S.jax, "devices", lambda: [_Device()])
+    monkeypatch.setattr(S, "_ANGLE_MARG_BUFFER_FRACTION", 0.5)
+    assert S._angle_marg_buffer_target() == (2 << 30)
+
+
+@pytest.mark.parametrize("amplitude,n_phi", [(450.0, 352), (12500.0, 1792)])
+def test_peak_local_model_includes_streamed_body_and_scan_output(
+        amplitude, n_phi):
+    """The cap must account for both source-visible peak-local payloads."""
+    from RIFT.likelihood.jax_ile import samplers as S
+
+    class _Data(object):
+        npts = 1193
+        lms = ((2, 2), (2, -2))
+
+    class _Like(object):
+        data = _Data()
+        angle_marg_scheme = "peak-local"
+        x_grid = np.zeros(256)
+        angle_marg_info = {"amp_sizing": amplitude}
+
+    per_point = S._peaklocal_bytes_per_sample_pt(_Like())
+    assert per_point == 16 * 256 * 4 * 8 * 8 + n_phi * 256 * 8
+
+
+def test_peak_local_resource_preflight_refuses_an_unfit_single_sample(
+        monkeypatch):
+    """A=12500 needs 5.242 GiB/sample; a cap of one would still OOM 4 GiB."""
+    from RIFT.likelihood.jax_ile import samplers as S
+
+    class _Data(object):
+        npts = 1193
+        lms = ((2, 2), (2, -2))
+
+    class _Like(object):
+        data = _Data()
+        angle_marg_scheme = "peak-local"
+        x_grid = np.zeros(256)
+        angle_marg_info = {"amp_sizing": 12500.0}
+
+    monkeypatch.setattr(S, "_angle_marg_buffer_target", lambda: 4 << 30)
+    with pytest.raises(MemoryError, match="reducing the outer evaluation chunk"):
+        S.angle_marg_eval_chunk(_Like(), 8000)
+
+
+def test_peak_local_floor_amplitude_fits_one_sample_at_two_gib(monkeypatch):
+    """A=450 needs 1.966 GiB/sample, so the known-4-GiB target admits only one."""
+    from RIFT.likelihood.jax_ile import samplers as S
+
+    class _Data(object):
+        npts = 1193
+        lms = ((2, 2), (2, -2))
+
+    class _Like(object):
+        data = _Data()
+        angle_marg_scheme = "peak-local"
+        x_grid = np.zeros(256)
+        angle_marg_info = {"amp_sizing": 450.0}
+
+    monkeypatch.setattr(S, "_angle_marg_buffer_target", lambda: 2 << 30)
+    assert S.angle_marg_eval_chunk(_Like(), 8000) == 1
 
 
 def test_peak_local_artifacts_carry_the_standing_best_effort_label():

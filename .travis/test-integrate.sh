@@ -72,7 +72,7 @@ _TMARG_TESTS=(
 # catches a total collection failure (pytest exits 5), but a silent shrink from 60
 # tests to 3 -- a rename, a stale -k, a decorator that stops matching -- reads as
 # green.  Raise EXPECTED by RUNNING collection, never by arithmetic.
-_TMARG_EXPECTED=161
+_TMARG_EXPECTED=171
 _TMARG_FOUND=$(python -m pytest -q --collect-only "${_TMARG_TESTS[@]}" 2>/dev/null | grep -c '::' || true)
 if [ "$_TMARG_FOUND" -ne "$_TMARG_EXPECTED" ]; then
     echo "time-marginalization gate: collected $_TMARG_FOUND tests, expected $_TMARG_EXPECTED" >&2
@@ -137,11 +137,14 @@ fi
 # protect: that the outside supremum is CERTIFIED (a straddling cell must count as
 # outside -- classifying grid centres once returned "nothing uncovered" and accepted
 # unconditionally), that a distance node is only dropped when the drop is provable
-# against the computed value, and that an undersized region is DECLINED rather than
-# returned.
+# against the computed value, and that an undersized region is routed to the finite
+# dense fallback rather than returned locally.  The algebraic follow-up also pins
+# the BKK/resultant enumerator on co-dominant, near-annihilating, exactly degenerate,
+# and amplitude-scaled systems, requires inside-cover convergence even after a
+# complete enumeration, and keeps the NumPy fallback independent of optional JAX.
 _JOINT_PL_TESTS=MonteCarloMarginalizeCode/Code/test/test_joint_angle_peak_local.py
 # Raise EXPECTED by RUNNING collection, never by arithmetic.
-_JOINT_PL_EXPECTED=28
+_JOINT_PL_EXPECTED=36
 _JOINT_PL_FOUND=$(python -m pytest -q --collect-only "$_JOINT_PL_TESTS" 2>/dev/null | grep -c '::' || true)
 if [ "$_JOINT_PL_FOUND" -ne "$_JOINT_PL_EXPECTED" ]; then
     echo "joint peak-local gate: collected $_JOINT_PL_FOUND tests, expected $_JOINT_PL_EXPECTED" >&2
