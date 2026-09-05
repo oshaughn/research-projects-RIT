@@ -11,8 +11,11 @@
 # distance grid, a container manifest, a parameter port.  A wrong number there is still a
 # plausible number.
 #
-# Every file listed here was run individually on CIT (IGWN conda python 3.11, numpy 1.26.4,
-# lal 7.7.0) before it was added; the measured collection counts are the floors below.
+# The original manifest was run file by file on CIT (IGWN conda python 3.11, numpy 1.26.4,
+# lal 7.7.0) before it was added; the measured collection counts are the floors below.  Later
+# entries are verified by this gate itself, which collects every file individually before the
+# combined run, so an addition that collects nothing or fails is caught here rather than
+# trusted on a quoted number.
 #
 # SHAPE.  Modelled on .travis/test-slowrot.sh, and it keeps that script's defences, because
 # the trap it documents is live in this very set: several files elsewhere in these directories
@@ -58,6 +61,7 @@ FILES=(
   "$C/RIFT/likelihood/test_td_dispatch_epoch.py"
   "$C/test/test_ile_scalar_edge_cases.py"
   "$C/test/test_srate_resample_time_marginalization.py"
+  "$C/test/test_vectorized_lal_tools_split.py"
   # -- integrators: seeding, allocation, weight derivation
   "$C/test/integrators/test_convergence_sample_order.py"
   "$C/test/integrators/test_gmm_adaptive.py"
@@ -120,7 +124,11 @@ done
 # and test_marg_list.py joined the manifest -- both were rostered BROKEN until their defects
 # were fixed.  RAISE these when files are added: a floor left at the old value passes while
 # covering less, which is the failure this gate exists to catch.)
-EXPECTED_TESTS=296
+#
+# +3/+3 for test_vectorized_lal_tools_split.py: three unconditional test functions, no skip
+# and no xfail, numpy / lal / lalsimulation only, so both floors move by the same amount and
+# MAX_SKIPPED does not.
+EXPECTED_TESTS=299
 # Outcomes, not just exit status: a collection floor cannot see a test that collects, runs and
 # asserts nothing, and a pytest.skip can quietly absorb a lost gate.  The 12 skips are
 # environment legs -- cupy in test_seeding_reproducibility, device legs in
@@ -131,7 +139,7 @@ EXPECTED_TESTS=296
 # editable install) reported the same 278 / 266 / 12, in 24.7 s.  So these floors are exact on
 # both stacks, not merely the CIT numbers copied across, and a future divergence is a real
 # change rather than an environment difference to be explained away.
-EXPECTED_PASSED=284
+EXPECTED_PASSED=287
 MAX_SKIPPED=12
 
 junit="$(mktemp -t core-units-junit-XXXXXX.xml)"
