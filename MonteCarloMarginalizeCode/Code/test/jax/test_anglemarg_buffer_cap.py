@@ -221,6 +221,14 @@ def test_a_busy_shared_card_is_not_sized_from_its_ceiling(monkeypatch):
     assert got == 1 * GIB
 
 
+def test_a_zero_largest_free_block_is_a_known_full_device(monkeypatch):
+    """A reported zero is availability data, not a missing probe result."""
+    _fake_jax(monkeypatch, devices=[_Dev("gpu", 24 * GIB, free=0)])
+    assert sam._angle_marg_buffer_target() == 0
+    with pytest.raises(MemoryError):
+        sam.angle_marg_eval_chunk(_Like("laplace", 1193), 4000)
+
+
 def test_a_ceiling_with_no_free_report_falls_back_rather_than_guessing_up(monkeypatch):
     """The device is visible but says nothing about occupancy.
 
@@ -331,10 +339,11 @@ def test_bytes_per_sample_point_still_reproduces_the_observed_allocation():
 
 import numpy as np
 
-#: The reviewer's peak-local slab, as an explicit literal: 16 * 256 * 4 * 8 * 8.
-PEAKLOCAL_BYTES_PER_PT = 1048576
-#: ... and one sample of it at production npts=1230.  1.2011 GiB.
-PEAKLOCAL_ONE_SAMPLE = 1289748480
+#: Streamed body plus the stacked phi-scan output at the production floor:
+#: 16*256*4*8*8 + 352*256*8.
+PEAKLOCAL_BYTES_PER_PT = 1769472
+#: ... and one sample of it at production npts=1230.  2.027 GiB.
+PEAKLOCAL_ONE_SAMPLE = 2176450560
 
 
 class _PeakLocalLike(object):
@@ -355,7 +364,11 @@ def test_the_peak_local_slab_really_is_that_big():
     the tension in the review was between a peak-local figure and a laplace constant.
     """
     from RIFT.likelihood.jax_ile import joint_anglemarg_peaklocal as jp
-    modeled = jp.PHI_CHUNK_DEFAULT * 256 * 4 * jp.U_NODE_STREAM_CHUNK * 8
+    from RIFT.likelihood.jax_ile import anglemarg
+    streamed = jp.PHI_CHUNK_DEFAULT * 256 * 4 * jp.U_NODE_STREAM_CHUNK * 8
+    n_phi = jp.required_n_phi(anglemarg.ANGLE_MARG_CROSSOVER_AMPLITUDE,
+                              m_max=2)
+    modeled = streamed + n_phi * 256 * 8
     assert modeled == PEAKLOCAL_BYTES_PER_PT, (
         "the peak-local live-slab model moved: kernel constants now imply %d bytes per "
         "sample-time-point, the P1 review example assumed %d" % (modeled,
@@ -477,11 +490,11 @@ def test_the_bytes_override_beats_the_fallback_and_lifts_a_refusal(monkeypatch):
     """The case the knob exists for: no readable device, and the 4 GiB guess refuses a
     configuration the operator knows their machine can hold."""
     _fake_jax(monkeypatch, raises=RuntimeError("no device"))
-    big = _PeakLocalLike(npts=8192)            # 8 GiB per sample, over the 4 GiB guess
+    big = _PeakLocalLike(npts=8192)         # 13.5 GiB per sample, over the 4 GiB guess
     with pytest.raises(MemoryError):
         sam.angle_marg_eval_chunk(big, 4000)
     monkeypatch.setenv("RIFT_ANGLEMARG_BUFFER_BYTES", str(32 * GIB))
-    assert sam.angle_marg_eval_chunk(big, 4000) == 4
+    assert sam.angle_marg_eval_chunk(big, 4000) == 2
 
 
 # ---------------------------------------------------------------------------

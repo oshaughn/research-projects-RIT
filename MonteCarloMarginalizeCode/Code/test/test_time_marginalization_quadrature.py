@@ -399,6 +399,25 @@ def test_rows_sharing_a_block_keep_their_individual_resolution():
     assert sum(hist.values()) == 2, hist
 
 
+def test_simpson_fallback_is_evaluated_only_for_unrefined_rows():
+    """Dense rows must not also pay for a coarse integration that is discarded."""
+    sharp = BandLimited(amp=1.0, peak_sample=NPTS // 2 + 0.25,
+                        n_period=8 * NPTS, m_hi=1400, background=0.12)
+    flat = np.full(NPTS, 0.12 + 0.0j)
+    k = np.stack((sharp.samples(), flat))
+    calls = []
+
+    def recording_simps(y, dx, axis):
+        calls.append(np.asarray(y).shape)
+        return simpson(y, dx=dx, axis=axis)
+
+    got = tmq.time_marginalize_bandlimited(
+        k, np.full(k.shape, RHO_SQ), DELTAT, _lnL, simps=recording_simps)
+    assert got.shape == (2,)
+    assert tmq.last_report()['n_refined_rows'] == 1
+    assert calls == [(1, NPTS)], calls
+
+
 # ------------------------------------------------------------- preconditions
 
 def test_time_dependent_rho_sq_is_refused():
@@ -745,6 +764,30 @@ def test_remeasure_on_the_dense_grid_repairs_an_under_derived_factor():
     assert rep['upsample_factor'] == honest_factor, rep
     assert abs(float(got[0]) - float(honest[0])) < 1e-9
     assert abs(float(got[0]) - sig.truth()) < 1e-6
+
+
+def test_dense_remeasurement_refines_only_the_rows_that_still_need_it():
+    """One pathological row must not impose its extra FFT octaves on a group."""
+    signals = [
+        BandLimited(amp=0.2, peak_sample=NPTS // 2 + 0.25),
+        BandLimited(amp=5.0, peak_sample=NPTS // 2 + 0.25),
+    ]
+    k = np.stack([sig.samples() for sig in signals])
+    rho = np.full(k.shape, RHO_SQ)
+    honest = tmq.time_marginalize_bandlimited(k, rho, DELTAT, _lnL)
+
+    real = tmq.required_upsample_factors
+    tmq.required_upsample_factors = lambda sigma, dx, xpy=np: 2 * xpy.ones(
+        np.asarray(sigma).shape, dtype=np.int64)
+    try:
+        got = tmq.time_marginalize_bandlimited(k, rho, DELTAT, _lnL)
+    finally:
+        tmq.required_upsample_factors = real
+    rep = tmq.last_report()
+    assert rep['n_refinements'] > 0, rep
+    assert len(rep['factor_histogram']) == 2, rep
+    assert sum(rep['factor_histogram'].values()) == 2, rep
+    assert np.allclose(got, honest, rtol=0, atol=1e-9), (got, honest, rep)
 
 
 

@@ -1,9 +1,11 @@
 """Joint (phi, psi) peak-local angle marginalization, JAX kernel.
 
-The numpy reference is ``RIFT.likelihood.joint_angle_peak_local``; this is the jittable
-form of the same rule.  It is NOT a transcription -- the reference builds 2-D regions
-and merges overlapping ones, which is data-dependent control flow and does not jit.  The
-formulation here removes the need to merge at all.
+The NumPy reference ``RIFT.likelihood.joint_angle_peak_local`` now obtains BOTH-angle
+targets from the finite algebraic stationary set implemented in
+``RIFT.likelihood.bivariate_trig_stationary``.  This older device kernel is not a
+transcription of that rule: it localizes u but retains a dense phi scan.  A sampled phi
+scan is not algebraic enumeration.  Production wiring stays unchanged until a host-built,
+fixed-capacity algebraic plan and its dense fallback can cross the JAX boundary honestly.
 
 THE PARTITION THAT REPLACES MERGING.  At fixed ``phi`` the exponent is
 ``a + Re(c1 e^{iu}) + Re(c2 e^{2iu})``, whose u-stationary points are the roots of a

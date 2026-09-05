@@ -161,6 +161,8 @@ each realization's kappa row would have to be upsampled and the derived factor
 reconciled across realizations, which is untested here.
 """
 
+import os
+
 import numpy as np
 
 __all__ = [
@@ -259,6 +261,32 @@ CURVATURE_STENCIL_HALFWIDTHS = (1, 2, 4, 8)
 #: the honest statement is that it cannot change the answer at any scale that
 #: is not floating-point noise.
 _DENSE_CHUNK_BYTES = 128 * 1024 * 1024
+
+
+def _cpu_fft_workers():
+    """Bounded CPU FFT parallelism, respecting scheduler CPU affinity.
+
+    The reflected transforms have awkward production lengths (for example
+    ``2*307``), and dominate the AV band-limited path.  SciPy's pocketfft can
+    parallelize the independent row transforms, while NumPy's public FFT API
+    cannot.  Never request more CPUs than the process affinity mask exposes;
+    ``RIFT_TIME_FFT_WORKERS`` can lower the cap or raise the default cap of four.
+    """
+    try:
+        available = len(os.sched_getaffinity(0))
+    except (AttributeError, OSError):
+        available = os.cpu_count() or 1
+    requested = int(os.environ.get("RIFT_TIME_FFT_WORKERS", "4"))
+    return max(1, min(requested, available))
+
+
+def _fft_rows(x, inverse=False, xpy=np):
+    if xpy is np:
+        from scipy import fft as scipy_fft
+        fn = scipy_fft.ifft if inverse else scipy_fft.fft
+        return fn(x, axis=-1, workers=_cpu_fft_workers())
+    fn = xpy.fft.ifft if inverse else xpy.fft.fft
+    return fn(x, axis=-1)
 
 _LAST_REPORT = {}
 
@@ -527,7 +555,7 @@ def bandlimited_upsample(x, factor, xpy=np):
         return x
     n = x.shape[-1]
     lead = x.shape[:-1]
-    X = xpy.fft.fft(x, axis=-1)
+    X = _fft_rows(x, xpy=xpy)
     Xup = xpy.zeros(lead + (n * factor,), dtype=xpy.asarray(X).dtype)
     n_pos = (n - 1) // 2                 # DC plus n_pos strictly-positive bins
     Xup[..., :n_pos + 1] = X[..., :n_pos + 1]
@@ -538,7 +566,7 @@ def bandlimited_upsample(x, factor, xpy=np):
         Xup[..., -n_pos:] = X[..., n // 2 + 1:]
     else:
         Xup[..., -n_pos:] = X[..., n_pos + 1:]
-    return xpy.fft.ifft(Xup, axis=-1) * factor
+    return _fft_rows(Xup, inverse=True, xpy=xpy) * factor
 
 
 def reflected_bandlimited_upsample(x, factor, xpy=np):
@@ -972,7 +1000,18 @@ def time_marginalize_bandlimited(kappa, rho_sq, deltaT, loglikelihood,
     # auditable claim.)
     refined = has_peak & (factors > 1)
 
-    out = _log_simps_rows(lnL_coarse, deltaT, simps, xpy=xpy)
+    # Do not pay for the historical coarse-grid integral on rows that we already
+    # know will be overwritten by the dense reconstruction below.  In ordinary
+    # AV ILE the coarse likelihood has already been evaluated for classification;
+    # the old unconditional call added another exp/reduction over every
+    # extrinsic×time point even when every row required refinement.  Allocate the
+    # result once and run Simpson only on the rows for which it is the answer.
+    out = xpy.empty((n_rows,), dtype=xpy.asarray(lnL_coarse).dtype)
+    unrefined = ~refined
+    if bool(xpy.any(unrefined)):
+        idx_unrefined = xpy.where(unrefined)[0]
+        out[idx_unrefined] = _log_simps_rows(
+            lnL_coarse[idx_unrefined], deltaT, simps, xpy=xpy)
     time_draw = None
     lnL_at_draw = None
     if return_time_draw:
@@ -1000,7 +1039,7 @@ def time_marginalize_bandlimited(kappa, rho_sq, deltaT, loglikelihood,
         if not n_sel:
             continue
         idx = xpy.where(sel)[0]
-        vals, f_used, n_ref, s_min, drawn_t, drawn_lnL = _integrate_group(
+        vals, group_hist, n_ref, s_min, drawn_t, drawn_lnL = _integrate_group(
             kappa[idx], rho_col[idx], npts, deltaT, f, loglikelihood, _term,
             draw_uniforms_rows=(draw_uniforms[idx] if return_time_draw else None),
             t0=t0, xpy=xpy)
@@ -1008,7 +1047,8 @@ def time_marginalize_bandlimited(kappa, rho_sq, deltaT, loglikelihood,
         if return_time_draw:
             time_draw[idx] = drawn_t
             lnL_at_draw[idx] = drawn_lnL
-        hist[int(f_used)] = hist.get(int(f_used), 0) + n_sel
+        for f_used, n_used in group_hist.items():
+            hist[int(f_used)] = hist.get(int(f_used), 0) + int(n_used)
         n_refine_total += n_ref
         sigma_seen = min(sigma_seen, s_min)
 
@@ -1023,6 +1063,7 @@ def time_marginalize_bandlimited(kappa, rho_sq, deltaT, loglikelihood,
         n_unmeasurable_rows=int(xpy.sum(unmeasurable)),
         n_flat_rows=int(xpy.sum(flat)),
         n_refined_rows=int(xpy.sum(refined)),
+        cpu_fft_workers=(_cpu_fft_workers() if xpy is np else None),
     )
     if return_time_draw:
         return out, time_draw, lnL_at_draw
@@ -1034,13 +1075,21 @@ def _integrate_group(kappa_rows, rho_col_rows, npts, deltaT, factor,
                      xpy=np):
     """Refine and integrate one group of rows that share a derived factor.
 
-    Returns ``(values, factor_used, n_refinements, sigma_dense_min,
+    Returns ``(values, factor_histogram, n_refinements, sigma_dense_min,
     time_draws, lnL_at_draws)``.  The final two entries are ``None`` unless
     ``draw_uniforms_rows`` is supplied.
     """
     n_rows = kappa_rows.shape[0]
     n_refine = 0
-    while True:
+    remaining = xpy.arange(n_rows)
+    values = xpy.empty((n_rows,), dtype=np.float64)
+    time_values = (xpy.empty((n_rows,), dtype=np.float64)
+                   if draw_uniforms_rows is not None else None)
+    draw_lnL_values = (xpy.empty((n_rows,), dtype=np.float64)
+                       if draw_uniforms_rows is not None else None)
+    factor_hist = {}
+    sigma_seen = np.inf
+    while int(remaining.size):
         if factor > UPSAMPLE_FACTOR_MAX:
             raise RuntimeError(
                 "band-limited time marginalization needs an upsampling factor above "
@@ -1054,25 +1103,27 @@ def _integrate_group(kappa_rows, rho_col_rows, npts, deltaT, factor,
         # The FFT period is 2*n after reflection; budget for it and the forward
         # kappa/rho/lnL temporaries.
         per_row = npts * factor * 16 * 8
-        chunk = max(1, min(n_rows, int(_DENSE_CHUNK_BYTES // max(per_row, 1))))
+        n_remaining = int(remaining.size)
+        chunk = max(1, min(n_remaining, int(_DENSE_CHUNK_BYTES // max(per_row, 1))))
 
         pieces = []
         draw_time_pieces = []
         draw_lnL_pieces = []
-        sigma_dense_min = np.inf
-        for start in range(0, n_rows, chunk):
+        sigma_pieces = []
+        for start in range(0, n_remaining, chunk):
+            take = remaining[start:start + chunk]
             k_up = reflected_bandlimited_upsample(
-                kappa_rows[start:start + chunk], factor, xpy=xpy)
-            rho_up = xpy.broadcast_to(rho_col_rows[start:start + chunk], k_up.shape)
+                kappa_rows[take], factor, xpy=xpy)
+            rho_up = xpy.broadcast_to(rho_col_rows[take], k_up.shape)
             lnL_up = loglikelihood(_term(k_up), rho_up)
             s_d, _, meas = peak_width_from_lnL(lnL_up, dx_dense, xpy=xpy)
             s_d = xpy.where(meas, s_d, np.inf)
-            sigma_dense_min = min(sigma_dense_min, float(xpy.min(s_d)))
+            sigma_pieces.append(s_d)
             pieces.append(_log_trapz_over_window(lnL_up, dx_dense, npts, factor, xpy=xpy))
             if draw_uniforms_rows is not None:
                 drawn_t, drawn_lnL = draw_piecewise_linear_log_posterior(
                     lnL_up, dx_dense, t0=t0,
-                    uniforms=draw_uniforms_rows[start:start + chunk], xpy=xpy)
+                    uniforms=draw_uniforms_rows[take], xpy=xpy)
                 draw_time_pieces.append(drawn_t)
                 draw_lnL_pieces.append(drawn_lnL)
 
@@ -1081,13 +1132,28 @@ def _integrate_group(kappa_rows, rho_col_rows, npts, deltaT, factor,
         # criterion.  A coarse-grid estimate can be optimistic when the peak is
         # strongly non-Gaussian; this catches that and pays for another doubling
         # instead of reporting a number it cannot defend.
-        if (not np.isfinite(sigma_dense_min)) or dx_dense <= sigma_dense_min / UPSAMPLE_SAFETY:
-            values = xpy.concatenate(pieces) if len(pieces) > 1 else pieces[0]
-            drawn_t = (xpy.concatenate(draw_time_pieces) if len(draw_time_pieces) > 1
-                       else (draw_time_pieces[0] if draw_time_pieces else None))
-            drawn_lnL = (xpy.concatenate(draw_lnL_pieces) if len(draw_lnL_pieces) > 1
-                         else (draw_lnL_pieces[0] if draw_lnL_pieces else None))
-            return values, factor, n_refine, sigma_dense_min, drawn_t, drawn_lnL
-
+        current_values = xpy.concatenate(pieces) if len(pieces) > 1 else pieces[0]
+        current_sigma = (xpy.concatenate(sigma_pieces)
+                         if len(sigma_pieces) > 1 else sigma_pieces[0])
+        finite_sigma = xpy.isfinite(current_sigma)
+        if bool(xpy.any(finite_sigma)):
+            sigma_seen = min(sigma_seen, float(xpy.min(current_sigma[finite_sigma])))
+        resolved = (~finite_sigma) | (dx_dense <= current_sigma / UPSAMPLE_SAFETY)
+        accepted = remaining[resolved]
+        values[accepted] = current_values[resolved]
+        n_accepted = int(xpy.sum(resolved))
+        if n_accepted:
+            factor_hist[int(factor)] = factor_hist.get(int(factor), 0) + n_accepted
+        if draw_uniforms_rows is not None:
+            current_t = (xpy.concatenate(draw_time_pieces) if len(draw_time_pieces) > 1
+                         else draw_time_pieces[0])
+            current_draw_lnL = (xpy.concatenate(draw_lnL_pieces)
+                                if len(draw_lnL_pieces) > 1 else draw_lnL_pieces[0])
+            time_values[accepted] = current_t[resolved]
+            draw_lnL_values[accepted] = current_draw_lnL[resolved]
+        remaining = remaining[~resolved]
+        if not int(remaining.size):
+            return (values, factor_hist, n_refine, sigma_seen,
+                    time_values, draw_lnL_values)
         factor *= 2
         n_refine += 1

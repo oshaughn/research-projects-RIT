@@ -231,7 +231,7 @@ def _log_prior_jax(theta5):
 # ---------------------------------------------------------------------------
 # Batched lnL evaluation (chunked to bound memory)
 # ---------------------------------------------------------------------------
-# Largest single XLA buffer of the anglemarg laplace path, per sample per
+# Historical largest single XLA buffer of the anglemarg laplace path, per sample per
 # time point: the (quad_chunk=16, dist_block=4, phi_chunk=16) stacked
 # quadrature block, 16*4*16*8 = 8192 bytes.  Measured 2026-08-28: at the
 # default chunk 4000 with npts=1193 XLA requested exactly 36.41 GiB for that
@@ -240,6 +240,11 @@ def _log_prior_jax(theta5):
 # so this execution-side wall was previously unreachable.  The exact scheme's
 # dense reconstruction has the same batch-multiplied structure (smaller
 # constant); the laplace constant is used for both as the worst case.
+#
+# The laplace kernel now tiles the combined sample-time point axis internally,
+# so this is no longer its literal largest-buffer model.  Keep the outer cap as
+# a conservative bound on still-live coefficient tables and phi fields, and for
+# exact, which does not share that tiler.
 #
 # "BOTH" MEANS EXACT AND LAPLACE, AND NOTHING ELSE.  A reviewer read it as covering
 # every scheme and concluded this constant understates peak-local by ~128x.  It does --
@@ -387,8 +392,8 @@ def _device_available_bytes(stats):
     memory we have just been told does not exist.
     """
     block = stats.get("largest_free_block_bytes")
-    if block:
-        return int(block)
+    if block is not None:
+        return max(0, int(block))
     pool = stats.get("pool_bytes") or stats.get("bytes_reserved")
     if pool:
         return max(0, int(pool) - int(stats.get("bytes_in_use") or 0))
@@ -457,6 +462,39 @@ def _angle_marg_buffer_target():
 _ANGLE_MARG_BUFFER_TARGET = _ANGLE_MARG_BUFFER_TARGET_FALLBACK
 
 
+def _peaklocal_bytes_per_sample_pt(like):
+    """Conservative source-level payload for one peak-local sample/time point.
+
+    The streamed nonlinear body and the phi scan's stacked output have distinct
+    shapes, and both have to be budgeted.  This is still not a CUDA allocator
+    measurement and cannot see an outer transformation such as flowMC's chain
+    ``vmap``; callers of the scalar AD target require separate profiling.
+    """
+    from . import anglemarg as _am
+    from . import joint_anglemarg_peaklocal as _jp
+
+    n_x = int(np.size(getattr(like, "x_grid", ())) or 1)
+    info = getattr(like, "angle_marg_info", None) or {}
+    # Production wrappers record the floored sizing amplitude.  Preserve the
+    # same floor for small test doubles and legacy readers that omit the ledger.
+    amp_sizing = info.get("amp_sizing")
+    if amp_sizing is None:
+        amp_sizing = _am.ANGLE_MARG_CROSSOVER_AMPLITUDE
+    n_u_live = min(_jp.u_nodes_in_use(amp_sizing), _jp.U_NODE_STREAM_CHUNK)
+
+    data = getattr(like, "data", None)
+    lms = getattr(data, "lms", None)
+    m_max = (int(np.max(np.abs(np.asarray(lms)[:, 1])))
+             if lms is not None else 2)
+    n_phi = _jp.required_n_phi(amp_sizing, m_max=m_max)
+
+    streamed_body = _jp.PHI_CHUNK_DEFAULT * n_x * 4 * n_u_live * 8
+    # lax.scan returns every phi chunk before the subsequent reshape/logsumexp;
+    # that stacked output therefore has (n_phi, n_x) f64 payload.
+    stacked_scan_output = n_phi * n_x * 8
+    return int(streamed_body + stacked_scan_output)
+
+
 def angle_marg_eval_chunk(like, chunk):
     """Cap the batched-eval chunk when ``like`` runs an anglemarg scheme.
 
@@ -485,26 +523,11 @@ def angle_marg_eval_chunk(like, chunk):
         return chunk
     bytes_per = _ANGLE_MARG_BYTES_PER_SAMPLE_PT
     if getattr(like, "angle_marg_scheme", None) == "peak-local":
-        # ITS COST MODEL IS NOT THE DENSE ONE, and enrolling it in the cap without
-        # saying so was a review finding.  peak-local carries the WHOLE distance grid
-        # inside every phi chunk, so its live slab is
-        #     phi_chunk * n_x * (4 cells) * (live u nodes) * 8 bytes
-        # per (sample, time-point) -- about 1.0 MB at phi_chunk=16, n_x=256 and an
-        # 8-node stream block, roughly 128x the 8192-byte dense model before
-        # intermediates.  Using the dense
-        # constant would have applied a cap that looks protective and is not.
-        from . import joint_anglemarg_peaklocal as _jp
-        n_x = int(np.size(getattr(like, "x_grid", ())) or 1)
-        # The kernel requests the accurate amplitude-derived TOTAL but streams its node
-        # axis.  Model the live block, not the total work: using all 896 production-floor
-        # nodes here would be safe but would collapse the batch cap as though the old
-        # 67-GiB materialization still existed.  The same amp_sizing is nevertheless read
-        # here so this guard remains coupled to the production policy.
-        amp_sizing = (getattr(like, "angle_marg_info", None) or {}).get("amp_sizing")
-        n_u_live = min(_jp.u_nodes_in_use(amp_sizing), _jp.U_NODE_STREAM_CHUNK)
-        bytes_per = max(
-            bytes_per,
-            _jp.PHI_CHUNK_DEFAULT * n_x * 4 * n_u_live * 8)
+        # Besides the streamed (phi_chunk,n_x,4,u_live) body, lax.scan returns
+        # and stacks every (n_phi,n_x) value before the final reduction.  Omitting
+        # that output undercounts high-amplitude calls because n_phi grows as
+        # sqrt(A).
+        bytes_per = max(bytes_per, _peaklocal_bytes_per_sample_pt(like))
     target = _angle_marg_buffer_target()
     per_sample = bytes_per * npts
     if per_sample > target:
@@ -513,8 +536,9 @@ def angle_marg_eval_chunk(like, chunk):
         # `per_sample` bytes -- larger than the target this function exists to enforce.
         # The floor made the bound silently untrue on any device small enough, which is
         # not the same failure as being slow.  peak-local reaches it at production
-        # dimensions: phi_chunk 16, n_x 256, four cells, an 8-node stream block and
-        # npts 1230 is 1.20 GiB for ONE sample, so a 2 GiB card (1 GiB allowance at the
+        # dimensions: phi_chunk 16, n_x 256, four cells, an 8-node stream block, the
+        # stacked phi scan and npts 1230 is 2.03 GiB for ONE sample, so a 2 GiB card
+        # (1 GiB allowance at the
         # default fraction) cannot honour the bound at any chunk size.
         #
         # The alternative repair is kernel-level tiling of the buffer itself.  That is a
@@ -528,7 +552,8 @@ def angle_marg_eval_chunk(like, chunk):
         # to fall back to a cheaper scheme catch this narrowly instead of every
         # RuntimeError the eval path can raise.
         raise MemoryError(
-            "anglemarg scheme %r cannot honour the buffer bound at ANY chunk size: one "
+            "angle-marginalization resource preflight: scheme %r cannot honour the "
+            "buffer bound at ANY chunk size: one "
             "sample needs %d bytes (%.2f GiB) -- %d bytes per sample per time point x "
             "npts=%d -- against an allowance of %d bytes (%.2f GiB).  Returning a chunk "
             "of 1 would ask the device for the full %.2f GiB and OOM, so this refuses "
@@ -540,7 +565,8 @@ def angle_marg_eval_chunk(like, chunk):
             "both the device probe and the %d-byte fallback); shorten the time window "
             "(npts); shrink the distance grid (n_x), which drives the peak-local model; "
             "or run a cheaper angle_marg_scheme.  The sample axis is the only axis this "
-            "cap can divide, so no chunk size is a fix."
+            "cap can divide, so no chunk size is a fix; reducing the outer "
+            "evaluation chunk cannot make this call fit."
             % (getattr(like, "angle_marg_scheme", None), per_sample,
                per_sample / float(1 << 30), bytes_per, npts, target,
                target / float(1 << 30), per_sample / float(1 << 30),

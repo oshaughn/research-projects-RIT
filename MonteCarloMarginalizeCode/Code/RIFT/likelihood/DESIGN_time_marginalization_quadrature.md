@@ -211,17 +211,22 @@ this rate exceeds the 11 GB card, which is itself worth knowing:
 | 16,000 | 0.107 | 0.121 s | 3.93 s | **32x** |
 | 40,000 | -- | out of memory on 11 GB | | |
 
-**The ratio triples between the measured 4,000 and the production 40,000, and it does so for a
-reason worth reading.**  It is not only that the GPU baseline is nearly free.  The refinement
-factor is derived ONCE PER GROUP of rows and re-doubled until the criterion holds for the
-group MINIMUM (`_integrate_group`: `sigma_dense_min = min(...)` over the chunk).  Ten times as
-many rows reach ten times deeper into the tail of that minimum, so the whole group pays an
-extra octave: the factor histogram at the worst rung moves from mostly 32 at n=4,000
+**The ratio triples between the measured 4,000 and the production 40,000, and the original
+implementation explains why.**  It is not only that the GPU baseline is nearly free.  That
+implementation re-doubled the refinement factor until the criterion held for the group minimum.
+Ten times as many rows reach ten times deeper into the tail of that minimum, so the whole group
+paid an extra octave: the factor histogram at the worst rung moved from mostly 32 at n=4,000
 (`{16: 233, 32: 3126, 64: 235}`) to mostly 64 at n=40,000 (`{32: 610, 64: 35236, 128: 188}`).
 The cost per row therefore GROWS with the chunk size rather than staying flat.  Anyone reading
 the earlier "the baseline is nearly free, so any added work reads as a large multiple"
 explanation would expect the factor to shrink once the baseline does real work; it does the
 opposite.
+
+`_integrate_group` now retires each row as soon as its dense-grid remeasurement satisfies the
+resolution criterion and doubles only the unresolved active set.  The accuracy criterion and
+128-MiB working-memory chunk remain unchanged; the returned factor histogram records the actual
+per-row factors.  The tables above predate that fix and are retained as the performance problem
+the new production-SNR benchmark must remeasure, not as its expected post-fix cost.
 
 **The affine, n=4,000 table, kept because it is what the CPU table compares against.**  Same
 device, `--callback affine`, `rho_sq = 0`:
