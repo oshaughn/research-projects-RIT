@@ -339,6 +339,7 @@ FILES=(
   "${JAXDIR}/test_jax_stencil_parity.py"
   "${JAXDIR}/test_flow_reuse_default.py"
   "${JAXDIR}/test_angle_marg_sizing_rule.py"
+  "${JAXDIR}/test_anglemarg_buffer_cap.py"
   "${JAXDIR}/test_angle_marg_smoke.py"
   "${JAXDIR}/test_angle_marg_compile_cost.py"
   "${JAXDIR}/test_angle_marg_block_dispatch.py"

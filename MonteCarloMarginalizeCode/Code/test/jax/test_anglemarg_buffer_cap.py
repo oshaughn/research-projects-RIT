@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-# RIFT-CI-GATE: jax-ile
+# Registered by NAME in .travis/test-jax.sh's FILES array -- that job selects by an
+# explicit list, not by a marker.  A '# RIFT-CI-GATE:' line here would name a gate
+# that does not exist and the roster census refuses it, correctly.
 """The anglemarg eval-chunk cap: still bounds the buffer, no longer assumes 4 GiB.
 
 The cap exists because on 2026-08-28 the laplace path asked XLA for a single 36.41 GiB
