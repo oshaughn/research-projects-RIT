@@ -231,15 +231,19 @@ def _log_prior_jax(theta5):
 # ---------------------------------------------------------------------------
 # Batched lnL evaluation (chunked to bound memory)
 # ---------------------------------------------------------------------------
-# Largest single XLA buffer of the anglemarg laplace path, per sample per
-# time point: the (quad_chunk=16, dist_block=4, phi_chunk=16) stacked
-# quadrature block, 16*4*16*8 = 8192 bytes.  Measured 2026-08-28: at the
-# default chunk 4000 with npts=1193 XLA requested exactly 36.41 GiB for that
-# buffer and the SNR-40 acceptance run died RESOURCE_EXHAUSTED on a 25 GiB
-# cgroup -- the pre-fix code never got past COMPILATION at production size,
-# so this execution-side wall was previously unreachable.  The exact scheme's
-# dense reconstruction has the same batch-multiplied structure (smaller
-# constant); the laplace constant is used for both as the worst case.
+# Historical largest single XLA buffer of the anglemarg laplace path, per
+# sample per time point: the (quad_chunk=16, dist_block=4, phi_chunk=16)
+# stacked quadrature block, 16*4*16*8 = 8192 bytes.  Measured 2026-08-28: at
+# chunk 4000 with npts=1193 XLA requested exactly 36.41 GiB and died
+# RESOURCE_EXHAUSTED on a 25 GiB cgroup.
+#
+# The laplace kernel now rolls that combined sample-time axis internally at
+# LAPLACE_POINT_BLOCK, so this is no longer its literal largest-buffer model.
+# Keep the outer cap for now as a conservative bound on the still-live
+# coefficient tables and phi fields (both O(sample*npts)), and because exact
+# and peak-local do not yet share the point-axis tiler.  Removing or relaxing
+# it requires production-GPU peak-memory and throughput measurements across all
+# three schemes; a device-memory fraction alone is not that evidence.
 _ANGLE_MARG_BYTES_PER_SAMPLE_PT = 8192
 
 #: Largest single buffer we will let the anglemarg eval request.  4 GiB was chosen on

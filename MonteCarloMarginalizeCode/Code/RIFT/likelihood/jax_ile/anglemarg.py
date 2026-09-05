@@ -1095,6 +1095,24 @@ _LAPLACE_BRACKET_CELLS = 24   # sign-scan cells for the stationary points of
                               # global maximum and carries negligible weight.
 _LAPLACE_MAX_ROOTS = 4
 
+#: Maximum number of independent ``(sample, time)`` points presented to one
+#: distance/psi kernel invocation.  This is an execution-only tile: neither a
+#: quadrature count nor an accuracy knob.  At the shipped ``QCH=16``,
+#: ``dist_block=4`` and ``phi_chunk=16``, the largest pure-quadrature slab is
+#:
+#:     16 * 4 * 16 * LAPLACE_POINT_BLOCK * sizeof(float64) = 32 MiB.
+#:
+#: Before this point axis was rolled, that last factor was ``S * npts``.  The
+#: production failure at ``S=4000, npts=1193`` therefore asked XLA for one
+#: 36.41-GiB buffer.  The sampler-side device cap can reduce S for callers that
+#: happen to go through it, but direct ``log_likelihood`` calls do not, and a
+#: device-memory fraction does not bound the total live graph or its AD
+#: residuals.  Rolling the mathematically independent point axis gives the
+#: kernel itself a device-independent bound.  The coefficient tables and the
+#: output still scale as O(S*npts); this constant removes only the multiplicative
+#: quadrature slab, which is the measured allocation wall.
+LAPLACE_POINT_BLOCK = 4096
+
 
 def _psi_lnI_amplitudes(c1, c2):
     """(b, d, t_amp) for the kernel and the block dispatcher: harmonic
@@ -1533,7 +1551,7 @@ def _gh_psi_node_offsets(n_nodes):
 def fused_log_likelihood_distphipsimarg_laplace(
         data, ra, dec, incl, x_grid, log_w_grid,
         interp=JAX_INTERP_DEFAULT, amp_sizing=None,
-        phi_chunk=16, dist_block=4,
+        phi_chunk=16, dist_block=4, point_block=LAPLACE_POINT_BLOCK,
         time_quadrature=TIME_QUAD_DEFAULT, return_lnLt=False):
     """Distance-, phi_ref- AND psi-marginalized lnL: analytic psi-Laplace scheme.
 
@@ -1570,7 +1588,10 @@ def fused_log_likelihood_distphipsimarg_laplace(
     of ``x_grid``, so the log-uniform option would be bit-identically inert and
     is refused rather than silently ignored.
 
-    Memory is bounded by ``phi_chunk`` x ``dist_block``, never by grid sizes.
+    Memory of the multiplicative quadrature slab is bounded by ``phi_chunk`` x
+    ``dist_block`` x ``point_block``, never by the full sample x time product or
+    by grid sizes.  ``point_block`` rolls independent ``(sample, time)`` bins and
+    changes no quadrature rule or reduction order within a bin.
     """
     # RESPONSE-MODEL PRECONDITION, before anything is built.  This function is
     # public (__all__) and is called directly by the wrapper and by several test
@@ -1632,6 +1653,9 @@ def fused_log_likelihood_distphipsimarg_laplace(
     kpB = jnp.arange(2 * m_max + 1, dtype=jnp.float64)
     G = x_grid.shape[0]
     blk = int(dist_block)
+    pblk = min(int(point_block), S * npts)
+    if pblk < 1:
+        raise ValueError("point_block must be at least 1")
     # Distance nodes packed into (n_dblk, blk) for the lax.scan below; the
     # tail block (if G % blk) is edge-padded with -inf log-weights, exactly
     # the _pad_chunks convention, so padded nodes contribute exactly 0 to the
@@ -1690,81 +1714,111 @@ def fused_log_likelihood_distphipsimarg_laplace(
         # measures IS the one this placement depends on.
         A0, A1, B0, B1, B2 = psi_harmonics_at_phi(C_A, C_B, phw, m_max)
 
-        # distance quadrature: blocked, vectorized over the block (AD-fast),
-        # running log-sum-exp across blocks (a lax.scan; see the packing note
-        # above -- one traced kernel instead of G/blk unrolled copies)
-        def _dist_step(carry, xw):
-            mx, sx = carry
-            xgb, lwgb = xw                                    # (blk,)
-            xg = xgb[:, None, None, None]                     # (g,1,1,1)
-            lwg = lwgb[:, None, None, None]
-            av = xg * A0[None] - 0.5 * jnp.square(xg) * B0[None]
-            c1 = xg * A1[None] - 0.5 * jnp.square(xg) * B1[None]
-            c2 = -0.5 * jnp.square(xg) * B2[None]
-            e = _laplace_psi_lnI_block(av, c1, c2) + lwg        # (g,c,S,npts)
-            return _lse_update(mx, sx, e, axis=0), None
+        # Roll the combined independent (sample,time) point axis BEFORE adding
+        # distance and quadrature axes.  The old body formed
+        # (quad_chunk, dist_block, phi_chunk, S, npts) at once; the sampler cap
+        # only hid that from some callers.  Edge padding is safe because each
+        # padded result is discarded before the phi reduction.  Repeating the
+        # edge (rather than zero-padding the coefficients) also keeps every
+        # branch finite, which matters to reverse-mode AD even for dead outputs.
+        npoint = S * npts
+        n_pblk = (npoint + pblk - 1) // pblk
+        pad_p = n_pblk * pblk - npoint
 
-        if _use_gh:
-            # ---- psi-marginal adaptive node placement, all FROZEN ----------
-            # Centre on the psi that maximises the (unclipped) distance-maximum
-            # exponent A(u)^2/(2 B(u)) -- available in CLOSED FORM here, see
-            # the derivation above _gh_psi_node_offsets:
-            #     e^{i u*} = +- conj(w)/|w|,  w = B0*A1 - conj(A1)*B2
-            # with the sign picking the branch where A(u*) > 0 (x must be
-            # positive).  Angle-free, so arg(0) never appears and w = 0 is a
-            # regular point; reduces to conj(A1)/|A1| -- the maximiser of A
-            # itself -- when B2 = 0.
-            w_st = B0 * A1 - jnp.conj(A1) * B2
-            ph1 = jnp.conj(w_st) / jnp.maximum(jnp.abs(w_st), 1e-300)
-            sgn = jnp.where((A1 * ph1).real >= 0, 1.0, -1.0)
-            ph1 = ph1 * sgn                                    # e^{i u*}
-            A_st = A0 + (A1 * ph1).real                        # A(u*)
-            B_st = B0 + (B1 * ph1).real + (B2 * ph1 * ph1).real
-            R_lo = B0 - jnp.abs(B1) - jnp.abs(B2)              # <= min_u B
-            gh_center = jax.lax.stop_gradient(
-                jnp.clip(A_st / jnp.maximum(B_st, 1e-30), x_min, x_max))
-            gh_sigma = jax.lax.stop_gradient(
-                jnp.minimum(1.0 / jnp.sqrt(jnp.maximum(R_lo, 1e-30)),
-                            gh_sigma_cap))
+        def _pack_points(v):
+            v = v.reshape(c, npoint)
+            if pad_p:
+                v = jnp.concatenate(
+                    [v, jnp.broadcast_to(v[:, -1:], (c, pad_p))], axis=1)
+            return jnp.swapaxes(v.reshape(c, n_pblk, pblk), 0, 1)
 
-            def _gh_dist_step(carry, zw):
+        fields = tuple(_pack_points(v) for v in (A0, A1, B0, B1, B2))
+
+        def _point_step(field_block):
+            A0p, A1p, B0p, B1p, B2p = field_block             # (c,pblk)
+
+            # distance quadrature: blocked, vectorized over the block (AD-fast),
+            # running log-sum-exp across blocks (a lax.scan; see the packing note
+            # above -- one traced kernel instead of G/blk unrolled copies)
+            def _dist_step(carry, xw):
                 mx, sx = carry
-                zb, zpb, znb, zpadb = zw                       # (blk,)
-
-                def _node(zz):
-                    return jnp.clip(
-                        gh_center[None] + gh_sigma[None] * zz[:, None, None, None],
-                        x_min, x_max)
-
-                xg = _node(zb)                                 # (g,c,S,npts)
-                # composite-trapezoid weight, index-clamped at both ends:
-                # identical to core._distmarg_gh_logL's diff/concatenate form.
-                w = 0.5 * (_node(znb) - _node(zpb))
-                pos = w > 0                                    # live (unclipped)
-                lwg = jnp.where(pos, jnp.log(jnp.where(pos, w, 1.0))
-                                - 4.0 * jnp.log(xg), -jnp.inf)
-                lwg = lwg + zpadb[:, None, None, None]         # -inf on pad slots
-                av = xg * A0[None] - 0.5 * jnp.square(xg) * B0[None]
-                c1 = xg * A1[None] - 0.5 * jnp.square(xg) * B1[None]
-                c2 = -0.5 * jnp.square(xg) * B2[None]
-                e = _laplace_psi_lnI_block(av, c1, c2) + lwg
+                xgb, lwgb = xw                                # (blk,)
+                xg = xgb[:, None, None]                       # (g,1,1)
+                lwg = lwgb[:, None, None]
+                av = xg * A0p[None] - 0.5 * jnp.square(xg) * B0p[None]
+                c1 = xg * A1p[None] - 0.5 * jnp.square(xg) * B1p[None]
+                c2 = -0.5 * jnp.square(xg) * B2p[None]
+                e = _laplace_psi_lnI_block(av, c1, c2) + lwg  # (g,c,pblk)
                 return _lse_update(mx, sx, e, axis=0), None
 
-            mx0 = jnp.full((c, S, npts), -jnp.inf, dtype=jnp.float64)
-            sx0 = jnp.zeros((c, S, npts), dtype=jnp.float64)
-            (mx, sx), _ = jax.lax.scan(
-                _gh_dist_step, (mx0, sx0),
-                (zg_blk, zpg_blk, zng_blk, zpad_blk))
-            lnI = (mx + jnp.where(sx > 0, jnp.log(jnp.maximum(sx, 1e-300)),
-                                  -jnp.inf)
-                   + gh_C0 + lww[:, None, None])               # (c,S,npts)
-            m_new, s_new = _lse_update(m, s, lnI, axis=0)
-            return (m_new, s_new), None
+            if _use_gh:
+                # ---- psi-marginal adaptive node placement, all FROZEN ------
+                # Centre on the psi that maximises the (unclipped)
+                # distance-maximum exponent A(u)^2/(2 B(u)); see the derivation
+                # above _gh_psi_node_offsets.
+                w_st = B0p * A1p - jnp.conj(A1p) * B2p
+                ph1 = jnp.conj(w_st) / jnp.maximum(jnp.abs(w_st), 1e-300)
+                sgn = jnp.where((A1p * ph1).real >= 0, 1.0, -1.0)
+                ph1 = ph1 * sgn                                # e^{i u*}
+                A_st = A0p + (A1p * ph1).real                  # A(u*)
+                B_st = B0p + (B1p * ph1).real + (B2p * ph1 * ph1).real
+                R_lo = B0p - jnp.abs(B1p) - jnp.abs(B2p)       # <= min_u B
+                gh_center = jax.lax.stop_gradient(
+                    jnp.clip(A_st / jnp.maximum(B_st, 1e-30), x_min, x_max))
+                gh_sigma = jax.lax.stop_gradient(
+                    jnp.minimum(1.0 / jnp.sqrt(jnp.maximum(R_lo, 1e-30)),
+                                gh_sigma_cap))
 
-        mx0 = jnp.full((c, S, npts), -jnp.inf, dtype=jnp.float64)
-        sx0 = jnp.zeros((c, S, npts), dtype=jnp.float64)
-        (mx, sx), _ = jax.lax.scan(_dist_step, (mx0, sx0), (xg_blk, lwg_blk))
-        lnI = (mx + jnp.where(sx > 0, jnp.log(jnp.maximum(sx, 1e-300)), -jnp.inf)
+                def _gh_dist_step(carry, zw):
+                    mx, sx = carry
+                    zb, zpb, znb, zpadb = zw                   # (blk,)
+
+                    def _node(zz):
+                        return jnp.clip(
+                            gh_center[None]
+                            + gh_sigma[None] * zz[:, None, None],
+                            x_min, x_max)
+
+                    xg = _node(zb)                             # (g,c,pblk)
+                    # Composite-trapezoid weight, index-clamped at both ends:
+                    # identical to core._distmarg_gh_logL's convention.
+                    w = 0.5 * (_node(znb) - _node(zpb))
+                    pos = w > 0                               # live (unclipped)
+                    lwg = jnp.where(pos, jnp.log(jnp.where(pos, w, 1.0))
+                                    - 4.0 * jnp.log(xg), -jnp.inf)
+                    lwg = lwg + zpadb[:, None, None]           # -inf on pad slots
+                    av = xg * A0p[None] - 0.5 * jnp.square(xg) * B0p[None]
+                    c1 = xg * A1p[None] - 0.5 * jnp.square(xg) * B1p[None]
+                    c2 = -0.5 * jnp.square(xg) * B2p[None]
+                    e = _laplace_psi_lnI_block(av, c1, c2) + lwg
+                    return _lse_update(mx, sx, e, axis=0), None
+
+                mx0 = jnp.full((c, pblk), -jnp.inf, dtype=jnp.float64)
+                sx0 = jnp.zeros((c, pblk), dtype=jnp.float64)
+                (mx, sx), _ = jax.lax.scan(
+                    _gh_dist_step, (mx0, sx0),
+                    (zg_blk, zpg_blk, zng_blk, zpad_blk))
+                return (mx + jnp.where(
+                    sx > 0, jnp.log(jnp.maximum(sx, 1e-300)), -jnp.inf)
+                        + gh_C0)
+
+            mx0 = jnp.full((c, pblk), -jnp.inf, dtype=jnp.float64)
+            sx0 = jnp.zeros((c, pblk), dtype=jnp.float64)
+            (mx, sx), _ = jax.lax.scan(
+                _dist_step, (mx0, sx0), (xg_blk, lwg_blk))
+            return mx + jnp.where(sx > 0,
+                                  jnp.log(jnp.maximum(sx, 1e-300)), -jnp.inf)
+
+        # Avoid wrapping the overwhelmingly common scalar/small-test case in a
+        # one-trip map: it buys no memory and adds another control-flow region
+        # for XLA/AD to compile.  Production batches cross the bound and take
+        # the rolled path below.
+        if n_pblk == 1:
+            lnI_blk = _point_step(tuple(v[0] for v in fields))[None]
+        else:
+            lnI_blk = jax.lax.map(jax.checkpoint(_point_step), fields)
+        lnI = (jnp.swapaxes(lnI_blk, 0, 1).reshape(c, n_pblk * pblk)
+               [:, :npoint].reshape(c, S, npts)
                + lww[:, None, None])                          # (c,S,npts)
         m_new, s_new = _lse_update(m, s, lnI, axis=0)
         return (m_new, s_new), None

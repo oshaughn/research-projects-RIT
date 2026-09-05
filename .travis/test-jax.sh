@@ -157,13 +157,18 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         passes a weaker guard), and that BOTH
 #                                         artifacts are labelled and never imply
 #                                         verification.  Seconds, not minutes.
-#   test_angle_marg_compile_cost.py   6  the laplace path's COMPILE- and RUN-cost
+#   test_angle_marg_compile_cost.py   8  the laplace path's COMPILE- and RUN-cost
 #                                         structure (2026-08-28: an unrolled kernel
 #                                         x 64 distance blocks put a production
 #                                         SNR-40 run >88 min / 22 GiB into XLA
 #                                         compilation; the fix then exposed a
 #                                         36.41 GiB RESOURCE_EXHAUSTED at the
-#                                         default eval chunk).  Trace-only where
+#                                         default eval chunk).  The multiplicative
+#                                         distance/phi/quadrature slab is now rolled
+#                                         over the combined sample-time axis, so its
+#                                         largest dimension is a fixed point tile even
+#                                         for direct callers that bypass the eval cap.
+#                                         Trace-only where
 #                                         possible: the traced graph must not grow
 #                                         with the distance grid, the kernel must
 #                                         stay rolled (equation-count ceiling), the
@@ -493,8 +498,10 @@ fi
 # it and fails.  Read the floor off this job's "collected N tests from 27 files" line --
 # the only source that is not a guess.
 # The production-policy follow-up adds one mutation-bearing streaming test; this job's
-# own collection reports 312.
-EXPECTED_TESTS=312
+# own collection reports 312.  The sample-time point tiling adds two mutation-bearing
+# compile-cost tests (wiring/allocation shape and value+gradient parity), raising 312 ->
+# 314 without changing the file manifest.
+EXPECTED_TESTS=314
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"
