@@ -253,7 +253,23 @@ _ANGLE_MARG_BYTES_PER_SAMPLE_PT = 8192
 #: machine we cannot measure.  Deliberately a fraction of free VRAM rather than all of it:
 #: this bounds ONE buffer, and the rest of the graph has to live alongside it.
 _ANGLE_MARG_BUFFER_TARGET_FALLBACK = 4 << 30
-_ANGLE_MARG_BUFFER_FRACTION = 0.25
+
+#: Fraction of the device's reported limit to allow for this ONE buffer.
+#: WHY A FRACTION AT ALL, and why it cannot go to 1.0: these cards are SHARED.  A
+#: contemporaneous survey of ldas-pcdev11 found all four GPUs at 100% utilisation with
+#: 18-22 GiB of 24 GiB already held by other users, and `bytes_limit` is what JAX believes
+#: it may have at the moment it is asked -- not a reservation.  Sizing at the full limit
+#: OOMs as soon as we share a card, which is the normal case here, not the exception.
+#: WHY 0.5 RATHER THAN A MEASURED NUMBER: the remaining margin has to cover the rest of the
+#: graph alongside this buffer, and that has NOT been measured -- an attempt was defeated by
+#: the interactive hosts' thread cap.  0.5 is therefore a JUDGEMENT, not a result: it is
+#: twice the first guess and still leaves half the reported limit.  Override it when you
+#: know your card is yours:
+#:     RIFT_ANGLEMARG_BUFFER_FRACTION=0.8
+#: and if you measure the true overhead, replace this constant with the measurement and say
+#: so here.
+_ANGLE_MARG_BUFFER_FRACTION = float(
+    os.environ.get("RIFT_ANGLEMARG_BUFFER_FRACTION", "0.5"))
 
 
 def _angle_marg_buffer_target():
