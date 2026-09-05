@@ -262,7 +262,7 @@ def _laurent_order(A, a, b):
     return ((1j * k) ** int(a)) * ((1j * q) ** int(b)) * A
 
 
-def _laurent_newton(A, z, w, iterations=30):
+def _laurent_newton(A, z, w, iterations=60):
     """Newton in complex angle coordinates, avoiding cleared-power scaling."""
     Dp = _laurent_order(A, 1, 0)
     Du = _laurent_order(A, 0, 1)
