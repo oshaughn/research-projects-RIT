@@ -493,8 +493,11 @@ fi
 # it and fails.  Read the floor off this job's "collected N tests from 27 files" line --
 # the only source that is not a guess.
 # The production-policy follow-up adds one mutation-bearing streaming test; this job's
-# own collection reports 312.
-EXPECTED_TESTS=325
+# own collection reports 312.  Raised to 328 for the three tests the second adversarial
+# review added to test_joint_anglemarg_peaklocal.py -- the sampling-harmonic aliasing
+# counterexample and the two halves of the bound-grid adequacy gate.  MEASURED by running
+# this job's own collection over FILES/DESELECT, not by adding to the previous number.
+EXPECTED_TESTS=328
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"

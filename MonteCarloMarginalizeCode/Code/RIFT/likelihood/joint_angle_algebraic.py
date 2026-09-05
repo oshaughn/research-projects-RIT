@@ -1,5 +1,22 @@
 """EXACT 2-D stationary enumeration for the joint (phi, u) angle exponent.
 
+SUPERSEDED ON REBASE, AND THIS MODULE SHOULD NOT SURVIVE THE MERGE.  PR 252 adds
+``bivariate_trig_stationary.py``, which solves the same problem and solves it better: a
+generic affine projection into a generalized eigenproblem rather than a resultant on the
+roots of unity, plus four checks this module does not have -- the BKK mixed-volume root
+count, nonsingular complex Jacobians, an unambiguous unit-torus classification, and
+agreement between two independent projections -- and an ``ok`` flag that fails closed on
+any of them.  This module has no ``ok`` at all and returns silently empty on a degenerate
+input.
+
+It is here because 247 has to stand on its own branch off ``rift_O4d`` while 252 is open
+against a different base.  Carrying BOTH after 252 lands is the outcome review called out,
+together with the contradiction it creates -- 252's header in ``joint_anglemarg_peaklocal``
+says both-axis algebraic localization is not attempted, which 247 then contradicts in the
+same file.  On rebase: delete this module, point ``phi_seeds_algebraic`` at
+``bivariate_trig_stationary``, keep this file's tests as tests of that one, and re-collect
+the CI gate counts rather than taking either branch's number.
+
 WHY THIS EXISTS.  ``enumerate_modes`` is exact in u and GRIDDED in phi -- it seeds from
 ``linspace(0, 2pi, n_phi)`` -- and the JAX twin's ``phi_local_lnI`` is worse: it iterates on
 the maxima of ``F(phi) = log int du exp(g)``, a log-integral with no completeness warrant,

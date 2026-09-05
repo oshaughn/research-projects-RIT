@@ -245,7 +245,7 @@ def test_u_profile_derivatives_match_the_numpy_reference():
     C = _joint(A, B)
     f = jax.jit(JP.u_profile)
     for phi in np.linspace(0.4, 5.6, 5):
-        F, d1, d2, _ = f(jnp.asarray(C), float(phi))
+        F, d1, d2, _, _ = f(jnp.asarray(C), float(phi))
         Fn, d1n, d2n = JN.u_profile(C, np.array([phi]))
         assert abs(float(F) - Fn[0]) < 1e-4, (phi, F, Fn[0])
         scale = max(1.0, abs(d1n[0]))
@@ -473,12 +473,17 @@ def test_the_convergence_check_is_guarded_against_its_own_blind_spot():
     nats wrong with ``conv`` as low as 1.3e-04 -- BELOW the 1e-3 gate, so ``conv`` alone
     accepted them.
 
-    The assumption is enforceable because the mode content is exact: ``g`` is a trig
-    polynomial in phi of degree ``k_max = KP-1 = 2 m_max``, so requiring the node count to
-    Nyquist-resolve ``k_max`` rules out content at the sampling harmonic by construction.
+    The guard tested here is ``n_nodes > 2 k_max``.  IT IS NECESSARY AND NOT SUFFICIENT,
+    and this docstring used to claim otherwise -- that Nyquist-resolving ``k_max`` "rules
+    out content at the sampling harmonic by construction".  That is a statement about
+    ``g``; the outer trapezoid integrates ``exp(F)`` with ``F = log int du exp(g)``, and
+    neither is band-limited because ``g`` is.  A later review supplied a ``k_max = 1``
+    table that passes this guard trivially and is still 0.02 nats wrong -- see
+    :func:`test_the_halving_check_is_blind_at_the_sampling_harmonic`, which covers the
+    part of the family this guard does not.
 
     Tested through ``n_nodes`` rather than by building the degree-1552 counterexample,
-    which is correct-but-unaffordable in CI: the guard is ``n_nodes > 2 k_max`` either way.
+    which is correct-but-unaffordable in CI.
     """
     KS = 2
     rng = np.random.default_rng(101)
@@ -498,3 +503,114 @@ def test_the_convergence_check_is_guarded_against_its_own_blind_spot():
     # and the guard is load-bearing, not decoration: it must be able to veto a case whose
     # conv is below the threshold, which is exactly what the counterexample showed.
     assert JP.PHI_NODES_PER_REGION > 2 * k_max
+
+
+def _separable_phi_table(kappa, shift, r=6.0, KS=2):
+    """A table whose profile is EXACTLY ``F(phi) = kappa cos(phi - shift) + const``.
+
+    Only ``C[1, q=0]`` and ``C[0, q=+2]`` are set, so ``c1 = 0`` and ``c2 = r`` are both
+    phi-independent: the u integral contributes a constant and the phi dependence is the
+    single harmonic.  ``k_max = KP - 1 = 1``, and the double integral is closed form,
+    ``2 pi I_0(kappa) * 2 pi I_0(r)``, so the error is known rather than estimated.
+    """
+    C = np.zeros((2, 2 * KS + 1), dtype=complex)
+    C[1, KS + 0] = 0.5 * kappa * np.exp(-1j * shift)
+    C[0, KS + 2] = r
+    from scipy.special import ive
+    exact = (np.log(2 * np.pi) + kappa + np.log(ive(0, kappa))
+             + np.log(2 * np.pi) + r + np.log(ive(0, r)))
+    return jnp.asarray(C), exact
+
+
+def test_the_halving_check_is_blind_at_the_sampling_harmonic():
+    """Adversarial review, second pass.  ``conv`` halves the nodes -- but the n and n/2
+    periodic rules alias at multiples of n and n/2, and the second set CONTAINS the first,
+    so the leading error term cancels out of the difference.  No subset of the nodes
+    already evaluated can ever see it; that is Nyquist, not an implementation shortfall.
+
+    Review's case: ``F = 1000 cos(phi - pi/96)`` on the full circle at 96 intervals.  The
+    phase makes the c_48 alias vanish exactly and leaves c_96, so the 96- and 48-interval
+    rules agree to 1e-13 while both are 0.02017 nats wrong.  ``k_max = 1`` here, so the
+    ``n_nodes > 2 k_max`` guard reports it safe at 97 > 2 and cannot help.
+
+    The composite midpoint companion samples the interval midpoints -- points the
+    trapezoid does not touch -- so on a periodic region it is the half-shifted rule and
+    its difference from ``value`` IS the leading alias.  It must decline this, and it must
+    not decline the same table resolved.
+    """
+    C, exact = _separable_phi_table(1000.0, np.pi / 96)
+
+    # w_sigma forces the wrapped branch: one region spanning 2 pi, which is where a
+    # periodic aliasing family can exist at all.
+    v, ok, info = JP.phi_local_lnI(C, w_sigma=200.0, n_nodes=97)
+    assert int(info["n_phi_regions"]) == 1, int(info["n_phi_regions"])
+    assert abs(float(v) - exact) > 1e-2, float(v) - exact       # genuinely wrong
+    assert float(info["phi_convergence"]) < 1e-9                # halving is blind
+    assert bool(info["phi_alias_safe"])                         # the old guard says safe
+    assert float(info["phi_convergence_shift"]) > JP.PHI_CONVERGENCE_NATS
+    assert not bool(ok), "a value 0.02 nats wrong must not be accepted"
+
+    # ...and the companion is not merely a decline switch: resolved, the same table accepts.
+    v2, ok2, info2 = JP.phi_local_lnI(C, w_sigma=200.0, n_nodes=385)
+    assert abs(float(v2) - exact) < 1e-4, float(v2) - exact
+    assert float(info2["phi_convergence_shift"]) < JP.PHI_CONVERGENCE_NATS
+    assert bool(ok2), dict(info2)
+
+
+def test_the_outside_bound_gates_on_the_fallback_that_can_invert_it():
+    """Adversarial review: ``Fb`` and ``d1b`` were taken from ``u_profile`` with its
+    whole-cell fallback and the count was DISCARDED at that call, so a row could be
+    accepted on a lift applied to an underestimated profile with no signal it had
+    happened.  ``info["n_u_fallback"]`` carried only the Newton-seed evaluation.
+
+    The remedy as stated -- decline whenever any bound-grid profile falls back -- is not
+    implementable: every generic table has four u-stationary points of which two are
+    minima, so the fallback count is never zero and that gate declines universally
+    (measured: 0 of 2 accepted on cases accurate to 1e-5).  A minimum cell has no peak to
+    window and is exponentially subdominant in F; the cells that can invert the bound are
+    those with ``g'' < 0`` that failed the stationarity or interior test, because a real
+    maximum may sit in one unresolved.
+
+    Nor is "did a max-bearing cell fall back" the question: an 8-step Newton misses the
+    1e-8 relative residual on plenty of ordinary maxima, and that test fired on 127 of 256
+    bound-grid points for tables accurate to 1e-5.  What the bound needs is review's other
+    remedy -- whether the whole-cell quadrature was ADEQUATE -- and that is exact here,
+    because the u spectrum has two terms so ``|d2g/du2| <= |c1| + 4|c2|`` everywhere and a
+    cell of ``width`` needs ``width sqrt(M2u) U_PTS_PER_SIGMA`` nodes.
+
+    So this test pins BOTH directions: a case that must accept with a non-zero fallback
+    count, and a case where the gate fires and is CLEARED by sizing the quadrature.
+    """
+    C, exact = _separable_phi_table(1000.0, np.pi / 96)
+    v, ok, info = JP.phi_local_lnI(C, w_sigma=200.0, n_nodes=385)
+    assert abs(float(v) - exact) < 1e-4
+    assert int(info["n_u_fallback_bound"]) > 0, "the naive gate would have fired here"
+    assert int(info["n_u_risky_bound"]) == 0
+    assert bool(ok), "gating on the whole-cell count declines every table there is"
+
+
+def test_the_bound_grid_adequacy_gate_fires_and_is_cleared_by_sizing():
+    """Non-vacuity, at the source rather than through the kernel so it stays affordable.
+
+    A gate that never fires is decoration.  This one must fire on a table sharp enough
+    that 48 nodes cannot resolve a whole cell, and must CLEAR when the node count is
+    raised to what the curvature bound asks for -- that is what makes it a sizing
+    requirement the caller can act on rather than a wall.  ``required_u_nodes`` is the
+    static helper that computes the same quantity from an amplitude proxy, and both now
+    read ``U_PTS_PER_SIGMA`` so the budget and the check cannot drift apart.
+    """
+    KS = 2
+    rng = np.random.default_rng(101)
+    C = rng.normal(size=(3, 2 * KS + 1)) + 1j * rng.normal(size=(3, 2 * KS + 1))
+    C = jnp.asarray(C * (1.0e4 / np.sum(np.abs(C))))
+
+    fired = cleared = 0
+    for phi in np.linspace(0.0, 2 * np.pi, 12, endpoint=False):
+        _, _, _, fb_lo, risk_lo = JP.u_profile(C, float(phi), n_nodes=48)
+        _, _, _, fb_hi, risk_hi = JP.u_profile(C, float(phi), n_nodes=1024)
+        assert int(fb_lo) > 0                      # minima always fall back; that is fine
+        fired += int(risk_lo) > 0
+        cleared += int(risk_hi) == 0
+    assert fired > 0, "an adequacy gate that never fires cannot protect the bound"
+    assert cleared == 12, "sizing the quadrature must clear it, or it is not a requirement"
+    assert JP.required_u_nodes(1.0e4) > 48
