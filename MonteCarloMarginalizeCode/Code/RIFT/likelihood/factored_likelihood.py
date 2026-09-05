@@ -226,6 +226,58 @@ def _detector_geometry(det, xpy):
     return hit
 
 
+# --- Simpson quadrature weights, cached across likelihood calls ---------------
+# The time integral is a FIXED linear functional at fixed dx, so simps(y) == y . w with
+# w = simps(I).  Evaluating it as one matrix-vector product reads the (npts_extrinsic,
+# npts) integrand once, instead of the several strided slices and full-size temporaries
+# the composite-Simpson implementation builds; measured 1.765 ms -> 0.049 ms at
+# production shapes.  npts and deltaT are fixed for a run, so the weights are built once.
+#
+# NOT bitwise against simps(): a gemv reassociates the summation.  The RULE is identical
+# -- the weights come from the very same simps implementation the call site would have
+# used, so the even='avg'-vs-Cartwright distinction that separates the vendored GPU copy
+# from scipy's is preserved, and only the order of the additions changes.  The measured
+# discrepancy is at the floating-point noise floor; see
+# DESIGN_noloop_per_detector_glue.md for the number.
+_SIMPS_WEIGHTS_CACHE = {}
+
+
+def _simps_weights(simps, npts, deltaT, xpy, block=256):
+    """Quadrature weight vector w with simps(y, dx=deltaT, axis=-1) == y . w.
+
+    Built a BLOCK OF ROWS AT A TIME rather than from a full (npts, npts) identity.
+    npts is 2*data_integration_window_half*srate, and the batch driver's DEFAULT srate
+    is 16384, so npts is 2457 in the default configuration, not the 614 of an
+    srate-4096 run: a whole identity is then 48 MB, and cupy's pool holds ~97 MB
+    across the simps call -- a transient that lands inside the first likelihood
+    evaluation of every --vectorized --gpu run, in a function whose n_chunk is already
+    bounded by device memory.  Blocking caps it at block*npts*8 bytes (5 MB at the
+    default).  simps reduces along axis=-1, so rows are independent and the blocked
+    result is bitwise identical to the whole-identity one.
+
+    Keyed on the quadrature FUNCTION as well as (npts, dx, backend): on GPU `simps` is
+    the vendored old-scipy copy with even='avg' and on CPU it is scipy's Cartwright
+    form, and those two disagree by 0.405 nats on an under-resolved peak.  Today the
+    rule is a pure function of the backend so id(xpy) would suffice, but this helper is
+    module-level and nothing stops a future caller passing a different rule at the same
+    shape -- which would silently serve the other rule's weights.
+    """
+    key = (int(npts), float(deltaT), id(xpy), id(simps))
+    w = _SIMPS_WEIGHTS_CACHE.get(key)
+    if w is None:
+        n = int(npts)
+        parts = []
+        for lo in range(0, n, int(block)):
+            hi = min(lo + int(block), n)
+            rows = xpy.zeros((hi - lo, n), dtype=np.float64)
+            idx = xpy.arange(hi - lo)
+            rows[idx, idx + lo] = 1.0
+            parts.append(simps(rows, dx=deltaT, axis=-1))
+        w = xpy.concatenate(parts) if len(parts) > 1 else parts[0]
+        _SIMPS_WEIGHTS_CACHE[key] = w
+    return w
+
+
 # --- mode-list identity, cached across likelihood calls -----------------------
 # The Ylm array depends only on (modes, inclination, phiref) -- NOT on the detector --
 # but was recomputed once per detector per call.  To share it we need to know which
@@ -2579,6 +2631,17 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         Distance-marginalization table+params for the fused distmarg kernel; see
         RIFT.likelihood.Q_fused_calmarg.Q_fused_calmarg_distmarg_cupy.
 
+    loglikelihood : callable(kappa_sq, rho_sq) -> lnL(t)
+        MUST NOT WRITE INTO ``rho_sq``.  rho_sq is time-independent, so it is passed as
+        a stride-0 ``broadcast_to`` view over an ``(npts_extrinsic,)`` vector rather than
+        as a materialized ``(npts_extrinsic, npts)`` array.  Every ``npts`` column
+        therefore aliases one address: on CPU an in-place write raises
+        ``ValueError: output array is read-only``, but on GPU cupy's broadcast is
+        WRITABLE and an in-place write races, giving a wrong and irreproducible answer
+        with no error.  Every in-tree callback allocates (``_factored_lnL_helper`` and the
+        driver's ``distmarg_loglikelihood``), so nothing is broken today; a caller
+        supplying its own must allocate too, or call ``xpy.ascontiguousarray`` first.
+
     time_interp : {'nearest', 'cubic', 'sinc'}
         Detector-time sampling convention for the data term.  'nearest'
         preserves the historical NoLoop integer-bin gather.  'cubic' evaluates
@@ -2732,8 +2795,23 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
 
     # Used to accumulate kappa^2 and rho^2 over all detectors.  They are just
     # the sum in quadrature of the individual detector contributions.
-    kappa_sq = xpy.zeros((npts_extrinsic, npts), dtype=np.complex128)
-    rho_sq = xpy.zeros((npts_extrinsic, npts), dtype=np.float64)
+    # kappa_sq is the (npts_extrinsic, npts) data term: 98 MB of complex128 at production
+    # shapes, and the single most expensive thing in this function.  It used to be
+    # zero-filled and then read-modify-written once per detector, with the distance scaling
+    # allocating a further full-size temporary each time.  Start from the first detector's
+    # own output buffer and scale it in place instead: same arithmetic, three fewer
+    # full-size passes over 98 MB for a three-detector network.
+    kappa_sq = None
+    # rho_sq is the <h|h> term.  It is TIME-INDEPENDENT: every detector contributes
+    # rho_sq_det of shape (npts_extrinsic,), which used to be broadcast into a dense
+    # (npts_extrinsic, npts) accumulator.  At production shapes that is ~49 MB of float64
+    # zero-filled once and read-modify-written once per detector, to store npts identical
+    # copies of each value.  Accumulate the vector instead and expose the 2-D shape as a
+    # stride-0 view after the loop; downstream arithmetic is elementwise and sees no
+    # difference, and the additions happen in the same order on the same scalars, so the
+    # result is bitwise unchanged.  (The calibration path already did exactly this with
+    # broadcast_to for rho_sq_cal; this brings the ordinary path in line.)
+    rho_sq_vec = xpy.zeros(npts_extrinsic, dtype=np.float64)
 
     # When marginalizing over calibration (n_cal>1), cache the per-detector data
     # term inputs here; the calibration-independent rho_sq is still accumulated
@@ -2984,7 +3062,14 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
                   np.conj(FY_dummy_t), Qlms,
                   )
 
-          kappa_sq += Q_prod_result * (distMpcRef/distMpc)[..., np.newaxis]
+          # Scale in place into the buffer the Q kernel just handed us -- it is freshly
+          # allocated per detector and not aliased anywhere -- rather than allocating a
+          # full-size temporary for the product.
+          xpy.multiply(Q_prod_result, invDistMpc[..., np.newaxis], out=Q_prod_result)
+          if kappa_sq is None:
+              kappa_sq = Q_prod_result
+          else:
+              kappa_sq += Q_prod_result
         else:
           # ---- calibration-marginalization path (Option B): cache pieces ----
           # The rholm timeseries hold n_cal contiguous realizations; realization c
@@ -3005,7 +3090,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
 
         # Accumulate term2 into the time-dependent log likelihood.
         # Have to create a view with an extra axis so they broadcast.
-        rho_sq += rho_sq_det[..., np.newaxis]
+        rho_sq_vec += rho_sq_det
         # lnL_t_accum += term2[..., np.newaxis]
 
 #        print lnL_t_accum.shape, lnL_t.shape
@@ -3013,10 +3098,24 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
 #        lnL_t_accum += lnL_t
 
 
+    # The (npts_extrinsic, npts) shape every consumer below expects, as a stride-0 view
+    # over the vector accumulated above.  Consumers that need real backing memory -- the
+    # fused CUDA kernels, which index raw device pointers, and the non-Simpson quadrature
+    # helpers, which are free to write -- go through _dense_rho_sq() and pay exactly what
+    # they paid before.
+    rho_sq = xpy.broadcast_to(rho_sq_vec[:, np.newaxis], (npts_extrinsic, npts))
+
+    def _dense_rho_sq(a):
+        """A writable, contiguous copy of a possibly stride-0 rho_sq view."""
+        return a if getattr(a, "flags", None) is not None and a.flags.c_contiguous \
+            else xpy.ascontiguousarray(a)
+
     if n_cal == 1:
         # Fused-calmarg self-term fix also applies to a SINGLE calibration draw: the data
         # carries C_0, so its self-term is rho_sq_c = <C_0 h|C_0 h> = rho_sq_cal[0], not the
         # cal-independent <h|h>.  Falls back to rho_sq for the ordinary (no-cal) likelihood.
+        if kappa_sq is None:   # no detectors: preserve the old all-zeros behaviour
+            kappa_sq = xpy.zeros((npts_extrinsic, npts), dtype=np.complex128)
         rho_sq_here = rho_sq if not _use_rho_sq_cal else xpy.broadcast_to(rho_sq_cal[0][:, np.newaxis], (npts_extrinsic, npts))
         if phase_marginalization:
             lnL_t = loglikelihood(xpy.abs(kappa_sq), rho_sq_here)
@@ -3054,7 +3153,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
             # this also made the module default to scipy, which RAISES on a cupy
             # array: every --vectorized --gpu run of this option crashed.
             _time_result = time_quadrature_module.time_marginalize_bandlimited(
-                kappa_sq, rho_sq_here, float(deltaT), loglikelihood,
+                kappa_sq, _dense_rho_sq(rho_sq_here), float(deltaT), loglikelihood,
                 phase_marginalization=phase_marginalization, simps=simps,
                 lnL_coarse=lnL_t, return_time_draw=return_time_draw,
                 draw_uniforms=time_draw_uniforms, t0=float(tvals[0]), xpy=xpy)
@@ -3072,13 +3171,14 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
             # mass it left out -- are given the 'bandlimited' value, so the reviewed
             # dense implementation is the backstop rather than Simpson.
             return time_peak_local_module.time_marginalize_peak_local(
-                kappa_sq, rho_sq_here, float(deltaT), loglikelihood,
+                kappa_sq, _dense_rho_sq(rho_sq_here), float(deltaT), loglikelihood,
                 phase_marginalization=phase_marginalization, simps=simps,
                 lnL_coarse=lnL_t, xpy=xpy)
 
         L_t = xpy.exp(lnL_t - lnLmax, out=lnL_t)
 
-        L = simps(L_t, dx=deltaT, axis=-1)
+        # simps(L_t, dx, axis=-1) as a single matrix-vector product; see _simps_weights.
+        L = L_t.dot(_simps_weights(simps, npts, deltaT, xpy))
 
         # Compute log likelihood in-place.  lnLmax carries the kept trailing axis; drop it
         # so the add-back lines up with L, which simps has already reduced over that axis.
@@ -3127,7 +3227,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         N_window_block = cal_cache[dets[0]][3]
         # Simpson quadrature weight vector (incl. dx=deltaT), so time integration
         # matches the loop path's simps() exactly.  simps is linear -> weights = simps(I).
-        w_t = simps(xpy.eye(npts, dtype=np.float64), dx=deltaT, axis=-1)
+        w_t = _simps_weights(simps, npts, deltaT, xpy)
         # invDistMpc is a scalar when distance is marginalized (P.dist fixed at the
         # fiducial) and a vector when distance is sampled; the kernel wants one value
         # per extrinsic sample, so broadcast to (npts_extrinsic,).
@@ -3138,17 +3238,17 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         if xpy is np:
             # CPU: pure-numpy fused (no CUDA); independent cross-check of the kernel
             return Q_fused_calmarg.Q_fused_calmarg_numpy(
-                Q_stack, A_stack, ifirst_stack, invDist_vec, rho_sq, w_t,
+                Q_stack, A_stack, ifirst_stack, invDist_vec, _dense_rho_sq(rho_sq), w_t,
                 n_cal, N_window_block, distmarg=cal_distmarg, cal_log_weights=cal_log_weights,
                 phase_marginalization=phase_marginalization, rho_sq_cal=rho_sq_cal)
         if cal_distmarg is None:
             return Q_fused_calmarg.Q_fused_calmarg_cupy(
-                Q_stack, A_stack, ifirst_stack, invDist_vec, rho_sq, w_t,
+                Q_stack, A_stack, ifirst_stack, invDist_vec, _dense_rho_sq(rho_sq), w_t,
                 n_cal, N_window_block, cal_log_weights=cal_log_weights,
                 phase_marginalization=phase_marginalization, rho_sq_cal=rho_sq_cal)
         else:
             return Q_fused_calmarg.Q_fused_calmarg_distmarg_cupy(
-                Q_stack, A_stack, ifirst_stack, invDist_vec, rho_sq, w_t,
+                Q_stack, A_stack, ifirst_stack, invDist_vec, _dense_rho_sq(rho_sq), w_t,
                 n_cal, N_window_block, cal_distmarg, cal_log_weights=cal_log_weights,
                 phase_marginalization=phase_marginalization, rho_sq_cal=rho_sq_cal)
 
@@ -3208,7 +3308,8 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
             # RAW per-realization time-integrated log L (no importance weight), stable:
             #   log( simps_t exp(lnL_t,c) ) = m + log( simps_t exp(lnL_t,c - m) )
             m_raw = xpy.max(lnL_t_c, axis=-1, keepdims=True)
-            cal_components[:, c] = m_raw[:, 0] + xpy.log(simps(xpy.exp(lnL_t_c - m_raw), dx=deltaT, axis=-1))
+            cal_components[:, c] = m_raw[:, 0] + xpy.log(
+                xpy.exp(lnL_t_c - m_raw).dot(_simps_weights(simps, npts, deltaT, xpy)))
         # fold in this realization's importance log-weight
         lnL_t_c = lnL_t_c + cal_log_w[c]
 
@@ -3254,7 +3355,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         # (the time integral is NOT taken; downstream resamples this timeseries).
         return running_max + xpy.log(S) - cal_log_w_norm
 
-    L = simps(S, dx=deltaT, axis=-1)
+    L = S.dot(_simps_weights(simps, npts, deltaT, xpy))
     # lnL = max + log( sum_c exp(log_w[c]) \int dt exp(lnL_t - max) ) - log(n_cal)
     # running_max carries the kept trailing axis; drop it so the add-back lines up with
     # L, which simps has already reduced over that axis.  (The return_lnLt branch above
