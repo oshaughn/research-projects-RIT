@@ -155,19 +155,29 @@ def _stage_event_file(
     base_dir: str,
     run_dir: str,
 ) -> Tuple[str, bool]:
-    """Materialize this entry's event file at base_dir/event-<indx>.net.
+    """Materialize this entry's event file at run_dir/event-<indx>.net.
 
     Returns ``(abs_path, is_empty_sentinel)``. If the entry has no
     ``event-file`` set, we write a sentinel file with the single token
     ``empty_event_file`` so the downstream pipeline still sees a
     well-formed input.
+
+    Sources resolve against ``base_dir`` (where the user's config paths are
+    relative to); the staged copy is written to ``run_dir``. That split is
+    what :func:`assemble_marg_list` documents, and what the exe staging a
+    few lines below already does. The destination used to be ``base_dir``,
+    with ``run_dir`` accepted and unused: under hydra those are different
+    directories -- ``base_dir`` is the ORIGINAL cwd the user launched from,
+    ``run_dir`` the per-run output dir -- so the staged files landed in the
+    launch directory, and two runs started from one directory overwrote each
+    other's ``event-<i>.net``.
     """
     src = None
     if hasattr(entry, "get"):
         src = entry.get("event-file") or entry.get("event_file")
     elif "event-file" in entry:
         src = entry["event-file"]
-    dest = os.path.join(base_dir, f"event-{indx}.net")
+    dest = os.path.join(run_dir, f"event-{indx}.net")
     if src:
         src = os.path.expanduser(src)
         if not os.path.isabs(src):

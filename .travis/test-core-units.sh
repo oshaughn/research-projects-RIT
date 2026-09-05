@@ -63,6 +63,7 @@ FILES=(
   "$C/test/integrators/test_gmm_adaptive.py"
   "$C/test/integrators/test_portfolio_gmm_member_trains.py"
   "$C/test/integrators/test_portfolio_restrict_and_warm.py"
+  "$C/test/integrators/test_replica_pooling.py"
   "$C/test/integrators/test_rvs_weight_derivation.py"
   "$C/test/integrators/test_seeding_public_paths.py"
   "$C/test/integrators/test_seeding_reproducibility.py"
@@ -77,6 +78,7 @@ FILES=(
   "$C/test/hyperpipe/tests/test_config.py"
   "$C/test/hyperpipe/tests/test_coords.py"
   "$C/test/hyperpipe/tests/test_drivers.py"
+  "$C/test/hyperpipe/tests/test_marg_list.py"
   "$C/test/test_hyperpipeline_io.py"
   # -- packaging / config contracts / waveform conventions
   "$C/test/test_advanced_parameter_ports.py"
@@ -113,9 +115,12 @@ done
 
 # Pinned TOTAL floor, so a renamed file or a dropped test_* entry point goes red rather than
 # green-on-fewer-tests.  MEASURED 2026-09-03 on CIT with the IGWN conda python (3.11, numpy
-# 1.26.4, scipy 1.14.1, lal 7.7.0), whole manifest in one run: 278 collected, 266 passed,
-# 12 skipped (11 pytest.skip + 1 xfail), 49 s.
-EXPECTED_TESTS=278
+# 1.26.4, scipy 1.14.1, lal 7.7.0), whole manifest in one run: 296 collected, 284 passed,
+# 12 skipped (11 pytest.skip + 1 xfail), ~55 s.  (Was 278/266 before test_replica_pooling.py
+# and test_marg_list.py joined the manifest -- both were rostered BROKEN until their defects
+# were fixed.  RAISE these when files are added: a floor left at the old value passes while
+# covering less, which is the failure this gate exists to catch.)
+EXPECTED_TESTS=296
 # Outcomes, not just exit status: a collection floor cannot see a test that collects, runs and
 # asserts nothing, and a pytest.skip can quietly absorb a lost gate.  The 12 skips are
 # environment legs -- cupy in test_seeding_reproducibility, device legs in
@@ -126,7 +131,7 @@ EXPECTED_TESTS=278
 # editable install) reported the same 278 / 266 / 12, in 24.7 s.  So these floors are exact on
 # both stacks, not merely the CIT numbers copied across, and a future divergence is a real
 # change rather than an environment difference to be explained away.
-EXPECTED_PASSED=266
+EXPECTED_PASSED=284
 MAX_SKIPPED=12
 
 junit="$(mktemp -t core-units-junit-XXXXXX.xml)"
