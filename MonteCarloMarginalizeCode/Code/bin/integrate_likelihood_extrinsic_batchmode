@@ -3512,22 +3512,22 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 ctUArrayDict_cal[det], ctVArrayDict_cal[det] = factored_likelihood.PackCalCrossTermsAsArrays(
                     list(rholms[det].keys()), lookupKNDict[det], cross_terms_cal[det], cross_terms_cal_V[det])
         if opts.q_time_pregrid_factor == 8:
-            try:
-                _q_pregrid_new = {}
-                for det in rholmArrayDict:
-                    _q_pregrid_new[det], _q_report = factored_likelihood.build_reflected_q_pregrid(
-                        rholmArrayDict[det], factor=8, xpy=np)
-                    _q_report['detector'] = det
-                    _q_pregrid_reports.append(_q_report)
-                rholmArrayDict = _q_pregrid_new
+            _q_transfer = cupy.asarray if opts.gpu and (not xpy_default is np) else None
+            _q_cleanup = (lambda: cupy.get_default_memory_pool().free_all_blocks()) \
+                if _q_transfer is not None else None
+            rholmArrayDict, _q_pregrid_reports, _q_pregrid_error = \
+                factored_likelihood.prepare_reflected_q_pregrid(
+                    rholmArrayDict, factor=8, transfer=_q_transfer, cleanup=_q_cleanup)
+            if _q_pregrid_error is None:
                 q_deltaT = float(P.deltaT) / 8.0
                 print(" Q_lm pregrid telemetry: status=active q_deltaT={:.12g} input_bytes={} "
-                      "output_bytes={} max_roundtrip={:.3g}".format(
+                      "retained_bytes={} peak_allocation_bytes={} max_roundtrip={:.3g}".format(
                           q_deltaT,
                           sum(item['input_bytes'] for item in _q_pregrid_reports),
-                          sum(item['output_bytes'] for item in _q_pregrid_reports),
+                          sum(item['retained_bytes'] for item in _q_pregrid_reports),
+                          max(item['peak_allocation_bytes'] for item in _q_pregrid_reports),
                           max(item['roundtrip_max'] for item in _q_pregrid_reports)))
-            except (MemoryError, RuntimeError) as _q_pregrid_error:
+            else:
                 q_deltaT = float(P.deltaT)
                 opts.q_time_pregrid_factor = 1
                 opts._noloop_time_interp = opts._q_pregrid_fallback_interp
@@ -3537,7 +3537,10 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         if opts.gpu and (not xpy_default is np):
             for det in rholmArrayDict:
                 lookupNKDict[det] = cupy.asarray(lookupNKDict[det])
-                rholmArrayDict[det] = cupy.asarray(rholmArrayDict[det])
+                # Q was transferred inside the pregrid transaction.  The
+                # default/fallback path still needs its ordinary transfer.
+                if opts.q_time_pregrid_factor != 8 and not isinstance(rholmArrayDict[det], cupy.ndarray):
+                    rholmArrayDict[det] = cupy.asarray(rholmArrayDict[det])
                 ctUArrayDict[det] = cupy.asarray(ctUArrayDict[det])
                 ctVArrayDict[det] = cupy.asarray(ctVArrayDict[det])
                 epochDict[det] = cupy.asarray(epochDict[det])

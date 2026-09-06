@@ -2309,15 +2309,65 @@ def build_reflected_q_pregrid(rholms, factor=8, xpy=np):
     if factor == 1:
         return rholms, dict(factor=1, input_bytes=int(rholms.nbytes),
                             output_bytes=int(rholms.nbytes), roundtrip_max=0.0)
-    dense = time_quadrature_module.reflected_bandlimited_upsample(
+    retained_view = time_quadrature_module.reflected_bandlimited_upsample(
         xpy.asarray(rholms), factor, xpy=xpy)
+    # reflected_bandlimited_upsample returns a short VIEW into the full 2*N*factor
+    # inverse FFT.  Copy it so retaining the useful forward interval does not pin
+    # the much larger backing allocation for the whole ILE run.
+    dense = xpy.array(retained_view, copy=True)
+    del retained_view
     scale = float(xpy.max(xpy.abs(rholms)))
     mismatch = float(xpy.max(xpy.abs(dense[..., ::factor] - rholms)))
     relative = mismatch / scale if scale else mismatch
     if not np.isfinite(relative) or relative > 5e-12:
         raise RuntimeError("Q pregrid round-trip failed: %.3g" % relative)
+    full_dense_bytes = int(rholms.nbytes)*2*factor
+    peak_bytes = (int(rholms.nbytes)*4 + 2*full_dense_bytes + int(dense.nbytes))
     return dense, dict(factor=factor, input_bytes=int(rholms.nbytes),
-                       output_bytes=int(dense.nbytes), roundtrip_max=relative)
+                       retained_bytes=int(dense.nbytes), output_bytes=int(dense.nbytes),
+                       peak_allocation_bytes=peak_bytes, roundtrip_max=relative)
+
+
+def prepare_reflected_q_pregrid(rholms_by_detector, factor=8, transfer=None,
+                                cleanup=None):
+    """Transactionally build and optionally transfer a detector Q pregrid.
+
+    A backend OOM after one detector transfer cannot leave a mixed host/device,
+    coarse/fine dictionary.  Partial temporaries are dropped, ``cleanup`` is
+    invoked (normally CuPy's memory-pool release), and the original coarse Q
+    dictionary is transferred instead.  The caller can then restore its prior
+    stencil and continue with an explicit fallback telemetry record.
+    """
+    original = dict(rholms_by_detector)
+    transfer = (lambda value: value) if transfer is None else transfer
+    prepared = {}
+    reports = []
+    try:
+        host_fine = {}
+        for det, values in original.items():
+            host_fine[det], report = build_reflected_q_pregrid(values, factor=factor)
+            report['detector'] = det
+            reports.append(report)
+        for det, values in host_fine.items():
+            prepared[det] = transfer(values)
+        return prepared, reports, None
+    except Exception as error:
+        allocation_failure = (isinstance(error, (MemoryError, RuntimeError)) or
+                              error.__class__.__name__ == 'OutOfMemoryError')
+        if not allocation_failure:
+            raise
+        prepared.clear()
+        reports[:] = []
+        try:
+            host_fine.clear()
+        except UnboundLocalError:
+            pass
+        if cleanup is not None:
+            cleanup()
+        fallback = {}
+        for det, values in original.items():
+            fallback[det] = transfer(values)
+        return fallback, reports, error
 
 
 def _q_sample_positions(t_det, tvals, integration_delta_t, q_delta_t,
@@ -2842,6 +2892,10 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         raise ValueError("q_deltaT must be positive")
     if q_deltaT != deltaT and n_cal != 1:
         raise NotImplementedError("an independently spaced Q pregrid is not implemented for calibration marginalization")
+    if q_deltaT != deltaT and time_interp != 'cubic':
+        raise NotImplementedError(
+            "an independently spaced Q pregrid currently implements only the "
+            "strided cubic gather; nearest/sinc would silently use the wrong stride")
 
 
     # Convert tref to greenwich mean sidereal time
@@ -3084,7 +3138,8 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
                     time_stride=_q_time_stride)
           else:
             # Use old code completely unchanged ... very wasteful on memory management!
-            Q_block = Q if phase_marginalization else rholmsArrayDict[det].T
+            Q_block = (Q if phase_marginalization and _q_per_time
+                       else rholmsArrayDict[det].T)
             if _q_per_time:
                 Q_prod_result = _q_inner_product_explicit_times(
                     Q_block, np.conj(F_vec_dummy_lm * Ylms_vec), ifirst,
