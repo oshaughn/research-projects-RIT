@@ -2295,7 +2295,60 @@ def _factored_lnL_helper(kappa_sq, rho_sq):
     return kappa_sq - 0.5 * rho_sq
 
 
-def _cubic_Q_window_numpy(Q_block, start_indices, fractional_offsets, npts):
+def build_reflected_q_pregrid(rholms, factor=8, xpy=np):
+    """Build a one-time finer Q grid without changing the likelihood time grid.
+
+    The finite cut Q window is reflected before FFT interpolation so its unlike
+    endpoints are never identified.  Only the forward interval is retained;
+    consequently the epoch is unchanged and every ``factor``-th sample must
+    reproduce the input.  This helper is intentionally opt-in at the driver.
+    """
+    factor = int(factor)
+    if factor < 1:
+        raise ValueError("Q pregrid factor must be positive")
+    if factor == 1:
+        return rholms, dict(factor=1, input_bytes=int(rholms.nbytes),
+                            output_bytes=int(rholms.nbytes), roundtrip_max=0.0)
+    dense = time_quadrature_module.reflected_bandlimited_upsample(
+        xpy.asarray(rholms), factor, xpy=xpy)
+    scale = float(xpy.max(xpy.abs(rholms)))
+    mismatch = float(xpy.max(xpy.abs(dense[..., ::factor] - rholms)))
+    relative = mismatch / scale if scale else mismatch
+    if not np.isfinite(relative) or relative > 5e-12:
+        raise RuntimeError("Q pregrid round-trip failed: %.3g" % relative)
+    return dense, dict(factor=factor, input_bytes=int(rholms.nbytes),
+                       output_bytes=int(dense.nbytes), roundtrip_max=relative)
+
+
+def _q_sample_positions(t_det, tvals, integration_delta_t, q_delta_t,
+                        time_interp, explicit_time_values, xpy=np):
+    """Map geocentric integration nodes onto an independently spaced Q grid."""
+    q_delta_t = float(q_delta_t)
+    integration_delta_t = float(integration_delta_t)
+    if q_delta_t <= 0 or integration_delta_t <= 0:
+        raise ValueError("time-grid spacings must be positive")
+    separate_grid = not np.isclose(q_delta_t, integration_delta_t,
+                                   rtol=0.0, atol=1e-15*integration_delta_t)
+    ratio = integration_delta_t/q_delta_t
+    stride = int(round(ratio)) if separate_grid else 1
+    regular_stride = (not separate_grid or
+                      abs(ratio - stride) <= 1e-12*max(1.0, abs(ratio)))
+    per_time = bool(explicit_time_values or not regular_stride)
+    if per_time:
+        samples = ((t_det[:, None] + xpy.asarray(tvals)[None, :]) / q_delta_t)
+    else:
+        samples = (t_det + tvals[0]) / q_delta_t
+    if time_interp == 'nearest':
+        starts = (xpy.rint(samples) + 0.5).astype(np.int32)
+        fractions = None
+    else:
+        starts = xpy.floor(samples).astype(np.int32)
+        fractions = (samples - xpy.floor(samples)).astype(np.float64)
+    return starts, fractions, per_time, stride
+
+
+def _cubic_Q_window_numpy(Q_block, start_indices, fractional_offsets, npts,
+                          time_stride=1):
     """Return cubic-interpolated Q windows with zero extension.
 
     Q_block has shape (n_time, n_lm).  The returned array has shape
@@ -2309,7 +2362,7 @@ def _cubic_Q_window_numpy(Q_block, start_indices, fractional_offsets, npts):
     tgrid = np.arange(npts)
     n_time = Q_block.shape[0]
     for i in range(npts_extrinsic):
-        idxs = int(start_indices[i]) + tgrid
+        idxs = int(start_indices[i]) + tgrid*int(time_stride)
         u = float(fractional_offsets[i])
         u2 = u*u
         u3 = u2*u
@@ -2479,7 +2532,7 @@ def validate_time_interp(time_interp, on_gpu=False):
 
 
 def _q_window_numpy_interp(Q_block, start_indices, fractional_offsets, npts, time_interp,
-                           xpy=np):
+                           xpy=np, time_stride=1):
     """CPU Q-window dispatch.  start_indices must already match the stencil: 'nearest' rounds,
     the interpolating stencils floor and carry the fractional part separately."""
     if time_interp == 'nearest':
@@ -2487,7 +2540,8 @@ def _q_window_numpy_interp(Q_block, start_indices, fractional_offsets, npts, tim
     if time_interp == 'sinc':
         return _sinc_Q_window_numpy(Q_block, start_indices, fractional_offsets, npts)
     if time_interp == 'cubic':
-        return _cubic_Q_window_numpy(Q_block, start_indices, fractional_offsets, npts)
+        return _cubic_Q_window_numpy(Q_block, start_indices, fractional_offsets, npts,
+                                     time_stride=time_stride)
     # Named explicitly rather than falling through to cubic.  A bare `return cubic` here would
     # reinstate exactly the silent-wrong-stencil behaviour this work exists to remove: callers
     # reaching the dispatcher directly (the tests do) would get cubic for a typo and never find
@@ -2496,7 +2550,8 @@ def _q_window_numpy_interp(Q_block, start_indices, fractional_offsets, npts, tim
                      % (time_interp, TIME_INTERP_CHOICES))
 
 
-def _q_inner_product_gpu(Q, A, start_indices, fractional_offsets, npts, time_interp):
+def _q_inner_product_gpu(Q, A, start_indices, fractional_offsets, npts, time_interp,
+                         time_stride=1):
     """GPU Q-product dispatch: the device-side counterpart of _q_window_numpy_interp.
 
     Same stencil contract as the CPU dispatch, deliberately: the four GPU call sites (here x2,
@@ -2511,7 +2566,8 @@ def _q_inner_product_gpu(Q, A, start_indices, fractional_offsets, npts, time_int
             Q, A, start_indices, fractional_offsets, npts)
     if time_interp == 'cubic':
         return Q_inner_product.Q_inner_product_cubic_cupy(
-            Q, A, start_indices, fractional_offsets, npts)
+            Q, A, start_indices, fractional_offsets, npts,
+            time_stride=time_stride)
     # Explicit, for the same reason as the CPU dispatcher above: no silent fallthrough to cubic.
     raise ValueError("unknown time_interp %r; expected one of %r"
                      % (time_interp, TIME_INTERP_CHOICES))
@@ -2580,7 +2636,7 @@ def _nearest_Q_window_numpy(Q_block, start_indices, npts, xpy=np):
     return Qlms
 
 
-def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=np, loglikelihood=_factored_lnL_helper,return_lnLt=False,phase_marginalization=False,n_cal=1,cal_method='loop',cal_distmarg=None,cal_log_weights=None,return_cal_components=False,time_interp='nearest',ctUArrayDict_cal=None,ctVArrayDict_cal=None,time_quadrature=None,explicit_time_values=False,return_time_draw=False,time_draw_uniforms=None):
+def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=np, loglikelihood=_factored_lnL_helper,return_lnLt=False,phase_marginalization=False,n_cal=1,cal_method='loop',cal_distmarg=None,cal_log_weights=None,return_cal_components=False,time_interp='nearest',ctUArrayDict_cal=None,ctVArrayDict_cal=None,time_quadrature=None,explicit_time_values=False,return_time_draw=False,time_draw_uniforms=None,q_deltaT=None):
     """
     DiscreteFactoredLogLikelihoodViaArray uses the array-ized data structures to compute the log likelihood,
     either as an array vs time *or* marginalized in time.
@@ -2780,6 +2836,12 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
 
 
     deltaT = float(P_vec.deltaT) # this is stored as a scalar
+    q_deltaT = (float(getattr(P_vec, 'q_deltaT', deltaT))
+                if q_deltaT is None else float(q_deltaT))
+    if q_deltaT <= 0:
+        raise ValueError("q_deltaT must be positive")
+    if q_deltaT != deltaT and n_cal != 1:
+        raise NotImplementedError("an independently spaced Q pregrid is not implemented for calibration marginalization")
 
 
     # Convert tref to greenwich mean sidereal time
@@ -2910,24 +2972,9 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         t_det = float(tref - float(t_ref)) + TimeDelayFromEarthCenterPrecomputed(
             detector_location, ehat_src, xpy=xpy,
         )
-        if explicit_time_values:
-            sample_at_times = ((t_det[:, None] +
-                                xpy.asarray(tvals)[None, :]) / deltaT)
-            if time_interp == 'nearest':
-                ifirst = (xpy.rint(sample_at_times) + 0.5).astype(np.int32)
-                frac_first = None
-            else:
-                ifirst = xpy.floor(sample_at_times).astype(np.int32)
-                frac_first = (sample_at_times - xpy.floor(sample_at_times)).astype(np.float64)
-        else:
-            tfirst = t_det + tvals[0]
-            sample_first = tfirst / deltaT
-            if time_interp == 'nearest':
-                ifirst = (xpy.rint(sample_first) + 0.5).astype(np.int32)  # C uses 32 bit integers : be careful
-                frac_first = None
-            else:
-                ifirst = xpy.floor(sample_first).astype(np.int32)
-                frac_first = (sample_first - xpy.floor(sample_first)).astype(np.float64)
+        ifirst, frac_first, _q_per_time, _q_time_stride = _q_sample_positions(
+            t_det, tvals, deltaT, q_deltaT, time_interp,
+            explicit_time_values, xpy=xpy)
 #        ilast = ifirst + npts
 
 
@@ -3028,30 +3075,28 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
             # Shape Q = (npts_time_full, nlms)
             # Shape A=FY_conj = (npts_extrinsic, nlms)
             # shape result = (npts_extrinsic, npts_time_*window* = npts)
-            if explicit_time_values:
+            if _q_per_time:
                 Q_prod_result = _q_inner_product_explicit_times(
                     Q, FY_conj, ifirst, frac_first, time_interp, xpy=xpy)
             else:
                 Q_prod_result = _q_inner_product_gpu(
-                    Q, FY_conj, ifirst, frac_first, npts, time_interp)
+                    Q, FY_conj, ifirst, frac_first, npts, time_interp,
+                    time_stride=_q_time_stride)
           else:
             # Use old code completely unchanged ... very wasteful on memory management!
-            Q_block = rholmsArrayDict[det].T
-            if explicit_time_values:
+            Q_block = Q if phase_marginalization else rholmsArrayDict[det].T
+            if _q_per_time:
                 Q_prod_result = _q_inner_product_explicit_times(
                     Q_block, np.conj(F_vec_dummy_lm * Ylms_vec), ifirst,
                     frac_first, time_interp, xpy=xpy)
                 Qlms = None
             else:
                 Qlms = _q_window_numpy_interp(Q_block, ifirst, frac_first, npts, time_interp,
-                                              xpy=xpy)
-            if phase_marginalization:
-                if explicit_time_values:
-                    raise NotImplementedError(
-                        "explicit time values with CPU phase marginalization are untested")
+                                              xpy=xpy, time_stride=_q_time_stride)
+            if phase_marginalization and not _q_per_time:
                 Qlms[:, :, 1] = xpy.conj(Qlms[:, :, 1])
 
-            if not explicit_time_values:
+            if not _q_per_time:
                 FY_dummy_t = np.broadcast_to(
                   (F_vec_dummy_lm * Ylms_vec)[:, np.newaxis],
                   Qlms.shape,

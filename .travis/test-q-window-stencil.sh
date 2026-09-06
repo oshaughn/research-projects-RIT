@@ -222,8 +222,8 @@ fi
 #   EXPECTED_TESTS   `pytest --collect-only -q` over the registered files.
 #   EXPECTED_PASSED  the "N passed" from a full run (tests minus skips).
 # Never lower either without saying why in the commit message.
-EXPECTED_TESTS=69
-EXPECTED_PASSED=67
+EXPECTED_TESTS=73
+EXPECTED_PASSED=71
 
 # The only legitimate skips here are the two cupy legs -- one in
 # test_noloop_time_marg_row_offset.py, one in test_calmarg_running_max_row_offset.py --
