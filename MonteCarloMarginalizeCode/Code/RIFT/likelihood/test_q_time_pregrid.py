@@ -3,6 +3,8 @@
 """Focused tests for the opt-in reflected Q pregrid."""
 
 import numpy as np
+import gc
+import weakref
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -43,21 +45,26 @@ def test_backend_oom_rolls_back_whole_dictionary_and_cleans_up():
     original = {'H1': np.ones((2, 9)), 'L1': np.ones((2, 9))*2}
     calls = []
     cleaned = []
+    expanded_refs = []
 
     def transfer(value):
         calls.append(value.shape[-1])
+        if value.shape[-1] == 65:
+            expanded_refs.append(weakref.ref(value))
         if calls == [65, 65]:
             raise MemoryError('forced device OOM')
         return np.array(value, copy=True)
 
     got, reports, error = prepare_reflected_q_pregrid(
         original, factor=8, transfer=transfer, cleanup=lambda: cleaned.append(True))
-    assert isinstance(error, MemoryError)
+    assert error == {'type': 'MemoryError', 'repr': "MemoryError('forced device OOM')"}
     assert reports == []
     assert cleaned == [True]
     assert calls == [65, 65, 9, 9]
     for det in original:
         np.testing.assert_array_equal(got[det], original[det])
+    gc.collect()
+    assert all(reference() is None for reference in expanded_refs)
 
 
 def test_reflection_is_load_bearing_at_both_nonperiodic_edges():
@@ -194,7 +201,8 @@ def test_cpu_phase_marginalization_scalar_and_pregrid_match_reference():
 
 def test_gpu_stride8_cubic_matches_cpu_at_fractional_and_edge_starts():
     if not HAVE_GPU:
-        return
+        import pytest
+        pytest.skip('CUDA device unavailable; stride-8 kernel parity is GPU-gated')
     rng = np.random.RandomState(91)
     q = rng.normal(size=(70, 3)) + 1j*rng.normal(size=(70, 3))
     amplitude = rng.normal(size=(4, 3)) + 1j*rng.normal(size=(4, 3))

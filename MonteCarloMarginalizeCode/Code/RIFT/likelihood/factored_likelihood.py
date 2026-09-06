@@ -2356,6 +2356,7 @@ def prepare_reflected_q_pregrid(rholms_by_detector, factor=8, transfer=None,
                               error.__class__.__name__ == 'OutOfMemoryError')
         if not allocation_failure:
             raise
+        failure = dict(type=error.__class__.__name__, repr=repr(error))
         prepared.clear()
         reports[:] = []
         try:
@@ -2367,7 +2368,9 @@ def prepare_reflected_q_pregrid(rholms_by_detector, factor=8, transfer=None,
         fallback = {}
         for det, values in original.items():
             fallback[det] = transfer(values)
-        return fallback, reports, error
+        # Never return ``error`` itself: its traceback retains this frame and
+        # therefore the last expanded host Q array that triggered backend OOM.
+        return fallback, reports, failure
 
 
 def _q_sample_positions(t_det, tvals, integration_delta_t, q_delta_t,
