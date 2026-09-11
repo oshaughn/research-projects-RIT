@@ -21,6 +21,11 @@ except:
         has_GWS=False
 
 
+def _hlmoft_with_extra_waveform_kwargs(P, Lmax, extra_waveform_kwargs):
+    """Generate RIFT modes with the caller's waveform options expanded."""
+    return lalsimutils.hlmoft(P, Lmax=Lmax, **extra_waveform_kwargs)
+
+
 def RIFT_lal_binary_black_hole_orig(
         frequency_array, mass_1, mass_2, luminosity_distance, spin_1x, spin_1y, spin_1z,
         spin_2x, spin_2y, spin_2z, lambda_1, lambda_2, iota, phase, **kwargs):
@@ -71,7 +76,7 @@ def RIFT_lal_binary_black_hole_orig(
         # Note several underlying interfaces like ChooseTDModes will enforce these conditions already, but not all. Better safe than sorry.
         P.phiref = 0
         P.incl = 0  # L direction frame
-        hlmT = lalsimutils.hlmoft(P,Lmax=Lmax,extra_waveform_kwargs=extra_waveform_kwargs) # extra needed to control ChooseFDWaveform
+        hlmT = _hlmoft_with_extra_waveform_kwargs(P, Lmax, extra_waveform_kwargs)
         P.phiref = phase
         P.incl =  iota # restore
         h22T = hlmT[(2,2)]
@@ -179,7 +184,7 @@ def RIFT_lal_binary_black_hole(
         # Note several underlying interfaces like ChooseTDModes will enforce these conditions already, but not all. Better safe than sorry.
         P.phiref = 0
         P.incl = 0  # L direction frame
-        hlmT = lalsimutils.hlmoft(P,Lmax=Lmax,extra_waveform_kwargs=extra_waveform_kwargs) # extra needed to control ChooseFDWaveform
+        hlmT = _hlmoft_with_extra_waveform_kwargs(P, Lmax, extra_waveform_kwargs)
         P.phiref = phase
         P.incl =  iota # restore
 
@@ -306,7 +311,7 @@ def RIFT_lal_eccentric_binary_black_hole(
         # Note several underlying interfaces like ChooseTDModes will enforce these conditions already, but not all. Better safe than sorry.
         P.phiref = 0
         P.incl = 0  # L direction frame
-        hlmT = lalsimutils.hlmoft(P,Lmax=Lmax,extra_waveform_kwargs=extra_waveform_kwargs) # extra needed to control ChooseFDWaveform
+        hlmT = _hlmoft_with_extra_waveform_kwargs(P, Lmax, extra_waveform_kwargs)
         P.phiref = phase
         P.incl =  iota # restore
 
