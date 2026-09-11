@@ -350,6 +350,24 @@ Accounts for time shfit</p>
 </dd></dl>
 
 <dl class="py method">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.ComplexIP.ip_matrix">
+<span class="sig-name descname"><span class="pre">ip_matrix</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">listA</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">listB</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">262144</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.ComplexIP.ip_matrix" title="Link to this definition"></a></dt>
+<dd><p>Batched form of ip(): returns the matrix M[a,b] = self.ip(listA[a], listB[b]).</p>
+<p>listA, listB are sequences of COMPLEX16FrequencySeries on the same 2-sided grid.
+The double loop over (a,b) is a single matrix product,</p>
+<blockquote>
+<div><p>M = 2 df . conj(A) . (B . W)^T ,   A[a,f] = listA[a](f),  B[b,f] = listB[b](f)</p>
+</div></blockquote>
+<p>which turns O(Na.Nb) separate full-length reductions into one pass over the data
+plus a GEMM, and skips the frequency bins where the band weight is exactly zero.
+Accumulated in chunks of <cite>chunk</cite> bins so the working set stays bounded.</p>
+<p>NOT bit-identical to the loop: the reduction order changes (pairwise np.sum over
+the full array vs. blocked GEMM accumulation over the band).  Measured deviation is
+~1e-15 relative to max|M| – see DESIGN_precompute_crossterm_batching.md.  Callers
+that need the shipped rounding must keep using ip().</p>
+</dd></dl>
+
+<dl class="py method">
 <dt class="sig sig-object py" id="RIFT.lalsimutils.ComplexIP.norm">
 <span class="sig-name descname"><span class="pre">norm</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">h</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.ComplexIP.norm" title="Link to this definition"></a></dt>
 <dd><p>Compute norm of a COMPLEX16Frequency Series</p>

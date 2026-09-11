@@ -227,7 +227,7 @@ Critical for iterative evaluation of</p>
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.interpolators.efficient_save_sklearn_gp.gp2json">
 <span class="sig-prename descclassname"><span class="pre">RIFT.interpolators.efficient_save_sklearn_gp.</span></span><span class="sig-name descname"><span class="pre">gp2json</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">gp</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.interpolators.efficient_save_sklearn_gp.gp2json" title="Link to this definition"></a></dt>
-<dd><p>Converts gp object to (a) json object and (b) data for <a href="#id1"><span class="problematic" id="id2">X_train_</span></a> and y_train</p>
+<dd><p>Converts gp object to (a) json object and (b) data for <a href="#id2"><span class="problematic" id="id3">X_train_</span></a> and y_train</p>
 </dd></dl>
 
 <dl class="py function">
@@ -382,8 +382,44 @@ population inference) and for shipping a self-contained likelihood surrogate.</p
 <p>Each interpolator fits in a per-dimension <em>whitened</em> space and exposes a pure-JAX
 <code class="docutils literal notranslate"><span class="pre">lnL_physical(theta)</span></code> (differentiable in the fit coordinates).</p>
 </section>
-<section id="artifact-export-import">
-<h2>Artifact export / import<a class="headerlink" href="#artifact-export-import" title="Link to this heading"></a></h2>
+<section id="module-RIFT.interpolators.jax_gp.export">
+<span id="artifact-export-import"></span><h2>Artifact export / import<a class="headerlink" href="#module-RIFT.interpolators.jax_gp.export" title="Link to this heading"></a></h2>
+<p>Self-contained, differentiable export for jax_gp interpolators.</p>
+<p>This replaces “dump the lnL grid and hope”: the artifact written here is a small,
+portable bundle that reconstructs a <em>pure-JAX, differentiable</em> <code class="docutils literal notranslate"><span class="pre">lnL(theta)</span></code> –
+<code class="docutils literal notranslate"><span class="pre">jax.grad</span></code> / <code class="docutils literal notranslate"><span class="pre">jax.value_and_grad</span></code> work out of the box, which is what
+downstream users need.</p>
+<p>Layout (two files sharing a base path):</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="o">&lt;</span><span class="n">base</span><span class="o">&gt;.</span><span class="n">npz</span>        <span class="n">whitening</span> <span class="n">vectors</span> <span class="o">+</span> <span class="n">method</span> <span class="n">parameters</span> <span class="p">(</span><span class="n">NumPy</span> <span class="n">arrays</span><span class="p">)</span>
+<span class="o">&lt;</span><span class="n">base</span><span class="o">&gt;.</span><span class="n">meta</span><span class="o">.</span><span class="n">json</span>  <span class="n">schema</span><span class="o">/</span><span class="n">method</span><span class="o">/</span><span class="n">dimension</span><span class="o">/</span><span class="n">target</span><span class="o">-</span><span class="n">scaling</span> <span class="o">+</span> <span class="n">coordinate</span> <span class="n">names</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">coord_names</span></code> records <em>which</em> fit coordinates the axes of <code class="docutils literal notranslate"><span class="pre">theta</span></code> are (e.g.
+<code class="docutils literal notranslate"><span class="pre">[&quot;mc&quot;,</span> <span class="pre">&quot;eta&quot;,</span> <span class="pre">&quot;chi_eff&quot;,</span> <span class="pre">...]</span></code>).  The exported lnL is differentiable in those
+<em>fit</em> coordinates – the same space the GP was trained on.  (Pushing the
+derivative all the way back to raw physical parameters would require a JAX
+reimplementation of CIP’s coordinate transforms; that is deliberately out of
+scope here and noted as future work.)</p>
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.interpolators.jax_gp.export.exists">
+<span class="sig-prename descclassname"><span class="pre">RIFT.interpolators.jax_gp.export.</span></span><span class="sig-name descname"><span class="pre">exists</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">path</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.interpolators.jax_gp.export.exists" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.interpolators.jax_gp.export.load">
+<span class="sig-prename descclassname"><span class="pre">RIFT.interpolators.jax_gp.export.</span></span><span class="sig-name descname"><span class="pre">load</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">path</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.interpolators.jax_gp.export.load" title="Link to this definition"></a></dt>
+<dd><p>Reconstruct a (predict + differentiate) interpolator from an exported bundle.</p>
+<p>Returns an interpolator instance exposing the usual contract:
+<code class="docutils literal notranslate"><span class="pre">predict(X)</span></code>, <code class="docutils literal notranslate"><span class="pre">predict_callable()</span></code>, <code class="docutils literal notranslate"><span class="pre">lnL_physical(theta)</span></code> (pure JAX),
+<code class="docutils literal notranslate"><span class="pre">lnL_and_grad(theta)</span></code>, <code class="docutils literal notranslate"><span class="pre">grad_fn()</span></code>.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.interpolators.jax_gp.export.save">
+<span class="sig-prename descclassname"><span class="pre">RIFT.interpolators.jax_gp.export.</span></span><span class="sig-name descname"><span class="pre">save</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">model</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">coord_names</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">extra_meta</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.interpolators.jax_gp.export.save" title="Link to this definition"></a></dt>
+<dd><p>Write <code class="docutils literal notranslate"><span class="pre">model</span></code> to <code class="docutils literal notranslate"><span class="pre">&lt;path&gt;.npz</span></code> + <code class="docutils literal notranslate"><span class="pre">&lt;path&gt;.meta.json</span></code>; return the base path.</p>
+</dd></dl>
+
 </section>
 <section id="applications">
 <h2>Applications<a class="headerlink" href="#applications" title="Link to this heading"></a></h2>
@@ -392,6 +428,304 @@ population inference) and for shipping a self-contained likelihood surrogate.</p
 points at a <em>real run directory</em>, exports the artifact, and validates it against the
 run’s own CIP posterior (apples-to-apples, with RIFT’s priors), locally or over
 HTCondor.  See <code class="docutils literal notranslate"><span class="pre">applications/EXPORT_AT_SCALE.md</span></code> and <code class="docutils literal notranslate"><span class="pre">applications/ARTIFACT.md</span></code>.</p>
+<p id="module-RIFT.interpolators.jax_gp.applications.export_at_scale">export_at_scale – point at a real RIFT run directory, ship a differentiable lnL
+artifact for its <code class="docutils literal notranslate"><span class="pre">all.net</span></code>, and validate it against the run’s own posterior.</p>
+<p>This is the “do it for real, do it for many” wrapper around the jax_gp primitives.
+<code class="docutils literal notranslate"><span class="pre">export_artifact</span></code>/<code class="docutils literal notranslate"><span class="pre">jax_cip</span></code> already turn a <em>single</em> <code class="docutils literal notranslate"><span class="pre">all.net</span></code> into a pure-JAX
+<code class="docutils literal notranslate"><span class="pre">lnL(theta)</span></code> surrogate; this tool adds the three things a production sweep needs:</p>
+<blockquote>
+<div><ol class="arabic simple">
+<li><p><strong>Discovery.</strong> Read a run directory the way RIFT left it – detect the
+<code class="docutils literal notranslate"><span class="pre">all.net</span></code> column layout (tides / no-tides / precessing all differ), parse the
+active <code class="docutils literal notranslate"><span class="pre">args_cip_list.txt</span></code> for the fit coordinates and the prior box
+(<code class="docutils literal notranslate"><span class="pre">--mc-range</span></code> / <code class="docutils literal notranslate"><span class="pre">--eta-range</span></code> / <code class="docutils literal notranslate"><span class="pre">--chi-max</span></code>), and locate the run’s own
+final CIP posterior (<code class="docutils literal notranslate"><span class="pre">posterior_samples-&lt;N&gt;.dat</span></code>) to validate against.</p></li>
+<li><p><strong>Export + validate the *deliverable*.</strong> Fit the surrogate in dimension-agnostic
+physical fit coordinates – <code class="docutils literal notranslate"><span class="pre">[mc,</span> <span class="pre">delta_mc]</span></code> plus whichever spin/tidal columns
+actually vary, so it covers aligned, BNS <em>and</em> precessing runs without needing a
+hand-written coordinate transform – export it, <strong>reload the saved artifact</strong>,
+draw a posterior <em>from the reloaded bytes</em> (importance sampling over the run’s
+prior box), and report the Jensen-Shannon divergence of the <code class="docutils literal notranslate"><span class="pre">mc</span></code>/<code class="docutils literal notranslate"><span class="pre">q</span></code>/
+<code class="docutils literal notranslate"><span class="pre">chi_eff</span></code> marginals against the run’s CIP posterior.</p></li>
+<li><p><strong>Scale.</strong> <code class="docutils literal notranslate"><span class="pre">batch</span></code> discovers many run directories and either runs them locally
+or emits an HTCondor DAG – one node per run, the submit file templated from the
+run’s <em>own</em> <code class="docutils literal notranslate"><span class="pre">CIP.sub</span></code> (accounting group, singularity image, requirements) so
+the jobs land in the same place the run itself ran.</p></li>
+</ol>
+</div></blockquote>
+<p>Nothing is written back into the run directory: every artifact + report goes under a
+separate <code class="docutils literal notranslate"><span class="pre">--workroot</span></code> (default <code class="docutils literal notranslate"><span class="pre">./export_at_scale_out</span></code>), one subdirectory per run.</p>
+<p>At this stage we interpolate <strong>only ``all.net``</strong> (the existing intrinsic ILE
+deliverable). The distance-grid export is a separate track.</p>
+<p>CLI:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># one run, immediately</span>
+<span class="n">python</span> <span class="o">-</span><span class="n">m</span> <span class="n">RIFT</span><span class="o">.</span><span class="n">interpolators</span><span class="o">.</span><span class="n">jax_gp</span><span class="o">.</span><span class="n">applications</span><span class="o">.</span><span class="n">export_at_scale</span> <span class="n">one</span> \
+    <span class="o">--</span><span class="n">run</span><span class="o">-</span><span class="nb">dir</span> <span class="o">/</span><span class="n">path</span><span class="o">/</span><span class="n">to</span><span class="o">/</span><span class="n">rundir</span> <span class="o">--</span><span class="n">workroot</span> <span class="o">/</span><span class="n">path</span><span class="o">/</span><span class="n">to</span><span class="o">/</span><span class="n">out</span>
+
+<span class="c1"># inspect what discovery found, without doing any work</span>
+<span class="n">python</span> <span class="o">-</span><span class="n">m</span> <span class="n">RIFT</span><span class="o">.</span><span class="n">interpolators</span><span class="o">.</span><span class="n">jax_gp</span><span class="o">.</span><span class="n">applications</span><span class="o">.</span><span class="n">export_at_scale</span> <span class="n">discover</span> \
+    <span class="o">--</span><span class="n">run</span><span class="o">-</span><span class="nb">dir</span> <span class="o">/</span><span class="n">path</span><span class="o">/</span><span class="n">to</span><span class="o">/</span><span class="n">rundir</span>
+
+<span class="c1"># many runs -&gt; a condor DAG (submit it with condor_submit_dag)</span>
+<span class="n">python</span> <span class="o">-</span><span class="n">m</span> <span class="n">RIFT</span><span class="o">.</span><span class="n">interpolators</span><span class="o">.</span><span class="n">jax_gp</span><span class="o">.</span><span class="n">applications</span><span class="o">.</span><span class="n">export_at_scale</span> <span class="n">batch</span> \
+    <span class="o">--</span><span class="n">runs</span> <span class="s1">'/data/*/S*/rift*/'</span> <span class="o">--</span><span class="n">workroot</span> <span class="o">/</span><span class="n">path</span><span class="o">/</span><span class="n">to</span><span class="o">/</span><span class="n">out</span> <span class="o">--</span><span class="n">condor</span>
+</pre></div>
+</div>
+<dl class="py data">
+<dt class="sig sig-object py" id="RIFT.interpolators.jax_gp.applications.export_at_scale.ALL_COMPARE_PARAMS">
+<span class="sig-prename descclassname"><span class="pre">RIFT.interpolators.jax_gp.applications.export_at_scale.</span></span><span class="sig-name descname"><span class="pre">ALL_COMPARE_PARAMS</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">('mc',</span> <span class="pre">'eta',</span> <span class="pre">'q',</span> <span class="pre">'chi_eff',</span> <span class="pre">'chiMinus',</span> <span class="pre">'s1z',</span> <span class="pre">'chi1_perp',</span> <span class="pre">'phi1',</span> <span class="pre">'s2z',</span> <span class="pre">'chi2_perp',</span> <span class="pre">'phi2')</span></em><a class="headerlink" href="#RIFT.interpolators.jax_gp.applications.export_at_scale.ALL_COMPARE_PARAMS" title="Link to this definition"></a></dt>
+<dd><p>every intrinsic parameter the validation reports a JS on. Masses, the aligned-spin
+combinations (chi_eff, chiMinus), and the cylindrical-polar spin of each body
+(aligned component s{b}z, in-plane magnitude chi{b}_perp, azimuth phi{b}).</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.interpolators.jax_gp.applications.export_at_scale.build_sampling">
+<span class="sig-prename descclassname"><span class="pre">RIFT.interpolators.jax_gp.applications.export_at_scale.</span></span><span class="sig-name descname"><span class="pre">build_sampling</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">spec</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fit_names</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">spin_modes</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.interpolators.jax_gp.applications.export_at_scale.build_sampling" title="Link to this definition"></a></dt>
+<dd><p>Return the RIFT-measure sampling spec for the artifact’s <code class="docutils literal notranslate"><span class="pre">fit_names</span></code>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">spin_modes</span></code> (per body <code class="docutils literal notranslate"><span class="pre">{&quot;1&quot;:</span> <span class="pre">m,</span> <span class="pre">&quot;2&quot;:</span> <span class="pre">m}</span></code> with <code class="docutils literal notranslate"><span class="pre">m</span></code> in
+<code class="docutils literal notranslate"><span class="pre">{&quot;sph&quot;,</span> <span class="pre">&quot;cart_z&quot;,</span> <span class="pre">None}</span></code>) fixes how each body’s spin is <em>sampled</em>, derived from
+the raw physics (which spin columns vary), NOT from <code class="docutils literal notranslate"><span class="pre">fit_names</span></code> – because the
+fit may use <code class="docutils literal notranslate"><span class="pre">chi_eff</span></code>/<code class="docutils literal notranslate"><span class="pre">chiMinus</span></code> instead of <code class="docutils literal notranslate"><span class="pre">s1z</span></code>/<code class="docutils literal notranslate"><span class="pre">s2z</span></code>.  When omitted, it
+is inferred from <code class="docutils literal notranslate"><span class="pre">fit_names</span></code> (back-compat: Cartesian fit coords).</p>
+<p>Returns a dict with <code class="docutils literal notranslate"><span class="pre">names</span></code>/<code class="docutils literal notranslate"><span class="pre">lo</span></code>/<code class="docutils literal notranslate"><span class="pre">hi</span></code> (prior box), <code class="docutils literal notranslate"><span class="pre">ln_prior(theta)</span></code>,
+<code class="docutils literal notranslate"><span class="pre">to_fit(theta)</span></code> (sampling coords -&gt; the artifact’s <code class="docutils literal notranslate"><span class="pre">fit_names</span></code> vector),
+<code class="docutils literal notranslate"><span class="pre">raw_to_sample</span></code> (ILE data -&gt; sampling coords) and <code class="docutils literal notranslate"><span class="pre">to_compare</span></code> (samples -&gt;
+every physical comparison parameter).</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.interpolators.jax_gp.applications.export_at_scale.detect_net_layout">
+<span class="sig-prename descclassname"><span class="pre">RIFT.interpolators.jax_gp.applications.export_at_scale.</span></span><span class="sig-name descname"><span class="pre">detect_net_layout</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_probe</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">200</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.interpolators.jax_gp.applications.export_at_scale.detect_net_layout" title="Link to this definition"></a></dt>
+<dd><p>Infer the column map of a RIFT <code class="docutils literal notranslate"><span class="pre">all.net</span></code> / <code class="docutils literal notranslate"><span class="pre">.composite</span></code> file.</p>
+<p>Returns <code class="docutils literal notranslate"><span class="pre">(cols,</span> <span class="pre">intrinsic_names,</span> <span class="pre">has_neff)</span></code> where <code class="docutils literal notranslate"><span class="pre">cols</span></code> is the
+name-&gt;index dict <code class="xref py py-func docutils literal notranslate"><span class="pre">load_ile_net()</span></code> consumes and <code class="docutils literal notranslate"><span class="pre">intrinsic_names</span></code> are the
+physical columns of the intrinsic block (e.g. <code class="docutils literal notranslate"><span class="pre">['m1','m2','s1x',...]</span></code>).</p>
+<p>The detection is tail-anchored (<code class="docutils literal notranslate"><span class="pre">...</span> <span class="pre">lnL</span> <span class="pre">sigma_lnL</span> <span class="pre">ntot</span> <span class="pre">[neff]</span></code>) and
+sanity-checked on the candidate <code class="docutils literal notranslate"><span class="pre">sigma_lnL</span></code> column (a small positive MC error),
+so it is robust to the aligned/precessing/tidal width differences without a
+hard-coded table.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.interpolators.jax_gp.applications.export_at_scale.discover_run">
+<span class="sig-prename descclassname"><span class="pre">RIFT.interpolators.jax_gp.applications.export_at_scale.</span></span><span class="sig-name descname"><span class="pre">discover_run</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">run_dir</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.interpolators.jax_gp.applications.export_at_scale.discover_run" title="Link to this definition"></a></dt>
+<dd><p>Inspect a RIFT run directory and return a dict describing how to export +
+validate it. Raises if there is no usable <code class="docutils literal notranslate"><span class="pre">all.net</span></code>.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.interpolators.jax_gp.applications.export_at_scale.expand_runs">
+<span class="sig-prename descclassname"><span class="pre">RIFT.interpolators.jax_gp.applications.export_at_scale.</span></span><span class="sig-name descname"><span class="pre">expand_runs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">patterns</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.interpolators.jax_gp.applications.export_at_scale.expand_runs" title="Link to this definition"></a></dt>
+<dd><p>Expand globs/paths to run directories that actually contain a usable all.net.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.interpolators.jax_gp.applications.export_at_scale.fit_and_export">
+<span class="sig-prename descclassname"><span class="pre">RIFT.interpolators.jax_gp.applications.export_at_scale.</span></span><span class="sig-name descname"><span class="pre">fit_and_export</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">spec</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">out_base</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">method</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'svgp'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sigma_cut</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.6</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lnL_offset</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">40.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cap_points</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">8000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_features</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">256</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_opt_steps</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">300</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">seed</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">quadgp_residual</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'svgp'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">keep_curv_frac</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.01</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ls_lo_frac</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ls_hi_frac</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mass_coord</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'eta'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">spin_coord</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'auto'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.interpolators.jax_gp.applications.export_at_scale.fit_and_export" title="Link to this definition"></a></dt>
+<dd><p>Build, persist and cold-reload-verify a differentiable lnL artifact for the
+run’s <code class="docutils literal notranslate"><span class="pre">all.net</span></code>. Returns a metadata dict (also the fit-coord arrays needed by
+validation, under private keys).</p>
+<p><code class="docutils literal notranslate"><span class="pre">spin_coord=&quot;auto&quot;</span></code> (default) fits BOTH <code class="docutils literal notranslate"><span class="pre">aligned_eff</span></code> (chi_eff/chiMinus
+principal axes – fixes the sharp low-mass aligned spin) and <code class="docutils literal notranslate"><span class="pre">cartesian</span></code>
+(s1z/s2z) and keeps whichever has the lower peak-region holdout RMSE.  This is the
+“never regress” guard: aligned_eff is a large net win but worse on a minority of
+events, and holdout RMSE reliably picks the better of the two (it selects cartesian
+exactly where aligned_eff would regress).  Pass an explicit <code class="docutils literal notranslate"><span class="pre">aligned_eff</span></code> /
+<code class="docutils literal notranslate"><span class="pre">cartesian</span></code> to skip the selection (half the fit cost).</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.interpolators.jax_gp.applications.export_at_scale.fit_prior_box">
+<span class="sig-prename descclassname"><span class="pre">RIFT.interpolators.jax_gp.applications.export_at_scale.</span></span><span class="sig-name descname"><span class="pre">fit_prior_box</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fit_names</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">spec</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.interpolators.jax_gp.applications.export_at_scale.fit_prior_box" title="Link to this definition"></a></dt>
+<dd><p>Per-coordinate uniform-prior box [lo, hi] in fit coords, from the run’s CIP
+ranges (mc, eta-&gt;delta_mc, chi-max per spin component).</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.interpolators.jax_gp.applications.export_at_scale.fit_to_physical">
+<span class="sig-prename descclassname"><span class="pre">RIFT.interpolators.jax_gp.applications.export_at_scale.</span></span><span class="sig-name descname"><span class="pre">fit_to_physical</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">Xfit</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fit_names</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.interpolators.jax_gp.applications.export_at_scale.fit_to_physical" title="Link to this definition"></a></dt>
+<dd><p>Inverse of the mass part + spin passthrough: fit coords -&gt; physical dict
+with arrays m1, m2, q, chi_eff and any spin components present.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.interpolators.jax_gp.applications.export_at_scale.main">
+<span class="sig-prename descclassname"><span class="pre">RIFT.interpolators.jax_gp.applications.export_at_scale.</span></span><span class="sig-name descname"><span class="pre">main</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">argv</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.interpolators.jax_gp.applications.export_at_scale.main" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.interpolators.jax_gp.applications.export_at_scale.raw_to_fit">
+<span class="sig-prename descclassname"><span class="pre">RIFT.interpolators.jax_gp.applications.export_at_scale.</span></span><span class="sig-name descname"><span class="pre">raw_to_fit</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X_raw</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">raw_names</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mass_coord</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'eta'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">spin_coord</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'aligned_eff'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.interpolators.jax_gp.applications.export_at_scale.raw_to_fit" title="Link to this definition"></a></dt>
+<dd><p><code class="docutils literal notranslate"><span class="pre">(m1,m2,spin...)</span> <span class="pre">-&gt;</span> <span class="pre">(mc,</span> <span class="pre">&lt;mass2&gt;,</span> <span class="pre">&lt;aligned</span> <span class="pre">spin&gt;,</span> <span class="pre">&lt;in-plane</span> <span class="pre">spin&gt;)</span></code> columns.</p>
+<p>The surrogate must be fit in the coordinates the lnL Fisher is quadratic in <em>and</em>
+axis-aligned with (the quadratic core whitens per-dimension and the GP residual
+uses axis-aligned ARD lengthscales – neither can represent a sharp ridge along a
+diagonal direction).</p>
+<p><code class="docutils literal notranslate"><span class="pre">mass_coord</span></code>: <code class="docutils literal notranslate"><span class="pre">&quot;eta&quot;</span></code> (default) or <code class="docutils literal notranslate"><span class="pre">&quot;delta_mc&quot;</span></code>.  eta is the Fisher-quadratic
+variable; delta_mc hides that curvature near equal mass (it is quadratic in
+delta_mc), so eta fixes the mass-ratio (q) marginal.</p>
+<p><code class="docutils literal notranslate"><span class="pre">spin_coord</span></code>: <code class="docutils literal notranslate"><span class="pre">&quot;aligned_eff&quot;</span></code> (default) replaces the aligned components
+<code class="docutils literal notranslate"><span class="pre">(s1z,</span> <span class="pre">s2z)</span></code> with <code class="docutils literal notranslate"><span class="pre">(chi_eff,</span> <span class="pre">chiMinus)</span></code> – the principal axes of the
+aligned-spin Fisher.  In <code class="docutils literal notranslate"><span class="pre">(s1z,</span> <span class="pre">s2z)</span></code> the well-measured chi_eff is a <em>diagonal</em>
+ridge an axis-aligned ARD GP over-smooths (the low-mass aligned-spin failure mode);
+rotating to <code class="docutils literal notranslate"><span class="pre">(chi_eff,</span> <span class="pre">chiMinus)</span></code> makes it axis-aligned and resolvable.  The
+in-plane components <code class="docutils literal notranslate"><span class="pre">(s1x,</span> <span class="pre">s1y,</span> <span class="pre">s2x,</span> <span class="pre">s2y)</span></code> are kept as-is (weakly constrained).
+<code class="docutils literal notranslate"><span class="pre">&quot;cartesian&quot;</span></code> keeps the raw components.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.interpolators.jax_gp.applications.export_at_scale.run_one">
+<span class="sig-prename descclassname"><span class="pre">RIFT.interpolators.jax_gp.applications.export_at_scale.</span></span><span class="sig-name descname"><span class="pre">run_one</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">run_dir</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">workroot</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">method</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'quadgp'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_samples</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">40000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">seed</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cap_points</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">8000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_features</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">256</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_opt_steps</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">300</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lnL_offset</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">40.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sigma_cut</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.6</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sampler</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'auto'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">keep_curv_frac</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.01</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ls_lo_frac</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ls_hi_frac</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mass_coord</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'eta'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">spin_coord</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'auto'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">write_plot</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.interpolators.jax_gp.applications.export_at_scale.run_one" title="Link to this definition"></a></dt>
+<dd><p>Discover -&gt; fit+export -&gt; validate one run; write all artifacts under
+<code class="docutils literal notranslate"><span class="pre">workroot/&lt;label&gt;/</span></code> and return the full report.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.interpolators.jax_gp.applications.export_at_scale.validate_artifact">
+<span class="sig-prename descclassname"><span class="pre">RIFT.interpolators.jax_gp.applications.export_at_scale.</span></span><span class="sig-name descname"><span class="pre">validate_artifact</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">spec</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fit_meta</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">out_dir</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_samples</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">40000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">inflate</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">seed</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sampler</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'auto'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">compare_params</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">('mc',</span> <span class="pre">'eta',</span> <span class="pre">'q',</span> <span class="pre">'chi_eff',</span> <span class="pre">'chiMinus',</span> <span class="pre">'s1z',</span> <span class="pre">'chi1_perp',</span> <span class="pre">'phi1',</span> <span class="pre">'s2z',</span> <span class="pre">'chi2_perp',</span> <span class="pre">'phi2')</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.interpolators.jax_gp.applications.export_at_scale.validate_artifact" title="Link to this definition"></a></dt>
+<dd><p>Draw a posterior from the <em>reloaded</em> artifact and JS-compare its marginals to
+the run’s CIP posterior. Writes <code class="docutils literal notranslate"><span class="pre">posterior_interp.dat</span></code> and returns the report.</p>
+<p>The target is the run’s actual posterior <code class="docutils literal notranslate"><span class="pre">lnL(theta)</span> <span class="pre">+</span> <span class="pre">ln</span> <span class="pre">prior(theta)</span></code> – NOT a
+flat-prior caricature – so the comparison is apples-to-apples with CIP.  Sampling
+is done in RIFT’s own coordinates (<a class="reference internal" href="#RIFT.interpolators.jax_gp.applications.export_at_scale.build_sampling" title="RIFT.interpolators.jax_gp.applications.export_at_scale.build_sampling"><code class="xref py py-func docutils literal notranslate"><span class="pre">build_sampling()</span></code></a>): spins in
+<code class="docutils literal notranslate"><span class="pre">(chi,</span> <span class="pre">cos_theta,</span> <span class="pre">phi)</span></code>, where RIFT’s isotropic prior is flat, plus the
+non-uniform mass-prior shape (<code class="docutils literal notranslate"><span class="pre">mc_prior</span></code> ~ mc, <code class="docutils literal notranslate"><span class="pre">eta_prior</span></code> ~ eta^-6/5).  This
+both matches CIP’s measure and avoids the Cartesian-spin 1/chi^2 singularity.</p>
+<p><code class="docutils literal notranslate"><span class="pre">sampler</span></code>: <code class="docutils literal notranslate"><span class="pre">&quot;gaussian&quot;</span></code> – fast mu-matched importance sampling (great in low
+dimension); <code class="docutils literal notranslate"><span class="pre">&quot;nuts&quot;</span></code> – gradient-based NUTS preconditioned with the data
+covariance, which exploits the artifact’s AD gradients and explores the curved,
+high-dimensional precessing posterior far better than a single Gaussian proposal;
+<code class="docutils literal notranslate"><span class="pre">&quot;auto&quot;</span></code> (default) picks <code class="docutils literal notranslate"><span class="pre">nuts</span></code> when there are &gt;3 sampling dimensions, else
+<code class="docutils literal notranslate"><span class="pre">gaussian</span></code>.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.interpolators.jax_gp.applications.export_at_scale.write_condor_batch">
+<span class="sig-prename descclassname"><span class="pre">RIFT.interpolators.jax_gp.applications.export_at_scale.</span></span><span class="sig-name descname"><span class="pre">write_condor_batch</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">run_dirs</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">workroot</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">method</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'quadgp'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_samples</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">40000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sampler</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'auto'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">python</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pythonpath</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">accounting_group</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.interpolators.jax_gp.applications.export_at_scale.write_condor_batch" title="Link to this definition"></a></dt>
+<dd><p>Emit a one-node-per-run HTCondor DAG under <code class="docutils literal notranslate"><span class="pre">workroot/condor/</span></code>.</p>
+<p>The submit file is templated from the <em>first run’s own</em> CIP.sub (accounting
+group / singularity image / requirements) so the validation jobs land in the
+same pool the run itself used. Returns the DAG path.</p>
+</dd></dl>
+
+<p id="module-RIFT.interpolators.jax_gp.applications.export_artifact">Package a RIFT ILE <code class="docutils literal notranslate"><span class="pre">.net</span></code> file into a self-contained, differentiable lnL artifact.</p>
+<p>This is the “ship it” end of the jax_gp pipeline: it takes raw ILE output (the
+per-point Monte-Carlo lnL evaluations CIP normally consumes) and produces a small,
+portable bundle (<code class="docutils literal notranslate"><span class="pre">&lt;base&gt;.npz</span></code> + <code class="docutils literal notranslate"><span class="pre">&lt;base&gt;.meta.json</span></code>) that reconstructs a pure-JAX,
+<code class="docutils literal notranslate"><span class="pre">jax.grad</span></code>-able <code class="docutils literal notranslate"><span class="pre">lnL(theta)</span></code> – with no RIFT/lalsimutils dependency at load time.</p>
+<p>The surrogate is fit in <em>fit coordinates</em> (the decorrelated space CIP itself fits in),
+so the exported lnL is differentiable in those coordinates – recorded as
+<code class="docutils literal notranslate"><span class="pre">coord_names</span></code> in the meta – not in the raw physical parameters.  See <code class="docutils literal notranslate"><span class="pre">ARTIFACT.md</span></code>.</p>
+<section id="example">
+<h3>Example<a class="headerlink" href="#example" title="Link to this heading"></a></h3>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">python</span> <span class="n">export_artifact</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">net</span> <span class="o">/</span><span class="n">home</span><span class="o">/</span><span class="n">oshaughn</span><span class="o">/</span><span class="nb">all</span><span class="o">.</span><span class="n">net</span> \
+    <span class="o">--</span><span class="n">out</span> <span class="o">/</span><span class="n">tmp</span><span class="o">/</span><span class="n">gw170817_rff</span> <span class="o">--</span><span class="n">coords</span> <span class="n">bns</span>
+</pre></div>
+</div>
+</section>
+<dl class="py data">
+<dt class="sig sig-object py" id="RIFT.interpolators.jax_gp.applications.export_artifact.RAW_COORDS">
+<span class="sig-prename descclassname"><span class="pre">RIFT.interpolators.jax_gp.applications.export_artifact.</span></span><span class="sig-name descname"><span class="pre">RAW_COORDS</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">('m1',</span> <span class="pre">'m2',</span> <span class="pre">'s1z',</span> <span class="pre">'s2z',</span> <span class="pre">'lambda1',</span> <span class="pre">'lambda2')</span></em><a class="headerlink" href="#RIFT.interpolators.jax_gp.applications.export_artifact.RAW_COORDS" title="Link to this definition"></a></dt>
+<dd><p>raw 6-parameter intrinsic columns as loaded from an ILE <code class="docutils literal notranslate"><span class="pre">.net</span></code> file</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.interpolators.jax_gp.applications.export_artifact.build_artifact">
+<span class="sig-prename descclassname"><span class="pre">RIFT.interpolators.jax_gp.applications.export_artifact.</span></span><span class="sig-name descname"><span class="pre">build_artifact</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">net_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">out_base</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">coords</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'bns'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">method</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'rff'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sigma_cut</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.6</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lnL_offset</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">40.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cap_points</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">8000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_features</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">512</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_opt_steps</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">300</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">seed</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">quadgp_residual</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'svgp'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.interpolators.jax_gp.applications.export_artifact.build_artifact" title="Link to this definition"></a></dt>
+<dd><p>Build and persist a differentiable lnL artifact from an ILE <code class="docutils literal notranslate"><span class="pre">.net</span></code> file.</p>
+<p>The pipeline mirrors CIP’s fit preparation: load + de-dupe + <code class="docutils literal notranslate"><span class="pre">sigma_cut</span></code> the
+ILE points, transform to fit coordinates, keep only the high-lnL region
+(<code class="docutils literal notranslate"><span class="pre">lnL</span> <span class="pre">&gt;</span> <span class="pre">max</span> <span class="pre">-</span> <span class="pre">lnL_offset</span></code>), optionally subsample to <code class="docutils literal notranslate"><span class="pre">cap_points</span></code>, then fit
+the chosen interpolator <em>using the per-point Monte-Carlo errors</em>.  The model is
+exported via <a class="reference internal" href="#RIFT.interpolators.jax_gp.export.save" title="RIFT.interpolators.jax_gp.export.save"><code class="xref py py-func docutils literal notranslate"><span class="pre">RIFT.interpolators.jax_gp.export.save()</span></code></a>, reloaded, and checked
+for predict agreement and finite <code class="docutils literal notranslate"><span class="pre">jax.grad</span></code>.</p>
+<section id="id1">
+<h3>Parameters<a class="headerlink" href="#id1" title="Link to this heading"></a></h3>
+<dl class="simple">
+<dt>net_path<span class="classifier">str</span></dt><dd><p>Path to the RIFT ILE <code class="docutils literal notranslate"><span class="pre">.net</span></code> file.</p>
+</dd>
+<dt>out_base<span class="classifier">str</span></dt><dd><p>Output base path; writes <code class="docutils literal notranslate"><span class="pre">&lt;out_base&gt;.npz</span></code> and <code class="docutils literal notranslate"><span class="pre">&lt;out_base&gt;.meta.json</span></code>.</p>
+</dd>
+<dt>coords<span class="classifier">{“bns”, “raw”}, optional</span></dt><dd><p>Fit-coordinate system (see <code class="xref py py-func docutils literal notranslate"><span class="pre">_build_fit_coordinates()</span></code>).</p>
+</dd>
+<dt>method<span class="classifier">str, optional</span></dt><dd><p>jax_gp interpolator name (<code class="docutils literal notranslate"><span class="pre">&quot;rff&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;exact&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;svgp&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;quadgp&quot;</span></code>).
+<code class="docutils literal notranslate"><span class="pre">&quot;quadgp&quot;</span></code> is the PE-grade quadratic-core + GP-residual surrogate; its
+residual backend is selected by <code class="docutils literal notranslate"><span class="pre">quadgp_residual</span></code>.</p>
+</dd>
+<dt>quadgp_residual<span class="classifier">str, optional</span></dt><dd><p>Residual GP for <code class="docutils literal notranslate"><span class="pre">method=&quot;quadgp&quot;</span></code> (<code class="docutils literal notranslate"><span class="pre">&quot;svgp&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;exact&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;rff&quot;</span></code>);
+ignored otherwise.</p>
+</dd>
+<dt>sigma_cut<span class="classifier">float, optional</span></dt><dd><p>Drop ILE points whose reported <code class="docutils literal notranslate"><span class="pre">sigma_lnL</span></code> exceeds this (CIP default 0.6).</p>
+</dd>
+<dt>lnL_offset<span class="classifier">float, optional</span></dt><dd><p>Keep only points with <code class="docutils literal notranslate"><span class="pre">lnL</span> <span class="pre">&gt;</span> <span class="pre">max(lnL)</span> <span class="pre">-</span> <span class="pre">lnL_offset</span></code>.</p>
+</dd>
+<dt>cap_points<span class="classifier">int or None, optional</span></dt><dd><p>If set and there are more surviving points, random-subsample down to this
+many (like CIP <code class="docutils literal notranslate"><span class="pre">--cap-points</span></code>).</p>
+</dd>
+<dt>n_features, n_opt_steps, seed<span class="classifier">optional</span></dt><dd><p>Passed to the interpolator constructor (where applicable).</p>
+</dd>
+</dl>
+</section>
+<section id="returns">
+<h3>Returns<a class="headerlink" href="#returns" title="Link to this heading"></a></h3>
+<dl class="simple">
+<dt>dict</dt><dd><p>Metadata: <code class="docutils literal notranslate"><span class="pre">n_train</span></code>, <code class="docutils literal notranslate"><span class="pre">coord_names</span></code>, <code class="docutils literal notranslate"><span class="pre">lnL_max</span></code>, <code class="docutils literal notranslate"><span class="pre">holdout_rmse</span></code>,
+plus the resolved build settings.</p>
+</dd>
+</dl>
+</section>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.interpolators.jax_gp.applications.export_artifact.main">
+<span class="sig-prename descclassname"><span class="pre">RIFT.interpolators.jax_gp.applications.export_artifact.</span></span><span class="sig-name descname"><span class="pre">main</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">argv</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.interpolators.jax_gp.applications.export_artifact.main" title="Link to this definition"></a></dt>
+<dd><p>argparse CLI: build an artifact and print its metadata as JSON.</p>
+</dd></dl>
+
+<p id="module-RIFT.interpolators.jax_gp.applications.compare">Compare intrinsic-posterior 1D marginals via Jensen-Shannon divergence.</p>
+<p>The success metric for jax_cip is NOT sampler ESS – it is how close the recovered
+posterior is to the production CIP+RF benchmark. We quantify that with the JS
+divergence of each 1D marginal (start with mc, the best-measured parameter), in bits
+(log base 2, so JS in [0, 1]).</p>
+<dl class="simple">
+<dt>Usage:</dt><dd><p>python -m RIFT.interpolators.jax_gp.applications.compare         –a jax_out.xml.gz –b cip_rf_out.xml.gz –param mc</p>
+</dd>
+</dl>
+<p>Both inputs are RIFT ChooseWaveformParams XML (what CIP and jax_cip both write).</p>
+<p>Caveat (per design notes): a reliable JS needs enough <em>independent</em> samples in BOTH
+posteriors. jax_cip’s per-run effective sample count is modest, so accumulate over
+many seeds/instances (Condor) before trusting a small JS. <code class="docutils literal notranslate"><span class="pre">js_divergence_1d</span></code> here
+also returns a bootstrap stderr so you can see when you are statistics-limited.</p>
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.interpolators.jax_gp.applications.compare.js_divergence_1d">
+<span class="sig-prename descclassname"><span class="pre">RIFT.interpolators.jax_gp.applications.compare.</span></span><span class="sig-name descname"><span class="pre">js_divergence_1d</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">a</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">b</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">bins</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">80</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">value_range</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.interpolators.jax_gp.applications.compare.js_divergence_1d" title="Link to this definition"></a></dt>
+<dd><p>Jensen-Shannon divergence (bits) between two 1D sample sets via histograms.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.interpolators.jax_gp.applications.compare.js_with_stderr">
+<span class="sig-prename descclassname"><span class="pre">RIFT.interpolators.jax_gp.applications.compare.</span></span><span class="sig-name descname"><span class="pre">js_with_stderr</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">a</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">b</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">bins</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">80</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_boot</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">200</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">seed</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.interpolators.jax_gp.applications.compare.js_with_stderr" title="Link to this definition"></a></dt>
+<dd><p>JS plus a bootstrap stderr (so you can tell when you’re statistics-limited).</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.interpolators.jax_gp.applications.compare.load_param_from_xml">
+<span class="sig-prename descclassname"><span class="pre">RIFT.interpolators.jax_gp.applications.compare.</span></span><span class="sig-name descname"><span class="pre">load_param_from_xml</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fname</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">param</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'mc'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.interpolators.jax_gp.applications.compare.load_param_from_xml" title="Link to this definition"></a></dt>
+<dd><p>Load a 1D parameter array (default mc, in Msun) from a RIFT samples XML.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.interpolators.jax_gp.applications.compare.load_param_pooled">
+<span class="sig-prename descclassname"><span class="pre">RIFT.interpolators.jax_gp.applications.compare.</span></span><span class="sig-name descname"><span class="pre">load_param_pooled</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fnames</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">param</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'mc'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.interpolators.jax_gp.applications.compare.load_param_pooled" title="Link to this definition"></a></dt>
+<dd><p>Concatenate a parameter across several XMLs (pool e.g. 10 benchmark runs).</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.interpolators.jax_gp.applications.compare.main">
+<span class="sig-prename descclassname"><span class="pre">RIFT.interpolators.jax_gp.applications.compare.</span></span><span class="sig-name descname"><span class="pre">main</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">argv</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.interpolators.jax_gp.applications.compare.main" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
 </section>
 </section>
 
