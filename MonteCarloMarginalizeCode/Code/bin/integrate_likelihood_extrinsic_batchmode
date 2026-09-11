@@ -761,6 +761,17 @@ if opts.internal_rotate_phase:
   param_limits['psi'] = (0, 4*numpy.pi)
   param_limits['phi_orb'] = (0, 4*numpy.pi)
 
+# Angle priors are derived from the FULL sampling range of each periodic angle, captured here
+# once the sampling ranges are final.  The old prior_pdf for psi was the fixed
+# constant mcsampler.uniform_samp_psi = 1/pi, written for [0, pi), while psi is sampled on
+# (0, 2 pi) so that --internal-rotate-phase can use (phi+psi, phi-psi) coordinates.  That
+# prior integrated to 2 (4 with the rotation, whose (0, 4 pi) phi_orb range doubled the fixed
+# 1/(2 pi) phi prior as well), so every reported lnZ carried +ln 2 (+ln 8 rotated).  The
+# likelihood is periodic in both angles and each sampled range covers whole periods, so a
+# prior normalized on the sampled range gives the lnZ of a prior normalized on one period.
+psi_prior_range = (param_limits["psi"][0], param_limits["psi"][1])
+phi_orb_prior_range = (param_limits["phi_orb"][0], param_limits["phi_orb"][1])
+
 #
 # Parameter integral sampling strategy
 #
@@ -862,8 +873,9 @@ else:
 
 #
 # Psi -- polarization angle
-# sampler: uniform in [0, pi)
+# sampler: uniform over psi_prior_range ((0, 2 pi) by default); prior 1/(range), which integrates to 1
 #
+psi_prior_pdf = mcsampler.ret_uniform_samp_vector_alt(psi_prior_range[0], psi_prior_range[1])
 psi_sampler = mcsampler.ret_uniform_samp_vector_alt( 
     param_limits["psi"][0], param_limits["psi"][1])
 psi_sampler_cdf_inv = functools.partial(mcsampler.uniform_samp_cdf_inv_vector, 
@@ -873,7 +885,7 @@ sampler.add_parameter("psi",
     cdf_inv = psi_sampler_cdf_inv, 
     left_limit = param_limits["psi"][0], 
     right_limit = param_limits["psi"][1],
-    prior_pdf = mcsampler.uniform_samp_psi,
+    prior_pdf = psi_prior_pdf,
     adaptive_sampling=opts.internal_rotate_phase or opts.force_adapt_all)
 
 #
@@ -890,7 +902,7 @@ if not (opts.distance_marginalization and lookup_table["phase_marginalization"])
         cdf_inv = phi_sampler_cdf_inv,
         left_limit = param_limits["phi_orb"][0], 
         right_limit = param_limits["phi_orb"][1],
-        prior_pdf = mcsampler.uniform_samp_phase,
+        prior_pdf = mcsampler.ret_uniform_samp_vector_alt(phi_orb_prior_range[0], phi_orb_prior_range[1]),
         adaptive_sampling=opts.internal_rotate_phase or opts.force_adapt_all)
 
 

@@ -698,6 +698,10 @@ param_limits = { "psi": (0, 2*numpy.pi),
     "t_ref": (-t_ref_wind, t_ref_wind),
     "inclination": (0, numpy.pi)
 }
+# Angle priors derived from their sampling ranges, so they integrate to 1 (see the batchmode
+# driver for the history: the fixed 1/pi psi prior over (0, 2 pi) put +ln 2 on every lnZ).
+psi_prior_range = (param_limits["psi"][0], param_limits["psi"][1])
+phi_orb_prior_range = (param_limits["phi_orb"][0], param_limits["phi_orb"][1])
 
 #
 # Parameter integral sampling strategy
@@ -734,7 +738,7 @@ sampler.add_parameter("psi",
     cdf_inv = psi_sampler_cdf_inv, 
     left_limit = param_limits["psi"][0], 
     right_limit = param_limits["psi"][1],
-    prior_pdf = mcsampler.uniform_samp_psi)
+    prior_pdf = mcsampler.ret_uniform_samp_vector_alt(psi_prior_range[0], psi_prior_range[1]))
 
 #
 # Phi - orbital phase
@@ -749,7 +753,7 @@ sampler.add_parameter("phi_orb",
     cdf_inv = phi_sampler_cdf_inv,
     left_limit = param_limits["phi_orb"][0], 
     right_limit = param_limits["phi_orb"][1],
-    prior_pdf = mcsampler.uniform_samp_phase)
+    prior_pdf = mcsampler.ret_uniform_samp_vector_alt(phi_orb_prior_range[0], phi_orb_prior_range[1]))
 
 #
 # inclination - angle of system angular momentum with line of sight

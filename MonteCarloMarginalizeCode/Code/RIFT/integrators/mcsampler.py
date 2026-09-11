@@ -807,7 +807,7 @@ def uniform_samp_withfloor_vector(rmaxQuad,rmaxFlat,pFlat,x):
 
 # syntatic sugar : predefine the most common distributions
 uniform_samp_phase = lambda x,numpy=numpy: numpy.broadcast_to(0.5/numpy.pi, numpy.shape(x))
-uniform_samp_psi = lambda x,numpy=numpy: numpy.broadcast_to(1.0/numpy.pi, numpy.shape(x))
+uniform_samp_psi = lambda x,numpy=numpy: numpy.broadcast_to(1.0/numpy.pi, numpy.shape(x))   # density for psi on [0, pi) ONLY; the ILE drivers sample psi on (0, 2 pi) and derive their prior from that range instead
 uniform_samp_theta = lambda x,numpy=numpy: 0.5*numpy.sin(x.astype(float))
 uniform_samp_dec = lambda x,numpy=numpy: 0.5*numpy.cos(x.astype(float))
 
