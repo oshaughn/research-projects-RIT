@@ -2340,18 +2340,20 @@ class InnerProduct(object):
             else: # if we get here psd must be an array
                 fPSD = (len(psd) - 1) * self.deltaF # -1 b/c start at f=0
                 assert self.fMax <= fPSD
-                # ivals = np.arange(self.minIdx,self.maxIdx)
-                # ivals_ok = psd[ivals]>0
-                # extra_weight=np.ones(len(self.weights))
-                # if waveform_is_psi4:
-                #     extra_weight[ivals_ok] = 1./(2*np.pi*ivals[ivals_ok]*deltaF)**2
-                # self.weights[ivals_ok] = 1./psd[ivals_ok] * extra_weight[ivals_ok]
-                for i in range(self.minIdx,self.maxIdx):
-                    if psd[i] != 0.:
-                        extra_weight=1.0
-                        if waveform_is_psi4:
-                            extra_weight=1.0/(2*np.pi*i*deltaF)/(2*np.pi*i*deltaF)
-                        self.weights[i] = 1./psd[i]*extra_weight
+                # Vectorised form of the per-bin loop this replaces: 22.2 ms -> 1.9 ms at
+                # 128512 in-band bins (seglen 128 s, srate 8192, ldas-grid).  The driver
+                # passes a REAL8FrequencySeries, so this branch is off that path.
+                # Bit-identical: the mask stays `!= 0` as in the loop, since the `> 0` used
+                # by the REAL8FrequencySeries branch above would drop negative bins here,
+                # and the psi4 weight keeps the `1/x/x` association rather than `1/x**2`.
+                ivals = np.arange(self.minIdx, self.maxIdx)
+                ivals_ok = ivals[psd[self.minIdx:self.maxIdx] != 0.]
+                if waveform_is_psi4:
+                    _x = 2*np.pi*ivals_ok*deltaF
+                    extra_weight = 1.0/_x/_x
+                else:
+                    extra_weight = 1.0
+                self.weights[ivals_ok] = 1./psd[ivals_ok]*extra_weight
         else:
             raise ValueError("analyticPSD_Q must be either True or False")
 
@@ -2372,8 +2374,11 @@ class InnerProduct(object):
             WFD.data.data[:] = np.sqrt(self.weights) # W_FD is 1/sqrt(S_n(f))
             WFD.data.data[0] = WFD.data.data[-1] = 0. # zero 0, f_Nyq bins
             lal.REAL8FreqTimeFFT(WTD, WFD, revplan) # IFFT to TD
-            for i in range(int(N_spec/2), self.len2side - int(N_spec/2)):
-                WTD.data.data[i] = 0. # Zero all but T_spec/2 ends of W_TD
+            # Zero all but T_spec/2 ends of W_TD.  Slice assignment, bit-identical to the
+            # per-element loop it replaces -- which was ~1e6 SWIG element writes at seglen
+            # 128 s / srate 8192, ~0.3-0.7 s, and inverse spectrum truncation is ON by
+            # default (--inv-spec-trunc-time 8), so it was paid once per ComputeModeCrossTermIP.
+            WTD.data.data[int(N_spec/2) : self.len2side - int(N_spec/2)] = 0.
             lal.REAL8TimeFreqFFT(WFD, WTD, fwdplan) # FFT back to FD
             WFD.data.data[0] = WFD.data.data[-1] = 0. # zero 0, f_Nyq bins
             # Square to get trunc. inv. PSD
@@ -2385,6 +2390,17 @@ class InnerProduct(object):
         # In particular,freqs = +-i*df are in N/2+-i bins of array
         self.weights2side[:len(self.weights)] = self.weights[::-1]
         self.weights2side[len(self.weights)-1:] = self.weights[0:-1]
+
+        # Contiguous support of the band weights.  Everything outside [band_lo, band_hi)
+        # multiplies by exactly zero, so a batched inner product may skip it; interior
+        # zeros (dead PSD bins) stay inside the range and are still multiplied through.
+        # Used only by the opt-in batched path -- self.ip() still integrates the full array.
+        _nz2 = self.weights2side != 0
+        if _nz2.any():
+            self.band_lo2side = int(np.argmax(_nz2))
+            self.band_hi2side = len(_nz2) - int(np.argmax(_nz2[::-1]))
+        else:
+            self.band_lo2side, self.band_hi2side = 0, 0
 
     def ip(self, h1, h2):
         """
@@ -2496,13 +2512,54 @@ class ComplexIP(InnerProduct):
         assert abs(h1.deltaF-h2.deltaF) <= TOL_DF\
                 and abs(h1.deltaF-self.deltaF) <= TOL_DF
         val = 0.
-        factor_shift = np.ones( len(h1.data.data))
         if include_epoch_differences:
             fvals = evaluate_fvals(h1)
             factor_shift = np.exp(-1j* (float(h1.epoch) - float(h2.epoch))*fvals*2*np.pi)  # exp( i omega( t_2 - t_1) )
-        val = np.sum( np.conj(h1.data.data)*h2.data.data*factor_shift*self.weights2side )
+            val = np.sum( np.conj(h1.data.data)*h2.data.data*factor_shift*self.weights2side )
+        else:
+            # Bit-identical to multiplying by an all-ones factor_shift (x*1.0 == x in IEEE
+            # 754), but skips a len2side float64 allocation + one full-length complex
+            # multiply per call.  At 1e6 bins that was ~0.5 ms of allocation and ~20% of the
+            # arithmetic, times O(10^5) calls in a higher-mode rotation precompute.
+            val = np.sum( np.conj(h1.data.data)*h2.data.data*self.weights2side )
         val *= 2. * self.deltaF
         return val
+
+    def ip_matrix(self, listA, listB, chunk=1<<18):
+        r"""Batched form of ip(): returns the matrix M[a,b] = self.ip(listA[a], listB[b]).
+
+        listA, listB are sequences of COMPLEX16FrequencySeries on the same 2-sided grid.
+        The double loop over (a,b) is a single matrix product,
+
+            M = 2 df . conj(A) . (B . W)^T ,   A[a,f] = listA[a](f),  B[b,f] = listB[b](f)
+
+        which turns O(Na.Nb) separate full-length reductions into one pass over the data
+        plus a GEMM, and skips the frequency bins where the band weight is exactly zero.
+        Accumulated in chunks of `chunk` bins so the working set stays bounded.
+
+        NOT bit-identical to the loop: the reduction order changes (pairwise np.sum over
+        the full array vs. blocked GEMM accumulation over the band).  Measured deviation is
+        ~1e-15 relative to max|M| -- see DESIGN_precompute_crossterm_batching.md.  Callers
+        that need the shipped rounding must keep using ip().
+        """
+        lo, hi = self.band_lo2side, self.band_hi2side
+        na, nb = len(listA), len(listB)
+        out = np.zeros((na, nb), dtype=np.complex128)
+        if hi <= lo:
+            return out
+        for m in listA:
+            assert m.data.length == self.len2side
+        for m in listB:
+            assert m.data.length == self.len2side
+        colsA = [m.data.data for m in listA]
+        colsB = [m.data.data for m in listB]
+        for s in range(lo, hi, chunk):
+            e = min(s+chunk, hi)
+            A = np.conj(np.stack([c[s:e] for c in colsA], axis=0))
+            B = np.stack([c[s:e] for c in colsB], axis=0) * self.weights2side[s:e]
+            out += A @ B.T
+        out *= 2. * self.deltaF
+        return out
 
     def norm(self, h):
         """

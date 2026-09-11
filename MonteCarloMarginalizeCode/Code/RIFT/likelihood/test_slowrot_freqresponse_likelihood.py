@@ -289,7 +289,70 @@ def run_strong(fmax=2000., seglen=8., SCALE_strong=40., m1=15., m2=13., Qmax=6):
     return HALF, base, fin, gain
 
 
+def run_response_coefficients_block():
+    """(V5) BLOCK COEFFICIENTS: response_coefficients_vector == the per-sample loop.
+
+    The NoLoop likelihood used to build b_p one Monte Carlo sample at a time; it now builds
+    the whole block at once.  Nothing else about the likelihood changed, so this is the
+    single place the substitution can go wrong, and the reference is the scalar routine
+    itself -- still shipped, still the definition of b_p.
+
+    b_0..b_3 must be bit-identical.  b_4 and b_5 carry a_x**3 and a_x**4, where numpy's
+    power loop and CPython's libm pow round differently in the last bit; that is bounded
+    here, and the end-to-end consequence was measured at zero (see
+    DESIGN_freqresponse_vectorized_coefficients.md).
+    """
+    rng = np.random.RandomState(20260909)
+    n, Qmax, tref = 400, 4, 1e9
+    RA = rng.uniform(0, 2 * np.pi, n)
+    DEC = np.arcsin(rng.uniform(-1, 1, n))
+    PSI = rng.uniform(0, np.pi, n)
+    worst = 0.0
+    for det, L_arm in (("H1", None), ("K1", 40000.0), ("V1", 10000.0)):
+        bv = flfr.response_coefficients_vector(det, RA, DEC, PSI, tref, Qmax, L_arm=L_arm)
+        assert sorted(bv.keys()) == list(range(Qmax + 2))
+        for i in range(n):
+            bs = flfr.response_coefficients(det, float(RA[i]), float(DEC[i]), float(PSI[i]),
+                                            tref, Qmax, L_arm=L_arm)
+            for p in range(Qmax + 2):
+                d = abs(bv[p][i] - bs[p])
+                if p <= 3:
+                    assert d == 0.0, ("b_%d must be bit-identical to the scalar routine "
+                                      "(%s sample %d: |d|=%g)" % (p, det, i, d))
+                worst = max(worst, d / max(abs(bs[p]), 1e-300))
+    print("\n(V5) BLOCK COEFFICIENTS: b_0..b_3 bit-identical; worst relative "
+          "difference over all p = %.3e" % worst)
+    assert worst < 1e-14, "block coefficients drifted past one ulp: %g" % worst
+
+    # STRUCTURAL: the detector lookup must not scale with the block.  This is what the
+    # change is for -- a regression to the per-sample loop passes every value check above
+    # and only shows up here.
+    calls = [0]
+    real = sfr.detector_geometry
+
+    def counting(*a, **k):
+        calls[0] += 1
+        return real(*a, **k)
+    sfr.detector_geometry = counting
+    try:
+        sfr._DETECTOR_GEOMETRY_CACHE.clear()
+        flfr.response_coefficients_vector("H1", RA[:1], DEC[:1], PSI[:1], tref, Qmax)
+        one = calls[0]
+        sfr._DETECTOR_GEOMETRY_CACHE.clear()
+        calls[0] = 0
+        flfr.response_coefficients_vector("H1", RA, DEC, PSI, tref, Qmax)
+        many = calls[0]
+    finally:
+        sfr.detector_geometry = real
+        sfr._DETECTOR_GEOMETRY_CACHE.clear()
+    print("     detector_geometry calls: %d for 1 sample, %d for %d samples" % (one, many, n))
+    assert many == one, ("the detector geometry is sample-independent; %d samples cost %d "
+                         "lookups, 1 sample costs %d" % (n, many, one))
+    return worst
+
+
 if __name__ == "__main__":
     run()
     run_strong()
+    run_response_coefficients_block()
     print("\nALL SLOWROT FREQRESPONSE LIKELIHOOD CHECKS PASSED")

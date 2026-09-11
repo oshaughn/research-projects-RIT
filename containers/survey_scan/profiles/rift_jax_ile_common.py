@@ -89,6 +89,8 @@ def main(argv: list[str] | None = None) -> int:
         import numpy as np
         import jax
         import jax.numpy as jnp
+        from RIFT.jax_cache import configure_persistent_cache
+        active_cache = configure_persistent_cache(jax, [])
         from RIFT.likelihood.jax_ile.wrapper import (
             JAXDistanceMarginalizedLikelihood,
             JAXDistPhiMargLikelihood,
@@ -100,6 +102,7 @@ def main(argv: list[str] | None = None) -> int:
             "jax_version": jax.__version__,
             "backend": jax.default_backend(),
             "devices": [str(d) for d in jax.devices()],
+            "cache_dir": str(active_cache) if active_cache else None,
         }
         data = _synthetic_data(args.npts, args.n_full, args.l_max)
         batch = {
@@ -159,6 +162,15 @@ def main(argv: list[str] | None = None) -> int:
         "elapsed_s": elapsed,
         "device": device,
         "cache": _cache_stats(os.environ.get("JAX_COMPILATION_CACHE_DIR")),
+        "static_shapes": {
+            "detectors": 2,
+            "npts": args.npts,
+            "n_full": args.n_full,
+            "l_max": args.l_max,
+            "distance_grid": args.distance_grid,
+            "phi_grid": args.phi_grid,
+            "psi_grid": args.psi_grid,
+        },
         "steps": steps,
     }
     _write(args.json_out, result)

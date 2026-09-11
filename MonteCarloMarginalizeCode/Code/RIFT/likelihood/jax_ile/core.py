@@ -82,9 +82,30 @@ from RIFT.likelihood.time_interp_choice import (SINC_HALFWIDTH_DEFAULT,
 # Nodes centred per-sample on x* with scale 1/sqrt(R) (trapezoid, gradient-stable
 # placement via stop_gradient) integrate it to machine precision at any SNR with
 # a few dozen nodes -- removing the evidence bias.  Enable with env
-# JAX_ILE_DISTMARG_GH=<n_nodes> (e.g. 64); 0 keeps the legacy uniform grid.
+# JAX_ILE_DISTMARG_GH=<n_nodes> (e.g. 64), or the driver's --distance-gh-nodes,
+# which calls set_distmarg_gh_nodes() below; 0 keeps the legacy uniform grid.
 # See make_distance_gh / _distmarg_gh_logL.
 _DISTMARG_GH_N = int(os.environ.get("JAX_ILE_DISTMARG_GH", "0"))
+
+
+def set_distmarg_gh_nodes(n):
+    """Set the per-sample Gauss-Hermite distance-quadrature node count.
+
+    Every reader of ``_DISTMARG_GH_N`` in this module (a bare global lookup)
+    and in the sibling modules that hold a reference to this one (``_core.
+    _DISTMARG_GH_N``, an attribute lookup) resolves it dynamically at CALL
+    time, not at import time -- so calling this after those modules have
+    already been imported is sufficient; nothing needs to be re-imported.
+    This is what makes the driver's ``--distance-gh-nodes`` option reachable
+    without import-order fragility.  ``n=0`` restores the legacy uniform grid.
+    """
+    global _DISTMARG_GH_N
+    _DISTMARG_GH_N = int(n)
+
+
+def get_distmarg_gh_nodes():
+    """Return the currently active per-sample Gauss-Hermite node count."""
+    return _DISTMARG_GH_N
 
 import lal
 import lalsimulation as lalsim
@@ -93,6 +114,7 @@ from .detector import compute_detamresponse, time_delay_from_earth_center
 from .spherical import spherical_harmonics_vectorized
 from . import response_slowrot as _rs
 from . import response_freqresponse as _rf
+from . import response_rotating_freqresponse as _rrf
 
 # Fiducial template distance (Mpc); identical to factored_likelihood.distMpcRef.
 DIST_MPC_REF = 1000.0
@@ -121,10 +143,21 @@ class JAXLikelihoodData:
     """
 
     def __init__(self, detectors, deltaT, gmst, tvals, tref,
-                 distMpcRef=DIST_MPC_REF):
+                 distMpcRef=DIST_MPC_REF, q_time_pregrid_factor=1):
         self.detector_names = list(detectors.keys())
         self.detectors = detectors  # name -> dict (see build_likelihood_data)
         self.deltaT = float(deltaT)
+        # Integer refinement of the stored Q sampling.  1 == the historical
+        # behaviour, Q sampled at deltaT.  With factor f the stored Q arrays are
+        # sampled at deltaT/f, so a position expressed in COARSE samples must be
+        # multiplied by f before it indexes them.  deltaT itself, tvals, and the
+        # Simpson weights below are DELIBERATELY unchanged: the pregrid refines
+        # the interpolation of Q, not the cadence the likelihood integrates on
+        # (mirroring ``--q-time-pregrid-factor`` on the conventional arm).
+        self.q_time_pregrid_factor = int(q_time_pregrid_factor)
+        if self.q_time_pregrid_factor < 1:
+            raise ValueError("q_time_pregrid_factor must be >= 1, got %r"
+                             % (q_time_pregrid_factor,))
         self.gmst = float(gmst)
         self._tref = float(tref)
         self.tvals = jnp.asarray(tvals, dtype=jnp.float64)
@@ -142,8 +175,71 @@ class JAXLikelihoodData:
         return self.detectors[self.detector_names[0]]["lms"]
 
 
+def build_q_time_pregrid(rho, factor):
+    """Refine a packed ``(K, npts_full)`` rholm block onto a ``factor``x time grid.
+
+    THIS IS A THIN WRAPPER, ON PURPOSE.  The arithmetic is
+    ``factored_likelihood.build_reflected_q_pregrid`` -- the SAME host-side
+    builder the conventional NoLoop arm uses for ``--q-time-pregrid-factor``
+    (RIFT PR #261).  Calling it rather than restating it here is the whole point:
+    the two arms are meant to be answering with the same refined Q, and a second
+    implementation of a boundary convention is exactly how the two drivers came
+    to ship opposite stencil defaults (issue #233).  It also inherits that
+    function's round-trip guard -- every ``factor``-th refined sample must
+    reproduce the input to 5e-12 relative -- and its host-side (numpy) execution,
+    so the transient ``2 n factor`` reflection never lands on the accelerator.
+
+    WHICH REFLECTION, and why it is not this module's ``_reflected_fft_upsample``.
+    The two differ, and the difference is measured, not stylistic:
+
+    * ``_reflected_fft_upsample`` periodizes ``[x0..x_{n-1}, x_{n-2}..x_1]``
+      (period ``2(n-1)``).  It is right for what IT is used for -- reconstructing
+      ``kappa`` on the *terminal* integration window, where a series sitting at
+      exactly Nyquist must keep reconstructing ``cos(pi t)``; duplicating the
+      turning samples inserts a flat pair and breaks that.
+    * ``reflected_bandlimited_upsample`` (what this uses, via #261) periodizes
+      ``[x0..x_{n-1}, x_{n-1}..x0]`` (period ``2n``).  That is the right choice
+      HERE, for a different reason: the rholm buffer is a CROP of a longer series
+      (``ComputeModeIPTimeSeries`` ends in ``CutCOMPLEX16TimeSeries(rhoTS, 0,
+      N_window)``), and on crop-shaped fixtures the ``2n`` form measured 2e-8 to
+      2.5e-6 nats against 2e-6 to 2.5e-4 for ``2(n-1)`` -- see
+      DESIGN_time_marginalization_quadrature.md, "Finite-window reconstruction".
+
+    Both docstrings assert their own convention is the correct one; they are
+    describing different problems and both are right about theirs.  Neither is a
+    substitute for the exact-period oracle -- see
+    ``test/jax/test_jax_q_time_pregrid.py``, which measures both against a Q
+    built as a genuine crop of an exactly periodic band-limited series.  MEASURED
+    THERE, on this arm's own fixture: routed through ``_reflected_fft_upsample``
+    the factor-8 pregrid saturates at 7.8e-4 relative and does not improve at
+    factor 16 (7.6e-4); through the ``2n`` form it reaches 4.6e-5 and keeps
+    converging.  Getting this wrong costs a 17x floor and all of the convergence,
+    while every "every factor-th sample reproduces the input" check still passes.
+
+    The ``factor == 1`` short-circuit returns the INPUT OBJECT and does not import
+    ``factored_likelihood`` at all, so the default path is untouched -- bit-identity
+    is a property of the code path, not of an agreement to 1e-15.
+
+    Returns ``(rho_fine, report)`` with ``rho_fine`` shaped
+    ``(K, (npts_full-1)*factor + 1)`` and ``report`` the #261 telemetry dict.
+    """
+    factor = int(factor)
+    if factor < 1:
+        raise ValueError("q_time_pregrid_factor must be >= 1, got %r" % (factor,))
+    if factor == 1:
+        return rho, dict(factor=1)
+    # LOCAL import, deliberately.  factored_likelihood pulls in lalsimutils and numba;
+    # this module is imported by lightweight consumers (the stencil-parity tests, the
+    # coordinate helpers) that never build data, and a module-level import would make
+    # them pay for it.  Data building already imports it via wrapper.py anyway.
+    from RIFT.likelihood import factored_likelihood as _fl
+    dense, report = _fl.build_reflected_q_pregrid(np.asarray(rho), factor=factor,
+                                                 xpy=np)
+    return np.asarray(dense), report
+
+
 def build_likelihood_data(packed_per_detector, deltaT, tref, tvals,
-                          distMpcRef=DIST_MPC_REF):
+                          distMpcRef=DIST_MPC_REF, q_time_pregrid_factor=1):
     """Assemble a :class:`JAXLikelihoodData` from packed numpy arrays.
 
     Parameters
@@ -170,15 +266,24 @@ def build_likelihood_data(packed_per_detector, deltaT, tref, tvals,
         helper ``bin/integrate_likelihood_extrinsic_batchmode`` uses (issue #146).
     """
     gmst = float(lal.GreenwichMeanSiderealTime(tref))
+    q_time_pregrid_factor = int(q_time_pregrid_factor)
     detectors = {}
     for det, d in packed_per_detector.items():
         lms = [(int(l), int(m)) for (l, m) in np.asarray(d["lms"])]
         rho = np.asarray(d["rholmArray"], dtype=np.complex128)  # (K, npts_full)
+        npts_full_coarse = int(rho.shape[-1])
+        # factor 1 returns ``rho`` itself, so the historical path is not merely
+        # numerically equal, it is the SAME array object -- see
+        # test_factor_one_is_bit_identical.
+        rho, q_report = build_q_time_pregrid(rho, q_time_pregrid_factor)
         Q = jnp.asarray(np.ascontiguousarray(rho.T))            # (npts_full, K)
         D = lalsim.DetectorPrefixToLALDetector(det)
         detectors[det] = {
             "lms": lms,
             "Q": Q,
+            "q_time_pregrid_factor": q_time_pregrid_factor,
+            "q_time_pregrid_report": q_report,
+            "npts_full_coarse": npts_full_coarse,
             "U": jnp.asarray(np.asarray(d["U"], dtype=np.complex128)),
             "V": jnp.asarray(np.asarray(d["V"], dtype=np.complex128)),
             "epoch": float(d["epoch"]),
@@ -187,7 +292,8 @@ def build_likelihood_data(packed_per_detector, deltaT, tref, tvals,
             "npts_full": int(Q.shape[0]),
             "l_max": max(l for (l, m) in lms),
         }
-    return JAXLikelihoodData(detectors, deltaT, gmst, tvals, tref, distMpcRef)
+    return JAXLikelihoodData(detectors, deltaT, gmst, tvals, tref, distMpcRef,
+                             q_time_pregrid_factor=q_time_pregrid_factor)
 
 
 def _gather_nearest(Q_col, pos, u=None):
@@ -374,6 +480,128 @@ def _separable_u(p0):
     return (p0 - jnp.floor(p0))[:, None]
 
 
+# Stencil footprint in STORED samples, i.e. how far a gather reaches either side of
+# its base index.  One definition, consumed by both accumulators' support checks.
+_STENCIL_MARGIN = {"nearest": 1, "linear": 2, "cubic": 3,
+                   "sinc": SINC_HALFWIDTH_DEFAULT + 1}
+
+
+def _check_stored_q_length(dd, stored_npts, factor, what):
+    """Fail closed when a stored Q bank was not refined to its declared factor.
+
+    ``_q_sample_positions`` scales every index by ``factor``.  If the array it
+    indexes was never refined, that scaling silently reads the wrong samples --
+    a factor-8 window would cover an eighth of the intended span and land on
+    whatever happens to be there.  Nothing downstream can see it: the shapes
+    still broadcast, the likelihood still returns finite numbers, and they are
+    wrong.
+
+    The shape it guards against is reachable.  ``banded._base_data`` builds the
+    scaffold through :func:`build_likelihood_data`, then attaches an
+    INDEPENDENTLY packed ``Q_bank`` that :func:`build_q_time_pregrid` never sees,
+    and ``_accumulate_unit_banded`` indexes that bank.  ``_base_data`` takes no
+    factor today, so the two cannot disagree yet; giving it one without also
+    refining the bank would produce exactly this.
+
+    Cheap (a python int comparison at trace time), so there is no reason to make
+    it conditional.
+    """
+    declared = dd.get("q_time_pregrid_factor")
+    if declared is not None and int(declared) != int(factor):
+        raise ValueError(
+            "%s was built at q_time_pregrid_factor=%d but is being indexed at "
+            "factor %d" % (what, int(declared), int(factor)))
+    coarse = dd.get("npts_full_coarse")
+    if coarse is None:
+        # A hand-built detector dict (tests, benchmark shims) carrying no
+        # refinement metadata.  At factor 1 there is nothing to check: no index
+        # is scaled, so an unrefined buffer is the correct buffer.
+        #
+        # Above factor 1 the absence of the metadata is itself the fault, and
+        # returning here was a hole.  `build_q_time_pregrid` sets both keys
+        # together, so a dict that declares a factor without `npts_full_coarse`
+        # was not built by it, and its Q is coarse.  `_q_sample_positions` would
+        # still scale every index by the factor, reading an eighth of the
+        # intended span at factor 8.  Shapes broadcast, the likelihood returns
+        # finite numbers, and they are wrong.  Refuse instead.
+        if int(factor) != 1:
+            raise ValueError(
+                "%s is indexed at q_time_pregrid_factor=%d but carries no "
+                "'npts_full_coarse'; refinement metadata is required above "
+                "factor 1, because the stored Q cannot be shown to have been "
+                "refined and every index would be scaled regardless.  Build it "
+                "with build_q_time_pregrid, or index at factor 1."
+                % (what, int(factor)))
+        return
+    expected = (int(coarse) - 1)*int(factor) + 1 if int(factor) != 1 else int(coarse)
+    if int(stored_npts) != expected:
+        raise ValueError(
+            "%s has %d samples but q_time_pregrid_factor=%d over a %d-sample "
+            "coarse buffer requires %d; the stored Q was not refined to the "
+            "declared factor" % (what, int(stored_npts), int(factor),
+                                 int(coarse), expected))
+
+
+def _q_sample_positions(data, p0, t_offsets, interp):
+    """Map a coarse-sample window onto the stored (possibly pre-refined) Q grid.
+
+    ``p0`` (shape ``(S,)``) and ``t_offsets`` (shape ``(npts,)``) are in units of
+    ``data.deltaT``, the cadence the likelihood integrates on.  The STORED Q may be
+    sampled ``f = data.q_time_pregrid_factor`` times finer, so an index into it is
+    ``f`` times larger.  Returns ``(pos, u_sep)`` in stored-sample units.
+
+    ``f == 1`` returns what the accumulators computed inline before the pregrid
+    existed, the same expressions in the same order, so that path is bit-identical.
+    ``test_factor_one_positions_are_bit_identical_to_the_pre_pregrid_expressions``
+    pins these positions bitwise against those expressions; the whole-likelihood
+    identity against base ``bec19ad5`` is in the PR, over 52 toy arrays and 35
+    from a rebuilt production likelihood.
+
+    SEPARABILITY IS THE PRECONDITION.  ``_separable_u`` computes ONE fractional
+    offset per sample and hands it to the gatherer for every time column; that is
+    only legitimate while the time offsets are exact integers in the units the
+    gather indexes, which ``t_offsets * f`` (integer ``t_offsets``, integer ``f``)
+    keeps them.  The form written here is additive to match the factor-1 branch
+    line for line.  That is a readability choice and carries no accuracy claim:
+    ``(p0 + t) * f`` gives bit-identical ``frac`` and ``floor`` at f = 8 for ``p0``
+    from 5e2 to 5e5, 2000 samples and 742 columns per decade (re-measured
+    2026-09-07).
+
+    ``nearest`` is REFUSED with a pregrid rather than quietly allowed.  It would
+    gather correctly (snapping to a finer sample is strictly better), but
+    :func:`_accumulate_unit_banded` reconstructs the arrival time its post-phase
+    applies as ``rint(p0)`` in COARSE samples, which is no longer the sample the
+    gather read; the data term and the model norm would drift apart by up to half a
+    coarse bin.  Refusing costs nothing -- a pregrid exists to buy sub-sample
+    accuracy, which is precisely what 'nearest' declines to use.
+    """
+    # getattr, not attribute access: benchmark shims and several existing tests
+    # duck-type ``data`` as a SimpleNamespace.  The default is the historical
+    # behaviour, and it is SAFE rather than merely convenient -- the paired
+    # ``_check_stored_q_length`` refuses a detector dict whose declared factor
+    # disagrees with the one being indexed, so a refined Q reaching a namespace
+    # that forgot the attribute raises instead of being read at the wrong stride.
+    factor = int(getattr(data, "q_time_pregrid_factor", 1))
+    if factor == 1:
+        pos = p0[:, None] + t_offsets[None, :]
+        # None for 'nearest': it ignores u, and feeding an unused value into this trace
+        # is NOT free -- it cost >60% wall on the banded slow-rotation path (measured:
+        # test_rotation_path_a 69.8 s -> >113 s), which is compile-bound, not arithmetic-
+        # bound.  Only the weight-building stencils get it.  See _separable_u.
+        u_sep = None if interp == "nearest" else _separable_u(p0)
+        return pos, u_sep
+    if interp == "nearest":
+        raise NotImplementedError(
+            "interp='nearest' is not supported with q_time_pregrid_factor=%d: the "
+            "banded post-phase reconstructs the gathered arrival time in COARSE "
+            "samples, so it would no longer match the sample a refined-grid nearest "
+            "gather reads.  Use interp='cubic' (the validated pregrid stencil)."
+            % (factor,))
+    p0_q = p0 * factor
+    pos = p0_q[:, None] + (t_offsets * factor)[None, :]
+    return pos, _separable_u(p0_q)
+
+
 _GATHERERS = {"nearest": _gather_nearest, "linear": _gather_linear,
               "cubic": _gather_cubic,
               "sinc": _make_gather_sinc(SINC_HALFWIDTH_DEFAULT)}
@@ -414,6 +642,61 @@ def _guarded_window(data, guard):
         raise ValueError("guard must be >= 0 samples, got %r" % (guard,))
     return (data.npts + 2 * guard,
             jnp.arange(-guard, data.npts + guard, dtype=jnp.float64))
+
+
+# The mode order :func:`_accumulate_unit`'s phase-marginalized branch is written
+# against.  That branch is position-dependent -- it conjugates the m=-2 column of
+# Y and Q and pairs it with conj(F) -- but the packed column order is NOT the
+# caller's to choose: it comes from a python dict's iteration order in the
+# precompute upstream, so a correctly-configured run can arrive with the pair the
+# other way round.  Permute to canonical rather than refuse.
+_PHASE_MARG_MODES = ((2, 2), (2, -2))
+
+
+def _phase_marg_permutation(lms):
+    """Index permutation taking ``lms`` to ``[(2,2), (2,-2)]``, or ``None``.
+
+    ``None`` means ``lms`` is ALREADY canonical.  The caller must then skip the
+    permutation entirely rather than apply an identity one, because the ordering
+    that works today has to keep producing bit-for-bit the same numbers, and a
+    ``take`` with an identity index vector is not guaranteed to leave the XLA
+    graph -- and so the rounding -- untouched.
+
+    Only the ORDER is free.  Any other mode SET still raises: the conjugation
+    the accumulator applies is specific to one m=+2 / m=-2 pair, so a third mode
+    is a real gap in the method, not a relabelling.
+
+    The set guard is what makes the DIRECTION of the permutation below safe.  On
+    two modes the only non-canonical order is a transposition, which is its own
+    inverse, so ``order.index(...)`` and its inverse are the same map and no test
+    can tell them apart -- verified by enumerating the accepted inputs.  They
+    diverge at K >= 3.  So if this is ever widened past the pair, the widening
+    must come with a test that pins the direction; today's suite cannot.
+    """
+    order = [(int(l), int(m)) for (l, m) in lms]
+    if sorted(order) != sorted(_PHASE_MARG_MODES):
+        raise NotImplementedError(
+            "phase marginalization currently requires modes "
+            "[(2,2),(2,-2)] (either order); got %r" % (order,))
+    if order == list(_PHASE_MARG_MODES):
+        return None
+    return [order.index(lm) for lm in _PHASE_MARG_MODES]
+
+
+def _permute_modes(lms, Q, U, V, perm):
+    """Reorder one detector's packed mode axis so column k becomes old ``perm[k]``.
+
+    ``Q`` is (npts_full, K) -- mode on axis 1.  ``U`` and ``V`` are (K, K) and
+    carry the mode index on BOTH axes: they are contracted as
+    ``sum_ij Ybar_i Y_j U_ij``, so permuting only one axis pairs each mode's
+    coefficient with the other mode's harmonic and returns a wrong likelihood
+    with no error.  Both axes, or neither.
+    """
+    p = np.asarray(perm, dtype=np.intp)
+    return ([lms[i] for i in perm],
+            jnp.take(Q, p, axis=1),
+            jnp.take(jnp.take(U, p, axis=0), p, axis=1),
+            jnp.take(jnp.take(V, p, axis=0), p, axis=1))
 
 
 def _accumulate_unit(data, ra, dec, psi, incl, phiref, interp,
@@ -464,14 +747,18 @@ def _accumulate_unit(data, ra, dec, psi, incl, phiref, interp,
         V = dd["V"]
         K = len(lms)
 
+        if phase_marginalization:
+            # Canonicalize BEFORE Y is built, so the whole branch below stays the
+            # literal code it was: when the order is already canonical nothing is
+            # touched at all, and the working path is unchanged by construction.
+            perm = _phase_marg_permutation(lms)
+            if perm is not None:
+                lms, Q, U, V = _permute_modes(lms, Q, U, V, perm)
+
         F = compute_detamresponse(dd["response"], ra, dec, psi, gmst)
         Y = spherical_harmonics_vectorized(lms, incl, -phiref, l_max=dd["l_max"])
 
         if phase_marginalization:
-            if [tuple(x) for x in lms] != [(2, 2), (2, -2)]:
-                raise NotImplementedError(
-                    "phase marginalization currently requires modes "
-                    "[(2,2),(2,-2)]; got %r" % (lms,))
             Y = Y.at[:, 1].set(jnp.conj(Y[:, 1]))
             F_lm = jnp.stack([F, jnp.conj(F)], axis=-1)
             Q = jnp.concatenate([Q[:, 0:1], jnp.conj(Q[:, 1:2])], axis=1)
@@ -486,19 +773,16 @@ def _accumulate_unit(data, ra, dec, psi, incl, phiref, interp,
         FY_conj = jnp.conj(F_lm * Y)
         t_det = (data.tref_minus_epoch(det)
                  + time_delay_from_earth_center(dd["location"], ra, dec, gmst))
+        _check_stored_q_length(dd, Q.shape[0],
+                               getattr(data, "q_time_pregrid_factor", 1),
+                               "detector %s Q" % det)
         p0 = (t_det + data.tval0) * inv_deltaT
-        pos = p0[:, None] + t_offsets[None, :]
+        pos, u_sep = _q_sample_positions(data, p0, t_offsets, interp)
         if guard:
-            stencil_margin = {"nearest": 1, "linear": 2, "cubic": 3,
-                              "sinc": SINC_HALFWIDTH_DEFAULT + 1}[interp]
+            stencil_margin = _STENCIL_MARGIN[interp]
             support_valid = support_valid & jnp.all(
                 (pos >= stencil_margin)
                 & (pos <= Q.shape[0] - 1 - stencil_margin), axis=-1)
-        # None for 'nearest': it ignores u, and feeding an unused value into this trace
-        # is NOT free -- it cost >60% wall on the banded slow-rotation path (measured:
-        # test_rotation_path_a 69.8 s -> >113 s), which is compile-bound, not arithmetic-
-        # bound.  Only the weight-building stencils get it.  See _separable_u.
-        u_sep = None if interp == "nearest" else _separable_u(p0)
 
         kappa_det = jnp.zeros((S, npts), dtype=jnp.complex128)
         for k in range(K):
@@ -524,17 +808,18 @@ def _accumulate_unit(data, ra, dec, psi, incl, phiref, interp,
 def _norm_is_arrival_time_dependent(data):
     """True when the model norm ``<h|h>`` depends on the template's arrival time.
 
-    Only the slow-rotation bank has that dependence: its post-phase
+    Banks carrying slow rotation have that dependence: their post-phase
     ``C~_a(t) = C_a exp(i n_a Omega (t - tref))`` multiplies the data term AND the
     norm, so :func:`_accumulate_unit_banded` returns a genuinely ``(S, npts)``
-    ``rho_sq`` there.  The baseline accumulator (static ``F``) and the finite-size
-    ``freqresponse`` bank (no sidereal modulation) both return a norm that is
-    constant along the time axis, broadcast into the ``(S, npts)`` contract.
+    ``rho_sq`` there; the rotation+frequency-response bank shares this behavior.
+    The baseline accumulator (static ``F``) and the ``freqresponse``-only bank
+    (no sidereal modulation) both return a norm that is constant along the time
+    axis, broadcast into the ``(S, npts)`` contract.
 
     One definition on purpose: the quadratures that hold the norm fixed refuse
     exactly the data this predicate flags, so the two must not drift apart.
     """
-    return getattr(data, "feature", None) == "rotation"
+    return getattr(data, "feature", None) in ("rotation", "rotation_freqresponse")
 
 
 def _banded_coefficients(data, det, ra, dec, psi):
@@ -555,6 +840,10 @@ def _banded_coefficients(data, det, ra, dec, psi):
         return _rf.response_coefficients_packed(
             dd["response"], dd["x_arm"], dd["y_arm"], ra, dec, psi, data.gmst,
             b["Qmax"], b["p_list"])
+    if data.feature == "rotation_freqresponse":
+        return _rrf.coefficients_packed(
+            dd["response"], dd["location"], dd["x_arm"], dd["y_arm"],
+            ra, dec, psi, data.gmst, b["Qmax"], b["p_max"], b["a_list"])
     raise ValueError("unknown banded feature %r" % (data.feature,))
 
 
@@ -580,7 +869,7 @@ def _accumulate_unit_banded(data, ra, dec, psi, incl, phiref, interp,
     ``term2``).  ``aR`` is the V-term reflection (``(p,-n)`` for rotation, the
     identity for finite-size), supplied as ``data.band['refl_idx']``.
 
-    ARRIVAL-TIME POST-PHASE (``feature == "rotation"`` only).
+    ARRIVAL-TIME POST-PHASE (features carrying slow rotation).
     The bank's elementary templates ``chi_a(u) = e^{i n_a Omega u} h^{(p_a)}(u)`` live on
     the template's INTRINSIC time ``u``, while the physical response modulation lives on
     absolute time.  Placing the template at arrival time ``t`` (``t' = u + t``) factorizes
@@ -611,7 +900,7 @@ def _accumulate_unit_banded(data, ra, dec, psi, incl, phiref, interp,
     == -1`` -- one bin off the FRONT of the rholm buffer -- where ``_gather_nearest``'s
     ``trunc(. + 0.5)`` index rounds to sample 0; see the note at the ``samp0`` assignment.
 
-    ``freqresponse`` (Path D) has NO post-phase -- its basis is not a sidereal modulation
+    ``freqresponse`` alone (Path D) has NO post-phase -- its basis is not a sidereal modulation
     -- and keeps the arrival-time-independent ``rho_sq``.
 
     ``guard`` widens the window as in :func:`_accumulate_unit` / :func:`_guarded_window`.
@@ -682,18 +971,18 @@ def _accumulate_unit_banded(data, ra, dec, psi, incl, phiref, interp,
         t_det = (data.tref_minus_epoch(det)
                  + time_delay_from_earth_center(dd["location"], ra, dec, gmst))
         p0 = (t_det + data.tval0) * inv_deltaT
-        pos = p0[:, None] + t_offsets[None, :]              # (S, npts)
+        # ``pos`` indexes the STORED Q (refined by q_time_pregrid_factor); ``p0``
+        # stays in coarse samples, because the post_phase block below converts it to
+        # a physical arrival time via data.deltaT.
+        _check_stored_q_length(dd, Q_bank.shape[1],
+                               getattr(data, "q_time_pregrid_factor", 1),
+                               "detector %s Q_bank" % det)
+        pos, u_sep = _q_sample_positions(data, p0, t_offsets, interp)  # (S, npts)
         if guard:
-            stencil_margin = {"nearest": 1, "linear": 2, "cubic": 3,
-                              "sinc": SINC_HALFWIDTH_DEFAULT + 1}[interp]
+            stencil_margin = _STENCIL_MARGIN[interp]
             support_valid = support_valid & jnp.all(
                 (pos >= stencil_margin)
                 & (pos <= Q_bank.shape[1] - 1 - stencil_margin), axis=-1)
-        # None for 'nearest': it ignores u, and feeding an unused value into this trace
-        # is NOT free -- it cost >60% wall on the banded slow-rotation path (measured:
-        # test_rotation_path_a 69.8 s -> >113 s), which is compile-bound, not arithmetic-
-        # bound.  Only the weight-building stencils get it.  See _separable_u.
-        u_sep = None if interp == "nearest" else _separable_u(p0)
 
         if post_phase:
             # delta_ij = (arrival time of output bin j for sample i) - tref, in seconds.
@@ -736,21 +1025,42 @@ def _accumulate_unit_banded(data, ra, dec, psi, incl, phiref, interp,
         kappa_unit = kappa_unit + kappa_det
 
         # --- term2: 0.5 Re[ sum_{a,a'} conj(C~_a)C~_a' YbarUY + C~_aR C~_a' YVY ] ---
-        # YUY[a,a'] = einsum(conjY, Y, U_bank[a,a']); YVY[a,a'] = einsum(Y, Y, V)
-        YUY = jnp.einsum("si,sj,abij->abs", conjY, Y, U_bank)   # (A,A,S)
-        YVY = jnp.einsum("si,sj,abij->abs", Y, Y, V_bank)       # (A,A,S)
-        # conj(C_a) C_a'  and  C_aR C_a'  contracted over (a,a') -- the post-phase is
-        # applied below, since it depends only on m = n_a' - n_a for both contractions.
-        CC_U = jnp.einsum("as,bs->abs", jnp.conj(C), C)          # (A,A,S)
-        CC_V = jnp.einsum("as,bs->abs", C_refl, C)              # (A,A,S)
-        pair = CC_U * YUY + CC_V * YVY                           # (A,A,S) complex
-        if post_phase:
+        if post_phase and data.feature == "rotation_freqresponse":
+            # A compound bank can have A=50 at pmax=0 and A=112 at pmax=1.
+            # Materializing four (A,A,S) arrays makes the temporary footprint the
+            # practical limit.  Contract each sidereal-difference bucket directly,
+            # matching the conventional dense-bank path; peak scratch is then
+            # max_m(number of pairs in m)*S instead of A*A*S.
+            bucket_values = []
+            pp_t2_host = np.asarray(band["pp_term2_idx"], dtype=np.int64)
+            for im in range(M):
+                ia, iap = np.nonzero(pp_t2_host == im)
+                ia_d = jnp.asarray(ia, dtype=jnp.int32)
+                iap_d = jnp.asarray(iap, dtype=jnp.int32)
+                yuy = jnp.einsum("si,sj,pij->ps", conjY, Y,
+                                  U_bank[ia_d, iap_d])
+                yvy = jnp.einsum("si,sj,pij->ps", Y, Y,
+                                  V_bank[ia_d, iap_d])
+                bucket_values.append(jnp.sum(
+                    jnp.conj(C[ia_d]) * C[iap_d] * yuy
+                    + C_refl[ia_d] * C[iap_d] * yvy, axis=0))
+            val_m = jnp.stack(bucket_values, axis=0)
+            rho_sq_det = 0.5 * jnp.einsum("ms,mt->st", val_m * pe, pt).real
+        else:
+            # The smaller individual-feature banks retain the original fused
+            # contraction, which minimizes compilation overhead for their usual A.
+            YUY = jnp.einsum("si,sj,abij->abs", conjY, Y, U_bank)
+            YVY = jnp.einsum("si,sj,abij->abs", Y, Y, V_bank)
+            CC_U = jnp.einsum("as,bs->abs", jnp.conj(C), C)
+            CC_V = jnp.einsum("as,bs->abs", C_refl, C)
+            pair = CC_U * YUY + CC_V * YVY
+        if post_phase and data.feature != "rotation_freqresponse":
             # BOTH contractions carry exp(i (n_a' - n_a) omega delta), so bucket the pairs
             # by m and pay one rank-1 phase per distinct m (M of them) instead of A^2.
             val_m = jnp.zeros((M, S), dtype=jnp.complex128).at[pp_t2].add(pair)
             # rho_sq becomes arrival-time dependent: (S, npts), not a broadcast scalar.
             rho_sq_det = 0.5 * jnp.einsum("ms,mt->st", val_m * pe, pt).real
-        else:
+        elif not post_phase:
             term2_c = jnp.sum(pair, axis=(0, 1))                 # (S,) complex
             rho_sq_det = 0.5 * term2_c.real                      # (S,)
         rho_sq_unit = rho_sq_unit + (rho_sq_det if post_phase
@@ -769,7 +1079,15 @@ _TIME_UPSAMPLE_DEFAULT = 8
 _TIME_ADAPTIVE_FACTOR_MAX = 1024
 _TIME_ADAPTIVE_SAFETY = 2.0
 _TIME_ADAPTIVE_RTOL = 1e-3
+# Threshold of the endpoint certificate.  No production caller applies it since
+# 2026-09-08 (kernel default None); kept for the tests that pin what it rejected.
+# Evidence: DESIGN_jax_bandlimited_distmarg.md, "The endpoint certificate".
 _TIME_ENDPOINT_LOG_GAP_MIN = 15.0
+# Element budget for one distance-quadrature block on the refined time grid.
+# The refined row is up to 2048x the data grid, so the block count is derived
+# from the row length rather than inherited from the coarse ``grid_block``.
+_BANDLIMITED_GRID_ELEMENTS = 1 << 22
+_LOG_ZERO = -1e300
 
 
 def default_time_guard(npts):
@@ -784,6 +1102,19 @@ def default_time_guard(npts):
     moving, exactly as with ``time_upsample``.
     """
     return max(32, int(npts) // 2)
+
+
+def bandlimited_time_guard(npts):
+    """``(guard_initial, guard_certified)`` for the conventional bandlimited API.
+
+    ONE definition, because three sites need the same pair: the fixed-distance
+    kernel, the distance-marginalized kernel, and the driver's storage-window
+    sizing.  A second copy would let the gathered support and the guard the
+    quadrature actually uses drift apart, which is a wrong likelihood and not an
+    error.
+    """
+    g_initial = 1 << int(np.ceil(np.log2(default_time_guard(int(npts)))))
+    return g_initial, 2 * g_initial
 
 
 def _upsample_bandlimited(x, factor, axis=-1):
@@ -1062,15 +1393,36 @@ def _time_marginalize_reflected_fft(lnL_t, deltaT, w_t):
 
 def _time_marginalize_reflected_primitive(kappa_t, rho_sq, deltaT,
                                            phase_marginalization=False,
-                                           guard=0):
+                                           guard=0, reduce_fn=None,
+                                           endpoint_log_gap=None):
     """Adaptive integral after refining the band-limited complex primitive.
 
     This is required for phase marginalization: interpolating ``abs(kappa)``
     cannot recover intersample structure lost to that nonlinear operation.
     Arrival-time-dependent norms remain unsupported by the bandlimited mode.
-    A refined row whose endpoint is within 15 nats of its peak fails closed:
-    the even-extension boundary condition is not trustworthy when the finite
-    window carries appreciable posterior mass at either turn.
+    Endpoint mass is covered by the guard-agreement certificate, not by an
+    endpoint gap.  The 15-nat gap of 2026-08-29 was switched off on 2026-09-08:
+    a row's peak-to-endpoint contrast is bounded by its own amplitude (at most
+    2 max|kappa| on the fixed-distance field; a prior-mass floor on the
+    distance-marginalized one), so a fixed gap rejected every blind or far draw
+    whatever the trapezoid did, and the rows it rejected alone agree with an
+    independent reference to 1e-4 nat on both fields.
+
+    ``reduce_fn(kappa, rho_sq) -> lnL`` is the shape-preserving nonlinear
+    reduction applied AFTER refinement.  ``None`` is the fixed-distance
+    reduction; :func:`fused_log_likelihood_distmarg` passes the distance
+    quadrature so the same certificates cover it.  It is applied to the
+    curvature probe as well as the fine grid, because the starting factor has
+    to be derived from the field that is integrated.
+
+    Every per-row quantity -- probe, factor selection, refinement -- is built
+    inside the ``lax.map`` body, so scratch is set by one row and not by the
+    sampler batch.
+
+    ``endpoint_log_gap`` is the endpoint certificate's threshold in nats, or
+    ``None`` (the default) for no endpoint certificate; the resolution,
+    doubling and guard-agreement certificates are in force either way.  No
+    production caller passes a threshold.
     """
     guard = int(guard)
     if guard < 0 or 2 * guard >= kappa_t.shape[-1] - 1:
@@ -1079,6 +1431,10 @@ def _time_marginalize_reflected_primitive(kappa_t, rho_sq, deltaT,
     inner_guard = guard // 2
     if guard and inner_guard < 1:
         raise ValueError("guard convergence requires at least two samples per end")
+    if reduce_fn is None:
+        def reduce_fn(kappa, rho):
+            return ((jnp.abs(kappa) if phase_marginalization else kappa.real)
+                    - 0.5 * rho)
     kappa_t = jnp.asarray(kappa_t, dtype=jnp.complex128)
     rho_sq = jnp.asarray(rho_sq, dtype=jnp.float64)
     coarse_full = ((jnp.abs(kappa_t) if phase_marginalization else kappa_t.real)
@@ -1097,26 +1453,6 @@ def _time_marginalize_reflected_primitive(kappa_t, rho_sq, deltaT,
                                  jnp.flip(ramp[:-1])))
         return x * taper
 
-    # Probe the primitive at half a sample before deriving curvature.  A
-    # near-Nyquist real kappa can alternate +/-A, making coarse ``abs(kappa)``
-    # exactly constant even though the continuous phase-marginalized field has
-    # a zero between every pair of samples.  No statistic of the coarse
-    # nonlinear field can detect that alias.
-    probe_kappa = _reflected_fft_upsample(taper_support(clean_kappa, guard), 2)
-    probe_rho = jnp.broadcast_to(clean_rho[:, :1], probe_kappa.shape)
-    probe = ((jnp.abs(probe_kappa) if phase_marginalization
-              else probe_kappa.real) - 0.5 * probe_rho)
-    probe = probe[..., 2 * guard:2 * guard + (npts - 1) * 2 + 1]
-    sigma, measurable = _peak_width_from_lnL_jax(probe, deltaT / 2.0)
-    need = jnp.where(measurable & jnp.isfinite(sigma) & (sigma > 0),
-                     _TIME_ADAPTIVE_SAFETY * deltaT / sigma, 1.0)
-    need = jnp.maximum(need, 1.0)
-    factor_float = jnp.exp2(jnp.ceil(jnp.log2(need)))
-    factor_float = jnp.where(factor_float < need, factor_float * 2.0, factor_float)
-    too_sharp = (~jnp.isfinite(factor_float)) | (
-        factor_float > _TIME_ADAPTIVE_FACTOR_MAX)
-    factor = jnp.minimum(factor_float, float(_TIME_ADAPTIVE_FACTOR_MAX)).astype(
-        jnp.int32)
     powers = tuple(1 << k for k in range(11))
 
     def make_branch(base):
@@ -1134,21 +1470,28 @@ def _time_marginalize_reflected_primitive(kappa_t, rho_sq, deltaT,
                 # mass is negligible.
                 kappa = taper_support(kappa, support_guard)
             dense_kappa = _reflected_fft_upsample(kappa, f)
+            # Crop to the integrated window BEFORE reducing.  Refinement needs
+            # the guard columns; nothing downstream reads a reduced value
+            # outside the crop.  ``reduce_fn`` is pointwise in the node, so this
+            # is the same number, but the distance reduction is the expensive
+            # one and the padded row is several times the window.
+            start = support_guard * f
+            dense_kappa = dense_kappa[start:start + (npts - 1) * f + 1]
             # Conventional baseline data have a time-independent model norm.
             # Keeping the first value avoids inventing high-frequency structure
             # in a constant primitive through roundoff.
             dense_rho = jnp.broadcast_to(rho[0], dense_kappa.shape)
-            dense = ((jnp.abs(dense_kappa) if phase_marginalization
-                      else dense_kappa.real) - 0.5 * dense_rho)
-            start = support_guard * f
-            dense = dense[start:start + (npts - 1) * f + 1]
+            dense = reduce_fn(dense_kappa, dense_rho)
             value = _log_trapezoid(dense, deltaT / float(f))
             width, measured = _peak_width_from_lnL_jax(dense, deltaT / float(f))
             resolved = ((~measured) | (~jnp.isfinite(width))
                         | (deltaT / float(f) <= width / _TIME_ADAPTIVE_SAFETY))
-            peak = jnp.max(dense)
-            endpoint = jnp.maximum(dense[0], dense[-1])
-            boundary_ok = endpoint <= peak - _TIME_ENDPOINT_LOG_GAP_MIN
+            if endpoint_log_gap is None:
+                boundary_ok = True
+            else:
+                peak = jnp.max(dense)
+                endpoint = jnp.maximum(dense[0], dense[-1])
+                boundary_ok = endpoint <= peak - float(endpoint_log_gap)
             return value, resolved, boundary_ok
 
         def branch(args):
@@ -1167,17 +1510,37 @@ def _time_marginalize_reflected_primitive(kappa_t, rho_sq, deltaT,
     branches = tuple(make_branch(f) for f in powers)
 
     def refine_one(args):
-        kappa, rho, row_factor = args
+        kappa, rho = args
+        # Probe the primitive at half a sample before deriving curvature.  A
+        # near-Nyquist real kappa can alternate +/-A, making coarse ``abs(kappa)``
+        # exactly constant even though the continuous phase-marginalized field has
+        # a zero between every pair of samples.  No statistic of the coarse
+        # nonlinear field can detect that alias.
+        probe_kappa = _reflected_fft_upsample(taper_support(kappa, guard), 2)
+        probe_kappa = probe_kappa[2 * guard:2 * guard + (npts - 1) * 2 + 1]
+        probe_rho = jnp.broadcast_to(rho[:1], probe_kappa.shape)
+        probe = reduce_fn(probe_kappa, probe_rho)
+        sigma, measurable = _peak_width_from_lnL_jax(probe, deltaT / 2.0)
+        need = jnp.where(measurable & jnp.isfinite(sigma) & (sigma > 0),
+                         _TIME_ADAPTIVE_SAFETY * deltaT / sigma, 1.0)
+        need = jnp.maximum(need, 1.0)
+        factor_float = jnp.exp2(jnp.ceil(jnp.log2(need)))
+        factor_float = jnp.where(factor_float < need, factor_float * 2.0,
+                                 factor_float)
+        too_sharp = (~jnp.isfinite(factor_float)) | (
+            factor_float > _TIME_ADAPTIVE_FACTOR_MAX)
+        row_factor = jnp.minimum(
+            factor_float, float(_TIME_ADAPTIVE_FACTOR_MAX)).astype(jnp.int32)
         index = jnp.clip(
             jnp.ceil(jnp.log2(row_factor.astype(jnp.float64))).astype(jnp.int32),
             0, len(powers) - 1)
-        return jax.lax.switch(index, branches, (kappa, rho))
+        return jnp.where(too_sharp, jnp.nan,
+                         jax.lax.switch(index, branches, (kappa, rho)))
 
     # Rematerialize a row's selected branch during reverse mode instead of
     # retaining every dense abs/exp/FFT residual across the sampler batch.
     refined = jax.lax.map(
-        jax.checkpoint(refine_one), (clean_kappa, clean_rho, factor))
-    refined = jnp.where(too_sharp, jnp.nan, refined)
+        jax.checkpoint(refine_one), (clean_kappa, clean_rho))
     return jnp.where(finite_rows, refined, jnp.nan)
 
 
@@ -1192,7 +1555,11 @@ def _time_marginalize_terminal(lnL_t, data, time_quadrature=TIME_QUAD_DEFAULT,
     if not bandlimited_safe:
         raise ValueError(
             "bandlimited terminal interpolation is invalid after nonlinear "
-            "distance/phase/polarization marginalization; use 'simpson'")
+            "distance/phase/polarization marginalization; use 'simpson'.  "
+            "This refuses the ORDERING, not the option: a caller that can "
+            "refine the primitive first and reduce on the refined nodes does "
+            "not reach here.  fused_log_likelihood_distmarg does exactly "
+            "that and supports 'bandlimited'.")
     return _time_marginalize_reflected_fft(lnL_t, data.deltaT, data.w_t)
 
 
@@ -1273,9 +1640,7 @@ def fused_log_likelihood(data, ra, dec, psi, incl, phiref, distMpc,
     elif canonical_time_api and time_quad == "bandlimited":
         # Start at the established half-window guard, rounded upward to a power
         # of two, then gather one doubling as an independent certificate.
-        g_default = default_time_guard(data.npts)
-        g_initial = 1 << int(np.ceil(np.log2(g_default)))
-        guard = 2 * g_initial
+        guard = bandlimited_time_guard(data.npts)[1]
     else:
         guard = 0
     distMpc = jnp.asarray(distMpc, dtype=jnp.float64)
@@ -1337,13 +1702,38 @@ def fused_log_likelihood_distmarg(data, ra, dec, psi, incl, phiref,
         Grid of ``x = distMpcRef / d`` values.
     log_w_grid : array_like, shape (G,)
         Log quadrature weights (including the distance prior) for each grid point.
+    time_quadrature : {"simpson", "bandlimited"}
+        ``"simpson"`` (default) applies the distance quadrature on the data time
+        grid and integrates it with the fixed Simpson weights.  ``"bandlimited"``
+        refines the complex primitive kappa(t) first, applies the SAME distance
+        quadrature on the refined nodes, and integrates by trapezoid under the
+        resolution, endpoint and guard certificates of
+        :func:`_time_marginalize_reflected_primitive`.  Refining the reduced
+        lnL(t) instead is what that ordering exists to avoid.
     """
+    if time_quadrature not in _TIME_QUAD_CHOICES:
+        raise ValueError("time_quadrature must be one of %r, got %r"
+                         % (_TIME_QUAD_CHOICES, time_quadrature))
+    bandlimited = time_quadrature == "bandlimited"
+    if bandlimited:
+        if return_lnLt:
+            raise ValueError(
+                "return_lnLt returns the reduced field on the DATA grid; the "
+                "band-limited path has no such field, because the distance "
+                "reduction is applied on the refined grid.  Use "
+                "time_quadrature='simpson' to read lnL_t.")
+        if _norm_is_arrival_time_dependent(data):
+            raise ValueError(
+                "time_quadrature='bandlimited' holds the model norm fixed in "
+                "time, but this likelihood data carries the slow-rotation "
+                "post-phase, whose <h|h> depends on the template arrival time; "
+                "use time_quadrature='simpson' for rotation data.")
     x_grid = jnp.asarray(x_grid, dtype=jnp.float64)
     log_w_grid = jnp.asarray(log_w_grid, dtype=jnp.float64)
+    guard = bandlimited_time_guard(data.npts)[1] if bandlimited else 0
     kappa_unit, rho_sq_unit = _accumulate_unit(
-        data, ra, dec, psi, incl, phiref, interp, phase_marginalization)
-    K = jnp.abs(kappa_unit) if phase_marginalization else kappa_unit.real
-    R = rho_sq_unit
+        data, ra, dec, psi, incl, phiref, interp, phase_marginalization,
+        guard=guard)
 
     # log-sum-exp over the distance grid -> (S, npts), done in a few *vectorized*
     # blocks combined by a running log-sum-exp.  The block loop is a plain Python
@@ -1353,10 +1743,78 @@ def fused_log_likelihood_distmarg(data, ra, dec, psi, incl, phiref,
     # bounded.  Mathematically identical to the previous scan.
     a = x_grid                     # (G,)
     b = -0.5 * jnp.square(x_grid)  # (G,)
-    lnL_t = _logsumexp_grid_blocked(K, R, a, b, log_w_grid, grid_block)
+    if bandlimited:
+        def _reduce(kappa, rho):
+            k = jnp.abs(kappa) if phase_marginalization else kappa.real
+            shape = k.shape
+            n = 1
+            for dim in shape:
+                n *= int(dim)
+            block = min(max(1, _BANDLIMITED_GRID_ELEMENTS // max(n, 1)),
+                        int(x_grid.shape[0]))
+            out = _logsumexp_grid_scanned(
+                k.reshape(n), rho.reshape(n), a, b, log_w_grid, block)
+            return out.reshape(shape)
+
+        # The endpoint certificate is OFF here, and only here.  The marginal
+        # field has a floor: at every node the distance sum is at least the
+        # far-distance prior mass, so a row's peak-to-endpoint contrast is
+        # bounded by its own peak height, and a fixed 15-nat gap rejects every
+        # low-contrast row outright, converged or not.  Those rows are exactly
+        # the blind sky/orientation draws a prior-seeded mode evaluates by the
+        # thousand.  The reconstruction at the window edge is still certified
+        # by the guard-agreement check, and the value by the doubling check.
+        # Numbers: DESIGN_jax_bandlimited_distmarg.md, "The endpoint
+        # certificate".  The fixed-distance kernel keeps the gap.
+        return _time_marginalize_reflected_primitive(
+            kappa_unit, rho_sq_unit, data.deltaT,
+            phase_marginalization=phase_marginalization, guard=guard,
+            reduce_fn=_reduce, endpoint_log_gap=None)
+    K = jnp.abs(kappa_unit) if phase_marginalization else kappa_unit.real
+    lnL_t = _logsumexp_grid_blocked(K, rho_sq_unit, a, b, log_w_grid, grid_block)
     if return_lnLt:
         return lnL_t
     return _time_marginalize_terminal(lnL_t, data, time_quadrature)
+
+
+def _logsumexp_grid_scanned(K, R, a, b, log_w, block):
+    """Same integral as :func:`_logsumexp_grid_blocked`, traced ONCE.
+
+    That function's Python loop unrolls, which is what makes reverse mode fast
+    on the data grid.  The refined time grid is up to 2048x longer, so a block
+    sized to bound the working set implies many blocks, and the unrolled copies
+    would then be multiplied by the certificate's eleven refinement branches.
+    Scanning keeps the graph one block wide at any refinement factor.
+
+    Padding weights are a finite log-zero rather than -inf: a -inf entry can
+    become the block maximum and turn the shift into inf-inf.
+    """
+    G = int(a.shape[0])
+    block = max(1, min(int(block), G))
+    n_blocks = (G + block - 1) // block
+    pad = n_blocks * block - G
+    if pad:
+        zeros = jnp.zeros((pad,), dtype=a.dtype)
+        a = jnp.concatenate([a, zeros])
+        b = jnp.concatenate([b, zeros])
+        log_w = jnp.concatenate(
+            [log_w, jnp.full((pad,), _LOG_ZERO, dtype=log_w.dtype)])
+    a = a.reshape(n_blocks, block)
+    b = b.reshape(n_blocks, block)
+    log_w = log_w.reshape(n_blocks, block)
+
+    def step(carry, node):
+        m, s = carry
+        a_b, b_b, w_b = node
+        e = K[..., None] * a_b + R[..., None] * b_b + w_b
+        m_blk = jnp.max(e, axis=-1)
+        s_blk = jnp.sum(jnp.exp(e - m_blk[..., None]), axis=-1)
+        m_new = jnp.maximum(m, m_blk)
+        return (m_new, s * jnp.exp(m - m_new) + s_blk * jnp.exp(m_blk - m_new)), None
+
+    init = (jnp.full(K.shape, -jnp.inf), jnp.zeros(K.shape))
+    (m, s), _ = jax.lax.scan(step, init, (a, b, log_w))
+    return m + jnp.log(s)
 
 
 def _logsumexp_grid_blocked(K, R, a, b, log_w, block):

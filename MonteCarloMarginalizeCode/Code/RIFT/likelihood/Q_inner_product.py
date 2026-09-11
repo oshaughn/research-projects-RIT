@@ -54,7 +54,8 @@ def Q_inner_product_cupy(Q, A, start_indices, window_size):
     return out
 
 
-def Q_inner_product_cubic_cupy(Q, A, start_indices, fractional_offsets, window_size):
+def Q_inner_product_cubic_cupy(Q, A, start_indices, fractional_offsets, window_size,
+                               time_stride=1):
     """Cubic-interpolated Q inner product for fractional detector-time offsets.
 
     ``start_indices`` are the integer floor indices of the first requested time
@@ -98,7 +99,7 @@ def Q_inner_product_cubic_cupy(Q, A, start_indices, fractional_offsets, window_s
         0,
     )
     args = (
-        Q, A, start_indices, fractional_offsets, window_size,
+        Q, A, start_indices, fractional_offsets, window_size, int(time_stride),
         num_time_points, num_extrinsic_samples, num_lms,
         out,
     )

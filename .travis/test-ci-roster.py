@@ -203,8 +203,6 @@ VALID_STATUS = {
     "EXPENSIVE": "opt-in behind an env var by design",
     # not gated, and that is NOT the right answer -- these are debts, stated as such
     "BROKEN":    "collects but fails; needs a fix before it can be gated",
-    # tolerated in either state while a companion PR is in flight
-    "PENDING":   "unreachable AND waiting on a named gate; expires when either changes",
 }
 
 
@@ -432,49 +430,14 @@ def main():
 
     # 2. A roster entry for a file that IS now reachable is stale -- it records a decision that
     #    has been overtaken, and leaving it invites the next reader to trust it.
-    #
-    #    PENDING used to be UNCONDITIONALLY exempt from this, which made it the one status that
-    #    could sit in the roster for ever: its whole point was to stay legal before AND after the
-    #    companion PR landed, so nothing ever forced its removal.  That bought merge-order
-    #    independence at the price of a status with no expiry, which is the rot this file exists
-    #    to prevent.  It now carries an ENFORCEABLE condition instead of a promise: the reason
-    #    must name the gate it waits on as `gate:<name>`, and the entry is legal only while that
-    #    gate is NOT live.  The moment the gate lands, the entry is an error naming itself.
-    #
-    #    The cost is honest and stated in the PR: merging the companion needs a one-line deletion
-    #    here.  That is a forcing function, not a failure.
     for f, (status, reason) in sorted(roster.items()):
         if f not in reachable:
             errs.append("%s: %s no longer exists. A roster entry for a deleted file is a "
                         "silent no-op; drop the line." % (ROSTER, f))
             continue
-        # PENDING carries an EXTRA condition, not a weaker one.  It must still go stale the
-        # moment the file is covered -- by ANY job, not only by the gate it names.  An earlier
-        # version checked the gate and then `continue`d unconditionally, so a file that became
-        # reachable through some other job while its named gate stayed dormant kept a PENDING
-        # entry for ever: the one escape left in this file, and the same "never expires" defect
-        # that removing the blanket exemption was meant to close.  So fall through to the
-        # staleness check below rather than returning here.
-        if status == "PENDING":
-            m = re.search(r"gate:([a-z0-9-]+)", reason)
-            if not m:
-                errs.append("%s: %s is PENDING but its reason names no gate. Write `gate:<name>` "
-                            "in the reason so the entry has a condition that can expire, or use "
-                            "a status that does not need one." % (ROSTER, f))
-            elif m.group(1) not in KNOWN_GATES:
-                errs.append("%s: %s is PENDING on gate %r, which is not in KNOWN_GATES. A "
-                            "condition that can never be met never expires."
-                            % (ROSTER, f, m.group(1)))
-            elif m.group(1) in gates:
-                errs.append("%s: %s is PENDING on gate %r, and that gate is now LIVE.\n"
-                            "    The wait is over: either the gate registers this file (delete "
-                            "this line) or it does not (give the file a real status)."
-                            % (ROSTER, f, m.group(1)))
         if reachable[f] is not None:
-            extra = ("\n    PENDING is not an exemption from this: it waits on a named gate, but "
-                     "the file is covered NOW, by this job." if status == "PENDING" else "")
             errs.append("%s: %s is listed as %s but IS now reachable (%s). The entry is stale "
-                        "-- delete it.%s" % (ROSTER, f, status, reachable[f], extra))
+                        "-- delete it." % (ROSTER, f, status, reachable[f]))
 
     n_reach = sum(1 for v in reachable.values() if v is not None)
     print("test-ci-roster: %d test files under %s" % (len(files), CODEDIR))

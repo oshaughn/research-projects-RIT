@@ -60,7 +60,11 @@ cache_root="${{RIFT_SURVEY_CACHE_ROOT:-${{_CONDOR_SCRATCH_DIR:-$PWD}}/.rift_cach
 mkdir -p "$cache_root"
 export CUPY_CACHE_DIR="${{CUPY_CACHE_DIR:-$cache_root/cupy}}"
 export CUPY_CACHE_IN_MEMORY="${{CUPY_CACHE_IN_MEMORY:-0}}"
-export JAX_COMPILATION_CACHE_DIR="${{JAX_COMPILATION_CACHE_DIR:-$cache_root/jax}}"
+# Let RIFT add its runtime/device compatibility namespace. Preserve an explicit
+# standard JAX directory as an expert override when the submitter supplied one.
+if [[ -z "${{JAX_COMPILATION_CACHE_DIR:-}}" ]]; then
+    export RIFT_JAX_CACHE_ROOT="${{RIFT_JAX_CACHE_ROOT:-$cache_root/jax}}"
+fi
 export JAX_ENABLE_X64="${{JAX_ENABLE_X64:-1}}"
 export XLA_FLAGS="${{XLA_FLAGS:---xla_cpu_multi_thread_eigen=false}}"
 export OMP_NUM_THREADS="${{OMP_NUM_THREADS:-1}}"

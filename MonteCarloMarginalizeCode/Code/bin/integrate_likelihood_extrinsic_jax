@@ -64,19 +64,52 @@ from optparse import OptionParser, OptionGroup
 import numpy as np
 
 import jax
+import jax.numpy as jnp
 jax.config.update("jax_enable_x64", True)
+
+# Configure the persistent cache before importing modules that construct ILE
+# JITs.  RIFT selects a compatibility-keyed child directory, so a shared cache
+# root is safe across heterogeneous GPU/JAX installations.
+from RIFT.jax_cache import (argv_option, configure_persistent_cache,
+                            import_bundle, runtime_compatibility)
+_JAX_CACHE_DIR = configure_persistent_cache(jax, sys.argv[1:])
+_JAX_CACHE_BUNDLE = (argv_option(sys.argv[1:], "--jax-cache-bundle")
+                     or os.environ.get("RIFT_JAX_CACHE_BUNDLE"))
+_JAX_CACHE_PROFILE = argv_option(sys.argv[1:], "--jax-cache-profile")
+if _JAX_CACHE_BUNDLE:
+    if _JAX_CACHE_DIR is None:
+        raise RuntimeError("a cache bundle was requested but no writable JAX cache is available")
+    import_bundle(_JAX_CACHE_BUNDLE, _JAX_CACHE_DIR.parent,
+                  runtime_compatibility(jax), _JAX_CACHE_PROFILE,
+                  destination=_JAX_CACHE_DIR)
 
 import lal
 import lalsimulation as lalsim
 
 import RIFT.lalsimutils as lalsimutils
-from RIFT.likelihood.jax_ile import build_data_from_precompute
+from RIFT.likelihood.jax_ile import (
+    build_data_from_precompute, build_rotation_data_from_precompute,
+    build_freqresponse_data_from_precompute,
+    build_rotating_freqresponse_data_from_precompute)
 from RIFT.likelihood.jax_ile.wrapper import bandlimited_storage_requirement
 from RIFT.likelihood.jax_ile import anglemarg as _anglemarg
 from RIFT.likelihood.jax_ile.samplers import angle_marg_eval_chunk as _angle_marg_eval_chunk
+from RIFT.likelihood.jax_ile.samplers import regularize_cov as _regularize_cov
+# ONE definition, imported rather than re-typed: a second copy of the
+# "is this evidence trustworthy" rule is a copy that drifts.
+from RIFT.likelihood.jax_ile.samplers import _finalize_evidence
 from RIFT.likelihood.jax_ile.core import _GATHERERS as _JAX_GATHERERS, JAX_INTERP_DEFAULT
 from RIFT.likelihood.jax_ile.anglemarg import (ANGLE_MARG_DEFAULT, ANGLE_MARG_LEGACY,
-                                               ANGLE_MARG_CHOICES)
+                                               ANGLE_MARG_CHOICES,
+                                               ANGLE_MARG_CROSSOVER_AMPLITUDE)
+from RIFT.likelihood.jax_ile.direct_marginalization_policy import (
+    POLICY_CHOICES as DIRECT_MARG_POLICY_CHOICES,
+    POLICY_DEFAULT as DIRECT_MARG_POLICY_DEFAULT,
+    PolicyConfig as DirectMargPolicyConfig,
+    RESERVE_SCHEME_CHOICES as DIRECT_MARG_RESERVE_SCHEME_CHOICES,
+    reserve_pair as _direct_marg_reserve_pair,
+    summarize_policy_ledger as _summarize_policy_ledger,
+    predict_reserve_pair, format_reserve_pair, RESERVE_SCHEME_EXECUTABLE)
 _JAX_GATHERER_NAMES = tuple(_JAX_GATHERERS)
 from RIFT.likelihood.jax_ile.wrapper import (
     JAXExtrinsicLikelihood, JAXDistanceMarginalizedLikelihood,
@@ -125,6 +158,22 @@ _TEMPERED_MODES = frozenset((
 # fair-draw count options do anything; elsewhere the export is the sampler's own
 # chain and the count flags are inert (and must be reported as ignored).
 _FAIRDRAW_MODES = _TEMPERED_MODES | frozenset(("prior-mc", "laplace-is"))
+# Modes whose blind full-sky prior draws go through eval_lnL, which stops the
+# run on one uncertified bandlimited row.  The flowMC family and multistart-nuts
+# pilot through the samplers' own draw and are not on this list.
+_EVAL_LNL_STOP_MODES = frozenset(("prior-mc", "laplace-is", "map", "nuts"))
+# Largest shift a wrong-sky draw makes to one detector's arrival time: the
+# window must contain it or a blind row's arrival peak sits beyond the edge,
+# which no certificate can converge on (measured 35/256 rows at 20 ms, 0/256 at
+# 50 ms; DESIGN_jax_bandlimited_distmarg.md, "The endpoint certificate").
+_BANDLIMITED_FULLSKY_HALF_WINDOW_MIN = 2.0 * lal.REARTH_SI / lal.C_SI
+# Modes whose posterior is already phi_ref-marginalised ANALYTICALLY (a grid
+# sum baked into the likelihood, not a sampled axis): --phase-marginalization
+# has nothing left to do on these and is reported IGNORED rather than refused
+# (RO'S 2026-09-08: missing knobs are fine to no-op for compatibility, but
+# must warn).
+_PHASE_ANALYTIC_MODES = frozenset((
+    "flowmc-phimarg", "flowmc-phipsimarg", "flowmc-dpsimarg", "nuts-phimarg"))
 
 # Boolean (zero-argument) ILE options (action=store_true/false).
 _ILE_BOOL_OPTS = {
@@ -161,6 +210,7 @@ _ILE_BOOL_OPTS = {
     "--internal-reparam-dl-incl", "--internal-use-lnL",
     "--distance-slice-all-fresh",
     "--distance-slice-randomize",
+    "--psi-marginalization",
 }
 # ILE options taking repeated values (action=append).
 _ILE_APPEND_OPTS = {
@@ -234,7 +284,7 @@ _ILE_ALL_OPTS = {
     "--portfolio-revive-period", "--portfolio-varaha-can-freeze",
     "--portfolio-varaha-max-frac", "--portfolio-varaha-min-frac",
     "--portfolio-varaha-never-freeze", "--portfolio-weight-clip", "--psd-file",
-    "--psd-window-shape", "--random-event", "--reference-freq",
+    "--psd-window-shape", "--psi-marginalization", "--random-event", "--reference-freq",
     "--resample-time-marginalization", "--restricted-mode-list-file",
     "--rom-group", "--rom-integrate-intrinsic", "--rom-limit-basis-size-to",
     "--reject-collapsed-live-volume", "--rom-param", "--rom-use-basis",
@@ -295,6 +345,39 @@ def check_critical_and_report(opts, optp):
         return bool(v) if name in _ILE_BOOL_OPTS else (v is not None and v != [])
 
     fatal = []
+    # --distance-gh-nodes / JAX_ILE_DISTMARG_GH resolution (RO'S 2026-09-08,
+    # revised same day per adversarial review: the option must default to
+    # None, not 0, or an explicit ``--distance-gh-nodes 0`` is indistinguish-
+    # able from "not passed" and a nonzero JAX_ILE_DISTMARG_GH silently wins
+    # -- the exact opposite of the documented "CLI wins").  The per-sample
+    # Gauss-Hermite distance quadrature must be reachable by an ILE argument,
+    # not only the environment variable core.py reads at import.  Resolution:
+    # the CLI flag, when GIVEN (including an explicit 0), always wins over
+    # the environment variable; the environment variable is consulted only
+    # when the CLI flag was not given at all.  The two are REFUSED, not
+    # silently reconciled, whenever BOTH are given and differ -- including an
+    # explicit CLI 0 against a nonzero env, which is a conflict like any
+    # other: silently keeping either value would hide the disagreement.
+    # Only the RESOLUTION happens here (needed below by the
+    # distance-grid-scheme combination check); the actual global mutation and
+    # banner are deferred until after the fatal gate below, so a refused
+    # command line never mutates core's module-level GH state.
+    _gh_cli = getattr(opts, "distance_gh_nodes", None)
+    _gh_env_raw = os.environ.get("JAX_ILE_DISTMARG_GH")
+    _gh_env = int(_gh_env_raw) if _gh_env_raw not in (None, "") else None
+    if _gh_cli is not None and _gh_cli < 0:
+        fatal.append("--distance-gh-nodes must be >= 0, got %d" % _gh_cli)
+    elif _gh_cli is not None and _gh_env is not None and _gh_cli != _gh_env:
+        fatal.append(
+            "--distance-gh-nodes %d conflicts with JAX_ILE_DISTMARG_GH=%d in "
+            "the environment; unset the environment variable or pass the "
+            "same value on the command line" % (_gh_cli, _gh_env))
+    if _gh_cli is not None:
+        _gh_resolved = _gh_cli
+    elif _gh_env is not None:
+        _gh_resolved = _gh_env
+    else:
+        _gh_resolved = 0
     if getattr(opts, "calibration_n_realizations", None) not in (None, 1) \
             or is_set("--calibration-export-posterior") \
             or is_set("--calibration-envelope-directory"):
@@ -311,6 +394,189 @@ def check_critical_and_report(opts, optp):
         fatal.append("--zero-likelihood is not implemented")
     if is_set("--maximize-only"):
         fatal.append("--maximize-only is not implemented (this driver integrates)")
+    _is_n = int(getattr(opts, "smc_is_samples", 60000))
+    if _is_n < 0:
+        fatal.append("--smc-is-samples must be >= 0; a negative count reaches "
+                     "the SMC proposal draw, whose exception handler would "
+                     "silently fall back to the raw SMC evidence")
+    _sampler_method = getattr(opts, "sampler_method", None)
+    _jax_av_active = _sampler_method in ("AV", "portfolio")
+    if _jax_av_active:
+        try:
+            resolve_av_angular_limits(opts)
+        except SystemExit as exc:
+            fatal.append(str(exc).strip())
+        if getattr(opts, "mode", None) in ("map", "nuts", "multistart-nuts",
+                                            "nuts-phimarg"):
+            fatal.append("--sampler-method %s cannot override the chain/optimizer "
+                         "mode --mode %s; use laplace-is or a flowmc-* mode to "
+                         "select the desired JAX likelihood geometry"
+                         % (_sampler_method, getattr(opts, "mode", None)))
+        if int(getattr(opts, "n_eff", None) or 1000) <= 0:
+            fatal.append("--n-eff must be positive for --sampler-method %s"
+                         % _sampler_method)
+        if int(getattr(opts, "jax_av_seed_pilot", 4000)) <= 0:
+            fatal.append("--jax-av-seed-pilot must be positive")
+        if int(getattr(opts, "jax_av_seed_modes", 4)) <= 0:
+            fatal.append("--jax-av-seed-modes must be positive")
+        _seed_points = getattr(opts, "jax_av_seed_points", None)
+        if _seed_points is not None and int(_seed_points) <= 0:
+            fatal.append("--jax-av-seed-points must be positive")
+        _eval_chunk = getattr(opts, "jax_av_eval_chunk", None)
+        if _eval_chunk is not None and int(_eval_chunk) <= 0:
+            fatal.append("--jax-av-eval-chunk must be positive")
+        if float(getattr(opts, "jax_av_sky_inflate", 2.0)) <= 0:
+            fatal.append("--jax-av-sky-inflate must be positive")
+        _prior_frac = float(getattr(opts, "jax_av_seed_prior_frac", 0.1))
+        if not (0.0 <= _prior_frac <= 1.0):
+            fatal.append("--jax-av-seed-prior-frac must lie in [0,1]")
+        _members = [s.strip().upper()
+                    for item in (getattr(opts, "sampler_portfolio", None) or [])
+                    for s in str(item).split(",") if s.strip()]
+        if _sampler_method == "AV" and _members:
+            fatal.append("--sampler-portfolio is inert with --sampler-method AV")
+        if any(name not in ("AV", "GMM") for name in _members):
+            fatal.append("the JAX portfolio supports only AV and GMM members; got %s"
+                         % ",".join(_members))
+        if getattr(opts, "jax_av_seed", "none") == "none":
+            for _name in ("--jax-av-seed-pilot", "--jax-av-seed-modes",
+                          "--jax-av-seed-points", "--jax-av-sky-inflate",
+                          "--jax-av-seed-prior-frac"):
+                if was_supplied(opts, _name):
+                    fatal.append("%s is inert with --jax-av-seed none" % _name)
+        for _name in ("--auto-adapt-weight-exponent", "--target-export-ess-frac",
+                      "--allow-degenerate-tempering", "--adapt-adapt",
+                      "--temper-init", "--temper-ess-frac",
+                      "--temper-max-stages", "--temper-max-dbeta",
+                      "--fisher-precondition", "--fisher-is-samples",
+                      "--smc-puffball", "--smc-walkers", "--smc-move-steps",
+                      "--smc-is-samples", "--smc-puff-scale"):
+            if was_supplied(opts, _name):
+                fatal.append("%s configures the mode's gradient/SMC sampler and "
+                             "is inert under --sampler-method %s"
+                             % (_name, _sampler_method))
+    else:
+        for _name in ("--sampler-portfolio", "--sampler-anisotropic-bins",
+                      "--n-eff"):
+            if was_supplied(opts, _name):
+                fatal.append("%s is inert unless --sampler-method AV/portfolio"
+                             % _name)
+        for _name in ("--jax-av-seed", "--jax-av-seed-pilot",
+                      "--jax-av-seed-modes", "--jax-av-seed-points",
+                      "--jax-av-sky-inflate", "--jax-av-seed-prior-frac",
+                      "--jax-av-eval-chunk"):
+            if was_supplied(opts, _name):
+                fatal.append("%s requires --sampler-method AV/portfolio" % _name)
+        # ``was_supplied`` deliberately fails open when an in-process caller
+        # has no argv provenance.  The non-default value itself is conclusive.
+        if getattr(opts, "jax_av_seed", "none") != "none" \
+                and not any("--jax-av-seed requires" in item for item in fatal):
+            fatal.append("--jax-av-seed requires --sampler-method AV/portfolio")
+    if is_set("--psi-marginalization"):
+        fatal.append("--psi-marginalization (analytic polarization-angle "
+                     "marginalization) is not implemented for psi-sampling modes "
+                     "on this driver; use --mode flowmc-phipsimarg or "
+                     "flowmc-dpsimarg, which marginalize psi by construction")
+    # Cross-axis policy scope, at parse time (external review of #278, P1):
+    # only --mode flowmc-phipsimarg reads the policy, so a request anywhere
+    # else would otherwise complete on the ordinary likelihood, and the
+    # policy's knobs are inert unless the policy is on.
+    _policy = getattr(opts, "direct_marginalization_policy",
+                      DIRECT_MARG_POLICY_DEFAULT)
+    _policy_knobs = ("--direct-marginalization-time-guard",
+                     "--direct-marginalization-reserve-time-refine",
+                     "--direct-marginalization-reserve-time-refine-max",
+                     "--direct-marginalization-error-budget-nats",
+                     "--direct-marginalization-batch-rows",
+                     "--direct-marginalization-policy-probe-rows",
+                     "--direct-marginalization-policy-probe-only",
+                     "--direct-marginalization-max-modes",
+                     "--direct-marginalization-enriched-max-modes",
+                     "--direct-marginalization-base-oversample",
+                     "--direct-marginalization-enriched-oversample",
+                     "--direct-marginalization-max-starts",
+                     "--direct-marginalization-max-time-nodes",
+                     "--direct-marginalization-convergence-tol-nats",
+                     "--direct-marginalization-time-guard-tol-nats")
+    if _policy != "off":
+        if getattr(opts, "mode", None) != "flowmc-phipsimarg":
+            fatal.append("--direct-marginalization-policy %s applies only to "
+                         "--mode flowmc-phipsimarg; --mode %s would run the "
+                         "ordinary likelihood and silently ignore the request"
+                         % (_policy, getattr(opts, "mode", None)))
+        _g = int(getattr(opts, "direct_marginalization_time_guard", 16))
+        if _g < 2:
+            fatal.append("--direct-marginalization-time-guard must be >= 2 "
+                         "(the two-guard comparison needs a half guard)")
+        _f = int(getattr(opts, "direct_marginalization_reserve_time_refine", 4))
+        if _f < 2 or _f % 2:
+            fatal.append("--direct-marginalization-reserve-time-refine must be "
+                         "an even integer >= 2 (the check rule is the "
+                         "half-refined rule)")
+        _fm = int(getattr(opts, "direct_marginalization_reserve_time_refine_max",
+                          32))
+        if _fm < _f or _fm % 2:
+            fatal.append("--direct-marginalization-reserve-time-refine-max must "
+                         "be an even integer >= the refine factor")
+        _b = float(getattr(opts, "direct_marginalization_error_budget_nats",
+                           1.0e-3))
+        if not (np.isfinite(_b) and _b > 0.0):
+            fatal.append("--direct-marginalization-error-budget-nats must be "
+                         "finite and positive")
+        # --d-prior is accepted by the parser but not forwarded to the JAX
+        # wrapper (which is always volumetric); refuse a non-volumetric request
+        # under the policy here rather than let the wrapper's refusal be
+        # unreachable (wiring review, item 6).
+        _dp = getattr(opts, "d_prior", None)
+        if _dp not in (None, "", "euclidean", "volumetric"):
+            fatal.append("--direct-marginalization-policy %s derives its "
+                         "measure from the volumetric distance prior; "
+                         "--d-prior %s is not supported by the composite"
+                         % (_policy, _dp))
+        _br = int(getattr(opts, "direct_marginalization_batch_rows", 1))
+        if _br < 0:
+            fatal.append("--direct-marginalization-batch-rows must be >= 0 "
+                         "(1 = row at a time, 0 = one full batch)")
+        _pr = int(getattr(opts, "direct_marginalization_policy_probe_rows", 0))
+        if _pr < 0:
+            fatal.append("--direct-marginalization-policy-probe-rows must be "
+                         ">= 0 (0 disables the pre-sampling probe)")
+        if getattr(opts, "direct_marginalization_policy_probe_only", False) \
+                and _pr <= 0:
+            fatal.append("--direct-marginalization-policy-probe-only needs "
+                         "--direct-marginalization-policy-probe-rows > 0; "
+                         "otherwise it would exit having measured nothing")
+        for _k, _d in (("--direct-marginalization-max-modes",
+                        "direct_marginalization_max_modes"),
+                       ("--direct-marginalization-enriched-max-modes",
+                        "direct_marginalization_enriched_max_modes"),
+                       ("--direct-marginalization-base-oversample",
+                        "direct_marginalization_base_oversample"),
+                       ("--direct-marginalization-enriched-oversample",
+                        "direct_marginalization_enriched_oversample"),
+                       ("--direct-marginalization-max-starts",
+                        "direct_marginalization_max_starts")):
+            if int(getattr(opts, _d, 1)) < 1:
+                fatal.append("%s must be >= 1" % _k)
+        for _k, _d in (("--direct-marginalization-convergence-tol-nats",
+                        "direct_marginalization_convergence_tol_nats"),
+                       ("--direct-marginalization-time-guard-tol-nats",
+                        "direct_marginalization_time_guard_tol_nats")):
+            _v = float(getattr(opts, _d, 1.0e-3))
+            if not (np.isfinite(_v) and _v > 0.0):
+                fatal.append("%s must be finite and positive" % _k)
+        if (int(getattr(opts, "direct_marginalization_enriched_max_modes", 8))
+                < int(getattr(opts, "direct_marginalization_max_modes", 4))):
+            fatal.append("--direct-marginalization-enriched-max-modes must be "
+                         ">= --direct-marginalization-max-modes: the enriched "
+                         "plan has to be able to nest the base plan, and a "
+                         "narrower one declines on mode nesting every row")
+    else:
+        for _k in _policy_knobs:
+            if was_supplied(opts, _k):
+                fatal.append("%s is inert without --direct-marginalization-"
+                             "policy auto; pass the policy or drop the option"
+                             % _k)
     # Distance-grid option combinations that the wrapper would reject anyway --
     # caught HERE, at parse time, so the user is not made to sit through a full
     # precompute first (F8 of external review).
@@ -324,8 +590,8 @@ def check_critical_and_report(opts, optp):
             fatal.append(
                 "--distance-grid-scheme %s requires --angle-marg-scheme "
                 "exact/laplace/auto: the log-uniform grid is sized from the "
-                "data-derived angle amplitude, which the default 'grid' scheme "
-                "does not compute" % dgs)
+                "data-derived angle amplitude, which the 'grid' scheme you "
+                "asked for does not compute" % dgs)
         if getattr(opts, "distance_grid_points", None) is not None:
             fatal.append("--distance-grid-points and --distance-grid-scheme %s "
                          "both set the distance node count; pass one or the "
@@ -344,20 +610,127 @@ def check_critical_and_report(opts, optp):
                          "values: c(tol) diverges as tol -> 2, so 1.999 asks "
                          "for a 2-node grid.  The shipped default is %g."
                          % (_tol, _jax_core_dist_tol_default()))
-        if int(os.environ.get("JAX_ILE_DISTMARG_GH", "0")) > 0:
+        if _gh_resolved > 0:
             fatal.append(
                 "--distance-grid-scheme %s cannot be combined with "
-                "JAX_ILE_DISTMARG_GH: the per-sample Gauss-Hermite distance "
-                "quadrature uses only the SUPPORT of the grid, so the option "
-                "would be bit-identically inert while still being reported as "
-                "active" % dgs)
+                "--distance-gh-nodes/JAX_ILE_DISTMARG_GH: the per-sample "
+                "Gauss-Hermite distance quadrature uses only the SUPPORT of "
+                "the grid, so the option would be bit-identically inert "
+                "while still being reported as active" % dgs)
     elif getattr(opts, "distance_grid_tol", None) is not None:
         fatal.append("--distance-grid-tol applies only to "
                      "--distance-grid-scheme loguniform; it would be silently "
                      "inert here")
+    # NOT ``... or 1``: 0 is falsy, so that idiom would silently promote an invalid
+    # ``--q-time-pregrid-factor 0`` to the default and report nothing.  (It did, until
+    # test_jax_dropin_manifest... caught it.)
+    _qf = getattr(opts, "q_time_pregrid_factor", 1)
+    _qf = 1 if _qf is None else int(_qf)
+    if _qf < 1:
+        fatal.append("--q-time-pregrid-factor must be >= 1, got %d" % _qf)
+    elif _qf != 1:
+        if (getattr(opts, "rotation_slow", False)
+                or getattr(opts, "freqresponse", False)):
+            fatal.append("--q-time-pregrid-factor is not implemented for banded "
+                         "rotation/frequency-response likelihoods")
+        # NOT a blanket refusal any more (it was, before the JAX Q path grew a
+        # pregrid).  What survives is the narrower, still-true refusal, and it
+        # mirrors conventional ILE's (#261): the pregrid buys sub-sample accuracy
+        # with a FOUR-tap cubic, so a stencil that cannot use a sub-sample position
+        # ('nearest') or a different stencil chosen behind the user's back would
+        # both make the two arms answer differently for the same command line --
+        # which is exactly how they came to ship opposite stencil defaults (#233).
+        #
+        # 'nearest' is separately UNIMPLEMENTED, not merely suboptimal: see
+        # core._q_sample_positions -- a refined-grid nearest gather no longer reads
+        # the sample the banded post-phase reconstructs from the coarse index, so
+        # the data term and the model norm would drift apart by up to half a coarse
+        # bin.
+        # The ``!= JAX_INTERP_DEFAULT`` clause is not redundant with was_supplied:
+        # was_supplied() FAILS OPEN by design ("no record -> assume not supplied"),
+        # which is the safe direction for the conflict checks it was written for and
+        # the WRONG one here, where the consequence of guessing "not supplied" is
+        # silently replacing a stencil the caller chose.  A caller with no supplied
+        # record whose interp is not the module default has demonstrably chosen it,
+        # so treat that as explicit too.
+        _explicit_interp = (was_supplied(opts, "--interp")
+                            or was_supplied(opts, "--interpolate-time")
+                            or getattr(opts, "interp", None) != JAX_INTERP_DEFAULT)
+        if _explicit_interp and getattr(opts, "interp", None) != "cubic":
+            fatal.append(
+                "--q-time-pregrid-factor %d uses four-tap cubic interpolation "
+                "(--interp %r was requested); remove the explicit stencil option "
+                "or set it to cubic" % (_qf, getattr(opts, "interp", None)))
+        else:
+            opts._q_pregrid_fallback_interp = getattr(opts, "interp", None)
+            opts.interp = "cubic"
+            print(" Q_lm pregrid: ENABLED factor=%d boundary=even-reflection "
+                  "arrival_stencil=cubic integration_grid=unchanged" % _qf)
+    _tq = getattr(opts, "time_marginalization_quadrature", "simpson")
+    if getattr(opts, "rotation_slow", False) and _tq == "bandlimited":
+        fatal.append("bandlimited time quadrature is not valid when slow rotation "
+                     "makes <h|h> arrival-time dependent; use simpson")
+    if ((getattr(opts, "rotation_slow", False) or getattr(opts, "freqresponse", False))
+            and getattr(opts, "phase_marginalization", False)):
+        fatal.append("phase marginalization is not implemented for banded "
+                     "rotation/frequency-response likelihoods")
+    if int(getattr(opts, "rotation_p_max", 0) or 0) < 0:
+        fatal.append("--rotation-p-max must be >= 0")
+    if int(getattr(opts, "rotation_n_harmonics", 2) or 2) < 2:
+        fatal.append("--rotation-n-harmonics must be >= 2")
+    if int(getattr(opts, "freqresponse_qmax", 4) or 4) < 0:
+        fatal.append("--freqresponse-qmax must be >= 0")
+    _rotation = bool(getattr(opts, "rotation_slow", False))
+    _freqresponse = bool(getattr(opts, "freqresponse", False))
+    if not _rotation:
+        for _name in ("--rotation-n-harmonics", "--rotation-p-max"):
+            if was_supplied(opts, _name):
+                fatal.append("%s is inert without --rotation-slow" % _name)
+    elif _freqresponse and was_supplied(opts, "--rotation-n-harmonics"):
+        fatal.append("--rotation-n-harmonics does not set the compound bank width; "
+                     "its exact support is fixed by Qmax and pmax")
+    if not _freqresponse:
+        for _name in ("--freqresponse-qmax", "--freqresponse-arm-length"):
+            if was_supplied(opts, _name):
+                fatal.append("%s is inert without --freqresponse" % _name)
+    elif getattr(opts, "freqresponse_arm_length", None) not in (None, ""):
+        try:
+            _parse_freqresponse_arm_length(opts.freqresponse_arm_length)
+        except (TypeError, ValueError) as exc:
+            fatal.append("invalid --freqresponse-arm-length: %s" % exc)
+    # Refused HERE, before precompute: with a full-sky prior the stop below is
+    # not a chance event but the first chunk (see _EVAL_LNL_STOP_MODES).
+    _hw = getattr(opts, "data_integration_window_half", None)
+    if (_tq == "bandlimited" and (getattr(opts, "mode", None) in _EVAL_LNL_STOP_MODES
+                                  or _jax_av_active)
+            and _hw is not None
+            and float(_hw) < _BANDLIMITED_FULLSKY_HALF_WINDOW_MIN):
+        optp.error(
+            "--time-marginalization-quadrature bandlimited with --mode %s "
+            "evaluates full-sky prior draws and stops on one uncertified row, and "
+            "--data-integration-window-half %.4g s is below 2 R_earth / c = %.4f s, "
+            "the largest arrival shift a wrong-sky draw makes at one detector: a "
+            "row whose arrival peak lies beyond the window edge cannot be "
+            "certified, and the first chunk contains such rows (measured 35 of 256 "
+            "blind rows at 0.02 s, 0 of 256 at 0.05 s).  Raise "
+            "--data-integration-window-half to at least %.4f s plus the "
+            "event-time uncertainty (0.05 s is the measured clean value), or use "
+            "--time-marginalization-quadrature simpson."
+            % (opts.mode, float(_hw), _BANDLIMITED_FULLSKY_HALF_WINDOW_MIN,
+               _BANDLIMITED_FULLSKY_HALF_WINDOW_MIN))
     if fatal:
         optp.error("Cannot run as a faithful drop-in: " + "; ".join(fatal)
                    + ".  (These would silently change the result if ignored.)")
+
+    # Nothing above raised: safe to APPLY the resolved distance-GH-nodes count
+    # (deferred from the resolution comment above) and report it, once, here.
+    from RIFT.likelihood.jax_ile.core import set_distmarg_gh_nodes
+    set_distmarg_gh_nodes(_gh_resolved)
+    opts._distance_gh_nodes_resolved = _gh_resolved
+    print("  distance quadrature: per-sample Gauss-Hermite nodes=%d%s"
+          % (_gh_resolved, " (legacy uniform grid)" if _gh_resolved == 0 else
+             " (source: %s)" % ("--distance-gh-nodes" if _gh_cli is not None
+                                else "JAX_ILE_DISTMARG_GH")))
 
     # Report accepted-but-ignored options that were actually passed.
     ignored = []
@@ -369,34 +742,50 @@ def check_critical_and_report(opts, optp):
                    "--reference-freq", "--fmax", "--srate",
                    "--data-integration-window-half",
                    "--internal-data-storage-window-half", "--d-min", "--d-max",
-                   "--d-prior", "--limit-distance",
+                   "--limit-distance",
                    "--n-max", "--n-chunk", "--output-file",
                    "--event", "--save-samples", "--verbose", "--seed",
                    "--sim-xml", "--sim-grid", "--n-events-to-analyze",
                    "--random-event", "--distance-marginalization",
                    "--time-marginalization", "--time-marginalization-quadrature",
                    "--interpolate-time",
-                   "--vectorized", "--use-gwsignal"}
+                   "--vectorized", "--use-gwsignal", "--rotation-slow",
+                   "--rotation-n-harmonics", "--rotation-p-max",
+                   "--freqresponse", "--freqresponse-qmax",
+                   "--freqresponse-arm-length"}
     # These are implemented PER MODE.  Listing them unconditionally would claim
     # they act under --mode laplace-is (the default), nuts, map, multistart-nuts
     # and nuts-phimarg, where they are inert -- exactly the silent no-op this
     # driver's compat layer exists to prevent.
     mode = getattr(opts, "mode", None)
-    if mode in _TEMPERED_MODES:
+    if getattr(opts, "sampler_method", None) in ("AV", "portfolio"):
+        implemented |= {"--sampler-method", "--n-eff",
+                        "--sampler-anisotropic-bins",
+                        "--limit-right-ascension", "--limit-declination",
+                        "--limit-psi", "--limit-inclination"}
+        if getattr(opts, "sampler_method", None) == "portfolio":
+            implemented.add("--sampler-portfolio")
+    _tempered_mode_active = (mode in _TEMPERED_MODES
+                             and getattr(opts, "sampler_method", None)
+                             not in ("AV", "portfolio"))
+    if _tempered_mode_active:
         # static tempering exponent (samplers.flowmc_sample*: inv_T = 1/temper)
         implemented.add("--adapt-weight-exponent")
     if mode in _FAIRDRAW_MODES:
         implemented |= {"--fairdraw-extrinsic-output",
                         "--fairdraw-extrinsic-output-n-max",
                         "--n-fairdraw-extrinsic-samples"}
-    for name in sorted(_ILE_ALL_OPTS - implemented):
+    # --d-prior is handled separately below with a substantive message (the
+    # JAX driver's distance prior, not merely "not yet implemented"), so it is
+    # excluded from the generic bag here rather than lumped into it.
+    for name in sorted(_ILE_ALL_OPTS - implemented - {"--d-prior"}):
         if is_set(name):
             ignored.append(name)
     # JAX-NATIVE tempering flags.  These are not in _ILE_ALL_OPTS (they have no ILE
     # counterpart), so the loop above cannot see them -- and they act ONLY on the
     # tempered modes.  Report them explicitly rather than let a user's chooser
     # request evaporate under --mode laplace-is, which is the driver default.
-    if mode not in _TEMPERED_MODES:
+    if not _tempered_mode_active:
         inert = [n for n in ("--auto-adapt-weight-exponent",
                              "--allow-degenerate-tempering")
                  if getattr(opts, _dest(n), False)]
@@ -406,6 +795,33 @@ def check_critical_and_report(opts, optp):
             print("Note: %s only act on the tempered modes (%s); --mode %s ignores "
                   "them." % (" ".join(sorted(set(inert))),
                              " ".join(sorted(_TEMPERED_MODES)), mode))
+    # --d-prior (RO'S 2026-09-08: missing knobs no-op for compatibility, but
+    # must warn).  --d-prior is accepted (ILE compatibility) but never
+    # forwarded: the JAX driver always integrates against the volumetric d^2
+    # prior on [--d-min, --d-max].  'Euclidean'/'volumetric' (any case) IS
+    # that prior, so passing it explicitly is not a deviation and gets no note.
+    _dp = getattr(opts, "d_prior", None)
+    if _dp not in (None, "") and str(_dp).strip().lower() not in (
+            "euclidean", "volumetric"):
+        print("Note: --d-prior %r is accepted but IGNORED by the JAX driver: "
+              "it always integrates distance against the volumetric d^2 "
+              "prior on [--d-min, --d-max]." % (_dp,))
+    # --phase-marginalization: forwarded on the 6-D/5-D likelihoods, but the
+    # four phi_ref-marginalised modes already integrate phase out analytically
+    # (a grid sum baked into the likelihood, not a sampled axis) -- outside
+    # _ILE_ALL_OPTS, so the generic loop above cannot see it either.
+    if getattr(opts, "phase_marginalization", False) and mode in _PHASE_ANALYTIC_MODES:
+        print("Note: --phase-marginalization is accepted but IGNORED for "
+              "--mode %s (phase is already marginalized analytically)." % mode)
+    # --sky-coordinates network: wired only for --mode multistart-nuts (the
+    # other modes' samplers assume the equatorial (ra, sin(dec)) parameterization
+    # end to end -- reparameterizing them is more than plumbing, see the PR).
+    _skyc = getattr(opts, "sky_coordinates", "equatorial")
+    if _skyc != "equatorial" and mode != "multistart-nuts":
+        print("Note: --sky-coordinates %s is accepted but IGNORED for --mode "
+              "%s (only --mode multistart-nuts samples the sky in network-"
+              "frame coordinates; other modes use the default equatorial "
+              "parameterization)." % (_skyc, mode))
     if ignored:
         print("Note: the following ILE options are accepted but IGNORED by the "
               "JAX driver (not yet implemented; behavior may differ from ILE):")
@@ -426,6 +842,20 @@ def _jax_core_dist_tol_default():
 
 def build_parser():
     optp = OptionParser(usage="%prog [options]", description=__doc__)
+
+    g = OptionGroup(optp, "JAX compilation cache")
+    g.add_option("--jax-cache-dir", default=None,
+                 help="Persistent cache root. RIFT adds a JAX/JAXLIB/backend/"
+                      "GPU compatibility namespace (default: $RIFT_JAX_CACHE_ROOT "
+                      "or $XDG_CACHE_HOME/rift/jax).")
+    g.add_option("--no-jax-persistent-cache", action="store_true", default=False,
+                 help="Disable cross-process JAX compilation caching for this run.")
+    g.add_option("--jax-cache-bundle", default=None,
+                 help="Validate and import a warmed rift_jax_cache bundle before "
+                      "constructing any ILE JIT (also $RIFT_JAX_CACHE_BUNDLE).")
+    g.add_option("--jax-cache-profile", default=None,
+                 help="Require --jax-cache-bundle to declare this warmup profile.")
+    optp.add_option_group(g)
 
     g = OptionGroup(optp, "Data input (frame mode)")
     g.add_option("--cache-file", default=None)
@@ -487,6 +917,23 @@ def build_parser():
     g.add_option("--internal-data-storage-window-half", type=float, default=0.15)
     optp.add_option_group(g)
 
+    g = OptionGroup(optp, "Time-dependent detector response")
+    g.add_option("--rotation-slow", action="store_true", default=False,
+                 help="Use the sidereal slow-rotation likelihood. May be combined "
+                      "with --freqresponse.")
+    g.add_option("--rotation-n-harmonics", type=int, default=2,
+                 help="Minimum sidereal harmonic half-width (default 2).")
+    g.add_option("--rotation-p-max", type=int, default=0,
+                 help="Maximum propagation-delay derivative order (default 0).")
+    g.add_option("--freqresponse", action="store_true", default=False,
+                 help="Use finite-arm frequency response. Combining this with "
+                      "--rotation-slow constructs a compound banded likelihood.")
+    g.add_option("--freqresponse-qmax", type=int, default=4,
+                 help="Highest finite-arm projection power (default 4).")
+    g.add_option("--freqresponse-arm-length", default=None,
+                 help="Arm length in metres, globally or DET=value comma list.")
+    optp.add_option_group(g)
+
     g = OptionGroup(optp, "Extrinsic exploration / sampling")
     g.add_option("--mode", default="laplace-is",
                  choices=["prior-mc", "laplace-is", "map", "nuts",
@@ -539,6 +986,37 @@ def build_parser():
                       "factored-likelihood amplitude degeneracy; required for nuts).")
     g.add_option("--n-max", type=int, default=300000)
     g.add_option("--n-chunk", type=int, default=8000)
+    g.add_option("--n-eff", type=int, default=None,
+                 help="Target effective sample count for --sampler-method AV/portfolio "
+                      "(default 1000 on those backends).")
+    g.add_option("--sampler-method", default=None,
+                 help="Optional non-AD integration backend: AV or portfolio.  The "
+                      "existing --mode still selects the JAX likelihood geometry; "
+                      "other legacy values remain accepted as compatibility no-ops.")
+    g.add_option("--sampler-portfolio", action="append", default=[],
+                 help="Portfolio members (repeat or comma-separate; JAX path supports "
+                      "AV and GMM, default AV,GMM).")
+    g.add_option("--sampler-anisotropic-bins", action="store_true", default=False,
+                 help="Allocate AV bins preferentially along compressed coordinates.")
+    g.add_option("--jax-av-seed", type="choice", choices=("none", "fisher-sky"),
+                 default="none",
+                 help="Optional JAX initializer for AV/portfolio: hill-climb several "
+                      "modes, use their Fisher curvature on sky, and draw all other "
+                      "coordinates from the physical prior (default none).")
+    g.add_option("--jax-av-eval-chunk", type=int, default=None,
+                 help="Fixed JAX likelihood batch inside each AV coverage chunk "
+                      "(default min(--n-chunk, the JAX memory-aware default)).")
+    g.add_option("--jax-av-seed-pilot", type=int, default=4000,
+                 help="Prior likelihood evaluations used to find hill-climb starts.")
+    g.add_option("--jax-av-seed-modes", type=int, default=4,
+                 help="Maximum separated sky modes retained by the Fisher-sky seed.")
+    g.add_option("--jax-av-seed-points", type=int, default=None,
+                 help="Seed-cloud size (default --n-chunk).")
+    g.add_option("--jax-av-sky-inflate", type=float, default=2.0,
+                 help="Standard-deviation inflation of the local Fisher sky proposal.")
+    g.add_option("--jax-av-seed-prior-frac", type=float, default=0.1,
+                 help="Fraction of the seed cloud drawn from the full physical prior. "
+                      "The portfolio GMM, not this finite cloud, guarantees full support.")
     g.add_option("--d-min", type=float, default=1.0, help="Min distance (Mpc).")
     g.add_option("--d-max", type=float, default=10000.0, help="Max distance (Mpc).")
 
@@ -567,6 +1045,31 @@ def build_parser():
                       "the node count follows from it in closed form.  "
                       "Default %g.  Only valid with that scheme."
                       % _jax_core_dist_tol_default())
+    g.add_option("--distance-gh-nodes", type=int, default=None,
+                 help="Node count for the per-sample Gauss-Hermite-style "
+                      "distance quadrature (RIFT.likelihood.jax_ile.core."
+                      "make_distance_gh / _distmarg_gh_logL): nodes centred "
+                      "PER SAMPLE on the Gaussian peak of the distance "
+                      "integrand, resolving it to machine precision at any "
+                      "SNR with a few dozen nodes, instead of the legacy "
+                      "fixed grid (see --distance-grid-points) which "
+                      "under-resolves that peak at high SNR.  Not passing "
+                      "this flag keeps the legacy uniform grid (current "
+                      "behaviour, no change).  Equivalent to the environment "
+                      "variable JAX_ILE_DISTMARG_GH, which is still honoured "
+                      "for compatibility, but ONLY when this flag is not "
+                      "given: when the flag IS given -- including an "
+                      "explicit 0 -- it wins over the environment variable, "
+                      "and a DIFFERENT nonzero JAX_ILE_DISTMARG_GH is "
+                      "REFUSED rather than silently picked (an explicit "
+                      "--distance-gh-nodes 0 against a nonzero "
+                      "JAX_ILE_DISTMARG_GH is a conflict too, and is refused "
+                      "the same way: silently choosing 0 or the environment "
+                      "value would both hide the disagreement). "
+                      "Not compatible with --distance-grid-scheme loguniform "
+                      "(the per-sample quadrature reads only the SUPPORT of "
+                      "that grid, so combining them would be silently inert "
+                      "while reporting as active -- see --distance-grid-tol).")
     g.add_option("--limit-distance", default=None,
                  help="Restrict distance SAMPLING (and, when distance is "
                       "marginalized, the distance QUADRATURE) to 'LO,HI' in Mpc, "
@@ -591,15 +1094,41 @@ def build_parser():
     g.add_option("--phase-marginalization", action="store_true", default=False)
     g.add_option("--time-marginalization-quadrature", type="choice",
                  choices=("simpson", "bandlimited"), default="simpson",
-                 help="Rule for the terminal time integral: historical fixed-grid "
-                      "Simpson or adaptive reflected-FFT interpolation followed "
+                 help="Rule for the time integral: historical fixed-grid "
+                      "Simpson or adaptive reflected-FFT refinement followed "
                       "by a converged trapezoid. No resolution knob is exposed; "
-                      "the factor is derived and rechecked from lnL(t).")
+                      "the factor is derived and rechecked per row. "
+                      "'bandlimited' is honoured by the 6-D modes and, under "
+                      "--distance-marginalization, by every mode except the "
+                      "phi/psi-marginalized ones, which refuse it and say so. "
+                      "One uncertified row stops the run.  The modes that push "
+                      "full-sky prior draws through that stop (prior-mc, "
+                      "laplace-is, map, nuts) are refused at parse time unless "
+                      "--data-integration-window-half is at least 2 R_earth / c "
+                      "(0.0426 s), the largest arrival shift of a wrong-sky "
+                      "draw; 0.05 s is the measured clean value.")
     g.add_option("--resample-time-marginalization", action="store_true",
                  default=False,
                  help="Conventional ILE option; currently unsupported by JAX ILE.")
     g.add_option("--srate-resample-time-marginalization", type="int", default=None,
                  help="Conventional ILE option; currently unsupported by JAX ILE.")
+    g.add_option("--q-time-pregrid-factor", type="int", default=1,
+                 help="OPT-IN. Refine the STORED rholm buffers onto a factor-x finer "
+                      "time grid ONCE, before sampling, by even reflection plus a "
+                      "band-limited FFT interpolation, and evaluate detector arrival "
+                      "times on it with the four-tap cubic stencil.  The integration "
+                      "cadence -- deltaT, tvals and the Simpson weights -- is "
+                      "UNCHANGED: this refines how Q is INTERPOLATED, not what the "
+                      "likelihood integrates over.  Default 1 is the historical "
+                      "behaviour and is bit-identical.  8 is the validated value on "
+                      "both arms (RIFT PR #261 for conventional ILE); larger factors "
+                      "are accepted but buy little, because past ~8 the residual is "
+                      "the reflection boundary condition rather than the stencil "
+                      "step.  Selects --interp cubic and REFUSES an explicit "
+                      "different stencil, exactly as conventional ILE does.  Costs "
+                      "factor-x device memory for Q (only Q -- not the per-sample "
+                      "gather scratch, which is the large term).  Measured accuracy "
+                      "and cost: RIFT/likelihood/DESIGN_q_window_stencil.md 9.7.")
     g.add_option("--n-phi", type=int, default=32,
                  help="phi_ref grid size for --mode flowmc-phimarg (default 32; "
                       "use 64-128 for l-max>=4 or production quality).")
@@ -640,6 +1169,246 @@ def build_parser():
                       "ran is printed.  See RIFT.likelihood.jax_ile.anglemarg."
                       % (ANGLE_MARG_DEFAULT, ANGLE_MARG_LEGACY,
                          ANGLE_MARG_LEGACY, ANGLE_MARG_LEGACY))
+    g.add_option("--direct-marginalization-policy",
+                 default=DIRECT_MARG_POLICY_DEFAULT,
+                 choices=sorted(DIRECT_MARG_POLICY_CHOICES),
+                 help="OPT-IN cross-axis policy for --mode flowmc-phipsimarg "
+                      "(default '%s').  'auto': per likelihood evaluation, "
+                      "build the bounded U,V,Q start portfolios, attempt the "
+                      "four-axis peak-local integral over (t, phi_ref, psi, D), "
+                      "and keep it only if every acceptance diagnostic passes "
+                      "(capacity, finite stationary modes, nested geometry, "
+                      "base/enriched agreement, nested quadrature, two-guard "
+                      "time, omitted-time mass, total error score under "
+                      "--direct-marginalization-error-budget-nats); otherwise "
+                      "run the band-limited exact-angle reserve.  No SNR "
+                      "threshold is coded.  Requires --angle-marg-scheme exact "
+                      "(its reserve), the simpson time rule (its check rule), "
+                      "the volumetric distance prior and a uniform distance "
+                      "grid; anything else is refused, not ignored.  Value-only: "
+                      "gradient parity is not yet validated (see "
+                      "DESIGN_direct_marginalization_policy.md), so keep this "
+                      "off for production until that ladder is recorded.  The "
+                      "branch statistics of the exported samples are printed and "
+                      "labelled in the output headers.  A row the controller "
+                      "cannot warrant (after doubling the reserve rule up to "
+                      "16x) is nan and the run is NOT published.  Applies only "
+                      "to --mode flowmc-phipsimarg; any other mode is refused."
+                      % DIRECT_MARG_POLICY_DEFAULT)
+    g.add_option("--direct-marginalization-time-guard", type=int,
+                 default=DirectMargPolicyConfig().time_guard,
+                 help="Primitive-only support samples added at each end of the "
+                      "time window for the policy's guarded reconstruction "
+                      f"(default {DirectMargPolicyConfig().time_guard}; must "
+                      "be >= 2).  Both the local integral and "
+                      "the reserve are re-evaluated at half this guard and must "
+                      "agree within the error budget; a too-small guard declines "
+                      "to the reserve rather than biasing.")
+    g.add_option("--direct-marginalization-reserve-time-refine", type=int,
+                 default=DirectMargPolicyConfig().reserve_time_refine,
+                 help="Refinement factor of the reserve's band-limited time rule "
+                      "over the native cadence (default "
+                      f"{DirectMargPolicyConfig().reserve_time_refine}; even, "
+                      ">= 2).  The "
+                      "half-refined rule is the check rule the reserve must "
+                      "agree with, so the warrant is a convergence statement "
+                      "about the refined rules; the native Simpson rule's own "
+                      "error is what the refinement removes.")
+    g.add_option("--direct-marginalization-reserve-scheme", type="choice",
+                 choices=list(DIRECT_MARG_RESERVE_SCHEME_CHOICES),
+                 default="exact",
+                 help="The policy's reserve, a PAIR (angular kernel, time rule): "
+                      "exact = exact angles on the whole-window refined rule "
+                      "(default, unchanged); laplace = psi-Laplace angles on "
+                      "that rule; peaklocal = psi-Laplace angles on a fixed-"
+                      "count time rule sized per row from the PREDICTED peak "
+                      "width 1/(2 pi rho sigma_f) (rho from the row's table, "
+                      "sigma_f the rms frequency of the stored Q), with fine "
+                      "blocks on one commensurate lattice around the time "
+                      "maxima located on the primitive itself plus a coarse "
+                      "scan of the window; its node count and "
+                      "cost do not grow with rho, and the ledger prints the "
+                      "prediction behind every row.  auto = choose the pair "
+                      "from the precomputed inputs before any row runs "
+                      "(predict_reserve_pair).  The whole-window refine "
+                      "options are inert under peaklocal; a failed warrant "
+                      "there doubles the fine lattice at fixed span, at most "
+                      "--direct-marginalization-peaklocal-escalations times, "
+                      "and is reported.  Measured: "
+                      "DESIGN_direct_marginalization_policy.md, "
+                      "\"Peak-local time reserve\".")
+    g.add_option("--direct-marginalization-peaklocal-escalations", type=int,
+                 default=int(DirectMargPolicyConfig().reserve_peaklocal_escalations),
+                 help="Under the peaklocal reserve schemes, how many times a "
+                      "failed resolution warrant may double the fine lattice at "
+                      "fixed span before the row is unusable (default: the "
+                      "PolicyConfig value).  The "
+                      "first tier is sized from the predicted width, so an "
+                      "escalation is a finding about the prediction, not a loop; "
+                      "the ledger counts them.")
+    g.add_option("--direct-marginalization-reserve-time-refine-max", type=int,
+                 default=DirectMargPolicyConfig().reserve_time_refine_max,
+                 help="Ceiling of the reserve rule's escalation on a failed "
+                      "warrant (default "
+                      f"{DirectMargPolicyConfig().reserve_time_refine_max}; "
+                      "even, >= the refine factor).  It "
+                      "also bounds REVERSE-MODE GRADIENT MEMORY: the dense "
+                      "reserve's backward pass costs ~2.6 GiB per unit of "
+                      "refinement per evaluated row on a 614-sample window "
+                      "(measured, rho 163), and lax.cond reserves memory for the "
+                      "largest tier whether or not it runs; 32 asked for 85 GiB. "
+                      "LOWERING IT IS NOT FREE.  It does not change any value "
+                      "that gets computed, but it changes which rows get a "
+                      "value at all: a declined row gets one reserve attempt "
+                      "per tier, and a row still unwarranted at the ceiling "
+                      "returns nan, which this driver refuses to publish.  "
+                      "Measured on full-sky prior draws at rho 163, refine-max "
+                      "4 left 6 of 8 rows nan and the run could not complete; "
+                      "at the default 32 the same rows escalated and all were "
+                      "usable.  So on a small card the run fails rather than "
+                      "returning a slightly worse number.  Lower it only with "
+                      "the nan count in the ledger in front of you.")
+    g.add_option("--direct-marginalization-error-budget-nats", type=float,
+                 default=DirectMargPolicyConfig().total_value_error_budget_nats,
+                 help="Value-error allowance, in nats, for the RESERVE's "
+                      "time-resolution warrant (default "
+                      f"{DirectMargPolicyConfig().total_value_error_budget_nats:g}"
+                      "; 1e-3 shipped).  "
+                      "It does NOT reach the local accept/decline decision, "
+                      "despite what this help used to say: that decision is the "
+                      "four-term boolean at all_axis_peaklocal.py:862 and carries "
+                      "no tolerance, so acceptance measured identical (48/64 at "
+                      "rho 652) across 1e-3, 1e-2 and 1e-1.  What it buys is "
+                      "reserve cost: at rho 41 on identical rows, 1e-3 -> 1e-2 "
+                      "took escalations from 2 to 0 and the run from 321.1 s to "
+                      "146.9 s, a 2.19x speedup, moving lnL by 4.8e-12 nats.  "
+                      "Raised to 1e-2 by RO on 2026-09-08 (evening).  Measured at "
+                      "rho 41; the speedup is not yet confirmed at high SNR.")
+    g.add_option("--direct-marginalization-max-time-nodes", type=int,
+                 default=DirectMargPolicyConfig().max_time_nodes,
+                 help="Time-node capacity of the policy's LOCAL plan (default "
+                      f"{DirectMargPolicyConfig().max_time_nodes}"
+                      "; 64 shipped, and was reachable from no flag).  A row "
+                      "whose live time-node "
+                      "count exceeds this declines to the exact reserve, which "
+                      "costs ~4.7 h at rho 652 against 2.3 s for an accepted "
+                      "row, so the capacity is sized to avoid the fallback "
+                      "rather than to bound the plan.  Measured need at "
+                      "rho 652 on full-sky prior draws: median 72, p90 217, "
+                      "max 614; caps of 64/128/256/1024 hold 44/73/91/100% of "
+                      "rows.  The library default was 64 and was unreachable "
+                      "from any flag.  NOT value-neutral: it changes which "
+                      "rows take the local branch.")
+    g.add_option("--direct-marginalization-batch-rows", type=int, default=1,
+                 help="Rows the policy's controller executes together under "
+                      "one vmap (default 1: row at a time; 0: one full batch). "
+                      "VALUES are identical at every size -- lnL, every branch "
+                      "decision and the gradients -- and a test pins that.  "
+                      "COST IS A REGRESSION, not neutral: under vmap the "
+                      "accept/reserve cond becomes a select, so a locally "
+                      "ACCEPTED row also executes the dense reserve it would "
+                      "otherwise skip, and every escalation tier runs for "
+                      "every row.  The penalty therefore scales with the "
+                      "locally accepted fraction.  Device workspace grows as "
+                      "0.046 + 0.385 B GiB, so a 24 GiB card holds 32 rows and "
+                      "not 64.  Leave it at 1 unless a measurement on YOUR "
+                      "rows says otherwise; see "
+                      "DESIGN_direct_marginalization_policy.md.  "
+                      "WITHDRAWN: an earlier version of this text said COST "
+                      "ONLY and quoted 96.3 s per row at 1 against 99.9 at 8. "
+                      "Those rows all declined (accepted_local 0), so they "
+                      "priced the decline path, and 37-50% of them were nan "
+                      "under a reserve-refine ceiling of 4.  Do not cite them.")
+    g.add_option("--direct-marginalization-policy-probe-rows", type=int,
+                 default=0,
+                 help="Evaluate the policy ledger on this many prior draws "
+                      "BEFORE sampling and print the accept/decline counts "
+                      "(default 0 = off).  The end-of-run note reports the same "
+                      "counts on the exported rows, but only a run that reaches "
+                      "the export can be classified that way, and a declining "
+                      "run is exactly the one that does not get there: each "
+                      "declined row pays three exact reserve evaluations and "
+                      "rows execute one at a time under jax.lax.map.  The probe "
+                      "answers 'local or reserve' in one compile plus this many "
+                      "rows.  The compile is not extra work for a policy run -- "
+                      "the end-of-run note jits the identical function.")
+    g.add_option("--direct-marginalization-policy-probe-only",
+                 action="store_true", default=False,
+                 help="Exit after the probe above, before any sampling.  For "
+                      "surveying operating points: it reports which acceptance "
+                      "diagnostic is declining without paying for a posterior.  "
+                      "Writes no samples and no evidence.")
+    # Start-portfolio and mode-plan sizing.  Every default below is the value
+    # PolicyConfig already carried, so an unchanged command line is unchanged.
+    # They are exposed because the four-axis controller's own accepting
+    # operating point (analyses/va_sequence_20260902/RESULTS_20260907_aap268_ladder.md,
+    # 7 of 8 accepts at rho 326.15) reaches the SAME function through a richer
+    # portfolio than PolicyConfig's defaults build, and the difference was
+    # unreachable from the command line -- so the policy could only ever be
+    # observed declining.
+    g.add_option("--direct-marginalization-max-modes", type=int,
+                 default=DirectMargPolicyConfig().max_modes,
+                 help="Modes retained in the policy's BASE plan (default "
+                      f"{DirectMargPolicyConfig().max_modes}).")
+    g.add_option("--direct-marginalization-enriched-max-modes", type=int,
+                 default=DirectMargPolicyConfig().enriched_max_modes,
+                 help="Modes retained in the policy's ENRICHED plan (default "
+                      f"{DirectMargPolicyConfig().enriched_max_modes}).  "
+                      "Acceptance compares the two plans, so an enriched "
+                      "plan that cannot resolve the extra structure declines.")
+    g.add_option("--direct-marginalization-base-oversample", type=int,
+                 default=DirectMargPolicyConfig().base_oversample,
+                 help="Angular oversampling of the base start portfolio "
+                      f"(default {DirectMargPolicyConfig().base_oversample}).")
+    g.add_option("--direct-marginalization-enriched-oversample", type=int,
+                 default=DirectMargPolicyConfig().enriched_oversample,
+                 help="Angular oversampling of the enriched start portfolio "
+                      f"(default {DirectMargPolicyConfig().enriched_oversample}).")
+    g.add_option("--direct-marginalization-max-starts", type=int,
+                 default=DirectMargPolicyConfig().base_max_starts,
+                 help="Cap on ranked optimizer starts per plan (default "
+                      f"{DirectMargPolicyConfig().base_max_starts}).  "
+                      "TWO THINGS THIS IS NOT.  (1) It is not the whole of "
+                      "decline_capacity.  That ledger key reports the "
+                      "conjunction at all_axis_peaklocal.py:862 -- "
+                      "norm_nonnegative, a certified time cover, the time-node "
+                      "capacity, AND this cap -- so a row is charged to "
+                      "'capacity' for four different reasons.  Raising this "
+                      "ALONE recovers ~16% and then plateaus -- at rho 652 on "
+                      "43 such rows, 36 failed the TIME-NODE capacity and only "
+                      "7 were count-driven.  That plateau describes the PAIR, "
+                      "not this knob: it held while the time-node capacity was "
+                      "pinned at the library default of 64.  Size this with "
+                      "--direct-marginalization-max-time-nodes, which now "
+                      "exists.  Measured acceptance at rho 652 as (time nodes, "
+                      "starts): (64, 32) 28%, (256, 32) 31%, (256, 128) 75%, "
+                      "(512, 256) 77%.  (2) It is not a "
+                      "cost knob: it selects which modes are retained, so it "
+                      "moves the integral.  Measured on identical rows at rho "
+                      "163, 32 -> 128 shifted already-accepted values by 4.8e-4 "
+                      "and 3.5e-3 nats, at and above the 1e-3 error budget.  "
+                      "An A/B on this may not treat its value difference as "
+                      "noise.  32 -> 128 was approved by RO on 2026-09-08 "
+                      "(evening) with that shift on the record, because a "
+                      "declined row runs the exact reserve at hours per row at "
+                      "rho 652 against ~2.3 s for an accepted one.  It is "
+                      "sized WITH --direct-marginalization-max-time-nodes; "
+                      "either alone plateaus near 16%.")
+    g.add_option("--direct-marginalization-convergence-tol-nats", type=float,
+                 default=DirectMargPolicyConfig().convergence_tol_nats,
+                 help="Agreement required between the base and enriched plans, "
+                      "and between each plan's own two quadrature orders, in "
+                      "nats (default 1e-3).  This is the tolerance the "
+                      "'enrichment' and 'quadrature' declines are measured "
+                      "against; it is SEPARATE from "
+                      "--direct-marginalization-error-budget-nats, which is the "
+                      "total value allowance.")
+    g.add_option("--direct-marginalization-time-guard-tol-nats", type=float,
+                 default=DirectMargPolicyConfig().time_guard_tol_nats,
+                 help="Agreement required between the full-guard and half-guard "
+                      "evaluations, in nats (default 1e-3).  This is the "
+                      "tolerance the two-guard time warrant is measured "
+                      "against, for the local branch and the reserve alike.")
     # flowMC tuning (modes flowmc / flowmc-phimarg).  Defaults match
     # samplers.flowmc_sample*; exposed so pipeline Makefiles can tune them.
     g.add_option("--n-training-loops", type=int, default=4,
@@ -714,6 +1483,16 @@ def build_parser():
                  help="SMC puffball: number of walkers in the cloud (default 2000).")
     g.add_option("--smc-move-steps", type=int, default=10,
                  help="SMC puffball: random-walk Metropolis moves per temperature rung.")
+    g.add_option("--smc-is-samples", type=int, default=60000,
+                 help="Draws in the SMC cloud-Gaussian importance-sampling "
+                      "evidence stage (default 60000, the sampler's own value). "
+                      "This stage is a FIXED cost paid after the ladder "
+                      "finishes, and on a likelihood whose rows execute one at "
+                      "a time -- the direct-marginalization policy -- it "
+                      "dominates the whole run.  Lowering it trades the IS "
+                      "evidence for the raw SMC evidence: the ESS gate then "
+                      "declines the IS value and the reported logZ falls back "
+                      "to the SMC estimator, which the run already prints.")
     g.add_option("--smc-puff-scale", type=float, default=1.0,
                  help="SMC puffball: proposal scale x sqrt(cloud covariance) (~1.0).")
     g.add_option("--fisher-is-samples", type=int, default=0,
@@ -925,15 +1704,67 @@ def resolve_distance_limit(opts):
         raise SystemExit(" --limit-distance: %s" % exc)
 
 
+def resolve_av_angular_limits(opts):
+    """Return validated AV-only angular sampling windows.
+
+    The likelihood prior remains normalized on the full physical domain.  These
+    limits therefore restrict the region integrated; they do not define a new,
+    box-normalized prior.  Wraparound RA windows are intentionally refused until
+    AV can represent their union as more than one hyperrectangle.
+    """
+    specs = (("limit_right_ascension", "ra", 0.0, 2.0 * np.pi),
+             ("limit_declination", "dec", -0.5 * np.pi, 0.5 * np.pi),
+             ("limit_psi", "psi", 0.0, np.pi),
+             ("limit_inclination", "incl", 0.0, np.pi))
+    out = {}
+    for attr, name, physical_lo, physical_hi in specs:
+        raw = getattr(opts, attr, None)
+        if raw in (None, ""):
+            continue
+        try:
+            parts = [float(item.strip()) for item in str(raw).split(",")]
+        except ValueError:
+            parts = []
+        if len(parts) != 2 or not np.all(np.isfinite(parts)):
+            raise SystemExit(" --limit-%s must be a finite LO,HI pair" %
+                             attr[len("limit_"):].replace("_", "-"))
+        lo, hi = parts
+        if lo >= hi:
+            raise SystemExit(" --limit-%s requires LO < HI (RA wraparound is "
+                             "not supported)" %
+                             attr[len("limit_"):].replace("_", "-"))
+        if lo < physical_lo or hi > physical_hi:
+            raise SystemExit(" --limit-%s must lie within [%g,%g]" %
+                             (attr[len("limit_"):].replace("_", "-"),
+                              physical_lo, physical_hi))
+        out[name] = (lo, hi)
+    return out
+
+
+def av_distance_sampling_kwargs(like, d_lo, d_hi):
+    """Apply distance limits only when distance is an sampled coordinate."""
+    from RIFT.likelihood.jax_ile import samplers as _samplers
+    if "distMpc" not in _samplers._av_param_order(like):
+        return {}
+    return {"sample_d_min": d_lo, "sample_d_max": d_hi}
+
+
 def log_distance_box_correction(opts, with_distance):
     """ln[ prior mass on (d_min,d_max) / prior mass on the sampled box ]; 0.0 unless
     --limit-distance narrowed the box.
 
     sample_prior() draws distance from the prior RESTRICTED to the box, so its
-    density is the prior divided by that mass.  Estimators that assume
-    "proposal == prior" (run_prior_mc) must subtract this; estimators that form
-    ln w = lnL + ln p - ln q explicitly (run_laplace_is) already have it right
-    and must NOT subtract it again.
+    density is the prior divided by that mass.  The rule is per ESTIMATOR, not
+    per function: an estimator that assumes "proposal == prior" must subtract
+    this, and one that forms ln w = lnL + ln p - ln q explicitly must NOT,
+    because log_prior() is already normalized over the physical [d_min,d_max].
+
+    run_laplace_is contains ONE OF EACH, which is why this docstring no longer
+    names functions.  Its adapted loop forms ln w explicitly and does not
+    subtract; its prior pilot (kept as the collapse reference, #227) draws from
+    sample_prior and therefore does.  Both then estimate the SAME integral on
+    the SAME full-range normalization, which is the only reason the two are
+    comparable and the 5-nat guard means anything.
     """
     if not with_distance:
         return 0.0
@@ -995,19 +1826,124 @@ def eval_lnL(like, theta, opts, with_distance):
         sl = slice(i, min(i + chunk, N))
         cols = [theta[sl, j] for j in range(theta.shape[1])]
         out[sl] = np.asarray(like.log_likelihood(*cols))
-        if (getattr(like, "time_quadrature", "simpson") == "bandlimited"
+        if (getattr(like, "direct_marginalization_policy", "off") != "off"
                 and np.any(np.isnan(out[sl]))):
             raise RuntimeError(
-                "adaptive reflected-FFT time marginalization failed its width/"
-                "doubling convergence or endpoint-mass check; no coarse "
-                "likelihood is substituted. Increase the input/rholm sample "
-                "rate or integration/storage window.")
+                "--direct-marginalization-policy %s: %d of %d evaluated rows "
+                "could not be warranted (local gate declined AND the escalated "
+                "band-limited reserve failed its guard/resolution check, or the "
+                "norm table varies with time).  No coarse likelihood is "
+                "substituted and the run is not published.  Raise "
+                "--direct-marginalization-time-guard, raise the reserve "
+                "refinement, or run with the policy off."
+                % (like.direct_marginalization_policy,
+                   int(np.sum(np.isnan(out[sl]))), int(sl.stop - sl.start)))
+        if (getattr(like, "time_quadrature", "simpson") == "bandlimited"
+                and np.any(np.isnan(out[sl]))):
+            bad = np.where(np.isnan(out[sl]))[0]
+            names = FULL_NAMES if with_distance else ANG_NAMES
+            rows = "; ".join(
+                ", ".join("%s=%.4f" % (nm, v) for nm, v in zip(names, theta[sl][j]))
+                for j in bad[:3])
+            # One uncertified row fails the run: no coarse likelihood is
+            # substituted, and a row's contribution cannot be bounded without a
+            # value.  With a full-sky prior the usual cause is a blind draw whose
+            # detector arrival peak lies at or beyond the window edge (a wrong
+            # sky shifts arrival by up to 2 R_earth/c ~ 43 ms), which the
+            # trapezoid and guard certificates cannot converge on; the
+            # integration window has to contain those shifts.  Measured rates:
+            # DESIGN_jax_bandlimited_distmarg.md.
+            raise RuntimeError(
+                "--time-marginalization-quadrature bandlimited: %d of %d rows in "
+                "this chunk failed a certificate (peak-width resolution, factor "
+                "doubling, or guard agreement); no coarse likelihood is "
+                "substituted and the run stops.  First failing rows: %s.  A "
+                "peak at the window edge is the common cause under a full-sky "
+                "prior; raise --data-integration-window-half to cover the "
+                "detector arrival shifts (>= 2 R_earth / c = %.4f s plus the "
+                "event-time uncertainty; 0.05 s measured clean), or raise the "
+                "input/rholm sample rate."
+                % (len(bad), int(sl.stop - sl.start), rows,
+                   _BANDLIMITED_FULLSKY_HALF_WINDOW_MIN))
     return out
 
 
 # ---------------------------------------------------------------------------
 # Evidence helpers
 # ---------------------------------------------------------------------------
+def require_finite_evidence(logZ, neff, mode):
+    """A NON-FINITE evidence is a FAILED event, not a result.
+
+    The estimators return nan when the proposal never bracketed the peak (see
+    ``_finalize_evidence``), and publishing that as an ILE row hands a
+    downstream CIP fit a nan ``lnL`` for a template that simply was not
+    integrated -- the same "leave no artifact behind" rule ``write_samples``
+    already enforces for a cloud that admits no fair draw.  Raising here means
+    ``--soft-fail-event-range`` skips to the next event, and without it the run
+    exits nonzero: on the #227 configuration the shipped code exited 0.
+    """
+    if np.isfinite(logZ):
+        return
+    raise RuntimeError(
+        "extrinsic integration produced a non-finite evidence (logZ=%r, "
+        "neff=%.3g, mode=%s): the proposal did not bracket the likelihood peak, "
+        "so no result row is written for this event.  Every --mode whose evidence "
+        "comes from a single moment-matched Gaussian fitted to its own draws can "
+        "fail this way on a narrow, high-SNR extrinsic posterior; try another "
+        "--mode, and check its reported neff rather than only its lnZ."
+        % (logZ, neff, mode))
+
+
+# The prior pilot is an UNBIASED estimator of the same Z, not a bound on it, and
+# the difference is load-bearing -- see prior_pilot_floor below.
+PILOT_FLOOR_FP_RATE = 3.4e-4          # = exp(-8); see the operating curve below
+
+
+def prior_pilot_floor(logZ_pilot, false_positive_rate=PILOT_FLOOR_FP_RATE):
+    """A lower confidence bound on ln Z built from the prior pilot's estimate.
+
+    WHY A BOUND AND NOT THE ESTIMATE.  The pilot is prior Monte Carlo: unbiased
+    for Z, but with a heavy RIGHT tail once the target occupies a tiny fraction
+    of the prior.  For a mode of prior mass ``m``, a single draw landing near the
+    peak makes the estimate ~``L_max / n_pilot`` while the truth is ~``L_max m``,
+    so it overshoots by ``1/(n_pilot m)`` -- more than ``T`` nats whenever
+    ``n_pilot m < exp(-T)``.  Using the raw estimate as a floor therefore rejects
+    a CORRECT adapted answer at exactly the rate that tail occurs.  That is not
+    hypothetical here: at a synthetic width of 0.05 rad, ``n_pilot m = 1.6e-3``
+    and the pilot was measured above the truth by up to +5.46 nats, P = 1.1e-3
+    over 900 seeds.
+
+    THE BOUND.  Markov is enough and needs nothing but unbiasedness and
+    non-negativity, both of which hold: ``P(Zhat >= Z / rate) <= rate``.  So
+    ``Zhat * rate`` is a lower confidence bound on Z at level ``1 - rate``, and
+    the floor is ``ln Zhat + ln rate``.  The threshold is therefore a CHOSEN
+    false-positive rate rather than a tuned constant, and it is distribution-free
+    -- in particular it does NOT assume the pilot resolved anything.  It cannot:
+    the pilot's own ESS is ~1 in every regime where this guard matters (measured
+    median 1.0-1.3 for widths 0.03-0.08 rad), so "the pilot rests on one draw" is
+    the normal state here, not an exceptional one.
+
+    WHY exp(-8) AND NOT exp(-5).  Measured over 5400 synthetic runs (widths
+    0.03-0.15 rad), sweeping the threshold T:
+
+        T      Markov FP <=    FP measured   power on inaccurate runs
+        5          6.7e-3            0/1180        0.651
+        6          2.5e-3            0/1180        0.636
+        8          3.4e-4            0/1180        0.606
+       10          5.0e-5            0/1180        0.578
+
+    Going from 5 to 8 costs 4.5 points of power and buys a 20x smaller worst-case
+    false-positive rate; a false positive here FAILS THE EVENT and writes no row,
+    so it is worth paying for.  No false positive was observed at any threshold:
+    the largest pilot-minus-adapted gap on an accurate run was +1.654 nats, so 8
+    clears the measured margin by 6.3 nats.  The bound, not the measurement, is
+    what the guarantee rests on.
+    """
+    if not np.isfinite(logZ_pilot):
+        return -np.inf
+    return float(logZ_pilot) + float(np.log(false_positive_rate))
+
+
 def evidence_from_logweights(logw):
     """(logZ, sigma/Z, neff) for Z = E[w] from log importance weights."""
     fin = np.isfinite(logw)
@@ -1066,12 +2002,27 @@ def run_laplace_is(like, opts, rng, dim, with_distance, n_adapt=2):
     lnL_p = eval_lnL(like, theta_p, opts, with_distance)
     logL_p = lnL_p + log_prior(theta_p, opts, with_distance)
     mu, cov = _moment_match(theta_p, logL_p)
+    # KEEP the pilot's own (prior-proposal) evidence estimate.  It is crude -- one
+    # prior scan, often with an ESS of order 1 -- but it estimates the SAME integral
+    # from a proposal that is guaranteed to cover the prior, and importance sampling
+    # from a proposal that MISSES mass is biased low.  So an adapted estimate coming
+    # out far BELOW this one is evidence that the adaptation walked away from the
+    # peak: the failure mode that remains once #227's draw/density mismatch is fixed.
+    # It is a REFERENCE, not a floor -- prior_pilot_floor() turns it into one, and
+    # the distinction is the whole of external review's P1 on this PR.
+    logZ_pilot, _, _ = evidence_from_logweights(
+        lnL_p - log_distance_box_correction(opts, with_distance))
 
     per_round = max(opts.n_max // (n_adapt + 1), 1)
     all_theta, all_logw, all_lnL = [], [], []
     for r in range(n_adapt + 1):
-        cov_use = cov * opts.proposal_inflate
-        Lc = np.linalg.cholesky(cov_use + 1e-12 * np.eye(dim))
+        # ONE matrix for the draw AND the density.  Drawing from
+        # ``cov_use + 1e-12*I`` and scoring under bare ``cov_use`` is issue #227:
+        # once the adapted covariance falls below the absolute jitter the weights
+        # are computed against a distribution that was never sampled, and this
+        # mode returned lnZ = 5.8e9 on real O4 data while exiting 0.
+        cov_use = _regularize_cov(cov * opts.proposal_inflate)
+        Lc = np.linalg.cholesky(cov_use)
         z = rng.standard_normal((per_round, dim))
         theta = mu[None, :] + z @ Lc.T
         logq = _gaussian_logq(theta, mu, cov_use)
@@ -1089,6 +2040,20 @@ def run_laplace_is(like, opts, rng, dim, with_distance, n_adapt=2):
     theta = np.concatenate(all_theta); logw = np.concatenate(all_logw)
     lnL = np.concatenate(all_lnL)
     logZ, sig, neff = evidence_from_logweights(logw)
+    # log Z <= max lnL for a normalized prior, and a low neff means the proposal
+    # never bracketed the peak.  Same rule the library samplers already apply;
+    # this driver applied none, which is why #227 exited 0 on lnZ = 5.8e9.
+    logZ, sig, neff = _finalize_evidence(
+        logZ, sig, neff, float(np.max(lnL)) if np.isfinite(lnL).any() else np.nan)
+    pilot_floor = prior_pilot_floor(logZ_pilot)
+    if np.isfinite(logZ) and np.isfinite(pilot_floor) and logZ < pilot_floor:
+        print("  [laplace-is] adapted proposal gives lnZ = %.3f, %.1f nats BELOW the "
+              "prior pilot's Markov floor (%.3f, from a pilot estimate of %.3f at a "
+              "%.1e false-positive rate): the adaptation moved off the peak, so this "
+              "evidence is reported as unreliable."
+              % (logZ, pilot_floor - logZ, pilot_floor, logZ_pilot,
+                 PILOT_FLOOR_FP_RATE))
+        logZ, sig = np.nan, np.nan
     # theta follows the GAUSSIAN PROPOSAL q, not the posterior; logw is what
     # turns it into one.  Returned so write_samples() can fair-draw.
     return logZ, sig, neff, len(theta), theta, lnL, logw
@@ -1161,10 +2126,11 @@ def run_nuts(like, opts, rng, with_distance):
     # moment-matched to the posterior draws -> high neff vs prior seeding).
     mu, cov = _moment_match(theta, np.zeros(len(theta)))  # posterior moments
     n_is = min(opts.n_max, 40000)
-    Lc = np.linalg.cholesky(cov * opts.proposal_inflate + 1e-12 * np.eye(5))
+    cov_is = _regularize_cov(cov * opts.proposal_inflate)   # one matrix (#227)
+    Lc = np.linalg.cholesky(cov_is)
     z = rng.standard_normal((n_is, 5))
     th_is = mu[None, :] + z @ Lc.T
-    logq = _gaussian_logq(th_is, mu, cov * opts.proposal_inflate)
+    logq = _gaussian_logq(th_is, mu, cov_is)
     logp = log_prior(th_is, opts, with_distance=False)
     valid = np.isfinite(logp)
     lnL_is = np.full(n_is, -np.inf)
@@ -1172,6 +2138,12 @@ def run_nuts(like, opts, rng, with_distance):
         lnL_is[valid] = eval_lnL(like, th_is[valid], opts, with_distance=False)
     logw = np.where(valid, lnL_is + logp - logq, -np.inf)
     logZ, sig, neff = evidence_from_logweights(logw)
+    # Bound with the NUTS CHAIN's peak, not the IS cloud's.  Both are valid upper
+    # bounds on ln Z, the chain's is the larger (it sits ON the peak), and using the
+    # smaller one would fail a correct run whose IS cloud happened to be broad.  This
+    # is also the argument samplers.py passes at its own _finalize_evidence sites.
+    logZ, sig, neff = _finalize_evidence(
+        logZ, sig, neff, float(np.max(lnL)) if np.isfinite(lnL).any() else np.nan)
     # theta/lnL are the NUTS chain (already targets the posterior); the IS cloud
     # th_is/logw is only the evidence estimator, so there is nothing to reweight.
     # `neff` below therefore describes th_is, NOT the exported chain -- it must
@@ -1213,28 +2185,71 @@ def samples_path(opts, out_index):
     return opts.output_file + "_" + str(out_index) + "_samples.dat"
 
 
+def direct_marginalization_policy_note(like, theta, n_max=256, chunk=32,
+                                       return_values=False):
+    """Label the branch statistics of the exported rows under the policy.
+
+    Returns "" when the policy is off.  Otherwise evaluates the ledger on up to
+    ``n_max`` evenly spaced exported rows and reports how many took the local
+    branch, the warranted reserve, or came back unusable (reserve failed its
+    own warrant; the value is retained and the run is labelled).  The note is
+    written into the sample and evidence headers next to the angle-grid label.
+    """
+    policy = getattr(like, "direct_marginalization_policy", "off")
+    ledger_fn = getattr(like, "_batched_ledger", None)
+    if policy == "off" or ledger_fn is None:
+        return ("", None, None) if return_values else ""
+    theta = np.asarray(theta)
+    if theta.ndim != 2 or theta.shape[0] == 0:
+        _empty = "DIRECT-MARG-POLICY=%s rows=0" % policy
+        return (_empty, None, None) if return_values else _empty
+    n = int(theta.shape[0])
+    idx = np.unique(np.linspace(0, n - 1, min(n, int(n_max))).astype(int))
+    parts = []
+    for start in range(0, idx.size, int(chunk)):
+        sub = theta[idx[start:start + int(chunk)]]
+        cols = [jnp.asarray(sub[:, j]) for j in range(sub.shape[1])]
+        _, ledger = ledger_fn(*cols)
+        parts.append({k: np.asarray(v) for k, v in ledger.items()})
+    ledger = {k: np.concatenate([p[k] for p in parts]) for k in parts[0]}
+    summary = _summarize_policy_ledger(ledger)
+    declines = ",".join("%s:%d" % (k.replace("decline_", ""), v)
+                        for k, v in sorted(summary["declines"].items()))
+    note = ("DIRECT-MARG-POLICY=%s rows=%d local=%d reserve=%d "
+            "warranted-reserve=%d escalations=%d unusable=%d reconciles=%d "
+            "declines=[%s] max-local-error-score-nats=%.3g"
+            % (policy, summary["rows"], summary["accepted_local"],
+               summary["reserve_executed"], summary["reserve_warranted"],
+               summary.get("reserve_escalations", 0),
+               summary["unusable"], summary["reconciles"], declines,
+               summary["max_local_error_score_nats"]))
+    if return_values:
+        # The per-row selected value, so two probes at ONE seed -- one whose
+        # config accepts, one forced onto the reserve -- can be differenced on
+        # exactly the same prior draws.  An accepted row never evaluates the
+        # reserve, so this is the only way to price the local branch against it.
+        return (note, np.asarray(ledger["lnL"], dtype=float),
+                np.asarray(ledger["accepted_local"], dtype=bool))
+    return note
+
+
 def angle_grid_suspect_note(scheme=None):
     """Label describing the angle-grid amplitude check for this event.
 
-    Returns one of three things, and the THIRD is the point:
+    Returns one of three things, and the THIRD states the exact coverage:
 
       ""                              -- the grid schemes were not used
       "SUSPECT-ANGLE-GRID ..."        -- undersizing was DETECTED
-      "ANGLE-GRID-CHECK=BEST-EFFORT"  -- schemes used, nothing detected
+      "ANGLE-GRID-CHECK=OUTPUT-CLOUD-PASS ..." -- checked cloud was adequate
+      "ANGLE-GRID-CHECK=NOT-PERFORMED ..."     -- amp-sized scheme, NO check ran
 
-    The third case exists because absence of a detection is NOT evidence of
-    adequacy.  The detector is a jax.debug.callback, and JAX explicitly permits
-    such callbacks to be dropped under transformation -- in which case the host
-    state stays clean, effects_barrier has nothing to wait for, and the artifact
-    would otherwise be published looking verified.  That is a scientific false
-    negative, and calling it "best effort" in a docstring does not fix it for a
-    consumer reading the file six months later.
-
-    So every artifact produced by the exact/laplace schemes carries a standing
-    statement that this check CANNOT distinguish an adequate grid from an
-    undetected undersizing.  A reader is then never entitled to infer
-    verification from silence.  The honest recourse, named in the artifact, is
-    to rebuild at a larger amp_sizing if the result matters.
+    The pure JIT returns its amplitude metric as ordinary data, and the Python
+    boundary synchronously accumulates the maximum over every pilot, reweight,
+    and final production/output-cloud batch.  That deterministic coverage is
+    enough to label the points used for the published flow evidence and sample
+    export.  Transient flow-training-only proposals (which do not enter those
+    artifacts) are deliberately NOT claimed.  This split also keeps host
+    callbacks out of the expensive graph so JAX can persistently cache it.
     """
     st = _anglemarg.amp_failsafe_state()
     if st.get("tripped"):
@@ -1246,10 +2261,35 @@ def angle_grid_suspect_note(scheme=None):
     # axis is dense and amp-sized, so its artifacts are entitled to no more confidence
     # than the other two, and a scheme missing from this list would publish output with
     # NO standing label at all -- the silence a reader would read as verification.
-    if scheme in ("exact", "laplace", "peak-local"):
-        return ("ANGLE-GRID-CHECK=BEST-EFFORT (no undersizing detected; the "
-                "detector may be dropped under jax transformation, so this is "
-                "NOT a verification -- rebuild at larger amp_sizing if it matters)")
+    # 'phi-local' belongs here too, and its omission was found by external review rather
+    # than by this comment being read.  It runs _runtime_amp_failsafe and evaluates an
+    # amp-sized dense fallback on every row, so it is amplitude-sized in exactly the sense
+    # this label is about; leaving it out published its artifacts with an EMPTY note --
+    # the silence the paragraph above says a reader would take for verification.
+    if scheme in ("exact", "laplace", "peak-local", "phi-local"):
+        # A PASS may only be claimed when a batch was actually inspected.  The
+        # recorder is wired ONLY for direct_marginalization_policy="off"
+        # (wrapper.py sets self._amp_record under that condition), while
+        # self.angle_marg_scheme still names the amp-sized reserve scheme.  So
+        # `--angle-marg-scheme exact --direct-marginalization-policy auto`
+        # reaches here with n_calls == 0 and amp_sizing None.  Without this
+        # branch that formatted "%.6g" % None and raised TypeError, killing the
+        # event AFTER integration and BEFORE either writer -- and had amp_sizing
+        # merely been 0.0 it would instead have published OUTPUT-CLOUD-PASS
+        # worst_amp=0, an affirmative adequacy claim backed by zero checks,
+        # which is the exact false negative this label exists to prevent.
+        if not st.get("n_calls"):
+            return ("ANGLE-GRID-CHECK=NOT-PERFORMED scheme=%s (no batched "
+                    "amp-sized evaluation was recorded for this event, so the "
+                    "adequacy of the dense (phi,psi) grids is UNKNOWN -- this "
+                    "is NOT a pass; rebuild at a larger amp_sizing if it "
+                    "matters)" % (scheme,))
+        return ("ANGLE-GRID-CHECK=OUTPUT-CLOUD-PASS worst_amp=%.6g "
+                "amp_sizing=%.6g scheme=%s (deterministic over pilot/reweight/"
+                "final output-cloud evaluations; transient training-only "
+                "proposals not inspected)"
+                % (st.get("worst_amp", float("nan")),
+                   st.get("amp_sizing", float("nan")), st.get("scheme")))
     return ""
 
 
@@ -1785,6 +2825,21 @@ def write_samples(opts, out_index, theta, lnL, with_distance, logw=None,
     print("Wrote %s (%d samples)" % (sname, len(cols)))
 
 
+def _parse_freqresponse_arm_length(value):
+    if value in (None, ""):
+        return None
+    text = str(value)
+    if "=" not in text:
+        return float(text)
+    result = {}
+    for item in text.split(","):
+        fields = item.split("=", 1)
+        if len(fields) != 2 or not fields[0].strip():
+            raise ValueError("invalid --freqresponse-arm-length item %r" % item)
+        result[fields[0].strip()] = float(fields[1])
+    return result
+
+
 def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
                 rng, out_index, event_id, flow_state=None):
     """Build the JAX likelihood for one intrinsic template and run --mode.
@@ -1807,15 +2862,68 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
         print("  precompute time support: guard_initial=%d guard_certificate=%d "
               "samples storage_half=%.6g s" %
               (g0, gcert, opts.internal_data_storage_window_half))
-    print("Building JAX likelihood (PrecomputeLikelihoodTerms + pack)...")
-    like_data, extras = build_data_from_precompute(
-        P.copy(), data_dict, psd_dict, fiducial_epoch,
-        opts.internal_data_storage_window_half, opts.data_integration_window_half,
-        opts.l_max, opts.fmax,
-        analyticPSD_Q=analyticPSD_Q, verbose=opts.verbose,
+    print("Building JAX likelihood (production precompute + banded pack)...")
+    waveform_kw = dict(
         use_gwsignal=bool(getattr(opts, "use_gwsignal", False)),
-        use_gwsignal_approx=(opts.approximant if getattr(opts, "use_gwsignal", False) else None))
-    print("  modes:", like_data.lms, "  guessed SNR:", extras["guess_snr"])
+        use_gwsignal_approx=(opts.approximant
+                             if getattr(opts, "use_gwsignal", False) else None))
+    if opts.rotation_slow and opts.freqresponse:
+        arm_length = _parse_freqresponse_arm_length(opts.freqresponse_arm_length)
+        like_data, extras = build_rotating_freqresponse_data_from_precompute(
+            P.copy(), data_dict, psd_dict, fiducial_epoch,
+            opts.data_integration_window_half, opts.l_max, opts.fmax,
+            t_window=opts.internal_data_storage_window_half,
+            Qmax=opts.freqresponse_qmax, L_arm=arm_length,
+            p_max=opts.rotation_p_max, analyticPSD_Q=analyticPSD_Q,
+            verbose=opts.verbose, **waveform_kw)
+    elif opts.rotation_slow:
+        nh = int(opts.rotation_n_harmonics)
+        like_data, extras = build_rotation_data_from_precompute(
+            P.copy(), data_dict, psd_dict, fiducial_epoch,
+            opts.data_integration_window_half, opts.l_max, opts.fmax,
+            t_window=opts.internal_data_storage_window_half,
+            harmonics=tuple(range(-nh, nh + 1)), p_max=opts.rotation_p_max,
+            analyticPSD_Q=analyticPSD_Q, verbose=opts.verbose, **waveform_kw)
+    elif opts.freqresponse:
+        arm_length = _parse_freqresponse_arm_length(opts.freqresponse_arm_length)
+        like_data, extras = build_freqresponse_data_from_precompute(
+            P.copy(), data_dict, psd_dict, fiducial_epoch,
+            opts.data_integration_window_half, opts.l_max, opts.fmax,
+            t_window=opts.internal_data_storage_window_half,
+            Qmax=opts.freqresponse_qmax, L_arm=arm_length,
+            analyticPSD_Q=analyticPSD_Q, verbose=opts.verbose, **waveform_kw)
+    else:
+        like_data, extras = build_data_from_precompute(
+            P.copy(), data_dict, psd_dict, fiducial_epoch,
+            opts.internal_data_storage_window_half, opts.data_integration_window_half,
+            opts.l_max, opts.fmax,
+            analyticPSD_Q=analyticPSD_Q, verbose=opts.verbose,
+            q_time_pregrid_factor=(
+                1 if getattr(opts, "q_time_pregrid_factor", 1) is None
+                else int(opts.q_time_pregrid_factor)), **waveform_kw)
+    print("  feature:", getattr(like_data, "feature", None),
+          " modes:", like_data.lms,
+          " guessed SNR:", extras.get("guess_snr", "not estimated"))
+    if getattr(like_data, "feature", None) is not None:
+        _d0 = like_data.detectors[like_data.detector_names[0]]
+        _A = int(_d0["Q_bank"].shape[0])
+        _bank_bytes = sum(int(like_data.detectors[d]["Q_bank"].nbytes
+                              + like_data.detectors[d]["U_bank"].nbytes
+                              + like_data.detectors[d]["V_bank"].nbytes)
+                          for d in like_data.detector_names)
+        print("  [banded] basis=%d ordered-pairs=%d device-bank=%.1f MB "
+              "(%d detectors)" % (_A, _A * _A, _bank_bytes / 2.0**20,
+                                    len(like_data.detector_names)))
+    if like_data.q_time_pregrid_factor != 1:
+        _d0 = like_data.detectors[like_data.detector_names[0]]
+        _bytes = sum(int(like_data.detectors[d]["Q"].nbytes)
+                     for d in like_data.detector_names)
+        print("  [q-pregrid] factor %d: Q sampled at deltaT/%d, %d -> %d samples, "
+              "%.1f MB of Q on device (%d detectors); integration cadence "
+              "unchanged at deltaT=%.6g s"
+              % (like_data.q_time_pregrid_factor, like_data.q_time_pregrid_factor,
+                 _d0["npts_full_coarse"], _d0["Q"].shape[0], _bytes/2.0**20,
+                 len(like_data.detector_names), like_data.deltaT))
 
     with_distance = not opts.distance_marginalization
     # --limit-distance: (d_lo,d_hi) is what is SAMPLED / quadratured; the prior is
@@ -1889,12 +2997,57 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
             raise SystemExit(
                 "--distance-grid-tol only applies to --distance-grid-scheme "
                 "loguniform; it would be silently inert here.")
-        like = JAXDistPhiPsiMargLikelihood(
-            like_data, d_lo, d_hi, nphi=nphi, npsi=npsi,
-            n_grid=n_dist_grid, interp=opts.interp,
-            guess_snr=extras["guess_snr"], angle_marg=angle_marg,
-            time_quadrature=tq, d_prior_range=(opts.d_min, opts.d_max),
-            dist_grid=dist_grid, dist_grid_tol=dist_tol)
+        policy = getattr(opts, "direct_marginalization_policy",
+                         DIRECT_MARG_POLICY_DEFAULT)
+        policy_config = None
+        if policy != "off":
+            _f0 = int(opts.direct_marginalization_reserve_time_refine)
+            _scheme = getattr(opts, "direct_marginalization_reserve_scheme",
+                              "exact")
+            if _scheme != "auto":
+                _angular, _time_rule = _direct_marg_reserve_pair(_scheme)
+                print("  direct-marginalization reserve scheme: %s (angular "
+                      "kernel %s, time rule %s)" % (_scheme, _angular, _time_rule))
+            policy_config = DirectMargPolicyConfig(
+                time_guard=int(opts.direct_marginalization_time_guard),
+                reserve_scheme=_scheme,
+                reserve_peaklocal_escalations=int(
+                    opts.direct_marginalization_peaklocal_escalations),
+                reserve_time_refine=_f0,
+                reserve_time_refine_max=int(
+                    opts.direct_marginalization_reserve_time_refine_max),
+                total_value_error_budget_nats=float(
+                    opts.direct_marginalization_error_budget_nats),
+                reserve_batch_rows=int(
+                    opts.direct_marginalization_batch_rows),
+                max_modes=int(opts.direct_marginalization_max_modes),
+                enriched_max_modes=int(
+                    opts.direct_marginalization_enriched_max_modes),
+                base_oversample=int(
+                    opts.direct_marginalization_base_oversample),
+                enriched_oversample=int(
+                    opts.direct_marginalization_enriched_oversample),
+                base_max_starts=int(opts.direct_marginalization_max_starts),
+                max_time_nodes=int(
+                    opts.direct_marginalization_max_time_nodes),
+                convergence_tol_nats=float(
+                    opts.direct_marginalization_convergence_tol_nats),
+                time_guard_tol_nats=float(
+                    opts.direct_marginalization_time_guard_tol_nats))
+        try:
+            like = JAXDistPhiPsiMargLikelihood(
+                like_data, d_lo, d_hi, nphi=nphi, npsi=npsi,
+                n_grid=n_dist_grid, interp=opts.interp,
+                guess_snr=extras["guess_snr"], angle_marg=angle_marg,
+                time_quadrature=tq, d_prior_range=(opts.d_min, opts.d_max),
+                dist_grid=dist_grid, dist_grid_tol=dist_tol,
+                direct_marginalization_policy=policy,
+                policy_config=policy_config)
+        except ValueError as e:
+            if policy == "off":
+                raise
+            raise SystemExit("--direct-marginalization-policy %s refused: %s"
+                             % (policy, e))
         # ALWAYS report the resolved scheme (requested may be 'auto'; this
         # pipeline has a documented history of silently-inert flags).
         print("  angle-marg scheme: %s (requested %s): %s"
@@ -1902,9 +3055,132 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
                  "; ".join("%s=%s" % kv for kv in
                            sorted(like.angle_marg_info.items())
                            if kv[0] not in ("scheme", "requested"))))
+        print("  direct-marginalization policy: %s%s"
+              % (like.direct_marginalization_policy,
+                 "" if like.policy_info is None else ": " + "; ".join(
+                     "%s=%s" % kv for kv in sorted(like.policy_info.items()))))
         print("  distance grid: %s"
               % "; ".join("%s=%s" % kv
                           for kv in sorted(getattr(like, "dist_grid_info", {}).items())))
+
+        # THE PAIR IS CHOSEN AND ANNOUNCED BEFORE ANY ROW IS EVALUATED.
+        # RO, 2026-09-08: rely on analysis and the known physics to pick the
+        # (local, reserve) pair, rather than try-then-decline-then-refine.  A
+        # run whose branch can only be read from a ledger at the end is a run
+        # that spent its time in a method nobody chose.
+        if like.direct_marginalization_policy != "off":
+            _requested = getattr(
+                opts, "direct_marginalization_reserve_scheme",
+                DirectMargPolicyConfig().reserve_scheme)
+            # WHAT IS ON THE MENU IS A PROPERTY OF THIS DATA, not a constant.
+            # Offering laplace unconditionally would let the analysis choose a
+            # reserve whose premise is absent here, and the run would then be
+            # refused (or worse, carried) for a reason that has nothing to do
+            # with the signal.  Two conditions, both about the DISTANCE
+            # integral the reserve's table is contracted against:
+            #
+            #  1. The per-sample adaptive Gauss-Hermite quadrature must be on.
+            #     On the legacy static uniform grid laplace is measured to cost
+            #     43.2 nats at rho 163 -- that is what the GRID costs, not the
+            #     scheme, and it is why the reserve may not use it there.  The
+            #     loguniform static grid is NOT admitted either: it is sized
+            #     from the angle amplitude and may well be adequate, but no
+            #     measurement exists, and "probably fine" is the thing this
+            #     selector was built to stop saying.
+            #  2. The A0 == 0 / B1 == 0 identity the adaptive node placement is
+            #     DERIVED from must hold on this data, measured on concrete
+            #     tables.  Same predicate, same probe direction, and the same
+            #     one the angle scheme is gated by -- one definition, in
+            #     anglemarg.gh_laplace_supported_for_data.
+            _available = ["exact"]
+            _lap_why = None
+            if int(getattr(opts, "_distance_gh_nodes_resolved", 0)) <= 0:
+                _lap_why = ("the per-sample adaptive distance quadrature is "
+                            "off (--distance-gh-nodes 0 / JAX_ILE_DISTMARG_GH "
+                            "unset), and on a static distance grid the laplace "
+                            "reserve is measured at 43.2 nats of error at "
+                            "rho 163")
+            else:
+                # The wrapper has already measured this whenever the ANGLE
+                # scheme could use the placement, and stored it.  Reuse that
+                # answer rather than measuring a second time: two measurements
+                # of one property can disagree, and the one the run reports
+                # should be the one the run is gated on.
+                _am_info = getattr(like, "angle_marg_info", None) or {}
+                if "gh_laplace_ok" in _am_info:
+                    _lap_ok, _lap_info = _am_info["gh_laplace_ok"], _am_info
+                else:
+                    _lap_ok, _lap_info = (
+                        _anglemarg.gh_laplace_supported_for_data(
+                            like_data,
+                            getattr(like, "interp", None)
+                            or JAX_INTERP_DEFAULT))
+                if not _lap_ok:
+                    _lap_why = _lap_info.get("gh_laplace_reason",
+                                             "identity absent")
+            if _lap_why is None:
+                _available.append("laplace")
+            else:
+                print("  reserve roster: laplace NOT offered -- %s" % _lap_why)
+            _pair, _pair_info = predict_reserve_pair(
+                like_data, extras.get("guess_snr"),
+                reserve_time_refine_max=int(
+                    like.policy_config.reserve_time_refine_max),
+                crossover_amplitude=ANGLE_MARG_CROSSOVER_AMPLITUDE,
+                max_time_nodes=int(like.policy_config.max_time_nodes),
+                requested=_requested, available=tuple(_available))
+            _line = format_reserve_pair(_pair, _pair_info)
+            print("  " + _line)
+            sys.stderr.write("NOTE integrate_likelihood_extrinsic_jax: %s\n"
+                             % _line)
+            if _pair is None:
+                # REFUSE, do not fall back.  Falling back to whole-window
+                # refinement is the failure this analysis exists to prevent:
+                # it would carry the rows without anyone choosing it.
+                raise SystemExit(
+                    "--direct-marginalization-reserve-scheme auto: %s  No "
+                    "implemented reserve is adequate for this signal, so the "
+                    "run is refused rather than silently falling back.  Pass "
+                    "an explicit --direct-marginalization-reserve-scheme to "
+                    "override, and record that you did."
+                    % _pair_info.get("reason", ""))
+            # THE PAIR THE ANALYSIS CHOSE MUST BE THE PAIR THAT RUNS.
+            # Announcing it and leaving policy_config.reserve_scheme == "auto"
+            # would make the printed line a claim about nothing: the composite
+            # reads the config, not this print.  validate_policy_config admits
+            # "auto" ONLY because it is resolved here, so this write is what
+            # makes that admission true (found by the #304 session, whose
+            # composite dispatches on the string).
+            if _pair not in RESERVE_SCHEME_EXECUTABLE:
+                raise SystemExit(
+                    "the analysis selected the %r reserve (%s), and the "
+                    "composite dispatches only %r.  Refused rather than "
+                    "running a different reserve under the selected one's "
+                    "name.  Wiring %r is RIFT PR #304."
+                    % (_pair, _pair_info.get("reason", ""),
+                       RESERVE_SCHEME_EXECUTABLE, _pair))
+            # The wrapper's jitted closures capture the config at
+            # construction, so writing the attribute alone would leave the
+            # composite running the string 'auto' (which reserve_pair refuses):
+            # rebuild the likelihood with the resolved pair.
+            if _pair != like.policy_config.reserve_scheme:
+                like = JAXDistPhiPsiMargLikelihood(
+                    like_data, d_lo, d_hi, nphi=nphi, npsi=npsi,
+                    n_grid=n_dist_grid, interp=opts.interp,
+                    guess_snr=extras["guess_snr"], angle_marg=angle_marg,
+                    time_quadrature=tq, d_prior_range=(opts.d_min, opts.d_max),
+                    dist_grid=dist_grid, dist_grid_tol=dist_tol,
+                    direct_marginalization_policy=policy,
+                    policy_config=like.policy_config._replace(
+                        reserve_scheme=_pair))
+            # policy_info's "reserve_scheme" reported the resolved ANGLE
+            # scheme, which is a different quantity that happened to share the
+            # name while 'exact' was the only reserve.  Both are reported now,
+            # under names that say which is which.
+            like.policy_info["reserve_angle_scheme"] = \
+                like.policy_info.get("reserve_scheme")
+            like.policy_info["reserve_scheme"] = _pair
+            print("  reserve pair RESOLVED: reserve_scheme=%s" % _pair)
         with_distance = False
         dim = 3
     elif opts.mode == "flowmc-dpsimarg":
@@ -1952,6 +3228,68 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
               "fine factor is curvature-derived per row with one doubling certificate"
               % (like.time_guard_initial, like.time_guard_certified))
 
+    # In-flight branch classification, BEFORE any sampling.
+    #
+    # direct_marginalization_policy_note() below reports the same counts, but it
+    # runs on the EXPORTED rows, so only a run that reaches the export can be
+    # classified -- and a declining run is precisely the one that does not get
+    # there.  A declined row executes the exact reserve (three evaluations: the
+    # refined rule, its half-refined check, and the guard comparison) and rows
+    # run one at a time under jax.lax.map, so declining costs enough that the
+    # 32-row prior pilot itself does not finish.  "Did the controller accept"
+    # was therefore unanswerable until the end of a run that never ends.
+    #
+    # The probe draws from the same prior the pilot draws from and calls the
+    # same ledger, so it predicts the pilot rather than describing something
+    # else.  Its compile is not extra work for a policy run: the end-of-run note
+    # jits the identical _batched_ledger.
+    _probe_rows = int(getattr(opts, "direct_marginalization_policy_probe_rows", 0))
+    if (getattr(like, "direct_marginalization_policy", "off") != "off"
+            and _probe_rows > 0):
+        import time as _time
+        from RIFT.likelihood.jax_ile.samplers import sample_prior_3 as _sp3
+        # sample_prior_3 is correct here ONLY because the policy is refused
+        # outside --mode flowmc-phipsimarg, whose parameter order is
+        # (ra, dec, incl).  Check rather than assume: another order would hand
+        # the ledger rows of the wrong width.
+        _order = tuple(getattr(like, "ANGULAR_PARAM_ORDER", ()))
+        if len(_order) != 3:
+            raise RuntimeError(
+                "policy probe expects the 3-parameter (ra, dec, incl) "
+                "likelihood the policy is restricted to; this one is %r"
+                % (_order,))
+        _theta_probe = _sp3(_probe_rows, np.random.default_rng(opts.seed))
+        _t0 = _time.time()
+        _probe_note, _probe_vals, _probe_acc = (
+            direct_marginalization_policy_note(
+                like, _theta_probe, n_max=_probe_rows, chunk=_probe_rows,
+                return_values=True))
+        _dt = _time.time() - _t0
+        # stderr AND stdout: the surveys read one or the other, and an
+        # unclassifiable run is the failure this whole probe exists to remove.
+        _msg = ("PROBE integrate_likelihood_extrinsic_jax: prior-draw policy "
+                "ledger on %d rows in %.1f s (%.2f s/row incl. compile): %s"
+                % (_probe_rows, _dt, _dt / max(_probe_rows, 1), _probe_note))
+        if _probe_vals is not None:
+            # lnL PAIRED WITH THE DISPOSITION, per row.  The counts alone
+            # cannot say whether the rows that decline are rows that matter:
+            # capacity declines concentrate far from truth, where the
+            # likelihood is negligible, and a decline fraction quoted without
+            # the likelihood of the declining rows overstates what it costs
+            # the posterior.
+            _msg += ("\nPROBE-VALUES seed=%d rows=%d lnL=[%s] local=[%s]"
+                     % (int(opts.seed), _probe_rows,
+                        ",".join("%.10g" % v for v in _probe_vals),
+                        ",".join("1" if a else "0" for a in _probe_acc)))
+        print(_msg)
+        sys.stderr.write(_msg + "\n")
+        sys.stdout.flush()
+        sys.stderr.flush()
+        if getattr(opts, "direct_marginalization_policy_probe_only", False):
+            print("--direct-marginalization-policy-probe-only: exiting before "
+                  "sampling; no samples and no evidence were written.")
+            return None, None
+
     if opts.mode == "map":
         theta_map, lnL_map = run_map(like, opts, rng, dim, with_distance)
         fish = like.fisher(theta_map)
@@ -1964,7 +3302,43 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
         return lnL_map, None
 
     out_flow_state = None
-    if opts.mode in ("multistart-nuts", "flowmc", "flowmc-phimarg",
+    if getattr(opts, "sampler_method", None) in ("AV", "portfolio"):
+        from RIFT.likelihood.jax_ile import samplers as _samplers
+        _portfolio_members = [
+            name.strip() for item in (opts.sampler_portfolio or [])
+            for name in str(item).split(",") if name.strip()]
+        if not _portfolio_members:
+            _portfolio_members = ["AV", "GMM"]
+        _sample_bounds = resolve_av_angular_limits(opts)
+        print("  JAX-%s: value-only integration, coverage chunk=%d, eval chunk=%s%s"
+              % (opts.sampler_method, opts.n_chunk,
+                 (str(opts.jax_av_eval_chunk)
+                  if opts.jax_av_eval_chunk is not None else "auto"),
+                 ("; members=" + ",".join(_portfolio_members))
+                 if opts.sampler_method == "portfolio" else ""))
+        _distance_sampling = av_distance_sampling_kwargs(like, d_lo, d_hi)
+        res = _samplers.adaptive_volume_sample(
+            like, opts.d_min, opts.d_max,
+            sampler_method=opts.sampler_method,
+            portfolio_members=_portfolio_members,
+            nmax=opts.n_max, neff=(opts.n_eff or 1000),
+            n_chunk=opts.n_chunk, eval_chunk=opts.jax_av_eval_chunk,
+            seed=opts.seed, seed_method=opts.jax_av_seed,
+            seed_pilot=opts.jax_av_seed_pilot,
+            seed_modes=opts.jax_av_seed_modes,
+            seed_points=opts.jax_av_seed_points,
+            sky_inflate=opts.jax_av_sky_inflate,
+            seed_prior_frac=opts.jax_av_seed_prior_frac,
+            anisotropic_bins=opts.sampler_anisotropic_bins,
+            verbose=opts.verbose, sample_bounds=_sample_bounds,
+            **_distance_sampling)
+        theta, lnL = res["theta"], res["lnL"]
+        logZ, sig, neff = res["logZ"], res["sigma_over_Z"], res["neff"]
+        ntot = res["n_eval"]
+        logw_export = res.get("log_weight")
+        print("  JAX-%s resolved fixed eval chunk=%d"
+              % (opts.sampler_method, res["eval_chunk"]))
+    elif opts.mode in ("multistart-nuts", "flowmc", "flowmc-phimarg",
                      "flowmc-phipsimarg", "flowmc-dpsimarg", "nuts-phimarg"):
         if opts.mode not in ("flowmc-phimarg", "flowmc-phipsimarg",
                              "flowmc-dpsimarg", "nuts-phimarg") and with_distance:
@@ -2000,6 +3374,7 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
             res = _samplers.smc_puffball_sample(
                 like, opts.d_min, opts.d_max,
                 n_walkers=opts.smc_walkers, n_move=opts.smc_move_steps,
+                is_samples=opts.smc_is_samples,
                 ess_frac=opts.temper_ess_frac, max_dbeta=opts.temper_max_dbeta,
                 max_stages=max(opts.temper_max_stages, 80),
                 puff_scale=opts.smc_puff_scale,
@@ -2105,6 +3480,7 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
     print("\n==== Result (event %d) ====" % event_id)
     print("  log evidence (lnL marginal over extrinsic) = %.5f" % logZ)
     print("  sigma_lnL = %.4g    neff = %.1f    ntotal = %d" % (sig, neff, ntot))
+    require_finite_evidence(logZ, neff, opts.mode)
     # EXPORT FIRST, THEN PUBLISH THE RESULT ROW.  write_samples raises when the
     # cloud admits no fair draw, and that refusal means the integration itself
     # collapsed -- so the event must leave NO artifact behind.  Writing the
@@ -2122,11 +3498,37 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
     # otherwise get no warning and no persistent label at all.
     # Compute ONCE from the RESOLVED scheme and hand the same string to both
     # writers.  Recomputing inside each writer with no argument left `scheme`
-    # None, so the standing BEST-EFFORT label never emitted and every artifact
+    # None, so the standing output-cloud label never emitted and every artifact
     # stayed silent -- an inert guard, which is the exact failure mode this
     # label exists to prevent.
     _scheme = getattr(like, "angle_marg_scheme", None)
     _ev_note = angle_grid_suspect_note(_scheme)
+    # Record the resolved distance-GH-nodes count in the same artifact header
+    # line as the angle-marg/policy notes and (via write_samples' provenance
+    # line) the mode/ESS record, so a reader of either artifact can see
+    # whether the per-sample quadrature ran without re-deriving it from the
+    # command line or the environment.
+    _gh_n = int(getattr(opts, "_distance_gh_nodes_resolved", 0) or 0)
+    _ev_note = (_ev_note + " gh_nodes=%d" % _gh_n).strip()
+    # Cross-axis policy audit: which branch the exported rows actually took.
+    # Evaluated on a subsample AFTER sampling because the sampler consumes the
+    # value-only path; the ledger is the same computation with its record kept.
+    if (getattr(like, "direct_marginalization_policy", "off") != "off"
+            and not np.all(np.isfinite(np.asarray(lnL)))):
+        raise SystemExit(
+            "--direct-marginalization-policy %s: %d of %d exported rows have a "
+            "non-finite likelihood because the controller could not warrant "
+            "them; refusing to publish samples or evidence.  See the ledger "
+            "note: %s" % (like.direct_marginalization_policy,
+                          int(np.sum(~np.isfinite(np.asarray(lnL)))),
+                          int(np.size(lnL)),
+                          direct_marginalization_policy_note(
+                              like, theta, n_max=32)))
+    _policy_note = direct_marginalization_policy_note(like, theta)
+    if _policy_note:
+        sys.stderr.write("NOTE integrate_likelihood_extrinsic_jax: %s\n"
+                         % _policy_note)
+        _ev_note = (_ev_note + " " + _policy_note).strip()
     if _ev_note.startswith("SUSPECT-ANGLE-GRID"):
         sys.stderr.write(
             "WARNING integrate_likelihood_extrinsic_jax: angle-marginalization "
@@ -2136,9 +3538,8 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
             "NOT aborted and no points were discarded -- discarding would excise "
             "exactly the region the estimator missed.\n" % _ev_note)
     elif _ev_note:
-        # BEST-EFFORT: nothing detected.  Say so WITHOUT claiming a clean run --
-        # announcing "UNDERSIZED" here would be a false alarm, and saying
-        # nothing would let silence read as verification.
+        # Deterministic pass over the artifact-producing cloud, with scope
+        # stated in the label (training-only proposals are not claimed).
         sys.stderr.write(
             "NOTE integrate_likelihood_extrinsic_jax: %s\n" % _ev_note)
     write_samples(opts, out_index, theta, lnL, with_distance, angle_note=_ev_note,
@@ -2152,6 +3553,8 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
 # Main
 # ---------------------------------------------------------------------------
 def main(argv=None):
+    if _JAX_CACHE_DIR is not None:
+        print("JAX persistent compilation cache:", _JAX_CACHE_DIR)
     optp = build_parser()
     argv = _normalize_interpolate_time_argv(argv)
     opts, _ = optp.parse_args(argv)

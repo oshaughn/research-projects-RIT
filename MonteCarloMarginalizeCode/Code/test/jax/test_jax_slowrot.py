@@ -38,11 +38,13 @@ import RIFT.lalsimutils as lsu
 import RIFT.likelihood.factored_likelihood as fl
 import RIFT.likelihood.factored_likelihood_with_rotation as flwr
 import RIFT.likelihood.factored_likelihood_freqresponse as flfr
+import RIFT.likelihood.factored_likelihood_rotating_freqresponse as flrr
 import RIFT.likelihood.slowrot_freqresponse as sfr
 
 from RIFT.likelihood.jax_ile.core import fused_log_likelihood
 from RIFT.likelihood.jax_ile.banded import (build_rotation_data,
-                                            build_freqresponse_data)
+                                            build_freqresponse_data,
+                                            build_rotating_freqresponse_data)
 from RIFT.likelihood.jax_ile.wrapper import JAXDistanceMarginalizedLikelihood
 
 if not getattr(fl, "numba_on", True):
@@ -183,6 +185,42 @@ def test_freqresponse():
     check_ad(check_freqresponse(), "freqresponse")
 
 
+def check_rotating_freqresponse():
+    """Manual real-precompute/JIT gate; deliberately excluded from per-PR CI."""
+    qmax = 0
+    bk = flrr.PrecomputeLikelihoodTermsRotatingFreqResponse(
+        event_time, t_window, Psig, data_dict, psd_dict, Lmax, fmax,
+        Qmax=qmax, L_arm=L_CE, p_max=0, analyticPSD_Q=True,
+        verbose=False, quiet=True, skip_interpolation=True)
+    meta = bk[4]
+    lk, rba, uba, vba, ep = flrr.pack_rotating_freqresponse_arrays(
+        meta, bk[3], bk[1], bk[2])
+    Pv = _P_vec(K=16)
+    want = flrr.DiscreteFactoredLogLikelihoodRotatingFreqResponseNoLoop(
+        TVALS, Pv, meta, lk, rba, uba, vba, ep, Lmax=Lmax,
+        time_interp="nearest", xpy=np)
+    det_geom = {d: sfr.detector_geometry(d, L_arm=L_CE) for d in DETS}
+    data = build_rotating_freqresponse_data(
+        meta, lk, rba, uba, vba, ep, deltaT, TVALS, det_geom)
+    got = np.asarray(fused_log_likelihood(
+        data, Pv.phi, Pv.theta, Pv.psi, Pv.incl, Pv.phiref, _distMpc(Pv),
+        interp="nearest"))
+    finite = np.isfinite(want) & np.isfinite(got)
+    rel = np.max(np.abs(want[finite] - got[finite]) / (1 + np.abs(want[finite])))
+    print("[combined] nearest vs numpy: max|rel|=%.3e A=%d" %
+          (rel, len(meta["a_list"])))
+    assert rel < 1e-10
+    point = tuple(jnp.asarray([x]) for x in
+                  (1.0, 0.2, 0.4, 0.9, 1.1, 300.0))
+    fixed = jax.jit(lambda *x: fused_log_likelihood(
+        data, *x, interp="linear"))
+    assert np.all(np.isfinite(np.asarray(fixed(*point))))
+    scalar = lambda x: fused_log_likelihood(
+        data, x[None], point[1], point[2], point[3], point[4], point[5],
+        interp="linear")[0]
+    assert np.isfinite(float(jax.grad(scalar)(jnp.asarray(1.0))))
+
+
 def check_ad(data, tag):
     print("--- AD checks (%s) ---" % tag)
     # (c) jit + vmap of the fixed-distance likelihood
@@ -218,6 +256,7 @@ if __name__ == "__main__":
     test_rotation_path_a()
     test_rotation_path_b()
     test_freqresponse()
+    check_rotating_freqresponse()
     print("\nSLOWROT + FREQRESPONSE JAX VALIDATION PASSED")
     print("  (agreement with the NoLoop is necessary, not sufficient: the rotation VALUE is")
     print("   pinned by test/jax/test_jax_slowrot_cauchy_schwarz.py.)")

@@ -249,6 +249,71 @@ def test_laplace_dist_tail_padding_exact():
                        rtol=0, atol=1e-12)
 
 
+def test_laplace_point_axis_is_really_tiled(monkeypatch):
+    """The fused driver must present at most ``point_block`` sample-time bins
+    to the expensive psi kernel.
+
+    This is a trace-level allocation test, not an estimate from the public
+    sampler cap.  With S=2 and npts=5, the old call handed the kernel all ten
+    points (as separate S,T axes); the tiled call below must hand it only three
+    at a time.  Deleting the point map or moving it below the psi kernel makes
+    this fail while all value-only tests remain green.
+    """
+    data = make_synth(npts=5)
+    xg, lwg = make_distance_grid(30.0, 3000.0, 4,
+                                 distMpcRef=data.distMpcRef)
+    seen = []
+    real = AM._laplace_psi_lnI_block
+
+    def spy(a, c1, c2):
+        seen.append(tuple(a.shape))
+        return real(a, c1, c2)
+
+    monkeypatch.setattr(AM, "_laplace_psi_lnI_block", spy)
+
+    def f(ra, dec, incl):
+        return AM.fused_log_likelihood_distphipsimarg_laplace(
+            data, ra, dec, incl, xg, lwg, amp_sizing=450.0,
+            phi_chunk=4, dist_block=2, point_block=3)
+
+    jax.make_jaxpr(f)(jnp.asarray([0.9, 1.2]),
+                      jnp.asarray([0.4, -0.2]),
+                      jnp.asarray([1.1, 2.0]))
+    assert seen, "the fused path never called the block-dispatched psi kernel"
+    assert all(sh == (2, 4, 3) for sh in seen), seen
+
+
+def test_laplace_point_tiling_preserves_value_and_gradient():
+    """Tail padding/reassembly and the rolled map preserve values and AD.
+
+    ``point_block=10`` is the one-block reference for S*npts=10;
+    ``point_block=3`` exercises three full blocks and a one-point tail.  A
+    zero-padded tail, wrong transpose, dropped block, or stop_gradient around
+    the map fails this test.  The tolerance covers only the dispatcher's
+    documented sub-roundoff choice of a cheaper quadrature rung per tile.
+    """
+    data = make_synth(npts=5, kappa_boost=2.0)
+    xg, lwg = make_distance_grid(30.0, 3000.0, 4,
+                                 distMpcRef=data.distMpcRef)
+    theta = jnp.asarray([[0.9, 0.4, 1.1], [1.2, -0.2, 2.0]])
+
+    def call(th, point_block):
+        return AM.fused_log_likelihood_distphipsimarg_laplace(
+            data, th[:, 0], th[:, 1], th[:, 2], xg, lwg,
+            amp_sizing=450.0, phi_chunk=4, dist_block=2,
+            point_block=point_block)
+
+    ref = call(theta, 10)
+    got = call(theta, 3)
+    np.testing.assert_allclose(np.asarray(got), np.asarray(ref),
+                               rtol=0.0, atol=2e-12)
+
+    g_ref = jax.grad(lambda th: jnp.sum(call(th, 10)))(theta)
+    g_got = jax.grad(lambda th: jnp.sum(call(th, 3)))(theta)
+    np.testing.assert_allclose(np.asarray(g_got), np.asarray(g_ref),
+                               rtol=2e-11, atol=2e-11)
+
+
 # ---------------------------------------------------------------------------
 # Execution-side memory: the batched-eval chunk cap.
 #

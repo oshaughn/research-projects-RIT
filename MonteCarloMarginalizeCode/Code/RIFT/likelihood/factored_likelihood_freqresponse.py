@@ -215,6 +215,31 @@ def response_coefficients(det, RA, DEC, psi, tref, Qmax, L_arm=None):
     return b
 
 
+def response_coefficients_vector(det, RA, DEC, psi, tref, Qmax, L_arm=None):
+    """``response_coefficients`` for a BLOCK of extrinsic samples: {p: (npts_ex,) complex}.
+
+    Same algebra as the scalar routine, evaluated once for the whole block.  The two things
+    that do NOT depend on the sample -- the detector geometry (LAL lookup, arm unit vectors,
+    response tensor) and gmst(tref) -- are computed once here rather than once per sample;
+    everything that does depend on the sample (the polarization triad, the long-wavelength
+    contraction, the arm projections, beta_q) is an array operation over the block.
+
+    The rotation path's ``factored_likelihood_with_rotation.rotation_coefficients_vector`` is
+    the same idea for the sidereal-harmonic coefficients; this is its finite-size twin.
+    """
+    import lal
+    RA = np.atleast_1d(np.asarray(RA, dtype=float))
+    DEC = np.atleast_1d(np.asarray(DEC, dtype=float))
+    psi = np.atleast_1d(np.asarray(psi, dtype=float))
+    gmst = float(lal.GreenwichMeanSiderealTime(lal.LIGOTimeGPS(float(tref))))
+    geom = sfr.finite_size_geometry_vector(det, RA, DEC, psi, gmst=gmst, L_arm=L_arm)
+    beta = sfr.finite_size_beta(geom, Qmax)                  # (Qmax+1, npts_ex)
+    b = {0: np.asarray(geom['F0'], dtype=complex)}
+    for q in range(Qmax + 1):
+        b[1 + q] = np.asarray(beta[q], dtype=complex)
+    return b
+
+
 def FactoredLogLikelihoodFreqResponse(extr_params, rholms_intp_fr, crossTerms_fr,
                                       crossTermsV_fr, meta, Lmax):
     """Finite-size analogue of factored_likelihood.FactoredLogLikelihood.
@@ -382,14 +407,15 @@ def DiscreteFactoredLogLikelihoodFreqResponseNoLoop(
     for det in rho_by_p:
         n_lms = len(lookupNKDict[det])
         Ylms = FL.ComputeYlmsArrayVector(lookupNKDict[det], incl, -phiref).T  # (npts_ex,n_lms)
-        # per-sample response coefficients b_p (npts_ex,)
-        bvec = {}
-        for i in range(npts_ex):
-            bi = response_coefficients(det, float(RA[i]), float(DEC[i]), float(psi[i]),
-                                       P_vec.tref, Qmax, L_arm=_L_of(det))
-            for p in p_list:
-                bvec.setdefault(p, np.zeros(npts_ex, dtype=complex))
-                bvec[p][i] = bi[p]
+        # per-sample response coefficients b_p (npts_ex,), for the whole block at once.
+        # This was a Python loop over samples calling the scalar response_coefficients.  It
+        # dominated the likelihood: in a profiled five-detector CE+ET+K run it re-did the
+        # detector geometry 1.4e6 times for five distinct answers, and the eager default of
+        # `bvec.setdefault(p, np.zeros(npts_ex))` allocated an npts_ex-long array on every
+        # (sample, p) iteration -- 8.5e6 allocations, a quarter of the integration.
+        # DESIGN_freqresponse_vectorized_coefficients.md carries the measurement.
+        bvec = response_coefficients_vector(det, RA, DEC, psi, P_vec.tref, Qmax,
+                                            L_arm=_L_of(det))
 
         t_ref = epochDict[det]
         # Precision-preserving time reference (see rotation NoLoop): keep (tref - epoch) and the

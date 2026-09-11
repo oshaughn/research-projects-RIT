@@ -41,3 +41,9 @@ apptainer exec --nv <image> python3 <profile> --json-out <result>.json
 
 If the manifest image is an `osdf://` URL, the generated wrapper fetches only
 that image with `stashcp` or `pelican`.
+
+The JAX profile initializes the same compatibility-aware cache used by the
+shipped ILE driver. After a successful GPU scan, `rift_jax_cache export`
+packages its warmed namespace; `rift_jax_cache import` checks runtime
+provenance and file hashes before merging it into a target cache root. See the
+JAX ILE README's "Persistent compilation cache" section for the workflow.

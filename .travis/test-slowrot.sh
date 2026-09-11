@@ -75,6 +75,7 @@ FILES=(
   "${SLOWDIR}/test_slowrot_pathB.py"
   "${SLOWDIR}/test_slowrot_precompute_integration.py"
   "${SLOWDIR}/test_slowrot_response.py"
+  "${SLOWDIR}/test_slowrot_rotating_freqresponse.py"
 )
 
 # DESELECTED, and EXPECTED_TESTS is one lower because of it.
@@ -169,7 +170,7 @@ fi
 # Re-derive with `pytest --collect-only -q` over FILES; never lower it without saying why
 # in the commit message.  A bare `pytest ${SLOWDIR}` would sweep up files that collect 0,
 # and a partial loss still exits 0, which is what this pins against.
-EXPECTED_TESTS=43
+EXPECTED_TESTS=50
 
 DESELECT_ARGS=()
 for d in "${DESELECT[@]}"; do DESELECT_ARGS+=(--deselect "${d}"); done

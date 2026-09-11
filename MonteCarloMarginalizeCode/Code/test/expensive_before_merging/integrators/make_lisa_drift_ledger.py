@@ -399,6 +399,12 @@ RULES = [
     (r"^FUNC:_normalize_interpolate_time_argv$", "PORT",
      "Normalizes --interpolate-time argv forms. LISA exposes --interpolate-time, so "
      "the same normalization applies."),
+    (r"^OPTION:--q-time-pregrid-factor$", "PORT",
+     "Refines the finite Q time grid before detector-arrival interpolation. LISA uses "
+     "the same NoLoop Q gather and can carry the same interpolation bias, so this is "
+     "not ground-detector-specific. Port only after separate LISA accuracy and memory "
+     "validation: its long observation windows make an unconditional 8x retained grid "
+     "potentially much more expensive than in the ground-based driver."),
     (r"^OPTION:--time-marginalization-quadrature$", "PORT",
      "Selects the rule for the TIME integral of the marginalized likelihood "
      "(simpson, the unchanged default, or the opt-in band-limited refinement). LISA "
@@ -438,6 +444,15 @@ RULES = [
      "The LISA driver does not call that waveform path or write its a6c/E0/p_phi0 "
      "composite layout."),
     (r"^OPTION:--calibration-spline-count$", "NA", "See the --calibration-* reason."),
+    (r"^OPTION:--psi-marginalization$", "NA",
+     "Analytic polarization-angle marginalization via "
+     "factored_likelihood.NetworkLogLikelihoodPolarizationMarginalized. Per its own help "
+     "text, this is only reachable on the legacy scalar (non-vectorized, non-GPU, "
+     "non-time-marginalized) likelihood path -- the main driver itself REFUSES it with "
+     "--vectorized, --gpu, and --time-marginalization, among others. The LISA driver has "
+     "no such scalar path: analyze_event there is vectorized/time-marginalized by "
+     "construction, so this option would be refused there too if it existed. Not a gap "
+     "to close -- porting it would add an option that is dead on arrival."),
     (r"^CONST:_SEQ_WS_PENDING$", "PORT",
      "Sentinel for the deferred sequential warm-start capture; ports with "
      "--sampler-sequential-warmstart."),

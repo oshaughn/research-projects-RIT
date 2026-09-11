@@ -19,6 +19,9 @@ exact gradients to cover *all* the modes:
   estimate.
 * :func:`flowmc_sample` -- a normalizing-flow sampler (flowMC) that trains a flow
   to the full multimodal geometry in a single run.
+* :func:`adaptive_volume_sample` -- the production RIFT AV or AV+GMM portfolio
+  control logic around fixed-shape, value-only JAX likelihood batches.  Its
+  optional AD work is confined to a short Fisher-sky initializer.
 
 The priors are the standard physical ones (uniform sky/orientation):
 ``ra ~ U(0, 2pi)``, ``sin(dec) ~ U(-1, 1)``, ``psi ~ U(0, pi)``,
@@ -38,13 +41,37 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
+# ``core`` pulls in lal/lalsimulation (see core.py's own module-level import).
+# test/jax/test_nuts_phimarg.py deliberately loads *this* file standalone, by
+# path, with no lal on hand -- so the relative import below must not run in
+# that context. A module loaded via importlib.util.spec_from_file_location()
+# with no parent package gets __package__ == "" (falsy); a normal package
+# import (``import RIFT.likelihood.jax_ile.samplers``) gets the real dotted
+# package name (truthy). Gate on that instead of a bare ``from . import
+# core``, which raises ImportError unconditionally outside a package.
+if __package__:
+    from . import core as _core
+else:
+    _core = None
+
 # Default chunk for the batched lnL evals.  The per-sample distance quadrature
-# (JAX_ILE_DISTMARG_GH=G) materialises a (chunk, npts, G) array, ~G/ (grid_block)
-# more device memory than the legacy grid, so a 4000-row chunk OOMs the 11GB
-# 2080Ti.  Shrink the chunk when per-sample is active so the per-sample path fits
-# small-VRAM GPUs too (don't force every high-SNR job onto a 24GB node).
-_GH_NODES = int(os.environ.get("JAX_ILE_DISTMARG_GH", "0"))
-_EVAL_CHUNK = max(500, 4000 * 16 // max(16, _GH_NODES)) if _GH_NODES > 0 else 4000
+# (JAX_ILE_DISTMARG_GH=G, or the driver's --distance-gh-nodes) materialises a
+# (chunk, npts, G) array, ~G/(grid_block) more device memory than the legacy
+# grid, so a 4000-row chunk OOMs the 11GB 2080Ti.  Shrink the chunk when
+# per-sample is active so the per-sample path fits small-VRAM GPUs too (don't
+# force every high-SNR job onto a 24GB node).
+#
+# Resolved through _core.get_distmarg_gh_nodes() at CALL time (see
+# _default_eval_chunk below), not baked in here at import time: the CLI path
+# (core.set_distmarg_gh_nodes(), called from the driver's option parsing) runs
+# AFTER this module is first imported, so a module-level constant read from
+# os.environ here would miss a node count set only via --distance-gh-nodes.
+# Standalone-loaded (_core is None): fall back to the env var directly, same
+# as the pre-CLI behaviour, since there is no driver to call set_ from.
+def _default_eval_chunk():
+    n = (_core.get_distmarg_gh_nodes() if _core is not None
+         else int(os.environ.get("JAX_ILE_DISTMARG_GH", "0")))
+    return max(500, 4000 * 16 // max(16, n)) if n > 0 else 4000
 
 # Parameter order used everywhere in this module.
 ANG_NAMES = ("ra", "dec", "psi", "incl", "phiref")
@@ -231,7 +258,7 @@ def _log_prior_jax(theta5):
 # ---------------------------------------------------------------------------
 # Batched lnL evaluation (chunked to bound memory)
 # ---------------------------------------------------------------------------
-# Largest single XLA buffer of the anglemarg laplace path, per sample per
+# Historical largest single XLA buffer of the anglemarg laplace path, per sample per
 # time point: the (quad_chunk=16, dist_block=4, phi_chunk=16) stacked
 # quadrature block, 16*4*16*8 = 8192 bytes.  Measured 2026-08-28: at the
 # default chunk 4000 with npts=1193 XLA requested exactly 36.41 GiB for that
@@ -240,8 +267,372 @@ def _log_prior_jax(theta5):
 # so this execution-side wall was previously unreachable.  The exact scheme's
 # dense reconstruction has the same batch-multiplied structure (smaller
 # constant); the laplace constant is used for both as the worst case.
+#
+# The laplace kernel now tiles the combined sample-time point axis internally,
+# so this is no longer its literal largest-buffer model.  Keep the outer cap as
+# a conservative bound on still-live coefficient tables and phi fields, and for
+# exact, which does not share that tiler.
+#
+# "BOTH" MEANS EXACT AND LAPLACE, AND NOTHING ELSE.  A reviewer read it as covering
+# every scheme and concluded this constant understates peak-local by ~128x.  It does --
+# peak-local's live slab is about 1 MiB per sample-point, not 8 KiB -- but peak-local
+# does not USE this number as its model: angle_marg_eval_chunk raises `bytes_per` to a
+# scheme-specific peak-local model with max(), so 8192 acts only as a floor there.  The
+# two figures are both right, for different schemes.  Do not "reconcile" them.
 _ANGLE_MARG_BYTES_PER_SAMPLE_PT = 8192
-_ANGLE_MARG_BUFFER_TARGET = 4 << 30      # ~4 GiB largest single buffer
+
+#: Largest single buffer we will let the anglemarg eval request.  4 GiB was chosen on
+#: 2026-08-28 against the 25 GiB per-UID cgroup of the machine the OOM was reproduced on,
+#: with a deliberate ~6x margin.  On a card with more memory it throttles the accurate
+#: schemes for no reason -- at npts=1230 it caps the eval chunk at 426 where the nominal
+#: chunk is 1000, so `exact`/`laplace`/`peak-local` run at under half the batch `grid`
+#: gets, and small batches are exactly where their per-sample cost is worst.
+#: So DERIVE it from the device when we can see one, and keep 4 GiB as the fallback for the
+#: machine we cannot measure.  Deliberately a fraction of free VRAM rather than all of it:
+#: this bounds ONE buffer, and the rest of the graph has to live alongside it.
+#:
+#: THIS IS NOT A FLOOR, and an earlier revision of this file wrongly said it was.  4 GiB is
+#: what we use when we cannot SEE the device; it carries no guarantee about a device we can.
+#: It was measured safe against one 25 GiB cgroup and says nothing about a 6 GiB card.
+_ANGLE_MARG_BUFFER_TARGET_FALLBACK = 4 << 30
+
+#: Fraction of the device's AVAILABLE memory to allow for this ONE buffer.
+#: NOT a fraction of the reported limit, and review caught that it was: `bytes_limit` and
+#: `bytes_reservable_limit` are capacity CEILINGS, not free memory.  These cards are
+#: SHARED -- a contemporaneous survey of the interactive hosts found all four GPUs at 100%
+#: utilisation with 18-22 GiB of 24 GiB already held by other users -- so half of a 24 GiB
+#: ceiling is 12 GiB on a card with 2 GiB left, i.e. exactly the RESOURCE_EXHAUSTED this
+#: cap exists to prevent, wearing device awareness as a costume.  The fraction is HEADROOM
+#: ON WHAT IS FREE; the ceiling never licenses an allowance by itself.
+#: WHY 0.5 RATHER THAN A MEASURED NUMBER: the remaining margin has to cover the rest of the
+#: graph alongside this buffer, and that has NOT been measured -- an attempt was defeated by
+#: the interactive hosts' thread cap.  0.5 is therefore a JUDGEMENT, not a result: it is
+#: twice the first guess and still leaves half the reported limit.  Override it when you
+#: know your card is yours:
+#:     RIFT_ANGLEMARG_BUFFER_FRACTION=0.8
+#: and if you measure the true overhead, replace this constant with the measurement and say
+#: so here.
+_ANGLE_MARG_BUFFER_FRACTION_DEFAULT = 0.5
+
+
+def _read_buffer_fraction(env=None):
+    """Parse RIFT_ANGLEMARG_BUFFER_FRACTION, refusing a value that cannot bound anything.
+
+    Refuses LOUDLY rather than quietly substituting the default.  An override that is
+    silently ignored is worse than no override at all: the caller goes on believing a
+    bound is in force that is not, which is precisely how the buffer gets sized wrong.
+    Not being set is not an error -- only a value we were handed and cannot use.
+
+    Above 1.0 is rejected rather than clamped because it asks for a buffer larger than
+    the device reports FREE, i.e. it asks this function to cause the OOM it exists to
+    prevent.  A caller who really wants everything currently free writes 1.0.
+    """
+    if env is None:
+        env = os.environ
+    raw = env.get("RIFT_ANGLEMARG_BUFFER_FRACTION")
+    if raw is None:
+        return _ANGLE_MARG_BUFFER_FRACTION_DEFAULT
+    try:
+        val = float(raw)
+    except (TypeError, ValueError):
+        raise ValueError(
+            "RIFT_ANGLEMARG_BUFFER_FRACTION=%r is not a number; give a fraction in "
+            "(0, 1], e.g. 0.8" % (raw,))
+    # NaN fails this comparison too, which is the intent.
+    if not (0.0 < val <= 1.0):
+        raise ValueError(
+            "RIFT_ANGLEMARG_BUFFER_FRACTION=%r is outside (0, 1]; above 1 would size this "
+            "buffer larger than the device reports, and at or below 0 it bounds nothing"
+            % (raw,))
+    return val
+
+
+_ANGLE_MARG_BUFFER_FRACTION = _read_buffer_fraction()
+
+
+def _read_buffer_bytes(env=None):
+    """Parse RIFT_ANGLEMARG_BUFFER_BYTES, an ABSOLUTE allowance in bytes, or None.
+
+    WHY A SECOND KNOB EXISTS.  ``angle_marg_eval_chunk`` now REFUSES a configuration
+    whose single sample already exceeds the allowance, because returning a chunk of 1
+    there breaks the bound it advertises.  On a machine whose device we cannot read, the
+    allowance being refused against is ``_ANGLE_MARG_BUFFER_TARGET_FALLBACK`` -- a
+    documented guess that the comment above is explicit carries no guarantee.  Failing
+    closed against a guess with no way to override it turns "we could not see your
+    device" into "you may not run", which is an outage, not a bound.
+
+    RIFT_ANGLEMARG_BUFFER_FRACTION cannot serve this purpose: it is a fraction OF a
+    reported FREE figure, and the paths that need the escape -- no readable device, or a
+    device that reports a ceiling but never says how much of it is free -- are exactly
+    the ones with no such figure to take a fraction of.
+
+    Read per call rather than once at import so a caller can set it before the eval
+    without re-importing the module.  Refused loudly on garbage, for the same reason the
+    fraction is: an override that is silently dropped leaves the caller believing a
+    bound is in force that is not.
+    """
+    if env is None:
+        env = os.environ
+    raw = env.get("RIFT_ANGLEMARG_BUFFER_BYTES")
+    if raw is None:
+        return None
+    try:
+        val = int(float(raw))
+    except (TypeError, ValueError, OverflowError):
+        # OverflowError is in the list because int(float('inf')) raises it and not
+        # ValueError, so 'inf' would otherwise escape as an unhandled OverflowError
+        # instead of the actionable message.  'nan' goes the ValueError route.
+        raise ValueError(
+            "RIFT_ANGLEMARG_BUFFER_BYTES=%r is not a usable number of bytes; give a "
+            "positive integer, e.g. %d for 12 GiB" % (raw, 12 << 30))
+    if val <= 0:
+        raise ValueError(
+            "RIFT_ANGLEMARG_BUFFER_BYTES=%r is not positive; a non-positive allowance "
+            "bounds nothing and refuses every chunk" % (raw,))
+    return val
+
+
+def _device_available_bytes(stats):
+    """Bytes we can actually expect to get from the device NOW, or None if unknowable.
+
+    THE CEILING IS NOT THE ANSWER, which was a review finding on this file.  Neither
+    ``bytes_limit`` nor ``bytes_reservable_limit`` says anything about what is free: they
+    are what the allocator may grow to, on a card another process may already be sitting
+    on.  Sizing off either one returns a 12 GiB allowance on a shared 24 GiB GPU with
+    2 GiB left, which is the failure this cap exists to prevent.
+
+    Only keys that mean "free" are read:
+
+      * ``largest_free_block_bytes`` -- the largest contiguous block the allocator can
+        serve right now.  It answers the question actually being asked, because the thing
+        being bounded is ONE allocation, not a total.  But on jax 0.9.2 (measured
+        2026-09-08) this key is simply never populated: it reads 0 both before any
+        allocation and after one, on an otherwise-idle card.  A bare 0 here is therefore
+        read as "not reported", not "the device is full", and falls through to the pool
+        signal below.
+      * failing that, the reserved pool minus what we hold in it.  Memory already
+        reserved for this process cannot be taken by another one, so ``pool - in_use`` is
+        genuinely ours in a way the ceiling is not.  ``pool_bytes`` is also 0 on jax 0.9.2
+        until the first allocation grows the pool, which is likewise "not yet known", not
+        "nothing is free" -- a 0 pool falls through the same way a 0 block does.
+
+    Returns None when neither is reported (or both report 0).  The caller must read that
+    as "we could not see how much of this device is free" -- NOT as zero, and emphatically
+    not as the ceiling that is sitting right there in the same dict.
+
+    A device that genuinely has nothing left -- a nonzero pool fully consumed
+    (``pool_bytes > 0`` and ``pool_bytes - bytes_in_use == 0``) -- still returns 0, not
+    None, and that is deliberate: it is a reading, not a failure to read.  Falling back to
+    the 4 GiB guess there would hand out memory we have just been told does not exist.
+
+    A missing ``bytes_in_use`` key (review MINOR, 2026-09-08) is read as unknown
+    occupancy, not as 0: ``stats.get(...) or 0`` could not tell "reported zero" from
+    "never reported", so a pool with no occupancy figure at all was read as entirely
+    free.  ``stats.get("bytes_in_use")`` is None in both cases; only the missing-key
+    case must fall through to "unknown" here.
+    """
+    block = stats.get("largest_free_block_bytes")
+    if block:
+        return max(0, int(block))
+    pool = stats.get("pool_bytes") or stats.get("bytes_reserved")
+    if pool:
+        in_use = stats.get("bytes_in_use")
+        if in_use is None:
+            return None
+        return max(0, int(pool) - int(in_use))
+    return None
+
+
+def _probe_allocate(jax_module, dev):
+    """Force one tiny allocation on `dev` so the allocator's pool actually exists
+    before `_angle_marg_buffer_target` reads `memory_stats()`.
+
+    Review MAJOR, 2026-09-08: `_angle_marg_buffer_target` is called before this
+    process's first device allocation, so on jax 0.9.2 `pool_bytes` and
+    `largest_free_block_bytes` both read 0 -- not because the device is busy, but
+    because the allocator has not been asked to reserve anything yet.  `#285` made
+    that unread state fall through to the blind 4 GiB fallback, which is safe on an
+    idle card but is 8x too generous on a busy shared one (~0.5 GiB truly free,
+    simulated in the review).  A tiny real allocation is the only way to make the
+    pool signal exist: under JAX's default preallocating allocator it only succeeds
+    because the memory it reserves genuinely was free, so a successful probe means
+    `pool_bytes` afterward is memory this process actually holds, not a ceiling.
+
+    Exceptions are the caller's problem on purpose: a device with no room even for
+    this allocation is exactly the "we could not read this device" case the
+    fallback already exists for.
+    """
+    jax_module.device_put(jax_module.numpy.zeros(1), dev).block_until_ready()
+
+
+def _angle_marg_buffer_target():
+    """Bytes to allow for the largest single anglemarg buffer.
+
+    Derived from the device's FREE memory rather than assumed, because the constant this
+    replaces was sized on the smallest machine anyone had run on.  Any failure to read the
+    device -- no jax, no GPU, an API that moved, or stats that report a ceiling but no
+    availability -- returns the historical 4 GiB, so a machine we cannot interrogate
+    behaves exactly as before rather than getting a larger number by accident.
+
+    An explicit RIFT_ANGLEMARG_BUFFER_BYTES wins over both, and is read OUTSIDE the
+    try below on purpose: inside it, the blanket `except Exception` would swallow the
+    ValueError from a malformed override and hand back the fallback -- silently ignoring
+    the one number in this function a human asserted about the machine in front of them.
+
+    Before reading stats, `_probe_allocate` forces one tiny allocation so the pool
+    signal exists at all on jax 0.9.2 (review MAJOR, 2026-09-08).  A small pool next
+    to a much larger `bytes_limit` (below half of it) means the on-demand allocator
+    is in play, where the pool grows only to fit what has actually been requested so
+    far and `pool - bytes_in_use` is not a free-memory reading; that case is bounded
+    by `bytes_limit - bytes_in_use` instead of trusted, same fallback ceiling as an
+    unreadable device.
+    """
+    explicit = _read_buffer_bytes()
+    if explicit is not None:
+        return explicit
+    try:
+        import jax
+        devs = [d for d in jax.devices() if getattr(d, "platform", "") == "gpu"]
+        if not devs:
+            return _ANGLE_MARG_BUFFER_TARGET_FALLBACK
+        dev = devs[0]
+        try:
+            _probe_allocate(jax, dev)
+        except Exception:
+            # No room even for this allocation, or a fake/incomplete jax in tests --
+            # either way, still try to read whatever memory_stats() reports below
+            # rather than giving up immediately.
+            pass
+        stats = dev.memory_stats() or {}
+        limit = stats.get("bytes_limit") or stats.get("bytes_reservable_limit")
+        pool = stats.get("pool_bytes") or stats.get("bytes_reserved")
+        block = stats.get("largest_free_block_bytes")
+        if not block and pool and limit and int(pool) < 0.5 * int(limit):
+            # On-demand allocator (XLA_PYTHON_CLIENT_PREALLOCATE=false): the pool
+            # grows incrementally with each request instead of claiming a big
+            # fraction up front, so a small pool relative to the limit does not mean
+            # little is free -- it means pool - bytes_in_use cannot be trusted here.
+            # Bound the blind guess by what the device could still give this
+            # process rather than reach for a figure this allocator shape cannot
+            # support.
+            in_use = stats.get("bytes_in_use")
+            in_use = int(in_use) if in_use is not None else 0
+            return max(0, min(_ANGLE_MARG_BUFFER_TARGET_FALLBACK,
+                               int(limit) - in_use))
+        avail = _device_available_bytes(stats)
+        if avail is None:
+            # We can see a device but not how much of it is free.  The conservative
+            # fallback stands; an operator who knows their card asserts otherwise with
+            # RIFT_ANGLEMARG_BUFFER_BYTES.  Reaching for `bytes_limit` here instead is
+            # the exact regression review flagged -- see _device_available_bytes.
+            return _ANGLE_MARG_BUFFER_TARGET_FALLBACK
+        # The ceiling is still worth reading, but only DOWNWARD: availability cannot
+        # legitimately exceed what the allocator may hold, so a runtime reporting a free
+        # block bigger than its own limit is misreporting and must not inflate this.
+        if limit:
+            avail = min(avail, int(limit))
+        # NO max() WITH THE FALLBACK HERE.  Flooring at 4 GiB would defeat the whole
+        # point in the one direction that matters for safety: a card with 6 GiB free
+        # would be handed a 4 GiB single buffer, and one with under 4 GiB free would be
+        # handed more than it has.  That is the failure this function exists to prevent,
+        # wearing device awareness as a costume.  A busy device gets a small allowance.
+        #
+        # AN EARLIER VERSION OF THIS COMMENT SAID a device too small for the model merely
+        # "goes slow, not wrong", because angle_marg_eval_chunk floored the chunk at 1.
+        # That was false and review caught it: a chunk of one still requests
+        # bytes_per * npts, so once ONE sample exceeds the allowance the floor returns a
+        # chunk that BREAKS the bound rather than a chunk that is slow.  There is no
+        # kernel-level tiling of that buffer -- the sample axis is the only axis this cap
+        # can divide -- so angle_marg_eval_chunk now refuses instead of pretending.
+        #
+        # max(0, ...), not max(1, ...): a device with nothing free must produce an
+        # allowance of nothing, and let angle_marg_eval_chunk refuse with the message
+        # that names the knobs.  A one-byte floor would be the same lie in miniature.
+        return max(0, int(avail * _ANGLE_MARG_BUFFER_FRACTION))
+    except Exception:
+        return _ANGLE_MARG_BUFFER_TARGET_FALLBACK
+
+
+#: Kept as a module attribute so existing readers (and tests) still see a number.
+_ANGLE_MARG_BUFFER_TARGET = _ANGLE_MARG_BUFFER_TARGET_FALLBACK
+
+
+def _peaklocal_bytes_per_sample_pt(like):
+    """Conservative source-level payload for one peak-local sample/time point.
+
+    The streamed nonlinear body, one phi chunk's values, the phi accumulator and the
+    per-distance-node joint tables have distinct shapes, and all have to be budgeted.  This is still not a CUDA allocator
+    measurement and cannot see an outer transformation such as flowMC's chain
+    ``vmap``; callers of the scalar AD target require separate profiling.
+    """
+    from . import anglemarg as _am
+    from . import joint_anglemarg_peaklocal as _jp
+
+    n_x = int(np.size(getattr(like, "x_grid", ())) or 1)
+    info = getattr(like, "angle_marg_info", None) or {}
+    # Production wrappers record the floored sizing amplitude.  Preserve the
+    # same floor for small test doubles and legacy readers that omit the ledger.
+    amp_sizing = info.get("amp_sizing")
+    if amp_sizing is None:
+        amp_sizing = _am.ANGLE_MARG_CROSSOVER_AMPLITUDE
+    n_u_live = min(_jp.u_nodes_in_use(amp_sizing), _jp.U_NODE_STREAM_CHUNK)
+
+    data = getattr(like, "data", None)
+    lms = getattr(data, "lms", None)
+    m_max = (int(np.max(np.abs(np.asarray(lms)[:, 1])))
+             if lms is not None else 2)
+
+    streamed_body = _jp.PHI_CHUNK_DEFAULT * n_x * 4 * n_u_live * 8
+    # The phi scan REDUCES into its carry rather than returning a value per chunk, so
+    # what is live is one chunk's (phi_chunk, n_x) block and the (n_x,) accumulator --
+    # not the whole phi axis.  This term used to read `n_phi * n_x * 8`, the stacked
+    # output, and that was the real 19.97 GiB at ladder-2 rung 640.  The model moves in
+    # the same commit as the kernel: this file's own history is a guard that kept an old
+    # model while the kernel's sizing moved.
+    phi_chunk_values = _jp.PHI_CHUNK_DEFAULT * n_x * 8
+    accumulator = n_x * 8
+    # `tables` in joint_lnL_phi_dense: one complex (KP, 2KS+1) per distance node, live
+    # for the whole call.  Previously unmodelled, and small against the streamed body
+    # (~10% at n_x 256), but it is live and cheap to state.
+    joint_tables = n_x * (2 * m_max + 1) * 5 * 16
+    return int(streamed_body + phi_chunk_values + accumulator + joint_tables)
+
+
+def _philocal_bytes_per_sample_pt(like):
+    """Conservative source-level payload for one phi-local sample/time point.
+
+    THE PHI-LOCAL KERNEL ROLLS TWO AXES AND THE GUARD MUST MODEL BOTH, because unlike the
+    dense path its quadrature grid is not streamed on the u axis: `pt_chunk` phi points
+    are evaluated at once, each costing a u profile of `4 * u_nodes`, and `eval_g2`
+    materializes `(points, KP, 2KS+1)` COMPLEX -- 16 bytes a term, not 8.  `x_chunk`
+    distance nodes are in flight simultaneously.  Miss the complex width or the table
+    terms and this undercounts by ~90x.
+
+    The entry ALSO evaluates the dense peak-local scheme for the fallback, so the dense
+    model is added rather than maxed: both are live in the same trace.
+    """
+    from . import joint_anglemarg_peaklocal as _jp
+    from . import anglemarg as _am
+
+    info = getattr(like, "angle_marg_info", None) or {}
+    amp_sizing = info.get("amp_sizing")
+    if amp_sizing is None:
+        amp_sizing = _am.ANGLE_MARG_CROSSOVER_AMPLITUDE
+    u_nodes = _jp.u_nodes_in_use(amp_sizing)
+
+    data = getattr(like, "data", None)
+    lms = getattr(data, "lms", None)
+    m_max = (int(np.max(np.abs(np.asarray(lms)[:, 1])))
+             if lms is not None else 2)
+    KP = 2 * m_max + 1
+    terms = KP * 5                       # (KP, 2KS+1) with the u degree pinned at 2
+
+    live_pts = _jp.PT_CHUNK_DEFAULT * 4 * u_nodes
+    body = _jp.X_CHUNK_DEFAULT * live_pts * terms * 16
+    # the per-node values the distance scan stacks before its reduction
+    n_x = int(np.size(getattr(like, "x_grid", ())) or 1)
+    stacked = n_x * 8
+    return int(body + stacked + _peaklocal_bytes_per_sample_pt(like))
 
 
 def angle_marg_eval_chunk(like, chunk):
@@ -249,7 +640,7 @@ def angle_marg_eval_chunk(like, chunk):
 
     Slices of the batched eval are INDEPENDENT (lnL is elementwise in the
     sample axis), so this changes peak memory and nothing else -- same
-    pattern as the _GH_NODES shrink above.  Grid-scheme and 4/5-param
+    pattern as the _default_eval_chunk() shrink above.  Grid-scheme and 4/5-param
     likelihoods pass through unchanged.
     """
     # NOT the scheme default.  "grid" here is a SENTINEL meaning "this object
@@ -261,42 +652,85 @@ def angle_marg_eval_chunk(like, chunk):
     # (interp linear -> sinc) was bitten by exactly that.
     # 'peak-local' is capped WITH the dense schemes, not exempted from them.  Its u
     # axis is localized, but it still nests sample/time vmaps over the distance grid,
-    # phi chunks, four cells and 48 u nodes, so the batch multiplies the same way the
-    # dense schemes do; the laplace bytes-per-sample-point constant is used for it as
-    # the worst case, exactly as it already is for exact.  Leaving it out kept an
-    # uncapped 8000-sample batch and reopened the 36.4 GiB failure documented above.
+    # phi chunks, four cells and a streamed u-node block, so the batch multiplies the
+    # same way the dense schemes do.  Leaving it out kept an uncapped 8000-sample batch
+    # and reopened the 36.4 GiB failure documented above.
     if getattr(like, "angle_marg_scheme", "grid") not in ("exact", "laplace",
-                                                          "peak-local"):
+                                                          "peak-local", "phi-local"):
         return chunk
     npts = int(getattr(getattr(like, "data", None), "npts", 0) or 0)
     if npts <= 0:
         return chunk
     bytes_per = _ANGLE_MARG_BYTES_PER_SAMPLE_PT
-    if getattr(like, "angle_marg_scheme", None) == "peak-local":
-        # ITS COST MODEL IS NOT THE DENSE ONE, and enrolling it in the cap without
-        # saying so was a review finding.  peak-local carries the WHOLE distance grid
-        # inside every phi chunk, so its live slab is
-        #     phi_chunk * n_x * (4 cells) * (u nodes) * 8 bytes
-        # per (sample, time-point) -- about 6.3 MB at phi_chunk=16 and n_x=256, roughly
-        # 770x the 8192-byte dense model, before intermediates.  Using the dense
-        # constant would have applied a cap that looks protective and is not.
-        from . import joint_anglemarg_peaklocal as _jp
-        n_x = int(np.size(getattr(like, "x_grid", ())) or 1)
-        bytes_per = max(
-            bytes_per,
-            _jp.PHI_CHUNK_DEFAULT * n_x * 4 * _jp.U_NODES_PER_CELL * 8)
-    cap = max(1, _ANGLE_MARG_BUFFER_TARGET // (bytes_per * npts))
+    if getattr(like, "angle_marg_scheme", None) == "phi-local":
+        # Modelled in the SAME change that added the kernel, because the trap this guard
+        # exists for is a kernel whose sizing moved while the guard kept its old model.
+        bytes_per = max(bytes_per, _philocal_bytes_per_sample_pt(like))
+    elif getattr(like, "angle_marg_scheme", None) == "peak-local":
+        # The streamed (phi_chunk,n_x,4,u_live) body, one chunk's (phi_chunk,n_x)
+        # values, the (n_x,) phi accumulator and the per-distance-node joint tables.
+        # None of these grows with n_phi now that the scan reduces into its carry.
+        bytes_per = max(bytes_per, _peaklocal_bytes_per_sample_pt(like))
+    target = _angle_marg_buffer_target()
+    per_sample = bytes_per * npts
+    if per_sample > target:
+        # FAIL CLOSED.  This branch used to be `cap = max(1, target // per_sample)`,
+        # which returns 1 here and therefore hands back a chunk whose buffer is
+        # `per_sample` bytes -- larger than the target this function exists to enforce.
+        # The floor made the bound silently untrue on any device small enough, which is
+        # not the same failure as being slow.  peak-local reaches it at production
+        # dimensions: phi_chunk 16, n_x 256, four cells, an 8-node stream block, the
+        # stacked phi scan and npts 1230 is 2.03 GiB for ONE sample, so a 2 GiB card
+        # (1 GiB allowance at the
+        # default fraction) cannot honour the bound at any chunk size.
+        #
+        # The alternative repair is kernel-level tiling of the buffer itself.  That is a
+        # real option and a much larger change; until someone does it, the honest thing
+        # is to say the bound cannot be met rather than to report a chunk that breaks it.
+        #
+        # MemoryError, matching RIFT.likelihood.time_posterior's
+        # validate_time_posterior_working_set: same shape (a preflight refusal of a
+        # dense working set, with the estimate, the dimensions, the limit and the knobs
+        # in the message), so it gets the same type.  It also lets a caller that wants
+        # to fall back to a cheaper scheme catch this narrowly instead of every
+        # RuntimeError the eval path can raise.
+        raise MemoryError(
+            "angle-marginalization resource preflight: scheme %r cannot honour the "
+            "buffer bound at ANY chunk size: one "
+            "sample needs %d bytes (%.2f GiB) -- %d bytes per sample per time point x "
+            "npts=%d -- against an allowance of %d bytes (%.2f GiB).  Returning a chunk "
+            "of 1 would ask the device for the full %.2f GiB and OOM, so this refuses "
+            "instead.  Act on one of: raise the allowance with "
+            "RIFT_ANGLEMARG_BUFFER_FRACTION (a fraction, at most 1.0, of the memory the "
+            "device reports FREE -- it has no effect when that could not be read, and "
+            "note that the free figure moves with whoever else is on the card) or "
+            "RIFT_ANGLEMARG_BUFFER_BYTES (an absolute byte allowance, which wins over "
+            "both the device probe and the %d-byte fallback); shorten the time window "
+            "(npts); shrink the distance grid (n_x), which drives the peak-local model; "
+            "or run a cheaper angle_marg_scheme.  The sample axis is the only axis this "
+            "cap can divide, so no chunk size is a fix; reducing the outer "
+            "evaluation chunk cannot make this call fit."
+            % (getattr(like, "angle_marg_scheme", None), per_sample,
+               per_sample / float(1 << 30), bytes_per, npts, target,
+               target / float(1 << 30), per_sample / float(1 << 30),
+               _ANGLE_MARG_BUFFER_TARGET_FALLBACK))
+    # No max(..., 1) here, deliberately: the refusal above is what guarantees
+    # `per_sample <= target`, so the floor division is already at least 1.  Restoring the
+    # floor would restore the defect -- it is the floor, not the division, that broke the
+    # bound.  And a floor LARGER than one breaks it in the other direction for long but
+    # valid time windows (npts=65537 with a floor of 64 requested ~32 GiB).
+    cap = target // per_sample
     return min(chunk, cap)
-    # A floor larger than one defeats the memory bound for long, valid time
-    # windows (for example npts=65537 made a floor of 64 request ~32 GiB).
 
 
-def eval_lnL(like, theta, chunk=_EVAL_CHUNK):
+def eval_lnL(like, theta, chunk=None):
     """Evaluate the distance-marginalized lnL on an ``(N, 5)`` array in chunks.
 
     Chunking bounds peak device memory (the distance grid multiplies the batch
     dimension inside the likelihood).
     """
+    if chunk is None:
+        chunk = _default_eval_chunk()
     theta = np.atleast_2d(theta)
     chunk = angle_marg_eval_chunk(like, chunk)
     N = theta.shape[0]
@@ -443,6 +877,35 @@ def _moment_match(theta, logL):
     evals = np.clip(evals, floor, None)
     cov = (V * evals) @ V.T
     return mu, cov
+
+
+def regularize_cov(cov, rel=1e-12):
+    """The covariance a Gaussian proposal must use for BOTH its Cholesky draw
+    and its density.
+
+    Two properties, and each one alone was a live defect (issue #227):
+
+    RELATIVE, not absolute.  An ``+ eps*I`` regularizer with a fixed ``eps``
+    is only negligible if the covariance is O(1).  A production extrinsic
+    posterior is not: on the real S250114ax point in #227 (rho ~ 49) the driver's
+    own Fisher gives angular scales ~1e-3 rad, and an ADAPTING proposal contracts
+    far below that -- to 3e-21 there.  ``1e-12`` then stops being a conditioning
+    nudge and becomes the proposal.  Scaling by ``trace(cov)/dim`` makes the nudge
+    a fixed fraction of the covariance at every scale.
+
+    ONE matrix.  Callers must pass this return value to the Cholesky *and* to
+    ``_gaussian_logq``/``_mixture_logq``.  Drawing from ``cov + eps*I`` while
+    scoring under bare ``cov`` computes importance weights against a
+    distribution that was never sampled; with ``cov ~ 3e-21`` and ``eps=1e-12``
+    the Mahalanobis term is ``(1e-6/sqrt(3e-21))**2 ~ 3e8`` per dimension, which
+    is how ``--mode laplace-is`` returned ``lnZ = 5.8e9`` and exited 0.
+    """
+    cov = np.asarray(cov, dtype=float)
+    d = cov.shape[-1]
+    scale = float(np.trace(cov)) / d
+    if not np.isfinite(scale) or scale <= 0.0:
+        scale = 1.0        # degenerate/zero covariance: fall back to absolute
+    return cov + (rel * scale) * np.eye(d)
 
 
 def _finalize_evidence(logZ, sigma_over_Z, neff, max_lnL):
@@ -777,6 +1240,8 @@ def multistart_nuts(like, d_min, d_max, n_starts=8, num_warmup=300,
         mus, covs = [mu], [cov * proposal_inflate]
     n_comp = len(mus)
     weights = np.full(n_comp, 1.0 / n_comp)
+    # ONE matrix per component for both the draw and _mixture_logq below (#227).
+    covs = [regularize_cov(cv) for cv in covs]
 
     # draw from the mixture
     counts = rng.multinomial(n_is, weights)
@@ -784,7 +1249,7 @@ def multistart_nuts(like, d_min, d_max, n_starts=8, num_warmup=300,
     for c in range(n_comp):
         if counts[c] == 0:
             continue
-        Lc = np.linalg.cholesky(covs[c] + 1e-12 * np.eye(5))
+        Lc = np.linalg.cholesky(covs[c])
         z = rng.standard_normal((counts[c], 5))
         draws.append(mus[c][None, :] + z @ Lc.T)
     th_is = np.concatenate(draws, axis=0)
@@ -946,8 +1411,8 @@ def flowmc_sample(like, d_min, d_max, n_chains=20, n_local_steps=20,
     logZ = sigma_over_Z = neff = np.nan
     if len(theta) >= 6:
         mu, cov = _moment_match(theta, np.zeros(len(theta)))
-        cov = cov * 2.0
-        Lc = np.linalg.cholesky(cov + 1e-12 * np.eye(n_dim))
+        cov = regularize_cov(cov * 2.0)   # ONE matrix: draw and density (#227)
+        Lc = np.linalg.cholesky(cov)
         n_is = 40000
         z = rng.standard_normal((n_is, n_dim))
         th_is = mu[None, :] + z @ Lc.T
@@ -1015,8 +1480,10 @@ def _log_prior_4_jax(theta4):
     return jnp.where(inb, logp, -1e30)
 
 
-def eval_lnL_4(like, theta, chunk=_EVAL_CHUNK, desc="lnL"):
+def eval_lnL_4(like, theta, chunk=None, desc="lnL"):
     """Evaluate the 4-param (phi-marginalised) lnL on an ``(N, 4)`` array."""
+    if chunk is None:
+        chunk = _default_eval_chunk()
     theta = np.atleast_2d(theta)
     chunk = angle_marg_eval_chunk(like, chunk)
     N = theta.shape[0]
@@ -1112,8 +1579,10 @@ def _log_prior_3_jax(theta3):
     return jnp.where(inb, logp, -1e30)
 
 
-def eval_lnL_3(like, theta, chunk=_EVAL_CHUNK, desc="lnL"):
+def eval_lnL_3(like, theta, chunk=None, desc="lnL"):
     """Evaluate the 3-param (phi+psi-marginalised) lnL on an ``(N, 3)`` array."""
+    if chunk is None:
+        chunk = _default_eval_chunk()
     theta = np.atleast_2d(theta)
     chunk = angle_marg_eval_chunk(like, chunk)
     N = theta.shape[0]
@@ -1594,8 +2063,8 @@ def flowmc_sample_phimarg(like, d_min, d_max, n_chains=20, n_local_steps=20,
                     print("  [evidence] Laplace diag failed: %r" % e)
     elif len(theta) >= 6:
         mu, cov = _moment_match(theta, np.zeros(len(theta)))
-        cov = cov * 2.0
-        Lc = np.linalg.cholesky(cov + 1e-12 * np.eye(n_dim))
+        cov = regularize_cov(cov * 2.0)   # ONE matrix: draw and density (#227)
+        Lc = np.linalg.cholesky(cov)
         n_is = 40000
         z = rng.standard_normal((n_is, n_dim))
         th_is = mu[None, :] + z @ Lc.T
@@ -1628,8 +2097,10 @@ def flowmc_sample_phimarg(like, d_min, d_max, n_chains=20, n_local_steps=20,
         if mapT is not None:
             cov_is = (float(fisher_is_inflate) ** 2) * (A_is @ A_is.T)
             cov_is = 0.5 * (cov_is + cov_is.T)
+            # ONE matrix: this is what _gaussian_logq is given below (#227).
+            cov_is = regularize_cov(cov_is)
             try:
-                Lc = np.linalg.cholesky(cov_is + 1e-12 * np.eye(n_dim))
+                Lc = np.linalg.cholesky(cov_is)
                 N = int(fisher_is_samples)
                 z = rng.standard_normal((N, n_dim))
                 th_is = mapT[None, :] + z @ Lc.T
@@ -1877,6 +2348,415 @@ def smc_puffball_sample(like, d_min, d_max, n_walkers=2000, seed=0,
 
 
 # ---------------------------------------------------------------------------
+# 2c. Adaptive-volume / portfolio backends (value-only JAX likelihood)
+# ---------------------------------------------------------------------------
+
+_FULL_EXTRINSIC_ORDER = ("ra", "dec", "psi", "incl", "phiref", "distMpc")
+
+
+def _av_param_order(like):
+    """Parameter order exposed by a JAX likelihood, including the bare 6-D case."""
+    order = tuple(getattr(like, "ANGULAR_PARAM_ORDER", ()))
+    if order:
+        return order
+    return _FULL_EXTRINSIC_ORDER
+
+
+def _av_sample_bounds(order, d_min, d_max, sample_d_min=None,
+                      sample_d_max=None, sample_bounds=None):
+    """Validate and resolve AV sampling limits without renormalizing the prior."""
+    requested = dict(sample_bounds or {})
+    if sample_d_min is not None or sample_d_max is not None:
+        requested["distMpc"] = (
+            d_min if sample_d_min is None else sample_d_min,
+            d_max if sample_d_max is None else sample_d_max)
+    unknown = set(requested) - set(order)
+    if unknown:
+        raise ValueError("sampling bounds name coordinates absent from likelihood: %s"
+                         % ", ".join(sorted(unknown)))
+    resolved = {}
+    for name in order:
+        physical_lo, physical_hi, _ = _av_prior_spec(name, d_min, d_max)
+        lo, hi = requested.get(name, (physical_lo, physical_hi))
+        lo, hi = float(lo), float(hi)
+        if not np.isfinite(lo) or not np.isfinite(hi) or lo >= hi:
+            raise ValueError("invalid sampling bounds for %s: (%r, %r)"
+                             % (name, lo, hi))
+        if lo < physical_lo or hi > physical_hi:
+            raise ValueError("sampling bounds for %s must lie within [%g, %g]"
+                             % (name, physical_lo, physical_hi))
+        resolved[name] = (lo, hi)
+    return resolved
+
+
+def _av_prior_draw(order, n, rng, d_min, d_max, sample_bounds=None):
+    """Draw the physical prior conditioned only on the AV sampling window."""
+    bounds = _av_sample_bounds(order, d_min, d_max,
+                               sample_bounds=sample_bounds)
+    def interval(name):
+        return bounds.get(name, _av_prior_spec(name, d_min, d_max)[:2])
+    ra_lo, ra_hi = interval("ra") if "ra" in order else (0.0, _TWO_PI)
+    dec_lo, dec_hi = interval("dec") if "dec" in order else (-_PI / 2, _PI / 2)
+    psi_lo, psi_hi = interval("psi") if "psi" in order else (0.0, _PI)
+    inc_lo, inc_hi = interval("incl") if "incl" in order else (0.0, _PI)
+    phase_name = "phiref_shifted" if "phiref_shifted" in order else "phiref"
+    phase_lo, phase_hi = interval(phase_name) if phase_name in order else (0.0, _TWO_PI)
+    pp_lo, pp_hi = interval("phase_p") if "phase_p" in order else (0.0, 2.0 * _TWO_PI)
+    pm_lo, pm_hi = interval("phase_m") if "phase_m" in order else (0.0, 2.0 * _TWO_PI)
+    dist_lo, dist_hi = interval("distMpc") if "distMpc" in order else (d_min, d_max)
+    draws = {
+        "ra": rng.uniform(ra_lo, ra_hi, n),
+        "dec": np.arcsin(rng.uniform(np.sin(dec_lo), np.sin(dec_hi), n)),
+        "psi": rng.uniform(psi_lo, psi_hi, n),
+        "incl": np.arccos(rng.uniform(np.cos(inc_hi), np.cos(inc_lo), n)),
+        "phiref": rng.uniform(phase_lo, phase_hi, n),
+        "phiref_shifted": rng.uniform(phase_lo, phase_hi, n),
+        "phase_p": rng.uniform(pp_lo, pp_hi, n),
+        "phase_m": rng.uniform(pm_lo, pm_hi, n),
+        "distMpc": np.cbrt(rng.uniform(dist_lo ** 3, dist_hi ** 3, n)),
+    }
+    return np.column_stack([draws[name] for name in order])
+
+
+def _av_prior_spec(name, d_min, d_max, sample_d_min=None, sample_d_max=None,
+                   sample_bounds=None):
+    """Return ``(lo, hi, physical_density)`` for one wrapper coordinate."""
+    if name == "ra":
+        spec = (0.0, _TWO_PI, lambda x: np.ones(np.shape(x)) / _TWO_PI)
+    elif name == "dec":
+        spec = (-_PI / 2, _PI / 2,
+                lambda x: 0.5 * np.maximum(np.cos(np.asarray(x)), 0.0))
+    elif name == "psi":
+        spec = (0.0, _PI, lambda x: np.ones(np.shape(x)) / _PI)
+    elif name == "incl":
+        spec = (0.0, _PI,
+                lambda x: 0.5 * np.maximum(np.sin(np.asarray(x)), 0.0))
+    elif name in ("phiref", "phiref_shifted"):
+        spec = (0.0, _TWO_PI, lambda x: np.ones(np.shape(x)) / _TWO_PI)
+    elif name in ("phase_p", "phase_m"):
+        spec = (0.0, 2.0 * _TWO_PI,
+                lambda x: np.ones(np.shape(x)) / (2.0 * _TWO_PI))
+    elif name == "distMpc":
+        norm = 3.0 / (float(d_max) ** 3 - float(d_min) ** 3)
+        spec = (float(d_min if sample_d_min is None else sample_d_min),
+                float(d_max if sample_d_max is None else sample_d_max),
+                lambda x, _norm=norm: _norm * np.asarray(x) ** 2)
+    else:
+        raise ValueError("unsupported JAX-ILE adaptive-volume parameter %r" % (name,))
+    if sample_bounds and name in sample_bounds:
+        return float(sample_bounds[name][0]), float(sample_bounds[name][1]), spec[2]
+    return spec
+
+
+def _fixed_shape_value_callback(like, n_dim, eval_chunk):
+    """Build an AV callback that compiles only one JAX batch shape.
+
+    AV's number of occupied bins changes as it contracts, so its raw draw length
+    changes slightly from cycle to cycle.  Passing that length straight to a jitted
+    likelihood recompiles the likelihood every cycle.  Split into fixed blocks and
+    pad only the last block; padding changes neither returned rows nor the integral.
+    """
+    eval_chunk = int(angle_marg_eval_chunk(like, max(1, int(eval_chunk))))
+
+    def lnL(*cols):
+        # AV can be configured with cupy even though the JAX likelihood owns the
+        # accelerator.  ``np.asarray(cupy_array)`` intentionally raises; ``get``
+        # is the explicit host handoff needed before JAX transfers each fixed
+        # block to its device.  This also covers portfolio's selfish AV update,
+        # which does not have integrate_log's host-fallback wrapper.
+        host_cols = [(c.get() if hasattr(c, "get") else np.asarray(c))
+                     for c in cols]
+        x = np.column_stack([np.asarray(c, dtype=float).reshape(-1)
+                             for c in host_cols])
+        if x.shape[1] != n_dim:
+            raise ValueError("JAX-AV callback expected %d columns, got %d"
+                             % (n_dim, x.shape[1]))
+        out = np.empty(len(x), dtype=float)
+        for start in range(0, len(x), eval_chunk):
+            stop = min(start + eval_chunk, len(x))
+            block = x[start:stop]
+            if len(block) < eval_chunk:
+                block = np.concatenate(
+                    [block, np.repeat(block[-1:], eval_chunk - len(block), axis=0)],
+                    axis=0)
+            val = like.log_likelihood(*[block[:, j] for j in range(n_dim)])
+            out[start:stop] = np.asarray(val, dtype=float)[:stop - start]
+        return out
+
+    lnL.eval_chunk = eval_chunk
+    return lnL
+
+
+def _sky_distance(a, b):
+    return float(np.arccos(np.clip(
+        np.sin(a[1]) * np.sin(b[1])
+        + np.cos(a[1]) * np.cos(b[1]) * np.cos(a[0] - b[0]), -1.0, 1.0)))
+
+
+def _fisher_sky_seed(like, order, lnL, rng, d_min, d_max, n_seed,
+                     n_pilot, n_modes, sky_inflate, prior_frac,
+                     initial_points=None, sample_bounds=None, verbose=False):
+    """Hill-climb modes, then draw Fisher sky / physical-prior other coordinates.
+
+    This is deliberately a proposal initializer, not part of the estimator.  The
+    likelihood calls in the AV integration remain value-only.  A fraction of the
+    cloud is left as a full-prior draw; in portfolio mode the GMM's defensive
+    component supplies the actual full-support guarantee (a finite point cloud
+    alone cannot provide one).
+    """
+    from scipy.optimize import minimize
+
+    n_pilot = max(int(n_pilot), int(n_modes), 1)
+    pilot = _av_prior_draw(order, n_pilot, rng, d_min, d_max, sample_bounds)
+    pilot_lnL = lnL(*pilot.T)
+    ranked = np.argsort(np.where(np.isfinite(pilot_lnL), pilot_lnL, -np.inf))[::-1]
+    seeds = []
+    if initial_points is not None:
+        supplied = np.atleast_2d(np.asarray(initial_points, dtype=float))
+        if supplied.shape[1] != len(order):
+            raise ValueError("initial_points must have %d columns, got %d"
+                             % (len(order), supplied.shape[1]))
+        seeds.extend(supplied)
+    for idx in ranked:
+        if len(seeds) >= int(n_modes):
+            break
+        candidate = pilot[idx]
+        if not seeds or all(_sky_distance(candidate, old) >= 0.25 for old in seeds):
+            seeds.append(candidate)
+        if len(seeds) >= int(n_modes):
+            break
+    if not seeds:
+        raise RuntimeError("the Fisher-sky prior pilot found no finite likelihood")
+
+    bounds = [_av_prior_spec(name, d_min, d_max,
+                             sample_bounds=sample_bounds)[:2] for name in order]
+    # Avoid evaluating the Jacobian-singular orientation endpoints during AD.
+    bounds = [(lo + 1e-6 if name in ("dec", "incl") else lo,
+               hi - 1e-6 if name in ("dec", "incl") else hi)
+              for name, (lo, hi) in zip(order, bounds)]
+
+    def objective(x):
+        value, grad = like.value_and_grad(x)
+        return -float(value), -np.asarray(grad, dtype=float)
+
+    modes = []
+    for seed_theta in seeds:
+        try:
+            result = minimize(objective, seed_theta, jac=True, method="L-BFGS-B",
+                              bounds=bounds, options={"maxiter": 120})
+            theta = np.asarray(result.x if np.isfinite(result.fun) else seed_theta)
+            value = -float(result.fun) if np.isfinite(result.fun) else float(
+                lnL(*seed_theta[:, None])[0])
+            fisher = np.asarray(like.fisher(theta), dtype=float)
+            fisher = 0.5 * (fisher + fisher.T)
+            # Marginalize over the nuisance angles.  Inverting only F[:2,:2]
+            # would give the conditional sky covariance and is too narrow when
+            # sky is correlated with polarization, inclination, or phase.
+            full_cov = np.linalg.pinv(fisher, rcond=1e-12)
+            sky_cov = 0.5 * (full_cov[:2, :2] + full_cov[:2, :2].T)
+            eig, vec = np.linalg.eigh(sky_cov)
+            # Cap the one-sigma sky width at one radian: weak curvature should
+            # remain broad, while a sharp high-SNR sky peak gets its 1/rho scale.
+            floor = max(float(np.max(eig)) * 1e-10, 1e-16)
+            var = float(sky_inflate) ** 2 * np.clip(eig, floor, None)
+            cov = (vec * np.minimum(var, 1.0)) @ vec.T
+            modes.append((theta, cov, value))
+        except Exception as exc:  # one failed mode must not discard the good ones
+            if verbose:
+                print("  [JAX-AV seed] hill climb skipped: %s" % exc)
+    if not modes:
+        raise RuntimeError("all Fisher-sky hill climbs failed")
+    modes.sort(key=lambda item: item[2], reverse=True)
+
+    n_seed = max(int(n_seed), len(order) + 2)
+    n_prior = int(np.clip(float(prior_frac), 0.0, 1.0) * n_seed)
+    n_focus = n_seed - n_prior
+    focused = _av_prior_draw(order, n_focus, rng, d_min, d_max, sample_bounds)
+    counts = np.full(len(modes), n_focus // len(modes), dtype=int)
+    counts[:n_focus % len(modes)] += 1
+    cursor = 0
+    for (mode, cov, _), count in zip(modes, counts):
+        if count == 0:
+            continue
+        sky = rng.multivariate_normal(mode[:2], cov, size=count)
+        ra_lo, ra_hi = bounds[0]
+        dec_lo, dec_hi = bounds[1]
+        sky[:, 0] = np.mod(sky[:, 0], _TWO_PI)
+        # A restricted, non-wrapping RA window cannot use periodic wrap as a
+        # boundary condition. Clip the seed proposal to the declared window;
+        # integration weights remain governed by the physical prior.
+        focused[cursor:cursor + count, 0] = np.clip(
+            sky[:, 0], ra_lo + 1e-9, ra_hi - 1e-9)
+        focused[cursor:cursor + count, 1] = np.clip(
+            sky[:, 1], dec_lo + 1e-9, dec_hi - 1e-9)
+        cursor += count
+    cloud = focused
+    if n_prior:
+        cloud = np.vstack([cloud, _av_prior_draw(
+            order, n_prior, rng, d_min, d_max, sample_bounds)])
+    if verbose:
+        print("  [JAX-AV seed] %d hill-climbed sky mode(s), %d seed points "
+              "(%d full-prior)" % (len(modes), len(cloud), n_prior))
+    return cloud, np.asarray([m[0] for m in modes]), np.asarray([m[2] for m in modes])
+
+
+def adaptive_volume_sample(like, d_min, d_max, sampler_method="AV",
+                           portfolio_members=("AV", "GMM"), nmax=300000,
+                           neff=1000, n_chunk=8000, eval_chunk=None, seed=0,
+                           seed_method="none", seed_pilot=4000, seed_modes=4,
+                           seed_points=None, seed_initial_points=None,
+                           initial_samples=None,
+                           sky_inflate=2.0,
+                           seed_prior_frac=0.1, anisotropic_bins=True,
+                           gmm_components=2,
+                           verbose=False, sample_d_min=None, sample_d_max=None,
+                           sample_bounds=None):
+    """Run production AV/portfolio control logic on a value-only JAX likelihood.
+
+    ``sampler_method`` is ``AV`` or ``portfolio``.  The optional ``fisher-sky``
+    seed pays a small, explicit AD startup cost (multi-start hill climb plus local
+    Hessians); all integration calls use only ``like.log_likelihood``.  Portfolio
+    defaults to AV+GMM so its defensive mixture retains full support even when the
+    seeded AV live volume covers only selected sky modes.
+    """
+    from RIFT.integrators import mcsamplerAdaptiveVolume as AV
+
+    method = str(sampler_method)
+    if method not in ("AV", "portfolio"):
+        raise ValueError("sampler_method must be 'AV' or 'portfolio', got %r" % method)
+    order = _av_param_order(like)
+    n_dim = len(order)
+    resolved_bounds = _av_sample_bounds(
+        order, d_min, d_max, sample_d_min, sample_d_max, sample_bounds)
+    # Decouple AV's coverage cloud from the accelerator batch.  AV often needs
+    # a large n_chunk to hit a narrow sky mode, while the marginalized JAX
+    # kernel has a much smaller memory-efficient batch.  The callback loops over
+    # this fixed shape, so increasing coverage does not increase device memory.
+    eval_chunk = int(eval_chunk or min(int(n_chunk), _default_eval_chunk()))
+    lnL = _fixed_shape_value_callback(like, n_dim, eval_chunk)
+
+    av_member = AV.MCSampler(n_chunk=int(n_chunk))
+    if method == "AV":
+        sampler = av_member
+    else:
+        from RIFT.integrators import mcsamplerEnsemble as GMM
+        from RIFT.integrators import mcsamplerPortfolio as Portfolio
+        members = []
+        member_setup_args = []
+        for name in portfolio_members:
+            key = str(name).strip().upper()
+            if key == "AV":
+                members.append(av_member if not any(m is av_member for m in members)
+                               else AV.MCSampler(n_chunk=int(n_chunk)))
+                member_setup_args.append({})
+            elif key == "GMM":
+                members.append(GMM.MCSampler())
+                # At least two components are required whenever a narrow mode
+                # crosses a periodic box boundary (Event B has phiref=0).  One
+                # Euclidean Gaussian spans the whole [0,2pi] box and destroys
+                # the sky/phase correlations in an otherwise excellent seed.
+                member_setup_args.append({"n_comp": max(2, int(gmm_components))})
+            else:
+                raise ValueError("JAX portfolio member %r is unsupported; use AV or GMM"
+                                 % name)
+        if not members:
+            raise ValueError("JAX portfolio needs at least one member")
+        sampler = Portfolio.MCSampler(portfolio=members, n_chunk=int(n_chunk))
+
+    for name in order:
+        lo, hi = resolved_bounds[name]
+        prior = _av_prior_spec(name, d_min, d_max)[2]
+        sampler.add_parameter(name, pdf=None, left_limit=lo, right_limit=hi,
+                              prior_pdf=prior, adaptive_sampling=True)
+    setup_kwargs = {"anisotropic_bins": bool(anisotropic_bins)}
+    if method == "portfolio":
+        setup_kwargs["portfolio_args"] = member_setup_args
+    sampler.setup(**setup_kwargs)
+
+    seed_cloud = seed_modes_theta = seed_modes_lnL = None
+    if initial_samples is not None:
+        if seed_method not in (None, "none"):
+            raise ValueError("initial_samples and seed_method are mutually exclusive")
+        seed_cloud = np.atleast_2d(np.asarray(initial_samples, dtype=float))
+        if seed_cloud.shape[1] != n_dim:
+            raise ValueError("initial_samples must have %d columns, got %d"
+                             % (n_dim, seed_cloud.shape[1]))
+        for j, name in enumerate(order):
+            lo, hi = resolved_bounds[name]
+            if np.any(seed_cloud[:, j] < lo) or np.any(seed_cloud[:, j] > hi):
+                raise ValueError("initial_samples fall outside sampling bounds for %s"
+                                 % name)
+        sampler.bootstrap_from_samples(seed_cloud, params=order, seed=seed)
+        if verbose:
+            print("  [JAX-AV seed] bootstrapped from %d caller/oracle samples"
+                  % len(seed_cloud))
+    elif seed_method not in (None, "none"):
+        if seed_method != "fisher-sky":
+            raise ValueError("unknown JAX-AV seed method %r" % seed_method)
+        seed_cloud, seed_modes_theta, seed_modes_lnL = _fisher_sky_seed(
+            like, order, lnL, np.random.default_rng(seed), d_min, d_max,
+            n_seed=(seed_points or n_chunk), n_pilot=seed_pilot,
+            n_modes=seed_modes, sky_inflate=sky_inflate,
+            prior_frac=seed_prior_frac, initial_points=seed_initial_points,
+            sample_bounds=resolved_bounds, verbose=verbose)
+        if method == "portfolio":
+            sampler.bootstrap_from_samples(seed_cloud, params=order, seed=seed)
+        else:
+            print("  [JAX-AV seed] WARNING: standalone seeded AV has compact "
+                  "support; the prior seed fraction is a diagnostic safety net, "
+                  "not a full-support guarantee.  Prefer --sampler-method portfolio.")
+            sampler.bootstrap_from_samples(seed_cloud, params=order, seed=seed)
+
+    # The production integrators use numpy's legacy module RNG internally.
+    # Isolate that stream so --seed controls this run without perturbing a
+    # caller's RNG (notably later events in the same JAX-ILE batch).
+    numpy_rng_state = np.random.get_state()
+    np.random.seed(int(seed))
+    try:
+        result = sampler.integrate_log(
+            lnL, *order, nmax=int(nmax), neff=float(neff), n=int(n_chunk),
+            no_protect_names=True, verbose=bool(verbose), save_intg=True,
+            tempering_exp=1.0, anisotropic_bins=bool(anisotropic_bins),
+            # Standalone AV can keep device-typed internal arrays when cupy is
+            # importable even though this adapter evaluates on the host.  Its
+            # legacy in-integrator fair draw mixes those backends.  Return the
+            # retained weighted population instead; callers have the exact
+            # log_weight below and can resample without changing the integral.
+            igrand_fairdraw_samples=(method != "AV"),
+            igrand_fairdraw_samples_max=max(int(1.5 * float(neff)), 1))
+    finally:
+        np.random.set_state(numpy_rng_state)
+    logZ, log_var, eff_samp, diagnostics = result
+    if logZ is None:
+        raise RuntimeError("JAX-%s terminated without an evidence estimate" % method)
+    if method == "AV" and diagnostics.get("live_volume_collapsed", False):
+        raise RuntimeError("JAX-AV live-volume collapse: %s" %
+                           diagnostics.get("collapse_reason", "unspecified"))
+
+    theta = np.column_stack([np.asarray(sampler._rvs[name], dtype=float)
+                             for name in order])
+    out_lnL = np.asarray(sampler._rvs["log_integrand"], dtype=float)
+    already_fair = bool(getattr(sampler, "_rvs_is_fairdraw", False))
+    log_weight = None
+    if not already_fair:
+        log_weight = (out_lnL
+                      + np.asarray(sampler._rvs["log_joint_prior"], dtype=float)
+                      - np.asarray(sampler._rvs["log_joint_s_prior"], dtype=float))
+    sigma_over_Z = float(np.exp(0.5 * float(log_var) - float(logZ)))
+    peak = float(np.max(out_lnL)) if len(out_lnL) else np.nan
+    logZ, sigma_over_Z, eff_samp = _finalize_evidence(
+        float(logZ), sigma_over_Z, float(eff_samp), peak)
+    return dict(theta=theta, lnL=out_lnL, logZ=logZ,
+                sigma_over_Z=sigma_over_Z, neff=eff_samp,
+                n_eval=int(getattr(sampler, "ntotal", nmax)),
+                log_weight=log_weight, sampler=sampler,
+                diagnostics=diagnostics, eval_chunk=lnL.eval_chunk,
+                seed_cloud=seed_cloud, seed_modes=seed_modes_theta,
+                seed_mode_lnL=seed_modes_lnL,
+                sample_bounds=resolved_bounds)
+
+
+# ---------------------------------------------------------------------------
 # 3. Fisher-preconditioned importance sampling (high-SNR)
 # ---------------------------------------------------------------------------
 _BOUNDS5 = [(0.0, _TWO_PI), (-_PI / 2 + 1e-3, _PI / 2 - 1e-3),
@@ -1969,11 +2849,15 @@ def fisher_is_sample(like, n_samples=20000, n_starts=16, n_prior_pilot=20000,
     var = inflate / np.clip(w, inflate / max_std ** 2, None)   # cap variance
     cov = (V * var) @ V.T
     cov = 0.5 * (cov + cov.T)
-    Lc = np.linalg.cholesky(cov + 1e-12 * np.eye(5) * np.trace(cov) / 5)
+    # Already relative before #227 -- routed through the helper so that the
+    # draw and the density are literally the same object at every site, and so
+    # the grep for the defect pattern returns nothing.
+    cov_q = regularize_cov(cov)
+    Lc = np.linalg.cholesky(cov_q)
 
     z = rng.standard_normal((n_samples, 5))
     theta = _wrap_angles(th0[None, :] + z @ Lc.T)
-    logq = _gaussian_logq(th0[None, :] + z @ Lc.T, th0, cov)  # q on the raw draw
+    logq = _gaussian_logq(th0[None, :] + z @ Lc.T, th0, cov_q)  # q on the raw draw
     logp = log_prior(theta)
     valid = np.isfinite(logp)
     lnL = np.full(n_samples, -np.inf)
@@ -2225,13 +3109,15 @@ def fisher_nuts_sample_phimarg(like, num_warmup=300, num_samples=1000,
         mu, cov = _moment_match(theta, np.zeros(len(theta)))
         mus, covs = [mu], [cov * 2.0]
     weights = np.full(len(mus), 1.0 / len(mus))
+    # ONE matrix per component for both the draw and _mixture_logq below (#227).
+    covs = [regularize_cov(cv) for cv in covs]
 
     counts = rng.multinomial(n_is, weights)
     draws, comp_of_draw = [], []
     for c in range(len(mus)):
         if counts[c] == 0:
             continue
-        Lc = np.linalg.cholesky(covs[c] + 1e-12 * np.eye(4))
+        Lc = np.linalg.cholesky(covs[c])
         z = rng.standard_normal((counts[c], 4))
         draws.append(mus[c][None, :] + z @ Lc.T)
         comp_of_draw.append(np.full(counts[c], c))

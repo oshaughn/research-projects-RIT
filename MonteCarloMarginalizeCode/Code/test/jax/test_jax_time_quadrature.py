@@ -364,6 +364,7 @@ def test_bandlimited_refuses_arrival_time_dependent_norms():
             self.feature = feature
 
     assert _norm_is_arrival_time_dependent(_StubData("rotation"))
+    assert _norm_is_arrival_time_dependent(_StubData("rotation_freqresponse"))
     assert not _norm_is_arrival_time_dependent(_StubData("freqresponse"))
     assert not _norm_is_arrival_time_dependent(_StubData(None))
 

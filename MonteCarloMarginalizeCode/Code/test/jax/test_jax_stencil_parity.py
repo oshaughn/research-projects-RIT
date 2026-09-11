@@ -368,16 +368,50 @@ def test_accumulators_pass_separable_u():
     # ... and the offset must actually be BUILT, conditionally on the stencil.  Checking only
     # that a third argument is present is not enough: `u_sep = None` everywhere would satisfy
     # that while silently disabling the memory fix, which nothing else here would catch.
-    assigns = [n for n in ast.walk(tree) if isinstance(n, ast.Assign)
-               and any(isinstance(t, ast.Name) and t.id == "u_sep" for t in n.targets)]
-    assert len(assigns) >= 2, "expected a u_sep assignment per accumulator, found %d" % len(assigns)
-    for a in assigns:
-        src_expr = ast.unparse(a.value)
-        assert "_separable_u" in src_expr, \
-            "u_sep no longer builds the separable offset (%s); the memory fix is disabled" % src_expr
-        assert isinstance(a.value, ast.IfExp), \
-            ("u_sep is unconditional (%s); it must stay gated off the stencils that ignore u -- "
-             "feeding it to 'nearest' cost >60%% wall on the banded path" % src_expr)
+    #
+    # RETARGETED 2026-09-07 (Q time pregrid).  The construction used to be inlined in each
+    # accumulator, and this counted `u_sep = ...` assignments, expecting one per accumulator.
+    # It is now hoisted into ``_q_sample_positions``, which both accumulators call, so that
+    # count stopped describing the code and the guard failed on a refactor it should not have
+    # objected to.  The invariant is unchanged and is checked against the structure that now
+    # carries it -- and more of it, since the accumulators must take the offset from the shared
+    # owner rather than fabricating one.
+    owner = [n for n in ast.walk(tree)
+             if isinstance(n, ast.FunctionDef) and n.name == "_q_sample_positions"]
+    assert len(owner) == 1, "expected exactly one _q_sample_positions, found %d" % len(owner)
+    owner = owner[0]
+
+    built = [n for n in ast.walk(owner) if isinstance(n, ast.Call)
+             and isinstance(n.func, ast.Name) and n.func.id == "_separable_u"]
+    assert len(built) >= 2, (
+        "_q_sample_positions builds the separable offset on %d of its paths; every path that "
+        "returns one must build it, or the memory fix is disabled on that path" % len(built))
+
+    gated = [n for n in ast.walk(owner) if isinstance(n, ast.IfExp)
+             and "_separable_u" in ast.unparse(n)]
+    assert gated, ("the separable offset is unconditional; it must stay gated off the stencils "
+                   "that ignore u -- feeding it to 'nearest' cost >60% wall on the banded path")
+
+    for r in [n for n in ast.walk(owner) if isinstance(n, ast.Return) and n.value is not None]:
+        if isinstance(r.value, ast.Tuple) and len(r.value.elts) == 2:
+            second = r.value.elts[1]
+            assert not (isinstance(second, ast.Constant) and second.value is None), \
+                "_q_sample_positions returns a hard-coded None offset: %s" % ast.unparse(r.value)
+
+    for fname in ("_accumulate_unit", "_accumulate_unit_banded"):
+        fn = [n for n in ast.walk(tree)
+              if isinstance(n, ast.FunctionDef) and n.name == fname]
+        assert len(fn) == 1, "expected exactly one %s, found %d" % (fname, len(fn))
+        binds = [n for n in ast.walk(fn[0]) if isinstance(n, ast.Assign)
+                 and any(isinstance(t, ast.Tuple)
+                         and any(isinstance(e, ast.Name) and e.id == "u_sep" for e in t.elts)
+                         for t in n.targets)]
+        assert binds, "%s no longer binds u_sep from _q_sample_positions" % fname
+        for b in binds:
+            expr = ast.unparse(b.value)
+            assert "_q_sample_positions" in expr, (
+                "%s builds its own offset (%s) instead of taking the shared one; the two "
+                "accumulators would then be free to drift" % (fname, expr))
 
 
 def test_every_entry_point_defaults_to_the_same_stencil():

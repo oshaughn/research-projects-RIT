@@ -202,6 +202,31 @@ def test_time_marginalization_destroys_the_invariant():
     assert C[3:].max() > 1e-9 * C.max()
 
 
+def test_exact_reserve_reuses_batched_and_collapsed_coefficient_tables():
+    """Peak-local declines can reach the exact reserve without recomputing Q/U/V."""
+    data = make_synth(scale=0.1, npts=9)
+    x_grid, log_w = _dist_grid(data, n=16)
+    C_A, C_B, meta = AM.angle_coefficient_tables(
+        data, jnp.asarray(RA), jnp.asarray(DEC), jnp.asarray(INCL), INTERP)
+    assert np.max(np.abs(np.asarray(C_B[..., 0, :])
+                         - np.asarray(C_B[..., 0, :1]))) < 1.0e-12
+
+    from_tables = AM.coefficient_table_distphipsimarg_exact(
+        C_A, C_B, x_grid, log_w, amp_sizing=30.0,
+        m_max=meta["m_max"], dense_chunk=8, grid_block=8)
+    collapsed = AM.coefficient_table_distphipsimarg_exact(
+        C_A[:, :, 0, :], C_B[:, :, 0, 0], x_grid, log_w,
+        amp_sizing=30.0, m_max=meta["m_max"],
+        dense_chunk=8, grid_block=8)
+    wrapped = AM.fused_log_likelihood_distphipsimarg_exact(
+        data, jnp.asarray(RA), jnp.asarray(DEC), jnp.asarray(INCL),
+        x_grid, log_w, interp=INTERP, amp_sizing=30.0,
+        dense_chunk=8, grid_block=8, return_lnLt=True)
+
+    np.testing.assert_allclose(from_tables, wrapped, rtol=0.0, atol=2.0e-12)
+    np.testing.assert_allclose(collapsed, from_tables, rtol=0.0, atol=2.0e-12)
+
+
 # ---------------------------------------------------------------------------
 # 2. sample-grid sizing is derived and asserted, not settable
 # ---------------------------------------------------------------------------
@@ -1031,8 +1056,7 @@ def test_higher_mode_dense_sizing_self_convergence():
 
 
 def test_runtime_amp_failsafe_warns_and_records_without_excising(capfd):
-    """The undersizing guard must (a) warn, (b) RECORD on the host so the driver
-    can label the artifact, and (c) leave the value FINITE.
+    """The pure-JIT metric must be recorded synchronously without excision.
 
     (c) is the load-bearing one and is easy to get wrong in the tempting
     direction.  An earlier version returned NaN to "fail closed".  That was
@@ -1055,9 +1079,12 @@ def test_runtime_amp_failsafe_warns_and_records_without_excising(capfd):
     assert AM.amp_failsafe_state()["tripped"] is False
 
     # deliberately undersized
-    v = AM.fused_log_likelihood_distphipsimarg_exact(
-        *args, interp=INTERP, amp_sizing=AM.ANGLE_MARG_CROSSOVER_AMPLITUDE)
+    v, amp_call = AM.fused_log_likelihood_distphipsimarg_exact(
+        *args, interp=INTERP, amp_sizing=AM.ANGLE_MARG_CROSSOVER_AMPLITUDE,
+        return_amp=True)
     jax.block_until_ready(v)
+    AM.record_amp_failsafe(
+        amp_call, AM.ANGLE_MARG_CROSSOVER_AMPLITUDE, "exact")
     out = capfd.readouterr()
 
     assert "WARNING anglemarg/exact" in out.out + out.err, "guard must warn"
@@ -1074,9 +1101,10 @@ def test_runtime_amp_failsafe_warns_and_records_without_excising(capfd):
     # correctly sized: silent, and nothing recorded
     AM.reset_amp_failsafe()
     amp = AM.estimate_angle_amplitude(data, x_grid)
-    v2 = AM.fused_log_likelihood_distphipsimarg_exact(
-        *args, interp=INTERP, amp_sizing=amp)
+    v2, amp_call2 = AM.fused_log_likelihood_distphipsimarg_exact(
+        *args, interp=INTERP, amp_sizing=amp, return_amp=True)
     jax.block_until_ready(v2)
+    AM.record_amp_failsafe(amp_call2, amp, "exact")
     out = capfd.readouterr()
     assert "WARNING anglemarg" not in out.out + out.err
     assert AM.amp_failsafe_state()["tripped"] is False
@@ -1104,14 +1132,14 @@ def test_driver_labels_a_suspect_angle_grid_in_provenance():
     # write_samples() early-returns without --save-samples, so a run with export
     # disabled would otherwise publish a numeric .dat indistinguishable from a
     # clean integration.
-    assert "def angle_grid_suspect_note()" in src
+    assert "def angle_grid_suspect_note(scheme=None)" in src
     wd = src[src.index("def write_dat("):]
     wd = wd[:wd.index("\ndef ")]
-    assert "angle_grid_suspect_note()" in wd, (
+    assert "angle_note" in wd, (
         "write_dat must label the evidence artifact independently of sample export")
     # and the warning must fire per event, not only on the export path
     ao = src[src.index("def analyze_one("):]
-    assert "_ev_note = angle_grid_suspect_note()" in ao, (
+    assert "_ev_note = angle_grid_suspect_note(_scheme)" in ao, (
         "analyze_one must report once per event regardless of export settings")
     # and must not sit behind a bare except that degrades a tripped run to clean
     assert '_st = {"tripped": False}' not in src, (
@@ -1120,34 +1148,26 @@ def test_driver_labels_a_suspect_angle_grid_in_provenance():
 
 
 
-def test_failsafe_callback_is_cond_guarded_and_reads_are_barriered():
-    """Throughput and reliability constraints on the undersizing record.
-
-    An UNCONDITIONAL jax.debug.callback fires once per likelihood evaluation --
-    once per MALA/flowMC proposal, per chain -- transferring to the host and
-    destroying accelerator throughput even when undersizing never happens.  It
-    must sit inside lax.cond so the ordinary path pays nothing.
-
-    And because debug-callback effects may be dropped, duplicated, reordered, or
-    land AFTER the result is ready, every read/reset of the host record must
-    barrier first -- otherwise a caller reads clean while a tripped callback is
-    in flight, or resets before the previous event's callback arrives.
-    """
+def test_failsafe_jit_is_pure_and_host_record_accumulates_maximum():
+    """The persisted graph has no host effects; host state spans all chunks."""
     import inspect as _inspect
     from RIFT.likelihood.jax_ile import anglemarg as _AMmod
 
     src = _inspect.getsource(_AMmod._runtime_amp_failsafe)
-    i_cond = src.find("lax.cond")
-    i_cb = src.find("debug.callback")
-    assert i_cond != -1 and i_cb != -1
-    assert i_cond < i_cb, (
-        "jax.debug.callback must be INSIDE lax.cond; an unconditional callback "
-        "fires on every likelihood evaluation")
+    assert "debug.callback" not in src
+    assert "debug.print" not in src
+    assert "return amp_call" in src
 
-    for fn in (_AMmod.amp_failsafe_state, _AMmod.reset_amp_failsafe):
-        assert "effects_barrier" in _inspect.getsource(fn), (
-            "%s must barrier queued callbacks before touching the record" % fn.__name__)
+    _AMmod.reset_amp_failsafe()
+    _AMmod.record_amp_failsafe(10.0, 100.0, "exact")
+    _AMmod.record_amp_failsafe(250.0, 100.0, "exact")
+    _AMmod.record_amp_failsafe(50.0, 100.0, "exact")
+    st = _AMmod.amp_failsafe_state()
+    assert st["tripped"] is True
+    assert st["n_calls"] == 3
+    assert st["worst_amp"] == 250.0
+    assert st["amp_sizing"] == 100.0
+    assert st["scheme"] == "exact"
 
-    # and it still works end to end
     _AMmod.reset_amp_failsafe()
     assert _AMmod.amp_failsafe_state()["tripped"] is False

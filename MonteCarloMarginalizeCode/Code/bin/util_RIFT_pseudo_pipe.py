@@ -65,6 +65,10 @@ from RIFT.likelihood.time_interp_choice import (
 from RIFT.likelihood.time_marginalization_quadrature import (
     TIME_QUADRATURE_CHOICES, validate_time_quadrature,
     refuse_unhonourable_time_quadrature, refuse_unless_time_quadrature_emitted)
+# Same reason, same leaf-module discipline, for the Q_lm pregrid factor.
+from RIFT.likelihood.q_time_pregrid import (
+    Q_TIME_PREGRID_CHOICES, validate_q_time_pregrid_factor,
+    refuse_unhonourable_q_time_pregrid, refuse_unless_q_time_pregrid_emitted)
 ligolw_prefix = 'igwn_'
 if not(which(ligolw_prefix + "ligolw_add")):
     ligolw_prefix = ''
@@ -209,6 +213,17 @@ def _lisa_data_products_from_ini(opts):
 def run_lisa_known_sky_surface(opts):
     if opts.approx is None:
         print(" --lisa-known-sky requires --approx ")
+        sys.exit(1)
+    if opts.use_jax_ile:
+        # This path hardcodes integrate_likelihood_extrinsic_batchmode_lisa below
+        # (a separate, LISA-specific driver) and never reads opts.use_jax_ile; it is
+        # not "the same code" as the LDG/OSG ILE selection, so silently ignoring the
+        # flag would leave a user believing they got the JAX driver when they did
+        # not.  Refuse rather than run the wrong driver silently.
+        print(" --use-jax-ile has no effect on --lisa-known-sky: this path always "
+              "runs integrate_likelihood_extrinsic_batchmode_lisa, a separate "
+              "LISA-specific driver with no JAX equivalent in this repository.  "
+              "Drop --use-jax-ile for LISA runs.")
         sys.exit(1)
     if opts.use_ini is not None:
         # LISA production-ini path: scalars/algorithm options come from the
@@ -495,6 +510,7 @@ parser.add_argument("--internal-ile-srate-time-resampling",default=None, help=" 
 parser.add_argument("--internal-ile-srate-internal",default=None, help=" Adds --srate-internal to ILE, modifying how calculations are performed internally to use a higher sampling rate ")
 parser.add_argument("--internal-ile-interpolate-time",nargs='?',const=BARE_FLAG_SENTINEL,default=None,type=str,help="Enable sub-sample interpolation of Q_lm at fractional detector arrival times in the maintained NoLoop likelihood. REQUIRES AN EXPLICIT STENCIL: nearest|cubic|sinc -- automatic selection was removed as measurably unreliable, and a bare flag is rejected rather than silently doing nothing. MEASURED GUIDANCE (SEOBNRv4, an IMR model): %s. Forwarded verbatim to helper_LDG_Events.py, which validates it. Full tables, limitations and provenance: RIFT/likelihood/DESIGN_q_window_stencil.md." % CROSSOVER_GUIDANCE)
 parser.add_argument("--internal-ile-time-marginalization-quadrature",default=None,type=str,choices=list(TIME_QUADRATURE_CHOICES),help="Rule for the TIME integral of the marginalized likelihood in ILE: %s. Default None = pass nothing, so the ILE default ('simpson', the historical fixed-deltaT Simpson rule) is unchanged and the emitted args_ile.txt is byte-identical to today. 'bandlimited' resolves the integrand instead of the data: exp(lnL(t)) is a peak of width sigma_t = 1/(2 pi rho sigma_f), which SHRINKS AS 1/rho, while the grid spacing deltaT=1/srate is fixed by the data -- so production under-resolves its own integrand, worse at higher SNR (measured: rigidly scanning the grid phase moves the reported lnL by 1.649 nats at srate 4096, rho=40). Forwarded verbatim to helper_LDG_Events.py, which validates it and puts --time-marginalization-quadrature on the ILE command line; from args_ile.txt it reaches every ILE*.sub INCLUDING ILE_extr.sub. REFUSED, not ignored, at DAG-BUILD TIME if this workflow cannot honour it (calibration marginalization, --rotation-slow, --freqresponse, or a configuration without --time-marginalization/--vectorized/--gpu). IMPORTANT -- INI OVERRIDE: the RIFT ini parser OVERRIDES the command line for non-boolean options, and this is a string option, so NEVER set it in a --use-ini that a Makefile or wrapper also sets on the command line; the ini value would win silently. Rationale, measured tables and exclusions: RIFT/likelihood/DESIGN_time_marginalization_quadrature.md." % ("|".join(TIME_QUADRATURE_CHOICES),))
+parser.add_argument("--internal-ile-q-time-pregrid-factor",default=None,type=int,choices=list(Q_TIME_PREGRID_CHOICES),help="OPT-IN certified Q_lm pregrid in ILE (PR #261): %s. Default None = pass nothing, so the ILE default (factor 1, the historical unchanged path) is unchanged and the emitted args_ile.txt is byte-identical to today. Factor 8 reflects each finite Q window, FFT-interpolates it onto an 8x finer grid once after packing, and evaluates detector arrival times off that grid with four-tap CUBIC interpolation -- the geocentric time-integration grid is left at the data deltaT. Forwarded verbatim to helper_LDG_Events.py, which validates it and puts --q-time-pregrid-factor on the ILE command line. REFUSED, not ignored, at DAG-BUILD TIME if this workflow cannot honour it (calibration marginalization, --rotation-slow, --freqresponse, a configuration without --vectorized, or an explicit --internal-ile-interpolate-time naming a stencil other than cubic -- factor 8 forces cubic and will not silently override a different explicit request). IMPORTANT -- INI OVERRIDE: the RIFT ini parser OVERRIDES the command line for non-boolean options, so NEVER set this in a --use-ini that a Makefile or wrapper also sets on the command line. Rationale: bin/integrate_likelihood_extrinsic_batchmode (grep q_time_pregrid)." % ("|".join(str(c) for c in Q_TIME_PREGRID_CHOICES),))
 parser.add_argument("--internal-ile-n-chunk",default=None,type=int,help="Override the extrinsic chunk size (--n-chunk) passed to ILE, via the helper. Default behaviour (helper): 40000, scaled linearly with SNR above 40 and capped at 160000, because at high SNR the posterior is a vanishing fraction of the prior volume and a small chunk gives few informative samples per adaptation step. Larger chunks cost GPU memory but measured HOST memory (what RequestMemory governs) is flat, so no memory-request change is normally needed. EXPERTS ONLY.")
 parser.add_argument("--batch-extrinsic",action='store_true')
 parser.add_argument("--fmin",default=20,type=int,help="Mininum frequency for integration. template minimum frequency (we hope) so all modes resolved at this frequency")  # should be 23 for the BNS
@@ -517,6 +533,9 @@ parser.add_argument("--ile-no-gpu",action='store_true')
 parser.add_argument("--ile-xpu",action='store_true',help='Request ILE run on both GPU and CPU. Disables ile_force_gpu, if provided!')
 parser.add_argument("--ile-force-gpu",action='store_true')
 parser.add_argument("--ile-gpu-fanout",default=None,help="Multi-GPU ILE fan-out: split each ILE batch's intrinsic-grid range across N GPUs on the node (one shard per GPU).  Integer N (also requests N GPUs+CPUs) or 'auto' (split across whatever GPUs are visible at runtime).  Baked into the generated ile_pre.sh, so it needs no runtime environment.  Equivalent to setting RIFT_ILE_GPU_FANOUT.  Requires --ile-force-gpu.")
+parser.add_argument("--ile-exe",default=None,type=str,help="Path to the ILE executable used for this workflow's ILE/ILE_puff/ILE_fetch/ILE_extr jobs (forwarded to create_event_parameter_pipeline_* as --ile-exe).  Default: `which integrate_likelihood_extrinsic_batchmode`, or `which integrate_likelihood_extrinsic_jax` if --use-jax-ile is set.  Mutually exclusive with --use-jax-ile.")
+parser.add_argument("--use-jax-ile",action='store_true',help="Use `which integrate_likelihood_extrinsic_jax` as the ILE executable in place of the default batchmode driver, for every ILE/ILE_puff/ILE_fetch/ILE_extr job.  The JAX driver does not implement calibration marginalization, ROM/NR-lookup templates, supplementary likelihood factors, --zero-likelihood, or --maximize-only (see check_critical_and_report in bin/integrate_likelihood_extrinsic_jax); combining it with --calmarg-envelope-directory is REFUSED at DAG-build time rather than left to fail at the first ILE job.  Mode-specific JAX options (--mode, --angle-marg-scheme, and the rest of that driver's surface) are not separate pseudo_pipe options -- pass them through --manual-extra-ile-args.  OSG/SINGULARITY CAVEAT: --use-osg unconditionally adds --use-singularity, and write_ILE_sub_simple then rewrites the condor executable to <SINGULARITY_BASE_EXE_DIR or /usr/bin/>/integrate_likelihood_extrinsic_jax (basename preserved) -- but no container this repository builds (Dockerfile, containers/rift_container.def.in, rift_container_family.yaml) installs JAX or that driver, so every ILE job would fail at runtime.  --use-jax-ile with --use-osg is therefore REFUSED at DAG-build time unless --jax-ile-container-ok is also given, which asserts the named SINGULARITY_RIFT_IMAGE/SINGULARITY_BASE_EXE_DIR image actually provides integrate_likelihood_extrinsic_jax and JAX.  Also REFUSED with --lisa-known-sky, which always runs the separate integrate_likelihood_extrinsic_batchmode_lisa driver and has no JAX equivalent.")
+parser.add_argument("--jax-ile-container-ok",action='store_true',help="Override the --use-jax-ile + --use-osg refusal (see --use-jax-ile help).  Pass this ONLY when the container named by SINGULARITY_RIFT_IMAGE / resolved via SINGULARITY_BASE_EXE_DIR actually provides both a JAX installation and the integrate_likelihood_extrinsic_jax executable -- no container built by this repository does.  Has no effect without --use-jax-ile, and does not affect the separate --lisa-known-sky refusal.")
 parser.add_argument("--fake-data-cache",type=str)
 parser.add_argument("--spin-magnitude-prior",default='default',type=str,help="options are default [uniform mag for precessing, zprior for aligned], volumetric, uniform_mag_prec, uniform_mag_aligned, zprior_aligned")
 parser.add_argument("--eccentricity-prior",default='uniform',type=str,choices=['uniform','log_uniform'],help="options are uniform in e ('uniform') and uniform in log(e) ('log_uniform')")  # constrained: the value is forwarded verbatim to CIP, which only branches on the exact string 'log_uniform', so an unrecognized value here would silently run the uniform prior instead of failing
@@ -731,6 +750,21 @@ if (opts.use_ini):
 if opts.ile_gpu_fanout is not None:
     os.environ['RIFT_ILE_GPU_FANOUT'] = str(opts.ile_gpu_fanout)
 
+# JAX ILE selection.  Placed AFTER the --use-ini block above: the ini can set both
+# use-jax-ile and calmarg-envelope-directory via [rift-pseudo-pipe], and a check
+# above that block would validate values the ini is about to replace.
+if opts.use_jax_ile and opts.ile_exe:
+    raise ValueError(
+        "--use-jax-ile and --ile-exe are mutually exclusive: --use-jax-ile already "
+        "resolves to `which integrate_likelihood_extrinsic_jax`.  Pass that "
+        "executable's path via --ile-exe directly instead of setting both.")
+if opts.use_jax_ile and opts.calmarg_envelope_directory:
+    raise ValueError(
+        "--use-jax-ile is incompatible with in-loop calibration marginalization "
+        "(--calmarg-envelope-directory): bin/integrate_likelihood_extrinsic_jax does "
+        "not implement --calibration-* options (see check_critical_and_report in "
+        "that driver).  Drop --calmarg-envelope-directory or drop --use-jax-ile.")
+
 # TIME-MARGINALIZATION QUADRATURE, part 1 of 2: everything refusable WITHOUT running the
 # helper.  Deliberately placed AFTER the --use-ini block above: the ini parser OVERRIDES the
 # command line for non-boolean options, so a validate above it checks a value that the ini is
@@ -765,6 +799,38 @@ if opts.internal_ile_time_marginalization_quadrature is not None:
             "this pipeline's own options (checked before the helper runs, so the failure is "
             "immediate rather than after a workflow has been built)")
 
+# Q_lm PREGRID FACTOR, part 1 of 2: everything refusable WITHOUT running the helper.  Same
+# placement reasoning as the quadrature block just above (after --use-ini, so a bad ini value
+# is not checked before the ini is about to replace it).
+if opts.internal_ile_q_time_pregrid_factor is not None:
+    # Validate through the LIBRARY function as well as argparse `choices`, so this script and
+    # the ILE driver can never disagree about what the legal set is.
+    validate_q_time_pregrid_factor(opts.internal_ile_q_time_pregrid_factor)
+    if opts.lisa_known_sky:
+        # Same reasoning as the quadrature check: --lisa-known-sky builds args_ile.txt through
+        # helper_LISA_Events.py, which does not carry this option either.
+        raise ValueError(
+            "--internal-ile-q-time-pregrid-factor is not supported on the --lisa-known-sky "
+            "path: that path builds args_ile.txt through helper_LISA_Events.py, which does not "
+            "carry the option, so the request would be silently dropped.")
+    # What this script knows before the helper runs: calibration marginalization is added HERE,
+    # not by the helper, and --manual-extra-ile-args can carry any ILE flag at all (including a
+    # conflicting explicit --interpolate-time).
+    _qp_early = ""
+    if opts.calmarg_envelope_directory:
+        _qp_early += " --calibration-envelope-directory " + str(opts.calmarg_envelope_directory)
+    if opts.manual_extra_ile_args:
+        _qp_early += " " + str(opts.manual_extra_ile_args)
+    if _qp_early:
+        # Only the EXCLUSIONS (and a manually-passed stencil conflict) are checkable this early
+        # -- the required --vectorized is added by the helper -- so append it to keep the
+        # message about what is actually wrong.
+        refuse_unhonourable_q_time_pregrid(
+            opts.internal_ile_q_time_pregrid_factor,
+            "--vectorized " + _qp_early,
+            "this pipeline's own options (checked before the helper runs, so the failure is "
+            "immediate rather than after a workflow has been built)")
+
 if opts.lisa_known_sky:
     run_lisa_known_sky_surface(opts)
     sys.exit(0)
@@ -779,6 +845,26 @@ if opts.use_osg_public:
     opts.condor_local_nonworker=True
     opts.condor_local_nonworker_igwn_prefix=False
     opts.condor_nogrid_nonworker=False
+
+# --use-jax-ile + --use-osg: --use-osg unconditionally pairs with --use-singularity
+# (see the cmd built below), and write_ILE_sub_simple then rewrites the condor
+# executable to <SINGULARITY_BASE_EXE_DIR or /usr/bin/>/<basename>, discarding the
+# `which integrate_likelihood_extrinsic_jax` resolution above.  No container this
+# repository builds carries JAX or that driver, so every ILE job would fail at
+# runtime, silently at build time.  Placed here (after opts.use_osg_public is
+# folded into opts.use_osg) so it sees the final value of opts.use_osg regardless
+# of which flag or ini key set it.
+if opts.use_jax_ile and opts.use_osg and not opts.jax_ile_container_ok:
+    raise ValueError(
+        "--use-jax-ile with --use-osg is REFUSED at DAG-build time: --use-osg "
+        "always adds --use-singularity, and write_ILE_sub_simple rewrites the "
+        "condor executable to <SINGULARITY_BASE_EXE_DIR or /usr/bin/>/<basename>, "
+        "but no container this repository builds (Dockerfile, "
+        "containers/rift_container.def.in, rift_container_family.yaml) installs "
+        "JAX or integrate_likelihood_extrinsic_jax -- every ILE job would fail at "
+        "runtime.  If SINGULARITY_RIFT_IMAGE/SINGULARITY_BASE_EXE_DIR names an "
+        "image you have verified provides both, pass --jax-ile-container-ok to "
+        "proceed.  Otherwise drop --use-jax-ile or --use-osg.")
 
 if opts.ile_copies <=0:
     raise Exception(" Must have 1 or more ILE instances per intrinsic point")
@@ -1430,6 +1516,9 @@ if opts.internal_ile_time_marginalization_quadrature is not None:
     # ILE argument construction, so the flag must enter args_ile.txt where every other ILE
     # argument does.  `is not None` rather than a truthiness test -- the option takes a VALUE.
     cmd += " --internal-ile-time-marginalization-quadrature " + str(opts.internal_ile_time_marginalization_quadrature) + " "
+if opts.internal_ile_q_time_pregrid_factor is not None:
+    # HELPER passthrough, exactly like the two options above and for the same reason.
+    cmd += " --internal-ile-q-time-pregrid-factor " + str(opts.internal_ile_q_time_pregrid_factor) + " "
 if not(opts.internal_ile_n_chunk is None):
     cmd += " --internal-ile-n-chunk {} ".format(int(opts.internal_ile_n_chunk))
 # If user provides ini file *and* ini file has fake-cache field, generate a local.cache file, and pass it as argument
@@ -1712,6 +1801,11 @@ if opts.extrinsic_handoff:
 # opts-keyed version skipped entirely.  Called unconditionally for that reason.
 refuse_unless_time_quadrature_emitted(
     opts.internal_ile_time_marginalization_quadrature, line, "args_ile.txt")
+# Same discipline, same reason, for the Q_lm pregrid factor -- including the forced-cubic-stencil
+# conflict, which can only be checked here: --interpolate-time is resolved and emitted by the
+# helper, so it is not visible to this script until `line` is fully assembled.
+refuse_unless_q_time_pregrid_emitted(
+    opts.internal_ile_q_time_pregrid_factor, line, "args_ile.txt")
 
 with open('args_ile.txt','w') as f:
         f.write(line)
@@ -2235,7 +2329,15 @@ if opts.pipeline_builder:  # explicit override wins, for clean side-by-side A/B 
         print(" WARNING: --pipeline-builder {} overrides --use-subdags routing; AMR/subdag runs require AlternateIteration ".format(opts.pipeline_builder))
     cepp = "create_event_parameter_pipeline_" + opts.pipeline_builder
 print(" Pipeline builder (create_event_parameter_pipeline_*): ", cepp)
-cmd =cepp+ "  --ile-n-events-to-analyze {} --input-grid proposed-grid.{} --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args `pwd`/args_ile.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP {} --request-memory-ILE {} --n-samples-per-job ".format(n_jobs_per_worker,grid_suffix_pp,cip_mem,ile_mem) + str(npts_it) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + ("" if use_multiapprox else " --n-iterations-subdag-max {} ".format(opts.internal_n_iterations_subdag_max)) + "  --n-copies {} ".format(opts.ile_copies) + "   --ile-retries "+ str(opts.ile_retries) + " --general-retries " + str(opts.general_retries)
+# Resolve the ILE executable: --use-jax-ile wins (mutual exclusion with --ile-exe was
+# already enforced above), then an explicit --ile-exe, then the historical default.
+if opts.use_jax_ile:
+    resolved_ile_exe = "`which integrate_likelihood_extrinsic_jax`"
+elif opts.ile_exe:
+    resolved_ile_exe = "'{}'".format(opts.ile_exe)
+else:
+    resolved_ile_exe = "`which integrate_likelihood_extrinsic_batchmode`"
+cmd =cepp+ "  --ile-n-events-to-analyze {} --input-grid proposed-grid.{} --ile-exe  {}   --ile-args `pwd`/args_ile.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP {} --request-memory-ILE {} --n-samples-per-job ".format(n_jobs_per_worker,grid_suffix_pp,resolved_ile_exe,cip_mem,ile_mem) + str(npts_it) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + ("" if use_multiapprox else " --n-iterations-subdag-max {} ".format(opts.internal_n_iterations_subdag_max)) + "  --n-copies {} ".format(opts.ile_copies) + "   --ile-retries "+ str(opts.ile_retries) + " --general-retries " + str(opts.general_retries)
 if use_multiapprox:
     # Every model on the SAME grid.  --approx is the primary; --approx-extra the
     # rest.  The builder marginalizes over them point by point in the loop and

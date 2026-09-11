@@ -275,10 +275,15 @@ Profiles:
 - `jax` warms synthetic JAX ILE wrapper shapes. Use this only for JAX-enabled
   images, for example `--profiles cupy,jax` on a JAX image manifest.
 
-Generated job wrappers set `CUPY_CACHE_DIR`, `JAX_COMPILATION_CACHE_DIR`, and
+Generated job wrappers set `CUPY_CACHE_DIR`, `RIFT_JAX_CACHE_ROOT`, and
 conservative thread defaults before `apptainer exec --nv`. If an image is listed
 as `osdf://...`, the wrapper fetches only that selected image with `stashcp` or
 `pelican`.
+
+The JAX profile writes RIFT's compatibility manifest into the warmed cache.
+`rift_jax_cache export` produces a checksummed transferable bundle, while
+`rift_jax_cache import` refuses mismatched JAX/JAXLIB/CUDA backend, GPU
+kind/capability, Python runtime, profile, or file hashes.
 
 See [`survey_scan/README.md`](survey_scan/README.md) and
 [`SURVEY_SCAN_PROPOSAL.md`](SURVEY_SCAN_PROPOSAL.md) for details.

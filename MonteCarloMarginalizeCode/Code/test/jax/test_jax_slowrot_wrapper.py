@@ -21,6 +21,7 @@ import RIFT.likelihood.factored_likelihood as fl
 from RIFT.likelihood.jax_ile import (
     build_rotation_data_from_precompute,
     build_freqresponse_data_from_precompute,
+    build_rotating_freqresponse_data_from_precompute,
 )
 from RIFT.likelihood.jax_ile.wrapper import JAXDistanceMarginalizedLikelihood
 from RIFT.likelihood.jax_ile.core import fused_log_likelihood
@@ -54,18 +55,20 @@ phiref = rng.uniform(0, 2 * np.pi, S)
 distMpc = rng.uniform(100, 800, S)
 
 
-def _run(builder, tag, **kw):
+def _run(builder, tag, check_ad=True, **kw):
     data, extras = builder(P.manual_copy(), data_dict, psd_dict, event_time,
                            IWH, Lmax, fmax, analyticPSD_Q=True, verbose=False, **kw)
     lnL = np.asarray(fused_log_likelihood(data, ra, dec, psi, incl, phiref,
                                           distMpc, interp="nearest"))
     assert np.all(np.isfinite(lnL)), "%s produced non-finite lnL" % tag
-    # differentiable distmarg path
-    dlike = JAXDistanceMarginalizedLikelihood(data, 5.0, 3000.0, n_grid=64)
-    v, g = dlike.value_and_grad([ra[0], dec[0], psi[0], incl[0], phiref[0]])
-    assert np.isfinite(v) and np.all(np.isfinite(g)), "%s distmarg AD non-finite" % tag
-    print("[%s] one-call build OK: lnL[0]=%.3f  distmarg lnL=%.3f  |grad|=%.2f"
-          % (tag, lnL[0], v, np.linalg.norm(g)))
+    if check_ad:
+        dlike = JAXDistanceMarginalizedLikelihood(data, 5.0, 3000.0, n_grid=64)
+        v, g = dlike.value_and_grad([ra[0], dec[0], psi[0], incl[0], phiref[0]])
+        assert np.isfinite(v) and np.all(np.isfinite(g)), "%s distmarg AD non-finite" % tag
+        print("[%s] one-call build OK: lnL[0]=%.3f  distmarg lnL=%.3f  |grad|=%.2f"
+              % (tag, lnL[0], v, np.linalg.norm(g)))
+    else:
+        print("[%s] one-call build OK: lnL[0]=%.3f" % (tag, lnL[0]))
     return data
 
 
@@ -77,6 +80,16 @@ def test_one_call_builders():
          L_arm=40000.0)
 
 
+def check_combined_one_call_builder():
+    """Manual production-wrapper gate; deliberately excluded from per-PR CI."""
+    # The individual features above own the expensive distance-AD wrapper gate.
+    # Here the compound path needs to prove production precompute selection and a
+    # finite fixed-distance contraction without adding minutes of duplicate CPU CI.
+    _run(build_rotating_freqresponse_data_from_precompute, "combined",
+         check_ad=False, Qmax=0, p_max=0, L_arm=40000.0)
+
+
 if __name__ == "__main__":
     test_one_call_builders()
+    check_combined_one_call_builder()
     print("ONE-CALL BUILDER SMOKE TEST PASSED")

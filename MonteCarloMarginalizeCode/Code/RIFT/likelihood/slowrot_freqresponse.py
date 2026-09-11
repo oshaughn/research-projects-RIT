@@ -392,9 +392,86 @@ def finite_size_geometry(det, ra, dec, psi, gmst=0.0, L_arm=None):
                 F0=complex(Fp_lwl) + 1j * complex(Fc_lwl))
 
 
+_DETECTOR_GEOMETRY_CACHE = {}
+
+
+def detector_geometry_cached(det, L_arm=None):
+    """``detector_geometry`` memoized on (det, L_arm).  ARRAYS ARE READ-ONLY.
+
+    The geometry depends on the detector and its arm length only.  The likelihood
+    evaluates the response coefficients once per Monte Carlo sample, so calling
+    ``detector_geometry`` from there re-did the LAL detector lookup and the arm
+    trigonometry for every sample: 1.4e6 times in one profiled ILE run, for five
+    distinct answers.
+
+    The cached arrays are shared by every caller and are marked non-writeable so a
+    caller that mutates one fails loudly instead of corrupting the next.  Callers that
+    need to write should use ``detector_geometry``, which is unchanged and uncached.
+    """
+    key = (str(det), None if L_arm is None else float(L_arm))
+    got = _DETECTOR_GEOMETRY_CACHE.get(key)
+    if got is None:
+        response, x_arm, y_arm, L = detector_geometry(det, L_arm=L_arm)
+        response = np.array(response, dtype=float)
+        x_arm = np.array(x_arm, dtype=float)
+        y_arm = np.array(y_arm, dtype=float)
+        for a in (response, x_arm, y_arm):
+            a.setflags(write=False)
+        got = (response, x_arm, y_arm, float(L))
+        _DETECTOR_GEOMETRY_CACHE[key] = got
+    return got
+
+
+def finite_size_geometry_vector(det, ra, dec, psi, gmst=0.0, L_arm=None):
+    """``finite_size_geometry`` for a BLOCK of sky samples.
+
+    ra, dec, psi are broadcastable arrays of the same shape; the returned ax, ay, zx, zy
+    and F0 carry that shape, while T and L stay scalar (they depend on the detector only).
+    Same algebra, same order of operations, as the scalar routine -- the only difference is
+    that the triad, the long-wavelength contraction and the arm projections are evaluated
+    for the whole block at once.
+
+    ``finite_size_beta`` accepts the result unchanged and returns (Qmax+1,)+shape.
+    """
+    response, x_arm, y_arm, L = detector_geometry_cached(det, L_arm=L_arm)
+    ra = np.asarray(ra, dtype=float)
+    dec = np.asarray(dec, dtype=float)
+    psi = np.asarray(psi, dtype=float)
+    g = gmst - ra
+    X, Y, nhat = _triad(dec, psi, g)                     # (..., 3)
+    Fp_lwl, Fc_lwl = _lwl_response(response, X, Y)
+    Xx = np.einsum('...i,i->...', X, x_arm)
+    Yx = np.einsum('...i,i->...', Y, x_arm)
+    Xy = np.einsum('...i,i->...', X, y_arm)
+    Yy = np.einsum('...i,i->...', Y, y_arm)
+    return dict(T=L / C_SI, L=L,
+                ax=np.einsum('...i,i->...', nhat, x_arm),
+                ay=np.einsum('...i,i->...', nhat, y_arm),
+                zx=Xx + 1j * Yx, zy=Xy + 1j * Yy,
+                F0=Fp_lwl + 1j * Fc_lwl)
+
+
+def _csquare(z):
+    """z*z written out in real arithmetic:  (zr^2 - zi^2) + i(zr zi + zi zr).
+
+    This is CPython's own complex multiply, term for term, so it reproduces the Python
+    scalar ``z ** 2`` BIT FOR BIT -- which numpy's `complex128 ** 2` does not, because its
+    SIMD complex loop rounds differently (measured: ~29% of random samples differ by 1 ulp).
+    Written out here so the vectorized and scalar geometry paths give the same beta_0,
+    rather than two answers that differ in the last bit.
+    """
+    zr, zi = z.real, z.imag
+    return (zr * zr - zi * zi) + 1j * (zr * zi + zi * zr)
+
+
 def finite_size_beta(geom, Qmax):
-    """Analytic sky/pol coefficients beta_q = (1/2)[zx^2 a_x^q - zy^2 a_y^q], q=0..Qmax."""
-    zx2, zy2, ax, ay = geom['zx'] ** 2, geom['zy'] ** 2, geom['ax'], geom['ay']
+    """Analytic sky/pol coefficients beta_q = (1/2)[zx^2 a_x^q - zy^2 a_y^q], q=0..Qmax.
+
+    ``geom`` may come from ``finite_size_geometry`` (scalars) or from
+    ``finite_size_geometry_vector`` (arrays over a block of sky samples); the returned
+    array has shape (Qmax+1,) + the sample shape.
+    """
+    zx2, zy2, ax, ay = _csquare(geom['zx']), _csquare(geom['zy']), geom['ax'], geom['ay']
     return np.array([0.5 * (zx2 * ax ** q - zy2 * ay ** q) for q in range(Qmax + 1)],
                     dtype=complex)
 

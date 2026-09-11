@@ -86,6 +86,7 @@ class SurveyScanTests(unittest.TestCase):
             self.assertIn("stashcp", legacy_runner)
             self.assertIn("pelican object get", legacy_runner)
             self.assertIn("apptainer exec --nv", legacy_runner)
+            self.assertIn("RIFT_JAX_CACHE_ROOT", legacy_runner)
             self.assertIn("JAX_COMPILATION_CACHE_DIR", legacy_runner)
             self.assertTrue((out / "rift_cupy_common.py").exists())
             self.assertTrue((out / "submit_all.sh").exists())

@@ -22,9 +22,11 @@ import lalsimulation as lalsim
 
 import RIFT.likelihood.factored_likelihood_with_rotation as flwr
 import RIFT.likelihood.factored_likelihood_freqresponse as ffr
+import RIFT.likelihood.factored_likelihood_rotating_freqresponse as frr
 import RIFT.likelihood.slowrot_freqresponse as sfr
 from RIFT.likelihood.jax_ile import response_slowrot as rs
 from RIFT.likelihood.jax_ile import response_freqresponse as rf
+from RIFT.likelihood.jax_ile import response_rotating_freqresponse as rrf
 
 DETS = ["H1", "L1", "V1"]
 TREF = 1126259462.0
@@ -87,6 +89,34 @@ def test_freqresponse_coefficients():
                 worst = max(worst, d)
     print("[freqresponse coeff] max|jax-np| over dets/L = %.3e" % worst)
     assert worst < 1e-11, "freqresponse coefficient mismatch %g" % worst
+    # Keep compound CI coverage inside this already-collected algebraic test.  It
+    # adds no waveform precompute, likelihood compilation, or new test shard.
+    check_rotating_freqresponse_coefficients()
+
+
+def check_rotating_freqresponse_coefficients():
+    rng = np.random.default_rng(11)
+    S = 24
+    RA = rng.uniform(0, 2 * np.pi, S)
+    DEC = np.arcsin(rng.uniform(-1, 1, S))
+    psi = rng.uniform(0, np.pi, S)
+    gmst = _gmst(TREF)
+    worst = 0.0
+    for Qmax, p_max in ((0, 0), (2, 1)):
+        for det in DETS:
+            response, x_arm, y_arm, _ = sfr.detector_geometry(det, L_arm=40000.0)
+            lald = lalsim.DetectorPrefixToLALDetector(det)
+            got = rrf.coefficients_dict(
+                response, lald.location, x_arm, y_arm, RA, DEC, psi,
+                gmst, Qmax, p_max)
+            want = frr.combined_response_coefficients_vector(
+                det, RA, DEC, psi, TREF, p_max, Qmax=Qmax, L_arm=40000.0)
+            for key in set(got) | set(want):
+                err = np.max(np.abs(np.asarray(got.get(key, np.zeros(S)))
+                                    - np.asarray(want.get(key, np.zeros(S)))))
+                worst = max(worst, err)
+    print("[combined coeff] max|jax-np| = %.3e" % worst)
+    assert worst < 1e-11, "compound coefficient mismatch %g" % worst
 
 
 if __name__ == "__main__":

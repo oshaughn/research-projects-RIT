@@ -223,11 +223,11 @@ def rotation_coefficients_packed(response, location, RA, DEC, psi, gmst_tref,
 # factored_likelihood_with_rotation.rotation_post_phase).
 # ---------------------------------------------------------------------------
 def harmonic_indices(a_list):
-    """Sidereal harmonic ``n_a`` of each elementary template ``a = (p, n)``.
+    """Sidereal harmonic ``n_a`` (the final field of an elementary index).
 
     Returns an ``(A,)`` int numpy array (static; used to index the post-phase table).
     """
-    return np.asarray([int(n) for (_p, n) in a_list], dtype=np.int64)
+    return np.asarray([int(a[-1]) for a in a_list], dtype=np.int64)
 
 
 def post_phase_bucketing(a_list):

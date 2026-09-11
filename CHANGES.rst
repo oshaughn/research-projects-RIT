@@ -16,6 +16,14 @@ development tree is rift_O4d; PRs refer to oshaughn/research-projects-RIT.
      normalization, distance tails and waveform handling; strengthen calibration and CI checks
      (PRs #159, #173, #178, #188). JAX flow reuse is now off by default (opt-in via --flow-reuse);
      JAX --save-samples now exports fair posterior draws.
+   - (rc4 pending) JAX ILE gains an opt-in, fail-closed four-axis direct-marginalization policy,
+     peak-local time/distance/angle planning with exact or band-limited reserve rules, and
+     device-aware batching/pregridding.  Add value-only JAX adaptive-volume and portfolio sampling,
+     phase-rotated coordinates, persistent compilation caching, and Asimov selection.  Correct
+     importance-proposal regularization and refuse non-finite or implausible evidence before result
+     publication.  Extend slow-rotation/finite-size response support and cross-term batching; expand
+     CPU/JAX regression and CI-roster coverage (fork PRs #214, #245, #247, #255, #268, #270,
+     #274, #280--#285, #294, #301--#315, #319).
 
 0.0.17.12
 ---------

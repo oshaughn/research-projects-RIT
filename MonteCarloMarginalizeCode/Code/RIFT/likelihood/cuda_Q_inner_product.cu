@@ -63,6 +63,7 @@ extern "C" {
     const int * index_start,
     const double * fractional_offset,
     int window_size,
+    int time_stride,
     int num_time_points,
     int num_extrinsic_samples,
     int num_lms,
@@ -81,7 +82,7 @@ extern "C" {
 
       for (size_t i_time = t_idx; i_time < window_size; i_time+=blockDim.y) {
         size_t i_output = sample_idx*window_size + i_time;
-        int q_time = i_first_time + (int)i_time;
+        int q_time = i_first_time + (int)i_time*time_stride;
         double out_re = 0.0;
         double out_im = 0.0;
 

@@ -15,7 +15,27 @@ from __future__ import annotations
 
 import os
 
+import sys as _sys
+
 import numpy as np
+
+# The jax stack (jax for the models, optax for their optimisers) is not in requirements.txt, so SKIP rather than let the ImportError escape at
+# collection: an import error there reports as a FAILING suite, and a suite that fails for
+# environmental reasons is one people learn to ignore.
+#
+# Skip only when actually running UNDER pytest.  `import pytest` succeeding is not that test
+# -- pytest is installed nearly everywhere -- and using it as one makes the direct
+# `python -m ...` run this file's docstring advertises die with a pytest `Skipped` exception
+# instead of the real ImportError.  Under pytest, pytest is already in sys.modules by the
+# time it imports this module; under a direct run it is not.
+try:
+    import jax  # noqa: F401
+    import optax  # noqa: F401
+except ImportError as _exc:  # pragma: no cover - environment probe
+    _pytest = _sys.modules.get("pytest")
+    if _pytest is None:
+        raise
+    _pytest.skip("jax_gp interpolators need jax and optax: %s" % _exc, allow_module_level=True)
 
 
 def _target(X):

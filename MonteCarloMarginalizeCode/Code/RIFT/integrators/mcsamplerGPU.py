@@ -412,10 +412,25 @@ class MCSampler(SamplerOutputMixin, object):
         Numerically determine the inverse CDF from a given sampling PDF. If the PDF itself is not normalized, the class will keep an internal record of the normalization and adjust the PDF values as necessary. Returns a function object which is the interpolated CDF inverse.
         """
         # Solve P'(x) == p(x), with P[lower_boun] == 0
+        pdf = self.pdf[param]
+        # odeint probes with a python float.  Scalar-style pdfs (uniform_samp,
+        # numpy.vectorize, uniform_samp_withfloor_vector) take it as-is; this
+        # module's vectorized helpers (ones(len(x)), xpy.sin(x)) need a length-1
+        # backend array.  Decide once by probing, then reduce whatever comes back
+        # (float, numpy scalar, 0-d or length-1 array on either backend) to a float.
+        try:
+            pdf(float(0.5*(self.llim[param]+self.rlim[param])))
+            as_array = False
+        except TypeError:
+            as_array = True
+        def _scalar(val):
+            return float(val.ravel()[0]) if hasattr(val, 'ravel') else float(val)
         def dP_cdf(p, x):
             if x > self.rlim[param] or x < self.llim[param]:
                 return 0
-            return self.pdf[param](x)
+            if as_array:
+                return _scalar(pdf(xpy_default.asarray([x], dtype=numpy.float64)))
+            return _scalar(pdf(x))
         x_i = numpy.linspace(self.llim[param], self.rlim[param], 1000)
         # Integrator needs to have a step size which doesn't step over the
         # probability mass

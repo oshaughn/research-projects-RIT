@@ -303,6 +303,65 @@ def test_jax_dropin_manifest_covers_every_batchmode_option_with_same_arity():
     assert not missing
     assert not mismatched
 
+    # The conventional factor-8 path is not an inert tuning flag: it changes how Q
+    # is represented and evaluated.  It is now IMPLEMENTED on this arm (the stored
+    # rholm buffers are refined once, at build time), so the driver must accept it.
+    #
+    # CHANGED from "refuses factor 8": before the JAX Q pregrid landed, this asserted
+    # the refusal.  Leaving that assertion in place would have been a test that
+    # FORBIDS the fix -- the acceptance below is the point of the change, and what
+    # survives is the narrower, still-true refusal.
+    #
+    # record_supplied_options is called for the same reason main() calls it: without
+    # it was_supplied() reports False for everything, so the "explicit stencil"
+    # branch below would never be exercised and this would be a test that cannot
+    # fail.  Asserting the promotion (opts.interp becomes 'cubic') as well as the
+    # absence of an exit is what makes the acceptance leg load-bearing.
+    def _check(argv):
+        opts, _ = parser.parse_args(list(argv))
+        drv.record_supplied_options(opts, list(argv), parser)
+        drv.resolve_ile_interface_aliases(opts, parser)
+        drv.check_critical_and_report(opts, parser)
+        return opts
+
+    for factor in ("1", "2", "8"):
+        opts = _check(["--q-time-pregrid-factor", factor])
+        assert opts.interp == ("cubic" if factor != "1"
+                               else drv.JAX_INTERP_DEFAULT), factor
+    # Asking for the pregrid AND cubic explicitly is the documented combination.
+    opts = _check(["--q-time-pregrid-factor", "8", "--interp", "cubic"])
+    assert opts.interp == "cubic"
+    # Any OTHER explicit stencil is refused rather than silently replaced -- both
+    # spellings, because --interpolate-time is an alias that rewrites opts.interp
+    # before this check runs and would otherwise look like "not supplied".
+    for argv in (["--q-time-pregrid-factor", "8", "--interp", "nearest"],
+                 ["--q-time-pregrid-factor", "8", "--interp", "sinc"],
+                 ["--q-time-pregrid-factor", "8", "--interp", "linear"],
+                 ["--q-time-pregrid-factor", "8", "--interpolate-time", "sinc"]):
+        with pytest.raises(SystemExit):
+            _check(argv)
+    # ... and every one of those stencils is still perfectly legal at the default
+    # factor, so the refusal is about the COMBINATION and not about the stencil.
+    for stencil in ("nearest", "linear", "cubic", "sinc"):
+        opts = _check(["--interp", stencil])
+        assert opts.interp == stencil
+    # 0 is FALSY: a `getattr(...) or 1` idiom would promote it to the default and
+    # report nothing.
+    with pytest.raises(SystemExit):
+        _check(["--q-time-pregrid-factor", "0"])
+
+    # WITHOUT a supplied-option record, which is how every caller that builds an
+    # options object directly reaches this code.  was_supplied() FAILS OPEN there
+    # ("no record -> assume not supplied"), so relying on it alone would silently
+    # replace a stencil the caller chose; the check also treats a non-default
+    # interp as explicit.  Every case above records, so without this one that
+    # clause is unexercised -- found by mutation-testing the guard, not by review.
+    argv = ["--q-time-pregrid-factor", "8", "--interp", "linear"]
+    opts, _ = parser.parse_args(argv)
+    assert not hasattr(opts, "_supplied_options")
+    with pytest.raises(SystemExit):
+        drv.check_critical_and_report(opts, parser)
+
 
 def _load_driver():
     import importlib.machinery

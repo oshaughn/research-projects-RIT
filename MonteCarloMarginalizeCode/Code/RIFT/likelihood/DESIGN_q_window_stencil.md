@@ -741,3 +741,103 @@ not a shared checkout, so a branch switch could not move code mid-run. Its fmin-
 reproduces #97's shipped numbers bit-for-bit, and the analysis code was validated by re-deriving
 #97's published bracket from the original 9 points alone. No row is reference-limited (per-stencil
 reference floors ≥ 400× below the smallest measured error; M→2M reference checks ≤ 5.7e-5 nats).
+
+
+### 9.7 The JAX arm gained `--q-time-pregrid-factor` (2026-09-07)
+
+Refining the stored Q once, at build time, beats every choice of local stencil on
+the coarse grid. PR #262 made the JAX driver refuse any factor but 1, because at
+that point the arm had no refined-Q path. It has one now.
+
+`build_q_time_pregrid` calls `factored_likelihood.build_reflected_q_pregrid`, the
+host-side builder #261 ships. Both arms therefore answer with the same refined Q,
+and this one inherits that function's round-trip guard.
+
+Factor 1 remains the default and is bit-identical to base `bec19ad5`: 52 arrays
+on a toy likelihood (four stencils, phase marginalization on and off, guard 0 and
+8, over `fused_log_likelihood`, its `return_lnLt` form, both accumulator outputs
+and `fused_log_likelihood_distmarg`) and 35 arrays from a rebuilt production
+likelihood, all SHA256-equal.
+
+**Accuracy against an exact oracle.** `test/jax/test_jax_q_time_pregrid.py`
+builds a band-limited series with a known finite Fourier sum, crops it as
+`ComputeModeIPTimeSeries` crops `rhoTS`, and evaluates the truth at arbitrary
+real times by direct summation. Production geometry: 1229-sample buffer,
+positions about 300 samples clear of its ends.
+
+| stencil | relative max error |
+|---|---|
+| `nearest`, coarse | 4.88e-1 |
+| `linear`, coarse | 1.98e-1 |
+| `cubic`, coarse | 1.25e-1 |
+| `sinc` a=8, coarse (production default) | 1.88e-2 |
+| `cubic`, pregrid 2 | 1.09e-2 |
+| `cubic`, pregrid 4 | 8.0e-4 |
+| `cubic`, pregrid 8 | 4.62e-5 |
+| `cubic`, pregrid 16 | 4.88e-6 |
+| `cubic`, pregrid 32 | 3.46e-6 |
+| `sinc` a=8, pregrid 8 | 4.86e-4 |
+
+Three decisions follow from that table.
+
+1. Cubic, not the arm's `sinc` default. A fixed 2a-tap Lanczos window does not
+   gain from a finer grid the way a fourth-order stencil does. On the same
+   factor-8 grid cubic is 10x more accurate at a quarter of the taps. The driver
+   selects `cubic` with the pregrid and refuses a different explicit stencil, as
+   conventional ILE does (#261).
+2. Factor 8. The error falls about 16x per doubling (13.5x for 2 to 4, 17.4x for
+   4 to 8), then saturates: 9.5x for 8 to 16, 1.4x for 16 to 32. Past about 8 the
+   residual is the reflection boundary condition, which no factor reduces.
+3. Not the default. As in #261, promotion is a separate discussion.
+
+**The residual is a boundary error.** Error against clearance from the buffer
+end, `cubic` on pregrid 8: 2.5e-3 at 8 samples, 8.3e-4 at 16, 2.4e-4 at 32,
+1.0e-4 at 64, 4.7e-5 at 128, 4.0e-5 at 256. A fixture that gathers near the ends
+measures the reflection while every assertion in it still passes.
+
+**Which reflection.** `jax_ile.core._reflected_fft_upsample` omits the duplicate
+turning samples, period `2(n-1)`. `reflected_bandlimited_upsample` duplicates
+them, period `2n`. The two docstrings each assert their own convention is
+correct, and each is right about its own problem: `2(n-1)` reconstructs `kappa`
+on the terminal integration window, where a series at Nyquist must keep
+reconstructing `cos(pi t)`. For a cropped Q the `2n` form wins against the oracle
+by 15.0x in the interior and 6.7x near the ends, matching the conventional arm's
+independent finding in `DESIGN_time_marginalization_quadrature.md`. Routed
+through `_reflected_fft_upsample` the factor-8 pregrid saturates at 7.8e-4 and
+stops improving at factor 16 (7.6e-4), a 17x worse floor with no convergence.
+`test_duplicated_reflection_is_the_right_one_for_a_crop` fails if a later change
+reroutes it.
+
+**`nearest` is refused with a pregrid.** It would gather correctly.
+`_accumulate_unit_banded` reconstructs the arrival time its post-phase applies as
+`rint(p0)` in coarse samples, which is no longer the sample a refined-grid
+nearest gather reads. The data term and the model norm would then disagree by up
+to half a coarse bin.
+
+**Real rows.** Phase-marginalized JAX endpoint, 4096 Hz, SEOBNRv4 35+30, max over
+6 rows, in nats, against a converged reference (see the PR).
+
+| rho | stencil, `sinc` a=8 coarse | stencil, `cubic` pregrid 8 | Simpson quadrature |
+|---|---:|---:|---:|
+| 40.77 | 0.15 | 3.2e-5 | 1.62 |
+| 163.08 | 3.03 | 0.0005 | 33.96 |
+| 652.31 | 27.31 | 0.0088 | 105.73 |
+
+The stencil term is removed. The quadrature term is untouched, because the
+pregrid refines how Q is interpolated and not what is integrated. Above rho about
+100 the time integral is limited by the quadrature rule alone.
+
+**Cost.** The pregrid is one host-side FFT, 0.03 s for a 3-detector 2-mode bank,
+and it multiplies only the stored Q, 0.112 to 0.899 MiB here. On GPU it is faster
+than the production default, because four taps replace sixteen. Matched at
+S=20000, npts=614, interleaved, on an RTX PRO 4000 Blackwell:
+
+| case | s/eval | GPU peak in use |
+|---|---:|---:|
+| factor 1, `sinc` a=8 | 0.0823 | 1836.5 MiB |
+| factor 1, `cubic` | 0.0160 | 257.3 MiB |
+| factor 8, `cubic` | 0.0160 | 258.3 MiB |
+
+On CPU the ordering reverses and the pregrid costs 1.09x the production default:
+0.2319, 0.2020 and 0.2520 s/eval at S=4000, from the strided gather's cache
+behaviour.

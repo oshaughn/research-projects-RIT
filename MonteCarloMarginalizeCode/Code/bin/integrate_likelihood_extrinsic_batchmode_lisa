@@ -1163,7 +1163,7 @@ if not opts.time_marginalization:
                                             param_limits["t_ref"][0], param_limits["t_ref"][1])
     sampler.add_parameter("t_ref", 
                           pdf = tref_sampler, 
-                          cdf_inv = None, 
+                          cdf_inv = tref_sampler_cdf_inv, 
                           left_limit = param_limits["t_ref"][0], 
                           right_limit = param_limits["t_ref"][1],
                           prior_pdf = functools.partial(mcsampler.uniform_samp_vector, param_limits["t_ref"][0], param_limits["t_ref"][1]))

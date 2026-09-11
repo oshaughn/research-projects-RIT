@@ -23,14 +23,42 @@ only takes effect once this opt-in subpackage is imported.
 """
 from __future__ import annotations
 
-import jax as _jax
+# The docstring above calls this subpackage OPTIONAL, but importing it used to require jax
+# unconditionally -- so merely TOUCHING the package died with ModuleNotFoundError on a machine
+# without the stack.  Pytest touches it: collecting any test module in this directory imports
+# this __init__ first, which is why a skip guard inside test_interpolators.py could never fire.
+#
+# Only the ABSENCE is tolerated here.  When jax is present the sequence below is unchanged and
+# stays EAGER on purpose: three callers import this package for no reason but its side effect
+# (applications/compare.py, applications/jax_cip.py, applications/export_at_scale.py all say
+# "enables float64"), and x64 must be set before any submodule builds a jax array.  Deferring it
+# into get_interpolator() would leave those three silently in float32, which is a wrong-gradient
+# bug that raises nothing.
+try:
+    import jax as _jax
+except ImportError:  # pragma: no cover - exercised only where the jax stack is absent
+    _jax = None
+else:
+    if not _jax.config.read("jax_enable_x64"):
+        _jax.config.update("jax_enable_x64", True)
 
-if not _jax.config.read("jax_enable_x64"):
-    _jax.config.update("jax_enable_x64", True)
-
-from .interface import BaseInterpolator  # noqa: E402
+    from .interface import BaseInterpolator  # noqa: E402
 
 __all__ = ["BaseInterpolator"]
+
+
+def __getattr__(name):
+    """Re-raise the real ImportError for the eager exports when jax is missing.
+
+    Without this the jax-absent case reports a bare AttributeError, which reads like a typo
+    rather than a missing dependency.  Unknown names still raise AttributeError, so
+    ``from RIFT.interpolators.jax_gp import export`` (a SUBMODULE) keeps working -- the import
+    machinery falls back to importing the submodule when this returns AttributeError.
+    """
+    if name in __all__:
+        from . import interface  # raises ModuleNotFoundError naming the missing package
+        return getattr(interface, name)
+    raise AttributeError("module {!r} has no attribute {!r}".format(__name__, name))
 
 # Method classes are imported lazily by name to avoid importing every backend
 # (and its heavier deps, e.g. tinygp) when only one is needed.

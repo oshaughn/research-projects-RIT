@@ -397,6 +397,83 @@ def test_ce_is_100x_longer_effect():
     assert 30 < ratio < 250, "unexpected CE/LIGO scaling: %g" % ratio
 
 
+# ---------------------------------------------------------------------------
+# (E) BLOCK EVALUATION.  The likelihood evaluates the response geometry once per Monte
+# Carlo sample; finite_size_geometry_vector does the whole block at once, and
+# detector_geometry_cached stops the sample-independent part being redone per sample.
+# These pin the two properties that make that substitution safe: the answer does not
+# change, and the detector lookup does not scale with the block.
+# ---------------------------------------------------------------------------
+def test_detector_geometry_cached_matches_and_is_readonly():
+    """The memo returns the same geometry, in arrays no caller can mutate."""
+    for det in DETECTORS:
+        for L_arm in (None, 40000.0):
+            r0, x0, y0, L0 = fr.detector_geometry(det, L_arm=L_arm)
+            r1, x1, y1, L1 = fr.detector_geometry_cached(det, L_arm=L_arm)
+            assert np.array_equal(r0, r1) and np.array_equal(x0, x1) and np.array_equal(y0, y1)
+            assert L0 == L1
+            # a second call returns the SAME objects (it is a memo, not a rebuild)
+            r2, x2, y2, _ = fr.detector_geometry_cached(det, L_arm=L_arm)
+            assert r2 is r1 and x2 is x1 and y2 is y1
+            for a in (r1, x1, y1):
+                assert not a.flags.writeable, "cached geometry must be read-only"
+
+
+def test_geometry_vector_matches_scalar_loop():
+    """finite_size_geometry_vector matches finite_size_geometry sample by sample.
+
+    Every field is a rotation or a contraction of (ra, dec, psi) with sample-independent
+    detector vectors.  NumPy may evaluate the vector and scalar paths in a different order,
+    so require agreement at machine precision rather than bit-for-bit identity.
+    """
+    rng = np.random.RandomState(20260909)
+    n = 200
+    ra = rng.uniform(0, 2 * np.pi, n)
+    dec = np.arcsin(rng.uniform(-1, 1, n))
+    psi = rng.uniform(0, np.pi, n)
+    gmst = 1.234
+    for det, L_arm in (("H1", None), ("K1", 40000.0), ("V1", 10000.0)):
+        gv = fr.finite_size_geometry_vector(det, ra, dec, psi, gmst=gmst, L_arm=L_arm)
+        assert gv['T'] == fr.finite_size_geometry(det, ra[0], dec[0], psi[0],
+                                                  gmst=gmst, L_arm=L_arm)['T']
+        for i in range(n):
+            gs = fr.finite_size_geometry(det, ra[i], dec[i], psi[i], gmst=gmst, L_arm=L_arm)
+            for key in ('ax', 'ay', 'zx', 'zy', 'F0'):
+                np.testing.assert_allclose(
+                    gv[key][i], gs[key], rtol=8 * np.finfo(float).eps,
+                    atol=8 * np.finfo(float).eps,
+                    err_msg="%s sample %d field %s" % (det, i, key))
+
+
+def test_beta_block_matches_scalar_beta():
+    """finite_size_beta on a block reproduces the per-sample beta_q.
+
+    The scalar and vector paths can differ by a few ulps because NumPy and CPython may use
+    different evaluation orders and power implementations.  This is a last-bit rounding
+    difference, not a change of formula, so all orders are bounded at machine precision.
+    """
+    rng = np.random.RandomState(11)
+    n, Qmax = 300, 4
+    ra = rng.uniform(0, 2 * np.pi, n)
+    dec = np.arcsin(rng.uniform(-1, 1, n))
+    psi = rng.uniform(0, np.pi, n)
+    det, L_arm = "K1", 40000.0
+    gv = fr.finite_size_geometry_vector(det, ra, dec, psi, gmst=0.7, L_arm=L_arm)
+    bv = fr.finite_size_beta(gv, Qmax)
+    worst = 0.0
+    for i in range(n):
+        gs = fr.finite_size_geometry(det, ra[i], dec[i], psi[i], gmst=0.7, L_arm=L_arm)
+        bs = fr.finite_size_beta(gs, Qmax)
+        for q in range(Qmax + 1):
+            d = abs(bv[q][i] - bs[q])
+            np.testing.assert_allclose(
+                bv[q][i], bs[q], rtol=1e-14,
+                atol=8 * np.finfo(float).eps,
+                err_msg="sample %d beta_%d" % (i, q))
+            worst = max(worst, d / max(abs(bs[q]), 1e-300))
+    print("(E) beta block-vs-scalar: worst relative difference %.3e" % worst)
+
+
 if __name__ == "__main__":
     test_unpaired_extreme_bin_predicate()
     test_weights_hermitian_on_the_grid()
@@ -413,5 +490,9 @@ if __name__ == "__main__":
     print("-" * 78)
     test_in_band_magnitude_ligo_vs_ce()
     test_ce_is_100x_longer_effect()
+    print("-" * 78)
+    test_detector_geometry_cached_matches_and_is_readonly()
+    test_geometry_vector_matches_scalar_loop()
+    test_beta_block_matches_scalar_beta()
     print("=" * 78)
     print("ALL SLOWROT FREQ-RESPONSE CHECKS PASSED  (worst f=0 residual %.3e)" % wA)

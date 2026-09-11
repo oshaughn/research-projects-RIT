@@ -42,12 +42,29 @@ response, geometric time delay, spin-(-2) spherical harmonics, the
 `kappa`/`rho^2` assembly, continuous time-shift interpolation, time
 marginalization, and **analytic distance marginalization**.
 
+### Phase marginalization and the packed mode set
+
+`phase_marginalization=True` is implemented for the `(2,2)`/`(2,-2)` pair only:
+the reduction conjugates the `m = -2` component of the harmonic, the antenna
+response and the `rholm` timeseries, which is specific to a single
+`m = +2`/`m = -2` pair.  Any other mode set raises `NotImplementedError` rather
+than silently dropping a mode.
+
+**Either packed ORDER is accepted.**  The column order of `lms`, `Q`, `U` and `V`
+follows the iteration order of the precompute's mode dictionary, not anything the
+caller chooses, so both `[(2,2), (2,-2)]` and `[(2,-2), (2,2)]` arrive in practice;
+the accumulator canonicalizes internally.  Note that `U` and `V` carry the mode
+index on BOTH axes -- any code reordering a packed bank by hand must permute both,
+or it returns a wrong likelihood with no error.
+
 ### Time quadrature
 
 All JAX likelihood wrappers accept the conventional ILE keyword
 `time_quadrature={"simpson","bandlimited"}`.  Simpson remains the default.
 The opt-in `bandlimited` path is currently supported by
-`JAXExtrinsicLikelihood`, including analytic phase marginalization.  It forms
+`JAXExtrinsicLikelihood` (6-D, including analytic phase marginalization) and by
+`JAXDistanceMarginalizedLikelihood` (5-D, the wrapper `--mode nuts`,
+`multistart-nuts` and `flowmc` use under `--distance-marginalization`).  It forms
 the endpoint-nonduplicating even extension
 `[kappa[0], ..., kappa[-1], kappa[-2], ..., kappa[1]]`, FFT-interpolates it,
 applies the phase reduction on the
@@ -59,12 +76,13 @@ the sampler batch.  There is deliberately no public factor knob; a row that
 cannot meet the criterion fails closed.
 
 The supported signal regime assumes spectral headroom below the sampled
-Nyquist frequency and negligible likelihood mass at both ends of the short
-integration window.  The latter is checked on the refined grid: either endpoint
-must be at least 15 natural-log units below the peak, otherwise `bandlimited`
-fails closed rather than trusting a boundary extension that can affect the
-answer.  Increase the physical time window or use Simpson when this diagnostic
-fires.
+Nyquist frequency.  Likelihood mass at the ends of the short integration window
+is covered by the guard-agreement certificate below, not by an endpoint gap.
+The 15-nat endpoint gap of 2026-08-29 was switched off on 2026-09-08.  A row's
+peak-to-endpoint contrast is bounded by its own amplitude, so the gap rejected
+every blind or far draw whatever the quadrature did.  The rows it rejected
+alone agree with an independent reference to 1e-4 nat (DESIGN record, "The
+endpoint certificate").
 
 The primitive gather includes support outside that window.  Its initial guard
 is the established half-window default rounded up to a power of two; one guard
@@ -89,11 +107,40 @@ curvature-derived starting fine factor is capped at 1024 and certified once at
 2048; a sharper row is refused with guidance to increase the input/rholm sample
 rate rather than allocating multi-gigabyte FFT branches.
 
-Distance, phi, psi, exact-angle, and Laplace-marginalized wrappers currently
-refuse `bandlimited`.  Those nonlinear reductions generate time harmonics, so
-interpolating their already-reduced `lnL(t)` can converge to the wrong function;
-they require endpoint-specific primitive refinement before they can safely opt
-in.  They continue to use the unchanged Simpson default.
+The distance reduction runs on the refined nodes, not on an interpolated
+`lnL(t)`.  `fused_log_likelihood_distmarg` gathers the guarded primitive, hands
+the refiner the same blocked distance quadrature the Simpson path uses, and that
+quadrature is evaluated inside the row-local `lax.map` at every fine node before
+the trapezoid.  The block count for the fine grid is derived from the refined row
+length rather than inherited from `grid_block`, so a 2048x row does not scale the
+working set with it.  Three of the fixed-distance certificates -- factor
+doubling, two-guard agreement, and remeasured resolution -- apply to the
+distance-marginalized field, and the endpoint gap applies to neither.  With a
+full-sky prior the integration half-window must contain the detector arrival
+shifts of a wrong-sky draw (up to 2 R_earth / c, 42.6 ms).  A row whose arrival
+peak sits at the window edge fails the doubling or guard certificate and stops
+the driver.  The driver therefore refuses the modes that push full-sky draws
+through that stop (`prior-mc`, `laplace-is`, `map`, `nuts`) at parse time when
+the half-window is below that bound.
+`return_lnLt` is refused under `bandlimited`: there is no reduced field on the
+data grid to return.
+
+The phi, psi, exact-angle, and Laplace-marginalized wrappers still refuse
+`bandlimited`, and the reason is now specific rather than generic.  The phi_ref
+grid sum streams one primitive per grid point through a `lax.scan` that carries
+only `(S, npts)`; refining first means carrying `(nphi, n_fine)` per row, which
+at the shipped `nphi` and the certified factor is two orders of magnitude more
+scratch than the row-local budget allows.  The psi and exact-angle wrappers
+reach the coefficient-table kernels in `anglemarg.py`, which return an
+already-reduced `lnL(t)`: there is no primitive at that seam to refine without
+an adapter.  Both continue to use the unchanged Simpson default.
+`time_first_peaklocal.py` contains an unwired, fixed-shape prototype of that
+primitive-first composition: it reconstructs one raw complex correlation per
+downstream distance/angle quadrature state, builds a certified time-cell cover,
+and only then performs the nonlinear reduction on local nodes.  It returns an
+explicit validity ledger and changes no wrapper or CLI default.  Production
+wiring still needs a tighter Hermite certificate, two-guard convergence, and an
+adapter from the coefficient-table angle kernels.
 The driver exposes the same public spelling as conventional ILE:
 `--time-marginalization-quadrature`.  `--interpolate-time` is an alias for the
 JAX-native `--interp` with conflict detection.  Conditional nuisance recovery
@@ -117,8 +164,33 @@ executables without dying during option parsing.
     `(ra, dec, psi, incl, phiref, distMpc)`.
   - `fused_log_likelihood_distmarg(...)` — **distance- and time-marginalized**
     lnL over the 5 angular parameters (regulates the amplitude degeneracy; see
-    below).
+    below).  Honours `time_quadrature="bandlimited"` by refining the primitive
+    first.
   - `make_distance_grid(...)`, `JAXLikelihoodData`, `build_likelihood_data`.
+- `time_first_peaklocal.py` — experimental primitive-first time-cover planner
+  and distance adapter; not selected by any production endpoint.
+- `direct_marginalization_policy.py` — opt-in cross-axis policy
+  (`--direct-marginalization-policy auto`): per evaluation, the four-axis
+  peak-local controller of `all_axis_peaklocal.py` under its acceptance
+  ledger, with a reserve on decline.  The reserve is a pair named by
+  `--direct-marginalization-reserve-scheme`: exact angles on the whole-window
+  refined rule (default), psi-Laplace angles on that rule, or `peaklocal`,
+  psi-Laplace angles on a fixed-count time rule sized from the predicted
+  peak width `1 / (2 pi rho sigma_f)` around maxima located on the primitive
+  (`peaklocal_time_reserve.py`), with the coarse scan limited to the
+  support of the located maxima, so the node count grows with neither rho
+  nor the window.
+  Value-only; see `DESIGN_direct_marginalization_policy.md`.
+- `peaklocal_time_reserve.py` — the peak-local time rule: width prediction
+  from the row's table and the stored Q's bandwidth, primitive-based maxima
+  locator, one commensurate lattice, and the pair selector's node-count
+  prediction.
+- `../bivariate_trig_stationary.py` — host reference for complete finite-order
+  `(phi_ref, 2 psi)` stationary enumeration by a Sylvester resultant and
+  generalized eigenproblem.  It records BKK expected/found counts,
+  conditioning, cross-projection agreement, and supplies best-effort targets
+  only behind an outside-cover bound; no sampled phi grid is called
+  enumeration.  A fixed-capacity JAX plan adapter remains future work.
 - `wrapper.py` — `build_data_from_precompute` (runs the production precompute +
   packing and returns a device-resident `JAXLikelihoodData`), and the
   convenience classes `JAXExtrinsicLikelihood` (6-D, value/grad/Fisher) and
@@ -173,7 +245,53 @@ integral — exactly the ordering of the production `distmarg_loglikelihood`.  T
 result is smooth, bounded, and peaks at the correct sky location, and is the
 right object for gradient-based exploration.
 
+The fixed distance grid under-resolves the per-sample integrand's peak (width
+`~d0/SNR`) at high SNR.  The driver's `--distance-gh-nodes N` places `N`
+Gauss-Hermite-style nodes centred on that peak, PER SAMPLE, resolving it to
+machine precision at any SNR with a few dozen nodes; `N=0` (default) keeps the
+legacy fixed grid.  Equivalent to the environment variable
+`JAX_ILE_DISTMARG_GH`, still honoured for compatibility (`core.
+set_distmarg_gh_nodes`); the two are refused, not silently reconciled, if set
+to different nonzero values.  See `core.make_distance_gh` /
+`core._distmarg_gh_logL` and `DESIGN_jax_distance_quadrature.md`.
+
 ## Driver
+
+### Value-only adaptive volume and portfolio
+
+The opt-in ``--sampler-method AV`` and ``--sampler-method portfolio`` paths use
+the same JAX likelihood selected by ``--mode`` but do not differentiate it
+during integration.  Likelihood rows are evaluated in one fixed JAX shape;
+``--jax-av-eval-chunk`` therefore controls accelerator memory independently of
+the larger ``--n-chunk`` used to cover and contract the adaptive volume.
+
+Portfolio defaults to AV plus a defensive GMM member.  An optional Fisher-sky
+initializer pays an explicit, one-time AD cost for hill climbing and local
+curvature; every integration evaluation remains value-only.  A finite seed
+cloud does not itself guarantee prior support.  For blind/full-prior inference,
+use the defensive portfolio rather than interpreting seeded standalone AV as a
+global calculation.
+
+For deliberately local tests, AV/portfolio honor
+``--limit-right-ascension``, ``--limit-declination``, ``--limit-psi``, and
+``--limit-inclination`` as comma-separated sampling limits.  These restrict the
+domain sampled while the integrand retains the normalized full physical prior.
+Consequently the evidence is the full-prior contribution from that domain; it
+is not conditional on the box and must not receive an inverse-volume correction.
+A widened-box repeat and a posterior edge-contact check are required before the
+boxed contribution can be identified with the all-sky evidence.  RA windows
+that cross 0/2pi are refused because one AV hyperrectangle cannot represent the
+wrapped union.
+
+``JAXFixedDistanceLikelihood`` provides a five-angular-coordinate view of the
+six-dimensional likelihood for controlled validation problems.  It can also
+shift the periodic phase coordinate so a narrow mode at physical phase zero is
+not split across the sampler's box boundary; exported points must be mapped
+back with ``to_physical_coordinates``.
+``JAXRotatedPhaseLikelihood`` supplies the conventional
+``--internal-rotate-phase`` sum/difference coordinates on a redundant
+``[0,4 pi)`` cover, making the leading phase--polarization ridge axis-aligned
+for AV as well as for gradient samplers.
 
 `bin/integrate_likelihood_extrinsic_jax` mirrors the ILE CLI/output conventions
 and uses the JAX likelihood.
@@ -286,6 +404,112 @@ degenerate.  The command above previously omitted the flag and could not run.)
 
 Output: `out_0_.dat` (`event_id m1 m2 s1x..s2z lnL sigma_lnL ntotal neff`) and,
 with `--save-samples`, `out_0_samples.dat`.
+
+### Persistent compilation cache
+
+The shipped driver enables JAX's cross-process compilation cache by default.
+RIFT disables JAX's auxiliary per-fusion autotune cache while doing so. In JAX
+0.9.2 that auxiliary cache places its absolute directory in the executable
+cache key, so leaving it enabled makes an otherwise compatible exported bundle
+miss after import at a different filesystem path. The persistent compiled-
+executable cache remains enabled and is the transferable cache described here.
+It selects a stable directory under `$RIFT_JAX_CACHE_ROOT` (or
+`$XDG_CACHE_HOME/rift/jax`, normally `~/.cache/rift/jax`) and adds a
+compatibility namespace derived from Python, JAX/JAXLIB, the CUDA plugin,
+backend/platform version, GPU kind, and compute capability. JAX's own keys then
+separate static argument shapes and compiler options inside that namespace.
+
+Use `--jax-cache-dir /shared/rift-jax-cache` to choose a shared root, or
+`--no-jax-persistent-cache` for a diagnostic cold run. The standard
+`JAX_COMPILATION_CACHE_DIR` variable remains an exact-directory expert
+override. The selected directory contains its provenance manifest.
+Runtime identity and durable imported-bundle profile/static-shape provenance
+are stored separately. Each distinct contributing bundle gets an atomic record
+keyed by its manifest digest, so neither a later ordinary startup nor a second
+compatible bundle import can erase the earlier provenance.
+On Condor, an unset root falls back to
+`$_CONDOR_SCRATCH_DIR/.rift_cache/jax`; transfer that directory or set a shared
+root to reuse it across jobs. An unwritable cache disables itself with a warning
+rather than failing the ILE calculation.
+
+Condor scratch is job-local, so default enablement there avoids duplicate
+compilation only within that job; it does not provide automatic cross-job
+persistence. To reuse a survey/full-run cache, transfer the bundle as an input
+and append `--jax-cache-bundle rift-o4-laplace.zip --jax-cache-profile
+o4-laplace` to the ordinary ILE arguments. The driver validates and imports it
+before importing modules that construct ILE JITs. Sites with a genuinely shared
+writable filesystem can instead set `RIFT_JAX_CACHE_ROOT` in the submit
+environment.
+
+Warm with the real production command, then package that active namespace and
+record the important static shapes:
+
+```sh
+integrate_likelihood_extrinsic_jax --jax-cache-dir /scratch/rift-cache \
+  <the production ILE arguments>
+rift_jax_cache --cache-root /scratch/rift-cache export rift-o4-laplace.zip \
+  --profile o4-laplace --shape detectors=3 --shape l_max=2 \
+  --shape n_chunk=8000 --shape distance_grid=256 --shape n_phi=8
+```
+
+On a compatible target host/container, import and reuse it:
+
+```sh
+rift_jax_cache --cache-root /shared/rift-cache import rift-o4-laplace.zip \
+  --expect-profile o4-laplace
+integrate_likelihood_extrinsic_jax --jax-cache-dir /shared/rift-cache \
+  <the same production ILE arguments>
+```
+
+Import rejects a different JAX/JAXLIB/CUDA backend, GPU kind/capability,
+Python, requested profile, unexpected archive members, or checksum failure.
+Different static shapes safely miss JAX's inner cache and compile normally;
+the bundle's shape metadata makes those misses explainable.
+Import also bounds member count, individual/total uncompressed size, and
+compression ratio and streams entries through their checksum, so a corrupt or
+hostile archive cannot expand without limit. Cache bundles contain compiler
+artifacts and should still be accepted only from a trusted build workflow.
+
+The compatibility namespace does not cover `XLA_FLAGS`, and does not need to:
+JAX covers it. `jax/_src/cache_key.py::_hash_xla_flags` reads the `XLA_FLAGS`
+and `LIBTPU_INIT_ARGS` environment variables and every `--xla*` token in
+`sys.argv`, and hashes each into the key, skipping only the dump/debug flags in
+`xla_flags_to_exclude_from_cache_key`. Measured on jax 0.9.2: adding
+`--xla_cpu_enable_fast_math=true` to `XLA_FLAGS` produced a second, distinct
+`jit_work-*` entry rather than reusing the first, and rerunning with unchanged
+flags reused it. So a numerics-affecting flag varies the key rather than
+silently reusing a kernel compiled under a different one, and flags need not be
+held fixed per cache root.
+
+Cache entries are written by JAX, not by RIFT, and `LRUCache.put` writes them
+with a plain `write_bytes` rather than through a temporary file, so a reader can
+observe a partial entry. Measured on jax 0.9.2 against a populated cache: an
+entry truncated to 60%, an entry with one byte flipped mid-blob, and an entry
+with 4 KiB of random bytes spliced in each produced the same lnL as the
+uncorrupted run, via a `UserWarning: Error reading persistent compilation cache
+entry` and a recompile. Corruption therefore fails CLOSED: a shared root
+degrades to recompilation under contention and does not hand back a wrong
+kernel.
+
+It does not self-heal, and that is the operational cost. `LRUCache.put` returns
+early when the path already exists, so a process killed mid-write -- a node
+reboot, an OOM, a thread-budget abort -- leaves a truncated entry that no later
+process rewrites. In the measurement above the file stayed at its truncated
+2943 bytes across reruns. That key then recompiles forever while only warning.
+If a warm cache stops saving time, delete the compatibility-keyed directory
+(`rift_jax_cache fingerprint` names it) and re-warm; there is no partial repair.
+
+The amplitude-adequacy diagnostic of the amp-sized schemes (exact, Laplace,
+peak-local, phi-local) is deliberately data returned
+by a pure JIT, not a `jax.debug.callback`: JAX does not persist graphs with host
+callbacks. The driver synchronously accumulates the maximum over every pilot,
+reweight, and final production/output-cloud batch and records that deterministic
+scope in result provenance. Transient flow-training-only proposals are not
+claimed; they do not enter the reported evidence or exported cloud. The
+`direct-marginalization-policy` composite exposes no such metric and is
+therefore unlabelled. A tripped
+check still leaves likelihood values finite and labels the artifacts
+`SUSPECT-ANGLE-GRID` rather than silently excising the affected region.
 
 ## Status and next steps
 

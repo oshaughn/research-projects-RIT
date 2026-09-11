@@ -769,7 +769,8 @@ def pack_rotation_arrays(meta, rholms_rot, crossTerms_rot, crossTermsV_rot):
 
 def DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation(
         tvals, P_vec, meta, lookupNKDict, rho_by_a, U_by_aa, V_by_aa, epochDict,
-        Lmax=2, array_output=False, time_interp='nearest', xpy=np):
+        Lmax=2, array_output=False, time_interp='nearest', xpy=np,
+        coefficient_function=None, reflection_function=None):
     """Vectorized rotation-aware lnL (Path A).
 
     GPU: pass xpy=cupy with rho_by_a/U_by_aa/V_by_aa already on device (the ILE converts them
@@ -785,6 +786,11 @@ def DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation(
 
     array_output=True returns lnL_t of shape (npts_ex, npts) (before time marginalization);
     array_output=False returns the time-marginalized lnL of shape (npts_ex,).
+
+    ``coefficient_function`` and ``reflection_function`` are internal extension points for
+    response models with the same sidereal-banded contraction.  The combined slow-rotation +
+    finite-arm response uses them to reuse this maintained CPU/GPU implementation rather than
+    carrying a second copy of the likelihood algebra.
     """
     # The band-limited time quadrature is REFUSED here, not silently ignored.  Its
     # correctness rests on lnL(t) being a pointwise function of a band-limited
@@ -815,6 +821,10 @@ def DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation(
 
     a_list = list(meta['a_list'])
     p_max = meta['p_max']
+    if coefficient_function is None:
+        coefficient_function = rotation_coefficients_vector
+    if reflection_function is None:
+        reflection_function = lambda a: (a[0], -a[1])
     RA = _h(P_vec.phi); DEC = _h(P_vec.theta)
     incl = _h(P_vec.incl); phiref = _h(P_vec.phiref); psi = _h(P_vec.psi)
     npts = len(tvals); npts_ex = len(RA)
@@ -825,7 +835,7 @@ def DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation(
     for det in rho_by_a:
         n_lms = len(lookupNKDict[det])
         Ylms = FL.ComputeYlmsArrayVector(lookupNKDict[det], incl, -phiref).T  # (npts_ex, n_lms)
-        C = rotation_coefficients_vector(det, RA, DEC, psi, P_vec.tref, p_max)  # {(p,n): (npts_ex,)}
+        C = coefficient_function(det, RA, DEC, psi, P_vec.tref, p_max)
         zeroC = np.zeros(npts_ex, dtype=complex)
 
         def Cg(a):
@@ -886,7 +896,7 @@ def DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation(
 
         def _apply_post_phase(a, coef_ex, res):
             """conj(C~_a) Q^a  =  conj(C_a) e^{-i n_a omega delta_ij} Q^a_ij."""
-            pe, pt = _ph(-a[1])
+            pe, pt = _ph(-a[-1])
             if pe is None:
                 return coef_ex[:, None] * res
             return (coef_ex * pe)[:, None] * (pt[None, :] * res)
@@ -922,15 +932,40 @@ def DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation(
         # distinct m (4*n_harmonics+1 of them, so 4*(2+p_max)+1 at the default width)
         # instead of one per pair.
         term2_by_m = {}
-        for a in a_list:
-            aR = (a[0], -a[1])
-            for ap in a_list:
-                val = xpy.conj(Cg_d(a)) * Cg_d(ap) * xpy.einsum(
-                    'xi,xj,ij->x', conjY_d, Ylms_d, xpy.asarray(U_by_aa[det][(a, ap)]))
-                val = val + Cg_d(aR) * Cg_d(ap) * xpy.einsum(
-                    'xi,xj,ij->x', Ylms_d, Ylms_d, xpy.asarray(V_by_aa[det][(a, ap)]))
-                m = ap[1] - a[1]
-                term2_by_m[m] = term2_by_m[m] + val if m in term2_by_m else val
+        if isinstance(U_by_aa[det], dict):
+            for a in a_list:
+                aR = reflection_function(a)
+                for ap in a_list:
+                    val = xpy.conj(Cg_d(a)) * Cg_d(ap) * xpy.einsum(
+                        'xi,xj,ij->x', conjY_d, Ylms_d,
+                        xpy.asarray(U_by_aa[det][(a, ap)]))
+                    val = val + Cg_d(aR) * Cg_d(ap) * xpy.einsum(
+                        'xi,xj,ij->x', Ylms_d, Ylms_d,
+                        xpy.asarray(V_by_aa[det][(a, ap)]))
+                    m = ap[-1] - a[-1]
+                    term2_by_m[m] = term2_by_m[m] + val if m in term2_by_m else val
+        else:
+            # Compound response banks carry tens to hundreds of bands.  A Python/einsum
+            # launch for every ordered pair is prohibitive on a GPU, so their packer emits
+            # dense (A,A,K,K) banks.  Contract all pairs sharing one post-phase difference
+            # in a single launch; the number of launches is then O(harmonic width), not A^2.
+            U_dense = xpy.asarray(U_by_aa[det])
+            V_dense = xpy.asarray(V_by_aa[det])
+            coeff = xpy.stack([Cg_d(a) for a in a_list], axis=1)
+            coeff_r = xpy.stack([Cg_d(reflection_function(a)) for a in a_list], axis=1)
+            n_index = np.asarray([a[-1] for a in a_list], dtype=int)
+            differences = n_index[None, :] - n_index[:, None]
+            for m in np.unique(differences):
+                ia, iap = np.nonzero(differences == m)
+                ia_d = xpy.asarray(ia)
+                iap_d = xpy.asarray(iap)
+                u_mode = xpy.einsum('xi,xj,pij->xp', conjY_d, Ylms_d,
+                                     U_dense[ia_d, iap_d])
+                v_mode = xpy.einsum('xi,xj,pij->xp', Ylms_d, Ylms_d,
+                                     V_dense[ia_d, iap_d])
+                term2_by_m[int(m)] = xpy.sum(
+                    xpy.conj(coeff[:, ia_d]) * coeff[:, iap_d] * u_mode
+                    + coeff_r[:, ia_d] * coeff[:, iap_d] * v_mode, axis=1)
         # Re[] is linear, so accumulate the real part per m and keep the persistent array real.
         term2 = xpy.zeros((npts_ex, npts), dtype=np.float64)
         for m, val in term2_by_m.items():

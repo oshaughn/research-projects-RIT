@@ -24,6 +24,7 @@ import lalsimulation as lalsim
 from .core import build_likelihood_data, DIST_MPC_REF
 from . import response_slowrot as _rs
 from . import response_freqresponse as _rf
+from . import response_rotating_freqresponse as _rrf
 
 
 def _stack_bank(by_key, keys, det):
@@ -190,5 +191,61 @@ def build_freqresponse_data(meta, lookupNKDict, rho_by_p, U_by_pp, V_by_pp,
         p_list=p_list,
         Qmax=int(meta["Qmax"]),
         refl_idx=np.asarray(_rf.reflection_index(p_list), dtype=np.int64),
+    )
+    return data
+
+
+def build_rotating_freqresponse_data(meta, lookupNKDict, rho_by_a, U_by_aa,
+                                     V_by_aa, epochDict, deltaT, tvals, det_geom,
+                                     distMpcRef=DIST_MPC_REF):
+    """Banded data for simultaneous slow rotation and finite-arm response."""
+    if not bool(meta.get("post_phase_required", False)):
+        raise ValueError("compound response bank must require the arrival-time post-phase")
+    a_list = [tuple(int(v) for v in a) for a in meta["a_list"]]
+    tref = float(meta["event_time_geo"])
+    detectors = list(rho_by_a.keys())
+    a0 = a_list[0]
+
+    def _pair(bank, det, i, j, a, ap):
+        return bank[det][(a, ap)] if isinstance(bank[det], dict) else bank[det][i, j]
+
+    packed_scalar = {}
+    for det in detectors:
+        packed_scalar[det] = dict(
+            lms=np.asarray(lookupNKDict[det]),
+            rholmArray=np.asarray(rho_by_a[det][a0], dtype=np.complex128),
+            U=np.asarray(_pair(U_by_aa, det, 0, 0, a0, a0), dtype=np.complex128),
+            V=np.asarray(_pair(V_by_aa, det, 0, 0, a0, a0), dtype=np.complex128),
+            epoch=float(epochDict[det]))
+    data = _base_data(packed_scalar, deltaT, tref, tvals, distMpcRef)
+
+    A = len(a_list)
+    for det in detectors:
+        dd = data.detectors[det]
+        Q_bank = _stack_bank(rho_by_a, a_list, det)
+        dd["Q_bank"] = jnp.asarray(np.ascontiguousarray(np.transpose(Q_bank, (0, 2, 1))))
+        K = len(dd["lms"])
+        U = np.empty((A, A, K, K), dtype=np.complex128)
+        V = np.empty((A, A, K, K), dtype=np.complex128)
+        for i, a in enumerate(a_list):
+            for j, ap in enumerate(a_list):
+                U[i, j] = np.asarray(_pair(U_by_aa, det, i, j, a, ap))
+                V[i, j] = np.asarray(_pair(V_by_aa, det, i, j, a, ap))
+        dd["U_bank"] = jnp.asarray(U)
+        dd["V_bank"] = jnp.asarray(V)
+        _resp, x_arm, y_arm, length = det_geom[det]
+        dd["x_arm"] = jnp.asarray(np.asarray(x_arm, dtype=np.float64))
+        dd["y_arm"] = jnp.asarray(np.asarray(y_arm, dtype=np.float64))
+        dd["L_arm"] = float(length)
+
+    m_values, term1_idx, term2_idx = _rs.post_phase_bucketing(a_list)
+    data.feature = "rotation_freqresponse"
+    data.band = dict(
+        a_list=a_list, Qmax=int(meta["Qmax"]), p_max=int(meta["p_max"]),
+        refl_idx=np.asarray(_rrf.reflection_index(a_list), dtype=np.int64),
+        f_sidereal=float(meta["f_sidereal"]), post_phase_required=True,
+        pp_m_values=np.asarray(m_values, dtype=np.int64),
+        pp_term1_idx=np.asarray(term1_idx, dtype=np.int64),
+        pp_term2_idx=np.asarray(term2_idx, dtype=np.int64),
     )
     return data

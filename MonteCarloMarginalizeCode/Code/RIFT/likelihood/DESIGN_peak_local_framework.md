@@ -610,52 +610,65 @@ the symmetry can be broken at roundoff.  A symmetry assumed exact when it is 1e-
 the same defect in a new costume.  Correct layering: numerical clustering stays load-bearing;
 a declared symmetry may SEED clustering and tighten the budget, and the certificate verifies.
 
-### The 2-D enumerator COMPOSES the 1-D one — the pencil may not be needed at all
+### The 2-D enumerator is a finite resultant, not a φ grid
 
-The obvious route to joint (φ,ψ) is a full 2-D algebraic solve: two Laurent equations, BKK
-mixed volume `8mn = 64` as the certificate, hidden-variable pencil to solve it.  The flagged
-blocker was that pencil's conditioning on the machine-degenerate production tables — the 2-D
-analogue of the on-circle-tolerance trap.
+The earlier hybrid in this section solved the degree-four u polynomial at 64 sampled φ
+values.  That cost was amplitude-independent, but it was still GRID SEEDING and therefore
+was not enumeration of the known finite stationary set.  Higher-mode likelihoods know both
+orders: the exponent is a real Laurent polynomial of bidegree `(K,Q)=(2 m_max,2)`.  There is
+no reason to replace that information by an angular resolution.
 
-**That blocker is dissolved rather than solved, by composition.**  The u-degree is pinned at
-2 for ANY mode set, so at every fixed φ the u-critical points are the unit-circle roots of
-the SAME degree-4 polynomial the ψ primitive already solves.  The variety `{∂_u g = 0}` is
-therefore obtained EXACTLY, with no grid in u and no tolerance.  The 2-D critical points lie
-on that curve, so the remaining search is **one-dimensional in φ along a curve known
-exactly** — no resultant, no pencil, no BKK machinery.
+`bivariate_trig_stationary.py` now implements the host reference construction.  Expand the
+stored half-table into its full Hermitian Laurent table and form
 
-Measured on the shipped tables (`make_synth`, bidegree (4,2) — note `A` and `B` have
-DIFFERENT bidegrees, `A` linear in the waveform (φ≤m_max, u≤1) and `B` quadratic
-(φ≤2m_max, u≤2), which is why `c2` carries no `A` contribution exactly as
-`_laplace_psi_lnI` states):
+```
+F(z,w) = partial_phi g,       G(z,w) = partial_u g,
+z = exp(i phi),               w = exp(i u).
+```
 
-| κ boost | 1 | 10 | 100 | 1000 |
-|---|---|---|---|---|
-| mass-carrying maxima (brute force) | 16 | 12 | 12 | 12 |
-| **recovered, at 64 φ-seeds** | **16** | **12** | **12** | **12** |
-| worst candidate-to-maximum gap (rad) | 0.067 | 0.026 | 0.070 | 0.069 |
+After clearing negative powers these are ordinary bivariate polynomials.  A coordinate
+resultant is a poor numerical choice because several real modes commonly have exactly the
+same φ (or u), making the hidden root multiple.  Instead choose a generic affine hidden
+variable `t = z + alpha w`, substitute `z=t-alpha w`, and eliminate `w` with the Sylvester
+matrix polynomial `S(t)`.  A block companion linearization turns `det S(t)=0` into one
+generalized eigenproblem.  The Newton polygons give the exact mixed-volume budget; for the
+full rectangular derivative supports it is `8 K Q` (64 at `(4,2)`).  This is the finite
+object that exhausts the isolated complex stationary set.
 
-Every mass-carrying maximum is recovered at every amplitude, and the gap shrinks as φ is
-refined (0.070 → 0.039 at 128 seeds).  Candidate count is `4 × N_φ` — **amplitude-independent**.
+The numerical certificate has four gates, all fail closed:
 
-Against the SHIPPED `_dense_grid_sizes` product grid:
+1. recover the mixed-volume number of verified roots in `(C*)^2`;
+2. require nonsingular, adequately conditioned stationary Jacobians and a backward-stable
+   generalized eigenproblem;
+3. classify torus roots with the Laurent system's reciprocal-conjugate involution, not an
+   `abs(|z|-1)<tol` filter — a close off-torus pair is ambiguous and declines; and
+4. repeat with an independent `alpha` and require the complete torus sets to match.
 
-| amplitude | 325 | 3 250 | 3.25e4 | 3.25e5 |
-|---|---|---|---|---|
-| dense (φ,u) points | 48 640 | 430 592 | 4 216 576 | 41 806 336 |
-| composed (4 × 64) | 256 | 256 | 256 | 256 |
-| **ratio** | 190× | 1 682× | 16 471× | 163 306× |
+This preserves all isolated co-dominant maxima.  The adversarial reference tests include a
+Cartesian mode lattice whose points collide under either coordinate projection, a
+max/min pair closer than a 4096-point φ spacing, and exact annihilation.  The first two are
+fully enumerated; the last is correctly marked non-regular.
 
-The ratio grows linearly in `A`, which is the amplitude-independence argument made concrete.
+**Incomplete algebraic accounting is not a waveform failure.**  The hierarchy is:
 
-**Be precise about what is and is not certified here.**  This is a HYBRID: the u axis is
-certified at enumeration time (exact quartic, all roots, no filtering), while the φ axis is
-GRID-SEEDED and therefore is not — it carries exactly the same "a grid is a resolution, not
-a certificate" caveat as the time axis.  Correctness on φ must come from the cover bound, as
-it does for time.  What composition buys is not a φ certificate; it is the removal of the
-entire 2-D algebraic apparatus and its conditioning risk, at a cost that does not grow with
-amplitude.  A full 2-D solve remains the route to an enumeration-time certificate on BOTH
-axes if one is ever needed; this measurement says it is not needed to get the cost win.
+1. use the complete algebraic set as the target set when all enumeration gates pass;
+2. otherwise retain every definitely-real candidate from every projection as a partial
+   target set;
+3. in either case, use the target union only if the existing outside-cover supremum bound
+   proves the omitted impact below budget and a doubled local rule verifies the quadrature
+   inside that cover — enumeration completeness cannot certify inside-box quadrature;
+4. if either check does not pass, compute the finite dense-φ/exact-u fallback and record the
+   expected/found roots, conditioning, and fallback reason.
+
+A missing root can therefore cost performance, but it cannot silently delete a likelihood
+sample or produce `-inf`.  Calling level 2 "enumeration" would still be wrong; reports name
+it `algebraic-best-effort/bound-certified`.
+
+The reference is intentionally host-side.  Generalized QZ, a variable finite-root count,
+cross-projection matching, and these conditioning gates do not yet have an honest
+static-shape JAX transcription.  The defensible JAX route is a fixed-capacity device plan
+built from this host solve, with the same dense fallback.  Replacing it by a sampled φ grid
+and calling that algebraic enumeration is explicitly out of scope.
 
 ### Where enumeration loses — the exclusion region is part of the design
 
@@ -694,6 +707,99 @@ axes if one is ever needed; this measurement says it is not needed to get the co
   door.
 * **Do not carry cross-call state.**  Batch-local only; any persistent scale makes results
   batch-order-dependent.
+* **Do not let a comment outlive the code it describes.**  A comment that contradicts its
+  code is not a documentation defect — it is a place a bug can hide, because it answers
+  the reviewer's question before the reviewer reaches the code.  Measured, three times in
+  one week across three files by three authors.  This module's own instance: the JAX
+  fallback comment asserted the whole-cell branch "can only add nodes"; at the time it
+  added none and spread the same fixed count over the whole cell, so the fallback was
+  COARSER than the window it replaced.  1.7e-03 nats of inner-u error sat behind that sentence,
+  and it survived a rewrite of the numpy twin because nobody re-read the twin.  When a
+  claim in a comment is load-bearing for correctness, it is a test's job, not prose's.
+
+  **The operational form: when you correct a claim, grep the NUMBER, not the paragraph.**
+  A correction written into a new block leaves the old one standing, and then the file
+  asserts and denies the same thing -- with the assertion usually first, so a reader
+  scanning top-down gets the false one.  Measured on this module, by me, hours after
+  committing the rule above: `joint_angle_peak_local.py` carried "it can only add nodes"
+  FOURTEEN LINES from its own retraction, and `anglemarg.py` carried both "rho ~21-30"
+  and the corrected ~26 forty lines apart -- the superseded one being the figure the
+  manuscript quotes.  Two copies of one claim with different scopes is worse than either
+  copy alone, so DELETE the stale one rather than annotating it.
+
+  **Reread does not find these; COUNTING does.** A duplicated number is invisible to
+  rereading because every copy is LOCALLY CONSISTENT — each one reads correctly in its own
+  paragraph. The sweep that works:
+
+  ```bash
+  grep -oE '[0-9]+\.[0-9]{2,}(e[-+]?[0-9]+)?' FILE | sort | uniq -c | sort -rn
+  ```
+
+  Repeats within one coherent block are fine; only SEPARATED copies can drift apart. Run
+  on this module it found two more: `0.36` stated three times in separated blocks (now
+  stated once, on `_BOX_MAX_PTS`, with the others referring to it), and — worse — the same
+  number spelled BOTH `7.069` and `7.07` in one comment, which **defeats the grep itself**:
+  correcting one spelling silently leaves the other. So normalize a number to one spelling
+  before relying on this. The durable fix is structural, not editorial: state a value in
+  ONE place and have the other sites point at it, so a later editor cannot helpfully
+  restore a superseded copy.
+
+  Reported independently by two sessions on the same day, each finding their own violation
+  hours after committing the rule against it — writing the rule is what makes you look,
+  and looking is exactly what feels unnecessary right after you have corrected the
+  paragraph in front of you.
+
+  **The sweep must group by VALUE, never by string and never by a fixed digit count.**
+  Grouping by string reports `7.069` and `7.07` as two unrelated numbers; grouping at
+  three significant figures puts `6.8966e-04` and `0.00069` in different buckets. Either
+  way *the tool built to find multi-spelling hides it from itself and reports clean* —
+  which is worse than not running it, because now you believe you checked. Group by
+  numeric value at ~4 s.f. and flag any group whose spellings differ:
+
+  ```python
+  key = float('%.4g' % value)      # NOT the token, NOT '%.3g'
+  ```
+
+  Two carve-outs, both requiring a same-quantity check by hand that no rule can do for
+  you: repeats inside ONE coherent block are fine, and a trailing zero holding column
+  alignment in a table (`0.25 / 0.50 / 1.00`, or a row label rounded to fit) is not a
+  second spelling. A normalization pass that cannot tell those from real duplicates does
+  damage.
+
+  Convention that avoids the whole problem: **quote one rounded form everywhere and let
+  the committed record carry the digits.** Full precision duplicated into a comment is not
+  an audit trail — the JSON records are — it is a second spelling that hides from the grep.
+* **A verification that CANNOT FAIL is indistinguishable from one that passed.**  This is
+  the single rule behind three failures this module hit in one day, and they are one
+  failure wearing three faces:
+  - a *guard that cannot discriminate* — `n_boxes_pts_capped` fires on every mass-carrying
+    point at rung 1 where the value is exact to 0.00000 nats, and identically at rung 3
+    where it is 0.36 nats wrong.  A flag that never distinguishes will be ignored when it
+    finally matters;
+  - a *check whose pass condition is empty output* — a missing binary plus `2>/dev/null`
+    is indistinguishable from a clean result;
+  - a *sweep that hides the defect from itself* — grouping numerals by string reports
+    `7.069` and `7.07` as unrelated, so the tool written to find multi-spelling reports
+    clean on a file that has it.
+  The third is the worst of the three, because running it converts "unchecked" into
+  "checked and clean" without touching the code.  Before trusting any check, ask what
+  input would make it FAIL; if you cannot name one, it is decoration.
+* **A COMPRESSION of verified facts is a NEW claim, and does not inherit their
+  verification.**  The same shape as the rule above, from the opposite end: one is a check
+  that cannot fail, this is a claim nobody checked *because its parts were checked*.
+  Measured on this work: four per-axis defaults were each independently verified from the
+  code and each held, and the one-sentence summary of them was still false — it asserted a
+  pattern that one of the four axes is a counterexample to, because the default there had
+  deliberately been moved to the accurate scheme.  Every input was true and the summary was
+  not.  Verifying the parts is the step that makes checking the whole feel unnecessary,
+  which is exactly when it is required.
+* **Do not put a broad `except` around a certificate call, in shipped code OR in a
+  harness.**  An error filter converts a bug into a result, and the result looks clean.
+  Measured while sizing this note's own acceptance table: a broad `except Exception`
+  around `joint_marginalize_peak_local` caught a tuple-unpack error and scored it as a
+  DECLINE, reporting a flat 0% acceptance at every amplitude — a uniform, plausible,
+  entirely fabricated headline that was caught only because it contradicted a number
+  already in hand.  A decline must come from the ledger, never from an exception.
 * **Do not silently widen.**  Every decline goes on the ledger under a named reason, with
   the reconcile invariant that the sub-counts sum to the declined rows.  A change that adds
   an unledgered decline path must fail a reconcile test.

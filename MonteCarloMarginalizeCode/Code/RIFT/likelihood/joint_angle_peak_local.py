@@ -22,41 +22,43 @@ a one-centre Laplace is 1.4 nats low with an error that does NOT decay with
 amplitude, because the deficit is combinatorial rather than curvature.  Localisation
 here must be multi-mode; that is the whole point.
 
-HOW THE MODES ARE FOUND, and why this is not a 2-D root solve.  The u-degree of the
-exponent is pinned at 2 for ANY mode set (spin-2), so at fixed ``phi`` the
-u-stationary points are the unit-circle roots of a degree-4 polynomial -- the same
-object ``anglemarg._laplace_psi_lnI`` already solves.  The curve ``{d_u g = 0}`` is
-therefore available EXACTLY, with no grid in u, and the 2-D stationary points lie on
-it.  What remains is a one-dimensional search in ``phi`` along that curve.  No
-resultant, no hidden-variable pencil, no BKK machinery -- and no exposure to the
-conditioning of a 2-D solve at the machine-degenerate configurations that are the
-normal operating point here.
+HOW THE MODES ARE FOUND.  Both angular derivatives are finite Laurent polynomials.
+``bivariate_trig_stationary.enumerate_torus_maxima`` clears their Laurent powers,
+eliminates one variable with a Sylvester resultant, and solves that resultant as a
+generalized polynomial eigenproblem.  A generic affine hidden variable separates
+stationary points that share exactly the same phi or u.  The solve must recover the
+mixed-volume (BKK) root count and agree under two independent projections; otherwise
+this path declines.  Enumeration cost is fixed by bidegree and never by amplitude.
 
-NO ON-CIRCLE TOLERANCE, deliberately.  The obvious filter ``| |z| - 1 | < tol`` is an
-estimate promoted to a bound: at exact multiplicity ``m`` the computed roots smear off
-the unit circle by ``eps_machine^(1/m)`` (measured 4.6e-6 for a triple root), so a
-1e-6 filter returns ONE mode where there are four, in precisely the degenerate regime
-that is production.  Every root is therefore kept and used only as a SEED; the region
-machinery below is what decides what is real.  Over-covering is free because regions
-merge; under-covering is the only failure that matters.
+NO ON-CIRCLE FILTER, deliberately.  Roots are classified with the real polynomial's
+reciprocal-conjugate involution: a torus root is a fixed point, while a complex root has
+a distinct partner.  A close pair whose status is numerically ambiguous declines the
+whole solve.  Thus a tolerance can never silently remove a possible real mode.
 
 WHAT IS CERTIFIED, AND WHAT IS NOT.  Read this before quoting the accuracy.
 
-  * The u axis is certified at enumeration time (all roots of an exact quartic).
-  * The phi axis is GRID-SEEDED and is therefore NOT certified at enumeration time.
-    It carries exactly the caveat the time module carries: a grid is a resolution,
-    not a certificate.
+  * Both angular axes are certified at enumeration time for a regular,
+    zero-dimensional stationary system: the finite algebraic solve recovers its BKK
+    root count and two projections agree.
+  * Degenerate or ill-conditioned systems are not certified.  Any definite
+    candidates they retain are explicitly partial and require the outside-cover gate.
   * Correctness is restored the way the time module restores it -- by a bound on the
     part of the domain the regions do not cover.  ``outside_bound`` below is a TRUE
     upper bound on ``g`` outside the covered set: a grid maximum plus the Lipschitz
     remainder ``M_1 * h / 2``, with ``M_1 = sum |C_kq| |k| (or |q|)`` by the triangle
     inequality over the exact coefficient table.  Nothing there is fitted.
+  * Every retained cover, including one built from a complete root set, must pass
+    an independent doubled-rule check on its inside-box quadrature.  Root
+    completeness and an omitted-mass bound say nothing about that error.
 
-  A row whose omitted-mass bound is not small enough is NOT returned with a caveat:
-  it is declined, and the caller falls back to the dense rule.
+  An incomplete algebraic set is used only when that omitted-mass bound passes.
+  Otherwise this reference executes its dense-phi/exact-u fallback and returns a
+  finite answer with the algebraic ledger and fallback reason attached.
 """
 
 import numpy as np
+
+from .bivariate_trig_stationary import enumerate_torus_maxima
 
 __all__ = [
     "W_SIGMA",
@@ -68,6 +70,7 @@ __all__ = [
     "enumerate_modes",
     "derivative_bound",
     "outside_bound",
+    "dense_phi_exact_u_marginalize",
     "joint_marginalize_peak_local",
     "joint_marginalize_over_distance",
     "u_profile",
@@ -98,6 +101,14 @@ MERGE_MAX_PASSES = 12
 #: Accept a row when log(omitted area) + sup_outside - log(integral) is below this.
 #: exp(-23) ~ 1e-10 of the mass.
 OUTSIDE_TOL_NATS = -23.0
+
+# Keep the host fallback independent of the optional JAX stack.  These are the
+# phi-axis pieces of jax_ile.anglemarg._dense_grid_sizes: the calibration point
+# is m_max=2 and the count is rounded up to a multiple of 16.  Importing that
+# private helper here made the advertised NumPy fallback fail before producing
+# a value whenever JAX was not installed.
+_DENSE_K_PHI = 16.0
+_DENSE_FLOOR_PHI = 128
 
 
 def joint_table(C_A, C_B, x=1.0):
@@ -134,6 +145,18 @@ def _kq(C):
 #: change the answer beyond floating-point reassociation, and does not even do that
 #: here because each point is summed independently.
 _POINT_CHUNK = 200_000
+
+#: Per-axis ceiling on a box's trapezoid.  NOT a free tuning knob: it is the point at
+#: which the local integration stops honouring the curvature it derived, and the
+#: certificate cannot report that -- the omitted-mass bound covers what is outside the
+#: boxes, so a capped box can carry ``margin = -inf`` and still be wrong.  Measured on
+#: the rho=163.08 production tables (amplitude ~2.7e4, ``area_outside == 0``) against a
+#: torus reference self-converged to 2e-12: at 256 the value was off by up to 0.36 nats,
+#: at 512 by 3e-4, at 1024 exact to 1e-4.  Cost went 0.07 s -> 0.21 s -> 0.83 s.  512
+#: buys three orders of magnitude for 3x, and 1024 buys almost nothing more for 12x.
+#: Raising this does not widen the certificate's REACH -- declines are omitted-mass
+#: declines and this is internal accuracy; the two are independent, and both are needed.
+_BOX_MAX_PTS = 512
 
 
 def eval_g(C, phi, u, order=(0, 0)):
@@ -197,58 +220,18 @@ def _wrap(d):
     return (np.asarray(d) + np.pi) % (2.0 * np.pi) - np.pi
 
 
-def enumerate_modes(C, n_phi=64, newton_iters=12):
-    """Local maxima of ``g`` on the torus, as ``(points, hessians)``.
+def enumerate_modes(C, n_phi=None, newton_iters=None, _return_report=False):
+    """All isolated torus maxima from the finite bivariate polynomial.
 
-    Seeds are ``phi`` grid x EXACT u-roots (see :func:`u_stationary_at_phi`), refined
-    by 2-D Newton.  Seeds are targeting only: a seed that converges nowhere useful is
-    dropped, and a mode found twice is deduplicated.  Neither costs correctness --
-    what the regions miss is carried by :func:`outside_bound`.
+    ``n_phi`` and ``newton_iters`` remain accepted for source compatibility with the
+    former grid-seeded reference, but no sampled grid enters enumeration.  When
+    ``_return_report`` is true the internal caller also receives the fail-closed
+    algebraic ledger.
     """
-    phis = np.linspace(0.0, 2.0 * np.pi, int(n_phi), endpoint=False)
-    seeds = [(p, u) for p in phis for u in u_stationary_at_phi(C, p)]
-    if not seeds:
-        return np.zeros((0, 2)), np.zeros((0, 2, 2))
-    P = np.array(seeds, dtype=float)
-
-    for _ in range(int(newton_iters)):
-        gp = eval_g(C, P[:, 0], P[:, 1], (1, 0))
-        gu = eval_g(C, P[:, 0], P[:, 1], (0, 1))
-        gpp = eval_g(C, P[:, 0], P[:, 1], (2, 0))
-        guu = eval_g(C, P[:, 0], P[:, 1], (0, 2))
-        gpu = eval_g(C, P[:, 0], P[:, 1], (1, 1))
-        det = gpp * guu - gpu * gpu
-        ok = np.abs(det) > 1e-300
-        dp = np.where(ok, -(guu * gp - gpu * gu) / np.where(ok, det, 1.0), 0.0)
-        du = np.where(ok, -(-gpu * gp + gpp * gu) / np.where(ok, det, 1.0), 0.0)
-        step = np.hypot(dp, du)
-        # Trust region: an unbounded Newton step means the seed is on a saddle ridge,
-        # not that the mode is far away.
-        scale = np.where(step > 0.5, 0.5 / np.maximum(step, 1e-300), 1.0)
-        P[:, 0] = np.mod(P[:, 0] + dp * scale, 2.0 * np.pi)
-        P[:, 1] = np.mod(P[:, 1] + du * scale, 2.0 * np.pi)
-
-    gpp = eval_g(C, P[:, 0], P[:, 1], (2, 0))
-    guu = eval_g(C, P[:, 0], P[:, 1], (0, 2))
-    gpu = eval_g(C, P[:, 0], P[:, 1], (1, 1))
-    res = np.hypot(eval_g(C, P[:, 0], P[:, 1], (1, 0)),
-                   eval_g(C, P[:, 0], P[:, 1], (0, 1)))
-    m1 = derivative_bound(C, (1, 0)) + derivative_bound(C, (0, 1))
-    is_max = (gpp < 0) & (gpp * guu - gpu * gpu > 0) & (res <= 1e-6 * max(m1, 1e-300))
-    P = P[is_max]
-    H = np.stack([np.stack([gpp[is_max], gpu[is_max]], -1),
-                  np.stack([gpu[is_max], guu[is_max]], -1)], -2)
-    if P.shape[0] == 0:
-        return P, H
-
-    # deduplicate: modes closer than 1e-6 rad are the same mode found twice
-    keep = []
-    for i in range(P.shape[0]):
-        d = np.hypot(_wrap(P[i, 0] - P[keep, 0]), _wrap(P[i, 1] - P[keep, 1])) \
-            if keep else np.array([np.inf])
-        if d.min() > 1e-6:
-            keep.append(i)
-    return P[keep], H[keep]
+    result = enumerate_torus_maxima(C)
+    if _return_report:
+        return result.points, result.hessians, result.ok, result.report
+    return result.points, result.hessians
 
 
 def _merge_boxes(cen, half):
@@ -378,15 +361,40 @@ def outside_bound(C, cen, half, n_grid=256):
 #: recorded rather than hidden because "bit-identical" would have been the wrong claim.
 _PTS_PER_SIGMA = 3
 
+# A local-cover value is accepted only after this independent doubled-rule
+# comparison.  The outside bound cannot diagnose quadrature error inside a box.
+_LOCAL_QUADRATURE_TOL_NATS = 1.0e-6
 
-def _log_box_integral(C, c, h, pts_per_sigma=_PTS_PER_SIGMA, max_pts=256):
-    """``log int_box exp(g)`` by a tensor trapezoid sized from the LOCAL curvature."""
+
+def _log_box_integral(C, c, h, pts_per_sigma=_PTS_PER_SIGMA, max_pts=_BOX_MAX_PTS):
+    """``log int_box exp(g)`` by a tensor trapezoid sized from the LOCAL curvature.
+
+    Returns ``(value, n_points, capped)``.  ``capped`` is True when ``max_pts`` bound the
+    curvature-derived count on either axis -- i.e. the sizing rule ASKED FOR MORE NODES
+    THAN IT GOT.  That is a truncated request, NOT a verdict that the value is wrong:
+    measured on the ladder, rung 1 (rho=40.77, amplitude ~2.5e3) caps on every
+    mass-carrying point and is still exact to 0.00000 nats against a converged reference,
+    while rung 3 (rho=163.08, amplitude ~2.8e4) caps and is wrong by the amount recorded
+    on _BOX_MAX_PTS -- stated there once rather than repeated here.  The trapezoid
+    on a periodic integrand converges fast enough that the derived count is conservative
+    at low amplitude and binding at high.  So treat the flag as "look here", not "this is
+    broken" -- it is the only signal available, because the certificate cannot see inside
+    a box at all.  It has to be reported,
+    because the certificate cannot see it: the omitted-mass bound covers what is OUTSIDE
+    the boxes and says nothing about the quadrature inside one, so a capped box is exactly
+    the case where ``margin`` can read ``-inf`` (nothing omitted at all) while the value is
+    still wrong.  Measured on the rho=163 production tables: at the shipped cap of 256 the
+    value sat that far from a converged torus reference with ``area_outside == 0``.
+    """
     n = []
+    capped = False
     for ax in (0, 1):
         order = (2, 0) if ax == 0 else (0, 2)
         curv = abs(float(eval_g(C, c[0], c[1], order)[0]))
         sig = 1.0 / np.sqrt(curv) if curv > 0 else h[ax]
         want = int(np.ceil(2.0 * h[ax] / max(sig, 1e-12) * pts_per_sigma)) + 1
+        if want > max_pts:
+            capped = True
         n.append(int(np.clip(want, 9, max_pts)))
     a = c[0] + np.linspace(-h[0], h[0], n[0])
     b = c[1] + np.linspace(-h[1], h[1], n[1])
@@ -396,27 +404,90 @@ def _log_box_integral(C, c, h, pts_per_sigma=_PTS_PER_SIGMA, max_pts=256):
     wb = np.full(n[1], 2.0 * h[1] / (n[1] - 1)); wb[0] *= 0.5; wb[-1] *= 0.5
     W = np.log(wa)[:, None] + np.log(wb)[None, :]
     m = g.max()
-    return m + np.log(np.sum(np.exp(g - m + W))), n[0] * n[1]
+    return m + np.log(np.sum(np.exp(g - m + W))), n[0] * n[1], capped
+
+
+def dense_phi_exact_u_marginalize(C, n_phi=None, n_u_nodes=64):
+    """Finite dense-phi/exact-u fallback for one coefficient table.
+
+    This is the host reference analogue of the shipped JAX ``laplace`` member:
+    phi uses the amplitude- and mode-order-derived dense sizing rule, while
+    :func:`u_profile` integrates the finite degree-two u polynomial by its
+    algebraic cell partition.  The returned value is always finite for finite
+    input.  A doubled-phi comparison is reported rather than silently treating
+    the requested floor as proof of convergence.
+    """
+    C = np.asarray(C, dtype=np.complex128)
+    m_max = max(1, int(np.ceil((C.shape[0] - 1) / 2.0)))
+    amplitude_bound = max(derivative_bound(C, (0, 0)), 25.0)
+    m_scale = max(1.0, float(m_max) / 2.0)
+    derived = max(int(np.ceil(_DENSE_FLOOR_PHI * m_scale)),
+                  int(np.ceil(_DENSE_K_PHI * m_scale
+                              * np.sqrt(amplitude_bound))))
+    derived = ((derived + 15) // 16) * 16
+    base = max(int(derived), int(n_phi) if n_phi is not None else 0)
+
+    def one(count):
+        phi = np.linspace(0.0, 2.0 * np.pi, count, endpoint=False)
+        F, _, _ = u_profile(C, phi, n_nodes=int(n_u_nodes))
+        peak = float(np.max(F))
+        return (peak + np.log(np.exp(F - peak).sum())
+                - np.log(float(count)) - np.log(2.0 * np.pi))
+
+    lo = one(base)
+    hi = one(2 * base)
+    return float(hi), {
+        'n_phi': int(2 * base),
+        'n_phi_coarse': int(base),
+        'n_u_nodes_floor': int(n_u_nodes),
+        'amplitude_bound': float(amplitude_bound),
+        'doubling_error': float(abs(hi - lo)),
+    }
 
 
 def joint_marginalize_peak_local(C, n_phi=64, n_bound_grid=256,
                                  tol_nats=OUTSIDE_TOL_NATS):
     """``log[(2 pi)^-2 int int dphi du exp(g)]``, refining only near the modes.
 
-    Returns ``(value, ok, report)``.  ``ok`` is False when the omitted-mass bound could
-    not be made small enough; the caller must then use the dense rule.  The value is
-    returned either way for diagnosis, but a value with ``ok=False`` is NOT to be used.
+    Returns ``(value, ok, report)`` with an explicit three-level hierarchy:
+
+    1. use the BKK-complete algebraic maxima when enumeration is certified;
+    2. use either a complete or partial candidate union only when
+       :func:`outside_bound` proves omitted impact below ``tol_nats`` and a doubled
+       local rule verifies inside-cover quadrature;
+    3. otherwise return :func:`dense_phi_exact_u_marginalize`.
+
+    Thus incomplete root accounting can cost speed but never silently deletes a
+    likelihood sample.  A dense-fallback implementation failure is raised rather than
+    converted to ``-inf``.
     """
     C = np.asarray(C)
     rep = {'n_modes': 0, 'n_regions': 0, 'n_local_points': 0,
+           'n_boxes_pts_capped': 0,
            'margin': np.inf, 'area_outside': np.nan, 'sup_outside': np.nan,
-           'decline': None}
+           'enumeration_certified': False, 'result_path': None,
+           'fallback_reason': None, 'decline': None}
 
-    P, H = enumerate_modes(C, n_phi=n_phi)
+    def dense_fallback(reason):
+        rep['fallback_reason'] = str(reason)
+        value, dense_report = dense_phi_exact_u_marginalize(C, n_phi=n_phi)
+        if not np.isfinite(value):
+            # Do not turn an implementation failure into a zero-likelihood
+            # sample.  A raised error is visible; -inf would be silent deletion.
+            raise FloatingPointError("dense fallback returned a non-finite value")
+        rep['result_path'] = 'dense-phi/exact-u'
+        rep['dense_fallback'] = dense_report
+        rep['decline'] = None
+        return float(value), True, rep
+
+    P, H, enum_ok, enum_report = enumerate_modes(
+        C, n_phi=n_phi, _return_report=True)
+    rep['enumeration'] = enum_report
+    rep['enumeration_certified'] = bool(enum_ok)
     rep['n_modes'] = int(P.shape[0])
     if P.shape[0] == 0:
-        rep['decline'] = 'no modes enumerated'
-        return -np.inf, False, rep
+        return dense_fallback('algebraic enumeration produced no usable maxima: '
+                              + str(enum_report['decline']))
 
     # marginal sigmas of the local Gaussian: sqrt of the diagonal of (-H)^-1
     half = np.empty_like(P)
@@ -429,15 +500,20 @@ def joint_marginalize_peak_local(C, n_phi=64, n_bound_grid=256,
     cen, half, merged_ok = _merge_boxes(P, half)
     rep['n_regions'] = int(cen.shape[0])
     if not merged_ok:
-        rep['decline'] = 'regions still overlap after MERGE_MAX_PASSES'
-        return -np.inf, False, rep
+        return dense_fallback('regions still overlap after MERGE_MAX_PASSES')
 
-    parts, npts = [], 0
+    parts, npts, n_capped = [], 0, 0
     for c, h in zip(cen, half):
-        v, k = _log_box_integral(C, c, h)
+        v, k, capped = _log_box_integral(C, c, h)
         parts.append(v)
         npts += k
+        n_capped += int(capped)
     rep['n_local_points'] = int(npts)
+    # a capped box had its node request truncated and the certificate CANNOT see inside a
+    # box at all, so surface it: it is the only available signal that 'nothing omitted'
+    # might be sitting on a quadrature error.  Capped does NOT mean wrong -- rung 1 caps
+    # everywhere and is exact -- it means this is where to look if a value is doubted.
+    rep['n_boxes_pts_capped'] = int(n_capped)
     parts = np.array(parts)
     m = parts.max()
     log_inside = m + np.log(np.exp(parts - m).sum())
@@ -450,10 +526,48 @@ def joint_marginalize_peak_local(C, n_phi=64, n_bound_grid=256,
     else:
         rep['margin'] = float(np.log(area_out) + sup_out - log_inside)
 
-    ok = rep['margin'] < tol_nats
-    if not ok:
-        rep['decline'] = 'omitted-mass bound too large'
-    return float(log_inside - 2.0 * np.log(2.0 * np.pi)), bool(ok), rep
+    local_value = float(log_inside - 2.0 * np.log(2.0 * np.pi))
+    bound_ok = rep['margin'] < tol_nats
+    if bound_ok:
+        # The outside bound certifies MISSED modes, not quadrature inside the
+        # retained regions.  Enumeration completeness cannot change that: a
+        # complete cover can have area_outside == 0 while a narrow diagonal
+        # ridge is badly under-resolved by an axis-aligned tensor rule.  Always
+        # perform a doubled local rule before accepting the cover.  If that
+        # independent error budget fails, level three of the hierarchy is the
+        # finite dense fallback -- never a sample deletion.
+        parts_hi = []
+        capped_hi = False
+        for c, h in zip(cen, half):
+            v_hi, _, cap_hi = _log_box_integral(
+                C, c, h, pts_per_sigma=2 * _PTS_PER_SIGMA,
+                max_pts=2 * _BOX_MAX_PTS)
+            parts_hi.append(v_hi)
+            capped_hi |= bool(cap_hi)
+        parts_hi = np.asarray(parts_hi)
+        mh = float(np.max(parts_hi))
+        log_inside_hi = mh + np.log(np.exp(parts_hi - mh).sum())
+        quadrature_error = float(abs(log_inside_hi - log_inside))
+        rep['local_quadrature_error'] = quadrature_error
+        rep['local_quadrature_capped'] = bool(capped_hi)
+        # Preserve the existing best-effort ledger names for consumers of an
+        # incomplete algebraic solve; the common names above cover both paths.
+        if not enum_ok:
+            rep['best_effort_quadrature_error'] = quadrature_error
+            rep['best_effort_quadrature_capped'] = bool(capped_hi)
+        if capped_hi or quadrature_error > _LOCAL_QUADRATURE_TOL_NATS:
+            return dense_fallback(
+                'inside-cover quadrature did not converge '
+                '(doubled_error=%.6g, doubled_capped=%s)'
+                % (quadrature_error, bool(capped_hi)))
+        local_value = float(log_inside_hi - 2.0 * np.log(2.0 * np.pi))
+        rep['result_path'] = ('algebraic-certified' if enum_ok
+                              else 'algebraic-best-effort/bound-certified')
+        if not enum_ok:
+            rep['fallback_reason'] = str(enum_report['decline'])
+        return local_value, True, rep
+    return dense_fallback('omitted-mass bound too large (margin %.6g >= %.6g)'
+                          % (rep['margin'], tol_nats))
 
 
 def joint_marginalize_over_distance(C_A_st, C_B_st, x_grid, log_w_grid,
@@ -649,8 +763,11 @@ def u_profile(C, phi, n_nodes=64, window_sigma=12.0):
         # centres a +-W sigma window on a non-stationary point and sizes sigma from the
         # wrong curvature.  Require, as well as g'' < 0, that the residual is small
         # relative to the axis's own derivative bound AND that the point is interior.
-        # A cell failing either is integrated WHOLE rather than windowed, which is the
-        # conservative branch: it can only add nodes, never move the centre.
+        # A cell failing either is integrated WHOLE rather than windowed.  That is the
+        # conservative branch for the CENTRE -- it never moves onto a non-stationary
+        # point -- but it is NOT conservative for the resolution: see the node-count
+        # derivation below, which exists because the whole-cell branch spreads the same
+        # count over a wider interval.
         g1c = eval_g(C, pv, ustar, (0, 1))
         g2c = _g_uu_at(C, p, ustar)
         _m1u = max(derivative_bound(C, (0, 1)), 1e-300)
@@ -663,9 +780,12 @@ def u_profile(C, phi, n_nodes=64, window_sigma=12.0):
         hi = np.where(peaked, np.minimum(ustar + window_sigma * sig_c, mid), mid)
         # DERIVE THE NODE COUNT; the fallback cell is where a fixed one fails.  A
         # windowed cell spans +-W sigma so a fixed count resolves it, but a cell that
-        # FELL BACK spans the whole cell with the same nodes -- and an earlier comment
-        # here claimed that branch "can only add nodes", which was simply false: it adds
-        # none and spreads them wider, so rejecting a peak made the resolution WORSE.
+        # FELL BACK spans the whole cell with the same nodes.  An earlier version of the
+        # comment above called that branch conservative because it "can only add nodes",
+        # which was simply false: it adds none and spreads them wider, so rejecting a
+        # peak made the resolution WORSE.  (That false sentence outlived its own
+        # retraction here by 14 lines until a grep for the NUMBER, not the paragraph,
+        # turned it up -- correcting a claim means finding every copy of it.)
         # Measured on a searched counterexample: 1.7e-03 nats at 64 nodes, converging
         # only by n = 1024.
         #
@@ -713,7 +833,9 @@ def phi_local_marginalize(C, n_seed=64, w_sigma=12.0, n_nodes=64,
                           n_bound_grid=512, tol_nats=OUTSIDE_TOL_NATS):
     """``log[(2 pi)^-2 int int dphi du exp(g)]`` with BOTH axes localized.
 
-    u is exact on the cell partition; phi is localized around the maxima of the profile
+    LEGACY PROFILE EXPERIMENT, not the bivariate algebraic enumerator used by
+    :func:`joint_marginalize_peak_local`.  u is exact on the cell partition; phi is
+    localized around the maxima of the profile
     ``F`` using its exact derivatives.  The phi axis has no algebraic completeness
     warrant -- ``F`` is a log-integral, not a trig polynomial -- so it is the framework's
     grid-seeded class and its correctness rests on the cover bound, exactly as the time
@@ -760,7 +882,20 @@ def phi_local_marginalize(C, n_seed=64, w_sigma=12.0, n_nodes=64,
     for a, b in zip(lo, hi):
         wdt = min(float(b - a), 2.0 * np.pi)
         a = float(np.mod(a, 2.0 * np.pi))
-        if a + wdt <= 2.0 * np.pi:
+        if wdt >= 2.0 * np.pi:
+            # A WINDOW THAT ALREADY SPANS THE CIRCLE IS NOT SPLIT.  Splitting it emits
+            # (a, 2 pi) and (0, a + wdt - 2 pi), and that second endpoint is the round
+            # trip fl(fl(a + 2 pi) - 2 pi), which misses `a` by one ulp in a direction
+            # nothing here controls.  The seam-close below then joins the halves into one
+            # region of width 2 pi MINUS ONE ULP, the clamp `sum >= 2 pi` does not fire,
+            # and the certificate sees area_outside = 8.9e-16 instead of 0.  Measured on
+            # F = 1000 cos(phi - pi/96) at w_sigma = 200: one region [-0.00864509,
+            # 6.27454022], margin -0.657, DECLINED on omitted mass that does not exist.
+            # `wdt` is a min AT 2 pi, so this test is exact and needs no tolerance.  The
+            # jax port carries the same fix in phi_local_lnI, where the halves could also
+            # fail to merge at all and cost 20x in the value.
+            pieces.append((0.0, 2.0 * np.pi))
+        elif a + wdt <= 2.0 * np.pi:
             pieces.append((a, a + wdt))
         else:
             pieces.append((a, 2.0 * np.pi))

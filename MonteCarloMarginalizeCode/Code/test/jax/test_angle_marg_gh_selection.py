@@ -247,10 +247,52 @@ def test_response_model_is_an_angle_independent_precondition():
         assert "factorization" in info["gh_laplace_reason"]
 
 
-def test_wrapper_passes_the_response_feature_through():
+def test_the_dataset_level_gate_forwards_the_response_feature():
+    """The angle-independent half of the gate must run on the DATA's feature.
+
+    Asserted on behaviour, not on source text.  This test used to grep
+    ``JAXDistPhiPsiMargLikelihood.__init__`` for the literal
+    ``feature=getattr(data, "feature", None)``, which made it fail the moment
+    the build-time gate was extracted into
+    ``gh_laplace_supported_for_data`` -- an extraction that REMOVED a duplicate
+    probe direction, i.e. exactly the change the test should have been
+    indifferent to.  A test pinned to a spelling forbids refactors without
+    checking anything the spelling was for.
+    """
+    class _FeatureData:
+        """Wraps a real dataset and relabels only its response model."""
+        def __init__(self, inner, feature):
+            self._inner, self.feature = inner, feature
+
+        def __getattr__(self, name):
+            return getattr(self._inner, name)
+
+    from test_angle_marg_exact import make_synth
+    data = make_synth(scale=1.0, npts=64)
+    assert getattr(data, "feature", None) is None
+    ok, info = AM.gh_laplace_supported_for_data(data)
+    assert ok is True, info.get("gh_laplace_reason")
+    assert info["feature"] is None
+
+    for bad in ("rotation", "freqresponse", "something_added_later"):
+        ok, info = AM.gh_laplace_supported_for_data(_FeatureData(data, bad))
+        assert ok is False, "feature %r was admitted by the dataset gate" % bad
+        assert info["feature"] == bad
+        assert "factorization" in info["gh_laplace_reason"]
+
+
+def test_the_wrapper_and_the_policy_ask_the_SAME_gate():
+    """One definition, and therefore one probe direction.
+
+    The wrapper had its own ``_ANGLE_MARG_PROBE_*`` constants and built its own
+    tables.  With the policy's reserve roster asking the same question, a second
+    copy would be a second definition of "the identity holds on this data" --
+    and the two could answer differently while both looked right.
+    """
     import inspect
     from RIFT.likelihood.jax_ile import wrapper as WR
     src = inspect.getsource(WR.JAXDistPhiPsiMargLikelihood.__init__)
-    assert 'feature=getattr(data, "feature", None)' in src, (
-        "the wrapper does not forward the response model, so the "
-        "angle-independent half of the gate never runs")
+    assert "gh_laplace_supported_for_data" in src, (
+        "the wrapper no longer routes through the shared dataset-level gate")
+    assert "_ANGLE_MARG_PROBE" not in inspect.getsource(WR), (
+        "a second probe direction is back in wrapper.py")

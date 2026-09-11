@@ -32,18 +32,48 @@ def test_peak_local_is_NOT_reachable_from_auto():
         assert scheme != "peak-local", (amp, scheme)
 
 
-@pytest.mark.parametrize("boost", [1.0, 30.0])
+@pytest.mark.parametrize("boost", [1.0, 10.0])
 def test_wrapper_peak_local_matches_exact(boost):
     """The wiring's whole claim: asking for it by name gives the same likelihood as the
-    scheme it parallels."""
+    scheme it parallels.
+
+    BOOST 30 WAS REPLACED BY 10, AND IT COST 807 SECONDS FOR NO WIRING COVERAGE.  Since the
+    u node count became amplitude-derived and streamed, boost 30 puts amp_sizing at 2691
+    and asks for 2188 nodes in 274 sequential stream blocks; that one parametrisation was
+    807 s of a 1006 s file, and the jax gate went from ~24 min to 37-46 min.
+
+    It bought nothing this file is for.  `amp_sizing` FLOORS AT 450, so boost 1.0 already
+    requests 896 nodes -- 18.7x the U_NODES_PER_CELL floor -- and therefore already
+    exercises the amplitude-derived path end to end.  What boost 30 added was numerical
+    stress at production amplitude, and this module's own docstring delegates that: "The
+    kernel's own numerics are tested in test_joint_anglemarg_peaklocal.py."
+
+    10.0 is kept rather than dropping to a second floored value because it is the first
+    boost whose amp_sizing (624) CLEARS the 450 floor -- so the pair still demonstrates that
+    the sizing tracks amplitude rather than being pinned to the crossover, which is the one
+    wiring property the second point exists to show.
+    """
     data = make_synth(scale=2.0, kappa_boost=boost)
     kw = dict(nphi=32, npsi=8, interp=INTERP)
     ex = JAXDistPhiPsiMargLikelihood(data, 30.0, 3000.0, angle_marg="exact", **kw)
     pl = JAXDistPhiPsiMargLikelihood(data, 30.0, 3000.0, angle_marg="peak-local", **kw)
     assert pl.angle_marg_scheme == "peak-local"
+    # _batched returns lnL ALONE for every scheme.  The amplitude metric the
+    # persistent-cache work introduced rides on a separate _batched_amp jit; when
+    # it rode on _batched the two np.asarray calls below raised "inhomogeneous
+    # shape" for the amp-sized schemes, because this line compares two wrappers
+    # whose _batched then had different arities under one attribute name.
     a = np.asarray(ex._batched(jnp.asarray(RA), jnp.asarray(DEC), jnp.asarray(INCL)))
     b = np.asarray(pl._batched(jnp.asarray(RA), jnp.asarray(DEC), jnp.asarray(INCL)))
+    assert a.shape == b.shape == np.shape(RA), (a.shape, b.shape)
     assert np.abs(a - b).max() < 1e-4, (boost, a, b)
+
+    # and the metric-bearing sibling returns the SAME likelihood: a pure caching
+    # change must be numerically inert, so pin it rather than assert it.
+    values, amp = ex._batched_amp(jnp.asarray(RA), jnp.asarray(DEC),
+                                  jnp.asarray(INCL))
+    np.testing.assert_array_equal(np.asarray(values), a)
+    assert np.asarray(amp).shape == () and np.isfinite(float(amp))
 
 
 def test_peak_local_records_its_provenance():
@@ -129,21 +159,26 @@ def test_peak_local_runs_the_runtime_amplitude_failsafe():
     x = jnp.linspace(0.4, 2.0, 8)
     lw = jnp.zeros(8)
     AM.reset_amp_failsafe()
-    # size for a much quieter target than the data actually is: the check must notice
-    AM.fused_log_likelihood_distphipsimarg_peaklocal(
+    # size for a much quieter target than the data actually is: the check must notice.
+    # The kernel now RETURNS its metric rather than reporting it through a host
+    # callback -- a callback anywhere in the graph makes it ineligible for JAX's
+    # persistent compilation cache -- so the caller records, exactly as the
+    # wrapper's batched path does in production.
+    _, amp_call = AM.fused_log_likelihood_distphipsimarg_peaklocal(
         data, jnp.asarray(RA), jnp.asarray(DEC), jnp.asarray(INCL), x, lw,
-        interp=INTERP, amp_sizing=1.0)
+        interp=INTERP, amp_sizing=1.0, return_amp=True)
+    AM.record_amp_failsafe(amp_call, 1.0, "peak-local")
     st = AM.amp_failsafe_state(barrier=True)
     assert st.get("tripped"), st
     assert st.get("scheme") == "peak-local", st
     AM.reset_amp_failsafe()
 
 
-def test_peak_local_is_capped_by_the_batch_memory_rule():
+def test_peak_local_is_capped_by_the_batch_memory_rule(monkeypatch):
     """P1 from review.  peak-local still nests sample/time vmaps over the distance grid,
-    phi chunks, four cells and 48 u nodes, so the batch multiplies the same way the
-    dense schemes do.  Leaving it out of the cap kept an uncapped 8000-sample batch and
-    reopened a documented 36.4 GiB failure."""
+    phi chunks, four cells and the streamed u-node block, and its scan returns every
+    ``(phi,distance)`` value, so the batch multiplies the same way the dense schemes do.
+    Leaving it out of the cap kept an uncapped 8000-sample batch."""
     from RIFT.likelihood.jax_ile import samplers as S
 
     class _Data(object):
@@ -164,17 +199,168 @@ def test_peak_local_is_capped_by_the_batch_memory_rule():
     assert capped < 8000
     # NOT "same cap as exact" -- that was the earlier assertion and review rightly
     # objected that it pins the wrong invariant.  peak-local carries the WHOLE distance
-    # grid inside every phi chunk, so its live slab is ~770x the dense model's
-    # 8192 bytes/sample/time-point; a cap equal to exact's would look protective and
-    # would not be.  The scheme-specific model must therefore be STRICTLY tighter.
+    # grid inside every phi chunk, so its production-floor model is many times the dense
+    # model's 8192 bytes/sample/time-point even now that the phi scan reduces into its
+    # carry rather than stacking.  A cap equal to exact's would look protective and
+    # would not be.  The scheme-specific model must
+    # therefore be STRICTLY tighter.
     assert capped < S.angle_marg_eval_chunk(_Exact(), 8000), capped
     # and it must scale with the distance grid, which is what makes it a model rather
-    # than a constant
+    # than a constant.  Asserted on the model directly: every term in it is linear in
+    # n_x, so a 4x grid is a 4x model.
     class _Wide(_Like):
         x_grid = np.zeros(1024)
-    assert S.angle_marg_eval_chunk(_Wide(), 8000) <= capped
+    assert (S._peaklocal_bytes_per_sample_pt(_Wide())
+            == 4 * S._peaklocal_bytes_per_sample_pt(_Like()))
+    # Fail-closed is pinned against an EXPLICIT target rather than the device probe.
+    # It used to ride on _Wide exceeding whatever the fallback guess was; the phi-scan
+    # fix shrank the model by ~4x and that incidental refusal stopped firing, which is
+    # a test measuring a magnitude while claiming to measure a behaviour.
+    one_sample = S._peaklocal_bytes_per_sample_pt(_Wide()) * _Data.npts
+    monkeypatch.setattr(S, "_angle_marg_buffer_target", lambda: one_sample - 1)
+    with pytest.raises(MemoryError, match="resource preflight"):
+        S.angle_marg_eval_chunk(_Wide(), 8000)
+    monkeypatch.setattr(S, "_angle_marg_buffer_target", lambda: one_sample)
+    assert S.angle_marg_eval_chunk(_Wide(), 8000) == 1
     # the "grid" sentinel means "runs no dense angle scheme" and must stay uncapped
     assert S.angle_marg_eval_chunk(_NoScheme(), 8000) == 8000
+
+
+def test_known_four_gib_device_uses_configured_fraction(monkeypatch):
+    """The unknown-device 4-GiB reserve must never become a known-device floor."""
+    from RIFT.likelihood.jax_ile import samplers as S
+
+    class _Device(object):
+        platform = "gpu"
+
+        def memory_stats(self):
+            return {"bytes_limit": 4 << 30,
+                    "largest_free_block_bytes": 4 << 30}
+
+    monkeypatch.setattr(S.jax, "devices", lambda: [_Device()])
+    monkeypatch.setattr(S, "_ANGLE_MARG_BUFFER_FRACTION", 0.5)
+    assert S._angle_marg_buffer_target() == (2 << 30)
+
+
+@pytest.mark.parametrize("amplitude,n_phi", [(450.0, 352), (12500.0, 1792)])
+def test_peak_local_model_is_flat_in_n_phi_because_the_scan_reduces(
+        amplitude, n_phi):
+    """The cap must account for every source-visible peak-local payload, and must NOT
+    carry an `n_phi * n_x` term any more.
+
+    That term was the stacked phi-scan output, and it was real: 19.97 GiB predicted
+    against 19.99 requested at ladder-2 rung 640.  `joint_lnL_phi_dense` now reduces
+    into its scan carry, so the live phi footprint is one chunk plus an (n_x,)
+    accumulator.  The assertion is written as an EQUALITY against the enumerated terms
+    and, separately, as independence from `n_phi`: a model that silently regrew an
+    n_phi term would pass a loose inequality.
+    """
+    from RIFT.likelihood.jax_ile import samplers as S
+
+    class _Data(object):
+        npts = 1193
+        lms = ((2, 2), (2, -2))
+
+    class _Like(object):
+        data = _Data()
+        angle_marg_scheme = "peak-local"
+        x_grid = np.zeros(256)
+        angle_marg_info = {"amp_sizing": amplitude}
+
+    from RIFT.likelihood.jax_ile import joint_anglemarg_peaklocal as _jp
+    live = min(_jp.u_nodes_in_use(amplitude), _jp.U_NODE_STREAM_CHUNK)
+    expected = (16 * 256 * 4 * live * 8      # streamed u body, one phi chunk
+                + 16 * 256 * 8               # one chunk of (phi, distance) values
+                + 256 * 8                    # the (n_x,) phi accumulator
+                + 256 * 5 * 5 * 16)          # the per-distance-node joint tables
+    per_point = S._peaklocal_bytes_per_sample_pt(_Like())
+    assert per_point == expected, (per_point, expected, n_phi)
+
+
+def test_peak_local_model_does_not_grow_with_the_phi_axis():
+    """The defect this guards: a model that tracks n_phi means a kernel that
+    materializes the phi axis.  Two amplitudes 256x apart put n_phi 16x apart and must
+    leave the per-point model unchanged."""
+    from RIFT.likelihood.jax_ile import samplers as S
+    from RIFT.likelihood.jax_ile import joint_anglemarg_peaklocal as _jp
+
+    class _Data(object):
+        npts = 1193
+        lms = ((2, 2), (2, -2))
+
+    def _like(amp):
+        class _L(object):
+            data = _Data()
+            angle_marg_scheme = "peak-local"
+            x_grid = np.zeros(256)
+            angle_marg_info = {"amp_sizing": amp}
+        return _L()
+
+    lo, hi = 450.0, 450.0 * 256
+    # NOT `== 16 *`: _dense_grid_sizes rounds n_phi up to a multiple of 16, so a 256x
+    # amplitude gives 352 -> 5440, a factor 15.45.  The premise only needs n_phi to
+    # move a lot.
+    assert _jp.required_n_phi(hi) > 10 * _jp.required_n_phi(lo), "premise"
+    # the streamed u block is min(u_nodes, U_NODE_STREAM_CHUNK) and is already at the
+    # 8-node stream cap at both amplitudes, so the whole model must be identical
+    assert (min(_jp.u_nodes_in_use(lo), _jp.U_NODE_STREAM_CHUNK)
+            == min(_jp.u_nodes_in_use(hi), _jp.U_NODE_STREAM_CHUNK)), "premise"
+    assert (S._peaklocal_bytes_per_sample_pt(_like(lo))
+            == S._peaklocal_bytes_per_sample_pt(_like(hi)))
+
+
+def test_peak_local_resource_preflight_refuses_an_unfit_single_sample(
+        monkeypatch):
+    """One sample over the allowance must REFUSE, not floor the chunk at one.
+
+    The size no longer comes from the amplitude.  This used to read "A=12500 needs
+    5.242 GiB/sample", which was true only while the model carried the stacked
+    `n_phi * n_x` term; with the phi scan reducing into its carry the model is flat in
+    amplitude, so the unfit sample is built from the dimensions that do still drive it.
+    """
+    from RIFT.likelihood.jax_ile import samplers as S
+
+    class _Data(object):
+        npts = 8192
+        lms = ((2, 2), (2, -2))
+
+    class _Like(object):
+        data = _Data()
+        angle_marg_scheme = "peak-local"
+        x_grid = np.zeros(1024)
+        angle_marg_info = {"amp_sizing": 12500.0}
+
+    one_sample = S._peaklocal_bytes_per_sample_pt(_Like()) * _Data.npts
+    assert one_sample > (4 << 30), "premise: one sample must not fit"
+    monkeypatch.setattr(S, "_angle_marg_buffer_target", lambda: 4 << 30)
+    with pytest.raises(MemoryError, match="reducing the outer evaluation chunk"):
+        S.angle_marg_eval_chunk(_Like(), 8000)
+
+
+def test_peak_local_floor_amplitude_fits_one_sample_at_two_gib(monkeypatch):
+    """At the floor amplitude a 2 GiB target admits exactly one sample.
+
+    The docstring used to say "A=450 needs 1.966 GiB/sample".  That number was the
+    stacked-phi-scan model; it is now 1.32 GiB and does not depend on the amplitude at
+    all.  The test still passed at the new size, which is how a stale measured number
+    survives in a green suite -- so the size is asserted here rather than narrated.
+    """
+    from RIFT.likelihood.jax_ile import samplers as S
+
+    class _Data(object):
+        npts = 1193
+        lms = ((2, 2), (2, -2))
+
+    class _Like(object):
+        data = _Data()
+        angle_marg_scheme = "peak-local"
+        x_grid = np.zeros(256)
+        angle_marg_info = {"amp_sizing": 450.0}
+
+    one_sample = S._peaklocal_bytes_per_sample_pt(_Like()) * _Data.npts
+    assert (2 << 30) // one_sample == 1, "premise: exactly one sample fits"
+    monkeypatch.setattr(S, "_angle_marg_buffer_target", lambda: 2 << 30)
+    assert S.angle_marg_eval_chunk(_Like(), 8000) == 1
 
 
 def test_peak_local_artifacts_carry_the_standing_best_effort_label():
@@ -192,6 +378,90 @@ def test_peak_local_artifacts_carry_the_standing_best_effort_label():
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     AM.reset_amp_failsafe()
+    # Nothing recorded: the label must STAND and must not read as a pass.  The
+    # former wording was BEST-EFFORT; the metric is now returned data rather
+    # than a droppable callback, so an unchecked event says NOT-PERFORMED and a
+    # checked one says OUTPUT-CLOUD-PASS.  What the P1 finding requires is
+    # unchanged -- peak-local never publishes silence.
     note = mod.angle_grid_suspect_note("peak-local")
-    assert note.startswith("ANGLE-GRID-CHECK=BEST-EFFORT"), note
+    assert note.startswith("ANGLE-GRID-CHECK=NOT-PERFORMED"), note
+    assert "NOT a pass" in note and "UNKNOWN" in note, note
+    AM.record_amp_failsafe(1.0, 100.0, "peak-local")
+    checked = mod.angle_grid_suspect_note("peak-local")
+    assert checked.startswith("ANGLE-GRID-CHECK=OUTPUT-CLOUD-PASS"), checked
+    AM.reset_amp_failsafe()
     assert mod.angle_grid_suspect_note("grid") == ""
+
+
+def test_kernel_and_memory_guard_read_the_same_node_count():
+    """Review P2.  ``u_nodes_in_use`` was introduced as the single source of truth for the
+    u-node count, and its docstring said both the kernel and the batch-memory guard call
+    it -- but only the guard did.  ``joint_lnL_phi_dense`` still defaulted straight to
+    ``U_NODES_PER_CELL`` and the fused caller passed no ``n_nodes``, so an
+    amplitude-dependent change would have moved the guard and left the kernel behind.  A
+    single source of truth that only one side reads is not one.
+
+    The invariant is NOT "both currently equal 48" -- production uses the uncapped
+    derived count.  Both sides must read the same amplitude, while the guard models only
+    the streamed live block rather than the total quadrature work.
+
+    The shape is deliberately NOT the production one.  At npts=614 with 256 distance nodes
+    the cap is already pinned at its floor of 1 -- the measured "peak-local batches one
+    sample" result -- so quadrupling the node count cannot move it, and the guard assertion
+    would read ``1 < 1`` and fail while the wiring was correct.  A saturated observable
+    cannot test the thing it saturates on.  npts=64 with 32 distance nodes stays clear of
+    both the floor and the 8000 ceiling.
+    """
+    from RIFT.likelihood.jax_ile import samplers as S
+    from RIFT.likelihood.jax_ile import joint_anglemarg_peaklocal as JP
+
+    class _Data(object):
+        npts = 64
+
+    class _Like(object):
+        data = _Data()
+        angle_marg_scheme = "peak-local"
+        x_grid = np.zeros(32)
+        angle_marg_info = {"amp_sizing": 450.0}
+
+    seen = []
+    real_helper = JP.u_nodes_in_use
+    real_inner = JP.log_inner_u_integral
+
+    def _spy_inner(a, c1, c2, n_nodes=JP.U_NODES_PER_CELL, **kw):
+        seen.append(int(n_nodes))
+        return real_inner(a, c1, c2, n_nodes, **kw)
+
+    baseline_cap = S.angle_marg_eval_chunk(_Like(), 8000)
+    assert 1 < baseline_cap < 8000, baseline_cap      # the observable is not saturated
+
+    helper_args = []
+    def _raised_policy(amp_sizing=None):
+        helper_args.append(amp_sizing)
+        return 4 * real_helper(amp_sizing)
+
+    JP.u_nodes_in_use = _raised_policy
+    JP.log_inner_u_integral = _spy_inner
+    try:
+        # The guard must consult the helper with the production amplitude.  Its cap does
+        # not shrink because the extra total work is streamed through the same live block.
+        raised_cap = S.angle_marg_eval_chunk(_Like(), 8000)
+        assert raised_cap == baseline_cap, (baseline_cap, raised_cap)
+        assert 450.0 in helper_args, helper_args
+
+        # the KERNEL must follow it too, via n_nodes=None resolving through the helper
+        rng = np.random.default_rng(0)
+        C_A = rng.normal(size=(3, 3)) + 1j * rng.normal(size=(3, 3))
+        C_B = rng.normal(size=(5, 5)) + 1j * rng.normal(size=(5, 5))
+        C_B[0, 2] = abs(C_B[0, 2].real) + 3.0
+        x_grid = jnp.asarray(np.linspace(0.5, 2.0, 8))
+        lw = jnp.zeros(8)
+        JP.joint_lnL_phi_dense(jnp.asarray(C_A), jnp.asarray(C_B), x_grid, lw, n_phi=8)
+        assert seen, "kernel never reached log_inner_u_integral"
+        assert set(seen) == {4 * real_helper(None)}, (seen, real_helper(None))
+    finally:
+        JP.u_nodes_in_use = real_helper
+        JP.log_inner_u_integral = real_inner
+
+    # restoring the helper restores the cap exactly -- no hidden state
+    assert S.angle_marg_eval_chunk(_Like(), 8000) == baseline_cap

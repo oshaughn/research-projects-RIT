@@ -105,8 +105,9 @@ Path A + Path B are implemented, validated, and wired into the ILE.  Next work i
    a finite-size injection the long-wavelength NoLoop deficit 2.71 -> finite-size 0.558 (converged
    Qmax=2), residual ~= peak-resolution floor; V3 Cauchy-Schwarz respected.  Scalar companion
    agrees with the NoLoop to 0.156 (interp-vs-nearest floor).
-   REMAINING: ILE wiring (a --freqresponse flag mirroring --rotation-slow); full precessing+HM
-   (route a pinned-sky); a value demo (the finite-size effect only bites for CE/3G).
+   ILE wiring is complete for `--freqresponse` alone and for its composition with
+   `--rotation-slow`.  REMAINING: a full long-duration precessing+HM science campaign; the
+   compound zero-rate reduction and Cauchy--Schwarz checks pass on a short waveform fixture.
    AUDIT NOTE (2026-07): all slowrot likelihoods route through the maintained NoLoop; there are
    NO SingleDetectorLogLikelihood calls; the ILE wires only NoLoop paths.  The scalar
    FactoredLogLikelihood*/SingleDetectorLogLikelihood are used only as secondary references and
@@ -179,7 +180,14 @@ End-to-end ILE head-to-head (ILE-GPU-Paper demo data), baseline vs rotation vs f
     integrate_likelihood_extrinsic_batchmode --vectorized --rotation-slow --rotation-p-max 1 ...  # Path B
     integrate_likelihood_extrinsic_batchmode --vectorized --freqresponse \
         --freqresponse-arm-length 40000 --freqresponse-qmax 6 ...                     # Path D (finite-size)
+    integrate_likelihood_extrinsic_batchmode --vectorized --rotation-slow --freqresponse \
+        --rotation-p-max 0 --freqresponse-arm-length 40000 --freqresponse-qmax 4 ...   # combined A+D
     # --interpolate-time selects cubic sub-bin time interpolation for all of the above (default nearest).
+
+The combined path is intentionally scoped to long, loud BNS-like signals.  Its compound
+`(frequency basis, delay order, sidereal harmonic)` bank has 50 elements / 2500 ordered U/V
+pairs at the current `Qmax=4,pmax=0` defaults and 112 / 12544 at `pmax=1`; see
+`DESIGN_rotating_freqresponse.md` before increasing either order.
 
 ## Validation status (all PASSING)
 - Response harmonics vs LAL: ~1e-16.  FD ops vs LAL round trips: ~1e-13.
@@ -215,6 +223,15 @@ End-to-end ILE head-to-head (ILE-GPU-Paper demo data), baseline vs rotation vs f
 - Path D (finite-size, --freqresponse): response Sum_p b_p W_p == antenna_response_fd to 6e-11
   on both +/-f; likelihood L->0 reduces to baseline NoLoop 3e-9; Cauchy-Schwarz respected;
   V4 positive control asserts finite-size beats LWL by +38.9 nats (15+13 Msun, fmax=2000, CE 40km).
+- Combined Path A/B+D: every finite-response sky coefficient reconstructs under sidereal
+  evolution to 2.6e-12; the full compound precompute/NoLoop likelihood reduces to Path D at
+  zero sidereal rate to <1e-8 and respects the Cauchy--Schwarz bound at zero and physical
+  sidereal rates.  Guarded by `test_slowrot_rotating_freqresponse.py`.
+- JAX combined Path A/B+D: JAX-native compound coefficients agree with numpy to 2.7e-16;
+  the packed `Qmax=0,pmax=0` likelihood agrees with conventional NoLoop to 1.2e-14
+  relative and executes under JIT/grad.  The production JAX driver now wires the
+  rotation-only, frequency-response-only, and combined selections.  Initial CPU basis
+  scaling is recorded in `DESIGN_rotating_freqresponse.md`.
 - Cubic time-interp (from calmarg_in_loop, --interpolate-time): both slow-response NoLoops now
   support time_interp='nearest'|'cubic'.  Cubic exposed+fixed a sub-bin GPS-cancellation bug in
   the time reference; head-to-head regression floor 1.6e-3 -> 4.5e-13, test_slowrot_noloop 3.6e-12.
