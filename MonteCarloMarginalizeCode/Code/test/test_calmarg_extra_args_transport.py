@@ -251,8 +251,8 @@ def _hlmoft_kwargs(args, seen):
     if args.h_method == "gws_hlmoft":
         # rgws.hlmoft(P, Lmax=..., approx_string=..., **extra_waveform_kwargs)
         return {k: v for k, v in seen.items() if k not in ("Lmax", "approx_string")}
-    # lalsimutils.hlmoft(P, Lmax=..., extra_waveform_kwargs=<the dict>)
-    return seen.get("extra_waveform_kwargs")
+    # lalsimutils.hlmoft(P, Lmax=..., **extra_waveform_kwargs), the form ILE uses
+    return {k: v for k, v in seen.items() if k != "Lmax"}
 
 
 @pytest.mark.xfail(strict=True, reason=(
@@ -266,15 +266,12 @@ def test_nested_quotes_in_waveform_kwargs(tmp_path):
     assert waveform_arguments["extra_waveform_kwargs"] == dict(L, mode_label="it's")
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "rift_source calls lalsimutils.hlmoft(P, Lmax=..., extra_waveform_kwargs=dict); hlmoft has "
-    "no such parameter, so the dict lands in **kwargs and fd_* keys are never applied on the "
-    "default h_method='hlmoft' path.  Pre-existing; not changed by this PR."))
 def test_hlmoft_path_applies_waveform_kwargs(monkeypatch):
+    """The kwargs bind to hlmoft's own parameters (before the O4c port they sat unused in **kwargs)."""
     import inspect
     import RIFT.lalsimutils as lalsimutils
     real = lalsimutils.hlmoft
-    argv = ["--use_rift_samples=True", "--extra-waveform-kwargs", XPHM]
+    argv = ["--use_rift_samples=True", "--fmin", "20", "--extra-waveform-kwargs", XPHM]
     _, waveform_arguments, wf_func = _calibration_waveform_arguments(argv)
     seen = _waveform_call(monkeypatch, wf_func, waveform_arguments)
     bound = inspect.signature(real).bind(None, **seen)
