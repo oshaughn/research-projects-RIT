@@ -8,6 +8,7 @@ Integrate the extrinsic parameters of the prefactored likelihood function.
 """
 
 import sys
+import json
 import functools
 from optparse import OptionParser, OptionGroup
 
@@ -48,6 +49,7 @@ from igwn_ligolw import utils,  ligolw
 import glue.lal
 
 import RIFT.lalsimutils as lalsimutils
+from RIFT.likelihood.noise_evidence import compute_network_log_noise_evidence
 import RIFT.integrators.mcsampler as mcsampler
 import RIFT.misc.sky_rotations as sky_rotations
 try:
@@ -177,6 +179,8 @@ optp.add_option( "--zero-likelihood", action='store_true', help="Run with exactl
 optp.add_option("-c", "--cache-file", default=None, help="LIGO cache file containing all data needed.")
 optp.add_option("-C", "--channel-name", action="append", help="instrument=channel-name, e.g. H1=FAKE-STRAIN. Can be given multiple times for different instruments.")
 optp.add_option("-p", "--psd-file", action="append", help="instrument=psd-file, e.g. H1=H1_PSD.xml.gz. Can be given multiple times for different instruments.")
+optp.add_option("--log-noise-evidence-output", default=None, help="Write Bilby-compatible fixed-PSD log noise evidence and per-detector (d|d) values to this JSON file. Uses the same conditioned data and PSD as ILE.")
+optp.add_option("--log-noise-evidence-only", action="store_true", help="Exit after writing --log-noise-evidence-output, before waveform generation and Monte Carlo integration. If no output path is supplied, use log_noise_evidence.json.")
 optp.add_option("-k", "--skymap-file", help="Use skymap stored in given FITS file.")
 optp.add_option("-x", "--coinc-xml", help="gstlal_inspiral XML file containing coincidence information.")
 optp.add_option("-I", "--sim-xml", help="XML file containing mass grid to be evaluated")
@@ -332,6 +336,8 @@ for pin_param in LIKELIHOOD_PINNABLE_PARAMS:
 optp.add_option_group(pinnable)
 
 opts, args = optp.parse_args()
+if opts.log_noise_evidence_only and opts.log_noise_evidence_output is None:
+  opts.log_noise_evidence_output = "log_noise_evidence.json"
 
 # cosmo d prior tools for interpolation:  not used normally, but set if needed
 final_scipy_interpolate=None
@@ -731,6 +737,37 @@ P.deltaF = deltaF
 for Psig in P_list:
   Psig.deltaT = P.deltaT
   Psig.deltaf = P.deltaF
+
+
+# Bilby's fixed-PSD noise hypothesis has no sampled parameters: its evidence is
+# the zero-signal likelihood, -1/2 sum_k (d_k|d_k).  Compute it only after all
+# ILE data/PSD conditioning so the normalization exactly matches this run.
+if opts.log_noise_evidence_output:
+  log_noise_evidence, noise_evidence_by_detector = compute_network_log_noise_evidence(
+      data_dict, psd_dict, fmin=P.fmin, fmax=fmax, fnyq=0.5/P.deltaT,
+      inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec)
+  noise_evidence_payload = {
+      "schema": "rift.log-noise-evidence/v1",
+      "convention": "bilby-fixed-psd-no-gaussian-determinant",
+      "log_noise_evidence": log_noise_evidence,
+      "per_detector": noise_evidence_by_detector,
+      "analysis": {
+          "fmin": float(P.fmin),
+          "fmax": float(fmax),
+          "fnyq": float(0.5/P.deltaT),
+          "inverse_spectrum_truncation_time": float(T_spec),
+          "data_start_time": float(start_time),
+          "data_end_time": float(end_time),
+      },
+  }
+  with open(opts.log_noise_evidence_output, "w") as noise_evidence_file:
+    json.dump(noise_evidence_payload, noise_evidence_file,
+              indent=2, sort_keys=True)
+    noise_evidence_file.write("\n")
+  print("Wrote log noise evidence {} to {}".format(
+      log_noise_evidence, opts.log_noise_evidence_output))
+  if opts.log_noise_evidence_only:
+    sys.exit(0)
 
 
 
