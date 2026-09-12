@@ -123,6 +123,18 @@ def PrecomputeLikelihoodTermsRotatingFreqResponse(
         analyticPSD_Q=False, inv_spec_trunc_Q=False, T_spec=0.,
         verbose=True, quiet=False, skip_interpolation=False, **hlm_kwargs):
     """Build the intrinsic compound bank indexed by ``(b,p,n)``."""
+    import os
+    if os.environ.get('RIFT_GPU_PRECOMPUTE', '0') == '1':
+        from .gpu_precompute import PrecomputeLikelihoodTermsRotatingFreqResponseGPU
+        provider = os.environ.get('RIFT_GPU_WAVEFORM', 'lal')
+        if provider != 'lal':
+            raise ValueError('Native GPU waveform provider is not yet validated; use RIFT_GPU_WAVEFORM=lal')
+        return PrecomputeLikelihoodTermsRotatingFreqResponseGPU(
+            event_time_geo, t_window, P, data_dict, psd_dict, Lmax, fMax,
+            Qmax=Qmax, L_arm=L_arm, p_max=p_max, f_sidereal=f_sidereal,
+            analyticPSD_Q=analyticPSD_Q, inv_spec_trunc_Q=inv_spec_trunc_Q,
+            T_spec=T_spec, verbose=verbose, quiet=quiet,
+            skip_interpolation=skip_interpolation, **hlm_kwargs)
     from . import factored_likelihood as FL
     from .. import lalsimutils as lsu
 

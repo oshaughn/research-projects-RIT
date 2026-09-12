@@ -43,6 +43,7 @@ fi
   || { echo "test-jax.sh: numpyro unavailable (needed by test_nuts_phimarg)" >&2; exit 1; }
 
 export JAX_PLATFORMS="${JAX_PLATFORMS:-cpu}"
+export JAX_ENABLE_X64="${JAX_ENABLE_X64:-1}"
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
 
 JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
@@ -509,6 +510,7 @@ FILES=(
   "${JAXDIR}/test_jax_time_quadrature.py"
   "${JAXDIR}/test_jax_terminal_time_marginalization.py"
   "${JAXDIR}/test_jax_likelihood.py"
+  "${JAXDIR}/test_jax_banded_data_term.py"
   "${JAXDIR}/test_jax_endtoend.py"
   "${JAXDIR}/test_jax_slowrot_coeffs.py"
   "${JAXDIR}/test_jax_slowrot_wrapper.py"
@@ -1073,7 +1075,9 @@ fi
 # The bounded multipeak suite has 53 tests, including real acceptance/AD,
 # CLI configuration, invalid guards, and explicit drop/refuse publication.
 # 787 + 53 = 840.
-EXPECTED_TESTS=840
+# 2026-09-12: +15 compact banded-data contraction value, AD, tile/padding,
+# scratch-budget, empty-batch, and graph-size tests. 840 + 15 = 855.
+EXPECTED_TESTS=855
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"

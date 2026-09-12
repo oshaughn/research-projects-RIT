@@ -3552,6 +3552,31 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
           extra_args_dict = eval(extra_args_dict)
       print(" Waveform high-level extra args passed ", extra_args_dict, type(extra_args_dict))
       extra_waveform_kwargs.update(extra_args_dict)
+    # Keep every precompute for this event on the same waveform-generation
+    # route.  In particular, the compound slow-rotation/frequency-response
+    # bank must not silently fall back to the default LAL generator when the
+    # baseline bank selected GWSignal, NR, ROM, or custom conditioning.
+    waveform_generation_kwargs = {
+      'NR_group': NR_template_group,
+      'NR_param': NR_template_param,
+      'use_gwsignal': opts.use_gwsignal,
+      'use_gwsignal_approx': opts.approximant,
+      'use_external_EOB': opts.use_external_EOB,
+      'nr_lookup': opts.nr_lookup,
+      'nr_lookup_valid_groups': opts.nr_lookup_group,
+      'perturbative_extraction': opts.nr_perturbative_extraction,
+      'perturbative_extraction_full': opts.nr_perturbative_extraction_full,
+      'use_provided_strain': opts.nr_use_provided_strain,
+      'hybrid_use': opts.nr_hybrid_use,
+      'hybrid_method': opts.nr_hybrid_method,
+      'ROM_group': opts.rom_group,
+      'ROM_param': opts.rom_param,
+      'ROM_use_basis': opts.rom_use_basis,
+      'ROM_limit_basis_size': opts.rom_limit_basis_size_to,
+      'no_memory': opts.no_memory,
+      'extra_waveform_kwargs': extra_waveform_kwargs,
+      'force_22_mode': opts.force_hyperbolic_22,
+    }
     # Precompute
     t_window = opts.internal_data_storage_window_half
     ignore_threshold=None
@@ -3591,10 +3616,9 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             False, inv_spec_trunc_Q, T_spec,
             return_calibration_crossterms=True,
             ignore_threshold=ignore_threshold,   # default is None, old default was 1e-4. Use to speed calculation and/or discard 'junky' modes, esp at lower SNR. Dangerous at high SNR
-            NR_group=NR_template_group,NR_param=NR_template_param,
-            use_gwsignal=opts.use_gwsignal,
-            use_gwsignal_approx=opts.approximant,
-            use_external_EOB=opts.use_external_EOB,nr_lookup=opts.nr_lookup,nr_lookup_valid_groups=opts.nr_lookup_group,perturbative_extraction=opts.nr_perturbative_extraction,perturbative_extraction_full=opts.nr_perturbative_extraction_full,use_provided_strain=opts.nr_use_provided_strain,hybrid_use=opts.nr_hybrid_use,hybrid_method=opts.nr_hybrid_method,ROM_group=opts.rom_group,ROM_param=opts.rom_param,ROM_use_basis=opts.rom_use_basis,verbose=opts.verbose,quiet=not opts.verbose,ROM_limit_basis_size=opts.rom_limit_basis_size_to,no_memory=opts.no_memory,skip_interpolation=opts.vectorized, extra_waveform_kwargs=extra_waveform_kwargs,force_22_mode=opts.force_hyperbolic_22,**extra_kwargs)
+            verbose=opts.verbose,quiet=not opts.verbose,
+            skip_interpolation=opts.vectorized,
+            **waveform_generation_kwargs, **extra_kwargs)
 
     # skip nan ! Something horrible has happened
     if np.isnan(guess_snr):
@@ -3741,18 +3765,36 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                             for kv in str(_arm).split(',')}
                 else:
                     _arm = float(_arm)
-            _rint_rf, _ct_rf, _ctV_rf, _rho_rf, _meta_rf = \
-                factored_likelihood_rotating_freqresponse.PrecomputeLikelihoodTermsRotatingFreqResponse(
+            if os.environ.get('RIFT_GPU_PRECOMPUTE', '0') == '1' and opts.gpu and xpy_default is not np:
+                if _response_order_active:
+                    raise NotImplementedError('Device-resident response-order selection is not yet supported; choose explicit orders or disable RIFT_GPU_PRECOMPUTE')
+                if os.environ.get('RIFT_GPU_WAVEFORM', 'lal') != 'lal':
+                    raise ValueError('Native GPU waveform provider is not yet validated; use RIFT_GPU_WAVEFORM=lal')
+                from RIFT.likelihood.gpu_precompute import (
+                    PrecomputeLikelihoodTermsRotatingFreqResponseGPU,
+                    pack_device_precompute)
+                _packed_rf, _meta_rf = PrecomputeLikelihoodTermsRotatingFreqResponseGPU(
                     fiducial_epoch, t_window, P, data_dict, psd_dict, opts.l_max, fmax,
                     Qmax=_qmax, L_arm=_arm, p_max=_pmax, analyticPSD_Q=False,
                     inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec,
-                    verbose=opts.verbose, quiet=not opts.verbose, skip_interpolation=True)
-            _rint_rf, _ct_rf, _ctV_rf, _rho_rf, _meta_rf = _apply_order_control(
-                (_rint_rf, _ct_rf, _ctV_rf, _rho_rf, _meta_rf),
-                _p_selected, _q_selected)
-            _lkRF, _rhoA, _uAA, _vAA, _epRF = \
-                factored_likelihood_rotating_freqresponse.pack_rotating_freqresponse_arrays(
-                    _meta_rf, _rho_rf, _ct_rf, _ctV_rf)
+                    verbose=opts.verbose, quiet=not opts.verbose,
+                    skip_interpolation=True, return_device=True,
+                    **waveform_generation_kwargs)
+                _lkRF, _rhoA, _uAA, _vAA, _epRF = pack_device_precompute(_packed_rf, _meta_rf)
+            else:
+                _rint_rf, _ct_rf, _ctV_rf, _rho_rf, _meta_rf = \
+                    factored_likelihood_rotating_freqresponse.PrecomputeLikelihoodTermsRotatingFreqResponse(
+                        fiducial_epoch, t_window, P, data_dict, psd_dict, opts.l_max, fmax,
+                        Qmax=_qmax, L_arm=_arm, p_max=_pmax, analyticPSD_Q=False,
+                        inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec,
+                        verbose=opts.verbose, quiet=not opts.verbose,
+                        skip_interpolation=True, **waveform_generation_kwargs)
+                _rint_rf, _ct_rf, _ctV_rf, _rho_rf, _meta_rf = _apply_order_control(
+                    (_rint_rf, _ct_rf, _ctV_rf, _rho_rf, _meta_rf),
+                    _p_selected, _q_selected)
+                _lkRF, _rhoA, _uAA, _vAA, _epRF = \
+                    factored_likelihood_rotating_freqresponse.pack_rotating_freqresponse_arrays(
+                        _meta_rf, _rho_rf, _ct_rf, _ctV_rf)
             if opts.gpu and (not xpy_default is np):
                 for _det in _rhoA:
                     for _a in _rhoA[_det]:

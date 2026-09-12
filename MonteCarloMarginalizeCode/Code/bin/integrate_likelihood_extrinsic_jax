@@ -64,6 +64,11 @@ from optparse import OptionParser, OptionGroup
 
 import numpy as np
 
+# The opt-in CuPy precompute and JAX likelihood share one GPU. Set this before
+# importing JAX or any RIFT module that may initialize its allocator.
+if os.environ.get('RIFT_GPU_PRECOMPUTE', '0') == '1':
+    os.environ.setdefault('XLA_PYTHON_CLIENT_PREALLOCATE', 'false')
+
 import jax
 import jax.numpy as jnp
 jax.config.update("jax_enable_x64", True)

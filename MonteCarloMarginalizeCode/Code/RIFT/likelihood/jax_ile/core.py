@@ -431,6 +431,7 @@ def _make_gather_sinc(a):
         valid = (idx >= 0) & (idx < n)
         vals = Q_col[jnp.clip(idx, 0, n - 1)]
         return jnp.sum(w * jnp.where(valid, vals, 0.0 + 0.0j), axis=-1)
+    _gather._stencil_size = 2 * a
     return _gather
 
 
@@ -847,6 +848,100 @@ def _banded_coefficients(data, det, ra, dec, psi):
     raise ValueError("unknown banded feature %r" % (data.feature,))
 
 
+def _banded_chunk_shape(A, K, S, npts, nfull, taps, budget=128 * 1024**2):
+    """Choose row/sample tiles using a conservative forward scratch estimate.
+
+    Reserve four complex arrays per stencil tap and twelve per output element,
+    plus the selected source rows.  This covers unfused gathers, masks, weights,
+    products and reductions; it excludes input banks, the final output, compiler
+    workspaces and reverse-mode saved residuals.  It is an allocation estimate,
+    not a guarantee about XLA's whole-executable memory use.
+    """
+    element_bytes = 16 * (4 * taps + 12)
+    source_bytes = 16 * nfull
+    samples = min(S, (budget - source_bytes) // (npts * element_bytes))
+    if samples < 1:
+        raise ValueError("one banded gather sample exceeds the scratch budget")
+    row_bytes = source_bytes + samples * npts * element_bytes
+    rows = min(A * K, budget // row_bytes)
+    return int(rows), int(samples), int(rows * row_bytes)
+
+
+def _contract_banded_data_term(Q_bank, conjY, C, gather, pos, u_sep,
+                               *, pp_t1=None, pe=None, pt=None):
+    """Contract the banded ``<d|h>`` term without unrolling ``A * K`` in Python.
+
+    ``Q_bank`` has shape ``(A, n_time_full, K)``.  The former implementation
+    spelled out one Python/JAX expression for every ``(a, k)`` pair.  For a
+    compound response bank (``A=40`` at ``p_max=Qmax=1``),
+    that made XLA trace and compile time scale with the number of basis/mode
+    pairs and is a suspected contributor to excessive cold compilation despite
+    the actual operation being a small regular reduction.
+
+    Vectorized row gathers run inside static-bound loops over row and sample
+    tiles. Small batches gather all A*K rows together; large AV batches use
+    smaller tiles under the forward scratch estimate in _banded_chunk_shape.
+    The graph stays compact and reverse-mode differentiable without creating
+    a full production (A, K, S, npts) temporary.
+
+    Supplying all of ``pp_t1``, ``pe`` and ``pt`` applies the separable
+    arrival-time post-phase.  Supplying none retains the frequency-response-only
+    contraction.  Partial post-phase inputs are rejected instead of silently
+    evaluating a mixed convention.
+    """
+    A = int(Q_bank.shape[0])
+    K = int(Q_bank.shape[2])
+    S = int(conjY.shape[0])
+    npts = int(pos.shape[1])
+
+    phase_args = (pp_t1, pe, pt)
+    post_phase = all(x is not None for x in phase_args)
+    if post_phase != any(x is not None for x in phase_args):
+        raise ValueError("pp_t1, pe, and pt must be supplied together")
+    if post_phase:
+        pp_t1 = jnp.asarray(pp_t1, dtype=jnp.int32)
+    if S == 0:
+        # The previous reduction returned an empty band for empty sampler
+        # chunks.  Avoid selecting a zero-sized tile (and dividing by it).
+        return jnp.zeros((0, npts), dtype=jnp.complex128)
+
+    taps = {_gather_nearest: 1, _gather_linear: 2, _gather_cubic: 4}.get(
+        gather, getattr(gather, "_stencil_size", 16))
+    rows, samples, _ = _banded_chunk_shape(
+        A, K, S, npts, int(Q_bank.shape[1]), taps)
+    nblocks = (S + samples - 1) // samples
+
+    def sample_block(block, output):
+        sample_ids = jnp.minimum(block * samples + jnp.arange(samples), S - 1)
+        positions = pos[sample_ids]
+        fractions = None if u_sep is None else u_sep[sample_ids]
+
+        def row_block(block_row, kappa):
+            row_ids = block_row * rows + jnp.arange(rows)
+            valid = row_ids < A * K
+            safe_ids = jnp.minimum(row_ids, A * K - 1)
+            a, k = safe_ids // K, safe_ids % K
+            source = Q_bank[a, :, k]
+            values = jax.vmap(lambda q: gather(q, positions, fractions))(source)
+            weights = (jnp.conj(C[a[:, None], sample_ids[None, :]])
+                       * conjY[sample_ids[None, :], k[:, None]])
+            weights = jnp.where(valid[:, None], weights, 0.0j)
+            if post_phase:
+                im = pp_t1[a]
+                weights = weights * pe[im[:, None], sample_ids[None, :]]
+                values = values * pt[im, None, :]
+            return kappa + jnp.sum(weights[:, :, None] * values, axis=0)
+
+        value = jax.lax.fori_loop(
+            0, (A * K + rows - 1) // rows, row_block,
+            jnp.zeros((samples, npts), dtype=jnp.complex128))
+        return jax.lax.dynamic_update_slice(output, value, (block * samples, 0))
+
+    return jax.lax.fori_loop(
+        0, nblocks, sample_block,
+        jnp.zeros((nblocks * samples, npts), dtype=jnp.complex128))[:S]
+
+
 def _accumulate_unit_banded(data, ra, dec, psi, incl, phiref, interp,
                             phase_marginalization, guard=0):
     """Multi-band (slow-rotation / finite-size) network kappa and rho^2.
@@ -1010,18 +1105,13 @@ def _accumulate_unit_banded(data, ra, dec, psi, incl, phiref, interp,
 
         # --- term1: sum_a conj(C~_a) * ( sum_lm conj(Y_lm) Q^a_lm(t) ) ---
         # conj(C~_a) = conj(C_a) exp(-i n_a omega delta), i.e. the m = -n_a bucket.
-        kappa_det = jnp.zeros((S, npts), dtype=jnp.complex128)
-        for a in range(A):
-            inner_a = jnp.zeros((S, npts), dtype=jnp.complex128)
-            Qa = Q_bank[a]                                   # (npts_full, K)
-            for k in range(K):
-                inner_a = inner_a + conjY[:, k][:, None] * gather(Qa[:, k], pos, u_sep)
-            if post_phase:
-                i1 = int(pp_t1[a])
-                kappa_det = kappa_det + ((jnp.conj(C[a]) * pe[i1])[:, None]
-                                         * (pt[i1][None, :] * inner_a))
-            else:
-                kappa_det = kappa_det + jnp.conj(C[a])[:, None] * inner_a
+        if post_phase:
+            kappa_det = _contract_banded_data_term(
+                Q_bank, conjY, C, gather, pos, u_sep,
+                pp_t1=pp_t1, pe=pe, pt=pt)
+        else:
+            kappa_det = _contract_banded_data_term(
+                Q_bank, conjY, C, gather, pos, u_sep)
         kappa_unit = kappa_unit + kappa_det
 
         # --- term2: 0.5 Re[ sum_{a,a'} conj(C~_a)C~_a' YbarUY + C~_aR C~_a' YVY ] ---

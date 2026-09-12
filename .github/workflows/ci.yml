@@ -534,6 +534,9 @@ jobs:
               except Exception:
                   print('%-10s (absent)' % n)
           "
+      - name: Run GPU precompute CPU regression gate
+        if: matrix.shard == 1
+        run: bash .travis/test-gpu-precompute.sh
       - name: Run optional waveform conditioning CPU tests
         if: matrix.shard == 1
         env:
