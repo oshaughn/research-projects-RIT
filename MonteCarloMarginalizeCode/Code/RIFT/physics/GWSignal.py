@@ -34,6 +34,38 @@ except:
     print("GWsignal import failed")
 
 
+def _waveform_parameter_dict(P, taper, **kwargs):
+    """Translate RIFT waveform parameters to the GWSignal convention.
+
+    Tidal deformabilities are dimensionless in both RIFT and GWSignal.  Keep
+    them in this common constructor so mode and polarization generation cannot
+    silently disagree about whether matter effects are enabled.
+    """
+    python_dict = {'mass1' : P.m1/lal.MSUN_SI * u.solMass,
+              'mass2' : P.m2/lal.MSUN_SI * u.solMass,
+              'spin1x' : P.s1x*u.dimensionless_unscaled,
+              'spin1y' : P.s1y*u.dimensionless_unscaled,
+              'spin1z' : P.s1z*u.dimensionless_unscaled,
+              'spin2x' : P.s2x*u.dimensionless_unscaled,
+              'spin2y' : P.s2y*u.dimensionless_unscaled,
+              'spin2z' : P.s2z*u.dimensionless_unscaled,
+              'lambda1' : P.lambda1*u.dimensionless_unscaled,
+              'lambda2' : P.lambda2*u.dimensionless_unscaled,
+              'deltaT' : P.deltaT*u.s,
+              'f22_start' : P.fmin*u.Hz,
+              'f22_ref': P.fref*u.Hz,
+              'phi_ref' : P.phiref*u.rad,
+              'distance' : P.dist/(1e6*lal.PC_SI)*u.Mpc,
+              'inclination' : P.incl*u.rad,
+              'eccentricity' : P.eccentricity*u.dimensionless_unscaled,
+              'longAscNodes' : P.psi*u.rad,
+              'meanPerAno' : P.meanPerAno*u.rad,
+              'condition' : taper}
+    if 'lmax_nyquist' in kwargs:
+        python_dict['lmax_nyquist'] = kwargs['lmax_nyquist']
+    return python_dict
+
+
 def std_and_conj_hlmoff(P, Lmax=2,approx_string=None,**kwargs):
     hlms = hlmoft(P, Lmax,approx_string=approx_string,**kwargs)
     hlmsF = {}
@@ -64,26 +96,7 @@ def hlmoft(P, Lmax=2,approx_string=None,no_trust_align_method=None,internal_phas
     taper=0
     if P.taper != lalsim.SIM_INSPIRAL_TAPER_NONE:
         taper = 1
-    python_dict = {'mass1' : P.m1/lal.MSUN_SI * u.solMass,
-              'mass2' : P.m2/lal.MSUN_SI * u.solMass,
-              'spin1x' : P.s1x*u.dimensionless_unscaled,
-              'spin1y' : P.s1y*u.dimensionless_unscaled,
-              'spin1z' : P.s1z*u.dimensionless_unscaled,
-              'spin2x' : P.s2x*u.dimensionless_unscaled,
-              'spin2y' : P.s2y*u.dimensionless_unscaled,
-              'spin2z' : P.s2z*u.dimensionless_unscaled,
-              'deltaT' : P.deltaT*u.s,
-              'f22_start' : P.fmin*u.Hz,
-              'f22_ref': P.fref*u.Hz,
-              'phi_ref' : P.phiref*u.rad,
-              'distance' : P.dist/(1e6*lal.PC_SI)*u.Mpc,
-              'inclination' : P.incl*u.rad,
-              'eccentricity' : P.eccentricity*u.dimensionless_unscaled,
-              'longAscNodes' : P.psi*u.rad,
-              'meanPerAno' : P.meanPerAno*u.rad,
-              'condition' : taper     }
-    if 'lmax_nyquist' in kwargs:
-        python_dict['lmax_nyquist'] = kwargs['lmax_nyquist']
+    python_dict = _waveform_parameter_dict(P, taper, **kwargs)
 
     # if needed
 #    lal_dict = gws.core.utils.to_lal_dict(python_dict)
@@ -192,26 +205,7 @@ def hoft(P, Fp=None, Fc=None,approx_string=None, **kwargs):
     taper=0
     if P.taper != lalsim.SIM_INSPIRAL_TAPER_NONE:
         taper = 1
-    python_dict = {'mass1' : P.m1/lal.MSUN_SI * u.solMass,
-              'mass2' : P.m2/lal.MSUN_SI * u.solMass,
-              'spin1x' : P.s1x*u.dimensionless_unscaled,
-              'spin1y' : P.s1y*u.dimensionless_unscaled,
-              'spin1z' : P.s1z*u.dimensionless_unscaled,
-              'spin2x' : P.s2x*u.dimensionless_unscaled,
-              'spin2y' : P.s2y*u.dimensionless_unscaled,
-              'spin2z' : P.s2z*u.dimensionless_unscaled,
-              'deltaT' : P.deltaT*u.s,
-              'f22_start' : P.fmin*u.Hz,
-              'f22_ref': P.fref*u.Hz,
-              'phi_ref' : P.phiref*u.rad,
-              'distance' : P.dist/(1e6*lal.PC_SI)*u.Mpc,
-              'inclination' : P.incl*u.rad,
-              'eccentricity' : P.eccentricity*u.dimensionless_unscaled,
-              'longAscNodes' : P.psi*u.rad,
-              'meanPerAno' : P.meanPerAno*u.rad,
-              'condition' : taper}
-    if 'lmax_nyquist' in kwargs:
-        python_dict['lmax_nyquist'] = kwargs['lmax_nyquist']
+    python_dict = _waveform_parameter_dict(P, taper, **kwargs)
 
     # if needed
 #    lal_dict = gws.core.utils.to_lal_dict(python_dict)
@@ -293,26 +287,7 @@ def complex_hoft(P, Fp=None, Fc=None,approx_string=None,sgn=-1, **kwargs):
     taper=0
     if P.taper != lalsim.SIM_INSPIRAL_TAPER_NONE:
         taper = 1
-    python_dict = {'mass1' : P.m1/lal.MSUN_SI * u.solMass,
-              'mass2' : P.m2/lal.MSUN_SI * u.solMass,
-              'spin1x' : P.s1x*u.dimensionless_unscaled,
-              'spin1y' : P.s1y*u.dimensionless_unscaled,
-              'spin1z' : P.s1z*u.dimensionless_unscaled,
-              'spin2x' : P.s2x*u.dimensionless_unscaled,
-              'spin2y' : P.s2y*u.dimensionless_unscaled,
-              'spin2z' : P.s2z*u.dimensionless_unscaled,
-              'deltaT' : P.deltaT*u.s,
-              'f22_start' : P.fmin*u.Hz,
-              'f22_ref': P.fref*u.Hz,
-              'phi_ref' : P.phiref*u.rad,
-              'distance' : P.dist/(1e6*lal.PC_SI)*u.Mpc,
-              'inclination' : P.incl*u.rad,
-              'eccentricity' : P.eccentricity*u.dimensionless_unscaled,
-              'longAscNodes' : P.psi*u.rad,
-              'meanPerAno' : P.meanPerAno*u.rad,
-              'condition' : taper}
-    if 'lmax_nyquist' in kwargs:
-        python_dict['lmax_nyquist'] = kwargs['lmax_nyquist']
+    python_dict = _waveform_parameter_dict(P, taper, **kwargs)
 
     # if needed
 #    lal_dict = gws.core.utils.to_lal_dict(python_dict)
