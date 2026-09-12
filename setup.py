@@ -59,6 +59,8 @@ setuptools.setup(
    setup_requires=['setuptools','pip'],
    install_requires=REQUIREMENTS["install"],
    entry_points={
+        'console_scripts':
+        ['rift-rimsky-analysis = RIFT.rimsky.integration:main'],
         'asimov.pipelines':
         ["rift = RIFT.asimov.rift:Rift"],
         'RIFT.integrator_plugins':

@@ -20,3 +20,12 @@ finished and does not submit a duplicate postprocessing job.
 contract for separate postprocessing adapters: samples (always a list), the
 RIFT configuration, PSDs, calibration envelopes, likelihood products, and
 basic event/analysis provenance.  Consumers should tolerate additional keys.
+
+Rimsky integration
+------------------
+
+The ``rift-rimsky-analysis`` command generates a RIFT follow-up document for
+Rimsky's ``sample_sink.asimov_configuration`` hook. It bootstraps from the
+PESummary metafile produced by Rimsky's online Bilby analysis and normalizes
+Rimsky's underscore-separated prior names for the RIFT template. See
+``RIFT/rimsky/README.md`` for configuration and operational details.
