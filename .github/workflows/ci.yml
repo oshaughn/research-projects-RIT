@@ -534,6 +534,13 @@ jobs:
               except Exception:
                   print('%-10s (absent)' % n)
           "
+      - name: Run optional waveform conditioning CPU tests
+        if: matrix.shard == 1
+        env:
+          JAX_ENABLE_X64: "1"
+          JAX_PLATFORM_NAME: cpu
+          JAX_PLATFORMS: cpu
+        run: python -m pytest -q MonteCarloMarginalizeCode/Code/test/waveforms/test_gpu_waveform.py
       - name: Run jax_ile CPU regression gate
         env:
           JAX_PLATFORMS: cpu
