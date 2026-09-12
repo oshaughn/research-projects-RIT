@@ -94,6 +94,57 @@ class NanOrInf(Exception):
     def __str__(self):
         return repr(self.value)
 
+class LiveVolumeCollapse(Exception):
+    """The adaptive-volume live set is empty (or carries no usable information).
+
+    Raised INSTEAD of the bare numpy/cupy "zero-size array to reduction operation
+    ... which has no identity" that the empty-live-volume path used to produce, so
+    callers and logs can tell a degenerate contraction apart from a waveform
+    generation failure.  See the collapse discussion in get_likelihood_threshold.
+    """
+    pass
+
+
+def ess_from_log_weights(log_wt):
+    """Kish effective sample size (sum w)^2 / sum w^2, from LOG weights."""
+    lw = np.asarray(log_wt, dtype=float)
+    lw = lw[np.isfinite(lw)]
+    if len(lw) == 0:
+        return 0.0
+    lse = special.logsumexp
+    return float(np.exp(2 * lse(lw) - lse(2 * lw)))
+
+
+def live_volume_collapse_verdict(n_live, ndim, ess=None):
+    """Has the adaptive-volume live set degenerated?  -> (collapsed, [reasons])
+
+    A degenerate contraction must be REPORTED rather than silently exported.  With the
+    threshold clamp in place the run no longer crashes, so it now returns a lnZ and a
+    sample cloud -- but at high SNR both can describe a SINGLE mode, and the cloud is
+    then not a fair posterior draw.  Unreported, that turns a crash (which at least
+    kept the point out of the posterior) into a silent contamination, which is worse.
+
+    Thresholds, against the separation measured on zero-noise injections at a fixed
+    intrinsic point (rho_net 51 -> 147):
+        healthy    ESS 16.3-34.3   (rho 51.4, converges cold)
+        collapsed  ESS 1.0-2.0     (rho 103-147)
+      * n_live <= ndim -- a live set no larger than the dimension cannot span the
+        space, let alone describe a posterior in it.  Geometric, not tuned.
+      * ESS < 2 -- fewer than two effective samples IS one sample.
+    The gap between the regimes is an order of magnitude wide, so these sit far from
+    both sides of it.  Pareto k-hat is deliberately NOT used: it exceeds its nominal
+    0.70 "unresolved tail" threshold even in the healthy runs on this problem (the 12
+    converged rho=51.4 replicates measure 0.819-1.605), so gating on it would have
+    false-flagged 12 of 12 good exports.
+    """
+    reasons = []
+    if n_live <= ndim:
+        reasons.append("final live volume holds {} sample(s) in {} dimensions".format(n_live, ndim))
+    if ess is not None and ess < 2.0:
+        reasons.append("ESS={:.2f}".format(ess))
+    return bool(reasons), reasons
+
+
 ### V. Tiwari routines
 
 def get_likelihood_threshold(lkl, lkl_thr, nsel, discard_prob,xpy_here=xpy_default):
@@ -104,7 +155,18 @@ def get_likelihood_threshold(lkl, lkl_thr, nsel, discard_prob,xpy_here=xpy_defau
     nsel : integer, has to do with size of array of likelihoods used to evaluate for next array.
     discard_prob: threshold on CDF to throw away an entire bin.  Should be very small
     """
-    
+    if len(lkl) == 0:
+        # Caller must not ask for a threshold on an empty live volume: every reduction
+        # below (max, argsort, [0]) is undefined, and the bare backend error for that
+        # ("zero-size array to reduction operation CUPY_CUB_MAX which has no identity")
+        # is what the ILE used to mis-report as a waveform problem.  Name the cause.
+        raise LiveVolumeCollapse(
+            "adaptive-volume live set is empty: the likelihood returned no finite value "
+            "inside the sampled volume.  At high network SNR this is likelihood UNDERFLOW "
+            "(exp() of a lnL more than ~745 nats below the peak returns 0), so a cold "
+            "extrinsic prior yields almost no usable draw.  This is NOT a waveform Nyquist/"
+            "start-frequency/duration problem.  Narrow the extrinsic prior or seed the sampler.")
+
     w = xpy_here.exp(lkl - np.max(lkl))
     npoints = len(w)
     sumw = xpy_here.sum(w)
@@ -120,6 +182,37 @@ def get_likelihood_threshold(lkl, lkl_thr, nsel, discard_prob,xpy_here=xpy_defau
     else:
         lkl_stop_thr = lkl_stop_thr[-1]
     lkl_thr = min(lkl_stop_thr, prob_stop_thr)
+
+    # CLAMP (backport of rift_O4d PR #63).  The threshold is applied downstream as a
+    # STRICT `lkl > thr`, so a threshold at or above max(lkl) discards the ENTIRE live
+    # volume; the next cycle then reduces over an empty array and raises
+    #   "zero-size array to reduction operation CUPY_CUB_MAX which has no identity",
+    # which the ILE driver misreports as a waveform problem.
+    #
+    # It happens whenever the live set is small AND one weight dominates -- i.e. at high
+    # network SNR, where a double-precision exp() of a lnL more than ~745 nats below the
+    # peak underflows to zero, so almost every cold draw is -inf and the live set starts
+    # with a handful of members.  Then prob_stop_thr saturates at max(lkl) (every other
+    # weight is 0, so the discard_prob quantile IS the top sample) while lkl_stop_thr
+    # falls back to the smallest.  Each cycle discards at least one point regardless of
+    # merit and the live set ratchets to zero.
+    #
+    # Back the threshold off to the largest value strictly below the maximum, so the peak
+    # always survives.  In a healthy run len(lkl) >> nsel and lkl_stop_thr is the nsel-th
+    # largest, far below the max, so this clamp never engages and results are unchanged.
+    #
+    # Reduce on the ACTIVE backend and move only the scalar: identity_convert(lkl) here
+    # would copy the whole live set device->host every cycle, on the healthy path too.
+    lkl_max = float(identity_convert(xpy_here.max(lkl)))
+    if not (float(identity_convert(lkl_thr)) < lkl_max):
+        lkl_host = identity_convert(lkl)   # rare branch: the live set is tiny by construction
+        below = lkl_host[lkl_host < lkl_max]
+        if len(below):
+            lkl_thr = np.max(below)   # keep only the maximum: maximal, but safe, contraction
+        else:
+            # every live point is at the maximum: no threshold can separate them, so
+            # take one below all of them and leave the live volume intact.
+            lkl_thr = np.nextafter(lkl_max, -np.inf)
 
     truncp = xpy_here.sum(w[lkl < lkl_thr]) / sumw
             
@@ -686,6 +779,29 @@ class MCSampler(object):
               self._rvs[name] = identity_convert(self._rvs[name])   # this is trivial if xpy_default is numpy, and a conversion otherwise
 
         dict_return = {}
+
+        # ------------------------------------------------------------------
+        # LIVE-VOLUME COLLAPSE VERDICT.  The threshold clamp in get_likelihood_threshold
+        # stops the empty-reduction CRASH, but the run that used to crash now completes and
+        # exports -- sometimes from a single surviving sample.  Silently exporting that is
+        # worse than the crash was: a crashed export writes nothing and is visibly missing,
+        # whereas a degenerate one enters downstream posterior assembly looking ordinary.
+        # So say so.  Thresholds and the measured regimes are documented on
+        # live_volume_collapse_verdict.  Purely additive: no sampling decision reads this.
+        n_live_final = int(len(log_wt))
+        _ess = ess_from_log_weights(log_wt)
+        collapsed, _reasons = live_volume_collapse_verdict(n_live_final, ndim, ess=_ess)
+        dict_return['n_ESS'] = _ess
+        dict_return['n_live_final'] = n_live_final
+        dict_return['live_volume_collapsed'] = collapsed
+        if collapsed:
+            dict_return['collapse_reason'] = "; ".join(_reasons)
+            print(" [AV COLLAPSE] the live volume degenerated: " + dict_return['collapse_reason'] + ".")
+            print(" [AV COLLAPSE] lnZ and the exported samples describe a SINGLE mode of the integrand and are")
+            print(" [AV COLLAPSE] NOT a fair draw from the posterior.  Do not use this export unweighted.")
+            print(" [AV COLLAPSE] At high network SNR this is likelihood underflow over a cold extrinsic prior;")
+            print(" [AV COLLAPSE] narrow the extrinsic prior (--limit-* zoom box) or seed the sampler.")
+
         return log_int, np.log(rel_var)  +2*log_int, eff_samp, dict_return
 
         # if outvals:

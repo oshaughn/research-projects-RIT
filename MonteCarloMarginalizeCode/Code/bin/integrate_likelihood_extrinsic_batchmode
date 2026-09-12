@@ -9,6 +9,7 @@ Integrate the extrinsic parameters of the prefactored likelihood function.
 
 import sys
 import functools
+import traceback
 from optparse import OptionParser, OptionGroup
 
 import numpy
@@ -49,6 +50,12 @@ import glue.lal
 
 import RIFT.lalsimutils as lalsimutils
 import RIFT.integrators.mcsampler as mcsampler
+# NOTE: the name 'mcsampler' above is REBOUND below to mcsamplerGPU for some --sampler-method
+# choices, so the zoom-box helpers are imported under their own names (they are pure-numpy,
+# xpy-aware, and identical for every backend).
+from RIFT.integrators.mcsampler import (clip_angle_limits, cosine_sampler_limits,
+                                        ret_dec_samp_vector, ret_dec_samp_cdf_inv_vector,
+                                        ret_cos_samp_vector, ret_cos_samp_cdf_inv_vector)
 import RIFT.misc.sky_rotations as sky_rotations
 try:
     import RIFT.integrators.mcsamplerEnsemble as mcsamplerEnsemble
@@ -280,6 +287,10 @@ integration_params.add_option("--d-max", default=10000,type=float,help="Maximum 
 integration_params.add_option("--d-min", default=1,type=float,help="Minimum distance in volume integral. Used to SET THE PRIOR; changing this value changes the numerical answer.")
 integration_params.add_option("--declination-cosine-sampler",action='store_true',help="If specified, the parameter used for declination is cos(dec), not dec")
 integration_params.add_option("--inclination-cosine-sampler",action='store_true',help="If specified, the parameter used for inclination is cos(dec), not dec")
+integration_params.add_option("--limit-right-ascension",default=None,help="Restrict RA sampling AND prior to 'LO,HI' [rad] (truth-centered zoom box). Narrows the extrinsic prior like --d-min/--d-max do for distance; keep the box large vs the posterior so credible regions are unaffected.  Not compatible with --internal-sky-network-coordinates (the sampled sky angles are then in a rotated frame).")
+integration_params.add_option("--limit-declination",default=None,help="Restrict declination sampling AND prior to 'LO,HI' [rad].  Always given in radians of DECLINATION: with --declination-cosine-sampler the box is transformed internally to the sampled coordinate sin(dec).  Not compatible with --internal-sky-network-coordinates.")
+integration_params.add_option("--limit-inclination",default=None,help="Restrict inclination sampling AND prior to 'LO,HI' [rad].  Always given in radians of INCLINATION: with --inclination-cosine-sampler the box is transformed internally to the sampled coordinate cos(iota), which reverses the limit order.")
+integration_params.add_option("--limit-psi",default=None,help="Restrict polarization psi sampling AND prior to 'LO,HI' [rad].")
 integration_params.add_option("--internal-rotate-phase", action='store_true',help="If specified, the integration sampler uses phase_p ==phi+psi and phase_m == phi-psi as sampling coordinates, both ranging from 0 to 4 pi.  The prior is twice as large.")
 integration_params.add_option("--internal-sky-network-coordinates",action='store_true',help="If specified, perform integration in sky coordinates aligned with the first two IFOs provided")
 integration_params.add_option("--internal-sky-network-coordinates-raw",action='store_true',help="If specified, does not attempt to organize IFO network sensibly, uses them AS PROVIDED IN ORDER.")
@@ -760,6 +771,28 @@ param_limits = { "psi": (0, 2*numpy.pi),
 if opts.internal_rotate_phase:
   param_limits['psi'] = (0, 4*numpy.pi)
   param_limits['phi_orb'] = (0, 4*numpy.pi)
+# Optional truth-centered "zoom box": narrow the extrinsic sampling AND prior ranges so the
+# adaptive sampler can resolve a narrow high-SNR peak it could never find from the full prior.
+# Threads through param_limits into every sky/orientation sampler + its pdf/cdf_inv/prior_pdf.
+# The limits are ALWAYS specified in radians of the physical angle; the cosine samplers
+# (--declination-cosine-sampler / --inclination-cosine-sampler) transform them below into the
+# coordinate they actually sample (sin(dec) resp. cos(iota)).
+for _optv, _k in [(opts.limit_psi, 'psi'), (opts.limit_right_ascension, 'right_ascension'),
+                  (opts.limit_declination, 'declination'), (opts.limit_inclination, 'inclination')]:
+  if _optv:
+    try:
+      _lo, _hi = [float(_x) for _x in str(_optv).split(',')]
+    except ValueError:
+      raise SystemExit(" --limit-{} expects 'LO,HI' in radians, got '{}'".format(_k.replace('_','-'), _optv))
+    if _k in ('declination', 'inclination'):
+      # validates lo<hi and overlap with the physical domain; raises loudly otherwise
+      _lo, _hi = clip_angle_limits(_lo, _hi, _k)
+    elif not (_hi > _lo):
+      raise SystemExit(" --limit-{}: empty or inverted range [{}, {}] (need LO < HI)".format(_k.replace('_','-'), _lo, _hi))
+    param_limits[_k] = (_lo, _hi)
+    print("  [limit] restricting {} sampling/prior to [{:.4f}, {:.4f}]".format(_k, _lo, _hi))
+limit_declination_active = bool(opts.limit_declination)
+limit_inclination_active = bool(opts.limit_inclination)
 
 #
 # Parameter integral sampling strategy
@@ -904,23 +937,40 @@ if (opts.sampler_method == "adaptive_cartesian_gpu"  or opts.sampler_method == '
   adapt_extra_extrinsic=True
 
 if not opts.inclination_cosine_sampler:
- incl_sampler = mcsampler.cos_samp_vector # this is NOT dec_samp_vector, because the angular zero point is different!
- incl_sampler_cdf_inv = mcsampler.cos_samp_cdf_inv_vector
- sampler.add_parameter("inclination", 
-    pdf = incl_sampler, 
-    cdf_inv = incl_sampler_cdf_inv, 
-    left_limit = param_limits["inclination"][0], 
+ if limit_inclination_active:
+   # truncated uniform-in-cos(iota) draw, expressed in the ANGLE coordinate
+   incl_sampler = ret_cos_samp_vector(param_limits["inclination"][0], param_limits["inclination"][1])
+   incl_sampler_cdf_inv = ret_cos_samp_cdf_inv_vector(param_limits["inclination"][0], param_limits["inclination"][1])
+ else:
+   incl_sampler = mcsampler.cos_samp_vector # this is NOT dec_samp_vector, because the angular zero point is different!
+   incl_sampler_cdf_inv = mcsampler.cos_samp_cdf_inv_vector
+ sampler.add_parameter("inclination",
+    pdf = incl_sampler,
+    cdf_inv = incl_sampler_cdf_inv,
+    left_limit = param_limits["inclination"][0],
     right_limit = param_limits["inclination"][1],
     prior_pdf = mcsampler.uniform_samp_theta)  # do not adapt in parameter going to zero at edge
 else:
- incl_sampler = mcsampler.ret_uniform_samp_vector_alt(-1.0,1.0)
- incl_sampler_cdf_inv = lambda x: x*2.0-1.  #functools.partial(mcsampler.uniform_samp_cdf_inv_vector,-1,1) 
- sampler.add_parameter("inclination", 
-    pdf = incl_sampler, 
-    cdf_inv = incl_sampler_cdf_inv, 
-    left_limit = -1, 
-    right_limit = 1,
-    prior_pdf = incl_sampler,
+ # Sample uniformly in cos(iota) [=1 face-on, -1 face-off]: the likelihood closure below
+ # converts back with iota = arccos(z).  A --limit-inclination box must therefore be mapped
+ # into z, and because cos() DECREASES on [0,pi] the limits SWAP:
+ #    [iota_lo, iota_hi]  ->  [cos(iota_hi), cos(iota_lo)]
+ # (before this fix the range was hardcoded to [-1,1] and --limit-inclination was silently ignored).
+ incl_z_lo, incl_z_hi = cosine_sampler_limits(param_limits["inclination"][0], param_limits["inclination"][1], 'inclination')
+ if limit_inclination_active:
+   print("  [limit] inclination box [{:.4f}, {:.4f}] rad -> cos(iota) sampling range [{:.6f}, {:.6f}]".format(
+       param_limits["inclination"][0], param_limits["inclination"][1], incl_z_lo, incl_z_hi))
+ incl_sampler = mcsampler.ret_uniform_samp_vector_alt(incl_z_lo, incl_z_hi)
+ incl_sampler_cdf_inv = lambda x, _a=incl_z_lo, _b=incl_z_hi: _a + x*(_b-_a)  # functools.partial(mcsampler.uniform_samp_cdf_inv_vector,_a,_b)
+ sampler.add_parameter("inclination",
+    pdf = incl_sampler,
+    cdf_inv = incl_sampler_cdf_inv,
+    left_limit = incl_z_lo,
+    right_limit = incl_z_hi,
+    # prior density in cos(iota) is the FULL-RANGE constant 1/2, deliberately not renormalized
+    # to the box, so restricting the box costs exactly the prior mass it should -- matching the
+    # non-cosine branch, where prior_pdf=0.5*sin(iota) is likewise not renormalized.
+    prior_pdf = mcsampler.ret_uniform_samp_vector_alt(-1.0,1.0),
     adaptive_sampling=adapt_extra_extrinsic)
 
 #
@@ -1016,8 +1066,12 @@ if opts.internal_sky_network_coordinates:
   else:
     sky_rotations.assign_sky_frame(ifo_list[0], ifo_list[1], fiducial_epoch)
     frm = identity_convert_togpu(sky_rotations.frm)
-    my_rotation = functools.partial(lalsimutils.polar_angles_in_frame_alt,frm,xpy=xpy_default) 
-    my_rotation_cpu = functools.partial(lalsimutils.polar_angles_in_frame_alt,sky_rotations.frm,xpy=np) 
+    my_rotation = functools.partial(lalsimutils.polar_angles_in_frame_alt,frm,xpy=xpy_default)
+    my_rotation_cpu = functools.partial(lalsimutils.polar_angles_in_frame_alt,sky_rotations.frm,xpy=np)
+if opts.internal_sky_network_coordinates and (opts.limit_right_ascension or opts.limit_declination):
+  # The sampled RA/dec live in the network-aligned frame, so a truth-centered sky box given in
+  # equatorial coordinates would silently select the wrong patch of sky.  Fail loudly.
+  raise SystemExit(" --limit-right-ascension / --limit-declination are sky boxes in EQUATORIAL coordinates and are not compatible with --internal-sky-network-coordinates (which samples in a rotated, network-aligned frame). Drop --internal-sky-network-coordinates when using a sky zoom box.")
 
 #
 # Intrinsic parameters
@@ -1088,26 +1142,42 @@ else:
     # sky sampler: cos(dec) uniform in [-1, 1), adaptive sampling
     #
     if not opts.declination_cosine_sampler:
-     dec_sampler = mcsampler.dec_samp_vector
-     dec_sampler_cdf_inv = mcsampler.dec_samp_cdf_inv_vector
-     sampler.add_parameter("declination", 
-        pdf = dec_sampler, 
-        cdf_inv = dec_sampler_cdf_inv, 
-        left_limit = param_limits["declination"][0], 
+     if limit_declination_active:
+       # truncated uniform-in-sin(dec) draw, expressed in the ANGLE coordinate
+       dec_sampler = ret_dec_samp_vector(param_limits["declination"][0], param_limits["declination"][1])
+       dec_sampler_cdf_inv = ret_dec_samp_cdf_inv_vector(param_limits["declination"][0], param_limits["declination"][1])
+     else:
+       dec_sampler = mcsampler.dec_samp_vector
+       dec_sampler_cdf_inv = mcsampler.dec_samp_cdf_inv_vector
+     sampler.add_parameter("declination",
+        pdf = dec_sampler,
+        cdf_inv = dec_sampler_cdf_inv,
+        left_limit = param_limits["declination"][0],
         right_limit = param_limits["declination"][1],
         prior_pdf = mcsampler.uniform_samp_dec,
         adaptive_sampling = opts.force_adapt_all or (not opts.no_adapt))
     else:
      # Sample uniformly in cos(polar_theta), =1 for north pole, -1 for south pole.
      # Propagate carefully in conversions: time of flight libraries use RA,DEC
-     dec_sampler = mcsampler.ret_uniform_samp_vector_alt(-1.0,1.0)
-     dec_sampler_cdf_inv = lambda x: x*2.0-1. # functools.partial(mcsampler.uniform_samp_cdf_inv_vector,-1,1)
-     sampler.add_parameter("declination", 
-        pdf = dec_sampler, 
-        cdf_inv = dec_sampler_cdf_inv, 
-        left_limit = -1, 
-        right_limit = 1,
-        prior_pdf = dec_sampler,
+     # polar_theta = pi/2 - dec, so the sampled variable is z = sin(dec) (see the likelihood
+     # closures: dec = pi/2 - arccos(z)).  sin() INCREASES on [-pi/2,pi/2], so a
+     # --limit-declination box maps order-preservingly:  [lo,hi] -> [sin(lo), sin(hi)]
+     # (before this fix the range was hardcoded to [-1,1] and --limit-declination was silently ignored).
+     dec_z_lo, dec_z_hi = cosine_sampler_limits(param_limits["declination"][0], param_limits["declination"][1], 'declination')
+     if limit_declination_active:
+       print("  [limit] declination box [{:.4f}, {:.4f}] rad -> sin(dec) sampling range [{:.6f}, {:.6f}]".format(
+           param_limits["declination"][0], param_limits["declination"][1], dec_z_lo, dec_z_hi))
+     dec_sampler = mcsampler.ret_uniform_samp_vector_alt(dec_z_lo, dec_z_hi)
+     dec_sampler_cdf_inv = lambda x, _a=dec_z_lo, _b=dec_z_hi: _a + x*(_b-_a) # functools.partial(mcsampler.uniform_samp_cdf_inv_vector,_a,_b)
+     sampler.add_parameter("declination",
+        pdf = dec_sampler,
+        cdf_inv = dec_sampler_cdf_inv,
+        left_limit = dec_z_lo,
+        right_limit = dec_z_hi,
+        # prior density in sin(dec) is the FULL-RANGE constant 1/2, deliberately not renormalized
+        # to the box, so the prior mass removed by the box matches the non-cosine branch, where
+        # prior_pdf=uniform_samp_dec=0.5*cos(dec) is likewise not renormalized.
+        prior_pdf = mcsampler.ret_uniform_samp_vector_alt(-1.0,1.0),
         adaptive_sampling = opts.force_adapt_all or (not opts.no_adapt))
 
 if not opts.time_marginalization:
@@ -1547,7 +1617,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             tvals = numpy.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
 
             for ph, th, phr, ic, ps, di in zip(right_ascension, dec,
-                    phi_orb, inclination, psi, distance):
+                    phi_orb, incl, psi, distance):   # 'incl', NOT the raw sampled 'inclination': under --inclination-cosine-sampler the sampled variable is cos(iota)
                 P.phi = ph # right ascension
                 P.theta = th # declination
                 P.tref = fiducial_epoch  # see 'tvals', above
@@ -2265,7 +2335,31 @@ for indx in numpy.arange(len(P_list)):
   #  if failure_mode in str(exception_failure):
   #    sys.exit(opts.custom_fail_codes[i])
 
-  print( " Probable reasons: SEOB nyquist or starting frequency limit or signal duration ")
+  # Attribute the failure to something the traceback actually supports.  This line used to
+  # read "Probable reasons: SEOB nyquist or starting frequency limit or signal duration"
+  # UNCONDITIONALLY, for every exception raised anywhere in the block above.  That pointed
+  # the high-SNR adaptive-volume live-volume collapse -- the dominant extrinsic-export
+  # failure at rho_net >~ 100, where >90% of exports died -- at the waveform generation
+  # code instead, which is why it went undiagnosed for so long.
+  if ((mcsampler_AV_ok and isinstance(exception_failure, mcsamplerAdaptiveVolume.LiveVolumeCollapse))
+      or 'live volume' in str_err or 'live set' in str_err
+      or ('zero-size array' in str_err and 'no identity' in str_err
+          and 'mcsamplerAdaptiveVolume' in traceback.format_exc())):
+    # covers both the named exception and the bare numpy/cupy empty-reduction error that
+    # older trees (and any other integrator with the same defect) still raise.  The string
+    # fallback additionally requires the traceback to name the integrator, because this
+    # handler also covers waveform generation, data conditioning and the likelihood stack.
+    print( " Probable reason: the INTEGRATOR's live volume collapsed -- no samples survived the")
+    print( " adaptive-volume likelihood threshold.  This is NOT a waveform problem: nyquist, start")
+    print( " frequency and segment duration are all irrelevant to it.  At high network SNR the")
+    print( " likelihood underflows (exp() of a lnL more than ~745 nats below the peak returns 0),")
+    print( " so a cold extrinsic prior yields almost no finite draw.  Narrow the extrinsic prior")
+    print( " (--limit-right-ascension/--limit-declination/--limit-inclination, tighter --d-min/--d-max).")
+  elif ('nyquist' in str_err.lower() or 'srate' in str_err.lower() or 'duration' in str_err.lower()
+        or 'ChooseFDWaveform' in str_err or 'ChooseTDWaveform' in str_err or 'gwsignal' in str_err):
+    print( " Probable reasons: SEOB nyquist or starting frequency limit or signal duration ")
+  else:
+    print( " Cause not classified -- read the traceback above; it names the failing call.")
   print( " Skipping the following binary! ")
   # Zero out extrinsic parameters -- these are CUDA-populated / meaningless, but could cause errors if populated
   P_list[indx].incl = P_list[indx].tref = P_list[indx].dist = P_list[indx].phiref = P_list[indx].psi =P_list[indx].theta = P_list[indx].phi =0
