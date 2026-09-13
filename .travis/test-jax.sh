@@ -94,6 +94,9 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         result write order) because the defects
 #                                         they pin live at call sites, where a
 #                                         helper-level assertion cannot see them.
+#   test_smc_evidence.py               2  the SMC evidence product averages over
+#                                         every walker, including zero-likelihood
+#                                         walkers, and keeps the all-finite case.
 #   test_jax_tempering_chooser.py     45  the --adapt-weight-exponent chooser and the
 #                                         tempering-cost law
 #                                         ESS/N = [beta(2-beta)]^(dim/2) it rests on.
@@ -520,6 +523,7 @@ FILES=(
   "${JAXDIR}/test_nuts_phimarg.py"
   "${JAXDIR}/test_jax_av.py"
   "${JAXDIR}/test_jax_fairdraw_export.py"
+  "${JAXDIR}/test_smc_evidence.py"
   "${JAXDIR}/test_jax_tempering_chooser.py"
   "${JAXDIR}/test_tvals_grid_convention.py"
   "${JAXDIR}/test_interp_choices.py"
@@ -1077,7 +1081,7 @@ fi
 # 787 + 53 = 840.
 # 2026-09-12: +15 compact banded-data contraction value, AD, tile/padding,
 # scratch-budget, empty-batch, and graph-size tests. 840 + 15 = 855.
-EXPECTED_TESTS=855
+EXPECTED_TESTS=857
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"

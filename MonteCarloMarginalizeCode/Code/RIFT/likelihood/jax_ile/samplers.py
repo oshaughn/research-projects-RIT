@@ -2229,8 +2229,12 @@ def smc_puffball_sample(like, d_min, d_max, n_walkers=2000, seed=0,
             # post_weight, i.e. exactly the mislabelling the tail guards against.
             db = min(max(a, 1e-4), hi_db)
         # SMC evidence increment: logZ += logmeanexp(db * lnL)
-        z = db * lnL
-        z = z[np.isfinite(z)]
+        # The SMC ratio is a mean over ALL W prior walkers.  A walker with
+        # zero/invalid likelihood contributes zero to the numerator but still
+        # occupies its share of the prior mass.  Dropping it before np.mean
+        # renormalizes onto the finite subset and biases logZ upward by
+        # log(W / n_finite) on this rung.
+        z = np.where(np.isfinite(lnL), db * lnL, -np.inf)
         mz = np.max(z)
         logZ += float(mz + np.log(np.mean(np.exp(z - mz))))
         inv_T += db
