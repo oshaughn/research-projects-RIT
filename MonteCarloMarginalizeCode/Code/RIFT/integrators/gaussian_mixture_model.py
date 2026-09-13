@@ -608,7 +608,11 @@ class gmm:
         
         # bounds_normalized
         bounds_norm = self._normalize(self.bounds.T).T
-        normalization_constant = 0.
+        # sample() selects a component with weight w and draws that component
+        # conditioned on the bounds.  Score that same mixture of *individually*
+        # truncated components.  Dividing the whole mixture by sum(w*C_i)
+        # instead would describe a different draw process whenever the
+        # component in-bound probabilities C_i differ.
         
         for i in range(self.k):
             w = self.weights[i]
@@ -619,33 +623,34 @@ class gmm:
                 if cupy_ok:
                     # Use gpu_logpdf and exponentiate
                     log_pdf = gpu_logpdf(sample_array_norm, mean, cov, self.xpy)
-                    pdf = self.xpy.exp(log_pdf)
+                    component_pdf = self.xpy.exp(log_pdf)
                 else:
-                    pdf = multivariate_normal.pdf(x=sample_array_norm, mean=mean, cov=cov, allow_singular=True)
+                    component_pdf = multivariate_normal.pdf(
+                        x=sample_array_norm, mean=mean, cov=cov,
+                        allow_singular=True)
                 
-                scores += pdf * w
                 # mvnun is CPU only
                 mean_cpu = self.identity_convert(mean)
                 cov_cpu = self.identity_convert(cov)
                 bounds_norm_cpu = self.identity_convert(bounds_norm)
-                normalization_constant += w * mvnun(bounds_norm_cpu[:,0], bounds_norm_cpu[:,1], mean_cpu, cov_cpu)[0]
+                component_mass = mvnun(bounds_norm_cpu[:,0], bounds_norm_cpu[:,1], mean_cpu, cov_cpu)[0]
             else:
                 sigma2 = cov[0,0]
-                val = 1./self.xpy.sqrt(2*self.xpy.pi*sigma2) * self.xpy.exp( - 0.5*( sample_array_norm[:,0] - mean[0])**2/sigma2)
-                scores += val * w
+                component_pdf = (1./self.xpy.sqrt(2*self.xpy.pi*sigma2)
+                                 * self.xpy.exp(-0.5 * (sample_array_norm[:,0] - mean[0])**2/sigma2))
                 
                 mean_cpu = self.identity_convert(mean)[0]
                 sigma_cpu = self.identity_convert(np.sqrt(sigma2))
                 bounds_norm_cpu = self.identity_convert(bounds_norm[0])
                 my_cdf = norm(loc=mean_cpu, scale=sigma_cpu).cdf
-                normalization_constant += w * (my_cdf(bounds_norm_cpu[1]) - my_cdf(bounds_norm_cpu[0]))
+                component_mass = my_cdf(bounds_norm_cpu[1]) - my_cdf(bounds_norm_cpu[0])
         
-        # Floors: a sharply-truncated component can drive the mvnun
-        # normalization to 0 (0/0 -> NaN), and exactly-zero scores later become
-        # log(0) = -inf in the integrator's weights.  1e-300 keeps the log
-        # finite without affecting any sample that carries real weight.
-        normalization_constant = max(float(normalization_constant), 1e-300)
-        scores /= normalization_constant
+            # Keep the historical numerical floor for an underflowed bound
+            # probability.  A component with zero numerical mass cannot be
+            # sampled reliably either; this avoids turning its score into NaN.
+            scores += w * component_pdf / max(float(component_mass), 1e-300)
+
+        # The component densities above use normalized [-1, 1] coordinates.
         vol = self.xpy.prod(self.bounds[:,1] - self.bounds[:,0])
         scores *= (2.0**self.d) / vol
         return self.xpy.maximum(scores, 1e-300)
