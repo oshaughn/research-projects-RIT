@@ -274,6 +274,20 @@ RULES = [
      "(CE/ET), built on lalsimulation detector geometry and an arm-length override in "
      "metres. LISA's finite-size response is not an add-on: it is the whole point of "
      "the TDI response the LISA driver already applies."),
+    (r"^OPTION:--(check-slowrot-pmax|check-finite-size-[Qq]max|"
+     r"choose-slowrot-pmax|choose-(finite-size|slowrot)-Qmax)$", "NA",
+     "Order checks and selectors for the Earth-rotation and 3G ground-detector finite-arm "
+     "approximations. LISA uses neither expansion: its time-dependent heliocentric, "
+     "finite-arm response is already evaluated by the TDI response, so applying these "
+     "orders would test or truncate the wrong detector model."),
+    (r"^OPTION:--response-order-", "NA",
+     "Tolerance, reference-order, angular-design and memory controls used only by the "
+     "ground-detector slow-rotation and finite-arm order estimator. That estimator does "
+     "not represent LISA's TDI response, so none of its tuning surface applies."),
+    (r"^FUNC:analyze_event\._apply_order_control$", "NA",
+     "Nested dispatcher for the ground-detector response-order estimator. It is reachable "
+     "only from the check/choose controls classified above, and LISA's TDI response has no "
+     "corresponding pmax or Qmax truncation to dispatch."),
     (r"^OPTION:--e-freq$", "NA",
      "TEOBResumS eccentric-frequency convention. Tied to a ground-based eccentric "
      "waveform path the LISA driver does not offer (it takes --modes / h5 frames)."),

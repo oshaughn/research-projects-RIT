@@ -34,6 +34,7 @@ Run the self-test (builds the standard synthetic injection, no frames needed)::
         python RIFT/likelihood/jax_ile/samplers.py
 """
 
+import functools
 import os
 
 import numpy as np
@@ -2228,8 +2229,12 @@ def smc_puffball_sample(like, d_min, d_max, n_walkers=2000, seed=0,
             # post_weight, i.e. exactly the mislabelling the tail guards against.
             db = min(max(a, 1e-4), hi_db)
         # SMC evidence increment: logZ += logmeanexp(db * lnL)
-        z = db * lnL
-        z = z[np.isfinite(z)]
+        # The SMC ratio is a mean over ALL W prior walkers.  A walker with
+        # zero/invalid likelihood contributes zero to the numerator but still
+        # occupies its share of the prior mass.  Dropping it before np.mean
+        # renormalizes onto the finite subset and biases logZ upward by
+        # log(W / n_finite) on this rung.
+        z = np.where(np.isfinite(lnL), db * lnL, -np.inf)
         mz = np.max(z)
         logZ += float(mz + np.log(np.mean(np.exp(z - mz))))
         inv_T += db
@@ -2363,7 +2368,8 @@ def _av_param_order(like):
 
 
 def _av_sample_bounds(order, d_min, d_max, sample_d_min=None,
-                      sample_d_max=None, sample_bounds=None):
+                      sample_d_max=None, sample_bounds=None,
+                      distance_prior="euclidean"):
     """Validate and resolve AV sampling limits without renormalizing the prior."""
     requested = dict(sample_bounds or {})
     if sample_d_min is not None or sample_d_max is not None:
@@ -2376,7 +2382,8 @@ def _av_sample_bounds(order, d_min, d_max, sample_d_min=None,
                          % ", ".join(sorted(unknown)))
     resolved = {}
     for name in order:
-        physical_lo, physical_hi, _ = _av_prior_spec(name, d_min, d_max)
+        physical_lo, physical_hi, _ = _av_prior_spec(
+            name, d_min, d_max, distance_prior=distance_prior)
         lo, hi = requested.get(name, (physical_lo, physical_hi))
         lo, hi = float(lo), float(hi)
         if not np.isfinite(lo) or not np.isfinite(hi) or lo >= hi:
@@ -2389,12 +2396,15 @@ def _av_sample_bounds(order, d_min, d_max, sample_d_min=None,
     return resolved
 
 
-def _av_prior_draw(order, n, rng, d_min, d_max, sample_bounds=None):
+def _av_prior_draw(order, n, rng, d_min, d_max, sample_bounds=None,
+                   distance_prior="euclidean"):
     """Draw the physical prior conditioned only on the AV sampling window."""
     bounds = _av_sample_bounds(order, d_min, d_max,
-                               sample_bounds=sample_bounds)
+                               sample_bounds=sample_bounds,
+                               distance_prior=distance_prior)
     def interval(name):
-        return bounds.get(name, _av_prior_spec(name, d_min, d_max)[:2])
+        return bounds.get(name, _av_prior_spec(
+            name, d_min, d_max, distance_prior=distance_prior)[:2])
     ra_lo, ra_hi = interval("ra") if "ra" in order else (0.0, _TWO_PI)
     dec_lo, dec_hi = interval("dec") if "dec" in order else (-_PI / 2, _PI / 2)
     psi_lo, psi_hi = interval("psi") if "psi" in order else (0.0, _PI)
@@ -2413,13 +2423,37 @@ def _av_prior_draw(order, n, rng, d_min, d_max, sample_bounds=None):
         "phiref_shifted": rng.uniform(phase_lo, phase_hi, n),
         "phase_p": rng.uniform(pp_lo, pp_hi, n),
         "phase_m": rng.uniform(pm_lo, pm_hi, n),
-        "distMpc": np.cbrt(rng.uniform(dist_lo ** 3, dist_hi ** 3, n)),
+        "distMpc": _av_distance_prior_draw(
+            n, rng, dist_lo, dist_hi, d_min, d_max, distance_prior),
     }
     return np.column_stack([draws[name] for name in order])
 
 
+@functools.lru_cache(maxsize=32)
+def _pseudo_cosmo_norm(d_min, d_max):
+    from RIFT.likelihood import priors_utils
+    return float(priors_utils.dist_prior_pseudo_cosmo_eval_norm(d_min, d_max))
+
+
+def _av_distance_prior_draw(n, rng, lo, hi, d_min, d_max, distance_prior):
+    """Draw a distance prior conditioned on the declared sampling interval."""
+    key = str(distance_prior or "euclidean").strip().lower()
+    if key in ("euclidean", "volumetric"):
+        return np.cbrt(rng.uniform(lo ** 3, hi ** 3, n))
+    if key != "pseudo_cosmo":
+        raise ValueError("unsupported JAX-AV distance prior %r" % distance_prior)
+    # This is proposal initialization only.  A dense deterministic inverse CDF
+    # is ample here; the estimator itself uses the analytic prior density below.
+    from RIFT.likelihood import priors_utils
+    grid = np.linspace(float(lo), float(hi), 4097)
+    pdf = np.asarray(priors_utils.dist_prior_pseudo_cosmo(
+        grid, nm=_pseudo_cosmo_norm(float(d_min), float(d_max))), dtype=float)
+    cdf = np.concatenate(([0.0], np.cumsum(0.5 * (pdf[1:] + pdf[:-1]) * np.diff(grid))))
+    return np.interp(rng.uniform(0.0, cdf[-1], int(n)), cdf, grid)
+
+
 def _av_prior_spec(name, d_min, d_max, sample_d_min=None, sample_d_max=None,
-                   sample_bounds=None):
+                   sample_bounds=None, distance_prior="euclidean"):
     """Return ``(lo, hi, physical_density)`` for one wrapper coordinate."""
     if name == "ra":
         spec = (0.0, _TWO_PI, lambda x: np.ones(np.shape(x)) / _TWO_PI)
@@ -2437,10 +2471,20 @@ def _av_prior_spec(name, d_min, d_max, sample_d_min=None, sample_d_max=None,
         spec = (0.0, 2.0 * _TWO_PI,
                 lambda x: np.ones(np.shape(x)) / (2.0 * _TWO_PI))
     elif name == "distMpc":
-        norm = 3.0 / (float(d_max) ** 3 - float(d_min) ** 3)
+        key = str(distance_prior or "euclidean").strip().lower()
+        if key in ("euclidean", "volumetric"):
+            norm = 3.0 / (float(d_max) ** 3 - float(d_min) ** 3)
+            density = lambda x, _norm=norm: _norm * np.asarray(x) ** 2
+        elif key == "pseudo_cosmo":
+            from RIFT.likelihood import priors_utils
+            norm = _pseudo_cosmo_norm(float(d_min), float(d_max))
+            density = lambda x, _norm=norm: priors_utils.dist_prior_pseudo_cosmo(
+                np.asarray(x), nm=_norm, xpy=np)
+        else:
+            raise ValueError("unsupported JAX-AV distance prior %r" % distance_prior)
         spec = (float(d_min if sample_d_min is None else sample_d_min),
                 float(d_max if sample_d_max is None else sample_d_max),
-                lambda x, _norm=norm: _norm * np.asarray(x) ** 2)
+                density)
     else:
         raise ValueError("unsupported JAX-ILE adaptive-volume parameter %r" % (name,))
     if sample_bounds and name in sample_bounds:
@@ -2495,7 +2539,8 @@ def _sky_distance(a, b):
 
 def _fisher_sky_seed(like, order, lnL, rng, d_min, d_max, n_seed,
                      n_pilot, n_modes, sky_inflate, prior_frac,
-                     initial_points=None, sample_bounds=None, verbose=False):
+                     initial_points=None, sample_bounds=None, verbose=False,
+                     distance_prior="euclidean"):
     """Hill-climb modes, then draw Fisher sky / physical-prior other coordinates.
 
     This is deliberately a proposal initializer, not part of the estimator.  The
@@ -2507,7 +2552,8 @@ def _fisher_sky_seed(like, order, lnL, rng, d_min, d_max, n_seed,
     from scipy.optimize import minimize
 
     n_pilot = max(int(n_pilot), int(n_modes), 1)
-    pilot = _av_prior_draw(order, n_pilot, rng, d_min, d_max, sample_bounds)
+    pilot = _av_prior_draw(order, n_pilot, rng, d_min, d_max, sample_bounds,
+                           distance_prior)
     pilot_lnL = lnL(*pilot.T)
     ranked = np.argsort(np.where(np.isfinite(pilot_lnL), pilot_lnL, -np.inf))[::-1]
     seeds = []
@@ -2529,7 +2575,8 @@ def _fisher_sky_seed(like, order, lnL, rng, d_min, d_max, n_seed,
         raise RuntimeError("the Fisher-sky prior pilot found no finite likelihood")
 
     bounds = [_av_prior_spec(name, d_min, d_max,
-                             sample_bounds=sample_bounds)[:2] for name in order]
+                             sample_bounds=sample_bounds,
+                             distance_prior=distance_prior)[:2] for name in order]
     # Avoid evaluating the Jacobian-singular orientation endpoints during AD.
     bounds = [(lo + 1e-6 if name in ("dec", "incl") else lo,
                hi - 1e-6 if name in ("dec", "incl") else hi)
@@ -2571,7 +2618,8 @@ def _fisher_sky_seed(like, order, lnL, rng, d_min, d_max, n_seed,
     n_seed = max(int(n_seed), len(order) + 2)
     n_prior = int(np.clip(float(prior_frac), 0.0, 1.0) * n_seed)
     n_focus = n_seed - n_prior
-    focused = _av_prior_draw(order, n_focus, rng, d_min, d_max, sample_bounds)
+    focused = _av_prior_draw(order, n_focus, rng, d_min, d_max, sample_bounds,
+                             distance_prior)
     counts = np.full(len(modes), n_focus // len(modes), dtype=int)
     counts[:n_focus % len(modes)] += 1
     cursor = 0
@@ -2593,7 +2641,7 @@ def _fisher_sky_seed(like, order, lnL, rng, d_min, d_max, n_seed,
     cloud = focused
     if n_prior:
         cloud = np.vstack([cloud, _av_prior_draw(
-            order, n_prior, rng, d_min, d_max, sample_bounds)])
+            order, n_prior, rng, d_min, d_max, sample_bounds, distance_prior)])
     if verbose:
         print("  [JAX-AV seed] %d hill-climbed sky mode(s), %d seed points "
               "(%d full-prior)" % (len(modes), len(cloud), n_prior))
@@ -2610,7 +2658,7 @@ def adaptive_volume_sample(like, d_min, d_max, sampler_method="AV",
                            seed_prior_frac=0.1, anisotropic_bins=True,
                            gmm_components=2,
                            verbose=False, sample_d_min=None, sample_d_max=None,
-                           sample_bounds=None):
+                           sample_bounds=None, distance_prior="euclidean"):
     """Run production AV/portfolio control logic on a value-only JAX likelihood.
 
     ``sampler_method`` is ``AV`` or ``portfolio``.  The optional ``fisher-sky``
@@ -2627,7 +2675,8 @@ def adaptive_volume_sample(like, d_min, d_max, sampler_method="AV",
     order = _av_param_order(like)
     n_dim = len(order)
     resolved_bounds = _av_sample_bounds(
-        order, d_min, d_max, sample_d_min, sample_d_max, sample_bounds)
+        order, d_min, d_max, sample_d_min, sample_d_max, sample_bounds,
+        distance_prior)
     # Decouple AV's coverage cloud from the accelerator batch.  AV often needs
     # a large n_chunk to hit a narrow sky mode, while the marginalized JAX
     # kernel has a much smaller memory-efficient batch.  The callback loops over
@@ -2665,7 +2714,8 @@ def adaptive_volume_sample(like, d_min, d_max, sampler_method="AV",
 
     for name in order:
         lo, hi = resolved_bounds[name]
-        prior = _av_prior_spec(name, d_min, d_max)[2]
+        prior = _av_prior_spec(name, d_min, d_max,
+                               distance_prior=distance_prior)[2]
         sampler.add_parameter(name, pdf=None, left_limit=lo, right_limit=hi,
                               prior_pdf=prior, adaptive_sampling=True)
     setup_kwargs = {"anisotropic_bins": bool(anisotropic_bins)}
@@ -2698,7 +2748,8 @@ def adaptive_volume_sample(like, d_min, d_max, sampler_method="AV",
             n_seed=(seed_points or n_chunk), n_pilot=seed_pilot,
             n_modes=seed_modes, sky_inflate=sky_inflate,
             prior_frac=seed_prior_frac, initial_points=seed_initial_points,
-            sample_bounds=resolved_bounds, verbose=verbose)
+            sample_bounds=resolved_bounds, verbose=verbose,
+            distance_prior=distance_prior)
         if method == "portfolio":
             sampler.bootstrap_from_samples(seed_cloud, params=order, seed=seed)
         else:
@@ -2716,6 +2767,9 @@ def adaptive_volume_sample(like, d_min, d_max, sampler_method="AV",
         result = sampler.integrate_log(
             lnL, *order, nmax=int(nmax), neff=float(neff), n=int(n_chunk),
             no_protect_names=True, verbose=bool(verbose), save_intg=True,
+            # Match classic ILE: fractional edge bins otherwise extend beyond
+            # the requested sampling box, where the physical prior is nonzero.
+            enforce_bounds=True,
             tempering_exp=1.0, anisotropic_bins=bool(anisotropic_bins),
             # Standalone AV can keep device-typed internal arrays when cupy is
             # importable even though this adapter evaluates on the host.  Its

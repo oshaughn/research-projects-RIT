@@ -28,6 +28,45 @@ def _driver_module():
     return module
 
 
+def test_waveform_precompute_kwargs_match_production_ile_controls():
+    driver = _driver_module()
+    parser = driver.build_parser()
+
+    opts, _ = parser.parse_args([
+        "--approximant", "IMRPhenomXPHM",
+        "--internal-waveform-fd-L-frame",
+        "--internal-waveform-fd-no-condition",
+    ])
+    got = driver._waveform_precompute_kwargs(opts)
+    assert got == {
+        "use_gwsignal": False,
+        "use_gwsignal_approx": None,
+        "ignore_threshold": None,
+        "no_memory": False,
+        "extra_waveform_kwargs": {
+            "fd_alignment_postevent_time": 2,
+            "e_freq": 1,
+            "fd_L_frame": True,
+            "no_condition": True,
+        },
+    }
+
+    defaults, _ = parser.parse_args(["--approximant", "IMRPhenomD"])
+    assert driver._waveform_precompute_kwargs(defaults)[
+        "extra_waveform_kwargs"] == {
+            "fd_alignment_postevent_time": 2, "e_freq": 1}
+
+
+def test_internal_sample_rate_controls_precompute_cadence():
+    driver = _driver_module()
+    parser = driver.build_parser()
+    defaults, _ = parser.parse_args(["--srate", "1024"])
+    internal, _ = parser.parse_args(
+        ["--srate", "1024", "--srate-internal", "4096"])
+    assert driver._analysis_delta_t(defaults) == 1.0 / 1024.0
+    assert driver._analysis_delta_t(internal) == 1.0 / 4096.0
+
+
 class _ToySkyLikelihood:
     ANGULAR_PARAM_ORDER = ("ra", "dec", "incl")
 
@@ -75,6 +114,30 @@ def test_physical_coordinate_priors_are_normalized():
         x = np.linspace(lo, hi, 20001)
         np.testing.assert_allclose(_trapezoid(density(x), x), 1.0,
                                    rtol=2e-6, atol=2e-6)
+
+
+def test_pseudo_cosmo_distance_prior_density_and_draw_are_consistent():
+    from RIFT.likelihood import priors_utils
+
+    lo, hi = 1.0, 10000.0
+    _, _, density = samplers._av_prior_spec(
+        "distMpc", lo, hi, distance_prior="pseudo_cosmo")
+    grid = np.linspace(lo, hi, 50001)
+    pdf = density(grid)
+    np.testing.assert_allclose(_trapezoid(pdf, grid), 1.0, rtol=2e-7)
+    norm = priors_utils.dist_prior_pseudo_cosmo_eval_norm(lo, hi)
+    np.testing.assert_allclose(
+        pdf, priors_utils.dist_prior_pseudo_cosmo(grid, nm=norm), rtol=1e-14)
+
+    draw = samplers._av_prior_draw(
+        ("distMpc",), 30000, np.random.default_rng(240426), lo, hi,
+        distance_prior="pseudo_cosmo")[:, 0]
+    cdf = np.concatenate(([0.0], np.cumsum(
+        0.5 * (pdf[1:] + pdf[:-1]) * np.diff(grid))))
+    cdf /= cdf[-1]
+    expected_median = np.interp(0.5, cdf, grid)
+    assert abs(np.median(draw) - expected_median) < 0.015 * expected_median
+    assert np.all((draw >= lo) & (draw <= hi))
 
 
 def test_sampling_window_does_not_renormalize_physical_prior():
@@ -265,6 +328,33 @@ def test_pure_av_runs_inside_a_narrow_sky_sampling_window():
                   (result["theta"][:, 1] <= 0.5))
 
 
+def test_pure_av_never_evaluates_or_retains_points_outside_sampling_window():
+    """A live bin at the upper edge must not extend beyond the declared box."""
+    class OutwardRisingLikelihood:
+        ANGULAR_PARAM_ORDER = ("ra",)
+
+        def __init__(self):
+            self.evaluated = []
+
+        def log_likelihood(self, ra):
+            values = np.asarray(ra, dtype=float)
+            self.evaluated.append(values.copy())
+            # Force the retained live volume against the upper boundary, where
+            # fractional bin counts used to let the final bin overshoot.
+            return 2000.0 * values
+
+    like = OutwardRisingLikelihood()
+    bounds = {"ra": (1.1, 1.3)}
+    result = samplers.adaptive_volume_sample(
+        like, 1.0, 100.0, sampler_method="AV", sample_bounds=bounds,
+        nmax=4000, neff=1000000, n_chunk=400, eval_chunk=128, seed=1409)
+
+    evaluated = np.concatenate(like.evaluated)
+    assert np.all((evaluated >= 1.1) & (evaluated <= 1.3))
+    assert np.all((result["theta"][:, 0] >= 1.1) &
+                  (result["theta"][:, 0] <= 1.3))
+
+
 def test_caller_supplied_oracle_cloud_bootstraps_portfolio():
     rng = np.random.default_rng(31)
     centre = np.array([2.0, 0.2, 1.0])
@@ -315,6 +405,20 @@ def test_driver_exposes_sampler_as_an_orthogonal_backend(monkeypatch):
     assert opts.sampler_portfolio == ["AV,GMM"]
     assert opts.jax_av_seed == "fisher-sky"
     assert opts.n_eff == 321
+
+
+def test_driver_accepts_pseudo_cosmo_only_for_av_backend(monkeypatch):
+    monkeypatch.delenv("JAX_ILE_DISTMARG_GH", raising=False)
+    driver = _driver_module()
+    parser = driver.build_parser()
+    opts, _ = parser.parse_args([
+        "--sampler-method", "AV", "--d-prior", "pseudo_cosmo"])
+    driver.check_critical_and_report(opts, parser)
+
+    unsupported, _ = parser.parse_args([
+        "--sampler-method", "AV", "--d-prior", "cosmo_sourceframe"])
+    with pytest.raises(SystemExit):
+        driver.check_critical_and_report(unsupported, parser)
 
 
 def test_driver_validates_and_activates_av_sky_limits(monkeypatch):

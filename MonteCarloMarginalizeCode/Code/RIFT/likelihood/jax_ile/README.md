@@ -152,6 +152,22 @@ conditional time per exported row.  This intentionally differs from
 conventional ILE's XML export semantics, but a high-level DAG can swap
 executables without dying during option parsing.
 
+For an Asimov/pseudo-pipe final fair-draw stage, the pipeline detects the JAX
+executable and runs `util_ConvertJAXILEFairdraws.py`.  The converter strictly
+pairs each tabular sidecar with its intrinsic likelihood record and writes the
+usual joint posterior coordinates that are actually available.  It omits
+`time`, which remains marginalized and is not exported by this driver, rather
+than fabricating a coordinate.  Redshift and source-frame masses are likewise
+not inferred; custom `--convert-args` are refused instead of silently ignored.
+The compatibility columns `p` and `ps` are both the neutral value one because
+the exported rows are already equal-weight fair draws.  Missing pairs,
+malformed records, nonfinite rows, noncontiguous grid IDs, or unexpected
+intrinsic/draw counts fail the terminal job and remove any stale terminal
+output.  Conventional ILE retains its existing XML conversion path.  The
+converter also writes a JSON provenance ledger beside the posterior, recording
+input and output hashes, row counts, shuffle seed, neutral columns, and omitted
+coordinates.
+
 ## Modules
 
 - `detector.py` — `compute_detamresponse`, `time_delay_from_earth_center`
@@ -264,6 +280,11 @@ the same JAX likelihood selected by ``--mode`` but do not differentiate it
 during integration.  Likelihood rows are evaluated in one fixed JAX shape;
 ``--jax-av-eval-chunk`` therefore controls accelerator memory independently of
 the larger ``--n-chunk`` used to cover and contract the adaptive volume.
+AV/portfolio honor the production ``--d-prior pseudo_cosmo`` distance density,
+including its normalization over ``[--d-min, --d-max]``; Euclidean/volumetric
+remains the default.  Other cosmological distance-prior variants are refused
+for this backend rather than silently changed.  A sampling-only
+``--limit-distance`` does not renormalize either physical prior.
 
 Portfolio defaults to AV plus a defensive GMM member.  An optional Fisher-sky
 initializer pays an explicit, one-time AD cost for hill climbing and local
@@ -536,3 +557,14 @@ the mode-covering samplers above.  Further hardening available to compound:
 Not yet ported (structured for): in-loop calibration marginalization
 (`n_cal>1`) and the lookup-table distance marginalization (we use direct grid
 quadrature instead, which is AD-friendly and needs no precomputed table).
+Waveform precomputation uses the same two-second post-event FD alignment as
+production numpy ILE.  The compatibility options
+``--internal-waveform-fd-L-frame`` and
+``--internal-waveform-fd-no-condition`` are forwarded to the production
+precompute call; they are not JAX-only transformations.
+Input frames are first loaded at ``--srate`` and, when requested, upsampled to
+``--srate-internal`` before the mode time series are constructed, matching the
+two-cadence production ILE path.
+The production defaults also retain all modes (no implicit precompute
+threshold), retain memory modes unless ``--no-memory`` is given, and apply the
+same ``--fmin-ifo`` and PSD-window normalization to each detector.

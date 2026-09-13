@@ -162,7 +162,7 @@ __all__ = [
 ANGLE_MARG_DEFAULT = "exact"
 ANGLE_MARG_LEGACY = "grid"      # the spelling that reproduces pre-2026-09-02 runs
 ANGLE_MARG_CHOICES = ("grid", "exact", "laplace", "peak-local", "phi-local",
-                      "multipeak", "auto")
+                      "multipeak", "multipeak-jax", "auto")
 
 #: 'peak-local' is deliberately NOT reachable from 'auto' yet.  It agrees with 'exact'
 #: to 1e-13 nats on the tables measured so far and is device-independent (the same answer

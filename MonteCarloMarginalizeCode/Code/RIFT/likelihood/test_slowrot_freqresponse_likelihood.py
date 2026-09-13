@@ -297,9 +297,11 @@ def run_response_coefficients_block():
     single place the substitution can go wrong, and the reference is the scalar routine
     itself -- still shipped, still the definition of b_p.
 
-    b_0..b_3 must be bit-identical.  b_4 and b_5 carry a_x**3 and a_x**4, where numpy's
-    power loop and CPython's libm pow round differently in the last bit; that is bounded
-    here, and the end-to-end consequence was measured at zero (see
+    b_0..b_3 must agree to floating-point roundoff.  Different supported NumPy/libm
+    combinations can also move these low-order terms by one ulp.  b_4 and b_5 carry
+    a_x**3 and a_x**4, where numpy's power loop and CPython's libm pow can likewise
+    round differently in the last bit; all of that is bounded here, and the end-to-end
+    consequence was measured at zero (see
     DESIGN_freqresponse_vectorized_coefficients.md).
     """
     rng = np.random.RandomState(20260909)
@@ -317,12 +319,18 @@ def run_response_coefficients_block():
             for p in range(Qmax + 2):
                 d = abs(bv[p][i] - bs[p])
                 if p <= 3:
-                    assert d == 0.0, ("b_%d must be bit-identical to the scalar routine "
-                                      "(%s sample %d: |d|=%g)" % (p, det, i, d))
+                    scale = max(1.0, abs(bs[p]))
+                    assert d <= 8 * np.finfo(float).eps * scale, (
+                        "b_%d differs from the scalar routine by more than eight ulp "
+                        "(%s sample %d: |d|=%g)" % (p, det, i, d))
                 worst = max(worst, d / max(abs(bs[p]), 1e-300))
-    print("\n(V5) BLOCK COEFFICIENTS: b_0..b_3 bit-identical; worst relative "
+    print("\n(V5) BLOCK COEFFICIENTS: b_0..b_3 roundoff-equivalent; worst relative "
           "difference over all p = %.3e" % worst)
-    assert worst < 1e-14, "block coefficients drifted past one ulp: %g" % worst
+    # The largest relative ratio occurs when the reference coefficient is near
+    # zero; supported NumPy/libm combinations reach a few 1e-14 without any
+    # measurable likelihood change.  Keep a two-order-of-magnitude guard below
+    # the end-to-end tolerances while allowing that benign platform variation.
+    assert worst < 1e-12, "block coefficients drifted past roundoff envelope: %g" % worst
 
     # STRUCTURAL: the detector lookup must not scale with the block.  This is what the
     # change is for -- a regression to the per-sample loop passes every value check above

@@ -50,6 +50,55 @@ EXTRINSIC_PARAM_ORDER = ("ra", "dec", "psi", "incl", "phiref", "distMpc")
 _TIME_SUPPORT_DELAY_MARGIN = 0.05
 
 
+def _apply_response_order_control(products, control, selected_p, selected_q):
+    """Estimate/check orders on a reference bank, then return the requested subset.
+
+    Kept here so both JAX builders use exactly the production U,V products.  The
+    import and the higher-order U,V scan happen only when ``control`` is
+    non-None, which is true only for an explicit check/choose CLI option.
+    """
+    if control is None:
+        return products, None
+    import warnings
+    from RIFT.likelihood import response_order
+
+    report = response_order.estimate_response_orders(
+        products[4], products[1], products[2],
+        target_snr=control['target_snr'],
+        lnL_tolerance=control.get('lnL_tolerance', 0.1),
+        n_samples=control.get('n_samples', 128),
+        selected_p=selected_p, selected_q=selected_q,
+        vary_p=control.get('check_p', False) or control.get('choose_p', False),
+        vary_q=control.get('check_q', False) or control.get('choose_q', False))
+    response_order.print_order_report(report)
+    if (control.get('check_p', False) or control.get('check_q', False)) \
+            and not report['selected_passes']:
+        warnings.warn(
+            "chosen response order fails the requested accuracy: predicted "
+            "Delta lnL={:.3g} > {:.3g} at SNR {:.6g}".format(
+                report['selected_delta_lnL'], report['lnL_tolerance'],
+                report['target_snr']), RuntimeWarning)
+
+    final_p, final_q = int(selected_p), int(selected_q)
+    if control.get('choose_p', False) or control.get('choose_q', False):
+        if not report['reference_resolved']:
+            raise ValueError(
+                "cannot auto-select from an unresolved finite response "
+                "reference; raise the diagnostic reference order")
+        if report['chosen'] is None:
+            raise ValueError(
+                "no response order in the diagnostic reference bank satisfies "
+                "the requested SNR/error budget")
+        if control.get('choose_p', False):
+            final_p = int(report['chosen']['p_max'])
+        if control.get('choose_q', False):
+            final_q = int(report['chosen']['Qmax'])
+    report['final_p'] = final_p
+    report['final_Q'] = final_q
+    return response_order.truncate_precompute_products(
+        products, p_max=final_p, q_max=final_q), report
+
+
 def bandlimited_storage_requirement(deltaT, integration_window_half):
     """Return ``(storage_half, g0, g_certificate)`` for adaptive time support."""
     tvals = factored_likelihood.marginalization_time_grid(
@@ -87,6 +136,7 @@ def build_rotation_data_from_precompute(P, data_dict, psd_dict, fiducial_epoch,
                                         p_max=0, analyticPSD_Q=False,
                                         inv_spec_trunc_Q=False, T_spec=0.0,
                                         tvals=None, verbose=False,
+                                        order_control=None,
                                         **precompute_kwargs):
     """One-call builder for the slow-rotation (Path A/B) banded JAX likelihood.
 
@@ -109,12 +159,25 @@ def build_rotation_data_from_precompute(P, data_dict, psd_dict, fiducial_epoch,
     import RIFT.likelihood.factored_likelihood_with_rotation as flwr
     from .banded import build_rotation_data
 
+    p_reference = (max(int(p_max), int(order_control.get('p_reference', p_max)))
+                   if order_control is not None and
+                   (order_control.get('check_p') or order_control.get('choose_p'))
+                   else int(p_max))
+    if order_control is not None:
+        from RIFT.likelihood import response_order
+        response_order.guard_reference_bank(
+            'rotation', p_reference, 0, Lmax, len(data_dict),
+            order_control.get('max_bank_gib', 4.0))
     ri, ct, ctV, rho, meta = flwr.PrecomputeLikelihoodTermsWithRotation(
         fiducial_epoch, t_window, P, data_dict, psd_dict, Lmax, fMax,
-        harmonics=harmonics, p_max=p_max, f_sidereal=flwr.F_SIDEREAL,
+        harmonics=harmonics, p_max=p_reference, f_sidereal=flwr.F_SIDEREAL,
         analyticPSD_Q=analyticPSD_Q, inv_spec_trunc_Q=inv_spec_trunc_Q,
         T_spec=T_spec, verbose=verbose, quiet=not verbose,
         skip_interpolation=True, **precompute_kwargs)
+    products, order_report = _apply_response_order_control(
+        (ri, ct, ctV, rho, meta), order_control,
+        selected_p=int(p_max), selected_q=0)
+    ri, ct, ctV, rho, meta = products
     lk, rbn, ubn, vbn, ep = flwr.pack_rotation_arrays(meta, rho, ct, ctV)
 
     deltaT = float(P.deltaT)
@@ -130,7 +193,7 @@ def build_rotation_data_from_precompute(P, data_dict, psd_dict, fiducial_epoch,
             integration_window_half, deltaT, xpy=np)
     data = build_rotation_data(meta, lk, rbn, ubn, vbn, ep, deltaT, tvals)
     extras = dict(meta=meta, rho_by_a=rbn, U_by_aa=ubn, V_by_aa=vbn,
-                  epochDict=ep, lookupNKDict=lk)
+                  epochDict=ep, lookupNKDict=lk, order_report=order_report)
     return data, extras
 
 
@@ -140,6 +203,7 @@ def build_freqresponse_data_from_precompute(P, data_dict, psd_dict, fiducial_epo
                                             analyticPSD_Q=False,
                                             inv_spec_trunc_Q=False, T_spec=0.0,
                                             tvals=None, verbose=False,
+                                            order_control=None,
                                             **precompute_kwargs):
     """One-call builder for the finite-size (Path D) banded JAX likelihood.
 
@@ -154,11 +218,23 @@ def build_freqresponse_data_from_precompute(P, data_dict, psd_dict, fiducial_epo
     import RIFT.likelihood.slowrot_freqresponse as sfr
     from .banded import build_freqresponse_data
 
+    q_reference = (max(int(Qmax), int(order_control.get('q_reference', Qmax)))
+                   if order_control is not None and
+                   (order_control.get('check_q') or order_control.get('choose_q'))
+                   else int(Qmax))
+    if order_control is not None:
+        from RIFT.likelihood import response_order
+        response_order.guard_reference_bank(
+            'finite', 0, q_reference, Lmax, len(data_dict),
+            order_control.get('max_bank_gib', 4.0))
     bk = flfr.PrecomputeLikelihoodTermsFreqResponse(
         fiducial_epoch, t_window, P, data_dict, psd_dict, Lmax, fMax,
-        Qmax=Qmax, L_arm=L_arm, analyticPSD_Q=analyticPSD_Q,
+        Qmax=q_reference, L_arm=L_arm, analyticPSD_Q=analyticPSD_Q,
         inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec, verbose=verbose,
         quiet=not verbose, skip_interpolation=True, **precompute_kwargs)
+    bk, order_report = _apply_response_order_control(
+        bk, order_control,
+        selected_p=0, selected_q=int(Qmax))
     meta = bk[4]
     lk, rbp, ubp, vbp, ep = flfr.pack_freqresponse_arrays(bk[4], bk[3], bk[1], bk[2])
 
@@ -181,7 +257,8 @@ def build_freqresponse_data_from_precompute(P, data_dict, psd_dict, fiducial_epo
     data = build_freqresponse_data(meta, lk, rbp, ubp, vbp, ep, deltaT, tvals,
                                    det_geom)
     extras = dict(meta=meta, rho_by_p=rbp, U_by_pp=ubp, V_by_pp=vbp,
-                  epochDict=ep, lookupNKDict=lk, det_geom=det_geom)
+                  epochDict=ep, lookupNKDict=lk, det_geom=det_geom,
+                  order_report=order_report)
     return data, extras
 
 
@@ -189,18 +266,72 @@ def build_rotating_freqresponse_data_from_precompute(
         P, data_dict, psd_dict, fiducial_epoch, integration_window_half,
         Lmax, fMax, t_window=0.1, Qmax=4, L_arm=None, p_max=0,
         analyticPSD_Q=False, inv_spec_trunc_Q=False, T_spec=0.0,
-        tvals=None, verbose=False, **precompute_kwargs):
-    """One-call builder for the compound rotation + finite-response likelihood."""
+        tvals=None, verbose=False, order_control=None, **precompute_kwargs):
+    """Build the compound likelihood, optionally without a Q/U/V host round trip.
+
+    ``RIFT_GPU_PRECOMPUTE=1`` selects CuPy precompute followed by DLPack
+    handoff to JAX. Existing host waveform generators remain supported.
+    """
     import RIFT.likelihood.factored_likelihood_rotating_freqresponse as flrr
     import RIFT.likelihood.slowrot_freqresponse as sfr
     from .banded import build_rotating_freqresponse_data
 
+    if os.environ.get('RIFT_GPU_PRECOMPUTE', '0') == '1':
+        if order_control is not None:
+            raise NotImplementedError('Device-resident response-order selection is not yet supported; choose explicit orders or disable RIFT_GPU_PRECOMPUTE')
+        if os.environ.get('RIFT_GPU_WAVEFORM', 'lal') != 'lal':
+            raise ValueError('Native GPU waveform provider is not yet validated; use RIFT_GPU_WAVEFORM=lal')
+        from ..gpu_precompute import PrecomputeLikelihoodTermsRotatingFreqResponseGPU
+        from ..gpu_jax_handoff import build_jax_rotating_freqresponse_data_from_device
+        packed, meta = PrecomputeLikelihoodTermsRotatingFreqResponseGPU(
+            fiducial_epoch, t_window, P, data_dict, psd_dict, Lmax, fMax,
+            Qmax=Qmax, L_arm=L_arm, p_max=p_max,
+            analyticPSD_Q=analyticPSD_Q, inv_spec_trunc_Q=inv_spec_trunc_Q,
+            T_spec=T_spec, verbose=verbose, quiet=not verbose,
+            skip_interpolation=True, return_device=True, **precompute_kwargs)
+        det_geom = {
+            det: sfr.detector_geometry(det, L_arm=(
+                L_arm.get(det, None) if isinstance(L_arm, dict) else L_arm))
+            for det in data_dict}
+        if tvals is None:
+            tvals = factored_likelihood.marginalization_time_grid(
+                integration_window_half, float(P.deltaT), xpy=np)
+        data = build_jax_rotating_freqresponse_data_from_device(
+            packed, meta, tvals, det_geom)
+        # Preserve the diagnostic keys without materializing LAL/NumPy Q banks.
+        extras = dict(meta=meta,
+                      rho_by_a={det: {a: packed['q'][det][i]
+                                     for i, a in enumerate(packed['a_list'])}
+                                for det in data_dict},
+                      U_by_aa=packed['U'], V_by_aa=packed['V'],
+                      epochDict=packed['epoch'],
+                      lookupNKDict={det: np.asarray(packed['modes'])
+                                    for det in data_dict}, det_geom=det_geom,
+                      order_report=None)
+        return data, extras
+
+    p_reference = (max(int(p_max), int(order_control.get('p_reference', p_max)))
+                   if order_control is not None and
+                   (order_control.get('check_p') or order_control.get('choose_p'))
+                   else int(p_max))
+    q_reference = (max(int(Qmax), int(order_control.get('q_reference', Qmax)))
+                   if order_control is not None and
+                   (order_control.get('check_q') or order_control.get('choose_q'))
+                   else int(Qmax))
+    if order_control is not None:
+        from RIFT.likelihood import response_order
+        response_order.guard_reference_bank(
+            'combined', p_reference, q_reference, Lmax, len(data_dict),
+            order_control.get('max_bank_gib', 4.0))
     bk = flrr.PrecomputeLikelihoodTermsRotatingFreqResponse(
         fiducial_epoch, t_window, P, data_dict, psd_dict, Lmax, fMax,
-        Qmax=Qmax, L_arm=L_arm, p_max=p_max,
+        Qmax=q_reference, L_arm=L_arm, p_max=p_reference,
         analyticPSD_Q=analyticPSD_Q, inv_spec_trunc_Q=inv_spec_trunc_Q,
         T_spec=T_spec, verbose=verbose, quiet=not verbose,
         skip_interpolation=True, **precompute_kwargs)
+    bk, order_report = _apply_response_order_control(
+        bk, order_control,
+        selected_p=int(p_max), selected_q=int(Qmax))
     meta = bk[4]
     lk, rba, uba, vba, ep = flrr.pack_rotating_freqresponse_arrays(
         meta, bk[3], bk[1], bk[2])
@@ -216,7 +347,8 @@ def build_rotating_freqresponse_data_from_precompute(
     data = build_rotating_freqresponse_data(
         meta, lk, rba, uba, vba, ep, deltaT, tvals, det_geom)
     extras = dict(meta=meta, rho_by_a=rba, U_by_aa=uba, V_by_aa=vba,
-                  epochDict=ep, lookupNKDict=lk, det_geom=det_geom)
+                  epochDict=ep, lookupNKDict=lk, det_geom=det_geom,
+                  order_report=order_report)
     return data, extras
 
 
@@ -715,6 +847,11 @@ class JAXDistPhiMargLikelihood:
         return out[:, 0] if n_samples == 1 else out
 
 
+# Finite log-zero preserves proposal counts in legacy evidence helpers, which
+# discard nonfinite weights. Shared with the driver for output-cloud filtering.
+BOUNDED_MULTIPEAK_LOG_ZERO = -1.e30
+
+
 class JAXDistPhiPsiMargLikelihood:
     """Distance-, phi_ref- AND psi-marginalised lnL over 3 angles (ra, dec, incl).
 
@@ -722,6 +859,17 @@ class JAXDistPhiPsiMargLikelihood:
     leaving a smooth 3-D target.  Removing psi (spin-2, the dimension most entangled
     with distance/inclination) lowers the sampler dimension and stabilises the
     distance integral relative to the 4-D phi-marginalised likelihood.
+
+    For explicit ``multipeak-jax``, ``bounded_multipeak_config`` fixes the
+    resource envelope. Declines have numerical zero weight by default and
+    are counted in ``bounded_multipeak_audit``; ``bounded_multipeak_decline_action="refuse"``
+    instead rejects any declined host batch. There is no reserve. The
+    accepted-region target can have discontinuities at acceptance boundaries.
+    Audit counts and the refusal latch cover only ``log_likelihood`` batches
+    (pilot/reweight/output calls). Scalar calls, including MAP, Fisher and
+    internal MALA training, are excluded: under ``refuse`` a scalar decline
+    returns NaN without raising or latching. Zero audited declines therefore
+    does not certify that scalar evaluations accepted.
     """
 
     ANGULAR_PARAM_ORDER = ("ra", "dec", "incl")
@@ -732,7 +880,8 @@ class JAXDistPhiPsiMargLikelihood:
                  time_quadrature=TIME_QUAD_DEFAULT, d_prior_range=None,
                  dist_grid="uniform", dist_grid_tol=DIST_GRID_TOL_DEFAULT,
                  direct_marginalization_policy=None, policy_config=None,
-                 multipeak_guard=16):
+                 multipeak_guard=None, bounded_multipeak_config=None,
+                 bounded_multipeak_decline_action="drop"):
         self.data = data
         self.interp = interp   # the instance's stencil; sample_phi_ref defaults to it
         from . import direct_marginalization_policy as _policy
@@ -763,7 +912,8 @@ class JAXDistPhiPsiMargLikelihood:
         # actually ran -- callers must surface it in the run log.
         if angle_marg not in ANGLE_MARG_CHOICES:
             raise ValueError("angle_marg must be one of grid/exact/laplace/"
-                             "peak-local/auto, got %r" % (angle_marg,))
+                             "peak-local/phi-local/multipeak/multipeak-jax/"
+                             "auto, got %r" % (angle_marg,))
         if dist_grid not in DIST_GRID_SCHEMES:
             # An unrecognised value must NEVER fall through to the default: a
             # typo that silently returns the old answer is precisely the
@@ -1175,8 +1325,98 @@ class JAXDistPhiPsiMargLikelihood:
                         "another scheme if you need the time series.")
                 v = _anglemarg.fused_log_likelihood_distphipsimarg_multipeak(
                     data_, ra, dec, incl, xg, lwg, interp=interp,
-                    amp_sizing=amp_sizing, guard=int(multipeak_guard))
+                    amp_sizing=amp_sizing,
+                    guard=16 if multipeak_guard is None else int(multipeak_guard))
                 return (v, jnp.asarray(amp_sizing)) if return_amp else v
+
+        elif scheme == "multipeak-jax":
+            # Fixed-cap device discovery plus fixed-order local quadrature.
+            # There is intentionally no amplitude-sized reserve: a row that
+            # exceeds the envelope or fails a warrant returns nan.  Planning
+            # is stop_gradient control data; AD differentiates the accepted
+            # fixed-plan integral and carries no derivative-accuracy claim.
+            # The endpoint time-quadrature validation already requires Simpson.
+            if dist_grid != "uniform":
+                raise ValueError(
+                    "--angle-marg-scheme multipeak-jax derives its local "
+                    "distance normalization from a uniform-in-distance grid")
+            if bounded_multipeak_decline_action not in ("drop", "refuse"):
+                raise ValueError("bounded_multipeak_decline_action must be drop or refuse")
+            self.bounded_multipeak_decline_action = bounded_multipeak_decline_action
+            self.bounded_multipeak_audit = dict(
+                evaluated=0, declined=0, diagnostic_unknown=0,
+                max_accepted=None, max_declined_diagnostic=None, reasons={})
+            cfg = bounded_multipeak_config
+            if cfg is None:
+                cfg = _policy.BoundedMultipeakConfig()
+                if multipeak_guard is not None:
+                    cfg = cfg._replace(time_guard=multipeak_guard)
+            elif multipeak_guard is not None:
+                _policy.validate_bounded_multipeak_config(cfg)
+                if multipeak_guard != cfg.time_guard:
+                    raise ValueError(
+                        "multipeak_guard conflicts with bounded_multipeak_config")
+            _policy.validate_bounded_multipeak_config(cfg)
+            lln_bounded, _ = _policy.policy_log_normalization(
+                data, xg, lwg, d_prior=d_prior)
+            _policy.probe_guarded_tables(data, interp, int(cfg.time_guard))
+            x_bounds_bounded = (float(np.min(np.asarray(xg))),
+                                float(np.max(np.asarray(xg))))
+            self.angle_marg_info.update(
+                config=dict(cfg._asdict()),
+                decline_action=bounded_multipeak_decline_action,
+                bounded_cost=True,
+                dense_reserve=False,
+                fixed_plan_autodiff_only=True,
+                derivative_warrant_certified=False,
+                max_starts=int(cfg.base_max_starts),
+                max_time_nodes=int(cfg.max_time_nodes),
+                max_modes=int(cfg.enriched_max_modes),
+                time_guard=int(cfg.time_guard),
+                base_oversample=int(cfg.base_oversample),
+                enriched_oversample=int(cfg.enriched_oversample),
+                refine_iterations=int(cfg.refine_iterations),
+                quadrature_orders=(int(cfg.base_order),
+                                   int(cfg.base_check_order),
+                                   int(cfg.enriched_order),
+                                   int(cfg.enriched_check_order)),
+                convergence_tol_nats=float(cfg.convergence_tol_nats),
+                total_value_error_budget_nats=float(
+                    cfg.total_value_error_budget_nats),
+                batch_rows=int(cfg.batch_rows))
+
+            def _fused(data_, ra, dec, incl, return_lnLt=False,
+                       return_amp=False):
+                if return_lnLt:
+                    raise ValueError(
+                        "--angle-marg-scheme multipeak-jax marginalizes time "
+                        "inside the controller; there is no lnL(t) to return")
+                if return_amp:
+                    raise ValueError(
+                        "--angle-marg-scheme multipeak-jax has a static cost "
+                        "envelope and does not expose an amplitude-sized grid")
+                values = _policy.fused_log_likelihood_four_axis_bounded(
+                    data_, ra, dec, incl, xg, lwg, interp=interp,
+                    amp_sizing=amp_sizing, config=cfg,
+                    local_log_normalization=lln_bounded,
+                    x_bounds=x_bounds_bounded)
+
+                if bounded_multipeak_decline_action == "drop":
+                    # Finite log-zero keeps declined proposals in the IS sample
+                    # count (the evidence helper filters infinities). It also
+                    # avoids NaNs in MCMC acceptance ratios. This defines the
+                    # accepted-region target, whose omitted mass is NOT known.
+                    values = jnp.where(
+                        jnp.isfinite(values), values, BOUNDED_MULTIPEAK_LOG_ZERO)
+                return values
+
+            def _bounded_ledger(ra, dec, incl):
+                return _policy.fused_log_likelihood_four_axis_bounded(
+                    data, ra, dec, incl, xg, lwg, interp=interp,
+                    amp_sizing=amp_sizing, config=cfg,
+                    local_log_normalization=lln_bounded,
+                    x_bounds=x_bounds_bounded, return_ledger=True)
+            self._bounded_ledger = jax.jit(_bounded_ledger)
 
         elif scheme == "phi-local":
             # BOTH angle axes localized, with a dense fallback wherever the certificate
@@ -1305,7 +1545,17 @@ class JAXDistPhiPsiMargLikelihood:
         # nothing is compiled or cached twice.
         def _batched(ra, dec, incl):
             return _fused(data, ra, dec, incl)
-        self._batched = jax.jit(_batched)
+        # MULTIPEAK IS HOST-SIDE AND MUST NOT BE TRACED.  multipeak_local_marginalize
+        # is a numpy/scipy planner with a Python loop over rows; it calls np.asarray on
+        # the coefficient tables, which under jit are tracers
+        # (TracerArrayConversionError).  Every other scheme here is a jax kernel and is
+        # jitted.  This was missed because the wiring tests called _fused directly, in
+        # eager mode, and the failure only appears through _batched -- the seam the
+        # sampler actually uses.
+        if scheme == "multipeak":
+            self._batched = _batched
+        else:
+            self._batched = jax.jit(_batched)
 
         self._batched_amp = None
         if self._amp_record is not None:
@@ -1317,11 +1567,55 @@ class JAXDistPhiPsiMargLikelihood:
             v = _fused(data, theta3[0:1], theta3[1:2], theta3[2:3])
             return v[0]
         self._scalar = _scalar
-        self._value_and_grad = jax.jit(jax.value_and_grad(_scalar))
-        self._hessian = jax.jit(jax.hessian(_scalar))
+        if scheme == "multipeak":
+            # No AD through a numpy planner.  Refusing is the honest contract; a
+            # silently zero or wrong gradient would reach --fisher-precondition,
+            # which swallows exceptions and falls back to raw coordinates with the
+            # flag still recorded as supplied.
+            def _no_grad(*a, **k):
+                raise ValueError(
+                    "--angle-marg-scheme multipeak is a host-side planner and is "
+                    "not differentiable; gradients and the Fisher preconditioner "
+                    "are unavailable for it.  Use another scheme if you need them.")
+            self._value_and_grad = _no_grad
+            self._hessian = _no_grad
+        else:
+            self._value_and_grad = jax.jit(jax.value_and_grad(_scalar))
+            self._hessian = jax.jit(jax.hessian(_scalar))
 
     def log_likelihood(self, ra, dec, incl):
         """lnL for arrays of 3 angular parameters (ra, dec, incl), shape (S,)."""
+        if self.angle_marg_scheme == "multipeak-jax":
+            values, ledger = self._bounded_ledger(
+                jnp.asarray(ra), jnp.asarray(dec), jnp.asarray(incl))
+            host, ledger = jax.device_get((values, ledger))
+            bad = ~np.isfinite(host)
+            audit = self.bounded_multipeak_audit
+            audit["evaluated"] += int(host.size)
+            audit["declined"] += int(np.sum(bad))
+            for key in ledger:
+                if key.startswith("decline_"):
+                    n = int(np.sum(np.asarray(ledger[key])))
+                    if n:
+                        audit["reasons"][key] = audit["reasons"].get(key, 0) + n
+            selected = np.asarray(ledger["selected_value"])
+            audit["diagnostic_unknown"] += int(np.sum(bad & ~np.isfinite(selected)))
+            for key, samples in (("max_accepted", host[~bad]),
+                                 ("max_declined_diagnostic", selected[bad])):
+                finite = samples[np.isfinite(samples)]
+                if finite.size:
+                    old = audit[key]
+                    audit[key] = max(float(np.max(finite)),
+                                     old if old is not None else -np.inf)
+            if np.any(bad):
+                self.bounded_multipeak_declined = True
+                if self.bounded_multipeak_decline_action == "refuse":
+                    raise RuntimeError(
+                        "multipeak-jax could not warrant every row within the "
+                        "static envelope; refusing samples and evidence. "
+                        "Change the envelope or use decline-action drop.")
+            return jnp.where(
+                jnp.isfinite(values), values, BOUNDED_MULTIPEAK_LOG_ZERO)
         if self._batched_amp is None:
             return self._batched(jnp.asarray(ra), jnp.asarray(dec),
                                  jnp.asarray(incl))

@@ -534,6 +534,16 @@ jobs:
               except Exception:
                   print('%-10s (absent)' % n)
           "
+      - name: Run GPU precompute CPU regression gate
+        if: matrix.shard == 1
+        run: bash .travis/test-gpu-precompute.sh
+      - name: Run optional waveform conditioning CPU tests
+        if: matrix.shard == 1
+        env:
+          JAX_ENABLE_X64: "1"
+          JAX_PLATFORM_NAME: cpu
+          JAX_PLATFORMS: cpu
+        run: python -m pytest -q MonteCarloMarginalizeCode/Code/test/waveforms/test_gpu_waveform.py
       - name: Run jax_ile CPU regression gate
         env:
           JAX_PLATFORMS: cpu
@@ -778,6 +788,7 @@ jobs:
             MonteCarloMarginalizeCode/Code/test/test_seq_warmstart_seed.py \
             MonteCarloMarginalizeCode/Code/test/test_fairdraw_double_weighting.py \
             MonteCarloMarginalizeCode/Code/test/test_portfolio_fairdraw_backend.py \
+            MonteCarloMarginalizeCode/Code/test/test_gmm_truncated_score.py \
             MonteCarloMarginalizeCode/Code/test/test_rvs_record.py
       - name: Audit _rvs consumers against the fair-draw rebind
         # sampler._rvs is rebound to an EXPORT resample at the end of integrate_log, and five
@@ -810,7 +821,9 @@ jobs:
         # --use-jax-ile and --ile-exe land in ILE.sub/ILE_puff.sub/ILE_extr.sub,
         # and --use-jax-ile is refused at DAG-build time with --calmarg-envelope-directory.
         run: |
-          python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_jax_ile_selectable.py
+          python -m pytest -q \
+            MonteCarloMarginalizeCode/Code/test/test_jax_ile_selectable.py \
+            MonteCarloMarginalizeCode/Code/test/test_jax_fairdraw_postprocess.py
       - name: Run q-time-pregrid DAG-build test (--internal-ile-q-time-pregrid-factor)
         # Full subprocess DAG build against the same reference ini/coinc, same reason as
         # the step above (PR #281 follow-up review, MAJOR #1): asserts

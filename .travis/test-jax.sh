@@ -43,6 +43,7 @@ fi
   || { echo "test-jax.sh: numpyro unavailable (needed by test_nuts_phimarg)" >&2; exit 1; }
 
 export JAX_PLATFORMS="${JAX_PLATFORMS:-cpu}"
+export JAX_ENABLE_X64="${JAX_ENABLE_X64:-1}"
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
 
 JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
@@ -93,6 +94,9 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         result write order) because the defects
 #                                         they pin live at call sites, where a
 #                                         helper-level assertion cannot see them.
+#   test_smc_evidence.py               2  the SMC evidence product averages over
+#                                         every walker, including zero-likelihood
+#                                         walkers, and keeps the all-finite case.
 #   test_jax_tempering_chooser.py     45  the --adapt-weight-exponent chooser and the
 #                                         tempering-cost law
 #                                         ESS/N = [beta(2-beta)]^(dim/2) it rests on.
@@ -509,6 +513,7 @@ FILES=(
   "${JAXDIR}/test_jax_time_quadrature.py"
   "${JAXDIR}/test_jax_terminal_time_marginalization.py"
   "${JAXDIR}/test_jax_likelihood.py"
+  "${JAXDIR}/test_jax_banded_data_term.py"
   "${JAXDIR}/test_jax_endtoend.py"
   "${JAXDIR}/test_jax_slowrot_coeffs.py"
   "${JAXDIR}/test_jax_slowrot_wrapper.py"
@@ -518,6 +523,7 @@ FILES=(
   "${JAXDIR}/test_nuts_phimarg.py"
   "${JAXDIR}/test_jax_av.py"
   "${JAXDIR}/test_jax_fairdraw_export.py"
+  "${JAXDIR}/test_smc_evidence.py"
   "${JAXDIR}/test_jax_tempering_chooser.py"
   "${JAXDIR}/test_tvals_grid_convention.py"
   "${JAXDIR}/test_interp_choices.py"
@@ -535,6 +541,7 @@ FILES=(
   "${JAXDIR}/test_joint_anglemarg_peaklocal.py"
   "${JAXDIR}/test_angle_marg_peaklocal_wiring.py"
   "${JAXDIR}/test_angle_marg_multipeak_wiring.py"
+  "${JAXDIR}/test_angle_marg_multipeak_jax.py"
   "${JAXDIR}/test_limit_distance_jax.py"
   "${JAXDIR}/test_direct_marginalization_planner.py"
   "${JAXDIR}/test_time_first_peaklocal.py"
@@ -1067,7 +1074,14 @@ fi
 # three EXPECTED_TESTS= assignments (761, 755, 762; last wins); this is the single one.
 # 2026-09-10: +22 value-only AV/portfolio, prior-window, wrapper, and driver
 # contract tests in test_jax_av.py.
-EXPECTED_TESTS=785
+# The multipeak host-side fix (#317) adds two more tests in
+# test_angle_marg_multipeak_wiring.py, for 787 tests total.
+# The bounded multipeak suite has 53 tests, including real acceptance/AD,
+# CLI configuration, invalid guards, and explicit drop/refuse publication.
+# 787 + 53 = 840.
+# 2026-09-12: +15 compact banded-data contraction value, AD, tile/padding,
+# scratch-budget, empty-batch, and graph-size tests. 840 + 15 = 855.
+EXPECTED_TESTS=857
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"

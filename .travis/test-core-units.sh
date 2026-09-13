@@ -60,6 +60,8 @@ FILES=(
   # -- likelihood dispatch
   "$C/RIFT/likelihood/test_td_dispatch_epoch.py"
   "$C/RIFT/likelihood/test_precompute_crossterm_batching.py"
+  "$C/test/test_jax_template_finalization.py"
+  "$C/test/test_response_order.py"
   "$C/test/test_ile_scalar_edge_cases.py"
   "$C/test/test_mcsamplerGPU_cdf_inverse_scalar_probe.py"
   "$C/test/test_srate_resample_time_marginalization.py"
@@ -159,6 +161,8 @@ done
 #            found it passing 15/15 on a runner with htcondor absent)
 #   358/346  + test_mcsamplerGPU_cdf_inverse_scalar_probe.py (11 tests: mcsamplerGPU.cdf_inverse
 #            fed odeint's float probe to len(x) pdfs; the t_ref wiring in all three ILE drivers)
+#   378/366  + test_response_order.py (8 tests: SNR tightening, Halton independence,
+#            compound-axis semantics, reference resolution/tail charging, and bank preflight)
 #
 # RAISE these when files are added: a floor left at the old value passes while covering less,
 # which is the failure this gate exists to catch.
@@ -173,12 +177,13 @@ done
 # direction that matters: 350 >= 347 passes today, and if pytest-subtests ever leaves the
 # runner's closure the count falls back to 347 and still passes.  Pinning 350 would turn an
 # unrelated dependency change into a red gate.
-EXPECTED_TESTS=370
+# Two XML/grid template-finalization regressions, with no added skips.
+EXPECTED_TESTS=380
 # Outcomes, not just exit status: a collection floor cannot see a test that collects, runs and
 # asserts nothing, and a pytest.skip can quietly absorb a lost gate.  The 12 skips are
 # environment legs -- cupy in test_seeding_reproducibility, device legs in
 # test_dslice_device_native, and the xfail in test_uv_symmetry.
-EXPECTED_PASSED=358
+EXPECTED_PASSED=368
 MAX_SKIPPED=12
 
 # The floors must be INTEGERS, and this is checked rather than assumed.  `[ 347 -lt FOO ]` does

@@ -49,6 +49,10 @@
       "decision": "PORT",
       "reason": "Tolerant truthiness for optparse values that may arrive as strings from the pipe. Belongs with _normalize_interpolate_time_argv, its ONLY caller in the main driver (opts._noloop_time_interp), not with the fair-draw family -- porting it alongside those helpers would have added dead code to the LISA driver."
     },
+    "FUNC:analyze_event._apply_order_control": {
+      "decision": "NA",
+      "reason": "Nested dispatcher for the ground-detector response-order estimator. It is reachable only from the check/choose controls classified above, and LISA's TDI response has no corresponding pmax or Qmax truncation to dispatch."
+    },
     "FUNC:analyze_event._cal_error_probe": {
       "decision": "NA",
       "reason": "Calibration Monte-Carlo error probe; see the --calibration-* reason."
@@ -129,9 +133,33 @@
       "decision": "NA",
       "reason": "LIGO/Virgo spline calibration-envelope marginalization. The LISA driver models no instrument calibration: it takes no envelope directory, has no cal nodes, and its response is applied analytically by factored_likelihood_LISA. LISA calibration, if it is ever modelled, will not have this data product or this spline parameterization, so porting the LIGO machinery would be actively misleading."
     },
+    "OPTION:--check-finite-size-Qmax": {
+      "decision": "NA",
+      "reason": "Order checks and selectors for the Earth-rotation and 3G ground-detector finite-arm approximations. LISA uses neither expansion: its time-dependent heliocentric, finite-arm response is already evaluated by the TDI response, so applying these orders would test or truncate the wrong detector model."
+    },
+    "OPTION:--check-finite-size-qmax": {
+      "decision": "NA",
+      "reason": "Order checks and selectors for the Earth-rotation and 3G ground-detector finite-arm approximations. LISA uses neither expansion: its time-dependent heliocentric, finite-arm response is already evaluated by the TDI response, so applying these orders would test or truncate the wrong detector model."
+    },
     "OPTION:--check-good-enough": {
       "decision": "PORT",
       "reason": "Early-exit when the pipeline has written an 'ile_good_enough' sentinel. Pipeline plumbing, detector-agnostic."
+    },
+    "OPTION:--check-slowrot-pmax": {
+      "decision": "NA",
+      "reason": "Order checks and selectors for the Earth-rotation and 3G ground-detector finite-arm approximations. LISA uses neither expansion: its time-dependent heliocentric, finite-arm response is already evaluated by the TDI response, so applying these orders would test or truncate the wrong detector model."
+    },
+    "OPTION:--choose-finite-size-Qmax": {
+      "decision": "NA",
+      "reason": "Order checks and selectors for the Earth-rotation and 3G ground-detector finite-arm approximations. LISA uses neither expansion: its time-dependent heliocentric, finite-arm response is already evaluated by the TDI response, so applying these orders would test or truncate the wrong detector model."
+    },
+    "OPTION:--choose-slowrot-Qmax": {
+      "decision": "NA",
+      "reason": "Order checks and selectors for the Earth-rotation and 3G ground-detector finite-arm approximations. LISA uses neither expansion: its time-dependent heliocentric, finite-arm response is already evaluated by the TDI response, so applying these orders would test or truncate the wrong detector model."
+    },
+    "OPTION:--choose-slowrot-pmax": {
+      "decision": "NA",
+      "reason": "Order checks and selectors for the Earth-rotation and 3G ground-detector finite-arm approximations. LISA uses neither expansion: its time-dependent heliocentric, finite-arm response is already evaluated by the TDI response, so applying these orders would test or truncate the wrong detector model."
     },
     "OPTION:--d-prior-redshift": {
       "decision": "PORT",
@@ -320,6 +348,34 @@
     "OPTION:--random-event": {
       "decision": "PORT",
       "reason": "Pick a random event from the input file. Detector-agnostic; flagged dangerous in its own help text for oversampling reasons that apply equally to LISA."
+    },
+    "OPTION:--response-order-Q-reference": {
+      "decision": "NA",
+      "reason": "Tolerance, reference-order, angular-design and memory controls used only by the ground-detector slow-rotation and finite-arm order estimator. That estimator does not represent LISA's TDI response, so none of its tuning surface applies."
+    },
+    "OPTION:--response-order-lnL-tol": {
+      "decision": "NA",
+      "reason": "Tolerance, reference-order, angular-design and memory controls used only by the ground-detector slow-rotation and finite-arm order estimator. That estimator does not represent LISA's TDI response, so none of its tuning surface applies."
+    },
+    "OPTION:--response-order-max-bank-gib": {
+      "decision": "NA",
+      "reason": "Tolerance, reference-order, angular-design and memory controls used only by the ground-detector slow-rotation and finite-arm order estimator. That estimator does not represent LISA's TDI response, so none of its tuning surface applies."
+    },
+    "OPTION:--response-order-p-reference": {
+      "decision": "NA",
+      "reason": "Tolerance, reference-order, angular-design and memory controls used only by the ground-detector slow-rotation and finite-arm order estimator. That estimator does not represent LISA's TDI response, so none of its tuning surface applies."
+    },
+    "OPTION:--response-order-q-reference": {
+      "decision": "NA",
+      "reason": "Tolerance, reference-order, angular-design and memory controls used only by the ground-detector slow-rotation and finite-arm order estimator. That estimator does not represent LISA's TDI response, so none of its tuning surface applies."
+    },
+    "OPTION:--response-order-sky-samples": {
+      "decision": "NA",
+      "reason": "Tolerance, reference-order, angular-design and memory controls used only by the ground-detector slow-rotation and finite-arm order estimator. That estimator does not represent LISA's TDI response, so none of its tuning surface applies."
+    },
+    "OPTION:--response-order-snr": {
+      "decision": "NA",
+      "reason": "Tolerance, reference-order, angular-design and memory controls used only by the ground-detector slow-rotation and finite-arm order estimator. That estimator does not represent LISA's TDI response, so none of its tuning surface applies."
     },
     "OPTION:--rotation-n-harmonics": {
       "decision": "NA",

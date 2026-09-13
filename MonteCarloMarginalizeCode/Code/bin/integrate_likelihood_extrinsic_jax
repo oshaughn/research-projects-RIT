@@ -59,9 +59,15 @@ from __future__ import print_function
 
 import os
 import sys
+import json
 from optparse import OptionParser, OptionGroup
 
 import numpy as np
+
+# The opt-in CuPy precompute and JAX likelihood share one GPU. Set this before
+# importing JAX or any RIFT module that may initialize its allocator.
+if os.environ.get('RIFT_GPU_PRECOMPUTE', '0') == '1':
+    os.environ.setdefault('XLA_PYTHON_CLIENT_PREALLOCATE', 'false')
 
 import jax
 import jax.numpy as jnp
@@ -106,6 +112,7 @@ from RIFT.likelihood.jax_ile.direct_marginalization_policy import (
     POLICY_CHOICES as DIRECT_MARG_POLICY_CHOICES,
     POLICY_DEFAULT as DIRECT_MARG_POLICY_DEFAULT,
     PolicyConfig as DirectMargPolicyConfig,
+    BoundedMultipeakConfig, validate_bounded_multipeak_config,
     RESERVE_SCHEME_CHOICES as DIRECT_MARG_RESERVE_SCHEME_CHOICES,
     reserve_pair as _direct_marg_reserve_pair,
     summarize_policy_ledger as _summarize_policy_ledger,
@@ -113,6 +120,7 @@ from RIFT.likelihood.jax_ile.direct_marginalization_policy import (
 _JAX_GATHERER_NAMES = tuple(_JAX_GATHERERS)
 from RIFT.likelihood.jax_ile.wrapper import (
     JAXExtrinsicLikelihood, JAXDistanceMarginalizedLikelihood,
+    BOUNDED_MULTIPEAK_LOG_ZERO,
 )
 
 MSUN = lal.MSUN_SI
@@ -250,6 +258,11 @@ _ILE_ALL_OPTS = {
     "--force-adapt-all", "--force-gpu-only", "--force-hyperbolic-22",
     "--force-reset-all", "--force-xpy", "--freqresponse",
     "--freqresponse-arm-length", "--freqresponse-qmax", "--gpu",
+    "--check-slowrot-pmax", "--check-finite-size-Qmax",
+    "--choose-slowrot-pmax", "--choose-slowrot-Qmax",
+    "--response-order-snr", "--response-order-lnL-tol",
+    "--response-order-sky-samples", "--response-order-p-reference",
+    "--response-order-Q-reference", "--response-order-max-bank-gib",
     "--inclination-cosine-sampler", "--internal-gmm-adaptive-components",
     "--internal-gmm-correlate-all", "--internal-gmm-defensive-frac",
     "--internal-gmm-inflate", "--internal-gmm-max-components",
@@ -402,6 +415,11 @@ def check_critical_and_report(opts, optp):
     _sampler_method = getattr(opts, "sampler_method", None)
     _jax_av_active = _sampler_method in ("AV", "portfolio")
     if _jax_av_active:
+        _dp = str(getattr(opts, "d_prior", None) or "euclidean").strip().lower()
+        if _dp not in ("euclidean", "volumetric", "pseudo_cosmo"):
+            fatal.append("--sampler-method %s supports distance priors "
+                         "Euclidean/volumetric and pseudo_cosmo, not %s"
+                         % (_sampler_method, _dp))
         try:
             resolve_av_angular_limits(opts)
         except SystemExit as exc:
@@ -477,6 +495,20 @@ def check_critical_and_report(opts, optp):
                      "marginalization) is not implemented for psi-sampling modes "
                      "on this driver; use --mode flowmc-phipsimarg or "
                      "flowmc-dpsimarg, which marginalize psi by construction")
+    # Static multipeak options must be effective and valid before precompute.
+    _bounded = getattr(opts, "angle_marg_scheme", None) == "multipeak-jax"
+    if _bounded:
+        if getattr(opts, "mode", None) != "flowmc-phipsimarg":
+            fatal.append("multipeak-jax requires --mode flowmc-phipsimarg")
+        try:
+            bounded_multipeak_config_from_options(opts)
+        except (TypeError, ValueError) as exc:
+            fatal.append("multipeak-jax: %s" % exc)
+    else:
+        for field in (*BoundedMultipeakConfig._fields, "decline_action"):
+            flag = "--multipeak-jax-" + field.replace("_", "-")
+            if was_supplied(opts, flag):
+                fatal.append("%s requires --angle-marg-scheme multipeak-jax" % flag)
     # Cross-axis policy scope, at parse time (external review of #278, P1):
     # only --mode flowmc-phipsimarg reads the policy, so a request anywhere
     # else would otherwise complete on the ordinary likelihood, and the
@@ -682,6 +714,38 @@ def check_critical_and_report(opts, optp):
         fatal.append("--freqresponse-qmax must be >= 0")
     _rotation = bool(getattr(opts, "rotation_slow", False))
     _freqresponse = bool(getattr(opts, "freqresponse", False))
+    _order_p = bool(getattr(opts, "check_slowrot_pmax", False)
+                    or getattr(opts, "choose_slowrot_pmax", False))
+    _order_q = bool(getattr(opts, "check_finite_size_Qmax", False)
+                    or getattr(opts, "choose_slowrot_Qmax", False))
+    if _order_p and not _rotation:
+        fatal.append("pmax check/choice requires --rotation-slow")
+    if _order_q and not _freqresponse:
+        fatal.append("Qmax check/choice requires --freqresponse")
+    if (_order_p or _order_q) and getattr(opts, "response_order_snr", None) is None:
+        fatal.append("response-order check/choice requires --response-order-snr")
+    if (getattr(opts, "check_slowrot_pmax", False)
+            and getattr(opts, "choose_slowrot_pmax", False)):
+        fatal.append("choose either --check-slowrot-pmax or --choose-slowrot-pmax")
+    if (getattr(opts, "check_finite_size_Qmax", False)
+            and getattr(opts, "choose_slowrot_Qmax", False)):
+        fatal.append("choose either --check-finite-size-Qmax or --choose-slowrot-Qmax")
+    if ((_order_p and _order_q)
+            and ((getattr(opts, "check_slowrot_pmax", False)
+                  or getattr(opts, "check_finite_size_Qmax", False))
+                 and (getattr(opts, "choose_slowrot_pmax", False)
+                      or getattr(opts, "choose_slowrot_Qmax", False)))):
+        fatal.append("do not mix check and choose controls in one compound response scan")
+    if float(getattr(opts, "response_order_lnL_tol", 0.1)) <= 0:
+        fatal.append("--response-order-lnL-tol must be positive")
+    if int(getattr(opts, "response_order_sky_samples", 128)) < 8:
+        fatal.append("--response-order-sky-samples must be at least 8")
+    if (int(getattr(opts, "response_order_p_reference", 2)) < 0
+            or int(getattr(opts, "response_order_Q_reference", 8)) < 0):
+        fatal.append("response-order reference orders must be nonnegative")
+    if (not np.isfinite(float(getattr(opts, "response_order_max_bank_gib", 4.0)))
+            or float(getattr(opts, "response_order_max_bank_gib", 4.0)) <= 0):
+        fatal.append("--response-order-max-bank-gib must be finite and positive")
     if not _rotation:
         for _name in ("--rotation-n-harmonics", "--rotation-p-max"):
             if was_supplied(opts, _name):
@@ -740,6 +804,7 @@ def check_critical_and_report(opts, optp):
                    "--spin2z", "--eff-lambda", "--deff-lambda", "--approximant",
                    "--l-max", "--event-time", "--fmin-template",
                    "--reference-freq", "--fmax", "--srate",
+                   "--srate-internal",
                    "--data-integration-window-half",
                    "--internal-data-storage-window-half", "--d-min", "--d-max",
                    "--limit-distance",
@@ -750,9 +815,18 @@ def check_critical_and_report(opts, optp):
                    "--time-marginalization", "--time-marginalization-quadrature",
                    "--interpolate-time",
                    "--vectorized", "--use-gwsignal", "--rotation-slow",
+                   "--internal-waveform-fd-L-frame",
+                   "--internal-waveform-fd-no-condition",
+                   "--internal-precompute-ignore-threshold", "--no-memory",
+                   "--e-freq", "--fmin-ifo",
                    "--rotation-n-harmonics", "--rotation-p-max",
                    "--freqresponse", "--freqresponse-qmax",
-                   "--freqresponse-arm-length"}
+                   "--freqresponse-arm-length", "--check-slowrot-pmax",
+                   "--check-finite-size-Qmax", "--choose-slowrot-pmax",
+                   "--choose-slowrot-Qmax", "--response-order-snr",
+                   "--response-order-lnL-tol", "--response-order-sky-samples",
+                   "--response-order-p-reference", "--response-order-Q-reference",
+                   "--response-order-max-bank-gib"}
     # These are implemented PER MODE.  Listing them unconditionally would claim
     # they act under --mode laplace-is (the default), nuts, map, multistart-nuts
     # and nuts-phimarg, where they are inert -- exactly the silent no-op this
@@ -760,6 +834,7 @@ def check_critical_and_report(opts, optp):
     mode = getattr(opts, "mode", None)
     if getattr(opts, "sampler_method", None) in ("AV", "portfolio"):
         implemented |= {"--sampler-method", "--n-eff",
+                        "--d-prior",
                         "--sampler-anisotropic-bins",
                         "--limit-right-ascension", "--limit-declination",
                         "--limit-psi", "--limit-inclination"}
@@ -795,14 +870,13 @@ def check_critical_and_report(opts, optp):
             print("Note: %s only act on the tempered modes (%s); --mode %s ignores "
                   "them." % (" ".join(sorted(set(inert))),
                              " ".join(sorted(_TEMPERED_MODES)), mode))
-    # --d-prior (RO'S 2026-09-08: missing knobs no-op for compatibility, but
-    # must warn).  --d-prior is accepted (ILE compatibility) but never
-    # forwarded: the JAX driver always integrates against the volumetric d^2
-    # prior on [--d-min, --d-max].  'Euclidean'/'volumetric' (any case) IS
-    # that prior, so passing it explicitly is not a deviation and gets no note.
+    # AV/portfolio forwards both the volumetric and pseudo-cosmological priors.
+    # Other samplers remain volumetric and must visibly report a non-volumetric
+    # compatibility request as ignored.
     _dp = getattr(opts, "d_prior", None)
-    if _dp not in (None, "") and str(_dp).strip().lower() not in (
-            "euclidean", "volumetric"):
+    if (getattr(opts, "sampler_method", None) not in ("AV", "portfolio")
+            and _dp not in (None, "") and str(_dp).strip().lower() not in (
+                "euclidean", "volumetric")):
         print("Note: --d-prior %r is accepted but IGNORED by the JAX driver: "
               "it always integrates distance against the volumetric d^2 "
               "prior on [--d-min, --d-max]." % (_dp,))
@@ -932,6 +1006,30 @@ def build_parser():
                  help="Highest finite-arm projection power (default 4).")
     g.add_option("--freqresponse-arm-length", default=None,
                  help="Arm length in metres, globally or DET=value comma list.")
+    g.add_option("--check-slowrot-pmax", action="store_true", default=False,
+                 help="Estimate the required pmax and warn if --rotation-p-max is too small.")
+    g.add_option("--check-finite-size-Qmax", "--check-finite-size-qmax",
+                 dest="check_finite_size_Qmax", action="store_true", default=False,
+                 help="Estimate the required Qmax and warn if --freqresponse-qmax is too small.")
+    g.add_option("--choose-slowrot-pmax", action="store_true", default=False,
+                 help="Choose the least pmax satisfying the response error budget.")
+    g.add_option("--choose-slowrot-Qmax", "--choose-finite-size-Qmax",
+                 dest="choose_slowrot_Qmax", action="store_true", default=False,
+                 help="Choose the least finite-size Qmax satisfying the response error budget.")
+    g.add_option("--response-order-snr", type=float, default=None,
+                 help="Target network SNR for response-order checks/choice (required when active).")
+    g.add_option("--response-order-lnL-tol", type=float, default=0.1,
+                 help="Allowed worst scanned Asimov likelihood loss (default 0.1).")
+    g.add_option("--response-order-sky-samples", type=int, default=128,
+                 help="Deterministic full-prior angular design size (default 128).")
+    g.add_option("--response-order-p-reference", type=int, default=2,
+                 help="Highest p used by the diagnostic reference bank (default 2).")
+    g.add_option("--response-order-Q-reference", "--response-order-q-reference",
+                 dest="response_order_Q_reference", type=int, default=8,
+                 help="Highest Q used by the diagnostic reference bank (default 8).")
+    g.add_option("--response-order-max-bank-gib", type=float, default=4.0,
+                 help="Refuse a diagnostic whose dense U,V planning estimate exceeds "
+                      "this many GiB (default 4).")
     optp.add_option_group(g)
 
     g = OptionGroup(optp, "Extrinsic exploration / sampling")
@@ -1169,6 +1267,24 @@ def build_parser():
                       "ran is printed.  See RIFT.likelihood.jax_ile.anglemarg."
                       % (ANGLE_MARG_DEFAULT, ANGLE_MARG_LEGACY,
                          ANGLE_MARG_LEGACY, ANGLE_MARG_LEGACY))
+    g.add_option("--multipeak-jax-decline-action", type="choice",
+                 choices=("drop", "refuse"), default="drop",
+                 help="Handle bounded multipeak declines (default drop): "
+                      "drop gives proposals zero numerical weight and labels "
+                      "accepted-region evidence; refuse aborts on declined "
+                      "log_likelihood batches only. Scalar MAP/Fisher/MALA "
+                      "declines return NaN without raising or latching. "
+                      "Important declined mass requires changing the config; "
+                      "neither action runs a reserve.")
+    # Each cap is a construction-time scalar.  The complete configuration is
+    # recorded on the likelihood, and no reserve is available at any setting.
+    for field, default in BoundedMultipeakConfig()._asdict().items():
+        g.add_option("--multipeak-jax-" + field.replace("_", "-"),
+                     type="int" if isinstance(default, int) else "float",
+                     default=default,
+                     help=("Static multipeak-jax %s (default %s); requires "
+                           "--angle-marg-scheme multipeak-jax."
+                           % (field.replace("_", " "), default)))
     g.add_option("--direct-marginalization-policy",
                  default=DIRECT_MARG_POLICY_DEFAULT,
                  choices=sorted(DIRECT_MARG_POLICY_CHOICES),
@@ -1584,6 +1700,15 @@ def make_template(opts, fiducial_epoch, deltaF, deltaT):
     return P
 
 
+def _analysis_delta_t(opts):
+    """Waveform/precompute cadence, distinct from the input-data cadence."""
+    rate = (opts.srate if getattr(opts, "srate_internal", None) is None
+            else opts.srate_internal)
+    if rate is None or float(rate) <= 0:
+        raise ValueError("--srate/--srate-internal must be positive")
+    return 1.0 / float(rate)
+
+
 def load_templates(opts, fiducial_epoch, deltaF, deltaT):
     """Return a list of intrinsic templates (ChooseWaveformParams).
 
@@ -1602,6 +1727,12 @@ def load_templates(opts, fiducial_epoch, deltaF, deltaT):
         P.fmax = 0.0
         P.tref = fiducial_epoch
         P.dist = 1000.0 * 1e6 * PC  # fiducial template distance (= distMpcRef)
+        # Extrinsic angles are sampled later, not baked into the base modes.
+        # Match conventional ILE: some mode generators encode these angles in
+        # h_lm, so retaining XML/grid values would apply them twice.
+        P.phiref = 0.0
+        P.psi = 0.0
+        P.incl = 0.0
         if opts.approximant:
             P.approx = lalsim.GetApproximantFromString(opts.approximant)
         return P
@@ -1650,7 +1781,7 @@ def load_templates(opts, fiducial_epoch, deltaF, deltaT):
 
 def load_injection(opts, fiducial_epoch):
     detectors = opts.inj_detectors.split(",")
-    deltaT = 1.0 / opts.srate
+    deltaT = _analysis_delta_t(opts)
     P = make_template(opts, fiducial_epoch, opts.inj_deltaF, deltaT)
     P.phi, P.theta = opts.inj_ra, opts.inj_dec
     P.psi, P.incl, P.phiref = opts.inj_psi, opts.inj_incl, opts.inj_phiref
@@ -1666,20 +1797,39 @@ def load_injection(opts, fiducial_epoch):
 
 def load_frames(opts, fiducial_epoch):
     deltaT = 1.0 / opts.srate
+    deltaT_internal = (None if getattr(opts, "srate_internal", None) is None
+                       else _analysis_delta_t(opts))
     data_dict, psd_dict = {}, {}
+    fmin_ifo = {}
+    for item in getattr(opts, "fmin_ifo", []) or []:
+        inst, value = item.split("=", 1)
+        fmin_ifo[inst] = float(value)
     for inst, chan in map(lambda c: c.split("="), opts.channel_name):
         if opts.verbose:
             print("Reading channel %s:%s from %s" % (inst, chan, opts.cache_file))
         data_dict[inst] = lalsimutils.frame_data_to_non_herm_hoff(
             opts.cache_file, inst + ":" + chan,
             start=opts.data_start_time, stop=opts.data_end_time,
-            window_shape=opts.window_shape, deltaT=deltaT)
+            window_shape=opts.window_shape, deltaT=deltaT,
+            deltaT_internal=deltaT_internal)
     for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
         if opts.verbose:
             print("Reading PSD for %s from %s" % (inst, psdf))
         psd_dict[inst] = lalsimutils.get_psd_series_from_xmldoc(psdf, inst)
         psd_dict[inst] = lalsimutils.resample_psd_series(
             psd_dict[inst], data_dict[inst].deltaF)
+        psd_window_shape = float(getattr(opts, "psd_window_shape", None) or 0.0)
+        if psd_window_shape > 0 or opts.window_shape > 0:
+            psd_factor = lalsimutils.psd_windowing_factor(
+                psd_window_shape, len(psd_dict[inst].data.data))
+            data_factor = lalsimutils.psd_windowing_factor(
+                opts.window_shape, len(data_dict[inst].data.data))
+            psd_dict[inst].data.data *= data_factor / psd_factor
+        if inst in fmin_ifo:
+            freqs = (psd_dict[inst].f0
+                     + psd_dict[inst].deltaF
+                     * np.arange(psd_dict[inst].data.length))
+            psd_dict[inst].data.data[freqs < fmin_ifo[inst]] = 0
     detectors = list(data_dict.keys())
     return data_dict, psd_dict, detectors, False
 
@@ -1815,6 +1965,32 @@ def log_prior(theta, opts, with_distance):
 # ---------------------------------------------------------------------------
 # Batched lnL
 # ---------------------------------------------------------------------------
+def bounded_multipeak_config_from_options(opts):
+    """Build the exact envelope executed by the wrapper from registered flags."""
+    return validate_bounded_multipeak_config(BoundedMultipeakConfig(**{
+        field: getattr(opts, "multipeak_jax_" + field)
+        for field in BoundedMultipeakConfig._fields}))
+
+
+def require_bounded_multipeak_rows(like, lnL):
+    """Apply the requested decline action before publishing either artifact."""
+    if getattr(like, "angle_marg_scheme", None) != "multipeak-jax":
+        return
+    bad = ~np.isfinite(np.asarray(lnL)) | (np.asarray(lnL) == BOUNDED_MULTIPEAK_LOG_ZERO)
+    if getattr(like, "bounded_multipeak_decline_action", "refuse") == "drop":
+        if np.all(bad):
+            raise RuntimeError("multipeak-jax: no accepted output rows; change "
+                               "the static envelope. No samples or evidence published.")
+        return
+    if np.any(bad) or getattr(like, "bounded_multipeak_declined", False):
+        raise RuntimeError(
+            "--angle-marg-scheme multipeak-jax: %d of %d rows could not be "
+            "warranted within the static envelope; refusing to publish samples "
+            "or evidence (including any earlier declined batch). Change the "
+            "--multipeak-jax-* envelope, or select decline-action drop."
+            % (int(np.sum(bad)), int(np.size(bad))))
+
+
 def eval_lnL(like, theta, opts, with_distance):
     N = theta.shape[0]
     out = np.empty(N)
@@ -1826,6 +2002,8 @@ def eval_lnL(like, theta, opts, with_distance):
         sl = slice(i, min(i + chunk, N))
         cols = [theta[sl, j] for j in range(theta.shape[1])]
         out[sl] = np.asarray(like.log_likelihood(*cols))
+        if getattr(like, "bounded_multipeak_decline_action", "refuse") == "refuse":
+            require_bounded_multipeak_rows(like, out[sl])
         if (getattr(like, "direct_marginalization_policy", "off") != "off"
                 and np.any(np.isnan(out[sl]))):
             raise RuntimeError(
@@ -2251,6 +2429,9 @@ def angle_grid_suspect_note(scheme=None):
     artifacts) are deliberately NOT claimed.  This split also keeps host
     callbacks out of the expensive graph so JAX can persistently cache it.
     """
+    if scheme == "multipeak-jax":
+        return ("MULTIPEAK-JAX bounded_cost=true dense_reserve=false "
+                "fixed_plan_autodiff_only=true derivative_warrant_certified=false")
     st = _anglemarg.amp_failsafe_state()
     if st.get("tripped"):
         return ("SUSPECT-ANGLE-GRID amp_failsafe=TRIPPED worst_amp=%.6g "
@@ -2840,6 +3021,29 @@ def _parse_freqresponse_arm_length(value):
     return result
 
 
+def _waveform_precompute_kwargs(opts):
+    """Return the waveform controls shared with production numpy ILE.
+
+    These options act while constructing the mode time series, before JAX sees
+    the packed likelihood data.  Omitting them therefore changes the numerical
+    likelihood rather than merely selecting a JAX execution detail.
+    """
+    e_freq = getattr(opts, "e_freq", None)
+    extra = {"fd_alignment_postevent_time": 2,
+             "e_freq": 1 if e_freq is None else int(e_freq)}
+    if getattr(opts, "internal_waveform_fd_L_frame", False):
+        extra["fd_L_frame"] = True
+    if getattr(opts, "internal_waveform_fd_no_condition", False):
+        extra["no_condition"] = True
+    return dict(
+        use_gwsignal=bool(getattr(opts, "use_gwsignal", False)),
+        use_gwsignal_approx=(opts.approximant
+                             if getattr(opts, "use_gwsignal", False) else None),
+        ignore_threshold=getattr(opts, "internal_precompute_ignore_threshold", None),
+        no_memory=bool(getattr(opts, "no_memory", False)),
+        extra_waveform_kwargs=extra)
+
+
 def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
                 rng, out_index, event_id, flow_state=None):
     """Build the JAX likelihood for one intrinsic template and run --mode.
@@ -2863,10 +3067,22 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
               "samples storage_half=%.6g s" %
               (g0, gcert, opts.internal_data_storage_window_half))
     print("Building JAX likelihood (production precompute + banded pack)...")
-    waveform_kw = dict(
-        use_gwsignal=bool(getattr(opts, "use_gwsignal", False)),
-        use_gwsignal_approx=(opts.approximant
-                             if getattr(opts, "use_gwsignal", False) else None))
+    _order_active = any((opts.check_slowrot_pmax, opts.check_finite_size_Qmax,
+                         opts.choose_slowrot_pmax, opts.choose_slowrot_Qmax))
+    order_control = None
+    if _order_active:
+        order_control = dict(
+            target_snr=float(opts.response_order_snr),
+            lnL_tolerance=float(opts.response_order_lnL_tol),
+            n_samples=int(opts.response_order_sky_samples),
+            p_reference=int(opts.response_order_p_reference),
+            q_reference=int(opts.response_order_Q_reference),
+            max_bank_gib=float(opts.response_order_max_bank_gib),
+            check_p=bool(opts.check_slowrot_pmax),
+            check_q=bool(opts.check_finite_size_Qmax),
+            choose_p=bool(opts.choose_slowrot_pmax),
+            choose_q=bool(opts.choose_slowrot_Qmax))
+    waveform_kw = _waveform_precompute_kwargs(opts)
     if opts.rotation_slow and opts.freqresponse:
         arm_length = _parse_freqresponse_arm_length(opts.freqresponse_arm_length)
         like_data, extras = build_rotating_freqresponse_data_from_precompute(
@@ -2875,7 +3091,7 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
             t_window=opts.internal_data_storage_window_half,
             Qmax=opts.freqresponse_qmax, L_arm=arm_length,
             p_max=opts.rotation_p_max, analyticPSD_Q=analyticPSD_Q,
-            verbose=opts.verbose, **waveform_kw)
+            verbose=opts.verbose, order_control=order_control, **waveform_kw)
     elif opts.rotation_slow:
         nh = int(opts.rotation_n_harmonics)
         like_data, extras = build_rotation_data_from_precompute(
@@ -2883,7 +3099,8 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
             opts.data_integration_window_half, opts.l_max, opts.fmax,
             t_window=opts.internal_data_storage_window_half,
             harmonics=tuple(range(-nh, nh + 1)), p_max=opts.rotation_p_max,
-            analyticPSD_Q=analyticPSD_Q, verbose=opts.verbose, **waveform_kw)
+            analyticPSD_Q=analyticPSD_Q, verbose=opts.verbose,
+            order_control=order_control, **waveform_kw)
     elif opts.freqresponse:
         arm_length = _parse_freqresponse_arm_length(opts.freqresponse_arm_length)
         like_data, extras = build_freqresponse_data_from_precompute(
@@ -2891,7 +3108,8 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
             opts.data_integration_window_half, opts.l_max, opts.fmax,
             t_window=opts.internal_data_storage_window_half,
             Qmax=opts.freqresponse_qmax, L_arm=arm_length,
-            analyticPSD_Q=analyticPSD_Q, verbose=opts.verbose, **waveform_kw)
+            analyticPSD_Q=analyticPSD_Q, verbose=opts.verbose,
+            order_control=order_control, **waveform_kw)
     else:
         like_data, extras = build_data_from_precompute(
             P.copy(), data_dict, psd_dict, fiducial_epoch,
@@ -2901,6 +3119,11 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
             q_time_pregrid_factor=(
                 1 if getattr(opts, "q_time_pregrid_factor", 1) is None
                 else int(opts.q_time_pregrid_factor)), **waveform_kw)
+    if extras.get('order_report') is not None:
+        opts.rotation_p_max = int(extras['order_report']['final_p'])
+        opts.freqresponse_qmax = int(extras['order_report']['final_Q'])
+        print("  response order used: p_max=%d Qmax=%d" %
+              (opts.rotation_p_max, opts.freqresponse_qmax))
     print("  feature:", getattr(like_data, "feature", None),
           " modes:", like_data.lms,
           " guessed SNR:", extras.get("guess_snr", "not estimated"))
@@ -3042,7 +3265,11 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
                 time_quadrature=tq, d_prior_range=(opts.d_min, opts.d_max),
                 dist_grid=dist_grid, dist_grid_tol=dist_tol,
                 direct_marginalization_policy=policy,
-                policy_config=policy_config)
+                policy_config=policy_config,
+                bounded_multipeak_config=(
+                    bounded_multipeak_config_from_options(opts)
+                    if angle_marg == "multipeak-jax" else None),
+                bounded_multipeak_decline_action=opts.multipeak_jax_decline_action)
         except ValueError as e:
             if policy == "off":
                 raise
@@ -3331,6 +3558,7 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
             seed_prior_frac=opts.jax_av_seed_prior_frac,
             anisotropic_bins=opts.sampler_anisotropic_bins,
             verbose=opts.verbose, sample_bounds=_sample_bounds,
+            distance_prior=opts.d_prior,
             **_distance_sampling)
         theta, lnL = res["theta"], res["lnL"]
         logZ, sig, neff = res["logZ"], res["sigma_over_Z"], res["neff"]
@@ -3502,7 +3730,28 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
     # stayed silent -- an inert guard, which is the exact failure mode this
     # label exists to prevent.
     _scheme = getattr(like, "angle_marg_scheme", None)
+    require_bounded_multipeak_rows(like, lnL)
     _ev_note = angle_grid_suspect_note(_scheme)
+    if _scheme == "multipeak-jax":
+        _ev_note += " config=" + json.dumps(
+            like.angle_marg_info["config"], sort_keys=True, separators=(",", ":"))
+        _action = like.bounded_multipeak_decline_action
+        _ev_note += " decline_action=" + _action
+        if _action == "drop":
+            _ev_note += " evidence_scope=accepted-region omitted_mass=unbounded"
+            # Evidence has already counted every proposal, including finite
+            # log-zero declines. Only the output cloud is filtered here.
+            _keep = np.isfinite(lnL) & (np.asarray(lnL) != BOUNDED_MULTIPEAK_LOG_ZERO)
+            _ev_note += " output_rows_dropped=%d" % int(np.sum(~_keep))
+            theta, lnL = np.asarray(theta)[_keep], np.asarray(lnL)[_keep]
+            if logw_export is not None:
+                logw_export = np.asarray(logw_export)[_keep]
+        _ev_note += (" audit_scope=log_likelihood-batches"
+                     " audit_excludes=scalar-MAP-Fisher-MALA"
+                     " refuse_latch_scope=log_likelihood-batches"
+                     " scalar_refuse_decline=nan-without-raise-or-latch")
+        _ev_note += " host_evaluation_audit=" + json.dumps(
+            like.bounded_multipeak_audit, sort_keys=True, separators=(",", ":"))
     # Record the resolved distance-GH-nodes count in the same artifact header
     # line as the angle-marg/policy notes and (via write_samples' provenance
     # line) the mode/ESS record, so a reader of either artifact can see
@@ -3570,7 +3819,7 @@ def main(argv=None):
             optp.error("--event-time is required (frame mode)")
     fiducial_epoch = opts.event_time
     rng = np.random.default_rng(opts.seed)
-    deltaT = 1.0 / opts.srate
+    deltaT = _analysis_delta_t(opts)
 
     # --- data (loaded once; shared across the intrinsic batch) ---
     if opts.inj_mode:

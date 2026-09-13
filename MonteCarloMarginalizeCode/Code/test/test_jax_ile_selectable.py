@@ -168,6 +168,10 @@ def test_use_jax_ile_threads_into_every_ile_stage_sub(tmp_path):
         line = _executable_line(rundir / sub)
         assert line.endswith(JAX_EXE), (sub, line)
         assert "integrate_likelihood_extrinsic_batchmode" not in line
+    converter = (rundir / "allinone_convert.sh").read_text()
+    assert "util_ConvertJAXILEFairdraws.py" in converter
+    assert "--expected-intrinsic" in converter
+    assert "util_JoinExtrXML.py" not in converter
 
 
 def test_explicit_ile_exe_path_is_used_verbatim(tmp_path):

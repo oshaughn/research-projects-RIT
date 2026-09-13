@@ -927,17 +927,29 @@ if  (opts.last_iteration_extrinsic):
     
     # Convert task 
     if opts.last_iteration_extrinsic_time_resampling:
-        # very simple: igwn_ligolw add on all final output, then a single convert
+        # JAX ILE exports fair draws as tabular sidecars, not XML rows.  Route
+        # that driver to its strict joiner; retain the historical XML path for
+        # conventional ILE.
+        jax_tabular_fairdraws = (
+            ile_exe is not None
+            and "integrate_likelihood_extrinsic_jax" in str(ile_exe)
+        )
+        if jax_tabular_fairdraws and convert_args is not None:
+            raise ValueError(
+                "JAX tabular fair-draw conversion does not support --convert-args; "
+                "remove it or use conventional ILE")
         convert_args_extr =  " --convention LI  --export-cosmology --use-interpolated-cosmology " 
         if not (convert_args is None):
             convert_args_extr += convert_args
         # batched convert shell script
         relevant_path = dag_utils.which('util_JoinExtrXML.py')
         relevant_path_2 = dag_utils.which('convert_output_format_ile2inference')
+        relevant_path_jax = dag_utils.which('util_ConvertJAXILEFairdraws.py')
         if opts.condor_local_nonworker_igwn_prefix:
             # we are in igwn environment
-            relevant_path = 'util_JoinExtrXML.py'  
+            relevant_path = 'util_JoinExtrXML.py'
             relevant_path_2 = 'convert_output_format_ile2inference'
+            relevant_path_jax = 'util_ConvertJAXILEFairdraws.py'
         # randomization: 'shuf' is preferred, but otherwise use ' sort -R'. Note performed locally, so local filesystem/os is fine.
         extra_shuffle_command = ' | cat'
         which_shuf = which('shuf'); which_sort = which('sort')
@@ -946,7 +958,17 @@ if  (opts.last_iteration_extrinsic):
         elif isinstance(which_sort, str):
             extra_shuffle_command  = ' | {} -R '.format(which_sort)
         with open("allinone_convert.sh",'w') as f:
-            f.write(f"""#! /bin/bash
+            if jax_tabular_fairdraws:
+                f.write(f"""#! /bin/bash
+set -euo pipefail
+{extra_text}
+{relevant_path_jax} --directory ./iteration_$1_ile \
+  --draws-per-intrinsic {n_points_per_ILE} \
+  --expected-intrinsic {opts.last_iteration_extrinsic_nsamples} \
+  --output ./extrinsic_posterior_samples.dat
+""")
+            else:
+                f.write(f"""#! /bin/bash
 {extra_text}
 {relevant_path} ./iteration_$1_ile/'EXTR_out-*.xml_*_.xml.gz' --output ./tmp_converted.xml.gz
 {relevant_path_2} {convert_args_extr} ./tmp_converted.xml.gz  > ./tmp_converted.dat

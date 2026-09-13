@@ -56,6 +56,37 @@ def test_multipeak_returns_one_finite_value_per_sample():
     assert np.all(np.isfinite(v)), v
 
 
+def test_multipeak_runs_through_the_BATCHED_seam_the_sampler_uses():
+    """THE TEST THAT WAS MISSING, and the reason the first landing broke every
+    Table 3 cell in ~30 s.
+
+    The other tests here call `_fused` directly, which is EAGER.  The sampler
+    reaches the likelihood through `_batched`, and for every other scheme that is
+    `jax.jit(_batched)`.  multipeak is a host-side numpy/scipy planner: under a
+    trace its `np.asarray` on the coefficient tables raises
+    TracerArrayConversionError.  Exercising `_fused` proves nothing about the
+    path production uses.
+    """
+    data = make_synth(scale=2.0)
+    like = JAXDistPhiPsiMargLikelihood(data, 30.0, 3000.0, nphi=32, npsi=8,
+                                       interp=INTERP, angle_marg="multipeak")
+    v = np.asarray(like._batched(jnp.asarray(RA), jnp.asarray(DEC),
+                                 jnp.asarray(INCL)))
+    assert v.shape == np.shape(RA), v.shape
+    assert np.all(np.isfinite(v)), v
+
+
+def test_multipeak_refuses_gradients_rather_than_inventing_one():
+    """A numpy planner has no AD.  A silent zero or wrong gradient would reach
+    --fisher-precondition, which swallows exceptions and falls back to raw
+    coordinates with the flag still recorded as supplied."""
+    data = make_synth(scale=2.0)
+    like = JAXDistPhiPsiMargLikelihood(data, 30.0, 3000.0, nphi=32, npsi=8,
+                                       interp=INTERP, angle_marg="multipeak")
+    with pytest.raises(ValueError, match="not differentiable"):
+        like._value_and_grad(jnp.asarray([RA[0], DEC[0], INCL[0]]))
+
+
 def test_multipeak_records_its_provenance():
     """This pipeline has a history of silently-inert flags: the scheme actually
     used must be visible in the record, not inferred from the request."""

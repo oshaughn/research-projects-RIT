@@ -291,6 +291,16 @@ optp.add_option("--rotation-p-max", type=int, default=0, help="[Path B] Max dela
 optp.add_option("--freqresponse", action="store_true", help="[Path D] Finite-size (frequency-dependent) detector-response likelihood: account for the finite light-travel-time transfer across the arms (matters for 3G/CE-ET).  Requires --vectorized; supports --gpu (n_cal=1, no glitch/cal marg).  May be combined with --rotation-slow; the compound bank is substantially more expensive and intended for long, loud sources.")
 optp.add_option("--freqresponse-qmax", type=int, default=4, help="Highest power of the arm projection retained for --freqresponse (basis size Qmax+2).  Higher for larger fL/c (heavier systems / higher fmax).")
 optp.add_option("--freqresponse-arm-length", default=None, help="Arm-length override [m] for --freqresponse.  Either a single float applied to ALL detectors (e.g. 40000 for 40-km CE), or per-detector 'C1=40000,E1=10000,...' (needed for mixed CE+ET networks, since LAL's cached C1 arm is a placeholder).  Default: each detector's native LAL arm length.")
+optp.add_option("--check-slowrot-pmax", action="store_true", default=False, help="Estimate required pmax from the response U,V bank and warn if --rotation-p-max is too small.")
+optp.add_option("--check-finite-size-Qmax", "--check-finite-size-qmax", dest="check_finite_size_Qmax", action="store_true", default=False, help="Estimate required finite-size Qmax and warn if --freqresponse-qmax is too small.")
+optp.add_option("--choose-slowrot-pmax", action="store_true", default=False, help="Choose the least pmax satisfying the response error budget.")
+optp.add_option("--choose-slowrot-Qmax", "--choose-finite-size-Qmax", dest="choose_slowrot_Qmax", action="store_true", default=False, help="Choose the least finite-size Qmax satisfying the response error budget.")
+optp.add_option("--response-order-snr", type=float, default=None, help="Target network SNR for response-order checks/choice (required when active).")
+optp.add_option("--response-order-lnL-tol", type=float, default=0.1, help="Allowed worst scanned Asimov likelihood loss (default 0.1).")
+optp.add_option("--response-order-sky-samples", type=int, default=128, help="Deterministic full-prior angular design size (default 128).")
+optp.add_option("--response-order-p-reference", type=int, default=2, help="Highest p used by the diagnostic reference bank (default 2).")
+optp.add_option("--response-order-Q-reference", "--response-order-q-reference", dest="response_order_Q_reference", type=int, default=8, help="Highest Q used by the diagnostic reference bank (default 8).")
+optp.add_option("--response-order-max-bank-gib", type=float, default=4.0, help="Refuse a diagnostic whose dense U,V planning estimate exceeds this many GiB (default 4).")
 optp.add_option("--force-xpy", action="store_true", help="Use the xpy code path.  Use with --vectorized --gpu to use the fallback CPU-based code path. Useful for debugging.")
 optp.add_option("-o", "--output-file", help="Save result to this file.")
 optp.add_option("-O", "--output-format", default='xml', help="[xml|hdf5]")
@@ -471,6 +481,31 @@ def _normalize_interpolate_time_argv(argv):
     return out
 
 opts, args = optp.parse_args(_normalize_interpolate_time_argv(sys.argv[1:]))
+
+_response_order_active = any((opts.check_slowrot_pmax, opts.check_finite_size_Qmax,
+                              opts.choose_slowrot_pmax, opts.choose_slowrot_Qmax))
+if (opts.check_slowrot_pmax or opts.choose_slowrot_pmax) and not opts.rotation_slow:
+    raise ValueError("pmax check/choice requires --rotation-slow")
+if (opts.check_finite_size_Qmax or opts.choose_slowrot_Qmax) and not opts.freqresponse:
+    raise ValueError("Qmax check/choice requires --freqresponse")
+if _response_order_active and opts.response_order_snr is None:
+    raise ValueError("response-order check/choice requires --response-order-snr")
+if opts.check_slowrot_pmax and opts.choose_slowrot_pmax:
+    raise ValueError("choose either --check-slowrot-pmax or --choose-slowrot-pmax")
+if opts.check_finite_size_Qmax and opts.choose_slowrot_Qmax:
+    raise ValueError("choose either --check-finite-size-Qmax or --choose-slowrot-Qmax")
+if ((opts.check_slowrot_pmax or opts.choose_slowrot_pmax)
+        and (opts.check_finite_size_Qmax or opts.choose_slowrot_Qmax)
+        and (opts.check_slowrot_pmax or opts.check_finite_size_Qmax)
+        and (opts.choose_slowrot_pmax or opts.choose_slowrot_Qmax)):
+    raise ValueError("do not mix check and choose controls in one compound response scan")
+if opts.response_order_lnL_tol <= 0 or opts.response_order_sky_samples < 8:
+    raise ValueError("response order requires positive lnL tolerance and at least 8 sky samples")
+if opts.response_order_p_reference < 0 or opts.response_order_Q_reference < 0:
+    raise ValueError("response diagnostic reference orders must be nonnegative")
+if (not np.isfinite(opts.response_order_max_bank_gib)
+        or opts.response_order_max_bank_gib <= 0):
+    raise ValueError("--response-order-max-bank-gib must be finite and positive")
 
 def _truthy_option(value):
     if isinstance(value, bool):
@@ -3517,6 +3552,31 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
           extra_args_dict = eval(extra_args_dict)
       print(" Waveform high-level extra args passed ", extra_args_dict, type(extra_args_dict))
       extra_waveform_kwargs.update(extra_args_dict)
+    # Keep every precompute for this event on the same waveform-generation
+    # route.  In particular, the compound slow-rotation/frequency-response
+    # bank must not silently fall back to the default LAL generator when the
+    # baseline bank selected GWSignal, NR, ROM, or custom conditioning.
+    waveform_generation_kwargs = {
+      'NR_group': NR_template_group,
+      'NR_param': NR_template_param,
+      'use_gwsignal': opts.use_gwsignal,
+      'use_gwsignal_approx': opts.approximant,
+      'use_external_EOB': opts.use_external_EOB,
+      'nr_lookup': opts.nr_lookup,
+      'nr_lookup_valid_groups': opts.nr_lookup_group,
+      'perturbative_extraction': opts.nr_perturbative_extraction,
+      'perturbative_extraction_full': opts.nr_perturbative_extraction_full,
+      'use_provided_strain': opts.nr_use_provided_strain,
+      'hybrid_use': opts.nr_hybrid_use,
+      'hybrid_method': opts.nr_hybrid_method,
+      'ROM_group': opts.rom_group,
+      'ROM_param': opts.rom_param,
+      'ROM_use_basis': opts.rom_use_basis,
+      'ROM_limit_basis_size': opts.rom_limit_basis_size_to,
+      'no_memory': opts.no_memory,
+      'extra_waveform_kwargs': extra_waveform_kwargs,
+      'force_22_mode': opts.force_hyperbolic_22,
+    }
     # Precompute
     t_window = opts.internal_data_storage_window_half
     ignore_threshold=None
@@ -3556,10 +3616,9 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             False, inv_spec_trunc_Q, T_spec,
             return_calibration_crossterms=True,
             ignore_threshold=ignore_threshold,   # default is None, old default was 1e-4. Use to speed calculation and/or discard 'junky' modes, esp at lower SNR. Dangerous at high SNR
-            NR_group=NR_template_group,NR_param=NR_template_param,
-            use_gwsignal=opts.use_gwsignal,
-            use_gwsignal_approx=opts.approximant,
-            use_external_EOB=opts.use_external_EOB,nr_lookup=opts.nr_lookup,nr_lookup_valid_groups=opts.nr_lookup_group,perturbative_extraction=opts.nr_perturbative_extraction,perturbative_extraction_full=opts.nr_perturbative_extraction_full,use_provided_strain=opts.nr_use_provided_strain,hybrid_use=opts.nr_hybrid_use,hybrid_method=opts.nr_hybrid_method,ROM_group=opts.rom_group,ROM_param=opts.rom_param,ROM_use_basis=opts.rom_use_basis,verbose=opts.verbose,quiet=not opts.verbose,ROM_limit_basis_size=opts.rom_limit_basis_size_to,no_memory=opts.no_memory,skip_interpolation=opts.vectorized, extra_waveform_kwargs=extra_waveform_kwargs,force_22_mode=opts.force_hyperbolic_22,**extra_kwargs)
+            verbose=opts.verbose,quiet=not opts.verbose,
+            skip_interpolation=opts.vectorized,
+            **waveform_generation_kwargs, **extra_kwargs)
 
     # skip nan ! Something horrible has happened
     if np.isnan(guess_snr):
@@ -3658,9 +3717,47 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         # modulation and delay-derivative operators.  This branch must precede the two
         # individual response branches: both flags now request one compound physical model.
         rotating_freqresponse_data = None
+        def _apply_order_control(products, selected_p, selected_q):
+            """Explicitly gated U,V order scan; returns the production subset."""
+            if not _response_order_active:
+                return products
+            import warnings
+            from RIFT.likelihood import response_order as _response_order
+            _report = _response_order.estimate_response_orders(
+                products[4], products[1], products[2],
+                target_snr=float(opts.response_order_snr),
+                lnL_tolerance=float(opts.response_order_lnL_tol),
+                n_samples=int(opts.response_order_sky_samples),
+                selected_p=int(selected_p), selected_q=int(selected_q),
+                vary_p=bool(opts.check_slowrot_pmax or opts.choose_slowrot_pmax),
+                vary_q=bool(opts.check_finite_size_Qmax or opts.choose_slowrot_Qmax))
+            _response_order.print_order_report(_report)
+            if (opts.check_slowrot_pmax or opts.check_finite_size_Qmax) and not _report['selected_passes']:
+                warnings.warn("chosen response order fails the requested accuracy: predicted Delta lnL={:.3g} > {:.3g} at SNR {:.6g}".format(_report['selected_delta_lnL'], _report['lnL_tolerance'], _report['target_snr']), RuntimeWarning)
+            _p, _q = int(selected_p), int(selected_q)
+            if opts.choose_slowrot_pmax or opts.choose_slowrot_Qmax:
+                if not _report['reference_resolved']:
+                    raise ValueError("cannot auto-select from an unresolved finite response reference; raise the diagnostic reference order")
+                if _report['chosen'] is None:
+                    raise ValueError("no response order in the diagnostic reference bank satisfies the requested SNR/error budget")
+                if opts.choose_slowrot_pmax:
+                    _p = int(_report['chosen']['p_max'])
+                if opts.choose_slowrot_Qmax:
+                    _q = int(_report['chosen']['Qmax'])
+            opts.rotation_p_max, opts.freqresponse_qmax = _p, _q
+            print("  response order used: p_max=%d Qmax=%d" % (_p, _q))
+            return _response_order.truncate_precompute_products(products, p_max=_p, q_max=_q)
+
         if opts.rotation_slow and opts.freqresponse:
-            _pmax = int(opts.rotation_p_max)
-            _qmax = int(opts.freqresponse_qmax)
+            _p_selected = int(opts.rotation_p_max)
+            _q_selected = int(opts.freqresponse_qmax)
+            _pmax = max(_p_selected, int(opts.response_order_p_reference)) if (opts.check_slowrot_pmax or opts.choose_slowrot_pmax) else _p_selected
+            _qmax = max(_q_selected, int(opts.response_order_Q_reference)) if (opts.check_finite_size_Qmax or opts.choose_slowrot_Qmax) else _q_selected
+            if _response_order_active:
+                from RIFT.likelihood import response_order as _response_order
+                _response_order.guard_reference_bank(
+                    'combined', _pmax, _qmax, opts.l_max, len(data_dict),
+                    opts.response_order_max_bank_gib)
             _arm = opts.freqresponse_arm_length
             if _arm is not None:
                 if '=' in str(_arm):
@@ -3668,15 +3765,36 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                             for kv in str(_arm).split(',')}
                 else:
                     _arm = float(_arm)
-            _rint_rf, _ct_rf, _ctV_rf, _rho_rf, _meta_rf = \
-                factored_likelihood_rotating_freqresponse.PrecomputeLikelihoodTermsRotatingFreqResponse(
+            if os.environ.get('RIFT_GPU_PRECOMPUTE', '0') == '1' and opts.gpu and xpy_default is not np:
+                if _response_order_active:
+                    raise NotImplementedError('Device-resident response-order selection is not yet supported; choose explicit orders or disable RIFT_GPU_PRECOMPUTE')
+                if os.environ.get('RIFT_GPU_WAVEFORM', 'lal') != 'lal':
+                    raise ValueError('Native GPU waveform provider is not yet validated; use RIFT_GPU_WAVEFORM=lal')
+                from RIFT.likelihood.gpu_precompute import (
+                    PrecomputeLikelihoodTermsRotatingFreqResponseGPU,
+                    pack_device_precompute)
+                _packed_rf, _meta_rf = PrecomputeLikelihoodTermsRotatingFreqResponseGPU(
                     fiducial_epoch, t_window, P, data_dict, psd_dict, opts.l_max, fmax,
                     Qmax=_qmax, L_arm=_arm, p_max=_pmax, analyticPSD_Q=False,
                     inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec,
-                    verbose=opts.verbose, quiet=not opts.verbose, skip_interpolation=True)
-            _lkRF, _rhoA, _uAA, _vAA, _epRF = \
-                factored_likelihood_rotating_freqresponse.pack_rotating_freqresponse_arrays(
-                    _meta_rf, _rho_rf, _ct_rf, _ctV_rf)
+                    verbose=opts.verbose, quiet=not opts.verbose,
+                    skip_interpolation=True, return_device=True,
+                    **waveform_generation_kwargs)
+                _lkRF, _rhoA, _uAA, _vAA, _epRF = pack_device_precompute(_packed_rf, _meta_rf)
+            else:
+                _rint_rf, _ct_rf, _ctV_rf, _rho_rf, _meta_rf = \
+                    factored_likelihood_rotating_freqresponse.PrecomputeLikelihoodTermsRotatingFreqResponse(
+                        fiducial_epoch, t_window, P, data_dict, psd_dict, opts.l_max, fmax,
+                        Qmax=_qmax, L_arm=_arm, p_max=_pmax, analyticPSD_Q=False,
+                        inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec,
+                        verbose=opts.verbose, quiet=not opts.verbose,
+                        skip_interpolation=True, **waveform_generation_kwargs)
+                _rint_rf, _ct_rf, _ctV_rf, _rho_rf, _meta_rf = _apply_order_control(
+                    (_rint_rf, _ct_rf, _ctV_rf, _rho_rf, _meta_rf),
+                    _p_selected, _q_selected)
+                _lkRF, _rhoA, _uAA, _vAA, _epRF = \
+                    factored_likelihood_rotating_freqresponse.pack_rotating_freqresponse_arrays(
+                        _meta_rf, _rho_rf, _ct_rf, _ctV_rf)
             if opts.gpu and (not xpy_default is np):
                 for _det in _rhoA:
                     for _a in _rhoA[_det]:
@@ -3688,7 +3806,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 U_by_aa=_uAA, V_by_aa=_vAA, epochDict=_epRF)
             _nbasis = len(_meta_rf['a_list'])
             print("  [rotation-slow+freqresponse] compound precompute complete; "
-                  "p_max", _pmax, "Qmax", _qmax, "basis elements", _nbasis,
+                  "p_max", _meta_rf['p_max'], "Qmax", _meta_rf['Qmax'], "basis elements", _nbasis,
                   "ordered U/V pairs", _nbasis * _nbasis, "arm-length",
                   opts.freqresponse_arm_length,
                   "(GPU)" if (opts.gpu and not xpy_default is np) else "(CPU)")
@@ -3696,7 +3814,13 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         # [Path A] slow-rotation precompute: build the harmonic-indexed bank and pack it.
         rotation_slow_data = None
         if opts.rotation_slow and not opts.freqresponse:
-            _pmax = int(opts.rotation_p_max)
+            _p_selected = int(opts.rotation_p_max)
+            _pmax = max(_p_selected, int(opts.response_order_p_reference)) if (opts.check_slowrot_pmax or opts.choose_slowrot_pmax) else _p_selected
+            if _response_order_active:
+                from RIFT.likelihood import response_order as _response_order
+                _response_order.guard_reference_bank(
+                    'rotation', _pmax, 0, opts.l_max, len(data_dict),
+                    opts.response_order_max_bank_gib)
             # --rotation-n-harmonics is a FLOOR, not the literal width: the response
             # coefficients C_{(p,ntilde)} reach |ntilde| <= 2 + p_max (issue #142), and the
             # option's default of 2 is only the p_max=0 answer.  The precompute now enforces
@@ -3712,6 +3836,9 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 harmonics=_harm, p_max=_pmax, analyticPSD_Q=False,
                 inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec,
                 verbose=opts.verbose, quiet=not opts.verbose, skip_interpolation=True)
+            _rint_r, _ct_r, _ctV_r, _rho_r, _meta_r = _apply_order_control(
+                (_rint_r, _ct_r, _ctV_r, _rho_r, _meta_r),
+                _p_selected, 0)
             _lkR, _rhoN, _uNN, _vNN, _epR = factored_likelihood_with_rotation.pack_rotation_arrays(
                 _meta_r, _rho_r, _ct_r, _ctV_r)
             if opts.gpu and (not xpy_default is np):
@@ -3726,7 +3853,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                         _vNN[_det][_pair] = cupy.asarray(_vNN[_det][_pair])
             rotation_slow_data = dict(meta=_meta_r, lookupNKDict=_lkR, rho_by_n=_rhoN,
                                       U_by_nn=_uNN, V_by_nn=_vNN, epochDict=_epR)
-            print("  [rotation-slow] precompute complete; p_max", _pmax, "sidereal harmonics",
+            print("  [rotation-slow] precompute complete; p_max", _meta_r['p_max'], "sidereal harmonics",
                   _meta_r['harmonics'],   # the bank's own record, not our request
                   "(GPU)" if (opts.gpu and not xpy_default is np) else "(CPU)")
 
@@ -3734,7 +3861,13 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         # into the modes once and pack the response-basis overlap bank.
         freqresponse_data = None
         if opts.freqresponse and not opts.rotation_slow:
-            _qmax = int(opts.freqresponse_qmax)
+            _q_selected = int(opts.freqresponse_qmax)
+            _qmax = max(_q_selected, int(opts.response_order_Q_reference)) if (opts.check_finite_size_Qmax or opts.choose_slowrot_Qmax) else _q_selected
+            if _response_order_active:
+                from RIFT.likelihood import response_order as _response_order
+                _response_order.guard_reference_bank(
+                    'finite', 0, _qmax, opts.l_max, len(data_dict),
+                    opts.response_order_max_bank_gib)
             _arm = opts.freqresponse_arm_length
             if _arm is not None:
                 if '=' in str(_arm):   # per-detector 'C1=40000,E1=10000'
@@ -3746,6 +3879,9 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 Qmax=_qmax, L_arm=_arm, analyticPSD_Q=False,
                 inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec,
                 verbose=opts.verbose, quiet=not opts.verbose, skip_interpolation=True)
+            _rint_f, _ct_f, _ctV_f, _rho_f, _meta_f = _apply_order_control(
+                (_rint_f, _ct_f, _ctV_f, _rho_f, _meta_f),
+                0, _q_selected)
             _lkF, _rhoP, _uPP, _vPP, _epF = factored_likelihood_freqresponse.pack_freqresponse_arrays(
                 _meta_f, _rho_f, _ct_f, _ctV_f)
             if opts.gpu and (not xpy_default is np):
@@ -3760,7 +3896,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                         _vPP[_det][_pair] = cupy.asarray(_vPP[_det][_pair])
             freqresponse_data = dict(meta=_meta_f, lookupNKDict=_lkF, rho_by_p=_rhoP,
                                      U_by_pp=_uPP, V_by_pp=_vPP, epochDict=_epF)
-            print("  [freqresponse] precompute complete; Qmax", _qmax, "arm-length", opts.freqresponse_arm_length,
+            print("  [freqresponse] precompute complete; Qmax", _meta_f['Qmax'], "arm-length", opts.freqresponse_arm_length,
                   "(GPU)" if (opts.gpu and not xpy_default is np) else "(CPU)")
 
         def _cal_error_probe(n_cal_now, n_start=256, n_cap=None, rel_tol=0.1):

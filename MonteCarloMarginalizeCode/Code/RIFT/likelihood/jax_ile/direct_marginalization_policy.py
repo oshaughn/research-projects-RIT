@@ -58,6 +58,8 @@ __all__ = [
     "resolve_reserve_angular_kernel",
     "q_bandwidth_cycles_per_sample",
     "PolicyConfig",
+    "BoundedMultipeakConfig",
+    "validate_bounded_multipeak_config",
     "validate_policy_request",
     "validate_policy_config",
     "policy_log_normalization",
@@ -65,6 +67,7 @@ __all__ = [
     "probe_guarded_tables",
     "policy_acceptance_diagnostics",
     "fused_log_likelihood_four_axis_policy",
+    "fused_log_likelihood_four_axis_bounded",
     "summarize_policy_ledger",
     "RESERVE_SCHEME_CHOICES",
     "RESERVE_SCHEME_DEFAULT",
@@ -296,6 +299,86 @@ class PolicyConfig(NamedTuple):
     reserve_peaklocal_newton_step_max: float = 1.0
     reserve_peaklocal_outside_slack_nats: float = 5.0
     reserve_peaklocal_sigma_t_override_samples: float = float("nan")
+
+
+class BoundedMultipeakConfig(NamedTuple):
+    """Static resource envelope for the device-only multipeak variant.
+
+    Every field that changes compiled work is fixed before tracing.  A row
+    that needs more starts, time nodes, modes, or quadrature accuracy than
+    this envelope supplies is returned as ``nan``; there is deliberately no
+    amplitude-sized dense reserve.  Planning is stopped from the AD graph, so
+    derivatives are those of the accepted fixed-plan integral, not a claim
+    about derivatives of the discrete mode-selection map.
+    """
+
+    # Compact by default: with the corrected orders this accepts the analytic
+    # reference and costs 0.36 s / two rows on A100, versus 3.70 s with the
+    # policy's 128/128/256 guard/start/time caps (2026-09-12). Wider caps can
+    # recover important declines; expose them instead of paying for every
+    # prior draw. See DESIGN_bounded_multipeak.md for the tradeoff and profile.
+    time_guard: int = 16
+    base_max_starts: int = 32
+    max_time_nodes: int = 64
+    base_oversample: int = PolicyConfig().base_oversample
+    enriched_oversample: int = PolicyConfig().enriched_oversample
+    max_modes: int = 8
+    enriched_max_modes: int = 8
+    local_radius: float = PolicyConfig().local_radius
+    refine_iterations: int = PolicyConfig().refine_iterations
+    # Deliberately cheaper than the reserve-bearing policy: 11/13/13/15
+    # accepts the analytic reference where 7/9/9/11 declines even at 0.03 nat.
+    # 0.01-nat convergence / 0.03-nat total budget favors practical acceptance;
+    # all remain explicit CLI controls. See DESIGN_bounded_multipeak.md.
+    base_order: int = 11
+    base_check_order: int = 13
+    enriched_order: int = 13
+    enriched_check_order: int = 15
+    convergence_tol_nats: float = 1.0e-2
+    time_guard_tol_nats: float = PolicyConfig().time_guard_tol_nats
+    total_value_error_budget_nats: float = 3.0e-2
+    time_outside_tol_nats: float = PolicyConfig().time_outside_tol_nats
+    norm_invariance_rtol: float = PolicyConfig().norm_invariance_rtol
+    batch_rows: int = 1
+
+
+def validate_bounded_multipeak_config(config):
+    """Validate the complete static contract before JAX traces it."""
+    if not isinstance(config, BoundedMultipeakConfig):
+        raise TypeError("config must be a BoundedMultipeakConfig")
+    if int(config.time_guard) < 2:
+        raise ValueError("time_guard must be >= 2 for two-guard validation")
+    if int(config.base_max_starts) < 1 or int(config.max_time_nodes) < 2:
+        raise ValueError("base_max_starts >= 1 and max_time_nodes >= 2 are required")
+    if (int(config.base_oversample) < 1
+            or int(config.enriched_oversample) <= int(config.base_oversample)):
+        raise ValueError("enriched_oversample must exceed base_oversample >= 1")
+    if (int(config.max_modes) < 1
+            or int(config.max_modes) > int(config.base_max_starts)
+            or int(config.enriched_max_modes) < int(config.max_modes)
+            or int(config.enriched_max_modes) > 2 * int(config.base_max_starts)):
+        raise ValueError(
+            "mode caps must satisfy 1 <= max_modes <= base_max_starts, "
+            "max_modes <= enriched_max_modes <= 2 * base_max_starts")
+    orders = (int(config.base_order), int(config.base_check_order),
+              int(config.enriched_order), int(config.enriched_check_order))
+    if not (2 <= orders[0] < orders[1] <= orders[2] < orders[3]):
+        raise ValueError("need 2 <= base_order < base_check_order <= "
+                         "enriched_order < enriched_check_order")
+    if not float(config.local_radius) > 0.0 or int(config.refine_iterations) < 1:
+        raise ValueError("local_radius and refine_iterations must be positive")
+    if not (float(config.convergence_tol_nats) > 0.0
+            and float(config.time_guard_tol_nats) > 0.0
+            and float(config.total_value_error_budget_nats) > 0.0):
+        raise ValueError("all error tolerances must be positive")
+    if not (np.isfinite(float(config.time_outside_tol_nats))
+            and float(config.time_outside_tol_nats) < 0.0):
+        raise ValueError("time_outside_tol_nats must be finite and negative")
+    if not (np.isfinite(float(config.norm_invariance_rtol))
+            and float(config.norm_invariance_rtol) >= 0.0):
+        raise ValueError("norm_invariance_rtol must be finite and non-negative")
+    validate_batch_rows(config.batch_rows)
+    return config
 
 
 def validate_batch_rows(batch_rows):
@@ -1400,6 +1483,161 @@ def fused_log_likelihood_four_axis_policy(
     ledger["usable"] = usable
     ledger["selected_value"] = selected
     ledger["lnL"] = lnL
+    if return_ledger:
+        return lnL, ledger
+    return lnL
+
+
+def fused_log_likelihood_four_axis_bounded(
+        data, ra, dec, incl, x_grid, log_w_grid, *, interp, amp_sizing,
+        config=None, local_log_normalization=None, x_bounds=None,
+        return_ledger=False):
+    """Device-only, statically bounded four-axis multipeak marginalization.
+
+    Discovery, Newton refinement, retained modes, and both nested quadrature
+    rules are fixed-shape functions of :class:`BoundedMultipeakConfig`.  No
+    dense or amplitude-sized reserve is present.  A row that does not pass the
+    existing empirical enrichment, quadrature, geometry, time-guard, and
+    omitted-time gates fails closed with ``nan``.
+
+    The function is JIT- and AD-compatible.  Mode planning consumes
+    ``stop_gradient`` coefficient tables and the resulting plans are stopped
+    again, bounding reverse-mode storage and defining AD as differentiation of
+    the accepted fixed-plan integral.  This is not a derivative-accuracy
+    warrant; value/gradient parity on production ladders remains separate.
+
+    ``x_bounds`` and ``local_log_normalization`` may be supplied by a wrapper
+    that traces this function.  When omitted they are derived eagerly from the
+    concrete distance grid.
+    """
+    if config is None:
+        config = BoundedMultipeakConfig()
+    validate_bounded_multipeak_config(config)
+    guard = int(config.time_guard)
+    batch_rows = validate_batch_rows(config.batch_rows)
+    if local_log_normalization is None:
+        local_log_normalization, _ = policy_log_normalization(
+            data, x_grid, log_w_grid)
+    if x_bounds is None:
+        x_host = np.asarray(x_grid)
+        x_min, x_max = float(np.min(x_host)), float(np.max(x_host))
+    else:
+        x_min, x_max = (float(x_bounds[0]), float(x_bounds[1]))
+    if not (0.0 < x_min < x_max):
+        raise ValueError("x_bounds must satisfy 0 < x_min < x_max")
+
+    x_grid = jnp.asarray(x_grid, dtype=jnp.float64)
+    log_w_grid = jnp.asarray(log_w_grid, dtype=jnp.float64)
+    C_A, C_B, _ = _anglemarg.angle_coefficient_tables(
+        data, ra, dec, incl, interp, guard=guard)
+    # amp_sizing is retained for call compatibility, not used to size work.
+    rows_A = jnp.moveaxis(C_A, 2, 0)
+    rows_B = jnp.moveaxis(C_B, 2, 0)
+    norm0 = rows_B[..., 0]
+    norm_dev = jnp.max(jnp.abs(rows_B - norm0[..., None]), axis=(1, 2, 3))
+    norm_scale = jnp.maximum(1.0, jnp.max(jnp.abs(norm0), axis=(1, 2)))
+    norm_time_invariant = (
+        norm_dev <= float(config.norm_invariance_rtol) * norm_scale)
+    tables_finite = (jnp.all(jnp.isfinite(rows_A), axis=(1, 2, 3))
+                     & jnp.all(jnp.isfinite(rows_B), axis=(1, 2, 3)))
+
+    def _plan_row(table, norm):
+        base = _aap.rank_joint_starts_from_uvq_device(
+            table, norm, x_min, x_max, time_guard=guard,
+            max_starts=int(config.base_max_starts),
+            max_time_nodes=int(config.max_time_nodes),
+            angular_oversample=int(config.base_oversample))
+        extra = _aap.rank_joint_starts_from_uvq_device(
+            table, norm, x_min, x_max, time_guard=guard,
+            max_starts=int(config.base_max_starts),
+            max_time_nodes=int(config.max_time_nodes),
+            angular_oversample=int(config.enriched_oversample))
+        base_plan, enriched_plan, bp, ep, shared = (
+            _aap.make_all_axis_mode_plan_pair_device(
+                table, norm, base, extra, x_min, x_max,
+                max_modes=int(config.max_modes),
+                enriched_max_modes=int(config.enriched_max_modes),
+                local_radius=float(config.local_radius), time_guard=guard,
+                iterations=int(config.refine_iterations),
+                time_reconstruction_certified=False))
+        base_plan = jax.tree.map(jax.lax.stop_gradient, base_plan)
+        enriched_plan = jax.tree.map(jax.lax.stop_gradient, enriched_plan)
+        planning = dict(
+            base_n_selected_modes=bp["n_selected_modes"],
+            enriched_n_selected_modes=ep["n_selected_modes"],
+            base_n_optimizer_starts=bp["n_optimizer_starts"],
+            enriched_n_optimizer_starts=ep["n_optimizer_starts"],
+            optimizer_starts_executed=shared["n_optimizer_starts_executed"],
+            base_n_lattice_evaluations=bp["n_lattice_evaluations"],
+            enriched_n_lattice_evaluations=ep["n_lattice_evaluations"],
+            base_n_candidates_before_cap=bp["n_candidates_before_cap"],
+            combined_n_candidates_before_cap=ep["n_candidates_before_cap"],
+            base_start_capacity_ok=bp["start_capacity_ok"],
+            combined_start_capacity_ok=ep["start_capacity_ok"],
+            base_time_capacity_ok=bp["time_capacity_ok"],
+            combined_time_capacity_ok=ep["time_capacity_ok"])
+        return base_plan, enriched_plan, planning
+
+    base_plans, enriched_plans, planning = jax.vmap(_plan_row)(
+        jax.lax.stop_gradient(rows_A), jax.lax.stop_gradient(norm0))
+
+    def _row(args):
+        table, norm, base_plan, enriched_plan = args
+        return _aap.empirical_enrichment_marginalize(
+            table, norm, base_plan, enriched_plan, x_min, x_max,
+            base_order=int(config.base_order),
+            base_check_order=int(config.base_check_order),
+            enriched_order=int(config.enriched_order),
+            enriched_check_order=int(config.enriched_check_order),
+            convergence_tol_nats=float(config.convergence_tol_nats),
+            time_guard=guard,
+            time_guard_tol_nats=float(config.time_guard_tol_nats),
+            log_normalization=float(local_log_normalization),
+            time_outside_tol_nats=float(config.time_outside_tol_nats),
+            total_value_error_budget_nats=float(
+                config.total_value_error_budget_nats))
+
+    n_rows = int(rows_A.shape[0])
+    xs = (rows_A, norm0, base_plans, enriched_plans)
+    if batch_rows == 1 or n_rows == 1:
+        selected, accepted, ledger = jax.lax.map(_row, xs)
+        batch_executed = 1
+    elif batch_rows == 0 or batch_rows >= n_rows:
+        selected, accepted, ledger = jax.vmap(_row)(xs)
+        batch_executed = n_rows
+    else:
+        selected, accepted, ledger = jax.lax.map(
+            _row, xs, batch_size=batch_rows)
+        batch_executed = batch_rows
+
+    usable = accepted & norm_time_invariant & tables_finite
+    lnL = jnp.where(usable, selected, jnp.nan)
+    ledger = dict(ledger)
+    ledger.update(planning)
+    ledger.update(
+        bounded_cost=jnp.full((n_rows,), True, dtype=bool),
+        dense_reserve_available=jnp.full((n_rows,), False, dtype=bool),
+        fixed_plan_autodiff_only=jnp.full((n_rows,), True, dtype=bool),
+        derivative_warrant_certified=jnp.full((n_rows,), False, dtype=bool),
+        batch_rows_requested=jnp.full(
+            (n_rows,), batch_rows, dtype=jnp.int32),
+        batch_rows_executed=jnp.full(
+            (n_rows,), batch_executed, dtype=jnp.int32),
+        max_starts_cap=jnp.full(
+            (n_rows,), int(config.base_max_starts), dtype=jnp.int32),
+        max_time_nodes_cap=jnp.full(
+            (n_rows,), int(config.max_time_nodes), dtype=jnp.int32),
+        max_modes_cap=jnp.full(
+            (n_rows,), int(config.enriched_max_modes), dtype=jnp.int32),
+        decline_norm_time_variation=~norm_time_invariant,
+        decline_input_nonfinite=~tables_finite,
+        norm_time_invariant=norm_time_invariant,
+        norm_time_deviation=norm_dev,
+        tables_finite=tables_finite,
+        input_nonfinite=~tables_finite,
+        usable=usable,
+        selected_value=selected,
+        lnL=lnL)
     if return_ledger:
         return lnL, ledger
     return lnL
