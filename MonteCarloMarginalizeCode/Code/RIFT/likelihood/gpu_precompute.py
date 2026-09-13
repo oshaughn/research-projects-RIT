@@ -615,8 +615,8 @@ def PrecomputeLikelihoodTermsRotatingFreqResponseGPU(
         verbose=True, quiet=False, skip_interpolation=False,
         backend=None, context=None, waveform_provider=None, waveform_backend="jax",
         return_device=False,
-        fft_batch=4, q_row_batch=4, v_a_block=2,
-        frequency_chunk=1 << 18, timing_callback=None, **hlm_kwargs):
+        fft_batch=1, q_row_batch=1, v_a_block=1,
+        frequency_chunk=1 << 16, timing_callback=None, **hlm_kwargs):
     """GPU counterpart of ``PrecomputeLikelihoodTermsRotatingFreqResponse``.
 
     The default waveform adapter calls RIFT's LAL generator once and uploads its
@@ -625,6 +625,9 @@ def PrecomputeLikelihoodTermsRotatingFreqResponseGPU(
     ``return_device=False`` this returns the exact legacy five-item structure.
     With ``return_device=True`` it returns packed device arrays and metadata, avoiding
     the final narrow host copies for the device-resident ILE/JAX handoff.
+    The conservative default blocks limit transient workspace when a large
+    compound basis already occupies most of device memory. Callers with more
+    memory may explicitly increase the blocks for precompute throughput.
     """
     initialization_stamp = time.perf_counter()
     from . import factored_likelihood as FL
