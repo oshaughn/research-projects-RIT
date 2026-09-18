@@ -5,6 +5,10 @@ Development tree is rift_O4c.
   - (rc0) PR 187 stabilizes vectorized time marginalization for loud signals;
     PR 183 (including PR 163) corrects ChooseFDModes conditioning and J-to-L
     frame rotation; PR 176 adds ASIMOV 0.7 and PESummary handoff compatibility.
+  - (rc1) PR 192 forwards ChooseFDModes frame options through calibration
+    marginalization; PR 153 adds cubic fractional-time interpolation to the
+    NoLoop likelihood; PR 194 adds ASIMOV 0.8 production compatibility and
+    hardens legacy log collection.
 
 0.0.17.13
 ---------
