@@ -72,6 +72,20 @@ def test_collect_logs_legacy_fallback_is_bounded(monkeypatch, tmp_path):
     assert messages["rift.log"].endswith("tail")
 
 
+def test_collect_logs_legacy_fallback_skips_non_files(monkeypatch, tmp_path):
+    monkeypatch.delattr(rift_asimov.Pipeline, "log_patterns", raising=False)
+    (tmp_path / "notes.log").mkdir()
+    (tmp_path / "rift.err").write_text("boom")
+    production = types.SimpleNamespace(
+        category="C01_offline", rundir=str(tmp_path)
+    )
+
+    messages = _pipe(production).collect_logs()
+
+    assert set(messages) == {"rift.err"}
+    assert messages["rift.err"] == "boom"
+
+
 def test_asimov_07_completion_defers_to_separate_postprocessing(monkeypatch):
     production = types.SimpleNamespace(
         status="processing", category="C01_offline", meta={"job id": 12}

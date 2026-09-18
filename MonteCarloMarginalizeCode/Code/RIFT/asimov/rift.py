@@ -87,7 +87,7 @@ class Rift(Pipeline):
                     section_data[section_arg] = {}
 
     def _get_psds(self, format="ascii"):
-        """Return PSD assets across the ASIMOV 0.5 and 0.7 APIs."""
+        """Return PSD assets across the ASIMOV 0.5, 0.7, and 0.8 APIs."""
         legacy_getter = getattr(self.production, "get_psds", None)
         if callable(legacy_getter):
             assets = legacy_getter(format)
@@ -867,12 +867,17 @@ class Rift(Pipeline):
             logs.extend(glob.glob(os.path.join(self.production.rundir, pattern)))
         messages = {}
         for log in logs:
-            with open(log, "rb") as log_f:
-                log_f.seek(0, os.SEEK_END)
-                size = log_f.tell()
-                log_f.seek(max(0, size - self._MAX_LEGACY_LOG_BYTES))
-                message = log_f.read().decode("utf-8", errors="replace")
-                messages[os.path.basename(log)] = message
+            if not os.path.isfile(log):
+                continue
+            try:
+                with open(log, "rb") as log_f:
+                    log_f.seek(0, os.SEEK_END)
+                    size = log_f.tell()
+                    log_f.seek(max(0, size - self._MAX_LEGACY_LOG_BYTES))
+                    message = log_f.read().decode("utf-8", errors="replace")
+            except OSError as e:
+                message = f"[Could not read log file: {e}]"
+            messages[os.path.basename(log)] = message
         return messages
 
     def detect_completion(self):
