@@ -29,6 +29,49 @@ def _pipe(production):
     return pipe
 
 
+def test_before_config_calls_asimov_base_hook_first(monkeypatch):
+    class HookCalled(Exception):
+        pass
+
+    def base_before_config(self, dryrun=False):
+        assert dryrun is True
+        raise HookCalled
+
+    monkeypatch.setattr(rift_asimov.Pipeline, "before_config", base_before_config)
+    production = types.SimpleNamespace(category="C01_offline")
+
+    with pytest.raises(HookCalled):
+        _pipe(production).before_config(dryrun=True)
+
+
+def test_collect_logs_delegates_to_asimov_08(monkeypatch):
+    production = types.SimpleNamespace(category="C01_offline", rundir="/unused")
+    expected = {"rift.err": "bounded by ASIMOV"}
+    monkeypatch.setattr(
+        rift_asimov.Pipeline, "log_patterns", ["*.out"], raising=False
+    )
+    monkeypatch.setattr(
+        rift_asimov.Pipeline, "collect_logs", lambda self: expected
+    )
+
+    assert _pipe(production).collect_logs() is expected
+
+
+def test_collect_logs_legacy_fallback_is_bounded(monkeypatch, tmp_path):
+    monkeypatch.delattr(rift_asimov.Pipeline, "log_patterns", raising=False)
+    log = tmp_path / "rift.log"
+    log.write_bytes(b"x" * (Rift._MAX_LEGACY_LOG_BYTES + 100) + b"tail")
+    production = types.SimpleNamespace(
+        category="C01_offline", rundir=str(tmp_path)
+    )
+
+    messages = _pipe(production).collect_logs()
+
+    assert set(messages) == {"rift.log"}
+    assert len(messages["rift.log"].encode()) == Rift._MAX_LEGACY_LOG_BYTES
+    assert messages["rift.log"].endswith("tail")
+
+
 def test_asimov_07_completion_defers_to_separate_postprocessing(monkeypatch):
     production = types.SimpleNamespace(
         status="processing", category="C01_offline", meta={"job id": 12}

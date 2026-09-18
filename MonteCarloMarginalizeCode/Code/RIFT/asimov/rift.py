@@ -45,6 +45,8 @@ class Rift(Pipeline):
 
     name = "RIFT"
     STATUS = {"wait", "stuck", "stopped", "running", "finished"}
+    log_patterns = ["*.out", "*.err", "*.log"]
+    _MAX_LEGACY_LOG_BYTES = 1_000_000
 
     def __init__(self, production, category=None):
         super(Rift, self).__init__(production, category)
@@ -296,6 +298,11 @@ class Rift(Pipeline):
         - Find bilby ini file (needed for calmarg)
         - Find all-event priors and copy to production, overwriting
         """
+        # ASIMOV 0.8 captures the execution environment in this hook. Keep
+        # calling the base implementation so provenance is not silently lost;
+        # older supported ASIMOV releases implement this as a no-op.
+        super().before_config(dryrun=dryrun)
+
         event = self.production.event
         category = config.get("general", "calibration_directory")
         # XML PSDs
@@ -848,15 +855,24 @@ class Rift(Pipeline):
         Collect all of the log files which have been produced by this production and
         return their contents as a dictionary.
         """
-        logs = glob.glob(
-            f"{self.production.rundir}/*.err"
-        )  # + glob.glob(f"{self.production.rundir}/*/logs/*")
-        logs += glob.glob(f"{self.production.rundir}/*.out")
+        # ASIMOV 0.8 provides bounded tail collection and honours
+        # ``log_patterns``. Delegate to it when available. The fallback
+        # retains compatibility with the 0.5/0.7 series without allowing a
+        # large scheduler log to exhaust the monitor process.
+        if hasattr(Pipeline, "log_patterns"):
+            return super().collect_logs()
+
+        logs = []
+        for pattern in self.log_patterns:
+            logs.extend(glob.glob(os.path.join(self.production.rundir, pattern)))
         messages = {}
         for log in logs:
-            with open(log, "r") as log_f:
-                message = log_f.read()
-                messages[log.split("/")[-1]] = message
+            with open(log, "rb") as log_f:
+                log_f.seek(0, os.SEEK_END)
+                size = log_f.tell()
+                log_f.seek(max(0, size - self._MAX_LEGACY_LOG_BYTES))
+                message = log_f.read().decode("utf-8", errors="replace")
+                messages[os.path.basename(log)] = message
         return messages
 
     def detect_completion(self):
