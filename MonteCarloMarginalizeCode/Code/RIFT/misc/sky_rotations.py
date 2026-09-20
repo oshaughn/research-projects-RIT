@@ -34,7 +34,12 @@ def assign_sky_frame(det0,det1,theEpochFiducial):
     time_angle =  np.mod( lal.GreenwichMeanSiderealTime(theEpochFiducial), 2*np.pi)
     vecZnew = np.dot(lalsimutils.rotation_matrix(np.array([0,0,1]), -time_angle), vecZ)
     frm = lalsimutils.VectorToFrame(vecZnew)   # Create an orthonormal frame related to this particular choice of z axis. (Used as 'rotation' object)
-    frmInverse= np.asarray(np.matrix(frm).I)                                    # Create an orthonormal frame to undo the transform above
+    # frm is orthonormal by construction (VectorToFrame returns mutually
+    # orthogonal unit rows), so its inverse is its transpose -- which agrees
+    # with np.linalg.inv to machine precision here and needs no decomposition.
+    # This also avoids np.matrix, which is deprecated.  ascontiguousarray gives
+    # an independent float array rather than a view onto frm.
+    frmInverse = np.ascontiguousarray(frm.T, dtype=float)   # frame that undoes the transform above
 
 
 def physical_to_network(theta, phi, frame=None, xpy=np):
