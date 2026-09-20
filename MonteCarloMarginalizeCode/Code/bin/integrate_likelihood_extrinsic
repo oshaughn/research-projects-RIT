@@ -838,8 +838,13 @@ if opts.internal_sky_network_coordinates:
     opts.internal_sky_network_coordinates = False # stop using this code
   else:
     sky_rotations.assign_sky_frame(ifo_list[0], ifo_list[1], fiducial_epoch)
-    frm = identity_convert_togpu(sky_rotations.frm)
-    my_rotation = functools.partial(lalsimutils.polar_angles_in_frame_alt,frm,xpy=xpy_default) 
+    # The integration variables are angles in the network-aligned frame.  The
+    # likelihood and output XML require physical equatorial angles, so apply
+    # the inverse frame here.  Using ``frm`` would instead apply the
+    # physical->network transform a second time.
+    frm_inverse = identity_convert_togpu(sky_rotations.frmInverse)
+    my_rotation = functools.partial(sky_rotations.network_to_physical,inverse_frame=frm_inverse,xpy=xpy_default)
+    my_rotation_cpu = functools.partial(sky_rotations.network_to_physical,inverse_frame=sky_rotations.frmInverse,xpy=np)
   
 
 
@@ -1510,6 +1515,11 @@ if opts.output_file:
             samples["t_ref"] += float(fiducial_epoch)
         else:
             samples["t_ref"] = float(fiducial_epoch)*numpy.ones(len(sampler._rvs["psi"]))
+        # rotate sky to recover physical coordinates.  Note on CPU
+        if opts.internal_sky_network_coordinates:
+            tmp_th, tmp_ph = my_rotation_cpu(np.pi/2 - samples['declination'],samples['right_ascension'])
+            samples['declination'] = np.pi/2 - tmp_th
+            samples['right_ascension'] = np.mod(tmp_ph, 2*np.pi)
         samples["polarization"] = samples["psi"]
         samples["coa_phase"] = samples["phi_orb"]
         if ("declination", "right_ascension") in sampler.params:
