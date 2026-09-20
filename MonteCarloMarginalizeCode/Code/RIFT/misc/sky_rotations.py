@@ -37,6 +37,20 @@ def assign_sky_frame(det0,det1,theEpochFiducial):
     frmInverse= np.asarray(np.matrix(frm).I)                                    # Create an orthonormal frame to undo the transform above
 
 
+def physical_to_network(theta, phi, frame=None, xpy=np):
+    """Map physical equatorial angles into the assigned network frame."""
+    if frame is None:
+        frame = frm
+    return lalsimutils.polar_angles_in_frame_alt(frame, theta, phi, xpy=xpy)
+
+
+def network_to_physical(theta, phi, inverse_frame=None, xpy=np):
+    """Map sampled network-frame angles back to physical equatorial angles."""
+    if inverse_frame is None:
+        inverse_frame = frmInverse
+    return lalsimutils.polar_angles_in_frame_alt(inverse_frame, theta, phi, xpy=xpy)
+
+
 # USE INSTEAD
 #  functools(lalsimutils.polar_angles_in_frame_alt,frm)
 def rotate_sky_forwards_scalar(theta,phi,frm=frm):   # When theta=0 we are describing the coordinats of the zhat direction in the vecZ frame
