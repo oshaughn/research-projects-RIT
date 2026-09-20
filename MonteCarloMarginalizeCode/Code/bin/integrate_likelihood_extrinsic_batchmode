@@ -1034,9 +1034,13 @@ if opts.internal_sky_network_coordinates:
     opts.internal_sky_network_coordinates = False # stop using this code
   else:
     sky_rotations.assign_sky_frame(ifo_list[0], ifo_list[1], fiducial_epoch)
-    frm = identity_convert_togpu(sky_rotations.frm)
-    my_rotation = functools.partial(lalsimutils.polar_angles_in_frame_alt,frm,xpy=xpy_default) 
-    my_rotation_cpu = functools.partial(lalsimutils.polar_angles_in_frame_alt,sky_rotations.frm,xpy=np) 
+    # The integration variables are angles in the network-aligned frame.  The
+    # likelihood and output XML require physical equatorial angles, so apply
+    # the inverse frame here.  Using ``frm`` would instead apply the
+    # physical->network transform a second time.
+    frm_inverse = identity_convert_togpu(sky_rotations.frmInverse)
+    my_rotation = functools.partial(sky_rotations.network_to_physical,inverse_frame=frm_inverse,xpy=xpy_default)
+    my_rotation_cpu = functools.partial(sky_rotations.network_to_physical,inverse_frame=sky_rotations.frmInverse,xpy=np)
 
 #
 # Intrinsic parameters
