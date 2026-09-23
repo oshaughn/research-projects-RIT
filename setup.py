@@ -34,7 +34,7 @@ my_extra_source  = glob.glob("MonteCarloMarginalizeCode/Code/RIFT/likelihood/cud
 
 setuptools.setup(
     name="RIFT",
-    version="0.0.17.13", # do not build on OSX machine, side effects
+    version="0.0.17.14rc1", # do not build on OSX machine, side effects
     author="Richard O'Shaughnessy",
     author_email="richard.oshaughnessy@ligo.org",
     description="RIFT parameter estimation pipeline. Note branch used is temp-RIT-Tides-port_python3_restructure_package (which will become master shortly)!",
@@ -59,6 +59,8 @@ setuptools.setup(
    setup_requires=['setuptools','pip'],
    install_requires=REQUIREMENTS["install"],
    entry_points={
+        'console_scripts':
+        ['rift-rimsky-analysis = RIFT.rimsky.integration:main'],
         'asimov.pipelines':
         ["rift = RIFT.asimov.rift:Rift"],
         'RIFT.integrator_plugins':

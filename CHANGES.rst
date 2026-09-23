@@ -1,13 +1,21 @@
-0.0.17.13 compatibility backstop
---------------------------------
-  - EOSManager supports released and reviewed multipart/multibranch LALSimulation
-    family interfaces while retaining the existing scalar and NuclearMatter-Backend
-    sequence contracts. Fixed-EOS CIP can load a reviewed table with
-    ``lalsim_file:<path>`` and select a LAL family with ``--using-eos-branch``. Native
-    NMB/PCA files retain the ``nmbseq:`` primary-branch
-    contract, with disconnected stable runs split before interpolation. The CIP
-    piecewise-polytrope constructor keyword and four-parameter row guards are corrected
-    for Kedia-style workflows.
+0.0.17.14
+---------
+Development tree is rift_O4c.
+
+  - (rc0) PR 187 stabilizes vectorized time marginalization for loud signals;
+    PR 183 (including PR 163) corrects ChooseFDModes conditioning and J-to-L
+    frame rotation; PR 176 adds ASIMOV 0.7 and PESummary handoff compatibility.
+  - (rc1) PR 192 forwards ChooseFDModes frame options through calibration
+    marginalization; PR 153 adds cubic fractional-time interpolation to the
+    NoLoop likelihood; PR 194 adds ASIMOV 0.8 production compatibility and
+    hardens legacy log collection.
+  - PR 184 extends EOSManager to reviewed multipart and multibranch LALSimulation
+    family interfaces while preserving scalar and NuclearMatter-Backend sequence
+    contracts. Fixed-EOS CIP accepts ``lalsim_file:<path>`` and
+    ``--using-eos-branch``. Native NMB/PCA files retain the ``nmbseq:``
+    primary-branch contract; disconnected stable runs are split before
+    interpolation. The CIP piecewise-polytrope constructor keyword and
+    four-parameter row guards are corrected for Kedia-style workflows.
     See ``docs/eos-interface-contract.md``.
 
 0.0.17.13

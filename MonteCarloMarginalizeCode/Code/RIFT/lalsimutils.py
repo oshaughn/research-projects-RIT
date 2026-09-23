@@ -3280,7 +3280,11 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
        # but that is very difficult to do because modes of different 'm' and thus typical frequency generally mix
        # Note also that unless the segment length is large, this is often surprisingly few frequency bins for tapering
        if not(no_condition):
-           our_fvals = evaluate_fvals(hlmsdict[(2,2)])
+           # lal_convention=True is REQUIRED here: ChooseFDModes returns the ascending
+           # center-DC grid, and the default (RIFT reversed) convention would shift the
+           # high-pass window by one bin between (l,m) and (l,-m), breaking the
+           # conjugate-pair identity at the percent level.  See evaluate_fvals docs.
+           our_fvals = evaluate_fvals(hlmsdict[(2,2)], lal_convention=True)
            vectaper_symmetric  = np.ones(len(our_fvals))
            indx_below = np.logical_and(np.abs(our_fvals)<P.fmin, np.abs(our_fvals)>=P.fmin*fd_standoff_factor)
            vectaper_symmetric[indx_below] = 0.5 + 0.5*np.cos(np.pi* (np.abs(our_fvals[indx_below])/P.fmin - 1)/(1-fd_standoff_factor))
@@ -3305,7 +3309,15 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
            indx_crit = TDlen - ntaper
 
        for mode in hlmsdict:
+          npts_fd_pre_resize = hlmsdict[mode].data.length
           hlmsdict[mode] = lal.ResizeCOMPLEX16FrequencySeries(hlmsdict[mode],0, TDlen)
+          if npts_fd_pre_resize > TDlen:
+              # The resize above truncated the +fNyq bin from the two-sided grid but kept
+              # its -fNyq partner (index 0).  Zero it so the truncation commutes with the
+              # conjugate-pair (f -> -f) reflection for models with support at Nyquist.
+              # Tied to the truncation itself, NOT to no_condition: an asymmetric
+              # truncation would reintroduce (l,±m) asymmetry even on the raw path.
+              hlmsdict[mode].data.data[0] = 0
           hlmsT[mode] = DataInverseFourier(hlmsdict[mode])
           # Phase factors: see crazy conventions in https://git.ligo.org/lscsoft/lalsuite/-/blob/master/lalsimulation/lib/LALSimInspiral.c
           if True: #P.approx == lalIMRPhenomXHM or P.approx == lalIMRPhenomHM:
@@ -3331,16 +3343,15 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
        # see discussion in https://git.ligo.org/lscsoft/lalsuite/-/blob/master/lalsimulation/lib/LALSimInspiral.c
        if is_precessing and fd_L_frame and P.fref:
              alpha,beta,gamma =extract_JL_angles(P,return_inverse=True)
-             # alpha0, beta==theta_JN already identified above. Missing polarization rotation factor as well
-             # zeta_pol will not be used since it is inclination-dependent and therefore depends on extrinsic choices! Also normally calling with P.incl ==0
-             _, _, _, theta_JN, alpha0, misc_phi, zeta_pol = lalsim.SimIMRPhenomXPCalculateModelParametersFromSourceFrame(P.m1,P.m2, P.fref, P.phiref, P.incl, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, extra_params)
-             # Get remaining psiJ quantity (should add to extract_JL_angles)
-             thetaJN, phiJL, theta1, theta2, phi12, chi1, chi2, psiJ  = P.extract_system_frame()
-             # theta_JN is not useful, for rotations will be close to P.incl in most cases
-             alpha+= np.pi # empirically validated sign for XPHM, comparing precessing radiation to SEOBv4PHM
-#             print(alpha, beta, gamma, zeta_pol)
-#             print(alpha0, thetaJN, np.pi - phiJL,psiJ)
-             hlmsT_alt = rotate_hlm_static(hlmsT, -gamma - np.pi/2, -beta,-alpha ,extra_polarization=psiJ)  
+             # The modes must remain intrinsic: hoft_from_hlm applies P.psi when
+             # constructing the strain.  A further alpha += pi changes odd-m
+             # modes relative to even-m modes, rather than supplying a global
+             # polarization convention.  The fixed pi/2 polarization below only
+             # cancels the historical global minus sign applied above.
+             hlmsT_alt = rotate_hlm_static(
+                 hlmsT, -gamma - np.pi/2, -beta, -alpha,
+                 extra_polarization=np.pi/2,
+             )
              hlmsT = hlmsT_alt
         # phase shift ChooseFDModes
 #       for mode in hlmsT:
@@ -4013,7 +4024,7 @@ def hoft_from_hlm(hlms,P, return_complex=False, extra_phase_shift=0):
     # Create complex strain object
     hT = lal.CreateCOMPLEX16TimeSeries("hT", h22.epoch, h22.f0,
             h22.deltaT, h22.sampleUnits, h22.data.length)
-    hT.data.data*=0  # fill with zeros
+    hT.data.data[:] = 0  # fill with zeros
 
     # create for loop over elements of the series to add it
     for mode in hlms:
@@ -4906,12 +4917,25 @@ def psd_windowing_factor(window_shape, TDlen):
 def evaluate_tvals(lal_tseries):
     return float(lal_tseries.epoch) +lal_tseries.deltaT*np.arange(lal_tseries.data.length)
 
-def evaluate_fvals(lal_2sided_fseries):
+def evaluate_fvals(lal_2sided_fseries, lal_convention=False):
     r"""
-    evaluate_fvals(lal_2sided_fseries)
+    evaluate_fvals(lal_2sided_fseries, lal_convention=False)
     Associates frequencies with a 2sided lal complex array.  Compare with 'self.longweights' code
     Done by HAND in PrecessingOrbitModesOfFrequency
     Manually *reverses* convention re sign of \omega used in lal!
+
+    lal_convention=False (default): RIFT's own two-sided packing (arrays produced by
+       DataFourier/complex_hoff): even length, REVERSED, f[k] = deltaF*(npts/2 - k).
+       WARNING: for odd-length arrays this assigns f on a grid offset by deltaF/2 --
+       it is only correct for the even-length RIFT packing.
+    lal_convention=True: the packing of two-sided series returned directly by LAL
+       generators (e.g. SimInspiralChooseFDModes): ASCENDING [-fNyq, ..., 0, ..., +fNyq]
+       with DC at index npts//2 (odd length TDlen+1; even length after truncation keeps
+       DC at npts//2).  f[k] = deltaF*(k - npts//2), exact for both parities of npts.
+       Use this - not the default - on ChooseFDModes output: the default's reversal +
+       half-bin offset shifts any |f|-symmetric window by one bin between (l,m) and
+       (l,-m) modes (which live at opposite signs of f), breaking the conjugate-pair
+       identity h_{l,-m}(f) = (-1)^l conj(h_{lm}(-f)) at the percent level.
 
     Notes:
        a) XXXFrequencySeries  have an f0 and a deltaF, and *logically* they should run from f0....f0+N*df
@@ -4944,6 +4968,8 @@ def evaluate_fvals(lal_2sided_fseries):
     """
     npts = lal_2sided_fseries.data.length
     df = lal_2sided_fseries.deltaF
+    if lal_convention:
+        return df*(np.arange(npts) - npts//2)
     fvals = np.zeros(npts)
     # https://www.lsc-group.phys.uwm.edu/daswg/projects/lal/nightly/docs/html/group___time_freq_f_f_t__h.html
     # https://www.lsc-group.phys.uwm.edu/daswg/projects/lal/nightly/docs/html/_time_freq_f_f_t_8h.html
@@ -5762,13 +5788,13 @@ def rotate_hlm_static(hlm,alphaA,betaA,gammaA,extra_polarization=None):
                 hCatOut[(L,M)] = lal.CreateCOMPLEX16TimeSeries("Template h(t)", 
                                                  h0.epoch, h0.f0, h0.deltaT, lsu_DimensionlessUnit, 
                                                  h0.data.length)
-                hCatOut[(L,M)].data.data *=0 # initialize
+                hCatOut[(L,M)].data.data[:] = 0 # initialize
                 lal_type=True
             elif isinstance(hlm[(L,M)] , lal.Complex16FrequencySeries):
                 hCatOut[(L,M)] =  lal.CreateCOMPLEX16FrequencySeries("Template h(t)", 
                                                                      h0.epoch, h0.f0, h0.deltaF, lsu_HertzUnit ,
                                                                      h0.data.length)
-                hCatOut[(L,M)].data.data *=0 # initialize
+                hCatOut[(L,M)].data.data[:] = 0 # initialize
                 lal_type=True
             elif isinstance(hlm[(L,M)], np.ndarray):
                 hCatOut[(L,M)] = np.zeros(h0.shape)
@@ -5807,29 +5833,27 @@ def extract_JL_angles(P,return_inverse=True,phase_factor=1):
     theta_JL, phi_JL = polar_angles_in_frame(VectorToFrame(Lhat), Jhat)
     # To make review-stable, be VERY explicit : try to use lalsuite function calls, not above
     my_cos = np.dot(Lhat, Jhat)
-    theta_JL = P.incl   # this is pretty close. Good enough if we are nearly aligned
-    if my_cos < 1-1e-5:  # but if we are even slightly misaligned, use the acos of above
-        theta_JL = np.arccos( my_cos ) #P.extract_param('beta')  # this is just Jhat.Jhat
+    theta_JL = np.arccos(np.clip(my_cos, -1., 1.))
 
     # Remaining angle:
     nhat_obs = np.array([ np.sin(P.incl)*np.cos(np.pi/2*phase_factor-P.phiref), np.sin(P.incl)*np.sin(np.pi/2*phase_factor-P.phiref), np.cos(P.incl)])  # base vector
-    vecZ = np.array([0,0,1])
-    vecY = np.array([0,1,0])
-
-    # thetaJL == beta.  However, we're noit going to use this
+    # thetaJL == beta.
 #    theta_jn, _, theta_1, theta_2, phi_12, a_1, a_2 =lalsim.SimInspiralTransformPrecessingWvf2PE(
 #            P.incl, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.m1, P.m2, P.fref, P.phiref)
 
-    # rotation from J to point along L for example
-    rot = np.matmul(rotation_matrix( vecY, -theta_JL), rotation_matrix( vecZ, -phi_JL))
-
-    # Rotation around L needed to rotate viewing direction
-    nhat_rot = np.matmul(rot, nhat_obs)
-    last_angle = np.angle( nhat_rot[0]+1j*nhat_rot[1])
+    # Rotate N by Rz(-phi_JL), then Ry(-theta_JL), following Appendix C
+    # explicitly.  rotation_matrix uses a different active/passive convention,
+    # so using it here changes the final Euler angle substantially.
+    cos_phi = np.cos(phi_JL)
+    sin_phi = np.sin(phi_JL)
+    nx_rot = nhat_obs[0]*cos_phi + nhat_obs[1]*sin_phi
+    ny_rot = -nhat_obs[0]*sin_phi + nhat_obs[1]*cos_phi
+    nx_jframe = nx_rot*np.cos(theta_JL) - nhat_obs[2]*np.sin(theta_JL)
+    last_angle = np.arctan2(ny_rot, nx_jframe)
 
     # Phase conventions as in XPHM paper https://journals.aps.org/prd/abstract/10.1103/PhysRevD.103.104056
     if return_inverse:
-        # the two np.pi factors end up producing a mode sign  (-1)^m (-1)^m'  to deal with  thetaJL < 0  , so we don't have a negative angle there.
+        # The two pi factors produce (-1)^m (-1)^m' while keeping beta positive.
         return np.pi - last_angle, theta_JL, np.pi-phi_JL
     else:
         # 
