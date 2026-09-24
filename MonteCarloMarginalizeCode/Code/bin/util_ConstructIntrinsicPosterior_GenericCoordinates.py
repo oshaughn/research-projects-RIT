@@ -335,6 +335,9 @@ parser.add_argument("--tabular-eos-file",type=str,default=None,help="Tabular fil
 parser.add_argument("--tabular-eos-file-format",type=str,default=None,help="Format of tabular file of EOS to use.  The default prior will be UNIFORM in this table!")
 parser.add_argument("--tabular-eos-order-statistic",type=str,default=None,help="Order statistic to use.  Options will include R1p4, LambdaTildeQ1, and ...}")
 parser.add_argument("--using-eos", type=str, default=None, help="Name of EOS.  Fit parameter list should physically use lambda1, lambda2 information (but need not). If starts with 'file:', uses a filename with EOS parameters ")
+parser.add_argument("--using-eos-branch", type=int, default=None, help="Select one stable LALSimulation family branch while preserving the fixed-EOS lambda_from_m(m) interface. Required for an explicitly chosen twin-star branch; not applicable to the primary-branch nmbseq v1 contract.")
+parser.add_argument("--using-eos-dirty-phase-transitions", action='store_true', help="Compatibility flag for --using-eos lalsim_file:<path>. The reviewed PhaseTransition reader always enables its dirty-phase-transition handling.")
+parser.add_argument("--using-eos-extended-family", action='store_true', help="With --using-eos lalsim_file:<path>, build the reviewed extended family instead of the PE-oriented minimal M/R/k2 family.")
 parser.add_argument("--using-eos-index", type=int, default=None, help="Index of EOS parameters in file.")
 parser.add_argument("--no-use-lal-eos",action='store_true',help="Do not use LAL EOS interface. Used for spectral EOS. Do not use this.")
 parser.add_argument("--no-matter1", action='store_true', help="Set the lambda parameters to zero (BBH) but return them")
@@ -416,6 +419,24 @@ if  opts.input_eos_index and not(opts.tabular_eos_file):
     print(" warning: input EOS index, but not using it; presumably you are doing a model-free test ")
 if  not(opts.input_eos_index) and (opts.tabular_eos_file):
     raise Exception(" Fail: must process EOS input to be able to use it ")
+# ensure using_eos_index valid for eos file length
+if opts.using_eos and opts.using_eos.startswith('file:') and not(opts.using_eos_index is None):
+    fname = opts.using_eos.replace('file:', '')
+    try:
+        dat = np.loadtxt(fname)[opts.using_eos_index]
+    except Exception as e:
+        print(" Fail: EOS index out of range:\n   ",e)
+        sys.exit(0)
+from RIFT.physics.lalsim_eos_compat import validate_fixed_eos_branch_request
+validate_fixed_eos_branch_request(
+    opts.using_eos_branch, opts.using_eos, opts.using_eos_for_prior
+)
+if (opts.using_eos_dirty_phase_transitions or opts.using_eos_extended_family) and (
+        opts.using_eos is None or not opts.using_eos.startswith('lalsim_file:')):
+    raise ValueError(
+        "--using-eos-dirty-phase-transitions and --using-eos-extended-family "
+        "require --using-eos lalsim_file:<path>"
+    )
 
 my_eos=None
 #option to be used if gridded values not calculated assuming EOS
@@ -442,7 +463,7 @@ if opts.using_eos!=None:
                 spec_params['gamma4']=spec_param_array[3]
             eos_base = EOSManager.EOSLindblomSpectral(name=eos_name,spec_params=spec_params,use_lal_spec_eos=not opts.no_use_lal_eos)
             my_eos=eos_base
-        elif opts.eos_param == 'cs_spectral' and len(spec_param_array >=4):
+        elif opts.eos_param == 'cs_spectral' and len(spec_param_array) >= 4:
             spec_params ={}
             spec_params['gamma1']=spec_param_array[0]
             spec_params['gamma2']=spec_param_array[1]
@@ -451,13 +472,13 @@ if opts.using_eos!=None:
             spec_params['gamma4']=spec_param_array[3]
             eos_base = EOSManager.EOSLindblomSpectralSoundSpeedVersusPressure(name=eos_name,spec_params=spec_params,use_lal_spec_eos=not opts.no_use_lal_eos)
             my_eos = eos_base
-        elif opts.eos_param == 'PP' and len(spec_param_array >=4):
+        elif opts.eos_param == 'PP' and len(spec_param_array) >= 4:
             spec_params ={}
             spec_params['logP1'] = spec_param_array[0]
             spec_params['gamma1'] = spec_param_array[1]
             spec_params['gamma2'] = spec_param_array[2]
             spec_params['gamma3'] = spec_param_array[3]
-            eos_base = EOSManager.EOSPiecewisePolytrope(name=eos_name,params_dict=spec_params)
+            eos_base = EOSManager.EOSPiecewisePolytrope(name=eos_name,param_dict=spec_params)
             my_eos = eos_base
         else:
             raise Exception("Unknown method for parametric EOS data file {} : {} ".format(eos_name,opts.eos_param))
@@ -500,6 +521,20 @@ if opts.using_eos!=None:
         spec_params['gamma4']=spec_param_array[3]
         eos_base = EOSManager.EOSLindblomSpectralSoundSpeedVersusPressure(name=eos_name,spec_params=spec_params,use_lal_spec_eos=not opts.no_use_lal_eos)
         my_eos = eos_base
+    elif eos_name.startswith('nmbseq:'):
+        # fixed single EOS realization from a sequence file (tabular or pca):
+        #   --using-eos nmbseq:<sequence_file.h5>:<index>
+        # The exact per-EOS-evidence ("painful") mode for sequence draws.
+        _, seq_fname, seq_indx = eos_name.split(':')
+        my_eos = EOSManager.EOSSequenceSingleIndex(fname=seq_fname,
+                                                   index=int(seq_indx))
+    elif eos_name.startswith('lalsim_file:'):
+        my_eos = EOSManager.EOSLALSimulationFromFile(
+            fname=eos_name.split(':', 1)[1],
+            dirty_phase_transitions=opts.using_eos_dirty_phase_transitions,
+            minimal_family=not opts.using_eos_extended_family,
+            phase_transition_aware=opts.using_eos_branch is not None,
+        )
     elif 'lal_' in eos_name:
         eos_name = eos_name.replace('lal_','')
         my_eos = EOSManager.EOSLALSimulation(name=eos_name)
@@ -514,6 +549,16 @@ if opts.using_eos!=None:
         my_eos = EOSManager.EOSFromTabularData(name=eos_name,eos_data=my_eos_dat)
     else:
         my_eos = EOSManager.EOSFromDataFile(name=eos_name,fname =EOSManager.dirEOSTablesBase+"/" + eos_name+".dat")
+
+    if opts.using_eos_branch is not None:
+        if not hasattr(my_eos, "for_branch"):
+            raise ValueError(
+                "--using-eos-branch requires a LALSimulation-backed EOS. "
+                "The nmbseq v1 interface intentionally exposes its primary "
+                "stable branch; multi-branch NMB inference requires the "
+                "central-enthalpy sequence path."
+            )
+        my_eos = my_eos.for_branch(opts.using_eos_branch)
 
 
 with open('args.txt','w') as fp:
@@ -1924,7 +1969,8 @@ if opts.tabular_eos_file:
     if mc_ref > 1e10:
         mc_ref = mc_ref/lal.MSUN_SI
     m_ref = mc_ref*np.power(2, 1./5.)   # assume equal mass
-    my_eos_sequence = EOSManager.EOSSequenceLandry(fname=opts.tabular_eos_file, load_ns=True, oned_order_name='Lambda', oned_order_mass=m_ref, no_sort = True)
+    # auto-detect EOSSequenceLandry vs NuclearMatter-Backend NSSequence format
+    my_eos_sequence = EOSManager.EOSSequenceFromFile(fname=opts.tabular_eos_file, load_ns=True, oned_order_name='Lambda', oned_order_mass=m_ref, no_sort = True)
 
     # Define prior, NOT NORMALIZED
     prior_map['ordering'] =lambda x: np.ones(x.shape)
@@ -3617,5 +3663,3 @@ for indx in np.arange(len(extra_plot_coord_names)):
      print(" Failed to generate corner for ", extra_plot_coord_names[indx])
 
 sys.exit(0)
-
-
