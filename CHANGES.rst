@@ -9,14 +9,10 @@ Development tree is rift_O4c.
     marginalization; PR 153 adds cubic fractional-time interpolation to the
     NoLoop likelihood; PR 194 adds ASIMOV 0.8 production compatibility and
     hardens legacy log collection.
-  - PR 184 extends EOSManager to reviewed multipart and multibranch LALSimulation
-    family interfaces while preserving scalar and NuclearMatter-Backend sequence
-    contracts. Fixed-EOS CIP accepts ``lalsim_file:<path>`` and
-    ``--using-eos-branch``. Native NMB/PCA files retain the ``nmbseq:``
-    primary-branch contract; disconnected stable runs are split before
-    interpolation. The CIP piecewise-polytrope constructor keyword and
-    four-parameter row guards are corrected for Kedia-style workflows.
-    See ``docs/eos-interface-contract.md``.
+  - (rc2) PRs 195 and 196 correct batch and non-batch network sky-frame
+    mapping and output; PR 185 adds Rimsky orchestration; PR 175 fixes the
+    TEOBResumSDALI GWSignal mode sign; PR 169 interleaves worker grids before
+    nested ILE; PR 184 adds reviewed multibranch LALSimulation EOS support.
 
 0.0.17.13
 ---------
