@@ -2,9 +2,9 @@
 Tests for container family manifest parsing and the expression-valued
 SingularityImage / selective-transfer / require_gpus wiring.
 
-These run without a real HTCondor pool: the parser + expression builders are
-pure, and the integration test inspects the generated ``condor_cmds`` on the
-job object returned by ``write_ILE_sub_simple`` (no .sub file or condor needed).
+These run without submitting to a pool. Parser and object-level tests need no
+HTCondor installation; effective-job-ad tests invoke condor_submit -dry-run when
+available, checking GPU image transfer and CPU fallback behavior.
 
 Run directly:  python test/test_container_manifest.py
 Or via pytest: pytest test/test_container_manifest.py
@@ -50,6 +50,22 @@ ALL_CVMFS_MANIFEST = textwrap.dedent(
         cuda_capability_min: 3.0
       - label: modern
         image: /cvmfs/sw/rift_modern.sif
+        cuda_capability_min: 7.0
+    """
+)
+
+
+ALL_OSDF_MANIFEST = textwrap.dedent(
+    """
+    version: 1
+    fallback: ancient
+    containers:
+      - label: ancient
+        image: osdf:///igwn/sw/rift_ancient_cuda11.sif
+        cuda_capability_min: 3.0
+        cuda_capability_max: 7.0
+      - label: modern
+        image: osdf:///igwn/sw/rift_modern_cuda12.sif
         cuda_capability_min: 7.0
     """
 )
@@ -144,7 +160,8 @@ def test_selectors_are_not_undefined_guarded(tmp_path):
     m = cm.load_container_manifest(_write(tmp_path, MIXED_MANIFEST))
     assert "=?= undefined" not in cm.build_singularity_image_expr(m)
     assert "=?= undefined" not in cm.build_transfer_input_expr(m)
-    assert "=?= undefined" not in cm.build_container_image_select(m)
+    assert "=?= undefined" not in cm.build_container_image_select(
+        cm.load_container_manifest(_write(tmp_path, ALL_OSDF_MANIFEST, "osdf.yaml")))
 
 
 def test_capability_defined_requirement(tmp_path):
@@ -254,22 +271,38 @@ def test_backward_compat_single_sif(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_container_image_select_expression(tmp_path):
-    m = cm.load_container_manifest(_write(tmp_path, MIXED_MANIFEST))
+    m = cm.load_container_manifest(_write(tmp_path, ALL_OSDF_MANIFEST))
     expr = cm.build_container_image_select(m)
-    # a $$() match-time substitution token with VERBATIM image values (osdf URL
-    # fetched by container universe; cvmfs path used in place) -- NOT a ./basename
-    # rewrite, and NOT undefined-guarded (Requirements exclusion is used instead)
+    # A $$() match-time substitution token over BASENAMES.  condor_submit derives the
+    # job ad's ContainerImage as the text after the LAST '/', *before* any $$
+    # expansion, so a selector containing a path is truncated and the job holds at the
+    # execute point ("Unable to download or build singularity image ...sif\") ])",
+    # observed live on an OSPool glidein).  With no '/' the token survives intact and
+    # the schedd expands it at match time.
     assert expr.startswith("$$([ ") and expr.endswith(" ])")
+    assert "/" not in expr                                        # THE invariant
     assert "=?= undefined" not in expr                            # not a guess-guard
     assert "ifThenElse(TARGET.GPUs_Capability >= 7.0," in expr
-    assert '"osdf:///igwn/rift_modern_cuda12.sif"' in expr         # raw osdf URL
-    assert '"/cvmfs/sw/rift_ancient_cuda11.sif"' in expr           # fallback verbatim
-    assert "./rift_modern_cuda12.sif" not in expr                  # no basename rewrite
+    assert '"rift_modern_cuda12.sif"' in expr                     # basename branch
+    assert '"rift_ancient_cuda11.sif"' in expr                    # fallback basename
+
+
+def test_container_image_select_rejects_in_place_images(tmp_path):
+    # An in-place (CVMFS/local) image can only be named by its full path, which would
+    # reintroduce the '/' truncation.  Refuse loudly rather than emit a submit file
+    # that holds every job.
+    m = cm.load_container_manifest(_write(tmp_path, MIXED_MANIFEST))
+    with pytest.raises(cm.ContainerManifestError) as exc:
+        cm.build_container_image_select(m)
+    assert "ancient" in str(exc.value)
+    # ... but the CPU-only single-image path is unaffected: it is a plain literal that
+    # condor_submit handles correctly.
+    assert cm.build_container_image_select(m, request_gpu=False) == "/cvmfs/sw/rift_ancient_cuda11.sif"
 
 
 def test_integration_container_universe(tmp_path, monkeypatch):
     # Opt-in container-universe mode: per-machine image via $$()-substituted
-    # container_image; no MY.SingularityImage / BindCVMFS / $$() transfer token;
+    # container_image plus a full-URL transfer token; no MY.SingularityImage / BindCVMFS;
     # universe=container; require_gpus floor still applied.
     monkeypatch.setenv("RIFT_CONTAINER_UNIVERSE", "1")
     monkeypatch.delenv("RIFT_REQUIRE_GPUS", raising=False)
@@ -282,7 +315,7 @@ def test_integration_container_universe(tmp_path, monkeypatch):
         arg_str="--foo bar",
         transfer_files=["../all.net"],
         use_singularity=True,
-        singularity_image=_write(tmp_path, MIXED_MANIFEST),
+        singularity_image=_write(tmp_path, ALL_OSDF_MANIFEST),
         request_gpu=True,
         cache_file="local.cache",
     )
@@ -291,9 +324,19 @@ def test_integration_container_universe(tmp_path, monkeypatch):
     ci = cmds["container_image"]
     assert ci.startswith("$$([")               # match-time substitution, unquoted
     assert not ci.startswith('"')
+    assert "/" not in ci                       # else condor_submit truncates it
     assert "MY.SingularityImage" not in cmds    # the OSG-breaking attr is gone
     assert "MY.SingularityBindCVMFS" not in cmds
-    assert "$$([" not in cmds.get("transfer_input_files", "")  # image via container_image, not transfer
+
+    # container_image names only a basename, so the image must arrive by transfer:
+    # exactly one comma-free $$() token carrying the full URLs.
+    tif = cmds["transfer_input_files"]
+    assert tif.count("$$([") == 1
+    assert "osdf:///igwn/sw/rift_modern_cuda12.sif" in tif
+    # ... and TransferInput is pinned, so condor_submit does not append the basename
+    # selector to it as a bogus extra input file.
+    assert cmds["MY.TransferInput"] == '"' + tif.replace('"', '\\"') + '"'
+
     assert "Capability >= 3.0" in cmds["require_gpus"]         # floor still steers GPUs
     # GPU family job: still excludes slots that don't advertise the capability attr
     assert "TARGET.GPUs_Capability =!= undefined" in cmds["requirements"]
@@ -363,6 +406,124 @@ def test_integration_cip_legacy_single_image(tmp_path, monkeypatch):
     assert "$$([" not in cmds.get("transfer_input_files", "")
     assert "=!= undefined" not in cmds.get("requirements", "")   # CPU job: no GPU exclusion
     assert "require_gpus" not in cmds
+
+
+
+
+@pytest.mark.parametrize("role", ["ILE", "CALPILOT"])
+@pytest.mark.parametrize("request_gpu", [True, False])
+def test_container_universe_effective_job_ad(tmp_path, monkeypatch, role, request_gpu):
+    """Use condor_submit itself: object-level checks miss selector truncation."""
+    import json
+    import shutil
+    import subprocess
+
+    submit = shutil.which("condor_submit")
+    if not submit:
+        pytest.skip("HTCondor required for effective job-ad validation")
+    from RIFT.misc import dag_utils_generic as dag
+
+    monkeypatch.setenv("RIFT_CONTAINER_UNIVERSE", "1")
+    monkeypatch.chdir(tmp_path)
+    manifest = _write(tmp_path, ALL_OSDF_MANIFEST)
+    (tmp_path / "all.net").write_text("fixture\n")
+    (tmp_path / "args_ile.txt").write_text("--n-max 1\n")
+    (tmp_path / "consolidated_0.composite").write_text("fixture\n")
+    common = dict(tag=role, exe="/usr/bin/true", log_dir=str(tmp_path) + "/",
+                  use_singularity=True, singularity_image=manifest,
+                  request_gpu=request_gpu, transfer_files=[str(tmp_path / "all.net")])
+    if role == "ILE":
+        job, sub = dag.write_ILE_sub_simple(cache_file="local.cache", arg_str="--gpu --force-xpy --vectorized", **common)
+    else:
+        job, sub = dag.write_calpilot_sub(working_directory=str(tmp_path),
+                                         ile_args_file=str(tmp_path / "args_ile.txt"), **common)
+    cmds = dict(job.condor_cmds)
+    if request_gpu:
+        assert "/" not in cmds["container_image"]
+        assert "osdf:///" in cmds["transfer_input_files"]
+        assert "MY.TransferInput" in cmds
+    else:
+        assert cmds["container_image"] == "osdf:///igwn/sw/rift_ancient_cuda11.sif"
+        assert "$$(" not in cmds["transfer_input_files"]
+        assert "MY.TransferInput" not in cmds
+    job.add_condor_cmd("macroevent", "0")
+    job.add_condor_cmd("macroiteration", "0")
+    job.add_condor_cmd("macroiterationprev", "0")
+    job.write_sub_file()
+    ad_path = tmp_path / "effective.ad"
+    result = subprocess.run([submit, "-disable", "-dry-run", str(ad_path), str(sub)],
+                            capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stdout + result.stderr
+    ad = {}
+    for line in ad_path.read_text().splitlines():
+        key, sep, value = line.partition("=")
+        key = key.strip()
+        value = value.strip()
+        if sep and key in ("ContainerImage", "TransferInput"):
+            ad[key] = json.loads(value)
+    if request_gpu:
+        assert ad["ContainerImage"] == cmds["container_image"]
+        assert ad["TransferInput"] == cmds["transfer_input_files"].replace("$(macroiteration)", "0")
+        assert "ifThenElse" not in ad["TransferInput"]  # no spurious basename input
+    else:
+        assert ad["ContainerImage"] == "rift_ancient_cuda11.sif"
+        assert "$$(" not in ad["TransferInput"]
+
+
+def _make_calibration_job(tmp_path, monkeypatch, manifest, container_universe):
+    if container_universe:
+        monkeypatch.setenv("RIFT_CONTAINER_UNIVERSE", "1")
+    else:
+        monkeypatch.delenv("RIFT_CONTAINER_UNIVERSE", raising=False)
+    monkeypatch.chdir(tmp_path)
+    dag = pytest.importorskip("RIFT.misc.dag_utils_generic")
+    job, _ = dag.write_calibration_uncertainty_reweighting_sub(
+        tag="Calib_reweight",
+        log_dir=str(tmp_path) + "/",
+        exe="/usr/bin/true",
+        pickle_file=str(tmp_path / "event.pickle"),
+        posterior_file=str(tmp_path / "posterior.dat"),
+        transfer_files=[],
+        use_osg=True,
+        use_singularity=True,
+        singularity_image=manifest,
+    )
+    return job, dict(job.condor_cmds)
+
+
+def test_calibration_family_legacy_uses_fallback_not_manifest(tmp_path, monkeypatch):
+    manifest = _write(tmp_path, ALL_OSDF_MANIFEST)
+    job, cmds = _make_calibration_job(tmp_path, monkeypatch, manifest, False)
+    assert job.universe == "vanilla"
+    assert cmds["MY.SingularityImage"] == '"./rift_ancient_cuda11.sif"'
+    assert manifest not in cmds["MY.SingularityImage"]
+    assert "ifThenElse" not in cmds["MY.SingularityImage"]
+    assert cmds["transfer_input_files"].count(
+        "osdf:///igwn/sw/rift_ancient_cuda11.sif"
+    ) == 1
+    assert "osdf:///igwn/sw/rift_modern_cuda12.sif" not in cmds["transfer_input_files"]
+
+
+def test_calibration_family_container_universe_uses_fallback_not_manifest(
+    tmp_path, monkeypatch
+):
+    manifest = _write(tmp_path, ALL_OSDF_MANIFEST)
+    job, cmds = _make_calibration_job(tmp_path, monkeypatch, manifest, True)
+    assert job.universe == "container"
+    assert cmds["container_image"] == "osdf:///igwn/sw/rift_ancient_cuda11.sif"
+    assert manifest not in cmds["container_image"]
+    assert "MY.SingularityImage" not in cmds
+    assert "MY.SingularityBindCVMFS" not in cmds
+    assert "$$(" not in cmds["container_image"]
+    assert "rift_modern_cuda12.sif" not in cmds["transfer_input_files"]
+
+    # Exercise the same submit-file emission path as a build-only pipeline run.
+    job.write_sub_file()
+    submit = (tmp_path / "Calib_reweight.sub").read_text()
+    assert "universe = container" in submit
+    assert "container_image = osdf:///igwn/sw/rift_ancient_cuda11.sif" in submit
+    assert "fam.yaml" not in submit
+
 
 
 if __name__ == "__main__":
