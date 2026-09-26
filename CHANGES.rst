@@ -2,11 +2,6 @@
 ---------
 Development tree is rift_O4c.
 
-  - Container-universe GPU ILE and calibration pilot jobs select image basenames
-    and transfer the matching full URL, avoiding held jobs from truncated
-    HTCondor image selectors. CPU jobs, including calibration reweighting,
-    use a single fallback image without GPU-dependent transfer expressions.
-
   - (rc0) PR 187 stabilizes vectorized time marginalization for loud signals;
     PR 183 (including PR 163) corrects ChooseFDModes conditioning and J-to-L
     frame rotation; PR 176 adds ASIMOV 0.7 and PESummary handoff compatibility.
@@ -18,6 +13,13 @@ Development tree is rift_O4c.
     mapping and output; PR 185 adds Rimsky orchestration; PR 175 fixes the
     TEOBResumSDALI GWSignal mode sign; PR 169 interleaves worker grids before
     nested ILE; PR 184 adds reviewed multibranch LALSimulation EOS support.
+  - (rc3) PR 199 restores ordinary BBH CIP startup after the EOS validation
+    backport. PR 197 resolves postprocessing helpers relative to the installed
+    wrappers and propagates helper failures and empty-output errors.
+    PR 200 fixes container-universe image transfers for GPU ILE and calibration
+    pilot jobs, selects literal fallback images for CPU jobs (including
+    calibration reweighting), and preserves transfer delimiters for string
+    inputs. CPU ILE retains its --gpu NoLoop code path.
 
 0.0.17.13
 ---------
