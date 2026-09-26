@@ -5,6 +5,23 @@
 #   For NR-based DAGs, (a) consolidates the output, (b) runs ILE simplification, then (c) creates an NR-indexed version.
 #   The second format uses a *portable* name, which is stable to me changing the underlying relationship between spins and label.
 
+set -o pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+
+resolve_helper() {
+    local helper=$1
+    if [ -x "${SCRIPT_DIR}/${helper}" ]; then
+        printf '%s\n' "${SCRIPT_DIR}/${helper}"
+    elif command -v "${helper}" >/dev/null 2>&1; then
+        command -v "${helper}"
+    else
+        echo "ERROR: unable to locate required helper ${helper}" >&2
+        return 127
+    fi
+}
+
+CLEAN_ILE="$(resolve_helper util_CleanILE.py)" || exit $?
 
 DIR_PROCESS=$1
 BASE_OUT=$2
@@ -24,12 +41,23 @@ find ${DIR_PROCESS} -name 'CME*.dat' -exec cat {} \; > ${RND}_tmp.dat
 echo " Consolidating multiple instances of the monte carlo  .... "
 if [ "$3" == '--eccentricity' ]; then
     if [ "$4" == '--meanPerAno' ]; then
-	util_CleanILE.py ${RND}_tmp.dat $3 $4 | sort -rg -k12 > $BASE_OUT.composite
+	"${CLEAN_ILE}" ${RND}_tmp.dat $3 $4 | sort -rg -k12 > $BASE_OUT.composite
     else
-	util_CleanILE.py ${RND}_tmp.dat $3 | sort -rg -k11 > $BASE_OUT.composite
+	"${CLEAN_ILE}" ${RND}_tmp.dat $3 | sort -rg -k11 > $BASE_OUT.composite
     fi
 else
-    util_CleanILE.py ${RND}_tmp.dat $3 | sort -rg -k10 > $BASE_OUT.composite
+    "${CLEAN_ILE}" ${RND}_tmp.dat $3 | sort -rg -k10 > $BASE_OUT.composite
+fi
+clean_status=$?
+if [ ${clean_status} -ne 0 ]; then
+    echo "ERROR: ILE consolidation failed with status ${clean_status}" >&2
+    rm -f "$BASE_OUT.composite"
+    exit ${clean_status}
+fi
+if [ ! -s "$BASE_OUT.composite" ]; then
+    echo "ERROR: ILE consolidation produced an empty composite: $BASE_OUT.composite" >&2
+    rm -f "$BASE_OUT.composite"
+    exit 1
 fi
 
 # Manifest
@@ -43,6 +71,9 @@ cat ${DIR_PROCESS}/command-single.sh >>  ${BASE_OUT}.manifest
 env >> ${BASE_OUT}.environment  
 
 # tar file
-tar cvzf ${BASE_OUT}.tgz ${BASE_OUT}.composite  ${BASE_OUT}.manifest ${BASE_OUT}.environment
+if ! tar cvzf ${BASE_OUT}.tgz ${BASE_OUT}.composite  ${BASE_OUT}.manifest ${BASE_OUT}.environment; then
+    echo "ERROR: failed to create ${BASE_OUT}.tgz" >&2
+    exit 1
+fi
 
-exit 0 ;  # force end on success, for DAG
+exit 0
