@@ -344,7 +344,17 @@ if (opts.use_ini):
 
         if not('RIFT_REQUIRE_GPUS' in os.environ) and 'ile_require_gpus' in rift_items:
             os.environ['RIFT_REQUIRE_GPUS'] = rift_items['ile_require_gpus']
-        
+
+        # Container family (multi-container per-machine image selection): let the ini
+        # file provide the image/exe-dir, as the environment normally would.  The value
+        # may be a single .sif/osdf URL (legacy) or a .yaml/.yml family manifest.
+        # Environment still dominates, matching the accounting/require-GPUs behavior above.
+        if not('SINGULARITY_RIFT_IMAGE' in os.environ) and 'singularity_rift_image' in rift_items:
+            os.environ['SINGULARITY_RIFT_IMAGE'] = rift_items['singularity_rift_image']
+        if not('SINGULARITY_BASE_EXE_DIR' in os.environ) and 'singularity_base_exe_dir' in rift_items:
+            os.environ['SINGULARITY_BASE_EXE_DIR'] = rift_items['singularity_base_exe_dir']
+
+
         # attempt to lazy-select the command-line that are present in the ini file section
         for item in rift_items:
             item_renamed = item.replace('-','_')
