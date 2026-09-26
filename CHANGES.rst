@@ -20,6 +20,8 @@ Development tree is rift_O4c.
     pilot jobs, selects literal fallback images for CPU jobs (including
     calibration reweighting), and preserves transfer delimiters for string
     inputs. CPU ILE retains its --gpu NoLoop code path.
+    Include the plotting-utilities package initializer so clean wheels and
+    source distributions import RIFT without relying on untracked files.
 
 0.0.17.13
 ---------
