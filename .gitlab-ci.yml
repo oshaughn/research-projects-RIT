@@ -55,6 +55,7 @@ unit_tests:
   script:
     - python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_time_marginalization_perrow_offset.py
     - python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_sky_rotations.py
+    - python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_cip_startup.py MonteCarloMarginalizeCode/Code/test/test_lalsim_eos_compat.py
 
 test_run:
   stage: system tests
