@@ -428,8 +428,9 @@ if opts.using_eos and opts.using_eos.startswith('file:') and not(opts.using_eos_
         print(" Fail: EOS index out of range:\n   ",e)
         sys.exit(0)
 from RIFT.physics.lalsim_eos_compat import validate_fixed_eos_branch_request
+# O4c has no EOS hyperprior mode; use the validator's default False.
 validate_fixed_eos_branch_request(
-    opts.using_eos_branch, opts.using_eos, opts.using_eos_for_prior
+    opts.using_eos_branch, opts.using_eos
 )
 if (opts.using_eos_dirty_phase_transitions or opts.using_eos_extended_family) and (
         opts.using_eos is None or not opts.using_eos.startswith('lalsim_file:')):
