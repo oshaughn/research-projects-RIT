@@ -410,9 +410,10 @@ def test_integration_cip_legacy_single_image(tmp_path, monkeypatch):
 
 
 
-@pytest.mark.parametrize("role", ["ILE", "CALPILOT"])
+@pytest.mark.parametrize("role,transfer_form", [("ILE", "list"), ("ILE", "string"),
+                                               ("ILE", "empty-string"), ("CALPILOT", "list")])
 @pytest.mark.parametrize("request_gpu", [True, False])
-def test_container_universe_effective_job_ad(tmp_path, monkeypatch, role, request_gpu):
+def test_container_universe_effective_job_ad(tmp_path, monkeypatch, role, transfer_form, request_gpu):
     """Use condor_submit itself: object-level checks miss selector truncation."""
     import json
     import shutil
@@ -432,6 +433,10 @@ def test_container_universe_effective_job_ad(tmp_path, monkeypatch, role, reques
     common = dict(tag=role, exe="/usr/bin/true", log_dir=str(tmp_path) + "/",
                   use_singularity=True, singularity_image=manifest,
                   request_gpu=request_gpu, transfer_files=[str(tmp_path / "all.net")])
+    if transfer_form == "string":
+        common["transfer_files"] = str(tmp_path / "all.net")
+    elif transfer_form == "empty-string":
+        common["transfer_files"] = ""
     if role == "ILE":
         job, sub = dag.write_ILE_sub_simple(cache_file="local.cache", arg_str="--gpu --force-xpy --vectorized", **common)
     else:
@@ -442,6 +447,9 @@ def test_container_universe_effective_job_ad(tmp_path, monkeypatch, role, reques
         assert "/" not in cmds["container_image"]
         assert "osdf:///" in cmds["transfer_input_files"]
         assert "MY.TransferInput" in cmds
+        # The URL selector must be its own transfer item, not a suffix of all.net.
+        expected_prefix = "" if transfer_form == "empty-string" else str(tmp_path / "all.net") + ","
+        assert cmds["transfer_input_files"].startswith(expected_prefix + "$$([")
     else:
         assert cmds["container_image"] == "osdf:///igwn/sw/rift_ancient_cuda11.sif"
         assert "$$(" not in cmds["transfer_input_files"]

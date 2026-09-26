@@ -2830,7 +2830,7 @@ echo Starting ...
 
     if not transfer_files is None:
         if not isinstance(transfer_files, list):
-            fname_str=transfer_files + ' '.join(extra_files)
+            fname_str = ','.join(part for part in [transfer_files] + extra_files if part)
         else:
             fname_str = ','.join(transfer_files+extra_files)
         fname_str=fname_str.strip()
