@@ -411,6 +411,69 @@ def test_integration_cip_legacy_single_image(tmp_path, monkeypatch):
     assert "require_gpus" not in cmds
 
 
+@pytest.mark.parametrize("role", ["ILE", "ILE_STRING", "CALPILOT"])
+@pytest.mark.parametrize("request_gpu", [True, False])
+def test_container_universe_effective_job_ad(tmp_path, monkeypatch, role, request_gpu):
+    """Use condor_submit itself: object-level checks miss selector truncation."""
+    import json
+    import shutil
+    import subprocess
+
+    submit = shutil.which("condor_submit")
+    if not submit:
+        pytest.skip("HTCondor required for effective job-ad validation")
+    from RIFT.misc import dag_utils_generic as dag
+
+    monkeypatch.setenv("RIFT_CONTAINER_UNIVERSE", "1")
+    monkeypatch.chdir(tmp_path)
+    manifest = _write(tmp_path, ALL_OSDF_MANIFEST)
+    (tmp_path / "all.net").write_text("fixture\n")
+    (tmp_path / "args_ile.txt").write_text("--n-max 1\n")
+    (tmp_path / "consolidated_0.composite").write_text("fixture\n")
+    common = dict(tag=role, exe="/usr/bin/true", log_dir=str(tmp_path) + "/",
+                  use_singularity=True, singularity_image=manifest,
+                  request_gpu=request_gpu, transfer_files=[str(tmp_path / "all.net")])
+    if role.startswith("ILE"):
+        if role == "ILE_STRING":
+            common["transfer_files"] = str(tmp_path / "all.net")
+        job, sub = dag.write_ILE_sub_simple(cache_file="local.cache", arg_str="--gpu --force-xpy --vectorized", **common)
+    else:
+        job, sub = dag.write_calpilot_sub(working_directory=str(tmp_path),
+                                         ile_args_file=str(tmp_path / "args_ile.txt"), **common)
+    cmds = dict(job.condor_cmds)
+    if request_gpu:
+        assert "/" not in cmds["container_image"]
+        assert str(tmp_path / "all.net") + "," in cmds["transfer_input_files"]
+        assert "osdf:///" in cmds["transfer_input_files"]
+        assert "MY.TransferInput" in cmds
+    else:
+        assert cmds["container_image"] == "osdf:///igwn/sw/rift_ancient_cuda11.sif"
+        assert "$$(" not in cmds["transfer_input_files"]
+        assert "MY.TransferInput" not in cmds
+    job.add_condor_cmd("macroevent", "0")
+    job.add_condor_cmd("macroiteration", "0")
+    job.add_condor_cmd("macroiterationprev", "0")
+    job.write_sub_file()
+    ad_path = tmp_path / "effective.ad"
+    result = subprocess.run([submit, "-disable", "-dry-run", str(ad_path), str(sub)],
+                            capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stdout + result.stderr
+    ad = {}
+    for line in ad_path.read_text().splitlines():
+        key, sep, value = line.partition("=")
+        key = key.strip()
+        value = value.strip()
+        if sep and key in ("ContainerImage", "TransferInput"):
+            ad[key] = json.loads(value)
+    if request_gpu:
+        assert ad["ContainerImage"] == cmds["container_image"]
+        assert ad["TransferInput"] == cmds["transfer_input_files"].replace("$(macroiteration)", "0")
+        assert "ifThenElse" not in ad["TransferInput"]  # no spurious basename input
+    else:
+        assert ad["ContainerImage"] == "rift_ancient_cuda11.sif"
+        assert "$$(" not in ad["TransferInput"]
+
+
 def _make_calibration_job(tmp_path, monkeypatch, manifest, container_universe):
     if container_universe:
         monkeypatch.setenv("RIFT_CONTAINER_UNIVERSE", "1")
