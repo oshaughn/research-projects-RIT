@@ -170,8 +170,10 @@ parser.add_argument("--supplementary-likelihood-factor-function", default=None,t
 parser.add_argument("--supplementary-likelihood-factor-ini", default=None,type=str,help="With above option, specifies an ini file that is parsed (here) and passed to the preparation code, called when the module is first loaded, to configure the module. EXPERTS ONLY")
 parser.add_argument("--supplementary-coordinate-code", default=None,type=str,help="Coordinate conversion/prior code. Accepts: the literal 'rift_default' (use RIFT.lalsimutils.convert_waveform_coordinates plus RIFT-standard priors); a filesystem path ending in .py (loaded as a plugin); or any importable dotted module name.")
 parser.add_argument("--supplementary-coordinate-function", default=None, type=str, help="Name of the entry-point callable inside the module named by --supplementary-coordinate-code. Defaults to 'convert_coordinates'.")
-parser.add_argument("--supplementary-coordinate-ini", default=None, type=str, help="RoboCode: Optional ini file parsed and handed to the coordinate plugin's prepare() hook so it can read its own configuration block(s).")
-parser.add_argument("--supplementary-coordinate-chart", default=None, type=str, help="RoboCode: Which chart (coordinate system) defined by the plugin to use for this run. Required when the plugin's CHARTS dict has > 1 entry; ignored when the plugin doesn't define CHARTS. Different charts can share parameter names but imply different priors -- the chart name disambiguates which (name -> prior) mapping is installed.")
+#parser.add_argument("--supplementary-coordinate-ini", default=None, type=str, help="RoboCode: Optional ini file parsed and handed to the coordinate plugin's prepare() hook so it can read its own configuration block(s).")
+#parser.add_argument("--supplementary-coordinate-chart", default=None, type=str, help="RoboCode: chart (coord system) defined by the plugin to use. Required when the plugin's CHARTS dict has > 1 entry; ignored when the plugin doesn't define CHARTS. Different charts can share parameter names but imply different priors -- the chart name disambiguates the (name -> prior) mapping.")
+parser.add_argument("--get-range-from-external",action='store_true',help="Get/modify parameter ranges via external func in --supplementary-coordinate-code")
+parser.add_argument("--external-range-args",action='append',help="Provide special args to external range func; syntax: single str 'arg_name=arg_value'.")
 opts=  parser.parse_args()
 
 #print(" WARNING: Always use internal_use_lnL for now ")
@@ -273,6 +275,50 @@ for range_code  in opts.integration_parameter_range: #robocode: (opts.integratio
     range_expr =     eval(range_str)  # define. Better to split on , for example
     param_ranges[name]  = np.array(range_expr)
 
+#Do coordiante rotation stuff here, in case getting param bounds from external script
+#parse args to be passed to coord convert funcs:
+external_kwargs = {}
+if opts.external_range_args: 
+    for arg in opts.external_range_args:
+        external_kwargs[arg.split("=")[0]] = arg.split("=")[1]
+
+supplemental_coordinate_convert = None
+supplemental_coordinate_invert = None
+if opts.supplementary_coordinate_code and opts.supplementary_coordinate_function: 
+    #Ignoring RoboCode completely here - no absurd plugins! Reuse supplemental likelihood functionality
+    print(" EXTERNAL COORDINATE CONVERSION : {}.{} ".format(opts.supplementary_coordinate_code,opts.supplementary_coordinate_function))
+    __import__(opts.supplementary_coordinate_code)
+    '''
+    Expect supplementary-coordinate-code to contain:
+         supplementary-coordinate-function(X, coord_names, **kwargs)
+         "inverse_"+supplementary-coordinate-function(X, coord_names, **kwargs)
+         Optional: get_bounds(param_list, bounds_dict, **kwargs)
+    '''
+    external_coordinate_module = sys.modules[opts.supplementary_coordinate_code]
+    if hasattr(external_coordinate_module,opts.supplementary_coordinate_function):
+        supplemental_coordinate_convert = getattr(external_coordinate_module,opts.supplementary_coordinate_function)
+    
+        if coord_names == low_level_coord_names: #no param_implied or param_nofit
+            print(" All parameters match; will work fully in converted coordinates & requiring inverted conversion.")
+            try:
+                supplemental_coordinate_invert = getattr(external_coordinate_module, "inverse_"+opts.supplementary_coordinate_function)
+            except:
+                print(" ERROR: no inverted coordinate conversion routine found!")
+                supplemental_coordinate_invert = None
+        # Send X to get converted, get converted X back -> do this later
+    else:
+        print("ERROR: could not retrieve supplied coordinate function. Will attempt default conversion (none).")
+    
+    if opts.get_range_from_external: #retrieve/modify param ranges externally
+        try:
+            print(" Retrieving param bounds from external module")
+            supplemental_bound_func = getattr(external_coordinate_module, "get_bounds")
+            param_ranges = supplemental_bound_func(dat_orig_names,param_ranges,**external_kwargs)
+        except Exception as e:
+            print(" ERROR fetching external ranges:",e)
+            print(" WARNING: external range requested but not retrieved. Using supplied bounds as-is.")
+
+
 # Add in integration range for everything else, if nothing specified
 for name in dat_orig_names:
     if not name in param_ranges:
@@ -289,9 +335,6 @@ def uniform_prior(x):
 prior_map = {}
 for name in low_level_coord_names:
     prior_map[name] = uniform_prior
-    #Robocode removes the below & delays until after coord conversion code
-    #Only useful if using external code to retrieve bounds via conversion code's 
-    #get_bounds() func (which may or may not be present!) - see HyperPuffball_new for implementation
     if not(name in param_ranges):
         raise Exception(" {} not provided a parameter range ".format(name))  # change later, should fall back to using prior range from above
 
@@ -332,35 +375,6 @@ if opts.supplementary_likelihood_factor_code and opts.supplementary_likelihood_f
 
       # Call the ini file, tell it what coordinates we are using by name
       supplemental_ln_likelihood_prep(config=supplemental_ln_likelihood_parsed_ini,coords=coord_names)
-  
-              
-supplemental_coordinate_convert = None
-supplemental_coordinate_invert = None
-if opts.supplementary_coordinate_code and opts.supplementary_coordinate_function: 
-    #Ignoring RoboCode completely here - no absurd plugins! Reuse functionality above
-    print(" EXTERNAL COORDINATE CONVERSION : {}.{} ".format(opts.supplementary_coordinate_code,opts.supplementary_coordinate_function))
-    __import__(opts.supplementary_coordinate_code)
-    '''
-    Expect supplementary-coordinate-code to contain:
-         supplementary-coordinate-function(X, coord_names, **kwargs)
-         "inverse_"+supplementary-coordinate-function(X, coord_names, **kwargs)
-         Optional: get_bounds(param_list, bounds_dict, **kwargs)
-    '''
-    external_coordinate_module = sys.modules[opts.supplementary_coordinate_code]
-    if hasattr(external_coordinate_module,opts.supplementary_coordinate_function):
-        supplemental_coordinate_convert = getattr(external_coordinate_module,opts.supplementary_coordinate_function)
-    
-        if coord_names == low_level_coord_names: #no param_implied or param_nofit
-            print(" All parameters match; assuming full conversion & requiring inverted conversion.")
-            try:
-                supplemental_coordinate_invert = getattr(external_coordinate_module, "inverse_"+opts.supplementary_coordinate_function)
-            except:
-                print(" ERROR: no inverted coordinate conversion routine found!")
-                supplemental_coordinate_invert = None
-        # Send X to get converted, get converted X back -> do this later
-    else:
-        print("ERROR: could not retrieve supplied coordinate function. Will attempt default conversion (none).")
-    
 
 
 from sklearn.gaussian_process import GaussianProcessRegressor
@@ -496,76 +510,41 @@ weights = []
 n_params = -1
 
 
- ###
- ### Convert data.   RIGHT NOW JUST DOWNSELECTING, no intermediate fitting parameters defined
- ###
- 
+###
+### Convert data.   RIGHT NOW JUST DOWNSELECTING, no intermediate fitting parameters defined
+###
+
 # Naive convert: no downselect.
+indx_of_orig_names = np.array([dat_orig_names.index(k) for k in coord_names])#coord_names[k]) for k in range(len(coord_names))])
+dat_out = []
+for line in dat:
+    dat_here = np.zeros(len(coord_names)+2)
+    if line[col_lnL+1] > opts.sigma_cut:
+        print("skipping", line)
+        continue
+    dat_here[:-2] = line[indx_of_orig_names+2]#line[2:len(coord_names)+2]  # modify to use names!
+    dat_here[-2] = line[0] #lnL
+    dat_here[-1] = line[1] #sig_lnL
+    dat_out.append(dat_here)
+dat_out = np.array(dat_out)
+
 if supplemental_coordinate_convert is None:
     #old functionality
     if list(low_level_coord_names) != list(coord_names):
         raise ValueError(" ERROR: fit basis ({}) differs from MC sampling basis ({}), but no --supplementary-coordinate-code was supplied.".format(list(coord_names),list(low_level_coord_names)))
     
-    indx_of_orig_names =  np.array([ dat_orig_names.index(coord_names[k]) for k in range(len(coord_names))])
-    
-    dat_out = []
-    for line in dat:
-        dat_here= np.zeros(len(coord_names)+2)
-        if line[col_lnL+1] > opts.sigma_cut:
-            print("skipping", line)
-            continue
-        dat_here[:-2] = line[indx_of_orig_names+2]#line[2:len(coord_names)+2]  # modify to use names!
-        dat_here[-2] = line[0]
-        dat_here[-1] = line[1]
-        dat_out.append(dat_here)
-    dat_out= np.array(dat_out)
-    
-    # Repack data #TODO: check this, move outside if block if both routes need it!
-    X =dat_out[:,0:len(coord_names)]
-    Y = dat_out[:,-2]
-    if np.max(Y)<0 and lnL_shift ==0: 
-        lnL_shift  = -100 - np.max(Y)   # force it to be offset/positive -- may help some configurations. Remember our adaptivity is silly.
-    Y_err = dat_out[:,-1]
-    def convert_coords(x): #no conversion in play here
+    # Repack data
+    X = dat_out[:,0:len(coord_names)]
+    def convert_coords(x): #no conversion needed
         return x
 else:
-    # Pack data using coordinate converter. Note, if not fully operating in other coord sys.
-    #later calculations MUST use the converter.
-    '''
-    # The robot says: Two distinct call sites for the converter, with two different
-    # input bases -- this is the change that decouples the fit from
-    # the MC sampling basis:
-    #   (1) The initial dat->X conversion below feeds rows whose
-    #       columns are ordered by dat_orig_names (the data file's
-    #       header).  So we pass low_level_coord_names=dat_orig_names
-    #       at this site.
-    #   (2) The convert_coords def is called by the integrator on every MC 
-            sample (like CIP).  The sampler operates in low_level_coord_names, 
-            so the def must claim its inputs are in low_level_coord_names, NOT 
-            dat_orig_names.  
-            Used to be hardcoded to dat_orig_names, which worked in legacy 
-            case (low_level_coord_names == dat_orig_names). For any non-trivial 
-            plugin where the MC samples in a different basis than the file cols,
-    #       the old behaviour applied the rotation an extra time, which is wrong.
-    '''
-    indx_of_orig_names = np.array([ dat_orig_names.index(coord_names[k]) for k in range(len(coord_names))])
-    
-    dat_out = []
-    for line in dat:
-      dat_here= np.zeros(len(coord_names)+2)
-      if line[col_lnL+1] > opts.sigma_cut:
-          print("skipping", line)
-          continue
-      dat_here[2:] = line[indx_of_orig_names+2]#line[2:len(coord_names)+2]  # modify to use names!
-      dat_here[0] = line[0]
-      dat_here[1] = line[1]
-      dat_out.append(dat_here)
-    dat_out= np.array(dat_out)
-    X = supplemental_coordinate_convert(dat_out[:,2:], coord_names=dat_orig_names) # convert and generate X
-    Y = dat_out[:,0]
-    Y_err = dat_out[:,1]
-    if np.max(Y)<0 and lnL_shift ==0:
-        lnL_shift  = -100 - np.max(Y)   # force it to be offset/positive -- may help some configurations. Remember our adaptivity is silly.
+    # WARNING: RoboCode! 
+    # Pack data using coordinate converter. NOTE: if not fully operating in rotated 
+    # coords (i.e. suppl_invert == None), later calculations (e.g. integration) MUST use the converter.
+    #TODO: verify this works as claimed; I'm not convinced (test w/ coord_names != low_level_coord_names)
+    #      idea is stay in Cartesian coords, convert every MC step in integration separately to make fit,
+    #      but sample in Cartesian coords at the end (because no invert_rotation code)
+    X = supplemental_coordinate_convert(dat_out[:,0:len(coord_names)], coord_names=dat_orig_names) # convert and generate X
     if supplemental_coordinate_invert is None:
         def convert_coords(x_in, _low=low_level_coord_names, _coord=coord_names):
             # _low / _coord captured as defaults so the closure stays correct even if either list mutates later in the script.
@@ -573,6 +552,11 @@ else:
     else: #doing everything in converted coords, so no need to convert again
         def convert_coords(x):
             return x
+
+Y = dat_out[:,-2]
+if np.max(Y)<0 and lnL_shift==0: 
+    lnL_shift = -100 - np.max(Y)   # force it to be offset/positive -- may help some configurations. Remember our adaptivity is silly.
+Y_err = dat_out[:,-1]
         
 # Save copies for later (plots)
 X_orig = X.copy()
