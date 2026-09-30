@@ -326,7 +326,9 @@ done
 # `import cupy` FAILS there, numpy backend) 2026-09-30, IGWN conda python 3.11 / lal 7.7.0:
 # per-file 600, junit 603 collected / 590 passed / 13 skipped / 0 failed, of which 3 are
 # subtests.  So the plugin-free floors are 600/587; the old 592/579 sat 6 below the tree.
-EXPECTED_TESTS=600
+# Review of #377 added five more ring-coordinate tests, no skips.  RE-MEASURED the same way:
+# junit 608 collected / 595 passed / 13 skipped / 0 failed (3 subtests), so the floors are 605/592.
+EXPECTED_TESTS=605
 # Outcomes, not just exit status: a collection floor cannot see a test that collects, runs and
 # asserts nothing, and a pytest.skip can quietly absorb a lost gate.  The 13 skips are
 # environment legs -- cupy in test_seeding_reproducibility, device legs in
@@ -335,7 +337,7 @@ EXPECTED_TESTS=600
 # (mcsamplerNFlow is an optional dependency and is absent from the IGWN environment), and
 # the xfail in test_uv_symmetry.  test_eos_portfolio_sampler.py adds 12 tests and
 # test_cip_portfolio_members.py 4, none of them skips.
-EXPECTED_PASSED=587
+EXPECTED_PASSED=592
 MAX_SKIPPED=13
 
 # The floors must be INTEGERS, and this is checked rather than assumed.  `[ 347 -lt FOO ]` does

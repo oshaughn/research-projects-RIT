@@ -58,3 +58,44 @@ def test_chi_p_vec_limits():
     P.s2x = -0.4 / ((A2 / A1) * q ** 2)
     assert P.extract_param('chi_p_vec') < 1e-12
     assert abs(P.extract_param('phi12') - np.pi) < 1e-12
+
+
+def _one(*row):
+    return np.array([row], dtype=float)
+
+
+def test_phi12_sign_both_paths():
+    # spin 2 sixty degrees ahead of spin 1: phi12 = pi/3, not 5 pi/3 (a sign flip in both paths fails here)
+    row = (10., 0.3, 0.5, 0., 0.2, 0.5, 0., 0.2 + np.pi / 3)
+    y = lalsimutils.convert_waveform_coordinates(_one(*row), coord_names=['phi12'], low_level_coord_names=LOW)
+    assert abs(y[0, 0] - np.pi / 3) < 1e-12
+    assert abs(_params(row).extract_param('phi12') - np.pi / 3) < 1e-12
+
+
+def test_object_array_input():
+    # CIP's default sampler (adaptive_cartesian) passes an object array of python floats
+    x = _draws(20)
+    y = lalsimutils.convert_waveform_coordinates(x.astype(object), coord_names=RING, low_level_coord_names=LOW)
+    y_ref = lalsimutils.convert_waveform_coordinates(x, coord_names=RING, low_level_coord_names=LOW)
+    assert np.allclose(np.asarray(y, dtype=float), y_ref, atol=1e-12)
+
+
+def test_phi12_zero_inplane_spin():
+    # phi12 is undefined without an in-plane component; both paths return 0
+    for row in [(10., 0.3, 0.0, 0.5, 1.5, 0.5, 0.2, 2.5), (10., 0.3, 0.5, 0.2, 1.5, 0.5, -1.0, 2.5)]:
+        y = lalsimutils.convert_waveform_coordinates(_one(*row), coord_names=['phi12'], low_level_coord_names=LOW)
+        assert y[0, 0] == 0.
+        assert _params(row).extract_param('phi12') == 0.
+
+
+def test_enforce_kerr_in_ring_block():
+    # the vectorized block can end the conversion early; it applies the fallthrough's Kerr rule itself
+    x = np.vstack([_one(10., 0.3, 1.2, 0.2, 1.5, 0.5, 0.2, 2.5), _one(10., 0.3, 0.5, 0.2, 1.5, 0.5, 0.2, 2.5)])
+    y = lalsimutils.convert_waveform_coordinates(x, coord_names=['mc', 'delta_mc', 'chi1_perp', 'chi_p_vec'],
+                                                 low_level_coord_names=LOW, enforce_kerr=True)
+    assert np.all(y[0] == -np.inf) and np.all(np.isfinite(y[1]))
+
+
+def test_chi_p_vec_not_assignable():
+    # grid readers call assign_param on every column named in valid_params; chi_p_vec is derived only
+    assert 'chi_p_vec' not in lalsimutils.valid_params
