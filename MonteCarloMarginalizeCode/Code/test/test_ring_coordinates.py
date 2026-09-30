@@ -47,3 +47,39 @@ def test_chi_p_vec_limits():
     if abs(P.s2x) < 1:
         assert P.extract_param('chi_p_vec') < 1e-12
     assert abs(P.extract_param('phi12') - np.pi) < 1e-12
+
+
+def _one(mc, dmc, c1, ct1, p1, c2, ct2, p2):
+    return np.array([[mc, dmc, c1, ct1, p1, c2, ct2, p2]])
+
+
+def test_phi12_sign_both_paths():
+    # spin 2 60 degrees ahead of spin 1: phi12 = pi/3, not 5 pi/3 (a sign flip in both paths fails here)
+    x = _one(10., 0.3, 0.5, 0., 0.2, 0.5, 0., 0.2 + np.pi / 3)
+    y = lsu.convert_waveform_coordinates(x, coord_names=['phi12'], low_level_coord_names=LOW)
+    assert abs(y[0, 0] - np.pi / 3) < 1e-12
+    P = lsu.ChooseWaveformParams()
+    P.m1, P.m2 = 10 * lal.MSUN_SI, 5 * lal.MSUN_SI
+    P.s1x, P.s1y = 0.5 * np.cos(0.2), 0.5 * np.sin(0.2)
+    P.s2x, P.s2y = 0.5 * np.cos(0.2 + np.pi / 3), 0.5 * np.sin(0.2 + np.pi / 3)
+    assert abs(P.extract_param('phi12') - np.pi / 3) < 1e-12
+
+
+def test_object_array_input():
+    # CIP's default sampler (adaptive_cartesian) passes an object array of python floats
+    x = _draws(20).astype(object)
+    y = lsu.convert_waveform_coordinates(x, coord_names=RING, low_level_coord_names=LOW)
+    y_ref = lsu.convert_waveform_coordinates(x.astype(float), coord_names=RING, low_level_coord_names=LOW)
+    assert np.allclose(np.asarray(y, dtype=float), y_ref, atol=1e-12)
+
+
+def test_phi12_zero_inplane_spin():
+    # phi12 is undefined without an in-plane component; both paths return 0
+    for x in (_one(10., 0.3, 0.0, 0.5, 1.5, 0.5, 0.2, 2.5), _one(10., 0.3, 0.5, 0.2, 1.5, 0.5, -1.0, 2.5)):
+        y = lsu.convert_waveform_coordinates(x, coord_names=['phi12'], low_level_coord_names=LOW)
+        assert y[0, 0] == 0.
+    P = lsu.ChooseWaveformParams()
+    P.m1, P.m2 = 10 * lal.MSUN_SI, 5 * lal.MSUN_SI
+    P.s1x = P.s1y = 0.
+    P.s2x, P.s2y = 0.3, 0.1
+    assert P.extract_param('phi12') == 0.

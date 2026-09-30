@@ -348,7 +348,7 @@ valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp
 
 # so far, used for puffball, to prevent insanity (infinite growth) and/or death to downselect
 #   - note we also provide for extrinsic: RA (phi), phiref, psi, just in case we need it in the future
-periodic_params = {'phi1':2*np.pi, 'phi2':2*np.pi, 'phiref':2*np.pi, 'psi':np.pi, 'meanPerAno':2*np.pi, 'phi':2*np.pi, 'phiJL':2*np.pi, 'psiJ':2*np.pi}
+periodic_params = {'phi1':2*np.pi, 'phi2':2*np.pi, 'phi12':2*np.pi, 'phiref':2*np.pi, 'psi':np.pi, 'meanPerAno':2*np.pi, 'phi':2*np.pi, 'phiJL':2*np.pi, 'psiJ':2*np.pi}
 
 tex_dictionary  = {
  "mtot": r'$M$',
@@ -1201,7 +1201,10 @@ class ChooseWaveformParams:
             Sp = np.max([np.linalg.norm( A1*S1p), np.linalg.norm(A2*S2p)])
             return Sp/(A1*m1**2)  # divide by term for *larger* BH
         if p == 'phi12':
-            # azimuth of spin 2's in-plane component relative to spin 1's, in [0, 2 pi), L frame
+            # azimuth of spin 2's in-plane component relative to spin 1's, in [0, 2 pi), L frame.
+            # Undefined if either in-plane component vanishes; 0 is returned then (same as the vectorized path).
+            if np.hypot(self.s1x, self.s1y) == 0 or np.hypot(self.s2x, self.s2y) == 0:
+                return 0.
             return np.mod(np.arctan2(self.s2y, self.s2x) - np.arctan2(self.s1y, self.s1x), 2*np.pi)
         if p == 'chi_p_vec':
             # vector-sum (ring) analogue of chi_p: |A1 S1perp + A2 S2perp| / (A1 m1^2), same A1, A2 as chi_p.
@@ -5382,19 +5385,22 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
         # in-plane magnitudes, relative azimuth, and ring coordinates (L frame), vectorized
         ring_names = ['chi1_perp', 'chi2_perp', 'phi12', 'SOverM2_perp', 'DeltaOverM2_perp', 'chi_p_vec']
         if any(p in coord_names_reduced for p in ring_names):
+            # CIP's default sampler passes an object array of python floats; ufuncs need a float array
+            xf = np.asarray(x_in, dtype=float)
+            m1f = np.asarray(m1_vals, dtype=float); m2f = np.asarray(m2_vals, dtype=float)
             indx_phi1 = low_level_coord_names.index('phi1')
             indx_phi2 = low_level_coord_names.index('phi2')
-            chi1_perp = x_in[:,indx_chi1]*np.sqrt(1-x_in[:,indx_ct1]**2)
-            chi2_perp = x_in[:,indx_chi2]*np.sqrt(1-x_in[:,indx_ct2]**2)
-            v1 = chi1_perp*np.exp(1j*x_in[:,indx_phi1])
-            v2 = chi2_perp*np.exp(1j*x_in[:,indx_phi2])
-            mtot_vals = m1_vals + m2_vals
-            q_vals = m2_vals/m1_vals
+            chi1_perp = xf[:,indx_chi1]*np.sqrt(1-xf[:,indx_ct1]**2)
+            chi2_perp = xf[:,indx_chi2]*np.sqrt(1-xf[:,indx_ct2]**2)
+            v1 = chi1_perp*np.exp(1j*xf[:,indx_phi1])
+            v2 = chi2_perp*np.exp(1j*xf[:,indx_phi2])
+            mtot_vals = m1f + m2f
+            q_vals = m2f/m1f
             A1 = 2 + 1.5*q_vals; A2 = 2 + 1.5/q_vals
             ring_vals = {'chi1_perp': chi1_perp, 'chi2_perp': chi2_perp,
-                         'phi12': np.mod(x_in[:,indx_phi2] - x_in[:,indx_phi1], 2*np.pi),
-                         'SOverM2_perp': np.abs(v1*m1_vals**2 + v2*m2_vals**2)/mtot_vals**2,
-                         'DeltaOverM2_perp': np.abs(v1*m1_vals - v2*m2_vals)/mtot_vals,
+                         'phi12': np.where((chi1_perp > 0) & (chi2_perp > 0), np.mod(xf[:,indx_phi2] - xf[:,indx_phi1], 2*np.pi), 0.),
+                         'SOverM2_perp': np.abs(v1*m1f**2 + v2*m2f**2)/mtot_vals**2,
+                         'DeltaOverM2_perp': np.abs(v1*m1f - v2*m2f)/mtot_vals,
                          'chi_p_vec': np.abs(v1 + (A2/A1)*q_vals**2*v2)}
             for p in ring_names:
                 if p in coord_names_reduced:
