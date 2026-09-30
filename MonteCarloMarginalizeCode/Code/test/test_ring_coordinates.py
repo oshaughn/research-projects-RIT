@@ -83,3 +83,18 @@ def test_phi12_zero_inplane_spin():
     P.s1x = P.s1y = 0.
     P.s2x, P.s2y = 0.3, 0.1
     assert P.extract_param('phi12') == 0.
+
+
+def test_enforce_kerr_in_ring_block():
+    # the vectorized block can end the conversion early; it applies the fallthrough's Kerr rule itself
+    x = np.vstack([_one(10., 0.3, 1.2, 0.2, 1.5, 0.5, 0.2, 2.5), _one(10., 0.3, 0.5, 0.2, 1.5, 0.5, 0.2, 2.5)])
+    y = lsu.convert_waveform_coordinates(x, coord_names=['mc', 'delta_mc', 'chi1_perp', 'chi_p_vec'],
+                                         low_level_coord_names=LOW, enforce_kerr=True)
+    assert np.all(y[0] == -np.inf) and np.all(np.isfinite(y[1]))
+    y = lsu.convert_waveform_coordinates(x, coord_names=['chi1_perp'], low_level_coord_names=LOW, enforce_kerr=False)
+    assert np.all(np.isfinite(y))
+
+
+def test_chi_p_vec_not_assignable():
+    # grid readers call assign_param on every column named in valid_params; chi_p_vec is derived only
+    assert 'chi_p_vec' not in lsu.valid_params
