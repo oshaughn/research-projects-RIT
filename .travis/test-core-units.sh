@@ -159,6 +159,7 @@ FILES=(
   "$C/test/test_lisa_ini_contract.py"
   "$C/test/test_tracer_placement_gp.py"
   "$C/test/waveforms/test_uv_symmetry.py"
+  "$C/test/test_complex_overlap_interpolate_max.py"
 )
 
 # A manifest entry that stops existing is a SILENT no-op: the gate keeps passing while
@@ -306,6 +307,12 @@ done
 #            junit 576 collected / 563 passed / 13 skipped / 0 failed.  Again 3 of
 #            pytest-subtests margin, not spare room.
 #
+#   600/587  test_complex_overlap_interpolate_max.py added (8 tests: ComplexOverlap.ip
+#            interpolate_max vertex, incl. peaks at index 0 and N-1).  MEASURED on CIT
+#            (ldas-grid; numpy backend) 2026-09-30, IGWN conda python 3.11 / lal 7.7.0, with
+#            RIFT_COREUNIT_PYTHON pointed at the IGWN interpreter: per-file 600 over 52 files,
+#            junit 603 collected / 590 passed / 13 skipped / 0 failed.
+#
 # RAISE these when files are added: a floor left at the old value passes while covering less,
 # which is the failure this gate exists to catch.
 # DO NOT RAISE THESE TO THE RUNNER'S NUMBERS.  The GitHub runner reports 350 collected / 338
@@ -320,7 +327,8 @@ done
 # runner's closure the count falls back to 347 and still passes.  Pinning 350 would turn an
 # unrelated dependency change into a red gate.
 # The detector-network sky mapping adds two passing tests and no skips.
-EXPECTED_TESTS=592
+# test_complex_overlap_interpolate_max.py adds 8 passing tests and no skips.
+EXPECTED_TESTS=600
 # Outcomes, not just exit status: a collection floor cannot see a test that collects, runs and
 # asserts nothing, and a pytest.skip can quietly absorb a lost gate.  The 13 skips are
 # environment legs -- cupy in test_seeding_reproducibility, device legs in
@@ -329,7 +337,7 @@ EXPECTED_TESTS=592
 # (mcsamplerNFlow is an optional dependency and is absent from the IGWN environment), and
 # the xfail in test_uv_symmetry.  test_eos_portfolio_sampler.py adds 12 tests and
 # test_cip_portfolio_members.py 4, none of them skips.
-EXPECTED_PASSED=579
+EXPECTED_PASSED=587
 MAX_SKIPPED=13
 
 # The floors must be INTEGERS, and this is checked rather than assumed.  `[ 347 -lt FOO ]` does
