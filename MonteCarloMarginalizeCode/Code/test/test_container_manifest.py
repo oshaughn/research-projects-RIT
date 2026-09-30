@@ -3,8 +3,11 @@ Tests for container family manifest parsing and the expression-valued
 SingularityImage / selective-transfer / require_gpus wiring.
 
 These run without a real HTCondor pool: the parser + expression builders are
-pure, and the integration test inspects the generated ``condor_cmds`` on the
-job object returned by ``write_ILE_sub_simple`` (no .sub file or condor needed).
+pure, and the integration tests inspect the generated ``condor_cmds`` on the
+job object returned by ``write_ILE_sub_simple``, plus the submit file the
+backend renders in pure python.  Nothing here skips when HTCondor is absent;
+``test_container_universe_effective_job_ad`` additionally hands that submit file
+to ``condor_submit -dry-run`` wherever that executable exists.
 
 Run directly:  python test/test_container_manifest.py
 Or via pytest: pytest test/test_container_manifest.py
@@ -414,14 +417,26 @@ def test_integration_cip_legacy_single_image(tmp_path, monkeypatch):
 @pytest.mark.parametrize("role", ["ILE", "ILE_STRING", "CALPILOT"])
 @pytest.mark.parametrize("request_gpu", [True, False])
 def test_container_universe_effective_job_ad(tmp_path, monkeypatch, role, request_gpu):
-    """Use condor_submit itself: object-level checks miss selector truncation."""
-    import json
-    import shutil
-    import subprocess
+    """Check the SUBMITTED text, not just the job object: object-level checks
+    miss selector truncation.
 
-    submit = shutil.which("condor_submit")
-    if not submit:
-        pytest.skip("HTCondor required for effective job-ad validation")
+    Two legs, neither of which skips.  The submit-file leg runs EVERYWHERE: the
+    HTCondor backend has a pure-python submit-file renderer, so the selector can
+    always be read back as written, and a value that acquires a newline (which
+    silently truncates the selector into a different, still-plausible submit
+    description) fails here with no HTCondor present.  The condor_submit leg --
+    the only one that also proves condor's own parser resolves the expression --
+    additionally runs wherever condor_submit is on PATH, i.e. a submit host or a
+    Condor-enabled gate.
+
+    Deliberately NOT a pytest.skip when condor_submit is absent.  This file is a
+    member of .travis/test-core-units.sh, whose runner has no HTCondor, so six
+    parametrized skips would spend that gate's skip budget on cases that can
+    never run there -- and the gate's outcome accounting, which exists to stop a
+    skip absorbing a lost check, would fail on a check that is not lost.
+    """
+    import json
+
     from RIFT.misc import dag_utils_generic as dag
 
     monkeypatch.setenv("RIFT_CONTAINER_UNIVERSE", "1")
@@ -454,24 +469,52 @@ def test_container_universe_effective_job_ad(tmp_path, monkeypatch, role, reques
     job.add_condor_cmd("macroiteration", "0")
     job.add_condor_cmd("macroiterationprev", "0")
     job.write_sub_file()
-    ad_path = tmp_path / "effective.ad"
-    result = subprocess.run([submit, "-disable", "-dry-run", str(ad_path), str(sub)],
-                            capture_output=True, text=True, timeout=30)
-    assert result.returncode == 0, result.stdout + result.stderr
-    ad = {}
-    for line in ad_path.read_text().splitlines():
+
+    # Leg 1, everywhere: the values as WRITTEN.  Keys are matched case-folded
+    # because the renderer used depends on whether the htcondor bindings are
+    # importable, and only the VALUES are the contract here.
+    written = {}
+    with open(str(sub)) as fh:
+        sub_text = fh.read()
+    for line in sub_text.splitlines():
         key, sep, value = line.partition("=")
-        key = key.strip()
-        value = value.strip()
-        if sep and key in ("ContainerImage", "TransferInput"):
-            ad[key] = json.loads(value)
+        if not sep:
+            continue                       # 'queue N', and any truncated remnant
+        key = key.strip().lower()
+        if key.startswith("+"):
+            key = "my." + key[1:]          # the two spellings of a custom attribute
+        written.setdefault(key, value.strip())
+    assert written["container_image"] == cmds["container_image"]
     if request_gpu:
-        assert ad["ContainerImage"] == cmds["container_image"]
-        assert ad["TransferInput"] == cmds["transfer_input_files"].replace("$(macroiteration)", "0")
-        assert "ifThenElse" not in ad["TransferInput"]  # no spurious basename input
+        # A selector truncated on write reaches this comparison short, not wrong.
+        assert written["transfer_input_files"] == cmds["transfer_input_files"]
+        assert written["my.transferinput"] == cmds["MY.TransferInput"]
     else:
-        assert ad["ContainerImage"] == "rift_ancient_cuda11.sif"
-        assert "$$(" not in ad["TransferInput"]
+        assert "$$(" not in written["transfer_input_files"]
+        assert "my.transferinput" not in written
+
+    # Leg 2, Condor-enabled environments only: condor's own parser resolves the
+    # expression and reports what the job would actually run with.
+    submit = shutil.which("condor_submit")
+    if submit:
+        ad_path = tmp_path / "effective.ad"
+        result = subprocess.run([submit, "-disable", "-dry-run", str(ad_path), str(sub)],
+                                capture_output=True, text=True, timeout=30)
+        assert result.returncode == 0, result.stdout + result.stderr
+        ad = {}
+        for line in ad_path.read_text().splitlines():
+            key, sep, value = line.partition("=")
+            key = key.strip()
+            value = value.strip()
+            if sep and key in ("ContainerImage", "TransferInput"):
+                ad[key] = json.loads(value)
+        if request_gpu:
+            assert ad["ContainerImage"] == cmds["container_image"]
+            assert ad["TransferInput"] == cmds["transfer_input_files"].replace("$(macroiteration)", "0")
+            assert "ifThenElse" not in ad["TransferInput"]  # no spurious basename input
+        else:
+            assert ad["ContainerImage"] == "rift_ancient_cuda11.sif"
+            assert "$$(" not in ad["TransferInput"]
 
 
 def _make_calibration_job(tmp_path, monkeypatch, manifest, container_universe):
