@@ -2530,8 +2530,10 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
         # names BASENAMES (it may not contain a '/', or condor_submit truncates
         # it -- see build_container_image_select), so the image itself must be
         # delivered by file transfer.  Runtime-select mode self-fetches inside
-        # the wrapper, so it is the only mode that skips the token.
-        if singularity_transfer_expr and not singularity_runtime_select:
+        # the wrapper. CPU container-universe jobs use a literal fallback image,
+        # which condor_submit transfers without a GPU-capability expression.
+        if (singularity_transfer_expr and not singularity_runtime_select
+                and (request_gpu or not singularity_container_universe)):
             extra_files += [singularity_transfer_expr]
     elif singularity_image:
         if 'osdf:' in singularity_image:
@@ -2871,13 +2873,13 @@ echo Starting ...
 
     if not transfer_files is None:
         if not isinstance(transfer_files, list):
-            fname_str=transfer_files + ' '.join(extra_files)
+            fname_str = ','.join(part for part in [transfer_files] + extra_files if part)
         else:
             fname_str = ','.join(transfer_files+extra_files)
         fname_str=fname_str.strip()
         ile_job.add_condor_cmd('transfer_input_files', fname_str)
         ile_job.add_condor_cmd('should_transfer_files','YES')
-        if singularity_container_universe:
+        if singularity_container_universe and request_gpu:
             # condor_submit APPENDS the container_image value to the derived
             # TransferInput.  Our selector names basenames (it may not contain a
             # '/'), so that appended entry would ask the execute point to fetch a
@@ -3118,14 +3120,14 @@ def write_calpilot_sub(tag='calpilot', exe=None, log_dir=None, universe="vanilla
         singularity_require_gpus_floor = build_require_gpus_floor(_manifest)
         singularity_container_universe = bool(use_singularity and os.environ.get('RIFT_CONTAINER_UNIVERSE'))
         if singularity_container_universe:
-            singularity_container_image_select = build_container_image_select(_manifest)
+            singularity_container_image_select = build_container_image_select(_manifest, request_gpu=request_gpu)
         # Selective ($$()) transfer of only the matched osdf image (comma-free so it
         # survives transfer_input_files comma-splitting).  Container universe needs it
         # too: its container_image selector names BASENAMES (it may not contain a '/',
         # or condor_submit truncates it), so the image arrives by file transfer.
         # (container universe requires use_singularity, which already implies on_osg)
         _transfer_expr = build_transfer_input_expr(_manifest)
-        if on_osg and _transfer_expr:
+        if on_osg and _transfer_expr and (request_gpu or not singularity_container_universe):
             transfer_files += [_transfer_expr]
 
     if use_singularity:
@@ -3236,7 +3238,7 @@ def write_calpilot_sub(tag='calpilot', exe=None, log_dir=None, universe="vanilla
         _tif_str = ','.join(transfer_files)
         job.add_condor_cmd('transfer_input_files', _tif_str)
         job.add_condor_cmd('should_transfer_files', 'YES')
-        if singularity_container_universe:
+        if singularity_container_universe and request_gpu:
             # condor_submit APPENDS the container_image value to the derived
             # TransferInput; our selector names basenames, so that entry would ask
             # the execute point to fetch a bare file name and fail.  Pin the list.
