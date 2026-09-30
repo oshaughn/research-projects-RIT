@@ -159,6 +159,8 @@ FILES=(
   "$C/test/test_lisa_ini_contract.py"
   "$C/test/test_tracer_placement_gp.py"
   "$C/test/waveforms/test_uv_symmetry.py"
+  # -- coordinates: vectorized in-plane spin / ring coordinates agree with extract_param
+  "$C/test/test_ring_coordinates.py"
 )
 
 # A manifest entry that stops existing is a SILENT no-op: the gate keeps passing while
@@ -320,7 +322,11 @@ done
 # runner's closure the count falls back to 347 and still passes.  Pinning 350 would turn an
 # unrelated dependency change into a red gate.
 # The detector-network sky mapping adds two passing tests and no skips.
-EXPECTED_TESTS=592
+# test_ring_coordinates.py adds two more, no skips.  RE-MEASURED with it on CIT (ldas-grid;
+# `import cupy` FAILS there, numpy backend) 2026-09-30, IGWN conda python 3.11 / lal 7.7.0:
+# per-file 600, junit 603 collected / 590 passed / 13 skipped / 0 failed, of which 3 are
+# subtests.  So the plugin-free floors are 600/587; the old 592/579 sat 6 below the tree.
+EXPECTED_TESTS=600
 # Outcomes, not just exit status: a collection floor cannot see a test that collects, runs and
 # asserts nothing, and a pytest.skip can quietly absorb a lost gate.  The 13 skips are
 # environment legs -- cupy in test_seeding_reproducibility, device legs in
@@ -329,7 +335,7 @@ EXPECTED_TESTS=592
 # (mcsamplerNFlow is an optional dependency and is absent from the IGWN environment), and
 # the xfail in test_uv_symmetry.  test_eos_portfolio_sampler.py adds 12 tests and
 # test_cip_portfolio_members.py 4, none of them skips.
-EXPECTED_PASSED=579
+EXPECTED_PASSED=587
 MAX_SKIPPED=13
 
 # The floors must be INTEGERS, and this is checked rather than assumed.  `[ 347 -lt FOO ]` does
