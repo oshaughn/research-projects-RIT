@@ -3,8 +3,8 @@
 Two identical unit-norm complex frequency series, one shifted in time by a
 non-integer number of samples, have a true match of exactly 1.  The sampled
 |overlap(t)| peak falls short of 1; the interpolated peak must recover most of
-that deficit and must not overshoot 1.  Shifts include peaks that land
-next to index 0, where the overlap series wraps around.
+that deficit and must not overshoot 1.  Shifts include peaks at index 0 and
+index N-1, where the stencil wraps around the periodic series.
 """
 import numpy as np
 import pytest
@@ -44,7 +44,7 @@ def _series(IP, shift_samples):
     return out
 
 
-@pytest.mark.parametrize("shift_samples", [0.5, 0.3, -0.3, 17.5, -40.25, 123.7])
+@pytest.mark.parametrize("shift_samples", [0.5, 0.3, -0.3, -0.7, 17.5, -40.25, 123.7])
 def test_interpolated_match_recovers_unity(shift_samples):
     IP = _overlap()
     h1, h2 = _series(IP, shift_samples)
@@ -54,9 +54,10 @@ def test_interpolated_match_recovers_unity(shift_samples):
     match = IP.ip(h1, h2)
     sampled = np.abs(IP.ovlp.data.data).max()
 
-    # Measured: the 3-point parabola leaves ~0.25 of the sampled deficit.
+    # Measured for this signal: the 3-point parabola leaves 0.22-0.30 of the
+    # sampled deficit; a 20% error in the vertex correction leaves ~0.4.
     assert match <= 1. + 1e-6
-    assert 1. - match < 0.5 * (1. - sampled)
+    assert 1. - match < 0.35 * (1. - sampled)
 
 
 def test_integer_shift_returns_sample():
