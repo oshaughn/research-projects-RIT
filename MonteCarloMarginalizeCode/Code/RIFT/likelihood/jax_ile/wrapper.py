@@ -115,7 +115,9 @@ def _require_gh_compatible_distance_prior(d_prior):
     """The per-sample GH distance quadrature has the d^2 measure built in.
 
     It reads only the support of ``log_w_grid``, so any other prior would be
-    silently replaced by the volumetric one.
+    silently replaced by the volumetric one.  Checked at construction: setting
+    the node count after building a likelihood bypasses it (the driver sets it
+    first).
     """
     if _core._DISTMARG_GH_N > 0 and d_prior not in ("euclidean", "volumetric"):
         raise ValueError(
@@ -1332,6 +1334,12 @@ class JAXDistPhiPsiMargLikelihood:
             # The four-axis controller: it OWNS the time integral, so there is no
             # lnL(t) and time_quadrature does not reach it.  Reachable only by
             # name; not in 'auto'.
+            if d_prior not in ("euclidean", "volumetric"):
+                # its local branch integrates against the d^2 measure
+                # (multipeak_planner) regardless of log_w_grid
+                raise ValueError(
+                    "--angle-marg-scheme multipeak supports the volumetric "
+                    "distance prior only, got d_prior=%r" % (d_prior,))
             def _fused(data_, ra, dec, incl, return_lnLt=False,
                        return_amp=False):
                 if return_lnLt:

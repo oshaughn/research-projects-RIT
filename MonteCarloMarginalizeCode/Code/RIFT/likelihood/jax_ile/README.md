@@ -280,8 +280,9 @@ density ``p(d_L) ∝ dV_c/dz (1+z)^-s / (dd_L/dz)`` (``s`` = 0, 1), as in
 so the same density serves the setup-time distance grids (uniform, adaptive,
 log-uniform), the AV/portfolio distance coordinate, the driver's 6-D prior, and
 traced ``jax.numpy`` code.  The per-sample GH distance quadrature
-(``--distance-gh-nodes > 0``) and ``--direct-marginalization-policy`` have the
-volumetric measure built in and refuse these priors.  ``pseudo_cosmo`` is
+(``--distance-gh-nodes > 0``), ``--angle-marg-scheme multipeak`` and
+``--direct-marginalization-policy`` have the volumetric measure built in and
+refuse these priors.  ``pseudo_cosmo`` is
 honored only where AV/portfolio samples distance; elsewhere the driver prints
 that it is ignored.
 

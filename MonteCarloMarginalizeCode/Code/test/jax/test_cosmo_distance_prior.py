@@ -32,7 +32,8 @@ from RIFT.likelihood.jax_ile import samplers as _samplers     # noqa: E402
 from RIFT.likelihood.jax_ile.core import (                    # noqa: E402
     make_distance_grid, make_distance_grid_loguniform)
 from RIFT.likelihood.jax_ile.wrapper import (                 # noqa: E402
-    JAXDistanceMarginalizedLikelihood, JAXDistPhiMargLikelihood)
+    JAXDistanceMarginalizedLikelihood, JAXDistPhiMargLikelihood,
+    JAXDistPhiPsiMargLikelihood)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from test_angle_marg_exact import make_synth                  # noqa: E402
@@ -113,6 +114,14 @@ def test_refuses_distances_beyond_the_table():
     pr = dp.cosmo_distance_prior("cosmo")
     with pytest.raises(ValueError, match="tabulated"):
         pr.log_mass(1.0, 10 * pr.d_table_max)
+    with pytest.raises(ValueError, match="tabulated"):
+        make_distance_grid(1.0, 10 * pr.d_table_max, 64, "cosmo")
+
+
+def test_zero_lower_distance_is_accepted():
+    pr = dp.cosmo_distance_prior("cosmo_sourceframe")
+    # the two ln-d quadrature grids differ; each is good to ~1e-8
+    assert abs(pr.log_mass(0.0, 5000.0) - pr.log_mass(1e-3, 5000.0)) < 1e-7
 
 
 @pytest.mark.parametrize("kind", KINDS)
@@ -241,6 +250,13 @@ def test_distmarg_likelihood_matches_redshift_quadrature(kind, _far_synth):
     assert np.max(np.abs(lnL - eu)) > 0.05     # the prior actually moved lnL
 
 
+def test_multipeak_refuses_cosmological_prior():
+    with pytest.raises(ValueError, match="multipeak supports the volumetric"):
+        JAXDistPhiPsiMargLikelihood(make_synth(), 1.0, 1000.0, n_grid=64,
+                                    angle_marg="multipeak",
+                                    d_prior="cosmo_sourceframe")
+
+
 def test_gh_distance_quadrature_refuses_cosmological_prior():
     data = make_synth()
     old = _core.get_distmarg_gh_nodes()
@@ -268,9 +284,15 @@ def test_av_density_and_draw_are_the_cosmological_prior(kind):
     np.testing.assert_allclose(
         p[::4000], np.exp(dp.cosmo_distance_prior(kind).log_density(
             grid[::4000], lo, hi)), rtol=1e-12)
+    box = (2000.0, 6000.0)
     draws = _samplers._av_distance_prior_draw(
-        100000, np.random.default_rng(3), 2000.0, 6000.0, lo, hi, kind)
-    assert draws.min() >= 2000.0 and draws.max() <= 6000.0
+        100000, np.random.default_rng(3), box[0], box[1], lo, hi, kind)
+    assert draws.min() >= box[0] and draws.max() <= box[1]
+    g = np.linspace(*box, 20001)
+    pg = pdf(g)
+    cdf = np.concatenate(([0.0], np.cumsum(0.5 * (pg[1:] + pg[:-1]) * np.diff(g))))
+    q = np.interp(0.5 * cdf[-1], cdf, g)
+    assert abs(np.mean(draws <= q) - 0.5) < 5e-3
 
 
 # --------------------------------------------------------------------------
@@ -351,3 +373,18 @@ def test_driver_six_d_prior_is_normalized_and_matches_its_draws(driver, kind,
     med = np.interp(0.5 * cdf[-1], cdf, grid)
     assert abs(np.mean(d <= med) - 0.5) < 5e-3
     np.testing.assert_allclose(logp, driver.log_prior(theta, opts, True))
+
+
+def test_driver_forwards_d_prior_to_every_marginalized_likelihood():
+    """Every JAXDist*Likelihood built by the driver gets grid_distance_prior."""
+    import ast
+    with open(_DRIVER) as f:
+        tree = ast.parse(f.read())
+    calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call)
+             and isinstance(n.func, ast.Name) and n.func.id.startswith("JAXDist")]
+    assert len(calls) >= 5
+    for c in calls:
+        kw = {k.arg: k.value for k in c.keywords}
+        v = kw.get("d_prior")
+        assert (isinstance(v, ast.Call) and isinstance(v.func, ast.Name)
+                and v.func.id == "grid_distance_prior"), (c.func.id, c.lineno)

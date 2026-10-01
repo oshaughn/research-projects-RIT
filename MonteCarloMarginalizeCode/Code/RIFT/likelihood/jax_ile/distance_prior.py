@@ -101,8 +101,10 @@ class CosmoDistancePrior(object):
     @functools.lru_cache(maxsize=32)
     def _cdf_table(self, lo, hi):
         self.check_support(hi)
-        if not (0.0 < lo < hi):
-            raise ValueError("need 0 < lo < hi, got (%r, %r)" % (lo, hi))
+        if not (0.0 <= lo < hi):
+            raise ValueError("need 0 <= lo < hi, got (%r, %r)" % (lo, hi))
+        # p ~ d^2 near 0, so the mass below 1e-12 hi is ~1e-36 of the total
+        lo = max(lo, 1e-12 * hi)
         u = np.linspace(np.log(lo), np.log(hi), _N_QUAD)
         d = np.exp(u)
         g = np.exp(self.log_density_unnormalized(d)) * d     # p dd = p d du
