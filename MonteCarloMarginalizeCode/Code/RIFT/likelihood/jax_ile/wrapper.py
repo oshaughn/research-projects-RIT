@@ -111,6 +111,20 @@ def bandlimited_storage_requirement(deltaT, integration_window_half):
     return storage_half, g0, g_certificate
 
 
+def _require_gh_compatible_distance_prior(d_prior):
+    """The per-sample GH distance quadrature has the d^2 measure built in.
+
+    It reads only the support of ``log_w_grid``, so any other prior would be
+    silently replaced by the volumetric one.
+    """
+    if _core._DISTMARG_GH_N > 0 and d_prior not in ("euclidean", "volumetric"):
+        raise ValueError(
+            "d_prior=%r cannot be combined with distance-GH-nodes=%d "
+            "(--distance-gh-nodes / JAX_ILE_DISTMARG_GH): the per-sample "
+            "distance quadrature integrates against the volumetric prior only.  "
+            "Pass --distance-gh-nodes 0." % (d_prior, _core._DISTMARG_GH_N))
+
+
 def _validate_nonlinear_time_quadrature(time_quadrature, endpoint):
     """Refusal for the endpoints whose reduction has no refinable primitive here.
 
@@ -723,6 +737,7 @@ class JAXDistPhiMargLikelihood:
         self.interp = interp   # the instance's stencil; sample_phi_ref defaults to it
         _validate_nonlinear_time_quadrature(
             time_quadrature, "distance/phase marginalization")
+        _require_gh_compatible_distance_prior(d_prior)
         self.time_quadrature = time_quadrature
         self.nphi = int(nphi)
         self._phi_grid = phi_ref_grid(self.nphi)
@@ -893,6 +908,7 @@ class JAXDistPhiPsiMargLikelihood:
                                          direct_marginalization_policy))
         _validate_nonlinear_time_quadrature(
             time_quadrature, "distance/phase/polarization marginalization")
+        _require_gh_compatible_distance_prior(d_prior)
         self.time_quadrature = time_quadrature
         self.nphi = int(nphi)
         self.npsi = int(npsi)
@@ -1663,6 +1679,7 @@ class JAXDistPsiMargLikelihood:
         self.interp = interp   # the instance's stencil; sample_phi_ref defaults to it
         _validate_nonlinear_time_quadrature(
             time_quadrature, "distance/polarization marginalization")
+        _require_gh_compatible_distance_prior(d_prior)
         self.time_quadrature = time_quadrature
         self.npsi = int(npsi)
         self._psi_grid = psi_grid(self.npsi)

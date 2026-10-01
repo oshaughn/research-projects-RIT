@@ -113,6 +113,7 @@ import lalsimulation as lalsim
 from .detector import compute_detamresponse, time_delay_from_earth_center
 from .spherical import spherical_harmonics_vectorized
 from . import response_slowrot as _rs
+from . import distance_prior as _distance_prior
 from . import response_freqresponse as _rf
 from . import response_rotating_freqresponse as _rrf
 
@@ -2300,6 +2301,10 @@ def _distance_prior_density(d, d_prior):
         return d ** 2
     if d_prior == "uniform":
         return np.ones_like(d)
+    if _distance_prior.is_cosmo_distance_prior(d_prior):
+        pr = _distance_prior.cosmo_distance_prior(d_prior)
+        pr.check_support(np.max(d))
+        return pr.density_unnormalized(d)
     raise NotImplementedError("d_prior=%r" % d_prior)
 
 
@@ -2675,12 +2680,7 @@ def make_distance_grid_loguniform(d_min, d_max, rho_max, d_prior="euclidean",
             % (n, float(rho_max), float(d_min), float(d_max), float(tol),
                int(n_max)))
     d = np.geomspace(float(d_min), float(d_max), n)
-    if d_prior in ("euclidean", "volumetric"):
-        pd = d ** 2
-    elif d_prior == "uniform":
-        pd = np.ones_like(d)
-    else:
-        raise NotImplementedError("d_prior=%r" % d_prior)
+    pd = _distance_prior_density(d, d_prior)
     dd = np.empty_like(d)
     dd[1:-1] = 0.5 * (d[2:] - d[:-2])
     dd[0] = 0.5 * (d[1] - d[0])

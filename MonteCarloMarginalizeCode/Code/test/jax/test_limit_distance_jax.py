@@ -328,7 +328,8 @@ def _driver_ns():
     """
     with open(_DRIVER) as f:
         src = f.read()
-    ns = {'np': np}
+    from RIFT.likelihood.jax_ile import distance_prior
+    ns = {'np': np, '_distance_prior': distance_prior}
     start = src.index('def resolve_distance_limit(opts):')
     end = src.index('def eval_lnL(like, theta, opts, with_distance):')
     exec(compile(src[start:end], _DRIVER, 'exec'), ns)          # noqa: S102
