@@ -2451,6 +2451,9 @@ def _av_distance_prior_draw(n, rng, lo, hi, d_min, d_max, distance_prior):
     key = str(distance_prior or "euclidean").strip().lower()
     if key in ("euclidean", "volumetric"):
         return np.cbrt(rng.uniform(lo ** 3, hi ** 3, n))
+    from RIFT.likelihood.jax_ile import distance_prior as _distance_prior
+    if _distance_prior.is_cosmo_distance_prior(key):
+        return _distance_prior.cosmo_distance_prior(key).sample(n, rng, lo, hi)
     if key != "pseudo_cosmo":
         raise ValueError("unsupported JAX-AV distance prior %r" % distance_prior)
     # This is proposal initialization only.  A dense deterministic inverse CDF
@@ -2482,6 +2485,7 @@ def _av_prior_spec(name, d_min, d_max, sample_d_min=None, sample_d_max=None,
         spec = (0.0, 2.0 * _TWO_PI,
                 lambda x: np.ones(np.shape(x)) / (2.0 * _TWO_PI))
     elif name == "distMpc":
+        from RIFT.likelihood.jax_ile import distance_prior as _distance_prior
         key = str(distance_prior or "euclidean").strip().lower()
         if key in ("euclidean", "volumetric"):
             norm = 3.0 / (float(d_max) ** 3 - float(d_min) ** 3)
@@ -2491,6 +2495,11 @@ def _av_prior_spec(name, d_min, d_max, sample_d_min=None, sample_d_max=None,
             norm = _pseudo_cosmo_norm(float(d_min), float(d_max))
             density = lambda x, _norm=norm: priors_utils.dist_prior_pseudo_cosmo(
                 np.asarray(x), nm=_norm, xpy=np)
+        elif _distance_prior.is_cosmo_distance_prior(key):
+            pr = _distance_prior.cosmo_distance_prior(key)
+            ln_norm = pr.log_mass(float(d_min), float(d_max))
+            density = lambda x, _pr=pr, _ln=ln_norm: np.exp(
+                _pr.log_density_unnormalized(np.asarray(x, dtype=float)) - _ln)
         else:
             raise ValueError("unsupported JAX-AV distance prior %r" % distance_prior)
         spec = (float(d_min if sample_d_min is None else sample_d_min),

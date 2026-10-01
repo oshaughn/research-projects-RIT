@@ -656,6 +656,7 @@ FILES=(
   "${JAXDIR}/test_jax_bandlimited_6d_blind.py"
   "${JAXDIR}/test_policy_peaklocal_reserve.py"
   "${JAXDIR}/test_jax_ile_short_option_forms.py"
+  "${JAXDIR}/test_cosmo_distance_prior.py"
 )
 
 # EXCLUDED: files in JAXDIR matching test_*.py that are deliberately NOT gated.  The
@@ -1198,7 +1199,9 @@ fi
 # reading its own line, "collected 898 tests from 52 files" (ldas-pcdev2, `import
 # cupy` FAILS in /scratch/$USER/envs/jaxci-py311, PYTHONPATH pinned to the tree under
 # test, DESELECT loop applied).
-EXPECTED_TESTS=898
+# 2026-10-01: + test_cosmo_distance_prior.py (47 tests: --d-prior cosmo and
+# cosmo_sourceframe on the JAX ILE).  898 + 47 = 945.
+EXPECTED_TESTS=945
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"

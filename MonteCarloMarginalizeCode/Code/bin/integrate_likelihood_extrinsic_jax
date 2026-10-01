@@ -104,6 +104,7 @@ from RIFT.likelihood.jax_ile import (
     build_freqresponse_data_from_precompute,
     build_rotating_freqresponse_data_from_precompute)
 from RIFT.likelihood.jax_ile.wrapper import bandlimited_storage_requirement
+from RIFT.likelihood.jax_ile import distance_prior as _distance_prior
 from RIFT.likelihood.jax_ile import anglemarg as _anglemarg
 from RIFT.likelihood.jax_ile.samplers import angle_marg_eval_chunk as _angle_marg_eval_chunk
 from RIFT.likelihood.jax_ile.samplers import regularize_cov as _regularize_cov
@@ -487,10 +488,13 @@ def check_critical_and_report(opts, optp):
                      "--sampler-method portfolio")
     _jax_av_active = _sampler_method in ("AV", "portfolio")
     if _jax_av_active:
-        _dp = str(getattr(opts, "d_prior", None) or "euclidean").strip().lower()
-        if _dp not in ("euclidean", "volumetric", "pseudo_cosmo"):
+        _dp = _distance_prior.canonical_distance_prior(
+            getattr(opts, "d_prior", None))
+        if _dp not in (("euclidean", "pseudo_cosmo")
+                       + _distance_prior.COSMO_DISTANCE_PRIORS):
             fatal.append("--sampler-method %s supports distance priors "
-                         "Euclidean/volumetric and pseudo_cosmo, not %s"
+                         "Euclidean/volumetric, pseudo_cosmo, cosmo and "
+                         "cosmo_sourceframe, not %s"
                          % (_sampler_method, _dp))
         try:
             resolve_av_angular_limits(opts)
@@ -854,6 +858,19 @@ def check_critical_and_report(opts, optp):
             "--time-marginalization-quadrature simpson."
             % (opts.mode, float(_hw), _BANDLIMITED_FULLSKY_HALF_WINDOW_MIN,
                _BANDLIMITED_FULLSKY_HALF_WINDOW_MIN))
+    # The per-sample GH distance quadrature and both multipeak schemes have the
+    # d^2 measure built in; the wrappers refuse too, but only after precompute.
+    if grid_distance_prior(opts) != "euclidean":
+        if _gh_resolved > 0:
+            fatal.append("--d-prior %s cannot be combined with the per-sample "
+                         "distance quadrature (--distance-gh-nodes / "
+                         "JAX_ILE_DISTMARG_GH = %d), which assumes the "
+                         "volumetric prior" % (opts.d_prior, _gh_resolved))
+        if getattr(opts, "angle_marg_scheme", None) in ("multipeak",
+                                                        "multipeak-jax"):
+            fatal.append("--angle-marg-scheme %s supports the volumetric "
+                         "distance prior only, not --d-prior %s"
+                         % (opts.angle_marg_scheme, opts.d_prior))
     if fatal:
         optp.error("Cannot run as a faithful drop-in: " + "; ".join(fatal)
                    + ".  (These would silently change the result if ignored.)")
@@ -942,15 +959,15 @@ def check_critical_and_report(opts, optp):
             print("Note: %s only act on the tempered modes (%s); --mode %s ignores "
                   "them." % (" ".join(sorted(set(inert))),
                              " ".join(sorted(_TEMPERED_MODES)), mode))
-    # AV/portfolio forwards both the volumetric and pseudo-cosmological priors.
-    # Other samplers remain volumetric and must visibly report a non-volumetric
-    # compatibility request as ignored.
+    # Volumetric, cosmo and cosmo_sourceframe reach every distance quadrature
+    # and the 6-D prior (grid_distance_prior).  pseudo_cosmo reaches only a
+    # distance coordinate SAMPLED by AV/portfolio; elsewhere it is reported.
     _dp = getattr(opts, "d_prior", None)
-    if (getattr(opts, "sampler_method", None) not in ("AV", "portfolio")
-            and _dp not in (None, "") and str(_dp).strip().lower() not in (
-                "euclidean", "volumetric")):
+    if (_dp not in (None, "") and grid_distance_prior(opts)
+            != _distance_prior.canonical_distance_prior(_dp)
+            and getattr(opts, "sampler_method", None) not in ("AV", "portfolio")):
         print("Note: --d-prior %r is accepted but IGNORED by the JAX driver: "
-              "it always integrates distance against the volumetric d^2 "
+              "it integrates distance against the volumetric d^2 "
               "prior on [--d-min, --d-max]." % (_dp,))
     # --phase-marginalization: forwarded on the 6-D/5-D likelihoods, but the
     # four phi_ref-marginalised modes already integrate phase out analytically
@@ -1933,6 +1950,22 @@ def resolve_distance_limit(opts):
         raise SystemExit(" --limit-distance: %s" % exc)
 
 
+def grid_distance_prior(opts):
+    """The ``d_prior`` the distance quadratures and the 6-D prior apply.
+
+    Volumetric unless ``--d-prior`` is cosmo or cosmo_sourceframe.
+    """
+    key = _distance_prior.canonical_distance_prior(getattr(opts, "d_prior", None))
+    return key if key in _distance_prior.COSMO_DISTANCE_PRIORS else "euclidean"
+
+
+def _cosmo_prior_or_none(opts):
+    key = grid_distance_prior(opts)
+    if key == "euclidean":
+        return None
+    return _distance_prior.cosmo_distance_prior(key)
+
+
 def resolve_av_angular_limits(opts):
     """Return validated AV-only angular sampling windows.
 
@@ -2000,6 +2033,9 @@ def log_distance_box_correction(opts, with_distance):
     lo, hi = resolve_distance_limit(opts)
     if lo == float(opts.d_min) and hi == float(opts.d_max):
         return 0.0
+    pr = _cosmo_prior_or_none(opts)
+    if pr is not None:
+        return pr.log_mass(opts.d_min, opts.d_max) - pr.log_mass(lo, hi)
     return float(np.log((opts.d_max ** 3 - opts.d_min ** 3) / (hi ** 3 - lo ** 3)))
 
 
@@ -2011,11 +2047,15 @@ def sample_prior(n, opts, rng, with_distance):
     phiref = rng.uniform(0.0, 2 * np.pi, n)
     cols = [ra, dec, psi, incl, phiref]
     if with_distance:
-        u = rng.uniform(0.0, 1.0, n)
         # the SAMPLED range (== [d_min,d_max] unless --limit-distance)
         d_lo, d_hi = resolve_distance_limit(opts)
-        dmin3, dmax3 = d_lo ** 3, d_hi ** 3
-        cols.append((dmin3 + u * (dmax3 - dmin3)) ** (1.0 / 3.0))
+        pr = _cosmo_prior_or_none(opts)
+        if pr is not None:
+            cols.append(pr.sample(n, rng, d_lo, d_hi))
+        else:
+            u = rng.uniform(0.0, 1.0, n)
+            dmin3, dmax3 = d_lo ** 3, d_hi ** 3
+            cols.append((dmin3 + u * (dmax3 - dmin3)) ** (1.0 / 3.0))
     theta = np.stack(cols, axis=-1)
     return theta, log_prior(theta, opts, with_distance)
 
@@ -2036,8 +2076,13 @@ def log_prior(theta, opts, with_distance):
             # scale and does not have to be corrected before comparison.
             d_lo, d_hi = resolve_distance_limit(opts)
             inb = inb & (dist >= d_lo) & (dist <= d_hi)
-            dmin3, dmax3 = opts.d_min ** 3, opts.d_max ** 3
-            logp = logp + np.log(3.0) + 2 * np.log(dist) - np.log(dmax3 - dmin3)
+            pr = _cosmo_prior_or_none(opts)
+            if pr is not None:
+                logp = logp + pr.log_density(np.clip(dist, d_lo, d_hi),
+                                             opts.d_min, opts.d_max)
+            else:
+                dmin3, dmax3 = opts.d_min ** 3, opts.d_max ** 3
+                logp = logp + np.log(3.0) + 2 * np.log(dist) - np.log(dmax3 - dmin3)
     return np.where(inb, logp, -np.inf)
 
 
@@ -3645,7 +3690,8 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
             like_data, d_lo, d_hi,
             nphi=nphi, n_grid=n_dist_grid,
             interp=opts.interp, guess_snr=extras["guess_snr"],
-            time_quadrature=tq, d_prior_range=(opts.d_min, opts.d_max))
+            time_quadrature=tq, d_prior_range=(opts.d_min, opts.d_max),
+            d_prior=grid_distance_prior(opts))
         if getattr(like, "dist_grid_info", {}).get("mode") == "adaptive":
             gi = like.dist_grid_info
             print("  distance grid: ADAPTIVE  d_peak=%.3g Mpc  sigma_d=%.3g Mpc  npts=%d"
@@ -3713,6 +3759,7 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
                 n_grid=n_dist_grid, interp=opts.interp,
                 guess_snr=extras["guess_snr"], angle_marg=angle_marg,
                 time_quadrature=tq, d_prior_range=(opts.d_min, opts.d_max),
+                d_prior=grid_distance_prior(opts),
                 dist_grid=dist_grid, dist_grid_tol=dist_tol,
                 direct_marginalization_policy=policy,
                 policy_config=policy_config,
@@ -3846,6 +3893,7 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
                     n_grid=n_dist_grid, interp=opts.interp,
                     guess_snr=extras["guess_snr"], angle_marg=angle_marg,
                     time_quadrature=tq, d_prior_range=(opts.d_min, opts.d_max),
+                    d_prior=grid_distance_prior(opts),
                     dist_grid=dist_grid, dist_grid_tol=dist_tol,
                     direct_marginalization_policy=policy,
                     policy_config=like.policy_config._replace(
@@ -3873,7 +3921,8 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
             like_data, d_lo, d_hi, npsi=npsi,
             n_grid=n_dist_grid, interp=opts.interp,
             guess_snr=extras["guess_snr"], time_quadrature=tq,
-            d_prior_range=(opts.d_min, opts.d_max))
+            d_prior_range=(opts.d_min, opts.d_max),
+            d_prior=grid_distance_prior(opts))
         if getattr(like, "dist_grid_info", {}).get("mode") == "adaptive":
             gi = like.dist_grid_info
             print("  distance grid: ADAPTIVE  d_peak=%.3g Mpc  sigma_d=%.3g Mpc  npts=%d"
@@ -3886,7 +3935,8 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
         like = JAXDistanceMarginalizedLikelihood(
             like_data, d_lo, d_hi, n_grid=n_dist_grid,
             interp=opts.interp, phase_marginalization=opts.phase_marginalization,
-            time_quadrature=tq, d_prior_range=(opts.d_min, opts.d_max))
+            time_quadrature=tq, d_prior_range=(opts.d_min, opts.d_max),
+            d_prior=grid_distance_prior(opts))
         dim = 5
     else:
         like = JAXExtrinsicLikelihood(
