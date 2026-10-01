@@ -1202,10 +1202,10 @@ fi
 # test, DESELECT loop applied).
 # 2026-10-01: + test_cosmo_distance_prior.py (47 tests: --d-prior cosmo and
 # cosmo_sourceframe on the JAX ILE).  898 + 47 = 945.
-# 2026-10-01: + test_pseudo_cosmo_distance_prior.py (15 tests: --d-prior
+# 2026-10-01: + test_pseudo_cosmo_distance_prior.py (16 tests: --d-prior
 # pseudo_cosmo on the distance grids and 6-D prior) and one more
-# test_driver_grid_distance_prior case.  945 + 16 = 961.
-EXPECTED_TESTS=961
+# test_driver_grid_distance_prior case.  945 + 17 = 962.
+EXPECTED_TESTS=962
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"

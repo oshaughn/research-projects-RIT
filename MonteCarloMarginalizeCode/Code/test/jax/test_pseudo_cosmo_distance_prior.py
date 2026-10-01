@@ -45,6 +45,17 @@ def _ref_pdf(d, lo, hi):
                                                 nm=nm, xpy=np)
 
 
+def _ks(draws, lo, hi, d_min, d_max):
+    """sup |ECDF - CDF| of ``draws`` against the reference restricted to [lo, hi]."""
+    g = np.linspace(lo, hi, 200001)
+    pg = _ref_pdf(g, d_min, d_max)
+    cdf = np.concatenate(([0.0], np.cumsum(0.5 * (pg[1:] + pg[:-1]) * np.diff(g))))
+    x = np.sort(draws)
+    f = np.interp(x, g, cdf / cdf[-1])
+    n = len(x)
+    return max(np.max(np.arange(1, n + 1) / n - f), np.max(f - np.arange(n) / n))
+
+
 # --------------------------------------------------------------------------
 # Prior object
 # --------------------------------------------------------------------------
@@ -75,14 +86,11 @@ def test_av_draws_follow_the_density():
     draws = _samplers._av_distance_prior_draw(
         100000, np.random.default_rng(3), box[0], box[1], lo, hi, PC)
     assert draws.min() >= box[0] and draws.max() <= box[1]
-    g = np.linspace(*box, 20001)
-    pg = _ref_pdf(g, lo, hi)
-    cdf = np.concatenate(([0.0], np.cumsum(0.5 * (pg[1:] + pg[:-1]) * np.diff(g))))
-    q = np.interp(0.5 * cdf[-1], cdf, g)
-    assert abs(np.mean(draws <= q) - 0.5) < 5e-3
+    # KS 1% critical value for n = 1e5 is 5.1e-3
+    assert _ks(draws, box[0], box[1], lo, hi) < 5e-3
     vol = np.cbrt(np.random.default_rng(3).uniform(box[0] ** 3, box[1] ** 3,
                                                    100000))
-    assert abs(np.mean(vol <= q) - 0.5) > 2e-2      # d^2 would fail the check
+    assert _ks(vol, box[0], box[1], lo, hi) > 2e-2   # d^2 would fail the check
 
 
 # --------------------------------------------------------------------------
@@ -164,14 +172,14 @@ def driver():
     return module
 
 
-@pytest.mark.parametrize("method", ["AV", "portfolio"])
+@pytest.mark.parametrize("method", ["AV", "portfolio", None])
 def test_driver_av_distmarg_forwards_pseudo_cosmo(
         driver, monkeypatch, capsys, method):
     monkeypatch.delenv("JAX_ILE_DISTMARG_GH", raising=False)
     parser = driver.build_parser()
-    opts, _ = parser.parse_args(["--sampler-method", method,
-                                 "--distance-marginalization",
-                                 "--d-prior", PC])
+    args = [] if method is None else ["--sampler-method", method]
+    opts, _ = parser.parse_args(args + ["--distance-marginalization",
+                                        "--d-prior", PC])
     driver.check_critical_and_report(opts, parser)
     assert "--d-prior" not in capsys.readouterr().out
     assert driver.grid_distance_prior(opts) == PC
@@ -218,8 +226,4 @@ def test_driver_six_d_prior_is_priors_utils(driver, limit):
     if limit:
         assert abs(corr - np.log((20000.0 ** 3 - 10.0 ** 3)
                                  / (hi ** 3 - lo ** 3))) > 0.05
-    g = np.linspace(lo, hi, 20001)
-    pg = _ref_pdf(g, 10.0, 20000.0)
-    cdf = np.concatenate(([0.0], np.cumsum(0.5 * (pg[1:] + pg[:-1]) * np.diff(g))))
-    q = np.interp(0.5 * cdf[-1], cdf, g)
-    assert abs(np.mean(d <= q) - 0.5) < 5e-3
+    assert _ks(d, lo, hi, 10.0, 20000.0) < 5e-3
