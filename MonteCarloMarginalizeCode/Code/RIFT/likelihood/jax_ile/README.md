@@ -282,9 +282,9 @@ log-uniform), the AV/portfolio distance coordinate, the driver's 6-D prior, and
 traced ``jax.numpy`` code.  The per-sample GH distance quadrature
 (``--distance-gh-nodes > 0``), ``--angle-marg-scheme multipeak`` and
 ``--direct-marginalization-policy`` have the volumetric measure built in and
-refuse these priors.  ``pseudo_cosmo`` is
-honored only where AV/portfolio samples distance; elsewhere the driver prints
-that it is ignored.
+refuse these priors.  ``--d-prior pseudo_cosmo`` reaches the same places,
+using ``priors_utils.dist_prior_pseudo_cosmo`` and its normalization directly,
+and the same three schemes refuse it.
 
 ## Driver
 
@@ -299,7 +299,8 @@ AV/portfolio honor the production ``--d-prior pseudo_cosmo`` distance density,
 including its normalization over ``[--d-min, --d-max]``; Euclidean/volumetric
 remains the default.  Other distance-prior names are refused for this backend
 rather than silently changed.  ``--d-prior cosmo`` and ``cosmo_sourceframe``
-are honored by every path (see "Cosmological distance priors").  A sampling-only
+are honored by every path (see "Cosmological distance priors"), and so is
+``pseudo_cosmo``.  A sampling-only
 ``--limit-distance`` does not renormalize either physical prior.
 
 Portfolio defaults to AV plus a defensive GMM member.  An optional Fisher-sky

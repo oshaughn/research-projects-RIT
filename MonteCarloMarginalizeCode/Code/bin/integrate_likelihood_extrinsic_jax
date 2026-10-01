@@ -959,13 +959,11 @@ def check_critical_and_report(opts, optp):
             print("Note: %s only act on the tempered modes (%s); --mode %s ignores "
                   "them." % (" ".join(sorted(set(inert))),
                              " ".join(sorted(_TEMPERED_MODES)), mode))
-    # Volumetric, cosmo and cosmo_sourceframe reach every distance quadrature
-    # and the 6-D prior (grid_distance_prior).  pseudo_cosmo reaches only a
-    # distance coordinate SAMPLED by AV/portfolio; elsewhere it is reported.
+    # The GRID_DISTANCE_PRIORS reach every distance quadrature and the 6-D
+    # prior (grid_distance_prior); any other --d-prior (uniform) is reported.
     _dp = getattr(opts, "d_prior", None)
     if (_dp not in (None, "") and grid_distance_prior(opts)
-            != _distance_prior.canonical_distance_prior(_dp)
-            and getattr(opts, "sampler_method", None) not in ("AV", "portfolio")):
+            != _distance_prior.canonical_distance_prior(_dp)):
         print("Note: --d-prior %r is accepted but IGNORED by the JAX driver: "
               "it integrates distance against the volumetric d^2 "
               "prior on [--d-min, --d-max]." % (_dp,))
@@ -1953,17 +1951,17 @@ def resolve_distance_limit(opts):
 def grid_distance_prior(opts):
     """The ``d_prior`` the distance quadratures and the 6-D prior apply.
 
-    Volumetric unless ``--d-prior`` is cosmo or cosmo_sourceframe.
+    Volumetric unless ``--d-prior`` is cosmo, cosmo_sourceframe or pseudo_cosmo.
     """
     key = _distance_prior.canonical_distance_prior(getattr(opts, "d_prior", None))
-    return key if key in _distance_prior.COSMO_DISTANCE_PRIORS else "euclidean"
+    return key if key in _distance_prior.GRID_DISTANCE_PRIORS else "euclidean"
 
 
-def _cosmo_prior_or_none(opts):
+def _distance_prior_or_none(opts):
     key = grid_distance_prior(opts)
     if key == "euclidean":
         return None
-    return _distance_prior.cosmo_distance_prior(key)
+    return _distance_prior.grid_distance_prior_object(key)
 
 
 def resolve_av_angular_limits(opts):
@@ -2033,7 +2031,7 @@ def log_distance_box_correction(opts, with_distance):
     lo, hi = resolve_distance_limit(opts)
     if lo == float(opts.d_min) and hi == float(opts.d_max):
         return 0.0
-    pr = _cosmo_prior_or_none(opts)
+    pr = _distance_prior_or_none(opts)
     if pr is not None:
         return pr.log_mass(opts.d_min, opts.d_max) - pr.log_mass(lo, hi)
     return float(np.log((opts.d_max ** 3 - opts.d_min ** 3) / (hi ** 3 - lo ** 3)))
@@ -2049,7 +2047,7 @@ def sample_prior(n, opts, rng, with_distance):
     if with_distance:
         # the SAMPLED range (== [d_min,d_max] unless --limit-distance)
         d_lo, d_hi = resolve_distance_limit(opts)
-        pr = _cosmo_prior_or_none(opts)
+        pr = _distance_prior_or_none(opts)
         if pr is not None:
             cols.append(pr.sample(n, rng, d_lo, d_hi))
         else:
@@ -2076,7 +2074,7 @@ def log_prior(theta, opts, with_distance):
             # scale and does not have to be corrected before comparison.
             d_lo, d_hi = resolve_distance_limit(opts)
             inb = inb & (dist >= d_lo) & (dist <= d_hi)
-            pr = _cosmo_prior_or_none(opts)
+            pr = _distance_prior_or_none(opts)
             if pr is not None:
                 logp = logp + pr.log_density(np.clip(dist, d_lo, d_hi),
                                              opts.d_min, opts.d_max)

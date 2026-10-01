@@ -657,6 +657,7 @@ FILES=(
   "${JAXDIR}/test_policy_peaklocal_reserve.py"
   "${JAXDIR}/test_jax_ile_short_option_forms.py"
   "${JAXDIR}/test_cosmo_distance_prior.py"
+  "${JAXDIR}/test_pseudo_cosmo_distance_prior.py"
 )
 
 # EXCLUDED: files in JAXDIR matching test_*.py that are deliberately NOT gated.  The
@@ -1201,7 +1202,10 @@ fi
 # test, DESELECT loop applied).
 # 2026-10-01: + test_cosmo_distance_prior.py (47 tests: --d-prior cosmo and
 # cosmo_sourceframe on the JAX ILE).  898 + 47 = 945.
-EXPECTED_TESTS=945
+# 2026-10-01: + test_pseudo_cosmo_distance_prior.py (15 tests: --d-prior
+# pseudo_cosmo on the distance grids and 6-D prior) and one more
+# test_driver_grid_distance_prior case.  945 + 16 = 961.
+EXPECTED_TESTS=961
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"

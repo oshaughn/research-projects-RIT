@@ -314,7 +314,8 @@ def driver():
 @pytest.mark.parametrize("value,expect", [
     (None, "euclidean"), ("Euclidean", "euclidean"), ("volumetric", "euclidean"),
     ("cosmo", "cosmo"), ("cosmo_sourceframe", "cosmo_sourceframe"),
-    ("COSMO_SOURCEFRAME", "cosmo_sourceframe"), ("pseudo_cosmo", "euclidean")])
+    ("COSMO_SOURCEFRAME", "cosmo_sourceframe"), ("pseudo_cosmo", "pseudo_cosmo"),
+    ("uniform", "euclidean")])
 def test_driver_grid_distance_prior(driver, value, expect):
     parser = driver.build_parser()
     args = [] if value is None else ["--d-prior", value]
@@ -339,9 +340,9 @@ def test_driver_no_longer_reports_cosmo_as_ignored(driver, monkeypatch, capsys):
     driver.check_critical_and_report(opts, parser)
     assert "--d-prior 'cosmo_sourceframe' is accepted but IGNORED" not in \
         capsys.readouterr().out
-    opts, _ = parser.parse_args(["--d-prior", "pseudo_cosmo"])
+    opts, _ = parser.parse_args(["--d-prior", "uniform"])
     driver.check_critical_and_report(opts, parser)
-    assert "--d-prior 'pseudo_cosmo' is accepted but IGNORED" in \
+    assert "--d-prior 'uniform' is accepted but IGNORED" in \
         capsys.readouterr().out
 
 

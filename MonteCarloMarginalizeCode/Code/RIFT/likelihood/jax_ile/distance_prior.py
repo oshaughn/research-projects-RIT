@@ -30,6 +30,8 @@ import functools
 import numpy as np
 
 COSMO_DISTANCE_PRIORS = ("cosmo", "cosmo_sourceframe")
+# Every non-volumetric prior the distance grids and the 6-D prior apply.
+GRID_DISTANCE_PRIORS = COSMO_DISTANCE_PRIORS + ("pseudo_cosmo",)
 _EUCLIDEAN_ALIASES = ("euclidean", "volumetric")
 
 # Table: z in [_Z_LO, _Z_HI], uniform in ln z.  _Z_HI = 200 is d_L ~ 2.3e6 Mpc
@@ -129,3 +131,64 @@ class CosmoDistancePrior(object):
 @functools.lru_cache(maxsize=8)
 def cosmo_distance_prior(kind, cosmology="Planck15"):
     return CosmoDistancePrior(canonical_distance_prior(kind), cosmology)
+
+
+class PseudoCosmoDistancePrior(object):
+    """``--d-prior pseudo_cosmo``: ``priors_utils.dist_prior_pseudo_cosmo``.
+
+    Same interface as :class:`CosmoDistancePrior`.  The density and its
+    normalization are the batchmode ILE's own functions, so the two drivers
+    integrate against one prior.
+    """
+
+    kind = "pseudo_cosmo"
+
+    def check_support(self, d_max):
+        pass   # a closed form; batchmode applies no range check either
+
+    def log_density_unnormalized(self, d, xp=np):
+        """``ln dist_prior_pseudo_cosmo(d, nm=1)``; ``xp`` is numpy or jax.numpy."""
+        from RIFT.likelihood import priors_utils
+        if xp is np:
+            return np.log(priors_utils.dist_prior_pseudo_cosmo(
+                np.asarray(d, dtype=float), nm=1, xpy=np))
+        # priors_utils.p_in may be a cupy array; give jax its own coefficients
+        d = xp.asarray(d)
+        poly = xp.polyval(xp.asarray(priors_utils.will_cosmo_const[::-1]),
+                          d / 1e3)
+        return xp.log(4.0 * np.pi) + 2.0 * xp.log(d) - xp.log(poly)
+
+    def density_unnormalized(self, d):
+        return np.exp(self.log_density_unnormalized(d))
+
+    @functools.lru_cache(maxsize=32)
+    def _log_mass(self, lo, hi):
+        from RIFT.likelihood import priors_utils
+        return -float(np.log(priors_utils.dist_prior_pseudo_cosmo_eval_norm(lo, hi)))
+
+    def log_mass(self, lo, hi):
+        """``ln ∫_lo^hi p_unnorm(d) dd`` (scipy quad, as batchmode)."""
+        return self._log_mass(float(lo), float(hi))
+
+    def log_density(self, d, lo, hi, xp=np):
+        """``ln p(d)`` normalized over ``[lo, hi]`` (support is not masked)."""
+        return self.log_density_unnormalized(d, xp=xp) - self.log_mass(lo, hi)
+
+    def sample(self, n, rng, lo, hi):
+        """``n`` draws from ``p`` restricted to ``[lo, hi]`` (inverse CDF)."""
+        grid = np.linspace(float(lo), float(hi), 4097)
+        pdf = self.density_unnormalized(grid)
+        cdf = np.concatenate(([0.0], np.cumsum(
+            0.5 * (pdf[1:] + pdf[:-1]) * np.diff(grid))))
+        return np.interp(rng.uniform(0.0, cdf[-1], int(n)), cdf, grid)
+
+
+_PSEUDO_COSMO = PseudoCosmoDistancePrior()
+
+
+def grid_distance_prior_object(kind):
+    """The prior object for a :data:`GRID_DISTANCE_PRIORS` name."""
+    kind = canonical_distance_prior(kind)
+    if kind == "pseudo_cosmo":
+        return _PSEUDO_COSMO
+    return cosmo_distance_prior(kind)

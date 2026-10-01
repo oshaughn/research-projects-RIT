@@ -2301,8 +2301,9 @@ def _distance_prior_density(d, d_prior):
         return d ** 2
     if d_prior == "uniform":
         return np.ones_like(d)
-    if _distance_prior.is_cosmo_distance_prior(d_prior):
-        pr = _distance_prior.cosmo_distance_prior(d_prior)
+    if _distance_prior.canonical_distance_prior(d_prior) in \
+            _distance_prior.GRID_DISTANCE_PRIORS:
+        pr = _distance_prior.grid_distance_prior_object(d_prior)
         pr.check_support(np.max(d))
         return pr.density_unnormalized(d)
     raise NotImplementedError("d_prior=%r" % d_prior)
