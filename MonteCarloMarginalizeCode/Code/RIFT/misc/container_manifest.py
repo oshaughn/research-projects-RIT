@@ -202,7 +202,18 @@ def load_container_manifest(path):
             )
         select_req = entry.get("select_requirements")
         if select_req is not None:
-            select_req = str(select_req).strip()
+            if not isinstance(select_req, str) or not select_req.strip():
+                raise ContainerManifestError(
+                    "Container manifest {} entry '{}': select_requirements must be a ClassAd "
+                    "expression string".format(path, label)
+                )
+            if cap_min is None:
+                # without a minimum the entry would sort below every capability test
+                raise ContainerManifestError(
+                    "Container manifest {} entry '{}': select_requirements needs "
+                    "cuda_capability_min".format(path, label)
+                )
+            select_req = select_req.strip()
             # The selector is also embedded in a comma-split transfer_input_files
             # entry and in a container_image value that may not contain '/'.
             if any(ch in select_req for ch in ",/\n"):
@@ -213,7 +224,7 @@ def load_container_manifest(path):
         req_mem = entry.get("request_memory")
         if req_mem is not None:
             try:
-                req_mem = int(req_mem)
+                req_mem = 0 if isinstance(req_mem, bool) else int(req_mem)
             except (TypeError, ValueError):
                 req_mem = 0
             if req_mem <= 0:
@@ -222,10 +233,11 @@ def load_container_manifest(path):
                     "integer (MB)".format(path, label)
                 )
         ile_exe = entry.get("ile_exe")
-        if ile_exe is not None and (not isinstance(ile_exe, str) or any(ch in ile_exe for ch in ' ,"')):
+        if ile_exe is not None and (not isinstance(ile_exe, str) or not ile_exe
+                                    or any(ch in ile_exe for ch in " ,\"'\\$\n")):
             raise ContainerManifestError(
                 "Container manifest {} entry '{}': ile_exe must be a path without spaces, "
-                "commas or quotes".format(path, label)
+                "commas, quotes, backslashes or '$'".format(path, label)
             )
         containers.append(
             {
@@ -330,7 +342,9 @@ def _build_selector(manifest, value_fn, ternary=False):
         if c["cuda_capability_min"] is not None:
             terms.append("TARGET.{attr} >= {mn}".format(attr=attr, mn=_fmt_cap(c["cuda_capability_min"])))
         if c.get("select_requirements"):
-            terms.append("({})".format(c["select_requirements"]))
+            # =?= true: an attribute the slot does not advertise makes the term
+            # false (fall through to the next entry), not undefined
+            terms.append("(({}) =?= true)".format(c["select_requirements"]))
         cond = " && ".join(terms)
         if ternary:
             expr = "({cond} ? {val} : {inner})".format(cond=cond, val=value_fn(c), inner=expr)
@@ -578,6 +592,13 @@ def build_runtime_selection_wrapper(manifest, inner_command=None):
     ClassAd/container-universe selectors, then runs ``inner_command`` or the
     wrapper arguments inside the selected image with apptainer.
     """
+    with_req = [c["label"] for c in manifest["containers"] if c.get("select_requirements")]
+    if with_req:
+        # the wrapper only sees the GPU capability, so it would pick a different
+        # entry than the ClassAd selectors
+        raise ContainerManifestError(
+            "RIFT_CONTAINER_RUNTIME_SELECT cannot evaluate select_requirements "
+            "(entries: {})".format(", ".join(with_req)))
     labels, mins, maxs, rtpaths, fetches = [], [], [], [], []
     for c in manifest["containers"]:
         runtime_path, fetch_url, cap_min, cap_max = _runtime_image_fields(c)
@@ -656,7 +677,7 @@ def build_ile_exe_expr(manifest, default_exe, exe_dir=None):
     A bare ``ile_exe`` name is prefixed with ``exe_dir`` (the in-container bin
     directory); entries without ``ile_exe`` use ``default_exe``.  The job carries
     this as ``MY.RIFTILEExe`` and passes it to the job as
-    ``RIFT_ILE_EXE=$$([MY.RIFTILEExe])``.
+    a trailing ``--rift-ile-exe=$$([MY.RIFTILEExe])`` argument.
     """
     return _build_selector(
         manifest, lambda c: '"{}"'.format(_ile_exe_path(c, default_exe, exe_dir))

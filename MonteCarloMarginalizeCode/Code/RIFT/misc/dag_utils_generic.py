@@ -354,7 +354,10 @@ def ile_gpu_request():
         return (1, 1)
 
 
-def ile_invocation_shell(exe, fanout=None, exe_env_override=False):
+ILE_EXE_ARG = '--rift-ile-exe='
+
+
+def ile_invocation_shell(exe, fanout=None, exe_from_arg=False):
     """Shell snippet invoking the ILE executable `exe` with multi-GPU fan-out
     (RIFT_ILE_GPU_FANOUT).  The launcher reads its source from stdin via a quoted
     here-doc, so the ILE arguments in "$@" (including nested-quoted values) pass
@@ -365,13 +368,24 @@ def ile_invocation_shell(exe, fanout=None, exe_env_override=False):
     execute environment propagating RIFT_ILE_GPU_FANOUT -- needed for asimov,
     which can only set the value at DAG-build time.
 
-    With exe_env_override, the job environment's RIFT_ILE_EXE (set per matched
-    machine by a container family with ILE profiles) replaces `exe`."""
+    With exe_from_arg, a ``--rift-ile-exe=<path>`` argument (added per matched
+    machine by a container family with ILE profiles) is removed from the ILE
+    arguments and replaces `exe`; without that argument `exe` runs."""
     if fanout is None:
         fanout = ile_gpu_fanout_value()
-    exe_word = ('${RIFT_ILE_EXE:-' + exe + '}') if exe_env_override else exe
+    select = ''
+    exe_word = exe
+    if exe_from_arg:
+        select = (
+            'RIFT_ILE_EXE_SEL=""; RIFT_ILE_ARGS=()\n'
+            + 'for a in "$@"; do case "$a" in ' + ILE_EXE_ARG + '*) RIFT_ILE_EXE_SEL="${a#' + ILE_EXE_ARG
+            + '}";; *) RIFT_ILE_ARGS+=("$a");; esac; done\n'
+            + 'set -- ${RIFT_ILE_ARGS[@]+"${RIFT_ILE_ARGS[@]}"}\n'
+        )
+        exe_word = '${RIFT_ILE_EXE_SEL:-' + exe + '}'
     return (
-        'PY=python3; command -v python3 >/dev/null 2>&1 || PY=python\n'
+        select
+        + 'PY=python3; command -v python3 >/dev/null 2>&1 || PY=python\n'
         + 'export RIFT_ILE_GPU_FANOUT="${RIFT_ILE_GPU_FANOUT:-' + str(fanout) + '}"\n'
         + 'exec "$PY" - "' + exe_word + '" "$@" <<\'RIFT_ILE_MULTIGPU_EOF\'\n'
         + ILE_MULTIGPU_LAUNCHER_PY
@@ -2470,14 +2484,14 @@ def write_puff_sub(tag='puffball', exe=None, base=None,input_net='output-ILE-sam
     return ile_job, ile_sub_name
 
 
-def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,simple_unique=False,ncopies=1,arg_str=None,request_memory=4096,request_gpu=False,request_cross_platform=False,request_disk=False,arg_vals=None, transfer_files=None,transfer_output_files=None,use_singularity=False,use_osg=False,use_simple_osg_requirements=False,singularity_image=None,use_cvmfs_frames=False,use_oauth_files=False,frames_dir=None,cache_file=None,fragile_hold=False,max_runtime_minutes=None,condor_commands=None,ile_profiles=True,**kwargs):
+def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,simple_unique=False,ncopies=1,arg_str=None,request_memory=4096,request_gpu=False,request_cross_platform=False,request_disk=False,arg_vals=None, transfer_files=None,transfer_output_files=None,use_singularity=False,use_osg=False,use_simple_osg_requirements=False,singularity_image=None,use_cvmfs_frames=False,use_oauth_files=False,frames_dir=None,cache_file=None,fragile_hold=False,max_runtime_minutes=None,condor_commands=None,ile_profiles=False,**kwargs):
     """
     Write a submit file for launching jobs to marginalize the likelihood over intrinsic parameters.
 
     Inputs:
-        - ile_profiles: if the container family sets per-entry ile_exe/request_memory,
-          let a GPU job select them per matched machine.  Pass False for jobs whose
-          downstream consumer depends on which executable ran (ILE_extr).
+        - ile_profiles: opt in to the container family's per-entry ile_exe/request_memory,
+          selected per matched machine (GPU jobs only).  Never for jobs whose downstream
+          consumer depends on which executable ran (ILE_extr).
     Outputs:
         - An instance of the CondorDAGJob that was generated for ILE
     """
@@ -2515,6 +2529,10 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
         # attribute to select on).
         ile_profiles_defined = bool(use_singularity and has_ile_profiles(_manifest))
         ile_profiles_active = bool(ile_profiles_defined and ile_profiles and request_gpu)
+        if ile_profiles_active and current_backend_name() not in ('htcondor', 'glue'):
+            raise ContainerManifestError(
+                "container family ILE profiles need HTCondor match-time ($$) substitution; "
+                "backend '{}' cannot provide it".format(current_backend_name()))
         if ile_profiles_defined and ile_profiles and not request_gpu:
             print(" WARNING: container family ILE profiles ignored for a job that requests no GPU ")
         singularity_image_expr = build_singularity_image_expr(_manifest)
@@ -2857,14 +2875,15 @@ echo Starting ...
             f.write("cp local_relative.cache local.cache \n")
             # Only GPU ILE jobs fan out; a CPU-only ILE job bakes '1' so the default
             # 'all' policy never makes a non-GPU job grab the node's GPUs.
-            f.write(ile_invocation_shell(exe, fanout=(ile_gpu_fanout_value() if request_gpu else '1'), exe_env_override=ile_profiles_defined))
+            f.write(ile_invocation_shell(exe, fanout=(ile_gpu_fanout_value() if request_gpu else '1'), exe_from_arg=ile_profiles_defined))
             os.system("chmod a+x ile_pre.sh")
             ile_job.set_executable("ile_pre.sh")  # transferred, used as executable
             singularity_inner_exe = "./ile_pre.sh"
 #          ile_job.add_condor_cmd('+PreCmd', '"ile_pre.sh"')
     elif ile_profiles_active:
-        # No frame prescript, but the executable still has to come from the job
-        # environment: run ILE through a minimal transferred dispatcher.
+        # No frame prescript, but the executable still has to come from the
+        # --rift-ile-exe argument: run ILE through a minimal transferred dispatcher.
+        # Single GPU, as when the executable runs directly.
         cmdname = 'ile_dispatch.sh'
         if transfer_files is None:
             transfer_files = []
@@ -2873,7 +2892,7 @@ echo Starting ...
         transfer_files += ["../" + cmdname]
         with open(cmdname, 'w') as f:
             f.write("#! /bin/bash -e \n")
-            f.write(ile_invocation_shell(exe, fanout=ile_gpu_fanout_value(), exe_env_override=True))
+            f.write(ile_invocation_shell(exe, fanout='1', exe_from_arg=True))
         os.system("chmod a+x " + cmdname)
         ile_job.set_executable(cmdname)
         singularity_inner_exe = "./" + cmdname
@@ -2885,17 +2904,10 @@ echo Starting ...
         ile_job.add_condor_cmd('MY.RIFTILEProfile', build_profile_label_expr(_manifest))
         ile_job.add_condor_cmd('MY.RIFTILEProfileMatched', '"$$([MY.RIFTILEProfile])"')
         ile_job.add_condor_cmd('MY.RIFTILEExe', build_ile_exe_expr(_manifest, exe, singularity_base_exe_path))
-    if ile_profiles_defined:
-        # ile_pre.sh is shared by every ILE-family job and always honours
-        # RIFT_ILE_EXE when profiles exist; jobs that must not swap pin it empty.
-        env_profile = 'RIFT_ILE_EXE=' + ('$$([MY.RIFTILEExe])' if ile_profiles_active else '')
-        for indx, (key, value) in enumerate(ile_job.condor_cmds):
-            if key == 'environment':
-                # merge into the resolved-env statement rather than emit a second one
-                env_profile = str(value).strip().strip('"').strip() + ' ' + env_profile
-                del ile_job.condor_cmds[indx]
-                break
-        ile_job.add_condor_cmd('environment', '"' + env_profile + '"')
+        # An argument, not the environment: getenv, resolved-env statements and
+        # later environment commands cannot drop or mangle it.  ile_pre.sh is shared
+        # by every ILE-family job; one without this argument runs the default.
+        ile_job.add_arg(ILE_EXE_ARG + '$$([MY.RIFTILEExe])')
 
 
 #    if use_osg:
