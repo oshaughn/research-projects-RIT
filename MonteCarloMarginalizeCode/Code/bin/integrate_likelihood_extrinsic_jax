@@ -858,6 +858,19 @@ def check_critical_and_report(opts, optp):
             "--time-marginalization-quadrature simpson."
             % (opts.mode, float(_hw), _BANDLIMITED_FULLSKY_HALF_WINDOW_MIN,
                _BANDLIMITED_FULLSKY_HALF_WINDOW_MIN))
+    # The per-sample GH distance quadrature and both multipeak schemes have the
+    # d^2 measure built in; the wrappers refuse too, but only after precompute.
+    if grid_distance_prior(opts) != "euclidean":
+        if _gh_resolved > 0:
+            fatal.append("--d-prior %s cannot be combined with the per-sample "
+                         "distance quadrature (--distance-gh-nodes / "
+                         "JAX_ILE_DISTMARG_GH = %d), which assumes the "
+                         "volumetric prior" % (opts.d_prior, _gh_resolved))
+        if getattr(opts, "angle_marg_scheme", None) in ("multipeak",
+                                                        "multipeak-jax"):
+            fatal.append("--angle-marg-scheme %s supports the volumetric "
+                         "distance prior only, not --d-prior %s"
+                         % (opts.angle_marg_scheme, opts.d_prior))
     if fatal:
         optp.error("Cannot run as a faithful drop-in: " + "; ".join(fatal)
                    + ".  (These would silently change the result if ignored.)")

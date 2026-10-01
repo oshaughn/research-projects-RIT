@@ -1199,9 +1199,9 @@ fi
 # reading its own line, "collected 898 tests from 52 files" (ldas-pcdev2, `import
 # cupy` FAILS in /scratch/$USER/envs/jaxci-py311, PYTHONPATH pinned to the tree under
 # test, DESELECT loop applied).
-# 2026-10-01: + test_cosmo_distance_prior.py (44 tests: --d-prior cosmo and
-# cosmo_sourceframe on the JAX ILE).  898 + 44 = 942.
-EXPECTED_TESTS=942
+# 2026-10-01: + test_cosmo_distance_prior.py (47 tests: --d-prior cosmo and
+# cosmo_sourceframe on the JAX ILE).  898 + 47 = 945.
+EXPECTED_TESTS=945
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"

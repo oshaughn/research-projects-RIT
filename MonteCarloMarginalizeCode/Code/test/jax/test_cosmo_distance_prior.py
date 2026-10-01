@@ -388,3 +388,36 @@ def test_driver_forwards_d_prior_to_every_marginalized_likelihood():
         v = kw.get("d_prior")
         assert (isinstance(v, ast.Call) and isinstance(v.func, ast.Name)
                 and v.func.id == "grid_distance_prior"), (c.func.id, c.lineno)
+    av = [n for n in ast.walk(tree) if isinstance(n, ast.Call)
+          and isinstance(n.func, ast.Attribute)
+          and n.func.attr == "adaptive_volume_sample"]
+    assert len(av) == 1
+    v = {k.arg: k.value for k in av[0].keywords}["distance_prior"]
+    assert isinstance(v, ast.Attribute) and v.attr == "d_prior"
+
+
+@pytest.mark.parametrize("args", [
+    ["--distance-gh-nodes", "16"],
+    ["--angle-marg-scheme", "multipeak"],
+    ["--angle-marg-scheme", "multipeak-jax"]])
+def test_driver_refuses_volumetric_only_schemes_up_front(driver, monkeypatch,
+                                                         capsys, args):
+    monkeypatch.delenv("JAX_ILE_DISTMARG_GH", raising=False)
+    parser = driver.build_parser()
+    opts, _ = parser.parse_args(["--d-prior", "cosmo_sourceframe"] + args)
+    old = _core.get_distmarg_gh_nodes()
+    msg = "--d-prior cosmo_sourceframe"
+    try:
+        with pytest.raises(SystemExit):
+            driver.check_critical_and_report(opts, parser)
+        assert msg in capsys.readouterr().err
+        # without the cosmo prior this refusal is absent (multipeak-jax has
+        # other requirements of its own, so the run may still be refused)
+        ok, _ = parser.parse_args(args)
+        try:
+            driver.check_critical_and_report(ok, parser)
+        except SystemExit:
+            pass
+        assert msg not in capsys.readouterr().err
+    finally:
+        _core.set_distmarg_gh_nodes(old)
