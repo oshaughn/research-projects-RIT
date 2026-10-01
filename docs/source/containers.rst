@@ -262,16 +262,18 @@ elsewhere:
        ile_exe: integrate_likelihood_extrinsic_jax
        request_memory: 16000                     # MB
 
-``select_requirements`` is ANDed into the entry's capability test.  At equal
-``cuda_capability_min`` an entry with ``select_requirements`` is tested first.
-It may not contain ``,`` or ``/``, and the fallback may not set it.  Entries
-without ``ile_exe`` or ``request_memory`` use the job defaults.
+``select_requirements`` is ANDed into the entry's capability test as
+``(expr) =?= true``, so a slot that does not advertise an attribute it reads
+falls through to the next entry.  At equal ``cuda_capability_min`` an entry with
+``select_requirements`` is tested first.  It needs ``cuda_capability_min``, may
+not contain ``,`` or ``/``, and the fallback may not set it.  Entries without
+``ile_exe`` or ``request_memory`` use the job defaults.
 
 A GPU ILE job then carries one ClassAd selector per choice, all over the same
 branches: the image, ``request_memory``, ``MY.RIFTILEExe``, and
-``MY.RIFTILEProfile`` (the label).  ``RIFT_ILE_EXE=$$([MY.RIFTILEExe])`` in the
-job environment is read by ``ile_pre.sh``, or by a small ``ile_dispatch.sh`` when
-there is no frame prescript.  HTCondor carves the slot at the selected memory,
+``MY.RIFTILEProfile`` (the label).  The executable is passed as a trailing
+``--rift-ile-exe=$$([MY.RIFTILEExe])`` argument, which ``ile_pre.sh`` (or a small
+``ile_dispatch.sh`` when there is no frame prescript) removes before running it.  HTCondor carves the slot at the selected memory,
 and keeps the expressions so a job rematched after eviction selects again.  To see
 what each job got::
 
@@ -279,11 +281,17 @@ what each job got::
 
 Limits:
 
-* GPU ILE jobs only.  CPU jobs ignore the profiles.
-* ``ILE_extr`` keeps the default executable, because its output converter
+* Opt-in per job (``ile_profiles=True``).  Only the ``ILE``, ``ILE_puff`` and
+  ``ILE_fetch`` jobs of ``create_event_parameter_pipeline_BasicIteration`` use it.
+  ``ILE_extr`` keeps the default executable, because its output converter
   depends on which executable ran.
+* GPU jobs and HTCondor backends only.
 * Not available with ``RIFT_CONTAINER_RUNTIME_SELECT``, which picks the image
-  after the slot is carved.
+  after the slot is carved and cannot evaluate ``select_requirements``.
+* The build-time checks ``util_RIFT_pseudo_pipe.py`` applies to
+  ``--use-jax-ile`` (calibration marginalization, OSG) do not see a manifest
+  ``ile_exe``.  Check that the run's ILE options are supported by every
+  executable the family names.
 * Select on attributes that are the same for the partitionable and the dynamic
   slot (GPU capability, GPU memory, ``TotalCpus``), not on ``Memory``.
 * ``condor_qedit <job> RequestMemory <N>`` replaces the expression with a constant.
