@@ -2740,14 +2740,13 @@ class ComplexOverlap(InnerProduct):
         rho = rhoSeries.max()
         if self.interpolate_max:
             # see: spokes.py and util_ManualOverlapGrid.py
+            # Vertex of the parabola through the peak sample and its two
+            # neighbours; the overlap series is periodic in time.
             rhoIdx = rhoSeries.argmax()
-            datReduced = rhoSeries[rhoIdx-2:rhoIdx+2]
-            try:
-                z =np.polyfit(np.arange(len(datReduced)),datReduced,2)
-                if z[0]<0:
-                    return z[2] - z[1]*z[1]/4/z[2]
-            except:
-                print( " Duration error ", datReduced, " skipping interpolation in time to best point ")
+            y0, y1, y2 = rhoSeries[rhoIdx-1], rhoSeries[rhoIdx], rhoSeries[(rhoIdx+1) % len(rhoSeries)]
+            den = y0 - 2*y1 + y2
+            if den < 0:
+                return y1 - (y2-y0)**2/(8*den)
             # Otherwise, act as normally
         if self.full_output==False:
             # Return overlap maximized over time, phase

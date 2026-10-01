@@ -159,6 +159,7 @@ FILES=(
   "$C/test/test_lisa_ini_contract.py"
   "$C/test/test_tracer_placement_gp.py"
   "$C/test/waveforms/test_uv_symmetry.py"
+  "$C/test/test_complex_overlap_interpolate_max.py"
   # -- coordinates: vectorized in-plane spin / ring coordinates agree with extract_param
   "$C/test/test_ring_coordinates.py"
 )
@@ -308,6 +309,19 @@ done
 #            junit 576 collected / 563 passed / 13 skipped / 0 failed.  Again 3 of
 #            pytest-subtests margin, not spare room.
 #
+#   600/587  test_complex_overlap_interpolate_max.py added (8 tests: ComplexOverlap.ip
+#            interpolate_max vertex, incl. peaks at index 0 and N-1).  MEASURED on CIT
+#            (ldas-grid; numpy backend) 2026-09-30, IGWN conda python 3.11 / lal 7.7.0, with
+#            RIFT_COREUNIT_PYTHON pointed at the IGWN interpreter: per-file 600 over 52 files,
+#            junit 603 collected / 590 passed / 13 skipped / 0 failed.
+#
+#   613/600  test_ring_coordinates.py added (7 tests: vectorized in-plane spin and ring
+#            coordinates, phi12, chi_p_vec, object-array input, Kerr rule), merged with
+#            test_complex_overlap_interpolate_max.py above.  MEASURED on CIT (ldas-grid; numpy
+#            backend) 2026-09-30, IGWN conda python 3.11 / lal 7.7.0, with RIFT_COREUNIT_PYTHON
+#            pointed at the IGWN interpreter: junit 616 collected / 603 passed / 13 skipped /
+#            0 failed, of which 3 are subtests.
+#
 # RAISE these when files are added: a floor left at the old value passes while covering less,
 # which is the failure this gate exists to catch.
 # DO NOT RAISE THESE TO THE RUNNER'S NUMBERS.  The GitHub runner reports 350 collected / 338
@@ -326,9 +340,10 @@ done
 # `import cupy` FAILS there, numpy backend) 2026-09-30, IGWN conda python 3.11 / lal 7.7.0:
 # per-file 600, junit 603 collected / 590 passed / 13 skipped / 0 failed, of which 3 are
 # subtests.  So the plugin-free floors are 600/587; the old 592/579 sat 6 below the tree.
-# Review of #377 added five more ring-coordinate tests, no skips.  RE-MEASURED the same way:
-# junit 608 collected / 595 passed / 13 skipped / 0 failed (3 subtests), so the floors are 605/592.
-EXPECTED_TESTS=605
+# Review of #377 added five more ring-coordinate tests, no skips (605/592 measured).
+# test_complex_overlap_interpolate_max.py (#375) adds 8 passing tests and no skips.
+# Merged with #375: 613/600 (see the table above).
+EXPECTED_TESTS=613
 # Outcomes, not just exit status: a collection floor cannot see a test that collects, runs and
 # asserts nothing, and a pytest.skip can quietly absorb a lost gate.  The 13 skips are
 # environment legs -- cupy in test_seeding_reproducibility, device legs in
@@ -337,7 +352,7 @@ EXPECTED_TESTS=605
 # (mcsamplerNFlow is an optional dependency and is absent from the IGWN environment), and
 # the xfail in test_uv_symmetry.  test_eos_portfolio_sampler.py adds 12 tests and
 # test_cip_portfolio_members.py 4, none of them skips.
-EXPECTED_PASSED=592
+EXPECTED_PASSED=600
 MAX_SKIPPED=13
 
 # The floors must be INTEGERS, and this is checked rather than assumed.  `[ 347 -lt FOO ]` does
