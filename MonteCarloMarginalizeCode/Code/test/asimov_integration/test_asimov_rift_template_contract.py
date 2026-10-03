@@ -356,6 +356,7 @@ def test_rift_liquid_template_gp_matern_opt_in_preserves_default():
         "gp matern optimizer maxiter": 25,
         "gp matern seed": 25062842,
         "av stop metric": "kish",
+        "runtime image": "osdf:///igwn/cit/staging/example/gp.sif",
         "request memory": 8192,
         "request gpus": 1,
         "require gpus": "Capability >= 6.0 && Capability < 9.0",
@@ -385,6 +386,7 @@ def test_rift_liquid_template_gp_matern_opt_in_preserves_default():
         assert args[args.index(flag) + 1] == value
     assert parser.getint(section, "cip-explode-jobs") == 8
     assert not parser.getboolean(section, "cip-explode-jobs-auto")
+    assert parser.get(section, "internal-cip-singularity-image").strip("'\"") == "osdf:///igwn/cit/staging/example/gp.sif"
     assert parser.getint(section, "internal-cip-request-memory") == 8192
     assert parser.getint(section, "internal-cip-request-gpus") == 1
     assert parser.get(section, "internal-cip-require-gpus").strip("'\"") == "Capability >= 6.0 && Capability < 9.0"
