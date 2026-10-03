@@ -42,20 +42,22 @@ class FakeJob:
         self.paths["out"] = value
 
 
-def real_writer():
-    path = CODE / "RIFT/misc/dag_utils.py"
+def real_writer(backend="dag_utils.py"):
+    path = CODE / "RIFT/misc" / backend
     tree = ast.parse(path.read_text())
     fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "write_CIP_sub")
-    scope = {"os": os, "sys": sys, "pipeline": types.SimpleNamespace(CondorDAGJob=FakeJob),
+    scope = {"os": os, "sys": sys, "CondorDAGJob": FakeJob, "pipeline": types.SimpleNamespace(CondorDAGJob=FakeJob),
              "which": lambda value: "/test/bin/" + value,
-             "default_resolved_env": None, "default_getenv_value": "True"}
+             "default_resolved_env": None, "default_getenv_value": "True",
+             "is_container_manifest": lambda value: False}
     exec(compile(ast.Module(body=[fn], type_ignores=[]), str(path), "exec"), scope)
     return scope["write_CIP_sub"]
 
 
-def test_real_gpu_submit_writer_resources_and_container(monkeypatch):
+@pytest.mark.parametrize("backend", ["dag_utils.py", "dag_utils_generic.py"])
+def test_real_gpu_submit_writer_resources_and_container(monkeypatch, backend):
     monkeypatch.setenv("RIFT_NOSTREAM_LOG", "1")
-    job, name = real_writer()(tag="CIP_worker", arg_str="--fit-method gp-matern", out_dir="/run",
+    job, name = real_writer(backend)(tag="CIP_worker", arg_str="--fit-method gp-matern", out_dir="/run",
         ncopies=8, request_memory=8192, request_gpus=1, require_gpus=GUARD,
         use_singularity=True, singularity_image="/scratch/reviewed-cuda118.sif", transfer_files=["all.net"])
     assert name == "CIP_worker.sub"
@@ -69,17 +71,19 @@ def test_real_gpu_submit_writer_resources_and_container(monkeypatch):
     assert job.commands["transfer_input_files"] == "all.net"
 
 
-def test_real_cpu_writer_default_does_not_request_gpu():
-    job, _ = real_writer()(arg_str="--fit-method rf", out_dir="/run")
+@pytest.mark.parametrize("backend", ["dag_utils.py", "dag_utils_generic.py"])
+def test_real_cpu_writer_default_does_not_request_gpu(backend):
+    job, _ = real_writer(backend)(arg_str="--fit-method rf", out_dir="/run")
     assert "request_gpus" not in job.commands
     assert "require_gpus" not in job.commands
     assert job.commands["request_memory"] == "8192M"
 
 
 @pytest.mark.parametrize("kwargs", [{"request_gpus": -1}, {"request_gpus": "1"}, {"require_gpus": GUARD}])
-def test_real_writer_rejects_invalid_gpu_resource_request(kwargs):
+@pytest.mark.parametrize("backend", ["dag_utils.py", "dag_utils_generic.py"])
+def test_real_writer_rejects_invalid_gpu_resource_request(kwargs, backend):
     with pytest.raises(ValueError):
-        real_writer()(arg_str="--fit-method gp-matern", out_dir="/run", **kwargs)
+        real_writer(backend)(arg_str="--fit-method gp-matern", out_dir="/run", **kwargs)
 
 
 def test_actual_four_main_producer_consumer_calls_receive_resources():
@@ -89,6 +93,7 @@ def test_actual_four_main_producer_consumer_calls_receive_resources():
              and any(k.arg == "tag" and isinstance(k.value, ast.Constant) and k.value.value in ("CIP", "CIP_worker")
                      or k.arg == "tag" and isinstance(k.value, ast.BinOp) and isinstance(k.value.left, ast.Constant)
                      and k.value.left.value in ("CIP_", "CIP_worker") for k in n.keywords)]
+    assert any(isinstance(n,ast.Import) and any(a.name=='RIFT.misc.dag_utils_generic' and a.asname=='dag_utils' for a in n.names) for n in tree.body)
     assert len(calls) == 4
     for call in calls:
         keywords = {k.arg: k.value for k in call.keywords}
