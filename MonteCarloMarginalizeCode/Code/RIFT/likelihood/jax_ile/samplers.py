@@ -34,7 +34,6 @@ Run the self-test (builds the standard synthetic injection, no frames needed)::
         python RIFT/likelihood/jax_ile/samplers.py
 """
 
-import functools
 import os
 
 import numpy as np
@@ -2440,30 +2439,15 @@ def _av_prior_draw(order, n, rng, d_min, d_max, sample_bounds=None,
     return np.column_stack([draws[name] for name in order])
 
 
-@functools.lru_cache(maxsize=32)
-def _pseudo_cosmo_norm(d_min, d_max):
-    from RIFT.likelihood import priors_utils
-    return float(priors_utils.dist_prior_pseudo_cosmo_eval_norm(d_min, d_max))
-
-
 def _av_distance_prior_draw(n, rng, lo, hi, d_min, d_max, distance_prior):
     """Draw a distance prior conditioned on the declared sampling interval."""
     key = str(distance_prior or "euclidean").strip().lower()
     if key in ("euclidean", "volumetric"):
         return np.cbrt(rng.uniform(lo ** 3, hi ** 3, n))
     from RIFT.likelihood.jax_ile import distance_prior as _distance_prior
-    if _distance_prior.is_cosmo_distance_prior(key):
-        return _distance_prior.cosmo_distance_prior(key).sample(n, rng, lo, hi)
-    if key != "pseudo_cosmo":
+    if key not in _distance_prior.GRID_DISTANCE_PRIORS:
         raise ValueError("unsupported JAX-AV distance prior %r" % distance_prior)
-    # This is proposal initialization only.  A dense deterministic inverse CDF
-    # is ample here; the estimator itself uses the analytic prior density below.
-    from RIFT.likelihood import priors_utils
-    grid = np.linspace(float(lo), float(hi), 4097)
-    pdf = np.asarray(priors_utils.dist_prior_pseudo_cosmo(
-        grid, nm=_pseudo_cosmo_norm(float(d_min), float(d_max))), dtype=float)
-    cdf = np.concatenate(([0.0], np.cumsum(0.5 * (pdf[1:] + pdf[:-1]) * np.diff(grid))))
-    return np.interp(rng.uniform(0.0, cdf[-1], int(n)), cdf, grid)
+    return _distance_prior.grid_distance_prior_object(key).sample(n, rng, lo, hi)
 
 
 def _av_prior_spec(name, d_min, d_max, sample_d_min=None, sample_d_max=None,
@@ -2490,13 +2474,8 @@ def _av_prior_spec(name, d_min, d_max, sample_d_min=None, sample_d_max=None,
         if key in ("euclidean", "volumetric"):
             norm = 3.0 / (float(d_max) ** 3 - float(d_min) ** 3)
             density = lambda x, _norm=norm: _norm * np.asarray(x) ** 2
-        elif key == "pseudo_cosmo":
-            from RIFT.likelihood import priors_utils
-            norm = _pseudo_cosmo_norm(float(d_min), float(d_max))
-            density = lambda x, _norm=norm: priors_utils.dist_prior_pseudo_cosmo(
-                np.asarray(x), nm=_norm, xpy=np)
-        elif _distance_prior.is_cosmo_distance_prior(key):
-            pr = _distance_prior.cosmo_distance_prior(key)
+        elif key in _distance_prior.GRID_DISTANCE_PRIORS:
+            pr = _distance_prior.grid_distance_prior_object(key)
             ln_norm = pr.log_mass(float(d_min), float(d_max))
             density = lambda x, _pr=pr, _ln=ln_norm: np.exp(
                 _pr.log_density_unnormalized(np.asarray(x, dtype=float)) - _ln)
