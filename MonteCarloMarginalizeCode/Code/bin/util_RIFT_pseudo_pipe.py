@@ -604,6 +604,7 @@ parser.add_argument("--internal-test-convergence-method",type=str,default=None,h
 parser.add_argument('--internal-cip-tripwire',type=float,help="Passed to CIP")
 parser.add_argument("--internal-cip-temper-log",action='store_true',help="Use temper_log in CIP.  Helps stabilize adaptation for high q for example")
 parser.add_argument("--internal-ile-deduplicate-grid",action='store_true',help="Create separate exact unique ordinary ILE grids while retaining posterior weights and exports.")
+parser.add_argument("--internal-cip-singularity-image",default=None,help="Independent CIP/builder runtime image; does not replace the ILE image.")
 parser.add_argument("--internal-cip-request-gpus",default=0,type=int,help="GPU devices requested by every CIP fit producer and sampling worker.")
 parser.add_argument("--internal-cip-require-gpus",default=None,help="Condor RequireGPUs expression for the selected CIP CUDA runtime.")
 parser.add_argument("--internal-cip-request-memory",default=None,type=int,help="ILE memory request in Mb. Only experts should change this.")
@@ -2538,6 +2539,8 @@ if opts.internal_ile_request_disk:
     cmd += " --ile-request-disk {} ".format(opts.internal_ile_request_disk)
 if opts.internal_ile_deduplicate_grid:
     cmd += " --ile-deduplicate-grid "
+if opts.internal_cip_singularity_image:
+    cmd += " --cip-singularity-image {} ".format(shlex.quote(opts.internal_cip_singularity_image))
 if opts.internal_cip_request_gpus:
     cmd += " --request-gpus-CIP {} ".format(opts.internal_cip_request_gpus)
 if opts.internal_cip_require_gpus:
