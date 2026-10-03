@@ -19,6 +19,23 @@ import functools
 import inspect
 
 
+def _select_av_stopping_statistic(max_weight, kish, metric="max-weight"):
+    """Select stopping statistic without changing the conservative native return."""
+    if metric not in ("max-weight", "kish"):
+        raise ValueError("av_stop_metric must be max-weight or kish")
+    return max_weight if metric == "max-weight" else kish
+
+
+def _av_weight_statistics_from_log(log_weights):
+    """Stable counts of the retained weighted sample; neither is an output count."""
+    values = np.asarray(log_weights, dtype=float)
+    if values.ndim != 1 or not len(values) or not np.all(np.isfinite(values)):
+        raise ValueError("retained log weights must be a nonempty finite vector")
+    weights = np.exp(values - np.max(values))
+    total = np.sum(weights)
+    return {"max_weight": float(total), "kish": float(total ** 2 / np.sum(weights ** 2))}
+
+
 @functools.lru_cache(maxsize=None)
 def _prior_pdf_accepts_xpy(fn):
     """True if a prior_pdf callable takes an `xpy` kwarg.  Many of the mcsamplerGPU prior
@@ -1757,6 +1774,8 @@ class MCSampler(SamplerOutputMixin, object):
         #
         nmax = kwargs["nmax"] if "nmax" in kwargs else float("inf")
         neff = kwargs["neff"] if "neff" in kwargs else RiftFloat("inf")
+        av_stop_metric = kwargs.get("av_stop_metric", "max-weight")
+        _select_av_stopping_statistic(0, 0, av_stop_metric)  # validate before drawing
         n = int(kwargs["n"] if "n" in kwargs else min(100000, nmax))
         convergence_tests = kwargs["convergence_tests"] if "convergence_tests" in kwargs else None
         save_no_samples = kwargs["save_no_samples"] if "save_no_samples" in kwargs else None
@@ -1821,6 +1840,7 @@ class MCSampler(SamplerOutputMixin, object):
 
         current_log_aggregate = None
         eff_samp = 0  # ratio of max weight to sum of weights
+        stop_eff_samp = 0
         maxlnL = -np.inf  # max lnL
         maxval=0   # max weight
         outvals=None  # define in top level scope
@@ -1893,7 +1913,7 @@ class MCSampler(SamplerOutputMixin, object):
         loglkl_thr_prev = loglkl_thr
 
         ntotal_true = 0
-        while (eff_samp < neff and ntotal_true < nmax ): #  and (not bConvergenceTests):
+        while (stop_eff_samp < neff and ntotal_true < nmax ): #  and (not bConvergenceTests):
             # Draw samples. Note state variables binunique, ninbin -- so we can re-use the sampler later outside the loop
             rv, log_joint_p_prior = self.draw_simple()  # Beware reversed order of rv
             ntotal_true += len(rv)
@@ -2032,6 +2052,7 @@ class MCSampler(SamplerOutputMixin, object):
             w = xpy_here.exp(lw)
             neff_varaha = identity_convert(xpy_here.sum(w) ** 2 / xpy_here.sum(w ** 2))
             eff_samp = identity_convert(xpy_here.sum(w)/xpy_here.max(w))  # to CPU as needed
+            stop_eff_samp = _select_av_stopping_statistic(eff_samp, neff_varaha, av_stop_metric)
 
             #New live volume based on new likelihood threshold
             V *= (nrec / ninj)
@@ -2211,7 +2232,14 @@ class MCSampler(SamplerOutputMixin, object):
             if isinstance(self._rvs[name],xpy_default.ndarray):
               self._rvs[name] = identity_convert(self._rvs[name])   # this is trivial if xpy_default is numpy, and a conversion otherwise
 
-        dict_return = {}
+        self.last_stopping_statistics = _av_weight_statistics_from_log(log_wt)
+        self.last_stopping_statistics.update({
+            "metric": av_stop_metric, "target": float(neff), "total_draws": int(ntotal_true),
+            "selected": float(_select_av_stopping_statistic(
+                self.last_stopping_statistics["max_weight"], self.last_stopping_statistics["kish"], av_stop_metric)),
+            "native_return_metric": "max-weight", "retained_rows": int(len(log_wt))})
+        dict_return = {"av_stopping_statistics": self.last_stopping_statistics.copy()}
+
         # MC-error diagnostics: disclose the components and the weight-tail state.
         # NOTE the AV estimator assigns the surviving (threshold-selected) samples a
         # pretend-uniform density on the final live volume, so the naive term is if
