@@ -2143,7 +2143,7 @@ with open("args_cip_list.txt",'w') as f:
    # iterations keep the fair draw with duplicates allowed, so successive iterations feed
    # an unbiased convergence test.  AMR arg lines drive a different executable that does
    # not accept the flag, so that path is left untouched.
-   if not(opts.internal_use_amr):
+   if not(opts.internal_use_amr) and not opts.internal_ile_deduplicate_grid:
        lines = flag_final_group_unique(lines)
    for line in lines:
            f.write(line.rstrip("\n") + "\n")
