@@ -29,3 +29,17 @@ def test_all_intrinsic_differences_retained(field):
 
 def test_bad_grid_rejected():
     with pytest.raises(ValueError):GRID.unique_intrinsic_indices([point(s1x=float('nan'))])
+
+
+def test_final_extrinsic_uses_weighted_posterior_grid():
+    import ast
+    source = (Path(__file__).resolve().parents[2] / "bin/create_event_parameter_pipeline_BasicIteration").read_text()
+    tree = ast.parse(source)
+    assigns = [n for n in ast.walk(tree) if isinstance(n, ast.Assign)]
+    extr = next(n for n in assigns if any(isinstance(t, ast.Name) and t.id == "ile_args_extr" for t in n.targets))
+    assert ast.unparse(extr.value).startswith("ile_args_forposterior +")
+    posterior = next(n for n in assigns if any(isinstance(t, ast.Name) and t.id == "ile_args_forposterior" for t in n.targets))
+    assert "overlap-grid-$(macroiteration)" in ast.unparse(posterior.value)
+    call = next(n for n in ast.walk(tree) if isinstance(n, ast.Call) and any(k.arg == "tag" and isinstance(k.value, ast.Constant) and k.value.value == "ILE_extr" for k in n.keywords))
+    assert ast.unparse(next(k.value for k in call.keywords if k.arg == "transfer_files")) == "transfer_file_names_extr"
+    assert "transfer_file_names_extr[-1] = '../overlap-grid-$(macroiteration)" in source
