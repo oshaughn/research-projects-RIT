@@ -656,3 +656,290 @@ def test_integration_runtime_select(tmp_path, monkeypatch):
 
 if __name__ == "__main__":
     sys.exit(pytest.main([os.path.abspath(__file__), "-v"]))
+
+
+# ---------------------------------------------------------------------------
+# per-host ILE profiles: executable + memory selected from the same branch
+# ---------------------------------------------------------------------------
+
+PROFILE_MANIFEST = textwrap.dedent(
+    """
+    version: 1
+    fallback: ancient
+    containers:
+      - label: ancient
+        image: osdf:///igwn/sw/rift_ancient_cuda11.sif
+        cuda_capability_min: 3.0
+        cuda_capability_max: 7.0
+      - label: modern
+        image: osdf:///igwn/sw/rift_modern_cuda12.sif
+        cuda_capability_min: 7.0
+      - label: jax_big
+        image: osdf:///igwn/sw/rift_modern_cuda12.sif
+        cuda_capability_min: 7.0
+        select_requirements: TARGET.GPUs_GlobalMemoryMb >= 40000
+        ile_exe: integrate_likelihood_extrinsic_jax
+        request_memory: 16000
+    """
+)
+
+BIG_COND = "TARGET.GPUs_Capability >= 7.0 && ((TARGET.GPUs_GlobalMemoryMb >= 40000) =?= true)"
+EXE_ARG = "--rift-ile-exe=$$([MY.RIFTILEExe])"
+
+
+def _conditions(expr):
+    import re
+    return re.findall(r"ifThenElse\((.*?), ", expr)
+
+
+def test_profile_parser_and_selector_order(tmp_path):
+    m = cm.load_container_manifest(_write(tmp_path, PROFILE_MANIFEST))
+    assert cm.has_ile_profiles(m)
+    assert not cm.has_ile_profiles(cm.load_container_manifest(_write(tmp_path, ALL_OSDF_MANIFEST, "b.yaml")))
+    label = cm.build_profile_label_expr(m)
+    # at equal capability minimum the entry with select_requirements is tested first;
+    # =?= true makes an unadvertised attribute fall through instead of going undefined
+    assert label == ('ifThenElse(' + BIG_COND + ', "jax_big", '
+                     'ifThenElse(TARGET.GPUs_Capability >= 7.0, "modern", "ancient"))')
+    mem = cm.build_request_memory_expr(m, 4096)
+    assert mem == ('ifThenElse(' + BIG_COND + ', 16000, '
+                   'ifThenElse(TARGET.GPUs_Capability >= 7.0, 4096, 4096))')
+    exe = cm.build_ile_exe_expr(m, "/usr/bin/integrate_likelihood_extrinsic_batchmode", "/usr/bin/")
+    assert exe == ('ifThenElse(' + BIG_COND + ', "/usr/bin/integrate_likelihood_extrinsic_jax", '
+                   'ifThenElse(TARGET.GPUs_Capability >= 7.0, "/usr/bin/integrate_likelihood_extrinsic_batchmode", '
+                   '"/usr/bin/integrate_likelihood_extrinsic_batchmode"))')
+    # every choice the job makes walks the SAME branches, so image, executable and
+    # memory always come from one manifest entry
+    cond = _conditions(label)
+    assert len(cond) == 2
+    for expr in (mem, exe, cm.build_singularity_image_expr(m), cm.build_container_image_select(m)):
+        assert _conditions(expr) == cond
+
+
+def test_profile_memory_constant_when_uniform(tmp_path):
+    m = cm.load_container_manifest(_write(tmp_path, ALL_OSDF_MANIFEST))
+    assert cm.build_request_memory_expr(m, 4096) == "4096"
+
+
+@pytest.mark.parametrize("old, new, message", [
+    ("request_memory: 16000", "request_memory: lots", "request_memory"),
+    ("request_memory: 16000", "request_memory: 0", "request_memory"),
+    ("request_memory: 16000", "request_memory: true", "request_memory"),
+    ("select_requirements: TARGET.GPUs_GlobalMemoryMb >= 40000", "select_requirements: max({1,2}) > 1", "select_requirements"),
+    ("select_requirements: TARGET.GPUs_GlobalMemoryMb >= 40000", "select_requirements: TARGET.Memory/2 > 1", "select_requirements"),
+    ("select_requirements: TARGET.GPUs_GlobalMemoryMb >= 40000", "select_requirements: 5", "select_requirements"),
+    ("ile_exe: integrate_likelihood_extrinsic_jax", 'ile_exe: "a b"', "ile_exe"),
+    ("ile_exe: integrate_likelihood_extrinsic_jax", "ile_exe: \"it's\"", "ile_exe"),
+    ("ile_exe: integrate_likelihood_extrinsic_jax", "ile_exe: \"$HOME/x\"", "ile_exe"),
+])
+def test_profile_parser_rejects(tmp_path, old, new, message):
+    text = PROFILE_MANIFEST.replace(old, new)
+    assert text != PROFILE_MANIFEST
+    with pytest.raises(cm.ContainerManifestError) as exc:
+        cm.load_container_manifest(_write(tmp_path, text))
+    assert message in str(exc.value)
+
+
+def test_profile_parser_rejects_conditional_fallback(tmp_path):
+    text = PROFILE_MANIFEST.replace("fallback: ancient", "fallback: jax_big")
+    with pytest.raises(cm.ContainerManifestError):
+        cm.load_container_manifest(_write(tmp_path, text))
+
+
+def test_profile_select_requirements_needs_capability_min(tmp_path):
+    # without a minimum the entry would sort below every capability test and never win
+    text = PROFILE_MANIFEST.replace("    cuda_capability_min: 7.0\n    select_requirements",
+                                    "    select_requirements")
+    assert text != PROFILE_MANIFEST
+    with pytest.raises(cm.ContainerManifestError) as exc:
+        cm.load_container_manifest(_write(tmp_path, text))
+    assert "cuda_capability_min" in str(exc.value)
+
+
+def test_runtime_wrapper_refuses_select_requirements(tmp_path):
+    # the wrapper only sees the GPU capability, so it would pick another entry
+    m = cm.load_container_manifest(_write(tmp_path, PROFILE_MANIFEST))
+    with pytest.raises(cm.ContainerManifestError):
+        cm.build_runtime_selection_wrapper(m)
+
+
+def _profile_job(tmp_path, monkeypatch, container_universe=False, **kw):
+    if container_universe:
+        monkeypatch.setenv("RIFT_CONTAINER_UNIVERSE", "1")
+    else:
+        monkeypatch.delenv("RIFT_CONTAINER_UNIVERSE", raising=False)
+    monkeypatch.delenv("RIFT_CONTAINER_RUNTIME_SELECT", raising=False)
+    monkeypatch.delenv("SINGULARITY_BASE_EXE_DIR", raising=False)
+    monkeypatch.chdir(tmp_path)
+    from RIFT.misc import dag_utils_generic as dag
+    args = dict(tag="ILE", log_dir=str(tmp_path) + "/", exe="/somewhere/integrate_likelihood_extrinsic_batchmode",
+                arg_str="--foo bar", transfer_files=["../all.net"], use_singularity=True,
+                singularity_image=_write(tmp_path, PROFILE_MANIFEST), request_gpu=True,
+                cache_file="local.cache", request_memory=4096, ile_profiles=True)
+    args.update(kw)
+    job, sub = dag.write_ILE_sub_simple(**args)
+    return job, sub, dict(job.condor_cmds)
+
+
+def _written_sub(job, sub):
+    """The submit file as written: every key once (a duplicate would hide an override)."""
+    job.add_condor_cmd("macroevent", "0")
+    job.write_sub_file()
+    lines = [l for l in open(str(sub)).read().splitlines() if "=" in l]
+    keys = [l.partition("=")[0].strip().lower() for l in lines]
+    assert len(keys) == len(set(keys)), keys
+    return {k: l.partition("=")[2].strip() for k, l in zip(keys, lines)}
+
+
+def test_integration_profiles_select_exe_and_memory(tmp_path, monkeypatch):
+    job, sub, cmds = _profile_job(tmp_path, monkeypatch)
+    m = cm.load_container_manifest(str(tmp_path / "fam.yaml"))
+    assert cmds["request_memory"] == cm.build_request_memory_expr(m, 4096)
+    assert cmds["MY.RIFTILEExe"] == cm.build_ile_exe_expr(
+        m, "/usr/bin/integrate_likelihood_extrinsic_batchmode", "/usr/bin/")
+    assert cmds["MY.RIFTILEProfileMatched"] == '"$$([MY.RIFTILEProfile])"'
+    assert job.arguments == [EXE_ARG]
+    assert "environment" not in cmds
+    # no frame prescript here, so ILE runs through the dispatcher, on one GPU
+    assert job.executable == "ile_dispatch.sh"
+    assert "../ile_dispatch.sh" in cmds["transfer_input_files"]
+    text = (tmp_path / "ile_dispatch.sh").read_text()
+    assert '"${RIFT_ILE_EXE_SEL:-/usr/bin/integrate_likelihood_extrinsic_batchmode}"' in text
+    assert 'RIFT_ILE_GPU_FANOUT="${RIFT_ILE_GPU_FANOUT:-1}"' in text
+    assert "TARGET.GPUs_Capability =!= undefined" in cmds["requirements"]
+    written = _written_sub(job, sub)
+    assert written["arguments"].rstrip('"').endswith(EXE_ARG)
+
+
+def test_integration_profiles_default_off(tmp_path, monkeypatch):
+    # opt-in: builders other than BasicIteration's ILE/puff/fetch never swap
+    job, _, cmds = _profile_job(tmp_path, monkeypatch, ile_profiles=False, request_memory=8192)
+    job2, _, _ = _profile_job(tmp_path, monkeypatch, ile_profiles=None)
+    from RIFT.misc import dag_utils_generic as dag
+    import inspect
+    assert inspect.signature(dag.write_ILE_sub_simple).parameters["ile_profiles"].default is False
+    assert cmds["request_memory"] == "8192M"
+    assert "MY.RIFTILEExe" not in cmds
+    assert job.arguments == [] and job2.arguments == []
+    assert job.executable.endswith("integrate_likelihood_extrinsic_batchmode")
+
+
+def test_integration_profiles_cpu_job_ignored(tmp_path, monkeypatch):
+    job, _, cmds = _profile_job(tmp_path, monkeypatch, request_gpu=False)
+    assert cmds["request_memory"] == "4096M"
+    assert "MY.RIFTILEExe" not in cmds
+    assert job.arguments == []
+
+
+def test_integration_profiles_survive_later_environment(tmp_path, monkeypatch):
+    # condor_commands / the hyperpipeline helper may set environment afterwards
+    job, sub, cmds = _profile_job(tmp_path, monkeypatch, condor_commands={"environment": '"FOO=1"'})
+    job.add_condor_cmd("environment", '"RIFT_HYPERPIPELINE_FORMAT=1"')
+    assert job.arguments == [EXE_ARG]
+    assert _written_sub(job, sub)["arguments"].rstrip('"').endswith(EXE_ARG)
+
+
+def test_integration_profiles_leave_resolved_env_alone(tmp_path, monkeypatch):
+    # OSG + RIFT_GETENV_RESOLVE: values with spaces/quotes must not be rewritten
+    from RIFT.misc import dag_utils_generic as dag
+    monkeypatch.setattr(dag, "default_resolved_env", " RIFT_X=1 ")
+    monkeypatch.setenv("RIFT_X", "a b")
+    monkeypatch.setenv("RIFT_REQUIRE_GPUS", 'DeviceName =!= "Tesla K10.G1.8GB"')
+    _, _, on = _profile_job(tmp_path, monkeypatch, use_osg=True)
+    _, _, off = _profile_job(tmp_path, monkeypatch, use_osg=True, ile_profiles=False)
+    assert on["environment"] == off["environment"]
+
+
+def test_integration_profiles_refuse_runtime_select(tmp_path, monkeypatch):
+    monkeypatch.setenv("RIFT_CONTAINER_RUNTIME_SELECT", "1")
+    monkeypatch.chdir(tmp_path)
+    from RIFT.misc import dag_utils_generic as dag
+    with pytest.raises(cm.ContainerManifestError):
+        dag.write_ILE_sub_simple(tag="ILE", log_dir=str(tmp_path) + "/", exe="/usr/bin/true",
+                                 arg_str="--foo bar", transfer_files=["../all.net"], use_singularity=True,
+                                 singularity_image=_write(tmp_path, PROFILE_MANIFEST), request_gpu=True,
+                                 cache_file="local.cache", ile_profiles=True)
+
+
+def test_integration_profiles_refuse_non_condor_backend(tmp_path, monkeypatch):
+    from RIFT.misc import dag_utils_generic as dag
+    monkeypatch.setattr(dag, "current_backend_name", lambda: "slurm")
+    with pytest.raises(cm.ContainerManifestError):
+        _profile_job(tmp_path, monkeypatch)
+
+
+def test_integration_profiles_shared_prescript_order(tmp_path, monkeypatch):
+    # ILE and ILE_extr both write ../ile_pre.sh; the LAST writer wins.  The hook must
+    # survive ILE_extr (no profiles) being written after ILE.
+    common = dict(frames_dir=str(tmp_path / "frames"), cache_file=None)
+    _profile_job(tmp_path, monkeypatch, **common)
+    job, _, _ = _profile_job(tmp_path, monkeypatch, tag="ILE_extr", ile_profiles=False, **common)
+    text = (tmp_path / "ile_pre.sh").read_text()
+    assert '"${RIFT_ILE_EXE_SEL:-/usr/bin/integrate_likelihood_extrinsic_batchmode}"' in text
+    assert job.arguments == []
+
+
+@pytest.mark.parametrize("with_arg", [True, False])
+def test_launcher_takes_exe_from_argument(tmp_path, with_arg):
+    """Run the generated launcher: the argument picks the executable and is removed."""
+    from RIFT.misc import dag_utils_generic as dag
+    for name in ("default", "chosen"):
+        script = tmp_path / name
+        script.write_text('#!/bin/bash\necho "{} $#"; for a in "$@"; do echo "[$a]"; done\n'.format(name))
+        script.chmod(0o755)
+    launcher = tmp_path / "launch.sh"
+    launcher.write_text("#!/bin/bash -e\n" + dag.ile_invocation_shell(str(tmp_path / "default"), fanout="1", exe_from_arg=True))
+    launcher.chmod(0o755)
+    args = ["--n-max", "10", '--fmin-template="a b"']
+    if with_arg:
+        args.insert(2, "--rift-ile-exe=" + str(tmp_path / "chosen"))
+    env = dict(os.environ, PATH=os.path.dirname(sys.executable) + os.pathsep + os.environ.get("PATH", ""))
+    env.pop("RIFT_ILE_GPU_FANOUT", None)
+    out = subprocess.run([str(launcher)] + args, capture_output=True, text=True, env=env, timeout=60)
+    assert out.returncode == 0, out.stderr
+    lines = out.stdout.splitlines()
+    assert lines[0] == ("chosen 3" if with_arg else "default 3")
+    assert lines[1:] == ["[--n-max]", "[10]", '[--fmin-template="a b"]']
+
+
+def test_builders_opt_in_only_non_extr_jobs():
+    # ILE_extr's converter depends on which executable ran: no builder may opt it in
+    import glob
+    import re
+    here = os.path.dirname(os.path.abspath(__file__))
+    calls = []
+    for path in glob.glob(os.path.join(here, "..", "bin", "*")):
+        try:
+            text = open(path).read()
+        except (UnicodeDecodeError, IsADirectoryError):
+            continue
+        calls += re.findall(r"write_ILE_sub_simple\((.*?)\)\n", text)
+    opted = [c for c in calls if "ile_profiles=True" in c]
+    assert {re.search(r"tag='([^']*)'", c).group(1) for c in opted} == {"ILE", "ILE_puff", "ILE_fetch"}
+    assert all("extr" not in c.lower() for c in opted)
+
+
+@pytest.mark.parametrize("container_universe", [False, True])
+def test_integration_profiles_effective_job_ad(tmp_path, monkeypatch, container_universe):
+    """The written submit file, and (where condor_submit exists) condor's parse of it."""
+    import json
+    job, sub, cmds = _profile_job(tmp_path, monkeypatch, container_universe=container_universe)
+    written = _written_sub(job, sub)
+    assert written["request_memory"] == cmds["request_memory"]
+    submit = shutil.which("condor_submit")
+    if submit:
+        ad_path = tmp_path / "effective.ad"
+        result = subprocess.run([submit, "-disable", "-dry-run", str(ad_path), str(sub)],
+                                capture_output=True, text=True, timeout=30)
+        assert result.returncode == 0, result.stdout + result.stderr
+        ad = {}
+        for line in ad_path.read_text().splitlines():
+            key, sep, value = line.partition("=")
+            if sep:
+                ad[key.strip()] = value.strip()
+        assert ad["RequestMemory"].startswith("ifThenElse(")
+        assert json.loads(ad["Arguments"]).split()[-1] == EXE_ARG
+        assert "RIFT_ILE_EXE" not in ad.get("Environment", "")
+        assert ad["RIFTILEExe"].startswith("ifThenElse(")
+        if container_universe:
+            assert "/" not in json.loads(ad["ContainerImage"])
