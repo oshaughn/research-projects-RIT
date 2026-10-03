@@ -132,3 +132,24 @@ def test_actual_pseudo_and_recursive_commands_preserve_gpu_guard_single_argument
     for command in (pseudo, recursive):
         assert command[command.index("--request-gpus-CIP") + 1] == "1"
         assert command[command.index("--require-gpus-CIP") + 1] == GUARD
+
+
+def test_actual_cip_and_ile_calls_use_independent_runtime_images():
+    tree = ast.parse((CODE / "bin/create_event_parameter_pipeline_BasicIteration").read_text())
+    cip = []
+    ile = []
+    for call in ast.walk(tree):
+        if not isinstance(call, ast.Call) or not isinstance(call.func, ast.Attribute):
+            continue
+        keywords = {k.arg: k.value for k in call.keywords}
+        if "singularity_image" not in keywords:
+            continue
+        if call.func.attr == "write_CIP_sub":
+            cip.append(ast.unparse(keywords["singularity_image"]))
+        elif call.func.attr == "write_ILE_sub_simple":
+            ile.append(ast.unparse(keywords["singularity_image"]))
+    assert len(cip) == 4 and set(cip) == {"cip_singularity_image"}
+    assert ile and set(ile) == {"singularity_image"}
+    source = (CODE / "bin/create_event_parameter_pipeline_BasicIteration").read_text()
+    assert "--cip-singularity-image" in source
+    assert "shlex.quote(opts.cip_singularity_image)" in source
