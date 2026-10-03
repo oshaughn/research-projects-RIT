@@ -2,7 +2,7 @@
 
 Import these from here, not from conftest: pytest keeps one module named
 ``conftest`` in sys.modules, so ``from conftest import ...`` breaks when
-another directory's conftest.py is loaded first.
+another directory's conftest.py is imported after this one.
 """
 import numpy as np
 
