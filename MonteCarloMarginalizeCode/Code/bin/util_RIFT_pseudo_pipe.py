@@ -603,6 +603,7 @@ parser.add_argument("--internal-cip-transverse-tails-puff-fraction",type=float,d
 parser.add_argument("--internal-test-convergence-method",type=str,default=None,help="Convergence-test method passed to helper_LDG_Events.py (lame|ks1d|KL_1d|js_additive|js_lame). If js_lame is requested, --internal-cip-transverse-tails is AUTO-ENABLED (the raised interim sample count is required for js_lame's drift tolerance) and therefore js_lame REQUIRES A PRECESSING ANALYSIS -- it is rejected with --assume-nospin/--assume-nonprecessing or an aligned-spin approximant, where there is no transverse tail to score. If unset: helper default (lame), or js_lame when --internal-cip-transverse-tails is on.")
 parser.add_argument('--internal-cip-tripwire',type=float,help="Passed to CIP")
 parser.add_argument("--internal-cip-temper-log",action='store_true',help="Use temper_log in CIP.  Helps stabilize adaptation for high q for example")
+parser.add_argument("--internal-ile-deduplicate-grid",action='store_true',help="Create separate exact unique ordinary ILE grids while retaining posterior weights and exports.")
 parser.add_argument("--internal-cip-request-gpus",default=0,type=int,help="GPU devices requested by every CIP fit producer and sampling worker.")
 parser.add_argument("--internal-cip-require-gpus",default=None,help="Condor RequireGPUs expression for the selected CIP CUDA runtime.")
 parser.add_argument("--internal-cip-request-memory",default=None,type=int,help="ILE memory request in Mb. Only experts should change this.")
@@ -2535,6 +2536,8 @@ if opts.batch_extrinsic:
     cmd += " --last-iteration-extrinsic-batched-convert "
 if opts.internal_ile_request_disk:
     cmd += " --ile-request-disk {} ".format(opts.internal_ile_request_disk)
+if opts.internal_ile_deduplicate_grid:
+    cmd += " --ile-deduplicate-grid "
 if opts.internal_cip_request_gpus:
     cmd += " --request-gpus-CIP {} ".format(opts.internal_cip_request_gpus)
 if opts.internal_cip_require_gpus:
