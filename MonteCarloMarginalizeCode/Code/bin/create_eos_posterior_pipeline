@@ -188,7 +188,7 @@ if opts.puff_args and opts.puff_exe:
     puff_args = ' '.join( [x.replace('\\','') for x in puff_args_list] )
     puff_args = ' '.join(puff_args.split(' ')[1:])
     # Some argument protection for later
-    puff_args = puff_args.replace('[', ' \'[')
+    puff_args = puff_args.replace('[', '\'[')
     puff_args = puff_args.replace(']', ']\'')
     puff_args=puff_args.rstrip()
     print("PUFF", puff_args)
