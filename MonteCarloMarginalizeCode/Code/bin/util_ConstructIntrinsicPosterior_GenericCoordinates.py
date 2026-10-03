@@ -3092,6 +3092,8 @@ if opts.sampler_method == "adaptive_cartesian_gpu":
 elif opts.sampler_method == "GMM":
     sampler = mcsamplerEnsemble.MCSampler()
 elif opts.sampler_method == "AV":
+    from RIFT.misc.av_backend import configure_host_av
+    configure_host_av(mcsamplerAdaptiveVolume)
     sampler = mcsamplerAdaptiveVolume.MCSampler()
     opts.internal_use_lnL= True  # required!
 elif opts.sampler_method == "NFlow":
