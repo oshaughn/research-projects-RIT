@@ -336,12 +336,18 @@ parser.add_argument("--n-chunk",default=1e5,type=int)
 parser.add_argument("--contingency-unevolved-neff",default=None,help="Contingency planning for when n_eff produced by CIP is small, and user doesn't want to have hard failures.  Note --fail-unless-n-eff will prevent this from happening. Options: quadpuff, ...")
 parser.add_argument("--not-worker",action='store_true',help="Nonworker jobs, IF we have workers present, don't have the 'fail unless' statement active")
 parser.add_argument("--fail-unless-n-eff",default=None,type=float,help="If nonzero, places a minimum requirement on n_eff. Code will exit if not achieved, with no sample generation")
-parser.add_argument("--fit-method",default="rf",help="rf (default) : rf|gp|quadratic|polynomial|gp_hyper|gp_lazy|cov|kde|gp-jax-svgp|gp-jax-rff|gp-jax-exact.  Note 'polynomial' with --fit-order 0  will fit a constant. The gp-jax-* methods use the optional JAX interpolators (RIFT.interpolators.jax_gp) and support a differentiable export via --fit-save-jax.")
+parser.add_argument("--fit-method",default="rf",help="rf (default) : rf|gp|gp-torch|quadratic|polynomial|gp_hyper|gp_lazy|cov|kde|gp-jax-svgp|gp-jax-rff|gp-jax-exact.  Note 'polynomial' with --fit-order 0  will fit a constant. The gp-jax-* methods use the optional JAX interpolators (RIFT.interpolators.jax_gp) and support a differentiable export via --fit-save-jax.")
 parser.add_argument("--fit-load-quadratic",default=None,help="Filename of hdf5 file to load quadratic fit from. ")
 parser.add_argument("--fit-load-quadratic-path",default="GW190814/annealing_mc_source_eta_chieff",help="Path in hdf5 file to specific covariance matrix to be used")
 parser.add_argument("--pool-size",default=3,type=int,help="Integer. Number of GPs to use (result is averaged)")
 parser.add_argument("--fit-load-gp",default=None,type=str,help="Filename of GP fit to load. Overrides fitting process, but user MUST correctly specify coordinate system to interpret the fit with.  Does not override loading and converting the data.")
-parser.add_argument("--fit-save-gp",default=None,type=str,help="Filename of GP fit to save. ")
+parser.add_argument("--fit-save-gp",default=None,type=str,help="Filename base of GP fit to save (.pkl for sklearn; .pt for gp-torch, preserving an existing .pt suffix).")
+parser.add_argument("--gp-predict-backend",default="sklearn",choices=["sklearn","cupy"],help="For --fit-method gp with --fit-load-gp only: opt into exact cached float64 CUDA means for a fitted StandardScaler/Matérn-5/2 sklearn model. Does not refit or change the sampler; other kernels are rejected.")
+parser.add_argument("--gp-predict-batch-size",default=4096,type=int,help="Maximum queries per cached CuPy GP prediction block. Used only with --gp-predict-backend cupy.")
+parser.add_argument("--gp-torch-device",default="auto",help="gp-torch device: auto chooses CUDA when available, otherwise CPU; cpu or cuda[:index] selects explicitly.")
+parser.add_argument("--gp-torch-epochs",default=60,type=int,help="Number of exact gp-torch marginal-likelihood optimization steps.")
+parser.add_argument("--gp-torch-batch-size",default=1024,type=int,help="Maximum gp-torch prediction queries per kernel block; no query covariance is formed.")
+parser.add_argument("--gp-torch-max-train-points",default=8000,type=int,help="Explicit gp-torch training size limit; larger data raise an error. Use --cap-points for deliberate random subsampling or raise this bound after assessing exact-GP memory/compute cost.")
 parser.add_argument("--fit-save-jax",default=None,type=str,help="Base path for a self-contained, differentiable jax_gp export (writes <path>.npz + <path>.meta.json). Only used with --fit-method gp-jax-*. Reload with --fit-load-gp pointing at the same base path.")
 parser.add_argument("--fit-order",type=int,default=2,help="Fit order (polynomial case: degree)")
 parser.add_argument("--fit-gp-length-scale-max-factor",default=5.0,type=float,help="fit_gp: upper bound on each RBF length scale, as a multiple of that coordinate's standard deviation over the retained points. Default 5.0 reproduces the hardcoded value. Unlike the noise and amplitude bounds this ceiling is DERIVED FROM THE DATA, not hand-tuned, so raising it lets the GP become effectively linear across the grid; it exists to be measured against, not routinely changed.")
@@ -1644,10 +1650,19 @@ def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False,
     x = array so x[0] , x[1], x[2] are points.
     """
 
+    if opts.gp_predict_backend != "sklearn":
+        if opts.fit_method != "gp" or not opts.fit_load_gp:
+            raise ValueError("--gp-predict-backend cupy requires --fit-method gp and --fit-load-gp; it accelerates an existing Matérn model without refitting")
+        if opts.fit_uncertainty_added:
+            raise ValueError("Cached CuPy GP prediction supports deterministic means only, not --fit-uncertainty-added")
     # If we are loading a fit, override everything else
     if opts.fit_load_gp:
         print(" WARNING: Do not re-use fits across architectures or versions : pickling is not transferrable ")
         my_gp=joblib.load(opts.fit_load_gp)
+        if opts.gp_predict_backend == "cupy":
+            from RIFT.interpolators.cached_matern_gp import from_sklearn
+            my_gp = from_sklearn(my_gp, backend="cupy", batch_size=opts.gp_predict_batch_size)
+            print(" Cached CUDA Matérn GP means: float64, prediction batch ", opts.gp_predict_batch_size)
         if opts.protect_coordinate_conversions:
             return lalsimutils.RangeProtectReduce(lambda x: my_gp.predict(x), -np.inf)
         return lambda x:my_gp.predict(x)
@@ -2113,32 +2128,47 @@ def fit_nearest(x,y,y_errors=None):
 
 
 
-if not(gpytorch_ok):
-    def fit_gpytorch(x):
-        sys.exit(1)
-else:
-  def fit_gpytorch(x,y,y_errors=None,fname_export='nn_fit',adaptive=True):
-    y_packed = y[:,np.newaxis]
-    if not (y_errors is None):
-        errors_packed = y_errors[:,np.newaxis]
+def fit_gpytorch(x,y,y_errors=None,fname_export='gp_fit',adaptive=True):
+    """Native float64 Matérn GP with deterministic, bounded mean prediction."""
+    if not gpytorch_ok:
+        raise RuntimeError("--fit-method gp-torch requires torch and gpytorch")
+    if opts.fit_uncertainty_added:
+        raise ValueError("gp-torch returns the predictive mean; --fit-uncertainty-added is not supported")
+    if opts.fit_load_gp:
+        gp_interpolator = gpytorch_wrapper.Interpolator.load(
+            opts.fit_load_gp, device=opts.gp_torch_device,
+            prediction_batch_size=opts.gp_torch_batch_size,
+            max_train_points=opts.gp_torch_max_train_points,
+            expected_feature_names=coord_names)
+        if "lnL_shift" not in gp_interpolator.provenance:
+            raise ValueError("Native gp-torch checkpoint must record lnL_shift")
+        # Saved targets use the original run's shift. Return this run's shifted
+        # likelihood, so the downstream evidence correction remains consistent.
+        saved_shift = float(gp_interpolator.provenance["lnL_shift"])
+        if not np.isfinite(saved_shift):
+            raise ValueError("Saved gp-torch lnL_shift must be finite")
+        prediction_offset = saved_shift - lnL_shift
     else:
-        errors_packed = None
-    import os
-    working_dir = os.getcwd()
-    gp_interpolator = gpytorch_wrapper.Interpolator(x,y_packed,epochs=60) 
-    gp_interpolator.train()
+        gp_interpolator = gpytorch_wrapper.Interpolator(
+            x, y, y_errors=y_errors, epochs=opts.gp_torch_epochs,
+            device=opts.gp_torch_device,
+            prediction_batch_size=opts.gp_torch_batch_size,
+            max_train_points=opts.gp_torch_max_train_points,
+            feature_names=coord_names, provenance={"lnL_shift": float(lnL_shift)})
+        gp_interpolator.train()
+        prediction_offset = 0.0
     if opts.fit_save_gp:
-        print( " FAIL save gp fit - not yet implemented ")
-#        gp_interpolator.save(opts.fit_save_gp+".network")
+        path = opts.fit_save_gp if opts.fit_save_gp.endswith(".pt") else opts.fit_save_gp+".pt"
+        gp_interpolator.save(path)
+        print(" Saved gp-torch fit to ", path)
 
-    def fn_return(x):
-        x_in = np.copy(x)  # need to make a copy to avoid altering input/changing response
-        return gp_interpolator.evaluate(x_in)
+    def fn_return(x_in):
+        return gp_interpolator.evaluate(x_in) + prediction_offset
 
-    print( " Demonstrating gpytorch fit ")   # debugging
-    residuals2 = fn_return(x) - y
-    residuals = nn_interpolator.evaluate(x)-y
-    print( "    std ", np.std(residuals), np.std(residuals2), np.max(y), np.max(fn_return(x)))
+    print(" gp-torch fit: training rows ", len(gp_interpolator.target_train),
+          " device ", gp_interpolator.device, " dtype float64")
+    if opts.protect_coordinate_conversions:
+        return lalsimutils.RangeProtectReduce(fn_return, -np.inf)
     return fn_return
 
 
@@ -2665,13 +2695,13 @@ elif opts.fit_method == 'gp-pool':
     my_fit = fit_gp_pool(X,Y,y_errors=Y_err,n_pool=opts.pool_size)
 elif opts.fit_method == 'gp-torch':
     print( " FIT METHOD ", opts.fit_method, " IS gpytorch ")
-    # NO data truncation for NN needed?  To be *consistent*, have the code function the same way as the others
+    # Exact GP: retain native cuts and require an explicit bounded training size.
     X=X[indx_ok]
     Y=Y[indx_ok] - lnL_shift
     Y_err = Y_err[indx_ok]
     dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
     # Cap the total number of points retained, AFTER the threshold cut
-    if opts.cap_points< len(Y) and opts.cap_points> 100:
+    if not opts.fit_load_gp and 0 < opts.cap_points < len(Y):
         n_keep = opts.cap_points
         indx = np.random.choice(np.arange(len(Y)),size=n_keep,replace=False)
         Y=Y[indx]
