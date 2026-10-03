@@ -89,8 +89,12 @@ class CachedMaternMean:
         for start in range(0, len(x), self.batch_size):
             stop = min(start + self.batch_size, len(x))
             query = (xp.asarray(x[start:stop]) - mean) / scale / lengths
-            squared = xp.sum(query * query, axis=1)[:, None] + norms[None, :] - 2 * (query @ train.T)
-            xp.maximum(squared, 0, out=squared)
+            # Direct differences avoid cancellation at nearly coincident points.
+            # The norm/dot identity can lose digits amplified by GP alpha.
+            squared = xp.zeros((len(query), len(train)), dtype=xp.float64)
+            for feature in range(self.n_features_in_):
+                difference = query[:, feature, None] - train[None, :, feature]
+                squared += difference * difference
             scaled_r = np.sqrt(5.0) * xp.sqrt(squared)
             kernel = self.constant * (1 + scaled_r + (5.0 / 3.0) * squared) * xp.exp(-scaled_r)
             prediction = (kernel @ alpha) * self.target_scale + self.target_mean

@@ -122,3 +122,16 @@ def test_native_loaded_gp_hook(monkeypatch, model):
     opts.fit_load_gp = "model.pkl"; opts.fit_uncertainty_added = True
     with pytest.raises(ValueError, match="means only"):
         namespace["fit_gp"](x, np.zeros(len(x)))
+
+
+def test_large_offset_near_coincident_distance_parity():
+    # The norm/dot identity loses close-point distances on large offsets.
+    rng = np.random.default_rng(103)
+    x = 1e5 + rng.normal(size=(40, 3))
+    y = 1e3 * np.sin(x[:, 0] - 1e5)
+    fit = GaussianProcessRegressor(
+        kernel=ConstantKernel(2.0) * Matern([1.1, 2.2, 0.7], nu=2.5),
+        alpha=1e-7, optimizer=None, normalize_y=True).fit(x, y)
+    q = np.concatenate([x, x + 1e-6])
+    adapter = module.from_sklearn(fit, backend="numpy", batch_size=9)
+    np.testing.assert_allclose(adapter.predict(q), fit.predict(q), atol=1e-7, rtol=1e-10)
