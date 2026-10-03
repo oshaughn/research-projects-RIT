@@ -42,4 +42,5 @@ def test_final_extrinsic_uses_weighted_posterior_grid():
     assert "overlap-grid-$(macroiteration)" in ast.unparse(posterior.value)
     call = next(n for n in ast.walk(tree) if isinstance(n, ast.Call) and any(k.arg == "tag" and isinstance(k.value, ast.Constant) and k.value.value == "ILE_extr" for k in n.keywords))
     assert ast.unparse(next(k.value for k in call.keywords if k.arg == "transfer_files")) == "transfer_file_names_extr"
-    assert "transfer_file_names_extr[-1] = '../overlap-grid-$(macroiteration)" in source
+    assert "name.replace('../'+ordinary_grid_base" in source
+    assert "'../overlap-grid-$(macroiteration)" in source
