@@ -331,6 +331,8 @@ done
 #            (ldas-grid; `import cupy` FAILS there, numpy backend) 2026-10-03, IGWN conda python
 #            3.11, RIFT_COREUNIT_PYTHON pointed at the IGWN interpreter: junit 656 collected /
 #            643 passed / 13 skipped / 0 failed, of which 3 are subtests.
+#   656/643  review of #383: +3 tests in test_hyperpipe_coordinate_passing.py (16 collected,
+#            ldas-grid collect-only 2026-10-03), none skipped.
 #
 # RAISE these when files are added: a floor left at the old value passes while covering less,
 # which is the failure this gate exists to catch.
@@ -353,7 +355,7 @@ done
 # Review of #377 added five more ring-coordinate tests, no skips (605/592 measured).
 # test_complex_overlap_interpolate_max.py (#375) adds 8 passing tests and no skips.
 # Merged with #375: 613/600 (see the table above).
-EXPECTED_TESTS=653
+EXPECTED_TESTS=656
 # Outcomes, not just exit status: a collection floor cannot see a test that collects, runs and
 # asserts nothing, and a pytest.skip can quietly absorb a lost gate.  The 13 skips are
 # environment legs -- cupy in test_seeding_reproducibility, device legs in
@@ -362,7 +364,7 @@ EXPECTED_TESTS=653
 # (mcsamplerNFlow is an optional dependency and is absent from the IGWN environment), and
 # the xfail in test_uv_symmetry.  test_eos_portfolio_sampler.py adds 12 tests and
 # test_cip_portfolio_members.py 4, none of them skips.
-EXPECTED_PASSED=640
+EXPECTED_PASSED=643
 MAX_SKIPPED=13
 
 # The floors must be INTEGERS, and this is checked rather than assumed.  `[ 347 -lt FOO ]` does

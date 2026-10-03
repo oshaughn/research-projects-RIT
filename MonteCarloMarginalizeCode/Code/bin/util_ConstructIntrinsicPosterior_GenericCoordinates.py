@@ -13,6 +13,10 @@
 #   postprocess_1d_cumulative
 #   util_QuadraticMassPosterior.py
 #
+# Row mode (--n-events-to-analyze > 1) re-runs this file's post-fit statements per row.  Read
+# the source now, so a checkout that changes during the fit cannot change what the rows run.
+with open(__file__) as _f:
+    _OWN_SOURCE = _f.read()
 
 
 import RIFT.interpolators.BayesianLeastSquares as BayesianLeastSquares
@@ -3001,8 +3005,7 @@ def _row_output_name(prefix, row):
 def _run_row_passes():
     global opts, my_fit, my_eos
     import ast, copy, traceback
-    with open(__file__) as f:
-        tree = ast.parse(f.read(), filename=__file__)
+    tree = ast.parse(_OWN_SOURCE, filename=__file__)
     begin = [i for i, node in enumerate(tree.body)
              if isinstance(node, ast.Assign) and getattr(node.targets[0], 'id', None) == '_row_pass_begins']
     assert len(begin) == 1, "row-pass marker _row_pass_begins not found exactly once"

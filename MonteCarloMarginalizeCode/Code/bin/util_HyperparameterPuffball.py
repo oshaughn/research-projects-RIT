@@ -81,7 +81,7 @@ downselect_dict = {}
 reflect_dict={}
 
 
-_NAMED_RANGE = re.compile(r"^\s*([A-Za-z_][\w.]*)\s*:\s*(\[.*\])\s*$")
+_NAMED_RANGE = re.compile(r"^\s*([A-Za-z_][\w.\-]*)\s*:\s*(\[.*\])\s*$")
 
 def _named_range(spec):
     """Return (name, [lo,hi]) for 'name:[lo,hi]', else None."""
@@ -91,8 +91,9 @@ def _named_range(spec):
     return m.group(1), list(eval(m.group(2)))
 
 # Ranges come from two forms: positional '[lo,hi]' entries, paired in order
-# with the --downselect-parameter names that have no named range, and named
-# 'name:[lo,hi]' entries from either range flag.
+# with the --downselect-parameter names (or, if there are fewer, with the names
+# that have no named range), and named 'name:[lo,hi]' entries from either
+# range flag.  A named range overrides a positional one for the same name.
 for spec in (opts.parameter_range or []):
     if _named_range(spec) is None:
         sys.exit("util_HyperparameterPuffball: --parameter-range needs the form name:[lo,hi]; got {!r}".format(spec))
@@ -106,10 +107,16 @@ for spec in (opts.downselect_parameter_range or []) + (opts.parameter_range or [
     else:
         named_ranges[parsed[0]] = parsed[1]
 unpaired = [name for name in dlist if name not in named_ranges]
-if len(unpaired) != len(positional_ranges):
+if len(positional_ranges) == len(dlist):
+    downselect_dict.update(zip(dlist, positional_ranges))
+elif len(positional_ranges) == len(unpaired):
+    downselect_dict.update(zip(unpaired, positional_ranges))
+else:
     sys.exit("util_HyperparameterPuffball: downselect parameters inconsistent: {!r} need ranges, got {!r}".format(unpaired, positional_ranges))
-downselect_dict.update(zip(unpaired, positional_ranges))
 downselect_dict.update(named_ranges)
+_unknown_range_names = [name for name in downselect_dict if name not in coord_names]
+if _unknown_range_names:
+    sys.exit("util_HyperparameterPuffball: range given for {!r}, which is not a --parameter {!r}".format(_unknown_range_names, coord_names))
 
 
 

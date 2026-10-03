@@ -207,3 +207,17 @@ def test_failed_row_is_reported_and_other_rows_still_run(workdir):
     assert proc.returncode == 1, proc.stdout[-3000:]
     assert "synthetic failure for this row" in proc.stdout
     assert _products(run_dir) == ["MARG-0-0+annotation.dat", "MARG-0-2+annotation.dat"]
+
+
+def test_source_is_read_before_the_fit():
+    """Row mode re-runs the post-fit source; it must be the source read at startup, not a file
+    that a git pull may have changed during the fit."""
+    import ast
+    with open(DRIVER) as f:
+        tree = ast.parse(f.read())
+    first_import = next(i for i, n in enumerate(tree.body) if isinstance(n, (ast.Import, ast.ImportFrom)))
+    reads = [i for i, n in enumerate(tree.body) if isinstance(n, ast.With)
+             and "_OWN_SOURCE" in ast.dump(n)]
+    assert reads and reads[0] < first_import
+    assert "open(__file__)" not in ast.get_source_segment(open(DRIVER).read(),
+                                                          next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "_run_row_passes"))

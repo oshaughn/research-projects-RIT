@@ -500,6 +500,12 @@ def coord_spec_from_config_section(section) -> HyperCoordSpec:
     # Coord-module options may be structured keys or, as in older configs,
     # flags inside post.extra-args.  Either way the puff stage needs them.
     from_extra = _plugin_flags_from_args(_get("extra-args", "") or "")
+    if "input-parameter" in from_extra:
+        # extra-args reaches util_ConstructEOSPosterior.py verbatim, and it has no such flag.
+        raise ValueError(
+            "post.extra-args: --supplementary-coordinate-input-parameter is a puff-stage flag; "
+            "set post.coord-input-parameters instead."
+        )
     spec = HyperCoordSpec.from_strings(
         name=_get("coord-module"),
         coords_fit=_get("coords-fit", "") or "",
@@ -510,8 +516,7 @@ def coord_spec_from_config_section(section) -> HyperCoordSpec:
         coord_function=_get("coord-function") or from_extra.get("function"),
         coord_ini=_get("coord-ini") or from_extra.get("ini"),
         coord_chart=_get("coord-chart") or from_extra.get("chart"),
-        coord_input_parameters=(_get("coord-input-parameters", "") or "")
-        or " ".join(from_extra.get("input-parameter", [])),
+        coord_input_parameters=_get("coord-input-parameters", "") or "",
     )
     structured = any(_get(k) for k in ("coord-function", "coord-ini", "coord-chart"))
     if from_extra and structured:

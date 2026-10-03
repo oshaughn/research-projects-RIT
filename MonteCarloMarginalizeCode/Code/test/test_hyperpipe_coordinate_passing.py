@@ -159,6 +159,15 @@ def test_mixed_sampling_basis_refused(work):
         spec.to_puff_args()
 
 
+def test_input_parameter_in_post_extra_args_refused():
+    """CEP has no --supplementary-coordinate-input-parameter; extra-args reaches it verbatim."""
+    from RIFT.hyperpipe.coords import coord_spec_from_config_section
+    with pytest.raises(ValueError, match="coord-input-parameters"):
+        coord_spec_from_config_section({
+            "coord-module": "m.py", "coords-fit": "u", "coords-sample": "u:[0,1]",
+            "extra-args": "--supplementary-coordinate-input-parameter x"})
+
+
 def test_plugin_puff_for_implied_nofit_config(work):
     """coord-basis plugin: puff in (u, v) while the MC samples (x, y)."""
     _, plugin, _ = work
@@ -189,6 +198,23 @@ def test_reflection_keeps_all_points_in_range(work, extra):
     out = _out(tmp)
     assert len(out) == 4000                      # reflected, not dropped
     assert out["x"].min() >= 2.5 and out["x"].max() <= 3.5
+
+
+def test_named_range_overrides_hyperpipe_positional_range(work):
+    """hyperpipe emits a positional downselect; a user's named range for the same name wins."""
+    tmp, _, grid = work
+    proc = _puff(tmp, grid, ["--downselect-parameter", "x", "--downselect-parameter-range", "[-10,10]",
+                             "--parameter-range", "x:[2.5,3.5]", "--reflect-parameter", "x"])
+    assert proc.returncode == 0, proc.stdout[-3000:]
+    out = _out(tmp)
+    assert len(out) == 4000 and out["x"].min() >= 2.5 and out["x"].max() <= 3.5
+
+
+def test_range_for_unknown_parameter_refused(work):
+    tmp, _, grid = work
+    proc = _puff(tmp, grid, ["--parameter-range", "z:[0,1]"])
+    assert proc.returncode != 0
+    assert "not a --parameter" in proc.stdout
 
 
 def test_named_downselect_drops_points(work):

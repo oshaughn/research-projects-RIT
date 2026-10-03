@@ -239,7 +239,13 @@ def _build_puff_args(cfg, coord_spec) -> str:
         puff_factor=_cfg_get(puff, "puff-factor", 0.5),
         coord_basis=coord_basis,
     )
-    puff_names, _ = coord_spec.puff_basis(coord_basis)
+    puff_names, puff_uses_plugin = coord_spec.puff_basis(coord_basis)
+    if puff_uses_plugin and not any(p in coord_spec.parameter_ranges for p in puff_names):
+        logger.warning(
+            "puff runs in the coord-module basis %s, which has no coords-sample ranges, so the "
+            "puff gets no downselect: puffed points can leave the post-stage integration box.",
+            puff_names,
+        )
     # Pass the prior bounds through as --downselect-parameter so the tracer's
     # internal prior_box covers the user's actual coords-sample range instead
     # of the data bounding box. Without this, a narrow initial grid (e.g. a

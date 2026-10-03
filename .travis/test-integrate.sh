@@ -76,7 +76,7 @@ python -m pytest -q "$_CIP_EXPORT_TESTS"
 # integrals as four N=1 jobs, from row 0 and across the end of the grid.
 _CIP_MULTIROW_TESTS=MonteCarloMarginalizeCode/Code/test/test_cip_multi_row.py
 # Raise EXPECTED by RUNNING collection, never by arithmetic.
-_CIP_MULTIROW_EXPECTED=9
+_CIP_MULTIROW_EXPECTED=10
 _CIP_MULTIROW_FOUND=$(python -m pytest -q --collect-only "$_CIP_MULTIROW_TESTS" 2>/dev/null | grep -c '::' || true)
 if [ "$_CIP_MULTIROW_FOUND" -ne "$_CIP_MULTIROW_EXPECTED" ]; then
     echo "cip-multi-row gate: collected $_CIP_MULTIROW_FOUND tests, expected $_CIP_MULTIROW_EXPECTED" >&2
