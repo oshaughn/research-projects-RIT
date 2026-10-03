@@ -603,6 +603,8 @@ parser.add_argument("--internal-cip-transverse-tails-puff-fraction",type=float,d
 parser.add_argument("--internal-test-convergence-method",type=str,default=None,help="Convergence-test method passed to helper_LDG_Events.py (lame|ks1d|KL_1d|js_additive|js_lame). If js_lame is requested, --internal-cip-transverse-tails is AUTO-ENABLED (the raised interim sample count is required for js_lame's drift tolerance) and therefore js_lame REQUIRES A PRECESSING ANALYSIS -- it is rejected with --assume-nospin/--assume-nonprecessing or an aligned-spin approximant, where there is no transverse tail to score. If unset: helper default (lame), or js_lame when --internal-cip-transverse-tails is on.")
 parser.add_argument('--internal-cip-tripwire',type=float,help="Passed to CIP")
 parser.add_argument("--internal-cip-temper-log",action='store_true',help="Use temper_log in CIP.  Helps stabilize adaptation for high q for example")
+parser.add_argument("--internal-cip-request-gpus",default=0,type=int,help="GPU devices requested by every CIP fit producer and sampling worker.")
+parser.add_argument("--internal-cip-require-gpus",default=None,help="Condor RequireGPUs expression for the selected CIP CUDA runtime.")
 parser.add_argument("--internal-cip-request-memory",default=None,type=int,help="ILE memory request in Mb. Only experts should change this.")
 parser.add_argument("--internal-ile-sky-network-coordinates",action='store_true',help="Passthrough to ILE ")
 parser.add_argument("--internal-ile-sky-network-coordinates-raw",action='store_true',help="Passthrough to ILE ")
@@ -2533,8 +2535,12 @@ if opts.batch_extrinsic:
     cmd += " --last-iteration-extrinsic-batched-convert "
 if opts.internal_ile_request_disk:
     cmd += " --ile-request-disk {} ".format(opts.internal_ile_request_disk)
+if opts.internal_cip_request_gpus:
+    cmd += " --request-gpus-CIP {} ".format(opts.internal_cip_request_gpus)
+if opts.internal_cip_require_gpus:
+    cmd += " --require-gpus-CIP {} ".format(shlex.quote(opts.internal_cip_require_gpus))
 if opts.internal_cip_request_disk:
-    cmd += " --cip-request-disk {} ".format(opts.internal_ile_request_disk)
+    cmd += " --cip-request-disk {} ".format(opts.internal_cip_request_disk)
 if opts.internal_general_request_disk:
     cmd += " --general-request-disk {} ".format(opts.internal_general_request_disk)
 if opts.use_ile_subdags:
@@ -2543,7 +2549,7 @@ if opts.cip_explode_jobs_dag:  # note name does not match name used in next leve
     cmd += " --cip-explode-jobs-subdag --cip-explode-jobs-dag --cip-explode-jobs 2 "  
 if opts.cip_explode_jobs:
    cmd+= " --cip-explode-jobs  " + str(opts.cip_explode_jobs) + " --cip-explode-jobs-dag "  # use dag workers
-   if opts.cip_fit_method and not(opts.cip_fit_method == 'gp'):
+   if opts.cip_fit_method and opts.cip_fit_method not in ('gp', 'gp-matern'):
        # if we are not using default GP fit, so all fit instances are equal
        cmd += " --cip-explode-jobs-flat "  
    if opts.cip_explode_jobs_last:

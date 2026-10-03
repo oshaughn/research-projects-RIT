@@ -1,0 +1,49 @@
+kind: analysis
+name: rift-v5PHM-gp-matern-trial
+status: Ready
+pipeline: RIFT
+needs:
+    - get-calibration-ligo-H1
+    - get-calibration-ligo-L1
+    - get-calibration-virgo
+    - get-preliminary-posterior
+    - get-priors
+    - generate-psd
+waveform:
+    approximant: SEOBNRv5PHM
+    gwsignal arguments:
+       lmax_nyquist: 1
+       enable_antisymmetric_modes: True
+       antisymmetric_modes_hm: True
+comment: Dedicated opt-in GP Matern CIP trial; retain event inputs and production priors
+scheduler:
+    use global priors: True
+    bootstrap upstream: True
+    osg: True
+    pipeline:
+         internal-puff-transverse: True
+         use-gwsignal: True
+
+# These are opt-in native template fields, not a separate GP socket service.
+# Retain the event's production data/prior/likelihood metadata when applying this.
+sampler:
+    n output samples: 2500
+    n output samples last: 2500
+    cip:
+        fitting method: gp-matern
+        sampling method: AV
+        prediction backend: cupy
+        gp matern max train points: 4800
+        gp matern optimizer maxiter: 25
+        gp matern seed: 25062842
+        av stop metric: kish
+        explode jobs: 8
+        explode jobs auto: False
+        request memory: 8192
+        request gpus: 1
+        require gpus: "Capability >= 6.0 && Capability < 9.0"
+        manual extra args:
+            - --internal-use-lnL
+            - --n-eff 2500
+            - --n-output-samples 2500
+            - --n-max 100000000

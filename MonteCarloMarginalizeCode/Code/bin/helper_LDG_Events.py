@@ -1745,7 +1745,7 @@ if opts.propose_fit_strategy:
         helper_cip_args += '   --parameter mc --parameter delta_mc '
     else:
         helper_cip_args += " --parameter-implied mu1 --parameter-implied mu2 --parameter-nofit mc --parameter delta_mc "  
-    if 'gp' in fit_method:
+    if 'gp' in fit_method and fit_method != 'gp-matern':
         helper_cip_args += " --cap-points 12000 "
     if not opts.no_propose_limits:
         if not(opts.use_mtot_coords):
@@ -2036,6 +2036,13 @@ if opts.propose_converge_last_stage:
 # iterations with normal errors and keep the default cut.
 if opts.calmarg_first_cip_sigma_cut is not None and len(helper_cip_arg_list) > 0:
     helper_cip_arg_list[0] += " --sigma-cut {} ".format(opts.calmarg_first_cip_sigma_cut)
+
+# The explicit fresh GP experiment applies to every fit stage, including
+# any early surrogate override; coordinate/prior/schedule options are retained.
+if fit_method == 'gp-matern':
+    import re
+    helper_cip_arg_list = [re.sub(r'--fit-method\s+\S+', '--fit-method gp-matern', line)
+                           for line in helper_cip_arg_list]
 
 with open("helper_cip_arg_list.txt",'w+') as f:
     f.write("\n".join(helper_cip_arg_list))

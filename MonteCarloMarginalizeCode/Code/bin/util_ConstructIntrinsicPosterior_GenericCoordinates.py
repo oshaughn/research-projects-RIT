@@ -336,14 +336,17 @@ parser.add_argument("--n-chunk",default=1e5,type=int)
 parser.add_argument("--contingency-unevolved-neff",default=None,help="Contingency planning for when n_eff produced by CIP is small, and user doesn't want to have hard failures.  Note --fail-unless-n-eff will prevent this from happening. Options: quadpuff, ...")
 parser.add_argument("--not-worker",action='store_true',help="Nonworker jobs, IF we have workers present, don't have the 'fail unless' statement active")
 parser.add_argument("--fail-unless-n-eff",default=None,type=float,help="If nonzero, places a minimum requirement on n_eff. Code will exit if not achieved, with no sample generation")
-parser.add_argument("--fit-method",default="rf",help="rf (default) : rf|gp|gp-torch|quadratic|polynomial|gp_hyper|gp_lazy|cov|kde|gp-jax-svgp|gp-jax-rff|gp-jax-exact.  Note 'polynomial' with --fit-order 0  will fit a constant. The gp-jax-* methods use the optional JAX interpolators (RIFT.interpolators.jax_gp) and support a differentiable export via --fit-save-jax.")
+parser.add_argument("--fit-method",default="rf",help="rf (default) : rf|gp|gp-matern|gp-torch|quadratic|polynomial|gp_hyper|gp_lazy|cov|kde|gp-jax-svgp|gp-jax-rff|gp-jax-exact.  Note 'polynomial' with --fit-order 0  will fit a constant. The gp-jax-* methods use the optional JAX interpolators (RIFT.interpolators.jax_gp) and support a differentiable export via --fit-save-jax.")
 parser.add_argument("--fit-load-quadratic",default=None,help="Filename of hdf5 file to load quadratic fit from. ")
 parser.add_argument("--fit-load-quadratic-path",default="GW190814/annealing_mc_source_eta_chieff",help="Path in hdf5 file to specific covariance matrix to be used")
 parser.add_argument("--pool-size",default=3,type=int,help="Integer. Number of GPs to use (result is averaged)")
 parser.add_argument("--fit-load-gp",default=None,type=str,help="Filename of GP fit to load. Overrides fitting process, but user MUST correctly specify coordinate system to interpret the fit with.  Does not override loading and converting the data.")
 parser.add_argument("--fit-save-gp",default=None,type=str,help="Filename base of GP fit to save (.pkl for sklearn; .pt for gp-torch, preserving an existing .pt suffix).")
-parser.add_argument("--gp-predict-backend",default="sklearn",choices=["sklearn","cupy"],help="For --fit-method gp with --fit-load-gp only: opt into exact cached float64 CUDA means for a fitted StandardScaler/Matérn-5/2 sklearn model. Does not refit or change the sampler; other kernels are rejected.")
+parser.add_argument("--gp-predict-backend",default="sklearn",choices=["sklearn","cupy"],help="For loaded --fit-method gp or fresh/loaded gp-matern: opt into exact cached float64 CUDA means for a fitted StandardScaler/Matérn-5/2 sklearn model. Accelerates deterministic means after CPU training without changing the sampler; other kernels are rejected.")
 parser.add_argument("--gp-predict-batch-size",default=4096,type=int,help="Maximum queries per cached CuPy GP prediction block. Used only with --gp-predict-backend cupy.")
+parser.add_argument("--gp-matern-max-train-points",default=4800,type=int,help="Opt-in gp-matern: deterministic balanced training bound; rho1/lnL strata when available, otherwise lnL strata. Fresh exact float64 fit on CPU.")
+parser.add_argument("--gp-matern-optimizer-maxiter",default=25,type=int,help="gp-matern: bounded single L-BFGS-B start; numerical convergence is not interpolation validation.")
+parser.add_argument("--gp-matern-seed",default=25062842,type=int,help="gp-matern: deterministic row selection and sklearn seed, independent of sampler randomness.")
 parser.add_argument("--gp-torch-device",default="auto",help="gp-torch device: auto chooses CUDA when available, otherwise CPU; cpu or cuda[:index] selects explicitly.")
 parser.add_argument("--gp-torch-epochs",default=60,type=int,help="Number of exact gp-torch marginal-likelihood optimization steps.")
 parser.add_argument("--gp-torch-batch-size",default=1024,type=int,help="Maximum gp-torch prediction queries per kernel block; no query covariance is formed.")
@@ -1648,6 +1651,45 @@ def report_gp_kernel(gp, x, y, tol=1e-3, holdout_folds=0, kernel_proto=None,
     return rec
 
 
+def fit_gp_matern(x,y,y_errors=None,rho1=None):
+    """Fresh bounded Matérn recipe; preserve native target shift and stage coords."""
+    import json
+    from RIFT.interpolators.matern_gp import fit_matern_gp
+    if opts.fit_uncertainty_added and opts.gp_predict_backend == "cupy":
+        raise ValueError("Cached CuPy GP supports deterministic means, not --fit-uncertainty-added")
+    if opts.fit_uncertainty_added:
+        raise ValueError("gp-matern currently supports deterministic means only")
+    prediction_offset = 0.
+    if opts.fit_load_gp:
+        model = joblib.load(opts.fit_load_gp)
+        record = getattr(model,"rift_matern_provenance",None)
+        if record is None or "lnL_shift" not in record.get("provenance",{}):
+            raise ValueError("gp-matern reload requires saved native coordinate/lnL-shift provenance")
+        if record.get("feature_names") != list(coord_names):
+            raise ValueError("Saved gp-matern feature coordinates differ from this CIP stage")
+        prediction_offset = float(record["provenance"]["lnL_shift"]) - lnL_shift
+    else:
+        bound = opts.gp_matern_max_train_points
+        if opts.cap_points > 0:
+            bound = min(bound,opts.cap_points)
+        model,record = fit_matern_gp(x,y,y_errors,
+            max_train_points=bound,optimizer_maxiter=opts.gp_matern_optimizer_maxiter,
+            seed=opts.gp_matern_seed,rho1=rho1,feature_names=coord_names,
+            provenance={"lnL_shift":float(lnL_shift),"fit_method":"gp-matern"})
+        print("GP-MATERN-RECORD",json.dumps(record))
+        if opts.fit_save_gp:
+            joblib.dump(model,opts.fit_save_gp+".pkl")
+            with open(opts.fit_save_gp+".meta.json","w") as stream:
+                json.dump(record,stream,indent=2)
+    if opts.gp_predict_backend == "cupy":
+        from RIFT.interpolators.cached_matern_gp import from_sklearn
+        model = from_sklearn(model,backend="cupy",batch_size=opts.gp_predict_batch_size)
+        print("Fresh/loaded cached CUDA Matérn means: float64")
+    predictor = lambda values:model.predict(values)+prediction_offset
+    if opts.protect_coordinate_conversions:
+        return lalsimutils.RangeProtectReduce(predictor,-np.inf)
+    return predictor
+
 def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False,fname_export="gp_fit"):
     """
     x = array so x[0] , x[1], x[2] are points.
@@ -2660,6 +2702,16 @@ elif opts.fit_method == 'gp_hyper':
         Y_err=Y_err[indx]
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
     my_fit = fit_gp(X,Y,y_errors=Y_err,hypercube_rescale=True)
+elif opts.fit_method == 'gp-matern':
+    print(" FIT METHOD gp-matern: bounded standardized Matérn5/2")
+    X=X[indx_ok]
+    Y=Y[indx_ok] - lnL_shift
+    Y_err=Y_err[indx_ok]
+    dat_out_low_level_coord_names=dat_out_low_level_coord_names[indx_ok]
+    from RIFT.interpolators.matern_gp import native_rho1
+    # Known actual native geometry, never assume final-stage feature order.
+    rho1=native_rho1(dat_out_low_level_coord_names,low_level_coord_names)
+    my_fit=fit_gp_matern(X,Y,y_errors=Y_err,rho1=rho1)
 elif opts.fit_method == 'gp':
     print(" FIT METHOD ", opts.fit_method, " IS GP")
     # some data truncation IS used for the GP, but beware
@@ -3547,14 +3599,21 @@ if supplemental_ln_likelihood_offset_fn and not opts.integrate_prior:
 ln_integrand_value_absolute = ln_integrand_value + supplemental_ln_likelihood_offset
 sigma_integral = relative_mc_error(res, var, log_space=opts.internal_use_lnL)
 
+# Opt-in Kish acceptance uses the selected integration statistic.  The native
+# third return and evidence annotations retain their historical max-weight value.
+cip_acceptance_neff = neff
+if opts.av_stop_metric == 'kish':
+    cip_acceptance_neff = float(dict_return['av_stopping_statistics']['selected'])
+    print(" CIP acceptance Kish ESS / native max-weight statistic ", cip_acceptance_neff, neff)
+
 # Test n_eff threshold
 if not (opts.fail_unless_n_eff is None):
-    if neff < opts.fail_unless_n_eff   and not(opts.not_worker):     # if we need the output to continue:
+    if cip_acceptance_neff < opts.fail_unless_n_eff   and not(opts.not_worker):     # if we need the output to continue:
         print(" FAILURE: n_eff too small")
         sys.exit(1)
-if neff < opts.n_eff:
+if cip_acceptance_neff < opts.n_eff:
     print(" ==> neff (={}) is low <==".format(neff))
-    if opts.contingency_unevolved_neff == 'quadpuff'  and neff < np.min([500,opts.n_eff]): # we can usually get by with about 500 points
+    if opts.contingency_unevolved_neff == 'quadpuff'  and cip_acceptance_neff < np.min([500,opts.n_eff]): # we can usually get by with about 500 points
         # Add errors
         # Note we only want to add errors to RETAINED points
         print(" Contingency: quadpuff: take covariance of points, draw from it again, add to existing points as offsets (i.e. a puffball) ")
@@ -4063,8 +4122,8 @@ if opts.verbose:
 indx_list = systematic_resample(weights, p_threshold_size)
 if opts.verbose:
     print(" output size: selected random indices N=", len(indx_list), " distinct=", len(np.unique(indx_list)))
-if opts.internal_bound_factor_if_n_eff_small and neff <opts.n_output_samples  and opts.internal_bound_factor_if_n_eff_small* neff < opts.n_output_samples:
-    my_size_out = int(neff*opts.internal_bound_factor_if_n_eff_small)+1  # make sure at least one sample
+if opts.internal_bound_factor_if_n_eff_small and cip_acceptance_neff <opts.n_output_samples  and opts.internal_bound_factor_if_n_eff_small* cip_acceptance_neff < opts.n_output_samples:
+    my_size_out = int(cip_acceptance_neff*opts.internal_bound_factor_if_n_eff_small)+1  # make sure at least one sample
     indx_list = np.random.choice(indx_list, my_size_out, replace=False)
 if opts.verbose:
     print(" output size: truncating based on n_eff to N=", len(indx_list))

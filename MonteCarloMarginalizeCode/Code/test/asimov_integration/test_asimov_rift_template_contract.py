@@ -338,3 +338,56 @@ def test_rift_liquid_template_use_jax_ile_defaults_false_and_follows_ledger():
     meta["sampler"]["ile"]["use jax ile"] = True
     _rendered, parser = _render(meta)
     assert parser.get("rift-pseudo-pipe", "use-jax-ile").strip() == "True"
+
+
+def test_rift_liquid_template_gp_matern_opt_in_preserves_default():
+    import shlex
+
+    meta = _base_meta()
+    _rendered, default = _render(meta)
+    assert default.get("rift-pseudo-pipe", "cip-fit-method") == '\"rf\"'
+    assert not default.has_option("rift-pseudo-pipe", "manual-extra-cip-args")
+    assert not default.has_option("rift-pseudo-pipe", "internal-cip-request-gpus")
+
+    meta["sampler"]["cip"].update({
+        "fitting method": "gp-matern",
+        "prediction backend": "cupy",
+        "gp matern max train points": 4800,
+        "gp matern optimizer maxiter": 25,
+        "gp matern seed": 25062842,
+        "av stop metric": "kish",
+        "request memory": 8192,
+        "request gpus": 1,
+        "require gpus": "Capability >= 6.0 && Capability < 9.0",
+        "explode jobs": 8,
+        "explode jobs auto": False,
+        "manual extra args": ["--internal-use-lnL", "--n-eff 2500", "--n-output-samples 2500", "--n-max 100000000"],
+    })
+    meta["sampler"]["n output samples"] = 2500
+    meta["sampler"]["n output samples last"] = 2500
+    _rendered, parser = _render(meta)
+    section = "rift-pseudo-pipe"
+    assert parser.get(section, "cip-fit-method").strip('\"') == "gp-matern"
+    args = shlex.split(parser.get(section, "manual-extra-cip-args"))
+    expected = {
+        "--gp-predict-backend": "cupy",
+        "--gp-matern-max-train-points": "4800",
+        "--gp-matern-optimizer-maxiter": "25",
+        "--gp-matern-seed": "25062842",
+        "--av-stop-metric": "kish",
+        "--n-eff": "2500",
+        "--n-output-samples": "2500",
+        "--n-max": "100000000",
+    }
+    assert args.count("--internal-use-lnL") == 1
+    for flag, value in expected.items():
+        assert args.count(flag) == 1
+        assert args[args.index(flag) + 1] == value
+    assert parser.getint(section, "cip-explode-jobs") == 8
+    assert not parser.getboolean(section, "cip-explode-jobs-auto")
+    assert parser.getint(section, "internal-cip-request-memory") == 8192
+    assert parser.getint(section, "internal-cip-request-gpus") == 1
+    assert parser.get(section, "internal-cip-require-gpus").strip("'\"") == "Capability >= 6.0 && Capability < 9.0"
+    assert parser.getint(section, "n-output-samples") == 2500
+    assert parser.getint(section, "n-output-samples-last") == 2500
+    assert parser.getboolean(section, "internal-cip-use-lnL")
