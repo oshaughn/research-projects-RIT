@@ -15,7 +15,7 @@ from RIFT.likelihood.gpu_precompute import (
     streamed_v_matrix,
 )
 
-from conftest import to_host
+from gpu_precompute_helpers import to_host
 from oracle import direct_log_likelihood, q_oracle, uv_oracle
 
 

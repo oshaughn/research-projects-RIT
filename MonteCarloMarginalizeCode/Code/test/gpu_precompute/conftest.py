@@ -27,12 +27,3 @@ def backend(request):
             pytest.fail("real CUDA device required: %r" % (exc,))
         pytest.skip("no usable CUDA device: %r" % (exc,))
 
-
-def to_host(x):
-    try:
-        import cupy
-        if isinstance(x, cupy.ndarray):
-            return cupy.asnumpy(x)
-    except Exception:
-        pass
-    return np.asarray(x)
