@@ -66,6 +66,10 @@ post:
   coords-sample: ""             # "x:[-8,8] y:[-8,8] z:[-8,8]"
   coords-implied: ""            # "R1.4 Mmax"
   coords-nofit: ""              # "delta_mc s1z s2z"
+  coord-function: null          # -> --supplementary-coordinate-function (post, and puff in plugin basis)
+  coord-ini: null               # -> --supplementary-coordinate-ini
+  coord-chart: null             # -> --supplementary-coordinate-chart
+  coord-input-parameters: ""    # data-file columns the coord module maps from, e.g. "x y z"
   likelihood-factor-module: null
   likelihood-factor-function: null
   likelihood-factor-ini: null
@@ -103,6 +107,10 @@ puff:
   exe: null                     # default = `which util_HyperparameterPuffball.py`
   puff-factor: 0.5
   force-away: 0.03
+  # auto: puff in the coord module's output basis when the MC samples it
+  # (needs post.coord-input-parameters); file: data-file columns;
+  # plugin: coord-module output basis even when the MC samples file columns.
+  coord-basis: auto
   extra-args: ""
   # Tracer-placement sampler hyperparameters. These are only consumed when
   # exe points at a tracer-aware updater (e.g. util_HyperparameterTracerUpdate.py

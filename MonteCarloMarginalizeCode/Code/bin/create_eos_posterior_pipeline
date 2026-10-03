@@ -135,7 +135,7 @@ if opts.marg_event_args:
     marg_event_args = ' '.join( [x.replace('\\','') for x in marg_event_args_list] )
     marg_event_args = ' '.join(marg_event_args.split(' ')[1:])
     # Some argument protection for later
-    marg_event_args = marg_event_args.replace('[', ' \'[')
+    marg_event_args = marg_event_args.replace('[', '\'[')
     marg_event_args = marg_event_args.replace(']', ']\'')
     marg_event_args=marg_event_args.rstrip()
     print("MARG", marg_event_args)
@@ -188,7 +188,7 @@ if opts.puff_args and opts.puff_exe:
     puff_args = ' '.join( [x.replace('\\','') for x in puff_args_list] )
     puff_args = ' '.join(puff_args.split(' ')[1:])
     # Some argument protection for later
-    puff_args = puff_args.replace('[', ' \'[')
+    puff_args = puff_args.replace('[', '\'[')
     puff_args = puff_args.replace(']', ']\'')
     puff_args=puff_args.rstrip()
     print("PUFF", puff_args)
@@ -213,7 +213,7 @@ if opts.test_args:
     test_args = ' '.join( [x.replace('\\','') for x in test_args_list] )
     test_args = ' '.join(test_args.split(' ')[1:])
 # Some argument protection for later
-    test_args = test_args.replace('[', ' \'[')
+    test_args = test_args.replace('[', '\'[')
     test_args = test_args.replace(']', ']\'')
     test_args=test_args.rstrip()
     print("CONVERGE", test_args)

@@ -117,6 +117,9 @@ FILES=(
   "$C/test/hyperpipe/tests/test_drivers.py"
   "$C/test/hyperpipe/tests/test_marg_list.py"
   "$C/test/test_hyperpipeline_io.py"
+  # -- coordinate plugin through the hyperpipe post and puff stages; puffball ranges; CEP
+  # get_bounds.  ~13 tests, about ten driver subprocesses.
+  "$C/test/test_hyperpipe_coordinate_passing.py"
   # -- promoted out of the roster after roster-verify-check caught its reason being false ON
   # THE RUNNER: it was OPTDEP needs:glue,htcondor, and with htcondor absent there it still
   # collected 15 and passed 15.  Confirmed locally with BOTH blocked via a sys.meta_path

@@ -233,10 +233,13 @@ def _build_puff_args(cfg, coord_spec) -> str:
     extra-args strings.
     """
     puff = _cfg_get(cfg, "puff") or {}
+    coord_basis = _cfg_get(puff, "coord-basis") or "auto"
     args = coord_spec.to_puff_args(
         force_away=_cfg_get(puff, "force-away", 0.03),
         puff_factor=_cfg_get(puff, "puff-factor", 0.5),
+        coord_basis=coord_basis,
     )
+    puff_names, _ = coord_spec.puff_basis(coord_basis)
     # Pass the prior bounds through as --downselect-parameter so the tracer's
     # internal prior_box covers the user's actual coords-sample range instead
     # of the data bounding box. Without this, a narrow initial grid (e.g. a
@@ -247,7 +250,11 @@ def _build_puff_args(cfg, coord_spec) -> str:
     # the tracer drop-ins also use them to widen prior_box.
     # The range value is intentionally unquoted: create_eos_posterior_pipeline
     # wraps any [..] in single quotes when staging args_puff.txt for Condor.
-    for p in coord_spec.parameters:
+    # Every puff-basis name with a coords-sample range gets one, including
+    # coords-nofit names when the MC samples the data-file columns.
+    for p in puff_names:
+        if p not in coord_spec.parameter_ranges:
+            continue
         lo, hi = coord_spec.parameter_ranges[p]
         args += (
             f" --downselect-parameter {p}"
@@ -347,6 +354,13 @@ def my_app(cfg: DictConfig) -> None:
     # ----- coord spec ------------------------------------------------------
     coord_spec = coord_spec_from_config_section(cfg["post"])
     coord_spec.validate(strict_import=False)
+    if coord_spec.name and coord_spec.parameters and not coord_spec.input_parameters:
+        logger.warning(
+            "post.coord-module is set but post.coord-input-parameters is not. "
+            "If coords-fit names are coord-module outputs rather than data-file "
+            "columns, set coord-input-parameters so the puff and test stages "
+            "read the right columns."
+        )
 
     # ----- marg-list assembly ---------------------------------------------
     marg = assemble_marg_list(cfg, base_dir=base_dir, run_dir=run_dir)

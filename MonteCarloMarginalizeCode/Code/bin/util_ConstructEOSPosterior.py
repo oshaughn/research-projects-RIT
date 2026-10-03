@@ -171,6 +171,8 @@ parser.add_argument("--supplementary-coordinate-code", default=None,type=str,hel
 parser.add_argument("--supplementary-coordinate-function", default=None, type=str, help="Name of the entry-point callable inside the module named by --supplementary-coordinate-code. Defaults to 'convert_coordinates'.")
 parser.add_argument("--supplementary-coordinate-ini", default=None, type=str, help="Optional ini file parsed and handed to the coordinate plugin's prepare() hook so it can read its own configuration block(s).")
 parser.add_argument("--supplementary-coordinate-chart", default=None, type=str, help="Which chart (coordinate system) defined by the plugin to use for this run. Required when the plugin's CHARTS dict has more than one entry; ignored when the plugin doesn't define CHARTS. Different charts can share parameter names but imply different priors -- the chart name disambiguates which (name -> prior) mapping is installed.")
+parser.add_argument("--get-range-from-external", action='store_true', help="Ask the coordinate plugin for integration ranges: calls get_bounds(low_level_coord_names, ranges, **kwargs), which returns {name: [lo,hi]} in the SAMPLING basis. Replaces data-derived and chart ranges; --integration-parameter-range wins. Errors raise.")
+parser.add_argument("--external-range-args", action='append', type=str, help="key=value passed to the plugin's get_bounds. Values are parsed as python literals when possible.")
 opts=  parser.parse_args()
 
 #print(" WARNING: Always use internal_use_lnL for now ")
@@ -431,6 +433,19 @@ if opts.supplementary_coordinate_code:
     _coord_plugin_in_names = resolve_input_parameters(
         _coord_plugin_module, chart=opts.supplementary_coordinate_chart
     ) or list(dat_orig_names)
+
+# Ranges from the plugin's get_bounds hook, in the sampling basis.  They
+# replace data-derived and chart ranges; --integration-parameter-range wins.
+# Failures raise: a range in the wrong frame must not be used silently.
+if opts.get_range_from_external:
+    if supplemental_coordinate_convert is None:
+        raise Exception(" --get-range-from-external needs --supplementary-coordinate-code ")
+    from RIFT.misc.coordinate_plugin import call_get_bounds
+    _cli_range_names = set(name for name, _ in (r.split(':', 1) for r in (opts.integration_parameter_range or [])))
+    for _name, _rng in call_get_bounds(_coord_plugin_module, low_level_coord_names, param_ranges, opts.external_range_args).items():
+        if _name in low_level_coord_names and _name not in _cli_range_names:
+            param_ranges[_name] = _rng
+            print(" Integration range for {} from get_bounds : {} ".format(_name, _rng))
 
 # Auto-derive integration ranges for sampled names that are still missing one:
 # forward-transform the input grid into the sampling basis and use the
