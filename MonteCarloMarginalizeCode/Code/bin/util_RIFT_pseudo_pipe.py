@@ -343,6 +343,12 @@ def run_lisa_known_sky_surface(opts):
         "--transfer-file-list",
         os.path.join(workdir, "helper_transfer_files.txt"),
     ]
+    if opts.internal_ile_request_disk:
+        cepp_cmd += ["--ile-request-disk", str(opts.internal_ile_request_disk)]
+    if opts.internal_cip_request_disk:
+        cepp_cmd += ["--cip-request-disk", str(opts.internal_cip_request_disk)]
+    if opts.internal_general_request_disk:
+        cepp_cmd += ["--general-request-disk", str(opts.internal_general_request_disk)]
     # Container: let write_ILE_sub_simple emit the singularity + file-transfer
     # wiring (the LDG path's native mechanism) rather than any LISA-specific code.
     # Needs SINGULARITY_RIFT_IMAGE (+ SINGULARITY_BASE_EXE_DIR) in the env.
