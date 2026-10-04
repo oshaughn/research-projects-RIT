@@ -88,7 +88,9 @@ def _ile_generator_kwargs(argv):
     tree = ast.parse(ILE_EXE.read_text())
     srcs = [ast.unparse(n) for n in tree.body]
     i0 = next(i for i, s in enumerate(srcs) if s.startswith("optp = OptionParser("))
-    i1 = next(i for i, s in enumerate(srcs) if s.startswith("opts, args = optp.parse_args("))
+    # python < 3.11 unparses a tuple target with parentheses
+    i1 = next(i for i, s in enumerate(srcs)
+              if s.replace("(opts, args)", "opts, args").startswith("opts, args = optp.parse_args("))
     ns = {}
     body = _definitions_of_free_names(tree.body[:i0], tree.body[i0:i1]) + tree.body[i0:i1]
     exec(compile(ast.Module(body=body, type_ignores=[]), str(ILE_EXE), "exec"), ns)
