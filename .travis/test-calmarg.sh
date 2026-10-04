@@ -58,7 +58,9 @@ fi
 
 # Waveform-kwargs transport: builds real DAGs (pseudo_pipe -> CEPP), splits the arguments of
 # Calib_reweight.sub as condor does, and runs calibration_reweighting.py's own parser and
-# waveform-argument code on them.  Ten subprocess builds, ~10 minutes.
-( cd "$CODE/test" && "$PY" -m pytest -q test_calmarg_extra_args_transport.py )
+# waveform-argument code on them.  Ten subprocess builds, ~10 minutes.  The alignment test
+# compares those options, and the modes they generate, with ILE's (five more builds).
+( cd "$CODE/test" && "$PY" -m pytest -q test_calmarg_extra_args_transport.py \
+    test_calmarg_ile_waveform_alignment.py )
 
 echo "calmarg CPU regression gate: PASS"
