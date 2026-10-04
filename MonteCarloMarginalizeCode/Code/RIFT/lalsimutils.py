@@ -5155,6 +5155,17 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
       - source_redshift: if nonzero, convert m1 -> m1 (1+z)=m_z, as fit is done in the detector frame.  We are **assuming source-frame sampling**
     """
     x_out = np.zeros( (len(x_in), len(coord_names) ) )
+    # Source-frame input: move the mass coordinates to the detector frame ONCE, here, so every vectorized branch below
+    # and the per-row fallback see detector-frame masses.  Other mass-dimensional inputs (e.g. mu1, mu2) do not scale
+    # by (1+z); for those, the per-row fallback applies the redshift to P.m1, P.m2 instead.
+    redshift_applied_to_input = False
+    if source_redshift:
+        mass_names_in = [p for p in ['mc', 'mc_ecc', 'm1', 'm2', 'mtot'] if p in low_level_coord_names]
+        if mass_names_in:
+            x_in = np.array(x_in, dtype=float)   # copy: never rescale the caller's array
+            for p in mass_names_in:
+                x_in[:, low_level_coord_names.index(p)] *= (1+source_redshift)
+            redshift_applied_to_input = True
     # Check for trivial identity transformations and do those by direct copy, then remove those from the list of output coord names
     coord_names_reduced = coord_names.copy() 
     for p in low_level_coord_names:
@@ -5577,13 +5588,6 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
                 coord_names_reduced.remove('DeltaLambdaTilde')
 
 
-    # perform any mass conversions needed, so output in detector frame given input in source frame
-    if source_redshift:
-        for name in ['mc', 'm1', 'm2']:
-            if name in coord_names:
-                indx_name = coord_names.index(name)
-                x_out[indx_name] *= (1+source_redshift)
-
     # return if we don't need to do any more conversions (e.g., if we only have --parameter specification)
     if len(coord_names_reduced)<1:
         return x_out
@@ -5597,8 +5601,9 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
             if low_level_coord_names[indx] != 'chi_pavg':
                 P.assign_param( low_level_coord_names[indx], x_in[indx_out,indx])            
         # Apply redshift: assume input is source-frame mass, convert m1 -> m1(1+z) = m1_z, as fit used detector frame
-        P.m1 = P.m1*(1+source_redshift)
-        P.m2 = P.m2*(1+source_redshift)
+        if source_redshift and not redshift_applied_to_input:
+            P.m1 = P.m1*(1+source_redshift)
+            P.m2 = P.m2*(1+source_redshift)
         for indx in np.arange(len(coord_names_reduced)):
             p = coord_names_reduced[indx]
             indx_p_out= coord_names.index(p)
