@@ -135,3 +135,18 @@ def test_advertised_packages_survive_wheel_discovery():
     assert 'plot_utilities' in advertised
     assert all('RIFT.'+name in names for name in advertised)
     assert 'RIFT.asimov' in names and 'RIFT.misc' in names
+
+def test_calibration_waveform_kwargs_survive_shell_transport():
+    import shlex
+    source=(CODE/'bin/util_RIFT_pseudo_pipe.py').read_text()
+    tree=ast.parse(source)
+    nodes=[n for n in ast.walk(tree) if isinstance(n,ast.AugAssign) and
+           isinstance(n.target,ast.Name) and n.target.id=='cmd' and
+           isinstance(n.value,ast.Call) and isinstance(n.value.func,ast.Attribute) and
+           isinstance(n.value.func.value,ast.Constant) and
+           n.value.func.value.value==' --calibration-reweighting-initial-extra-args={} ']
+    assert len(nodes)==1
+    value=' --extra-waveform-kwargs "{\'fd_alignment_postevent_time\': None, \'fd_centering_factor\': 0.75}" --fref 20 --internal-waveform-fd-L-frame '
+    namespace={'cmd':'builder','my_extra_string':value,'shlex':shlex}
+    exec(compile(ast.Module(body=nodes,type_ignores=[]),'pipeline-calibration-transport','exec'),namespace)
+    assert shlex.split(namespace['cmd'])==['builder','--calibration-reweighting-initial-extra-args=  '+value]
