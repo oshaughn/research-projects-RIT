@@ -150,3 +150,21 @@ def test_calibration_waveform_kwargs_survive_shell_transport():
     namespace={'cmd':'builder','my_extra_string':value,'shlex':shlex}
     exec(compile(ast.Module(body=nodes,type_ignores=[]),'pipeline-calibration-transport','exec'),namespace)
     assert shlex.split(namespace['cmd'])==['builder','--calibration-reweighting-initial-extra-args=  '+value]
+
+
+@pytest.mark.parametrize('values,expected',[
+    ({}, {'stream_error':'True','stream_output':'True'}),
+    ({'RIFT_NOSTREAM_LOG':'1'}, {}),
+    ({'RIFT_NOSTREAM_LOG':'1','RIFT_CIP_FLOCK_LOCAL':'true','RIFT_CIP_POOLS':'IGWN,CIT'}, {'MY.flock_local':'true','MY.POOLS':'"IGWN,CIT"'}),
+    ({'RIFT_CIP_FLOCK_LOCAL':'false'}, {'stream_error':'True','stream_output':'True'}),
+])
+def test_cip_explicit_transport_policy(values,expected):
+    import ast
+    from types import SimpleNamespace
+    tree=ast.parse((CODE/'RIFT/misc/dag_utils.py').read_text())
+    function=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='write_CIP_sub')
+    nodes=[n for n in function.body if isinstance(n,ast.If) and any(k in ast.unparse(n.test) for k in ['RIFT_NOSTREAM_LOG','RIFT_CIP_FLOCK_LOCAL','RIFT_CIP_POOLS'])]
+    result={}
+    job=SimpleNamespace(add_condor_cmd=lambda k,v:result.update({k:v}))
+    exec(compile(ast.Module(body=nodes,type_ignores=[]),'cip-transport','exec'),{'os':SimpleNamespace(environ=values),'ile_job':job,'use_osg':False,'use_singularity':False})
+    assert result==expected
