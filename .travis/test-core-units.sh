@@ -390,7 +390,8 @@ EXPECTED_TESTS=658
 # test_fit_nonfinite_floor.py adds 2 tests and no skips: both routes run unconditionally, so a
 # missing dependency there FAILS the driver subprocess rather than skipping the check.
 EXPECTED_PASSED=645
-MAX_SKIPPED=13
+# PR #382: +1 skip, the CuPy leg of test_cached_matern_gp.py (no GPU on the CI runner).
+MAX_SKIPPED=14
 
 # The floors must be INTEGERS, and this is checked rather than assumed.  `[ 347 -lt FOO ]` does
 # not fail the build: bash prints "integer expression expected", returns 2, and the `if` is
