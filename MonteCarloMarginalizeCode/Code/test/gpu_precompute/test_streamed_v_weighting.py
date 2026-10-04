@@ -5,7 +5,7 @@ import pytest
 
 from RIFT.likelihood import gpu_precompute as gpu
 
-from conftest import to_host
+from gpu_precompute_helpers import to_host
 
 
 def _problem(seed=6061):

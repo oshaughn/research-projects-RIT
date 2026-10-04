@@ -76,8 +76,7 @@ def _release_jax_executables(request):
     Every executable stays loaded, and each holds memory mappings.  A full test-jax.sh shard
     reached the per-process limit (vm.max_map_count, 65530 on CIT) and the next compile
     aborted or raised "Failed to materialize symbols".  Clearing at module boundaries bounds
-    growth across modules, not within one.  This lives here rather than in test/jax/conftest.py
-    because a second module named conftest shadows gpu_precompute's `from conftest import`.
+    growth across modules, not within one.
     """
     yield
     if not str(request.fspath).startswith(_JAX_TEST_DIR):
