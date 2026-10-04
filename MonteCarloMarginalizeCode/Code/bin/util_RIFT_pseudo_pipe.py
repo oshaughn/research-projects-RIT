@@ -595,6 +595,7 @@ parser.add_argument("--internal-cip-cap-neff",type=int,default=500,help="Largest
 # The shipped default caps that net count via --internal-cip-cap-neff=500 and n-output-samples=5000,
 # and stops on the tail-blind Gaussian 'lame' convergence test -> chi1_perp under-extends vs bilby.
 # This opt-in bundle lifts the NET samples-out and switches to a tail-sensitive stop.
+parser.add_argument("--rf-transverse-spin-coordinates", choices=["off","auto","physics3"], default=None, help="Pass opt-in RF-only transverse fitting scalars to every applicable full precessing stage")
 parser.add_argument("--internal-cip-transverse-tails",action='store_true',help="OPT-IN alt config for resolving transverse-spin (chi1_perp) tails, esp. at low mass. Bundles: (a) tail-sensitive convergence test (passes --internal-test-convergence-method js_lame to helper_LDG_Events.py, unless overridden); (b) raises the NET interim posterior samples across the CIP worker cohort by lifting --internal-cip-cap-neff and --n-output-samples and scaling up --cip-explode-jobs (MORE WORKERS -> more net samples-out, NOT larger per-worker n_eff) -- the raised interim sample count is what makes js_lame's quantile-drift tolerance statistically meaningful; (c) transverse TAIL-GUARD in the puffball: --append-with-random-parameter chi1_perp appends+shuffles uniformly-random transverse draws into every puff, so the proposed grid keeps offering chi1_perp tail coverage even after the posterior contracts (the measured tail-starvation feedback), and puff is kept active through all iterations. REQUIRES A PRECESSING ANALYSIS (precessing approximant or --assume-precessing): the tail guard proposes nonzero transverse spin, so combining this with --assume-nospin/--assume-nonprecessing or an aligned-spin approximant is REJECTED rather than silently changing the spin model analyzed. Tune with the --internal-cip-transverse-tails-* flags. Default OFF (behavior unchanged). See results_triage/CONVERGENCE_PROTOCOL_2026-07-23.md.")
 parser.add_argument("--internal-cip-transverse-tails-cap-neff",type=int,default=4000,help="With --internal-cip-transverse-tails: raise --internal-cip-cap-neff to at least this (the interim net-n_eff throttle; shipped base is 500).")
 parser.add_argument("--internal-cip-transverse-tails-nout",type=int,default=20000,help="With --internal-cip-transverse-tails: raise interim --n-output-samples to at least this (net samples out, combined across workers).")
@@ -1325,6 +1326,8 @@ if opts.internal_propose_converge_last_stage:
     cmd += " --propose-converge-last-stage "
 if opts.internal_test_convergence_threshold: # pass argument if provided
     cmd += " --internal-test-convergence-threshold {}  ".format(opts.internal_test_convergence_threshold)
+if opts.rf_transverse_spin_coordinates:
+    cmd += ' --rf-transverse-spin-coordinates {} '.format(opts.rf_transverse_spin_coordinates)
 if not(opts.cip_fit_method is None):
     cmd += " --force-fit-method {} ".format(opts.cip_fit_method)
     if opts.cip_fit_method == 'rf':
