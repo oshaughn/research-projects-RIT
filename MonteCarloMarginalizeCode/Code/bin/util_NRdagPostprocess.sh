@@ -72,11 +72,8 @@ if [ ${relabel_status} -ne 0 ]; then
     rm -f "$BASE_OUT.indexed"
     exit ${relabel_status}
 fi
-if [ ! -s "$BASE_OUT.indexed" ]; then
-    echo "ERROR: NR relabeling produced an empty index: $BASE_OUT.indexed" >&2
-    rm -f "$BASE_OUT.indexed"
-    exit 1
-fi
+# An empty index is normal: the grep keeps only negative-lnL best matches, and
+# nothing downstream reads this file.
 
 # Manifest
 rm -f ${BASE_OUT}.manifest

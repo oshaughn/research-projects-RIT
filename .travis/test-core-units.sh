@@ -358,6 +358,9 @@ done
 #            python 3.11: junit 661 collected / 648 passed / 13 skipped / 0 failed, 3 subtests.
 #   671/658  + test_dag_postprocess_fail_closed.py (13 tests, none skipped: the ILE and NR
 #            postprocess wrappers run as subprocesses under a sanitized PATH with stub helpers).
+#            MEASURED on CIT (citlogin6; `import cupy` FAILS there) 2026-10-04, IGWN conda
+#            python 3.11: junit 676 collected / 663 passed / 13 skipped / 0 failed, 3 subtests.
+#            The 2 above 671/658 come from base tests added after the 658/645 measurement.
 #
 # RAISE these when files are added: a floor left at the old value passes while covering less,
 # which is the failure this gate exists to catch.

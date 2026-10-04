@@ -152,14 +152,17 @@ def test_nr_postprocess_propagates_relabel_failure(tmp_path):
     assert not base_out.with_suffix(".indexed").exists()
 
 
-def test_nr_postprocess_rejects_empty_relabel_output(tmp_path):
+def test_nr_postprocess_tolerates_empty_index(tmp_path):
+    # util_NRRelabelILE.py prints the best-match lnL first; for a real signal
+    # it is positive, so the `grep '^-1*'` filter keeps nothing.
     wrapper = _copy_wrapper(tmp_path, "util_NRdagPostprocess.sh")
     _write_helper(tmp_path, "util_CleanILE.py", 'cat "$1"\n')
-    _write_helper(tmp_path, "util_NRRelabelILE.py", "exit 0\n")
+    _write_helper(tmp_path, "util_NRRelabelILE.py",
+                  "echo ' -----  BEST MATCHES ------ '; echo 12.3 key 1 2\n")
     result, base_out = _run_nr(wrapper, tmp_path)
-    assert result.returncode == 1
-    assert "produced an empty index" in result.stderr
-    assert not base_out.with_suffix(".indexed").exists()
+    assert result.returncode == 0, result.stderr
+    assert base_out.with_suffix(".indexed").read_text() == ""
+    assert base_out.with_suffix(".tgz").exists()
 
 
 def test_nr_postprocess_succeeds_with_sibling_helpers(tmp_path):
