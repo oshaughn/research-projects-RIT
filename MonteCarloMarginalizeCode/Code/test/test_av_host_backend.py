@@ -27,6 +27,9 @@ def test_default_av_keeps_native_backend():
         assert not mod.needs_host_av(method, 'sklearn', 'auto')
     assert not mod.needs_host_av('gp-torch', 'sklearn', 'cpu')
     assert mod.needs_host_av('gp-matern', 'cupy', 'auto')
+    assert mod.needs_host_av('gp', 'cupy', 'auto')
+    for method in ('rf', 'quadratic', 'gp_lazy'):
+        assert not mod.needs_host_av(method, 'cupy', 'auto')
     assert mod.needs_host_av('gp-torch', 'sklearn', 'cuda:0')
 
 
@@ -36,3 +39,22 @@ def test_cip_calls_configure_host_av_only_under_gate():
     assert calls
     for i in calls:
         assert src[i-1].strip().startswith('if needs_host_av('), src[i-1]
+
+
+def test_cip_rejects_cupy_backend_for_other_fit_methods():
+    import ast
+    from types import SimpleNamespace
+    import pytest
+    path = Path(__file__).parents[1]/'bin/util_ConstructIntrinsicPosterior_GenericCoordinates.py'
+    node = next(n for n in ast.parse(path.read_text()).body if isinstance(n, ast.If) and 'gp_predict_backend' in ast.unparse(n.test))
+    program = compile(ast.Module(body=[node], type_ignores=[]), str(path), 'exec')
+    class Parser:
+        def error(self, message): raise SystemExit(message)
+    def run(method, load=None, backend='cupy'):
+        exec(program, dict(opts=SimpleNamespace(gp_predict_backend=backend, fit_method=method, fit_load_gp=load), parser=Parser()))
+    for method in ('rf', 'quadratic', 'gp-torch', 'gp_lazy'):
+        with pytest.raises(SystemExit):
+            run(method)
+    with pytest.raises(SystemExit):
+        run('gp')
+    run('gp', load='fit.pkl'); run('gp-matern'); run('rf', backend='sklearn')

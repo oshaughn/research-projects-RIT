@@ -23,7 +23,7 @@ def test_extrinsic_variation_does_not_launch_duplicate_intrinsic():
     a,b=point(),point();a.incl=0;b.incl=1
     assert GRID.unique_intrinsic_indices([a,b])==[0]
 
-@pytest.mark.parametrize('field',['m1','s2z','lambda2','eccentricity','meanPerAno','fref'])
+@pytest.mark.parametrize('field',['m1','s2z','lambda2','eccentricity','meanPerAno','fref','E0','p_phi0','a6c'])
 def test_all_intrinsic_differences_retained(field):
     assert GRID.unique_intrinsic_indices([point(),point(**{field:1.})])==[0,1]
 
@@ -71,3 +71,15 @@ def test_dedup_cli_pads_short_grid(tmp_path):
     record = json.loads((tmp_path/'r.json').read_text())
     assert record['status'] == 'padded_with_duplicates' and record['unique_rows'] == 2
     assert len(lalsimutils.xml_to_ChooseWaveformParams_array(str(tmp_path/'grid.xml.gz'))) == 4
+
+
+def test_hyperbolic_grid_points_stay_distinct_through_xml(tmp_path):
+    lalsimutils = pytest.importorskip('RIFT.lalsimutils')
+    rows = []
+    for E0, pphi in ((1.01, 4.0), (1.02, 4.0), (1.01, 4.5)):
+        P = lalsimutils.ChooseWaveformParams(); P.m1, P.m2 = 30*lalsimutils.lsu_MSUN, 20*lalsimutils.lsu_MSUN
+        P.E0, P.p_phi0 = E0, pphi
+        rows.append(P)
+    lalsimutils.ChooseWaveformParams_array_to_xml(rows, str(tmp_path/'hyp'))
+    back = lalsimutils.xml_to_ChooseWaveformParams_array(str(tmp_path/'hyp.xml.gz'))
+    assert GRID.unique_intrinsic_indices(back) == [0, 1, 2]

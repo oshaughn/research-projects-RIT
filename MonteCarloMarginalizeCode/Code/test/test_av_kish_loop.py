@@ -6,7 +6,7 @@ import RIFT.integrators.mcsamplerAdaptiveVolume as av
 
 pytestmark = pytest.mark.skipif(av.xpy_default is not np, reason="pinned values are for the numpy backend")
 
-# Default-path result of the merge-base (rift_O4d 76ead4ce), same seed and settings.
+# Default-path result of the merge base (rift_O4d 1b2fac84; also 76ead4ce), same seed and settings.
 BASE_LNZ = -5.0105830977664745
 BASE_ROWS = 4506
 

@@ -413,6 +413,20 @@ class Rift(Pipeline):
 
         pass
 
+    # Fit methods CIP dispatches on (util_ConstructIntrinsicPosterior_GenericCoordinates.py).
+    _CIP_FIT_METHODS = (
+        "rf", "rf_pca", "gp", "gp_hyper", "gp_lazy", "gp_sparse", "gp-pool", "gp-torch", "gp-matern",
+        "gp-xgboost", "gp-jax-svgp", "gp-jax-rff", "gp-jax-exact", "quadratic", "polynomial",
+        "cov", "kde", "rbf", "nn", "nn_rfwrapper", "weighted_nearest")
+
+    def _validate_cip_fit_method(self):
+        """Reject a sampler.cip.fitting method CIP does not dispatch on."""
+        cip = (self.production.meta.get("sampler") or {}).get("cip") or {}
+        if "fitting method" in cip and cip["fitting method"] not in self._CIP_FIT_METHODS:
+            raise ValueError(
+                "sampler.cip.fitting method must be one of {}; got {!r}".format(
+                    ", ".join(self._CIP_FIT_METHODS), cip["fitting method"]))
+
     def before_config(self, dryrun=False):
         """
         - Convert the text-based PSD to an XML psd if the xml doesn't exist already.
@@ -423,6 +437,7 @@ class Rift(Pipeline):
         # calling the base implementation so provenance is not silently lost;
         # older supported ASIMOV releases implement this as a no-op.
         super().before_config(dryrun=dryrun)
+        self._validate_cip_fit_method()
 
         event = self.production.event
         category = config.get("general", "calibration_directory")
@@ -537,6 +552,7 @@ class Rift(Pipeline):
 
 
         """
+        self._validate_cip_fit_method()
         self.before_build()
         cwd = os.getcwd()
         if self.production.event.repository:

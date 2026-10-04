@@ -1492,13 +1492,19 @@ else:
                n_samples_per_job = int(opts.last_iteration_extrinsic_nsamples/(1.0*opts.cip_explode_jobs_last))
                # Keep a declared Kish worker integration target independent of
                # the final extrinsic export quota (resampling can repeat rows).
-               final_tokens = [x for tok in shlex.split(cip_args_lines[indx]+cip_args_extra)
-                               for x in (tok.split('=',1) if tok.startswith(('--av-stop-metric=','--n-eff=')) else [tok])]
-               final_values = {final_tokens[k]:final_tokens[k+1] for k in range(len(final_tokens)-1)
-                               if final_tokens[k] in ('--av-stop-metric','--n-eff')}
                final_target = n_samples_per_job
-               if final_values.get('--av-stop-metric') == 'kish':
-                   final_target = float(final_values['--n-eff'])
+               final_line = cip_args_lines[indx]+cip_args_extra
+               if '--av-stop-metric' in final_line:  # opt-in only; default lines are never tokenized
+                   try:
+                       final_tokens = [x for tok in shlex.split(final_line)
+                                       for x in (tok.split('=',1) if tok.startswith(('--av-stop-metric=','--n-eff=')) else [tok])]
+                   except ValueError as exc:
+                       print(" WARNING: cannot tokenize final CIP line ({}); using the export quota as --n-eff ".format(exc))
+                       final_tokens = []
+                   final_values = {final_tokens[k]:final_tokens[k+1] for k in range(len(final_tokens)-1)
+                                   if final_tokens[k] in ('--av-stop-metric','--n-eff')}
+                   if final_values.get('--av-stop-metric') == 'kish':
+                       final_target = float(final_values['--n-eff'])
                cip_args_extra +=" --n-eff {} --n-output-samples {} ".format(final_target,n_samples_per_job)
                if not (opts.use_eccentricity_squared_sampling):
                    cip_args_lines[indx] = cip_args_lines[indx].replace(' --parameter eccentricity_squared ',' --parameter-implied eccentricity_squared --parameter-nofit eccentricity ')

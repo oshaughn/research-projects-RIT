@@ -27,9 +27,12 @@ def _cap_block():
     return next(n for n in ast.walk(TREE) if isinstance(n, ast.If) and ast.unparse(n.test) == "fit_method == 'gp-torch'")
 
 
-@pytest.mark.parametrize("flag", ["use_quadratic_early", "use_cov_early", "use_gp_early"])
+EARLY = ["use_quadratic_early", "use_cov_early", "use_gp_early", "use_gauss_early"]
+
+
+@pytest.mark.parametrize("flag", EARLY)
 def test_gp_matern_rejects_early_surrogate_stage(flag):
-    opts = types.SimpleNamespace(use_quadratic_early=False, use_cov_early=False, use_gp_early=False)
+    opts = types.SimpleNamespace(**{name: False for name in EARLY})
     setattr(opts, flag, True)
     with pytest.raises(SystemExit, match="gp-matern"):
         _run(_early_guard(), fit_method="gp-matern", opts=opts, parser=Parser())
@@ -40,3 +43,17 @@ def test_gp_matern_rejects_early_surrogate_stage(flag):
 def test_helper_cap_points_respects_gp_torch_limit(method, cap):
     args = _run(_cap_block(), fit_method=method, helper_cip_args="")["helper_cip_args"].split()
     assert (args[args.index("--cap-points") + 1] if "--cap-points" in args else None) == cap
+
+
+def test_every_alternate_fit_method_line_is_guarded():
+    # Each literal --fit-method stage the gp-matern regex could rewrite is either the
+    # main helper line or an early-stage override rejected by the guard.
+    src = HELPER.read_text()
+    guard = ast.unparse(_early_guard().test)
+    for flag in EARLY:
+        assert flag in guard
+    lines = [l for l in src.splitlines() if "fit-method" in l and not l.lstrip().startswith(("#", "parser.add_argument"))]
+    allowed = ("--no-plots --fit-method {}", "'fit-method quadratic '", "'fit-method cov '", "'fit-method gp'",
+               "'G2 --fit-method quadratic", "--fit-method\\s+\\S+", "'--fit-method gp-matern'", "--force-fit-method gp-matern")
+    for line in lines:
+        assert any(a in line for a in allowed), line

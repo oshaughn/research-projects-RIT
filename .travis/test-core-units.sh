@@ -378,7 +378,9 @@ done
 # Review of #377 added five more ring-coordinate tests, no skips (605/592 measured).
 # test_complex_overlap_interpolate_max.py (#375) adds 8 passing tests and no skips.
 # Merged with #375: 613/600 (see the table above).
-EXPECTED_TESTS=658
+# PR #382 merged with rift_O4d 1b2fac84, measured ldas-grid 2026-10-04 (no cupy): junit
+# 681 collected / 667 passed / 14 skipped, 3 of them subtests -> floors 678/664.
+EXPECTED_TESTS=678
 # Outcomes, not just exit status: a collection floor cannot see a test that collects, runs and
 # asserts nothing, and a pytest.skip can quietly absorb a lost gate.  The 13 skips are
 # environment legs -- cupy in test_seeding_reproducibility, device legs in
@@ -389,7 +391,7 @@ EXPECTED_TESTS=658
 # test_cip_portfolio_members.py 4, none of them skips.
 # test_fit_nonfinite_floor.py adds 2 tests and no skips: both routes run unconditionally, so a
 # missing dependency there FAILS the driver subprocess rather than skipping the check.
-EXPECTED_PASSED=645
+EXPECTED_PASSED=664
 # PR #382: +1 skip, the CuPy leg of test_cached_matern_gp.py (no GPU on the CI runner).
 MAX_SKIPPED=14
 

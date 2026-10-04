@@ -511,6 +511,8 @@ if not(opts.force_no_adapt):
 ok_lnL_methods = ['GMM', 'adaptive_cartesian', 'adaptive_cartesian_gpu', 'AV', 'NFlow', 'portfolio']
 if opts.av_stop_metric != 'max-weight' and opts.sampler_method != 'AV':
     parser.error('--av-stop-metric kish requires --sampler-method AV')
+if opts.gp_predict_backend != 'sklearn' and not (opts.fit_method == 'gp-matern' or (opts.fit_method == 'gp' and opts.fit_load_gp)):
+    parser.error('--gp-predict-backend cupy applies only to --fit-method gp-matern, or --fit-method gp with --fit-load-gp')
 bad_lnL_methods = ['default']
 if opts.internal_use_lnL and (opts.sampler_method  in bad_lnL_methods ):
   print(" OPTION MISMATCH : --internal-use-lnL not compatible with", opts.sampler_method, " can only use ", ok_lnL_methods)

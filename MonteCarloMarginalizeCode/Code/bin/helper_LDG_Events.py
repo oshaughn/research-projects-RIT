@@ -342,8 +342,8 @@ internal_dmax = opts.internal_distance_max # default is None
 fit_method='gp'
 if not(opts.force_fit_method is None):
     fit_method=opts.force_fit_method
-if fit_method == 'gp-matern' and (opts.use_quadratic_early or opts.use_cov_early or opts.use_gp_early):
-    parser.error("--force-fit-method gp-matern rewrites every CIP stage; it cannot be combined with --use-quadratic-early, --use-cov-early or --use-gp-early")
+if fit_method == 'gp-matern' and (opts.use_quadratic_early or opts.use_cov_early or opts.use_gp_early or opts.use_gauss_early):
+    parser.error("--force-fit-method gp-matern rewrites every CIP stage; it cannot be combined with --use-quadratic-early, --use-cov-early, --use-gp-early or --use-gauss-early")
 
 
 fmax = 1700 # default

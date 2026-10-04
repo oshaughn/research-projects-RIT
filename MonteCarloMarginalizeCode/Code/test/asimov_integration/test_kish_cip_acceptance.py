@@ -40,8 +40,19 @@ def test_basic_iteration_final_kish_target_parses_both_forms(line):
     import shlex
     path = SOURCE.parents[0] / 'create_event_parameter_pipeline_BasicIteration'
     env = dict(shlex=shlex, cip_args_lines=[line], cip_args_extra='', indx=0, n_samples_per_job=50)
-    exec(_block_after(path, 'final_tokens', 4), env)
+    exec(_block_after(path, 'final_target', 3), env)
     assert env['final_target'] == 700.
+
+
+@pytest.mark.parametrize('line', ['--fit-method rf --n-eff 700 --manual "unbalanced',
+                                  '--av-stop-metric kish --n-eff 700 --manual "unbalanced'])
+def test_basic_iteration_final_target_survives_unbalanced_quote(line):
+    # Base used the export quota as --n-eff and never tokenized the line.
+    import shlex
+    path = SOURCE.parents[0] / 'create_event_parameter_pipeline_BasicIteration'
+    env = dict(shlex=shlex, cip_args_lines=[line], cip_args_extra='', indx=0, n_samples_per_job=50)
+    exec(_block_after(path, 'final_target', 3), env)
+    assert env['final_target'] == 50 and isinstance(env['final_target'], int)
 
 
 @pytest.mark.parametrize('method,ok', [('AV', True), ('GMM', False)])
