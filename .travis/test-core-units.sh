@@ -151,6 +151,15 @@ FILES=(
   # under a misspelt keyword and silently dropped -- delivering it correctly makes a
   # malformed entry fatal, so the non-dict guard is part of that fix.  4 tests, ~22 s.
   "$C/test/test_cip_portfolio_members.py"
+  # -- the lnL fill for query rows the coordinate conversion cannot map.  fit_rf and fit_xg
+  # fill nonfinite / |x|>1e37 rows with lnL_default_large_negative, and a sign error made that
+  # fill +500 instead of -500, so any unmappable row the sampler gave prior weight to took the
+  # whole posterior.  Nothing raises on that: the run completes and reports a plausible-looking
+  # posterior over a region the converter failed on.  2 tests, one EOS driver subprocess (a
+  # plugin that returns NaN above xx=0.9) and one CIP driver subprocess
+  # (--downselect-enforce-kerr, which sends Kerr-violating rows to -inf).  Both subprocess
+  # timeouts are 900 s, below this job's cap, per the note in ci.yml.
+  "$C/test/test_fit_nonfinite_floor.py"
   # -- EOS: the LALSimulation version-compatibility layer.  numpy/lal only; the reviewed
   # multibranch API is exercised through injected fakes, so this runs on a released build.
   # Its companion test_lalsim_eos_reviewed_integration.py needs a private reviewed LALSuite
@@ -333,6 +342,14 @@ done
 #            643 passed / 13 skipped / 0 failed, of which 3 are subtests.
 #   656/643  review of #383: +3 tests in test_hyperpipe_coordinate_passing.py (16 collected,
 #            ldas-grid collect-only 2026-10-03), none skipped.
+#   658/645  + test_fit_nonfinite_floor.py (2 tests, neither skipped: the EOS route through a
+#            NaN-returning coordinate plugin, and the CIP route through
+#            --downselect-enforce-kerr).  The file defines exactly two test_* functions, has no
+#            parametrization and no skip or xfail marks, so the raise is +2/+2 over the row
+#            above; the per-file collection loop below is what confirms it on the runner, and it
+#            fails rather than reports if that is wrong.
+#            MEASURED on CIT (ldas-grid; `import cupy` FAILS there) 2026-10-03, IGWN conda
+#            python 3.11: junit 661 collected / 648 passed / 13 skipped / 0 failed, 3 subtests.
 #
 # RAISE these when files are added: a floor left at the old value passes while covering less,
 # which is the failure this gate exists to catch.
@@ -355,7 +372,7 @@ done
 # Review of #377 added five more ring-coordinate tests, no skips (605/592 measured).
 # test_complex_overlap_interpolate_max.py (#375) adds 8 passing tests and no skips.
 # Merged with #375: 613/600 (see the table above).
-EXPECTED_TESTS=656
+EXPECTED_TESTS=658
 # Outcomes, not just exit status: a collection floor cannot see a test that collects, runs and
 # asserts nothing, and a pytest.skip can quietly absorb a lost gate.  The 13 skips are
 # environment legs -- cupy in test_seeding_reproducibility, device legs in
@@ -364,7 +381,9 @@ EXPECTED_TESTS=656
 # (mcsamplerNFlow is an optional dependency and is absent from the IGWN environment), and
 # the xfail in test_uv_symmetry.  test_eos_portfolio_sampler.py adds 12 tests and
 # test_cip_portfolio_members.py 4, none of them skips.
-EXPECTED_PASSED=643
+# test_fit_nonfinite_floor.py adds 2 tests and no skips: both routes run unconditionally, so a
+# missing dependency there FAILS the driver subprocess rather than skipping the check.
+EXPECTED_PASSED=645
 MAX_SKIPPED=13
 
 # The floors must be INTEGERS, and this is checked rather than assumed.  `[ 347 -lt FOO ]` does
