@@ -91,12 +91,41 @@ The fast CI integral test is NOT sufficient: integrators have shipped confident,
 integral-invisible shape failures and silent n_eff~1 degradations that only this
 gate catches. See `RIFT/integrators/TESTING.md` for the recipe and caveats.
 
-## Important CLI tools
-- `integrate_likelihood_extrinsic_batchmode` - Main PE engine
-- `create_event_parameter_pipeline_BasicIteration` - Full pipeline
-- `plot_posterior_corner.py` - Visualization
+## Important CLI tools (`MonteCarloMarginalizeCode/Code/bin/`)
+- `util_RIFT_pseudo_pipe.py`: builds a run from an ini; calls `helper_LDG_Events.py`
+  for ILE/CIP arguments, then `create_event_parameter_pipeline_BasicIteration` for the DAG.
+- `integrate_likelihood_extrinsic_batchmode` (ILE): extrinsic marginal likelihood. See
+  the REDLINE above.
+- `integrate_likelihood_extrinsic_jax`: JAX ILE driver; selectable from pseudo_pipe.
+- `util_ConstructIntrinsicPosterior_GenericCoordinates.py` (CIP): fits lnL over
+  intrinsic parameters and draws the posterior.
+- `util_RIFT_hyperpipe.py`: hierarchical (hyperparameter) pipeline.
+- `plot_posterior_corner.py`: visualization.
+
+## Design docs: read before changing a module
+Paths under `MonteCarloMarginalizeCode/Code/RIFT/`. List the current set with
+`git ls-files | grep -E 'DESIGN|HANDOFF|TESTING'`.
+
+| Area | Start with |
+|---|---|
+| Likelihood, time marginalization, stencils | `likelihood/DESIGN_q_window_stencil.md`, `DESIGN_time_marginalization_quadrature.md`, `DESIGN_noloop_per_detector_glue.md` |
+| JAX ILE | `likelihood/jax_ile/README.md` and its `DESIGN_*.md` |
+| Integrators (AV, GMM, portfolio) | `integrators/TESTING.md`, `REVIEW_CHECKLIST.md`, `DESIGN_portfolio_freeze_policy.md` |
+| Calibration marginalization | `calmarg/DESIGN_calmarg_in_loop.md` |
+| Slow rotation, finite-size response | `likelihood/SLOWROT_HANDOFF.md`, `DESIGN_rotating_freqresponse.md` |
+| GP interpolators | `interpolators/jax_gp/DESIGN.md`, `HANDOFF.md` |
+| Simulation manager | `simulation_manager/DESIGN.md`, `BACKENDS.md` |
+
+CI tiers, and the GPU checks to run by hand before merging likelihood or JAX
+changes: `.travis/PRECOMMIT.md`.
 
 ## Further agent lore (outside this repo)
 - `oshaughnessy-junior/rift-integrator-lore`: samplers, option combinations, recommended configs.
 - `oshaughnessy-junior/rift-review-lore`: merge gates for critical-path changes.
 - `oshaughnessy-junior/rift-profiling-lore`: cost model and benchmarks.
+- `oshaughnessy-junior/gw-coordinate-lore`: coordinates, frames, priors, boundaries.
+
+Commit-pinned code-structure indexes (sidecars) for `rift_O4d` and `rift_O4c` are
+maintained outside this repo. Use them to navigate only: check the commit each was
+built from against your checkout, and read the diffs since then and the exact source
+before drawing a conclusion.
