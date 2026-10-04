@@ -80,7 +80,7 @@ def test_cli_pseudo_forwarding_and_asimov_template():
     pseudo=(CODE/'bin/util_RIFT_pseudo_pipe.py').read_text()
     assert pseudo.index('cmd = " helper_LDG_Events.py')<pseudo.index('if opts.rf_transverse_spin_coordinates:\n    cmd +=')
     template=(CODE/'RIFT/asimov/rift.ini').read_text()
-    assert "['transverse spin coordinates'] | default: 'auto'" in template
+    assert "sampler['cip'] contains 'transverse spin coordinates'" in template
     cip=(CODE/'bin/util_ConstructIntrinsicPosterior_GenericCoordinates.py').read_text()
     assert 'coord_names = list(coord_names)' in cip
     assert '.extract_param(coord_names[' not in cip
@@ -97,3 +97,14 @@ def test_actual_native_fast_kerr_guard():
     cols=['delta_mc','mu1','mu2','chiMinus','s1x','s1y','s2x','s2y']+list(f.FEATURE_NAMES)
     out=f.convert(x,cols,low,20,lalsimutils.convert_waveform_coordinates,enforce_kerr=True)
     assert np.isfinite(out[0]).all() and np.isneginf(out[1]).all()
+
+@pytest.mark.parametrize('value,expected',[(None,'auto'),(False,'off'),(True,'physics3'),('off','off'),('auto','auto'),('physics3','physics3')])
+def test_real_liquid_asimov_override(value,expected):
+    liquid=pytest.importorskip('liquid')
+    template=(CODE/'RIFT/asimov/rift.ini').read_text()
+    start=template.index("{% if sampler['cip'] contains 'transverse spin coordinates' %}")
+    end=template.index('cip-sampler-method=',start)
+    cip={} if value is None else {'transverse spin coordinates':value}
+    rendered=liquid.Liquid(template[start:end],from_file=False,mode='standard').render(sampler={'cip':cip})
+    assert rendered.count('rf-transverse-spin-coordinates=')==1
+    assert 'rf-transverse-spin-coordinates="'+expected+'"' in rendered

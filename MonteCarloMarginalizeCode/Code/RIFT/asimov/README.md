@@ -49,8 +49,11 @@ the existing recipe. Override under `sampler.cip`:
 ```yaml
 sampler:
   cip:
-    transverse spin coordinates: off  # off, auto, or physics3
+    transverse spin coordinates: "off"  # off, auto, or physics3
 ```
+
+YAML boolean `false` (including an unquoted YAML 1.1 `off`) means `off`;
+boolean `true` means `physics3`. Quoted string modes avoid YAML ambiguity.
 
 The scalars use the actual ILE spin reference frequency (`engine.fref` in an INI,
 otherwise the helper's template reference). They do not transport spins or
