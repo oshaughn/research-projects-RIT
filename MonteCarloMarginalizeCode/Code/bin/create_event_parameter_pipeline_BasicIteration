@@ -56,7 +56,6 @@
 #       - again, this can be done with a DRIVER
 
 import argparse
-import shlex
 import sys
 import os
 import shutil
@@ -1714,7 +1713,8 @@ if opts.calibration_reweighting:
     if opts.calibration_reweighting_initial_extra_args:
         # properly handle quoted extra arguments, such as dictionaries of waveform arguments
         add_str = opts.calibration_reweighting_initial_extra_args
-        add_str = dag_utils.quote_arguments(shlex.split(add_str))
+        if '"' in add_str:
+            add_str = dag_utils.safely_quote_arg_str(add_str)
         calibration_job.add_arg(add_str)
     if not(opts.calibration_reweighting_batchsize): # single run
         calibration_job.set_log_file(opts.working_directory+"/calmarg/logs/calibration-$(cluster)-$(process).log")
