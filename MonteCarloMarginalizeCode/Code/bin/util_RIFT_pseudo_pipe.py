@@ -1326,6 +1326,12 @@ if opts.internal_propose_converge_last_stage:
     cmd += " --propose-converge-last-stage "
 if opts.internal_test_convergence_threshold: # pass argument if provided
     cmd += " --internal-test-convergence-threshold {}  ".format(opts.internal_test_convergence_threshold)
+# Options that rewrite the CIP fit coordinates after the helper; physics3 needs delta_mc et al.
+rf_transverse_conflicts = [name for name in ('cip_internal_use_eta_in_sampler','hierarchical_merger_prior_1g',
+    'hierarchical_merger_prior_2g','use_quadratic_early') if getattr(opts, name)]
+if opts.rf_transverse_spin_coordinates == 'physics3' and rf_transverse_conflicts:
+    raise ValueError('--rf-transverse-spin-coordinates physics3 is incompatible with {}: they replace delta_mc in the activated CIP stage'.format(
+        ', '.join('--'+name.replace('_','-') for name in rf_transverse_conflicts)))
 if opts.rf_transverse_spin_coordinates:
     cmd += ' --rf-transverse-spin-coordinates {} '.format(opts.rf_transverse_spin_coordinates)
 if not(opts.cip_fit_method is None):
@@ -2143,6 +2149,13 @@ if opts.internal_use_amr:
         if not(opts.assume_lowlatency_tradeoffs):
             lines[0] += " --intrinsic-param spin2z "
 
+# Final CIP lines must still satisfy CIP's physics3 guard (auto is known to have activated here).
+if opts.rf_transverse_spin_coordinates:
+    from RIFT.misc.rf_transverse_spin import stage_problem
+    for indx_rf, line_rf in enumerate(lines):
+        if '--rf-transverse-spin-coordinates physics3' in line_rf and stage_problem(line_rf):
+            raise ValueError('RF transverse-spin stage {} activated but CIP would refuse it ({}); conflicting options: {}'.format(
+                indx_rf, stage_problem(line_rf), ', '.join('--'+name.replace('_','-') for name in rf_transverse_conflicts) or 'see --manual-extra-cip-args'))
 with open("args_cip_list.txt",'w') as f:
    if not(opts.internal_truncate_cip_arg_list is None):
        lines = lines[-opts.internal_truncate_cip_arg_list:]  # truncate the cip arg list file

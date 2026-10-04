@@ -111,6 +111,23 @@ def stage_arguments(line, mode, detector_chirp_mass, applicable, frequency):
     return line+' --rf-transverse-spin-coordinates physics3 --fref '+str(float(frequency))
 
 
+def stage_problem(line):
+    """Mirror the CIP physics3 guard on a final CIP argument line; None if it will pass."""
+    import shlex
+    tokens=shlex.split(line)
+    def values(flag): return [tokens[i+1] for i,t in enumerate(tokens[:-1]) if t==flag]
+    if values('--fit-method')[-1:] not in ([], ['rf']):
+        return 'fit method is not rf'
+    if '--fit-load-gp' in tokens:
+        return 'loads a cached fit'
+    if '--use-precessing' not in tokens:
+        return 'not a precessing analysis'
+    missing=set(NATIVE_FEATURES)-set(values('--parameter')+values('--parameter-implied'))
+    if missing:
+        return 'fit coordinates lack '+', '.join(sorted(missing))
+    return None
+
+
 def enabled(mode, detector_chirp_mass, applicable):
     """Resolve the opt-in policy before constructing the native phase-fit schedule."""
     if mode not in (None,'off','auto','physics3'):
