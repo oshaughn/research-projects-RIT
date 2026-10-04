@@ -239,3 +239,32 @@ def test_asimov_submission_priority_is_explicit_and_validated():
     for value in [True,'900;bad','1.5']:
         env={'self':SimpleNamespace(production=SimpleNamespace(meta={'scheduler':{'priority':value}})),'re':re,'command':[]}
         with pytest.raises(ValueError):exec(code,env)
+
+
+def test_asimov_psd_staging_targets_rundir_from_foreign_cwd(tmp_path,monkeypatch):
+    import ast, shutil
+    from types import SimpleNamespace,MethodType
+    source=(ROOT/'RIFT/asimov/rift.py').read_text()
+    tree=ast.parse(source)
+    method=next(n for n in ast.walk(tree) if isinstance(n,ast.FunctionDef) and n.name=='_stage_xml_psds')
+    imports=[n for n in tree.body if isinstance(n,ast.Import) and any(a.name=='shutil' for a in n.names)]
+    assert imports
+    namespace={'Path':Path,'shutil':shutil}
+    exec(compile(ast.Module(body=[method],type_ignores=[]),'psd-staging','exec'),namespace)
+    repository=tmp_path/'repository with spaces';repository.mkdir()
+    source=repository/'psd_H1.xml.gz';source.write_bytes(b'exact frozen PSD')
+    rundir=tmp_path/'run with spaces';rundir.mkdir()
+    other=tmp_path/'foreign cwd';other.mkdir();monkeypatch.chdir(other)
+    worker=SimpleNamespace(production=SimpleNamespace(rundir=str(rundir)),_get_psds=lambda kind:[str(source)],_detector_for_psd=lambda path:'H1')
+    worker._stage_xml_psds=MethodType(namespace['_stage_xml_psds'],worker)
+    worker._stage_xml_psds(dryrun=True)
+    assert list(rundir.iterdir())==[]
+    worker._stage_xml_psds()
+    assert (rundir/'H1-psd.xml.gz').read_bytes()==source.read_bytes()
+    assert (rundir/source.name).read_bytes()==source.read_bytes()
+    assert list(other.iterdir())==[]
+    worker._get_psds=lambda kind:[str(rundir/'H1-psd.xml.gz')]
+    worker._stage_xml_psds()  # same-file sources remain safe
+    for name in ['build_dag','submit_dag']:
+        fn=next(n for n in ast.walk(tree) if isinstance(n,ast.FunctionDef) and n.name==name)
+        assert any(isinstance(n,ast.Call) and isinstance(n.func,ast.Attribute) and n.func.attr=='_stage_xml_psds' for n in ast.walk(fn))

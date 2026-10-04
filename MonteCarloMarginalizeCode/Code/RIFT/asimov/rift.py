@@ -5,6 +5,7 @@ import glob
 import os
 import re
 import subprocess
+import shutil
 from pathlib import Path
 
 from ligo.gracedb.rest import HTTPError
@@ -813,9 +814,7 @@ class Rift(Pipeline):
                         )
                     if self.production.event.repository:
                         # with set_directory(os.path.abspath(self.production.rundir)):
-                        for psdfile in self._get_psds("xml"):
-                            ifo = self._detector_for_psd(psdfile)
-                            os.system(f"cp {psdfile} {ifo}-psd.xml.gz")
+                        self._stage_xml_psds()
 
                         # os.system("cat *_local.cache > local.cache")
 
@@ -829,6 +828,19 @@ class Rift(Pipeline):
                             return PipelineLogger(
                                 message=out, production=self.production.name
                             )
+
+    def _stage_xml_psds(self, dryrun=False):
+        """Stage exact XML PSD bytes where the generated workers expect them."""
+        rundir = Path(self.production.rundir).resolve()
+        for psdfile in self._get_psds("xml"):
+            source = Path(psdfile).resolve()
+            ifo = self._detector_for_psd(psdfile)
+            # Retain the repository basename alias used by existing consumers.
+            for target in dict.fromkeys([rundir / f"{ifo}-psd.xml.gz", rundir / source.name]):
+                if dryrun:
+                    print(f"cp {source} {target}")
+                elif source != target:
+                    shutil.copy2(source, target)
 
     def submit_dag(self, dryrun=False):
         """
@@ -856,9 +868,6 @@ class Rift(Pipeline):
            This will be raised if the pipeline fails to submit the job.
         """
         self.before_submit()
-        for psdfile in self._get_psds("xml"):
-            ifo = self._detector_for_psd(psdfile)
-            os.system(f"cp {psdfile} {ifo}-psd.xml.gz")
 
         command = [
             "condor_submit_dag",
@@ -872,15 +881,11 @@ class Rift(Pipeline):
                 raise ValueError("scheduler.priority must be an integer")
             command[1:1] = ["-priority", str(int(priority))]
         if dryrun:
-            for psdfile in self._get_psds("xml"):
-                print(f"cp {psdfile} {self.production.rundir}/{psdfile.split('/')[-1]}")
+            self._stage_xml_psds(dryrun=True)
             print("")
             print(" ".join(command))
         else:
-            for psdfile in self._get_psds("xml"):
-                os.system(
-                    f"cp {psdfile} {self.production.rundir}/{psdfile.split('/')[-1]}"
-                )
+            self._stage_xml_psds()
 
             try:
                 with set_directory(self.production.rundir):
