@@ -866,6 +866,11 @@ class Rift(Pipeline):
             f"rift/{self.production.event.name}/{self.production.name}",
             "marginalize_intrinsic_parameters_BasicIterationWorkflow.dag",
         ]
+        priority = self.production.meta.get("scheduler", {}).get("priority")
+        if priority is not None:
+            if isinstance(priority, bool) or not re.fullmatch(r"-?\d+", str(priority)):
+                raise ValueError("scheduler.priority must be an integer")
+            command[1:1] = ["-priority", str(int(priority))]
         if dryrun:
             for psdfile in self._get_psds("xml"):
                 print(f"cp {psdfile} {self.production.rundir}/{psdfile.split('/')[-1]}")
