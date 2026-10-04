@@ -38,7 +38,8 @@ When `auto` or `physics3` activates, the helper:
    ILE reference frequency. CIP also uses `--fref` for its other spin
    conversions, so this stage no longer uses the CIP default of 20 Hz.
 
-The initial grid is built before step 1, so it follows the unforced settings.
+Step 1 happens before the initial grid is built, so the grid matches an explicit
+rf run. Steps 2 and 3 happen after it, as they do for an explicit rf run.
 
 When pseudo_pipe finds that the helper switched the fit to RF, it builds the DAG
 as an explicit `--cip-fit-method rf` run: flat CIP workers
@@ -52,6 +53,12 @@ cannot be used.
 | Bundled Asimov template (rf, phase basis already set) | 3 only |
 
 `test_rf_transverse_helper_generation.py` pins both rows.
+
+pseudo_pipe refuses options that later replace delta_mc in CIP stages:
+`--cip-internal-use-eta-in-sampler`, `--hierarchical-merger-prior-1g/2g` and
+`--use-quadratic-early`. With `physics3` it refuses them before running the
+helper. With `auto` it refuses once a stage has activated, before the DAG is
+built. A final check applies CIP's physics3 guard to every activated stage.
 
 ## Asimov
 
@@ -67,6 +74,14 @@ sampler:
 Boolean `false` means `off`. Boolean `true` means `physics3` at any mass; YAML 1.1
 also loads `on` and `yes` as true. Other values fail before the config is written.
 Quote the enum strings.
+
+The template also reads two other ledger keys that the base template ignored. A
+ledger that already sets them changes behavior:
+
+| Key | Effect |
+|---|---|
+| `sampler.cip.fit method` | Sets `cip-fit-method` (default `rf`). Unknown CIP fit methods fail before the config is written. |
+| `scheduler.priority` | Integer passed as `condor_submit_dag -priority`. |
 
 ## Direct CIP
 

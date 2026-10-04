@@ -11,6 +11,7 @@ Rift = rift_asimov.Rift
 
 
 class _Stub:
+    _CIP_FIT_METHODS = Rift._CIP_FIT_METHODS
     _validate_transverse_spin_coordinates = Rift._validate_transverse_spin_coordinates
     submit_dag = Rift.submit_dag
 
@@ -64,3 +65,14 @@ def test_submit_with_priority(value, capsys):
 def test_submit_rejects_bad_priority(value, capsys):
     with pytest.raises(ValueError, match="priority"):
         _submit({"scheduler": {"priority": value}}, capsys)
+
+
+@pytest.mark.parametrize("value", ["rf", "gp", "quadratic", "gp-jax-rff"])
+def test_cip_fit_method_ledger_values_accepted(value):
+    _Stub({"sampler": {"cip": {"fit method": value}}})._validate_transverse_spin_coordinates()
+
+
+@pytest.mark.parametrize("value", ["RF", "random forest", None, True, ""])
+def test_cip_fit_method_ledger_values_rejected(value):
+    with pytest.raises(ValueError, match="fit method"):
+        _Stub({"sampler": {"cip": {"fit method": value}}})._validate_transverse_spin_coordinates()

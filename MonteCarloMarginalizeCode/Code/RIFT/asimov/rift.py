@@ -414,12 +414,22 @@ class Rift(Pipeline):
 
         pass
 
+    # Fit methods CIP dispatches on (util_ConstructIntrinsicPosterior_GenericCoordinates.py).
+    _CIP_FIT_METHODS = (
+        "rf", "rf_pca", "gp", "gp_hyper", "gp_lazy", "gp_sparse", "gp-pool", "gp-torch",
+        "gp-xgboost", "gp-jax-svgp", "gp-jax-rff", "gp-jax-exact", "quadratic", "polynomial",
+        "cov", "kde", "rbf", "nn", "nn_rfwrapper", "weighted_nearest")
+
     def _validate_transverse_spin_coordinates(self):
-        """Reject a ledger value the template cannot pass to pseudo_pipe.
+        """Reject CIP ledger values the template cannot pass to pseudo_pipe.
 
         YAML on/yes/true load as True, which selects physics3 at any mass.
         """
         cip = (self.production.meta.get("sampler") or {}).get("cip") or {}
+        if "fit method" in cip and cip["fit method"] not in self._CIP_FIT_METHODS:
+            raise ValueError(
+                "sampler.cip.fit method must be one of {}; got {!r}".format(
+                    ", ".join(self._CIP_FIT_METHODS), cip["fit method"]))
         if "transverse spin coordinates" not in cip:
             return
         value = cip["transverse spin coordinates"]
