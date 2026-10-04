@@ -62,7 +62,11 @@ boolean `true` means `physics3`. Quoted string modes avoid YAML ambiguity.
 
 The scalars use the actual ILE spin reference frequency (`engine.fref` in an INI,
 otherwise the helper's template reference). They do not transport spins or
-replace the physical prior. This is a prototype supported by controlled existing
+replace the physical prior. CIP rejects `--source-redshift` with these scalars.
+If a pipeline option later rewrites an activated stage so that it no longer
+fits the native basis (`--cip-internal-use-eta-in-sampler`,
+`--use-quadratic-early`), `auto` drops the scalars from that stage and
+`physics3` fails when the DAG is built. This is a prototype supported by controlled existing
 grid comparisons, not a universal recovery guarantee; S250830bp remains a
 separate partially improved case, and known sky/data/prior discrepancies require
 separate assessment. Coordinate activation changes neither stopping criteria

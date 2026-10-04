@@ -2,6 +2,7 @@
 Units: component masses in solar masses, dimensionless L-frame spins.
 Reference frequency must match supplied spins; no spin transport is performed.
 """
+import re
 import numpy as np
 MTSUN = 4.9254909476412675e-6
 
@@ -95,20 +96,39 @@ def stage_arguments(line, mode, detector_chirp_mass, applicable, frequency):
     if not enabled(mode, detector_chirp_mass, applicable):
         return line
     tokens=shlex.split(line)
-    def values(flag): return [tokens[i+1] for i,t in enumerate(tokens[:-1]) if t==flag]
-    fit=values('--parameter')+values('--parameter-implied')
-    methods=values('--fit-method')
-    if methods != ['rf'] or not set(NATIVE_FEATURES).issubset(fit):
+    if not _supports_physics3(tokens):
         return line
     if '--rf-transverse-spin-coordinates' in tokens:
         raise ValueError('Duplicate RF transverse-spin activation')
     if not np.isfinite(float(frequency)) or float(frequency)<=0:
         raise ValueError('RF reference frequency must be finite and positive')
     # Explicit fref replaces a stage-local value; it is the ILE spin reference, not fmin.
-    if '--fref' in tokens:
-        i=tokens.index('--fref'); del tokens[i:i+2]
-        line=' '.join(shlex.quote(t) for t in tokens)
-    return line+' --rf-transverse-spin-coordinates physics3 --fref '+str(float(frequency))
+    # Edit the text in place: re-quoting every token would quote [lo,hi] ranges.
+    line=re.sub(r'(^|\s)--fref(\s+|=)\S+', ' ', line)
+    return line.rstrip()+' --rf-transverse-spin-coordinates physics3 --fref '+str(float(frequency))
+
+
+def _supports_physics3(tokens):
+    def values(flag): return [tokens[i+1] for i,t in enumerate(tokens[:-1]) if t==flag]
+    fit=values('--parameter')+values('--parameter-implied')
+    return values('--fit-method')==['rf'] and set(NATIVE_FEATURES).issubset(fit)
+
+
+def revalidate_stage(line, mode):
+    """Recheck an activated stage after pipeline rewrites of helper output.
+
+    A rewrite that drops the native basis (e.g. delta_mc -> eta) would otherwise
+    fail in every CIP job of that stage, after ILE has run. physics3 fails at
+    build time; auto drops the activation and keeps the native stage.
+    """
+    import shlex
+    tokens=shlex.split(line)
+    if '--rf-transverse-spin-coordinates' not in tokens or _supports_physics3(tokens):
+        return line
+    if mode == 'physics3':
+        raise ValueError('A pipeline rewrite removed the RF basis required by physics3: '+line.strip())
+    print(' RF transverse-spin: deactivated on rewritten stage ', line.strip())
+    return re.sub(r'\s--rf-transverse-spin-coordinates\s+physics3(?=\s|$)', '', line)
 
 
 def enabled(mode, detector_chirp_mass, applicable):

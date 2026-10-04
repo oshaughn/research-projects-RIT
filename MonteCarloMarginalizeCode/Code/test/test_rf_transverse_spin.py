@@ -282,3 +282,39 @@ def test_calibration_shared_image_filesystem_match(module_name, image, shared,
     assert ('EPNFS' in requirements) == shared
     assert 'universe = local' not in body and 'universe = scheduler' not in body
     assert 'stream_output = True' not in body and 'stream_error = True' not in body
+
+
+ACTIVE = '2 ' + FULL[2:] + ' --mc-range [9.8,10.3] --fref 10'
+
+@pytest.mark.parametrize('rewrite', [
+    ('parameter delta_mc', 'parameter eta'),  # --cip-internal-use-eta-in-sampler
+    ('parameter delta_mc', 'parameter-implied eta --parameter-nofit delta_mc'),  # --use-quadratic-early
+])
+def test_pipeline_rewrite_cannot_strand_activated_stage(rewrite):
+    line = f.stage_arguments(ACTIVE, 'auto', 10, True, 20)
+    assert f.revalidate_stage(line, 'auto') == line
+    broken = line.replace(*rewrite)
+    with pytest.raises(ValueError):
+        f.revalidate_stage(broken, 'physics3')
+    kept = f.revalidate_stage(broken, 'auto')
+    assert '--rf-transverse-spin-coordinates' not in kept
+    assert kept == broken.replace(' --rf-transverse-spin-coordinates physics3', '')
+    assert f.revalidate_stage(ACTIVE.replace(*rewrite), 'physics3') == ACTIVE.replace(*rewrite)
+
+def test_fref_replacement_keeps_range_literals():
+    line = f.stage_arguments(ACTIVE, 'physics3', 10, True, 25)
+    assert '--mc-range [9.8,10.3]' in line and "'" not in line
+    assert '--fref 10' not in line and line.endswith('--fref 25.0')
+
+def test_pseudo_pipe_revalidates_after_its_rewrites():
+    src = (CODE/'bin/util_RIFT_pseudo_pipe.py').read_text()
+    check = src.index('revalidate_stage(line, opts.rf_transverse_spin_coordinates)')
+    for rewrite in ["line.replace('parameter delta_mc','parameter eta')",
+                    "line.replace('parameter delta_mc', 'parameter-implied eta"]:
+        assert src.index(rewrite) < check
+    assert check < src.index('with open("args_cip_list.txt"')
+
+def test_cip_rejects_source_redshift():
+    src = (CODE/'bin/util_ConstructIntrinsicPosterior_GenericCoordinates.py').read_text()
+    gate = src.index('if opts.rf_transverse_spin_coordinates:\n    if not np.isfinite(opts.fref)')
+    assert src.index("raise ValueError('physics3 does not support --source-redshift')") > gate

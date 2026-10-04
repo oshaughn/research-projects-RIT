@@ -1287,6 +1287,11 @@ if opts.internal_use_amr:
         if not(opts.assume_lowlatency_tradeoffs):
             lines[0] += " --intrinsic-param spin2z "
 
+if opts.rf_transverse_spin_coordinates:
+    # The edits above can remove the RF basis from a stage the helper activated
+    from RIFT.misc.rf_transverse_spin import revalidate_stage
+    lines = [revalidate_stage(line, opts.rf_transverse_spin_coordinates) for line in lines]
+
 with open("args_cip_list.txt",'w') as f: 
    for line in lines:
            f.write(line)
