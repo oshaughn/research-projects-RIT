@@ -814,7 +814,7 @@ class Rift(Pipeline):
                         )
                     if self.production.event.repository:
                         # with set_directory(os.path.abspath(self.production.rundir)):
-                        self._stage_xml_psds()
+                        self._stage_xml_psds(rundir=rundir)
 
                         # os.system("cat *_local.cache > local.cache")
 
@@ -829,9 +829,9 @@ class Rift(Pipeline):
                                 message=out, production=self.production.name
                             )
 
-    def _stage_xml_psds(self, dryrun=False):
+    def _stage_xml_psds(self, dryrun=False, rundir=None):
         """Stage exact XML PSD bytes where the generated workers expect them."""
-        rundir = Path(self.production.rundir).resolve()
+        rundir = Path(rundir if rundir is not None else self.production.rundir).resolve()
         for psdfile in self._get_psds("xml"):
             source = Path(psdfile).resolve()
             ifo = self._detector_for_psd(psdfile)
