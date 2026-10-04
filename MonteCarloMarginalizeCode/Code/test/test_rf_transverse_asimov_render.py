@@ -28,6 +28,6 @@ def test_explicit_other_interpolator_is_not_replaced():
     text = (ROOT / "RIFT/asimov/rift.ini").read_text()
     start = text.index('cip-fit-method=')
     end = text.index('cip-sampler-method=', start)
-    rendered = liquid.Liquid(text[start:end], from_file=False).render(sampler={"cip": {"fit method":"gp", "transverse spin coordinates":"off"}})
+    rendered = liquid.Liquid(text[start:end], from_file=False).render(sampler={"cip": {"fitting method":"gp", "transverse spin coordinates":"off"}})
     assert 'cip-fit-method="gp"' in rendered
     assert 'rf-transverse-spin-coordinates="off"' in rendered

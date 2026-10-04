@@ -426,10 +426,10 @@ class Rift(Pipeline):
         YAML on/yes/true load as True, which selects physics3 at any mass.
         """
         cip = (self.production.meta.get("sampler") or {}).get("cip") or {}
-        if "fit method" in cip and cip["fit method"] not in self._CIP_FIT_METHODS:
+        if "fitting method" in cip and cip["fitting method"] not in self._CIP_FIT_METHODS:
             raise ValueError(
-                "sampler.cip.fit method must be one of {}; got {!r}".format(
-                    ", ".join(self._CIP_FIT_METHODS), cip["fit method"]))
+                "sampler.cip.fitting method must be one of {}; got {!r}".format(
+                    ", ".join(self._CIP_FIT_METHODS), cip["fitting method"]))
         if "transverse spin coordinates" not in cip:
             return
         value = cip["transverse spin coordinates"]

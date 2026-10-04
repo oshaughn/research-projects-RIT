@@ -80,7 +80,7 @@ ledger that already sets them changes behavior:
 
 | Key | Effect |
 |---|---|
-| `sampler.cip.fit method` | Sets `cip-fit-method` (default `rf`). Unknown CIP fit methods fail before the config is written. |
+| `sampler.cip.fitting method` | Sets `cip-fit-method` (default `rf`); in-repo blueprints set `rf`. Unknown CIP fit methods fail before the config is written. |
 | `scheduler.priority` | Integer passed as `condor_submit_dag -priority`. |
 
 ## Direct CIP
