@@ -766,7 +766,9 @@ jobs:
           # Pin numpy AFTER requirements.txt so it overrides the unpinned
           # 'numpy' line in requirements.txt without changing the file.
           python -m pip install '${{ matrix.numpy-pin }}' --break-system-packages
-          python -m pip install coverage pytest pytest-cov --break-system-packages
+          # setuptools: setup.py's find_packages, which test_rf_transverse_spin checks.
+          # Python 3.12 venvs no longer ship it.
+          python -m pip install coverage pytest pytest-cov setuptools --break-system-packages
           python -m pip install --editable . --break-system-packages
       - name: Show resolved versions
         run: |
