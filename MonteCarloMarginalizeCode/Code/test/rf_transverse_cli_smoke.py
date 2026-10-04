@@ -2,6 +2,11 @@ import os,sys,runpy,tempfile
 # Run as a standalone LAL-equipped CLI proof; exits before any integration.
 from pathlib import Path
 import numpy as np
+try:
+    import lal  # noqa: F401
+except ImportError:
+    print('SKIP rf_transverse_cli_smoke: lal unavailable')
+    sys.exit(0)
 root=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(root));os.environ['GW_SURROGATE']='';os.environ['OMP_NUM_THREADS']='1'
 rng=np.random.default_rng(1);n=160

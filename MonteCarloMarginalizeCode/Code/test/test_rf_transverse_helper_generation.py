@@ -11,7 +11,7 @@ ROOT=Path(__file__).resolve().parents[1]
 class StageBuilt(Exception):
     pass
 
-def generate(monkeypatch,tmp_path, mode, mc=10, force_method=None, fref=35):
+def generate(monkeypatch,tmp_path, mode, mc=10, force_method=None, fref=35, extra=()):
     lal=pytest.importorskip('lal')
     monkeypatch.syspath_prepend(str(ROOT))
     monkeypatch.setenv('GW_SURROGATE','')
@@ -34,6 +34,7 @@ def generate(monkeypatch,tmp_path, mode, mc=10, force_method=None, fref=35):
         lalsimutils.ChooseWaveformParams_array_to_xml([p],fname=filename,fref=fref)
         args+=['--sim-xml',filename+'.xml.gz','--event','0']
     if force_method is not None:args+=['--force-fit-method',force_method]
+    args+=list(extra)
     monkeypatch.setattr(sys,'argv',[str(script)]+args)
     stop=next(i for i,line in enumerate(script.read_text().splitlines(),1)
               if line=='with open("helper_cip_arg_list.txt",\'w+\') as f:')
@@ -86,3 +87,35 @@ def test_actual_off_has_unchanged_generated_stages(monkeypatch,tmp_path):
 def test_actual_explicit_physics_rejects_explicit_gp(monkeypatch,tmp_path):
     with pytest.raises(ValueError,match='No complete two-spin RF stage'):
         generate(monkeypatch,tmp_path,'physics3',10,'gp')
+
+
+ACTIVATION = ' --rf-transverse-spin-coordinates physics3 --fref 35.0'
+
+def test_auto_effect_in_a_bare_helper_run(monkeypatch,tmp_path):
+    # Without rf or phase options, auto switches every stage to rf in the mu1/mu2 basis,
+    # cuts the first stage 3->2 iterations, and activates only the complete stage.
+    default=generate(monkeypatch,tmp_path,None,10)
+    off=generate(monkeypatch,tmp_path,'off',10)
+    auto=generate(monkeypatch,tmp_path,'auto',10)
+    assert off['lines']==default['lines']
+    assert [line.split()[0] for line in default['lines']]==['3','2','3']
+    assert [line.split()[0] for line in auto['lines']]==['2','2','3']
+    for line in default['lines']:
+        assert '--fit-method gp' in line and '--parameter mc ' in line and 'mu1' not in line
+    for line in auto['lines']:
+        assert '--fit-method rf' in line
+        assert '--parameter-implied mu1 --parameter-implied mu2 --parameter-nofit mc' in line
+    assert [line.endswith(ACTIVATION) for line in auto['lines']]==[False,False,True]
+    assert auto['ile']==default['ile']
+
+def test_auto_effect_in_the_asimov_configuration(monkeypatch,tmp_path):
+    # The Asimov template already forces rf and the phase basis: auto only appends the
+    # activation and the ILE reference frequency to the complete stage.
+    extra=['--internal-use-aligned-phase-coordinates']
+    default=generate(monkeypatch,tmp_path,None,10,'rf',extra=extra)
+    off=generate(monkeypatch,tmp_path,'off',10,'rf',extra=extra)
+    auto=generate(monkeypatch,tmp_path,'auto',10,'rf',extra=extra)
+    assert off['lines']==default['lines']
+    assert auto['lines'][:-1]==default['lines'][:-1]
+    assert auto['lines'][-1]==default['lines'][-1]+ACTIVATION
+    assert auto['ile']==default['ile']

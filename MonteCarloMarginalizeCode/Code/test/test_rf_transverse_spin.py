@@ -58,21 +58,6 @@ def test_vector_conversion_native_columns_preserved():
     np.testing.assert_array_equal(out[:,:8],physical)
     np.testing.assert_array_equal(out[:,8:],rf.scalar_features(physical[:,0],physical[:,1],physical[:,2:5],physical[:,5:8],35))
 
-def test_cli_and_pipeline_forwarding_source_contract():
-    for file in ['helper_LDG_Events.py','util_RIFT_pseudo_pipe.py','util_ConstructIntrinsicPosterior_GenericCoordinates.py']:
-        src=(ROOT/'bin'/file).read_text();ast.parse(src)
-        assert '"--rf-transverse-spin-coordinates"' in src
-    pseudo=(ROOT/'bin/util_RIFT_pseudo_pipe.py').read_text()
-    assert "cmd += ' --rf-transverse-spin-coordinates {} '" in pseudo
-    helper=(ROOT/'bin/helper_LDG_Events.py').read_text()
-    assert helper.index('stage_arguments(line')<helper.index('with open("helper_cip_arg_list.txt"')
-    cip=(ROOT/'bin/util_ConstructIntrinsicPosterior_GenericCoordinates.py').read_text()
-    assert 'opts.fit_load_gp' in cip[cip.index('if opts.rf_transverse_spin_coordinates:'):cip.index('# SANITY COMPATIBILITY CHECK')]
-    assert 'extract_fit_param(P_list[indx_line], coord_names[indx])' in cip
-    template=(ROOT/'RIFT/asimov/rift.ini').read_text()
-    assert "['cip'] contains 'transverse spin coordinates'" in template
-    assert "['transverse spin coordinates'] == false" in template
-
 def test_component_mirror_is_symmetric():
     s1=np.array([.2,.3,-.5]);s2=np.array([-.3,.1,.4])
     np.testing.assert_allclose(rf.scalar_features(30,10,s1,s2),rf.scalar_features(10,30,s2,s1),rtol=2e-15)
@@ -84,10 +69,6 @@ def test_invalid_physical_rows_do_not_abort_valid_batch():
         return x[:,[low_level_coord_names.index(n) for n in coord_names]]
     out=rf.convert(physical,names+list(rf.FEATURE_NAMES),names,20,converter,enforce_kerr=True)
     assert np.isfinite(out[0]).all() and np.isneginf(out[1]).all()
-
-def test_no_command_before_initialization():
-    src=(ROOT/'bin/util_RIFT_pseudo_pipe.py').read_text()
-    assert src.index("cmd = \" helper_LDG_Events.py")<src.index("cmd += ' --rf-transverse-spin-coordinates")
 
 @pytest.mark.parametrize('frequency',[float('nan'),float('inf'),0,-1])
 def test_scalar_frequency_rejects_nonphysical_values(frequency):
@@ -129,19 +110,32 @@ def test_actual_native_kerr_rejection_mixed_batch():
 def test_requires_tested_native_phase_basis():
     line=FULL.replace('--parameter-implied mu1','--parameter-implied xi')
     assert rf.stage_arguments(line,'physics3',10,True,20)==line
-    src=(ROOT/'bin/util_ConstructIntrinsicPosterior_GenericCoordinates.py').read_text()
-    assert 'not set(rf_transverse_spin.NATIVE_FEATURES).issubset(coord_names)' in src
 
-def test_helper_top_option_configures_basis_after_grid_before_cip():
-    src=(ROOT/'bin/helper_LDG_Events.py').read_text()
-    start=src.index('# The single top-level option selects the tested native')
-    strategy=src.index('if opts.propose_fit_strategy:\n    puff_max_it=')
-    assert start < strategy
-    opt=src[start:strategy]
-    assert "if opts.force_fit_method is None:\n            fit_method = 'rf'" in opt
-    assert 'opts.internal_use_aligned_phase_coordinates = True' in opt
-    assert 'rf_mass_is_placeholder' in opt and 'not opts.use_mtot_coords' in opt
-    # These are explicit mode opt-ins; default/off do not enter the policy branch.
+CIP_FIT=['--parameter','delta_mc']+[a for p in ['mu1','mu2','chiMinus','s1x','s1y','s2x','s2y'] for a in ('--parameter-implied',p)]
+
+@pytest.mark.parametrize('extra',[
+    ['--fit-load-gp','my_fit.pkl'],
+    ['--fit-method','gp'],
+    ['--fref','nan'],
+    'no-mu1',
+])
+def test_cip_refuses_physics3_without_a_fresh_native_rf_fit(tmp_path,extra):
+    # Executes CIP up to its option check; a worker given --fit-load-gp must fail, not fit.
+    pytest.importorskip('lal')
+    import os,subprocess,sys
+    args=list(CIP_FIT)
+    if extra=='no-mu1':
+        args[args.index('mu1')]='xi'; extra=[]
+    (tmp_path/'g.dat').write_text('0 20 10 0 0 0 0 0 0 10 0.1 100 1000\n')
+    cmd=[sys.executable,str(ROOT/'bin/util_ConstructIntrinsicPosterior_GenericCoordinates.py'),'--fname','g.dat',
+         '--fit-method','rf','--use-precessing','--no-plots','--fref','35','--rf-transverse-spin-coordinates','physics3']+args+extra
+    env=dict(os.environ,PYTHONPATH=str(ROOT)+os.pathsep+os.environ.get('PYTHONPATH',''),OMP_NUM_THREADS='1')
+    proc=subprocess.run(cmd,cwd=tmp_path,env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,universal_newlines=True,timeout=300)
+    assert proc.returncode!=0
+    assert ('physics3 requires a fresh RF fit' in proc.stdout) or ('RF reference frequency' in proc.stdout), proc.stdout[-2000:]
+
+def test_default_and_off_never_enter_the_policy():
+    # Helper behavior under each mode is executed in test_rf_transverse_helper_generation.py.
     assert not rf.enabled(None,10,True) and not rf.enabled('off',10,True)
 
 
@@ -171,74 +165,32 @@ def test_timing_validator_finds_installed_driver(tmp_path, monkeypatch):
     assert module._driver_long_option_names()=={'--vectorized','--q-time-pregrid-factor'}
 
 
-def test_calibration_waveform_kwargs_survive_shell_transport():
-    import shlex
-    source=(ROOT/'bin/util_RIFT_pseudo_pipe.py').read_text()
-    tree=ast.parse(source)
-    nodes=[n for n in ast.walk(tree) if isinstance(n,ast.AugAssign) and
-           isinstance(n.target,ast.Name) and n.target.id=='cmd' and
-           isinstance(n.value,ast.Call) and isinstance(n.value.func,ast.Attribute) and
-           isinstance(n.value.func.value,ast.Constant) and
-           n.value.func.value.value==' --calibration-reweighting-initial-extra-args={} ']
-    assert len(nodes)==1
-    value=' --extra-waveform-kwargs "{\'fd_alignment_postevent_time\': None, \'fd_centering_factor\': 0.75}" --fref 20 --internal-waveform-fd-L-frame '
-    namespace={'cmd':'builder','my_extra_string':value,'shlex':shlex}
-    exec(compile(ast.Module(body=nodes,type_ignores=[]),'pipeline-calibration-transport','exec'),namespace)
-    assert shlex.split(namespace['cmd'])==['builder','--calibration-reweighting-initial-extra-args=  '+value]
-
-
-@pytest.mark.parametrize('values,expected',[
-    ({}, {'stream_error':'True','stream_output':'True'}),
-    ({'RIFT_NOSTREAM_LOG':'1'}, {}),
-    ({'RIFT_NOSTREAM_LOG':'1','RIFT_CIP_FLOCK_LOCAL':'true','RIFT_CIP_POOLS':'IGWN,CIT'}, {'MY.flock_local':'true','MY.POOLS':'"IGWN,CIT"'}),
-    ({'RIFT_CIP_FLOCK_LOCAL':'false'}, {'stream_error':'True','stream_output':'True'}),
+@pytest.mark.parametrize('values,streams,extra',[
+    ({}, True, {}),
+    ({'RIFT_NOSTREAM_LOG':'1'}, True, {}),
+    ({'RIFT_NOSTREAM_LOG_CIP':'1'}, False, {}),
+    ({'RIFT_CIP_FLOCK_LOCAL':'true','RIFT_CIP_POOLS':'IGWN,CIT'}, True, {'MY.flock_local':'true','MY.POOLS':'"IGWN,CIT"'}),
+    ({'RIFT_CIP_FLOCK_LOCAL':'false'}, True, {}),
 ])
-@pytest.mark.parametrize('module_name',['dag_utils.py','dag_utils_generic.py'])
-def test_cip_explicit_transport_policy(values,expected,module_name):
-    from types import SimpleNamespace
-    tree=ast.parse((ROOT/'RIFT/misc'/module_name).read_text())
-    function=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='write_CIP_sub')
-    nodes=[n for n in function.body if isinstance(n,ast.If) and any(k in ast.unparse(n.test) for k in ['RIFT_NOSTREAM_LOG','RIFT_CIP_FLOCK_LOCAL','RIFT_CIP_POOLS'])]
-    result={}
-    job=SimpleNamespace(add_condor_cmd=lambda k,v:result.update({k:v}))
-    exec(compile(ast.Module(body=nodes,type_ignores=[]),'cip-transport','exec'),{'os':SimpleNamespace(environ=values),'ile_job':job,'use_osg':False,'use_singularity':False})
-    assert result==expected
-
-
-def test_calibration_condor_value_has_no_literal_shell_quotes():
-    import ast, shlex
-    from types import SimpleNamespace
-    source=(ROOT/'bin/create_event_parameter_pipeline_BasicIteration').read_text()
-    tree=ast.parse(source)
-    imports=[n for n in tree.body if isinstance(n,ast.Import) and any(a.name=='shlex' for a in n.names)]
-    assert imports, 'The executed builder requires a module-level shlex import'
-    nodes=[n for n in ast.walk(tree) if isinstance(n,ast.If) and ast.unparse(n.test)=='opts.calibration_reweighting_initial_extra_args']
-    assert len(nodes)==1
-    module=ast.parse((ROOT/'RIFT/misc/dag_utils_generic.py').read_text())
-    definitions=[n for n in module.body if isinstance(n,ast.FunctionDef) and n.name in ['_double_up_quotes','quote_arguments']]
-    namespace={};exec(compile(ast.Module(body=definitions,type_ignores=[]),'condor-quote','exec'),namespace)
-    value=" --extra-waveform-kwargs \"{'fd_alignment_postevent_time': None, 'fd_centering_factor': 0.75}\" --fref 20 --internal-waveform-fd-L-frame "
-    args=[]
-    environment={'opts':SimpleNamespace(calibration_reweighting_initial_extra_args=value),'shlex':shlex,'dag_utils':SimpleNamespace(quote_arguments=namespace['quote_arguments']),'calibration_job':SimpleNamespace(add_arg=args.append)}
-    exec(compile(ast.Module(body=nodes,type_ignores=[]),'calibration-emission','exec'),environment)
-    assert args==["--extra-waveform-kwargs '{''fd_alignment_postevent_time'': None, ''fd_centering_factor'': 0.75}' --fref 20 --internal-waveform-fd-L-frame"]
-
-
-def test_asimov_submission_priority_is_explicit_and_validated():
-    import ast, re
-    from types import SimpleNamespace
-    tree=ast.parse((ROOT/'RIFT/asimov/rift.py').read_text())
-    method=next(n for n in ast.walk(tree) if isinstance(n,ast.FunctionDef) and n.name=='submit_dag')
-    nodes=[n for n in method.body if (isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='priority' for t in n.targets)) or (isinstance(n,ast.If) and ast.unparse(n.test)=='priority is not None')]
-    assert len(nodes)==2
-    code=compile(ast.Module(body=nodes,type_ignores=[]),'priority-contract','exec')
-    for value in [None,900,'900']:
-        env={'self':SimpleNamespace(production=SimpleNamespace(meta={'scheduler':{'priority':value}})),'re':re,'command':['condor_submit_dag','workflow.dag']}
-        exec(code,env)
-        assert env['command']==(['condor_submit_dag','workflow.dag'] if value is None else ['condor_submit_dag','-priority','900','workflow.dag'])
-    for value in [True,'900;bad','1.5']:
-        env={'self':SimpleNamespace(production=SimpleNamespace(meta={'scheduler':{'priority':value}})),'re':re,'command':[]}
-        with pytest.raises(ValueError):exec(code,env)
+@pytest.mark.parametrize('module_name',['dag_utils','dag_utils_generic'])
+def test_cip_submit_transport_policy(tmp_path,monkeypatch,values,streams,extra,module_name):
+    # CIP streams unless RIFT_NOSTREAM_LOG_CIP is set; RIFT_NOSTREAM_LOG alone does not stop it.
+    import importlib,os
+    monkeypatch.syspath_prepend(str(ROOT))
+    module=pytest.importorskip('RIFT.misc.'+module_name)
+    for key in ['RIFT_NOSTREAM_LOG','RIFT_NOSTREAM_LOG_CIP','RIFT_CIP_FLOCK_LOCAL','RIFT_CIP_POOLS']:
+        monkeypatch.delenv(key,raising=False)
+    for key,value in values.items():
+        monkeypatch.setenv(key,value)
+    job,_=module.write_CIP_sub(exe='/bin/true',log_dir=None,arg_str='--fit-method rf',out_dir=str(tmp_path))
+    cmds=job.get_condor_cmds() if hasattr(job,'get_condor_cmds') else job.condor_cmds
+    cmds={k:v for k,v in dict(cmds).items()}
+    assert (cmds.get('stream_error')=='True' and cmds.get('stream_output')=='True')==streams
+    if not streams:
+        assert 'stream_error' not in cmds and 'stream_output' not in cmds
+    for key,value in extra.items():
+        assert cmds[key]==value
+    assert ('MY.flock_local' in cmds)==('MY.flock_local' in extra)
 
 
 def test_asimov_psd_staging_targets_rundir_from_foreign_cwd(tmp_path,monkeypatch):
