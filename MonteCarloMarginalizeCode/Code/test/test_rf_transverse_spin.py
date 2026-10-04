@@ -292,14 +292,10 @@ ACTIVE = '2 ' + FULL[2:] + ' --mc-range [9.8,10.3] --fref 10'
 ])
 def test_pipeline_rewrite_cannot_strand_activated_stage(rewrite):
     line = f.stage_arguments(ACTIVE, 'auto', 10, True, 20)
-    assert f.revalidate_stage(line, 'auto') == line
-    broken = line.replace(*rewrite)
+    assert f.revalidate_stage(line) == line
     with pytest.raises(ValueError):
-        f.revalidate_stage(broken, 'physics3')
-    kept = f.revalidate_stage(broken, 'auto')
-    assert '--rf-transverse-spin-coordinates' not in kept
-    assert kept == broken.replace(' --rf-transverse-spin-coordinates physics3', '')
-    assert f.revalidate_stage(ACTIVE.replace(*rewrite), 'physics3') == ACTIVE.replace(*rewrite)
+        f.revalidate_stage(line.replace(*rewrite))
+    assert f.revalidate_stage(ACTIVE.replace(*rewrite)) == ACTIVE.replace(*rewrite)
 
 def test_fref_replacement_keeps_range_literals():
     line = f.stage_arguments(ACTIVE, 'physics3', 10, True, 25)
@@ -308,7 +304,7 @@ def test_fref_replacement_keeps_range_literals():
 
 def test_pseudo_pipe_revalidates_after_its_rewrites():
     src = (CODE/'bin/util_RIFT_pseudo_pipe.py').read_text()
-    check = src.index('revalidate_stage(line, opts.rf_transverse_spin_coordinates)')
+    check = src.index('revalidate_stage(line)')
     for rewrite in ["line.replace('parameter delta_mc','parameter eta')",
                     "line.replace('parameter delta_mc', 'parameter-implied eta"]:
         assert src.index(rewrite) < check

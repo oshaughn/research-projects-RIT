@@ -114,21 +114,19 @@ def _supports_physics3(tokens):
     return values('--fit-method')==['rf'] and set(NATIVE_FEATURES).issubset(fit)
 
 
-def revalidate_stage(line, mode):
+def revalidate_stage(line):
     """Recheck an activated stage after pipeline rewrites of helper output.
 
     A rewrite that drops the native basis (e.g. delta_mc -> eta) would otherwise
-    fail in every CIP job of that stage, after ILE has run. physics3 fails at
-    build time; auto drops the activation and keeps the native stage.
+    fail in every CIP job of that stage, after ILE has run. Fail at build time
+    instead, in auto and physics3 alike (as on rift_O4d).
     """
     import shlex
     tokens=shlex.split(line)
-    if '--rf-transverse-spin-coordinates' not in tokens or _supports_physics3(tokens):
-        return line
-    if mode == 'physics3':
-        raise ValueError('A pipeline rewrite removed the RF basis required by physics3: '+line.strip())
-    print(' RF transverse-spin: deactivated on rewritten stage ', line.strip())
-    return re.sub(r'\s--rf-transverse-spin-coordinates\s+physics3(?=\s|$)', '', line)
+    if '--rf-transverse-spin-coordinates' in tokens and not _supports_physics3(tokens):
+        raise ValueError('A pipeline rewrite removed the RF basis from an activated stage; '
+            'set the RF transverse-spin option to off or drop the rewriting option: '+line.strip())
+    return line
 
 
 def enabled(mode, detector_chirp_mass, applicable):
