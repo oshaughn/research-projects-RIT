@@ -56,4 +56,9 @@ if [ "${_n:-0}" -lt 20 ]; then
 fi
 ( cd "$CODE" && PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" "$PY" -m pytest -q "RIFT/calmarg/test_option_compat.py" )
 
+# Waveform-kwargs transport: builds real DAGs (pseudo_pipe -> CEPP), splits the arguments of
+# Calib_reweight.sub as condor does, and runs calibration_reweighting.py's own parser and
+# waveform-argument code on them.  Ten subprocess builds, ~10 minutes.
+( cd "$CODE/test" && "$PY" -m pytest -q test_calmarg_extra_args_transport.py )
+
 echo "calmarg CPU regression gate: PASS"

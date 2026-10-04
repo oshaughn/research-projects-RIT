@@ -67,6 +67,7 @@ FILES=(
   "$C/RIFT/calmarg/test_cal_mc_error.py"
   "$C/RIFT/calmarg/test_seed_fallback.py"
   "$C/test/test_calmarg_calibration.py"
+  "$C/test/test_calmarg_rift_source.py"
   # -- likelihood dispatch
   "$C/RIFT/likelihood/test_td_dispatch_epoch.py"
   "$C/RIFT/likelihood/test_precompute_crossterm_batching.py"
