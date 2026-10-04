@@ -825,6 +825,14 @@ jobs:
         # developer meets a diff instead of a landmine.
         run: |
           python MonteCarloMarginalizeCode/Code/test/expensive_before_merging/integrators/audit_backend_contracts.py --check
+      - name: Run transverse-spin RF coordinate and helper contracts
+        run: |
+          python -m pip install liquidpy --break-system-packages
+          python -m pytest -q \
+            MonteCarloMarginalizeCode/Code/test/test_rf_transverse_spin.py \
+            MonteCarloMarginalizeCode/Code/test/test_rf_transverse_asimov_render.py \
+            MonteCarloMarginalizeCode/Code/test/test_rf_transverse_helper_generation.py
+          python MonteCarloMarginalizeCode/Code/test/rf_transverse_cli_smoke.py
       - name: Run corner-plot range guard tests
         # .travis/test-posterior.sh below is the only job that exercises the CIP driver's
         # plotting block, and it died intermittently there: corner RAISES on a 2-D panel

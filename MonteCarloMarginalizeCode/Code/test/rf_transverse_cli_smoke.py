@@ -23,7 +23,10 @@ def tracer(frame,event,arg):
   print('ACTUAL_CIP_TRAINING_PREDICTION_SMOKE_PASS',xp.shape,x.shape)
   raise Complete
  return tracer
+completed = False
 sys.settrace(tracer)
 try:runpy.run_path(str(script),run_name='__main__')
-except Complete:pass
+except Complete:completed = True
 finally:sys.settrace(None)
+
+assert completed, "CIP did not reach the training/prediction proof boundary"
