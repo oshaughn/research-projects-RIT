@@ -2546,7 +2546,7 @@ if opts.internal_cip_request_gpus:
 if opts.internal_cip_require_gpus:
     cmd += " --require-gpus-CIP {} ".format(shlex.quote(opts.internal_cip_require_gpus))
 if opts.internal_cip_request_disk:
-    cmd += " --cip-request-disk {} ".format(opts.internal_cip_request_disk)
+    cmd += " --cip-request-disk {} ".format(opts.internal_ile_request_disk)
 if opts.internal_general_request_disk:
     cmd += " --general-request-disk {} ".format(opts.internal_general_request_disk)
 if opts.use_ile_subdags:

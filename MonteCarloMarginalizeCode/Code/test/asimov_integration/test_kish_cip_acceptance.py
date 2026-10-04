@@ -21,3 +21,38 @@ def test_actual_cip_acceptance_gate(metric, selected, expected_failure):
         exec(program,env)
         assert env['neff']==100
         assert env['cip_acceptance_neff']==2600
+
+
+def _block_after(path, target, count):
+    tree = ast.parse(path.read_text())
+    for node in ast.walk(tree):
+        body = getattr(node, 'body', None)
+        if not isinstance(body, list):
+            continue
+        for i, n in enumerate(body):
+            if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == target for t in n.targets):
+                return compile(ast.Module(body=body[i:i+count], type_ignores=[]), str(path), 'exec')
+    raise AssertionError(target)
+
+
+@pytest.mark.parametrize('line', ['--av-stop-metric kish --n-eff 700', '--av-stop-metric=kish --n-eff=700', '--av-stop-metric=kish --n-eff 700'])
+def test_basic_iteration_final_kish_target_parses_both_forms(line):
+    import shlex
+    path = SOURCE.parents[0] / 'create_event_parameter_pipeline_BasicIteration'
+    env = dict(shlex=shlex, cip_args_lines=[line], cip_args_extra='', indx=0, n_samples_per_job=50)
+    exec(_block_after(path, 'final_tokens', 4), env)
+    assert env['final_target'] == 700.
+
+
+@pytest.mark.parametrize('method,ok', [('AV', True), ('GMM', False)])
+def test_cip_accepts_kish_with_av_without_internal_use_lnl(method, ok):
+    tree = ast.parse(SOURCE.read_text())
+    node = next(n for n in tree.body if isinstance(n, ast.If) and 'av_stop_metric' in ast.unparse(n.test))
+    class Parser:
+        def error(self, message): raise SystemExit(message)
+    env = dict(opts=SimpleNamespace(av_stop_metric='kish', sampler_method=method, internal_use_lnL=False), parser=Parser())
+    program = compile(ast.Module(body=[node], type_ignores=[]), str(SOURCE), 'exec')
+    if ok:
+        exec(program, env)
+    else:
+        with pytest.raises(SystemExit): exec(program, env)

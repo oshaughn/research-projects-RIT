@@ -44,3 +44,30 @@ def test_final_extrinsic_uses_weighted_posterior_grid():
     assert ast.unparse(next(k.value for k in call.keywords if k.arg == "transfer_files")) == "transfer_file_names_extr"
     assert "name.replace('../'+ordinary_grid_base" in source
     assert "'../overlap-grid-$(macroiteration)" in source
+
+
+def test_short_unique_grid_pads_with_duplicates_instead_of_failing():
+    posterior=[point(),point(),point(s1x=.3),point(),point(s1x=.3)]
+    indices=GRID.unique_intrinsic_indices(posterior)
+    assert GRID.pad_with_duplicates(indices,5,2)==[0,2]
+    assert GRID.pad_with_duplicates(indices,5,4)==[0,2,1,3]
+    assert GRID.pad_with_duplicates(indices,5,7)==[0,2,1,3,4,1,3]
+    assert GRID.pad_with_duplicates([0,1],2,5)==[0,1,0,1,0]
+
+
+def test_dedup_cli_pads_short_grid(tmp_path):
+    import json, subprocess, sys
+    lalsimutils = pytest.importorskip('RIFT.lalsimutils')
+    rows = []
+    for s1z in (0., 0., 0.1):
+        P = lalsimutils.ChooseWaveformParams(); P.m1, P.m2, P.s1z = 30*lalsimutils.lsu_MSUN, 20*lalsimutils.lsu_MSUN, s1z
+        rows.append(P)
+    lalsimutils.ChooseWaveformParams_array_to_xml(rows, str(tmp_path/'post'))
+    exe = Path(__file__).resolve().parents[2]/'bin/util_DeduplicateIntrinsicGrid.py'
+    out = subprocess.run([sys.executable, str(exe), '--input-xml', str(tmp_path/'post.xml.gz'), '--output-file', str(tmp_path/'grid'),
+                          '--min-points', '4', '--receipt', str(tmp_path/'r.json')], capture_output=True, text=True)
+    assert out.returncode == 0, out.stderr
+    assert 'WARNING' in out.stdout
+    record = json.loads((tmp_path/'r.json').read_text())
+    assert record['status'] == 'padded_with_duplicates' and record['unique_rows'] == 2
+    assert len(lalsimutils.xml_to_ChooseWaveformParams_array(str(tmp_path/'grid.xml.gz'))) == 4

@@ -20,3 +20,19 @@ def test_late_discovery_host_prior_cycles_and_captured_defaults():
     assert av.identity_convert_togpu(x) is x
     mod.configure_host_av(av)
     np.testing.assert_equal(av.draw([1.,2.]),[1.,2.])
+
+
+def test_default_av_keeps_native_backend():
+    for method in ('rf', 'gp', 'gp-matern'):
+        assert not mod.needs_host_av(method, 'sklearn', 'auto')
+    assert not mod.needs_host_av('gp-torch', 'sklearn', 'cpu')
+    assert mod.needs_host_av('gp-matern', 'cupy', 'auto')
+    assert mod.needs_host_av('gp-torch', 'sklearn', 'cuda:0')
+
+
+def test_cip_calls_configure_host_av_only_under_gate():
+    src = (Path(__file__).parents[1]/'bin/util_ConstructIntrinsicPosterior_GenericCoordinates.py').read_text().splitlines()
+    calls = [i for i, line in enumerate(src) if 'configure_host_av(' in line and 'import' not in line]
+    assert calls
+    for i in calls:
+        assert src[i-1].strip().startswith('if needs_host_av('), src[i-1]

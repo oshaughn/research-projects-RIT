@@ -4,6 +4,21 @@ import numpy
 from scipy import special
 
 
+def needs_host_av(fit_method, gp_predict_backend="sklearn", gp_torch_device="auto"):
+    """True only for the opt-in GPU GP predictors; default AV keeps its backend."""
+    if gp_predict_backend == "cupy":
+        return True
+    if fit_method != "gp-torch" or gp_torch_device == "cpu":
+        return False
+    if gp_torch_device != "auto":
+        return True
+    try:
+        import torch
+    except ImportError:
+        return False
+    return bool(torch.cuda.is_available())
+
+
 def configure_host_av(module):
     """Select NumPy after optional sampler discovery has finished.
 

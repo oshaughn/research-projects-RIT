@@ -1492,7 +1492,8 @@ else:
                n_samples_per_job = int(opts.last_iteration_extrinsic_nsamples/(1.0*opts.cip_explode_jobs_last))
                # Keep a declared Kish worker integration target independent of
                # the final extrinsic export quota (resampling can repeat rows).
-               final_tokens = shlex.split(cip_args_lines[indx]+cip_args_extra)
+               final_tokens = [x for tok in shlex.split(cip_args_lines[indx]+cip_args_extra)
+                               for x in (tok.split('=',1) if tok.startswith(('--av-stop-metric=','--n-eff=')) else [tok])]
                final_values = {final_tokens[k]:final_tokens[k+1] for k in range(len(final_tokens)-1)
                                if final_tokens[k] in ('--av-stop-metric','--n-eff')}
                final_target = n_samples_per_job
@@ -2107,7 +2108,8 @@ for it in np.arange(it_start,opts.n_iterations):
             cmd += " --cip-singularity-image {} ".format(shlex.quote(opts.cip_singularity_image))
         if opts.ile_deduplicate_grid:
             cmd += " --ile-deduplicate-grid "
-        cmd += " --request-gpus-CIP {} ".format(opts.request_gpus_CIP)
+        if opts.request_gpus_CIP:
+            cmd += " --request-gpus-CIP {} ".format(opts.request_gpus_CIP)
         if opts.require_gpus_CIP:
             cmd += " --require-gpus-CIP {} ".format(shlex.quote(opts.require_gpus_CIP))
         if opts.use_EOB_parameters:

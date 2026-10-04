@@ -2232,7 +2232,13 @@ class MCSampler(SamplerOutputMixin, object):
             if isinstance(self._rvs[name],xpy_default.ndarray):
               self._rvs[name] = identity_convert(self._rvs[name])   # this is trivial if xpy_default is numpy, and a conversion otherwise
 
-        self.last_stopping_statistics = _av_weight_statistics_from_log(log_wt)
+        try:
+            self.last_stopping_statistics = _av_weight_statistics_from_log(log_wt)
+        except ValueError:
+            if av_stop_metric == "kish":
+                raise
+            # Diagnostic only on the default path; never fail a run that used to complete.
+            self.last_stopping_statistics = {"max_weight": float(eff_samp), "kish": float("nan")}
         self.last_stopping_statistics.update({
             "metric": av_stop_metric, "target": float(neff), "total_draws": int(ntotal_true),
             "selected": float(_select_av_stopping_statistic(

@@ -56,7 +56,7 @@ def real_writer(backend="dag_utils.py"):
 
 @pytest.mark.parametrize("backend", ["dag_utils.py", "dag_utils_generic.py"])
 def test_real_gpu_submit_writer_resources_and_container(monkeypatch, backend):
-    monkeypatch.setenv("RIFT_NOSTREAM_LOG", "1")
+    monkeypatch.setenv("RIFT_NOSTREAM_LOG_CIP", "1")
     job, name = real_writer(backend)(tag="CIP_worker", arg_str="--fit-method gp-matern", out_dir="/run",
         ncopies=8, request_memory=8192, request_gpus=1, require_gpus=GUARD,
         use_singularity=True, singularity_image="/scratch/reviewed-cuda118.sif", transfer_files=["all.net"])
@@ -69,6 +69,17 @@ def test_real_gpu_submit_writer_resources_and_container(monkeypatch, backend):
     assert job.commands["my.singularityimage"] == '"/scratch/reviewed-cuda118.sif"'
     assert "stream_output" not in job.commands and "stream_error" not in job.commands
     assert job.commands["transfer_input_files"] == "all.net"
+
+
+@pytest.mark.parametrize("singularity", [False, True])
+@pytest.mark.parametrize("backend", ["dag_utils.py", "dag_utils_generic.py"])
+def test_cip_streams_despite_global_nostream(monkeypatch, backend, singularity):
+    monkeypatch.setenv("RIFT_NOSTREAM_LOG", "1")
+    monkeypatch.delenv("RIFT_NOSTREAM_LOG_CIP", raising=False)
+    job, _ = real_writer(backend)(arg_str="--fit-method rf", out_dir="/run",
+        use_singularity=singularity, singularity_image="/x.sif" if singularity else None,
+        transfer_files=["all.net"] if singularity else None)
+    assert job.commands["stream_error"] == "True" and job.commands["stream_output"] == "True"
 
 
 @pytest.mark.parametrize("backend", ["dag_utils.py", "dag_utils_generic.py"])
@@ -132,6 +143,17 @@ def test_actual_pseudo_and_recursive_commands_preserve_gpu_guard_single_argument
     for command in (pseudo, recursive):
         assert command[command.index("--request-gpus-CIP") + 1] == "1"
         assert command[command.index("--require-gpus-CIP") + 1] == GUARD
+
+
+@pytest.mark.parametrize("gpus", [0, 2])
+def test_recursive_command_omits_zero_cip_gpu_request(gpus):
+    path = CODE / "bin/create_event_parameter_pipeline_BasicIteration"
+    node = next(n for n in ast.walk(ast.parse(path.read_text())) if isinstance(n, ast.If)
+                and ast.unparse(n.test) == "opts.request_gpus_CIP")
+    scope = {"cmd": "builder", "opts": types.SimpleNamespace(request_gpus_CIP=gpus)}
+    exec(compile(ast.Module(body=[node], type_ignores=[]), str(path), "exec"), scope)
+    args = shlex.split(scope["cmd"])
+    assert (args[args.index("--request-gpus-CIP") + 1] if gpus else "--request-gpus-CIP" not in args) in ("2", True)
 
 
 def test_actual_cip_and_ile_calls_use_independent_runtime_images():

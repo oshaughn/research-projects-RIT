@@ -16,3 +16,12 @@ def unique_intrinsic_indices(points):
             seen.add(key)
             indices.append(index)
     return indices
+
+def pad_with_duplicates(indices, n_rows, n_required):
+    """Unique rows first, then the input's own duplicate rows (in order) until n_required."""
+    unique = set(indices)
+    filler = [k for k in range(n_rows) if k not in unique] or list(indices)
+    out = list(indices)
+    while len(out) < n_required:
+        out.append(filler[(len(out) - len(indices)) % len(filler)])
+    return out

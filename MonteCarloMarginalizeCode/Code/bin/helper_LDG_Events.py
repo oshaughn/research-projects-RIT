@@ -342,6 +342,8 @@ internal_dmax = opts.internal_distance_max # default is None
 fit_method='gp'
 if not(opts.force_fit_method is None):
     fit_method=opts.force_fit_method
+if fit_method == 'gp-matern' and (opts.use_quadratic_early or opts.use_cov_early or opts.use_gp_early):
+    parser.error("--force-fit-method gp-matern rewrites every CIP stage; it cannot be combined with --use-quadratic-early, --use-cov-early or --use-gp-early")
 
 
 fmax = 1700 # default
@@ -1745,7 +1747,9 @@ if opts.propose_fit_strategy:
         helper_cip_args += '   --parameter mc --parameter delta_mc '
     else:
         helper_cip_args += " --parameter-implied mu1 --parameter-implied mu2 --parameter-nofit mc --parameter delta_mc "  
-    if 'gp' in fit_method and fit_method != 'gp-matern':
+    if fit_method == 'gp-torch':
+        helper_cip_args += " --cap-points 8000 "  # CIP --gp-torch-max-train-points default
+    elif 'gp' in fit_method and fit_method != 'gp-matern':
         helper_cip_args += " --cap-points 12000 "
     if not opts.no_propose_limits:
         if not(opts.use_mtot_coords):
@@ -2037,8 +2041,8 @@ if opts.propose_converge_last_stage:
 if opts.calmarg_first_cip_sigma_cut is not None and len(helper_cip_arg_list) > 0:
     helper_cip_arg_list[0] += " --sigma-cut {} ".format(opts.calmarg_first_cip_sigma_cut)
 
-# The explicit fresh GP experiment applies to every fit stage, including
-# any early surrogate override; coordinate/prior/schedule options are retained.
+# The explicit fresh GP experiment applies to every fit stage (early overrides
+# are rejected above); coordinate/prior/schedule options are retained.
 if fit_method == 'gp-matern':
     import re
     helper_cip_arg_list = [re.sub(r'--fit-method\s+\S+', '--fit-method gp-matern', line)

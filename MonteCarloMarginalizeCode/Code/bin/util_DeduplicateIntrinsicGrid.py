@@ -6,7 +6,7 @@ import json
 import os
 from pathlib import Path
 from RIFT import lalsimutils
-from RIFT.misc.intrinsic_grid import unique_intrinsic_indices, INTRINSIC_FIELDS
+from RIFT.misc.intrinsic_grid import unique_intrinsic_indices, pad_with_duplicates, INTRINSIC_FIELDS
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -26,16 +26,18 @@ def main():
                   unique_rows=len(indices),duplicate_rows=len(points)-len(indices),
                   required_points=args.min_points,identity_fields=list(INTRINSIC_FIELDS),
                   unique_source_indices=indices,output=str(output))
+    status = 'verified'
     if len(indices) < args.min_points:
-        record['status']='insufficient_unique_grid'
-        args.receipt.write_text(json.dumps(record,indent=2)+'\n')
-        raise RuntimeError('Only {} distinct points for {} scheduled ILE evaluations'.format(len(indices),args.min_points))
+        print('WARNING: only {} distinct points for {} scheduled ILE evaluations; padding with duplicate rows'.format(len(indices),args.min_points))
+        indices = pad_with_duplicates(indices,len(points),args.min_points)
+        record.update(padded_source_indices=indices[record['unique_rows']:])
+        status = 'padded_with_duplicates'
     temp = str(args.output_file)+'.tmp-'+str(os.getpid())
     lalsimutils.ChooseWaveformParams_array_to_xml([points[k] for k in indices],temp)
     os.replace(temp+'.xml.gz',output)
     if hashlib.sha256(args.input_xml.read_bytes()).hexdigest() != before:
         raise RuntimeError('Posterior input changed during grid construction')
-    record.update(status='verified',output_sha256=hashlib.sha256(output.read_bytes()).hexdigest())
+    record.update(status=status,output_sha256=hashlib.sha256(output.read_bytes()).hexdigest())
     args.receipt.write_text(json.dumps(record,indent=2)+'\n')
     print(json.dumps({k:v for k,v in record.items() if k!='unique_source_indices'}))
 

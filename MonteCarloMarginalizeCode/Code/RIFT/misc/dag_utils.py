@@ -859,7 +859,7 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
            ile_job.add_condor_cmd("when_to_transfer_output",'ON_EXIT')
 
            # Stream log info
-           if not ('RIFT_NOSTREAM_LOG' in os.environ):
+           if not ('RIFT_NOSTREAM_LOG' in os.environ) and 'RIFT_NOSTREAM_LOG_CIP' not in os.environ:
                ile_job.add_condor_cmd("stream_error",'True')
                ile_job.add_condor_cmd("stream_output",'True')
 
@@ -869,8 +869,8 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
 
     ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
 
-    # Stream log info: always stream CIP error, it is a critical bottleneck
-    if 'RIFT_NOSTREAM_LOG' not in os.environ:
+    # Stream log info: always stream CIP error, it is a critical bottleneck (opt out: RIFT_NOSTREAM_LOG_CIP)
+    if 'RIFT_NOSTREAM_LOG_CIP' not in os.environ:
         ile_job.add_condor_cmd("stream_error",'True')
         ile_job.add_condor_cmd("stream_output",'True')
 

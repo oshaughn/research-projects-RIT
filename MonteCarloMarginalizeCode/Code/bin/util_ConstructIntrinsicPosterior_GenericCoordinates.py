@@ -377,7 +377,7 @@ parser.add_argument("--source-redshift",default=0,type=float,help="Source redshi
 parser.add_argument("--eos-param", type=str, default=None, help="parameterization of equation of state")
 parser.add_argument("--eos-param-values", default=None, help="Specific parameter list for EOS")
 parser.add_argument("--sampler-method",default="adaptive_cartesian",help="adaptive_cartesian|GMM|adaptive_cartesian_gpu|portfolio")
-parser.add_argument("--av-stop-metric", choices=["max-weight", "kish"], default="max-weight", help="AV stopping statistic; max-weight preserves the historical sum(w)/max(w), kish uses sum(w)^2/sum(w^2). Experimental; target is --n-eff.")
+parser.add_argument("--av-stop-metric", choices=["max-weight", "kish"], default="max-weight", help="AV stopping statistic; max-weight preserves the historical sum(w)/max(w), kish uses sum(w)^2/sum(w^2). Experimental; target is --n-eff. Kish stopping weights are lnL-only, while the --fail-unless-n-eff/--n-eff acceptance check uses the final weights including the prior ratio, so the two Kish values can differ.")
 parser.add_argument("--sampler-portfolio",default=None,action='append',type=str,help="comma-separated strings, matching sampler methods other than portfolio")
 parser.add_argument("--sampler-portfolio-args",default=None, action='append', type=str, help='eval-able dictionary to be passed to that sampler_')
 parser.add_argument("--sampler-portfolio-allow-stratified-density",action='store_true',help="Accept a portfolio whose members cannot form the balance-heuristic mixture density q_mix, i.e. run the legacy stratified per-member estimator even when a member reports its sampling density on a non-normalized scale.  THE EVIDENCE IS THEN BIASED (measured: 0.753772 on a constant integrand whose exact ln Z is 1.386294).  Without this the portfolio refuses at setup.  Exists so an unusual member combination is recoverable without editing RIFT; do not use it for production evidence.")
@@ -464,8 +464,8 @@ if not(opts.force_no_adapt):
     opts.force_no_adapt=False  # force explicit boolean false
 
 ok_lnL_methods = ['GMM', 'adaptive_cartesian', 'adaptive_cartesian_gpu', 'AV', 'NFlow', 'portfolio']
-if opts.av_stop_metric != 'max-weight' and (opts.sampler_method != 'AV' or not opts.internal_use_lnL):
-    parser.error('--av-stop-metric kish requires --sampler-method AV --internal-use-lnL')
+if opts.av_stop_metric != 'max-weight' and opts.sampler_method != 'AV':
+    parser.error('--av-stop-metric kish requires --sampler-method AV')
 bad_lnL_methods = ['default']
 if opts.internal_use_lnL and (opts.sampler_method  in bad_lnL_methods ):
   print(" OPTION MISMATCH : --internal-use-lnL not compatible with", opts.sampler_method, " can only use ", ok_lnL_methods)
@@ -3092,8 +3092,9 @@ if opts.sampler_method == "adaptive_cartesian_gpu":
 elif opts.sampler_method == "GMM":
     sampler = mcsamplerEnsemble.MCSampler()
 elif opts.sampler_method == "AV":
-    from RIFT.misc.av_backend import configure_host_av
-    configure_host_av(mcsamplerAdaptiveVolume)
+    from RIFT.misc.av_backend import needs_host_av, configure_host_av
+    if needs_host_av(opts.fit_method, opts.gp_predict_backend, opts.gp_torch_device):
+        configure_host_av(mcsamplerAdaptiveVolume)
     sampler = mcsamplerAdaptiveVolume.MCSampler()
     opts.internal_use_lnL= True  # required!
 elif opts.sampler_method == "NFlow":
