@@ -393,3 +393,25 @@ def test_rift_liquid_template_gp_matern_opt_in_preserves_default():
     assert parser.getint(section, "n-output-samples") == 2500
     assert parser.getint(section, "n-output-samples-last") == 2500
     assert parser.getboolean(section, "internal-cip-use-lnL")
+
+
+def _render_text(template_text, meta):
+    global TEMPLATE
+    saved = TEMPLATE
+    TEMPLATE = types.SimpleNamespace(read_text=lambda: template_text)
+    try:
+        return _render(meta)[0]
+    finally:
+        TEMPLATE = saved
+
+
+def test_rift_liquid_template_silent_ledger_is_byte_identical_to_base():
+    # Reconstruct the pre-PR CIP block: fixed rf fit method and no opt-in GP/resource lines.
+    text = TEMPLATE.read_text()
+    start = text.index("{%- comment %} Opt-in GP controls")
+    stop = text.index("#\n# Internal settings")
+    base = text[:start].rstrip("\n") + "\n" + text[stop:]
+    base = base.replace("cip-fit-method=\"{{ sampler['cip']['fitting method'] | default: 'rf' }}\"", 'cip-fit-method="rf"')
+    assert base != text
+    meta = _base_meta()
+    assert _render_text(text, meta) == _render_text(base, meta)
