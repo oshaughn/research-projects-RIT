@@ -2534,7 +2534,7 @@ if opts.batch_extrinsic:
 if opts.internal_ile_request_disk:
     cmd += " --ile-request-disk {} ".format(opts.internal_ile_request_disk)
 if opts.internal_cip_request_disk:
-    cmd += " --cip-request-disk {} ".format(opts.internal_ile_request_disk)
+    cmd += " --cip-request-disk {} ".format(opts.internal_cip_request_disk)
 if opts.internal_general_request_disk:
     cmd += " --general-request-disk {} ".format(opts.internal_general_request_disk)
 if opts.use_ile_subdags:

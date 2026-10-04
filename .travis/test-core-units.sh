@@ -83,6 +83,8 @@ FILES=(
   "$C/test/test_noloop_accumulator_shapes.py"
   # -- detector-network sky coordinates: direction and inverse round trip
   "$C/test/test_sky_rotations.py"
+  # -- pseudo_pipe: per-class disk requests reach their own job class
+  "$C/test/test_pseudo_pipe_request_disk.py"
   # The Bilby-convention noise evidence: its normalization is checked against the
   # 4/T sum |d|^2/S formula through the real ComplexIP, so a factor of two regresses
   # loudly instead of shifting every reported log evidence by a plausible amount.
