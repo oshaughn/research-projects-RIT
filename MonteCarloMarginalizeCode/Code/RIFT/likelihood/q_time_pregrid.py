@@ -47,6 +47,7 @@ guard) to resolve abbreviations, and reject exactly the tokens optparse itself w
 
 import ast
 import os
+import sysconfig
 
 Q_TIME_PREGRID_CHOICES = (1, 8)
 
@@ -140,6 +141,11 @@ def _ile_tokens(ile_args):
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _DRIVER_PATH = os.path.normpath(os.path.join(
     _HERE, '..', '..', 'bin', 'integrate_likelihood_extrinsic_batchmode'))
+if not os.path.isfile(_DRIVER_PATH):
+    # Wheels install entry scripts in the interpreter's scripts directory.
+    # Read that exact driver, never an unrelated executable found on PATH.
+    _DRIVER_PATH = os.path.join(
+        sysconfig.get_path('scripts'), 'integrate_likelihood_extrinsic_batchmode')
 
 _driver_long_option_names_cache = None
 

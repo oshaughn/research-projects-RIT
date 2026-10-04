@@ -317,7 +317,7 @@ def test_sky_coordinates_default_equatorial_never_notes(saved_gh_env):
 def test_d_prior_ignored_note_for_a_real_alternative_prior(saved_gh_env):
     mod = _driver_module()
     os.environ.pop("JAX_ILE_DISTMARG_GH", None)
-    _, text = _run_checked(mod, ["--d-prior", "cosmo"])
+    _, text = _run_checked(mod, ["--d-prior", "uniform"])
     assert "--d-prior" in text and "IGNORED" in text and "volumetric" in text
 
 
@@ -338,7 +338,7 @@ def test_d_prior_excluded_from_the_generic_ignored_bag(saved_gh_env):
     explicitly excluded from the generic bag alongside that."""
     mod = _driver_module()
     os.environ.pop("JAX_ILE_DISTMARG_GH", None)
-    _, text = _run_checked(mod, ["--d-prior", "cosmo"])
+    _, text = _run_checked(mod, ["--d-prior", "uniform"])
     assert text.count("--d-prior") == 1, (
         "expected exactly one --d-prior mention (the substantive note); got %r" % (text,))
 

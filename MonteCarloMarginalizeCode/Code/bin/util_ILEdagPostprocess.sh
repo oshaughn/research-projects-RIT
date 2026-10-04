@@ -21,8 +21,6 @@ resolve_helper() {
     fi
 }
 
-CLEAN_ILE="$(resolve_helper util_CleanILE.py)" || exit $?
-
 DIR_PROCESS=$1
 BASE_OUT=$2
 # Everything after the first two arguments is the advanced-physics flag list
@@ -37,6 +35,18 @@ for arg in "${@:3}"; do
     fi
 done
 
+fail() {
+    echo "ERROR: $2" >&2
+    rm -f "${BASE_OUT}.composite"
+    exit $1
+}
+
+# No shards at all is not an error here.  With --first-iteration-jumpstart the
+# first consolidate node has no ILE parents, and BasicIteration deliberately
+# omits the nonempty-composite POST check on that node.  Keep the old behaviour
+# for that case: an empty composite and exit 0.
+HAVE_SHARDS=`find ${DIR_PROCESS} -name 'CME*.dat' -print -quit 2>/dev/null`
+
 # --------------------------------------------------------------------------
 # Hyperpipeline ASCII output path (opt-in via env var).
 # When RIFT_HYPERPIPELINE_FORMAT is truthy, ILE shards are written in the
@@ -46,6 +56,10 @@ done
 # delegate to util_CleanILE_hyperpipeline.py which does the equivalent
 # weighted-average consolidation and emits a single composite file.
 # --------------------------------------------------------------------------
+if [ -z "${HAVE_SHARDS}" ]; then
+    echo " WARNING: no CME*.dat files under ${DIR_PROCESS}; writing an empty composite "
+    : > ${BASE_OUT}.composite
+else
 case "$(echo "${RIFT_HYPERPIPELINE_FORMAT:-}" | tr '[:upper:]' '[:lower:]')" in
   1|true|yes|on)
     echo " Joining data files (hyperpipeline format) .... "
@@ -63,10 +77,14 @@ case "$(echo "${RIFT_HYPERPIPELINE_FORMAT:-}" | tr '[:upper:]' '[:lower:]')" in
         "${CLEAN_FLAGS[@]}" \
         ${DIR_PROCESS}/CME*.dat
     clean_status=$?
+    if [ ${clean_status} -ne 0 ]; then
+        fail ${clean_status} "ILE consolidation failed with status ${clean_status}"
+    fi
     ;;
   *)
     # join together the .dat files
     echo " Joining data files .... "
+    CLEAN_ILE="$(resolve_helper util_CleanILE.py)" || exit $?
     rm -f tmp.dat tmp2.dat
     # CAT can be ineffective
     FNAME=`pwd`/tmp.dat
@@ -80,9 +98,7 @@ case "$(echo "${RIFT_HYPERPIPELINE_FORMAT:-}" | tr '[:upper:]' '[:lower:]')" in
     clean_status=$?
     if [ ${clean_status} -ne 0 ]; then
         rm -f ${RND}_clean.dat
-        echo "ERROR: ILE consolidation failed with status ${clean_status}" >&2
-        rm -f "$BASE_OUT.composite"
-        exit ${clean_status}
+        fail ${clean_status} "ILE consolidation failed with status ${clean_status}"
     fi
 
     # Sort on lnL.  The composite row is
@@ -93,29 +109,20 @@ case "$(echo "${RIFT_HYPERPIPELINE_FORMAT:-}" | tr '[:upper:]' '[:lower:]')" in
     # mis-sorted, i.e. discarded the composite ordering, for combined runs).
     NCOL=`awk 'NF>0 && $1 !~ /^#/ {print NF; exit}' ${RND}_clean.dat`
     if [ -z "${NCOL}" ] || [ "${NCOL}" -lt 5 ]; then
-        echo " WARNING: no usable rows in consolidated ILE output "
-        cp ${RND}_clean.dat $BASE_OUT.composite
-    else
-        sort -rg -k$((NCOL-3)) ${RND}_clean.dat > $BASE_OUT.composite
+        rm -f ${RND}_clean.dat
+        fail 1 "ILE consolidation produced no usable rows from ${DIR_PROCESS}"
     fi
+    sort -rg -k$((NCOL-3)) ${RND}_clean.dat > $BASE_OUT.composite
     output_status=$?
     rm -f ${RND}_clean.dat
     if [ ${output_status} -ne 0 ]; then
-        echo "ERROR: failed to write consolidated ILE output with status ${output_status}" >&2
-        rm -f "$BASE_OUT.composite"
-        exit ${output_status}
+        fail ${output_status} "failed to write consolidated ILE output with status ${output_status}"
     fi
     ;;
 esac
-if [ ${clean_status} -ne 0 ]; then
-    echo "ERROR: ILE consolidation failed with status ${clean_status}" >&2
-    rm -f "$BASE_OUT.composite"
-    exit ${clean_status}
-fi
 if [ ! -s "$BASE_OUT.composite" ]; then
-    echo "ERROR: ILE consolidation produced an empty composite: $BASE_OUT.composite" >&2
-    rm -f "$BASE_OUT.composite"
-    exit 1
+    fail 1 "ILE consolidation produced an empty composite: $BASE_OUT.composite"
+fi
 fi
 
 # Manifest

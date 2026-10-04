@@ -62,10 +62,11 @@ if [ "$4" == '--eccentricity' ]
 then
     #    util_NRRelabelILE.py --group ${GROUP} --fname ${BASE_OUT}.composite --eccentricity | grep '^-1*' > ${BASE_OUT}.indexed
     "${RELABEL_ILE}" --group Sequence-RIT-All --fname ${BASE_OUT}.composite --eccentricity | sed -n '/ -----  BEST MATCHES ------ /,$p' > ${BASE_OUT}.indexed
+    relabel_status=${PIPESTATUS[0]}
 else
     "${RELABEL_ILE}" --group ${GROUP} --fname ${BASE_OUT}.composite | grep '^-1*' > ${BASE_OUT}.indexed
+    relabel_status=${PIPESTATUS[0]}
 fi
-relabel_status=$?
 if [ ${relabel_status} -ne 0 ]; then
     echo "ERROR: NR relabeling failed with status ${relabel_status}" >&2
     rm -f "$BASE_OUT.indexed"

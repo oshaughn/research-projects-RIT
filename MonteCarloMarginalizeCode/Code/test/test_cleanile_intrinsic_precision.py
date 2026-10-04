@@ -174,11 +174,9 @@ def test_postprocess_forwards_precision_on_the_hyperpipeline_join(tmp_path):
 
     hp_env = env()
     hp_env["RIFT_HYPERPIPELINE_FORMAT"] = "1"
-    # The cleaner is invoked by bare name from a shell script whose shebang is
-    # `env python`.  CI symlinks python3 to /usr/bin/python; an IGWN conda
-    # interpreter has no `python` on PATH at all, and without this the join
-    # would produce no composite -- and util_ILEdagPostprocess.sh ends `exit 0`
-    # for DAGMan, so that reads as a pass.  Point `python` at the interpreter
+    # The cleaner's shebang is `env python`.  CI symlinks python3 to
+    # /usr/bin/python; an IGWN conda interpreter has no `python` on PATH at
+    # all, and without this the join fails.  Point `python` at the interpreter
     # running the test.
     shim = tmp_path / "shim"
     shim.mkdir()
@@ -189,8 +187,7 @@ def test_postprocess_forwards_precision_on_the_hyperpipeline_join(tmp_path):
         proc = subprocess.run(["bash", str(POSTPROCESS), str(shards), base, *options],
                               cwd=tmp_path, env=hp_env, text=True,
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        # The script ends `exit 0` for DAGMan's benefit, so the composite is
-        # the only evidence that the join did the right thing.
+        assert proc.returncode == 0, proc.stderr
         return _mc_values(tmp_path / (base + ".composite"))
 
     assert join("default") == [pytest.approx(1.22927, abs=1e-12)]

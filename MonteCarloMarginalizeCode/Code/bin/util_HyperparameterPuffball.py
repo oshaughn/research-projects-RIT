@@ -10,6 +10,7 @@ import lalsimulation as lalsim
 import lal
 import functools
 import itertools
+import re
 
 
 parser = argparse.ArgumentParser()
@@ -23,8 +24,11 @@ parser.add_argument("--no-correlation", type=str,action='append', help="Pairs of
 parser.add_argument("--random-parameter", action='append',help="These parameters are specified at random over the entire range, uncorrelated with the grid used for other parameters.  Use for variables which correlate weakly with others; helps with random exploration")
 parser.add_argument("--random-parameter-range", action='append', type=str,help="Add a range (pass as a string evaluating to a python 2-element list): --parameter-range '[0.,1000.]'   MUST specify ALL parameter ranges (min and max) in order if used.  ")
 parser.add_argument("--downselect-parameter",action='append', help='Name of parameter to be used to eliminate grid points ')
-parser.add_argument("--downselect-parameter-range",action='append',type=str)
-parser.add_argument("--reflect-parameter",action='append',type=str)
+parser.add_argument("--downselect-parameter-range",action='append',type=str,help="Range for the matching --downselect-parameter, as '[lo,hi]' (paired in order) or 'name:[lo,hi]'.")
+parser.add_argument("--parameter-range",action='append',type=str,help="Range 'name:[lo,hi]' for a --parameter. Points outside are dropped, or reflected if --reflect-parameter names it. Same as a name-keyed --downselect-parameter-range.")
+parser.add_argument("--reflect-parameter",action='append',type=str,help="Reflect puffed points into this parameter's range (from --parameter-range or --downselect-parameter-range).")
+parser.add_argument("--get-range-from-external",action='store_true',help="Ask the coordinate plugin for ranges: calls get_bounds(coord_names, ranges, **kwargs), which returns {name: [lo,hi]} in the puff basis. Ranges given on the command line win.")
+parser.add_argument("--external-range-args",action='append',type=str,help="key=value passed to the plugin's get_bounds. Values are parsed as python literals when possible.")
 parser.add_argument("--regularize",action='store_true',help="Add some ad-hoc terms based on priors, to help with nearly-singular matricies")
 # ---- Optional coordinate-convert plugin (additive; legacy path byte-identical when omitted) ----
 # When set, the puff lane operates in the PLUGIN basis: it forward-transforms the
@@ -77,32 +81,42 @@ downselect_dict = {}
 reflect_dict={}
 
 
-if opts.downselect_parameter:
-    dlist = opts.downselect_parameter
-    dlist_ranges  = list(map(eval,opts.downselect_parameter_range))
-else:
-    dlist = []
-    dlist_ranges = []
-    opts.downselect_parameter =[]
-if len(dlist) != len(dlist_ranges):
-    print(" downselect parameters inconsistent", dlist, dlist_ranges)
-for indx in np.arange(len(dlist_ranges)):
-    downselect_dict[dlist[indx]] = dlist_ranges[indx]
+_NAMED_RANGE = re.compile(r"^\s*([A-Za-z_][\w.\-]*)\s*:\s*(\[.*\])\s*$")
 
-indx_reflect=[]
-rlist=[]
-if opts.reflect_parameter:
-    rlist  = opts.reflect_parameter
-    indx_reflect = [coord_names.index(param) for param in opts.reflect_parameter]
-if len(rlist) > len(coord_names):
-    print(" reflection parameters inconsistent", rlist, coord_names)
-    raise Exception(" Reflection only allowed for coordinates ")
-for indx in np.arange(len(rlist)):
-    if not(rlist[indx] in coord_names):
-        raise Exception(" Reflection only allowed for coordinates (--parameter) ")
-    if not(rlist[indx] in downselect_dict):
-        raise Exception(" Reflection requires parameter range specified as a downselection ")
-    reflect_dict[rlist[indx]] = downselect_dict[rlist[indx]]
+def _named_range(spec):
+    """Return (name, [lo,hi]) for 'name:[lo,hi]', else None."""
+    m = _NAMED_RANGE.match(spec)
+    if not m:
+        return None
+    return m.group(1), list(eval(m.group(2)))
+
+# Ranges come from two forms: positional '[lo,hi]' entries, paired in order
+# with the --downselect-parameter names (or, if there are fewer, with the names
+# that have no named range), and named 'name:[lo,hi]' entries from either
+# range flag.  A named range overrides a positional one for the same name.
+for spec in (opts.parameter_range or []):
+    if _named_range(spec) is None:
+        sys.exit("util_HyperparameterPuffball: --parameter-range needs the form name:[lo,hi]; got {!r}".format(spec))
+dlist = list(opts.downselect_parameter or [])
+named_ranges = {}
+positional_ranges = []
+for spec in (opts.downselect_parameter_range or []) + (opts.parameter_range or []):
+    parsed = _named_range(spec)
+    if parsed is None:
+        positional_ranges.append(list(eval(spec)))
+    else:
+        named_ranges[parsed[0]] = parsed[1]
+unpaired = [name for name in dlist if name not in named_ranges]
+if len(positional_ranges) == len(dlist):
+    downselect_dict.update(zip(dlist, positional_ranges))
+elif len(positional_ranges) == len(unpaired):
+    downselect_dict.update(zip(unpaired, positional_ranges))
+else:
+    sys.exit("util_HyperparameterPuffball: downselect parameters inconsistent: {!r} need ranges, got {!r}".format(unpaired, positional_ranges))
+downselect_dict.update(named_ranges)
+_unknown_range_names = [name for name in downselect_dict if name not in coord_names]
+if _unknown_range_names:
+    sys.exit("util_HyperparameterPuffball: range given for {!r}, which is not a --parameter {!r}".format(_unknown_range_names, coord_names))
 
 
 
@@ -163,6 +177,25 @@ if opts.supplementary_coordinate_code:
     print(" util_HyperparameterPuffball: puffing in plugin basis {!r} (file columns {!r}).".format(
         list(coord_names), _coord_plugin_in_names,
     ))
+
+# Ranges from the plugin's get_bounds hook, in the puff basis.  Command-line
+# ranges win.  Failures raise: a wrong-frame range must not be used silently.
+if opts.get_range_from_external:
+    if _coord_plugin_converter is None:
+        sys.exit("util_HyperparameterPuffball: --get-range-from-external needs --supplementary-coordinate-code")
+    from RIFT.misc.coordinate_plugin import call_get_bounds
+    for name, rng in call_get_bounds(_coord_plugin_module, coord_names, downselect_dict, opts.external_range_args).items():
+        if name in coord_names and name not in downselect_dict:
+            downselect_dict[name] = rng
+
+indx_reflect=[]
+for param in (opts.reflect_parameter or []):
+    if param not in coord_names:
+        raise Exception(" Reflection only allowed for coordinates (--parameter) ")
+    if param not in downselect_dict:
+        raise Exception(" Reflection requires a range for {}: pass --parameter-range {}:[lo,hi] ".format(param, param))
+    reflect_dict[param] = downselect_dict[param]
+    indx_reflect.append(coord_names.index(param))
 
 # Load data, keep parameter names
 dat_raw = np.genfromtxt(opts.inj_file,names=True)

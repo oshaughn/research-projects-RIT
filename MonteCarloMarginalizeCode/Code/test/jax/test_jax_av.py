@@ -459,7 +459,7 @@ def test_driver_rejects_inert_portfolio_allocation_option(monkeypatch, capsys):
         assert "requires --sampler-method portfolio" in capsys.readouterr().err
 
 
-def test_driver_accepts_pseudo_cosmo_only_for_av_backend(monkeypatch):
+def test_driver_accepts_pseudo_cosmo_for_av_backend(monkeypatch):
     monkeypatch.delenv("JAX_ILE_DISTMARG_GH", raising=False)
     driver = _driver_module()
     parser = driver.build_parser()
@@ -468,7 +468,7 @@ def test_driver_accepts_pseudo_cosmo_only_for_av_backend(monkeypatch):
     driver.check_critical_and_report(opts, parser)
 
     unsupported, _ = parser.parse_args([
-        "--sampler-method", "AV", "--d-prior", "cosmo_sourceframe"])
+        "--sampler-method", "AV", "--d-prior", "uniform"])
     with pytest.raises(SystemExit):
         driver.check_critical_and_report(unsupported, parser)
 

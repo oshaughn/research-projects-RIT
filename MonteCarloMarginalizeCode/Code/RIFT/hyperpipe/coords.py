@@ -148,6 +148,16 @@ class HyperCoordSpec:
         Optional ``(module, function, ini)`` triple wiring a
         supplementary external-prior / likelihood factor through the
         post stage (``--supplementary-likelihood-factor-{code,function,ini}``).
+    function, ini, chart
+        Optional ``--supplementary-coordinate-{function,ini,chart}`` values.
+        They go to every stage that loads the coord module (post and, in the
+        plugin basis, puff).
+    input_parameters
+        Data-file columns the coord module maps from (the plugin's input
+        basis).  Grid and posterior files are always written in these
+        columns.  Needed when the sampling basis is the plugin's output
+        basis, so the puff stage can round-trip through the plugin and the
+        test stage can read the file columns.
     """
 
     name: Optional[str] = None
@@ -156,6 +166,13 @@ class HyperCoordSpec:
     implied: List[str] = field(default_factory=list)
     nofit: List[str] = field(default_factory=list)
     likelihood_factor: Optional[Tuple[str, Optional[str], Optional[str]]] = None
+    function: Optional[str] = None
+    ini: Optional[str] = None
+    chart: Optional[str] = None
+    input_parameters: List[str] = field(default_factory=list)
+    # True when function/ini/chart came from post.extra-args, which the post
+    # stage already receives verbatim; they are then forwarded only to puff.
+    plugin_flags_in_extra_args: bool = False
 
     # ----- construction --------------------------------------------------
     @classmethod
@@ -168,6 +185,10 @@ class HyperCoordSpec:
         coords_implied: str = "",
         coords_nofit: str = "",
         likelihood_factor: Optional[Sequence[Optional[str]]] = None,
+        coord_function: Optional[str] = None,
+        coord_ini: Optional[str] = None,
+        coord_chart: Optional[str] = None,
+        coord_input_parameters: str = "",
     ) -> "HyperCoordSpec":
         """Build a spec from the string-shaped fields a Hydra config gives us.
 
@@ -208,6 +229,10 @@ class HyperCoordSpec:
             implied=implied,
             nofit=nofit,
             likelihood_factor=lf,
+            function=coord_function or None,
+            ini=coord_ini or None,
+            chart=coord_chart or None,
+            input_parameters=parse_parameter_list(coord_input_parameters),
         )
 
     # ----- validation ----------------------------------------------------
@@ -302,11 +327,87 @@ class HyperCoordSpec:
             )
         return " ".join(bits)
 
+    # ----- bases ---------------------------------------------------------
+    def sampling_basis(self) -> List[str]:
+        return list(self.parameters) + list(self.nofit)
+
+    def samples_in_plugin_basis(self) -> bool:
+        """True when the MC samples in the coord module's OUTPUT basis.
+
+        The post stage then writes its samples back in the module's input
+        (data-file) columns, so the puff and test stages cannot use the
+        sampling-basis names as file columns.  Decidable only when
+        ``input_parameters`` is declared; a sampling basis that mixes
+        plugin-output names and data-file columns is refused.
+        """
+        if not (self.name and self.input_parameters):
+            return False
+        sampling = self.sampling_basis()
+        in_file = [p for p in sampling if p in self.input_parameters]
+        if in_file and len(in_file) != len(sampling):
+            raise ValueError(
+                f"Sampling basis {sampling!r} mixes coord-module outputs and "
+                f"data-file columns {in_file!r}; the puff and test stages "
+                "need one basis or the other."
+            )
+        return not in_file
+
+    def puff_basis(self, mode: str = "auto") -> Tuple[List[str], bool]:
+        """Return (names, use_plugin) for the puff stage.
+
+        ``mode`` is ``auto`` (plugin basis exactly when the sampling basis is
+        the plugin's output basis), ``file`` (data-file columns, no plugin) or
+        ``plugin`` (puff in the plugin's output basis even when the MC samples
+        data-file columns: the fit-basis names that are not file columns).
+        """
+        if mode not in ("auto", "file", "plugin"):
+            raise ValueError(f"puff coord-basis must be auto, file or plugin; got {mode!r}")
+        if mode == "file" or (mode == "auto" and not self.samples_in_plugin_basis()):
+            if self.samples_in_plugin_basis():
+                raise ValueError(
+                    "puff coord-basis 'file' cannot work: the sampling basis "
+                    f"{self.sampling_basis()!r} is not data-file columns."
+                )
+            return self.sampling_basis(), False
+        if not (self.name and self.input_parameters):
+            raise ValueError(
+                "puff coord-basis 'plugin' needs post.coord-module and "
+                "post.coord-input-parameters (the data-file columns the module maps from)."
+            )
+        if self.samples_in_plugin_basis():
+            return self.sampling_basis(), True
+        names = [p for p in dict.fromkeys(list(self.parameters) + list(self.implied))
+                 if p not in self.input_parameters]
+        if not names:
+            raise ValueError("puff coord-basis 'plugin': no fit-basis name is a coord-module output.")
+        return names, True
+
+    def test_basis(self) -> List[str]:
+        """Columns of the grid / posterior files the convergence test reads."""
+        if self.samples_in_plugin_basis():
+            return list(self.input_parameters)
+        return self.sampling_basis()
+
+    def _plugin_flags(self, with_input_parameters: bool) -> List[str]:
+        bits = [f"--supplementary-coordinate-code {self.name}"]
+        if self.function:
+            bits.append(f"--supplementary-coordinate-function {self.function}")
+        if self.ini:
+            bits.append(f"--supplementary-coordinate-ini {self.ini}")
+        if self.chart:
+            bits.append(f"--supplementary-coordinate-chart {self.chart}")
+        if with_input_parameters:
+            bits += [f"--supplementary-coordinate-input-parameter {p}" for p in self.input_parameters]
+        return bits
+
     def to_post_args(self) -> str:
         """Emit the post-stage arg block (parameters + coord-module + lf trio)."""
         bits = [self.to_parameter_args()]
         if self.name:
-            bits.append(f"--supplementary-coordinate-code {self.name}")
+            if self.plugin_flags_in_extra_args:
+                bits.append(f"--supplementary-coordinate-code {self.name}")
+            else:
+                bits += self._plugin_flags(with_input_parameters=False)
         if self.likelihood_factor is not None:
             mod, fn, ini = self.likelihood_factor
             bits.append(f"--supplementary-likelihood-factor-code {mod}")
@@ -316,7 +417,8 @@ class HyperCoordSpec:
                 bits.append(f"--supplementary-likelihood-factor-ini {ini}")
         return " ".join(b for b in bits if b)
 
-    def to_puff_args(self, force_away: float = 0.03, puff_factor: float = 0.5) -> str:
+    def to_puff_args(self, force_away: float = 0.03, puff_factor: float = 0.5,
+                     coord_basis: str = "auto") -> str:
         """Emit the puff-stage arg block.
 
         The puff lane reads / writes grid files in the data-file column
@@ -326,10 +428,18 @@ class HyperCoordSpec:
         diverge (EOSPosterior with --parameter-implied for a transformed
         fit basis), the puff lane must continue to operate on the data-
         file columns -- i.e. coords-fit + coords-nofit.
+
+        When the MC samples in the coord module's output basis (see
+        :meth:`samples_in_plugin_basis`), or ``coord_basis='plugin'``, the
+        puff runs in that basis and gets the coord module, so it can map the
+        file columns in and back out.
         """
+        names, use_plugin = self.puff_basis(coord_basis)
         bits = [f"--force-away {force_away}", f"--puff-factor {puff_factor}"]
-        for p in list(self.parameters) + list(self.nofit):
+        for p in names:
             bits.append(f"--parameter {p}")
+        if use_plugin:
+            bits += self._plugin_flags(with_input_parameters=True)
         return " ".join(bits)
 
     def to_test_args(self, method: str = "JS", threshold: float = 0.05) -> str:
@@ -342,7 +452,7 @@ class HyperCoordSpec:
         + coords-nofit) -- the convergence-test driver reads grid / posterior
         files whose columns are in the sampling basis.
         """
-        bits = [f"--parameter {p}" for p in list(self.parameters) + list(self.nofit)]
+        bits = [f"--parameter {p}" for p in self.test_basis()]
         bits.append(f"--method {method}")
         bits.append(f"--threshold {threshold}")
         return " ".join(bits)
@@ -387,11 +497,54 @@ def coord_spec_from_config_section(section) -> HyperCoordSpec:
     if lf_mod:
         lf = (lf_mod, _get("likelihood-factor-function"), _get("likelihood-factor-ini"))
 
-    return HyperCoordSpec.from_strings(
+    # Coord-module options may be structured keys or, as in older configs,
+    # flags inside post.extra-args.  Either way the puff stage needs them.
+    from_extra = _plugin_flags_from_args(_get("extra-args", "") or "")
+    if "input-parameter" in from_extra:
+        # extra-args reaches util_ConstructEOSPosterior.py verbatim, and it has no such flag.
+        raise ValueError(
+            "post.extra-args: --supplementary-coordinate-input-parameter is a puff-stage flag; "
+            "set post.coord-input-parameters instead."
+        )
+    spec = HyperCoordSpec.from_strings(
         name=_get("coord-module"),
         coords_fit=_get("coords-fit", "") or "",
         coords_sample=_get("coords-sample", "") or "",
         coords_implied=_get("coords-implied", "") or "",
         coords_nofit=_get("coords-nofit", "") or "",
         likelihood_factor=lf,
+        coord_function=_get("coord-function") or from_extra.get("function"),
+        coord_ini=_get("coord-ini") or from_extra.get("ini"),
+        coord_chart=_get("coord-chart") or from_extra.get("chart"),
+        coord_input_parameters=_get("coord-input-parameters", "") or "",
     )
+    structured = any(_get(k) for k in ("coord-function", "coord-ini", "coord-chart"))
+    if from_extra and structured:
+        raise ValueError(
+            "post: give coord-function / coord-ini / coord-chart either as keys "
+            "or as --supplementary-coordinate-* flags in extra-args, not both."
+        )
+    spec.plugin_flags_in_extra_args = bool(from_extra)
+    return spec
+
+
+def _plugin_flags_from_args(args: str) -> Dict[str, object]:
+    """Pull --supplementary-coordinate-{function,ini,chart,input-parameter} out of an args string."""
+    out: Dict[str, object] = {}
+    toks = shlex.split(args)
+    for i, tok in enumerate(toks):
+        key, _, val = tok.partition("=")
+        if not key.startswith("--supplementary-coordinate-"):
+            continue
+        sub = key[len("--supplementary-coordinate-"):]
+        if sub not in ("function", "ini", "chart", "input-parameter"):
+            continue
+        if not val:
+            if i + 1 >= len(toks):
+                raise ValueError(f"{key} needs a value in extra-args")
+            val = toks[i + 1]
+        if sub == "input-parameter":
+            out.setdefault(sub, []).append(val)  # type: ignore[union-attr]
+        else:
+            out[sub] = val
+    return out

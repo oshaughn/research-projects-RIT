@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 
 from RIFT.likelihood import gpu_precompute as gp
-from conftest import to_host
+from gpu_precompute_helpers import to_host
 
 
 @pytest.mark.parametrize("batch", [1, 2, 4])

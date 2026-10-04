@@ -263,6 +263,7 @@ parser.add_argument("--force-initial-grid-size",default=None,type=int,help="Forc
 parser.add_argument("--propose-fit-strategy",action='store_true',help="If present, the code will propose a fit strategy (i.e., cip-args or cip-args-list).  The strategy will take into account the mass scale, presence/absence of matter, and the spin of the component objects.  If --lowlatency-propose-approximant is active, the code will use a strategy suited to low latency (i.e., low cost, compatible with search PSDs, etc)")
 parser.add_argument("--propose-flat-strategy",action="store_true",help="If present AND propose-fit-strategy is present, the strategy proposed will have puffball and convergence tests for every iteration, and the same CIP")
 parser.add_argument("--propose-converge-last-stage",action="store_true",help="If present, the last pre-extrinsic stage is 'iterate to convergence' form")
+parser.add_argument("--rf-transverse-spin-coordinates", choices=["off","auto","physics3"], default=None, help="Opt-in RF physics3 fitting scalars; auto applies only at detector chirp mass <20 Msun")
 parser.add_argument("--force-fit-method",type=str,default=None,help="Force specific fit method")
 #parser.add_argument("--internal-fit-strategy-enforces-cut",action='store_true',help="Fit strategy enforces lnL-offset (default 15) after the first batch of iterations. ACTUALLY DEFAULT - SHOULD BE REDUNDANT")
 parser.add_argument("--last-iteration-extrinsic",action='store_true',help="Does nothing!  extrinsic implemented with CEP call, user must do this elsewhere")
@@ -723,6 +724,7 @@ if use_gracedb_event:
       # For CWB triggers, should use event.log file to pull out a central frequency
       P.m1=P.m2= 50*lal.MSUN_SI  # make this up completely, just so code will run, goal is higher mass than this, watch out for mc range
       event_dict["P"]=P
+      event_dict["rf_mass_is_placeholder"] = True
       event_dict["MChirp"] = P.extract_param('mc')/lal.MSUN_SI
       event_dict["epoch"]  = 0 # no estimate for now
       if not "SNR" in event_dict:
@@ -755,6 +757,7 @@ elif not(opts.event_time is None):
     event_dict["P"] = lalsimutils.ChooseWaveformParams() # default!
 
     if "MChirp" not in event_dict.keys():
+        event_dict["rf_mass_is_placeholder"] = True
         event_dict["MChirp"] = event_dict["P"].extract_param('mc')/lal.MSUN_SI  # note this is RANDOM
     else:
         event_dict["P"].assign_param('mc', event_dict["MChirp"]*lal.MSUN_SI)
@@ -1441,6 +1444,19 @@ if opts.assume_eccentric:
     helper_ile_args += " --save-eccentricity "
     if opts.use_meanPerAno:
         helper_ile_args += " --save-meanPerAno "
+# RF transverse opt-in: an unforced switch to rf happens before the initial grid, so the grid
+# matches an explicit --force-fit-method rf build.
+rf_transverse_active = False
+if opts.rf_transverse_spin_coordinates:
+    from RIFT.misc.rf_transverse_spin import enabled
+    rf_applicable = (opts.assume_precessing_spin and not opts.assume_nospin
+        and not opts.assume_matter and not opts.assume_eccentric and not opts.assume_highq
+        and not opts.use_mtot_coords)
+    rf_detector_mc = None if event_dict.get('rf_mass_is_placeholder', False) else event_dict.get('MChirp')
+    rf_transverse_active = enabled(opts.rf_transverse_spin_coordinates, rf_detector_mc, rf_applicable)
+    if rf_transverse_active and opts.force_fit_method is None:
+        fit_method = 'rf'
+
 if opts.propose_initial_grid_fisher: # and (P.extract_param('mc')/lal.MSUN_SI < 10.):
     cmd  = "util_AnalyticFisherGrid.py  --inj-file-out  proposed-grid  "
     # Add standard downselects : do not have m1, m2 be less than 1
@@ -1734,6 +1750,11 @@ if opts.assume_eccentric:
     helper_puff_args += " --parameter eccentricity "
     if opts.use_meanPerAno:
         helper_puff_args += " --parameter meanPerAno "
+
+# The single top-level option selects the tested native mu1/mu2 fit basis (after the grid,
+# as for explicit rf). A custom total-mass schedule is outside this bounded prototype.
+if rf_transverse_active and fit_method == 'rf':
+    opts.internal_use_aligned_phase_coordinates = True
 
 if opts.propose_fit_strategy:
     puff_max_it= 0
@@ -2036,6 +2057,25 @@ if opts.propose_converge_last_stage:
 # iterations with normal errors and keep the default cut.
 if opts.calmarg_first_cip_sigma_cut is not None and len(helper_cip_arg_list) > 0:
     helper_cip_arg_list[0] += " --sigma-cut {} ".format(opts.calmarg_first_cip_sigma_cut)
+
+if opts.rf_transverse_spin_coordinates:
+    from RIFT.misc.rf_transverse_spin import stage_arguments
+    # engine.fref is the reference assigned to ILE spins; fmin is not a substitute.
+    rf_fref = unsafe_config_get(config, ['engine','fref']) if opts.use_ini else opts.fmin_template
+    if rf_fref is None:
+        rf_fref = opts.fmin_template
+    rf_applicable = (opts.assume_precessing_spin and not opts.assume_nospin
+        and not opts.assume_matter and not opts.assume_eccentric and not opts.assume_highq
+        and not opts.use_mtot_coords)
+    helper_cip_arg_list = [stage_arguments(line, opts.rf_transverse_spin_coordinates,
+        None if event_dict.get('rf_mass_is_placeholder', False) else event_dict.get('MChirp'), rf_applicable, float(rf_fref)) for line in helper_cip_arg_list]
+    rf_activated = sum('--rf-transverse-spin-coordinates physics3' in line for line in helper_cip_arg_list)
+    if opts.rf_transverse_spin_coordinates == 'physics3' and not rf_activated:
+        raise ValueError('No complete two-spin RF stage can honor the requested physics3 option')
+    print('RF transverse-spin mode {}, detector chirp mass {}, fref {}, activated stages {}'.format(
+        opts.rf_transverse_spin_coordinates,
+        None if event_dict.get('rf_mass_is_placeholder', False) else event_dict.get('MChirp'),
+        rf_fref, rf_activated))
 
 with open("helper_cip_arg_list.txt",'w+') as f:
     f.write("\n".join(helper_cip_arg_list))

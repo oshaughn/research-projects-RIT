@@ -69,6 +69,21 @@ if [ "$_CIP_EXPORT_FOUND" -ne "$_CIP_EXPORT_EXPECTED" ]; then
 fi
 python -m pytest -q "$_CIP_EXPORT_TESTS"
 
+# CIP --n-events-to-analyze > 1 (several hyperpipeline grid rows per job), --chunk-save and
+# --save-hyperfile-only.  CIP accepted N > 1 but integrated only the first row, so (N-1)/N of
+# every chunked grid was silently skipped.  Subprocess runs on a synthetic problem with a known
+# answer (~100 s): an N=4 job must write the same files, names and statistically equal
+# integrals as four N=1 jobs, from row 0 and across the end of the grid.
+_CIP_MULTIROW_TESTS=MonteCarloMarginalizeCode/Code/test/test_cip_multi_row.py
+# Raise EXPECTED by RUNNING collection, never by arithmetic.
+_CIP_MULTIROW_EXPECTED=10
+_CIP_MULTIROW_FOUND=$(python -m pytest -q --collect-only "$_CIP_MULTIROW_TESTS" 2>/dev/null | grep -c '::' || true)
+if [ "$_CIP_MULTIROW_FOUND" -ne "$_CIP_MULTIROW_EXPECTED" ]; then
+    echo "cip-multi-row gate: collected $_CIP_MULTIROW_FOUND tests, expected $_CIP_MULTIROW_EXPECTED" >&2
+    exit 1
+fi
+python -m pytest -q "$_CIP_MULTIROW_TESTS"
+
 # --psi-marginalization: analytic polarization-angle marginalization made reachable on
 # the legacy scalar likelihood path (factored_likelihood.NetworkLogLikelihoodPolarizationMarginalized
 # was previously dead code, unreachable from any driver and untested by any importable
@@ -240,6 +255,50 @@ if [ -z "$_E2E_BAD_LINES" ]; then _E2E_BAD=0; else _E2E_BAD=$(printf '%s
 if [ "$_E2E_BAD" -ne 0 ]; then
     echo "e2e analytic gate: $_E2E_BAD unacceptable SKIPPED line(s) -- pytest -rs groups by (file:line, reason), so ONE line can cover N tests and this is not a test count (RIFT_CI_REQUIRE_GPU=${RIFT_CI_REQUIRE_GPU:-0}; with it set, ANY skip is unacceptable):" >&2
     printf '%s\n' "$_E2E_BAD_LINES" >&2
+    exit 1
+fi
+
+# mcsamplerNFlow as a mcsamplerPortfolio MEMBER.  --sampler-portfolio NFlow is offered
+# by both util_ConstructIntrinsicPosterior_GenericCoordinates and
+# util_ConstructEOSPosterior, and the configuration could not run.  Four defects:
+#
+#   * draw_simplified() returned (rv, p_s, p_prior) while MCSamplerGeneric and every
+#     other implementation return (p_s, p_prior, rv), which is what
+#     mcsamplerPortfolio.draw() unpacks -- so the SAMPLES were assigned to joint_p_s.
+#     Not reliably loud: on [AV, NFlow] over a unit Gaussian, d=2 raised a broadcast
+#     ValueError but d=1 COMPLETED, 3.07 nats low.
+#   * no sampling_density(), which the portfolio needs for q_mix -- and since the
+#     member p_s contract landed, [AV, NFlow] is refused outright at setup().
+#   * enforce_bounds discarded the out-of-box flow samples without refilling, so a
+#     trained flow returned FEWER samples than asked and the portfolio aborted
+#     copying into its fixed-width slice; and the p_s it reported was the undivided
+#     q(x) rather than q(x)/A, biasing its own evidence high by ln(1/A).
+#   * num_layers = int(d/2) is 0 at d=1, so a one-parameter flow had no trainable
+#     weights and training died in torch.
+#
+# Runs in CI although test_NF_reuse.py is rostered OPTDEP: the paths pinned here are
+# the untrained uniform branch plus strict in-file flow stand-ins, and the file stubs
+# torch/nflows at import when they are absent (and uses the real packages when
+# present, which is how the trained-flow arithmetic was checked -- see the PR).
+_NFCONTRACT_TESTS=MonteCarloMarginalizeCode/Code/test/integrators/test_NFlow_portfolio_contract.py
+_NFCONTRACT_EXPECTED=21
+_NFCONTRACT_FOUND=$(python -m pytest -q --collect-only "$_NFCONTRACT_TESTS" 2>/dev/null | grep -c '::' || true)
+if [ "$_NFCONTRACT_FOUND" -ne "$_NFCONTRACT_EXPECTED" ]; then
+    echo "NFlow portfolio-contract gate: collected $_NFCONTRACT_FOUND tests, expected $_NFCONTRACT_EXPECTED" >&2
+    exit 1
+fi
+# PASSED FLOOR, not just the collection count.  Nothing in this file skips, and the
+# count above already catches a deleted test -- but an xfail(run=False) changes
+# neither the collection count nor the exit code and prints no SKIPPED line, so the
+# number that actually RAN is the only thing that can see it.
+_NFCONTRACT_OUT=$(python -m pytest -q "$_NFCONTRACT_TESTS" 2>&1 | tee >(cat >&2)) \
+    || { echo "NFlow portfolio-contract gate FAILED" >&2; exit 1; }
+# grep, not sed with a leading .*[^0-9]: pytest's summary is "12 passed, 2 warnings in
+# 6.48s", with the count at the START of the line, so a pattern needing a character
+# before it matched nothing and scored 0 passed on a fully green run.
+_NFCONTRACT_PASSED=$(printf '%s\n' "$_NFCONTRACT_OUT" | grep -oE '[0-9]+ passed' | tail -1 | grep -oE '^[0-9]+')
+if [ "${_NFCONTRACT_PASSED:-0}" -ne "$_NFCONTRACT_EXPECTED" ]; then
+    echo "NFlow portfolio-contract gate: $_NFCONTRACT_EXPECTED collected but ${_NFCONTRACT_PASSED:-0} passed (xfail/skip would not change the exit code)" >&2
     exit 1
 fi
 

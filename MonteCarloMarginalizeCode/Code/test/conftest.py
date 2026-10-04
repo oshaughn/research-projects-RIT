@@ -28,8 +28,10 @@ behind.  Keep it cheap -- this conftest loads for every pytest run under Code/te
 including the core-unit gate.
 """
 
+import gc
 import os
 import re
+import sys
 
 import pytest
 
@@ -62,3 +64,24 @@ def _check_still_scripts():
 
 
 _check_still_scripts()
+
+
+_JAX_TEST_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "jax") + os.sep
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _release_jax_executables(request):
+    """Free compiled XLA executables after each test/jax module.
+
+    Every executable stays loaded, and each holds memory mappings.  A full test-jax.sh shard
+    reached the per-process limit (vm.max_map_count, 65530 on CIT) and the next compile
+    aborted or raised "Failed to materialize symbols".  Clearing at module boundaries bounds
+    growth across modules, not within one.
+    """
+    yield
+    if not str(request.fspath).startswith(_JAX_TEST_DIR):
+        return
+    jax = sys.modules.get("jax")
+    if jax is not None and hasattr(jax, "clear_caches"):
+        jax.clear_caches()
+    gc.collect()

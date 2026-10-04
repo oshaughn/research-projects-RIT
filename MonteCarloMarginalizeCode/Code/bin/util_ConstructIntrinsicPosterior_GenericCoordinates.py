@@ -13,6 +13,10 @@
 #   postprocess_1d_cumulative
 #   util_QuadraticMassPosterior.py
 #
+# Row mode (--n-events-to-analyze > 1) re-runs this file's post-fit statements per row.  Read
+# the source now, so a checkout that changes during the fit cannot change what the rows run.
+with open(__file__) as _f:
+    _OWN_SOURCE = _f.read()
 
 
 import RIFT.interpolators.BayesianLeastSquares as BayesianLeastSquares
@@ -48,82 +52,17 @@ no_plots = True
 internal_dtype = np.float32  # only use 32 bit storage! Factor of 2 memory savings for GP code in high dimensions
 
 C_CGS=2.997925*10**10 # Argh, Monica!
- 
-try:
-    import matplotlib
-    matplotlib.use('agg')  # prevent requests for DISPLAY
-    import matplotlib.pyplot as plt
-    from mpl_toolkits.mplot3d import Axes3D
-    import matplotlib.lines as mlines
-    import corner
 
-    no_plots=False
-except ImportError:
-    print(" - no matplotlib - ")
-
-
-from sklearn.preprocessing import PolynomialFeatures
-if True:
-#try:
-    import RIFT.misc.ModifiedScikitFit as msf  # altenative polynomialFeatures
-else:
-#except:
-    print(" - Faiiled ModifiedScikitFit : No polynomial fits - ")
-from sklearn import linear_model
+# Plotting (matplotlib/corner), the optional fit backends (ModifiedScikitFit/sklearn linear_model,
+# senni, internal_GP, gpytorch_wrapper) and the optional samplers (GMM, GPU, AV, portfolio) are
+# imported after argument parsing, and only when the options select them: see "Optional modules"
+# below.  corner (via arviz) and senni (via torch) alone cost ~8 s per job at import.
 
 from igwn_ligolw import lsctables, utils, ligolw
 lsctables.use_in(ligolw.LIGOLWContentHandler)
 
 import RIFT.integrators.mcsampler as mcsampler
 from RIFT.misc.mc_error import relative_mc_error
-try:
-    import RIFT.integrators.mcsamplerEnsemble as mcsamplerEnsemble
-    mcsampler_gmm_ok = True
-except:
-    print(" No mcsamplerEnsemble ")
-    mcsampler_gmm_ok = False
-try:
-    import RIFT.integrators.mcsamplerGPU as mcsamplerGPU
-    mcsampler_gpu_ok = True
-    mcsamplerGPU.xpy_default =xpy_default  # force consistent, in case GPU present
-    mcsamplerGPU.identity_convert = identity_convert
-except:
-    print( " No mcsamplerGPU ")
-    mcsampler_gpu_ok = False
-try:
-    import RIFT.integrators.mcsamplerAdaptiveVolume as mcsamplerAdaptiveVolume
-    mcsampler_AV_ok = True
-except:
-    print(" No mcsamplerAV ")
-    mcsampler_AV_ok = False
-mcsampler_NF_ok=False
-mcsamplerNFlow = None
-mcsampler_Portfolio_ok=False
-try:
-    import RIFT.integrators.mcsamplerPortfolio as mcsamplerPortfolio
-    mcsampler_Portfolio_ok = True
-except:
-    print(" No mcsamplerPortfolio ")
-try:
-    import RIFT.interpolators.senni as senni
-    senni_ok = True
-except:
-    print( " No senni ")
-    senni_ok = False
-
-try:
-    import RIFT.interpolators.internal_GP
-    internalGP_ok = True
-except:
-    print( " - no internal_GP -  ")
-    internalGP_ok = False
-
-try:
-    import RIFT.interpolators.gpytorch_wrapper as gpytorch_wrapper
-    gpytorch_ok = True
-except:
-    print( " No gpytorch_wrapper ")
-    gpytorch_ok = False
 
 
 
@@ -239,7 +178,9 @@ parser.add_argument("--check-good-enough", action='store_true', help="If active,
 parser.add_argument("--fname",help="filename of *.dat file [standard ILE output]")
 parser.add_argument("--input-tides",action='store_true',help="Use input format with tidal fields included.")
 parser.add_argument("--input-eos-index",action='store_true',help="Use input format with eos index fields included")
-parser.add_argument("--n-events-to-analyze",default=1,type=int,help="Number of EOS realizations to analyze. Currently only supports 1")
+parser.add_argument("--n-events-to-analyze",default=1,type=int,help="Number of consecutive rows of the --using-eos file:<grid> to analyze, starting at --using-eos-index.  The fit is built once; each row is then integrated and written exactly as a separate job with --n-events-to-analyze 1 and --using-eos-index <row> would write it (output names: a trailing <index> in --fname-output-integral/--fname-output-samples is replaced by <row>).  Values above 1 require --using-eos file:<grid> and --using-eos-index, and disable plots.")
+parser.add_argument("--chunk-save",action='store_true',help="With --using-eos file:<grid>: write the integral results of all analyzed rows to ONE <fname-output-integral>+annotation.dat (one row per grid row, same columns as the per-row file; readable by util_HyperCombine.py) and one <fname-output-integral>.dat, instead of one pair of files per row.")
+parser.add_argument("--save-hyperfile-only",action='store_true',help="Write only the +annotation.dat integral result (the file the hyperpipeline consumes) for each row: no .dat, +annotation_ESS.dat, _withpriorchange*.dat, or posterior samples.")
 parser.add_argument("--input-distance",action='store_true',help="Use input format with distance fields (but not tidal fields?) enabled.")
 parser.add_argument("--fname-lalinference",help="filename of posterior_samples.dat file [standard LI output], to overlay on corner plots")
 parser.add_argument("--fname-output-samples",default="output-ILE-samples",help="output posterior samples (default output-ILE-samples -> output-ILE)")
@@ -336,6 +277,7 @@ parser.add_argument("--n-chunk",default=1e5,type=int)
 parser.add_argument("--contingency-unevolved-neff",default=None,help="Contingency planning for when n_eff produced by CIP is small, and user doesn't want to have hard failures.  Note --fail-unless-n-eff will prevent this from happening. Options: quadpuff, ...")
 parser.add_argument("--not-worker",action='store_true',help="Nonworker jobs, IF we have workers present, don't have the 'fail unless' statement active")
 parser.add_argument("--fail-unless-n-eff",default=None,type=float,help="If nonzero, places a minimum requirement on n_eff. Code will exit if not achieved, with no sample generation")
+parser.add_argument("--rf-transverse-spin-coordinates", choices=["physics3"], help="Opt-in RF-only L-frame fitting scalars; preserves every native coordinate and the physical prior")
 parser.add_argument("--fit-method",default="rf",help="rf (default) : rf|gp|quadratic|polynomial|gp_hyper|gp_lazy|cov|kde|gp-jax-svgp|gp-jax-rff|gp-jax-exact.  Note 'polynomial' with --fit-order 0  will fit a constant. The gp-jax-* methods use the optional JAX interpolators (RIFT.interpolators.jax_gp) and support a differentiable export via --fit-save-jax.")
 parser.add_argument("--fit-load-quadratic",default=None,help="Filename of hdf5 file to load quadratic fit from. ")
 parser.add_argument("--fit-load-quadratic-path",default="GW190814/annealing_mc_source_eta_chieff",help="Path in hdf5 file to specific covariance matrix to be used")
@@ -416,6 +358,20 @@ if any(force_hyperbolic_classes) and not opts.use_hyperbolic:
 if sum(bool(value) for value in force_hyperbolic_classes) > 1:
     parser.error("CANNOT use multiple hyperbolic --force-X options at once")
 
+# Several grid rows per job (--n-events-to-analyze > 1, as create_eos_posterior_pipeline requests
+# via --marg-event-nchunk-list-file) and --chunk-save are defined only for a row-indexed grid.
+if opts.n_events_to_analyze < 1:
+    parser.error("--n-events-to-analyze must be at least 1")
+_multi_row = opts.n_events_to_analyze > 1
+_row_mode = _multi_row or opts.chunk_save   # rows are integrated in a loop that outlives sys.exit()
+if _row_mode and not (opts.using_eos and opts.using_eos.startswith('file:') and opts.using_eos_index is not None):
+    parser.error("--n-events-to-analyze > 1 and --chunk-save analyze consecutive rows of a grid file, "
+                 "so they require --using-eos file:<grid> and --using-eos-index <first row>; "
+                 "without them every row would be the same integral")
+if _multi_row and not opts.no_plots:
+    print(" --n-events-to-analyze > 1: plots disabled (every row would overwrite the same plot files)")
+    opts.no_plots = True
+
 # good enough file: terminate always with success if present, don't try any more work
 if opts.check_good_enough:
   fname = 'cip_good_enough'
@@ -427,6 +383,96 @@ if opts.check_good_enough:
       sys.exit(0)
     else:
       print(" Good enough file ZERO LENGTH, continuing")
+
+###
+### Optional modules: import only what the selected options use
+###
+if not opts.no_plots:
+    try:
+        import matplotlib
+        matplotlib.use('agg')  # prevent requests for DISPLAY
+        import matplotlib.pyplot as plt
+        from mpl_toolkits.mplot3d import Axes3D
+        import matplotlib.lines as mlines
+        import corner
+
+        no_plots=False
+    except ImportError:
+        print(" - no matplotlib - ")
+
+if opts.fit_method == 'polynomial':
+    from sklearn.preprocessing import PolynomialFeatures
+    import RIFT.misc.ModifiedScikitFit as msf  # altenative polynomialFeatures
+    from sklearn import linear_model
+senni_ok = False
+if opts.fit_method in ('nn', 'nn_rfwrapper'):
+    try:
+        import RIFT.interpolators.senni as senni
+        senni_ok = True
+    except:
+        print( " No senni ")
+internalGP_ok = False
+if opts.fit_method == 'gp_sparse':
+    try:
+        import RIFT.interpolators.internal_GP
+        internalGP_ok = True
+    except:
+        print( " - no internal_GP -  ")
+gpytorch_ok = False
+if opts.fit_method == 'gp-torch':
+    try:
+        import RIFT.interpolators.gpytorch_wrapper as gpytorch_wrapper
+        gpytorch_ok = True
+    except:
+        print( " No gpytorch_wrapper ")
+
+# Samplers.  Any --sampler-method that is not one of the named built-ins is looked up in
+# mcsamplerPortfolio.known_pipelines (plugins), so that module is needed for those too,
+# including the default adaptive_cartesian.
+_sampler_modules = set()
+_sampler_member_modules = {'adaptive_cartesian_gpu': 'GPU', 'AC': 'GPU', 'GMM': 'GMM', 'AV': 'AV'}
+if opts.sampler_method in ('adaptive_cartesian_gpu', 'GMM', 'AV'):
+    _sampler_modules.add(_sampler_member_modules[opts.sampler_method])
+elif opts.sampler_method != 'NFlow':
+    _sampler_modules.add('Portfolio')
+    if opts.sampler_method == 'portfolio':
+        for name in (opts.sampler_portfolio or []):
+            if name in _sampler_member_modules:
+                _sampler_modules.add(_sampler_member_modules[name])
+mcsampler_gmm_ok = False
+if 'GMM' in _sampler_modules:
+    try:
+        import RIFT.integrators.mcsamplerEnsemble as mcsamplerEnsemble
+        mcsampler_gmm_ok = True
+    except:
+        print(" No mcsamplerEnsemble ")
+mcsampler_gpu_ok = False
+if 'GPU' in _sampler_modules:
+    try:
+        import RIFT.integrators.mcsamplerGPU as mcsamplerGPU
+        mcsampler_gpu_ok = True
+        mcsamplerGPU.xpy_default =xpy_default  # force consistent, in case GPU present
+        mcsamplerGPU.identity_convert = identity_convert
+    except:
+        print( " No mcsamplerGPU ")
+mcsampler_AV_ok = False
+if 'AV' in _sampler_modules:
+    try:
+        import RIFT.integrators.mcsamplerAdaptiveVolume as mcsamplerAdaptiveVolume
+        mcsampler_AV_ok = True
+    except:
+        print(" No mcsamplerAV ")
+mcsampler_NF_ok=False
+mcsamplerNFlow = None
+mcsampler_Portfolio_ok=False
+if 'Portfolio' in _sampler_modules:
+    try:
+        import RIFT.integrators.mcsamplerPortfolio as mcsamplerPortfolio
+        mcsampler_Portfolio_ok = True
+    except:
+        # Only a failure for --sampler-method portfolio; otherwise it just means no plugin pipelines.
+        if opts.sampler_method == 'portfolio' or opts.verbose:
+            print(" No mcsamplerPortfolio ")
 
 
 if not(opts.no_adapt_parameter):
@@ -487,6 +533,51 @@ if (opts.using_eos_dirty_phase_transitions or opts.using_eos_extended_family) an
         "require --using-eos lalsim_file:<path>"
     )
 
+def _eos_from_grid_row(eos_name, dat):
+    """EOS for one row of a --using-eos file:<grid> (columns: lnL, sigma_lnL, EOS parameters)."""
+    spec_param_array = dat[2:]  # drop first two as lnL, sigma_lnL
+    if opts.eos_param == 'spectral':
+        spec_params ={}
+        spec_params['gamma1']=spec_param_array[0]
+        spec_params['gamma2']=spec_param_array[1]
+        if len(spec_param_array) <3:
+            spec_params['gamma3']=spec_params['gamma4']=0
+        else:
+            spec_params['gamma3']=spec_param_array[2]
+            spec_params['gamma4']=spec_param_array[3]
+        eos_base = EOSManager.EOSLindblomSpectral(name=eos_name,spec_params=spec_params,use_lal_spec_eos=not opts.no_use_lal_eos)
+        my_eos=eos_base
+    elif opts.eos_param == 'cs_spectral' and len(spec_param_array) >= 4:
+        spec_params ={}
+        spec_params['gamma1']=spec_param_array[0]
+        spec_params['gamma2']=spec_param_array[1]
+        spec_params['gamma3']=spec_params['gamma4']=0
+        spec_params['gamma3']=spec_param_array[2]
+        spec_params['gamma4']=spec_param_array[3]
+        eos_base = EOSManager.EOSLindblomSpectralSoundSpeedVersusPressure(name=eos_name,spec_params=spec_params,use_lal_spec_eos=not opts.no_use_lal_eos)
+        my_eos = eos_base
+    elif opts.eos_param == 'PP' and len(spec_param_array) >= 4:
+        spec_params ={}
+        spec_params['logP1'] = spec_param_array[0]
+        spec_params['gamma1'] = spec_param_array[1]
+        spec_params['gamma2'] = spec_param_array[2]
+        spec_params['gamma3'] = spec_param_array[3]
+        eos_base = EOSManager.EOSPiecewisePolytrope(name=eos_name,param_dict=spec_params)
+        my_eos = eos_base
+    else:
+        raise Exception("Unknown method for parametric EOS data file {} : {} ".format(eos_name,opts.eos_param))
+    return eos_base
+
+def _apply_eos_branch(my_eos):
+    if not hasattr(my_eos, "for_branch"):
+        raise ValueError(
+            "--using-eos-branch requires a LALSimulation-backed EOS. "
+            "The nmbseq v1 interface intentionally exposes its primary "
+            "stable branch; multi-branch NMB inference requires the "
+            "central-enthalpy sequence path."
+        )
+    return my_eos.for_branch(opts.using_eos_branch)
+
 my_eos=None
 #option to be used if gridded values not calculated assuming EOS
 fake_eos =False
@@ -501,41 +592,13 @@ elif opts.using_eos!=None and not(opts.using_eos_for_prior):
         print(" Using EOS ", eos_name, opts.using_eos_index, opts.eos_param, opts.eos_param_values)
 
     if eos_name.startswith("file:") and not(opts.using_eos_index is None):
-        # Load in filename
-        fname = eos_name.replace('file:', '')
-        # Retrieve row with parameters
-        dat = np.loadtxt(fname)[opts.using_eos_index]
-        spec_param_array = dat[2:]  # drop first two as lnL, sigma_lnL
-        if opts.eos_param == 'spectral':
-            spec_params ={}
-            spec_params['gamma1']=spec_param_array[0]
-            spec_params['gamma2']=spec_param_array[1]
-            if len(spec_param_array) <3:
-                spec_params['gamma3']=spec_params['gamma4']=0
-            else:
-                spec_params['gamma3']=spec_param_array[2]
-                spec_params['gamma4']=spec_param_array[3]
-            eos_base = EOSManager.EOSLindblomSpectral(name=eos_name,spec_params=spec_params,use_lal_spec_eos=not opts.no_use_lal_eos)
-            my_eos=eos_base
-        elif opts.eos_param == 'cs_spectral' and len(spec_param_array) >= 4:
-            spec_params ={}
-            spec_params['gamma1']=spec_param_array[0]
-            spec_params['gamma2']=spec_param_array[1]
-            spec_params['gamma3']=spec_params['gamma4']=0
-            spec_params['gamma3']=spec_param_array[2]
-            spec_params['gamma4']=spec_param_array[3]
-            eos_base = EOSManager.EOSLindblomSpectralSoundSpeedVersusPressure(name=eos_name,spec_params=spec_params,use_lal_spec_eos=not opts.no_use_lal_eos)
-            my_eos = eos_base
-        elif opts.eos_param == 'PP' and len(spec_param_array) >= 4:
-            spec_params ={}
-            spec_params['logP1'] = spec_param_array[0]
-            spec_params['gamma1'] = spec_param_array[1]
-            spec_params['gamma2'] = spec_param_array[2]
-            spec_params['gamma3'] = spec_param_array[3]
-            eos_base = EOSManager.EOSPiecewisePolytrope(name=eos_name,param_dict=spec_params)
-            my_eos = eos_base
-        else:
-            raise Exception("Unknown method for parametric EOS data file {} : {} ".format(eos_name,opts.eos_param))
+        # With --n-events-to-analyze > 1 each row is built in the row loop below instead.
+        if not _multi_row:
+            # Load in filename
+            fname = eos_name.replace('file:', '')
+            # Retrieve row with parameters
+            dat = np.loadtxt(fname)[opts.using_eos_index]
+            my_eos = _eos_from_grid_row(eos_name, dat)
     elif opts.eos_param == 'spectral':
         # Will not work yet -- need to modify to parse command-line arguments
         spec_param_packed=eval(opts.eos_param_values) # two lists: first are 'fixed' and second are specific
@@ -608,15 +671,8 @@ elif opts.using_eos!=None and not(opts.using_eos_for_prior):
     else:
         my_eos = EOSManager.EOSFromDataFile(name=eos_name,fname =EOSManager.dirEOSTablesBase+"/" + eos_name+".dat")
 
-    if opts.using_eos_branch is not None:
-        if not hasattr(my_eos, "for_branch"):
-            raise ValueError(
-                "--using-eos-branch requires a LALSimulation-backed EOS. "
-                "The nmbseq v1 interface intentionally exposes its primary "
-                "stable branch; multi-branch NMB inference requires the "
-                "central-enthalpy sequence path."
-            )
-        my_eos = my_eos.for_branch(opts.using_eos_branch)
+    if opts.using_eos_branch is not None and not _multi_row:
+        my_eos = _apply_eos_branch(my_eos)
 
 
 with open('args.txt','w') as fp:
@@ -787,6 +843,22 @@ if opts.parameter_nofit:
         low_level_coord_names = opts.parameter_nofit # Used for Monte Carlo
     else:
         low_level_coord_names = opts.parameter+opts.parameter_nofit # Used for Monte Carlo
+from RIFT.misc import rf_transverse_spin
+if set(rf_transverse_spin.FEATURE_NAMES).intersection(coord_names + low_level_coord_names):
+    raise ValueError('RF fitting scalars are enabled only through the opt-in flag')
+if opts.rf_transverse_spin_coordinates:
+    if not np.isfinite(opts.fref) or opts.fref <= 0:
+        raise ValueError('RF reference frequency must be finite and positive')
+    if (opts.fit_method != 'rf' or opts.fit_load_gp or not opts.use_precessing
+            or opts.input_tides or opts.using_eos or opts.use_eccentricity
+            or not set(rf_transverse_spin.NATIVE_FEATURES).issubset(coord_names)):
+        raise ValueError('physics3 requires a fresh RF fit with delta_mc, mu1, mu2, chiMinus, s1x, s1y, s2x, s2y in a precessing BBH L-frame analysis')
+    coord_names = list(coord_names) + list(rf_transverse_spin.FEATURE_NAMES)
+    def extract_fit_param(P, name):
+        return rf_transverse_spin.extract(P, name)
+else:
+    def extract_fit_param(P, name):
+        return P.extract_param(name)
 # SANITY COMPATIBILITY CHECK
 if 'q' in low_level_coord_names and 'mc' in low_level_coord_names:
     print(" Coordinate compatibility error: mc,eta or mc,delta_mc or M,q are compatible coordinates for masses. Do not mix!")
@@ -797,7 +869,9 @@ if error_factor ==0 :
 if opts.fit_uses_reported_error:
     error_factor=len(coord_names)*opts.fit_uses_reported_error_factor
 # TeX dictionary
-tex_dictionary = lalsimutils.tex_dictionary
+tex_dictionary = dict(lalsimutils.tex_dictionary)
+if opts.rf_transverse_spin_coordinates:
+    tex_dictionary.update(zip(rf_transverse_spin.FEATURE_NAMES, rf_transverse_spin.FEATURE_NAMES))
 print(" Coordinate names for fit :, ", coord_names)
 if not(opts.no_plots):
     print(" Rendering coordinate names : ",  render_coordinates(coord_names))  # map(lambda x: tex_dictionary[x], coord_names)
@@ -835,10 +909,9 @@ if opts.supplementary_likelihood_factor_code and opts.supplementary_likelihood_f
   name_offset = opts.supplementary_likelihood_factor_function+"_offset"
   if hasattr(external_likelihood_module,name_offset):
     supplemental_ln_likelihood_offset_fn=getattr(external_likelihood_module,name_offset)
-  if opts.using_eos_for_prior:
-          # Load in filename
-          fname = opts.using_eos.replace('file:', '')
-          dat = np.genfromtxt(fname,names=True)[opts.using_eos_index]   # Parse file for them, to reduce need for burden parsing, and avoid burden/confusion.
+  def _initialize_plugin_for_row(dat):
+          """Hand one named grid row to the plugin's initialize_me (and retrieve_eos, if present)."""
+          global args_init, fake_eos, my_eos
           param_names = dat.dtype.names
           dat_as_array = dat.view((float, len(param_names)))
           args_init = {'input_line' : dat_as_array, 'param_names':param_names, 'cip_param_names':coord_names}  # pass the recordarray broken into parts, for convenience
@@ -849,6 +922,11 @@ if opts.supplementary_likelihood_factor_code and opts.supplementary_likelihood_f
               fake_eos = False  # using EOS hyperparameter conversion! 
               supplemental_eos = getattr(external_likelihood_module, 'retrieve_eos')
               my_eos = supplemental_eos(**args_init)
+  if opts.using_eos_for_prior and not _multi_row:   # several rows: initialized per row in the row loop
+          # Load in filename
+          fname = opts.using_eos.replace('file:', '')
+          dat = np.genfromtxt(fname,names=True)[opts.using_eos_index]   # Parse file for them, to reduce need for burden parsing, and avoid burden/confusion.
+          _initialize_plugin_for_row(dat)
 
 
   if hasattr(external_likelihood_module,name_prep):
@@ -1157,7 +1235,7 @@ prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*c
   'E0':[E0_MIN,E0_MAX],
   'p_phi0':[PPHI0_MIN,PPHI0_MAX],
   'eccentricity':[ECC_MIN, ECC_MAX],
-  'eccentricity_ln':[np.log(ECC_MIN), np.log(ECC_MAX)],
+  'eccentricity_ln':[np.log(ECC_MIN) if ECC_MIN > 0 else -np.inf, np.log(ECC_MAX)],  # placeholder: replaced below whenever a log-e prior/coordinate is used; the guard only avoids log(0)'s RuntimeWarning at the default --ecc-min 0
   'eccentricity_squared':[ECC_MIN**2, ECC_MAX**2],
   'meanPerAno':[MEANPERANO_MIN, MEANPERANO_MAX],
   'chi_pavg':[0.0,2.0],  
@@ -1862,7 +1940,7 @@ def fit_xg(x,y,y_errors=None,fname_export='nn_fit',verbose=False):
 
     ### reject points with infinities : problems for inputs
     def fn_return(x_in,rf=rf):
-        f_out = -lnL_default_large_negative*np.ones(len(x_in))
+        f_out = lnL_default_large_negative*np.ones(len(x_in))
         # remove infinity or Nan
         indx_ok = np.all(np.isfinite(x_in),axis=-1)
         # rf internally uses float32, so we need to remove points > 10^37 or so !
@@ -1923,7 +2001,7 @@ def fit_rf(x,y,y_errors=None,fname_export='nn_fit',verbose=False):
 
     ### reject points with infinities : problems for inputs
     def fn_return(x_in,rf=rf):
-        f_out = -lnL_default_large_negative*np.ones(len(x_in))
+        f_out = lnL_default_large_negative*np.ones(len(x_in))
         # remove infinity or Nan
         indx_ok = np.all(np.isfinite(x_in),axis=-1)
         # rf internally uses float32, so we need to remove points > 10^37 or so ! 
@@ -2388,7 +2466,7 @@ for line in dat:
         elif coord_names[x] =='ordering':
             continue
         else:
-            line_out[x] = P.extract_param(coord_names[x])
+            line_out[x] = extract_fit_param(P, coord_names[x])
  #        line_out[x] = getattr(P, coord_names[x])
     line_out[-2] = line[col_lnL]
     line_out[-1] = line[col_lnL+1]  # adjoin error estimate
@@ -2398,7 +2476,7 @@ for line in dat:
     for indx in np.arange(len(extra_plot_coord_names)):
         line_out = np.zeros(len(extra_plot_coord_names[indx]))
         for x in np.arange(len(line_out)):
-            line_out[x] = P.extract_param( extra_plot_coord_names[indx][x])
+            line_out[x] = extract_fit_param(P, extra_plot_coord_names[indx][x])
         dat_out_extra[indx].append(line_out)
 
     # results using sampling coordinates (low_level_coord_names) 
@@ -2432,7 +2510,7 @@ for line in dat:
         # INPUT GRID: Evaluate binary parameters on fitting coordinates
         line_out = np.zeros(len(coord_names)+2)
         for x in np.arange(len(coord_names)):
-            line_out[x] = P.extract_param(coord_names[x])
+            line_out[x] = extract_fit_param(P, coord_names[x])
         line_out[-2] = line[col_lnL]
         line_out[-1] = line[col_lnL+1]  # adjoin error estimate
         dat_out.append(line_out)
@@ -2441,7 +2519,7 @@ for line in dat:
         for indx in np.arange(len(extra_plot_coord_names)):
             line_out = np.zeros(len(extra_plot_coord_names[indx]))
             for x in np.arange(len(line_out)):
-                line_out[x] = P.extract_param( extra_plot_coord_names[indx][x])
+                line_out[x] = extract_fit_param(P, extra_plot_coord_names[indx][x])
             dat_out_extra[indx].append(line_out)
 
         # results using sampling coordinates (low_level_coord_names) 
@@ -2922,8 +3000,106 @@ def protect_fit_against_out_of_support(fn, val=-np.inf):
         return val_out
     return my_protected_fit
 
+###
+### Several grid rows per job (--n-events-to-analyze N > 1, or --chunk-save)
+###
+# A row PASS is every top-level statement after the `_row_pass_begins` marker below, down to the
+# final sys.exit().  An ordinary job falls through the marker and runs that pass once, exactly as
+# before.  In row mode, _run_row_passes() compiles those same statements from this file and runs
+# them once per grid row in this module's globals, reusing the fit above.  Each pass first builds
+# that row's EOS or plugin state and output names, so it writes exactly the files (names included)
+# a separate N=1 job for that row writes.  A pass ends in sys.exit() as a single job does; here that
+# exit, or an exception, ends only the row.  After the last row the job exits with the first failed
+# row's status (0 if none failed): a failed row is reported to the DAG as its own N=1 job would
+# report it, without losing the other rows.  (The pass is re-run from source rather than indented
+# into a loop so that it stays top-level code: other branches and the AST-based tests address it.)
+def _row_output_name(prefix, row):
+    """Output name for grid row `row`: the trailing --using-eos-index in `prefix` replaced by `row`."""
+    first = str(_opts_row_template.using_eos_index)
+    if prefix.endswith(first) and (len(prefix) == len(first) or not prefix[-len(first)-1].isdigit()):
+        return prefix[:len(prefix)-len(first)] + str(row)
+    print(" WARNING: output name {} does not end in --using-eos-index {}; using {}-<row>".format(prefix, first, prefix))
+    return prefix + "-" + str(row)
+
+def _run_row_passes():
+    global opts, my_fit, my_eos
+    import ast, copy, traceback
+    tree = ast.parse(_OWN_SOURCE, filename=__file__)
+    begin = [i for i, node in enumerate(tree.body)
+             if isinstance(node, ast.Assign) and getattr(node.targets[0], 'id', None) == '_row_pass_begins']
+    assert len(begin) == 1, "row-pass marker _row_pass_begins not found exactly once"
+    row_pass = compile(ast.Module(body=tree.body[begin[0]+1:], type_ignores=[]), __file__, 'exec')
+
+    first = _opts_row_template.using_eos_index
+    n_rows = 1
+    if _multi_row:
+        grid_fname = _opts_row_template.using_eos.replace('file:', '')
+        grid_numeric = np.atleast_2d(np.loadtxt(grid_fname))
+        n_rows = max(0, min(_opts_row_template.n_events_to_analyze, len(grid_numeric) - first))
+        if n_rows < _opts_row_template.n_events_to_analyze:
+            print(" Rows {} and above are past the end of {} ({} rows); like N=1 jobs at those indices, they write nothing".format(first+n_rows, grid_fname, len(grid_numeric)))
+        plugin_rows = bool(opts.using_eos_for_prior and opts.supplementary_likelihood_factor_code
+                           and opts.supplementary_likelihood_factor_function)
+        if plugin_rows:
+            grid_named = np.genfromtxt(grid_fname, names=True)
+    failures = []   # (row, exit status)
+    for k in range(n_rows):
+        row = first + k
+        try:
+            if _multi_row:
+                opts = copy.deepcopy(_opts_row_template)   # a pass edits opts (e.g. evals --sampler-portfolio-args)
+                opts.using_eos_index = row
+                opts.fname_output_integral = _row_output_name(_opts_row_template.fname_output_integral, row)
+                opts.fname_output_samples = _row_output_name(_opts_row_template.fname_output_samples, row)
+                my_fit = _my_fit_unprotected   # the pass wraps it for EOS support
+                print("\n ======== GRID ROW {} ({} of {}) -> {} ======== ".format(row, k+1, n_rows, opts.fname_output_integral))
+                if plugin_rows:
+                    _initialize_plugin_for_row(grid_named[row])
+                elif opts.using_eos and not opts.using_eos_for_prior:
+                    my_eos = _eos_from_grid_row(opts.using_eos, grid_numeric[row])
+                    if opts.using_eos_branch is not None:
+                        my_eos = _apply_eos_branch(my_eos)
+            exec(row_pass, globals())
+        except SystemExit as row_exit:
+            status = row_exit.code
+            if status not in (None, 0):
+                print(" GRID ROW {}: ended with exit status {}".format(row, status))
+                failures.append((row, status if isinstance(status, int) else 1))
+        except Exception:
+            traceback.print_exc()
+            print(" GRID ROW {}: failed (traceback above)".format(row))
+            failures.append((row, 1))
+
+    if opts.chunk_save:
+        fname_chunk = _opts_row_template.fname_output_integral
+        if _chunk_rows:
+            np.savetxt(fname_chunk+"+annotation.dat", np.array(_chunk_rows), header=_chunk_header.rstrip('\n'))
+            if not opts.save_hyperfile_only:
+                np.savetxt(fname_chunk+".dat", np.array(_chunk_dat))
+            print(" --chunk-save: wrote {} rows to {}+annotation.dat".format(len(_chunk_rows), fname_chunk))
+        else:
+            print(" --chunk-save: no row produced an integral; nothing written")
+    if failures:
+        print(" {} of {} grid rows failed: {}".format(len(failures), n_rows, failures))
+        sys.exit(failures[0][1])
+    sys.exit(0)
+
+_chunk_rows = []     # --chunk-save: per-row +annotation.dat lines, filled by each pass
+_chunk_dat = []      # --chunk-save: per-row .dat values
+_chunk_header = None
+if _row_mode:
+    import copy
+    _my_fit_unprotected = my_fit
+    _opts_row_template = copy.deepcopy(opts)
+    _run_row_passes()   # does not return
+
+_row_pass_begins = True   # marker: first statement of a row pass (see above)
 if not opts.using_eos or (fake_eos):
  def convert_coords(x_in):
+    if opts.rf_transverse_spin_coordinates:
+        return rf_transverse_spin.convert(x_in, coord_names, low_level_coord_names, opts.fref,
+            lalsimutils.convert_waveform_coordinates, source_redshift=source_redshift,
+            enforce_kerr=opts.downselect_enforce_kerr)
     return lalsimutils.convert_waveform_coordinates(x_in, coord_names=coord_names,low_level_coord_names=low_level_coord_names,source_redshift=source_redshift,enforce_kerr=opts.downselect_enforce_kerr)
 else:
  def eos_mass_support_mask(x_in):
@@ -3061,7 +3237,7 @@ elif opts.sampler_method == "portfolio":
         print('PORTFOLIO: adding {} '.format(name))
         sampler_list.append(sampler)
     sampler = mcsamplerPortfolio.MCSampler(portfolio=sampler_list)
-elif opts.sampler_method in mcsamplerPortfolio.known_pipelines: # access from plugins
+elif mcsampler_Portfolio_ok and opts.sampler_method in mcsamplerPortfolio.known_pipelines: # access from plugins
   sampler = mcsamplerPortfolio.known_pipelines[opts.sampler_method]()
 
 
@@ -3535,7 +3711,7 @@ if neff < opts.n_eff:
         # Jitter using the parameters we use to fit with
         for indx_P in np.arange(np.min([len(P_list_in),len(X)])):   # make sure no past-limits errors
             include_item=True
-            P = P_list_in[indx_P]
+            P = P_list_in[indx_P].manual_copy()   # copy: P_list_in is reused by later rows of a --n-events-to-analyze job
             for indx in np.arange(len(coord_names)):
                 param  = coord_names[indx]
                 fac = 1
@@ -3575,7 +3751,10 @@ if neff < opts.n_eff:
 
 # Save result -- needed for odds ratios, etc.
 #   Warning: integral_result.dat uses *original* prior, before any reweighting
-np.savetxt(opts.fname_output_integral+".dat", [ln_integrand_value_absolute+lnL_shift])
+if opts.chunk_save:
+    _chunk_dat.append(ln_integrand_value_absolute+lnL_shift)   # written once, after the row loop
+elif not opts.save_hyperfile_only:
+    np.savetxt(opts.fname_output_integral+".dat", [ln_integrand_value_absolute+lnL_shift])
 
 
 
@@ -3599,7 +3778,12 @@ elif opts.using_eos and opts.using_eos.startswith('file:'):
         linefirst = f.readline()
     linefirst = linefirst[2:]
     annotation_header = linefirst # this will/must be lnL sigma_lnL and then parameter names, which we want to preserve
-with open(opts.fname_output_integral+"+annotation.dat", 'w') as file_out:
+if opts.chunk_save:
+  # --chunk-save requires --using-eos file:, so this is the per-row line of the branch below
+  _chunk_rows.append([ln_integrand_value_absolute, sigma_integral] + list(params_here))
+  _chunk_header = annotation_header
+else:
+ with open(opts.fname_output_integral+"+annotation.dat", 'w') as file_out:
   if not(opts.using_eos) or not(opts.using_eos.startswith('file:')):
     str_out =list( map(str,[ln_integrand_value_absolute, sigma_integral, neff]))
     file_out.write("# " + annotation_header + "\n")
@@ -3617,7 +3801,7 @@ with open(opts.fname_output_integral+"+annotation.dat", 'w') as file_out:
 #np.savetxt(opts.fname_output_integral+"+annotation.dat", np.array([[np.log(res), np.sqrt(var)/res, neff]]), header=eos_extra)
 
 
-if opts.no_save_samples:
+if opts.no_save_samples or opts.save_hyperfile_only:
     sys.exit(0)
 
 if neff < len(low_level_coord_names):
@@ -3861,7 +4045,7 @@ if not no_plots:
         plt.plot(dat_out_LI[:,0],dat_out_LI[:,1],label="LI:"+opts.desc_lalinference,color='r')
    
     # Add vertical line
-    here_val = Pref.extract_param(p)
+    here_val = extract_fit_param(Pref, p)
     fac = 1
     if p in ['mc','m1','m2','mtot']:
         fac = lal.MSUN_SI
@@ -4256,7 +4440,7 @@ for indx_line  in np.arange(len(P_list)):
         fac=1
         if coord_names[indx] in ['mc', 'mtot', 'm1', 'm2']:
                 fac = lal.MSUN_SI
-        dat_mass_post[indx_line,indx] = P_list[indx_line].extract_param(coord_names[indx])/fac
+        dat_mass_post[indx_line,indx] = extract_fit_param(P_list[indx_line], coord_names[indx])/fac
 
 
 dat_extra_post = []
@@ -4268,7 +4452,7 @@ for x in np.arange(len(extra_plot_coord_names)):
             fac=1
             if coord_names_here[indx] in ['mc', 'mtot', 'm1', 'm2']:
                 fac = lal.MSUN_SI
-            feature_here[indx_line,indx] = P_list[indx_line].extract_param(coord_names_here[indx])/fac
+            feature_here[indx_line,indx] = extract_fit_param(P_list[indx_line], coord_names_here[indx])/fac
     dat_extra_post.append(feature_here)
 
 
@@ -4338,7 +4522,7 @@ for indx in np.arange(len(coord_names)):
         except:
             print("  - plot failure - ")
     # Add vertical line
-    here_val = Pref.extract_param(p)
+    here_val = extract_fit_param(Pref, p)
     fac = 1
     if p in ['mc','m1','m2','mtot']:
         fac = lal.MSUN_SI
@@ -4366,7 +4550,7 @@ for indx in np.arange(len(coord_names)):
     fac = 1
     if coord_names[indx] in ['mc','m1','m2','mtot']:
         fac = lal.MSUN_SI
-    truth_here.append(Pref.extract_param(coord_names[indx])/fac)
+    truth_here.append(extract_fit_param(Pref, coord_names[indx])/fac)
 
 
 try:
@@ -4450,7 +4634,7 @@ for indx in np.arange(len(extra_plot_coord_names)):
         fac=1
         if coord_names_here[z] in ['mc','m1','m2','mtot']:
             fac = lal.MSUN_SI
-        truth_here.append(Pref.extract_param(coord_names_here[z])/fac)
+        truth_here.append(extract_fit_param(Pref, coord_names_here[z])/fac)
 
     print(" Truth here for ", coord_names_here, truth_here)
 

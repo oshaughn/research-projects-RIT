@@ -537,3 +537,41 @@ def resolve_input_parameters(module, chart=None, cli_override=None):
     if chart_spec and chart_spec.get("input_parameters"):
         return list(chart_spec["input_parameters"])
     return list(getattr(module, "INPUT_PARAMETERS", []) or [])
+
+
+def parse_external_range_args(items):
+    """Parse ``key=value`` strings into a dict; values become python literals when they parse."""
+    import ast
+    out = {}
+    for item in (items or []):
+        if "=" not in item:
+            raise ValueError(f"--external-range-args expects key=value; got {item!r}")
+        key, raw = item.split("=", 1)
+        try:
+            out[key.strip()] = ast.literal_eval(raw)
+        except (ValueError, SyntaxError):
+            out[key.strip()] = raw
+    return out
+
+
+def call_get_bounds(module, coord_names, ranges, external_range_args=None):
+    """Call the plugin's ``get_bounds(coord_names, ranges, **kwargs)``.
+
+    ``ranges`` is a copy of the ranges known so far.  The hook returns
+    ``{name: [lo, hi]}`` in the basis named by ``coord_names`` (the sampling
+    or puff basis, i.e. the plugin's output names).  Errors propagate.
+    """
+    fn = getattr(module, "get_bounds", None)
+    if not callable(fn):
+        raise AttributeError(
+            "--get-range-from-external: the coordinate plugin does not define get_bounds"
+        )
+    out = fn(list(coord_names), {k: list(v) for k, v in dict(ranges).items()},
+             **parse_external_range_args(external_range_args))
+    result = {}
+    for name, rng in dict(out).items():
+        lo, hi = (float(v) for v in rng)
+        if not lo < hi:
+            raise ValueError(f"get_bounds returned a non-increasing range for {name!r}: {rng!r}")
+        result[name] = [lo, hi]
+    return result
