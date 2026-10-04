@@ -188,3 +188,20 @@ def test_calibration_condor_value_has_no_literal_shell_quotes():
     environment={'opts':SimpleNamespace(calibration_reweighting_initial_extra_args=value),'shlex':shlex,'dag_utils':SimpleNamespace(quote_arguments=namespace['quote_arguments']),'calibration_job':SimpleNamespace(add_arg=args.append)}
     exec(compile(ast.Module(body=nodes,type_ignores=[]),'calibration-emission','exec'),environment)
     assert args==["--extra-waveform-kwargs '{''fd_alignment_postevent_time'': None, ''fd_centering_factor'': 0.75}' --fref 20 --internal-waveform-fd-L-frame"]
+
+
+def test_asimov_submission_priority_is_explicit_and_validated():
+    import ast, re
+    from types import SimpleNamespace
+    tree=ast.parse((CODE/'RIFT/asimov/rift.py').read_text())
+    method=next(n for n in ast.walk(tree) if isinstance(n,ast.FunctionDef) and n.name=='submit_dag')
+    nodes=[n for n in method.body if (isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='priority' for t in n.targets)) or (isinstance(n,ast.If) and ast.unparse(n.test)=='priority is not None')]
+    assert len(nodes)==2
+    code=compile(ast.Module(body=nodes,type_ignores=[]),'priority-contract','exec')
+    for value in [None,900,'900']:
+        env={'self':SimpleNamespace(production=SimpleNamespace(meta={'scheduler':{'priority':value}})),'re':re,'command':['condor_submit_dag','workflow.dag']}
+        exec(code,env)
+        assert env['command']==(['condor_submit_dag','workflow.dag'] if value is None else ['condor_submit_dag','-priority','900','workflow.dag'])
+    for value in [True,'900;bad','1.5']:
+        env={'self':SimpleNamespace(production=SimpleNamespace(meta={'scheduler':{'priority':value}})),'re':re,'command':[]}
+        with pytest.raises(ValueError):exec(code,env)
