@@ -1470,7 +1470,7 @@ if opts.rf_transverse_spin_coordinates:
     from RIFT.misc.rf_transverse_spin import enabled
     rf_applicable = (opts.assume_precessing_spin and not opts.assume_nospin
         and not opts.assume_matter and not opts.assume_eccentric and not opts.assume_highq
-        and not opts.use_mtot_coords)
+        and not getattr(opts, 'use_mtot_coords', False))
     rf_detector_mc = None if event_dict.get('rf_mass_is_placeholder', False) else event_dict.get('MChirp')
     if enabled(opts.rf_transverse_spin_coordinates, rf_detector_mc, rf_applicable):
         if opts.force_fit_method is None:
@@ -1764,7 +1764,7 @@ if opts.rf_transverse_spin_coordinates:
         rf_fref = opts.fmin_template
     rf_applicable = (opts.assume_precessing_spin and not opts.assume_nospin
         and not opts.assume_matter and not opts.assume_eccentric and not opts.assume_highq
-        and not opts.use_mtot_coords)
+        and not getattr(opts, 'use_mtot_coords', False))
     helper_cip_arg_list = [stage_arguments(line, opts.rf_transverse_spin_coordinates,
         None if event_dict.get('rf_mass_is_placeholder', False) else event_dict.get('MChirp'), rf_applicable, float(rf_fref)) for line in helper_cip_arg_list]
     rf_activated = sum('--rf-transverse-spin-coordinates physics3' in line for line in helper_cip_arg_list)
