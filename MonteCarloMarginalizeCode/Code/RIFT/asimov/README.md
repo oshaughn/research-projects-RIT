@@ -34,7 +34,12 @@ Rimsky's underscore-separated prior names for the RIFT template. See
 
 The pipeline remains opt-in: pass `--rf-transverse-spin-coordinates physics3`
 to `helper_LDG_Events.py` or `util_RIFT_pseudo_pipe.py`. The helper enables this
-only in fresh RF stages fitting both full Cartesian transverse spins. Reduced
+only in fresh RF stages fitting the tested `delta_mc, mu1, mu2, chiMinus` basis
+and both full Cartesian transverse spins. This single option selects the native
+aligned-phase CIP schedule before adding the scalars; the initial grid is not
+changed by this schedule selection. If no fitting method was requested, the
+activated option selects RF for CIP; an explicit non-RF method is not overridden
+(`physics3` cannot be honored and fails explicitly). Reduced
 or aligned stages retain their existing coordinates. It appends three tested
 L-frame cone, geometric phase-deficit, and precession-torque scalars; it retains
 all native fitting coordinates, including `mu1`, `mu2` and the four transverse

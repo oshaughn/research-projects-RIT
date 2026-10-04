@@ -9,7 +9,7 @@ spec = importlib.util.spec_from_file_location('rf_features', CODE/'RIFT/misc/rf_
 f = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(f)
 
-FULL = '1 --fit-method rf --use-precessing --parameter s1x --parameter s1y --parameter-implied s2x --parameter-implied s2y --parameter-nofit chi1 --parameter-nofit chi2'
+FULL = '1 --parameter delta_mc --parameter-implied mu1 --parameter-implied mu2 --parameter-implied chiMinus --fit-method rf --use-precessing --parameter s1x --parameter s1y --parameter-implied s2x --parameter-implied s2y --parameter-nofit chi1 --parameter-nofit chi2'
 
 def test_frozen_physics3_parity():
     # Frozen scalar values independently checked against the investigation implementation.
@@ -108,3 +108,20 @@ def test_real_liquid_asimov_override(value,expected):
     rendered=liquid.Liquid(template[start:end],from_file=False,mode='standard').render(sampler={'cip':cip})
     assert rendered.count('rf-transverse-spin-coordinates=')==1
     assert 'rf-transverse-spin-coordinates="'+expected+'"' in rendered
+
+@pytest.mark.parametrize('missing',['delta_mc','mu1','mu2','chiMinus'])
+def test_only_tested_native_basis_is_activated(missing):
+    import shlex
+    words=shlex.split(FULL)
+    i=words.index(missing); del words[i-1:i+1]
+    line=' '.join(shlex.quote(p) for p in words)
+    assert f.stage_arguments(line,'physics3',10,True,20)==line
+
+def test_basis_policy_is_resolved_after_initial_grid_before_strategy():
+    src=(CODE/'bin/helper_LDG_Events.py').read_text()
+    gate=src.index('# The single top-level option selects')
+    assert src.index('Executing grid command')<gate
+    assert gate<src.index('if opts.propose_fit_strategy:\n    puff_max_it= 0')
+    assert 'opts.internal_use_aligned_phase_coordinates = True' in src[gate:]
+    assert not f.enabled('auto',True,True)
+    assert f.enabled('physics3',None,True)

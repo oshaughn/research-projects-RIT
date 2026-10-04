@@ -739,8 +739,8 @@ if opts.rf_transverse_spin_coordinates:
         raise ValueError('RF reference frequency must be finite and positive')
     if (opts.fit_method != 'rf' or opts.fit_load_gp or not opts.use_precessing
             or opts.input_tides or opts.using_eos or opts.use_eccentricity
-            or not set(rf_transverse_spin.TRANSVERSE).issubset(coord_names)):
-        raise ValueError('physics3 requires a fresh RF fit retaining both full transverse spins in a precessing BBH L-frame analysis')
+            or not set(rf_transverse_spin.NATIVE_FEATURES).issubset(coord_names)):
+        raise ValueError('physics3 requires a fresh RF fit with delta_mc, mu1, mu2, chiMinus, s1x, s1y, s2x, s2y in a precessing BBH L-frame analysis')
     coord_names = list(coord_names) + list(rf_transverse_spin.FEATURE_NAMES)
     def extract_fit_param(P, name):
         return rf_transverse_spin.extract(P, name)
