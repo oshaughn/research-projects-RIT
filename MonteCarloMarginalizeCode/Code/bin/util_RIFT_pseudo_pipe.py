@@ -1850,6 +1850,14 @@ with open ("helper_test_args.txt",'r') as f:
 with open("helper_cip_arg_list.txt",'r') as f:
         raw_lines = f.readlines()
 
+# RF transverse opt-in: the helper may switch an unforced fit to rf. Build the DAG as an
+# explicit --cip-fit-method rf run (flat CIP workers; physics3 refuses --fit-load-gp).
+if opts.rf_transverse_spin_coordinates and opts.cip_fit_method is None and any(
+        '--fit-method rf' in ' '.join(line.split()) for line in raw_lines):
+    opts.cip_fit_method = 'rf'
+    npts_it *= 2  # as for explicit rf, above
+    print(" RF transverse-spin: helper selected rf; building as --cip-fit-method rf ")
+
 # MODIFY EXPLODE REQUEST
 if opts.cip_explode_jobs_auto and event_dict["SNR"]:
     snr = event_dict["SNR"]
@@ -2645,8 +2653,7 @@ if opts.calibration_reweighting:
         my_extra_string += ' --internal-waveform-fd-L-frame '
     if opts.calibration_reweighting_initial_extra_args:
         my_extra_string+= ' {} '.format(opts.calibration_reweighting_initial_extra_args) # make sure to add spaces/padding
-    cmd += " --calibration-reweighting-initial-extra-args={} ".format(
-        shlex.quote('  ' + my_extra_string))
+    cmd +=" --calibration-reweighting-initial-extra-args='  {}' ".format(my_extra_string)
 #if opts.internal_mitigate_fd_J_frame =="L_frame" and opts.use_gwsignal and not(opts.manual_extra_ile_args):
 #    cmd +=" --calibration-reweighting-initial-extra-args='--internal-waveform-fd-L-frame --use-gwsignal' "
 if opts.condor_local_nonworker_igwn_prefix:

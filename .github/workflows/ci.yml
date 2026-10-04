@@ -833,7 +833,8 @@ jobs:
           python -m pytest -q \
             MonteCarloMarginalizeCode/Code/test/test_rf_transverse_spin.py \
             MonteCarloMarginalizeCode/Code/test/test_rf_transverse_asimov_render.py \
-            MonteCarloMarginalizeCode/Code/test/test_rf_transverse_helper_generation.py
+            MonteCarloMarginalizeCode/Code/test/test_rf_transverse_helper_generation.py \
+            MonteCarloMarginalizeCode/Code/test/test_rf_transverse_pipeline_build.py
           python MonteCarloMarginalizeCode/Code/test/rf_transverse_cli_smoke.py
       - name: Run corner-plot range guard tests
         # .travis/test-posterior.sh below is the only job that exercises the CIP driver's
