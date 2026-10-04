@@ -1,0 +1,99 @@
+"""RF coordinate contract: native features/physical priors remain authoritative."""
+import importlib.util
+from pathlib import Path
+import numpy as np
+import pytest
+
+CODE = Path(__file__).resolve().parents[1]
+spec = importlib.util.spec_from_file_location('rf_features', CODE/'RIFT/misc/rf_transverse_spin.py')
+f = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(f)
+
+FULL = '1 --fit-method rf --use-precessing --parameter s1x --parameter s1y --parameter-implied s2x --parameter-implied s2y --parameter-nofit chi1 --parameter-nofit chi2'
+
+def test_frozen_physics3_parity():
+    # Frozen scalar values independently checked against the investigation implementation.
+    actual = f.scalar_features(20.,10.,np.array([.2,.3,-.1]),np.array([-.1,.4,.2]),20.)
+    expected = np.array([.0347815756,.0170543684,3969.05598])
+    np.testing.assert_allclose(actual,expected,rtol=2e-9)
+
+@pytest.mark.parametrize('mass', [20,21,None,np.nan,-1])
+def test_auto_conservative_mass(mass):
+    assert f.stage_arguments(FULL,'auto',mass,True,20)==FULL
+
+def test_opt_in_keeps_native_sampling_and_reference():
+    line=f.stage_arguments(FULL+' --fref 10','auto',19.9,True,25)
+    assert '--parameter-nofit chi1 --parameter-nofit chi2' in line
+    assert '--fref 10' not in line
+    assert '--fref 25.0' in line
+    assert '--rf-transverse-spin-coordinates physics3' in line
+    assert f.stage_arguments(FULL,None,10,True,20)==FULL
+    assert f.stage_arguments(FULL,'off',10,True,20)==FULL
+
+def test_reduced_or_non_rf_stages_are_unchanged():
+    for line in [FULL.replace('--parameter-implied s2y',''),FULL.replace('fit-method rf','fit-method gp')]:
+        assert f.stage_arguments(line,'physics3',10,True,20)==line
+    assert f.stage_arguments(FULL,'auto',10,False,20)==FULL
+    with pytest.raises(ValueError): f.stage_arguments(FULL,'physics3',10,False,20)
+
+def test_rotation_and_two_spin_cancellation():
+    s1=np.array([.2,.3,-.1]);s2=np.array([-.1,.4,.2]);a=.4
+    rot=np.array([[np.cos(a),-np.sin(a),0],[np.sin(a),np.cos(a),0],[0,0,1]])
+    np.testing.assert_allclose(f.scalar_features(20,10,s1,s2),f.scalar_features(20,10,rot@s1,rot@s2),rtol=2e-15)
+    out=f.scalar_features(10,10,np.array([.2,.3,0]),np.array([-.2,-.3,0]))
+    assert np.all(np.isfinite(out)) and np.all(out==0)
+
+def test_native_converter_scalar_vector_and_no_feature_loss():
+    pytest.importorskip('lal')
+    from RIFT import lalsimutils
+    import lal
+    rng=np.random.default_rng(742)
+    low=['delta_mc','mc','chi1','chi2','cos_theta1','cos_theta2','phi1','phi2']
+    x=np.column_stack([rng.uniform(.05,.7,60),rng.uniform(5,19,60),rng.uniform(0,.8,(60,2)),rng.uniform(-1,1,(60,2)),rng.uniform(0,2*np.pi,(60,2))])
+    base=['delta_mc','mu1','mu2','chiMinus','s1x','s1y','s2x','s2y']
+    native=lalsimutils.convert_waveform_coordinates(x,base,low)
+    enhanced=f.convert(x,base+list(f.FEATURE_NAMES),low,30,lalsimutils.convert_waveform_coordinates)
+    assert np.array_equal(native,enhanced[:,:8])
+    physical=lalsimutils.convert_waveform_coordinates(x,['m1','m2','s1x','s1y','s1z','s2x','s2y','s2z'],low)
+    for row,vals in zip(physical,enhanced[:,8:]):
+        p=lalsimutils.ChooseWaveformParams();p.m1=row[0]*lal.MSUN_SI;p.m2=row[1]*lal.MSUN_SI;p.fref=30
+        p.s1x,p.s1y,p.s1z,p.s2x,p.s2y,p.s2z=row[2:]
+        np.testing.assert_allclose(vals,[f.extract(p,n) for n in f.FEATURE_NAMES],rtol=3e-15,atol=1e-12)
+
+def test_mirror_rows_and_invalid_proposals():
+    s1=np.array([.2,.3,-.1]);s2=np.array([-.1,.4,.2])
+    np.testing.assert_allclose(f.scalar_features(20,10,s1,s2),f.scalar_features(10,20,s2,s1),rtol=2e-15)
+    columns=['m1','m2','s1x','s1y','s1z','s2x','s2y','s2z']
+    x=np.array([[20,10,*s1,*s2],[-np.inf]*8])
+    def converter(x,coord_names,low_level_coord_names,**kwargs):
+        return x[:,[low_level_coord_names.index(p) for p in coord_names]]
+    out=f.convert(x,columns+list(f.FEATURE_NAMES),columns,20,converter,enforce_kerr=True)
+    assert np.isfinite(out[0]).all() and np.isneginf(out[1]).all()
+
+def test_cli_pseudo_forwarding_and_asimov_template():
+    import ast
+    for name in ['helper_LDG_Events.py','util_RIFT_pseudo_pipe.py','util_ConstructIntrinsicPosterior_GenericCoordinates.py']:
+        ast.parse((CODE/'bin'/name).read_text())
+    helper=(CODE/'bin/helper_LDG_Events.py').read_text()
+    assert helper.count('event_dict["rf_mass_is_placeholder"] = True')==2
+    assert "None if event_dict.get('rf_mass_is_placeholder', False)" in helper
+    pseudo=(CODE/'bin/util_RIFT_pseudo_pipe.py').read_text()
+    assert pseudo.index('cmd = " helper_LDG_Events.py')<pseudo.index('if opts.rf_transverse_spin_coordinates:\n    cmd +=')
+    template=(CODE/'RIFT/asimov/rift.ini').read_text()
+    assert "['transverse spin coordinates'] | default: 'auto'" in template
+    cip=(CODE/'bin/util_ConstructIntrinsicPosterior_GenericCoordinates.py').read_text()
+    assert 'coord_names = list(coord_names)' in cip
+    assert '.extract_param(coord_names[' not in cip
+
+@pytest.mark.parametrize('frequency',[np.nan,np.inf,0,-1])
+def test_bad_fref_is_rejected(frequency):
+    with pytest.raises(ValueError): f.scalar_features(20,10,np.zeros(3),np.zeros(3),frequency)
+
+def test_actual_native_fast_kerr_guard():
+    pytest.importorskip('lal')
+    from RIFT import lalsimutils
+    low=['delta_mc','mc','chi1','chi2','cos_theta1','cos_theta2','phi1','phi2']
+    x=np.array([[.2,10,.4,.3,.2,-.2,.3,.8],[.2,10,1.2,.3,.2,-.2,.3,.8]])
+    cols=['delta_mc','mu1','mu2','chiMinus','s1x','s1y','s2x','s2y']+list(f.FEATURE_NAMES)
+    out=f.convert(x,cols,low,20,lalsimutils.convert_waveform_coordinates,enforce_kerr=True)
+    assert np.isfinite(out[0]).all() and np.isneginf(out[1]).all()

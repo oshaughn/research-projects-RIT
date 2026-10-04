@@ -29,3 +29,33 @@ Rimsky's ``sample_sink.asimov_configuration`` hook. It bootstraps from the
 PESummary metafile produced by Rimsky's online Bilby analysis and normalizes
 Rimsky's underscore-separated prior names for the RIFT template. See
 ``RIFT/rimsky/README.md`` for configuration and operational details.
+
+### Low-mass transverse-spin RF prototype
+
+The pipeline remains opt-in: pass `--rf-transverse-spin-coordinates physics3`
+to `helper_LDG_Events.py` or `util_RIFT_pseudo_pipe.py`. The helper enables this
+only in fresh RF stages fitting both full Cartesian transverse spins. Reduced
+or aligned stages retain their existing coordinates. It appends three tested
+L-frame cone, geometric phase-deficit, and precession-torque scalars; it retains
+all native fitting coordinates, including `mu1`, `mu2` and the four transverse
+components. Sampling coordinates, spherical spin priors, likelihoods, ILE and
+recorded physical products are unchanged. No GP or GPU dependencies are added.
+
+The bundled Asimov template uses `auto`: eligible precessing BBH analyses with a
+reliable native **detector-frame** chirp-mass estimate strictly below 20 solar
+masses opt in. Missing/placeholder mass estimates and unsupported analyses keep
+the existing recipe. Override under `sampler.cip`:
+
+```yaml
+sampler:
+  cip:
+    transverse spin coordinates: off  # off, auto, or physics3
+```
+
+The scalars use the actual ILE spin reference frequency (`engine.fref` in an INI,
+otherwise the helper's template reference). They do not transport spins or
+replace the physical prior. This is a prototype supported by controlled existing
+grid comparisons, not a universal recovery guarantee; S250830bp remains a
+separate partially improved case, and known sky/data/prior discrepancies require
+separate assessment. Coordinate activation changes neither stopping criteria
+nor posterior quotas.

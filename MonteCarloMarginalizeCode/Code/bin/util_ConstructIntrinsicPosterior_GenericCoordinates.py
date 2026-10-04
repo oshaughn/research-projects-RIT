@@ -322,6 +322,7 @@ parser.add_argument("--n-chunk",default=1e5,type=int)
 parser.add_argument("--contingency-unevolved-neff",default=None,help="Contingency planning for when n_eff produced by CIP is small, and user doesn't want to have hard failures.  Note --fail-unless-n-eff will prevent this from happening. Options: quadpuff, ...")
 parser.add_argument("--not-worker",action='store_true',help="Nonworker jobs, IF we have workers present, don't have the 'fail unless' statement active")
 parser.add_argument("--fail-unless-n-eff",default=None,type=float,help="If nonzero, places a minimum requirement on n_eff. Code will exit if not achieved, with no sample generation")
+parser.add_argument("--rf-transverse-spin-coordinates", choices=["physics3"], help="Opt-in RF-only L-frame fitting scalars; preserves every native coordinate and the physical prior")
 parser.add_argument("--fit-method",default="rf",help="rf (default) : rf|gp|quadratic|polynomial|gp_hyper|gp_lazy|cov|kde.  Note 'polynomial' with --fit-order 0  will fit a constant")
 parser.add_argument("--fit-load-quadratic",default=None,help="Filename of hdf5 file to load quadratic fit from. ")
 parser.add_argument("--fit-load-quadratic-path",default="GW190814/annealing_mc_source_eta_chieff",help="Path in hdf5 file to specific covariance matrix to be used")
@@ -730,13 +731,31 @@ if opts.parameter_nofit:
         low_level_coord_names = opts.parameter_nofit # Used for Monte Carlo
     else:
         low_level_coord_names = opts.parameter+opts.parameter_nofit # Used for Monte Carlo
+from RIFT.misc import rf_transverse_spin
+if set(rf_transverse_spin.FEATURE_NAMES).intersection(coord_names + low_level_coord_names):
+    raise ValueError('RF fitting scalars are enabled only through the opt-in flag')
+if opts.rf_transverse_spin_coordinates:
+    if not np.isfinite(opts.fref) or opts.fref <= 0:
+        raise ValueError('RF reference frequency must be finite and positive')
+    if (opts.fit_method != 'rf' or opts.fit_load_gp or not opts.use_precessing
+            or opts.input_tides or opts.using_eos or opts.use_eccentricity
+            or not set(rf_transverse_spin.TRANSVERSE).issubset(coord_names)):
+        raise ValueError('physics3 requires a fresh RF fit retaining both full transverse spins in a precessing BBH L-frame analysis')
+    coord_names = list(coord_names) + list(rf_transverse_spin.FEATURE_NAMES)
+    def extract_fit_param(P, name):
+        return rf_transverse_spin.extract(P, name)
+else:
+    def extract_fit_param(P, name):
+        return P.extract_param(name)
 error_factor = len(coord_names)
 if error_factor ==0 :
     raise Exception(" Coordinate list for fit empty; exiting ")
 if opts.fit_uses_reported_error:
     error_factor=len(coord_names)*opts.fit_uses_reported_error_factor
 # TeX dictionary
-tex_dictionary = lalsimutils.tex_dictionary
+tex_dictionary = dict(lalsimutils.tex_dictionary)
+if opts.rf_transverse_spin_coordinates:
+    tex_dictionary.update(zip(rf_transverse_spin.FEATURE_NAMES, rf_transverse_spin.FEATURE_NAMES))
 print(" Coordinate names for fit :, ", coord_names)
 if not(opts.no_plots):
     print(" Rendering coordinate names : ",  render_coordinates(coord_names))  # map(lambda x: tex_dictionary[x], coord_names)
@@ -1876,7 +1895,7 @@ for line in dat:
         elif coord_names[x] =='ordering':
             continue
         else:
-            line_out[x] = P.extract_param(coord_names[x])
+            line_out[x] = extract_fit_param(P, coord_names[x])
  #        line_out[x] = getattr(P, coord_names[x])
     line_out[-2] = line[col_lnL]
     line_out[-1] = line[col_lnL+1]  # adjoin error estimate
@@ -1886,7 +1905,7 @@ for line in dat:
     for indx in np.arange(len(extra_plot_coord_names)):
         line_out = np.zeros(len(extra_plot_coord_names[indx]))
         for x in np.arange(len(line_out)):
-            line_out[x] = P.extract_param( extra_plot_coord_names[indx][x])
+            line_out[x] = extract_fit_param(P, extra_plot_coord_names[indx][x])
         dat_out_extra[indx].append(line_out)
 
     # results using sampling coordinates (low_level_coord_names) 
@@ -1920,7 +1939,7 @@ for line in dat:
         # INPUT GRID: Evaluate binary parameters on fitting coordinates
         line_out = np.zeros(len(coord_names)+2)
         for x in np.arange(len(coord_names)):
-            line_out[x] = P.extract_param(coord_names[x])
+            line_out[x] = extract_fit_param(P, coord_names[x])
         line_out[-2] = line[col_lnL]
         line_out[-1] = line[col_lnL+1]  # adjoin error estimate
         dat_out.append(line_out)
@@ -1929,7 +1948,7 @@ for line in dat:
         for indx in np.arange(len(extra_plot_coord_names)):
             line_out = np.zeros(len(extra_plot_coord_names[indx]))
             for x in np.arange(len(line_out)):
-                line_out[x] = P.extract_param( extra_plot_coord_names[indx][x])
+                line_out[x] = extract_fit_param(P, extra_plot_coord_names[indx][x])
             dat_out_extra[indx].append(line_out)
 
         # results using sampling coordinates (low_level_coord_names) 
@@ -2350,6 +2369,10 @@ if not no_plots:
 ###
 if not opts.using_eos:
  def convert_coords(x_in):
+    if opts.rf_transverse_spin_coordinates:
+        return rf_transverse_spin.convert(x_in, coord_names, low_level_coord_names, opts.fref,
+            lalsimutils.convert_waveform_coordinates, source_redshift=source_redshift,
+            enforce_kerr=opts.downselect_enforce_kerr)
     return lalsimutils.convert_waveform_coordinates(x_in, coord_names=coord_names,low_level_coord_names=low_level_coord_names,source_redshift=source_redshift,enforce_kerr=opts.downselect_enforce_kerr)
 else:
  def convert_coords(x_in):
@@ -3136,7 +3159,7 @@ if not no_plots:
         plt.plot(dat_out_LI[:,0],dat_out_LI[:,1],label="LI:"+opts.desc_lalinference,color='r')
    
     # Add vertical line
-    here_val = Pref.extract_param(p)
+    here_val = extract_fit_param(Pref, p)
     fac = 1
     if p in ['mc','m1','m2','mtot']:
         fac = lal.MSUN_SI
@@ -3441,7 +3464,7 @@ for indx_line  in np.arange(len(P_list)):
         fac=1
         if coord_names[indx] in ['mc', 'mtot', 'm1', 'm2']:
                 fac = lal.MSUN_SI
-        dat_mass_post[indx_line,indx] = P_list[indx_line].extract_param(coord_names[indx])/fac
+        dat_mass_post[indx_line,indx] = extract_fit_param(P_list[indx_line], coord_names[indx])/fac
 
 
 dat_extra_post = []
@@ -3453,7 +3476,7 @@ for x in np.arange(len(extra_plot_coord_names)):
             fac=1
             if coord_names_here[indx] in ['mc', 'mtot', 'm1', 'm2']:
                 fac = lal.MSUN_SI
-            feature_here[indx_line,indx] = P_list[indx_line].extract_param(coord_names_here[indx])/fac
+            feature_here[indx_line,indx] = extract_fit_param(P_list[indx_line], coord_names_here[indx])/fac
     dat_extra_post.append(feature_here)
 
 
@@ -3523,7 +3546,7 @@ for indx in np.arange(len(coord_names)):
         except:
             print("  - plot failure - ")
     # Add vertical line
-    here_val = Pref.extract_param(p)
+    here_val = extract_fit_param(Pref, p)
     fac = 1
     if p in ['mc','m1','m2','mtot']:
         fac = lal.MSUN_SI
@@ -3551,7 +3574,7 @@ for indx in np.arange(len(coord_names)):
     fac = 1
     if coord_names[indx] in ['mc','m1','m2','mtot']:
         fac = lal.MSUN_SI
-    truth_here.append(Pref.extract_param(coord_names[indx])/fac)
+    truth_here.append(extract_fit_param(Pref, coord_names[indx])/fac)
 
 
 try:
@@ -3635,7 +3658,7 @@ for indx in np.arange(len(extra_plot_coord_names)):
         fac=1
         if coord_names_here[z] in ['mc','m1','m2','mtot']:
             fac = lal.MSUN_SI
-        truth_here.append(Pref.extract_param(coord_names_here[z])/fac)
+        truth_here.append(extract_fit_param(Pref, coord_names_here[z])/fac)
 
     print(" Truth here for ", coord_names_here, truth_here)
 
