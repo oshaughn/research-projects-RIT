@@ -72,8 +72,11 @@ def _condor_argv(sub_text, macros=None):
     raw = line[0].split("=", 1)[1].strip()
     assert raw.startswith('"') and raw.endswith('"'), raw
     raw = raw[1:-1]
+    # condor expands $(name) anywhere in the line, inside quoted values too (as for ILE.sub)
     for k, v in (macros or {}).items():
         raw = raw.replace("$({})".format(k), v)
+    left = re.findall(r"\$\((\w+)\)", raw)
+    assert not left, "unsubstituted submit macros {} in {}".format(left, raw)
     return _split_v2(raw, doubled_dq=True)
 
 
@@ -88,7 +91,8 @@ def _dry_run_argv(sub_path, macros):
     assert len(ad) == 1, out.stdout
     lit = ad[0][len("Arguments="):]
     assert lit.startswith('"') and lit.endswith('"'), lit
-    value = re.sub(r'\\(.)', r'\1', lit[1:-1])   # ClassAd string escapes
+    # old-ClassAd string: only " is escaped (\"); a backslash is stored literally (a\b)
+    value = lit[1:-1].replace('\\"', '"')
     return _split_v2(value, doubled_dq=False)
 
 
@@ -99,13 +103,18 @@ def _dry_run_argv(sub_path, macros):
      ["one", '"two"', "spacey 'quoted' argument"]),
     ('arguments = "one \'two with spaces\' 3"', ["one", "two with spaces", "3"]),
     ("arguments = \"''\"", [""]),
+    # a backslash is literal, in the submit file and in the job ad
+    ('arguments = "a\\b ""q"""', ["a\\b", '"q"']),
+    # $(macro) is expanded by condor even inside a quoted value
+    ('arguments = "x$(foo)y \'v=$(foo)\'"', ["xbary", "v=bar"]),
 ])
 def test_condor_argv_split_matches_manual(tmp_path, line, argv):
-    assert _condor_argv(line) == argv
+    macros = {"foo": "bar"} if "$(foo)" in line else {}
+    assert _condor_argv(line, macros) == argv
     if shutil.which("condor_submit"):
         sub = tmp_path / "x.sub"
         sub.write_text("universe = vanilla\nexecutable = /bin/true\n{}\nqueue 1\n".format(line))
-        assert _dry_run_argv(sub, {}) == argv
+        assert _dry_run_argv(sub, macros) == argv
 
 
 # ---------------------------------------------------------------- calibration script
@@ -178,6 +187,15 @@ def _ini(tmp_path, ini_lines):
     return out
 
 
+def _failure_text(text):
+    """The tail of a failed build, plus every error block (child output is not in order)."""
+    lines = text.splitlines()
+    marks = [i for i, l in enumerate(lines)
+             if "Traceback" in l or "Error" in l or "error:" in l or "FAIL" in l]
+    blocks = ["\n".join(lines[max(0, i - 2):i + 25]) for i in marks[:6]]
+    return "\n----\n".join(blocks + [text[-2000:]])
+
+
 def _calibration_argv(tmp_path, name, ini_lines, cli=()):
     # CEPP is handed `which bilby_pipe_generation`; the pickle job is never run here, so a
     # stub on PATH keeps the build independent of whether bilby_pipe is installed.
@@ -185,7 +203,7 @@ def _calibration_argv(tmp_path, name, ini_lines, cli=()):
     stub.write_text("#!/bin/sh\nexit 1\n")
     stub.chmod(0o755)
     out, rundir = _build(tmp_path, name, list(cli), ini_fn=lambda p: _ini(p, ini_lines))
-    assert out.returncode == 0, out.stdout[-4000:]
+    assert out.returncode == 0, _failure_text(out.stdout)
     # DAG VARS of the first calibration node fill $(macrostartidx) etc., as DAGMan does
     dag = next(rundir.glob("*.dag")).read_text()
     node = re.search(r"^JOB (\S+) Calib_reweight\.sub$", dag, re.M).group(1)
