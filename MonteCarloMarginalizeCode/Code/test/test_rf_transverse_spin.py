@@ -153,3 +153,19 @@ def test_advertised_packages_survive_wheel_discovery():
     assert 'plot_utilities' in advertised
     assert all('RIFT.'+name in names for name in advertised)
     assert 'RIFT.asimov' in names and 'RIFT.misc' in names
+
+
+def test_timing_validator_finds_installed_driver(tmp_path, monkeypatch):
+    """A wheel has no sibling source-tree bin; inspect its installed entry script."""
+    import os, sysconfig
+    source=ROOT/'RIFT/likelihood/q_time_pregrid.py'
+    legacy=ROOT/'bin/integrate_likelihood_extrinsic_batchmode'
+    driver=tmp_path/legacy.name
+    driver.write_text("parser.add_option('--vectorized')\nparser.add_option('--q-time-pregrid-factor')\n")
+    original=os.path.isfile
+    monkeypatch.setattr(os.path,'isfile',lambda p: False if Path(p)==legacy else original(p))
+    monkeypatch.setattr(sysconfig,'get_path',lambda name: str(tmp_path) if name=='scripts' else None)
+    spec=importlib.util.spec_from_file_location('installed_q_time_pregrid',source)
+    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+    assert module._DRIVER_PATH==str(driver)
+    assert module._driver_long_option_names()=={'--vectorized','--q-time-pregrid-factor'}
