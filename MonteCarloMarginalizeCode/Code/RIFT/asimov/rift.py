@@ -732,9 +732,9 @@ class Rift(Pipeline):
             # ini file specifications
             for key in self.production.meta["scheduler"]["pipeline"].keys():
                 value = self.production.meta["scheduler"]["pipeline"][f"{key}"]
-                if value == "True" or value == "true" or value == True:
+                if value is True or value in ("True", "true"):
                     command += [f"--{key}"]
-                elif value == "False" or value == "false" or value == False:
+                elif value is False or value in ("False", "false"):
                     pass
                 else:
                     command += [f"--{key}={value}"]

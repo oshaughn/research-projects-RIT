@@ -2514,6 +2514,10 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
         ile_job.add_condor_cmd("transfer_output_files", "weight_files")
         requirements.append("HAS_SINGULARITY=?=TRUE")
         print(" WARNING: cal reweighting requires bilby. Directories are moved to cal_evelopes")
+        # A local shared image is not available on arbitrary OSG hosts.
+        shared_requirement = os.environ.get('RIFT_REQUIRE_NONWORKER')
+        if shared_requirement and singularity_image_used == singularity_image:
+            requirements.append('({}) =?= TRUE'.format(shared_requirement))
 #        os.system("condor_config_val UID_DOMAIN > uid_domain.txt")
 #       with open("uid_domain.txt", 'r') as f:
 #            uid_domain = f.readline().strip()

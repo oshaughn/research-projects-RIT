@@ -238,3 +238,47 @@ def test_asimov_psd_staging_targets_rundir_from_foreign_cwd(tmp_path,monkeypatch
     for name in ['build_dag','submit_dag']:
         fn=next(n for n in ast.walk(tree) if isinstance(n,ast.FunctionDef) and n.name==name)
         assert any(isinstance(n,ast.Call) and isinstance(n.func,ast.Attribute) and n.func.attr=='_stage_xml_psds' for n in ast.walk(fn))
+
+
+@pytest.mark.parametrize('value,expected', [
+    (True, ['--example']), ('true', ['--example']), ('True', ['--example']),
+    (False, []), ('false', []), ('False', []),
+    (1.0, ['--example=1.0']), (0.0, ['--example=0.0']),
+    (1, ['--example=1']), (0, ['--example=0']),
+])
+def test_asimov_pipeline_numeric_values_are_not_boolean_flags(value, expected):
+    import ast
+    tree = ast.parse((CODE/'RIFT/asimov/rift.py').read_text())
+    branch = next(n for n in ast.walk(tree) if isinstance(n, ast.If)
+                  and isinstance(n.test, ast.BoolOp)
+                  and 'value is True' in ast.unparse(n.test))
+    namespace = {'value': value, 'key': 'example', 'command': []}
+    exec(compile(ast.Module(body=[branch], type_ignores=[]),
+                 'pipeline-value-transport', 'exec'), namespace)
+    assert namespace['command'] == expected
+
+
+@pytest.mark.parametrize('module_name', ['dag_utils', 'dag_utils_generic'])
+@pytest.mark.parametrize('image,shared', [
+    ('/scratch/review.sif', True), ('osdf:///review/test.sif', False),
+])
+def test_calibration_shared_image_filesystem_match(module_name, image, shared,
+                                                  tmp_path, monkeypatch):
+    import importlib
+    pytest.importorskip('glue.pipeline')
+    module = importlib.import_module('RIFT.misc.' + module_name)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv('RIFT_REQUIRE_NONWORKER', 'EPNFS')
+    monkeypatch.setenv('RIFT_NOSTREAM_LOG', '1')
+    job, sub = module.write_calibration_uncertainty_reweighting_sub(
+        tag=module_name, exe='/usr/bin/calibration_reweighting.py', log_dir='./',
+        pickle_file='dump.pickle', posterior_file='posterior.dat',
+        use_osg=True, use_singularity=True, singularity_image=image,
+        transfer_files=[])
+    job.write_sub_file()
+    body = Path(sub).read_text()
+    requirements = next(line for line in body.splitlines()
+                        if line.lower().startswith('requirements'))
+    assert ('EPNFS' in requirements) == shared
+    assert 'universe = local' not in body and 'universe = scheduler' not in body
+    assert 'stream_output = True' not in body and 'stream_error = True' not in body

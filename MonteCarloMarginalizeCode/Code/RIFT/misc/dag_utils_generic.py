@@ -4403,6 +4403,11 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
         ile_job.add_condor_cmd("transfer_output_files", "weight_files")
         requirements.append("HAS_SINGULARITY=?=TRUE")
         print(" WARNING: cal reweighting requires bilby. Directories are moved to cal_evelopes")
+        # Shared images must match the same filesystem constraint as ILE.
+        # Transferred images and container-universe manifests remain portable.
+        shared_requirement = os.environ.get('RIFT_REQUIRE_NONWORKER')
+        if shared_requirement and not singularity_container_universe and not extra_files:
+            requirements.append('({}) =?= TRUE'.format(shared_requirement))
 #        os.system("condor_config_val UID_DOMAIN > uid_domain.txt")
 #       with open("uid_domain.txt", 'r') as f:
 #            uid_domain = f.readline().strip()
