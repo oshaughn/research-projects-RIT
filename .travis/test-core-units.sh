@@ -99,6 +99,11 @@ FILES=(
   "$C/test/integrators/test_integrator_studies.py"
   "$C/test/integrators/test_replica_pooling.py"
   "$C/test/integrators/test_rvs_weight_derivation.py"
+  # -- intrinsic interpolators and AV stopping (PR #382)
+  "$C/test/interpolators/test_av_stopping_metric.py"
+  "$C/test/interpolators/test_cached_matern_gp.py"
+  "$C/test/test_av_host_backend.py"
+  "$C/test/test_matern_gp.py"
   "$C/test/integrators/test_seeding_public_paths.py"
   "$C/test/integrators/test_seeding_reproducibility.py"
   "$C/test/test_mc_error.py"

@@ -15,9 +15,10 @@ import hashlib
 import json
 import platform
 
-import gpytorch
 import numpy as np
 import torch
+# torch first: a host without it reports the ignorable 'No module named torch'.
+import gpytorch
 
 
 DEFAULT_MAX_TRAIN_POINTS = 8000
