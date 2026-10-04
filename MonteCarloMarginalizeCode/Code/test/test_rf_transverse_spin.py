@@ -193,9 +193,10 @@ def test_calibration_waveform_kwargs_survive_shell_transport():
     ({'RIFT_NOSTREAM_LOG':'1','RIFT_CIP_FLOCK_LOCAL':'true','RIFT_CIP_POOLS':'IGWN,CIT'}, {'MY.flock_local':'true','MY.POOLS':'"IGWN,CIT"'}),
     ({'RIFT_CIP_FLOCK_LOCAL':'false'}, {'stream_error':'True','stream_output':'True'}),
 ])
-def test_cip_explicit_transport_policy(values,expected):
+@pytest.mark.parametrize('module_name',['dag_utils.py','dag_utils_generic.py'])
+def test_cip_explicit_transport_policy(values,expected,module_name):
     from types import SimpleNamespace
-    tree=ast.parse((ROOT/'RIFT/misc/dag_utils.py').read_text())
+    tree=ast.parse((ROOT/'RIFT/misc'/module_name).read_text())
     function=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='write_CIP_sub')
     nodes=[n for n in function.body if isinstance(n,ast.If) and any(k in ast.unparse(n.test) for k in ['RIFT_NOSTREAM_LOG','RIFT_CIP_FLOCK_LOCAL','RIFT_CIP_POOLS'])]
     result={}
