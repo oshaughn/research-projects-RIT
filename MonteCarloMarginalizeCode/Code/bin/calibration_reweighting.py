@@ -346,9 +346,11 @@ waveform_arguments = dict(
     sampling_frequency=ifos.sampling_frequency,
     h_method=args.h_method)
 
-extra_waveform_kwargs={}
+# Same waveform options as ILE (integrate_likelihood_extrinsic_batchmode, analyze_event):
+# 2 s post-merger FD alignment unless the user's --extra-waveform-kwargs overrides it.
+extra_waveform_kwargs={'fd_alignment_postevent_time': 2}
 if args.internal_waveform_fd_L_frame:
-    extra_waveform_kwargs = {'fd_L_frame':True}
+    extra_waveform_kwargs['fd_L_frame'] = True
 if args.internal_waveform_fd_no_condition:
     extra_waveform_kwargs['no_condition'] = True
 if args.use_gwsignal_lmax_nyquist:
