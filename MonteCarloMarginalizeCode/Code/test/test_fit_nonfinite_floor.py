@@ -90,9 +90,13 @@ def test_cip_rf_kerr_violating_rows_get_the_floor(tmp_path):
                  "--fit-method", "rf", "--sampler-method", "AV",
                  "--n-max", "200000", "--n-eff", "500", "--n-output-samples", "500",
                  "--fname-output-samples", "post", "--no-plots"], d)
+    # lnZ first: with the +500 fill CIP writes lnZ ~ 502 and then exits 1 ("no export data"),
+    # so checking the exit code first would fail on that crash, not on the fill.
+    fname_lnZ = os.path.join(d, "integral_result.dat")
+    assert os.path.exists(fname_lnZ), proc.stdout[-3000:]
+    lnZ = float(np.loadtxt(fname_lnZ).ravel()[0])
+    assert lnZ < 25.0, lnZ    # fixed: 20.8-21.5 over 7 data seeds; +500 fill: ~502
     assert proc.returncode == 0, proc.stdout[-3000:]
-    lnZ = float(np.loadtxt(os.path.join(d, "integral_result.dat")).ravel()[0])
-    assert lnZ < 25.0, lnZ    # bounded by the lnL peak of 20; the +500 fill gave ~502
     sys.path.insert(0, CODE)
     from RIFT import lalsimutils
     P = lalsimutils.xml_to_ChooseWaveformParams_array(os.path.join(d, "post.xml.gz"))
