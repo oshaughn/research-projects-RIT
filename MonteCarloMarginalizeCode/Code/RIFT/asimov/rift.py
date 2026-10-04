@@ -5,6 +5,7 @@ import glob
 import os
 import re
 import subprocess
+import shutil
 from pathlib import Path
 
 from ligo.gracedb.rest import HTTPError
@@ -413,6 +414,31 @@ class Rift(Pipeline):
 
         pass
 
+    # Fit methods CIP dispatches on (util_ConstructIntrinsicPosterior_GenericCoordinates.py).
+    _CIP_FIT_METHODS = (
+        "rf", "rf_pca", "gp", "gp_hyper", "gp_lazy", "gp_sparse", "gp-pool", "gp-torch",
+        "gp-xgboost", "gp-jax-svgp", "gp-jax-rff", "gp-jax-exact", "quadratic", "polynomial",
+        "cov", "kde", "rbf", "nn", "nn_rfwrapper", "weighted_nearest")
+
+    def _validate_transverse_spin_coordinates(self):
+        """Reject CIP ledger values the template cannot pass to pseudo_pipe.
+
+        YAML on/yes/true load as True, which selects physics3 at any mass.
+        """
+        cip = (self.production.meta.get("sampler") or {}).get("cip") or {}
+        if "fitting method" in cip and cip["fitting method"] not in self._CIP_FIT_METHODS:
+            raise ValueError(
+                "sampler.cip.fitting method must be one of {}; got {!r}".format(
+                    ", ".join(self._CIP_FIT_METHODS), cip["fitting method"]))
+        if "transverse spin coordinates" not in cip:
+            return
+        value = cip["transverse spin coordinates"]
+        if isinstance(value, bool) or (isinstance(value, str) and value in ("off", "auto", "physics3")):
+            return
+        raise ValueError(
+            "sampler.cip.transverse spin coordinates must be off, auto, physics3 "
+            "or a YAML boolean; got {!r}".format(value))
+
     def before_config(self, dryrun=False):
         """
         - Convert the text-based PSD to an XML psd if the xml doesn't exist already.
@@ -423,6 +449,7 @@ class Rift(Pipeline):
         # calling the base implementation so provenance is not silently lost;
         # older supported ASIMOV releases implement this as a no-op.
         super().before_config(dryrun=dryrun)
+        self._validate_transverse_spin_coordinates()
 
         event = self.production.event
         category = config.get("general", "calibration_directory")
@@ -537,6 +564,7 @@ class Rift(Pipeline):
 
 
         """
+        self._validate_transverse_spin_coordinates()
         self.before_build()
         cwd = os.getcwd()
         if self.production.event.repository:
@@ -813,9 +841,7 @@ class Rift(Pipeline):
                         )
                     if self.production.event.repository:
                         # with set_directory(os.path.abspath(self.production.rundir)):
-                        for psdfile in self._get_psds("xml"):
-                            ifo = self._detector_for_psd(psdfile)
-                            os.system(f"cp {psdfile} {ifo}-psd.xml.gz")
+                        self._stage_xml_psds(rundir=rundir)
 
                         # os.system("cat *_local.cache > local.cache")
 
@@ -829,6 +855,19 @@ class Rift(Pipeline):
                             return PipelineLogger(
                                 message=out, production=self.production.name
                             )
+
+    def _stage_xml_psds(self, dryrun=False, rundir=None):
+        """Stage exact XML PSD bytes where the generated workers expect them."""
+        rundir = Path(rundir if rundir is not None else self.production.rundir).resolve()
+        for psdfile in self._get_psds("xml"):
+            source = Path(psdfile).resolve()
+            ifo = self._detector_for_psd(psdfile)
+            # Retain the repository basename alias used by existing consumers.
+            for target in dict.fromkeys([rundir / f"{ifo}-psd.xml.gz", rundir / source.name]):
+                if dryrun:
+                    print(f"cp {source} {target}")
+                elif source != target:
+                    shutil.copy2(source, target)
 
     def submit_dag(self, dryrun=False):
         """
@@ -856,9 +895,6 @@ class Rift(Pipeline):
            This will be raised if the pipeline fails to submit the job.
         """
         self.before_submit()
-        for psdfile in self._get_psds("xml"):
-            ifo = self._detector_for_psd(psdfile)
-            os.system(f"cp {psdfile} {ifo}-psd.xml.gz")
 
         command = [
             "condor_submit_dag",
@@ -866,16 +902,17 @@ class Rift(Pipeline):
             f"rift/{self.production.event.name}/{self.production.name}",
             "marginalize_intrinsic_parameters_BasicIterationWorkflow.dag",
         ]
+        priority = (self.production.meta.get("scheduler") or {}).get("priority")
+        if priority is not None:
+            if isinstance(priority, bool) or not re.fullmatch(r"-?\d+", str(priority)):
+                raise ValueError("scheduler.priority must be an integer")
+            command[1:1] = ["-priority", str(int(priority))]
         if dryrun:
-            for psdfile in self._get_psds("xml"):
-                print(f"cp {psdfile} {self.production.rundir}/{psdfile.split('/')[-1]}")
+            self._stage_xml_psds(dryrun=True)
             print("")
             print(" ".join(command))
         else:
-            for psdfile in self._get_psds("xml"):
-                os.system(
-                    f"cp {psdfile} {self.production.rundir}/{psdfile.split('/')[-1]}"
-                )
+            self._stage_xml_psds()
 
             try:
                 with set_directory(self.production.rundir):
