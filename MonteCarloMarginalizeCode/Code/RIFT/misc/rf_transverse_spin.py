@@ -112,16 +112,26 @@ def stage_arguments(line, mode, detector_chirp_mass, applicable, frequency):
 
 
 def stage_problem(line):
-    """Mirror the CIP physics3 guard on a final CIP argument line; None if it will pass."""
+    """Mirror every CIP physics3 refusal on a final CIP argument line; None if it will pass."""
     import shlex
-    tokens=shlex.split(line)
+    tokens=[]
+    for t in shlex.split(line):
+        tokens += t.split('=',1) if t.startswith('--') and '=' in t else [t]
     def values(flag): return [tokens[i+1] for i,t in enumerate(tokens[:-1]) if t==flag]
+    fref=values('--fref')[-1:] or ['20']
+    try: fref=float(fref[0])
+    except ValueError: return 'reference frequency is not a number'
+    if not np.isfinite(fref) or fref<=0:
+        return 'reference frequency is not finite and positive'
     if values('--fit-method')[-1:] not in ([], ['rf']):
         return 'fit method is not rf'
     if '--fit-load-gp' in tokens:
         return 'loads a cached fit'
     if '--use-precessing' not in tokens:
         return 'not a precessing analysis'
+    for flag in ('--input-tides','--using-eos','--use-eccentricity'):
+        if flag in tokens:
+            return 'not a BBH analysis ({})'.format(flag)
     missing=set(NATIVE_FEATURES)-set(values('--parameter')+values('--parameter-implied'))
     if missing:
         return 'fit coordinates lack '+', '.join(sorted(missing))

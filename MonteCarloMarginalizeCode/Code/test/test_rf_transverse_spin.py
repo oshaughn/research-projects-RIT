@@ -113,22 +113,50 @@ def test_requires_tested_native_phase_basis():
 
 CIP_FIT=['--parameter','delta_mc']+[a for p in ['mu1','mu2','chiMinus','s1x','s1y','s2x','s2y'] for a in ('--parameter-implied',p)]
 
-@pytest.mark.parametrize('extra',[
-    ['--fit-load-gp','my_fit.pkl'],
-    ['--fit-method','gp'],
-    ['--fref','nan'],
-    'no-mu1',
-])
-def test_cip_refuses_physics3_without_a_fresh_native_rf_fit(tmp_path,extra):
-    # Executes CIP up to its option check; a worker given --fit-load-gp must fail, not fit.
+CIP_BASE=['--fit-method','rf','--use-precessing','--fref','35','--rf-transverse-spin-coordinates','physics3']+CIP_FIT
+
+def _replace(args,old,new):
+    args=list(args); args[args.index(old)]=new; return args
+
+def _drop(args,flag):
+    return [a for a in args if a!=flag]
+
+# One case per CIP physics3 refusal, keyed by the CIP option the condition reads.
+CIP_REFUSALS={
+    'fref (nan)':        lambda a: _replace(a,'35','nan'),
+    'fref (zero)':       lambda a: _replace(a,'35','0'),
+    'fit_method':        lambda a: a+['--fit-method','gp'],
+    'fit_load_gp':       lambda a: a+['--fit-load-gp','my_fit.pkl'],
+    'use_precessing':    lambda a: _drop(a,'--use-precessing'),
+    'input_tides':       lambda a: a+['--input-tides'],
+    'using_eos':         lambda a: a+['--using-eos','lal_SLY4'],
+    'use_eccentricity':  lambda a: a+['--use-eccentricity'],
+    'coord_names (mu1)': lambda a: _replace(a,'mu1','xi'),
+    'coord_names (delta_mc)': lambda a: _replace(a,'delta_mc','eta'),
+}
+
+def test_every_cip_refusal_has_a_case():
+    import re
+    src=(ROOT/'bin/util_ConstructIntrinsicPosterior_GenericCoordinates.py').read_text()
+    guard=src[src.index('if opts.rf_transverse_spin_coordinates:'):src.index('coord_names = list(coord_names) + list(rf_transverse_spin.FEATURE_NAMES)')]
+    read=set(re.findall(r'opts\.(\w+)',guard))-{'rf_transverse_spin_coordinates'}
+    covered={k.split()[0] for k in CIP_REFUSALS}
+    assert read<=covered, read-covered
+    assert 'coord_names' in covered and 'NATIVE_FEATURES' in guard
+
+def test_stage_problem_accepts_the_valid_line():
+    assert rf.stage_problem(' '.join(CIP_BASE)) is None
+    assert rf.stage_problem(' '.join(CIP_BASE).replace('--fit-method rf','--fit-method=rf')) is None
+
+@pytest.mark.parametrize('case',sorted(CIP_REFUSALS))
+def test_stage_problem_mirrors_each_cip_refusal(tmp_path,case):
+    # pseudo_pipe's build-time check must refuse exactly what CIP refuses at runtime.
+    args=CIP_REFUSALS[case](CIP_BASE)
+    assert rf.stage_problem(' '.join(args)) is not None
     pytest.importorskip('lal')
     import os,subprocess,sys
-    args=list(CIP_FIT)
-    if extra=='no-mu1':
-        args[args.index('mu1')]='xi'; extra=[]
     (tmp_path/'g.dat').write_text('0 20 10 0 0 0 0 0 0 10 0.1 100 1000\n')
-    cmd=[sys.executable,str(ROOT/'bin/util_ConstructIntrinsicPosterior_GenericCoordinates.py'),'--fname','g.dat',
-         '--fit-method','rf','--use-precessing','--no-plots','--fref','35','--rf-transverse-spin-coordinates','physics3']+args+extra
+    cmd=[sys.executable,str(ROOT/'bin/util_ConstructIntrinsicPosterior_GenericCoordinates.py'),'--fname','g.dat','--no-plots']+args
     env=dict(os.environ,PYTHONPATH=str(ROOT)+os.pathsep+os.environ.get('PYTHONPATH',''),OMP_NUM_THREADS='1')
     proc=subprocess.run(cmd,cwd=tmp_path,env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,universal_newlines=True,timeout=300)
     assert proc.returncode!=0
