@@ -231,6 +231,10 @@ def test_asimov_psd_staging_targets_rundir_from_foreign_cwd(tmp_path,monkeypatch
     assert list(other.iterdir())==[]
     worker._get_psds=lambda kind:[str(rundir/'H1-psd.xml.gz')]
     worker._stage_xml_psds()  # same-file sources remain safe
+    worker.production.rundir='relative/run'
+    worker._stage_xml_psds(rundir=str(rundir))  # build resolves before changing cwd
+    build=next(n for n in ast.walk(tree) if isinstance(n,ast.FunctionDef) and n.name=='build_dag')
+    assert any(isinstance(n,ast.Call) and isinstance(n.func,ast.Attribute) and n.func.attr=='_stage_xml_psds' and any(k.arg=='rundir' for k in n.keywords) for n in ast.walk(build))
     for name in ['build_dag','submit_dag']:
         fn=next(n for n in ast.walk(tree) if isinstance(n,ast.FunctionDef) and n.name==name)
         assert any(isinstance(n,ast.Call) and isinstance(n.func,ast.Attribute) and n.func.attr=='_stage_xml_psds' for n in ast.walk(fn))
