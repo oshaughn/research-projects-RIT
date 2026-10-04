@@ -27,6 +27,8 @@ completed = False
 sys.settrace(tracer)
 try:runpy.run_path(str(script),run_name='__main__')
 except Complete:completed = True
+except SystemExit as exc:
+ raise RuntimeError("CIP exited before the training/prediction proof boundary") from exc
 finally:sys.settrace(None)
 
 assert completed, "CIP did not reach the training/prediction proof boundary"
