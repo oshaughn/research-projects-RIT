@@ -143,3 +143,13 @@ def test_helper_top_option_configures_basis_after_grid_before_cip():
     assert 'rf_mass_is_placeholder' in opt and 'not opts.use_mtot_coords' in opt
     # These are explicit mode opt-ins; default/off do not enter the policy branch.
     assert not rf.enabled(None,10,True) and not rf.enabled('off',10,True)
+
+
+def test_advertised_packages_survive_wheel_discovery():
+    # Source-tree namespace imports can hide a package omitted from the wheel.
+    import setuptools
+    names = setuptools.find_packages(str(ROOT))
+    advertised = ast.literal_eval(ast.parse((ROOT/'RIFT/__init__.py').read_text()).body[0].value)
+    assert 'plot_utilities' in advertised
+    assert all('RIFT.'+name in names for name in advertised)
+    assert 'RIFT.asimov' in names and 'RIFT.misc' in names
