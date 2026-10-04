@@ -414,6 +414,21 @@ class Rift(Pipeline):
 
         pass
 
+    def _validate_transverse_spin_coordinates(self):
+        """Reject a ledger value the template cannot pass to pseudo_pipe.
+
+        YAML on/yes/true load as True, which selects physics3 at any mass.
+        """
+        cip = (self.production.meta.get("sampler") or {}).get("cip") or {}
+        if "transverse spin coordinates" not in cip:
+            return
+        value = cip["transverse spin coordinates"]
+        if isinstance(value, bool) or (isinstance(value, str) and value in ("off", "auto", "physics3")):
+            return
+        raise ValueError(
+            "sampler.cip.transverse spin coordinates must be off, auto, physics3 "
+            "or a YAML boolean; got {!r}".format(value))
+
     def before_config(self, dryrun=False):
         """
         - Convert the text-based PSD to an XML psd if the xml doesn't exist already.
@@ -424,6 +439,7 @@ class Rift(Pipeline):
         # calling the base implementation so provenance is not silently lost;
         # older supported ASIMOV releases implement this as a no-op.
         super().before_config(dryrun=dryrun)
+        self._validate_transverse_spin_coordinates()
 
         event = self.production.event
         category = config.get("general", "calibration_directory")
@@ -538,6 +554,7 @@ class Rift(Pipeline):
 
 
         """
+        self._validate_transverse_spin_coordinates()
         self.before_build()
         cwd = os.getcwd()
         if self.production.event.repository:
@@ -875,7 +892,7 @@ class Rift(Pipeline):
             f"rift/{self.production.event.name}/{self.production.name}",
             "marginalize_intrinsic_parameters_BasicIterationWorkflow.dag",
         ]
-        priority = self.production.meta.get("scheduler", {}).get("priority")
+        priority = (self.production.meta.get("scheduler") or {}).get("priority")
         if priority is not None:
             if isinstance(priority, bool) or not re.fullmatch(r"-?\d+", str(priority)):
                 raise ValueError("scheduler.priority must be an integer")
