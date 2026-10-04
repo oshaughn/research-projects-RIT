@@ -111,6 +111,8 @@ FILES=(
   "$C/test/test_lisa_ini_contract.py"
   "$C/test/test_tracer_placement_gp.py"
   "$C/test/waveforms/test_uv_symmetry.py"
+  # -- coordinate conversion (source-frame CIP input -> detector-frame fit coordinates)
+  "$C/test/test_convert_coordinates_source_redshift.py"
 )
 
 # A manifest entry that stops existing is a SILENT no-op: the gate keeps passing while
@@ -163,6 +165,8 @@ done
 #            fed odeint's float probe to len(x) pdfs; the t_ref wiring in all three ILE drivers)
 #   378/366  + test_response_order.py (8 tests: SNR tightening, Halton independence,
 #            compound-axis semantics, reference resolution/tail charging, and bank preflight)
+#   393/381  + test_convert_coordinates_source_redshift.py (13 tests: vectorized
+#            convert_waveform_coordinates vs per-row extract_param at source_redshift 0 and 0.3)
 #
 # RAISE these when files are added: a floor left at the old value passes while covering less,
 # which is the failure this gate exists to catch.
@@ -178,12 +182,12 @@ done
 # runner's closure the count falls back to 347 and still passes.  Pinning 350 would turn an
 # unrelated dependency change into a red gate.
 # Two XML/grid template-finalization regressions, with no added skips.
-EXPECTED_TESTS=380
+EXPECTED_TESTS=393
 # Outcomes, not just exit status: a collection floor cannot see a test that collects, runs and
 # asserts nothing, and a pytest.skip can quietly absorb a lost gate.  The 12 skips are
 # environment legs -- cupy in test_seeding_reproducibility, device legs in
 # test_dslice_device_native, and the xfail in test_uv_symmetry.
-EXPECTED_PASSED=368
+EXPECTED_PASSED=381
 MAX_SKIPPED=12
 
 # The floors must be INTEGERS, and this is checked rather than assumed.  `[ 347 -lt FOO ]` does
