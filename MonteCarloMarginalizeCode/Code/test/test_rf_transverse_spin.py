@@ -169,3 +169,20 @@ def test_cip_explicit_transport_policy(values,expected,module_name):
     job=SimpleNamespace(add_condor_cmd=lambda k,v:result.update({k:v}))
     exec(compile(ast.Module(body=nodes,type_ignores=[]),'cip-transport','exec'),{'os':SimpleNamespace(environ=values),'ile_job':job,'use_osg':False,'use_singularity':False})
     assert result==expected
+
+
+def test_calibration_condor_value_has_no_literal_shell_quotes():
+    import ast, shlex
+    from types import SimpleNamespace
+    source=(CODE/'bin/create_event_parameter_pipeline_BasicIteration').read_text()
+    tree=ast.parse(source)
+    nodes=[n for n in ast.walk(tree) if isinstance(n,ast.If) and ast.unparse(n.test)=='opts.calibration_reweighting_initial_extra_args']
+    assert len(nodes)==1
+    module=ast.parse((CODE/'RIFT/misc/dag_utils_generic.py').read_text())
+    definitions=[n for n in module.body if isinstance(n,ast.FunctionDef) and n.name in ['_double_up_quotes','quote_arguments']]
+    namespace={};exec(compile(ast.Module(body=definitions,type_ignores=[]),'condor-quote','exec'),namespace)
+    value=" --extra-waveform-kwargs \"{'fd_alignment_postevent_time': None, 'fd_centering_factor': 0.75}\" --fref 20 --internal-waveform-fd-L-frame "
+    args=[]
+    environment={'opts':SimpleNamespace(calibration_reweighting_initial_extra_args=value),'shlex':shlex,'dag_utils':SimpleNamespace(quote_arguments=namespace['quote_arguments']),'calibration_job':SimpleNamespace(add_arg=args.append)}
+    exec(compile(ast.Module(body=nodes,type_ignores=[]),'calibration-emission','exec'),environment)
+    assert args==["--extra-waveform-kwargs '{''fd_alignment_postevent_time'': None, ''fd_centering_factor'': 0.75}' --fref 20 --internal-waveform-fd-L-frame"]
