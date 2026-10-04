@@ -169,3 +169,19 @@ def test_timing_validator_finds_installed_driver(tmp_path, monkeypatch):
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
     assert module._DRIVER_PATH==str(driver)
     assert module._driver_long_option_names()=={'--vectorized','--q-time-pregrid-factor'}
+
+
+def test_calibration_waveform_kwargs_survive_shell_transport():
+    import shlex
+    source=(ROOT/'bin/util_RIFT_pseudo_pipe.py').read_text()
+    tree=ast.parse(source)
+    nodes=[n for n in ast.walk(tree) if isinstance(n,ast.AugAssign) and
+           isinstance(n.target,ast.Name) and n.target.id=='cmd' and
+           isinstance(n.value,ast.Call) and isinstance(n.value.func,ast.Attribute) and
+           isinstance(n.value.func.value,ast.Constant) and
+           n.value.func.value.value==' --calibration-reweighting-initial-extra-args={} ']
+    assert len(nodes)==1
+    value=' --extra-waveform-kwargs "{\'fd_alignment_postevent_time\': None, \'fd_centering_factor\': 0.75}" --fref 20 --internal-waveform-fd-L-frame '
+    namespace={'cmd':'builder','my_extra_string':value,'shlex':shlex}
+    exec(compile(ast.Module(body=nodes,type_ignores=[]),'pipeline-calibration-transport','exec'),namespace)
+    assert shlex.split(namespace['cmd'])==['builder','--calibration-reweighting-initial-extra-args=  '+value]
