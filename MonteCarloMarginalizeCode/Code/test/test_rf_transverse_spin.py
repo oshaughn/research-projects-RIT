@@ -176,6 +176,8 @@ def test_calibration_condor_value_has_no_literal_shell_quotes():
     from types import SimpleNamespace
     source=(CODE/'bin/create_event_parameter_pipeline_BasicIteration').read_text()
     tree=ast.parse(source)
+    imports=[n for n in tree.body if isinstance(n,ast.Import) and any(a.name=='shlex' for a in n.names)]
+    assert imports, 'The executed builder requires a module-level shlex import'
     nodes=[n for n in ast.walk(tree) if isinstance(n,ast.If) and ast.unparse(n.test)=='opts.calibration_reweighting_initial_extra_args']
     assert len(nodes)==1
     module=ast.parse((CODE/'RIFT/misc/dag_utils_generic.py').read_text())
