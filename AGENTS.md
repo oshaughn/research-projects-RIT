@@ -16,28 +16,47 @@ ALL of:
 - `--time-marginalization`: without it ILE calls `FactoredLogLikelihood`.
 - `--vectorized`: without it ILE calls the scalar `FactoredLogLikelihoodTimeMarginalized`.
 - `--gpu`: without it ILE calls `DiscreteFactoredLogLikelihoodViaArrayVector`.
-- `--force-xpy`: on a host without cupy, ILE prints `Override --gpu (not available)`,
-  sets `opts.gpu=False`, and drops to `ViaArrayVector`. `--force-xpy` keeps the NoLoop
-  path on numpy. It is inert without `--gpu`.
+- `--force-xpy`: on a host without cupy, ILE prints ` Override --gpu  (not available)`
+  (two spaces; grep `Override --gpu`), sets `opts.gpu=False`, and drops to
+  `ViaArrayVector`. With `--force-xpy` the same line still prints, but `--gpu` is
+  restored and NoLoop runs on numpy. `--force-xpy` does nothing without `--gpu`, and
+  nothing on a host where cupy loads.
+
+The diagnostics `--zero-likelihood` and `--calibration-dump-responsibilities` bypass
+NoLoop by design, even with all four flags.
 
 `--gpu` and `--force-xpy` select a code path, not hardware. For a CPU run remove only
 `--force-gpu-only`; never remove `--gpu` or `--force-xpy`. `--rotation-slow` and
-`--freqresponse` (each with `--vectorized`) reach their own NoLoop variants.
+`--freqresponse` reach their own NoLoop variants with `--time-marginalization
+--vectorized` (`--gpu`/`--force-xpy` optional). Without `--time-marginalization`
+they run the scalar `FactoredLogLikelihood`, and the startup checks do not catch it.
 
-Who adds them: `helper_LDG_Events.py` emits `--vectorized --gpu`;
-`util_RIFT_pseudo_pipe.py` adds `--force-xpy` only with `--ile-no-gpu` or
-`--ile-sampler-method AV`. Hand-written commands (tests, demos, smoke runs, export-only
-reruns) must spell out all four.
+Who adds the flags:
+- `helper_LDG_Events.py` emits `--vectorized --gpu`, and `--time-marginalization`
+  under `--propose-ile-convergence-options` (which `util_RIFT_pseudo_pipe.py` always
+  passes).
+- `create_event_parameter_pipeline_BasicIteration` and its siblings append
+  `--vectorized --gpu` under `--request-gpu-ILE`.
+- `util_RIFT_pseudo_pipe.py` adds `--force-xpy` only with `--ile-no-gpu` or
+  `--ile-sampler-method AV`. A default pseudo_pipe GPU run with another sampler
+  therefore reaches NoLoop only if cupy loads on the execute node; otherwise it drops
+  to `ViaArrayVector`. `ILE_extr` inherits the same flags.
+- Hand-written commands (tests, demos, smoke runs, export-only reruns) must spell
+  out all four.
 
-Confirm the path in the log. Any of these lines means the run did not use the
-maintained likelihood:
-- `Override --gpu (not available)` on a run without `--force-xpy`;
+Confirm the path in the log. Each of these lines means the run is not on NoLoop:
+- `Override --gpu` on a run without `--force-xpy`;
 - `this is the old vectorized code path not the xpy path` (printed with distance
   marginalization);
-- `Q_lm stencil DEFAULT 'sinc' NOT APPLIED`.
+- `Q_lm stencil DEFAULT ... NOT APPLIED -- this configuration cannot honour a
+  sub-sample stencil` (grep `NOT APPLIED`). The same line with a
+  `--calibration-fused-kernel` reason is still on NoLoop, with the `nearest` stencil.
 
-An explicit `--interpolate-time` or `--time-marginalization-quadrature` is refused off
-NoLoop. The default stencil instead falls back to `nearest` without an error.
+An explicit `--interpolate-time` is refused off NoLoop; the default stencil instead
+falls back to `nearest`. A non-default `--time-marginalization-quadrature`
+(`bandlimited`/`peak-local`) is refused unless NoLoop runs without calibration
+marginalization, `--rotation-slow` or `--freqresponse`; `peak-local` also refuses
+phase marginalization.
 
 ## Key directories
 - `MonteCarloMarginalizeCode/Code/` - Main source
