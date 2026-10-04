@@ -30,9 +30,13 @@ The bundled Asimov template selects `auto`. Override it with:
 ```yaml
 sampler:
   cip:
-    transverse spin coordinates: off  # or physics3 / auto
+    transverse spin coordinates: "off"  # or physics3 / auto
     fit method: rf
 ```
+
+YAML boolean `false` also means `off`, and boolean `true` means explicit
+`physics3`; quote enum strings to avoid YAML 1.1 coercion. An explicit false
+value is never replaced by the automatic default.
 
 The helper resolves the event estimate using the existing event ingestion path and
 emits the opt-in flag and actual ILE spin reference frequency in applicable CIP

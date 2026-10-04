@@ -70,7 +70,8 @@ def test_cli_and_pipeline_forwarding_source_contract():
     assert 'opts.fit_load_gp' in cip[cip.index('if opts.rf_transverse_spin_coordinates:'):cip.index('# SANITY COMPATIBILITY CHECK')]
     assert 'extract_fit_param(P_list[indx_line], coord_names[indx])' in cip
     template=(ROOT/'RIFT/asimov/rift.ini').read_text()
-    assert "['transverse spin coordinates'] | default: 'auto'" in template
+    assert "['cip'] contains 'transverse spin coordinates'" in template
+    assert "['transverse spin coordinates'] == false" in template
 
 def test_component_mirror_is_symmetric():
     s1=np.array([.2,.3,-.5]);s2=np.array([-.3,.1,.4])
