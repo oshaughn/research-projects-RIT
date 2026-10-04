@@ -176,8 +176,19 @@ def _ini(tmp_path, ini_lines):
         text = text.replace("{}=True".format(flag), "{}=False".format(flag))
     text = re.sub(r"force-initial-grid-size=\d+", "force-initial-grid-size=4", text)
     text = text.replace("calibration-reweighting=False", "calibration-reweighting=True")
+    # The reference bilby ini names calibration envelopes under a CIT home directory, and CEPP
+    # copies them at build time; point it at stub files so the build runs anywhere.
+    cal = tmp_path / "cal"
+    cal.mkdir(exist_ok=True)
+    for ifo in ("H1", "L1"):
+        (cal / (ifo + ".dat")).write_text("")
+    bilby_text = re.sub(r"^spline-calibration-envelope-dict=.*$",
+                        "spline-calibration-envelope-dict={{H1:{0}/H1.dat, L1:{0}/L1.dat}}".format(cal),
+                        (REPO / ".travis/ref_ini/bilby_GW150914.ini").read_text(), flags=re.M)
+    bilby_ini = tmp_path / "bilby.ini"
+    bilby_ini.write_text(bilby_text)
     text = text.replace('bilby-ini-file=".travis/ref_ini/bilby_GW150914.ini"',
-                        'bilby-ini-file="{}"'.format(REPO / ".travis/ref_ini/bilby_GW150914.ini"))
+                        'bilby-ini-file="{}"'.format(bilby_ini))
     text = re.sub(r"^manual-extra-ile-args=.*\n", "", text, flags=re.M)
     lines = text.splitlines()
     last_section = max(i for i, l in enumerate(lines) if l.startswith("["))
