@@ -137,7 +137,7 @@ def test_advertised_packages_survive_wheel_discovery():
     assert 'RIFT.asimov' in names and 'RIFT.misc' in names
 
 def test_calibration_waveform_kwargs_survive_shell_transport():
-    import shlex
+    import ast, shlex
     source=(CODE/'bin/util_RIFT_pseudo_pipe.py').read_text()
     tree=ast.parse(source)
     nodes=[n for n in ast.walk(tree) if isinstance(n,ast.AugAssign) and
