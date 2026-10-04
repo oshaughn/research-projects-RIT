@@ -3,7 +3,14 @@
 This is an opt-in change to RF fitting features, motivated by controlled existing-grid
 comparisons. It adds the tested cone squared, phase deficit and torque squared
 features to full two-spin Cartesian fitting stages, retaining every original fitting
-coordinate (including mu1/mu2 and all four transverse spin components). It does not
+coordinate (including mu1/mu2 and all four transverse spin components). The top-level option selects the tested native mu1/mu2 phase-fit schedule
+when applicable. In a standalone helper invocation with no explicit fit-method
+choice it also selects RF; an explicit non-RF choice is preserved (auto skips,
+explicit physics3 cannot activate and fails). This can change CIP stage
+parameterization and iteration counts to the existing phase-coordinate schedule;
+selection happens after initial-grid construction, so no new initial-grid rule
+is introduced. The normal Asimov template already selects RF and the phase basis.
+It does not
 replace four components with three scalars, change the L frame, modify priors or
 sampling coordinates, or alter ILE, integrators, worker counts or stopping rules.
 The compact four-dimensional chart is not adopted as a universal replacement.
@@ -44,7 +51,8 @@ stage arguments. Generated stage files therefore record the choice. `fref` is
 `engine.fref` for INI workflows, or the helper's existing ILE reference-frequency
 choice without an INI. It is never inferred from an independent GP model.
 Direct CIP also accepts `--rf-transverse-spin-coordinates physics3 --fref FREQ`
-and requires a fresh RF fit with all four transverse Cartesian fit coordinates;
+and requires a fresh RF fit with delta_mc, mu1, mu2, chiMinus and all four
+transverse Cartesian fit coordinates;
 cached GP loading and incompatible models fail explicitly. Training, mirrored
 rows, predictions and diagnostic output use the same scalar implementation.
 

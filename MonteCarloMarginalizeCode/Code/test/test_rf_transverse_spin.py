@@ -125,3 +125,21 @@ def test_actual_native_kerr_rejection_mixed_batch():
     fit=['delta_mc','mu1','mu2','chiMinus','s1x','s1y','s2x','s2y']+list(rf.FEATURE_NAMES)
     out=rf.convert(low,fit,names,35,lalsimutils.convert_waveform_coordinates,enforce_kerr=True)
     assert np.isfinite(out[0]).all() and np.isneginf(out[1]).all()
+
+def test_requires_tested_native_phase_basis():
+    line=FULL.replace('--parameter-implied mu1','--parameter-implied xi')
+    assert rf.stage_arguments(line,'physics3',10,True,20)==line
+    src=(ROOT/'bin/util_ConstructIntrinsicPosterior_GenericCoordinates.py').read_text()
+    assert 'not set(rf_transverse_spin.NATIVE_FEATURES).issubset(coord_names)' in src
+
+def test_helper_top_option_configures_basis_after_grid_before_cip():
+    src=(ROOT/'bin/helper_LDG_Events.py').read_text()
+    start=src.index('# The single top-level option selects the tested native')
+    strategy=src.index('if opts.propose_fit_strategy:\n    puff_max_it=')
+    assert start < strategy
+    opt=src[start:strategy]
+    assert "if opts.force_fit_method is None:\n            fit_method = 'rf'" in opt
+    assert 'opts.internal_use_aligned_phase_coordinates = True' in opt
+    assert 'rf_mass_is_placeholder' in opt and 'not opts.use_mtot_coords' in opt
+    # These are explicit mode opt-ins; default/off do not enter the policy branch.
+    assert not rf.enabled(None,10,True) and not rf.enabled('off',10,True)

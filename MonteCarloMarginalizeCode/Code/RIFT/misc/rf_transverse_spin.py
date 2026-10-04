@@ -40,6 +40,7 @@ def scalar_features(m1,m2,s1,s2,frequency=20.,epsilon=.1):
 
 FEATURE_NAMES = ('rf_cone2', 'rf_phase_deficit', 'rf_torque2')
 TRANSVERSE = ('s1x', 's1y', 's2x', 's2y')
+NATIVE_FEATURES = ('delta_mc','mu1','mu2','chiMinus') + TRANSVERSE
 
 def extract(P, name):
     """Fit-only extraction; P masses are SI, reference frequency follows P."""
@@ -91,23 +92,13 @@ def convert(x, coord_names, low_level_coord_names, frequency, converter, **kwarg
 def stage_arguments(line, mode, detector_chirp_mass, applicable, frequency):
     """Leave reduced/non-RF stages unchanged; activate only the complete L-frame RF fit."""
     import shlex
-    if mode not in (None,'off','auto','physics3'):
-        raise ValueError('Unknown RF transverse-spin mode')
-    if mode in (None,'off'):
-        return line
-    if not applicable:
-        if mode == 'physics3':
-            raise ValueError('RF transverse-spin coordinates require a precessing BBH analysis')
-        return line
-    try: mc=float(detector_chirp_mass) if not isinstance(detector_chirp_mass,(bool,np.bool_)) else float('nan')
-    except (TypeError,ValueError): mc=float('nan')
-    if mode == 'auto' and not (np.isfinite(mc) and 0 < mc < 20):
+    if not enabled(mode, detector_chirp_mass, applicable):
         return line
     tokens=shlex.split(line)
     def values(flag): return [tokens[i+1] for i,t in enumerate(tokens[:-1]) if t==flag]
     fit=values('--parameter')+values('--parameter-implied')
     methods=values('--fit-method')
-    if methods != ['rf'] or not set(TRANSVERSE).issubset(fit):
+    if methods != ['rf'] or not set(NATIVE_FEATURES).issubset(fit):
         return line
     if '--rf-transverse-spin-coordinates' in tokens:
         raise ValueError('Duplicate RF transverse-spin activation')
@@ -118,3 +109,20 @@ def stage_arguments(line, mode, detector_chirp_mass, applicable, frequency):
         i=tokens.index('--fref'); del tokens[i:i+2]
         line=' '.join(shlex.quote(t) for t in tokens)
     return line+' --rf-transverse-spin-coordinates physics3 --fref '+str(float(frequency))
+
+
+def enabled(mode, detector_chirp_mass, applicable):
+    """Resolve the opt-in policy before constructing the native phase-fit schedule."""
+    if mode not in (None,'off','auto','physics3'):
+        raise ValueError('Unknown RF transverse-spin mode')
+    if mode in (None,'off'):
+        return False
+    if not applicable:
+        if mode == 'physics3':
+            raise ValueError('RF transverse-spin coordinates require a precessing BBH analysis')
+        return False
+    try: mc=float(detector_chirp_mass) if not isinstance(detector_chirp_mass,(bool,np.bool_)) else float('nan')
+    except (TypeError,ValueError): mc=float('nan')
+    if mode == 'auto' and not (np.isfinite(mc) and 0 < mc < 20):
+        return False
+    return True

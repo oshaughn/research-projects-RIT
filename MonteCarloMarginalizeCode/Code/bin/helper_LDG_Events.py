@@ -1738,6 +1738,20 @@ if opts.assume_eccentric:
     if opts.use_meanPerAno:
         helper_puff_args += " --parameter meanPerAno "
 
+# The single top-level option selects the tested native mu1/mu2 fit basis.
+# A custom total-mass schedule is outside this bounded prototype.
+if opts.rf_transverse_spin_coordinates:
+    from RIFT.misc.rf_transverse_spin import enabled
+    rf_applicable = (opts.assume_precessing_spin and not opts.assume_nospin
+        and not opts.assume_matter and not opts.assume_eccentric and not opts.assume_highq
+        and not opts.use_mtot_coords)
+    rf_detector_mc = None if event_dict.get('rf_mass_is_placeholder', False) else event_dict.get('MChirp')
+    if enabled(opts.rf_transverse_spin_coordinates, rf_detector_mc, rf_applicable):
+        if opts.force_fit_method is None:
+            fit_method = 'rf'
+        if fit_method == 'rf':
+            opts.internal_use_aligned_phase_coordinates = True
+
 if opts.propose_fit_strategy:
     puff_max_it= 0
     # Strategy: One iteration of low-dimensional, followed by other dimensions of high-dimensional
@@ -2047,7 +2061,8 @@ if opts.rf_transverse_spin_coordinates:
     if rf_fref is None:
         rf_fref = opts.fmin_template
     rf_applicable = (opts.assume_precessing_spin and not opts.assume_nospin
-        and not opts.assume_matter and not opts.assume_eccentric and not opts.assume_highq)
+        and not opts.assume_matter and not opts.assume_eccentric and not opts.assume_highq
+        and not opts.use_mtot_coords)
     helper_cip_arg_list = [stage_arguments(line, opts.rf_transverse_spin_coordinates,
         None if event_dict.get('rf_mass_is_placeholder', False) else event_dict.get('MChirp'), rf_applicable, float(rf_fref)) for line in helper_cip_arg_list]
     rf_activated = sum('--rf-transverse-spin-coordinates physics3' in line for line in helper_cip_arg_list)
