@@ -1444,6 +1444,19 @@ if opts.assume_eccentric:
     helper_ile_args += " --save-eccentricity "
     if opts.use_meanPerAno:
         helper_ile_args += " --save-meanPerAno "
+# RF transverse opt-in: an unforced switch to rf happens before the initial grid, so the grid
+# matches an explicit --force-fit-method rf build.
+rf_transverse_active = False
+if opts.rf_transverse_spin_coordinates:
+    from RIFT.misc.rf_transverse_spin import enabled
+    rf_applicable = (opts.assume_precessing_spin and not opts.assume_nospin
+        and not opts.assume_matter and not opts.assume_eccentric and not opts.assume_highq
+        and not opts.use_mtot_coords)
+    rf_detector_mc = None if event_dict.get('rf_mass_is_placeholder', False) else event_dict.get('MChirp')
+    rf_transverse_active = enabled(opts.rf_transverse_spin_coordinates, rf_detector_mc, rf_applicable)
+    if rf_transverse_active and opts.force_fit_method is None:
+        fit_method = 'rf'
+
 if opts.propose_initial_grid_fisher: # and (P.extract_param('mc')/lal.MSUN_SI < 10.):
     cmd  = "util_AnalyticFisherGrid.py  --inj-file-out  proposed-grid  "
     # Add standard downselects : do not have m1, m2 be less than 1
@@ -1738,19 +1751,10 @@ if opts.assume_eccentric:
     if opts.use_meanPerAno:
         helper_puff_args += " --parameter meanPerAno "
 
-# The single top-level option selects the tested native mu1/mu2 fit basis.
-# A custom total-mass schedule is outside this bounded prototype.
-if opts.rf_transverse_spin_coordinates:
-    from RIFT.misc.rf_transverse_spin import enabled
-    rf_applicable = (opts.assume_precessing_spin and not opts.assume_nospin
-        and not opts.assume_matter and not opts.assume_eccentric and not opts.assume_highq
-        and not opts.use_mtot_coords)
-    rf_detector_mc = None if event_dict.get('rf_mass_is_placeholder', False) else event_dict.get('MChirp')
-    if enabled(opts.rf_transverse_spin_coordinates, rf_detector_mc, rf_applicable):
-        if opts.force_fit_method is None:
-            fit_method = 'rf'
-        if fit_method == 'rf':
-            opts.internal_use_aligned_phase_coordinates = True
+# The single top-level option selects the tested native mu1/mu2 fit basis (after the grid,
+# as for explicit rf). A custom total-mass schedule is outside this bounded prototype.
+if rf_transverse_active and fit_method == 'rf':
+    opts.internal_use_aligned_phase_coordinates = True
 
 if opts.propose_fit_strategy:
     puff_max_it= 0

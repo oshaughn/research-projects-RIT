@@ -119,3 +119,14 @@ def test_auto_effect_in_the_asimov_configuration(monkeypatch,tmp_path):
     assert auto['lines'][:-1]==default['lines'][:-1]
     assert auto['lines'][-1]==default['lines'][-1]+ACTIVATION
     assert auto['ile']==default['ile']
+
+@pytest.mark.parametrize('mc',[3,15])
+def test_unforced_opt_in_builds_the_explicit_rf_initial_grid(monkeypatch,tmp_path,mc):
+    # The unforced rf switch precedes the grid, so the grid commands match --force-fit-method rf.
+    extra=['--propose-initial-grid']
+    unforced=generate(monkeypatch,tmp_path,'auto',mc,extra=extra)
+    explicit=generate(monkeypatch,tmp_path,'auto',mc,'rf',extra=extra)
+    grids=[c for c in explicit['commands'] if 'grid-cartesian-npts' in c]
+    assert grids
+    assert unforced['commands']==explicit['commands']
+    assert unforced['lines']==explicit['lines']
