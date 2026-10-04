@@ -125,3 +125,13 @@ def test_basis_policy_is_resolved_after_initial_grid_before_strategy():
     assert 'opts.internal_use_aligned_phase_coordinates = True' in src[gate:]
     assert not f.enabled('auto',True,True)
     assert f.enabled('physics3',None,True)
+
+
+def test_advertised_packages_survive_wheel_discovery():
+    # Source-tree namespace imports can hide a package omitted from the wheel.
+    import setuptools
+    names = setuptools.find_packages(str(ROOT))
+    advertised = ast.literal_eval(ast.parse((ROOT/'RIFT/__init__.py').read_text()).body[0].value)
+    assert 'plot_utilities' in advertised
+    assert all('RIFT.'+name in names for name in advertised)
+    assert 'RIFT.asimov' in names and 'RIFT.misc' in names
