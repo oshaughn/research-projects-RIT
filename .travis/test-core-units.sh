@@ -348,6 +348,8 @@ done
 #            parametrization and no skip or xfail marks, so the raise is +2/+2 over the row
 #            above; the per-file collection loop below is what confirms it on the runner, and it
 #            fails rather than reports if that is wrong.
+#            MEASURED on CIT (ldas-grid; `import cupy` FAILS there) 2026-10-03, IGWN conda
+#            python 3.11: junit 661 collected / 648 passed / 13 skipped / 0 failed, 3 subtests.
 #
 # RAISE these when files are added: a floor left at the old value passes while covering less,
 # which is the failure this gate exists to catch.
