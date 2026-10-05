@@ -23,6 +23,7 @@ import numpy as np
 import benchmark_integrators as B
 from RIFT.integrators import mcsamplerGPU, mcsamplerPortfolio
 from RIFT.integrators.unreliable_oracle.fisher_gaussian import FisherGaussianOracle
+from RIFT.integrators.seeding import seed_everything
 
 
 class Needle(B.Target):
@@ -76,7 +77,12 @@ def build_portfolio(target, with_oracle, n_chunk):
 
 
 def run(target, with_oracle, nmax, neff, n_chunk, seed):
-    np.random.seed(seed)
+    # The samplers draw through their array backend, which is cupy on a GPU
+    # host; numpy.random.seed does not reach cupy's generator, so seeding only
+    # numpy would leave this run drawing from uncontrolled device state.  Seed
+    # every backend before the sampler is built, so a seed means the same thing
+    # on CPU and on GPU.
+    seed_everything(seed, verbose=False)
     port = build_portfolio(target, with_oracle, n_chunk)
     ln_f = target.as_lnfunc()
     import time

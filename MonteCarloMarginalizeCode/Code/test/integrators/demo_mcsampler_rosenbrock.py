@@ -1,7 +1,7 @@
 # Test for evaluating rosenbrock 2d likelihood, where the 1d marginal and evidence can be computed.
 #
 # Suggested:
-#   python test_mcsampler_rosenbrock.py;  plot_posterior_corner.py --posterior-file fairdraw_rosenbrock_1.dat --posterior-file fairdraw_rosenbrock_1b.dat --posterior-file fairdraw_rosenbrock_2.dat --parameter x1 --parameter x2  --quantiles None --ci-list [0.9]
+#   python demo_mcsampler_rosenbrock.py;  plot_posterior_corner.py --posterior-file fairdraw_rosenbrock_1.dat --posterior-file fairdraw_rosenbrock_1b.dat --posterior-file fairdraw_rosenbrock_2.dat --parameter x1 --parameter x2  --quantiles None --ci-list [0.9]
 
 from __future__ import print_function
 import numpy as np

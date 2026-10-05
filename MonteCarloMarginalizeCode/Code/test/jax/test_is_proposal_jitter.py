@@ -98,6 +98,13 @@ def _reference_logZ(mod, opts, sig, peak, n=2000000, seed=99):
     at twice its width, which makes this a near-perfect importance proposal
     (ESS ~ 0.25 n).  It uses the driver's ``log_prior`` only because both
     estimators must integrate against the SAME prior to be comparable.
+
+    It must also use the same DENOMINATOR.  ``q`` is an untruncated Gaussian, so
+    a draw landing outside the prior has ``log_prior = -inf`` and weight zero --
+    it is a zero-weight draw, not a draw that did not happen.  Averaging only
+    over the finite weights estimates ``Z / P(theta in support)`` instead of
+    ``Z``.  At sig=0.30 that is 0.894 of the draws, i.e. a reference 0.112 nats
+    HIGH, which is the whole of the disagreement this test used to report.
     """
     rng = np.random.default_rng(seed)
     s = 2.0 * sig
@@ -107,10 +114,10 @@ def _reference_logZ(mod, opts, sig, peak, n=2000000, seed=99):
     logq = (-0.5 * np.sum(((th - _MU[None, :]) / s) ** 2, axis=1)
             - 0.5 * 5 * np.log(2 * np.pi * s * s))
     lw = lnL + logp - logq
-    lw = lw[np.isfinite(lw)]
-    m = lw.max()
-    w = np.exp(lw - m)
-    return float(m + np.log(w.mean()))
+    fin = np.isfinite(lw)
+    m = lw[fin].max()
+    w = np.exp(lw[fin] - m)
+    return float(m + np.log(w.sum() / lw.size))   # denominator = every draw
 
 
 ###

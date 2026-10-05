@@ -1,3 +1,7 @@
+# Hand-run adaptation demo, not a pytest target (hence demo_, not test_): it defines
+# no test functions, runs entirely at import, and writes my_cdf_sampler.png and
+# cdf_adapt_test.png into the current directory.
+
 # Test script for comparing GMM integrator to existing mcsampler integrator in
 # RIFT. A simple n-dimensional integrand consisting of a highly-correlated
 # Gaussian is used.

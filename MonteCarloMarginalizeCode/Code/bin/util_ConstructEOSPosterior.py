@@ -145,16 +145,17 @@ parser.add_argument("--n-max",default=3e5,type=float)
 parser.add_argument("--n-step",default=1e5,type=int)
 parser.add_argument("--n-eff",default=3e3,type=int)
 parser.add_argument("--pool-size",default=3,type=int,help="Integer. Number of GPs to use (result is averaged)")
-parser.add_argument("--fit-method",default="rf",help="rf (default) : rf|gp|quadratic|polynomial|gp_hyper|gp_lazy|cov|kde.  Note 'polynomial' with --fit-order 0  will fit a constant")
+parser.add_argument("--fit-method",default="rf",help="rf (default) : rf|gp.  These are the only two this driver builds; util_ConstructIntrinsicPosterior_GenericCoordinates.py implements quadratic|polynomial|gp_hyper|gp_lazy|cov and more.")
 parser.add_argument("--fit-load-gp",default=None,type=str,help="Filename of GP fit to load. Overrides fitting process, but user MUST correctly specify coordinate system to interpret the fit with.  Does not override loading and converting the data.")
 parser.add_argument("--fit-save-gp",default=None,type=str,help="Filename of GP fit to save. ")
 parser.add_argument("--fit-order",type=int,default=2,help="Fit order (polynomial case: degree)")
 parser.add_argument("--fit-distance-tail",action='store_true',help="Distance-export (.dslice) runs ONLY, i.e. runs that carry an explicit distance fit coordinate. Beyond each intrinsic point's exported distance support, make the fitted lnL decay to zero as d->infinity instead of holding its edge value. An RF/ExtraTrees fit is piecewise constant outside its training envelope, so without this it holds lnL flat while the volumetric prior keeps growing like d^2, and the recovered distance posterior comes out ~18 percent too wide. Changes nothing on the support, so it is a strict addition. It is an error to request this without a distance fit coordinate.")
 parser.add_argument("--no-plots",action='store_true')
 parser.add_argument("--using-eos-type", type=str, default=None, help="Name of EOS parameterization (must match what is used for inputs). Will use EOS parameterization to identify appropriate field headers")
-parser.add_argument("--sampler-method",default="adaptive_cartesian",help="adaptive_cartesian|GMM|adaptive_cartesian_gpu")
-parser.add_argument("--sampler-portfolio",default=None,action='append',type=str,help="comma-separated strings, matching sampler methods other than portfolio")
-parser.add_argument("--sampler-portfolio-args",default=None, action='append', type=str, help='eval-able dictionary to be passed to that sampler_')
+parser.add_argument("--sampler-method",default="adaptive_cartesian",help="adaptive_cartesian|GMM|AV|adaptive_cartesian_gpu|portfolio")
+parser.add_argument("--sampler-portfolio",default=None,action='append',type=str,help="Portfolio member, one NAME per flag (repeat the flag): AV|GMM|adaptive_cartesian_gpu|NFlow.  Not comma-separated -- a comma-joined 'AV,GMM' matches no sampler.  Requires --sampler-method portfolio.")
+parser.add_argument("--sampler-portfolio-args",default=None, action='append', type=str, help='eval-able dictionary of extra setup() arguments for the corresponding --sampler-portfolio member.  One per flag, in the same order and the same COUNT as --sampler-portfolio.')
+parser.add_argument("--sampler-portfolio-allow-stratified-density",action='store_true',help="Accept a portfolio whose members cannot form the balance-heuristic mixture density q_mix, i.e. run the legacy stratified per-member estimator even when a member reports its sampling density on a non-normalized scale.  THE EVIDENCE IS THEN BIASED (measured: 0.753772 on a constant integrand whose exact ln Z is 1.386294).  Without this the portfolio refuses at setup.  Exists so an unusual member combination is recoverable without editing RIFT; do not use it for production evidence.")
 parser.add_argument("--internal-use-lnL",action='store_true',help="integrator internally manipulates lnL..   ")
 parser.add_argument("--internal-correlate-parameters",default=None,type=str,help="comman-separated string indicating parameters that should be sampled allowing for correlations. Must be sampling parameters. Only implemented for gmm.  If string is 'all', correlate *all* parameters")
 parser.add_argument("--internal-n-comp",default=1,type=int,help="number of components to use for GMM sampling. Default is 1, because we expect a unimodal posterior in well-adapted coordinates.  If you have crappy coordinates, use more")
@@ -170,6 +171,8 @@ parser.add_argument("--supplementary-coordinate-code", default=None,type=str,hel
 parser.add_argument("--supplementary-coordinate-function", default=None, type=str, help="Name of the entry-point callable inside the module named by --supplementary-coordinate-code. Defaults to 'convert_coordinates'.")
 parser.add_argument("--supplementary-coordinate-ini", default=None, type=str, help="Optional ini file parsed and handed to the coordinate plugin's prepare() hook so it can read its own configuration block(s).")
 parser.add_argument("--supplementary-coordinate-chart", default=None, type=str, help="Which chart (coordinate system) defined by the plugin to use for this run. Required when the plugin's CHARTS dict has more than one entry; ignored when the plugin doesn't define CHARTS. Different charts can share parameter names but imply different priors -- the chart name disambiguates which (name -> prior) mapping is installed.")
+parser.add_argument("--get-range-from-external", action='store_true', help="Ask the coordinate plugin for integration ranges: calls get_bounds(low_level_coord_names, ranges, **kwargs), which returns {name: [lo,hi]} in the SAMPLING basis. Replaces data-derived and chart ranges; --integration-parameter-range wins. Errors raise.")
+parser.add_argument("--external-range-args", action='append', type=str, help="key=value passed to the plugin's get_bounds. Values are parsed as python literals when possible.")
 opts=  parser.parse_args()
 
 #print(" WARNING: Always use internal_use_lnL for now ")
@@ -431,6 +434,19 @@ if opts.supplementary_coordinate_code:
         _coord_plugin_module, chart=opts.supplementary_coordinate_chart
     ) or list(dat_orig_names)
 
+# Ranges from the plugin's get_bounds hook, in the sampling basis.  They
+# replace data-derived and chart ranges; --integration-parameter-range wins.
+# Failures raise: a range in the wrong frame must not be used silently.
+if opts.get_range_from_external:
+    if supplemental_coordinate_convert is None:
+        raise Exception(" --get-range-from-external needs --supplementary-coordinate-code ")
+    from RIFT.misc.coordinate_plugin import call_get_bounds
+    _cli_range_names = set(name for name, _ in (r.split(':', 1) for r in (opts.integration_parameter_range or [])))
+    for _name, _rng in call_get_bounds(_coord_plugin_module, low_level_coord_names, param_ranges, opts.external_range_args).items():
+        if _name in low_level_coord_names and _name not in _cli_range_names:
+            param_ranges[_name] = _rng
+            print(" Integration range for {} from get_bounds : {} ".format(_name, _rng))
+
 # Auto-derive integration ranges for sampled names that are still missing one:
 # forward-transform the input grid into the sampling basis and use the
 # column-wise min/max.  Explicit --integration-parameter-range and
@@ -562,7 +578,7 @@ def fit_rf(x,y,y_errors=None,fname_export='nn_fit'):
 
     ### reject points with infinities : problems for inputs
     def fn_return(x_in,rf=rf):
-        f_out = -lnL_default_large_negative*np.ones(len(x_in))
+        f_out = lnL_default_large_negative*np.ones(len(x_in))
         # remove infinity or Nan
         indx_ok = np.all(np.isfinite(np.array(x_in,dtype=float)),axis=-1)
         # rf internally uses float32, so we need to remove points > 10^37 or so ! 
@@ -744,6 +760,16 @@ elif opts.fit_method == 'rf':
         Y_err=None
     my_fit = fit_rf(X,Y,y_errors=Y_err)
 
+if my_fit is None:
+    # This driver builds only 'gp' and 'rf'.  The --fit-method help was copied from
+    # util_ConstructIntrinsicPosterior_GenericCoordinates.py, which implements a dozen more, so
+    # asking for one of those here left my_fit at None and the run continued: nothing referenced
+    # it until the sampler evaluated the integrand, which then died with
+    # "TypeError: 'NoneType' object is not callable" from inside log_likelihood_function, after
+    # the whole setup had been paid for and with nothing naming --fit-method.
+    print(" OPTION MISMATCH : --fit-method {} is not implemented in this driver; it builds only 'gp' and 'rf'.  (util_ConstructIntrinsicPosterior_GenericCoordinates.py implements the others.)".format(opts.fit_method))
+    sys.exit(99)
+
 ### Distance tail: make the fit decay beyond each intrinsic point's exported distance support
 ###
 ### Only meaningful for a distance-export (.dslice) run, where `dist` is a FIT coordinate and the
@@ -805,10 +831,24 @@ elif opts.sampler_method == "AV":
     opts.internal_use_lnL= True  # required!
 elif opts.sampler_method == "portfolio":
     use_portfolio=True
+    opts.internal_use_lnL=True  # required: mcsamplerPortfolio.integrate() refuses to run without use_lnL
     sampler = None
     sampler_list = []
     sampler_types = opts.sampler_portfolio
-    for name in sampler_types:
+    if not sampler_types:
+        # --sampler-method portfolio with no --sampler-portfolio at all.  The argparse default is
+        # None, not [], so without this the next line raises
+        # "TypeError: 'NoneType' object is not iterable" -- which names neither option.
+        print(" OPTION MISMATCH : --sampler-method portfolio requires at least one --sampler-portfolio NAME (AV|GMM|NFlow|adaptive_cartesian_gpu).")
+        sys.exit(99)
+    accepted_indices = []   # index into sampler_types of each member that actually got built
+    for indx, name in enumerate(sampler_types):
+        # Clear the carry-over BEFORE dispatching on the name.  Without this, the
+        # "if sampler is None: continue" below cannot do what its comment says: after one
+        # recognized name, `sampler` stays bound to that member, so every LATER unrecognized
+        # name appends THE SAME OBJECT again -- a portfolio holding one sampler twice, sharing
+        # all its adaptation state, silently and with no message.
+        sampler = None
         if name =='AV':
             sampler = mcsamplerAdaptiveVolume.MCSampler()
         if name =='GMM':
@@ -830,10 +870,64 @@ elif opts.sampler_method == "portfolio":
             sampler.xpy = xpy_default
             sampler.identity_convert=identity_convert
         if sampler is None:
-            # Don't add unknown type
+            # Don't add unknown type.  Say so: a single mistyped name among several good ones
+            # leaves the run to proceed with a SMALLER portfolio than the user asked for, and
+            # the guards above only fire when NOTHING matched.
+            print(" PORTFOLIO : WARNING, ignoring unrecognized --sampler-portfolio {!r} (known: AV, GMM, NFlow, adaptive_cartesian_gpu)".format(name))
             continue
         print('PORTFOLIO: adding {} '.format(name))
         sampler_list.append(sampler)
+        accepted_indices.append(indx)
+    if not sampler_list:
+        # Every name was unrecognized (note --sampler-portfolio takes ONE name per flag; a
+        # comma-joined "AV,GMM" matches nothing).  Same reasoning as the guard above.
+        print(" OPTION MISMATCH : --sampler-portfolio matched no known sampler in {}.  Pass one name per flag, e.g. --sampler-portfolio AV --sampler-portfolio GMM.".format(sampler_types))
+        sys.exit(99)
+    # MIXED-BACKEND PORTFOLIO.  The warning that stood here is gone because the condition it
+    # warned about is now checked in mcsamplerPortfolio.setup() -- earlier than here, and for
+    # every caller rather than this driver alone.  mcsamplerGPU implements sampling_density(),
+    # so the mixed case this driver could produce is correct rather than merely flagged; a
+    # member that still lacks one is refused at setup when any member has not DECLARED that its
+    # joint_p_s is a normalized density -- mcsamplerAdaptiveVolume declares False, and a member
+    # that declares nothing (a plugin, a new sampler) counts as unknown rather than safe.  A pool
+    # in which every member declares True is allowed and warned about.
+    #
+    # The measurements that motivated the warning, re-taken as a BEFORE/AFTER pair on this
+    # branch and its base with identical settings (the absolute numbers differ from the earlier
+    # revision of this comment because n/neff differ; only a same-settings pair is comparable).
+    # Constant integrand, non-square box, prior integral 5, exact ln Z = 1.609438, adaptation
+    # running, 16 seeds, ldas-grid numpy backend:
+    #
+    #     portfolio          before (94f352ad8)        after
+    #     [AV]               1.6094 (sd 0.0000)        1.6094 (sd 0.0000)    unchanged
+    #     [GPU]              1.6134 (sd 0.1158)        1.6134 (sd 0.1158)    unchanged
+    #     [GMM]              1.6207 (sd 0.0093)        1.6207 (sd 0.0093)    unchanged
+    #     [GPU,GPU]          1.5891 (sd 0.0691)        1.5891 (sd 0.0691)    unchanged
+    #     [AV,GMM]           1.6092 (sd 0.0026)        1.6092 (sd 0.0026)    unchanged
+    #     [GPU,GMM]          1.6165 (sd 0.0093)        1.6108 (sd 0.0151)    err +0.0071 -> +0.0013
+    #     [AV,GPU]           0.4458 (sd 0.0326)        1.6105 (sd 0.0027)    err -1.16 -> +0.001
+    #     [GPU,AV]           0.4330 (sd 0.0231)        1.6090 (sd 0.0028)    err -1.18 -> -0.000
+    #
+    # Read the [GPU,GMM] row as a wash, not a win: both members already reported a normalized
+    # joint_p_s, so the stratified fallback was unbiased there and the earlier warning
+    # over-fired.  What changes is that q_mix is now formed, which moves the mean 0.006 closer
+    # to exact and raises the seed-to-seed spread from 0.009 to 0.015.  Only the two AV+GPU
+    # orderings were actually broken.
+    #
+    # The earlier comment recorded that AV was the outlier on scale -- E[prior/p_s] = 0.2 where
+    # mcsamplerGPU and mcsamplerEnsemble both report 5 -- and said the reason was not
+    # established.  It is mcsamplerAdaptiveVolume.draw_simplified reporting ps = V_s/V with V
+    # the live volume FRACTION (1 before any contraction), so the reported value is V_s**2 times
+    # the density the points actually come from, 1/(V_s*V).  AV's own integrate_log is written
+    # against that scale, so it is left alone; its sampling_density() already returns the
+    # density, and that method is the portfolio contract.  Pinned by
+    # test/integrators/test_portfolio_member_density.py::test_AV_reported_p_s_is_left_alone.
+    #
+    # Two things the old warning noted as gaps are closed by the refusal rather than by a better
+    # predicate: a portfolio in which EVERY member lacks sampling_density took the same fallback
+    # without warning, and q_mix not being formed also left credit_per_sample identically zero,
+    # silently killing the draw-allocation signal under portfolio_adaptive_alloc=True with
+    # portfolio_quality_signal='credit'.
     sampler = mcsamplerPortfolio.MCSampler(portfolio=sampler_list)
 
 
@@ -970,6 +1064,11 @@ n_step = opts.n_step
 my_exp = np.min([1,0.8*np.log(n_step)/np.max(Y)])   # target value : scale to slightly sublinear to (n_step)^(0.8) for Ymax = 200. This means we have ~ n_step points, with peak value wt~ n_step^(0.8)/n_step ~ 1/n_step^(0.2), limiting contrast
 if np.max(Y_orig) < 0:   # for now, don't use a weight exponent if we are negative: can't use guess based from GW experience
     my_exp = 1
+if not (my_exp > 0):
+    # The ratio above divides by max(Y), which is lnL_shift-shifted; the Y_orig test is not.
+    # --lnL-shift-prevent-overflow above the peak lnL makes max(Y)<0 and the exponent negative,
+    # which adapts AWAY from the peak.  Fall back to the same "don't use it" value as above.
+    my_exp = 1
 #my_exp = np.max([my_exp,  1/np.log(n_step)]) # do not allow extreme contrast in adaptivity, to the point that one iteration will dominate
 print(" Weight exponent ", my_exp, " and peak contrast (exp)*lnL = ", my_exp*np.max(Y), "; exp(ditto) =  ", np.exp(my_exp*np.max(Y)), " which should ideally be no larger than of order the number of trials in each epoch, to insure reweighting doesn't select a single preferred bin too strongly.  Note also the floor exponent also constrains the peak, de-facto")
 
@@ -1030,8 +1129,47 @@ if opts.internal_use_lnL:
     extra_args.update({"use_lnL":True,"return_lnI":True})
 
 
+# PORTFOLIO: setup() is MANDATORY, not an optimization.  It is the only place that
+#   (a) initializes self.portfolio_breakpoints -- left at None by __init__, so the first
+#       draw() evaluates `None <= iteration` and dies with
+#       "TypeError: '<=' not supported between instances of 'NoneType' and 'int'"; and
+#   (b) calls setup() on each MEMBER, which is what builds AV's my_ranges/dx/V_s and the
+#       GMM integrator.  A member that never got setup() is cold and cannot draw.
+# Compare util_ConstructIntrinsicPosterior_GenericCoordinates.py, which calls setup() at the
+# same point in its own flow.  Key off the CLASS actually constructed rather than off
+# --sampler-method: the portfolio branch above rebinds opts.sampler_method to 'GMM' whenever a
+# GMM member is requested, so `opts.sampler_method == "portfolio"` is False by the time we get
+# here for exactly the configurations that need this most.
+if _sampler_module == 'mcsamplerPortfolio':
+    print(" PORTFOLIO : setup")
+    portfolio_args = None
+    if opts.sampler_portfolio_args:
+        # One eval-able dict per portfolio member, in --sampler-portfolio order.
+        portfolio_args = list(map(eval, opts.sampler_portfolio_args))
+        for indx, arg in enumerate(portfolio_args):
+            if not isinstance(arg, dict):
+                print(" OPTION MISMATCH : --sampler-portfolio-args entry {} is not a dict: {}".format(indx, arg))
+                sys.exit(99)
+        # Check the count against the NAMES THE USER ASKED FOR, not against the members that
+        # survived.  An optional member can drop out for reasons that are not the user's fault --
+        # the NFlow branch above `continue`s when nflows is not installed -- and counting
+        # survivors would turn a portfolio that runs on one host into an exit 99 on another,
+        # blaming the argument count for a missing dependency.
+        if len(portfolio_args) != len(sampler_types):
+            print(" OPTION MISMATCH : {} --sampler-portfolio-args entries for {} --sampler-portfolio names; they must correspond one-to-one.".format(len(portfolio_args), len(sampler_types)))
+            sys.exit(99)
+        # Now drop the entries belonging to members that were not built, so what reaches setup()
+        # still lines up with the member list.  setup() only prints "PORTFOLIO - format ERROR"
+        # and silently discards ALL of them on a length mismatch, so an unnoticed misalignment
+        # would leave every member untuned with the run continuing.
+        portfolio_args = [portfolio_args[i] for i in accepted_indices]
+        print(" PORTFOLIO ARGS ", portfolio_args)
+    # NOTE the spelling: mcsamplerPortfolio.setup() reads kwargs['portfolio_args'].  It takes
+    # **kwargs, so a misspelled name is accepted and silently ignored rather than raising.
+    sampler.setup(portfolio_args=portfolio_args, portfolio_allow_stratified_density=opts.sampler_portfolio_allow_stratified_density, **extra_args)
 
-res, var, neff, dict_return = sampler.integrate(fn_passed, *low_level_coord_names,  verbose=True,nmax=int(opts.n_max),n=n_step,neff=opts.n_eff, save_intg=True,tempering_adapt=True, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,adapt_weight_exponent=my_exp,no_protect_names=True,**extra_args)  # MC integrates in the SAMPLING basis (low_level_coord_names); convert_coords routes each sample into the fit basis (coord_names) before evaluating the GP/RF
+
+res, var, neff, dict_return = sampler.integrate(fn_passed, *low_level_coord_names,  verbose=True,nmax=int(opts.n_max),n=n_step,neff=opts.n_eff, save_intg=True,tempering_adapt=True, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,tempering_exp=my_exp,no_protect_names=True,**extra_args)  # MC integrates in the SAMPLING basis (low_level_coord_names); convert_coords routes each sample into the fit basis (coord_names) before evaluating the GP/RF
 
 # result value:  be careful, if the sampler returns lnI, then must not take log twice!
 # See sampler_returns_ln_integral where the sampler is constructed: this is a property of

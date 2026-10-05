@@ -447,7 +447,10 @@ def m_prior(x):
 
 
 def triangle_prior(x,R=chi_max):
-    return (np.ones(x.shape)-np.abs(x/R))/R  # triangle from -R to R centered on zero
+    # clamped: a density is zero outside its support, and an unclamped triangle returns a
+    # negative weight for |x|>R.  See the copy in
+    # bin/util_ConstructIntrinsicPosterior_GenericCoordinates.py.
+    return np.maximum(np.ones(x.shape)-np.abs(x/R), 0.)/R  # triangle from -R to R centered on zero
 def xi_uniform_prior(x):
     return np.ones(x.shape)
 def s_component_uniform_prior(x,R=chi_max):  # If all three are used, a volumetric prior
@@ -467,8 +470,12 @@ def s_component_gaussian_prior(x,R=chi_max/3.):
 def s_component_zprior(x,R=chi_max):
     # assume maximum spin =1. Should get from appropriate prior range
     # Integrate[-1/2 Log[Abs[x]], {x, -1, 1}] == 1
-    val = -1./(2*R) * np.log( (np.abs(x)/R+1e-7).astype(float))
-    return val
+    # The small number CLAMPS the log argument, it does not offset it: offsetting
+    # makes this density negative for |x| > R*(1-1e-7), and one spin-boundary
+    # sample then carries a negative importance weight.  The outer clamp gives the
+    # density its proper support, zero outside [-R,R].
+    val = -1./(2*R) * np.log( np.maximum(np.abs(x)/R, 1e-7).astype(float))
+    return np.maximum(val, 0.)
 
 
 def s_component_volumetricprior(x,R=1.):

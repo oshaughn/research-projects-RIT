@@ -104,6 +104,18 @@ class MCSampler(SamplerOutputMixin, object):
         # ASSUMES the user insures they are normalized
         self.prior_pdf = {}
 
+        # Host/device converters.  This sampler is pure numpy, so both are the identity --
+        # but they must EXIST, because callers written against the sampler interface use
+        # them unconditionally to normalize a possibly-device return value.  Every other
+        # sampler defines them in __init__ (mcsamplerGPU, mcsamplerAdaptiveVolume,
+        # mcsamplerPortfolio, mcsamplerEnsemble); this one did not, and the ILE driver only
+        # assigns them onto the samplers it recognizes by name.  So any --sampler-method
+        # that lands on the "original sampler" fallback (e.g. `adaptive_cartesian`) reached
+        # `float(sampler.identity_convert(neff))` after a SUCCESSFUL integration and died
+        # with AttributeError, discarding the result.
+        self.identity_convert = lambda x: x       # device -> host (no-op here)
+        self.identity_convert_togpu = lambda x: x # host -> device (no-op here)
+
     def clear(self):
         """
         Clear out the parameters and their settings, as well as clear the sample cache.
@@ -550,6 +562,16 @@ class MCSampler(SamplerOutputMixin, object):
             else:
                 fval = func(**unpacked) # Chris' original plan: note this insures the function arguments are tied to the parameters, using a dictionary. 
 
+            # THE INTEGRAND CONVERTS, NOT THE ACCUMULATORS.  On a GPU node the ILE likelihood
+            # returns a cupy array (xpy_default binds at import from whether cupy imports, so
+            # a merely visible device is enough), while everything below here is host numpy:
+            # numpy.hstack, statutils update/finalize, math.isnan -- and joint_p_prior is
+            # deliberately RiftFloat, which cupy has no dtype for at all.  So the host side is
+            # the one that cannot move.  Without this, `fval*joint_p_prior/joint_p_s` raised
+            # "TypeError: Unsupported type <class 'numpy.ndarray'>" from a cupy ufunc and the
+            # driver swallowed it, printed FAILED ANALYSIS and exited 0.
+            fval = to_host(fval)
+
             #
             # Check if there is any practical contribution to the integral
             #
@@ -682,12 +704,27 @@ class MCSampler(SamplerOutputMixin, object):
                 # specific to pinned parameters
                 if p not in self.adaptive or p in list(kwargs.keys()):
                     continue
-                points = self._rvs[p][-n_history:]
-#                print "      Points", p, type(points),points.dtype
-                # use log weights or weights
-                if not temper_log:
-                    weights = (self._rvs["integrand"][-n_history:]/self._rvs["joint_s_prior"][-n_history:]*self._rvs["joint_prior"][-n_history:])**tempering_exp_running
+                # save_intg is only forced on above when tempering_exp > 0, while this block
+                # runs for any n_adapt > 0, so n_adapt>0 with the default tempering_exp=0
+                # reached the reads below with no cache and raised KeyError('integrand').
+                # Masked at defaults only because n_adapt defaults to 0 here, where
+                # mcsamplerGPU defaults it to 1000*n and so crashed outright.  With no
+                # history, adapt on this chunk's own importance weights, as mcsamplerGPU's
+                # int_val branch does.  NOT raised to tempering_exp_running: reaching here
+                # means tempering_exp is 0, so the exponent would flatten every weight to 1
+                # and the histogram would replay the current proposal instead of the target.
+                if not save_intg:
+                    weights = fval*joint_p_prior/joint_p_s
+                    points = self._rvs[p][-len(weights):]
+                    if temper_log:
+                        weights = numpy.maximum(1e-5, numpy.log(weights))
                 else:
+                  points = self._rvs[p][-n_history:]
+#                print "      Points", p, type(points),points.dtype
+                  # use log weights or weights
+                  if not temper_log:
+                    weights = (self._rvs["integrand"][-n_history:]/self._rvs["joint_s_prior"][-n_history:]*self._rvs["joint_prior"][-n_history:])**tempering_exp_running
+                  else:
                     weights = numpy.maximum(1e-5,numpy.log(self._rvs["integrand"][-n_history:] )) #**tempering_exp_running
 
                 if tempering_adapt:
@@ -804,6 +841,18 @@ class MCSampler(SamplerOutputMixin, object):
            wt = numpy.array(self._rvs["integrand"]*self._rvs["joint_prior"]/self._rvs["joint_s_prior"]/numpy.max(self._rvs["integrand"]),dtype=float)
            wt *= 1.0/numpy.sum(wt)
            if n_extr < len(self._rvs["integrand"]):
+               # RETAINED-SET RESERVE, taken HERE.  The gather just below rebinds every _rvs
+               # key to n_extr rows drawn WITH REPLACEMENT, so this is the last moment at
+               # which the rows this pass actually kept still exist.  Exporters that read
+               # _rvs afterwards -- the .dgrid distance grid above all -- were binning that
+               # export resample as if it were the sample set.  Local import to keep the
+               # module graph flat: AV owns the one builder and pulls in mcsamplerGPU, and
+               # only mcsamplerGPU would actually be circular -- but a deferred import
+               # costs nothing and none of these five sites has to know which.  Built only
+               # when the draw is really about to happen, so a pass that never fair-draws
+               # pays nothing for it.
+               from RIFT.integrators.mcsamplerAdaptiveVolume import keep_reserve_from_rvs
+               keep_reserve_from_rvs(self, 'mcsampler', integrand_is_log=False)
                indx_list = numpy.random.choice(numpy.arange(len(wt)), size=n_extr,replace=True,p=wt) # fair draw
                # FIXME: See previous FIXME
                for key in list(self._rvs.keys()):
@@ -873,7 +922,7 @@ def uniform_samp_withfloor_vector(rmaxQuad,rmaxFlat,pFlat,x):
 
 # syntatic sugar : predefine the most common distributions
 uniform_samp_phase = lambda x,numpy=numpy: numpy.broadcast_to(0.5/numpy.pi, numpy.shape(x))
-uniform_samp_psi = lambda x,numpy=numpy: numpy.broadcast_to(1.0/numpy.pi, numpy.shape(x))
+uniform_samp_psi = lambda x,numpy=numpy: numpy.broadcast_to(1.0/numpy.pi, numpy.shape(x))   # density for psi on [0, pi) ONLY; the ILE drivers sample psi on (0, 2 pi) and derive their prior from that range instead
 uniform_samp_theta = lambda x,numpy=numpy: 0.5*numpy.sin(x.astype(float))
 uniform_samp_dec = lambda x,numpy=numpy: 0.5*numpy.cos(x.astype(float))
 
@@ -994,6 +1043,36 @@ def infer_array_module(x, xpy=None):
     if mod is not None and all(hasattr(mod, _attr) for _attr in ('asarray', 'where', 'clip')):
         return mod
     return numpy
+
+
+def to_host(x):
+    """Return `x` as a host (numpy) array, copying it off a device backend if it is on one.
+
+    numpy.asarray(cupy_array) RAISES -- cupy refuses implicit host conversion -- so the copy
+    has to go through the device module's own asnumpy.  The module is looked up from the
+    value, the same way infer_array_module does it, so this file keeps its numpy-only import
+    list.  A host input is returned UNCHANGED, not re-wrapped: the numpy path must stay bit
+    for bit what it was.
+
+    A non-numpy backend it cannot convert RAISES rather than passing the value through.
+    infer_array_module recognizes any module exposing asarray/where/clip, which is a wider
+    set than the ones exposing asnumpy (torch is in the gap), so "return it unchanged" would
+    hand a device array to the host-only arithmetic below the call site -- the silent
+    host/device mix this function exists to remove, reintroduced one backend later.
+    """
+    mod = infer_array_module(x)
+    if mod is numpy:
+        return x
+    if hasattr(mod, "asnumpy"):
+        return mod.asnumpy(x)
+    _get = getattr(x, "get", None)          # cupy-like array, module without a top-level asnumpy
+    if callable(_get):
+        return numpy.asarray(_get())
+    raise TypeError(
+        "mcsampler cannot bring a %s.%s back to the host: the module exposes neither asnumpy "
+        "nor a .get() on the array, and this sampler's accumulators are host RiftFloat, which "
+        "no device backend can hold.  Use a sampler that runs on that backend."
+        % (mod.__name__, type(x).__name__))
 
 
 def clip_angle_limits(lo, hi, kind):

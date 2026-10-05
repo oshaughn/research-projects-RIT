@@ -124,15 +124,24 @@ def reconstruct_gmm(group, max_iters=1000, adapt=True, cov_inflate=1.0):
     the sampler can contract); the freeze path makes it unnecessary.
 
     All model arrays (means/covariances/weights AND bounds) are moved onto the model's device
-    (cupy on GPU): the sampler's score()/_normalize write into an xpy.empty array, so a
-    leftover numpy `self.bounds` raises 'non-scalar numpy.ndarray cannot be used for fill'."""
+    (cupy on GPU).  THIS IS LOAD-BEARING, and the load has moved.  It used to be `bounds`:
+    score()/_normalize allocated from self.xpy, so a leftover numpy `self.bounds` raised
+    'non-scalar numpy.ndarray cannot be used for fill'.  gaussian_mixture_model now resolves
+    its backend per call from the arrays it is given, so `bounds` is the one conversion that
+    has become optional.  `means` has taken its place: gmm.sample() reads the backend off the
+    model's own parameters, so host means make it return HOST draws, MonteCarloEnsemble._sample
+    writes those into a cupy buffer and raises the same fill ValueError, and
+    MonteCarloEnsemble.integrate catches it, calls _reset(), and blanks every gmm_dict entry.
+    The run then continues COLD -- the seed is silently discarded, not reported as an error.
+    Verified on an RTX 3080: dropping these conversions takes the seeded integral to the cold
+    value.  Convert every parameter, and treat `means` as the one that must not be missed."""
     GMM = _gmm_module()
     means = np.asarray(group["means"]); covs = np.asarray(group["covariances"], dtype=float) * float(cov_inflate)
     weights = np.asarray(group["weights"], dtype=float); bounds = np.asarray(group["bounds"], dtype=float)
     k = means.shape[0]
     model = GMM.gmm(k, bounds, max_iters=max_iters)
-    model.bounds = model.identity_convert_togpu(bounds)          # must match self.xpy (GPU)
-    model.means = [model.identity_convert_togpu(means[i]) for i in range(k)]
+    model.bounds = model.identity_convert_togpu(bounds)          # optional since the backend fix
+    model.means = [model.identity_convert_togpu(means[i]) for i in range(k)]   # REQUIRED: sets the backend
     model.covariances = [model.identity_convert_togpu(covs[i]) for i in range(k)]
     model.weights = model.identity_convert_togpu(weights)
     model.adapt = [bool(adapt)] * k

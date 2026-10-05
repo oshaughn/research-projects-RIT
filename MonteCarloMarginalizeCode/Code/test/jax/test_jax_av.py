@@ -315,6 +315,37 @@ def test_av_and_seeded_portfolio_return_driver_contract():
     assert portfolio["log_weight"] is None  # portfolio performed its fair draw
 
 
+
+def test_portfolio_adaptive_allocation_is_explicit_opt_in(monkeypatch):
+    from RIFT.integrators import mcsamplerPortfolio as Portfolio
+
+    observed = []
+    original = Portfolio.MCSampler.integrate_log
+
+    def capture(self, *args, **kwargs):
+        observed.append(kwargs.get("portfolio_adaptive_alloc"))
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(Portfolio.MCSampler, "integrate_log", capture)
+    rng = np.random.default_rng(191)
+    cloud = np.array([2.0, 0.2, 1.0]) + rng.normal(
+        size=(300, 3)) * np.array([0.1, 0.08, 0.1])
+    common = dict(d_min=1.0, d_max=100.0, sampler_method="portfolio",
+                  initial_samples=cloud, nmax=10000, neff=10,
+                  n_chunk=1000, eval_chunk=256, seed=191)
+
+    for enabled in (False, True):
+        result = samplers.adaptive_volume_sample(
+            _ToySkyLikelihood(), portfolio_adaptive_alloc=enabled, **common)
+        assert np.isfinite(result["logZ"])
+    assert observed == [None, True]
+
+    with pytest.raises(ValueError, match="requires sampler_method"):
+        samplers.adaptive_volume_sample(
+            _ToySkyLikelihood(), 1.0, 100.0, sampler_method="AV",
+            portfolio_adaptive_alloc=True)
+
+
 def test_pure_av_runs_inside_a_narrow_sky_sampling_window():
     bounds = {"ra": (1.7, 2.3), "dec": (-0.1, 0.5)}
     result = samplers.adaptive_volume_sample(
@@ -407,7 +438,28 @@ def test_driver_exposes_sampler_as_an_orthogonal_backend(monkeypatch):
     assert opts.n_eff == 321
 
 
-def test_driver_accepts_pseudo_cosmo_only_for_av_backend(monkeypatch):
+
+def test_driver_rejects_inert_portfolio_allocation_option(monkeypatch, capsys):
+    monkeypatch.delenv("JAX_ILE_DISTMARG_GH", raising=False)
+    driver = _driver_module()
+    parser = driver.build_parser()
+    opts, _ = parser.parse_args([
+        "--sampler-method", "portfolio",
+        "--sampler-portfolio", "AV,GMM",
+        "--sampler-portfolio-adaptive-alloc"])
+    driver.check_critical_and_report(opts, parser)
+    assert opts.sampler_portfolio_adaptive_alloc is True
+
+    for args in (["--sampler-method", "AV"], []):
+        invalid_parser = driver.build_parser()
+        invalid, _ = invalid_parser.parse_args(
+            [*args, "--sampler-portfolio-adaptive-alloc"])
+        with pytest.raises(SystemExit):
+            driver.check_critical_and_report(invalid, invalid_parser)
+        assert "requires --sampler-method portfolio" in capsys.readouterr().err
+
+
+def test_driver_accepts_pseudo_cosmo_for_av_backend(monkeypatch):
     monkeypatch.delenv("JAX_ILE_DISTMARG_GH", raising=False)
     driver = _driver_module()
     parser = driver.build_parser()
@@ -416,7 +468,7 @@ def test_driver_accepts_pseudo_cosmo_only_for_av_backend(monkeypatch):
     driver.check_critical_and_report(opts, parser)
 
     unsupported, _ = parser.parse_args([
-        "--sampler-method", "AV", "--d-prior", "cosmo_sourceframe"])
+        "--sampler-method", "AV", "--d-prior", "uniform"])
     with pytest.raises(SystemExit):
         driver.check_critical_and_report(unsupported, parser)
 

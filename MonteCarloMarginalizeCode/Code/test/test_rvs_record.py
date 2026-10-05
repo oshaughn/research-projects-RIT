@@ -238,6 +238,7 @@ def test_the_record_is_not_a_dict_subclass():
 ### at one level up.
 ###
 
+import ast
 import os
 
 _ILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -792,8 +793,22 @@ def test_the_gpu_linear_entry_point_records_that_it_is_linear():
     that backend -- the one case where the record's refusal to guess is a false alarm rather
     than a caught defect."""
     src = open(os.path.join(_INTEGRATORS_DIR, 'mcsamplerGPU.py')).read()
-    # both rebind sites of the linear path: the retained record and the fair-draw one
-    assert src.count('integrand_is_log=False') == 2, \
+    # Both rebind sites of the linear path: the retained record and the fair-draw one.
+    # Counted over the RvsRecord CALLS, not over the file text.  A plain
+    # src.count('integrand_is_log=False') also counts the same keyword passed to anything
+    # else in the module -- it started failing the moment an unrelated helper took an
+    # `integrand_is_log` argument, which reads as a regression in the GPU backend and is
+    # not one.  The claim is about the records, so ask the records.
+    _linear = [node for node in ast.walk(ast.parse(src))
+               if isinstance(node, ast.Call)
+               and isinstance(node.func, ast.Attribute)
+               and node.func.attr in ('retained', 'fair_draw')
+               and isinstance(node.func.value, ast.Name)
+               and node.func.value.id == 'RvsRecord'
+               and any(kw.arg == 'integrand_is_log'
+                       and isinstance(kw.value, ast.Constant) and kw.value.value is False
+                       for kw in node.keywords)]
+    assert len(_linear) == 2, \
         'the GPU linear path must state its convention on BOTH the retained and fairdraw records'
 
 

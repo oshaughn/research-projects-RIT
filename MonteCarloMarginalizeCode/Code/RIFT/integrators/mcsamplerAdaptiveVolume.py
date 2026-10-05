@@ -19,6 +19,23 @@ import functools
 import inspect
 
 
+def _select_av_stopping_statistic(max_weight, kish, metric="max-weight"):
+    """Select stopping statistic without changing the conservative native return."""
+    if metric not in ("max-weight", "kish"):
+        raise ValueError("av_stop_metric must be max-weight or kish")
+    return max_weight if metric == "max-weight" else kish
+
+
+def _av_weight_statistics_from_log(log_weights):
+    """Stable counts of the retained weighted sample; neither is an output count."""
+    values = np.asarray(log_weights, dtype=float)
+    if values.ndim != 1 or not len(values) or not np.all(np.isfinite(values)):
+        raise ValueError("retained log weights must be a nonempty finite vector")
+    weights = np.exp(values - np.max(values))
+    total = np.sum(weights)
+    return {"max_weight": float(total), "kish": float(total ** 2 / np.sum(weights ** 2))}
+
+
 @functools.lru_cache(maxsize=None)
 def _prior_pdf_accepts_xpy(fn):
     """True if a prior_pdf callable takes an `xpy` kwarg.  Many of the mcsamplerGPU prior
@@ -319,7 +336,8 @@ def seed_affine_rank(pts, box_lo, box_hi, axes=None, tol=1e-9):
 
 
 def make_warm_seed_reserve(X, lnL, params_ordered, n_max=20000,
-                           log_joint_prior=None, log_joint_s_prior=None, rng=None):
+                           log_joint_prior=None, log_joint_s_prior=None, rng=None,
+                           force_peak=True):
     """A bounded copy of the points a pass RETAINED, for a later warm start -> dict.
 
     THE ONE BUILDER, because every sampler that can be L0-rescued needs the identical
@@ -356,6 +374,34 @@ def make_warm_seed_reserve(X, lnL, params_ordered, n_max=20000,
     the PEAK row, appended unconditionally because the seed is defined relative to it and a
     subsample can drop it; at one row in n_max its effect on either estimate is negligible.
 
+    force_peak IS FOR A SEED, NOT FOR AN EXPORT.  Appending the peak row unconditionally
+    costs a seed nothing ("at one row in n_max its effect on either estimate is
+    negligible") because a seed is a SET of points and the peak defines its centre.  A
+    consumer that reads the reserve as a WEIGHTED SAMPLE sees something else.  Uniform
+    subsampling without replacement gives every row the same inclusion probability, which
+    cancels in a normalized histogram; that histogram is a RATIO of two unbiased estimators,
+    so it carries an O(1/n) bias rather than none (measured at +1.5 to +3.9 sigma in the
+    small-mass bins over 4000 seeds, i.e. negligible beside the MC noise, but not zero).
+    Forcing one row in at probability 1 while the rest come in at n_max/n_finite is a
+    different thing entirely: a bias that does not shrink with n.
+
+    HOW BIG DEPENDS ENTIRELY ON HOW DOMINANT THE PEAK IS, so the numbers below are a
+    measured range and not a constant.  On 8000 rows capped at 800, median of 15 subsample
+    seeds, as the top weight is lifted above the rest: no dominant row, ESS 506 forced
+    against 506 free (no effect at all); 3 e-folds up, 223 against 505; 6 e-folds, 3.6
+    against 505.  On a real starved GMM extrinsic pass (180,000 retained rows capped at
+    20,000, 20 seeds) the forced version reported ESS 33 where the population has 1163,
+    and displaced the exported curve by up to 1.22 nats in a bin against 0.72 free.
+
+    force_peak therefore stays True everywhere, and the .dgrid exporter divides that row by
+    its own inclusion probability instead (reserve_distance_and_ln_weights), which is why
+    n_subsample is recorded below.  Dropping the row instead is worse than it sounds: the
+    unforced subsample then usually misses the dominant row entirely and reports ESS 506
+    where the population has 99, against 87 for the forced-and-corrected version.
+
+    Neither setting makes the SUBSAMPLE's own ESS a description of the population -- that
+    is what ess_finite, recorded below before the cap, is for.
+
     ISOLATED RNG.  This reserve is built unconditionally -- including when
     --sampler-warmstart-retry-neff is unset and nothing will ever read it -- so drawing the
     subsample from the global numpy stream would advance it before the fair draw, before the
@@ -391,24 +437,146 @@ def make_warm_seed_reserve(X, lnL, params_ordered, n_max=20000,
     #    otherwise identical warm reserve that does not would then reject a valid warm pass on
     #    nothing but subsample luck.  Captured here, the gate never sees that error at all.
     ln_sum_w = None
+    ess_finite = None
     if 'log_joint_prior' in extra and 'log_joint_s_prior' in extra:
         _lw = lnL + extra['log_joint_prior'] - extra['log_joint_s_prior']
         _lw = _lw[np.isfinite(_lw)]
         if _lw.size:
             _mx = float(np.max(_lw))
             ln_sum_w = float(_mx + np.log(np.sum(np.exp(_lw - _mx))))
+            # AND THE POPULATION'S EFFECTIVE SAMPLE SIZE, captured here for the same reason
+            # as the total above: a bounded record cannot reconstruct it afterwards, and a
+            # uniform subsample is not merely a noisier estimate of it.  Where one row
+            # carries the weight -- the starved, high-amplitude pass this whole area exists
+            # for -- the subsample either drops that row and reports a healthy ESS for a
+            # population that has none, or keeps it and reports a collapsed one.  Measured
+            # on 8000 rows capped at 800, varying how far the top weight sits above the
+            # rest: with the top row 9 e-folds up, the population ESS is 2.1 while the
+            # median uncapped-peak subsample reports 505.
+            _p = np.exp(_lw - ln_sum_w)
+            _den = float(np.sum(_p ** 2))
+            ess_finite = (1.0 / _den) if _den > 0 else None
     # 3. bound, uniformly over that population, on a stream of our own
     n_max = int(n_max)
-    if n_max > 0 and n_fin > n_max:
+    capped = bool(n_max > 0 and n_fin > n_max)
+    if capped:
         rng = rng if rng is not None else np.random.RandomState(20260811)
         idx = rng.choice(n_fin, size=n_max, replace=False)
-        idx = np.unique(np.append(idx, int(np.nanargmax(lnL))))
+        if force_peak:
+            idx = np.unique(np.append(idx, int(np.nanargmax(lnL))))
+        else:
+            idx = np.unique(idx)
         X, lnL = X[idx], lnL[idx]
         extra = {k: v[idx] for k, v in extra.items()}
     out = dict(X=X, lnL=lnL, n_retained=int(n_ret), n_finite=int(n_fin),
-               ln_sum_w_finite=ln_sum_w, params_ordered=list(params_ordered))
+               ln_sum_w_finite=ln_sum_w, ess_finite=ess_finite,
+               params_ordered=list(params_ordered),
+               capped=capped, force_peak=bool(force_peak),
+               # The INCLUSION PROBABILITY of an ordinary row is n_subsample/n_finite, and
+               # the forced peak's is 1.  A consumer reading this as a weighted sample needs
+               # both numbers to undo that; neither is recoverable from the kept rows.
+               n_subsample=(int(n_max) if capped else None))
     out.update(extra)
     return out
+
+
+def make_reserve_from_rvs(rvs, params_ordered, n_max=20000, integrand_is_log=None,
+                          convert=None):
+    """The retained-set reserve for a sampler that still has its rows in ``_rvs`` -> dict.
+
+    ONE adapter in front of make_warm_seed_reserve, for the backends that reach the fair
+    draw with the retained set still in ``_rvs``: mcsampler, mcsamplerGPU (both entry
+    points), mcsamplerEnsemble and mcsamplerNFlow.  AV builds its own from allx/allloglkl
+    because it never keeps them in ``_rvs``; the portfolio aggregates its members' rows.
+
+    WHY THESE BACKENDS NEED ONE AT ALL.  Until now the reserve existed only for the L0
+    rescue, so only AV and the portfolio built it and ``reserve=None`` elsewhere was
+    described as "the honest answer, not a gap".  It is a gap for anything that EXPORTS a
+    shape: the fair draw below replaces ``_rvs`` with min(--fairdraw-extrinsic-output-n-max
+    (5 by default), 1.5*eff_samp, 1.5*neff) rows taken WITH REPLACEMENT, and the .dgrid
+    exporter then binned those five rows as though they were a likelihood-vs-distance
+    curve.  The retained rows are right here; keeping a bounded copy of them costs one
+    subsample and lets the exporter use the sample set instead of its export resample.
+
+    BOTH CONVENTIONS.  ``integrand`` is lnL on some backends and linear L on others, and
+    the sampler is the only thing that knows which (see RvsRecord.integrand_is_log).  The
+    log columns are preferred where they exist; otherwise the linear ones are converted
+    here.  log(0) is -inf, which make_warm_seed_reserve drops as a zero-weight row.
+    """
+    conv = convert if convert is not None else identity_convert
+
+    def _col(key):
+        return np.asarray(conv(rvs[key]), dtype=float).ravel()
+
+    with np.errstate(divide='ignore', invalid='ignore'):
+        if 'log_integrand' in rvs:
+            lnL = _col('log_integrand')
+        elif integrand_is_log:
+            lnL = _col('integrand')
+        else:
+            lnL = np.log(_col('integrand'))
+        if 'log_joint_prior' in rvs:
+            ln_prior = _col('log_joint_prior')
+        else:
+            ln_prior = np.log(_col('joint_prior'))
+        if 'log_joint_s_prior' in rvs:
+            ln_s_prior = _col('log_joint_s_prior')
+        else:
+            ln_s_prior = np.log(_col('joint_s_prior'))
+
+    # ONE CONJUNCTIVE KEEP-MASK, not three independent logs.  RvsRecord.log_weights()
+    # documents why: term-by-term, a row with a zero prior AND a zero sampling prior gives
+    # -inf - (-inf) = NaN rather than "no weight", and a single NaN propagates through
+    # _logsumexp to take the WHOLE export down.  Rows that cannot carry weight are marked
+    # -inf here, which make_warm_seed_reserve then drops as non-finite.
+    bad = ~(np.isfinite(lnL) & np.isfinite(ln_prior) & np.isfinite(ln_s_prior))
+    if np.any(bad):
+        lnL = np.where(bad, -np.inf, lnL)
+        ln_prior = np.where(bad, 0.0, ln_prior)
+        ln_s_prior = np.where(bad, 0.0, ln_s_prior)
+
+    # TUPLE KEYS ARE A REAL LAYOUT, not a curiosity: --skymap-file registers
+    # ("declination","right_ascension") as ONE parameter, so _rvs[key] is (2, N) and a
+    # plain ravel makes the vstack ragged -- which silently cost those runs their reserve.
+    # Flatten to component names so the reserve is addressable by coordinate either way.
+    names, cols = [], []
+    for name in params_ordered:
+        arr = np.asarray(conv(rvs[name]), dtype=float)
+        if isinstance(name, tuple):
+            arr = arr.reshape(len(name), -1)
+            for i, part in enumerate(name):
+                names.append(part)
+                cols.append(arr[i])
+        else:
+            names.append(name)
+            cols.append(arr.ravel())
+    X = np.vstack(cols).T
+    # The DEFAULT force_peak=True, deliberately, so every reserve in the tree is built the
+    # same way and one correction covers all of them.  Dropping the peak instead leaves the
+    # subsample looking healthier than the population it came from -- measured on 8000 rows
+    # capped at 800 with a dominant row, the unforced subsample reports ESS 506 where the
+    # population has 99, because it usually misses that row altogether.  Keeping it and
+    # dividing by its inclusion probability (reserve_distance_and_ln_weights) gives 87.
+    return make_warm_seed_reserve(X, lnL, names, n_max=n_max,
+                                  log_joint_prior=ln_prior,
+                                  log_joint_s_prior=ln_s_prior)
+
+
+def keep_reserve_from_rvs(sampler, label, integrand_is_log=None):
+    """Attach ``sampler._warm_seed_reserve`` from its own ``_rvs``, or leave it None.
+
+    Provenance for an export, never a reason to lose a completed integral -- the same
+    contract AV and the portfolio already use at their own reserve sites.
+    """
+    try:
+        sampler._warm_seed_reserve = make_reserve_from_rvs(
+            sampler._rvs, sampler.params_ordered,
+            n_max=getattr(sampler, 'n_warm_seed_reserve', 20000),
+            integrand_is_log=integrand_is_log,
+            convert=getattr(sampler, 'identity_convert', None))
+    except Exception as _e_res:
+        sampler._warm_seed_reserve = None
+        print("  [{}] retained-set reserve not kept (".format(label), _e_res, ")")
 
 
 def lnZ_from_reserve(reserve):
@@ -674,6 +842,14 @@ def sample_from_bins(xrange, dx, bu, ninbin, reject_out_of_range=False):
 
 
 class MCSampler(SamplerOutputMixin, object):
+
+    # PORTFOLIO MEMBER CONTRACT.  draw_simplified() reports p_s on this sampler's own scale
+    # (V_s/V), which is NOT a normalized density -- see the note in draw_simplified.  A portfolio
+    # must therefore never use it as a stratified denominator; sampling_density() below is the
+    # contract and does return the density.  mcsamplerPortfolio reads this flag to tell a member
+    # whose joint_p_s it may pool from one whose it may not.
+    joint_p_s_is_normalized_density = False
+
     # COMPACT SUPPORT: this sampler's density is EXACTLY ZERO outside its contracted live volume,
     # so once seeded or contracted it cannot serve as the mixture's coverage guarantee.
     # mcsamplerPortfolio reads this to decide whether it must hold one member cold.
@@ -902,6 +1078,14 @@ class MCSampler(SamplerOutputMixin, object):
             rv = rv[keep]
             log_p = log_p[keep]
         p = np.exp(log_p)
+        # NOT A DENSITY, DELIBERATELY.  The points are uniform over the live volume, whose
+        # measure is V_s*V (V_s = full box, V = live FRACTION), so the density they come from is
+        # 1/(V_s*V) -- what sampling_density() returns.  What is reported here is V_s/V, larger by
+        # V_s**2.  This sampler's own integrate_log is written against that scale and is exact on
+        # it, and changing it would move every production CIP/ILE evidence, so it stays.
+        # A PORTFOLIO MUST NOT USE THIS AS A MIXTURE DENOMINATOR: sampling_density() is the member
+        # contract (see mcsamplerPortfolio.integrate_log).  Mixing this scale with a member that
+        # does report a density cost 0.63 nats on a constant integrand whose exact ln Z is 1.386.
         ps = self.xpy.ones(len(p))*self.V_s/self.V   # sampling prior, full hypercube normalized to 1
         rv = rv.T
         return ps, p, rv
@@ -1045,13 +1229,43 @@ class MCSampler(SamplerOutputMixin, object):
               rv = identity_convert_togpu(rv) # send random numbers to GPU : ugh
               log_joint_p_prior = identity_convert_togpu(log_joint_p_prior)    # send to GPU if required. Don't waste memory reassignment otherwise
 
-            # Evaluate function, protecting argument order
-            if True: #'no_protect_names' in kwargs:
-                unpacked0 = rv.T
-                lnL = lnF(*unpacked0)  # do not protect order
-            # else:
-            #     unpacked = dict(list(zip(self.params_ordered,rv.T)))
-            #     lnL= lnF(**unpacked)  # protect order using dictionary
+            # Evaluate the integrand, device-first with a remembered host retry -- the
+            # same contract as integrate_log() below and as mcsamplerPortfolio.  The
+            # production ILE likelihood is device-native; a host-only integrand (CI toy,
+            # benchmark, a user's CPU likelihood) raises TypeError on a cupy array.  The
+            # host copy is the MODULE-level identity_convert, the counterpart of the
+            # identity_convert_togpu that put rv on the device three lines up.
+            #
+            # Argument order is positional here as it always has been: no_protect_names is
+            # a named parameter of this method, so it can never reach **kwargs and the dict
+            # branch integrate_log keys on was already unreachable.
+            #
+            # Two things this site needs that integrate_log does not, both because
+            # mcsamplerPortfolio hands this method a verdict it did not learn itself:
+            #   - a propagated verdict can be WRONG (the portfolio may have latched on a
+            #     transient ValueError from a device-native likelihood).  Unlatch and go
+            #     back to the device instead of dying on an unguarded host call.
+            def _eval_integrand(samples):
+                return lnF(*samples.T)  # do not protect order
+            if not cupy_ok:
+                # no device exists, so there is no second array to try: call ONCE.  Retrying
+                # the identical host array would run a legitimately-failing integrand twice
+                # (doubled side effects, doubled RNG draws in a marginalizing likelihood).
+                lnL = _eval_integrand(rv)
+            elif getattr(self, '_integrand_wants_host', False):
+                try:
+                    lnL = _eval_integrand(identity_convert(rv))
+                except (TypeError, ValueError):
+                    self._integrand_wants_host = False
+                    print("  [AV selfish-update] host evaluation refused; returning to the device backend")
+                    lnL = _eval_integrand(rv)
+            else:
+                try:
+                    lnL = _eval_integrand(rv)
+                except (TypeError, ValueError):
+                    self._integrand_wants_host = True
+                    print("  [AV selfish-update] integrand refused a device array; evaluating on the host from here on")
+                    lnL = _eval_integrand(identity_convert(rv))
             # take log if we are NOT using lnL
             if cupy_ok:
               if not(isinstance(lnL,cupy.ndarray)):
@@ -1560,6 +1774,8 @@ class MCSampler(SamplerOutputMixin, object):
         #
         nmax = kwargs["nmax"] if "nmax" in kwargs else float("inf")
         neff = kwargs["neff"] if "neff" in kwargs else RiftFloat("inf")
+        av_stop_metric = kwargs.get("av_stop_metric", "max-weight")
+        _select_av_stopping_statistic(0, 0, av_stop_metric)  # validate before drawing
         n = int(kwargs["n"] if "n" in kwargs else min(100000, nmax))
         convergence_tests = kwargs["convergence_tests"] if "convergence_tests" in kwargs else None
         save_no_samples = kwargs["save_no_samples"] if "save_no_samples" in kwargs else None
@@ -1624,6 +1840,7 @@ class MCSampler(SamplerOutputMixin, object):
 
         current_log_aggregate = None
         eff_samp = 0  # ratio of max weight to sum of weights
+        stop_eff_samp = 0
         maxlnL = -np.inf  # max lnL
         maxval=0   # max weight
         outvals=None  # define in top level scope
@@ -1696,7 +1913,7 @@ class MCSampler(SamplerOutputMixin, object):
         loglkl_thr_prev = loglkl_thr
 
         ntotal_true = 0
-        while (eff_samp < neff and ntotal_true < nmax ): #  and (not bConvergenceTests):
+        while (stop_eff_samp < neff and ntotal_true < nmax ): #  and (not bConvergenceTests):
             # Draw samples. Note state variables binunique, ninbin -- so we can re-use the sampler later outside the loop
             rv, log_joint_p_prior = self.draw_simple()  # Beware reversed order of rv
             ntotal_true += len(rv)
@@ -1716,13 +1933,18 @@ class MCSampler(SamplerOutputMixin, object):
                 if 'no_protect_names' in kwargs:
                     return lnF(*samples.T)
                 return lnF(**dict(list(zip(self.params_ordered, samples.T))))
-            if getattr(self, '_integrand_wants_host', False):
+            # `or not cupy_ok` matches mcsamplerPortfolio and mcsamplerNFlow: with no cupy
+            # identity_convert is the identity, so without it a legitimately-failing
+            # integrand is invoked a second time with the identical array before the
+            # exception propagates.
+            if getattr(self, '_integrand_wants_host', False) or not cupy_ok:
                 lnL = _eval_integrand(identity_convert(rv))
             else:
                 try:
                     lnL = _eval_integrand(rv)
                 except (TypeError, ValueError):
                     self._integrand_wants_host = True
+                    print("  [AV] integrand refused a device array; evaluating on the host from here on")
                     lnL = _eval_integrand(identity_convert(rv))
             # take log if we are NOT using lnL
             if cupy_ok:
@@ -1830,6 +2052,7 @@ class MCSampler(SamplerOutputMixin, object):
             w = xpy_here.exp(lw)
             neff_varaha = identity_convert(xpy_here.sum(w) ** 2 / xpy_here.sum(w ** 2))
             eff_samp = identity_convert(xpy_here.sum(w)/xpy_here.max(w))  # to CPU as needed
+            stop_eff_samp = _select_av_stopping_statistic(eff_samp, neff_varaha, av_stop_metric)
 
             #New live volume based on new likelihood threshold
             V *= (nrec / ninj)
@@ -2009,7 +2232,20 @@ class MCSampler(SamplerOutputMixin, object):
             if isinstance(self._rvs[name],xpy_default.ndarray):
               self._rvs[name] = identity_convert(self._rvs[name])   # this is trivial if xpy_default is numpy, and a conversion otherwise
 
-        dict_return = {}
+        try:
+            self.last_stopping_statistics = _av_weight_statistics_from_log(log_wt)
+        except ValueError:
+            if av_stop_metric == "kish":
+                raise
+            # Diagnostic only on the default path; never fail a run that used to complete.
+            self.last_stopping_statistics = {"max_weight": float(eff_samp), "kish": float("nan")}
+        self.last_stopping_statistics.update({
+            "metric": av_stop_metric, "target": float(neff), "total_draws": int(ntotal_true),
+            "selected": float(_select_av_stopping_statistic(
+                self.last_stopping_statistics["max_weight"], self.last_stopping_statistics["kish"], av_stop_metric)),
+            "native_return_metric": "max-weight", "retained_rows": int(len(log_wt))})
+        dict_return = {"av_stopping_statistics": self.last_stopping_statistics.copy()}
+
         # MC-error diagnostics: disclose the components and the weight-tail state.
         # NOTE the AV estimator assigns the surviving (threshold-selected) samples a
         # pretend-uniform density on the final live volume, so the naive term is if

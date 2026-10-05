@@ -19,9 +19,10 @@ detector, then by mode pair) -- fixed alongside this PR.
    ABOVE ln(DBL_MAX) = 709, where the un-subtracted integrand returned nan.  The
    trapezoid of exp(lnL) cannot be the reference there (it overflows too), so this uses
    an independent max-subtracted midpoint rule on the two-harmonic DFT fit of lnL(psi).
-3. test_psi_prior_mass_matches_the_sampler: the analytic marginal is normalized, this
-   driver's psi prior is NOT (1/pi over (0, 2 pi), mass 2), and the driver restores that
-   mass from the sampler's own objects rather than a hardcoded ln 2.
+3. test_psi_prior_mass_matches_the_sampler: the analytic marginal is normalized, and so is
+   the driver's sampled psi prior now that it is derived from its sampling range (it was
+   1/pi over (0, 2 pi), mass 2, before that fix); the driver still derives the compensating
+   ln(mass) from its own prior objects, as a guard, rather than assuming either value.
 4. test_flag_reaches_help: the option is registered.
 5. test_refuses_incompatible_combinations: every documented refusal actually fires,
    with no data files needed (the refusal runs before any data is read).
@@ -221,37 +222,47 @@ def test_matches_reference_above_overflow():
 
 def test_psi_prior_mass_matches_the_sampler():
     """F2.  NetworkLogLikelihoodPolarizationMarginalized returns the NORMALIZED marginal,
-    (1/pi) int_0^pi, mass 1.  The driver's sampled psi path does NOT use a normalized psi
-    prior: mcsampler.uniform_samp_psi is 1/pi over param_limits["psi"] = (0, 2 pi), mass 2.
-    So every ordinary lnZ on this path carries +ln 2 that the analytic marginal does not,
-    and the driver has to add it back or the flag reports lnZ - 0.693 nat (measured 0.7027
-    and 0.6602 +/- 0.036 on two fixtures before the fix).
+    (1/pi) int_0^pi, mass 1.  The driver's sampled psi prior is derived from its sampling
+    range, psi_prior_pdf = ret_uniform_samp_vector_alt(*psi_prior_range) with the range
+    (0, 2 pi), so it is also mass 1 and the two paths agree with no offset.  Before the
+    prior was derived from its range it was the fixed constant uniform_samp_psi = 1/pi
+    over (0, 2 pi), mass 2, and the flag reported lnZ - 0.693 nat (measured 0.7027 and
+    0.6602 +/- 0.036 on two fixtures).
 
-    This pins BOTH halves: the library function's own normalization, and that the driver
-    derives the compensating mass from the sampler's objects instead of writing ln 2.
+    This pins BOTH halves: the sampled path's prior really integrates to 1 over the range
+    the driver samples, and the driver derives the compensating mass from its own objects
+    instead of assuming it (so a future change to either input moves the correction).
     """
     import RIFT.integrators.mcsampler as mcsampler
 
-    # the incumbent sampled-path measure, read off the same two objects the driver reads
-    lo, hi = 0.0, 2*np.pi                       # param_limits["psi"] on the conventional path
-    density = float(np.atleast_1d(mcsampler.uniform_samp_psi(np.atleast_1d(0.5*(lo+hi))))[0])
+    # the sampled-path measure, built the way the driver builds it
+    lo, hi = 0.0, 2*np.pi                       # psi_prior_range on the conventional path
+    prior = mcsampler.ret_uniform_samp_vector_alt(lo, hi)
+    density = float(np.atleast_1d(prior(np.atleast_1d(0.5*(lo+hi))))[0])
     mass = density*(hi - lo)
-    assert density == pytest.approx(1.0/np.pi)
-    assert mass == pytest.approx(2.0), (
-        "the conventional driver's psi prior no longer integrates to 2 (got %r); the "
+    assert density == pytest.approx(1.0/(2*np.pi))
+    assert mass == pytest.approx(1.0), (
+        "the conventional driver's psi prior no longer integrates to 1 (got %r); the "
         "compensation in integrate_likelihood_extrinsic_batchmode must move with it" % mass)
+    # and the constant it replaced is NOT normalized over that range: the defect being guarded
+    old = float(np.atleast_1d(mcsampler.uniform_samp_psi(np.atleast_1d(0.5*(lo+hi))))[0])
+    assert old*(hi - lo) == pytest.approx(2.0)
 
-    # The driver must DERIVE that mass, not write ln 2.  This half can only be a source
-    # check: at the default operating point the derived value IS ln 2 to the last bit, so
-    # no runtime observation can separate a derivation from a literal.  What it pins is the
-    # expression, so that changing either input (limits or density) moves the correction.
+    # The driver must DERIVE the mass from its own prior object and range.  At the default
+    # operating point the derived value is 0 to the last bit, so no runtime observation can
+    # separate a derivation from an omitted term.  What this pins is the expression, so that
+    # changing either input (range or density) moves the correction.
     text = BIN.read_text()
-    assert "mcsampler.uniform_samp_psi" in text, \
-        "the psi prior density is no longer read from the sampler"
-    assert "_psi_prior_mass = _psi_prior_density*(param_limits[\"psi\"][1]-param_limits[\"psi\"][0])" in text, \
-        "the psi prior MASS is no longer derived from the sampler's own limits and density"
+    assert "psi_prior_pdf = mcsampler.ret_uniform_samp_vector_alt(psi_prior_range[0], psi_prior_range[1])" in text, \
+        "the psi prior is no longer derived from the psi sampling range"
+    assert "prior_pdf = psi_prior_pdf," in text, \
+        "the sampled psi path no longer uses the range-derived prior"
+    assert "psi_prior_pdf(numpy.atleast_1d(" in text, \
+        "the psi prior density is no longer read from the driver's own prior object"
+    assert "_psi_prior_mass = _psi_prior_density*(psi_prior_range[1]-psi_prior_range[0])" in text, \
+        "the psi prior MASS is no longer derived from the driver's own range and density"
     assert "psi_marginalization_ln_prior_mass = float(numpy.log(_psi_prior_mass))" in text, \
-        "the correction is not ln(the derived mass) -- a hardcoded ln 2 will not track the sampler"
+        "the correction is not ln(the derived mass)"
     assert "lnL += _psi_marg_ln_prior_mass" in text, \
         "the derived prior mass is never applied to the marginalized likelihood"
 
@@ -433,8 +444,9 @@ def test_driver_runs_end_to_end(synthetic_fixture):
     mass_lines = [ln for ln in proc.stdout.splitlines()
                   if "sampled-path psi prior mass is" in ln]
     assert len(mass_lines) == 1, proc.stdout[-4000:]
-    assert "2.000000" in mass_lines[0], mass_lines[0]
-    assert "+0.693147" in mass_lines[0], mass_lines[0]
+    # (mass 1: the sampled psi prior is derived from its (0, 2 pi) range; it was 2, +0.693147, before)
+    assert "1.000000" in mass_lines[0], mass_lines[0]
+    assert "+0.000000" in mass_lines[0], mass_lines[0]
 
     result_dat = outdir / "out.xml.gz_0_.dat"
     assert result_dat.exists(), "driver did not write a result row\n" + proc.stdout[-4000:]

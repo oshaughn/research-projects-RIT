@@ -32,6 +32,11 @@ from RIFT.likelihood import time_marginalization_quadrature as tmq
 from RIFT.likelihood import time_marginalization_peak_local as pl
 from RIFT.likelihood import factored_likelihood as fl
 
+_HERE = os.path.dirname(os.path.abspath(__file__))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+import gpu_slot_probe                                        # noqa: E402  (sibling helper)
+
 simpson = getattr(integrate, 'simpson', None) or integrate.simps
 
 SRATE = 4096.0
@@ -1899,17 +1904,12 @@ def test_driver_refuses_peak_local_under_phase_marginalization_AT_STARTUP(tmp_pa
 # --------------------------------------------------------------- GPU parity
 
 def _cupy_or_skip():
-    if os.environ.get('RIFT_CI_REQUIRE_GPU', '0') != '1':
-        cupy = pytest.importorskip('cupy')
-    else:
-        import cupy
-    try:
-        cupy.zeros(1) + 1
-    except Exception as e:                                  # pragma: no cover
-        if os.environ.get('RIFT_CI_REQUIRE_GPU', '0') == '1':
-            raise
-        pytest.skip("cupy present but no usable device: %s" % e)
-    return cupy
+    """cupy with a slot it can build a kernel for selected, else a skip -- and a FAILURE
+    rather than a skip under RIFT_CI_REQUIRE_GPU=1, which is the runner saying it HAS a
+    device.  This was ``pytest.importorskip('cupy')``; why that is wrong here, and the
+    second failure that looks the same from a distance, are in gpu_slot_probe.
+    """
+    return gpu_slot_probe.cupy_or_skip()
 
 
 def test_peak_local_runs_on_the_gpu_backend_and_matches_numpy():

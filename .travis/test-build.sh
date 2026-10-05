@@ -2,7 +2,8 @@
 # Pipeline build test. The coinc file is from a synthetic event.
 #
 # Builds (does not submit) RIFT DAGs from a reference ini + coinc using fake
-# data, and verifies that the per-distance likelihood export flags (Plan A
+# data, verifies the complete extrinsic -> calibration-marginalization graph,
+# and verifies that the per-distance likelihood export flags (Plan A
 # density grid, Plan B fixed-distance slices) thread through
 # util_RIFT_pseudo_pipe.py -> create_event_parameter_pipeline_* and land in the
 # correct condor submit file (ILE_extr.sub, the extrinsic stage).
@@ -16,8 +17,45 @@ export SINGULARITY_BASE_EXE_DIR=/usr/bin/
 alias gw_data_find=/bin/true  # don't want to reall do the datafind job
 touch foo.cache
 
+# Calmarg's Bilby-pickle stage records this executable in its submit file but
+# does not execute it during a DAG build. The ordinary CI lane intentionally
+# does not install the full bilby_pipe runtime, so provide a build-only witness
+# rather than adding a large dependency solely for `which` resolution.
+TEST_BUILD_BIN=`pwd`/test_build_bin
+mkdir -p $TEST_BUILD_BIN
+ln -sf /bin/true $TEST_BUILD_BIN/bilby_pipe_generation
+export PATH=$TEST_BUILD_BIN:$PATH
+
 REF_INI=`pwd`/.travis/ref_ini/GW150914.ini
 COINC=`pwd`/.travis/ref_ini/coinc.xml
+DAG_CONTRACT=`pwd`/MonteCarloMarginalizeCode/Code/test/dag_contract/rift_pipeline_contract.py
+
+# Keep the topology production-like while making its build independent of
+# protected frame and calibration files.  Nothing executes these inputs in a
+# build-only test, but the calibration submit writer must be able to stage them.
+CALMARG_DATA=`pwd`/test_build_calmarg_data
+mkdir -p $CALMARG_DATA
+touch $CALMARG_DATA/H1-calibration.dat $CALMARG_DATA/L1-calibration.dat
+CALMARG_BILBY_INI=`pwd`/test_build_bilby.ini
+sed \
+    -e "s|^data-dict=.*|data-dict={H1:`pwd`/foo.cache, L1:`pwd`/foo.cache}|" \
+    -e "s|^spline-calibration-envelope-dict=.*|spline-calibration-envelope-dict={H1:$CALMARG_DATA/H1-calibration.dat, L1:$CALMARG_DATA/L1-calibration.dat}|" \
+    .travis/ref_ini/bilby_GW150914.ini > $CALMARG_BILBY_INI
+
+# The baseline smoke build now reaches the final calibration combine. Keep the
+# checked-in general-purpose ini unchanged; render the two build-only deltas
+# here, with an absolute Bilby ini because pseudo_pipe changes directories.
+CALMARG_INI=`pwd`/test_build_calmarg.ini
+sed \
+    -e 's/^calibration-reweighting=False/calibration-reweighting=True/' \
+    -e 's/^calibration-reweighting-batchsize=200/calibration-reweighting-batchsize=200\ncalibration-reweighting-count=2/' \
+    -e "s|^bilby-ini-file=.*|bilby-ini-file=\"$CALMARG_BILBY_INI\"|" \
+    $REF_INI > $CALMARG_INI
+
+# Fast mutation tests prove that the structural gate itself fails for the
+# regressions it claims to catch, instead of merely passing one golden DAG.
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q \
+    MonteCarloMarginalizeCode/Code/test/test_dag_build_contract.py
 
 # require a flag to be present in a file
 assert_has() {  # file pattern
@@ -32,8 +70,10 @@ assert_absent() {  # file pattern
     fi
 }
 
-# --- 1. baseline build (original smoke test) ---
-util_RIFT_pseudo_pipe.py --use-ini $REF_INI --use-coinc $COINC --use-rundir `pwd`/test_build_pipe --fake-data-cache `pwd`/foo.cache
+# --- 1. full handoff build (extends the original baseline smoke test) ---
+util_RIFT_pseudo_pipe.py --use-ini $CALMARG_INI --use-coinc $COINC --use-rundir `pwd`/test_build_pipe --fake-data-cache `pwd`/foo.cache
+python $DAG_CONTRACT `pwd`/test_build_pipe --report `pwd`/test_build_pipe/dag-contract.json
+echo "OK: generated DAG reaches calibration marginalization without a premature-success exit"
 
 # --- 2. Plan-A distance-grid export, threaded onto the extrinsic stage ---
 # Distance marginalization must stay ON for the intrinsic ILE jobs (speedup)

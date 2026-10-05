@@ -236,6 +236,10 @@ def test_write_samples_cannot_be_handed_an_evidence_neff():
 
     A behavioural test alone would not stop someone re-adding `neff=` and a
     clamp; pin the signature and the call site together.
+
+    The sim_inspiral export's reported effective sample size is spelled
+    `report_neff` for this reason: it is written into the XML's evidence row and
+    read nowhere else, and the bare name stays forbidden.
     """
     import inspect
     params = list(inspect.signature(drv.write_samples).parameters)

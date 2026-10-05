@@ -40,6 +40,11 @@ from scipy import integrate
 from RIFT.likelihood import time_marginalization_quadrature as tmq
 from RIFT.likelihood import factored_likelihood as fl
 
+_HERE = os.path.dirname(os.path.abspath(__file__))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+import gpu_slot_probe                                        # noqa: E402  (sibling helper)
+
 simpson = getattr(integrate, 'simpson', None) or integrate.simps
 
 SRATE = 4096.0
@@ -967,22 +972,33 @@ def test_driver_announces_the_quadrature_it_will_actually_use():
 # --------------------------------------------------------------- GPU parity
 
 def _cupy_or_skip():
-    """cupy, or skip -- unless the GPU gate demands a device, in which case FAIL.
-
-    `RIFT_CI_REQUIRE_GPU=1` is how `.travis/test-integrate.sh` says "this job runs
-    on hardware".  A skip under that flag would be a GPU gate reporting green
+    """cupy on a slot that can build a kernel, or skip -- a FAILURE under
+    RIFT_CI_REQUIRE_GPU=1, which is how `.travis/test-integrate.sh` says "this job
+    runs on hardware".  A skip under that flag would be a GPU gate reporting green
     without having touched a GPU, which is the failure mode this whole file is
     written against.
+
+    This used to import cupy and accept any `getDeviceCount() >= 1`.  COUNTING
+    DEVICES IS NOT RUNNING ONE: measured on ldas-pcdev2 2026-09-19 with
+    CUDA_VISIBLE_DEVICES=1, a Blackwell cc 12.0 that cupy 12.0.0 cannot compile
+    for, the count was 1, the guard returned cupy, and
+    test_bandlimited_runs_on_the_gpu_backend_and_matches_numpy died on
+    `CompileException: nvrtc: error: invalid value for --gpu-architecture`.  At
+    CUDA_VISIBLE_DEVICES="1,0" it failed the same way while a usable A100 sat in
+    the list, because it never chose a slot either.  gpu_slot_probe runs a kernel
+    per visible slot in a subprocess and selects one that works.
+
+    NO ``require_rift_backend=True`` here, and the reason is a measurement rather
+    than the shape of the traceback.  RIFT DOES fall back to numpy at both mixed
+    orderings -- ldas-pcdev2, CUDA_VISIBLE_DEVICES="1,0" and "1,2":
+    ``factored_likelihood.xpy_default is numpy`` and
+    ``SphericalHarmonics_gpu.cupy_here is False`` in each.  This test passes anyway,
+    because it takes ``xpy`` as an argument and reaches only
+    ``tmq.time_marginalize_bandlimited`` and ``optimized_gpu_tools.simps``, never
+    ``SphericalHarmonics_gpu._coeffs``.  A caller that DOES reach the likelihood needs
+    the flag; see gpu_slot_probe.cupy_or_skip.
     """
-    try:
-        import cupy
-        if cupy.cuda.runtime.getDeviceCount() < 1:
-            raise RuntimeError("cupy imported but reports zero CUDA devices")
-        return cupy
-    except Exception as exc:
-        if os.environ.get('RIFT_CI_REQUIRE_GPU') == '1':
-            pytest.fail("RIFT_CI_REQUIRE_GPU=1 but cupy/GPU unavailable: %s" % exc)
-        pytest.skip("cupy/GPU unavailable: %s" % exc)
+    return gpu_slot_probe.cupy_or_skip()
 
 
 def test_bandlimited_runs_on_the_gpu_backend_and_matches_numpy():

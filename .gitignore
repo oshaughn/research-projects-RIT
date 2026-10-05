@@ -54,3 +54,12 @@ cover/
 .pixi/*
 !.pixi/config.toml
 asimov.log
+
+# Figures dropped in the repo root by demo/test scripts run from here by hand
+# (e.g. Code/test/integrators/demo_mcsamplerEnsemble*.py). Leading "/" anchors
+# these to the root only, so the tracked figures under
+# MonteCarloMarginalizeCode/ and docs/source/images/ are untouched.
+/*.png
+/*.pdf
+/*.jpg
+/*.jpeg

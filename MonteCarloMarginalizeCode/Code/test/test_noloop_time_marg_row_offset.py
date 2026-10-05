@@ -58,6 +58,7 @@ array-valued extrinsic parameters, so a 1-D ``lnL_t`` does not arise here.)
 from __future__ import print_function, division
 
 import os
+import sys
 
 os.environ.setdefault("RIFT_LOWLATENCY", "1")
 
@@ -68,6 +69,11 @@ from scipy import integrate
 import lal
 import RIFT.lalsimutils as lsu
 from RIFT.likelihood import factored_likelihood as fl
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+import gpu_slot_probe                                        # noqa: E402  (sibling helper)
 
 # lal / lalsimutils are imported at module scope on purpose, NOT via importorskip:
 # lalsuite is in requirements.txt and both CI jobs that run this file install it, so a
@@ -265,8 +271,11 @@ def test_gpu_offset_is_per_row_too():
     on with no cupy, and the issue reproduces on plain numpy that way -- so the tests
     above are the real regression.  This one exists because ``keepdims=True`` and the
     ``[..., 0]`` add-back are xpy API calls: untested GPU code is broken code.  It skips
-    without cupy and is run by hand on a GPU node, the way this repo's other GPU legs
-    are (measured on ldas-pcdev11, cupy 14.1.1, cuda 12.8 container).
+    where no CUDA slot can build a kernel -- via gpu_slot_probe, NOT via
+    ``pytest.importorskip('cupy')``, which FAILS rather than skips on the CIT hosts where
+    the cupy package is installed and the driver is not -- and is run by hand on a GPU
+    node, the way this repo's other GPU legs are (measured on ldas-pcdev11, cupy 14.1.1,
+    cuda 12.8 container).
 
     Compared against the GPU's OWN Simpson rule, not against the numpy answer.  The two
     rules differ for even ``npts`` and the difference is NOT a constant offset -- it is
@@ -275,7 +284,9 @@ def test_gpu_offset_is_per_row_too():
     is a real, separate, already-known discrepancy and it is not this test's subject; a
     cross-backend equality assertion here would be asserting #204 is absent.
     """
-    cupy = pytest.importorskip('cupy')
+    # require_rift_backend: this goes through the likelihood, so RIFT's own import-time
+    # cupy probe has to have taken the device too.  See gpu_slot_probe.cupy_or_skip.
+    cupy = gpu_slot_probe.cupy_or_skip(require_rift_backend=True)
     from RIFT.likelihood import optimized_gpu_tools
     import copy
 

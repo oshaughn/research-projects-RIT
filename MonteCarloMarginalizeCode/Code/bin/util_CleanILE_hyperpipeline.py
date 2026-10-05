@@ -55,7 +55,13 @@ def main(argv=None):
                         help="Drop rows with sigma_lnL above this value "
                              "(default 0.9, mirrors util_CleanILE; override the "
                              "default via the RIFT_ILE_SIGMA_CUT env var).")
-    parser.add_argument("--digits", type=int, default=5,
+    # --intrinsic-digits is the name the DAG builders emit, because on the
+    # legacy path util_CleanILE.py applies it to the intrinsic columns ONLY.
+    # Here every non-lnL column IS intrinsic, so the two spellings mean the
+    # same thing and share a dest.  Accept both: the builders write one
+    # argument string and it has to survive whichever cleaner the format
+    # selects.
+    parser.add_argument("--digits", "--intrinsic-digits", type=int, default=5,
                         help="Decimal-place precision used when grouping "
                              "duplicate intrinsic rows (default 5, mirrors "
                              "util_CleanILE).")
@@ -65,6 +71,22 @@ def main(argv=None):
                              "and emit.  Useful for debugging or when shards "
                              "are already consolidated.")
     args, _unknown = parser.parse_known_args(argv)
+
+    # parse_known_args exists so the advanced-physics flags the DAG forwards to
+    # util_CleanILE.py (--eccentricity, --tabular-eos-file, ...) are ignored
+    # rather than fatal.  It is also the trap: an unknown option that TAKES a
+    # value leaves the value behind as a positional, so `--foo 12` silently
+    # becomes a shard named "12" while --foo's setting is lost.  Refuse that
+    # here -- naming the token -- instead of failing later inside read_many
+    # with a message about a missing file.
+    stray = [f for f in args.fname if not os.path.exists(f)]
+    if stray:
+        parser.error(
+            "no such shard file: {}.  If one of these is the VALUE of an "
+            "option this script does not know ({}), that option was dropped "
+            "and its value misread as an input file.".format(
+                ", ".join(repr(x) for x in stray),
+                ", ".join(_unknown) if _unknown else "none seen"))
 
     arr, columns = hpio.read_many(args.fname)
     if args.no_consolidate:

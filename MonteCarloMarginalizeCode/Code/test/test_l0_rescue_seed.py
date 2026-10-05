@@ -70,6 +70,28 @@ def _sampler(n_chunk=10000, limits=None):
     return s
 
 
+def _to_host(x):
+    """Host (numpy, float64) view of one parameter column the sampler handed us.
+
+    Every toy integrand in this file goes through this, because on a cupy-importable host
+    the samplers hand the target DEVICE arrays and numpy refuses the implicit conversion
+    ("Implicit conversion to a NumPy array is not allowed. Please use `.get()`").  Two call
+    sites do it: mcsamplerPortfolio.integrate_log feeds identity_convert_togpu(rv) and
+    retries on the host only if the target raises TypeError/ValueError, and
+    mcsamplerAdaptiveVolume.update_sampling_prior_selfish -- how the portfolio drives a
+    VARAHA member -- feeds device arrays with no retry at all.  A host-only integrand there
+    does not lose the device path, it fails the whole portfolio section while staying green
+    wherever cupy is absent.
+
+    Collapsing at the boundary is what the real code does: see RIFT.misc.distance_slices
+    ._to_cpu and the per-slice wrapper in fresh_sample_slices, which brings back the lnL
+    vector and only that.  identity_convert is cupy.asnumpy on a GPU build and the identity
+    otherwise, and passes a numpy array straight through either way, so the arithmetic below
+    -- and every number this suite asserts on -- is unchanged on a cupy-free host.
+    """
+    return np.asarray(mcsamplerAV.identity_convert(x), dtype=float)
+
+
 def _peaked(rho, x0=None, widths=None):
     """6-D Gaussian at lnL scale rho^2/2, with the float64 underflow of the real code."""
     x0 = 0.5 * np.ones(NDIM) if x0 is None else np.asarray(x0, dtype=float)
@@ -77,10 +99,91 @@ def _peaked(rho, x0=None, widths=None):
     lnLmax = 0.5 * rho ** 2
 
     def lnL(*args, **kwargs):
-        x = np.array([np.asarray(a, dtype=float).ravel() for a in args]).T
+        x = np.array([_to_host(a).ravel() for a in args]).T
         out = lnLmax - 0.5 * np.sum(((x - x0) / w) ** 2, axis=-1)
         return np.where(out > lnLmax - 745.0, out, -np.inf)
     return lnL
+
+
+def _marked(value):
+    """Constant-lnL integrand: the rows a pass produced are identifiable by their value."""
+    return lambda *args: np.full(_to_host(args[0]).shape, value, dtype=float)
+
+
+class _DeviceLike(object):
+    """Stand-in for a cupy array, so a cupy-free runner can still check the contract.
+
+    It reproduces the only two behaviours that matter here: it REFUSES implicit numpy
+    conversion with cupy's own message, and it converts only through ``.get()``.
+    """
+
+    def __init__(self, a):
+        self._a = np.asarray(a, dtype=float)
+
+    def __array__(self, *args, **kwargs):
+        raise TypeError('Implicit conversion to a NumPy array is not allowed. '
+                        'Please use `.get()`.')
+
+    def get(self):
+        return self._a
+
+    @property
+    def shape(self):
+        return self._a.shape
+
+
+###
+### 0. the toy integrands must survive the DEVICE arrays the samplers hand them
+###
+
+@pytest.fixture
+def device_columns(monkeypatch):
+    """Call the toy integrands the way a GPU host does, on ANY host.
+
+    On a cupy build ``identity_convert`` is ``cupy.asnumpy`` and the columns are real cupy
+    arrays; both halves are swapped for the stand-in here so this runs identically where
+    cupy is absent -- which is where the regression it guards would otherwise be invisible.
+    """
+    monkeypatch.setattr(mcsamplerAV, 'identity_convert',
+                        lambda x: x.get() if isinstance(x, _DeviceLike) else x)
+    rng = np.random.RandomState(19)
+    return [_DeviceLike(rng.uniform(0.4, 0.6, size=32)) for _ in range(NDIM)]
+
+
+def test_the_stand_in_refuses_numpy_conversion_the_way_cupy_does():
+    """The premise the three guards below rest on, asserted rather than assumed.
+
+    They only prove anything while np.asarray still REFUSES the stand-in.  Let that lapse --
+    a numpy release that swallows the TypeError, or an edit to _DeviceLike -- and all three
+    would go on passing without exercising the conversion they exist to pin.
+    """
+    d = _DeviceLike([1.0, 2.0, 3.0])
+    with pytest.raises(TypeError):
+        np.asarray(d, dtype=float)
+    assert np.array_equal(d.get(), [1.0, 2.0, 3.0])
+    assert d.shape == (3,)
+
+
+def test_the_toy_peak_accepts_device_columns(device_columns):
+    """Reverting this to a bare np.asarray takes down the whole portfolio section (four
+    tests) on every cupy-importable host, while staying green wherever cupy is absent."""
+    out = _peaked(40.0)(*device_columns)
+    assert np.shape(out) == (32,)
+    assert np.all(np.isfinite(out))
+
+
+def test_the_marked_integrand_accepts_device_columns(device_columns):
+    out = _marked(11.0)(*device_columns)
+    assert np.shape(out) == (32,)
+    assert np.all(out == 11.0)
+
+
+def test_the_device_path_computes_what_the_host_path_computes(device_columns):
+    """The conversion is a boundary collapse, not a recomputation: the numbers this suite
+    asserts on must be the same ones a cupy-free host produces."""
+    rng = np.random.RandomState(19)
+    host = [rng.uniform(0.4, 0.6, size=32) for _ in range(NDIM)]
+    assert np.array_equal(_peaked(40.0)(*host), _peaked(40.0)(*device_columns))
 
 
 ###
@@ -430,9 +533,6 @@ def test_a_second_portfolio_pass_reserve_contains_only_second_pass_draws():
     np.random.seed(20260812)
     s = _portfolio(256)
 
-    def _marked(value):
-        return lambda *args: np.full(np.asarray(args[0]).shape, value, dtype=float)
-
     kwargs = dict(nmax=256, neff=1, n=256, no_protect_names=True,
                   verbose=False, save_intg=True)
     s.integrate_log(_marked(11.0), *NAMES, **kwargs)
@@ -446,11 +546,19 @@ def test_a_second_portfolio_pass_reserve_contains_only_second_pass_draws():
 
 
 def test_the_portfolio_reserve_is_taken_before_pruning_and_the_fair_draw():
-    """Order matters: taken after either step it would carry the same starved subset."""
+    """Order matters: taken after either step it would carry the same starved subset.
+
+    Matches EITHER reserve builder by name.  The portfolio now goes through the shared
+    make_reserve_from_rvs adapter rather than calling make_warm_seed_reserve directly, and
+    pinning one spelling turned that into a red test about nothing -- the ordering claim,
+    which is what this is for, was never in doubt."""
     import RIFT.integrators.mcsamplerPortfolio as mcsamplerPF
     import inspect
     src = inspect.getsource(mcsamplerPF.MCSampler.integrate_log)
-    i_res = src.index('make_warm_seed_reserve')
+    builders = [src.index(n) for n in ('make_reserve_from_rvs', 'make_warm_seed_reserve')
+                if n in src]
+    assert builders, 'the portfolio no longer builds a warm-seed reserve at all'
+    i_res = min(builders)
     assert i_res < src.index("Clean out the _rvs arrays"), 'reserve taken after pruning'
     assert i_res < src.index('if bFairdraw'), 'reserve taken after the fair draw'
 

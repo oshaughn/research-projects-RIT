@@ -26,6 +26,7 @@ import numpy as np
 
 import benchmark_integrators as B
 import test_portfolio_adaptive_alloc as T
+from RIFT.integrators.seeding import seed_everything
 
 
 def _provenance():
@@ -50,7 +51,12 @@ def _provenance():
 
 
 def run_clip(make_target, clip, n_chunk, nmax, seed, adaptive=False):
-    np.random.seed(seed)
+    # The samplers draw through their array backend, which is cupy on a GPU
+    # host; numpy.random.seed does not reach cupy's generator, so seeding only
+    # numpy would leave this run drawing from uncontrolled device state.  Seed
+    # every backend before the sampler is built, so a seed means the same thing
+    # on CPU and on GPU.
+    seed_everything(seed, verbose=False)
     # Build the target FRESH for every run.  Target objects cache sampling state (e.g. `_rvs`), so a
     # single instance reused across the sweep makes each result depend on what ran before it in the
     # same process: measured, the identical seed/config gives lnI differing by ~3e-4 nats depending

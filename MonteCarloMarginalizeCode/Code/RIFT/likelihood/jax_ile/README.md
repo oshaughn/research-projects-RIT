@@ -271,6 +271,21 @@ set_distmarg_gh_nodes`); the two are refused, not silently reconciled, if set
 to different nonzero values.  See `core.make_distance_gh` /
 `core._distmarg_gh_logL` and `DESIGN_jax_distance_quadrature.md`.
 
+## Cosmological distance priors
+
+``--d-prior cosmo`` and ``--d-prior cosmo_sourceframe`` use the Planck15
+density ``p(d_L) ∝ dV_c/dz (1+z)^-s / (dd_L/dz)`` (``s`` = 0, 1), as in
+``integrate_likelihood_extrinsic_batchmode`` and ``util_InitMargTable``.
+``distance_prior.py`` tabulates ``ln p - 2 ln d_L`` once and interpolates it,
+so the same density serves the setup-time distance grids (uniform, adaptive,
+log-uniform), the AV/portfolio distance coordinate, the driver's 6-D prior, and
+traced ``jax.numpy`` code.  The per-sample GH distance quadrature
+(``--distance-gh-nodes > 0``), ``--angle-marg-scheme multipeak`` and
+``--direct-marginalization-policy`` have the volumetric measure built in and
+refuse these priors.  ``--d-prior pseudo_cosmo`` reaches the same places,
+using ``priors_utils.dist_prior_pseudo_cosmo`` and its normalization directly,
+and the same three schemes refuse it.
+
 ## Driver
 
 ### Value-only adaptive volume and portfolio
@@ -282,8 +297,10 @@ during integration.  Likelihood rows are evaluated in one fixed JAX shape;
 the larger ``--n-chunk`` used to cover and contract the adaptive volume.
 AV/portfolio honor the production ``--d-prior pseudo_cosmo`` distance density,
 including its normalization over ``[--d-min, --d-max]``; Euclidean/volumetric
-remains the default.  Other cosmological distance-prior variants are refused
-for this backend rather than silently changed.  A sampling-only
+remains the default.  Other distance-prior names are refused for this backend
+rather than silently changed.  ``--d-prior cosmo`` and ``cosmo_sourceframe``
+are honored by every path (see "Cosmological distance priors"), and so is
+``pseudo_cosmo``.  A sampling-only
 ``--limit-distance`` does not renormalize either physical prior.
 
 Portfolio defaults to AV plus a defensive GMM member.  An optional Fisher-sky

@@ -22,7 +22,7 @@ data_at_intrinsic = {}
 models_at_intrinsic = {}   # same keys; parallel list of model labels, model-aware mode only
 models_seen = []
 
-my_digits=5  # safety for high-SNR BNS
+my_digits=5  # historical rounding for non-intrinsic columns
 
 import argparse
 parser = argparse.ArgumentParser(usage="util_CleanILE.py fname1.dat fname2.dat ... ")
@@ -37,7 +37,10 @@ parser.add_argument("--model-group-regex", default=None, help="Regex matched aga
 parser.add_argument("--model-prior", action="append", default=None, help="LABEL=WEIGHT prior weight for one model (repeatable).  Default: uniform over the labels actually seen.  Weights are renormalized over the models present at each intrinsic point.")
 parser.add_argument("--expect-models", default=None, help="Comma-separated list of the models this run CONFIGURED.  Coverage is judged against this list, not against the labels that happen to appear: a model whose composites are all empty or missing is skipped before its label is ever recorded, so without this a total failure of one approximant looks like a complete run and even --require-all-models accepts every point.  The builder passes its full --approx list.")
 parser.add_argument("--require-all-models", action="store_true", help="Drop intrinsic points not evaluated under EVERY model.  Without it, a point covered by a subset is marginalized over that subset, which silently changes the estimator point by point.")
+parser.add_argument("--intrinsic-digits", type=int, default=5, help="Decimal places retained in intrinsic coordinates before duplicate-point consolidation (default: 5). Use higher precision for narrow 3G BNS grids.")
 opts = parser.parse_args()
+if not 0 <= opts.intrinsic_digits <= 15:
+    parser.error("--intrinsic-digits must be between 0 and 15")
 
 model_mode = opts.model_group_regex is not None
 model_rx = re.compile(opts.model_group_regex) if model_mode else None
@@ -116,6 +119,7 @@ for fname in opts.fname[0]: #sys.argv[1:]:
         data = np.array([data]) # force proper treatment for single-line file
     for line in data:
       try:
+        raw_line = line
         line = np.around(line, decimals=my_digits)
         if len(line) not in allowed_lengths:  # strip lines with the wrong length
             raise ValueError("Unsupported ILE row layout: {} columns (expected one of {})".format(len(line), sorted(allowed_lengths)))
@@ -123,6 +127,8 @@ for fname in opts.fname[0]: #sys.argv[1:]:
         # lnL sigmaOverL ntotal neff, so everything between the event id and
         # them is the intrinsic key used to consolidate repeated evaluations.
         col_intrinsic = len(line) - 4
+        line[1:col_intrinsic] = np.around(raw_line[1:col_intrinsic],
+                                          decimals=opts.intrinsic_digits)
         lnL, sigmaOverL, ntot, neff = line[col_intrinsic:]
         if sigmaOverL>0.9:
             continue    # do not allow poorly-resolved cases (e.g., dominated by one point). These are often useless

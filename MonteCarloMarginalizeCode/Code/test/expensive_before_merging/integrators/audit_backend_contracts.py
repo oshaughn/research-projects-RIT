@@ -115,7 +115,14 @@ def scan(name):
         "has_return_lnI_kwarg": kwarg,
         "rvs_keys": sorted(keys),
         "keeps_warm_seed_reserve": "self._warm_seed_reserve" in src,
-        "builds_reserve": "make_warm_seed_reserve(" in src,
+        # ANY of the reserve builders, not one spelling.  The contract is "this backend
+        # keeps the retained rows", which mcsamplerPortfolio still does after moving to
+        # the shared make_reserve_from_rvs adapter -- a name-only probe reported that as
+        # the contract CHANGING, and re-recording it False would have made the ledger
+        # state the opposite of what the code does.
+        "builds_reserve": any(_n + "(" in src for _n in
+                              ("make_warm_seed_reserve", "make_reserve_from_rvs",
+                               "keep_reserve_from_rvs")),
         "n_rebind_sites": _rebind_count(src),
         "sets_rvs_record": "RvsRecord.fair_draw(" in src,
         "has_clear_warm_state": "def clear_warm_state" in src,

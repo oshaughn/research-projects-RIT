@@ -76,23 +76,89 @@ import itertools
 import math
 
 
+###
+### Backend resolution.
+###
+### Everything below picks its array backend from the ARRAYS IT WAS GIVEN, never from
+### a module global.  The module globals (xpy_default, identity_convert*, cupy_ok) say
+### what hardware exists; they do not say what the caller is using.  Reading them as if
+### they did is what made this class reject numpy on any cupy-importable host: `gmm`
+### allocated `self.xpy.empty(...)` on the device and then wrote host samples into it,
+### which cupy rejects with "non-scalar numpy.ndarray cannot be used for fill".
+###
+
+def _xpy_for(*arrays):
+    '''The backend that OWNS `arrays`: the device backend if any of them is a device
+    array, else numpy.
+
+    Reads exactly one module global, `xpy_default`, and only for its `.ndarray` type, so
+    a caller (or a test standing in for a device) has one thing to redirect.  Where cupy
+    is absent `xpy_default is np` and every array is a host array, so this returns numpy
+    unconditionally, as it must.  Non-arrays (None, lists, scalars) do not vote.'''
+    for a in arrays:
+        if a is not None and isinstance(a, xpy_default.ndarray):
+            return xpy_default
+    return np
+
+
+def _to_host(a):
+    '''Host (numpy) view of `a` whatever backend it is on.  Unlike the module-level
+    `identity_convert` this needs no knowledge of which backend that is: a device array
+    converts through `.get()` (the one conversion cupy permits), a host array is already
+    done.  Used at the CPU-only sites -- mvnun, truncnorm, scipy, printing.'''
+    if a is None or isinstance(a, np.ndarray):
+        return a
+    get = getattr(a, 'get', None)
+    if get is not None:
+        return get()
+    return np.asarray(a)
+
+
+def _to_backend(xpy, a):
+    '''Move `a` onto backend `xpy`, or hand it back untouched if it is already there.'''
+    if a is None or isinstance(a, xpy.ndarray):
+        return a
+    if xpy is np:
+        return _to_host(a)
+    return xpy.asarray(_to_host(a))
+
+
+def _model_backend(model):
+    '''The backend a fitted mixture\'s PARAMETERS live on.
+
+    The parameter-side operations -- sample(), the defensive component, pruning, the
+    merge in update() -- have no incoming sample array to read a backend off, so they
+    read the model itself.  A model fitted to host samples holds host parameters and
+    must keep drawing host samples, on a GPU host too.  Falls back to the configured
+    `model.xpy` only while the model is still unfitted.'''
+    means = getattr(model, 'means', None)
+    if means is not None:
+        for m in means:
+            if m is not None:
+                return _xpy_for(m)
+    return getattr(model, 'xpy', np)
+
+
 def _xpy_logsumexp(a, axis=None):
-    """Portable logsumexp.
+    """Portable logsumexp, on the backend of `a`.
 
     cupyx.scipy.special.logsumexp is only available in newer cupy releases;
     the CUDA 10.2 cupy build required by older (sm_30/Kepler) cards does not
-    ship it. Implement the reduction directly with cupy primitives so the GPU
-    path works regardless of cupy version, and fall back to scipy on CPU.
+    ship it. Implement the reduction directly with the caller's own array
+    module so the GPU path works regardless of cupy version, and fall back to
+    scipy for host arrays.  Dispatching on `a` rather than on module-level
+    cupy_ok matters: the latter pushed a host array onto the device and
+    returned a device result to a caller that had asked for neither.
     """
-    if cupy_ok:
-        a = cupy.asarray(a)
-        a_max = cupy.amax(a, axis=axis, keepdims=True)
-        a_max = cupy.where(cupy.isfinite(a_max), a_max, cupy.zeros_like(a_max))
-        out = cupy.log(cupy.sum(cupy.exp(a - a_max), axis=axis, keepdims=True)) + a_max
-        if axis is None:
-            return out.reshape(())
-        return cupy.squeeze(out, axis=axis)
-    return logsumexp(a, axis=axis)
+    xpy = _xpy_for(a)
+    if xpy is np:
+        return logsumexp(a, axis=axis)
+    a_max = xpy.amax(a, axis=axis, keepdims=True)
+    a_max = xpy.where(xpy.isfinite(a_max), a_max, xpy.zeros_like(a_max))
+    out = xpy.log(xpy.sum(xpy.exp(a - a_max), axis=axis, keepdims=True)) + a_max
+    if axis is None:
+        return out.reshape(())
+    return xpy.squeeze(out, axis=axis)
 
 
 def _near_psd_impl(x, epsilon, xpy):
@@ -186,7 +252,7 @@ class estimator:
         Maximum number of Expectation-Maximization iterations
     '''
 
-    def __init__(self, k, max_iters=100, tempering_coeff=1e-8,adapt=None):
+    def __init__(self, k, max_iters=100, tempering_coeff=1e-8,adapt=None,xpy=None):
         self.k = k # number of gaussian components
         self.max_iters = max_iters # maximum number of iterations to convergence
         self.means = [None] * k
@@ -201,9 +267,18 @@ class estimator:
         self.cov_avg_ratio = 0.05
         self.epsilon = 1e-4
         self.tempering_coeff = tempering_coeff
-        self.xpy = xpy_default
-        self.identity_convert = identity_convert
-        self.identity_convert_togpu = identity_convert_togpu
+        self._bind_backend(xpy_default if xpy is None else xpy)
+
+    def _bind_backend(self, xpy):
+        '''Point this instance at `xpy` and keep its converters consistent with it.
+
+        `xpy_default` is only the STARTING guess, for a model that has not been fitted
+        yet; fit() replaces it with the backend of the samples it was actually given.
+        The converters have to follow, or a host-fitted model on a GPU host would push
+        its own parameters onto the device.'''
+        self.xpy = xpy
+        self.identity_convert = _to_host
+        self.identity_convert_togpu = lambda x, _xpy=xpy: _to_backend(_xpy, x)
 
     def _initialize(self, n, sample_array, log_sample_weights=None):
         if log_sample_weights is None:
@@ -235,7 +310,10 @@ class estimator:
             cov = self.covariances[index]
             log_p = self.xpy.log(self.weights[index])
             
-            if cupy_ok:
+            # Dispatch on THIS fit's backend, not on whether cupy exists anywhere on the
+            # host: scipy cannot read a device array, and gpu_logpdf's linear algebra would
+            # be a needless detour on host arrays (and changes the numbers slightly).
+            if self.xpy is not np:
                 log_pdf = gpu_logpdf(sample_array, mean, cov, self.xpy)
             else:
                 log_pdf = multivariate_normal.logpdf(x=sample_array, mean=mean, cov=cov, allow_singular=True)
@@ -317,6 +395,10 @@ class estimator:
         '''
         Fit the model to data
         '''
+        # The samples decide the backend, not xpy_default.  Weights are brought across to
+        # match them, so a host fit cannot be handed device weights half way through.
+        self._bind_backend(_xpy_for(sample_array))
+        log_sample_weights = _to_backend(self.xpy, log_sample_weights)
         n, self.d = sample_array.shape
         self._initialize(n, sample_array, log_sample_weights)
         prev_log_prob = 0
@@ -337,9 +419,9 @@ class estimator:
         Prints the model's parameters in an easily-readable format
         '''
         # Convert to numpy for printing
-        means_np = [self.identity_convert(m) for m in self.means]
-        covs_np = [self.identity_convert(c) for c in self.covariances]
-        weights_np = self.identity_convert(self.weights)
+        means_np = [_to_host(m) for m in self.means]
+        covs_np = [_to_host(c) for c in self.covariances]
+        weights_np = _to_host(self.weights)
         
         if self.d ==1:
             print("GMM:   component wt mean std ")
@@ -365,7 +447,7 @@ class gmm:
     More sophisticated implementation built on top of estimator class
     '''
 
-    def __init__(self, k, bounds, max_iters=1000,epsilon=None,tempering_coeff=1e-8,memory_factor=3.0):
+    def __init__(self, k, bounds, max_iters=1000,epsilon=None,tempering_coeff=1e-8,memory_factor=3.0,xpy=None):
         self.k = k
         self.bounds = bounds
         self.max_iters = max_iters
@@ -388,23 +470,37 @@ class gmm:
         else:
             self.epsilon=epsilon
         self.tempering_coeff = tempering_coeff
-        self.xpy = xpy_default
-        self.identity_convert = identity_convert
-        self.identity_convert_togpu = identity_convert_togpu
+        self._bind_backend(xpy_default if xpy is None else xpy)
+
+    def _bind_backend(self, xpy):
+        '''Point this instance at `xpy` and keep its converters consistent with it.
+        See estimator._bind_backend -- `xpy_default` is only the starting guess.'''
+        self.xpy = xpy
+        self.identity_convert = _to_host
+        self.identity_convert_togpu = lambda x, _xpy=xpy: _to_backend(_xpy, x)
 
     def _normalize(self, samples):
+        # Allocate on the backend of `samples`.  Allocating from self.xpy was the defect:
+        # on any cupy-importable host that put `out` on the device while the loop below
+        # wrote host rows into it, and cupy raises
+        #   ValueError: non-scalar numpy.ndarray cannot be used for fill
+        # so fit()/score() rejected plain numpy -- the ordinary way to call this class.
         n, d = samples.shape
-        out = self.xpy.empty((n, d))
+        xpy = _xpy_for(samples)
+        bounds = _to_backend(xpy, self.bounds)
+        out = xpy.empty((n, d))
         for i in range(d):
-            [llim, rlim] = self.bounds[i]
+            [llim, rlim] = bounds[i]
             out[:,i] = (2.0 * samples[:,i] - (rlim + llim)) / (rlim - llim)
         return out
 
     def _unnormalize(self, samples):
         n, d = samples.shape
-        out = self.xpy.empty((n, d))
+        xpy = _xpy_for(samples)
+        bounds = _to_backend(xpy, self.bounds)
+        out = xpy.empty((n, d))
         for i in range(d):
-            [llim, rlim] = self.bounds[i]
+            [llim, rlim] = bounds[i]
             out[:,i] = 0.5 * ((rlim - llim) * samples[:,i] + (llim + rlim))
         return out
 
@@ -412,11 +508,15 @@ class gmm:
         '''
         Fit the model to data
         '''
+        self._bind_backend(_xpy_for(sample_array))
         self.N, self.d = sample_array.shape
         if log_sample_weights is None:
             log_sample_weights = self.xpy.zeros(self.N)
+        else:
+            log_sample_weights = _to_backend(self.xpy, log_sample_weights)
         
-        model = estimator(self.k, tempering_coeff=self.tempering_coeff,adapt=self.adapt)
+        model = estimator(self.k, tempering_coeff=self.tempering_coeff,adapt=self.adapt,
+                          xpy=self.xpy)
         model.fit(self._normalize(sample_array), log_sample_weights)
         self.means = model.means
         self.covariances = model.covariances
@@ -439,7 +539,8 @@ class gmm:
         components (the highest-weight ones) -- pass min_keep to preserve a safety
         floor.  No-op if nothing is below the floor.'''
         min_keep = max(1, int(min_keep))
-        w = np.asarray(self.identity_convert(self.weights), dtype=float)
+        xpy = _model_backend(self)
+        w = np.asarray(_to_host(self.weights), dtype=float)
         keep = np.where(w >= weight_floor)[0]
         if len(keep) < min_keep:
             # keep the min_keep highest-weight components
@@ -451,7 +552,7 @@ class gmm:
         self.covariances = [self.covariances[i] for i in keep]
         w_keep = w[keep]
         w_keep = w_keep / w_keep.sum()
-        self.weights = self.identity_convert_togpu(w_keep)
+        self.weights = _to_backend(xpy, w_keep)
         self.adapt = [self.adapt[i] for i in keep] if isinstance(self.adapt, list) else self.adapt
         self.k = len(keep)
 
@@ -474,10 +575,10 @@ class gmm:
         k = self.k
         # cost[i,j] = mahalanobis(new_j - old_i) under old_i cov + under new_j cov
         cost = np.empty((k, k))
-        old_means = [self.identity_convert(m) for m in self.means]
-        new_means = [self.identity_convert(m) for m in new_model.means]
-        old_cov_inv = [np.linalg.inv(self.identity_convert(c)) for c in self.covariances]
-        new_cov_inv = [np.linalg.inv(self.identity_convert(c)) for c in new_model.covariances]
+        old_means = [_to_host(m) for m in self.means]
+        new_means = [_to_host(m) for m in new_model.means]
+        old_cov_inv = [np.linalg.inv(_to_host(c)) for c in self.covariances]
+        new_cov_inv = [np.linalg.inv(_to_host(c)) for c in new_model.covariances]
         for i in range(k):
             for j in range(k):
                 diff = new_means[j] - old_means[i]
@@ -509,6 +610,24 @@ class gmm:
         every later merge and the proposal could never recover.
         '''
         N_merge = min(self.N, self.memory_factor * M) if self.memory_factor else self.N
+        # Blend on the REFIT's backend.  The two sides can disagree -- a device-fitted
+        # model refitted on host samples, say -- and mixing the two backends in the
+        # arithmetic below fails the same way _normalize used to.  Convert only when the
+        # backend actually differs: rebuilding unconditionally turned `means` from the
+        # (k,d) array fit() leaves behind into a list of (d,) arrays on every update,
+        # a silent change of type for every consumer.
+        xpy = _model_backend(new_model)
+        if _model_backend(self) is not xpy:
+            self.means = [_to_backend(xpy, m) for m in self.means]
+            self.covariances = [_to_backend(xpy, c) for c in self.covariances]
+        # Weights go through float EXPLICITLY.  `self.weights` is not always the float array
+        # fit() produces -- a hand-built model may assign a python list of ints -- and the
+        # np.asarray on THIS line would then make it dtype int64, so the `self.weights[i] =
+        # weight` below would truncate every merged weight to 0 and take the whole proposal
+        # density to the 1e-300 floor in score(), silently.  The conversion is this line's
+        # own doing, so the guard has to live here.  test_gmm_backend_dispatch.py::
+        # test_update_keeps_weights_floating_point fails if the dtype is dropped.
+        self.weights = _to_backend(xpy, np.asarray(_to_host(self.weights), dtype=float))
         order = self._match_components(new_model)
         for i in range(self.k):
             j = order[i]
@@ -527,10 +646,10 @@ class gmm:
             cov1 /= denominator
             
             # outer product for means
-            cov2 = (N_merge * old_weight * self.xpy.outer(old_mean, old_mean)) + (M * temp_weight * self.xpy.outer(temp_mean, temp_mean))
+            cov2 = (N_merge * old_weight * xpy.outer(old_mean, old_mean)) + (M * temp_weight * xpy.outer(temp_mean, temp_mean))
             cov2 /= denominator
             
-            cov = cov1 + cov2 - self.xpy.outer(mean, mean)
+            cov = cov1 + cov2 - xpy.outer(mean, mean)
             cov = self._near_psd(cov)
             
             weight = denominator / (N_merge + M)
@@ -543,21 +662,22 @@ class gmm:
         '''
         Calculates the nearest postive semi-definite matrix for a correlation/covariance matrix
         '''
-        return _near_psd_impl(x, self.epsilon, self.xpy)
+        return _near_psd_impl(x, self.epsilon, _xpy_for(x))
 
     def _strip_defensive_component(self):
         """Detach the defensive component (always appended last) and renormalize the rest."""
         if self.k <= 1:
             return 0.0
         dfrac = float(getattr(self, 'defensive_frac', 0.0) or 0.0)
-        w = np.asarray(self.identity_convert(self.weights), dtype=float)[:-1]
-        means = [self.identity_convert(m) for m in self.means][:-1]
-        covs = [self.identity_convert(c) for c in self.covariances][:-1]
+        xpy = _model_backend(self)
+        w = np.asarray(_to_host(self.weights), dtype=float)[:-1]
+        means = [_to_host(m) for m in self.means][:-1]
+        covs = [_to_host(c) for c in self.covariances][:-1]
         s = w.sum()
         w = w / s if s > 0 else np.ones(len(w)) / max(len(w), 1)
-        self.means = [self.identity_convert_togpu(m) for m in means]
-        self.covariances = [self.identity_convert_togpu(c) for c in covs]
-        self.weights = self.identity_convert_togpu(w)
+        self.means = [_to_backend(xpy, m) for m in means]
+        self.covariances = [_to_backend(xpy, c) for c in covs]
+        self.weights = _to_backend(xpy, w)
         if isinstance(self.adapt, list):
             self.adapt = list(self.adapt)[:-1]
         self.k = len(means)
@@ -582,9 +702,11 @@ class gmm:
         self.tempering_coeff = max(self.tempering_coeff / 2, 1e-12)
         new_model = estimator(self.k, self.max_iters, self.tempering_coeff)
         
-        # Filter non-finite
+        # Filter non-finite, on the backend of the samples being fitted (see fit()).
+        xpy = _xpy_for(sample_array)
+        log_sample_weights = _to_backend(xpy, log_sample_weights)
         if log_sample_weights is not None:
-            indx_ok = self.xpy.isfinite(log_sample_weights)
+            indx_ok = xpy.isfinite(log_sample_weights)
             s_filtered = sample_array[indx_ok]
             w_filtered = log_sample_weights[indx_ok]
         else:
@@ -594,6 +716,7 @@ class gmm:
         new_model.fit(self._normalize(s_filtered), w_filtered)
         M, _ = sample_array.shape
         self._merge(new_model, M)
+        self._bind_backend(xpy)
         self.N += M
         if _dfrac > 0:
             add_defensive_component(self, defensive_frac=_dfrac)
@@ -602,12 +725,19 @@ class gmm:
         '''
         Score samples under the current model.
         '''
+        # score() is a QUERY: it computes on the backend of the samples it is asked
+        # about and does NOT re-bind the model, bringing the mixture parameters across
+        # if they were fitted on the other one.  self.xpy here was the second half of the
+        # defect -- even where _normalize had not already failed, a host caller on a GPU
+        # host got a device array back.
         n, d = sample_array.shape
-        scores = self.xpy.zeros(n)
+        xpy = _xpy_for(sample_array)
+        scores = xpy.zeros(n)
         sample_array_norm = self._normalize(sample_array)
+        weights = _to_backend(xpy, self.weights)
         
-        # bounds_normalized
-        bounds_norm = self._normalize(self.bounds.T).T
+        # bounds_normalized -- consumed only by the CPU-only mvnun/norm calls below
+        bounds_norm_cpu = _to_host(self._normalize(_to_host(self.bounds).T).T)
         # sample() selects a component with weight w and draws that component
         # conditioned on the bounds.  Score that same mixture of *individually*
         # truncated components.  Dividing the whole mixture by sum(w*C_i)
@@ -615,35 +745,36 @@ class gmm:
         # component in-bound probabilities C_i differ.
         
         for i in range(self.k):
-            w = self.weights[i]
-            mean = self.means[i]
-            cov = self.covariances[i]
+            w = weights[i]
+            mean = _to_backend(xpy, self.means[i])
+            cov = _to_backend(xpy, self.covariances[i])
             
             if self.d > 1:
-                if cupy_ok:
+                # Dispatch on THIS call's backend, not on whether cupy exists on the host:
+                # scipy cannot read a device array, and gpu_logpdf would be a needless
+                # detour (with slightly different roundoff) on a host one.
+                if xpy is not np:
                     # Use gpu_logpdf and exponentiate
-                    log_pdf = gpu_logpdf(sample_array_norm, mean, cov, self.xpy)
-                    component_pdf = self.xpy.exp(log_pdf)
+                    log_pdf = gpu_logpdf(sample_array_norm, mean, cov, xpy)
+                    component_pdf = xpy.exp(log_pdf)
                 else:
                     component_pdf = multivariate_normal.pdf(
                         x=sample_array_norm, mean=mean, cov=cov,
                         allow_singular=True)
                 
                 # mvnun is CPU only
-                mean_cpu = self.identity_convert(mean)
-                cov_cpu = self.identity_convert(cov)
-                bounds_norm_cpu = self.identity_convert(bounds_norm)
+                mean_cpu = _to_host(mean)
+                cov_cpu = _to_host(cov)
                 component_mass = mvnun(bounds_norm_cpu[:,0], bounds_norm_cpu[:,1], mean_cpu, cov_cpu)[0]
             else:
                 sigma2 = cov[0,0]
-                component_pdf = (1./self.xpy.sqrt(2*self.xpy.pi*sigma2)
-                                 * self.xpy.exp(-0.5 * (sample_array_norm[:,0] - mean[0])**2/sigma2))
+                component_pdf = (1./xpy.sqrt(2*xpy.pi*sigma2)
+                                 * xpy.exp(-0.5 * (sample_array_norm[:,0] - mean[0])**2/sigma2))
                 
-                mean_cpu = self.identity_convert(mean)[0]
-                sigma_cpu = self.identity_convert(np.sqrt(sigma2))
-                bounds_norm_cpu = self.identity_convert(bounds_norm[0])
+                mean_cpu = _to_host(mean)[0]
+                sigma_cpu = np.sqrt(_to_host(cov)[0,0])
                 my_cdf = norm(loc=mean_cpu, scale=sigma_cpu).cdf
-                component_mass = my_cdf(bounds_norm_cpu[1]) - my_cdf(bounds_norm_cpu[0])
+                component_mass = my_cdf(bounds_norm_cpu[0][1]) - my_cdf(bounds_norm_cpu[0][0])
         
             # Keep the historical numerical floor for an underflowed bound
             # probability.  A component with zero numerical mass cannot be
@@ -651,9 +782,10 @@ class gmm:
             scores += w * component_pdf / max(float(component_mass), 1e-300)
 
         # The component densities above use normalized [-1, 1] coordinates.
-        vol = self.xpy.prod(self.bounds[:,1] - self.bounds[:,0])
+        bounds_cpu = _to_host(self.bounds)
+        vol = float(np.prod(bounds_cpu[:,1] - bounds_cpu[:,0]))
         scores *= (2.0**self.d) / vol
-        return self.xpy.maximum(scores, 1e-300)
+        return xpy.maximum(scores, 1e-300)
 
     def sample(self, n, use_bounds=True):
         '''
@@ -665,10 +797,16 @@ class gmm:
         the original coordinate frame before being returned, matching the
         pre-port behavior expected by MonteCarloEnsemble._sample().
         '''
-        # Sampling is kept on CPU for stability (truncnorm is CPU-only)
-        means_np = [self.identity_convert(m) for m in self.means]
-        covs_np = [self.identity_convert(c) for c in self.covariances]
-        weights_np = self.identity_convert(self.weights)
+        # Sampling is kept on CPU for stability (truncnorm is CPU-only).  The RESULT goes
+        # back onto the backend the mixture PARAMETERS live on: sample() has no argument to
+        # read a backend off, so the model itself is the only honest source.  A host-fitted
+        # model must keep returning host draws on a GPU host, and a device-fitted one must
+        # keep returning device draws -- MonteCarloEnsemble._sample writes them straight
+        # into a self.xpy array.
+        xpy = _model_backend(self)
+        means_np = [_to_host(m) for m in self.means]
+        covs_np = [_to_host(c) for c in self.covariances]
+        weights_np = _to_host(self.weights)
 
         # truncnorm bounds must match the coordinate frame of the model
         # parameters (mean/cov), which is normalized [-1, 1].
@@ -699,16 +837,16 @@ class gmm:
 
         # Move to xpy and unnormalize back to original [llim, rlim] coordinates,
         # so callers receive samples in the same frame as self.bounds.
-        sample_array_xpy = self.identity_convert_togpu(sample_array_np)
+        sample_array_xpy = _to_backend(xpy, sample_array_np)
         return self._unnormalize(sample_array_xpy)
 
     def print_params(self):
         '''
         Prints the model's parameters in an easily-readable format
         '''
-        means_np = [self.identity_convert(m) for m in self.means]
-        covs_np = [self.identity_convert(c) for c in self.covariances]
-        weights_np = self.identity_convert(self.weights)
+        means_np = [_to_host(m) for m in self.means]
+        covs_np = [_to_host(c) for c in self.covariances]
+        weights_np = _to_host(self.weights)
         
         if self.d ==1:
             print("GMM:   component wt mean_correct mean_normed std_normed ")
@@ -732,20 +870,21 @@ class gmm:
 def _mixture_log_density_normalized(model, Xn):
     '''Log mixture density (n,) of a fitted `gmm` at NORMALIZED samples Xn (n,d),
     in the model's normalized [-1,1] coordinate frame.  Backend-portable.'''
-    xpy = model.xpy
+    xpy = _xpy_for(Xn)
     n = Xn.shape[0]
     logk = xpy.empty((n, model.k))
+    weights = _to_backend(xpy, model.weights)
     for j in range(model.k):
-        mean = model.means[j]
-        cov = model.covariances[j]
-        if cupy_ok:
+        mean = _to_backend(xpy, model.means[j])
+        cov = _to_backend(xpy, model.covariances[j])
+        if xpy is not np:
             lp = gpu_logpdf(Xn, mean, cov, xpy)
         else:
-            lp = multivariate_normal.logpdf(x=model.identity_convert(Xn),
-                                            mean=model.identity_convert(mean),
-                                            cov=model.identity_convert(cov),
+            lp = multivariate_normal.logpdf(x=_to_host(Xn),
+                                            mean=_to_host(mean),
+                                            cov=_to_host(cov),
                                             allow_singular=True)
-        logk[:, j] = lp + xpy.log(model.weights[j])
+        logk[:, j] = lp + xpy.log(weights[j])
     return _xpy_logsumexp(logk, axis=1)
 
 
@@ -769,17 +908,17 @@ def add_defensive_component(model, defensive_frac=0.05, width_norm=1.0):
     if not defensive_frac or defensive_frac <= 0:
         model.defensive_frac = 0.0
         return model
-    xpy = model.xpy
+    xpy = _model_backend(model)
     d = model.d
-    w = np.asarray(model.identity_convert(model.weights), dtype=float)
-    means = [model.identity_convert(m) for m in model.means]
-    covs = [model.identity_convert(c) for c in model.covariances]
+    w = np.asarray(_to_host(model.weights), dtype=float)
+    means = [_to_host(m) for m in model.means]
+    covs = [_to_host(c) for c in model.covariances]
     means.append(np.zeros(d))                       # box center (normalized)
     covs.append((width_norm ** 2) * np.eye(d))      # broad, box-covering
     w = np.concatenate([w * (1.0 - defensive_frac), [defensive_frac]])
-    model.means = [model.identity_convert_togpu(m) for m in means]
-    model.covariances = [model.identity_convert_togpu(c) for c in covs]
-    model.weights = model.identity_convert_togpu(w / w.sum())
+    model.means = [_to_backend(xpy, m) for m in means]
+    model.covariances = [_to_backend(xpy, c) for c in covs]
+    model.weights = _to_backend(xpy, w / w.sum())
     model.adapt = list(model.adapt) + [False] if isinstance(model.adapt, list) else model.adapt
     model.k = len(means)
     # MARKER: the portfolio must be able to VERIFY this component is installed rather than
@@ -831,10 +970,12 @@ def fit_gmm_adaptive(sample_array, bounds, log_sample_weights=None, k_max=8,
 
     Returns a fitted `gmm`.
     '''
-    xpy = xpy_default
+    xpy = _xpy_for(sample_array)
     N, d = sample_array.shape
     if log_sample_weights is None:
         log_sample_weights = xpy.zeros(N)
+    else:
+        log_sample_weights = _to_backend(xpy, log_sample_weights)
     # Kish effective sample size of the fit weights (drives both the BIC penalty
     # and the per-component sample-count cap).
     lw = xpy.where(xpy.isfinite(log_sample_weights), log_sample_weights,
@@ -873,7 +1014,7 @@ def fit_gmm_adaptive(sample_array, bounds, log_sample_weights=None, k_max=8,
     best, best_bic = None, None
     for k in k_candidates:
         try:
-            model = gmm(k, bounds, epsilon=epsilon, tempering_coeff=tempering_coeff)
+            model = gmm(k, bounds, epsilon=epsilon, tempering_coeff=tempering_coeff, xpy=xpy)
             model.fit(sample_array, log_sample_weights=log_sample_weights)
             logmix = _mixture_log_density_normalized(model, model._normalize(sample_array))
             wll = float(xpy.sum(wn_scaled * logmix))       # weighted log-likelihood
@@ -883,7 +1024,7 @@ def fit_gmm_adaptive(sample_array, bounds, log_sample_weights=None, k_max=8,
         if best_bic is None or bic < best_bic:
             best, best_bic = model, bic
     if best is None:   # every candidate failed: fall back to the floor count
-        best = gmm(k_min, bounds, epsilon=epsilon, tempering_coeff=tempering_coeff)
+        best = gmm(k_min, bounds, epsilon=epsilon, tempering_coeff=tempering_coeff, xpy=xpy)
         best.fit(sample_array, log_sample_weights=log_sample_weights)
     if prune_weight_floor:
         # never prune below the safety floor: the extra components carry the
@@ -894,7 +1035,8 @@ def fit_gmm_adaptive(sample_array, bounds, log_sample_weights=None, k_max=8,
         # (tight) elite cloud it was fit to -- a basic importance-sampling
         # requirement the raw EM fit violates on a peaked/degenerate posterior.
         fac = float(inflate) ** 2
-        best.covariances = [best.identity_convert_togpu(fac * best.identity_convert(c))
+        _xpy_best = _model_backend(best)
+        best.covariances = [_to_backend(_xpy_best, fac * _to_host(c))
                             for c in best.covariances]
     if defensive_frac:
         add_defensive_component(best, defensive_frac=defensive_frac)

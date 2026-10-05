@@ -35,6 +35,27 @@ development tree is rift_O4d; PRs refer to oshaughn/research-projects-RIT.
      handoff, with expanded GPU/JAX regression and contract coverage (fork PRs #325,
      #328, #330--#332).
 
+   - (unreleased) Additional JAX terminal-output and EOS support updates
+     (fork PR #213).
+     The terminal pseudo-pipe stage now recognizes JAX-ILE's tabular fair-draw
+     sidecars and joins them to the paired intrinsic likelihood records.  It no
+     longer sends JAX output through the XML-only converter, which could exit
+     successfully while producing a header-only posterior.
+     EOSManager reads the reviewed LALSimulation multipart/multibranch TOV interface
+     where the installed build provides it.  Released LALSimulation and
+     NuclearMatter-Backend sequence paths are unchanged where it does not.  Twin-star
+     masses require an explicit branch.  Branch-aware M-R-Lambda curves no longer
+     collapse stable branches.  Fixed-EOS CIP callers can load reviewed tables with
+     ``lalsim_file:<path>`` and pick a family once with ``--using-eos-branch``; the
+     legacy ``lambda_from_m(m)`` surface is retained.  **CHANGES CIP SUPPORT**: with a
+     fixed EOS, CIP now rejects draws outside the EOS's mass support before the
+     likelihood fit, unconditionally rather than only under
+     ``--protect-coordinate-conversions``.  The test is made on the sampled masses
+     against ``mMinMsun``/``mMaxMsun``, honouring ``--no-matter1``/``--no-matter2``.
+     Testing the converted coordinates instead was not enough: with a mass-only fit
+     basis the EOS's flag rides in lambda, which the conversion discards.  An EOS that
+     publishes neither bound is unaffected.
+
 0.0.17.12
 ---------
 MR https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/54  , for eccentricity prior (log-uniform)

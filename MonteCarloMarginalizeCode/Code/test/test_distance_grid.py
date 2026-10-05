@@ -31,7 +31,9 @@ def test_distance_grid_reconstructs_marginal_lnL_with_sampling_prior():
     )
 
     assert grid.dtype.names == DISTANCE_GRID_FIELDS
-    assert np.all(np.diff(grid["dist"]) >= 0)
+    # STRICTLY increasing.  `>= 0` is what let duplicate bin centres through: the .dgrid
+    # exporter shipped two rows at one distance, ~40 nats apart, and this line passed.
+    assert np.all(np.diff(grid["dist"]) > 0)
     assert np.all(grid["dist_weight"] > 0)
     assert np.isclose(reconstruct_marginal_lnL(grid), lnL_marginal)
     assert np.all(grid["m1"] == 35.0)

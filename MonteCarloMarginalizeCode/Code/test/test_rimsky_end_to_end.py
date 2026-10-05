@@ -194,20 +194,23 @@ def test_first_rimsky_result_creates_bootstrapped_rift_production(
             "a_2": {"minimum": 0, "maximum": 0.8},
         },
     }
-    with patch("git.Repo", return_value=MagicMock()):
-        add_event(Path(settings.asimovdir), event_metadata, ledger=ledger)
-        start_asimov(
-            event=sid,
-            asimovdir=Path(settings.asimovdir),
-            asimov_configuration=settings.sample_sink.asimov_configuration,
-        )
-        event = ledger.get_event(sid)[0]
-        productions = [
-            item for item in event.analyses if item.name == "rift-online"
-        ]
-        assert len(productions) == 1
-        production = productions[0]
-        pipeline = production.pipeline
+    # ASIMOV 0.8 resolves repositories lazily during ``before_config``. Keep
+    # the fake repository active for the complete test, rather than only while
+    # the production object is initially created.
+    monkeypatch.setattr("git.Repo", MagicMock(return_value=MagicMock()))
+    add_event(Path(settings.asimovdir), event_metadata, ledger=ledger)
+    start_asimov(
+        event=sid,
+        asimovdir=Path(settings.asimovdir),
+        asimov_configuration=settings.sample_sink.asimov_configuration,
+    )
+    event = ledger.get_event(sid)[0]
+    productions = [
+        item for item in event.analyses if item.name == "rift-online"
+    ]
+    assert len(productions) == 1
+    production = productions[0]
+    pipeline = production.pipeline
     assert pipeline.__class__.__name__ == "Rift"
     assert pipeline._resolve_bootstrap_file() == str(result)
     assert production.meta["priors"]["chirp mass"]["maximum"] == 20
@@ -225,6 +228,12 @@ def test_first_rimsky_result_creates_bootstrapped_rift_production(
     project_dir = Path(settings.asimovdir)
     with chdir(project_dir), patch("asimov.git.time.sleep"):
         pipeline.before_config()
+
+    if Version(version("asimov")).release[:2] >= (0, 8):
+        environment = production.meta["environment"]
+        assert environment["captured_at"] is True
+        assert {"metadata", "pip"}.issubset(environment["files"])
+        assert all(Path(path).is_file() for path in environment["files"].values())
 
     for detector in settings.detectors:
         xml_psd = Path(production.xml_psds[detector])
@@ -271,8 +280,8 @@ def test_first_rimsky_result_creates_bootstrapped_rift_production(
     # conversion, config rendering, posterior reading, and bootstrap conversion
     # run for real against the synthetic files above.
     with chdir(Path(settings.asimovdir)), patch("asimov.git.time.sleep"), patch(
-        "RIFT.asimov.rift.subprocess.Popen", SchedulerBoundary
-    ):
+        "asimov.pipeline.Pipeline._capture_environment", create=True
+    ), patch("RIFT.asimov.rift.subprocess.Popen", SchedulerBoundary):
         build_and_submit(event, production, ledger)
 
     bootstrap = category_dir / "rift-online_bootstrap.xml.gz"

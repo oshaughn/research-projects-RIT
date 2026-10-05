@@ -13,15 +13,21 @@ a __main__ and argparse and no test functions, so pytest collects ZERO items and
 tests ran", which reads as a pass -- and .travis/ci_roster.txt carried them as HANDRUN.
 
 That roster entry called them "expensive", which is why the suggested fix was an opt-in wrapper
-behind RIFT_RUN_EXPENSIVE.  MEASURED, and the premise was wrong: on CIT with the IGWN python
-(OMP_NUM_THREADS=1) they take 5, 2, 14, 4 and 4 seconds -- 29 s for all five.  Nothing here needs
-to be opt-in.
+behind RIFT_RUN_EXPENSIVE.  MEASURED, and the premise was wrong: on CIT (ldas-grid) with the IGWN
+python (OMP_NUM_THREADS=1) they take 7, 4, 20, 64 and 6 seconds -- 101 s for all five.  The decoy
+study is the expensive one only because it replicates itself in nine child processes; that is still
+not enough to be opt-in.
 
 FLAKE RISK, since these are Monte Carlo studies with tolerance-based gates: all five seed
-explicitly (numpy RandomState(0/1/3) and np.random.seed), so they are deterministic rather than
-merely lucky, and three consecutive runs of each exited 0.  Three runs is not a flake proof; if
-one does prove marginal in CI, tighten ITS seed or widen ITS stated tolerance, and do not
-delete the gate.
+explicitly, through RIFT.integrators.seeding.seed_everything, which reaches cupy as well as numpy
+(a bare numpy.random.seed is inert on the GPU backend the samplers draw through).  But a seed does
+not make a low-effective-sample-size result reliable across platforms, and it does not even fix the
+result on ONE platform: scipy's mvnun, which normalizes each GMM component inside gmm.score,
+carries an RNG that NEITHER seeding path can reach, so repeating an arm inside one interpreter
+changes its answer.  The decoy balance-heuristic study therefore checks the mean log bias over
+independent, process-isolated runs against a fixed threshold in nats.  If a study proves marginal
+in CI, investigate its sampling and statistical contract; do not delete the gate and do not widen
+its threshold.
 
 Subprocess rather than import: each is a __main__ script with argparse, and running it the way a
 human runs it is the point -- it is what keeps the wrapper honest about the entry point.
@@ -38,11 +44,11 @@ CODE = os.path.normpath(os.path.join(HERE, "..", ".."))
 
 # name -> measured wall seconds on CIT, for whoever wonders what this costs
 STUDIES = [
-    ("test_AV_bootstrap.py", 5),
-    ("test_AV_warmstart_safety.py", 2),
-    ("test_portfolio_adaptive_alloc.py", 14),
-    ("test_portfolio_balance_heuristic.py", 4),
-    ("test_portfolio_oracle.py", 4),
+    ("test_AV_bootstrap.py", 7),
+    ("test_AV_warmstart_safety.py", 4),
+    ("test_portfolio_adaptive_alloc.py", 20),
+    ("test_portfolio_balance_heuristic.py", 95),
+    ("test_portfolio_oracle.py", 6),
 ]
 
 

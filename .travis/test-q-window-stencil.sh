@@ -225,11 +225,17 @@ fi
 EXPECTED_TESTS=78
 EXPECTED_PASSED=75
 
-# The only legitimate skips here are the two cupy legs -- one in
-# test_noloop_time_marg_row_offset.py, one in test_calmarg_running_max_row_offset.py --
-# which pytest.importorskip's away on these GPU-less runners.  A THIRD skip means a gate
-# was disabled, which is the exact shape this script exists to prevent, so cap it rather
-# than letting skips absorb losses silently.
+# MAX_SKIPS has NO headroom: a GPU-less runner already skips exactly 3, so a FOURTH skip
+# means a gate was disabled, which is the exact shape this script exists to prevent.  Do not
+# lower this to 2 -- the count was wrong in this comment until 2026-09-18, and the three are:
+#
+#   test_noloop_time_marg_row_offset.py      gpu_slot_probe: no CUDA slot can build a kernel
+#   test_calmarg_running_max_row_offset.py   skipif on fl.xpy_default being numpy
+#   RIFT/likelihood/test_q_time_pregrid.py   "CUDA device unavailable", stride-8 parity
+#
+# None of them is pytest.importorskip('cupy'), which under pytest >= 9.1 FAILS rather than
+# skips where the cupy package is installed and the CUDA driver is not.  Re-derive by running
+# this script and reading the SKIPPED lines, not by counting the entries above.
 MAX_SKIPS=3
 
 # PER-FILE collection floor.  A registered file that collects nothing contributes zero

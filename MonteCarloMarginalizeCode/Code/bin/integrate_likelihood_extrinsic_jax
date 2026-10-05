@@ -53,6 +53,12 @@ Output (matches ILE conventions):
      loglikelihood with ILE-style column names.  Equal-weight FAIR DRAW rows
      (no weight column), so a collapsed integration whose weights admit no fair
      draw writes NO samples file and fails the event instead.
+  <output>_<event>_.xml.gz (--save-samples) : the SAME rows as sparse
+     sim_inspiral XML, in batchmode's schema.  This is the file the pipeline
+     reads: create_event_parameter_pipeline_BasicIteration's
+     --last-iteration-extrinsic stage hands convert_extr
+     EXTR_out-<event>.xml_<k>_.xml.gz.  Like batchmode's it carries lnL (alpha1)
+     and not the importance weight, so it must not be reweighted by likelihood.
 """
 
 from __future__ import print_function
@@ -98,12 +104,16 @@ from RIFT.likelihood.jax_ile import (
     build_freqresponse_data_from_precompute,
     build_rotating_freqresponse_data_from_precompute)
 from RIFT.likelihood.jax_ile.wrapper import bandlimited_storage_requirement
+from RIFT.likelihood.jax_ile import distance_prior as _distance_prior
 from RIFT.likelihood.jax_ile import anglemarg as _anglemarg
 from RIFT.likelihood.jax_ile.samplers import angle_marg_eval_chunk as _angle_marg_eval_chunk
 from RIFT.likelihood.jax_ile.samplers import regularize_cov as _regularize_cov
 # ONE definition, imported rather than re-typed: a second copy of the
-# "is this evidence trustworthy" rule is a copy that drifts.
+# "is this evidence trustworthy" rule is a copy that drifts.  The same argument
+# applies to the estimator itself -- the driver's own copy dropped -inf weights
+# before averaging, which conditions Z on prior support and biases it upward.
 from RIFT.likelihood.jax_ile.samplers import _finalize_evidence
+from RIFT.likelihood.jax_ile.samplers import evidence_from_logweights
 from RIFT.likelihood.jax_ile.core import _GATHERERS as _JAX_GATHERERS, JAX_INTERP_DEFAULT
 from RIFT.likelihood.jax_ile.anglemarg import (ANGLE_MARG_DEFAULT, ANGLE_MARG_LEGACY,
                                                ANGLE_MARG_CHOICES,
@@ -213,12 +223,14 @@ _ILE_BOOL_OPTS = {
     "--save-hyperbolic", "--force-hyperbolic-22", "--save-meanPerAno",
     "--internal-gmm-correlate-all", "--internal-gmm-adaptive-components",
     "--portfolio-varaha-never-freeze", "--portfolio-varaha-can-freeze",
-    "--portfolio-adaptive-alloc", "--sampler-sequential-warmstart",
+    "--portfolio-adaptive-alloc", "--sampler-portfolio-allow-stratified-density",
+    "--sampler-sequential-warmstart",
     "--sampler-l0-rescue-accept-truncated", "--sampler-anisotropic-bins",
     "--internal-reparam-dl-incl", "--internal-use-lnL",
     "--distance-slice-all-fresh",
     "--distance-slice-randomize",
     "--psi-marginalization",
+    "--log-noise-evidence-only",
 }
 # ILE options taking repeated values (action=append).
 _ILE_APPEND_OPTS = {
@@ -226,6 +238,50 @@ _ILE_APPEND_OPTS = {
     "--parameter", "--parameter-range", "--sampler-portfolio",
     "--sampler-portfolio-args",
 }
+# Clip on |lnL - logZ| when writing the sim_inspiral sampling-prior column.
+# float64 exp() overflows past ~709, and the failure is not a loud one: an inf
+# ps divides to 0 and a 0 ps divides to inf, either of which reaches the
+# resamplers as a nan weight that util_BatchConvertResampleILEOutput.py silently
+# rewrites to 1e-2.  600 leaves headroom on both sides and is far outside
+# anything a real extrinsic posterior draw reaches.
+_XML_PS_LOG_CLIP = 600.0
+
+# ILE's SHORT option forms, exactly as integrate_likelihood_extrinsic_batchmode
+# spells them.  Drop-in compatibility is an argv-level contract, and this driver
+# defined NO short options at all: a production command line written with ILE's
+# short spellings (-o, -S, -P, -c, -t, ...) died at optparse before any of the
+# long-option compatibility above could help it.  Registered as aliases on the
+# already-registered long options, so a short form can never mean something
+# different here from what it means in ILE.
+_ILE_SHORT_FORMS = {
+    "-a": "--approximant", "-A": "--amp-order", "-c": "--cache-file",
+    "-C": "--channel-name", "-d": "--distance-marginalization",
+    "-e": "--data-end-time", "-E": "--event", "-f": "--reference-freq",
+    "-F": "--fmax", "-i": "--inv-spec-trunc-time", "-I": "--sim-xml",
+    "-k": "--skymap-file", "-l": "--distance-marginalization-lookup-table",
+    "-L": "--save-deltalnL", "-m": "--time-marginalization",
+    "-o": "--output-file", "-O": "--output-format", "-p": "--psd-file",
+    "-P": "--save-P", "-s": "--data-start-time", "-S": "--save-samples",
+    "-t": "--event-time", "-w": "--window-shape", "-x": "--coinc-xml",
+}
+
+
+def _register_ile_short_forms(optp):
+    """Attach ILE's short option spellings to the matching long options."""
+    for short, long_name in sorted(_ILE_SHORT_FORMS.items()):
+        opt = optp._long_opt.get(long_name)
+        if opt is None:
+            # Every entry must resolve: a table naming an option this driver no
+            # longer registers would advertise a short form that still fails.
+            raise RuntimeError(
+                "ILE short form %s names %s, which this parser does not define"
+                % (short, long_name))
+        if short in optp._short_opt:
+            continue
+        opt._short_opts.append(short)
+        optp._short_opt[short] = opt
+
+
 # The full ILE option set (so anything not implemented is still accepted).
 _ILE_ALL_OPTS = {
     "--adapt-adapt", "--adapt-floor-level", "--adapt-intrinsic", "--adapt-log",
@@ -277,7 +333,9 @@ _ILE_ALL_OPTS = {
     "--internal-waveform-fd-L-frame", "--internal-waveform-taper",
     "--interpolate-time", "--inv-spec-trunc-time", "--l-max",
     "--limit-declination", "--limit-distance", "--limit-inclination", "--limit-psi",
-    "--limit-right-ascension", "--manual-logarithm-offset", "--mass1", "--mass2",
+    "--limit-right-ascension", "--log-noise-evidence-only",
+    "--log-noise-evidence-output",
+    "--manual-logarithm-offset", "--mass1", "--mass2",
     "--mc-error-ess-trigger", "--mc-error-khat-trigger", "--mc-error-replicas",
     "--mc-error-sigma-trigger",
     "--maximize-only", "--n-chunk", "--n-distance-slice-core", "--n-eff",
@@ -306,6 +364,7 @@ _ILE_ALL_OPTS = {
     "--sampler-l0-rescue-puff-factor", "--sampler-l0-rescue-puff-scale",
     "--sampler-l0-rescue-puff-width-frac", "--sampler-l0-rescue-reject-dlnZ",
     "--sampler-load-state", "--sampler-method", "--sampler-portfolio",
+    "--sampler-portfolio-allow-stratified-density",
     "--sampler-portfolio-args", "--sampler-save-state",
     "--sampler-sequential-warmstart", "--sampler-sequential-warmstart-cover-frac",
     "--sampler-sequential-warmstart-deltalnL", "--sampler-warmstart-cover-frac",
@@ -407,18 +466,35 @@ def check_critical_and_report(opts, optp):
         fatal.append("--zero-likelihood is not implemented")
     if is_set("--maximize-only"):
         fatal.append("--maximize-only is not implemented (this driver integrates)")
+    # REFUSED, not reported IGNORED with the compatibility no-ops above.  The
+    # no-op rule is for missing KNOBS; these two ask for a data product.  Ignoring
+    # --log-noise-evidence-only would run the whole integration the user asked the
+    # driver to skip, and ignoring --log-noise-evidence-output leaves a workflow
+    # reading a file that never appears.  Conventional ILE's (d|d) comes from its
+    # own conditioning and ComplexIP path, which this driver does not share, so
+    # forwarding the flag is not what implementing it would mean.
+    if is_set("--log-noise-evidence-only") or is_set("--log-noise-evidence-output"):
+        fatal.append("--log-noise-evidence-output/--log-noise-evidence-only are "
+                     "not implemented; run conventional ILE for the noise evidence")
     _is_n = int(getattr(opts, "smc_is_samples", 60000))
     if _is_n < 0:
         fatal.append("--smc-is-samples must be >= 0; a negative count reaches "
                      "the SMC proposal draw, whose exception handler would "
                      "silently fall back to the raw SMC evidence")
     _sampler_method = getattr(opts, "sampler_method", None)
+    if (getattr(opts, "sampler_portfolio_adaptive_alloc", False)
+            and _sampler_method != "portfolio"):
+        fatal.append("--sampler-portfolio-adaptive-alloc requires "
+                     "--sampler-method portfolio")
     _jax_av_active = _sampler_method in ("AV", "portfolio")
     if _jax_av_active:
-        _dp = str(getattr(opts, "d_prior", None) or "euclidean").strip().lower()
-        if _dp not in ("euclidean", "volumetric", "pseudo_cosmo"):
+        _dp = _distance_prior.canonical_distance_prior(
+            getattr(opts, "d_prior", None))
+        if _dp not in (("euclidean", "pseudo_cosmo")
+                       + _distance_prior.COSMO_DISTANCE_PRIORS):
             fatal.append("--sampler-method %s supports distance priors "
-                         "Euclidean/volumetric and pseudo_cosmo, not %s"
+                         "Euclidean/volumetric, pseudo_cosmo, cosmo and "
+                         "cosmo_sourceframe, not %s"
                          % (_sampler_method, _dp))
         try:
             resolve_av_angular_limits(opts)
@@ -782,6 +858,19 @@ def check_critical_and_report(opts, optp):
             "--time-marginalization-quadrature simpson."
             % (opts.mode, float(_hw), _BANDLIMITED_FULLSKY_HALF_WINDOW_MIN,
                _BANDLIMITED_FULLSKY_HALF_WINDOW_MIN))
+    # The per-sample GH distance quadrature and both multipeak schemes have the
+    # d^2 measure built in; the wrappers refuse too, but only after precompute.
+    if grid_distance_prior(opts) != "euclidean":
+        if _gh_resolved > 0:
+            fatal.append("--d-prior %s cannot be combined with the per-sample "
+                         "distance quadrature (--distance-gh-nodes / "
+                         "JAX_ILE_DISTMARG_GH = %d), which assumes the "
+                         "volumetric prior" % (opts.d_prior, _gh_resolved))
+        if getattr(opts, "angle_marg_scheme", None) in ("multipeak",
+                                                        "multipeak-jax"):
+            fatal.append("--angle-marg-scheme %s supports the volumetric "
+                         "distance prior only, not --d-prior %s"
+                         % (opts.angle_marg_scheme, opts.d_prior))
     if fatal:
         optp.error("Cannot run as a faithful drop-in: " + "; ".join(fatal)
                    + ".  (These would silently change the result if ignored.)")
@@ -870,15 +959,13 @@ def check_critical_and_report(opts, optp):
             print("Note: %s only act on the tempered modes (%s); --mode %s ignores "
                   "them." % (" ".join(sorted(set(inert))),
                              " ".join(sorted(_TEMPERED_MODES)), mode))
-    # AV/portfolio forwards both the volumetric and pseudo-cosmological priors.
-    # Other samplers remain volumetric and must visibly report a non-volumetric
-    # compatibility request as ignored.
+    # The GRID_DISTANCE_PRIORS reach every distance quadrature and the 6-D
+    # prior (grid_distance_prior); any other --d-prior (uniform) is reported.
     _dp = getattr(opts, "d_prior", None)
-    if (getattr(opts, "sampler_method", None) not in ("AV", "portfolio")
-            and _dp not in (None, "") and str(_dp).strip().lower() not in (
-                "euclidean", "volumetric")):
+    if (_dp not in (None, "") and grid_distance_prior(opts)
+            != _distance_prior.canonical_distance_prior(_dp)):
         print("Note: --d-prior %r is accepted but IGNORED by the JAX driver: "
-              "it always integrates distance against the volumetric d^2 "
+              "it integrates distance against the volumetric d^2 "
               "prior on [--d-min, --d-max]." % (_dp,))
     # --phase-marginalization: forwarded on the 6-D/5-D likelihoods, but the
     # four phi_ref-marginalised modes already integrate phase out analytically
@@ -899,7 +986,7 @@ def check_critical_and_report(opts, optp):
     if ignored:
         print("Note: the following ILE options are accepted but IGNORED by the "
               "JAX driver (not yet implemented; behavior may differ from ILE):")
-        print("   " + " ".join(ignored))
+        print("   " + " ".join(sorted(ignored)))
 
 
 # ---------------------------------------------------------------------------
@@ -1094,6 +1181,10 @@ def build_parser():
     g.add_option("--sampler-portfolio", action="append", default=[],
                  help="Portfolio members (repeat or comma-separate; JAX path supports "
                       "AV and GMM, default AV,GMM).")
+    g.add_option("--sampler-portfolio-adaptive-alloc", action="store_true",
+                 default=False,
+                 help="Opt into the existing portfolio member-allocation rule with "
+                      "periodic probes (default: validated fixed schedule).")
     g.add_option("--sampler-anisotropic-bins", action="store_true", default=False,
                  help="Allocate AV bins preferentially along compressed coordinates.")
     g.add_option("--jax-av-seed", type="choice", choices=("none", "fisher-sky"),
@@ -1673,6 +1764,9 @@ def build_parser():
     # Register every remaining ILE option for drop-in compatibility (accepted,
     # silently ignored unless implemented; science-critical ones fail below).
     _register_compat_options(optp)
+    # AFTER the compat pass, so a short form can alias an option registered by
+    # either route.
+    _register_ile_short_forms(optp)
     return optp
 
 
@@ -1854,6 +1948,22 @@ def resolve_distance_limit(opts):
         raise SystemExit(" --limit-distance: %s" % exc)
 
 
+def grid_distance_prior(opts):
+    """The ``d_prior`` the distance quadratures and the 6-D prior apply.
+
+    Volumetric unless ``--d-prior`` is cosmo, cosmo_sourceframe or pseudo_cosmo.
+    """
+    key = _distance_prior.canonical_distance_prior(getattr(opts, "d_prior", None))
+    return key if key in _distance_prior.GRID_DISTANCE_PRIORS else "euclidean"
+
+
+def _distance_prior_or_none(opts):
+    key = grid_distance_prior(opts)
+    if key == "euclidean":
+        return None
+    return _distance_prior.grid_distance_prior_object(key)
+
+
 def resolve_av_angular_limits(opts):
     """Return validated AV-only angular sampling windows.
 
@@ -1921,6 +2031,9 @@ def log_distance_box_correction(opts, with_distance):
     lo, hi = resolve_distance_limit(opts)
     if lo == float(opts.d_min) and hi == float(opts.d_max):
         return 0.0
+    pr = _distance_prior_or_none(opts)
+    if pr is not None:
+        return pr.log_mass(opts.d_min, opts.d_max) - pr.log_mass(lo, hi)
     return float(np.log((opts.d_max ** 3 - opts.d_min ** 3) / (hi ** 3 - lo ** 3)))
 
 
@@ -1932,11 +2045,15 @@ def sample_prior(n, opts, rng, with_distance):
     phiref = rng.uniform(0.0, 2 * np.pi, n)
     cols = [ra, dec, psi, incl, phiref]
     if with_distance:
-        u = rng.uniform(0.0, 1.0, n)
         # the SAMPLED range (== [d_min,d_max] unless --limit-distance)
         d_lo, d_hi = resolve_distance_limit(opts)
-        dmin3, dmax3 = d_lo ** 3, d_hi ** 3
-        cols.append((dmin3 + u * (dmax3 - dmin3)) ** (1.0 / 3.0))
+        pr = _distance_prior_or_none(opts)
+        if pr is not None:
+            cols.append(pr.sample(n, rng, d_lo, d_hi))
+        else:
+            u = rng.uniform(0.0, 1.0, n)
+            dmin3, dmax3 = d_lo ** 3, d_hi ** 3
+            cols.append((dmin3 + u * (dmax3 - dmin3)) ** (1.0 / 3.0))
     theta = np.stack(cols, axis=-1)
     return theta, log_prior(theta, opts, with_distance)
 
@@ -1957,8 +2074,13 @@ def log_prior(theta, opts, with_distance):
             # scale and does not have to be corrected before comparison.
             d_lo, d_hi = resolve_distance_limit(opts)
             inb = inb & (dist >= d_lo) & (dist <= d_hi)
-            dmin3, dmax3 = opts.d_min ** 3, opts.d_max ** 3
-            logp = logp + np.log(3.0) + 2 * np.log(dist) - np.log(dmax3 - dmin3)
+            pr = _distance_prior_or_none(opts)
+            if pr is not None:
+                logp = logp + pr.log_density(np.clip(dist, d_lo, d_hi),
+                                             opts.d_min, opts.d_max)
+            else:
+                dmin3, dmax3 = opts.d_min ** 3, opts.d_max ** 3
+                logp = logp + np.log(3.0) + 2 * np.log(dist) - np.log(dmax3 - dmin3)
     return np.where(inb, logp, -np.inf)
 
 
@@ -2120,22 +2242,6 @@ def prior_pilot_floor(logZ_pilot, false_positive_rate=PILOT_FLOOR_FP_RATE):
     if not np.isfinite(logZ_pilot):
         return -np.inf
     return float(logZ_pilot) + float(np.log(false_positive_rate))
-
-
-def evidence_from_logweights(logw):
-    """(logZ, sigma/Z, neff) for Z = E[w] from log importance weights."""
-    fin = np.isfinite(logw)
-    logw = logw[fin]
-    if logw.size == 0:
-        return -np.inf, np.inf, 0.0
-    m = np.max(logw)
-    w = np.exp(logw - m)
-    n = len(w)
-    Zhat = np.mean(w)
-    logZ = m + np.log(Zhat)
-    sigma_over_Z = np.sqrt(np.var(w) / n) / Zhat
-    neff = (np.sum(w) ** 2) / np.sum(w ** 2)
-    return logZ, sigma_over_Z, neff
 
 
 def _gaussian_logq(theta, mu, cov):
@@ -2361,6 +2467,21 @@ def dat_path(opts, out_index):
 def samples_path(opts, out_index):
     """Path of this event's exported extrinsic samples."""
     return opts.output_file + "_" + str(out_index) + "_samples.dat"
+
+
+def xml_path(opts, out_index):
+    """Path of this event's exported extrinsic samples in sim_inspiral XML.
+
+    THE name the pipeline reads.  create_event_parameter_pipeline_BasicIteration's
+    terminal --last-iteration-extrinsic stage hands its convert_extr job
+    ``EXTR_out-$(macroevent).xml_$(macroindx)_.xml.gz``, and the batched and
+    time-resampling variants glob ``EXTR_out-*.xml_*_.xml.gz``.  That spelling is
+    ``<output-file>_<k>_.xml.gz``, which is what
+    integrate_likelihood_extrinsic_batchmode writes under --save-samples.  A DAG
+    driven by this driver built and ran its terminal stage and collected nothing,
+    because only the ``_samples.dat`` sidecar below was ever written.
+    """
+    return opts.output_file + "_" + str(out_index) + "_" + ".xml.gz"
 
 
 def direct_marginalization_policy_note(like, theta, n_max=256, chunk=32,
@@ -2856,8 +2977,292 @@ def _remove_stale_artifact(path, what="export"):
               % (what, path), file=sys.stderr)
 
 
+def _xml_extrinsic_columns(opts, theta, with_distance):
+    """Map this ``--mode``'s ``theta`` layout onto sim_inspiral extrinsic columns.
+
+    Mirrors the ``.dat`` branches of ``write_samples`` one for one -- both
+    writers read the SAME ``theta`` with the same column meanings, so a layout
+    present in one and absent from the other is a bug, not an option.  Returns a
+    dict with ``ra``, ``dec``, ``psi``, ``incl``, ``coa_phase`` and ``distance``;
+    ``distance`` is ``None`` when the run marginalized distance analytically and
+    so has no per-sample draw to export.  An unrecognized layout RAISES: guessing
+    a column order would publish wrong sky/inclination/polarization values under
+    the one filename the pipeline's convert_extr job reads.
+    """
+    n = len(theta)
+    ndim = theta.shape[1] if theta.ndim == 2 else len(theta)
+    phase_marginalized = bool(getattr(opts, "phase_marginalization", False))
+    # psi was integrated analytically on the psi-marginalized modes: there is no
+    # per-sample draw.  NaN, not a fiducial 0.0 -- batchmode makes exactly this
+    # choice under --psi-marginalization, because convert_output_format_ile2inference
+    # copies the column verbatim into the PE-samples 'psi' under a header that does
+    # not mark it, so a fiducial 0 reaches a consumer as a delta function that reads
+    # like a polarization MEASUREMENT.  NaN cannot.
+    psi_marginalized = np.full(n, np.nan)
+    # phi_ref marginalized -> the reference phase 0.0, which is batchmode's
+    # convention for the same state ("Insert reference phase if it was
+    # marginalized over").  Deliberately NOT NaN: unlike psi, a zero reference
+    # phase is the convention every consumer of ILE's phase-marginalized XML
+    # already reads, and changing it here would be a second convention.
+    phi_reference = np.zeros(n)
+    if with_distance:
+        if ndim != 6:
+            raise RuntimeError(
+                "with_distance is set but theta has %d columns, not 6.  The "
+                "sim_inspiral export refuses to guess which column is distance."
+                % ndim)
+        # 6-D: ra, dec, psi, incl, phiref, dist
+        ra, dec, psi, incl = theta[:, 0], theta[:, 1], theta[:, 2], theta[:, 3]
+        coa_phase = phi_reference if phase_marginalized else theta[:, 4]
+        distance = theta[:, 5]
+    elif ndim == 4 and opts.mode == "flowmc-dpsimarg":
+        # 4-D: ra, dec, phiref, incl (psi marginalized, phi_ref sampled)
+        ra, dec = theta[:, 0], theta[:, 1]
+        coa_phase, incl = theta[:, 2], theta[:, 3]
+        psi = psi_marginalized
+        distance = None
+    elif ndim == 4:
+        # 4-D: ra, dec, psi, incl (flowmc-phimarg / nuts-phimarg; phi_ref marginalized)
+        ra, dec, psi, incl = theta[:, 0], theta[:, 1], theta[:, 2], theta[:, 3]
+        coa_phase = phi_reference
+        distance = None
+    elif ndim == 3:
+        # 3-D: ra, dec, incl (flowmc-phipsimarg; phi_ref AND psi marginalized)
+        ra, dec, incl = theta[:, 0], theta[:, 1], theta[:, 2]
+        psi = psi_marginalized
+        coa_phase = phi_reference
+        distance = None
+    elif ndim == 5:
+        # 5-D: ra, dec, psi, incl, phiref (distance marginalized analytically)
+        ra, dec, psi, incl = theta[:, 0], theta[:, 1], theta[:, 2], theta[:, 3]
+        coa_phase = phi_reference if phase_marginalized else theta[:, 4]
+        distance = None
+    else:
+        raise RuntimeError(
+            "--mode %s exported a %d-column theta (with_distance=%s), a layout "
+            "with no sim_inspiral column mapping.  Refusing to write the XML "
+            "rather than publish guessed columns under the name the pipeline's "
+            "convert_extr job reads.  Add the layout here AND to the .dat "
+            "branches of write_samples when the mode is added."
+            % (opts.mode, ndim, with_distance))
+    return {"ra": ra, "dec": dec, "psi": psi, "incl": incl,
+            "coa_phase": coa_phase, "distance": distance}
+
+
+def _xml_prior_columns(log_prior, log_s_prior):
+    """joint_prior / joint_s_prior as the sim_inspiral alpha2 / alpha3 columns.
+
+    Written as the classic ILE writes them, so ``exp(lnL) * p/ps`` downstream is
+    the true importance weight.  Both columns are real_4, and only their RATIO
+    is ever read, so a value that leaves float32 range is repaired by shifting
+    BOTH logs by one common constant: that is exactly weight preserving, while
+    scaling either column alone would change this file's weight against the
+    other intrinsic points in a pooled read.
+    """
+    lo, hi = -80.0, 80.0          # exp() of these is 1.8e-35 and 5.5e34
+    span = max(float(np.max(log_prior)), float(np.max(log_s_prior)))
+    small = min(float(np.min(log_prior)), float(np.min(log_s_prior)))
+    shift = 0.0
+    if span > hi or small < lo:
+        shift = 0.5 * (span + small)
+        print("  note: joint_prior/joint_s_prior span [%g, %g] in the log, "
+              "outside float32 range for the real_4 columns; both are shifted "
+              "by %g, which leaves every row's p/ps unchanged."
+              % (small, span, shift))
+    p = np.exp(np.clip(log_prior - shift, lo, hi))
+    ps = np.exp(np.clip(log_s_prior - shift, lo, hi))
+    return p, ps
+
+
+def write_samples_xml(opts, out_index, theta, lnL, with_distance, P,
+                      fiducial_epoch, logZ, sigma_lnL, neff, ntotal,
+                      log_prior=None, log_s_prior=None):
+    """Write this event's exported rows as ILE's sparse sim_inspiral XML.
+
+    The ``_samples.dat`` sidecar this driver has always written is read by
+    ``util_ConvertJAXILEFairdraws.py`` and by hand-rolled collectors; the
+    PIPELINE reads XML, at the name ``xml_path`` documents.  Ported from
+    ``integrate_likelihood_extrinsic_batchmode``'s --save-samples block rather
+    than invented, so the two drivers write one schema.
+
+    The rows are already the equal-weight fair draw ``write_samples`` produced,
+    so the prior columns are written to make the standard consumer weight
+    ``exp(lnL - lnLmax) * (p/ps) / Npts`` come out CONSTANT over them; see the
+    alpha2/alpha3 block below for the parameterisation and for why the offset is
+    this event's ``logZ``.  Unlike batchmode's sparse export, these rows may
+    therefore be reweighted by the standard formula -- that is the point.
+    """
+    from igwn_ligolw import ligolw, utils as ligolw_utils
+    from RIFT.likelihood import factored_likelihood
+    import RIFT.misc.xmlutils as xmlutils
+
+    cols = _xml_extrinsic_columns(opts, theta, with_distance)
+    n = len(theta)
+    ones = np.ones(n, dtype=np.float64)
+    distance = cols["distance"]
+    if distance is None:
+        # Distance was marginalized analytically inside the JAX likelihood, so
+        # there is no per-sample draw: this driver has no fair-draw distance
+        # path, and the only mode that carries a real distance posterior is the
+        # 6-D one handled above.  Fill the reference distance the templates were
+        # built at -- the same value, from the same symbol, batchmode uses when
+        # 'distance' is absent from its retained samples.
+        distance = ones * float(factored_likelihood.distMpcRef)
+    samples = {
+        "right_ascension": np.asarray(cols["ra"], dtype=np.float64),
+        "declination": np.asarray(cols["dec"], dtype=np.float64),
+        "polarization": np.asarray(cols["psi"], dtype=np.float64),
+        "inclination": np.asarray(cols["incl"], dtype=np.float64),
+        # CMAP has no "phi_orb" key -- the orbital phase reaches sim_inspiral
+        # through "coa_phase", which is what batchmode assigns it to.
+        "coa_phase": np.asarray(cols["coa_phase"], dtype=np.float64),
+        "distance": np.asarray(distance, dtype=np.float64),
+        # Time is ALWAYS marginalized in this driver: the JAX likelihood
+        # integrates over the time window and no --mode carries a time column in
+        # theta.  So every row gets the fiducial epoch, which is exactly
+        # batchmode's --time-marginalization branch.
+        "t_ref": ones * float(fiducial_epoch),
+        "loglikelihood": np.asarray(lnL, dtype=np.float64),
+        # simulation_id, set EXPLICITLY.  samples_to_siminsp_row otherwise takes
+        # it from lsctables' get_next_id(), which is a CLASS attribute shared by
+        # every SimInspiralTable in the process -- so in a batch (this driver
+        # writes one XML per --n-events-to-analyze event from one process) the
+        # second event's rows are numbered from where the first stopped.  Both
+        # resamplers read Npts as max(simulation_id)+1 and divide the weight by
+        # it, so a continued counter silently scales one intrinsic point's share
+        # of the pooled posterior by the batch position.  Number each file's
+        # rows from zero, which is what "Assumes NOT mixed samples" in those
+        # tools means.
+        "sample_n": np.arange(n, dtype=np.int64),
+    }
+    # Fixed intrinsic template parameters, as batchmode's ILE-mode block writes
+    # them (this driver has no --rom-integrate-intrinsic path).
+    samples["mass1"] = ones * (P.m1 / MSUN)
+    samples["mass2"] = ones * (P.m2 / MSUN)
+    for name in ("s1x", "s1y", "s1z", "s2x", "s2y", "s2z"):
+        samples["spin" + name[1:]] = ones * float(getattr(P, name))
+    samples["alpha4"] = ones * float(getattr(P, "eccentricity", 0.0))
+    samples["alpha"] = ones * float(getattr(P, "meanPerAno", 0.0))
+    samples["alpha5"] = ones * float(getattr(P, "lambda1", 0.0))
+    samples["alpha6"] = ones * float(getattr(P, "lambda2", 0.0))
+    samples["psi0"] = ones * float(getattr(P, "a6c", 0.0))
+    samples["psi3"] = ones * float(getattr(P, "E0", 0.0))
+    samples["beta"] = ones * float(getattr(P, "p_phi0", 0.0))
+    # alpha2 / alpha3 are NOT decoration: convert_output_format_ile2inference
+    # reads them into the 'p' and 'ps' columns, and both resamplers the pipeline
+    # reaches then form exp(lnL - lnLmax) * (p/ps) / Npts
+    # (util_ResampleILEOutputWithExtrinsic.py, util_BatchConvertResampleILEOutput.py).
+    # Only the RATIO is ever read.
+    #
+    # Which pair to write depends on what the sampler handed over, and the two
+    # cases are different problems.
+    if log_prior is not None and log_s_prior is not None:
+        # WEIGHTED CLOUD (--sampler-method AV: samplers.adaptive_volume_sample
+        # passes igrand_fairdraw_samples=False, so the integrator keeps the
+        # retained population and its log_joint_prior / log_joint_s_prior).
+        # Publish those, which is what integrate_likelihood_extrinsic_batchmode
+        # writes, and exp(lnL)*p/ps downstream is then the true importance
+        # weight.  Nothing has to cancel.
+        samples["alpha2"], samples["alpha3"] = _xml_prior_columns(
+            np.asarray(log_prior, dtype=np.float64),
+            np.asarray(log_s_prior, dtype=np.float64))
+    else:
+        # FAIR-DRAWN ROWS (--sampler-method portfolio, and --mode nuts/map,
+        # where igrand_fairdraw_samples is True and the weights were consumed by
+        # the integrator's own draw; also every mode whose cloud write_samples
+        # fair-drew itself).  There is no importance weight left to publish, and
+        # the rows must not be reweighted: the resampling step has to come out a
+        # NO-OP.  Neither constant does that.  1.0/1.0 tilts the cloud by the
+        # likelihood a second time and yields samples proportional to
+        # prior * L^2 (measured: std(ra) 0.049845 -> 0.035384, ratio 0.7099
+        # against 1/sqrt(2)).  Batchmode's 0.0/0.0, a placeholder its sampler
+        # record overwrites through the joint_prior / joint_s_prior CMAP keys
+        # and this driver has no record to overwrite with, gives every row a nan
+        # weight and crashes the resample job.
+        #
+        # So write p = 1, ps = exp(lnL - logZ), which cancels the consumer's
+        # exp(lnL) and leaves one constant.  Forcing a block's weights by
+        # rewriting the sampling prior is batchmode's own idiom
+        # (_pool_replica_rvs).  The cancellation survives the file only to
+        # ~4e-5, because alpha1 is real_4 and ligolw's ASCII round trip is not
+        # an exact float32 one; that is a floor set by the format, and it is
+        # 3 orders below the 29% the p/ps = 1 export cost.  The alternative,
+        # routing fair draws away from convert+resample entirely, needs changes
+        # in three components; PR #341 carries the cost estimate.
+        #
+        # The offset cancels for both consumers, which normalise inside one
+        # file.  logZ is chosen over the file's own lnLmax because it keeps ps
+        # at O(1), and because it stays correct on the CONCATENATION the
+        # resampler's docstring advertises: this file's share is then
+        # exp(logZ - lnLmax), proportional to this point's evidence, as
+        # conventional ILE's retained cloud is.
+        #
+        # Npts is the ROW COUNT: both consumers take it from
+        # max(simulation_id)+1, which sample_n above pins to 0..n-1.
+        logZ_offset = float(logZ)
+        if not np.isfinite(logZ_offset):
+            # A non-finite evidence would put nan in EVERY ps and so in every
+            # downstream weight.  analyze_one validates logZ before it gets
+            # here, so this is reachable only from an in-process caller; fall
+            # back to the file's own lnLmax, which keeps the within-file weights
+            # uniform, and say so rather than emit nan.
+            finite = np.asarray(lnL, dtype=np.float64)[np.isfinite(lnL)]
+            logZ_offset = float(finite.max()) if finite.size else 0.0
+            print("  *** logZ=%r is not finite: the sim_inspiral sampling-prior "
+                  "column falls back to the file's own lnLmax (%g).  Weights "
+                  "stay uniform WITHIN this file, but this file's weight "
+                  "relative to other intrinsic points is no longer its "
+                  "evidence. ***" % (logZ, logZ_offset), file=sys.stderr)
+        # Build ps from the lnL the file will actually CARRY, which removes most
+        # of the real_4 mismatch.
+        lnL_stored = np.asarray(lnL, dtype=np.float32).astype(np.float64)
+        ln_ps = lnL_stored - logZ_offset
+        # ps must stay strictly positive AND finite.  A 0 gives the consumers a
+        # division by zero; an inf gives them 0*inf = nan, and
+        # util_BatchConvertResampleILEOutput.py replaces a nan weight with 1e-2,
+        # a LARGE weight on a row that should carry none.  Clip instead: a row
+        # past the clip is >600 nats from the evidence and has no posterior mass.
+        n_clipped = int(np.count_nonzero(np.abs(ln_ps) > _XML_PS_LOG_CLIP))
+        if n_clipped:
+            print("  *** %d of %d exported rows have |lnL - logZ| > %g: their "
+                  "sampling-prior column is clipped, so their resampling weight "
+                  "is driven toward zero rather than to nan ***"
+                  % (n_clipped, n, _XML_PS_LOG_CLIP), file=sys.stderr)
+        samples["alpha2"] = np.ones(n, dtype=np.float64)
+        samples["alpha3"] = np.exp(np.clip(ln_ps, -_XML_PS_LOG_CLIP,
+                                           _XML_PS_LOG_CLIP))
+
+    xmldoc = ligolw.Document()
+    xmldoc.appendChild(ligolw.LIGO_LW())
+    # process_params is REQUIRED by the schema, so register an empty one.
+    # --save-samples-process-params stays in the reported-as-ignored set: this
+    # driver's opts carry objects the ligolw serializer cannot represent.
+    xmldoc.register_process(sys.argv[0], {})
+    xmlutils.append_samples_to_xmldoc(xmldoc, samples)
+    dict_out = {"mass1": float(P.m1 / MSUN), "mass2": float(P.m2 / MSUN),
+                "spin1z": float(P.s1z), "spin2z": float(P.s2z),
+                "alpha4": float(getattr(P, "eccentricity", 0.0)),
+                "alpha": float(getattr(P, "meanPerAno", 0.0)),
+                "alpha5": float(getattr(P, "lambda1", 0.0)),
+                "alpha6": float(getattr(P, "lambda2", 0.0)),
+                "psi0": float(getattr(P, "a6c", 0.0)),
+                "psi3": float(getattr(P, "E0", 0.0)),
+                "beta": float(getattr(P, "p_phi0", 0.0)),
+                "event_duration": float(sigma_lnL), "ttotal": float(ntotal)}
+    # converged=False: this driver runs no convergence test, so there is no
+    # result to report.  batchmode passes its convergence_test_results here.
+    xmlutils.append_likelihood_result_to_xmldoc(
+        xmldoc, float(logZ), neff=float(neff), converged=False, **dict_out)
+    fname = xml_path(opts, out_index)
+    ligolw_utils.write_filename(xmldoc, fname, compress="gz")
+    print("Wrote %s (%d sim_inspiral rows)" % (fname, n))
+    return fname
+
+
 def write_samples(opts, out_index, theta, lnL, with_distance, logw=None,
-                  angle_note=""):
+                  angle_note="", P=None, fiducial_epoch=None,
+                  logZ=None, sigma_lnL=None, report_neff=0.0, ntotal=0,
+                  log_prior=None, log_s_prior=None):
     """Write the exported extrinsic samples.
 
     ``logw`` are per-sample LOG IMPORTANCE WEIGHTS ``ln(L p / p_s)`` for the
@@ -2872,9 +3277,64 @@ def write_samples(opts, out_index, theta, lnL, with_distance, logw=None,
     the raw proposal/prior cloud under the product name that means "posterior
     draws".  ``analyze_one`` calls this BEFORE ``write_dat``, so that refusal
     also leaves the event without a normal ILE result row.
+
+    Two products, from the SAME ``--save-samples`` flag and the same rows: the
+    ``_samples.dat`` sidecar, whose format and content are unchanged, and the
+    ``_<k>_.xml.gz`` sim_inspiral file the pipeline's terminal extrinsic stage
+    reads (see ``xml_path``).  ``P``, ``fiducial_epoch``, ``logZ`` and
+    ``sigma_lnL`` carry the intrinsic point and the evidence row into that file;
+    a caller that omits one still gets the ``.dat`` and a stderr warning naming
+    what was missing, and no XML.
+
+    ``log_prior`` and ``log_s_prior`` are the retained cloud's own
+    ``log_joint_prior`` / ``log_joint_s_prior``, supplied only when the
+    integrator did NOT fair-draw internally (``--sampler-method AV``).  When
+    they are present the XML publishes that WEIGHTED cloud with those columns,
+    so no cancellation is needed; the ``.dat`` is still the fair draw.  When
+    they are absent the rows are already a fair draw and the XML's prior columns
+    are written to make the consumers' reweighting a no-op.  ``report_neff`` and ``ntotal`` are written
+    into the XML's evidence row and read NOWHERE ELSE.  ``report_neff`` is
+    spelled that way on purpose: an export path that takes a bare ``neff`` is
+    exactly the wiring test_write_samples_cannot_be_handed_an_evidence_neff
+    forbids, because the export COUNT must never be clamped by the evidence
+    estimator's effective sample size (see fairdraw_size).
     """
     if not (opts.output_file and opts.save_samples) or theta is None:
         return
+    # The XML needs four things the .dat does not.  A caller that omits one gets
+    # the .dat and a warning naming what was missing -- NOT an exception, and
+    # never at the cost of the sidecar.  Refusing here instead took out the whole
+    # of test/jax/test_jax_fairdraw_export.py (22 of 34 red), which drives
+    # write_samples directly and has no evidence row to supply, and broke
+    # in-process callers that only ever wanted the ASCII export.  analyze_one
+    # always supplies all four, and a test pins that, so production still writes
+    # the XML; what is relaxed is the in-process contract, not the pipeline's.
+    xml_inputs_missing = [name for name, value in (
+        ("P", P), ("fiducial_epoch", fiducial_epoch), ("logZ", logZ),
+        ("sigma_lnL", sigma_lnL)) if value is None]
+    # THE WEIGHTED CLOUD, kept before the fair draw below consumes it.  When the
+    # integrator returned the retained population and its prior pair (AV), the
+    # XML publishes THOSE rows with their real joint_prior / joint_s_prior, the
+    # way the classic ILE does, and the consumer's exp(lnL)*p/ps is the true
+    # weight.  The `.dat` sidecar is still the fair draw, unchanged, because
+    # util_ConvertJAXILEFairdraws.py and every hand-rolled collector read it as
+    # equal-weight rows.  So the two products deliberately stop being the same
+    # rows on this path, and each is right for its own consumer.
+    xml_cloud = None
+    if log_prior is not None and log_s_prior is not None:
+        lp = np.asarray(log_prior, dtype=np.float64)
+        lps = np.asarray(log_s_prior, dtype=np.float64)
+        if len(lp) != len(theta) or len(lps) != len(theta):
+            raise RuntimeError(
+                "export prior columns and samples disagree in length (%d, %d "
+                "priors, %d rows) for --mode %s with --sampler-method %s.  "
+                "Refusing to write: a misaligned prior pair is a wrong weight "
+                "on every row, and nothing downstream could detect it."
+                % (len(lp), len(lps), len(theta), opts.mode,
+                   getattr(opts, "sampler_method", None)))
+        keep = (np.isfinite(lnL) & np.isfinite(lp) & np.isfinite(lps))
+        xml_cloud = (np.asarray(theta)[keep], np.asarray(lnL)[keep],
+                     lp[keep], lps[keep])
     sname = samples_path(opts, out_index)
     # The export RNG is derived here and NOWHERE ELSE.  It must never be the
     # generator that feeds the samplers/estimators: --save-samples is an OUTPUT
@@ -2919,6 +3379,11 @@ def write_samples(opts, out_index, theta, lnL, with_distance, logw=None,
             # failure as for the samples file.
             _remove_stale_artifact(sname, "export")
             _remove_stale_artifact(dat_path(opts, out_index), "result")
+            # The XML goes too, and for a sharper reason than the others: it sits
+            # at the exact path the pipeline's convert_extr job opens, so a file
+            # left there by an earlier run is collected as THIS event's terminal
+            # extrinsic posterior.
+            _remove_stale_artifact(xml_path(opts, out_index), "sim_inspiral export")
             raise RuntimeError(
                 "fair draw failed for output index %d (%s): the exported cloud "
                 "would be the raw, UNREWEIGHTED sampler/proposal samples, which "
@@ -3004,6 +3469,34 @@ def write_samples(opts, out_index, theta, lnL, with_distance, logw=None,
     # notably the export ESS, which was previously written nowhere.
     np.savetxt(sname, cols, header=hdr + "\nmode=%s %s" % (opts.mode, provenance))
     print("Wrote %s (%d samples)" % (sname, len(cols)))
+    # SAME rows, same flag, second product: the sim_inspiral XML the pipeline's
+    # terminal extrinsic stage reads.  Written after the .dat so a refusal in the
+    # column mapping cannot cost the sidecar an existing consumer already reads.
+    if xml_inputs_missing:
+        # LOUD, and on stderr, because the silent version of this is the defect
+        # the XML export exists to fix.  Any XML already at that path belongs to
+        # an earlier run and would be collected as this event's terminal
+        # extrinsic posterior, so it goes too.
+        _remove_stale_artifact(xml_path(opts, out_index), "sim_inspiral export")
+        sys.stderr.write(
+            "WARNING integrate_likelihood_extrinsic_jax: wrote %s but SKIPPED "
+            "the sim_inspiral XML %s -- write_samples was called without %s.  "
+            "create_event_parameter_pipeline_BasicIteration's convert_extr job "
+            "reads the XML, so a pipeline run that prints this collects nothing "
+            "from this event.\n"
+            % (sname, xml_path(opts, out_index),
+               ", ".join(xml_inputs_missing)))
+        return
+    # Anything that goes wrong from here on is an XML that was ATTEMPTED and
+    # failed (an unmapped theta layout, an unwritable path): that still raises.
+    if xml_cloud is not None:
+        x_theta, x_lnL, x_lp, x_lps = xml_cloud
+        write_samples_xml(opts, out_index, x_theta, x_lnL, with_distance, P,
+                          fiducial_epoch, logZ, sigma_lnL, report_neff, ntotal,
+                          log_prior=x_lp, log_s_prior=x_lps)
+    else:
+        write_samples_xml(opts, out_index, theta, lnL, with_distance, P,
+                          fiducial_epoch, logZ, sigma_lnL, report_neff, ntotal)
 
 
 def _parse_freqresponse_arm_length(value):
@@ -3195,7 +3688,8 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
             like_data, d_lo, d_hi,
             nphi=nphi, n_grid=n_dist_grid,
             interp=opts.interp, guess_snr=extras["guess_snr"],
-            time_quadrature=tq, d_prior_range=(opts.d_min, opts.d_max))
+            time_quadrature=tq, d_prior_range=(opts.d_min, opts.d_max),
+            d_prior=grid_distance_prior(opts))
         if getattr(like, "dist_grid_info", {}).get("mode") == "adaptive":
             gi = like.dist_grid_info
             print("  distance grid: ADAPTIVE  d_peak=%.3g Mpc  sigma_d=%.3g Mpc  npts=%d"
@@ -3263,6 +3757,7 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
                 n_grid=n_dist_grid, interp=opts.interp,
                 guess_snr=extras["guess_snr"], angle_marg=angle_marg,
                 time_quadrature=tq, d_prior_range=(opts.d_min, opts.d_max),
+                d_prior=grid_distance_prior(opts),
                 dist_grid=dist_grid, dist_grid_tol=dist_tol,
                 direct_marginalization_policy=policy,
                 policy_config=policy_config,
@@ -3396,6 +3891,7 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
                     n_grid=n_dist_grid, interp=opts.interp,
                     guess_snr=extras["guess_snr"], angle_marg=angle_marg,
                     time_quadrature=tq, d_prior_range=(opts.d_min, opts.d_max),
+                    d_prior=grid_distance_prior(opts),
                     dist_grid=dist_grid, dist_grid_tol=dist_tol,
                     direct_marginalization_policy=policy,
                     policy_config=like.policy_config._replace(
@@ -3423,7 +3919,8 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
             like_data, d_lo, d_hi, npsi=npsi,
             n_grid=n_dist_grid, interp=opts.interp,
             guess_snr=extras["guess_snr"], time_quadrature=tq,
-            d_prior_range=(opts.d_min, opts.d_max))
+            d_prior_range=(opts.d_min, opts.d_max),
+            d_prior=grid_distance_prior(opts))
         if getattr(like, "dist_grid_info", {}).get("mode") == "adaptive":
             gi = like.dist_grid_info
             print("  distance grid: ADAPTIVE  d_peak=%.3g Mpc  sigma_d=%.3g Mpc  npts=%d"
@@ -3436,7 +3933,8 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
         like = JAXDistanceMarginalizedLikelihood(
             like_data, d_lo, d_hi, n_grid=n_dist_grid,
             interp=opts.interp, phase_marginalization=opts.phase_marginalization,
-            time_quadrature=tq, d_prior_range=(opts.d_min, opts.d_max))
+            time_quadrature=tq, d_prior_range=(opts.d_min, opts.d_max),
+            d_prior=grid_distance_prior(opts))
         dim = 5
     else:
         like = JAXExtrinsicLikelihood(
@@ -3529,6 +4027,11 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
         return lnL_map, None
 
     out_flow_state = None
+    # The retained WEIGHTED cloud's own prior pair.  Only the AV branch below
+    # sets these: every other sampler either hands over an already fair-drawn
+    # cloud or a log_weight whose prior pair it did not keep.  Initialised here
+    # so the export call at the end of this function reads one name in all cases.
+    log_prior_export = log_s_prior_export = None
     if getattr(opts, "sampler_method", None) in ("AV", "portfolio"):
         from RIFT.likelihood.jax_ile import samplers as _samplers
         _portfolio_members = [
@@ -3548,6 +4051,7 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
             like, opts.d_min, opts.d_max,
             sampler_method=opts.sampler_method,
             portfolio_members=_portfolio_members,
+            portfolio_adaptive_alloc=opts.sampler_portfolio_adaptive_alloc,
             nmax=opts.n_max, neff=(opts.n_eff or 1000),
             n_chunk=opts.n_chunk, eval_chunk=opts.jax_av_eval_chunk,
             seed=opts.seed, seed_method=opts.jax_av_seed,
@@ -3564,6 +4068,12 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
         logZ, sig, neff = res["logZ"], res["sigma_over_Z"], res["neff"]
         ntot = res["n_eval"]
         logw_export = res.get("log_weight")
+        # The retained WEIGHTED cloud's own prior pair, when the integrator did
+        # not fair-draw internally (AV).  Carried so the sim_inspiral export can
+        # publish the real joint_prior / joint_s_prior columns instead of
+        # cancelling the likelihood out of them.
+        log_prior_export = res.get("log_joint_prior")
+        log_s_prior_export = res.get("log_joint_s_prior")
         print("  JAX-%s resolved fixed eval chunk=%d"
               % (opts.sampler_method, res["eval_chunk"]))
     elif opts.mode in ("multistart-nuts", "flowmc", "flowmc-phimarg",
@@ -3746,6 +4256,9 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
             theta, lnL = np.asarray(theta)[_keep], np.asarray(lnL)[_keep]
             if logw_export is not None:
                 logw_export = np.asarray(logw_export)[_keep]
+            if log_prior_export is not None:
+                log_prior_export = np.asarray(log_prior_export)[_keep]
+                log_s_prior_export = np.asarray(log_s_prior_export)[_keep]
         _ev_note += (" audit_scope=log_likelihood-batches"
                      " audit_excludes=scalar-MAP-Fisher-MALA"
                      " refuse_latch_scope=log_likelihood-batches"
@@ -3792,7 +4305,10 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
         sys.stderr.write(
             "NOTE integrate_likelihood_extrinsic_jax: %s\n" % _ev_note)
     write_samples(opts, out_index, theta, lnL, with_distance, angle_note=_ev_note,
-                  logw=logw_export)
+                  logw=logw_export, log_prior=log_prior_export,
+                  log_s_prior=log_s_prior_export, P=P,
+                  fiducial_epoch=fiducial_epoch,
+                  logZ=logZ, sigma_lnL=sig, report_neff=neff, ntotal=ntot)
     write_dat(opts, P, out_index, event_id, logZ, sig, ntot, neff,
               angle_note=_ev_note)
     return logZ, out_flow_state

@@ -5,6 +5,7 @@ Monte Carlo Integrator
 Perform an adaptive monte carlo integral.
 '''
 from __future__ import print_function
+import warnings
 import numpy as np
 from . import gaussian_mixture_model as GMM
 import traceback
@@ -58,6 +59,175 @@ except:
     print('no multiprocess')
 
 
+def validate_gmm_dict(bounds, gmm_dict, where="gmm_dict", param_names=None):
+    """Reject a seeded proposal that does not describe the dim-group it is installed against.
+
+    _sample() draws from model.sample() and divides the weights by model.score(), the model's
+    own normalized density over its OWN box.  Two things therefore have to agree with the
+    group, and neither is checked anywhere else:
+
+      * DIMENSION.  A model with more axes than its group contributes a density carrying the
+        extra axes, so lnZ comes out high by their log-volume -- +1.84 nats for a 2-D
+        (psi, phi_orb) model against the 1-element (psi,) group the ILE drivers use when
+        phase is marginalized.  Fewer axes raises IndexError on the first _sample().
+      * BOUNDS.  A model normalized over a SMALLER box than the group's is never wrong about
+        any sample it draws, and never draws outside its own box -- so the run silently
+        explores a fraction of the group and lnZ is low by ln(area ratio).  Replaying an
+        --extrinsic-proposal-breadcrumb recorded without --internal-rotate-phase into a run
+        with it does exactly this: the option doubles psi and phi_orb to (0, 4pi), and the
+        stored seed keeps (0, 2pi).  Measured: -1.39 nats, a quarter of the box reachable.
+
+    Neither failure disturbs the recovered marginals, which keep their shape while only the
+    evidence moves, so it has to be caught here or not at all.
+
+    This is an equality check on the box, NOT an ordering check: two axes sharing a box
+    (psi and phi_orb do) can be permuted without tripping it.  Axis order is
+    gmm_dict_from_breadcrumb._permute_group's job.
+    """
+    if not gmm_dict:
+        return
+
+    def _label(grp):
+        """Name the parameters, not just the dim indices: an operator reading a held job's
+        log cannot map (4,) to psi without reading the driver."""
+        if param_names:
+            try:
+                return "{} {}".format(tuple(param_names[i] for i in grp), tuple(grp))
+            except Exception:
+                pass
+        return str(tuple(grp))
+
+    for grp, model in gmm_dict.items():
+        if model is None:
+            continue
+        md = getattr(model, 'd', None)
+        if md is not None:
+            # compare the VALUE: int() would silently accept 2.4 or '2'
+            try:
+                bad_dim = (md != len(grp))
+            except Exception:
+                bad_dim = True
+            if bad_dim:
+                raise ValueError(
+                    "{}[{}]: seeded model has d={!r} for a {}-dimensional dim-group. "
+                    "A seed must span exactly its group's axes: with more axes its score() "
+                    "carries the extra ones and lnZ is biased HIGH by their log-volume; with "
+                    "fewer, _sample() raises IndexError. Neither shows up in a marginal."
+                    .format(where, _label(grp), md, len(grp)))
+        mb = getattr(model, 'bounds', None)
+        # `bounds` is a dict keyed by dim-group when the caller passed an explicit grouping,
+        # and a flat (d,2) array otherwise -- which is what a bare setup() leaves behind, and
+        # what the portfolio's GMM member runs on.  Reading only the dict form made this half
+        # of the check a silent no-op on exactly that path.
+        if isinstance(bounds, dict):
+            gb = bounds.get(grp)
+        elif bounds is not None:
+            try:
+                # _to_host_bounds FIRST: the flat form is built with self.xpy, which is cupy on
+                # a GPU host, and np.asarray() of a device array raises.  Without the hop this
+                # branch lands in the except on exactly the hosts the portfolio's GMM member
+                # runs on, and the skip below is silent -- inert where it was written to work.
+                gb = np.asarray(_to_host_bounds(bounds))[list(grp)]
+            except Exception:
+                gb = None
+        else:
+            gb = None
+        if mb is None or gb is None:
+            if mb is not None:
+                warnings.warn(
+                    "{}[{}]: no comparable bounds for this dim-group; dimension was checked, "
+                    "the box was not.".format(where, _label(grp)), RuntimeWarning)
+            continue
+        try:
+            mb_h = np.asarray(_to_host_bounds(mb), dtype=float).reshape(-1, 2)
+            gb_h = np.asarray(_to_host_bounds(gb), dtype=float).reshape(-1, 2)
+        except Exception:
+            # Unrecognized bounds shape.  The dimension check above still applies, but say so:
+            # the same swallow would otherwise hide a real device-conversion failure, and only
+            # on the hosts that have a device.
+            warnings.warn(
+                "{}[{}]: could not compare bounds ({!r} vs {!r}); dimension was checked, the "
+                "box was not.".format(where, _label(grp), type(mb).__name__, type(gb).__name__),
+                RuntimeWarning)
+            continue
+        # rtol is deliberately loose: a box mismatch worth catching is a factor of two or a
+        # narrowing, never 1e-7.  A tight rtol only turns a float32 round-trip into a
+        # failure an operator has to count digits to understand.
+        if mb_h.shape != gb_h.shape or not np.allclose(mb_h, gb_h, rtol=1e-6, atol=1e-9):
+            raise ValueError(
+                "{}[{}]: seeded model is normalized over {} but the dim-group's box is {}. "
+                "A seed drawn and scored on a different box explores only the overlap and "
+                "shifts lnZ by ln(area ratio), with every marginal still the right shape. "
+                "Re-fit the seed on this run's bounds, or drop it."
+                .format(where, _label(grp), mb_h.tolist(), gb_h.tolist()))
+
+
+def _to_host_bounds(b):
+    """numpy view of a bounds array that may be a list, an ndarray, or on a device."""
+    get = getattr(b, 'get', None)
+    return get() if (get is not None and not isinstance(b, (list, tuple, dict))) else b
+
+
+def _validate_dim_group_cover(gmm_dict, d):
+    """Every integration dimension must belong to exactly one dim-group key of gmm_dict.
+
+    _sample() allocates sample_array with xpy.empty and writes only the columns named by a
+    dim-group.  A dimension missing from gmm_dict therefore carries UNINITIALIZED MEMORY into
+    the integrand and into the prior, with no matching factor in sampling_prior_array -- an
+    unnormalized importance-sampling estimator whose ln Z is arbitrarily wrong while its
+    reported sigma stays small.  A repeated dimension is double-counted the same way.  Neither
+    is recoverable downstream, so refuse the integrator instead of returning a confident wrong
+    number.
+    """
+    if gmm_dict is None:
+        raise ValueError("gmm_dict is None: mcsamplerEnsemble needs a dim-group mapping covering all {} dimensions".format(d))
+    seen = {}
+    empty_keys = []
+    for key in list(gmm_dict):
+        if len(tuple(key)) == 0:
+            empty_keys.append(key)
+            continue
+        for i in tuple(key):
+            i = int(i)
+            if not (0 <= i < d):
+                raise ValueError(
+                    "gmm_dict dim-group {} names dimension {}, outside the {} integration dimensions. "
+                    "Dim-group keys index the sampler's POSITIONAL ARGUMENT order, not params_ordered.".format(
+                        tuple(key), i, d))
+            if i in seen:
+                raise ValueError(
+                    "gmm_dict dimension {} appears in both {} and {}; each dimension must be in exactly one group".format(
+                        i, seen[i], tuple(key)))
+            seen[i] = tuple(key)
+    # An empty key is NOT inert, despite naming no dimension.  _sample() tolerates it (it draws
+    # an (n, 0) block and multiplies the sampling density by prod([]) == 1), but _train() also
+    # iterates gmm_dict and tries to FIT a mixture to that zero-width block: LAPACK raises, the
+    # whole proposal is _reset(), and after enough consecutive chunks integrate() gives up with
+    # "GMM proposal refit failed 5 consecutive times".  Measured on a sharp 3-d target with CIP's
+    # call shape (int n_comp, no gmm_adapt): 4 proposal resets, on this base AND before it.
+    #
+    # CIP manufactures one from a typo: parse_corr_params swallows an unknown parameter name with
+    # a bare `except: continue`, so an --internal-correlate-parameters block naming only unknown
+    # parameters collapses to ().  Refusing the run is too harsh (the remaining groups still cover
+    # every dimension) and warning alone leaves the training failures in place, so DROP the key
+    # and say so.  This mutates the caller's dict on purpose: it is the only way to keep _train
+    # from seeing it, and every consumer reads the group list from here.
+    for key in empty_keys:
+        del gmm_dict[key]
+        warnings.warn(
+            "gmm_dict had an empty dim-group key; it names no dimension and has been dropped. "
+            "It would otherwise make the proposal refit fail and reset. This usually means a "
+            "correlate-parameters block named only parameters that are not being sampled.",
+            RuntimeWarning)
+    missing = sorted(set(range(d)) - set(seen))
+    if missing:
+        raise ValueError(
+            "gmm_dict covers dimensions {} but the integral has {} dimensions; {} are in no dim-group. "
+            "Uncovered dimensions are never sampled (left as uninitialized memory) and make ln Z "
+            "meaningless.  Dim-group keys index the sampler's POSITIONAL ARGUMENT order.".format(
+                sorted(seen), d, missing))
+
+
 class integrator:
     '''
     Class to iteratively perform an adaptive Monte Carlo integral where the integrand
@@ -102,11 +272,16 @@ class integrator:
     def __init__(self, d, bounds, gmm_dict, n_comp, n=None, prior=None,
                 user_func=None, proc_count=None, L_cutoff=None, use_lnL=False,return_lnI=False,gmm_adapt=None,gmm_epsilon=None,tempering_exp=1,temper_log=False,lnw_failure_cut=None,
                 tempering_adapt=False, ess_target=None, ess_floor=None, gmm_adaptive=None,
-                gmm_defensive_frac=0.05, gmm_inflate=1.0):
+                gmm_defensive_frac=0.05, gmm_inflate=1.0, param_names=None):
         # if 'return_lnI' is active, 'integral' holds the *logarithm* of the integral.
         # user-specified parameters
         self.d = d
         self.bounds = bounds
+        # Order matters: validate_gmm_dict reports a SEED that does not match its group, which is
+        # the more specific complaint, and a caller may hand a deliberately partial gmm_dict while
+        # exercising it.  The cover check is the blunter one, so it runs second.
+        validate_gmm_dict(bounds, gmm_dict, param_names=param_names)
+        _validate_dim_group_cover(gmm_dict, d)
         self.gmm_dict = gmm_dict
         self.gmm_adapt = gmm_adapt
         # gmm_adaptive: {dim_group: k_max}.  Groups listed here choose their

@@ -17,6 +17,14 @@
       "decision": "PORT",
       "reason": "Sentinel for the deferred sequential warm-start capture; ports with --sampler-sequential-warmstart."
     },
+    "CONST:_SUPPLEMENT_ARG_ORDER": {
+      "decision": "PORT",
+      "reason": "The --zero-likelihood stand-in, built with the SAME SIGNATURE as the likelihood it replaces and applying a --supplementary-likelihood-factor-*. LISA has the identical shape at both of its `like_to_integrate = zero_like` sites, the same supplementary hook and the same eight-signature likelihood_function, so it carries both defects this replaced: --zero-likelihood silently discards a supplementary factor, and a *args stand-in reports co_argcount 0 to mcsampler, which kills --sampler-method adaptive_cartesian. LISA's two sites additionally still read opts.internal_use_lnL rather than return_lnL as the convention, which is a separate, already-fixed-here defect they would need to take at the same time. Nothing in the helper is ground-based-specific: it is signature plumbing."
+    },
+    "CONST:_SUPPLEMENT_OPTIONAL_KWARGS": {
+      "decision": "PORT",
+      "reason": "The --zero-likelihood stand-in, built with the SAME SIGNATURE as the likelihood it replaces and applying a --supplementary-likelihood-factor-*. LISA has the identical shape at both of its `like_to_integrate = zero_like` sites, the same supplementary hook and the same eight-signature likelihood_function, so it carries both defects this replaced: --zero-likelihood silently discards a supplementary factor, and a *args stand-in reports co_argcount 0 to mcsampler, which kills --sampler-method adaptive_cartesian. LISA's two sites additionally still read opts.internal_use_lnL rather than return_lnL as the convention, which is a separate, already-fixed-here defect they would need to take at the same time. Nothing in the helper is ground-based-specific: it is signature plumbing."
+    },
     "CONST:_TI_LEGACY_BOOLEAN": {
       "decision": "PORT",
       "reason": "Legacy-boolean vocabulary for --interpolate-time. Main (PR #97) now accepts STENCIL NAMES there -- nearest/cubic/sinc -- normalizing into opts._noloop_time_interp, with this tuple for back-compat and an explicit typo guard so a misspelling is not absorbed as falsey. LISA still passes the raw --interpolate-time value straight to the likelihood, so porting means normalizing it AND teaching the LISA time path the stencil name; it travels with _normalize_interpolate_time_argv and _truthy_option."
@@ -72,6 +80,14 @@
     "FUNC:fused_calmarg_in_use": {
       "decision": "NA",
       "reason": "THE predicate for 'will the fused in-loop calibration kernel actually run?', shared by the startup --interpolate-time guard and by use_fused_calmarg at dispatch so the condition has one definition instead of two that drift (it drifted three times in a day before being hoisted). Every one of its terms is a LIGO/Virgo calibration concept -- an envelope directory, a realization count, --calibration-fused-kernel, the responsibilities pilot -- and the LISA driver has NONE of them: it declares no --calibration-* option, never sets cal_method, and models no instrument calibration at all. See the --calibration-* reason. NOT a stencil gap despite being read by the stencil guard: LISA's --interpolate-time is a separate boolean parsed by legacy_time_interpolation_enabled, with no fused kernel to protect. If LISA ever models calibration this predicate is the wrong shape for it, and the thing to port would be the ONE-definition discipline, not this function."
+    },
+    "FUNC:make_zero_likelihood_standin": {
+      "decision": "PORT",
+      "reason": "The --zero-likelihood stand-in, built with the SAME SIGNATURE as the likelihood it replaces and applying a --supplementary-likelihood-factor-*. LISA has the identical shape at both of its `like_to_integrate = zero_like` sites, the same supplementary hook and the same eight-signature likelihood_function, so it carries both defects this replaced: --zero-likelihood silently discards a supplementary factor, and a *args stand-in reports co_argcount 0 to mcsampler, which kills --sampler-method adaptive_cartesian. LISA's two sites additionally still read opts.internal_use_lnL rather than return_lnL as the convention, which is a separate, already-fixed-here defect they would need to take at the same time. Nothing in the helper is ground-based-specific: it is signature plumbing."
+    },
+    "FUNC:make_zero_likelihood_standin._standin_body": {
+      "decision": "PORT",
+      "reason": "The --zero-likelihood stand-in, built with the SAME SIGNATURE as the likelihood it replaces and applying a --supplementary-likelihood-factor-*. LISA has the identical shape at both of its `like_to_integrate = zero_like` sites, the same supplementary hook and the same eight-signature likelihood_function, so it carries both defects this replaced: --zero-likelihood silently discards a supplementary factor, and a *args stand-in reports co_argcount 0 to mcsampler, which kills --sampler-method adaptive_cartesian. LISA's two sites additionally still read opts.internal_use_lnL rather than return_lnL as the convention, which is a separate, already-fixed-here defect they would need to take at the same time. Nothing in the helper is ground-based-specific: it is signature plumbing."
     },
     "OPTION:--calibration-burn-in-neff": {
       "decision": "NA",
@@ -320,6 +336,14 @@
     "OPTION:--limit-right-ascension": {
       "decision": "PORT",
       "reason": "ANSWERED (RO 2026-08-16): LISA and LIGO are never overlapping use cases, so follow the convention already in this driver, document it in the help string, and DO NOT rename the options. VERIFIED that convention is ECLIPTIC: the sampled right_ascension/declination columns flow to P.phi/P.theta and then to lisa_sky_lamda/lisa_sky_beta, i.e. ecliptic longitude/latitude, under the historical key names. So --limit-right-ascension bounds lambda and --limit-declination bounds beta; say exactly that in the help text. Port the post-PR#58 form including the cos(iota)/cos(dec) endpoint swap under the cosine samplers."
+    },
+    "OPTION:--log-noise-evidence-only": {
+      "decision": "NA",
+      "reason": "Writes the fixed-PSD Gaussian noise likelihood from the ground-based detector data_dict/psd_dict and ComplexIP conditioning path. The LISA driver uses a different response and likelihood construction, so this implementation cannot be ported by exposing the same options; a LISA-specific normalization mechanism would need its own convention and implementation."
+    },
+    "OPTION:--log-noise-evidence-output": {
+      "decision": "NA",
+      "reason": "Writes the fixed-PSD Gaussian noise likelihood from the ground-based detector data_dict/psd_dict and ComplexIP conditioning path. The LISA driver uses a different response and likelihood construction, so this implementation cannot be ported by exposing the same options; a LISA-specific normalization mechanism would need its own convention and implementation."
     },
     "OPTION:--n-distance-slice-core": {
       "decision": "NA",

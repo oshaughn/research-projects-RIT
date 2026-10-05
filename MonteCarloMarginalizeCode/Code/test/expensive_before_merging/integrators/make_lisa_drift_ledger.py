@@ -138,6 +138,17 @@ RULES = [
      "Hoisted to module level rather than nested, because this driver has TWO "
      "analyze_event variants. The audit matches FUNC items on the bare name for exactly "
      "this reason."),
+    (r"^(FUNC:make_zero_likelihood_standin(\.[A-Za-z_]+)?|CONST:_SUPPLEMENT_[A-Z_]+)$", "PORT",
+     "The --zero-likelihood stand-in, built with the SAME SIGNATURE as the likelihood it "
+     "replaces and applying a --supplementary-likelihood-factor-*. LISA has the identical "
+     "shape at both of its `like_to_integrate = zero_like` sites, the same supplementary hook "
+     "and the same eight-signature likelihood_function, so it carries both defects this "
+     "replaced: --zero-likelihood silently discards a supplementary factor, and a *args "
+     "stand-in reports co_argcount 0 to mcsampler, which kills --sampler-method "
+     "adaptive_cartesian. LISA's two sites additionally still read opts.internal_use_lnL "
+     "rather than return_lnL as the convention, which is a separate, already-fixed-here "
+     "defect they would need to take at the same time. Nothing in the helper is "
+     "ground-based-specific: it is signature plumbing."),
     (r"^OPTION:--sampler-sequential-warmstart$", "PORT",
      "Warm-start each intrinsic point from the previous one's cloud. Applies whenever "
      "--n-events-to-analyze>1, which LISA supports. Its snapshot/restore prerequisites "
@@ -228,6 +239,14 @@ RULES = [
      "would not shrink a tiny retained record, but only on the copy written to XML. "
      "LISA has the same skip-on-no-shrink and serialization boundary, so port this "
      "with --fairdraw-extrinsic-output-n-max while preserving its larger LISA default."),
+
+    # --------------------------------------------- ground-based noise-only evidence
+    (r"^OPTION:--log-noise-evidence-(only|output)$", "NA",
+     "Writes the fixed-PSD Gaussian noise likelihood from the ground-based detector "
+     "data_dict/psd_dict and ComplexIP conditioning path. The LISA driver uses a "
+     "different response and likelihood construction, so this implementation cannot "
+     "be ported by exposing the same options; a LISA-specific normalization mechanism "
+     "would need its own convention and implementation."),
 
     # ------------------------------------------------------- LIGO/Virgo calibration envelopes
     (r"^OPTION:--calibration-", "NA",

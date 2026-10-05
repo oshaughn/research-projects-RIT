@@ -8,7 +8,7 @@ import pytest
 
 
 BLUEPRINT_DIR = pathlib.Path(__file__).with_name("blueprints")
-SUPPORTED_SERIES = {"0.5", "0.7"}
+SUPPORTED_SERIES = {"0.5", "0.7", "0.8"}
 FUTURE_SERIES = {"0.6"}
 EVENT = "GW190426_190642"
 RIFT_ANALYSIS = "rift-v5PHM-calmarg"
@@ -32,11 +32,11 @@ def _require_supported_asimov():
     if series in FUTURE_SERIES:
         pytest.skip(
             "RIFT Asimov CI is wired for this series, but the integration "
-            "is currently validated against Asimov 0.5 and 0.7"
+            "is currently validated against Asimov 0.5, 0.7, and 0.8"
         )
     if series not in SUPPORTED_SERIES:
         pytest.skip(
-            "RIFT Asimov CI is currently validated against Asimov 0.5 and 0.7 "
+            "RIFT Asimov CI is currently validated against Asimov 0.5, 0.7, and 0.8 "
             f"(found {version})"
         )
     return version

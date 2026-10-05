@@ -6,10 +6,20 @@
 # the census that now keeps that number honest).  Most of those 86 should stay out -- they are
 # hand-run studies, plotting demos, or scripts importing pre-package flat modules that have not
 # existed since RIFT was packaged.  The files below are the ones that should NOT: they are
-# ordinary pytest suites, numpy/scipy/lal/sklearn only, that collect and PASS in seconds, and
-# they guard things that regress SILENTLY -- an evidence accounting, a seeding path, a
-# distance grid, a container manifest, a parameter port.  A wrong number there is still a
-# plausible number.
+# ordinary pytest suites that guard things which regress SILENTLY -- an evidence accounting, a
+# seeding path, a distance grid, a container manifest, a parameter port.  A wrong number there
+# is still a plausible number.
+#
+# That used to read "numpy/scipy/lal/sklearn only, collect and PASS in seconds".  Neither half
+# still describes this manifest.  test_integrator_studies.py runs study scripts as subprocesses
+# for 95-125 s, and test_eos_portfolio_sampler.py / test_cip_portfolio_members.py are the first
+# members to run util_ConstructEOSPosterior.py and
+# util_ConstructIntrinsicPosterior_GenericCoordinates.py END TO END -- an audited import closure
+# of one EOS driver subprocess is 74 non-stdlib top-level packages (igwn_ligolw, h5py, joblib,
+# healpy, corner, numba, pandas ...).  What IS still true, and is the property that matters, is
+# that no member SKIPS its way to green: blocking sklearn, igwn_ligolw or h5py makes those two
+# files FAIL loudly (measured), matplotlib and astropy are soft, and the `import lal` probe
+# below short-circuits the one dependency that would otherwise be ambiguous.
 #
 # The original manifest was run file by file on CIT (IGWN conda python 3.11, numpy 1.26.4,
 # lal 7.7.0) before it was added; the measured collection counts are the floors below.  Later
@@ -57,19 +67,34 @@ FILES=(
   "$C/RIFT/calmarg/test_cal_mc_error.py"
   "$C/RIFT/calmarg/test_seed_fallback.py"
   "$C/test/test_calmarg_calibration.py"
+  "$C/test/test_calmarg_rift_source.py"
   # -- likelihood dispatch
   "$C/RIFT/likelihood/test_td_dispatch_epoch.py"
   "$C/RIFT/likelihood/test_precompute_crossterm_batching.py"
   "$C/test/test_jax_template_finalization.py"
+  # The JAX ILE driver's sim_inspiral export: the file the BasicIteration
+  # terminal extrinsic stage opens.  Only the .dat sidecar was ever written, so
+  # the stage ran and collected nothing -- a loss no build-time check can see.
+  "$C/test/test_jax_ile_extrinsic_xml_export.py"
   "$C/test/test_response_order.py"
   "$C/test/test_ile_scalar_edge_cases.py"
   "$C/test/test_mcsamplerGPU_cdf_inverse_scalar_probe.py"
   "$C/test/test_srate_resample_time_marginalization.py"
   "$C/test/test_vectorized_lal_tools_split.py"
   "$C/test/test_noloop_accumulator_shapes.py"
+  # -- detector-network sky coordinates: direction and inverse round trip
+  "$C/test/test_sky_rotations.py"
+  # -- pseudo_pipe: per-class disk requests reach their own job class
+  "$C/test/test_pseudo_pipe_request_disk.py"
+  # The Bilby-convention noise evidence: its normalization is checked against the
+  # 4/T sum |d|^2/S formula through the real ComplexIP, so a factor of two regresses
+  # loudly instead of shifting every reported log evidence by a plausible amount.
+  "$C/test/test_noise_evidence.py"
   # -- integrators: seeding, allocation, weight derivation
   "$C/test/integrators/test_convergence_sample_order.py"
+  "$C/test/integrators/test_extrinsic_phase_group_uniform.py"
   "$C/test/integrators/test_gmm_adaptive.py"
+  "$C/test/integrators/test_mcsamplerGPU_default_adapt.py"
   "$C/test/integrators/test_portfolio_gmm_member_trains.py"
   "$C/test/integrators/test_portfolio_restrict_and_warm.py"
   # Wraps the five integrator studies as subprocesses (29 s).  They collect nothing
@@ -77,13 +102,22 @@ FILES=(
   "$C/test/integrators/test_integrator_studies.py"
   "$C/test/integrators/test_replica_pooling.py"
   "$C/test/integrators/test_rvs_weight_derivation.py"
+  # -- intrinsic interpolators and AV stopping (PR #382)
+  "$C/test/interpolators/test_av_stopping_metric.py"
+  "$C/test/interpolators/test_cached_matern_gp.py"
+  "$C/test/test_av_host_backend.py"
+  "$C/test/test_av_kish_loop.py"
+  "$C/test/test_matern_gp.py"
   "$C/test/integrators/test_seeding_public_paths.py"
   "$C/test/integrators/test_seeding_reproducibility.py"
   "$C/test/test_mc_error.py"
   # -- CIP / evidence / distance export
   "$C/test/test_cip_evidence_consolidation.py"
   "$C/test/test_cip_pipeline.py"
+  "$C/test/test_eos_posterior_tempering_kwarg.py"
   "$C/test/test_distance_grid.py"
+  "$C/test/test_distance_grid_degenerate_bins.py"
+  "$C/test/test_dgrid_retained_set.py"
   "$C/test/test_distance_tail.py"
   "$C/test/test_dslice_device_native.py"
   # -- hyperpipe (paper4 area; the hydra leg is rostered OPTDEP, not here)
@@ -92,6 +126,9 @@ FILES=(
   "$C/test/hyperpipe/tests/test_drivers.py"
   "$C/test/hyperpipe/tests/test_marg_list.py"
   "$C/test/test_hyperpipeline_io.py"
+  # -- coordinate plugin through the hyperpipe post and puff stages; puffball ranges; CEP
+  # get_bounds.  ~13 tests, about ten driver subprocesses.
+  "$C/test/test_hyperpipe_coordinate_passing.py"
   # -- promoted out of the roster after roster-verify-check caught its reason being false ON
   # THE RUNNER: it was OPTDEP needs:glue,htcondor, and with htcondor absent there it still
   # collected 15 and passed 15.  Confirmed locally with BOTH blocked via a sys.meta_path
@@ -105,12 +142,53 @@ FILES=(
   # importorskips asimov, which CIT has and this job does not, so it collected 15 here and
   # 0 on the runner.  The per-file collection floor below caught that -- see the roster.)
   "$C/test/test_teobresums_compat.py"
+  # -- ILE consolidation precision.  Both DAG builders and BOTH cleaner passes,
+  # in the legacy and hyperpipeline formats; 7 tests, 9 s, subprocesses only.
+  "$C/test/test_cleanile_intrinsic_precision.py"
+  # -- DAG postprocessing must resolve its sibling helpers without relying on the
+  # submit host's PATH, and must fail closed on helper or empty-output failures.
+  # 13 tests, subprocesses only.
+  "$C/test/test_dag_postprocess_fail_closed.py"
+  # -- EOS: --sampler-method portfolio in util_ConstructEOSPosterior.py, which failed on EVERY
+  # invocation -- sampler.setup() was never called, so portfolio_breakpoints stayed None and the
+  # first draw() raised; without --internal-use-lnL it stopped even earlier, in integrate().
+  # 12 tests, ELEVEN DRIVER SUBPROCESSES -- size it by that, not by seconds: wall time on a
+  # shared head node is contention-dominated (the 11-test form measured 134 s on ldas-grid at
+  # load 246; its 6-test predecessor measured 35 s at load 8-21).  Same basis as
+  # test_cleanile_intrinsic_precision.py above.  A static "is setup() called" check would not
+  # do -- see the module docstring for the guard placement that passes one and still skips.
+  "$C/test/test_eos_portfolio_sampler.py"
+  # -- CIP: the portfolio member list handed to mcsamplerPortfolio.  An unrecognized
+  # --sampler-portfolio name following a recognized one used to re-append the SAME sampler
+  # object, which crashed the run in sample_from_bins; and --sampler-portfolio-args was passed
+  # under a misspelt keyword and silently dropped -- delivering it correctly makes a
+  # malformed entry fatal, so the non-dict guard is part of that fix.  4 tests, ~22 s.
+  "$C/test/test_cip_portfolio_members.py"
+  # -- the lnL fill for query rows the coordinate conversion cannot map.  fit_rf and fit_xg
+  # fill nonfinite / |x|>1e37 rows with lnL_default_large_negative, and a sign error made that
+  # fill +500 instead of -500, so any unmappable row the sampler gave prior weight to took the
+  # whole posterior.  Nothing raises on that: the run completes and reports a plausible-looking
+  # posterior over a region the converter failed on.  2 tests, one EOS driver subprocess (a
+  # plugin that returns NaN above xx=0.9) and one CIP driver subprocess
+  # (--downselect-enforce-kerr, which sends Kerr-violating rows to -inf).  Both subprocess
+  # timeouts are 900 s, below this job's cap, per the note in ci.yml.
+  "$C/test/test_fit_nonfinite_floor.py"
+  # -- EOS: the LALSimulation version-compatibility layer.  numpy/lal only; the reviewed
+  # multibranch API is exercised through injected fakes, so this runs on a released build.
+  # Its companion test_lalsim_eos_reviewed_integration.py needs a private reviewed LALSuite
+  # and is rostered EXPENSIVE.
+  "$C/test/test_lalsim_eos_compat.py"
   # -- packaging / config contracts / waveform conventions
   "$C/test/test_advanced_parameter_ports.py"
   "$C/test/test_container_manifest.py"
   "$C/test/test_lisa_ini_contract.py"
   "$C/test/test_tracer_placement_gp.py"
   "$C/test/waveforms/test_uv_symmetry.py"
+  "$C/test/test_complex_overlap_interpolate_max.py"
+  # -- coordinates: vectorized in-plane spin / ring coordinates agree with extract_param
+  "$C/test/test_ring_coordinates.py"
+  # -- coordinates: source_redshift gives detector-frame values, vectorized vs extract_param
+  "$C/test/test_convert_coordinates_source_redshift.py"
 )
 
 # A manifest entry that stops existing is a SILENT no-op: the gate keeps passing while
@@ -163,6 +241,135 @@ done
 #            fed odeint's float probe to len(x) pdfs; the t_ref wiring in all three ILE drivers)
 #   378/366  + test_response_order.py (8 tests: SNR tightening, Halton independence,
 #            compound-axis semantics, reference resolution/tail charging, and bank preflight)
+#   414/402  + test_lalsim_eos_compat.py (27 tests: the LALSimulation EOS version-compatibility
+#            layer -- released one-argument family API vs the reviewed multibranch API through
+#            injected fakes, branch selection and its mass bounds, and the CIP fixed-EOS support
+#            mask).  MEASURED on CIT (ldas-grid) 2026-09-14, IGWN conda python 3.11 / numpy
+#            1.26.4 / lal 7.7.0: per-file 414 over 41 files, 12 skipped, 0 failed.  That run's
+#            junit reported 417/405 because pytest-subtests was present in it; per the rule
+#            below the floors stay pinned to the PLUGIN-FREE per-file count, 414/402.
+#   387/375  + test_cleanile_intrinsic_precision.py (7 tests: --clean-ile-intrinsic-digits
+#            through the legacy join/unify, through the hyperpipeline cleaner pair, and
+#            through the multi-approximant builder's three cleaner passes).  MEASURED on CIT
+#            2026-09-14, IGWN conda python 3.11 / numpy 1.26.4 / lal 7.7.0: per-file 387 over
+#            40 files, junit 390 / 12 skipped / 378 passed.  390 and 378 are the counts WITH
+#            pytest-subtests, which that environment happens to have; the floors below stay
+#            pinned to the plugin-free 387/375 for the reason given above.
+#   420/408  + test_noise_evidence.py (6 tests: the Bilby fixed-PSD noise evidence -- network
+#            sum and sign against stubs, plus the real lalsimutils.ComplexIP against the
+#            4/T sum |d|^2/S formula written out by hand, which is the only check that can
+#            see a factor of two).  MEASURED on CIT (citlogin6) 2026-09-14, IGWN conda
+#            python 3.11 / lal 7.7.0: per-file 420 over 42 files, junit 423 / 12 skipped /
+#            411 passed -- 423 and 411 are the pytest-subtests counts, floors stay plugin-free.
+#   497/485  + test_distance_grid_degenerate_bins.py and test_dgrid_retained_set.py (the
+#            .dgrid retained-set work: degenerate bins, the reserve every fair-drawing
+#            integrator now keeps, and the export decision itself), and 4 tests added to
+#            test_distance_grid.py's neighbours.  MEASURED on CIT (ldas-grid) 2026-09-14,
+#            IGWN conda python 3.11 / numpy 1.26.4: junit 500 / 12 skipped / 488 passed,
+#            of which 3 are subtests -- so the plugin-free floors are 497/485.  Set to the
+#            plugin-free pair, per the rule below; a first attempt used the junit numbers
+#            and would have pinned this gate to an environment that happens to carry
+#            pytest-subtests.
+#
+#   438/426  + test_jax_ile_extrinsic_xml_export.py (18 tests: the JAX ILE driver's
+#            sim_inspiral export -- the filename convert_extr opens, row count and column
+#            round trip against the .dat sidecar, every --mode theta layout plus an explicit
+#            refusal for one with no mapping, and the p/ps columns the resampler divides by).
+#            MEASURED on CIT (ldas-grid, cupy import FAILS there so this is the numpy
+#            backend) 2026-09-14, IGWN conda python 3.11 / numpy 1.26.4 / lal 7.7.0:
+#            per-file 438 over 43 files, junit 441 / 12 skipped / 429 passed.  441 and 429
+#            carry 3 subtest entries; the floors stay pinned to the plugin-free 438/426.
+#
+#   455/443  test_jax_ile_extrinsic_xml_export.py grew from 18 tests to 35, for the
+#            adversarial review of that export: the prior columns both resamplers divide
+#            by (the AV weighted-cloud pair and the fair-drawn cancellation), per-file
+#            sample_n row numbering, the loud XML skip that keeps the .dat, and the 5-D
+#            --phase-marginalization layout a surviving mutant exposed.  No file added.
+#            MEASURED on CIT (ldas-grid; `import cupy` FAILS there, so this is the numpy
+#            backend) 2026-09-15, IGWN conda python 3.11 / lal 7.7.1: per-file 455 over
+#            43 files, junit 458 collected / 446 passed / 12 skipped / 0 failed.  458 and
+#            446 carry 3 subtest entries; the floors stay pinned to the plugin-free
+#            455/443.  The gate PASSED at the old 438/426 floor, which is the
+#            under-coverage this roster exists to catch, not a reason to leave it.#
+#   MERGED   rift_O4d (the .dgrid retained-set floors above) into the JAX-ILE
+#            sim_inspiral export branch.  Each side raised this floor over a file set the
+#            other had changed, so neither number nor their sum describes the merged tree.
+#            RE-MEASURED on the merged tree, per the rule this roster already states.
+#            MEASURED on CIT (ldas-grid; `import cupy` FAILS there, so this is the numpy
+#            backend) 2026-09-15, IGWN conda python 3.11 / lal 7.7.1: per-file 543 over
+#            46 files, junit 546 collected / 534 passed / 12 skipped / 0 failed.  546 and
+#            534 carry 3 subtest entries, so the floors are the plugin-free 543/531.
+#            Note 543 is 29 ABOVE 497+17, the two raises added together: the base added
+#            test files beyond the two named above, so summing would have pinned this gate
+#            29 tests below its real coverage while still passing.
+#
+#   557/544  test_eos_posterior_tempering_kwarg.py added (14 tests: the EOS driver must send
+#            the sampler tempering_exp, not the argparse spelling adapt_weight_exponent).
+#            MEASURED on CIT (ldas-grid; `import cupy` FAILS there, so this is the numpy
+#            backend) 2026-09-15, IGWN conda python 3.11 / lal 7.7.0, with
+#            RIFT_COREUNIT_PYTHON pointed at the IGWN interpreter: per-file 557 over 47
+#            files, junit 560 collected / 547 passed / 13 skipped / 0 failed.  560 and 547
+#            carry 3 subtest entries, so the floors are the plugin-free 557/544.
+#            (A first run under the default `python` reported numpy 1.14.3 and 33 files
+#            collecting 0 tests.  That measures the interpreter, not the tree; set
+#            RIFT_COREUNIT_PYTHON before quoting a count from this gate.)
+#
+#   568/555  test_eos_portfolio_sampler.py added (11 tests: --sampler-method portfolio in
+#            util_ConstructEOSPosterior.py failed on EVERY invocation because sampler.setup()
+#            was never called).  Runs the driver as a subprocess, so it is one of the slower
+#            members.  MEASURED on CIT (ldas-grid; `import cupy` FAILS there, so this is the
+#            numpy backend) 2026-09-15, IGWN conda python 3.11 / lal 7.7.0, with
+#            RIFT_COREUNIT_PYTHON pointed at the IGWN interpreter: per-file 568 over 48 files,
+#            junit 571 collected / 558 passed / 13 skipped / 0 failed.  The 3 of slack between
+#            these floors and the junit numbers is the pytest-subtests margin documented below,
+#            not spare room.
+#
+#   573/560  test_cip_portfolio_members.py added (4 tests) and test_eos_portfolio_sampler.py
+#            gained its fit-method case (11 -> 12).  Guards the portfolio member list
+#            util_ConstructIntrinsicPosterior_GenericCoordinates.py hands to mcsamplerPortfolio:
+#            an unrecognized --sampler-portfolio name used to re-append the SAME sampler object
+#            and kill the run in sample_from_bins, and --sampler-portfolio-args rode in under a
+#            misspelt keyword and was silently dropped.  Runs the CIP driver as a subprocess.
+#            MEASURED on CIT (ldas-grid; `import cupy` FAILS there, so this is the numpy
+#            backend) 2026-09-15, IGWN conda python 3.11 / lal 7.7.0, with
+#            RIFT_COREUNIT_PYTHON pointed at the IGWN interpreter: per-file 573 over 49 files,
+#            junit 576 collected / 563 passed / 13 skipped / 0 failed.  Again 3 of
+#            pytest-subtests margin, not spare room.
+#
+#   600/587  test_complex_overlap_interpolate_max.py added (8 tests: ComplexOverlap.ip
+#            interpolate_max vertex, incl. peaks at index 0 and N-1).  MEASURED on CIT
+#            (ldas-grid; numpy backend) 2026-09-30, IGWN conda python 3.11 / lal 7.7.0, with
+#            RIFT_COREUNIT_PYTHON pointed at the IGWN interpreter: per-file 600 over 52 files,
+#            junit 603 collected / 590 passed / 13 skipped / 0 failed.
+#
+#   613/600  test_ring_coordinates.py added (7 tests: vectorized in-plane spin and ring
+#            coordinates, phi12, chi_p_vec, object-array input, Kerr rule), merged with
+#            test_complex_overlap_interpolate_max.py above.  MEASURED on CIT (ldas-grid; numpy
+#            backend) 2026-09-30, IGWN conda python 3.11 / lal 7.7.0, with RIFT_COREUNIT_PYTHON
+#            pointed at the IGWN interpreter: junit 616 collected / 603 passed / 13 skipped /
+#            0 failed, of which 3 are subtests.
+#
+#   653/640  test_hyperpipe_coordinate_passing.py added (13 tests: coord module through the
+#            hyperpipe post and puff stages, puffball name:[lo,hi] ranges and reflection, CEP
+#            get_bounds), together with the PR #202 port's CIP changes.  MEASURED on CIT
+#            (ldas-grid; `import cupy` FAILS there, numpy backend) 2026-10-03, IGWN conda python
+#            3.11, RIFT_COREUNIT_PYTHON pointed at the IGWN interpreter: junit 656 collected /
+#            643 passed / 13 skipped / 0 failed, of which 3 are subtests.
+#   656/643  review of #383: +3 tests in test_hyperpipe_coordinate_passing.py (16 collected,
+#            ldas-grid collect-only 2026-10-03), none skipped.
+#   658/645  + test_fit_nonfinite_floor.py (2 tests, neither skipped: the EOS route through a
+#            NaN-returning coordinate plugin, and the CIP route through
+#            --downselect-enforce-kerr).  The file defines exactly two test_* functions, has no
+#            parametrization and no skip or xfail marks, so the raise is +2/+2 over the row
+#            above; the per-file collection loop below is what confirms it on the runner, and it
+#            fails rather than reports if that is wrong.
+#            MEASURED on CIT (ldas-grid; `import cupy` FAILS there) 2026-10-03, IGWN conda
+#            python 3.11: junit 661 collected / 648 passed / 13 skipped / 0 failed, 3 subtests.
+#   671/658  + test_dag_postprocess_fail_closed.py (13 tests, none skipped: the ILE and NR
+#            postprocess wrappers run as subprocesses under a sanitized PATH with stub helpers).
+#            MEASURED on CIT (citlogin6; `import cupy` FAILS there) 2026-10-04, IGWN conda
+#            python 3.11: junit 676 collected / 663 passed / 13 skipped / 0 failed, 3 subtests.
+#            The 2 above 671/658 come from base tests added after the 658/645 measurement.
 #
 # RAISE these when files are added: a floor left at the old value passes while covering less,
 # which is the failure this gate exists to catch.
@@ -177,14 +384,35 @@ done
 # direction that matters: 350 >= 347 passes today, and if pytest-subtests ever leaves the
 # runner's closure the count falls back to 347 and still passes.  Pinning 350 would turn an
 # unrelated dependency change into a red gate.
-# Two XML/grid template-finalization regressions, with no added skips.
-EXPECTED_TESTS=380
+# The detector-network sky mapping adds two passing tests and no skips.
+# test_ring_coordinates.py adds two more, no skips.  RE-MEASURED with it on CIT (ldas-grid;
+# `import cupy` FAILS there, numpy backend) 2026-09-30, IGWN conda python 3.11 / lal 7.7.0:
+# per-file 600, junit 603 collected / 590 passed / 13 skipped / 0 failed, of which 3 are
+# subtests.  So the plugin-free floors are 600/587; the old 592/579 sat 6 below the tree.
+# Review of #377 added five more ring-coordinate tests, no skips (605/592 measured).
+# test_complex_overlap_interpolate_max.py (#375) adds 8 passing tests and no skips.
+# Merged with #375: 613/600 (see the table above).
+# test_dag_postprocess_fail_closed.py adds 13 passing tests and no skips.
+# PR #382 merged with rift_O4d 7062023d, measured ldas-pcdev11 2026-10-04 with
+# CUDA_VISIBLE_DEVICES='': junit 698 collected / 683 passed, 3 of them subtests -> 695/680.
+# (pcdev11 has one extra host skip, cupy-importable in test_eos_posterior_tempering_kwarg.)
+# test_convert_coordinates_source_redshift.py adds 16 passing tests and no skips.
+EXPECTED_TESTS=711
 # Outcomes, not just exit status: a collection floor cannot see a test that collects, runs and
-# asserts nothing, and a pytest.skip can quietly absorb a lost gate.  The 12 skips are
+# asserts nothing, and a pytest.skip can quietly absorb a lost gate.  The 13 skips are
 # environment legs -- cupy in test_seeding_reproducibility, device legs in
-# test_dslice_device_native, and the xfail in test_uv_symmetry.
-EXPECTED_PASSED=368
-MAX_SKIPPED=12
+# test_dslice_device_native, the nflows leg of
+# test_eos_posterior_tempering_kwarg::test_integrators_read_tempering_exp_from_kwargs
+# (mcsamplerNFlow is an optional dependency and is absent from the IGWN environment), and
+# the xfail in test_uv_symmetry.  test_eos_portfolio_sampler.py adds 12 tests and
+# test_cip_portfolio_members.py 4, none of them skips.
+# test_fit_nonfinite_floor.py adds 2 tests and no skips: both routes run unconditionally, so a
+# missing dependency there FAILS the driver subprocess rather than skipping the check.
+# test_dag_postprocess_fail_closed.py adds 13 tests and no skips.
+# test_convert_coordinates_source_redshift.py adds 16 tests and no skips.
+EXPECTED_PASSED=696
+# PR #382: +1 skip, the CuPy leg of test_cached_matern_gp.py (no GPU on the CI runner).
+MAX_SKIPPED=14
 
 # The floors must be INTEGERS, and this is checked rather than assumed.  `[ 347 -lt FOO ]` does
 # not fail the build: bash prints "integer expression expected", returns 2, and the `if` is

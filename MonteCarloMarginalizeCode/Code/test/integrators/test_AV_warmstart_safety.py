@@ -24,10 +24,16 @@ import numpy as np
 
 import benchmark_integrators as B
 from RIFT.integrators import mcsamplerAdaptiveVolume as AV
+from RIFT.integrators.seeding import seed_everything
 
 
 def _run(target, warm=None, nmax=200000, neff=1500, n_chunk=10000, seed=1234):
-    np.random.seed(seed)
+    # The samplers draw through their array backend, which is cupy on a GPU
+    # host; numpy.random.seed does not reach cupy's generator, so seeding only
+    # numpy would leave this run drawing from uncontrolled device state.  Seed
+    # every backend before the sampler is built, so a seed means the same thing
+    # on CPU and on GPU.
+    seed_everything(seed, verbose=False)
     s = AV.MCSampler(n_chunk=n_chunk)
     for i, p in enumerate(target.params):
         w = target.rlim[i] - target.llim[i]

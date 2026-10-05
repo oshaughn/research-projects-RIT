@@ -34,8 +34,7 @@ member (a GMM/mcsamplerEnsemble) down to the ~1% floor.
 This test builds AV(decoy) + GMM(broad) on a correlated-Gaussian target where a
 cold AV converges, and checks:
   * OLD estimator -> badly biased low,
-  * NEW estimator -> statistically consistent with the true integral at its
-    measured Monte Carlo uncertainty,
+  * NEW estimator -> a mean over independent runs agrees with the true integral,
   * and a no-regression control: a NORMAL portfolio (cold AV + GMM, both sane)
     stays unbiased under the NEW estimator.
 
@@ -45,10 +44,14 @@ Usage:
 """
 from __future__ import print_function
 import argparse
+import json
 import numpy as np
+import subprocess
+import sys
 
 import benchmark_integrators as B
 from RIFT.integrators import mcsamplerAdaptiveVolume as AVmod
+from RIFT.integrators.seeding import seed_everything
 from RIFT.integrators import mcsamplerEnsemble as Emod
 from RIFT.integrators import mcsamplerPortfolio as Pmod
 
@@ -161,7 +164,12 @@ def build_portfolio(target, n_chunk, decoy=None, broad_gmm=True):
 
 def run(target, n_chunk, nmax, neff, use_mixture, decoy=None, seed=1234,
         tempering_exp=0.3, verbose=False):
-    np.random.seed(seed)
+    # The samplers draw through their array backend, which is cupy under the GPU
+    # invocation this file documents; numpy.random.seed does not reach cupy's
+    # generator, so seeding only numpy would leave each replicate below drawing
+    # from uncontrolled device state.  Seed every backend before the members are
+    # built, so a seed means the same thing on CPU and on GPU.
+    seed_everything(seed, verbose=False)
     port, members = build_portfolio(target, n_chunk, decoy=decoy)
     ln_f = _host_lnfunc(target)
     lnI, logvar, eff, _ = port.integrate_log(
@@ -170,6 +178,11 @@ def run(target, n_chunk, nmax, neff, use_mixture, decoy=None, seed=1234,
         tempering_exp=tempering_exp, floor_level=0.0, use_lnL=True,
         save_intg=True, verbose=verbose,
         portfolio_use_mixture_density=use_mixture,
+        # The stratified arm is the POINT of this study: it exists to exhibit the bias that
+        # q_mix removes.  mcsamplerPortfolio now refuses that estimator unless the caller says
+        # in as many words that a biased evidence is what they want, so say it -- for the
+        # stratified arm only, so the q_mix arms stay under the guard.
+        portfolio_allow_stratified_density=(not use_mixture),
         # This test isolates the q_mix ESTIMATOR under a PINNED pathological allocation (the decoy
         # AV is frozen and, in the stratified case, dominates).  Adaptive-probe allocation would
         # dynamically re-allocate away from the decoy and change the scenario, so pin it off here;
@@ -178,10 +191,29 @@ def run(target, n_chunk, nmax, neff, use_mixture, decoy=None, seed=1234,
     lnI = float(B._asnumpy(lnI))
     ln_wt = B.log_weights_from_rvs(port._rvs)
     return dict(lnI=lnI, bias=lnI - float(target.true_lnZ),
-                sigma_over_I=float(np.exp(0.5 * float(B._asnumpy(logvar)) - lnI)),
                 n_eval=int(getattr(port, "ntotal", 0)) or nmax,
                 n_ess=B.n_ess_kish(ln_wt),
                 final_weights=np.array(port.portfolio_weights))
+
+
+def _isolated_decoy_run(args, seed):
+    """Run each low-ESS estimate with fresh sampler and library process state."""
+    cmd = [sys.executable, __file__, "--decoy-new-only",
+           "--ndim", str(args.ndim), "--nmax", str(args.nmax),
+           "--neff", str(args.neff), "--n-chunk", str(args.n_chunk),
+           "--seed", str(seed)]
+    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                          text=True, timeout=900)
+    if proc.returncode:
+        raise RuntimeError("isolated decoy run exited {}:\n{}".format(
+            proc.returncode, proc.stdout[-3000:]))
+    marker = "ISOLATED_DECOY_RESULT="
+    rows = [line[len(marker):] for line in proc.stdout.splitlines()
+            if line.startswith(marker)]
+    if len(rows) != 1:
+        raise RuntimeError("isolated decoy run omitted its result:\n{}".format(
+            proc.stdout[-3000:]))
+    return json.loads(rows[0])
 
 
 def main():
@@ -193,6 +225,11 @@ def main():
     ap.add_argument("--seed", type=int, default=1234)
     ap.add_argument("--verbose", action="store_true")
     ap.add_argument("--as-test", action="store_true")
+    ap.add_argument("--replicates", type=int, default=15,
+                    help="decoy-arm replicate seeds used by --as-test (see gate 2)")
+    ap.add_argument("--gate-nats", type=float, default=0.5,
+                    help="gate 2 threshold on |mean log bias|, in nats")
+    ap.add_argument("--decoy-new-only", action="store_true", help=argparse.SUPPRESS)
     args = ap.parse_args()
 
     target = PeakPlusPlateau(ndim=args.ndim)
@@ -212,8 +249,24 @@ def main():
     kw = dict(n_chunk=args.n_chunk, nmax=args.nmax, neff=args.neff,
               seed=args.seed, verbose=args.verbose)
 
+    if args.decoy_new_only:
+        result = run(target, use_mixture=True, decoy=decoy, **kw)
+        print("ISOLATED_DECOY_RESULT=" + json.dumps({
+            "bias": float(result["bias"]), "n_ess": float(result["n_ess"]),
+            "final_weights": result["final_weights"].tolist()}))
+        return
+
     old = run(target, use_mixture=False, decoy=decoy, **kw)   # legacy stratified
-    new = run(target, use_mixture=True,  decoy=decoy, **kw)   # balance heuristic
+    # A single decoy run has only a handful of effective covering draws.  Its
+    # within-run logvar can miss the much larger variation from one adaptive
+    # run to the next (the fixed seed failed at 5.87 quoted sigma on Linux).
+    # Replicate the estimator in fresh processes: seeding fixes the RNG streams,
+    # but not the sampler and library state a long-lived interpreter accumulates.
+    n_repeats = max(int(args.replicates), 1) if args.as_test else 1
+    new_runs = ([_isolated_decoy_run(args, args.seed + i)
+                 for i in range(n_repeats)] if args.as_test else
+                [run(target, use_mixture=True, decoy=decoy, **kw)])
+    new = new_runs[0]
     ctl = run(target, use_mixture=True,  decoy=None, **kw)    # no-regression control
 
     print("\nDECOY portfolio  (AV seeded at decoy + broad GMM):")
@@ -235,18 +288,51 @@ def main():
         if not (old["bias"] < -0.7):
             print(" FAIL: old stratified estimator not badly biased low ({:+.3f}); "
                   "decoy not exercised".format(old["bias"])); ok = False
-        # 2. The covering GMM receives only about 1% of draws.  The resulting
-        #    decoy run can have single-digit n_ess, where a fixed 0.20-log-unit
-        #    threshold rejects ordinary Monte Carlo fluctuations.  Compare the
-        #    known integral to the run's own uncertainty in linear Z units.
-        #    The no-decoy control below retains its tighter absolute gate.
-        new_zscore = abs(1.0 - np.exp(-new["bias"])) / new["sigma_over_I"]
-        if not np.isfinite(new_zscore) or new_zscore > 3.0:
-            print(" FAIL: new q_mix estimator differs from truth by {:.2f} sigma"
-                  " (bias {:+.3f}, sigma/I {:.3f})".format(
-                      new_zscore, new["bias"], new["sigma_over_I"])); ok = False
+        # 2. FIXED ABSOLUTE THRESHOLD ON THE MEAN LOG BIAS, not a z-score.
+        #
+        # Two earlier forms of this gate flaked.  A single-run z-score against the
+        # run's own sigma_over_I failed 22% of seeds (measured, 40 runs of this
+        # script on CIT): at n_ess ~ 7 the reported sigma understates the true
+        # run-to-run spread by 1.63x, so the denominator is wrong in exactly the
+        # arm that needs it.  Replacing it with a z-score on the LINEAR mean over 9
+        # replicates still failed 9.7% (bootstrap over 60 measured runs), because
+        # Z_hat/Z is right-skewed (skew +0.72) and its 30% band is only ~1.7 SEM
+        # wide.  Both forms divide by, or compare against, a scatter estimate built
+        # from a handful of heavy-tailed draws.
+        #
+        # The log bias is close to normal (skew +0.12) and its replicate mean obeys
+        # the sqrt(R) law (measured: block-mean sd 0.165 over 10 blocks of 10, vs
+        # 0.514/sqrt(10) = 0.163).  So gate the MEAN LOG BIAS against a fixed
+        # threshold in nats.  It references no scatter estimate, so large scatter
+        # cannot buy a pass, and it is an absolute accuracy requirement.
+        #
+        # Sizing, bootstrapped over 60 independent runs measured on CIT:
+        #   R=15, 0.5 nats -> 0.11% false failure, 99.1% power against a true
+        #   0.7-nat low bias.  Single-run sd of the log bias is 0.514 nats.
+        #
+        # DO NOT replace this with a z-score, and do not widen the threshold to
+        # clear a PR.  If it fires, run it over several seeds before believing it.
+        #
+        # Each replicate runs in a FRESH PROCESS (_isolated_decoy_run).  That is
+        # required, not tidiness: scipy's mvnun, used to normalize each GMM
+        # component in gmm.score, carries its own RNG that np.random.seed cannot
+        # reach, so repeating this arm inside one interpreter changes the answer
+        # (+0.186, -0.711, -0.572, +1.057 on four consecutive calls at one seed).
+        log_biases = np.array([float(r["bias"]) for r in new_runs])
+        mean_log_bias = float(np.mean(log_biases))
+        ratios = np.exp(log_biases)
+        mean_ratio = float(np.mean(ratios))
+        spread = float(np.std(log_biases, ddof=1)) if len(log_biases) > 1 else float("nan")
+        print("  independent q_mix runs (R={}): mean log bias={:+.3f} nats  "
+              "sd={:.3f}  mean Z/Z_true={:.3f}".format(
+                  len(log_biases), mean_log_bias, spread, mean_ratio))
+        print("  per-replicate log bias: {}".format(np.round(log_biases, 3)))
+        if not np.isfinite(mean_log_bias) or abs(mean_log_bias) > args.gate_nats:
+            print(" FAIL: mean q_mix log bias {:+.3f} nats over {} replicates "
+                  "exceeds {:.2f}".format(
+                      mean_log_bias, len(log_biases), args.gate_nats)); ok = False
         # 3. the new estimator must be dramatically better than the old
-        if not (abs(new["bias"]) < abs(old["bias"]) - 0.5):
+        if not (abs(mean_log_bias) < abs(old["bias"]) - 0.5):
             print(" FAIL: q_mix did not fix the decoy bias"); ok = False
         # 4. no regression: normal portfolio stays unbiased under q_mix
         if abs(ctl["bias"]) > 0.20:
@@ -254,10 +340,11 @@ def main():
                   "({:+.3f})".format(ctl["bias"])); ok = False
         if not ok:
             raise SystemExit(1)
-        print("\n PASS: q_mix balance heuristic is consistent with the true "
-              "integral at {:.2f} sigma with a decoy member (old {:+.3f} -> "
-              "new {:+.3f}); control bias {:+.3f}.".format(
-                  new_zscore, old["bias"], new["bias"], ctl["bias"]))
+        print("\n PASS: mean q_mix log bias {:+.3f} nats over {} replicates "
+              "(threshold {:.2f}) with a decoy member; old bias {:+.3f}; "
+              "control bias {:+.3f}.".format(
+                  mean_log_bias, len(log_biases), args.gate_nats,
+                  old["bias"], ctl["bias"]))
 
 
 if __name__ == "__main__":

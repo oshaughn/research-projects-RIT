@@ -93,7 +93,7 @@ def _base_meta():
     }
 
 
-def _render(meta):
+def _render_context(meta):
     production = types.SimpleNamespace(
         name=meta["name"],
         meta=meta,
@@ -115,6 +115,11 @@ def _render(meta):
             "condor": {"user": "riftci"},
         },
     }
+    return context
+
+
+def _render(meta):
+    context = _render_context(meta)
     rendered = _liquid_render(TEMPLATE.read_text(), context)
     assert "{{" not in rendered
     assert "{%" not in rendered
@@ -338,3 +343,99 @@ def test_rift_liquid_template_use_jax_ile_defaults_false_and_follows_ledger():
     meta["sampler"]["ile"]["use jax ile"] = True
     _rendered, parser = _render(meta)
     assert parser.get("rift-pseudo-pipe", "use-jax-ile").strip() == "True"
+
+
+def test_rift_liquid_template_gp_matern_opt_in_preserves_default():
+    import shlex
+
+    meta = _base_meta()
+    _rendered, default = _render(meta)
+    assert default.get("rift-pseudo-pipe", "cip-fit-method") == '\"rf\"'
+    assert not default.has_option("rift-pseudo-pipe", "manual-extra-cip-args")
+    assert not default.has_option("rift-pseudo-pipe", "internal-cip-request-gpus")
+
+    meta["sampler"]["cip"].update({
+        "fitting method": "gp-matern",
+        "prediction backend": "cupy",
+        "gp matern max train points": 4800,
+        "gp matern optimizer maxiter": 25,
+        "gp matern seed": 25062842,
+        "av stop metric": "kish",
+        "runtime image": "osdf:///igwn/cit/staging/example/gp.sif",
+        "request memory": 8192,
+        "request gpus": 1,
+        "require gpus": "Capability >= 6.0 && Capability < 9.0",
+        "explode jobs": 8,
+        "explode jobs auto": False,
+        "manual extra args": ["--internal-use-lnL", "--n-eff 2500", "--n-output-samples 2500", "--n-max 100000000"],
+    })
+    meta["sampler"]["n output samples"] = 2500
+    meta["sampler"]["n output samples last"] = 2500
+    _rendered, parser = _render(meta)
+    section = "rift-pseudo-pipe"
+    assert parser.get(section, "cip-fit-method").strip('\"') == "gp-matern"
+    args = shlex.split(parser.get(section, "manual-extra-cip-args"))
+    expected = {
+        "--gp-predict-backend": "cupy",
+        "--gp-matern-max-train-points": "4800",
+        "--gp-matern-optimizer-maxiter": "25",
+        "--gp-matern-seed": "25062842",
+        "--av-stop-metric": "kish",
+        "--n-eff": "2500",
+        "--n-output-samples": "2500",
+        "--n-max": "100000000",
+    }
+    assert args.count("--internal-use-lnL") == 1
+    for flag, value in expected.items():
+        assert args.count(flag) == 1
+        assert args[args.index(flag) + 1] == value
+    assert parser.getint(section, "cip-explode-jobs") == 8
+    assert not parser.getboolean(section, "cip-explode-jobs-auto")
+    assert parser.get(section, "internal-cip-singularity-image").strip("'\"") == "osdf:///igwn/cit/staging/example/gp.sif"
+    assert parser.getint(section, "internal-cip-request-memory") == 8192
+    assert parser.getint(section, "internal-cip-request-gpus") == 1
+    assert parser.get(section, "internal-cip-require-gpus").strip("'\"") == "Capability >= 6.0 && Capability < 9.0"
+    assert parser.getint(section, "n-output-samples") == 2500
+    assert parser.getint(section, "n-output-samples-last") == 2500
+    assert parser.getboolean(section, "internal-cip-use-lnL")
+
+
+def _render_text(template_text, meta):
+    global TEMPLATE
+    saved = TEMPLATE
+    TEMPLATE = types.SimpleNamespace(read_text=lambda: template_text)
+    try:
+        return _render(meta)[0]
+    finally:
+        TEMPLATE = saved
+
+
+def test_rift_liquid_template_silent_ledger_is_byte_identical_to_base():
+    # Reconstruct the pre-PR CIP block: fixed rf fit method and no opt-in GP/resource lines.
+    text = TEMPLATE.read_text()
+    start = text.index("{%- comment %} Opt-in GP controls")
+    stop = text.index("#\n# Internal settings")
+    base = text[:start].rstrip("\n") + "\n" + text[stop:]
+    base = base.replace("cip-fit-method=\"{{ sampler['cip']['fitting method'] | default: 'rf' }}\"", 'cip-fit-method="rf"')
+    assert base != text
+    meta = _base_meta()
+    assert _render_text(text, meta) == _render_text(base, meta)
+@pytest.mark.parametrize("mode,expected", [
+    (None, None), ("auto", "auto"), ("off", "off"), (False, "off"), (True, "physics3"),
+    ("physics3", "physics3")])
+def test_rift_liquid_template_transverse_spin_opt_in(mode, expected):
+    # A silent ledger must render exactly what the template renders without the RF block.
+    meta = _base_meta()
+    if mode is not None:
+        meta["sampler"]["cip"]["transverse spin coordinates"] = mode
+    rendered, parser = _render(meta)
+    if expected is None:
+        assert not parser.has_option("rift-pseudo-pipe", "rf-transverse-spin-coordinates")
+        text = TEMPLATE.read_text()
+        start = text.index("{%- comment %} RF transverse-spin")
+        end = text.index("{%- endif %}\n{%- endif %}\n", start) + len("{%- endif %}\n{%- endif %}\n")
+        base = _liquid_render(text[:start].rstrip("\n") + "\n" + text[end:], _render_context(meta))
+        assert rendered == base
+    else:
+        assert parser.get("rift-pseudo-pipe", "rf-transverse-spin-coordinates") == '"%s"' % expected
+    assert parser.get("rift-pseudo-pipe", "cip-fit-method") == '"rf"'

@@ -25,7 +25,8 @@ ILE args, and a deterministic randomized sweep over key scalar options.
 It does not submit jobs or require production frame/calibration storage.
 
 The RIFT Asimov integration is tested against the legacy Asimov `0.5` series
-and the plugin-based `0.7` series.  Unsupported API series skip cleanly.
+and the plugin-based `0.7` and `0.8` series. Unsupported API series skip
+cleanly.
 
 The bundled blueprints are small snapshots of the current public Asimov data
 repository (`https://git.ligo.org/asimov/data`) chosen to avoid live network

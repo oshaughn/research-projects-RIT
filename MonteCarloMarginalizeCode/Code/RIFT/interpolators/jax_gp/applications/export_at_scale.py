@@ -499,7 +499,9 @@ def build_sampling(spec, fit_names, spin_modes=None):
                     for c in comps:
                         if c.endswith("z"):
                             s = theta[nidx[c]]
-                            lp = lp + jnp.log(-jnp.log(jnp.abs(s) / R + 1e-7))
+                            # clamp, do not offset: '+1e-7' makes the inner log
+                            # POSITIVE at |s|=R, so the outer log returns NaN there
+                            lp = lp + jnp.log(-jnp.log(jnp.maximum(jnp.abs(s) / R, 1e-7)))
         return lp
 
     def to_fit(theta):

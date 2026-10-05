@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # The RIFT Asimov plugin is validated against the legacy 0.5 series and the
-# plugin-based 0.7 series. Unsupported API series skip cleanly in pytest.
+# plugin-based 0.7 and 0.8 series. Unsupported API series skip cleanly in pytest.
 # Bootstrap-source selection ("scheduler: bootstrap file:") is driven against a stub
 # production rather than a project on disk, so it lives outside asimov_integration/.
 # It still needs asimov importable, and this is the only lane that installs it, so run
@@ -11,4 +11,5 @@ set -euo pipefail
 python -m pytest -q \
     MonteCarloMarginalizeCode/Code/test/asimov_integration \
     MonteCarloMarginalizeCode/Code/test/test_asimov_compatibility.py \
-    MonteCarloMarginalizeCode/Code/test/test_asimov_bootstrap_source.py
+    MonteCarloMarginalizeCode/Code/test/test_asimov_bootstrap_source.py \
+    MonteCarloMarginalizeCode/Code/test/test_asimov_rift_ledger_options.py

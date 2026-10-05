@@ -1,3 +1,10 @@
+# Hand-run demo of the mcsampler API, not a pytest target (hence demo_, not test_):
+# everything here runs at import and it defines no test functions.  It writes
+# test_fig_0.png into the current directory.
+#
+# The mcsamplerGPU section here carries a NORMALIZED prior, so integrate() returns a
+# prior-weighted average rather than a raw integral; the printed reference values divide
+# by the width of the range to match.
 
 import numpy as np
 from matplotlib import pylab as plt
@@ -111,22 +118,26 @@ print("Integral of 1 over this range, using a normalized prior, must be 1 ", [sa
 
 
 
-# PROBLEM
-#   - mcsamplerGPU weird normalization factor, ends up getting a magic 'sigma' factor somehow?
+# Note this sampler was built with a NORMALIZED prior (prior_pdf = 1/2.5), so integrate()
+# returns  \int L(x) p(x) dx , the prior-weighted average, not  \int L(x) dx .  The answer
+# is therefore smaller than sqrt(2 pi) sigma by the width of the range -- that is the
+# factor of 2.5, not a bug in the sampler.  (The two mcsampler sections above use an
+# unnormalized prior of 1, so there the two agree.)
 samplerPrior.reset_sampling('x')
 sig = 0.1
 fac=1
 n_eff_stop=5000
+expected = fac*np.sqrt(2*np.pi)*sig/(samplerPrior.rlim['x'] - samplerPrior.llim['x'])
 print(" -- Performing integral of non-normalized gaussian, stopping after neff = {} points -- ".format(n_eff_stop))
 res, var,  neff, dict_return = samplerPrior.integrate(np.vectorize(lambda x: fac*np.exp(-x**2/(2*sig**2))), 'x', nmax=5*1e4, full_output=True,neff=n_eff_stop,verbose=True)
-print(" integral answer is ", res,  " with expected error ", np.sqrt(var), ";  compare to ", fac* np.sqrt(2*np.pi)*sig)
-print(" note neff is ", neff, "; compare neff^(-1/2) = ", 1/np.sqrt(neff), " to relative predicted and actual errors: ", np.sqrt(var)/res, ", ",  (res - np.sqrt(2*np.pi)*sig)/res)
+print(" integral answer is ", res,  " with expected error ", np.sqrt(var), ";  compare to ", expected)
+print(" note neff is ", neff, "; compare neff^(-1/2) = ", 1/np.sqrt(neff), " to relative predicted and actual errors: ", np.sqrt(var)/res, ", ",  (res - expected)/res)
 
 
 samplerPrior.reset_sampling('x')
 #sig = 0.1
 tempering_exp=0.2
 print(" -- repeat test, but with tempering_exp active -- ")
-res, var,  neff, dict_return = samplerPrior.integrate(np.vectorize(lambda x: np.exp(-x**2/(2*sig**2))), 'x', nmax=5*1e4, full_output=True,neff=n_eff_stop,gmm_dict=gmm_dict,tempering_exp=tempering_exp)
-print(" integral answer is ", res,  " with expected error ", np.sqrt(var), ";  compare to ", np.sqrt(2*np.pi)*sig)
-print(" note neff is ", neff, "; compare neff^(-1/2) = ", 1/np.sqrt(neff), " to relative predicted and actual errors: ", np.sqrt(var)/res, ", ",  (res - np.sqrt(2*np.pi)*sig)/res)
+res, var,  neff, dict_return = samplerPrior.integrate(np.vectorize(lambda x: np.exp(-x**2/(2*sig**2))), 'x', nmax=5*1e4, full_output=True,neff=n_eff_stop,tempering_exp=tempering_exp)
+print(" integral answer is ", res,  " with expected error ", np.sqrt(var), ";  compare to ", expected)
+print(" note neff is ", neff, "; compare neff^(-1/2) = ", 1/np.sqrt(neff), " to relative predicted and actual errors: ", np.sqrt(var)/res, ", ",  (res - expected)/res)

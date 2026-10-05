@@ -41,6 +41,7 @@ import benchmark_integrators as B
 from RIFT.integrators import mcsamplerAdaptiveVolume as AVmod
 from RIFT.integrators import mcsamplerEnsemble as Emod
 from RIFT.integrators import mcsamplerPortfolio as Pmod
+from RIFT.integrators.seeding import seed_everything
 
 
 class CompoundCorrelatedGaussian(B.CorrelatedGaussian):
@@ -135,7 +136,12 @@ def build(target, members, n_chunk):
 
 
 def run(target, members, n_chunk, nmax, seed=1234):
-    np.random.seed(seed)
+    # The samplers draw through their array backend, which is cupy on a GPU
+    # host; numpy.random.seed does not reach cupy's generator, so seeding only
+    # numpy would leave this run drawing from uncontrolled device state.  Seed
+    # every backend before the sampler is built, so a seed means the same thing
+    # on CPU and on GPU.
+    seed_everything(seed, verbose=False)
     port = build(target, members, n_chunk)
     lnI, _, eff, _ = port.integrate_log(
         _host_lnfunc(target), *target.params, no_protect_names=True,

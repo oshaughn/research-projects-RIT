@@ -319,7 +319,16 @@ def run(kind, target, nmax=200000, neff=1000, n_chunk=10000, tempering_exp=0.1,
                  before integrate(), used to seed prior information (cold-vs-warm).
     """
     if seed is not None:
-        np.random.seed(seed)
+        # The sampler built below draws through its array backend, which is cupy
+        # on a GPU host ("AC"/"AV" resolve to cupy whenever it is available), and
+        # numpy.random.seed does not touch cupy's generator.  Seeding numpy alone
+        # therefore left a run that ASKED for a seed drawing from uncontrolled
+        # device state.  Seed every backend, so `seed` means the same thing on CPU
+        # and on GPU.  seed=None still leaves every RNG alone, as before.
+        # Imported here, not at module scope: this module keeps its RIFT import
+        # lazy (see build_sampler) so the targets can be used without RIFT.
+        from RIFT.integrators.seeding import seed_everything
+        seed_everything(seed, verbose=False)
     s, backend = build_sampler(kind, target, n_chunk=n_chunk)
     ln_f = target.as_lnfunc()
     f = target.as_func()

@@ -178,10 +178,6 @@ def unit_like(*args,**kwargs):
   return xpy_default.ones(len(arg0))
 
 
-def sampler_param_tuple(sampler,args):
-  param_list = sampler.params_ordered
-  return tuple( [param_list.index(x) for x in args])
-
 
 ####################### Option parsing ###################################
 optp = OptionParser()
@@ -312,6 +308,7 @@ integration_params.add_option("--internal-use-lnL",action='store_true',help="lik
 integration_params.add_option("--sampler-method",default="adaptive_cartesian_gpu",help="adaptive_cartesian|GMM|adaptive_cartesian_gpu")
 integration_params.add_option("--sampler-portfolio",default=None,action='append',type=str,help="comma-separated strings, matching sampler methods other than portfolio")
 integration_params.add_option("--sampler-portfolio-args",default=None, action='append', type=str, help='eval-able dictionaryo to be passed to that sampler')
+integration_params.add_option("--sampler-portfolio-allow-stratified-density",action='store_true',default=False,help="Accept a portfolio whose members cannot form the balance-heuristic mixture density q_mix -- i.e. run the legacy stratified per-member estimator even when a member has not declared that its sampling density is normalized.  THE EVIDENCE IS THEN BIASED (measured 0.753772 on a constant integrand whose exact ln Z is 1.386294).  Without this the portfolio refuses at setup.  Exists so an unusual member combination, in particular a plugin from RIFT.integrator_plugins, is recoverable without editing RIFT; do not use it for production evidence.")
 # Portfolio freeze/allocation policy.  Pure pass-through to the shared portfolio sampler.
 # Definitions copied verbatim from bin/integrate_likelihood_extrinsic_batchmode; pinned by
 # test_lisa_sampler_plumbing.py.
@@ -838,6 +835,19 @@ if opts.internal_rotate_phase:
   param_limits['psi'] = (0, 4*numpy.pi)
   param_limits['phi_orb'] = (0, 4*numpy.pi)
 
+# Angle priors are derived from the FULL sampling range of each periodic angle, captured here
+# before any --limit-* box narrows param_limits.  The old prior_pdf for psi was the fixed
+# constant mcsampler.uniform_samp_psi = 1/pi, written for [0, pi), while psi is sampled on
+# (0, 2 pi) so that --internal-rotate-phase can use (phi+psi, phi-psi) coordinates.  That
+# prior integrated to 2 (4 with the rotation, whose (0, 4 pi) phi_orb range doubled the fixed
+# 1/(2 pi) phi prior as well), so every reported lnZ carried +ln 2 (+ln 8 rotated).  The
+# likelihood is periodic in both angles and each sampled range covers whole periods, so a
+# prior normalized on the sampled range gives the lnZ of a prior normalized on one period.
+# Under a --limit-psi box the density stays 1/(full range): the same convention as the sky
+# and inclination boxes, which scale lnZ by the box's prior fraction and are not renormalized.
+psi_prior_range = (param_limits["psi"][0], param_limits["psi"][1])
+phi_orb_prior_range = (param_limits["phi_orb"][0], param_limits["phi_orb"][1])
+
 #
 # Parameter integral sampling strategy
 #
@@ -951,8 +961,9 @@ else:
 
 #
 # Psi -- polarization angle
-# sampler: uniform in [0, pi)
+# sampler: uniform over psi_prior_range ((0, 2 pi) by default); prior 1/(range), which integrates to 1
 #
+psi_prior_pdf = mcsampler.ret_uniform_samp_vector_alt(psi_prior_range[0], psi_prior_range[1])
 psi_sampler = mcsampler.ret_uniform_samp_vector_alt( 
     param_limits["psi"][0], param_limits["psi"][1])
 psi_sampler_cdf_inv = functools.partial(mcsampler.uniform_samp_cdf_inv_vector, 
@@ -962,7 +973,7 @@ sampler.add_parameter("psi",
     cdf_inv = psi_sampler_cdf_inv, 
     left_limit = param_limits["psi"][0], 
     right_limit = param_limits["psi"][1],
-    prior_pdf = mcsampler.uniform_samp_psi,
+    prior_pdf = psi_prior_pdf,
     adaptive_sampling=opts.internal_rotate_phase or opts.force_adapt_all)
 
 #
@@ -979,7 +990,7 @@ if not (opts.distance_marginalization and lookup_table["phase_marginalization"])
         cdf_inv = phi_sampler_cdf_inv,
         left_limit = param_limits["phi_orb"][0], 
         right_limit = param_limits["phi_orb"][1],
-        prior_pdf = mcsampler.uniform_samp_phase,
+        prior_pdf = mcsampler.ret_uniform_samp_vector_alt(phi_orb_prior_range[0], phi_orb_prior_range[1]),
         adaptive_sampling=opts.internal_rotate_phase or opts.force_adapt_all)
 
 
@@ -1483,31 +1494,53 @@ use_gmm_args = (opts.sampler_method == "GMM") or use_gmm_member
 if use_gmm_args:   # standalone GMM, or a portfolio carrying a GMM member
     n_step =pinned_params["n"]
     n_max_blocks = ((1.0*int(opts.n_max))/n_step)
+    # cannot pin params at present
+    # unpinned params MUST be full call signature of likelihood, IN ORDER.  This has to be
+    # settled BEFORE the dim-group keys below, which index it -- see dim_group_frame().
+    if not(opts.time_marginalization):
+      unpinned_params =['right_ascension','declination', 't_ref','phi_orb','inclination','psi','distance']
+    else:
+      unpinned_params =['right_ascension','declination', 'phi_orb','inclination','psi','distance']
+    if opts.distance_marginalization:
+      unpinned_params.remove('distance')
+      if lookup_table["phase_marginalization"]:
+        unpinned_params.remove('phi_orb')
+    # Same frame split as the main ILE driver: a standalone GMM is driven through
+    # sampler.integrate(func, *unpinned_params), a portfolio GMM member through setup() +
+    # draw_simplified(n, *params_ordered).  Keys built from params_ordered named the wrong
+    # dimensions for the standalone case, and the three named groups below cover six dimensions,
+    # so a seventh (t_ref) was in no group at all and was drawn from uninitialized memory.
+    gmm_frame = mcsamplerEnsemble.dim_group_frame(sampler, unpinned_params,
+                                                 driven_by_integrate=not use_gmm_member)
+
+    def gmm_param_tuple(names):
+      return tuple([gmm_frame.index(x) for x in names if x in gmm_frame])
     # pairing coordinates for adaptive integration: see definition of order below
     #    (distance,inclination)
     #    (ra, dec)
     #    (psi) (orb_phase)   # only do 1d adaptivity there, 
 #    gmm_dict = {tuple([2]):None,tuple([4]):None,(3,5):None,(0,1):None} 
 #    comp_dict = {tuple([2]):1,tuple([4]):1,(3,5):3,(0,1):4} 
-    default_phipsi = mcsamplerEnsemble.create_wide_single_component_prior( [ param_limits['psi'], param_limits['phi_orb']])
-#    pair_sky = sampler_param_tuple(sampler, ['right_ascension','declination'])
-    pair_ra_dec =   sampler_param_tuple(sampler, ["right_ascension", "declination"])
+    # (psi, phi_orb) starts from the UNIFORM proposal: MonteCarloEnsemble._sample() reads a
+    # None entry as "draw this group uniformly over its bounds".  See the block at the end of
+    # RIFT/integrators/mcsamplerEnsemble.py for the seed that used to be wired in here.
+    pair_ra_dec =   gmm_param_tuple(["right_ascension", "declination"])
     n_d =  2  # 2 distance-inclination lobes by default
     n_sky = 4
     n_phase =4
     adapt_phase = False
-    if 'distance' in sampler.params:
-         pair_d_incl = sampler_param_tuple(sampler, ['distance','inclination'])
+    if 'distance' in gmm_frame:
+         pair_d_incl = gmm_param_tuple(['distance','inclination'])
     else:
-         pair_d_incl = sampler_param_tuple(sampler, ['inclination'])
+         pair_d_incl = gmm_param_tuple(['inclination'])
          n_d = 1 # one peak in distance by default
-    if 'phi_orb' in sampler.params:
-         pair_phi_psi = sampler_param_tuple(sampler, ['psi', "phi_orb"])
+    if 'phi_orb' in gmm_frame:
+         pair_phi_psi = gmm_param_tuple(['psi', "phi_orb"])
     else:
-         pair_phi_psi = sampler_param_tuple(sampler, ['psi'])
+         pair_phi_psi = gmm_param_tuple(['psi'])
          adapt_phase = True
          n_phase = 2
-    gmm_dict = {pair_ra_dec:None,pair_d_incl:None,pair_phi_psi:default_phipsi} 
+    gmm_dict = {pair_ra_dec:None,pair_d_incl:None,pair_phi_psi:None} 
     gmm_adapt = {pair_ra_dec: True, pair_d_incl: True, pair_phi_psi: False}
     if opts.internal_rotate_phase:
       gmm_adapt[pair_phi_psi] = True
@@ -1516,6 +1549,16 @@ if use_gmm_args:   # standalone GMM, or a portfolio carrying a GMM member
 #        n_sky=2  # presumably we have localized better, avoid failure modes
 #    comp_dict = {tuple([2]):1,tuple([4]):1,(3,5):3,tuple([0]):n_sky,tuple([1]):n_sky} 
     comp_dict = {pair_ra_dec:n_sky,pair_d_incl:n_d,pair_phi_psi:n_phase} 
+    # adapt_default tracks --force-adapt-all so the leftover group matches the others.  NOTE the
+    # main driver's reason for this does NOT apply here: that one has a gmm_adaptive (BIC) block
+    # whose ordering matters, and this fork has no --internal-gmm-adaptive-components at all, so
+    # the sweep below sets every group True regardless and this is cosmetic.  Kept only so the
+    # two drivers read the same way.
+    for _k in mcsamplerEnsemble.complete_dim_group_cover(gmm_dict, len(gmm_frame),
+                                                         comp_dict=comp_dict, gmm_adapt=gmm_adapt,
+                                                         adapt_default=bool(opts.force_adapt_all)):
+      print("GMM: dimension {} ({}) had no dim-group; added as its own uncorrelated group".format(
+          _k[0], gmm_frame[_k[0]]))
     extra_args = {'n_comp':comp_dict,'max_iter':n_max_blocks,'gmm_dict':gmm_dict, 'gmm_adapt':gmm_adapt}  # made up for now, should adjust
     print("GMM:",extra_args)
     print("GMM:",sampler.params_ordered)
@@ -1535,17 +1578,6 @@ if use_gmm_args:   # standalone GMM, or a portfolio carrying a GMM member
         for param in gmm_adapt:
             gmm_adapt[param] = True
     pinned_params.update(extra_args)
-
-    # cannot pin params at present
-    # unpinned params MUST be full call signature of likelihood, IN ORDER
-    if not(opts.time_marginalization):
-      unpinned_params =['right_ascension','declination', 't_ref','phi_orb','inclination','psi','distance']
-    else:
-      unpinned_params =['right_ascension','declination', 'phi_orb','inclination','psi','distance']
-    if opts.distance_marginalization:
-      unpinned_params.remove('distance')
-      if lookup_table["phase_marginalization"]:
-        unpinned_params.remove('phi_orb')
 if opts.sampler_method == "AV":
   return_lnL=True
   pinned_params.update( { 'enforce_bounds':True})  # don't go out of range : choose integer bin sizes
@@ -1593,7 +1625,7 @@ if use_portfolio:
       if opts.portfolio_probe_period is not None:
           _freeze_policy_kwargs['portfolio_probe_period'] = opts.portfolio_probe_period
       print(" PORTFOLIO freeze-policy overrides: ", _freeze_policy_kwargs)
-      sampler.setup(portfolio_args=opts.sampler_portfolio_args, **_freeze_policy_kwargs, **pinned_params) # directly pass all parameters set above to low-level portfolios.  In particular, GMM setup
+      sampler.setup(portfolio_args=opts.sampler_portfolio_args, portfolio_allow_stratified_density=opts.sampler_portfolio_allow_stratified_density, **_freeze_policy_kwargs, **pinned_params) # directly pass all parameters set above to low-level portfolios.  In particular, GMM setup
 
 # initialize sampler, before we call integrate, so we can seed it
 if opts.sampler_method == 'adaptive_cartesian_gpu' and opts.skymap_file:
@@ -2967,10 +2999,10 @@ def analyze_event_LISA(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_
       sampler.reset_sampling('inclination')
     elif use_gmm_args:   # standalone GMM or a portfolio with a GMM member (gmm_dict exists in both)
       if 'distance' in sampler.params:
-         pair_d_incl = sampler_param_tuple(sampler, ['distance','inclination'])
+         pair_d_incl = gmm_param_tuple(['distance','inclination'])
          if  pair_d_incl in gmm_dict:
             gmm_dict[pair_d_incl] = None # reset inclination/distance sampling
-      single_incl = sampler_param_tuple(sampler, ['inclination'])
+      single_incl = gmm_param_tuple(['inclination'])
       if (opts.distance_marginalization) and single_incl in gmm_dict:
         gmm_dict[single_incl] = None # reset inclination sampling
     print("\n###########################################################################################\nIntegrating\n###########################################################################################")
@@ -3713,10 +3745,10 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_spec_
       sampler.reset_sampling('inclination')
     elif use_gmm_args:   # standalone GMM or a portfolio with a GMM member (gmm_dict exists in both)
       if 'distance' in sampler.params:
-         pair_d_incl = sampler_param_tuple(sampler, ['distance','inclination'])
+         pair_d_incl = gmm_param_tuple(['distance','inclination'])
          if  pair_d_incl in gmm_dict:
             gmm_dict[pair_d_incl] = None # reset inclination/distance sampling
-      single_incl = sampler_param_tuple(sampler, ['inclination'])
+      single_incl = gmm_param_tuple(['inclination'])
       if (opts.distance_marginalization) and single_incl in gmm_dict:
         gmm_dict[single_incl] = None # reset inclination sampling
 

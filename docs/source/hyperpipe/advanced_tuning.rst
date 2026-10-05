@@ -54,6 +54,35 @@ post-stage executable — the same convention that
 ``util_ConstructEOSPosterior.py`` already uses. Existing CIP coordinate
 modules (e.g. for neutron-star EOS inference) are reusable without change.
 
+Coordinate-module options and the puff stage
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``coord-function``, ``coord-ini`` and ``coord-chart`` set
+``--supplementary-coordinate-{function,ini,chart}``.  Older configs that put
+these flags in ``post.extra-args`` keep working; give them one way or the
+other, not both.
+
+``coord-input-parameters`` names the data-file columns the module maps from,
+e.g. ``"x y z"``.  Grid and posterior files are always written in these
+columns.  Set it when ``coords-fit`` names the module's *outputs*, say
+``"u v w"``.  The puff stage then gets the module and its options.  It puffs
+in ``(u, v, w)`` and maps the result back to ``(x, y, z)``.  The convergence
+test reads ``(x, y, z)``.  Without the key, both stages are handed ``u v w``
+as file columns.
+
+``puff.coord-basis`` takes three values.  ``auto`` does the above.
+``file`` always uses the data-file columns and no module.  ``plugin`` puffs in
+the module's output basis even when the MC samples file columns, as in a
+``coords-implied``/``coords-nofit`` config.  Every puff-basis name with a ``coords-sample`` range is passed to
+the puff as a downselect range.
+
+A coordinate module may also define
+``get_bounds(coord_names, ranges, **kwargs)`` returning
+``{name: [lo, hi]}`` in the sampling basis.  ``--get-range-from-external``
+(post and puffball) uses it; ``--external-range-args key=value`` supplies the
+keyword arguments.  Command-line ranges win, and an error in the hook stops
+the run.
+
 Parsimonious-placement Tracer Workflow
 --------------------------------------
 

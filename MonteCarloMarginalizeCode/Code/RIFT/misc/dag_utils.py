@@ -688,7 +688,7 @@ def write_CIP_single_iteration_subdag(cip_worker_job,it,unique_postfix,subdag_di
 
 
 
-def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-ILE-samples',universe="vanilla",out_dir=None,log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=8192,request_memory_flex=False, arg_vals=None, no_grid=False,request_disk=False, transfer_files=None,transfer_output_files=None,use_singularity=False,use_osg=False,use_oauth_files=False,use_simple_osg_requirements=False,singularity_image=None,max_runtime_minutes=None,condor_commands=None,**kwargs):
+def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-ILE-samples',universe="vanilla",out_dir=None,log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=8192,request_memory_flex=False,request_gpus=0,require_gpus=None, arg_vals=None, no_grid=False,request_disk=False, transfer_files=None,transfer_output_files=None,use_singularity=False,use_osg=False,use_oauth_files=False,use_simple_osg_requirements=False,singularity_image=None,max_runtime_minutes=None,condor_commands=None,**kwargs):
     """
     Write a submit file for launching jobs to marginalize the likelihood over intrinsic parameters.
 
@@ -807,6 +807,15 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
             ile_job.add_condor_cmd('environment', default_resolved_env)
         else:
             ile_job.add_condor_cmd('getenv', default_getenv_value)
+    if not isinstance(request_gpus, int) or request_gpus < 0:
+        raise ValueError("CIP request_gpus must be a nonnegative integer")
+    if request_gpus:
+        ile_job.add_condor_cmd('request_gpus', str(request_gpus))
+        ile_job.add_condor_cmd('request_cpus', '1')
+        if require_gpus:
+            ile_job.add_condor_cmd('require_gpus', str(require_gpus))
+    elif require_gpus:
+        raise ValueError("CIP require_gpus needs a positive GPU request")
     if not(request_memory_flex):
         ile_job.add_condor_cmd('request_memory', str(request_memory)+"M") 
     if request_memory_flex:
@@ -850,7 +859,7 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
            ile_job.add_condor_cmd("when_to_transfer_output",'ON_EXIT')
 
            # Stream log info
-           if not ('RIFT_NOSTREAM_LOG' in os.environ):
+           if not ('RIFT_NOSTREAM_LOG' in os.environ) and 'RIFT_NOSTREAM_LOG_CIP' not in os.environ:
                ile_job.add_condor_cmd("stream_error",'True')
                ile_job.add_condor_cmd("stream_output",'True')
 
@@ -860,10 +869,19 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
 
     ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
 
-    # Stream log info: always stream CIP error, it is a critical bottleneck
-    if True: # not ('RIFT_NOSTREAM_LOG' in os.environ):
+    # Stream log info: always stream CIP error, it is a critical bottleneck (opt out: RIFT_NOSTREAM_LOG_CIP)
+    if 'RIFT_NOSTREAM_LOG_CIP' not in os.environ:
         ile_job.add_condor_cmd("stream_error",'True')
         ile_job.add_condor_cmd("stream_output",'True')
+
+    # Shared local images require an explicit local-pool opt-in for CIP too.
+    if os.environ.get('RIFT_CIP_FLOCK_LOCAL', '').lower() in ('1', 'true'):
+        ile_job.add_condor_cmd('MY.flock_local', 'true')
+    if os.environ.get('RIFT_CIP_POOLS'):
+        pools = os.environ['RIFT_CIP_POOLS']
+        if not all(c.isalnum() or c in '_,-' for c in pools):
+            raise ValueError('RIFT_CIP_POOLS must be a comma-separated pool list')
+        ile_job.add_condor_cmd('MY.POOLS', '"{}"'.format(pools))
 
     try:
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])

@@ -220,4 +220,10 @@ def test_assembly_block_is_identical_to_the_main_drivers():
 def test_assembly_result_is_actually_handed_to_setup():
     """Building the dict and not passing it would be a silent no-op."""
     src = _src(_LISA)
-    assert "sampler.setup(portfolio_args=opts.sampler_portfolio_args, **_freeze_policy_kwargs" in src
+    # Substring rather than a full-line match: the call gained
+    # portfolio_allow_stratified_density between these two arguments, and pinning the whole
+    # line makes every future kwarg addition a spurious failure here.  What this gate is for is
+    # that the assembled dict REACHES setup(), so assert the two pieces that carry that.
+    assert "sampler.setup(portfolio_args=opts.sampler_portfolio_args" in src
+    assert "**_freeze_policy_kwargs" in src.split("sampler.setup(")[1].split(")")[0] + ")", \
+        "the assembled freeze-policy kwargs are no longer passed to sampler.setup()"

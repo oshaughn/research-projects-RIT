@@ -8,6 +8,9 @@ Overview
 
 The EOS manager is designed to provide a consistent interface for querying critical neutron star properties, such as the tidal deformability $\Lambda$ and the mass-radius relationship, regardless of the underlying EOS representation.
 
+The released/multibranch LALSimulation and NuclearMatter-Backend compatibility
+rules are recorded in ``docs/eos-interface-contract.md``.
+
 Core Classes
 -------------
 

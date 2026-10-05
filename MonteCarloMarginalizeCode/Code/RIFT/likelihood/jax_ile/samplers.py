@@ -34,7 +34,6 @@ Run the self-test (builds the standard synthetic injection, no frames needed)::
         python RIFT/likelihood/jax_ile/samplers.py
 """
 
-import functools
 import os
 
 import numpy as np
@@ -833,19 +832,30 @@ def cluster_modes(theta, min_sep=0.5):
 # Evidence helpers (same math as the bin/ driver)
 # ---------------------------------------------------------------------------
 def evidence_from_logweights(logw):
-    """``(logZ, sigma/Z, neff)`` for ``Z = E[w]`` from log importance weights."""
-    logw = np.asarray(logw)
-    fin = np.isfinite(logw)
-    logw = logw[fin]
+    """``(logZ, sigma/Z, neff)`` for ``Z = E[w]`` from log importance weights.
+
+    A proposal draw outside prior support has log weight ``-inf`` and contributes
+    zero to the integral, but it still counts in the proposal draw count.  Dropping
+    it before taking the mean conditions on support and biases ``Z`` upward.
+    NaN or ``+inf`` weights instead invalidate the estimate.
+    """
+    logw = np.asarray(logw, dtype=float)
     if logw.size == 0:
         return -np.inf, np.inf, 0.0
-    m = np.max(logw)
-    w = np.exp(logw - m)
-    n = len(w)
-    Zhat = np.mean(w)
-    logZ = m + np.log(Zhat)
-    sigma_over_Z = np.sqrt(np.var(w) / n) / Zhat
-    neff = (np.sum(w) ** 2) / np.sum(w ** 2)
+    if np.any(np.isnan(logw) | np.isposinf(logw)):
+        return np.nan, np.nan, 0.0
+    fin = np.isfinite(logw)
+    if not np.any(fin):
+        return -np.inf, np.inf, 0.0
+    m = np.max(logw[fin])
+    w = np.exp(logw[fin] - m)
+    n = logw.size  # includes zero-weight, out-of-support proposal draws
+    sum_w = np.sum(w)
+    sum_w2 = np.sum(w * w)
+    mean_w = sum_w / n
+    logZ = m + np.log(mean_w)
+    sigma_over_Z = np.sqrt(max(sum_w2 / n - mean_w ** 2, 0.0) / n) / mean_w
+    neff = sum_w ** 2 / sum_w2
     return logZ, sigma_over_Z, neff
 
 
@@ -2429,27 +2439,15 @@ def _av_prior_draw(order, n, rng, d_min, d_max, sample_bounds=None,
     return np.column_stack([draws[name] for name in order])
 
 
-@functools.lru_cache(maxsize=32)
-def _pseudo_cosmo_norm(d_min, d_max):
-    from RIFT.likelihood import priors_utils
-    return float(priors_utils.dist_prior_pseudo_cosmo_eval_norm(d_min, d_max))
-
-
 def _av_distance_prior_draw(n, rng, lo, hi, d_min, d_max, distance_prior):
     """Draw a distance prior conditioned on the declared sampling interval."""
     key = str(distance_prior or "euclidean").strip().lower()
     if key in ("euclidean", "volumetric"):
         return np.cbrt(rng.uniform(lo ** 3, hi ** 3, n))
-    if key != "pseudo_cosmo":
+    from RIFT.likelihood.jax_ile import distance_prior as _distance_prior
+    if key not in _distance_prior.GRID_DISTANCE_PRIORS:
         raise ValueError("unsupported JAX-AV distance prior %r" % distance_prior)
-    # This is proposal initialization only.  A dense deterministic inverse CDF
-    # is ample here; the estimator itself uses the analytic prior density below.
-    from RIFT.likelihood import priors_utils
-    grid = np.linspace(float(lo), float(hi), 4097)
-    pdf = np.asarray(priors_utils.dist_prior_pseudo_cosmo(
-        grid, nm=_pseudo_cosmo_norm(float(d_min), float(d_max))), dtype=float)
-    cdf = np.concatenate(([0.0], np.cumsum(0.5 * (pdf[1:] + pdf[:-1]) * np.diff(grid))))
-    return np.interp(rng.uniform(0.0, cdf[-1], int(n)), cdf, grid)
+    return _distance_prior.grid_distance_prior_object(key).sample(n, rng, lo, hi)
 
 
 def _av_prior_spec(name, d_min, d_max, sample_d_min=None, sample_d_max=None,
@@ -2471,15 +2469,16 @@ def _av_prior_spec(name, d_min, d_max, sample_d_min=None, sample_d_max=None,
         spec = (0.0, 2.0 * _TWO_PI,
                 lambda x: np.ones(np.shape(x)) / (2.0 * _TWO_PI))
     elif name == "distMpc":
+        from RIFT.likelihood.jax_ile import distance_prior as _distance_prior
         key = str(distance_prior or "euclidean").strip().lower()
         if key in ("euclidean", "volumetric"):
             norm = 3.0 / (float(d_max) ** 3 - float(d_min) ** 3)
             density = lambda x, _norm=norm: _norm * np.asarray(x) ** 2
-        elif key == "pseudo_cosmo":
-            from RIFT.likelihood import priors_utils
-            norm = _pseudo_cosmo_norm(float(d_min), float(d_max))
-            density = lambda x, _norm=norm: priors_utils.dist_prior_pseudo_cosmo(
-                np.asarray(x), nm=_norm, xpy=np)
+        elif key in _distance_prior.GRID_DISTANCE_PRIORS:
+            pr = _distance_prior.grid_distance_prior_object(key)
+            ln_norm = pr.log_mass(float(d_min), float(d_max))
+            density = lambda x, _pr=pr, _ln=ln_norm: np.exp(
+                _pr.log_density_unnormalized(np.asarray(x, dtype=float)) - _ln)
         else:
             raise ValueError("unsupported JAX-AV distance prior %r" % distance_prior)
         spec = (float(d_min if sample_d_min is None else sample_d_min),
@@ -2658,7 +2657,8 @@ def adaptive_volume_sample(like, d_min, d_max, sampler_method="AV",
                            seed_prior_frac=0.1, anisotropic_bins=True,
                            gmm_components=2,
                            verbose=False, sample_d_min=None, sample_d_max=None,
-                           sample_bounds=None, distance_prior="euclidean"):
+                           sample_bounds=None, distance_prior="euclidean",
+                           portfolio_adaptive_alloc=False):
     """Run production AV/portfolio control logic on a value-only JAX likelihood.
 
     ``sampler_method`` is ``AV`` or ``portfolio``.  The optional ``fisher-sky``
@@ -2666,12 +2666,18 @@ def adaptive_volume_sample(like, d_min, d_max, sampler_method="AV",
     Hessians); all integration calls use only ``like.log_likelihood``.  Portfolio
     defaults to AV+GMM so its defensive mixture retains full support even when the
     seeded AV live volume covers only selected sky modes.
+    ``portfolio_adaptive_alloc=True`` opts into the integrator's existing
+    global-impact allocation with periodic member probes. This can keep a
+    full-support GMM from being starved after AV contracts; the default remains
+    the previously validated portfolio schedule.
     """
     from RIFT.integrators import mcsamplerAdaptiveVolume as AV
 
     method = str(sampler_method)
     if method not in ("AV", "portfolio"):
         raise ValueError("sampler_method must be 'AV' or 'portfolio', got %r" % method)
+    if portfolio_adaptive_alloc and method != "portfolio":
+        raise ValueError("portfolio_adaptive_alloc requires sampler_method='portfolio'")
     order = _av_param_order(like)
     n_dim = len(order)
     resolved_bounds = _av_sample_bounds(
@@ -2764,6 +2770,8 @@ def adaptive_volume_sample(like, d_min, d_max, sampler_method="AV",
     numpy_rng_state = np.random.get_state()
     np.random.seed(int(seed))
     try:
+        allocation_kwargs = ({"portfolio_adaptive_alloc": True}
+                             if portfolio_adaptive_alloc else {})
         result = sampler.integrate_log(
             lnL, *order, nmax=int(nmax), neff=float(neff), n=int(n_chunk),
             no_protect_names=True, verbose=bool(verbose), save_intg=True,
@@ -2777,7 +2785,8 @@ def adaptive_volume_sample(like, d_min, d_max, sampler_method="AV",
             # retained weighted population instead; callers have the exact
             # log_weight below and can resample without changing the integral.
             igrand_fairdraw_samples=(method != "AV"),
-            igrand_fairdraw_samples_max=max(int(1.5 * float(neff)), 1))
+            igrand_fairdraw_samples_max=max(int(1.5 * float(neff)), 1),
+            **allocation_kwargs)
     finally:
         np.random.set_state(numpy_rng_state)
     logZ, log_var, eff_samp, diagnostics = result
@@ -2792,10 +2801,15 @@ def adaptive_volume_sample(like, d_min, d_max, sampler_method="AV",
     out_lnL = np.asarray(sampler._rvs["log_integrand"], dtype=float)
     already_fair = bool(getattr(sampler, "_rvs_is_fairdraw", False))
     log_weight = None
+    log_joint_prior = log_joint_s_prior = None
     if not already_fair:
-        log_weight = (out_lnL
-                      + np.asarray(sampler._rvs["log_joint_prior"], dtype=float)
-                      - np.asarray(sampler._rvs["log_joint_s_prior"], dtype=float))
+        # Return the PAIR, not only their combination.  A caller exporting this
+        # retained cloud as sim_inspiral has to write joint_prior and
+        # joint_s_prior into the alpha2/alpha3 columns the classic ILE writes,
+        # and log_weight alone cannot be split back into them.
+        log_joint_prior = np.asarray(sampler._rvs["log_joint_prior"], dtype=float)
+        log_joint_s_prior = np.asarray(sampler._rvs["log_joint_s_prior"], dtype=float)
+        log_weight = out_lnL + log_joint_prior - log_joint_s_prior
     sigma_over_Z = float(np.exp(0.5 * float(log_var) - float(logZ)))
     peak = float(np.max(out_lnL)) if len(out_lnL) else np.nan
     logZ, sigma_over_Z, eff_samp = _finalize_evidence(
@@ -2803,7 +2817,8 @@ def adaptive_volume_sample(like, d_min, d_max, sampler_method="AV",
     return dict(theta=theta, lnL=out_lnL, logZ=logZ,
                 sigma_over_Z=sigma_over_Z, neff=eff_samp,
                 n_eval=int(getattr(sampler, "ntotal", nmax)),
-                log_weight=log_weight, sampler=sampler,
+                log_weight=log_weight, log_joint_prior=log_joint_prior,
+                log_joint_s_prior=log_joint_s_prior, sampler=sampler,
                 diagnostics=diagnostics, eval_chunk=lnL.eval_chunk,
                 seed_cloud=seed_cloud, seed_modes=seed_modes_theta,
                 seed_mode_lnL=seed_modes_lnL,

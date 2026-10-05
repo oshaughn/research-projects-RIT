@@ -26,6 +26,7 @@ draw fire": the samplers skip it when it would not shrink the record, and then t
 carry real importance weights that must be applied.  So the samplers mark the rebind itself.
 """
 
+import ast
 import os
 
 import numpy as np
@@ -246,17 +247,54 @@ def test_every_sampler_with_a_fair_draw_marks_it(fname):
 ### 4. the consumers actually use it
 ###
 
+def _called_names(node):
+    """Every function/method NAME called anywhere under this AST node."""
+    out = set()
+    for n in ast.walk(node):
+        if isinstance(n, ast.Call):
+            if isinstance(n.func, ast.Name):
+                out.add(n.func.id)
+            elif isinstance(n.func, ast.Attribute):
+                out.add(n.func.attr)
+    return out
+
+
+def _innermost_if_calling(src, target):
+    """The smallest `if` statement whose body calls `target`, or None.
+
+    PARSED, not sliced.  This was a fixed 2500-character window ending at the call, which
+    is not a property of the code: the .dgrid exporter grew a retained-set branch and a
+    starvation warning, `ln_weights_for_posterior` slid out of the window, and the test
+    failed with the exporter still doing exactly what it asserts.  A window also matches
+    the word in a comment or an import, which is the opposite failure.
+    """
+    best = None
+    for node in ast.walk(ast.parse(src)):
+        if not isinstance(node, ast.If) or target not in _called_names(node):
+            continue
+        span = (getattr(node, 'end_lineno', node.lineno) or node.lineno) - node.lineno
+        if best is None or span < best[0]:
+            best = (span, node)
+    return best[1] if best else None
+
+
 @pytest.mark.skipif(not os.path.exists(_ILE), reason='ILE executable not in this tree')
-@pytest.mark.parametrize('anchor', [
-    '_ext = _ehmod.fit_extrinsic_proposal',        # extrinsic-proposal breadcrumb
-    'dgrid = build_distance_grid(',                # .dgrid
+@pytest.mark.parametrize('target', [
+    'fit_extrinsic_proposal',        # extrinsic-proposal breadcrumb
+    'build_distance_grid',           # .dgrid
 ])
-def test_the_weighted_exporters_ask_for_posterior_weights(anchor):
+def test_the_weighted_exporters_ask_for_posterior_weights(target):
     src = open(_ILE).read()
-    i = src.index(anchor)
-    block = src[max(0, i - 2500):i]
-    assert 'ln_weights_for_posterior' in block, \
+    block = _innermost_if_calling(src, target)
+    assert block is not None, 'no exporter block calling {} found'.format(target)
+    called = _called_names(block)
+
+    assert 'ln_weights_for_posterior' in called, \
         'this exporter still applies importance weights to a possibly fair-drawn record'
+    # The defect itself, named: ln_weights_from_rvs is always right about the IMPORTANCE
+    # weight and always wrong as a posterior weighting of a resampled record.
+    assert 'ln_weights_from_rvs' not in called, \
+        'this exporter weights the record with the raw importance weight'
 
 
 @pytest.mark.skipif(not os.path.exists(_ILE), reason='ILE executable not in this tree')

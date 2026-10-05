@@ -1,7 +1,7 @@
 {
   "mcsampler": {
     "backend": "mcsampler",
-    "builds_reserve": false,
+    "builds_reserve": true,
     "entry_points": [
       "integrate"
     ],
@@ -45,7 +45,7 @@
   },
   "mcsamplerEnsemble": {
     "backend": "mcsamplerEnsemble",
-    "builds_reserve": false,
+    "builds_reserve": true,
     "entry_points": [
       "integrate",
       "integrate_log"
@@ -70,7 +70,7 @@
   },
   "mcsamplerGPU": {
     "backend": "mcsamplerGPU",
-    "builds_reserve": false,
+    "builds_reserve": true,
     "entry_points": [
       "integrate",
       "integrate_log"
@@ -97,7 +97,7 @@
   },
   "mcsamplerNFlow": {
     "backend": "mcsamplerNFlow",
-    "builds_reserve": false,
+    "builds_reserve": true,
     "entry_points": [
       "integrate",
       "integrate_log"

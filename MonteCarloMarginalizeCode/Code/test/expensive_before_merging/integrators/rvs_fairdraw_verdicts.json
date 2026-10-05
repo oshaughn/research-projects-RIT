@@ -434,11 +434,6 @@
     "verdict": "PER_ROW",
     "why": "Looks up the record describing these columns, declining it if _rvs has been replaced since. The consumer then asks a NAMED question (rows_are_resampled / blocks_were_flattened) instead of combining flags; the flags remain the fallback until every sampler is converted."
   },
-  "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:c717be4455": {
-    "source": "dL = np.array(sampler._rvs[\"distance\"])",
-    "verdict": "PER_ROW",
-    "why": "Binds the record, or reads one COLUMN of it, for the distance exporters. The resample changes which rows are present, never the value a row carries, and the weighting decision is made separately by ln_weights_for_posterior (.dgrid) or by forcing the all-fresh path (.dslice). Correct on either row set."
-  },
   "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:cfe2518e26": {
     "source": "_lnkey = 'log_integrand' if 'log_integrand' in sampler._rvs else ('integrand' if 'integrand' in sampler._rvs else None)",
     "verdict": "PER_ROW",

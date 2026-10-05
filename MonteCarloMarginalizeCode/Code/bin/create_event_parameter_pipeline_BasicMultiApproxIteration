@@ -200,6 +200,7 @@ parser.add_argument("--last-iteration-export-distance-slices-n-core", default=0,
 parser.add_argument("--last-iteration-export-distance-slices-n-wing", default=0, type=int, help="Passthrough to ILE --n-distance-slice-wing for the extrinsic-stage .dslice export (0 = ILE default).")
 parser.add_argument("--last-iteration-export-distance-slices-wing-delta-lnL", default=None, type=float, help="Passthrough to ILE --distance-slice-wing-delta-lnL for the extrinsic-stage .dslice export.")
 parser.add_argument("--last-iteration-export-distance-slices-skip-threshold", default=None, type=float, help="Passthrough to ILE --distance-slice-skip-threshold for the extrinsic-stage .dslice export.")
+parser.add_argument("--clean-ile-intrinsic-digits",default=5,type=int,help="Decimal places retained for intrinsic coordinates when util_CleanILE consolidates and unifies ILE rows (default: 5). Use 12 for narrow 3G BNS mass grids.  Model marginalization keys on these coordinates, so the setting has to be the same in all three cleaner passes here.")
 parser.add_argument("--ile-args",default=None,help="filename of args_ile.txt file  which holds ILE arguments.  Should NOT conflict with arguments auto-set by this DAG ... in particular, i/o arguments will be modified")
 parser.add_argument("--ile-exe",default=None,help="filename of ILE or equivalent executable. Will default to `which integrate_likelihood_extrinsic` in low-level code")
 parser.add_argument("--ile-retries",default=0,type=int,help="Number of retry attempts for ILE jobs. (These can fail)")
@@ -248,8 +249,8 @@ parser.add_argument("--use-bw-psd",action='store_true',help="Use BW PSD, attempt
 # parses and does nothing changes a run without saying so, and is invisible in a
 # config diff.  test_multiapprox_pseudo_pipe.py re-derives these lists from the
 # two builders' argparse surfaces so they cannot drift.
-_API_ONLY_FLAGS = ['--calibration-reweighting', '--calibration-reweighting-osg', '--calmarg-pilot', '--cip-explode-jobs-dag', '--cip-explode-jobs-subdag', '--comov-distance-reweighting', '--condor-containerize-nonworker', '--condor-local-nonworker-igwn-prefix', '--condor-nogrid-nonworker', '--extrinsic-handoff', '--first-iteration-jumpstart', '--frame-rotation', '--ile-group-subdag', '--ile-group-subdag-check-work', '--last-iteration-export-distance-slices-all-fresh', '--last-iteration-export-distance-slices-randomize', '--last-iteration-extrinsic-batched-convert', '--search-reflected-sky-mode', '--use-eccentricity', '--use-eccentricity-squared-sampling', '--use-full-submit-paths', '--use-hyperbolic', '--use-osg-cip', '--use-tabular-eos-file']
-_API_ONLY_VALUED = ['--bilby-ini-file', '--bilby-pickle-exe', '--bilby-pickle-file', '--cal-request-disk', '--calibration-reweighting-batchsize', '--calibration-reweighting-count', '--calibration-reweighting-exe', '--calibration-reweighting-extra-args', '--calibration-reweighting-initial-extra-args', '--calmarg-pilot-cadence', '--calmarg-pilot-max-it', '--calmarg-pilot-max-points', '--calmarg-pilot-top-fraction', '--cip-explode-jobs-last', '--cip-post-exe', '--cip-request-disk', '--comov-distance-reweighting-exe', '--convert-ascii2h5-exe', '--extrinsic-handoff-select', '--fetch-ext-grid-args', '--fetch-ext-grid-exe', '--general-request-disk', '--ile-condor-commands', '--ile-gpu-fanout', '--ile-n-events-to-analyze-first', '--ile-post-exe', '--ile-request-disk', '--last-iteration-export-distance-slices-wing-neff', '--last-iteration-export-distance-slices-wing-nmax', '--lisa-reference-time', '--n-eff', '--n-iterations-subdag-max', '--n-samples-per-job-threshold', '--reflected-sky-mode-exe', '--search-reflected-sky-mode-iteration', '--use-oauth-files']
+_API_ONLY_FLAGS = ['--calibration-reweighting', '--calibration-reweighting-osg', '--calmarg-pilot', '--cip-explode-jobs-dag', '--cip-explode-jobs-subdag', '--comov-distance-reweighting', '--condor-containerize-nonworker', '--condor-local-nonworker-igwn-prefix', '--condor-nogrid-nonworker', '--extrinsic-handoff', '--first-iteration-jumpstart', '--frame-rotation', '--ile-deduplicate-grid', '--ile-group-subdag', '--ile-group-subdag-check-work', '--last-iteration-export-distance-slices-all-fresh', '--last-iteration-export-distance-slices-randomize', '--last-iteration-extrinsic-batched-convert', '--search-reflected-sky-mode', '--use-eccentricity', '--use-eccentricity-squared-sampling', '--use-full-submit-paths', '--use-hyperbolic', '--use-osg-cip', '--use-tabular-eos-file']
+_API_ONLY_VALUED = ['--bilby-ini-file', '--bilby-pickle-exe', '--bilby-pickle-file', '--cal-request-disk', '--calibration-reweighting-batchsize', '--calibration-reweighting-count', '--calibration-reweighting-exe', '--calibration-reweighting-extra-args', '--calibration-reweighting-initial-extra-args', '--calmarg-pilot-cadence', '--calmarg-pilot-max-it', '--calmarg-pilot-max-points', '--calmarg-pilot-top-fraction', '--cip-explode-jobs-last', '--cip-post-exe', '--cip-singularity-image', '--cip-request-disk', '--comov-distance-reweighting-exe', '--convert-ascii2h5-exe', '--extrinsic-handoff-select', '--fetch-ext-grid-args', '--fetch-ext-grid-exe', '--general-request-disk', '--ile-condor-commands', '--ile-gpu-fanout', '--ile-n-events-to-analyze-first', '--ile-post-exe', '--ile-request-disk', '--last-iteration-export-distance-slices-wing-neff', '--last-iteration-export-distance-slices-wing-nmax', '--lisa-reference-time', '--n-eff', '--n-iterations-subdag-max', '--n-samples-per-job-threshold', '--reflected-sky-mode-exe', '--search-reflected-sky-mode-iteration', '--use-oauth-files']
 for _flag in _API_ONLY_FLAGS:
     parser.add_argument(_flag, action='store_true', help=argparse.SUPPRESS)
 for _flag in _API_ONLY_VALUED:
@@ -268,6 +269,9 @@ if _requested:
     print(" changes a run without saying so.  Run those settings single-model, or")
     print(" implement the option here.")
     sys.exit(1)
+
+if not 0 <= opts.clean_ile_intrinsic_digits <= 15:
+    parser.error("--clean-ile-intrinsic-digits must be between 0 and 15")
 
 if not opts.approx or len(opts.approx) < 2:
     parser.error("the multi-approximant builder requires at least two --approx values")
@@ -806,7 +810,17 @@ if  (opts.last_iteration_extrinsic):
 
 ##   Consolidate job(s)
 #   - consolidate output of single previous job
-con_job, con_job_name = dag_utils.write_consolidate_sub_simple(tag='join',log_dir=None,arg_str='',base=opts.working_directory+"/approx_$(macroapprox)_iteration_$(macroiteration)_ile", target=opts.working_directory+'/approx_$(macroapprox)_consolidated_$(macroiteration)',universe=local_worker_universe)
+#
+# Intrinsic-coordinate precision must be IDENTICAL in the join, the pooled unify
+# and the per-model unify.  util_CleanILE.py keys on those coordinates, so a pass
+# that rounds harder than its neighbours does not merely lose digits: it merges
+# points the other passes kept apart, and in this builder those coordinates are
+# also what pairs one model's row with another's.
+clean_digits_args = ''
+if opts.clean_ile_intrinsic_digits != 5:
+    clean_digits_args = " --intrinsic-digits {} ".format(opts.clean_ile_intrinsic_digits)
+
+con_job, con_job_name = dag_utils.write_consolidate_sub_simple(tag='join',log_dir=None,arg_str=clean_digits_args,base=opts.working_directory+"/approx_$(macroapprox)_iteration_$(macroiteration)_ile", target=opts.working_directory+'/approx_$(macroapprox)_consolidated_$(macroiteration)',universe=local_worker_universe)
 # Modify: set 'initialdir' : should run in top-level direcory
 #con_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_con")
 # Modify output argument: change logs and working directory to be subdirectory for the run
@@ -853,6 +867,7 @@ if opts.approx_prior:
         print(" --approx-prior given but missing weights for ", missing, "; specify every approximant or none"); sys.exit(1)
 if opts.require_all_approx:
     clean_model_args += " --require-all-models "
+clean_model_args += clean_digits_args
 
 unify_job, unify_job_name = dag_utils.write_unify_sub_simple(tag='unify',log_dir='',arg_str=clean_model_args, base=opts.working_directory, target=opts.working_directory+'/all.net',universe=local_worker_universe,script_name='unify.sh',fail_on_error=True)
 unify_job.add_condor_cmd("initialdir",opts.working_directory)
@@ -864,7 +879,7 @@ unify_job.write_sub_file()
 ##   Per-model unify, for the terminal forked CIP.  No --model-group-regex:
 ##   within one model the evaluations ARE replicas of one quantity, so the flat
 ##   ntot-weighted pool is the correct combination.
-unify_model_job, unify_model_job_name = dag_utils.write_unify_sub_simple(tag='unify_model',log_dir='',arg_str='', base=opts.working_directory, target=opts.working_directory+'/approx_$(macroapprox)_all.net',universe=local_worker_universe,script_name='unify_model.sh',glob_pattern='approx_$(macroapprox)_*.composite',fail_on_error=True)
+unify_model_job, unify_model_job_name = dag_utils.write_unify_sub_simple(tag='unify_model',log_dir='',arg_str=clean_digits_args, base=opts.working_directory, target=opts.working_directory+'/approx_$(macroapprox)_all.net',universe=local_worker_universe,script_name='unify_model.sh',glob_pattern='approx_$(macroapprox)_*.composite',fail_on_error=True)
 unify_model_job.add_condor_cmd("initialdir",opts.working_directory)
 unify_model_job.set_log_file(opts.working_directory+"/approx_$(macroapprox)_iteration_$(macroiteration)_con/logs/unifymodel-$(cluster)-$(process).log")
 unify_model_job.set_stderr_file(opts.working_directory+"/approx_$(macroapprox)_iteration_$(macroiteration)_con/logs/unifymodel-$(cluster)-$(process).err")

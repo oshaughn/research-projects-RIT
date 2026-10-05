@@ -363,6 +363,25 @@ def test_jax_dropin_manifest_covers_every_batchmode_option_with_same_arity():
         drv.check_critical_and_report(opts, parser)
 
 
+
+def test_noise_evidence_options_are_refused_rather_than_silently_ignored():
+    """Declaring the flag is not enough: the manifest above passes on a no-op.
+
+    --log-noise-evidence-only asks the driver NOT to run, and
+    --log-noise-evidence-output asks for a file.  Accepting either and carrying
+    on would run the whole integration the user asked to skip, or leave a
+    workflow reading a sidecar that never appears -- so both abort here.  The
+    compatibility no-op rule covers missing knobs, not data products.
+    """
+    drv = _load_driver()
+    for argv in (["--log-noise-evidence-only"],
+                 ["--log-noise-evidence-output", "z.json"]):
+        parser = drv.build_parser()
+        opts, _ = parser.parse_args(list(argv))
+        drv.record_supplied_options(opts, list(argv), parser)
+        with pytest.raises(SystemExit):
+            drv.check_critical_and_report(opts, parser)
+
 def _load_driver():
     import importlib.machinery
     import importlib.util

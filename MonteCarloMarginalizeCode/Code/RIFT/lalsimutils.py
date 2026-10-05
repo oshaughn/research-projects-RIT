@@ -418,7 +418,7 @@ valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp
 
 # so far, used for puffball, to prevent insanity (infinite growth) and/or death to downselect
 #   - note we also provide for extrinsic: RA (phi), phiref, psi, just in case we need it in the future
-periodic_params = {'phi1':2*np.pi, 'phi2':2*np.pi, 'phiref':2*np.pi, 'psi':np.pi, 'meanPerAno':2*np.pi, 'phi':2*np.pi, 'phiJL':2*np.pi, 'psiJ':2*np.pi}
+periodic_params = {'phi1':2*np.pi, 'phi2':2*np.pi, 'phi12':2*np.pi, 'phiref':2*np.pi, 'psi':np.pi, 'meanPerAno':2*np.pi, 'phi':2*np.pi, 'phiJL':2*np.pi, 'psiJ':2*np.pi}
 
 tex_dictionary  = {
  "mtot": r'$M$',
@@ -441,6 +441,7 @@ tex_dictionary  = {
   "DeltaOverM2_perp" : r"$\Delta_\perp$",
   "DeltaOverM2_L" : r"$\Delta_{||}$",
   "SOverM2_perp" : r"$S_\perp$",
+  "chi_p_vec" : r"$\chi_{p,{\rm vec}}$",
   "SOverM2_L" : r"$S_{||}$",
   "eta": r"$\eta$",
   "chi_eff": r"$\chi_{eff}$",
@@ -1390,6 +1391,20 @@ class ChooseWaveformParams:
             S2p = (m2**2 * chi2)[:2]
             Sp = np.max([np.linalg.norm( A1*S1p), np.linalg.norm(A2*S2p)])
             return Sp/(A1*m1**2)  # divide by term for *larger* BH
+        if p == 'phi12':
+            # azimuth of spin 2's in-plane component relative to spin 1's, in [0, 2 pi), L frame.
+            # Undefined if either in-plane component vanishes; 0 is returned then (same as the vectorized path).
+            if np.hypot(self.s1x, self.s1y) == 0 or np.hypot(self.s2x, self.s2y) == 0:
+                return 0.
+            val = np.mod(np.arctan2(self.s2y, self.s2x) - np.arctan2(self.s1y, self.s1x), 2*np.pi)
+            return 0. if val >= 2*np.pi else val   # np.mod of a tiny negative number rounds to 2 pi
+        if p == 'chi_p_vec':
+            # vector-sum (ring) analogue of chi_p: |A1 S1perp + A2 S2perp| / (A1 m1^2), same A1, A2 as chi_p.
+            # chi_p keeps the larger of the two terms; this keeps their vector sum, so it depends on phi12
+            # (in-plane spins that cancel give a small value).  L frame.
+            q = self.m2/self.m1
+            A1 = (2+ 3.*q/2); A2 = (2+3./(2*q))
+            return np.abs( (self.s1x + 1j*self.s1y) + (A2/A1)*q**2*(self.s2x + 1j*self.s2y) )
         if p == 'chi_pavg':
             if (abs(self.s1x) < 1e-4 and abs(self.s1y) < 1e-4 and abs(self.s2x) < 1e-4 and abs(self.s2y) < 1e-4):
                 chipavg = 0.0
@@ -2725,14 +2740,13 @@ class ComplexOverlap(InnerProduct):
         rho = rhoSeries.max()
         if self.interpolate_max:
             # see: spokes.py and util_ManualOverlapGrid.py
+            # Vertex of the parabola through the peak sample and its two
+            # neighbours; the overlap series is periodic in time.
             rhoIdx = rhoSeries.argmax()
-            datReduced = rhoSeries[rhoIdx-2:rhoIdx+2]
-            try:
-                z =np.polyfit(np.arange(len(datReduced)),datReduced,2)
-                if z[0]<0:
-                    return z[2] - z[1]*z[1]/4/z[2]
-            except:
-                print( " Duration error ", datReduced, " skipping interpolation in time to best point ")
+            y0, y1, y2 = rhoSeries[rhoIdx-1], rhoSeries[rhoIdx], rhoSeries[(rhoIdx+1) % len(rhoSeries)]
+            den = y0 - 2*y1 + y2
+            if den < 0:
+                return y1 - (y2-y0)**2/(8*den)
             # Otherwise, act as normally
         if self.full_output==False:
             # Return overlap maximized over time, phase
@@ -5919,6 +5933,17 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
       - source_redshift: if nonzero, convert m1 -> m1 (1+z)=m_z, as fit is done in the detector frame.  We are **assuming source-frame sampling**
     """
     x_out = np.zeros( (len(x_in), len(coord_names) ) )
+    kerr_violation_ring = None   # set by the vectorized in-plane block, which can end the conversion early
+    # Vectorized branches need detector-frame masses. Keep the original source-frame
+    # inputs for the fallback: assigning nonlinear coordinates such as mu1 after
+    # scaling mc would change the inferred spins as well as the masses.
+    x_in_source = x_in
+    if source_redshift:
+        mass_names_in = [p for p in ['mc', 'mc_ecc', 'm1', 'm2', 'mtot'] if p in low_level_coord_names]
+        if mass_names_in:
+            x_in = np.array(x_in, dtype=float)   # copy: never rescale the caller's array
+            for p in mass_names_in:
+                x_in[:, low_level_coord_names.index(p)] *= (1+source_redshift)
     # Check for trivial identity transformations and do those by direct copy, then remove those from the list of output coord names
     coord_names_reduced = coord_names.copy() 
     for p in low_level_coord_names:
@@ -6132,6 +6157,35 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
             x_out[:,indx_pout_s2y] = x_in[:,indx_chi2]*sintheta2*sinphi2
             coord_names_reduced.remove('s2x')
             coord_names_reduced.remove('s2y')
+        # in-plane magnitudes, relative azimuth, and ring coordinates, vectorized.  L frame only:
+        # for any other spin_convention these fall through to extract_param, as before.
+        ring_names = ['chi1_perp', 'chi2_perp', 'phi12', 'SOverM2_perp', 'DeltaOverM2_perp', 'chi_p_vec']
+        if spin_convention == "L" and any(p in coord_names_reduced for p in ring_names):
+            # CIP's default sampler passes an object array of python floats; ufuncs need a float array
+            xf = np.asarray(x_in, dtype=float)
+            m1f = np.asarray(m1_vals, dtype=float); m2f = np.asarray(m2_vals, dtype=float)
+            indx_phi1 = low_level_coord_names.index('phi1')
+            indx_phi2 = low_level_coord_names.index('phi2')
+            chi1_perp = xf[:,indx_chi1]*np.sqrt(1-xf[:,indx_ct1]**2)
+            chi2_perp = xf[:,indx_chi2]*np.sqrt(1-xf[:,indx_ct2]**2)
+            v1 = chi1_perp*np.exp(1j*xf[:,indx_phi1])
+            v2 = chi2_perp*np.exp(1j*xf[:,indx_phi2])
+            mtot_vals = m1f + m2f
+            q_vals = m2f/m1f
+            A1 = 2 + 1.5*q_vals; A2 = 2 + 1.5/q_vals
+            phi12 = np.where((chi1_perp > 0) & (chi2_perp > 0), np.mod(xf[:,indx_phi2] - xf[:,indx_phi1], 2*np.pi), 0.)
+            ring_vals = {'chi1_perp': chi1_perp, 'chi2_perp': chi2_perp,
+                         'phi12': np.where(phi12 >= 2*np.pi, 0., phi12),
+                         'SOverM2_perp': np.abs(v1*m1f**2 + v2*m2f**2)/mtot_vals**2,
+                         'DeltaOverM2_perp': np.abs(v1*m1f - v2*m2f)/mtot_vals,
+                         'chi_p_vec': np.abs(v1 + (A2/A1)*q_vals**2*v2)}
+            for p in ring_names:
+                if p in coord_names_reduced:
+                    x_out[:,coord_names.index(p)] = ring_vals[p]
+                    coord_names_reduced.remove(p)
+            if enforce_kerr:
+                # same rule as the per-row fallthrough below, which this block can bypass
+                kerr_violation_ring = (xf[:,indx_chi1] > 1) | (xf[:,indx_chi2] > 1)
             
     # Spin pseudo-cylindrical coordinate names, standard framing
     if  ('s1z_bar' in low_level_coord_names) and ('phi1' in low_level_coord_names)  and ('s2z_bar' in low_level_coord_names) and ('phi2' in low_level_coord_names) and ('mc' in low_level_coord_names) and ('eta' in low_level_coord_names or 'delta_mc' in low_level_coord_names):
@@ -6341,14 +6395,9 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
                 coord_names_reduced.remove('DeltaLambdaTilde')
 
 
-    # perform any mass conversions needed, so output in detector frame given input in source frame
-    if source_redshift:
-        for name in ['mc', 'm1', 'm2']:
-            if name in coord_names:
-                indx_name = coord_names.index(name)
-                x_out[:,indx_name] *= (1+source_redshift)
-
     # return if we don't need to do any more conversions (e.g., if we only have --parameter specification)
+    if kerr_violation_ring is not None:
+        x_out[kerr_violation_ring] = -np.inf
     if len(coord_names_reduced)<1:
         return x_out
 
@@ -6359,10 +6408,11 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
     for indx_out  in np.arange(len(x_in)):
         for indx in np.arange(len(low_level_coord_names)):
             if low_level_coord_names[indx] != 'chi_pavg':
-                P.assign_param( low_level_coord_names[indx], x_in[indx_out,indx])            
+                P.assign_param( low_level_coord_names[indx], x_in_source[indx_out,indx])
         # Apply redshift: assume input is source-frame mass, convert m1 -> m1(1+z) = m1_z, as fit used detector frame
-        P.m1 = P.m1*(1+source_redshift)
-        P.m2 = P.m2*(1+source_redshift)
+        if source_redshift:
+            P.m1 = P.m1*(1+source_redshift)
+            P.m2 = P.m2*(1+source_redshift)
         for indx in np.arange(len(coord_names_reduced)):
             p = coord_names_reduced[indx]
             indx_p_out= coord_names.index(p)

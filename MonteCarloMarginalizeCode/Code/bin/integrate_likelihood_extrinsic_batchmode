@@ -10,6 +10,7 @@ Integrate the extrinsic parameters of the prefactored likelihood function.
 import sys
 import json
 import functools
+import inspect
 from optparse import OptionParser, OptionGroup
 
 import numpy
@@ -49,6 +50,7 @@ from igwn_ligolw import utils,  ligolw
 import glue.lal
 
 import RIFT.lalsimutils as lalsimutils
+from RIFT.likelihood.noise_evidence import compute_network_log_noise_evidence
 from RIFT.likelihood.time_interp_choice import CROSSOVER_GUIDANCE as _CROSSOVER_GUIDANCE
 from RIFT.likelihood.time_interp_choice import TIME_INTERP_DEFAULT
 # Q_TIME_PREGRID_CHOICES (RIFT/likelihood/q_time_pregrid.py) is the SINGLE definition of the
@@ -170,24 +172,104 @@ def get_unpinned_params(opts, params):
     """
     return params - set([p for p, v in opts.__dict__.items() if p in LIKELIHOOD_PINNABLE_PARAMS and v is not None])
 
-def zero_like(*args,**kwargs):
-  if len(kwargs)>0:
-    arg0 = kwargs['psi']
-  else:
-    arg0 = args[0]
-  return xpy_default.zeros(len(arg0))
-
-def unit_like(*args,**kwargs):
-  if len(kwargs)>0:
-    arg0 = kwargs['psi']
-  else:
-    arg0 = args[0]
-  return xpy_default.ones(len(arg0))
+# zero_like / unit_like (fixed-shape `*args` stand-ins for --zero-likelihood) lived here.  They
+# reported co_argcount 0 to every consumer that introspects the integrand's signature, and keyed
+# off a 'psi' kwarg that two of the eight likelihood_function signatures do not have.  Replaced
+# by make_zero_likelihood_standin below, which is built from the live signature.
 
 
-def sampler_param_tuple(sampler,args):
-  param_list = sampler.params_ordered
-  return tuple( [param_list.index(x) for x in args])
+# Supplement arguments, in the order supplemental_ln_likelihood is called with at every real
+# call site in this driver.  The module contract stated where the factor is imported is that it
+# is "called with identical raw inputs (including cosines/etc)" -- i.e. the SAMPLED coordinates,
+# before the declination/inclination cosine inversion and with distance in Mpc.  The
+# non-vectorized loop obeys that; the vectorized paths pass the transformed P.* values with
+# distance in SI instead.  That disagreement is pre-existing; the stand-in below follows the
+# stated contract.
+_SUPPLEMENT_ARG_ORDER = ("right_ascension", "declination", "phi_orb", "inclination", "psi", "distance")
+
+# Keyword arguments the real call sites ALSO pass, on top of the positional six.  Three of the
+# five sites pass xpy=xpy_default and two do not, so a factor that works everywhere has to
+# accept it WITH A DEFAULT.  Declared here rather than left implicit because
+# test_zero_likelihood_standin.py checks this set against what the sites actually pass: a new
+# keyword appearing at one site is then a failure that names itself, instead of a factor that
+# raises TypeError on three code paths and works on the other two.
+_SUPPLEMENT_OPTIONAL_KWARGS = ("xpy",)
+
+
+def make_zero_likelihood_standin(arg_names, return_lnL, supplement, supplement_defaults, xpy):
+    """Build the --zero-likelihood stand-in for a likelihood_function with signature `arg_names`.
+
+    SIGNATURE.  likelihood_function has eight different signatures in this driver depending on
+    marginalization and code path, and consumers introspect
+    `func.__code__.co_varnames[:co_argcount]` to decide what to pass -- mcsampler does exactly
+    that when it builds its argument list.  A fixed-shape `def zero_like(*args, **kwargs)`
+    reports ZERO arguments there, which is why `--zero-likelihood --sampler-method
+    adaptive_cartesian` died in mcsampler reshaping to `(0, newaxis)`.  The stand-in is
+    therefore generated with the same parameter names as the function it replaces, so Python's
+    own argument binding -- not a hand-written positional unpack -- decides what each value is,
+    and positional and keyword calls both land correctly.
+
+    THE SUPPLEMENTARY FACTOR.  --zero-likelihood zeroes the SIGNAL likelihood.  A
+    --supplementary-likelihood-factor-* is an EXTERNAL constraint (an EM observation, a
+    population term), not part of the signal model, so it has to survive the substitution.
+    Replacing likelihood_function wholesale dropped it silently: the startup banner still
+    printed "EXTERNAL SUPPLEMENTARY LIKELIHOOD FACTOR" and two runs differing only by that
+    option returned ln Z bit-identical to every digit.  --zero-likelihood is documented as a
+    PRIOR TEST, and imposing an analytic external prior is what the supplementary hook is for,
+    so this is the combination the option pair exists to support.
+
+    `supplement_defaults` supplies a value for each of _SUPPLEMENT_ARG_ORDER that the live
+    signature does not sample -- distance under --distance-marginalization, phi_orb when the
+    distance lookup table is phase-marginalized, psi under --psi-marginalization.
+
+    `return_lnL` is the convention the INTEGRAND uses (ln L = 0 versus L = 1), which is not the
+    same question as opts.internal_use_lnL; see the note on log_res below.
+    """
+    arg_names = tuple(arg_names)
+    if "right_ascension" not in arg_names:
+        raise ValueError(
+            "--zero-likelihood: likelihood_function signature {} has no 'right_ascension'; the "
+            "stand-in cannot size its output.".format(arg_names))
+    if supplement is not None:
+        _missing = [nm for nm in _SUPPLEMENT_ARG_ORDER
+                    if nm not in arg_names and nm not in supplement_defaults]
+        if _missing:
+            raise ValueError(
+                "--zero-likelihood with a supplementary factor: no value available for {} "
+                "(signature {}).".format(_missing, arg_names))
+
+    # Pass xpy= only if the factor takes it, matching the three vectorized call sites without
+    # breaking a factor written for the two that do not.  Resolved once, not per call.
+    try:
+        _params = inspect.signature(supplement).parameters if supplement is not None else {}
+        _supp_kwargs = ({"xpy": xpy}
+                        if ("xpy" in _params
+                            or any(p.kind is inspect.Parameter.VAR_KEYWORD
+                                   for p in _params.values()))
+                        else {})
+    except (TypeError, ValueError):     # builtins and C callables have no signature
+        _supp_kwargs = {}
+
+    def _standin_body(sampled):
+        n = len(sampled["right_ascension"])
+        base = xpy.zeros(n) if return_lnL else xpy.ones(n)
+        if supplement is None:
+            return base
+        supp = supplement(*[sampled[nm] if nm in sampled else supplement_defaults[nm]
+                            for nm in _SUPPLEMENT_ARG_ORDER], **_supp_kwargs)
+        if return_lnL:
+            return base + supp
+        return base * xpy.exp(supp)
+
+    # Generated rather than written out, because the parameter NAMES are what the introspecting
+    # consumers read; a wrapper with *args would defeat the whole point.
+    src = "def zero_likelihood_standin({0}):\n    return _standin_body({{{1}}})\n".format(
+        ", ".join(arg_names),
+        ", ".join("{0!r}: {0}".format(nm) for nm in arg_names))
+    ns = {"_standin_body": _standin_body}
+    exec(src, ns)
+    return ns["zero_likelihood_standin"]
+
 
 #
 # Option parsing
@@ -199,6 +281,8 @@ optp.add_option( "--zero-likelihood", action='store_true', help="Run with exactl
 optp.add_option("-c", "--cache-file", default=None, help="LIGO cache file containing all data needed.")
 optp.add_option("-C", "--channel-name", action="append", help="instrument=channel-name, e.g. H1=FAKE-STRAIN. Can be given multiple times for different instruments.")
 optp.add_option("-p", "--psd-file", action="append", help="instrument=psd-file, e.g. H1=H1_PSD.xml.gz. Can be given multiple times for different instruments.")
+optp.add_option("--log-noise-evidence-output", default=None, help="Write Bilby-compatible fixed-PSD log noise evidence and per-detector (d|d) values to this JSON file. Uses the same conditioned data and PSD as ILE.")
+optp.add_option("--log-noise-evidence-only", action="store_true", help="Exit after writing --log-noise-evidence-output, before waveform generation and Monte Carlo integration. If no output path is supplied, use log_noise_evidence.json.")
 optp.add_option("-k", "--skymap-file", help="Use skymap stored in given FITS file.")
 optp.add_option("-x", "--coinc-xml", help="gstlal_inspiral XML file containing coincidence information.")
 optp.add_option("-I", "--sim-xml", help="XML file containing parameter grid to be evaluated")
@@ -256,7 +340,7 @@ optp.add_option("--resample-time-marginalization",action='store_true', help="If 
 optp.add_option("--srate-resample-time-marginalization",type=int, default=None, help="For --time-posterior-export grid under the historical Simpson quadrature, interpolate lnL(t) onto a lattice at this rate before drawing. Band-limited quadrature derives its own resolution and mandates a continuous draw, so the combination is refused.")
 optp.add_option("--time-posterior-export", type="choice", choices=["auto", "continuous", "grid"], default="auto",
                 help="How --resample-time-marginalization exports geocenter time. auto (default) draws continuously from the interpolated lnL(t) posterior when the active likelihood exposes a faithful arbitrary-time evaluator, otherwise preserves the grid; continuous requests an off-grid draw and is refused on unsupported likelihood paths; grid is the explicit legacy compatibility mode. --time-marginalization-quadrature bandlimited always resolves to continuous and refuses grid because sub-sample integration carries a sub-sample export contract.")
-optp.add_option("--psi-marginalization", action="store_true", default=False, help="Opt-in: analytically marginalize the polarization angle psi over its uniform [0,pi) prior with factored_likelihood.NetworkLogLikelihoodPolarizationMarginalized, instead of sampling it. Only reachable on the legacy scalar (non-vectorized, non-GPU, non-time-marginalized) likelihood path, which is the only call site this function fits; REFUSED (not ignored) with --time-marginalization, --vectorized, --gpu, --distance-marginalization, --rotation-slow, --freqresponse, calibration marginalization, an explicit --interpolate-time, --sampler-method GMM/portfolio, --internal-rotate-phase, --limit-psi, and --zero-likelihood. Default is false (unreachable previously; see issue tracking marginalization-audit). The exported 'psi'/'polarization' column is NaN, NOT a sample: psi is integrated out, so there is no per-sample draw to report, and downstream PE-sample converters copy that column verbatim. The reported lnL carries the SAME psi prior mass the sampled-psi path carries (1/pi over (0,2 pi), i.e. 2), so lnZ is comparable with ordinary rows in the same all.net; note that mass is not 1, and the RIFT JAX driver uses psi in [0,pi] instead.")
+optp.add_option("--psi-marginalization", action="store_true", default=False, help="Opt-in: analytically marginalize the polarization angle psi over its uniform [0,pi) prior with factored_likelihood.NetworkLogLikelihoodPolarizationMarginalized, instead of sampling it. Only reachable on the legacy scalar (non-vectorized, non-GPU, non-time-marginalized) likelihood path, which is the only call site this function fits; REFUSED (not ignored) with --time-marginalization, --vectorized, --gpu, --distance-marginalization, --rotation-slow, --freqresponse, calibration marginalization, an explicit --interpolate-time, --sampler-method GMM/portfolio, --internal-rotate-phase, --limit-psi, and --zero-likelihood. Default is false (unreachable previously; see issue tracking marginalization-audit). The exported 'psi'/'polarization' column is NaN, NOT a sample: psi is integrated out, so there is no per-sample draw to report, and downstream PE-sample converters copy that column verbatim. The reported lnL carries the SAME psi prior mass the sampled-psi path carries; both priors are derived from the psi sampling range and integrate to 1, so lnZ is comparable with ordinary rows in the same all.net and with the RIFT JAX driver (psi in [0,pi], normalized).")
 optp.add_option("-d", "--distance-marginalization", action="store_true", help="Perform marginalization over distance via a look-up table. Default is false.")
 optp.add_option("-l", "--distance-marginalization-lookup-table", default=None, help="Look-up table for distance marginalization.")
 optp.add_option("--calibration-envelope-directory",default=None, help="Name of directory")
@@ -375,6 +459,7 @@ integration_params.add_option("--internal-use-lnL",action='store_true',help="lik
 integration_params.add_option("--sampler-method",default="adaptive_cartesian_gpu",help="adaptive_cartesian|GMM|adaptive_cartesian_gpu")
 integration_params.add_option("--sampler-portfolio",default=None,action='append',type=str,help="Portfolio member sampler, one of AV / GMM / AC (adaptive_cartesian_gpu) or a discovered plugin. Repeat the option per member, or give one comma-separated list; both forms may be mixed. An unrecognized name is an error.")
 integration_params.add_option("--sampler-portfolio-args",default=None, action='append', type=str, help='eval-able dictionaryo to be passed to that sampler')
+integration_params.add_option("--sampler-portfolio-allow-stratified-density",action='store_true',default=False,help="Accept a portfolio whose members cannot form the balance-heuristic mixture density q_mix -- i.e. run the legacy stratified per-member estimator even when a member has not declared that its sampling density is normalized.  THE EVIDENCE IS THEN BIASED (measured 0.753772 on a constant integrand whose exact ln Z is 1.386294).  Without this the portfolio refuses at setup.  Exists so an unusual member combination, in particular a plugin from RIFT.integrator_plugins, is recoverable without editing RIFT; do not use it for production evidence.")
 # Portfolio freeze-policy knobs (only meaningful with --sampler-method portfolio).  A member
 # whose balance weight drops below --portfolio-freeze-wt normally stops updating its proposal;
 # these control that.  Defaults (None here) mean "use the sampler's built-in default".
@@ -420,7 +505,7 @@ integration_params.add_option("--extrinsic-proposal-field",default=None,help="AV
 integration_params.add_option("--extrinsic-proposal-field-cover-frac",type=float,default=0.5,help="Coverage floor for --extrinsic-proposal-field handoff (default 0.5, the measured-safe floor -- see --sampler-warmstart-cover-frac; 0.1 is under-covered).")
 integration_params.add_option("--extrinsic-proposal-field-inflate",type=float,default=1.5,help="Handoff safety margin for --extrinsic-proposal-field: widen the imported seed by this factor about its mean to cover the peak shift between the neighbouring intrinsic point and this one (default 1.5).")
 integration_params.add_option("--supplementary-likelihood-factor-code", default=None,type=str,help="Import a module (in your pythonpath!) containing a supplementary factor for the likelihood.  Used to impose supplementary external priors of arbitrary complexity and external dependence (e.g., EM observations). EXPERTS-ONLY")
-integration_params.add_option("--supplementary-likelihood-factor-function", default=None,type=str,help="With above option, specifies the specific function used as an external prior. EXPERTS ONLY")
+integration_params.add_option("--supplementary-likelihood-factor-function", default=None,type=str,help="With above option, specifies the specific function used as an external prior.  CALL CONTRACT: f(right_ascension, declination, phi_orb, inclination, psi, distance, xpy=numpy) returning the LOG of the factor, which is ADDED to lnL.  WHERE IT IS ADDED AT ALL: only five of the eight likelihood_function bodies in this driver contain the call.  The three without it are the two non-time-marginalized signatures and the --rom-integrate-intrinsic one, so WITHOUT --time-marginalization a supplementary factor is silently ignored -- the banner still announces it, and the evidence comes back as if no factor had been given.  That hole is pre-existing and is pinned by test_zero_likelihood_standin.py so it cannot widen unnoticed.  NOTE THE TRAP: --zero-likelihood's stand-in applies the factor on EVERY signature, so validating a plugin under --zero-likelihood and then running production without --time-marginalization silently drops it.  THE xpy KEYWORD IS NOT OPTIONAL TO ACCEPT, only to use: three of the five call sites pass xpy=xpy_default and two do not, so a factor declared with the six positional arguments alone raises TypeError on the three vectorized paths while working on the scalar one and under --zero-likelihood.  Give it a default.  The --zero-likelihood stand-in passes xpy when the factor accepts it and omits it otherwise.  WHAT ARRIVES IN THOSE ARGUMENTS IS NOT THE SAME ON EVERY CODE PATH, and that is pre-existing.  The scalar (non-vectorized) likelihood and the --zero-likelihood stand-in pass the RAW SAMPLED coordinates: cos(dec) / cos(iota) under --declination-cosine-sampler / --inclination-cosine-sampler rather than the angles, the rotated (phi+psi, phi-psi) pair under --internal-rotate-phase, and distance in Mpc.  The vectorized paths instead pass the template's physical values (cosines inverted, sky and phase rotations already applied) with distance in SI, or 0 where distance is marginalized away.  So: a portable factor should not depend on distance, and one that depends on an angle should state which convention it assumes.  Under --zero-likelihood, arguments that the live likelihood signature does not sample are supplied from the template (0 for distance).  Finally, mcsampler (--sampler-method adaptive_cartesian) hands object-dtype arrays, on which numpy ufuncs raise, so cast (numpy.asarray(x, dtype=float)) before any arithmetic.  EXPERTS ONLY")
 integration_params.add_option("--supplementary-likelihood-factor-ini", default=None,type=str,help="With above option, specifies an ini file that is parsed (here) and passed to the preparation code, called when the module is first loaded, to configure the module. EXPERTS ONLY")
 optp.add_option_group(integration_params)
 
@@ -481,6 +566,8 @@ def _normalize_interpolate_time_argv(argv):
     return out
 
 opts, args = optp.parse_args(_normalize_interpolate_time_argv(sys.argv[1:]))
+if opts.log_noise_evidence_only and opts.log_noise_evidence_output is None:
+  opts.log_noise_evidence_output = "log_noise_evidence.json"
 
 _response_order_active = any((opts.check_slowrot_pmax, opts.check_finite_size_Qmax,
                               opts.choose_slowrot_pmax, opts.choose_slowrot_Qmax))
@@ -961,9 +1048,9 @@ if opts.psi_marginalization:
         ('default --interpolate-time (the scalar path always evaluates rholm(t) through its '
          'own interpolator, independent of the sinc/cubic/nearest NoLoop stencil choice, so an '
          'explicit request here would be silently ignored)', opts.interpolate_time is None),
-        ('not --sampler-method GMM/portfolio (their adaptive phi/psi pairing indexes "psi" '
-         'directly in sampler.params, which this option removes -- ValueError at sampler setup, '
-         'not audited as a combination)',
+        ('not --sampler-method GMM/portfolio (their adaptive phi/psi pairing names "psi" in a '
+         'dim-group, which this option removes from the frame those keys index -- the group '
+         'collapses and the dim-group guard refuses it; not audited as a combination)',
          opts.sampler_method not in ('GMM', 'portfolio')),
         ('not --internal-rotate-phase (its phi_orb/psi joint reparam reads a per-sample psi '
          'that no longer exists; the exported "psi"/"polarization" columns would be a silently '
@@ -971,8 +1058,16 @@ if opts.psi_marginalization:
          not bool(opts.internal_rotate_phase)),
         ('not --limit-psi (there is no psi sampler left to apply the box to; the box would be '
          'silently ignored)', not bool(opts.limit_psi)),
-        ('not --zero-likelihood (its debug likelihood keys results off a "psi" kwarg that this '
-         'option removes from the call signature)', not bool(opts.zero_likelihood)),
+        # The MECHANISM this clause used to name is gone: the stand-in was
+        # `def zero_like(*args, **kwargs)` reading kwargs['psi'], and is now built from the live
+        # signature by make_zero_likelihood_standin, which binds by name and sizes its output off
+        # right_ascension.  The refusal is kept because the COMBINATION is unaudited, not because
+        # it is known to crash.  To retire it: drop this clause, run
+        #   --psi-marginalization --zero-likelihood --sampler-method AV
+        # with an analytic --supplementary-likelihood-factor-* and check ln Z against its closed
+        # form (test/test_e2e_analytic_pipeline.py does exactly this for other configurations).
+        ('not --zero-likelihood (the combination is unaudited; see the note above this clause '
+         'for what it would take to retire the refusal)', not bool(opts.zero_likelihood)),
     )
     _psi_marg_missing = [name for name, ok in _psi_marg_prereqs if not ok]
     if _psi_marg_missing:
@@ -1487,6 +1582,46 @@ for Psig in P_list:
   Psig.deltaf = P.deltaF
 
 
+# Bilby's fixed-PSD noise hypothesis has no sampled parameters: its evidence is
+# the zero-signal likelihood, -1/2 sum_k (d_k|d_k).  Compute it only after all
+# ILE data/PSD conditioning so the normalization exactly matches this run.
+if opts.log_noise_evidence_output:
+  log_noise_evidence, noise_evidence_by_detector = compute_network_log_noise_evidence(
+      data_dict, psd_dict, fmin=P.fmin, fmax=fmax, fnyq=0.5/P.deltaT,
+      inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec)
+  # --fmin-ifo is applied by ZEROING the PSD below the cut, not by moving the IP's
+  # fLow, so the band a detector was actually integrated over is not P.fmin alone.
+  for noise_evidence_det in noise_evidence_by_detector:
+    noise_evidence_by_detector[noise_evidence_det]["fmin"] = float(
+        max(P.fmin, flow_ifo_dict.get(noise_evidence_det, P.fmin)))
+  noise_evidence_payload = {
+      "schema": "rift.log-noise-evidence/v1",
+      "convention": "bilby-fixed-psd-no-gaussian-determinant",
+      "log_noise_evidence": log_noise_evidence,
+      "per_detector": noise_evidence_by_detector,
+      "analysis": {
+          "fmin": float(P.fmin),
+          "fmax": float(fmax),
+          "fnyq": float(0.5/P.deltaT),
+          "inverse_spectrum_truncation_time": float(T_spec),
+          "data_start_time": float(start_time),
+          "data_end_time": float(end_time),
+          # Both windows scale (d|d) by a constant, so a value compared against a
+          # Bilby run is only meaningful alongside them.
+          "window_shape": float(opts.window_shape),
+          "psd_window_shape": float(opts.psd_window_shape),
+      },
+  }
+  with open(opts.log_noise_evidence_output, "w") as noise_evidence_file:
+    json.dump(noise_evidence_payload, noise_evidence_file,
+              indent=2, sort_keys=True)
+    noise_evidence_file.write("\n")
+  print("Wrote log noise evidence {} to {}".format(
+      log_noise_evidence, opts.log_noise_evidence_output))
+  if opts.log_noise_evidence_only:
+    sys.exit(0)
+
+
 #
 # Load in calibration realizations, if desired
 #
@@ -1685,9 +1820,26 @@ param_limits = { "psi": (0, 2*numpy.pi),
     "t_ref": (-t_ref_wind, t_ref_wind),
     "inclination": (0, numpy.pi)
 }
+if opts.internal_rotate_phase and opts.limit_psi:
+  print(" --limit-psi is a box on the physical polarization angle; the rotated (phi+psi, phi-psi) "
+        "coordinates of --internal-rotate-phase cannot honour it.  Disabling --internal-rotate-phase for this run.")
+  opts.internal_rotate_phase = False
 if opts.internal_rotate_phase:
   param_limits['psi'] = (0, 4*numpy.pi)
   param_limits['phi_orb'] = (0, 4*numpy.pi)
+
+# Angle priors are derived from the FULL sampling range of each periodic angle, captured here
+# before any --limit-* box narrows param_limits.  The old prior_pdf for psi was the fixed
+# constant mcsampler.uniform_samp_psi = 1/pi, written for [0, pi), while psi is sampled on
+# (0, 2 pi) so that --internal-rotate-phase can use (phi+psi, phi-psi) coordinates.  That
+# prior integrated to 2 (4 with the rotation, whose (0, 4 pi) phi_orb range doubled the fixed
+# 1/(2 pi) phi prior as well), so every reported lnZ carried +ln 2 (+ln 8 rotated).  The
+# likelihood is periodic in both angles and each sampled range covers whole periods, so a
+# prior normalized on the sampled range gives the lnZ of a prior normalized on one period.
+# Under a --limit-psi box the density stays 1/(full range): the same convention as the sky
+# and inclination boxes, which scale lnZ by the box's prior fraction and are not renormalized.
+psi_prior_range = (param_limits["psi"][0], param_limits["psi"][1])
+phi_orb_prior_range = (param_limits["phi_orb"][0], param_limits["phi_orb"][1])
 if opts.internal_reparam_dl_incl:
   # The reparam operates in DISTANCE units (D_eff = d_L/A in Mpc).  --d-prior-redshift samples
   # in redshift and converts, which does not compose with the amplitude relation -- refuse it
@@ -1875,8 +2027,9 @@ else:
 
 #
 # Psi -- polarization angle
-# sampler: uniform in [0, pi)
+# sampler: uniform over psi_prior_range ((0, 2 pi) by default); prior 1/(range), which integrates to 1
 #
+psi_prior_pdf = mcsampler.ret_uniform_samp_vector_alt(psi_prior_range[0], psi_prior_range[1])
 if not opts.psi_marginalization:
     psi_sampler = mcsampler.ret_uniform_samp_vector_alt(
         param_limits["psi"][0], param_limits["psi"][1])
@@ -1887,38 +2040,33 @@ if not opts.psi_marginalization:
         cdf_inv = psi_sampler_cdf_inv,
         left_limit = param_limits["psi"][0],
         right_limit = param_limits["psi"][1],
-        prior_pdf = mcsampler.uniform_samp_psi,
+        prior_pdf = psi_prior_pdf,
         adaptive_sampling=opts.internal_rotate_phase or opts.force_adapt_all)
 # else: psi is not a sampled dimension at all -- --psi-marginalization integrates it out
 # analytically inside the likelihood (see the likelihood_function branch below), matching the
 # --distance-marginalization precedent of skipping add_parameter entirely for a parameter that
 # is marginalized rather than sampled.
 #
-# EVIDENCE NEUTRALITY.  The psi prior this driver USES is not normalized: the sampled path puts
-# uniform_samp_psi = 1/pi over param_limits["psi"] = (0, 2 pi), so its psi prior integrates to 2,
-# and every ordinary ILE lnZ on this path carries that +ln 2.  NetworkLogLikelihoodPolarizationMarginalized
-# instead returns the NORMALIZED marginal, (1/pi) int_0^pi exp(lnL) dpsi, which integrates to 1.
-# Without the correction below the flag would report lnL exactly ln 2 = 0.693 nat BELOW an
-# otherwise identical sampled-psi run, so marginalized and sampled rows could not share an
-# all.net.  Measured on two fixtures, AV, 3 seeds each: 0.7027 and 0.6602 +/- 0.036.
-# Derived from the sampler's OWN prior and limits rather than written as a literal ln 2, so that
-# changing either (e.g. --internal-rotate-phase's (0, 4 pi) psi range) cannot silently desync it.
-# NOTE FOR REVIEW: this matches the incumbent, it does not decide the convention.  The RIFT JAX
-# driver uses psi in [0, pi]; until one convention is chosen, evidences compared ACROSS the two
-# drivers differ by ln 2 regardless of this flag.
+# EVIDENCE NEUTRALITY.  NetworkLogLikelihoodPolarizationMarginalized returns the NORMALIZED
+# marginal, (1/pi) int_0^pi exp(lnL) dpsi.  The sampled-psi path's prior is psi_prior_pdf, which
+# is derived from psi_prior_range and so also integrates to 1, and the two paths agree with no
+# correction.  The correction below is kept as a guard: it is ln(mass) of the sampled path's own
+# prior, read off psi_prior_pdf and psi_prior_range, so that if either is ever changed the
+# marginalized path moves with it instead of silently drifting by a constant.  (Before the psi
+# prior was derived from its range it was 1/pi over (0, 2 pi), mass 2, and this term was ln 2.)
 psi_marginalization_ln_prior_mass = 0.0
 if opts.psi_marginalization:
     _psi_prior_density = float(numpy.atleast_1d(
-        mcsampler.uniform_samp_psi(numpy.atleast_1d(
-            0.5*(param_limits["psi"][0]+param_limits["psi"][1]))))[0])
-    _psi_prior_mass = _psi_prior_density*(param_limits["psi"][1]-param_limits["psi"][0])
+        psi_prior_pdf(numpy.atleast_1d(
+            0.5*(psi_prior_range[0]+psi_prior_range[1]))))[0])
+    _psi_prior_mass = _psi_prior_density*(psi_prior_range[1]-psi_prior_range[0])
     if not (_psi_prior_mass > 0):
         raise ValueError("--psi-marginalization: psi prior mass {} is not positive".format(_psi_prior_mass))
     psi_marginalization_ln_prior_mass = float(numpy.log(_psi_prior_mass))
     print("  --psi-marginalization: sampled-path psi prior mass is {:.6f} over ({:.4f}, {:.4f}) at "
           "density {:.6f}; adding ln(mass) = {:+.6f} nat to the normalized analytic marginal so "
           "lnZ matches an otherwise identical sampled-psi run.".format(
-              _psi_prior_mass, param_limits["psi"][0], param_limits["psi"][1],
+              _psi_prior_mass, psi_prior_range[0], psi_prior_range[1],
               _psi_prior_density, psi_marginalization_ln_prior_mass))
 
 #
@@ -1935,7 +2083,7 @@ if not (opts.distance_marginalization and lookup_table["phase_marginalization"])
         cdf_inv = phi_sampler_cdf_inv,
         left_limit = param_limits["phi_orb"][0], 
         right_limit = param_limits["phi_orb"][1],
-        prior_pdf = mcsampler.uniform_samp_phase,
+        prior_pdf = mcsampler.ret_uniform_samp_vector_alt(phi_orb_prior_range[0], phi_orb_prior_range[1]),
         adaptive_sampling=opts.internal_rotate_phase or opts.force_adapt_all)
 
 
@@ -2097,9 +2245,13 @@ if opts.internal_sky_network_coordinates:
     opts.internal_sky_network_coordinates = False # stop using this code
   else:
     sky_rotations.assign_sky_frame(ifo_list[0], ifo_list[1], fiducial_epoch)
-    frm = identity_convert_togpu(sky_rotations.frm)
-    my_rotation = functools.partial(lalsimutils.polar_angles_in_frame_alt,frm,xpy=xpy_default)
-    my_rotation_cpu = functools.partial(lalsimutils.polar_angles_in_frame_alt,sky_rotations.frm,xpy=np)
+    # The integration variables are angles in the network-aligned frame.  The
+    # likelihood and output XML require physical equatorial angles, so apply
+    # the inverse frame here.  Using ``frm`` would instead apply the
+    # physical->network transform a second time.
+    frm_inverse = identity_convert_togpu(sky_rotations.frmInverse)
+    my_rotation = functools.partial(sky_rotations.network_to_physical,inverse_frame=frm_inverse,xpy=xpy_default)
+    my_rotation_cpu = functools.partial(sky_rotations.network_to_physical,inverse_frame=sky_rotations.frmInverse,xpy=np)
 if opts.internal_sky_network_coordinates and (opts.limit_right_ascension or opts.limit_declination):
   # The sampled RA/dec live in the network-aligned frame, so a truth-centered sky box given in
   # equatorial coordinates would silently select the wrong patch of sky.  Fail loudly.
@@ -2371,28 +2523,68 @@ if opts.sampler_method =="portfolio":
 if use_gmm_args:   # standalone GMM, or a portfolio carrying a GMM member (see use_gmm_args above)
     n_step =pinned_params["n"]
     n_max_blocks = ((1.0*int(opts.n_max))/n_step)
+    # cannot pin params at present
+    # unpinned params MUST be full call signature of likelihood, IN ORDER
+    #
+    # This MUST be settled before the dim-group keys below are built.  mcsamplerEnsemble numbers
+    # its integration dimensions by the order of the positional arguments it is called with --
+    # i.e. by this list -- NOT by sampler.params_ordered, which is the order add_parameter()
+    # happened to be called in (psi, phi_orb, inclination, distance, right_ascension,
+    # declination, t_ref).  The two orders are different, so keys built from params_ordered
+    # name the wrong dimensions.
+    if not(opts.time_marginalization):
+      unpinned_params =['right_ascension','declination', 't_ref','phi_orb','inclination','psi','distance']
+    else:
+      unpinned_params =['right_ascension','declination', 'phi_orb','inclination','psi','distance']
+    if opts.distance_marginalization:
+      unpinned_params.remove('distance')
+      if lookup_table["phase_marginalization"]:
+        unpinned_params.remove('phi_orb')
+
+    # WHICH FRAME the dim-group keys are in depends on HOW the sampler is driven, and this one
+    # option block feeds both:
+    #   standalone GMM      -> sampler.integrate(like_to_integrate, *unpinned_params), so dim i
+    #                          is unpinned_params[i].
+    #   portfolio GMM member-> the portfolio never calls member.integrate().  It calls
+    #                          member.setup() (dim = len(params_ordered)) and then
+    #                          member.draw_simplified(n, *self.params_ordered), so dim i is
+    #                          sampler.params_ordered[i].
+    # Those two lists are NOT the same order, so one key set cannot serve both.
+    #
+    # SCOPE: this changes the STANDALONE GMM path only.  params_ordered was already the correct
+    # frame for a portfolio member, so that branch reproduces the previous behaviour exactly --
+    # it is here to avoid regressing the portfolio, not to improve it.  Portfolio correctness is
+    # owned elsewhere; when that work lands it can adopt dim_group_frame() rather than
+    # re-deriving the rule.
+    gmm_frame = mcsamplerEnsemble.dim_group_frame(sampler, unpinned_params,
+                                                 driven_by_integrate=not use_gmm_member)
+
+    def gmm_param_tuple(names):
+      """Dim-group key for mcsamplerEnsemble, in the frame its driver numbers dimensions in."""
+      return tuple([gmm_frame.index(x) for x in names if x in gmm_frame])
     # pairing coordinates for adaptive integration: see definition of order below
     #    (distance,inclination)
     #    (ra, dec)
     #    (psi) (orb_phase)   # only do 1d adaptivity there, 
 #    gmm_dict = {tuple([2]):None,tuple([4]):None,(3,5):None,(0,1):None} 
 #    comp_dict = {tuple([2]):1,tuple([4]):1,(3,5):3,(0,1):4} 
-    default_phipsi = mcsamplerEnsemble.create_wide_single_component_prior( [ param_limits['psi'], param_limits['phi_orb']])
-#    pair_sky = sampler_param_tuple(sampler, ['right_ascension','declination'])
-    pair_ra_dec =   sampler_param_tuple(sampler, ["right_ascension", "declination"])
+    # (psi, phi_orb) starts from the UNIFORM proposal: MonteCarloEnsemble._sample() reads a
+    # None entry as "draw this group uniformly over its bounds".  See the block at the end of
+    # RIFT/integrators/mcsamplerEnsemble.py for the seed that used to be wired in here.
+    pair_ra_dec =   gmm_param_tuple(["right_ascension", "declination"])
     n_d =  2  # 2 distance-inclination lobes by default
     n_sky = 4
     n_phase =4
     adapt_phase = False
-    if 'distance' in sampler.params:
-         pair_d_incl = sampler_param_tuple(sampler, ['distance','inclination'])
+    if 'distance' in gmm_frame:
+         pair_d_incl = gmm_param_tuple(['distance','inclination'])
     else:
-         pair_d_incl = sampler_param_tuple(sampler, ['inclination'])
+         pair_d_incl = gmm_param_tuple(['inclination'])
          n_d = 1 # one peak in distance by default
-    if 'phi_orb' in sampler.params:
-         pair_phi_psi = sampler_param_tuple(sampler, ['psi', "phi_orb"])
+    if 'phi_orb' in gmm_frame:
+         pair_phi_psi = gmm_param_tuple(['psi', "phi_orb"])
     else:
-         pair_phi_psi = sampler_param_tuple(sampler, ['psi'])
+         pair_phi_psi = gmm_param_tuple(['psi'])
          adapt_phase = True
          n_phase = 2
     # user overrides for component counts (single-peak sources: the ring-sized
@@ -2408,24 +2600,24 @@ if use_gmm_args:   # standalone GMM, or a portfolio carrying a GMM member (see u
       # (rank-elite refits included: the elite set looks broad in every
       # per-group projection).  One joint GMM can compound on any structure
       # a Gaussian mixture can represent.
-      pair_all = tuple(range(len(sampler.params_ordered)))
+      pair_all = tuple(range(len(gmm_frame)))
       n_all = opts.internal_gmm_sky_components if opts.internal_gmm_sky_components else 2
       gmm_dict = {pair_all: None}
       gmm_adapt = {pair_all: True}
     else:
-      gmm_dict = {pair_ra_dec:None,pair_d_incl:None,pair_phi_psi:default_phipsi}
+      gmm_dict = {pair_ra_dec:None,pair_d_incl:None,pair_phi_psi:None}
       gmm_adapt = {pair_ra_dec: True, pair_d_incl: True, pair_phi_psi: False}
       if opts.internal_rotate_phase:
         gmm_adapt[pair_phi_psi] = True
     # Extrinsic handoff: SEED the per-group GMMs from a learned proposal breadcrumb (the
     # previous iteration's posterior).  Keys are dim-group index tuples, matched by name to
-    # sampler.params_ordered -- so they line up with pair_ra_dec / pair_d_incl / pair_phi_psi.
+    # gmm_frame -- so they line up with pair_ra_dec / pair_d_incl / pair_phi_psi.
     if opts.extrinsic_proposal_breadcrumb and os.path.exists(opts.extrinsic_proposal_breadcrumb) and os.path.getsize(opts.extrinsic_proposal_breadcrumb) > 0:
       try:
         import RIFT.calmarg.breadcrumbs as _ebcmod, RIFT.calmarg.extrinsic_handoff as _ehmod
         _ebc = _ebcmod.load(opts.extrinsic_proposal_breadcrumb)
         _ext_adapt = bool(getattr(opts, 'extrinsic_proposal_adapt', False))
-        _seed = _ehmod.gmm_dict_from_breadcrumb(_ebc.get('extrinsic'), sampler.params_ordered, adapt=_ext_adapt, existing_keys=list(gmm_dict.keys()))
+        _seed = _ehmod.gmm_dict_from_breadcrumb(_ebc.get('extrinsic'), gmm_frame, adapt=_ext_adapt, existing_keys=list(gmm_dict.keys()))
         for _k, _m in _seed.items():
           if _k in gmm_dict:
             gmm_dict[_k] = _m
@@ -2445,22 +2637,28 @@ if use_gmm_args:   # standalone GMM, or a portfolio carrying a GMM member (see u
       comp_dict = {pair_all: n_all}
     else:
       comp_dict = {pair_ra_dec:n_sky,pair_d_incl:n_d,pair_phi_psi:n_phase}
+    # EVERY dimension must belong to exactly one dim-group.  The three named groups above cover
+    # (ra,dec),(distance,inclination),(psi,phi_orb) only, so a run with a seventh parameter
+    # (t_ref, i.e. no --time-marginalization) leaves one out, and an uncovered column is
+    # uninitialized memory -- see complete_dim_group_cover().
+    # adapt_default must already reflect --force-adapt-all: the gmm_adaptive (BIC) block below
+    # sizes exactly the groups gmm_adapt marks adapting, and it runs BEFORE the force-adapt-all
+    # sweep further down.  Leaving this False made a forced-adapt leftover group refit at
+    # n_comp=1 instead of up to --internal-gmm-max-components.
+    for _k in mcsamplerEnsemble.complete_dim_group_cover(gmm_dict, len(gmm_frame),
+                                                         comp_dict=comp_dict, gmm_adapt=gmm_adapt,
+                                                         adapt_default=bool(opts.force_adapt_all)):
+      print("GMM: dimension {} ({}) had no dim-group; added as its own uncorrelated group".format(
+          _k[0], gmm_frame[_k[0]]))
+    # Fail HERE, not inside analyze_event: that is wrapped in a bare `except Exception` that
+    # writes an empty .dat and exits 0 under --internal-make-empty-file-on-error, so a refusal
+    # raised from sampler.integrate() would look like a job that merely found nothing.
+    try:
+      mcsamplerEnsemble.validate_dim_group_cover(gmm_dict, len(gmm_frame))
+    except ValueError as _e_cover:
+      print("FATAL: GMM dim-group mapping is unusable: {}".format(_e_cover))
+      sys.exit(1)
     extra_args = {'n_comp':comp_dict,'max_iter':n_max_blocks,'gmm_dict':gmm_dict, 'gmm_adapt':gmm_adapt}  # made up for now, should adjust
-    # FLEXIBLE allocation: each ADAPTING group chooses its component count from
-    # the data by BIC (GMM.fit_gmm_adaptive), replacing the hard-coded per-group
-    # counts above.  A defensive tail component + optional inflation keep the
-    # importance weights bounded (the fix that gets GMM n_eff off ~1 at high SNR).
-    if opts.internal_gmm_adaptive_components:
-      k_cap = int(opts.internal_gmm_max_components)
-      gmm_adaptive = {}
-      for _g in gmm_dict:
-        if (gmm_adapt is None) or gmm_adapt.get(_g, True):   # only groups that adapt
-          gmm_adaptive[_g] = k_cap
-      extra_args['gmm_adaptive'] = gmm_adaptive
-      extra_args['gmm_defensive_frac'] = float(opts.internal_gmm_defensive_frac)
-      extra_args['gmm_inflate'] = float(opts.internal_gmm_inflate)
-      print("GMM adaptive components (BIC, cap {}, defensive {}, inflate {}): groups {}".format(
-          k_cap, opts.internal_gmm_defensive_frac, opts.internal_gmm_inflate, list(gmm_adaptive.keys())))
     print("GMM:",extra_args)
     print("GMM:",sampler.params_ordered)
     # if opts.distance_marginalization:
@@ -2477,19 +2675,28 @@ if use_gmm_args:   # standalone GMM, or a portfolio carrying a GMM member (see u
     # force adapt in all parameters, if we request it. Requires pass-by-reference in above
     if opts.force_adapt_all:
         for param in gmm_adapt:
-            gmm_adapt[param] = True
+            gmm_adapt[param] = True   # includes the leftover 1-d groups added above
+    # BIC allocation must be decided AFTER the sweep above, not before: it sizes exactly the
+    # groups gmm_adapt marks adapting, so running it first left every group the sweep was about
+    # to switch on absent from gmm_adaptive -- it then refit at its fixed count instead of BIC up
+    # to --internal-gmm-max-components.  That hit the leftover group and (psi, phi_orb), which is
+    # frozen by default and only adapts under --force-adapt-all or --internal-rotate-phase.
+    # FLEXIBLE allocation: each ADAPTING group chooses its component count from
+    # the data by BIC (GMM.fit_gmm_adaptive), replacing the hard-coded per-group
+    # counts above.  A defensive tail component + optional inflation keep the
+    # importance weights bounded (the fix that gets GMM n_eff off ~1 at high SNR).
+    if opts.internal_gmm_adaptive_components:
+      k_cap = int(opts.internal_gmm_max_components)
+      gmm_adaptive = {}
+      for _g in gmm_dict:
+        if (gmm_adapt is None) or gmm_adapt.get(_g, True):   # only groups that adapt
+          gmm_adaptive[_g] = k_cap
+      extra_args['gmm_adaptive'] = gmm_adaptive
+      extra_args['gmm_defensive_frac'] = float(opts.internal_gmm_defensive_frac)
+      extra_args['gmm_inflate'] = float(opts.internal_gmm_inflate)
+      print("GMM adaptive components (BIC, cap {}, defensive {}, inflate {}): groups {}".format(
+          k_cap, opts.internal_gmm_defensive_frac, opts.internal_gmm_inflate, list(gmm_adaptive.keys())))
     pinned_params.update(extra_args)
-
-    # cannot pin params at present
-    # unpinned params MUST be full call signature of likelihood, IN ORDER
-    if not(opts.time_marginalization):
-      unpinned_params =['right_ascension','declination', 't_ref','phi_orb','inclination','psi','distance']
-    else:
-      unpinned_params =['right_ascension','declination', 'phi_orb','inclination','psi','distance']
-    if opts.distance_marginalization:
-      unpinned_params.remove('distance')
-      if lookup_table["phase_marginalization"]:
-        unpinned_params.remove('phi_orb')
 if opts.sampler_method == "AV":
   return_lnL=True
   pinned_params.update( { 'enforce_bounds':True})  # don't go out of range : choose integer bin sizes
@@ -2567,7 +2774,7 @@ if use_portfolio:
       if opts.portfolio_probe_period is not None:
           _freeze_policy_kwargs['portfolio_probe_period'] = opts.portfolio_probe_period
       print(" PORTFOLIO freeze-policy overrides: ", _freeze_policy_kwargs)
-      sampler.setup(portfolio_args=opts.sampler_portfolio_args, **_freeze_policy_kwargs, **pinned_params) # directly pass all parameters set above to low-level portfolios.  In particular, GMM setup
+      sampler.setup(portfolio_args=opts.sampler_portfolio_args, portfolio_allow_stratified_density=opts.sampler_portfolio_allow_stratified_density, **_freeze_policy_kwargs, **pinned_params) # directly pass all parameters set above to low-level portfolios.  In particular, GMM setup
       # NOTE: the portfolio oracle MECHANISM is fixed (proposals now actually enter
       # member training; see mcsamplerPortfolio), and a FisherGaussianOracle can be
       # attached via sampler.oracle_realizations.  It is not auto-wired here because
@@ -4581,11 +4788,11 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         sampler.reset_sampling('distance')
       sampler.reset_sampling('inclination')
     elif use_gmm_args:   # standalone GMM or a portfolio with a GMM member (gmm_dict exists in both)
-      if 'distance' in sampler.params:
-         pair_d_incl = sampler_param_tuple(sampler, ['distance','inclination'])
+      if 'distance' in gmm_frame:
+         pair_d_incl = gmm_param_tuple(['distance','inclination'])
          if  pair_d_incl in gmm_dict:
             gmm_dict[pair_d_incl] = None # reset inclination/distance sampling
-      single_incl = sampler_param_tuple(sampler, ['inclination'])
+      single_incl = gmm_param_tuple(['inclination'])
       if (opts.distance_marginalization) and single_incl in gmm_dict:
         gmm_dict[single_incl] = None # reset inclination sampling
 
@@ -4596,10 +4803,21 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
     # if exactly zero likelihood function
     like_to_integrate = likelihood_function
     if opts.zero_likelihood:
-              if opts.internal_use_lnL:
-                   like_to_integrate = zero_like
-              else:
-                   like_to_integrate = unit_like
+              # Same predicate question as log_res below: the stand-in must match the convention
+              # the INTEGRAND uses (ln L = 0 versus L = 1), which is return_lnL.  Under
+              # `--internal-use-lnL --sampler-method adaptive_cartesian` the option is True while
+              # the integrand is linear, so this handed a linear sampler a log-convention zero.
+              # The stand-in is built with the SAME SIGNATURE as the function it replaces, and
+              # applies a --supplementary-likelihood-factor-* if one was given; see
+              # make_zero_likelihood_standin.  The defaults below cover supplement arguments this
+              # signature does not sample: distance is 0.0, which is what the two
+              # distance-marginalized call sites already pass the factor, and the angles fall back
+              # to the template's fixed value, which is what they are when they are not sampled.
+              like_to_integrate = make_zero_likelihood_standin(
+                  args, return_lnL, supplemental_ln_likelihood,
+                  {"right_ascension": P.phi, "declination": P.theta, "phi_orb": P.phiref,
+                   "inclination": P.incl, "psi": P.psi, "distance": 0.0},
+                  xpy_default)
     if oracleRS:
          print("  ORACLE  - seeding sampling  with" , oracleRS.params_ordered)
          if hasattr(sampler, 'update_sampling_prior'):
@@ -4883,7 +5101,16 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
     if not(res): # no resut
       raise ValueError(" No integral result returned")
 
-    if not(opts.internal_use_lnL):
+    # WHICH CONVENTION THE SAMPLER RETURNED -- `return_lnL`, not opts.internal_use_lnL.  This is
+    # the same distinction the rvs_integrand_is_lnL derivation above spells out, applied to the
+    # RETURN value: --internal-use-lnL is accepted for every method in ok_lnL_methods, but
+    # `adaptive_cartesian` (mcsampler.py) has no use_lnL handling at all, so the driver never
+    # hands it use_lnL and it returns a LINEAR integral no matter what the option says.  Reading
+    # the option here skipped the logarithm on exactly that pairing and wrote the linear integral
+    # into the lnL column: the ILE-GPU-Paper demo reported lnL = 1.3e29 (= e^67) with sigma inf,
+    # and the .dgrid built from it inherited that.  return_lnL and opts.internal_use_lnL agree for
+    # GMM / adaptive_cartesian_gpu / AV / portfolio, so this changes nothing else.
+    if not(return_lnL):
       log_res = numpy.log(res)
       sqrt_var_over_res =  numpy.sqrt(var)/res
     else:
@@ -5029,7 +5256,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             if (_r2 is None) or (_r2[0] is None):
                 continue
             _res2, _var2, _neff2, _dd2 = _r2
-            if not(opts.internal_use_lnL):
+            if not(return_lnL):   # the sampler's convention, not the option -- see the main pass
                 _lr2 = numpy.log(_res2); _sig2 = numpy.sqrt(_var2)/_res2
             else:
                 _lr2 = _res2; _sig2 = numpy.exp(_var2/2 - _lr2)
@@ -5192,8 +5419,14 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 print(" [mc error] pooled posterior: {} samples, n_eff {:.1f} via {} (sum over replicas was {:.1f})".format(
                     len(numpy.atleast_1d(list(sampler._rvs.values())[0])) if sampler._rvs else 0,
                     float(_neff_pooled), _neff_how, float(numpy.sum(_rep_neff))))
-            # keep the (res, var) pair consistent for any downstream reader
-            if not(opts.internal_use_lnL):
+            # keep the (res, var) pair consistent for any downstream reader (analyze_event
+            # RETURNS res).  This is the exact inverse of the log_res block in the main pass,
+            # so it must key off the SAME predicate -- `return_lnL`, the convention the sampler
+            # was actually handed, not opts.internal_use_lnL.  They differ for
+            # `--sampler-method adaptive_cartesian --internal-use-lnL`: the main pass correctly
+            # takes the logarithm of a linear integral, and reading the option here then failed
+            # to undo it, returning ln(res) as res with var rewritten in log form.
+            if not(return_lnL):
                 res = numpy.exp(log_res); var = (sqrt_var_over_res*res)**2
             else:
                 res = log_res; var = 2*numpy.log(sqrt_var_over_res) + 2*log_res
@@ -5422,47 +5655,107 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         # Per-intrinsic likelihood-vs-distance grid. Pure extrinsic-marginalized
         # likelihood as a function of d_L: divides out the distance sampling
         # prior so downstream can re-marginalize with any prior of choice.
-        if opts.output_file and opts.export_marginal_distance_grid and not(opts.distance_marginalization) and opts.internal_use_lnL:
-          from RIFT.misc.distance_grid import build_distance_grid, save_distance_grid
-          fname_output_dgrid = opts.output_file +"_"+str(indx_event)+"_" + ".dgrid"
-          dL = np.array(sampler._rvs["distance"])
-          rvs = sampler._rvs
-          # POSTERIOR weights: a fair-drawn record is already an equal-weight posterior draw,
-          # and build_distance_grid weights the samples again to form the per-bin mass.
-          ln_wts = ln_weights_for_posterior(rvs, sampler, use_lnL=rvs_integrand_is_lnL)
-          # Distance prior at each sample. Use the sampler's stored prior_pdf
-          # callable; this matches whatever ILE actually integrated against
-          # (volumetric, pseudo_cosmo, redshift, ...).
-          prior_pdf_d = sampler.prior_pdf["distance"]
-          pi_d_samp = np.asarray(prior_pdf_d(dL), dtype=float)
-          # Guard: prior must be strictly positive at sampled points
-          pi_d_samp = np.where(pi_d_samp > 0, pi_d_samp, np.finfo(float).tiny)
-          ln_prior_d_samp = np.log(pi_d_samp)
-          params_out = {
-              "m1": P.m1/lal.MSUN_SI,
-              "m2": P.m2/lal.MSUN_SI,
-              "s1x": P.s1x,
-              "s1y": P.s1y,
-              "s1z": P.s1z,
-              "s2x": P.s2x,
-              "s2y": P.s2y,
-              "s2z": P.s2z,
-              "lambda1": P.lambda1,
-              "lambda2": P.lambda2,
-              "eccentricity": P.eccentricity,
-              "meanPerAno": P.meanPerAno,
-              "eos_index": getattr(P, "eos_table_index", 0),
-          }
-          dgrid = build_distance_grid(
-              dL,
-              ln_wts,
-              log_res + manual_avoid_overflow_logarithm,
-              sqrt_var_over_res,
-              params_out,
-              ln_prior_d_at_samples=ln_prior_d_samp,
-              n_grid=opts.n_eff,
-          )
-          save_distance_grid(fname_output_dgrid, dgrid)
+        # NOT gated on --internal-use-lnL.  That flag decided nothing here -- every quantity
+        # this block reads is already convention-aware (ln_weights_for_posterior is passed
+        # rvs_integrand_is_lnL, and log_res is now derived through return_lnL) -- it only made
+        # --export-marginal-distance-grid silently do nothing unless a SECOND, unrelated flag
+        # was also set, which is how a .dgrid request could be honoured on AV and dropped on
+        # the identical command line with --sampler-method GMM.
+        if opts.output_file and opts.export_marginal_distance_grid and not(opts.distance_marginalization):
+          # Guarded because widening this gate (above) makes backends run the exporter
+          # that previously skipped it.  Everything expensive is already done and the
+          # .dat is written by now, so a secondary export must not take the job down --
+          # but it must not go quiet either, which is the defect the gate change fixes.
+          try:
+            from RIFT.misc.distance_grid import (build_distance_grid, save_distance_grid,
+                                                 distance_grid_inputs)
+            fname_output_dgrid = opts.output_file +"_"+str(indx_event)+"_" + ".dgrid"
+            rvs = sampler._rvs
+            # PREFER THE RETAINED SET.  _rvs by now is the fair draw -- min(
+            # --fairdraw-extrinsic-output-n-max (5 by default), 1.5*eff_samp, 1.5*neff) rows
+            # taken WITH REPLACEMENT -- which is an EXPORT resample, not a sample set.  A
+            # likelihood-vs-distance curve cannot be built from five rows, three of them the
+            # same point; every integrator that fair-draws now keeps a bounded copy of the
+            # rows it actually retained, with both prior components, so the grid is built
+            # from those and weighted by the real importance weight.  Falling back to _rvs
+            # keeps this working for a sampler that kept no reserve (and for a pass that
+            # never fair-drew, where _rvs IS the retained set).
+            # ONE CALL, because this decision has to be runnable to be tested: which rows
+            # the curve is built from, how they are weighted, and whether the pass can
+            # support the grid at all.  See RIFT/misc/distance_grid.distance_grid_inputs.
+            dL, ln_wts, ln_prior_d_samp, _dgrid_notes, _dgrid_warn = distance_grid_inputs(
+                _rvs_record_for(sampler, rvs), rvs,
+                lambda: ln_weights_for_posterior(rvs, sampler, use_lnL=rvs_integrand_is_lnL),
+                convert=identity_convert, n_grid=opts.n_eff,
+                n_eff_sampler=(float(neff) if neff is not None else None),
+                prior_pdf=sampler.prior_pdf["distance"])
+            for _note in _dgrid_notes:
+              print("  .dgrid " + _note)
+            if _dgrid_warn:
+              # The remedy depends on which path produced the rows.  On the fall-back the
+              # fair draw is the limit (capped at --fairdraw-extrinsic-output-n-max, then
+              # again at 1.5*n_eff); on the retained-set path that option is irrelevant and
+              # only the achieved n_eff matters, so saying otherwise sends the user to a
+              # knob that cannot help.
+              if _dgrid_notes:
+                _remedy = ("  Raise the achieved n_eff (--n-max, or --sampler-method AV);"
+                           " --fairdraw-extrinsic-output-n-max does not affect this path.")
+              else:
+                _remedy = ("  Raise --fairdraw-extrinsic-output-n-max, and raise the achieved"
+                           " n_eff (--n-max, or --sampler-method AV) -- the draw is also"
+                           " capped at 1.5*n_eff.")
+              print("  WARNING: --export-marginal-distance-grid: " + _dgrid_warn
+                    + "  (--sampler-method {}, main n_eff={})".format(
+                          opts.sampler_method,
+                          "{:.1f}".format(float(neff)) if neff is not None else "unreported")
+                    + _remedy)
+            params_out = {
+                "m1": P.m1/lal.MSUN_SI,
+                "m2": P.m2/lal.MSUN_SI,
+                "s1x": P.s1x,
+                "s1y": P.s1y,
+                "s1z": P.s1z,
+                "s2x": P.s2x,
+                "s2y": P.s2y,
+                "s2z": P.s2z,
+                "lambda1": P.lambda1,
+                "lambda2": P.lambda2,
+                "eccentricity": P.eccentricity,
+                "meanPerAno": P.meanPerAno,
+                "eos_index": getattr(P, "eos_table_index", 0),
+            }
+            dgrid = build_distance_grid(
+                dL,
+                ln_wts,
+                log_res + manual_avoid_overflow_logarithm,
+                sqrt_var_over_res,
+                params_out,
+                ln_prior_d_at_samples=ln_prior_d_samp,
+                n_grid=opts.n_eff,
+            )
+            save_distance_grid(fname_output_dgrid, dgrid)
+            # A condor RETRY that succeeds must not leave the failed attempt's marker next
+            # to a good file, or the census the handler below exists to support counts it.
+            try:
+              _f_skip_stale = opts.output_file + "_" + str(indx_event) + "_" + ".dgrid.skipped"
+              if os.path.exists(_f_skip_stale):
+                os.remove(_f_skip_stale)
+            except Exception:
+              pass
+          except Exception as _e_dgrid:
+            print("  ERROR: --export-marginal-distance-grid requested but the .dgrid could NOT be"
+                  " written for this event: {}: {}".format(type(_e_dgrid).__name__, _e_dgrid))
+            # LEAVE A MARK.  util_ConsolidateDistanceGrids.py GLOBS the .dgrid files and the
+            # DAG runs it with --allow-empty, so a missing file removes this intrinsic point
+            # from all_dgrid.dat with nothing to count -- and the points that fail here are
+            # the collapsed, highest-SNR ones, so what remains is a biased subset rather than
+            # a smaller one.  A sidecar is greppable across a run directory; the ERROR line
+            # above is buried in one job's .out.
+            try:
+              with open(opts.output_file + "_" + str(indx_event) + "_" + ".dgrid.skipped", "w") as _f_skip:
+                _f_skip.write("{}\t{}\t{}\n".format(indx_event, type(_e_dgrid).__name__, _e_dgrid))
+            except Exception as _e_skip:
+              print("  ERROR: could not record the skipped .dgrid either: {}".format(_e_skip))
 
         # Plan-B distance slices: K independent fixed-d extrinsic integrals.
         # Produces a (K rows x intrinsic cols) table per ILE job; target size

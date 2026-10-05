@@ -15,11 +15,17 @@ rosDebug=False
 import numpy as np
 import os
 import sys
+import warnings
 import lal
 import lalsimulation as lalsim
 from scipy.integrate import quad
 import scipy.interpolate as interp
 import scipy
+
+from RIFT.physics.lalsim_eos_compat import (
+    LALSimNeutronStarFamilyAdapter,
+    create_family,
+)
 
 try:
     from natsort import natsorted
@@ -72,16 +78,76 @@ class EOSConcrete:
         self.eos_fam = None
         return None
 
-    def lambda_from_m(self, m):
-        eos_fam = self.eos_fam
+    def _set_lalsim_family(self, minimal=True, multipart=False,
+                            log_pressure_min=None):
+        """Create and cache a released-or-multibranch LAL family."""
+        self._lalsim_multipart = bool(multipart)
+        self._lalsim_family_adapter = create_family(
+            self.eos, minimal=minimal, multipart=multipart,
+            lalsim_module=lalsim, log_pressure_min=log_pressure_min
+        )
+        self.eos_fam = self._lalsim_family_adapter.family
+        self.mMaxMsun = self._lalsim_family_adapter.maximum_mass() / lal.MSUN_SI
+        # The family is bounded below as well as above.  Released LALSimulation
+        # publishes this as SimNeutronStarFamMinimumMass and the reviewed API as
+        # the per-branch minimum, so the adapter can answer it on either build;
+        # consumers that mask draws need both ends.  A build that cannot answer
+        # leaves the attribute None, which those consumers read as "unbounded
+        # below", i.e. the historical behaviour.
+        try:
+            self.mMinMsun = (
+                self._lalsim_family_adapter.minimum_mass() / lal.MSUN_SI
+            )
+        except Exception:
+            self.mMinMsun = None
+        return self.eos_fam
+
+    def _get_lalsim_family_adapter(self):
+        adapter = getattr(self, "_lalsim_family_adapter", None)
+        if adapter is None or adapter.family is not self.eos_fam:
+            adapter = LALSimNeutronStarFamilyAdapter.from_family(
+                self.eos_fam,
+                multipart=getattr(self, "_lalsim_multipart", False),
+                lalsim_module=lalsim
+            )
+            self._lalsim_family_adapter = adapter
+        return adapter
+
+    def branches_for_m(self, m):
+        """Return stable LAL family branches available at mass ``m``."""
+        if m < 10**15:
+            m = m * lal.MSUN_SI
+        return self._get_lalsim_family_adapter().branches_for_mass(m)
+
+    def for_branch(self, branch_id):
+        """Return a legacy-scalar view restricted to one stable LAL branch.
+
+        Existing RIFT consumers call ``lambda_from_m(m)`` without a branch
+        keyword.  The view preserves that API while making the branch choice
+        explicit at construction time.
+        """
+        if getattr(self, "_lalsim_family_adapter", None) is None:
+            raise TypeError(
+                "branch selection requires a LALSimulation-backed EOS family"
+            )
+        return EOSBranchView(self, branch_id)
+
+    def radius_from_m(self, m, branch_id=None):
+        """Return radius in metres; require ``branch_id`` for twin stars."""
+        if m < 10**15:
+            m = m * lal.MSUN_SI
+        return self._get_lalsim_family_adapter().radius(m, branch_id=branch_id)
+
+    def lambda_from_m(self, m, branch_id=None):
         if m<10**15:
             m=m*lal.MSUN_SI
 
         if m/lal.MSUN_SI > 0.999*self.mMaxMsun:
             return 1e-8  # not exactly zero, but tiny
 
-        k2=lalsim.SimNeutronStarLoveNumberK2(m, eos_fam)
-        r=lalsim.SimNeutronStarRadius(m, eos_fam)
+        family = self._get_lalsim_family_adapter()
+        k2 = family.love_number_k2(m, branch_id=branch_id)
+        r = family.radius(m, branch_id=branch_id)
 
         m=m*lal.G_SI/lal.C_SI**2
         lam=2./(3*lal.G_SI)*k2*r**5
@@ -89,17 +155,19 @@ class EOSConcrete:
 
         return dimensionless_lam
 
-    def lambda_from_m_vector(self, m):
+    def lambda_from_m_vector(self, m, branch_id=None):
         # vectorize above. Naive vectorization, will depend on improved swig interface
         # alternative is to store meta-information and re-interpolatie
         if not(isinstance(m, np.ndarray)):
-            return self.lambda_from_m(m)
+            return self.lambda_from_m(m, branch_id=branch_id)
         else:
             # horribly inefficient right now!  Hopefully vectorized code available soon
-            out = np.array([self.lambda_from_m(m_here) for m_here in m])
+            out = np.array([
+                self.lambda_from_m(m_here, branch_id=branch_id) for m_here in m
+            ])
             return out
 
-    def estimate_baryon_mass_from_mg(self,m):
+    def estimate_baryon_mass_from_mg(self, m, branch_id=None):
         r"""
         Estimate m_b = m_g + m_g^2/(R_{1.4}/km) based on https://arxiv.org/pdf/1905.03784.pdf Eq. (6)
         Note baryon mass can be computed exactly with a TOV solution integral (e.g., Eq. 6.21 of Haensel's book)
@@ -107,7 +175,7 @@ class EOSConcrete:
         but lalsuite doesn't provide access to this low-level info
         !! This function is only for use when LALEOS is created. Use RePrimAnd's baryon_mass_from_mg preferably for most other purposes!!
         """
-        r1p4 =lalsim.SimNeutronStarRadius(1.4*lal.MSUN_SI, self.eos_fam)/1e3
+        r1p4 = self.radius_from_m(1.4, branch_id=branch_id) / 1e3
         return m + (1./r1p4)*m**2
     
     def pressure_density_on_grid_alternate(self,logrho_grid,enforce_causal=False):
@@ -178,7 +246,8 @@ class EOSConcrete:
         else:
             return True
 
-    def test_speed_of_sound_causal(self, test_only_under_mmax=True,fast_test=True):
+    def test_speed_of_sound_causal(
+            self, test_only_under_mmax=True, fast_test=True, branch_id=None):
         """
         Test if EOS satisfies speed of sound.
         Relies on low-level lalsimulation interpolation routines to get v(h) and as such is not very reliable
@@ -193,20 +262,56 @@ class EOSConcrete:
         eos = self.eos
         fam = self.eos_fam
         # Largest NS provides largest attained central pressure
-        m_max_SI = self.mMaxMsun*lal.MSUN_SI
+        family = self._get_lalsim_family_adapter()
+        m_max_SI = family.maximum_mass(branch_id) if branch_id is not None else self.mMaxMsun*lal.MSUN_SI
+        multipart = getattr(self, "_lalsim_multipart", False)
+        if multipart:
+            pseudo_enthalpy_of_pressure = getattr(
+                lalsim,
+                "SimNeutronStarEOSMultiPartsPseudoEnthalpyOfPressure",
+                None,
+            )
+            multipart_speed_of_sound = getattr(
+                lalsim,
+                "SimNeutronStarEOSMultiPartsSpeedOfSoundOfPseudoEnthalpy",
+                None,
+            )
+            if (pseudo_enthalpy_of_pressure is None
+                    or multipart_speed_of_sound is None):
+                return False
+            # Unlike the legacy Geometerized callable, the multipart accessor
+            # returns SI m/s. Preserve the dimensionless v/c threshold below.
+            speed_of_sound = lambda h, eos_here: (
+                multipart_speed_of_sound(h, eos_here) / lal.C_SI
+            )
+        else:
+            pseudo_enthalpy_of_pressure = (
+                lalsim.SimNeutronStarEOSPseudoEnthalpyOfPressure
+            )
+            speed_of_sound = lalsim.SimNeutronStarEOSSpeedOfSoundGeometerized
         if not test_only_under_mmax:
-            hmax = lalsim.SimNeutronStarEOSMaxPseudoEnthalpy(eos)
+            if multipart:
+                max_enthalpy = getattr(
+                    lalsim,
+                    "SimNeutronStarEOSMultiPartsMaxPseudoEnthalpy",
+                    None,
+                )
+                if max_enthalpy is None:
+                    return False
+                hmax = max_enthalpy(eos)
+            else:
+                hmax = lalsim.SimNeutronStarEOSMaxPseudoEnthalpy(eos)
         else:
             try:
-                pmax = lalsim.SimNeutronStarCentralPressure(m_max_SI,fam)  
-                hmax = lalsim.SimNeutronStarEOSPseudoEnthalpyOfPressure(pmax,eos)
+                pmax = family.central_pressure(m_max_SI, branch_id=branch_id)
+                hmax = pseudo_enthalpy_of_pressure(pmax, eos)
             except:
                 # gatch gsl interpolation errors for example
                 return False  
         if fast_test: 
             # https://git.ligo.org/lscsoft/lalsuite/blob/lalinference_o2/lalinference/src/LALInference.c#L2513
             try:
-                vsmax = lalsim.SimNeutronStarEOSSpeedOfSoundGeometerized(hmax, eos)
+                vsmax = speed_of_sound(hmax, eos)
                 return vsmax <1.1
             except:
                 # catch gsl interpolation errors for example
@@ -218,10 +323,101 @@ class EOSConcrete:
 #        h = np.linspace(0.0001,lalsim.SimNeutronStarEOSMinAcausalPseudoEnthalpy(eos),npts_internal)
         vs_internal = np.zeros(npts_internal)
         for indx in np.arange(npts_internal):
-            vs_internal[indx] =  lalsim.SimNeutronStarEOSSpeedOfSoundGeometerized(h[indx],eos)
+            vs_internal[indx] = speed_of_sound(h[indx], eos)
             if rosDebug:
                 print(h[indx], vs_internal[indx])
         return not np.any(vs_internal>1.1)   # allow buffer, so we have some threshold
+
+
+class EOSBranchView:
+    """A selected stable-family branch with the historical scalar EOS surface.
+
+    This wrapper is deliberately small: attributes not related to the stellar
+    family are delegated to the source EOS, while all mass-radius-tidal queries
+    are pinned to ``branch_id``.  It is the compatibility bridge for callers
+    such as CIP and hyperpipe that cannot pass a branch keyword on every lookup.
+
+    A branch is bounded at BOTH ends: a twin-star branch typically starts well
+    above the family minimum mass, so ``mMinMsun`` is published next to
+    ``mMaxMsun`` and consumers that mask draws should mask against both.
+    """
+
+    #: lambda_from_m value for a mass with no stable star on this branch.
+    #: Legacy consumers mask only on mMaxMsun, so masses below mMinMsun still
+    #: reach us; returning the same flag lalsimutils uses for its own failed
+    #: conversions keeps one such draw from aborting an entire batch.  It is a
+    #: flag, not a tidal deformability: the consumer must reject the row, which
+    #: is why CIP filters nonfinite converted coordinates ahead of the
+    #: likelihood fit and drops such samples on export.
+    LAMBDA_OUT_OF_BRANCH = -np.inf
+
+    def __init__(self, source, branch_id):
+        self.source = source
+        self.branch_id = int(branch_id)
+        adapter = source._get_lalsim_family_adapter()
+        adapter._validate_branch_id(self.branch_id)
+        self.name = "{}[branch={}]".format(source.name, self.branch_id)
+        self.eos = source.eos
+        self.eos_fam = source.eos_fam
+        self.mMinMsun = (
+            adapter.minimum_mass(self.branch_id) / lal.MSUN_SI
+        )
+        self.mMaxMsun = (
+            adapter.maximum_mass(self.branch_id) / lal.MSUN_SI
+        )
+
+    def branches_for_m(self, m):
+        available = self.source.branches_for_m(m)
+        return [self.branch_id] if self.branch_id in available else []
+
+    def radius_from_m(self, m):
+        return self.source.radius_from_m(m, branch_id=self.branch_id)
+
+    def lambda_from_m(self, m):
+        m_msun = m / lal.MSUN_SI if m > 10**15 else m
+        if m_msun > 0.999 * self.mMaxMsun:
+            return 1e-8
+        if m_msun < self.mMinMsun:
+            return self.LAMBDA_OUT_OF_BRANCH
+        try:
+            return self.source.lambda_from_m(m, branch_id=self.branch_id)
+        except ValueError:
+            # The Msun <-> SI round trip inside that call can put a mass quoted
+            # exactly at the branch edge a fraction outside it.  That is still
+            # an out-of-branch draw, not a caller error, so flag it rather than
+            # raising through a batch conversion.
+            return self.LAMBDA_OUT_OF_BRANCH
+
+    def lambda_from_m_vector(self, m):
+        if not isinstance(m, np.ndarray):
+            return self.lambda_from_m(m)
+        return np.array([self.lambda_from_m(m_here) for m_here in m])
+
+    def estimate_baryon_mass_from_mg(self, m):
+        """Estimate baryonic mass using this branch's 1.4-Msun radius."""
+        try:
+            return self.source.estimate_baryon_mass_from_mg(
+                m, branch_id=self.branch_id
+            )
+        except ValueError as exc:
+            raise ValueError(
+                "cannot estimate baryonic mass on branch {} because that "
+                "branch does not contain the 1.4-Msun reference star".format(
+                    self.branch_id
+                )
+            ) from exc
+
+    def test_speed_of_sound_causal(
+            self, test_only_under_mmax=True, fast_test=True):
+        """Test causality only up to this branch's maximum-mass star."""
+        return self.source.test_speed_of_sound_causal(
+            test_only_under_mmax=test_only_under_mmax,
+            fast_test=fast_test,
+            branch_id=self.branch_id,
+        )
+
+    def __getattr__(self, name):
+        return getattr(self.source, name)
 
 ###
 ### SERVICE 1: lalsimutils structure
@@ -232,9 +428,59 @@ class EOSLALSimulation(EOSConcrete):
         self.name=name
         
         self.eos       = lalsim.SimNeutronStarEOSByName(name)
-        self.eos_fam   = lalsim.CreateSimNeutronStarFamily(self.eos)
-        self.mMaxMsun  = lalsim.SimNeutronStarMaximumMass(self.eos_fam) / lal.MSUN_SI
+        self._set_lalsim_family()
         return None
+
+
+class EOSLALSimulationFromFile(EOSConcrete):
+    """Load a released two-column or reviewed nine-column LAL EOS table.
+
+    The reviewed LALSimulation reader detects clean phase transitions in both
+    formats and preserves all thermodynamic columns in the new format. Set
+    ``dirty_phase_transitions`` to request its opt-in correction of numerically
+    imperfect pressure plateaus.
+    """
+
+    def __init__(self, fname, name=None, dirty_phase_transitions=False,
+                 skip_family=False, minimal_family=True,
+                 phase_transition_aware=False,
+                 family_log_pressure_min=None):
+        self.name = name or os.path.basename(fname)
+        self.fname = fname
+        self.eos = None
+        self.eos_fam = None
+        phase_transition_reader = getattr(
+            lalsim, "SimNeutronStarEOSFromFilePhaseTransition", None
+        )
+        if family_log_pressure_min is not None:
+            family_log_pressure_min = float(family_log_pressure_min)
+            if not np.isfinite(family_log_pressure_min):
+                raise ValueError(
+                    "family_log_pressure_min must be finite ln(Pc / Pa)"
+                )
+        multipart = bool(
+            phase_transition_aware
+            or dirty_phase_transitions
+            or not minimal_family
+            or family_log_pressure_min is not None
+        )
+        self._lalsim_multipart = multipart
+        if multipart:
+            if phase_transition_reader is None:
+                raise NotImplementedError(
+                    "the requested multipart EOS family requires the reviewed "
+                    "LALSimulation phase-transition interface"
+                )
+            self.eos = phase_transition_reader(fname)
+        else:
+            self.eos = lalsim.SimNeutronStarEOSFromFile(fname)
+        if not skip_family:
+            self._set_lalsim_family(
+                minimal=minimal_family, multipart=multipart,
+                log_pressure_min=family_log_pressure_min
+            )
+        else:
+            self.mMaxMsun = None
 
 
 
@@ -335,7 +581,7 @@ class EOSFromTabularData(EOSConcrete):
         self.eos = lalsim.SimNeutronStarEOSFromFile(eos_fname)
         self.eos_fam = None
         if not(skip_family):
-            self.eos_fam = lalsim.CreateSimNeutronStarFamily(self.eos)
+            self._set_lalsim_family()
         return None
 
 
@@ -390,13 +636,15 @@ class EOSFromDataFile(EOSConcrete):
             eos_fname = "./" +eos_name + "_geom.dat" # assume write acces
             np.savetxt(eos_fname, np.transpose((press, edens)), delimiter='\t')
             eos = lalsim.SimNeutronStarEOSFromFile(eos_fname)
-            fam = lalsim.CreateSimNeutronStarFamily(eos)
+            family_adapter = create_family(eos)
+            fam = family_adapter.family
 
         else:
             print(" No such file ", self.fname)
             sys.exit(0)
 
-        self.mMaxMsun = lalsim.SimNeutronStarMaximumMass(fam) / lal.MSUN_SI
+        self._lalsim_family_adapter = family_adapter
+        self.mMaxMsun = family_adapter.maximum_mass() / lal.MSUN_SI
         return eos, fam
 
     def p_rho_arrays(self):
@@ -496,8 +744,7 @@ class EOSPiecewisePolytrope(EOSConcrete):
         self.mMaxMsun=None
 
         self.eos=lalsim.SimNeutronStarEOS4ParameterPiecewisePolytrope(param_dict['logP1'], param_dict['gamma1'], param_dict['gamma2'], param_dict['gamma3'])
-        self.eos_fam=lalsim.CreateSimNeutronStarFamily(self.eos)
-        self.mMaxMsun = lalsim.SimNeutronStarMaximumMass(self.eos_fam) / lal.MSUN_SI
+        self._set_lalsim_family()
 
         return None
 
@@ -532,22 +779,16 @@ class EOSLindblomSpectral(EOSConcrete):
             if check_cs_builtin:
                 # this
                 valid = self.test_speed_of_sound_causal_builtin()   # call parent class method
-                self.eos_fam = lalsim.CreateSimNeutronStarFamily(self.eos)
-                mmass = lalsim.SimNeutronStarMaximumMass(self.eos_fam) / lal.MSUN_SI
-                self.mMaxMsun = mmass
+                self._set_lalsim_family()
             else:
                 # this test requires these quantities to be built *first*
-                self.eos_fam = lalsim.CreateSimNeutronStarFamily(self.eos)
-                mmass = lalsim.SimNeutronStarMaximumMass(self.eos_fam) / lal.MSUN_SI
-                self.mMaxMsun = mmass
+                self._set_lalsim_family()
                 valid = self.test_speed_of_sound_causal()   # call parent class method
             if not valid:
                 raise Exception(" EOS : spectral sound speed violates speed of light ")
         elif not(no_eos_fam):
             # must create these if not performing the test
-            self.eos_fam = lalsim.CreateSimNeutronStarFamily(self.eos)
-            mmass = lalsim.SimNeutronStarMaximumMass(self.eos_fam) / lal.MSUN_SI
-            self.mMaxMsun = mmass
+            self._set_lalsim_family()
         else:
             self.eos_fam=None
             self.mMaxMsun = None
@@ -691,8 +932,7 @@ class EOSLindblomSpectralSoundSpeedVersusPressure(EOSConcrete):
             cwd = os.getcwd()
             self.eos=lalsim.SimNeutronStarEOSFromFile(cwd+"/"+name+"_geom.dat")
         if not(no_eos_fam):
-            self.eos_fam = lalsim.CreateSimNeutronStarFamily(self.eos)
-            self.mMaxMsun = lalsim.SimNeutronStarMaximumMass(self.eos_fam) / lal.MSUN_SI
+            self._set_lalsim_family()
         else:
             self.eos_fam=None
             self.mMaxMsun = None
@@ -1102,26 +1342,86 @@ def epsilon(x, p0, eps0, coeffs,use_ode=True):
 ###
 
 # Les-like
-def make_mr_lambda_lal(eos,n_bins=100):
+def _resolve_multipart_keyword(multipart, reviewed_multibranch):
+    """Resolve the canonical keyword and its O4c compatibility alias."""
+    if reviewed_multibranch is not None:
+        warnings.warn(
+            "reviewed_multibranch is deprecated; use multipart",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+    if multipart is None and reviewed_multibranch is None:
+        return False
+    if multipart is None:
+        return bool(reviewed_multibranch)
+    if reviewed_multibranch is None:
+        return bool(multipart)
+    if bool(multipart) != bool(reviewed_multibranch):
+        raise ValueError(
+            "multipart and reviewed_multibranch specify conflicting values"
+        )
+    return bool(multipart)
+
+
+def make_mr_lambda_lal(eos, n_bins=100, branch_id=None, multipart=None,
+                       family_adapter=None, reviewed_multibranch=None):
     '''
     Construct mass-radius curve from EOS
     Based on modern code resources (https://git.ligo.org/publications/gw170817/bns-eos/blob/master/scripts/eos-params.py) which access low-level structures
+
+    ``branch_id`` is optional for released/single-branch LALSimulation.  It is
+    required for a multibranch family so an overlapping twin-star interval is
+    never collapsed silently.
     '''
-    fam=lalsim.CreateSimNeutronStarFamily(eos)
-    max_m = lalsim.SimNeutronStarMaximumMass(fam)/lal.MSUN_SI
-    min_m = lalsim.SimNeutronStarFamMinimumMass(fam)/lal.MSUN_SI
+    multipart = _resolve_multipart_keyword(multipart, reviewed_multibranch)
+    family = family_adapter or create_family(eos, multipart=multipart)
+    if family.number_of_branches > 1 and branch_id is None:
+        raise ValueError(
+            "multibranch LAL family requires branch_id; use "
+            "make_mr_lambda_lal_branches() to construct every stable branch"
+        )
+    max_m = family.maximum_mass(branch_id=branch_id)/lal.MSUN_SI
+    min_m = family.minimum_mass(branch_id=branch_id)/lal.MSUN_SI
     mgrid = np.linspace(min_m,max_m, n_bins)
     mrL_dat = np.zeros((n_bins,3))
     mrL_dat[:,0] = mgrid
     for indx in np.arange(n_bins):
        mass_now = mgrid[indx]
-       r = lalsim.SimNeutronStarRadius(mass_now*lal.MSUN_SI,fam)/1000.
+       r = family.radius(mass_now*lal.MSUN_SI, branch_id=branch_id)/1000.
        mrL_dat[indx,1] = r
-       k = lalsim.SimNeutronStarLoveNumberK2(mass_now*lal.MSUN_SI,fam)
+       k = family.love_number_k2(mass_now*lal.MSUN_SI, branch_id=branch_id)
        c = mass_now * lal.MRSUN_SI / (r*1000.)
        mrL_dat[indx,2] = (2. / 3.) * k / c**5.
 
     return mrL_dat
+
+
+def make_mr_lambda_lal_branches(eos, n_bins=100, multipart=None,
+                                family_adapter=None,
+                                reviewed_multibranch=None):
+    """Return ``{branch_id: [M, R, Lambda]}`` for every stable LAL branch."""
+    multipart = _resolve_multipart_keyword(multipart, reviewed_multibranch)
+    family = family_adapter or create_family(eos, multipart=multipart)
+    return {
+        branch_id: _make_mr_lambda_for_family(family, n_bins, branch_id)
+        for branch_id in range(family.number_of_branches)
+    }
+
+
+def _make_mr_lambda_for_family(family, n_bins, branch_id):
+    min_m = family.minimum_mass(branch_id=branch_id) / lal.MSUN_SI
+    max_m = family.maximum_mass(branch_id=branch_id) / lal.MSUN_SI
+    mgrid = np.linspace(min_m, max_m, n_bins)
+    result = np.zeros((n_bins, 3))
+    result[:, 0] = mgrid
+    for indx, mass_now in enumerate(mgrid):
+        mass_si = mass_now * lal.MSUN_SI
+        radius_m = family.radius(mass_si, branch_id=branch_id)
+        k2 = family.love_number_k2(mass_si, branch_id=branch_id)
+        compactness = mass_now * lal.MRSUN_SI / radius_m
+        result[indx, 1] = radius_m / 1000.0
+        result[indx, 2] = (2.0 / 3.0) * k2 / compactness**5
+    return result
 
 # Rizzo
 def make_mr_lambda(eos,use_lal=False):
@@ -1132,7 +1432,8 @@ def make_mr_lambda(eos,use_lal=False):
    if use_lal:
        make_mr_lambda_lal(eos)
 
-   fam=lalsim.CreateSimNeutronStarFamily(eos)
+   family = create_family(eos)
+   fam = family.family
  
    r_cut = 40   # Some EOS we consider for PE purposes will have very large radius!
 
@@ -1166,8 +1467,9 @@ def make_mr_lambda(eos,use_lal=False):
    #   - very frustrating...this data is embedded in the C code
    fac_max=1.6
    r_fin=20.
-   m_ref = lalsim.SimNeutronStarMaximumMass(fam)/lal.MSUN_SI
-   r_ref = lalsim.SimNeutronStarRadius(lalsim.SimNeutronStarMaximumMass(fam), fam)/(10**3)
+   m_ref_si = family.maximum_mass()
+   m_ref = m_ref_si/lal.MSUN_SI
+   r_ref = family.radius(m_ref_si)/(10**3)
    answer=None
    while r_fin > r_ref  or r_fin < 7:
        #print "Trying min:"
@@ -1572,15 +1874,44 @@ class EOSSequenceNMB(EOSSequenceLandry):
     """
 
     @staticmethod
-    def _stable_rising(M, R, Lam, stable):
-        ok = np.isfinite(M) & (M > 0)
-        M, R, Lam, st = M[ok], R[ok], Lam[ok], stable[ok] > 0.5
-        if M.size < 2:
-            return M, R, Lam
-        imax = int(np.argmax(np.where(st, M, -np.inf)))
-        M, R, Lam = M[:imax + 1], R[:imax + 1], Lam[:imax + 1]
-        o = np.argsort(M)
-        return M[o], R[o], Lam[o]
+    def _stable_branches(M, R, Lam, stable):
+        """Split an h_c-ordered sequence into stable, mass-rising branches.
+
+        ``NSSequence`` stores central-enthalpy order.  Filtering only at the
+        global maximum silently mixed disconnected stable branches with the
+        unstable interval between them.  Runs are therefore split whenever the
+        stored stability flag is false or mass ceases to rise.
+        """
+        M = np.asarray(M); R = np.asarray(R); Lam = np.asarray(Lam)
+        valid = (np.isfinite(M) & np.isfinite(R) & np.isfinite(Lam)
+                 & (M > 0) & (np.asarray(stable) > 0.5))
+        branches = []
+        start = None
+        for k in range(len(M)):
+            continues = (valid[k] and start is not None
+                         and k > 0 and valid[k - 1] and M[k] > M[k - 1])
+            if valid[k] and start is None:
+                start = k
+            elif valid[k] and not continues:
+                if k - start >= 2:
+                    branches.append((M[start:k], R[start:k], Lam[start:k]))
+                start = k
+            elif not valid[k] and start is not None:
+                if k - start >= 2:
+                    branches.append((M[start:k], R[start:k], Lam[start:k]))
+                start = None
+        if start is not None and len(M) - start >= 2:
+            branches.append((M[start:], R[start:], Lam[start:]))
+        return branches
+
+    @classmethod
+    def _stable_rising(cls, M, R, Lam, stable):
+        """Return the primary stable branch used by the NMB v1 RIFT contract."""
+        branches = cls._stable_branches(M, R, Lam, stable)
+        if branches:
+            return branches[0]
+        empty = np.array([], dtype=float)
+        return empty, empty.copy(), empty.copy()
 
     def __init__(self, name=None, fname=None, load_eos=False, load_ns=True,
                  oned_order_name=None, oned_order_mass=None, no_sort=True,
@@ -1616,8 +1947,14 @@ class EOSSequenceNMB(EOSSequenceLandry):
         self.eos_names = np.array(["eos_{}".format(k) for k in range(n_eos)], dtype=str)
         self.eos_ids = list(range(n_eos))
         self.eos_ns_tov = {}
+        self.stable_branch_counts = np.zeros(n_eos, dtype=int)
         for k in range(n_eos):
             s = seq[k]
+            branches = self._stable_branches(
+                s[:, col["M"]], s[:, col["R"]],
+                s[:, col["Lambda"]], s[:, col["stable"]]
+            )
+            self.stable_branch_counts[k] = len(branches)
             M, R, Lam = self._stable_rising(s[:, col["M"]], s[:, col["R"]],
                                             s[:, col["Lambda"]], s[:, col["stable"]])
             rec = np.zeros(M.size, dtype=[("M", "f8"), ("R", "f8"), ("Lambda", "f8")])
@@ -1686,10 +2023,14 @@ class EOSSequencePCA(EOSSequenceNMB):
         self.eos_names = np.array(["eos_{}".format(k) for k in range(n_eos)], dtype=str)
         self.eos_ids = list(range(n_eos))
         self.eos_ns_tov = {}
+        self.stable_branch_counts = np.zeros(n_eos, dtype=int)
         for k in range(n_eos):
             rec_curves = mean + np.einsum("ck,ckp->cp", coeffs[k], comps)
             M, R, Lam = rec_curves[iM], rec_curves[iR], np.exp(rec_curves[iL])
             stable = np.concatenate([[True], np.diff(M) > 0])
+            self.stable_branch_counts[k] = len(
+                self._stable_branches(M, R, Lam, stable.astype(float))
+            )
             Mb, Rb, Lb = self._stable_rising(M, R, Lam, stable.astype(float))
             rec = np.zeros(Mb.size, dtype=[("M", "f8"), ("R", "f8"), ("Lambda", "f8")])
             rec["M"], rec["R"], rec["Lambda"] = Mb, Rb, Lb

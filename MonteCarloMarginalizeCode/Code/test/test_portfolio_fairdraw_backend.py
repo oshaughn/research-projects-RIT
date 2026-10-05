@@ -45,6 +45,22 @@ behaviours cupy has that matter here (ufunc dispatch via __array_ufunc__, and __
 raising), so these tests reproduce the exact production traceback -- same
 numpy/random/mtrand.pyx frame, same message -- on a CPU-only host.  The cupy path is
 pinned separately at the end when a GPU is present.
+
+WHAT THE STAND-IN DOES *NOT* DO.  It gives these tests reach on a CPU-only host; it does not
+make them indifferent to the host.  Where cupy IS importable the fake is layered ON TOP of a
+genuinely device-backed run, and two things follow, both of which the harness has to handle
+explicitly rather than assume away:
+
+  * The patched converters replace the REAL ones.  `PF.identity_convert` is `cupy.asnumpy` on
+    such a host, and `_to_host` is monkeypatched over it -- so `_to_host` must keep doing that
+    job for real cupy arrays as well as for the fake.  It did not, and the five tests that
+    patch it aborted at mcsamplerPortfolio.draw on every GPU host while passing everywhere
+    else: `member.draw_simplified` really does return cupy arrays (mcsamplerEnsemble's
+    self.xpy is the cupy module default, independent of the portfolio's numpy), and with the
+    real conversion disabled they collided with the host aggregation arrays.
+  * `np.random.seed` does not seed the run.  The Ensemble member draws from cupy's RNG, which
+    numpy's seed does not touch, so a GPU-host run is not reproducible at all unless cupy is
+    seeded too -- see `_seed`.
 """
 
 import numpy as np
@@ -53,6 +69,17 @@ import pytest
 import RIFT.integrators.mcsamplerPortfolio as PF
 import RIFT.integrators.mcsamplerAdaptiveVolume as AV
 import RIFT.integrators.mcsamplerEnsemble as EN
+
+try:
+    import cupy as _cupy
+except ImportError:
+    _cupy = None
+
+# `_cupy is not None` means only that the module imported; `PF.cupy_ok` additionally means the
+# device probe (`cupy.array(5)`) succeeded -- and that is the flag that decides which branch of
+# mcsamplerPortfolio ran, i.e. whether PF.identity_convert is really cupy.asnumpy or the no-op
+# lambda.  So anything that TOUCHES the device is gated on PF.cupy_ok; a bare isinstance check
+# is safe with the module alone.
 
 NAMES = ['right_ascension', 'declination', 'phi_orb', 'inclination', 'psi', 'distance']
 NDIM = len(NAMES)
@@ -107,8 +134,17 @@ class _DeviceArray(object):
 
 
 def _to_host(x):
-    """cupy.asnumpy, for _DeviceArray."""
-    return x.get() if isinstance(x, _DeviceArray) else x
+    """What cupy.asnumpy does -- for _DeviceArray, and for a real cupy array.
+
+    This is monkeypatched OVER the module-global `PF.identity_convert`, which on a GPU host
+    is `cupy.asnumpy` itself.  So it has to keep that contract for genuine device arrays too;
+    handling only the fake does not leave the real conversion alone, it DISABLES it.
+    """
+    if isinstance(x, _DeviceArray):
+        return x.get()
+    if _cupy is not None and isinstance(x, _cupy.ndarray):
+        return _cupy.asnumpy(x)
+    return x
 
 
 class _DeviceRandom(object):
@@ -164,8 +200,30 @@ _KW = dict(nmax=100000, neff=20, n=10000, no_protect_names=True, verbose=False,
            save_intg=True, igrand_fairdraw_samples=True, igrand_fairdraw_samples_max=200)
 
 
+def _seed(seed):
+    """Seed every RNG this portfolio actually draws from, not just numpy's.
+
+    The mcsamplerEnsemble member's `self.xpy` is the cupy module wherever cupy imports --
+    that default is module-level and independent of the portfolio's own numpy -- so its draws
+    come from cupy's RNG, which `np.random.seed` does not touch.  Measured on ldas-pcdev2
+    (RTX 3080, cc86, CVMFS cupy 12.0.0, CUDA_VISIBLE_DEVICES=0), three repeats of the SAME
+    arm with only numpy seeded gave lnZ -5.960285685330888, -5.904156714565715,
+    -5.954741248760214: a 0.056 nat spread with nothing changed between runs.  Seeding cupy
+    as well, four repeats agreed to the last bit.
+
+    This matters beyond tidiness.  test_the_fix_does_not_move_the_integral compares two arms
+    bit-for-bit; against an unseeded 0.056 nat of run-to-run scatter that comparison is not
+    measuring the backend at all, it is reading noise.  Seeding is what makes the assertion
+    mean what it says, so it is preferred here over widening the test's tolerance to cover a
+    spread that has a cause and a fix.
+    """
+    np.random.seed(seed)
+    if PF.cupy_ok:
+        _cupy.random.seed(seed)
+
+
 def _integrate(s):
-    np.random.seed(SEED)
+    _seed(SEED)
     return s.integrate_log(_peaked, *NAMES, **_KW)
 
 
@@ -339,6 +397,25 @@ def test_the_fairdraw_block_does_not_reach_for_the_module_global_backend():
 # The reported traceback is the cupy flavour.  The tests above run the fake on whatever host
 # they land on; when a GPU is present, run the real thing so a CPU-only CI pass can never be
 # mistaken for coverage of the reported configuration.
+
+@pytest.mark.skipif(not PF.cupy_ok, reason='no cupy/GPU on this host')
+def test_the_host_converter_stand_in_still_converts_real_cupy():
+    """`_to_host` is patched over the REAL `PF.identity_convert`; it must not lose to it.
+
+    Narrowing this helper back to "_DeviceArray only" does not leave the real conversion
+    alone -- it replaces `cupy.asnumpy` with a no-op, and every test below that patches it
+    aborts at mcsamplerPortfolio.draw on a GPU host while staying green everywhere else.
+    Pinned here directly so that regression names its own cause, instead of surfacing as a
+    TypeError a thousand frames into an integration run.
+    """
+    host = _to_host(_cupy.asarray([1.0, 2.0, 3.0]))
+    assert isinstance(host, np.ndarray), \
+        '_to_host left a cupy array on the device: it is standing in for cupy.asnumpy'
+    assert not isinstance(host, _cupy.ndarray)
+    # and it still has to be a no-op for what is already host-side
+    already = np.arange(3.0)
+    assert _to_host(already) is already
+
 
 @pytest.mark.skipif(not PF.cupy_ok, reason='no cupy/GPU on this host')
 def test_fairdraw_on_the_cupy_backend():

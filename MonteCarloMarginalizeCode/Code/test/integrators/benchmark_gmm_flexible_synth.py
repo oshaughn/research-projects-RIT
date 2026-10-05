@@ -3,10 +3,30 @@
 posterior's HARD feature: a CURVED degeneracy arc that no axis-aligned binning
 (and no few-component Gaussian) can wrap.
 
-Reference results (n_eff vs cumulative N; GPU, seconds):
-  corrall k=1 -> n_eff>=100 @76k, final ~50 ;  corrall k=2 -> @28k, final ~312
-  corrall k=4 -> @752k (over-allocation collapse)
-  adaptive (BIC, k<=8) -> @220k, final ~135   (robust, unbiased, hands-free)
+Reference results, measured 2026-09-14 on ldas-pcdev2 (RTX 3080, cupy 12.0.0,
+CUDA_VISIBLE_DEVICES=0, IGWN python), one process per run.  Three seeds: the
+1234 seeded below, then 2 and 3.
+
+  mode           N at n_eff>=100       final n_eff        wall
+  corrall k=1    32k / 80k / 176k      346 / 112 / 171    10-18 s
+  corrall k=2    72k / 172k / 260k     347 / 232 / 154    16-36 s
+  corrall k=4    36k / 88k / 168k      407 /  45 / 240    38-52 s
+  adaptive k<=8  never / 80k / 172k     35 / 398 /  16    38-45 s
+
+Every run ends at N=400000 (nmax) and lnI lands in 3.00-3.11, so none of these
+is biased.  READ THE SPREAD, NOT THE FIRST COLUMN: final n_eff moves by a factor
+of 20 across three seeds, which is larger than any gap between the k settings.
+Three seeds do not rank these configurations, and this benchmark as written
+cannot; treat the table as the scale of the effect.
+
+The table this replaces reported "corrall k=1 -> @76k, final ~50; k=2 -> @28k,
+final ~312; k=4 -> @752k (over-allocation collapse); adaptive -> @220k, final
+~135 (robust, unbiased, hands-free)".  None of it reproduces.  N=752k is not
+reachable by this script: nmax has been 400_000 since the file was added, in the
+same commit that recorded the number, and every run stops there.  k=4 did not
+collapse, and adaptive was the WEAKEST of the four at the seed below, never
+crossing n_eff=100.  Those runs also predate the seeding below reaching the GPU
+backend, so they were not reproducible to begin with.
 
 6D target on a broad box (needle-ish: peak is a small fraction of the prior):
   dims (2,3): a parabolic BANANA ridge  <-> distance-inclination arc (curved)
@@ -23,8 +43,20 @@ Usage:
     mode = pairing  -> factored pairing {(0,1),(2,3),(4,5)} k each
 """
 import sys, numpy as np
-np.random.seed(1234)
 from RIFT.integrators import mcsamplerEnsemble
+from RIFT.integrators.seeding import seed_everything
+
+# The GMM member draws through its array backend -- gaussian_mixture_model's
+# k-means++ initialization calls xpy.random.choice -- and that backend is cupy on
+# a GPU host, where numpy.random.seed does not reach the generator.  Seeding numpy
+# alone left this benchmark's fixed seed inert on the device it is meant to be run
+# on.  Seed every backend instead.
+#
+# ONE RUN PER PROCESS.  Seeding fixes the RNG streams, not the sampler and library
+# state a long-lived interpreter accumulates: calling run() twice in one process
+# after seeding gave final n_eff 345.7 then 161.7.  In separate processes the same
+# seed gives 345.7 both times, which is how the table above was measured.
+seed_everything(1234, verbose=False)
 
 # ---- box (broad prior) ----
 LO = np.array([-6.,-6., -6.,-30., -6.,-6.])
