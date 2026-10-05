@@ -38,9 +38,10 @@ def test_help_imports_no_heavy_backend(tmp_path):
     assert _loaded(["--help"], tmp_path) == set()
 
 
-def test_default_rf_av_startup_imports_only_sklearn(tmp_path):
-    # rf itself needs sklearn (base loads it too); nothing else may load before the data read fails.
+def test_default_rf_av_startup_imports_only_base_modules(tmp_path):
+    # rf itself needs sklearn, and the AV sampler tries cupy where it imports (rift_O4d does both);
+    # nothing else may load before the data read fails.
     pytest.importorskip("lal")
     args = ["--fname", str(tmp_path / "missing.net"), "--fit-method", "rf", "--sampler-method", "AV",
             "--parameter", "mc", "--parameter", "delta_mc", "--n-output-samples", "10"]
-    assert _loaded(args, tmp_path) <= {"sklearn"}
+    assert _loaded(args, tmp_path) <= {"sklearn", "cupy"}
