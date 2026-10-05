@@ -85,3 +85,21 @@ def test_mass_columns_scale_on_every_row():
     z1 = lsu.convert_waveform_coordinates(x_in, coord_names=names, low_level_coord_names=low,
                                           source_redshift=0.3)
     np.testing.assert_allclose(z1, 1.3*z0, rtol=1e-12)
+
+
+def test_fallback_assigns_nonlinear_inputs_in_source_frame():
+    # mu1 assignment changes both mc and s1z. Its source-frame value must be
+    # assigned before redshifting the masses, even when mc is also an input.
+    basic = ['mc', 'delta_mc', 's1z', 's2z']
+    x_basic = np.array([[20.0, 0.3, 0.2, -0.1]])
+    mu1 = _per_row(x_basic, ['mu1'], basic, 0.0)[0, 0]
+    low = ['mc', 'delta_mc', 's2z', 'mu1']
+    x_in = np.array([[20.0, 0.3, -0.1, mu1]])
+    before = x_in.copy()
+    names = ['mtot', 's1z', 'xi', 'chiMinus', 'mu2']
+    got = lsu.convert_waveform_coordinates(x_in, coord_names=names,
+                                           low_level_coord_names=low,
+                                           source_redshift=0.3)
+    ref = _per_row(x_in, names, low, 0.3)
+    np.testing.assert_allclose(got, ref, rtol=1e-9, atol=1e-12)
+    np.testing.assert_array_equal(x_in, before)
