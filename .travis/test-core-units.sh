@@ -187,6 +187,8 @@ FILES=(
   "$C/test/test_complex_overlap_interpolate_max.py"
   # -- coordinates: vectorized in-plane spin / ring coordinates agree with extract_param
   "$C/test/test_ring_coordinates.py"
+  # -- coordinates: source_redshift gives detector-frame values, vectorized vs extract_param
+  "$C/test/test_convert_coordinates_source_redshift.py"
 )
 
 # A manifest entry that stops existing is a SILENT no-op: the gate keeps passing while
@@ -394,7 +396,8 @@ done
 # PR #382 merged with rift_O4d 7062023d, measured ldas-pcdev11 2026-10-04 with
 # CUDA_VISIBLE_DEVICES='': junit 698 collected / 683 passed, 3 of them subtests -> 695/680.
 # (pcdev11 has one extra host skip, cupy-importable in test_eos_posterior_tempering_kwarg.)
-EXPECTED_TESTS=695
+# test_convert_coordinates_source_redshift.py adds 16 passing tests and no skips.
+EXPECTED_TESTS=711
 # Outcomes, not just exit status: a collection floor cannot see a test that collects, runs and
 # asserts nothing, and a pytest.skip can quietly absorb a lost gate.  The 13 skips are
 # environment legs -- cupy in test_seeding_reproducibility, device legs in
@@ -406,7 +409,8 @@ EXPECTED_TESTS=695
 # test_fit_nonfinite_floor.py adds 2 tests and no skips: both routes run unconditionally, so a
 # missing dependency there FAILS the driver subprocess rather than skipping the check.
 # test_dag_postprocess_fail_closed.py adds 13 tests and no skips.
-EXPECTED_PASSED=680
+# test_convert_coordinates_source_redshift.py adds 16 tests and no skips.
+EXPECTED_PASSED=696
 # PR #382: +1 skip, the CuPy leg of test_cached_matern_gp.py (no GPU on the CI runner).
 MAX_SKIPPED=14
 
