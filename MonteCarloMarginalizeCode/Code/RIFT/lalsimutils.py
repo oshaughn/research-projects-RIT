@@ -539,6 +539,13 @@ class ChooseWaveformParams:
         self.lambda2=lam1
         self.lambda1=lam2
         self.phiref = self.phiref+np.pi
+        for name in ['_phi%d_requested', '_theta%d_requested']:
+            h1, h2 = getattr(self, name % 1, None), getattr(self, name % 2, None)
+            for k, h in [(1, h2), (2, h1)]:
+                if h is None:
+                    self.__dict__.pop(name % k, None)
+                else:
+                    setattr(self, name % k, h)
 
         
 
@@ -614,6 +621,8 @@ class ChooseWaveformParams:
             # holds chi1_perp_bar and phi1 fixed, so the three bar coordinates can be assigned in any order
             if self.s1z**2 < 1 and val**2 <= 1:
                 fac = np.sqrt((1-val**2)/(1-self.s1z**2))
+                if fac == 0:
+                    self._phi1_requested = self._spin_azimuth(1)
                 self.s1x *= fac
                 self.s1y *= fac
             self.s1z = val
@@ -622,6 +631,8 @@ class ChooseWaveformParams:
             # holds chi2_perp_bar and phi2 fixed, so the three bar coordinates can be assigned in any order
             if self.s2z**2 < 1 and val**2 <= 1:
                 fac = np.sqrt((1-val**2)/(1-self.s2z**2))
+                if fac == 0:
+                    self._phi2_requested = self._spin_azimuth(2)
                 self.s2x *= fac
                 self.s2y *= fac
             self.s2z = val

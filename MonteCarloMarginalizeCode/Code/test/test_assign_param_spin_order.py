@@ -88,3 +88,45 @@ def test_s_z_bar_holds_chi_perp_bar_and_phi():
     after = [P.extract_param(n) for n in ['chi1_perp_bar', 'phi1', 'chi2_perp_bar', 'phi2']]
     assert P.s1z == -0.4 and P.s2z == 0.7
     assert np.allclose(after, before, rtol=0, atol=1e-12)
+
+
+def test_azimuth_from_spin_once_it_has_one():
+    # a recorded phi1 applies only while the in-plane spin is zero
+    P = lsu.ChooseWaveformParams()
+    P.assign_param('phi1', 2.0)
+    P.s1x, P.s1z = 0.3, 0.1
+    P.assign_param('chi1_perp_bar', 0.5)
+    assert np.allclose(_cart(P)[:3], [0.5*np.sqrt(1-0.01), 0., 0.1], rtol=0, atol=1e-15)
+
+
+def test_theta_hint_unused_on_nonzero_spin():
+    P = lsu.ChooseWaveformParams()
+    P.assign_param('theta1', 1.0)
+    P.s1z = 0.5
+    P.assign_param('chi1', 0.8)
+    assert np.allclose(_cart(P)[:3], [0., 0., 0.8], rtol=0, atol=1e-15)
+
+
+def test_s_z_bar_at_the_poles():
+    P = lsu.ChooseWaveformParams()
+    P.s1z = 1.
+    P.assign_param('s1z_bar', 0.5)   # old s1z = 1: no chi1_perp_bar to hold
+    assert np.all(np.isfinite(_cart(P))) and P.s1z == 0.5
+    P = lsu.ChooseWaveformParams()
+    P.s1x, P.s1y, P.s1z = 0.3, 0.4, 0.2
+    P.assign_param('s1z_bar', 1.)    # in-plane spin goes to zero; its azimuth is kept
+    P.assign_param('s1z_bar', 0.5)
+    P.assign_param('chi1_perp_bar', 0.4)
+    assert np.isclose(P.extract_param('phi1'), np.arctan2(0.4, 0.3), rtol=0, atol=1e-14)
+
+
+def test_swap_components_swaps_requested_angles():
+    P = lsu.ChooseWaveformParams()
+    P.assign_param('theta1', 0.7)
+    P.assign_param('phi1', 2.0)
+    P.swap_components()
+    P.assign_param('chi2', 0.5)
+    P.assign_param('chi1', 0.5)
+    want2 = 0.5*np.array([np.sin(0.7)*np.cos(2.0), np.sin(0.7)*np.sin(2.0), np.cos(0.7)])
+    assert np.allclose(_cart(P)[3:], want2, rtol=0, atol=1e-15)
+    assert np.allclose(_cart(P)[:3], [0., 0., 0.5], rtol=0, atol=1e-15)
