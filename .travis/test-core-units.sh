@@ -181,6 +181,8 @@ FILES=(
   "$C/test/test_complex_overlap_interpolate_max.py"
   # -- coordinates: vectorized in-plane spin / ring coordinates agree with extract_param
   "$C/test/test_ring_coordinates.py"
+  # -- coordinates: source_redshift gives detector-frame values, vectorized vs extract_param
+  "$C/test/test_convert_coordinates_source_redshift.py"
 )
 
 # A manifest entry that stops existing is a SILENT no-op: the gate keeps passing while
@@ -385,7 +387,8 @@ done
 # test_complex_overlap_interpolate_max.py (#375) adds 8 passing tests and no skips.
 # Merged with #375: 613/600 (see the table above).
 # test_dag_postprocess_fail_closed.py adds 13 passing tests and no skips.
-EXPECTED_TESTS=671
+# test_convert_coordinates_source_redshift.py adds 15 passing tests and no skips.
+EXPECTED_TESTS=686
 # Outcomes, not just exit status: a collection floor cannot see a test that collects, runs and
 # asserts nothing, and a pytest.skip can quietly absorb a lost gate.  The 13 skips are
 # environment legs -- cupy in test_seeding_reproducibility, device legs in
@@ -397,7 +400,8 @@ EXPECTED_TESTS=671
 # test_fit_nonfinite_floor.py adds 2 tests and no skips: both routes run unconditionally, so a
 # missing dependency there FAILS the driver subprocess rather than skipping the check.
 # test_dag_postprocess_fail_closed.py adds 13 tests and no skips.
-EXPECTED_PASSED=658
+# test_convert_coordinates_source_redshift.py adds 15 tests and no skips.
+EXPECTED_PASSED=673
 MAX_SKIPPED=13
 
 # The floors must be INTEGERS, and this is checked rather than assumed.  `[ 347 -lt FOO ]` does
