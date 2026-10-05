@@ -310,7 +310,21 @@ def test_pseudo_pipe_revalidates_after_its_rewrites():
         assert src.index(rewrite) < check
     assert check < src.index('with open("args_cip_list.txt"')
 
-def test_cip_rejects_source_redshift():
-    src = (CODE/'bin/util_ConstructIntrinsicPosterior_GenericCoordinates.py').read_text()
-    gate = src.index('if opts.rf_transverse_spin_coordinates:\n    if not np.isfinite(opts.fref)')
-    assert src.index("raise ValueError('physics3 does not support --source-redshift')") > gate
+@pytest.mark.parametrize('z', [0., .3])
+def test_prediction_matches_training_with_source_redshift(z):
+    # CIP trains on detector-frame P from ILE and predicts from source-frame samples
+    pytest.importorskip('lal')
+    import lal
+    from RIFT import lalsimutils
+    low=['mc','delta_mc','chi1','chi2','cos_theta1','cos_theta2','phi1','phi2']
+    cols=['delta_mc','mu1','mu2','chiMinus','s1x','s1y','s2x','s2y']+list(f.FEATURE_NAMES)
+    rng=np.random.default_rng(3); n=20
+    x=np.c_[rng.uniform(9.8,10.3,n),rng.uniform(0,.9,n),rng.uniform(0,.99,(n,2)),
+            rng.uniform(-1,1,(n,2)),rng.uniform(0,2*np.pi,(n,2))]
+    out=f.convert(x,cols,low,20.,lalsimutils.convert_waveform_coordinates,source_redshift=z)
+    for row,xi in zip(out,x):
+        P=lalsimutils.ChooseWaveformParams(); P.fref=20.
+        for name,value in zip(low,xi):
+            P.assign_param(name,value*lal.MSUN_SI if name=='mc' else value)
+        P.m1*=1+z; P.m2*=1+z
+        np.testing.assert_allclose(row,[f.extract(P,c) for c in cols],rtol=1e-9,atol=1e-12)

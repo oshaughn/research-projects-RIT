@@ -737,10 +737,6 @@ if set(rf_transverse_spin.FEATURE_NAMES).intersection(coord_names + low_level_co
 if opts.rf_transverse_spin_coordinates:
     if not np.isfinite(opts.fref) or opts.fref <= 0:
         raise ValueError('RF reference frequency must be finite and positive')
-    if source_redshift:
-        # convert_waveform_coordinates does not redshift m1/m2 consistently, so
-        # prediction scalars would not match the detector-frame training scalars
-        raise ValueError('physics3 does not support --source-redshift')
     if (opts.fit_method != 'rf' or opts.fit_load_gp or not opts.use_precessing
             or opts.input_tides or opts.using_eos or opts.use_eccentricity
             or not set(rf_transverse_spin.NATIVE_FEATURES).issubset(coord_names)):
