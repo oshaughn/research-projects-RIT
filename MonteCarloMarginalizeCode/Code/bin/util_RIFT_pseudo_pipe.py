@@ -2647,7 +2647,14 @@ if opts.calibration_reweighting:
          my_parser.add_argument("--internal-waveform-extra-kwargs",type=str, default=None)
          my_opts, unknown_opts =my_parser.parse_known_args(my_revised_args )
          print(' calmarg: parsed args ', my_opts, " and others ", unknown_opts)
+         # Same layout as ILE: lalsuite args nested under 'extra_waveform_args', then the
+         # high-level kwargs merged on top (and so winning on a shared key).
          my_extra_args = {}
+         if my_opts.internal_waveform_extra_lalsuite_args:
+             my_arg_dict = eval(my_opts.internal_waveform_extra_lalsuite_args)
+             if not(isinstance(my_arg_dict, dict)):
+                 my_arg_dict = eval(my_arg_dict)
+             my_extra_args['extra_waveform_args'] = my_arg_dict
          if my_opts.internal_waveform_extra_kwargs:
              my_arg_dict = eval(my_opts.internal_waveform_extra_kwargs)
              # due to quoting, might not evaluate to a dictionary
@@ -2656,11 +2663,6 @@ if opts.calibration_reweighting:
              if 'lmax_nyquist' in my_arg_dict:
                  my_extra_string+= " --use-gwsignal-lmax-nyquist {} ".format(my_arg_dict['lmax_nyquist'])
                  del my_arg_dict['lmax_nyquist'] # remove key
-             my_extra_args.update(my_arg_dict)
-         if my_opts.internal_waveform_extra_lalsuite_args:
-             my_arg_dict = eval(my_opts.internal_waveform_extra_lalsuite_args)
-             if not(isinstance(my_arg_dict, dict)):
-                 my_arg_dict = eval(my_arg_dict)
              my_extra_args.update(my_arg_dict)
          if my_extra_args:
             my_extra_string += ' --extra-waveform-kwargs "{}" '.format(my_extra_args)

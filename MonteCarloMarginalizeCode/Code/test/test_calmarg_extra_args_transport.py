@@ -236,7 +236,8 @@ def _manual(d):
 
 STRV = "{'approx_tag': 'foo', 'fd_centering_factor': 0.75}"
 SPACE = "{'note': 'a  b', 'fd_centering_factor': 0.75}"
-L = {"fd_L_frame": True}   # the reference ini sets internal-mitigate-fd-J-frame=L_frame
+# pseudo_pipe defaults internal-mitigate-fd-J-frame=L_frame; calmarg, like ILE, aligns 2 s post-merger
+L = {"fd_alignment_postevent_time": 2, "fd_L_frame": True}
 XPHM_D = {"fd_alignment_postevent_time": None, "fd_centering_factor": 0.75}
 
 # id, ini lines, pseudo_pipe CLI, expected extra_waveform_kwargs, other expected args
@@ -272,6 +273,8 @@ def test_calmarg_waveform_kwargs_reach_waveform_call(tmp_path, monkeypatch, name
     if args.h_method == "gws_hlmoft" and not rift_source.has_GWS:
         pytest.skip("gwsignal interface not importable here")
     seen = _waveform_call(monkeypatch, wf_func, waveform_arguments)
+    if args.h_method == "hlmoft":   # rift_source adds ILE's lalsuite-route default
+        expected = dict({"fd_standoff_factor": 0.9}, **expected)
     assert _hlmoft_kwargs(args, seen) == expected, seen
 
 
