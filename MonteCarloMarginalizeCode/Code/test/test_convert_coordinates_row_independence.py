@@ -28,16 +28,21 @@ def _per_row(x_in, coord_names, low_level_coord_names, z=0.0):
 def _basic(rng, mc_range):
     return np.column_stack([rng.uniform(*mc_range, N), rng.uniform(0.05, 0.85, N),
                             rng.uniform(-0.8, 0.8, N), rng.uniform(-0.8, 0.8, N),
-                            rng.uniform(0., 0.9, N), rng.uniform(0., 0.9, N)])
+                            rng.uniform(0., 0.9, N), rng.uniform(0., 0.9, N),
+                            rng.uniform(0., 2000., N), rng.uniform(0., 2000., N)])
 
 
-BASIC = ['mc', 'delta_mc', 's1z_bar', 's2z_bar', 'chi1_perp_bar', 'chi2_perp_bar']
+BASIC = ['mc', 'delta_mc', 's1z_bar', 's2z_bar', 'chi1_perp_bar', 'chi2_perp_bar', 'lambda1', 'lambda2']
 
 CASES = [
     # chi*_perp_bar before s*z_bar: the perpendicular magnitude is scaled by the current s*z
     (['mc', 'delta_mc', 'chi1_perp_bar', 'chi2_perp_bar', 's1z_bar', 's2z_bar'], ['chi1', 'chi2', 'chi_p']),
     # mu1, mu2 hold the current q and s2z; q holds the current mtot.  Some rows give nan.
     (['mu1', 'mu2', 'q', 's2z'], ['mc', 'delta_mc', 's1z']),
+    # LambdaTilde without DeltaLambdaTilde holds the current lambda1, lambda2 difference
+    (['mc', 'eta', 's1z', 's2z', 'LambdaTilde'], ['lambda1', 'lambda2']),
+    # chieff_aligned rescales the current s1z, s2z (the puffball's spin coordinate)
+    (['mc', 'delta_mc', 'chieff_aligned'], ['s1z', 's2z']),
 ]
 
 
@@ -57,6 +62,8 @@ def test_fallback_rows_are_independent(low, coord_names, z, capsys):
     got_perm = lsu.convert_waveform_coordinates(x_in[perm], coord_names=coord_names,
                                                 low_level_coord_names=low, source_redshift=z)
     np.testing.assert_array_equal(got_perm, got[perm])
+    # determinism, not correctness: the fresh-P answer is itself wrong for some cases (mu1, mu2
+    # without a mass coordinate return kg masses)
     np.testing.assert_allclose(got, _per_row(x_in, coord_names, low, z), rtol=1e-12, atol=0)
 
 
