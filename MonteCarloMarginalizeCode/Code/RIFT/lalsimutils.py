@@ -348,7 +348,7 @@ valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp
 
 # so far, used for puffball, to prevent insanity (infinite growth) and/or death to downselect
 #   - note we also provide for extrinsic: RA (phi), phiref, psi, just in case we need it in the future
-periodic_params = {'phi1':2*np.pi, 'phi2':2*np.pi, 'phiref':2*np.pi, 'psi':np.pi, 'meanPerAno':2*np.pi, 'phi':2*np.pi, 'phiJL':2*np.pi, 'psiJ':2*np.pi}
+periodic_params = {'phi1':2*np.pi, 'phi2':2*np.pi, 'phi12':2*np.pi, 'phiref':2*np.pi, 'psi':np.pi, 'meanPerAno':2*np.pi, 'phi':2*np.pi, 'phiJL':2*np.pi, 'psiJ':2*np.pi}
 
 tex_dictionary  = {
  "mtot": r'$M$',
@@ -371,6 +371,7 @@ tex_dictionary  = {
   "DeltaOverM2_perp" : r"$\Delta_\perp$",
   "DeltaOverM2_L" : r"$\Delta_{||}$",
   "SOverM2_perp" : r"$S_\perp$",
+  "chi_p_vec" : r"$\chi_{p,{\rm vec}}$",
   "SOverM2_L" : r"$S_{||}$",
   "eta": r"$\eta$",
   "chi_eff": r"$\chi_{eff}$",
@@ -1199,6 +1200,20 @@ class ChooseWaveformParams:
             S2p = (m2**2 * chi2)[:2]
             Sp = np.max([np.linalg.norm( A1*S1p), np.linalg.norm(A2*S2p)])
             return Sp/(A1*m1**2)  # divide by term for *larger* BH
+        if p == 'phi12':
+            # azimuth of spin 2's in-plane component relative to spin 1's, in [0, 2 pi), L frame.
+            # Undefined if either in-plane component vanishes; 0 is returned then (same as the vectorized path).
+            if np.hypot(self.s1x, self.s1y) == 0 or np.hypot(self.s2x, self.s2y) == 0:
+                return 0.
+            val = np.mod(np.arctan2(self.s2y, self.s2x) - np.arctan2(self.s1y, self.s1x), 2*np.pi)
+            return 0. if val >= 2*np.pi else val   # np.mod of a tiny negative number rounds to 2 pi
+        if p == 'chi_p_vec':
+            # vector-sum (ring) analogue of chi_p: |A1 S1perp + A2 S2perp| / (A1 m1^2), same A1, A2 as chi_p.
+            # chi_p keeps the larger of the two terms; this keeps their vector sum, so it depends on phi12
+            # (in-plane spins that cancel give a small value).  L frame.
+            q = self.m2/self.m1
+            A1 = (2+ 3.*q/2); A2 = (2+3./(2*q))
+            return np.abs( (self.s1x + 1j*self.s1y) + (A2/A1)*q**2*(self.s2x + 1j*self.s2y) )
         if p == 'chi_pavg':
             if (abs(self.s1x) < 1e-4 and abs(self.s1y) < 1e-4 and abs(self.s2x) < 1e-4 and abs(self.s2y) < 1e-4):
                 chipavg = 0.0
@@ -5155,6 +5170,7 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
       - source_redshift: if nonzero, convert m1 -> m1 (1+z)=m_z, as fit is done in the detector frame.  We are **assuming source-frame sampling**
     """
     x_out = np.zeros( (len(x_in), len(coord_names) ) )
+    kerr_violation_ring = None   # set by the vectorized in-plane block, which can end the conversion early
     # Source-frame input: move the mass coordinates to the detector frame ONCE, here, so every vectorized branch below
     # and the per-row fallback see detector-frame masses.  Other mass-dimensional inputs (e.g. mu1, mu2) do not scale
     # by (1+z); for those, the per-row fallback applies the redshift to P.m1, P.m2 instead.
@@ -5379,6 +5395,38 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
             x_out[:,indx_pout_s2y] = x_in[:,indx_chi2]*sintheta2*sinphi2
             coord_names_reduced.remove('s2x')
             coord_names_reduced.remove('s2y')
+        # in-plane magnitudes, relative azimuth, and ring coordinates (L frame), vectorized
+        ring_names = ['chi1_perp', 'chi2_perp', 'phi12', 'SOverM2_perp', 'DeltaOverM2_perp', 'chi_p_vec']
+        if any(p in coord_names_reduced for p in ring_names):
+            # CIP's default sampler passes an object array of python floats; ufuncs need a float array
+            xf = np.asarray(x_in, dtype=float)
+            m1f = np.asarray(m1_vals, dtype=float); m2f = np.asarray(m2_vals, dtype=float)
+            indx_phi1 = low_level_coord_names.index('phi1')
+            indx_phi2 = low_level_coord_names.index('phi2')
+            # The scalar fallback assigns chi before the angles, which use its
+            # magnitude. Signed chi must not flip vectors or bypass the Kerr bound.
+            chi1_mag = np.abs(xf[:,indx_chi1])
+            chi2_mag = np.abs(xf[:,indx_chi2])
+            chi1_perp = chi1_mag*np.sqrt(1-xf[:,indx_ct1]**2)
+            chi2_perp = chi2_mag*np.sqrt(1-xf[:,indx_ct2]**2)
+            v1 = chi1_perp*np.exp(1j*xf[:,indx_phi1])
+            v2 = chi2_perp*np.exp(1j*xf[:,indx_phi2])
+            mtot_vals = m1f + m2f
+            q_vals = m2f/m1f
+            A1 = 2 + 1.5*q_vals; A2 = 2 + 1.5/q_vals
+            ring_vals = {'chi1_perp': chi1_perp, 'chi2_perp': chi2_perp,
+                         'phi12': np.where((chi1_perp > 0) & (chi2_perp > 0), np.mod(xf[:,indx_phi2] - xf[:,indx_phi1], 2*np.pi), 0.),
+                         'SOverM2_perp': np.abs(v1*m1f**2 + v2*m2f**2)/mtot_vals**2,
+                         'DeltaOverM2_perp': np.abs(v1*m1f - v2*m2f)/mtot_vals,
+                         'chi_p_vec': np.abs(v1 + (A2/A1)*q_vals**2*v2)}
+            ring_vals['phi12'] = np.where(ring_vals['phi12'] >= 2*np.pi, 0., ring_vals['phi12'])
+            for p in ring_names:
+                if p in coord_names_reduced:
+                    x_out[:,coord_names.index(p)] = ring_vals[p]
+                    coord_names_reduced.remove(p)
+            if enforce_kerr:
+                # same rule as the per-row fallthrough below, which this block can bypass
+                kerr_violation_ring = (chi1_mag > 1) | (chi2_mag > 1)
             
     # Spin pseudo-cylindrical coordinate names, standard framing
     if  ('s1z_bar' in low_level_coord_names) and ('phi1' in low_level_coord_names)  and ('s2z_bar' in low_level_coord_names) and ('phi2' in low_level_coord_names) and ('mc' in low_level_coord_names) and ('eta' in low_level_coord_names or 'delta_mc' in low_level_coord_names):
@@ -5589,6 +5637,8 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
 
 
     # return if we don't need to do any more conversions (e.g., if we only have --parameter specification)
+    if kerr_violation_ring is not None:
+        x_out[kerr_violation_ring] = -np.inf
     if len(coord_names_reduced)<1:
         return x_out
 

@@ -38,7 +38,8 @@ jobs:
           python -m pytest -q \
             MonteCarloMarginalizeCode/Code/test/test_cip_startup.py \
             MonteCarloMarginalizeCode/Code/test/test_lalsim_eos_compat.py \
-            MonteCarloMarginalizeCode/Code/test/test_convert_coordinates_source_redshift.py
+            MonteCarloMarginalizeCode/Code/test/test_convert_coordinates_source_redshift.py \
+            MonteCarloMarginalizeCode/Code/test/test_ring_coordinates.py
       - name: Run transverse-spin RF coordinate and helper contracts
         run: |
           python -m pip install liquidpy
