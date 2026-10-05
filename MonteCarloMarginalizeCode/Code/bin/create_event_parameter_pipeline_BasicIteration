@@ -1504,7 +1504,9 @@ else:
                    final_values = {final_tokens[k]:final_tokens[k+1] for k in range(len(final_tokens)-1)
                                    if final_tokens[k] in ('--av-stop-metric','--n-eff')}
                    if final_values.get('--av-stop-metric') == 'kish':
-                       final_target = float(final_values['--n-eff'])
+                       # CIP permits a Kish stage with no explicit --n-eff; fall back to the
+                       # CIP default (3e3) so the declared target is still the worker's target
+                       final_target = float(final_values.get('--n-eff', 3e3))
                cip_args_extra +=" --n-eff {} --n-output-samples {} ".format(final_target,n_samples_per_job)
                if not (opts.use_eccentricity_squared_sampling):
                    cip_args_lines[indx] = cip_args_lines[indx].replace(' --parameter eccentricity_squared ',' --parameter-implied eccentricity_squared --parameter-nofit eccentricity ')
