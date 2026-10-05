@@ -18,7 +18,8 @@ def test_hlmoft_expands_extra_waveform_kwargs(monkeypatch):
     assert result == "modes"
     assert captured == {
         "P": P,
-        "kwargs": {"Lmax": 4, "fd_L_frame": True, "no_condition": True},
+        "kwargs": {"Lmax": 4, "fd_L_frame": True, "no_condition": True,
+                   "fd_standoff_factor": 0.9},
     }
     assert options == {"fd_L_frame": True, "no_condition": True}
 
@@ -67,8 +68,9 @@ def test_calmarg_waveform_honors_typed_kwargs_like_ile(monkeypatch):
     scale = np.max(np.abs(b.data.data))
     assert (float(a.epoch) != float(b.epoch)
             or np.max(np.abs(a.data.data - b.data.data)) > 1e-3 * scale)
-    # ILE builds modes as lalsimutils.hlmoft(P, Lmax, **extra_waveform_kwargs)
-    ile_hlm = rift_source.lalsimutils.hlmoft(seen["P"], Lmax=2, **kw)
+    # ILE builds modes as lalsimutils.hlmoft(P, Lmax, **extra_waveform_kwargs), its lalsuite
+    # route having added fd_standoff_factor=0.9
+    ile_hlm = rift_source.lalsimutils.hlmoft(seen["P"], Lmax=2, fd_standoff_factor=0.9, **kw)
     for mode, series in seen["hlm"].items():
         np.testing.assert_array_equal(series.data.data, ile_hlm[mode].data.data)
         assert float(series.epoch) == float(ile_hlm[mode].epoch)
