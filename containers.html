@@ -344,6 +344,58 @@ only be named by its full path, which would reintroduce the truncation, so
 use <code class="docutils literal notranslate"><span class="pre">RIFT_CONTAINER_RUNTIME_SELECT=1</span></code>.</p>
 </div>
 </section>
+<section id="per-host-ile-executable-and-memory">
+<h2>Per-host ILE executable and memory<a class="headerlink" href="#per-host-ile-executable-and-memory" title="Link to this heading"></a></h2>
+<p>A family entry may also choose the ILE executable and the memory request.  For
+example, to run the JAX ILE on GPUs with at least 16 GB and the standard ILE
+elsewhere:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">fallback</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">legacy</span>
+<span class="nt">containers</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">legacy</span>
+<span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">osdf:///igwn/.../rift_cuda12.sif</span>
+<span class="w">    </span><span class="nt">cuda_capability_min</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">6.0</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">jax_big</span>
+<span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">osdf:///igwn/.../rift_cuda12.sif</span><span class="w">   </span><span class="c1"># entries may share an image</span>
+<span class="w">    </span><span class="nt">cuda_capability_min</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">6.0</span>
+<span class="w">    </span><span class="nt">select_requirements</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">TARGET.GPUs_GlobalMemoryMb &gt;= 16000</span>
+<span class="w">    </span><span class="nt">ile_exe</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">integrate_likelihood_extrinsic_jax</span>
+<span class="w">    </span><span class="nt">request_memory</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">16000</span><span class="w">                     </span><span class="c1"># MB</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">select_requirements</span></code> is ANDed into the entry’s capability test as
+<code class="docutils literal notranslate"><span class="pre">(expr)</span> <span class="pre">=?=</span> <span class="pre">true</span></code>, so a slot that does not advertise an attribute it reads
+falls through to the next entry.  At equal <code class="docutils literal notranslate"><span class="pre">cuda_capability_min</span></code> an entry with
+<code class="docutils literal notranslate"><span class="pre">select_requirements</span></code> is tested first.  It needs <code class="docutils literal notranslate"><span class="pre">cuda_capability_min</span></code>, may
+not contain <code class="docutils literal notranslate"><span class="pre">,</span></code> or <code class="docutils literal notranslate"><span class="pre">/</span></code>, and the fallback may not set it.  Entries without
+<code class="docutils literal notranslate"><span class="pre">ile_exe</span></code> or <code class="docutils literal notranslate"><span class="pre">request_memory</span></code> use the job defaults.</p>
+<p>A GPU ILE job then carries one ClassAd selector per choice, all over the same
+branches: the image, <code class="docutils literal notranslate"><span class="pre">request_memory</span></code>, <code class="docutils literal notranslate"><span class="pre">MY.RIFTILEExe</span></code>, and
+<code class="docutils literal notranslate"><span class="pre">MY.RIFTILEProfile</span></code> (the label).  The executable is passed as a trailing
+<code class="docutils literal notranslate"><span class="pre">--rift-ile-exe=$$([MY.RIFTILEExe])</span></code> argument, which <code class="docutils literal notranslate"><span class="pre">ile_pre.sh</span></code> (or a small
+<code class="docutils literal notranslate"><span class="pre">ile_dispatch.sh</span></code> when there is no frame prescript) removes before running it.  HTCondor carves the slot at the selected memory,
+and keeps the expressions so a job rematched after eviction selects again.  To see
+what each job got:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">condor_history</span> <span class="o">&lt;</span><span class="n">cluster</span><span class="o">&gt;</span> <span class="o">-</span><span class="n">af</span> <span class="n">MATCH_EXP_RIFTILEProfileMatched</span> <span class="n">MemoryProvisioned</span>
+</pre></div>
+</div>
+<p>Limits:</p>
+<ul class="simple">
+<li><p>Opt-in per job (<code class="docutils literal notranslate"><span class="pre">ile_profiles=True</span></code>).  Only the <code class="docutils literal notranslate"><span class="pre">ILE</span></code>, <code class="docutils literal notranslate"><span class="pre">ILE_puff</span></code> and
+<code class="docutils literal notranslate"><span class="pre">ILE_fetch</span></code> jobs of <code class="docutils literal notranslate"><span class="pre">create_event_parameter_pipeline_BasicIteration</span></code> use it.
+<code class="docutils literal notranslate"><span class="pre">ILE_extr</span></code> keeps the default executable, because its output converter
+depends on which executable ran.</p></li>
+<li><p>GPU jobs and HTCondor backends only.</p></li>
+<li><p>Not available with <code class="docutils literal notranslate"><span class="pre">RIFT_CONTAINER_RUNTIME_SELECT</span></code>, which picks the image
+after the slot is carved and cannot evaluate <code class="docutils literal notranslate"><span class="pre">select_requirements</span></code>.</p></li>
+<li><p>The build-time checks <code class="docutils literal notranslate"><span class="pre">util_RIFT_pseudo_pipe.py</span></code> applies to
+<code class="docutils literal notranslate"><span class="pre">--use-jax-ile</span></code> (calibration marginalization, OSG) do not see a manifest
+<code class="docutils literal notranslate"><span class="pre">ile_exe</span></code>.  Check that the run’s ILE options are supported by every
+executable the family names.</p></li>
+<li><p>Select on attributes that are the same for the partitionable and the dynamic
+slot (GPU capability, GPU memory, <code class="docutils literal notranslate"><span class="pre">TotalCpus</span></code>), not on <code class="docutils literal notranslate"><span class="pre">Memory</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">condor_qedit</span> <span class="pre">&lt;job&gt;</span> <span class="pre">RequestMemory</span> <span class="pre">&lt;N&gt;</span></code> replaces the expression with a constant.</p></li>
+</ul>
+</section>
 <section id="gpu-attribute-names">
 <h2>GPU attribute names<a class="headerlink" href="#gpu-attribute-names" title="Link to this heading"></a></h2>
 <p>Two different ClassAd namespaces are involved, and they are kept separate:</p>

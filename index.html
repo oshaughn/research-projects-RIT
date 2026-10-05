@@ -157,6 +157,7 @@
 </li>
 <li class="toctree-l2"><a class="reference internal" href="containers.html#what-the-pipeline-generates">What the pipeline generates</a></li>
 <li class="toctree-l2"><a class="reference internal" href="containers.html#choosing-a-delivery-mode-legacy-vs-container-universe">Choosing a delivery mode (legacy vs container universe)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="containers.html#per-host-ile-executable-and-memory">Per-host ILE executable and memory</a></li>
 <li class="toctree-l2"><a class="reference internal" href="containers.html#gpu-attribute-names">GPU attribute names</a></li>
 <li class="toctree-l2"><a class="reference internal" href="containers.html#building-a-container-family">Building a container family</a></li>
 <li class="toctree-l2"><a class="reference internal" href="containers.html#catching-dependency-breakage-early-ci-canary">Catching dependency breakage early (CI canary)</a></li>
@@ -196,7 +197,10 @@
 </li>
 <li class="toctree-l3"><a class="reference internal" href="hyperpipe/advanced_tuning.html">Advanced Tuning</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="hyperpipe/advanced_tuning.html#multi-constraint-inference">Multi-Constraint Inference</a></li>
-<li class="toctree-l4"><a class="reference internal" href="hyperpipe/advanced_tuning.html#coordinate-transformation">Coordinate Transformation</a></li>
+<li class="toctree-l4"><a class="reference internal" href="hyperpipe/advanced_tuning.html#coordinate-transformation">Coordinate Transformation</a><ul>
+<li class="toctree-l5"><a class="reference internal" href="hyperpipe/advanced_tuning.html#coordinate-module-options-and-the-puff-stage">Coordinate-module options and the puff stage</a></li>
+</ul>
+</li>
 <li class="toctree-l4"><a class="reference internal" href="hyperpipe/advanced_tuning.html#parsimonious-placement-tracer-workflow">Parsimonious-placement Tracer Workflow</a></li>
 <li class="toctree-l4"><a class="reference internal" href="hyperpipe/advanced_tuning.html#convergence-testing">Convergence Testing</a></li>
 </ul>
@@ -615,6 +619,7 @@
 <li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsampler.ret_dec_samp_vector"><code class="docutils literal notranslate"><span class="pre">ret_dec_samp_vector()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsampler.ret_uniform_samp_vector_alt"><code class="docutils literal notranslate"><span class="pre">ret_uniform_samp_vector_alt()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsampler.sanityCheckSamplerIntegrateUnity"><code class="docutils literal notranslate"><span class="pre">sanityCheckSamplerIntegrateUnity()</span></code></a></li>
+<li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsampler.to_host"><code class="docutils literal notranslate"><span class="pre">to_host()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsampler.uniform_samp"><code class="docutils literal notranslate"><span class="pre">uniform_samp()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsampler.uniform_samp_cdf_inv_vector"><code class="docutils literal notranslate"><span class="pre">uniform_samp_cdf_inv_vector()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsampler.uniform_samp_cos_theta"><code class="docutils literal notranslate"><span class="pre">uniform_samp_cos_theta()</span></code></a></li>
@@ -639,6 +644,7 @@
 <li class="toctree-l6"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.has_unbounded_support"><code class="docutils literal notranslate"><span class="pre">MCSampler.has_unbounded_support</span></code></a></li>
 <li class="toctree-l6"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.integrate"><code class="docutils literal notranslate"><span class="pre">MCSampler.integrate()</span></code></a></li>
 <li class="toctree-l6"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.integrate_log"><code class="docutils literal notranslate"><span class="pre">MCSampler.integrate_log()</span></code></a></li>
+<li class="toctree-l6"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.joint_p_s_is_normalized_density"><code class="docutils literal notranslate"><span class="pre">MCSampler.joint_p_s_is_normalized_density</span></code></a></li>
 <li class="toctree-l6"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.load_state"><code class="docutils literal notranslate"><span class="pre">MCSampler.load_state()</span></code></a></li>
 <li class="toctree-l6"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.match_params_from_args"><code class="docutils literal notranslate"><span class="pre">MCSampler.match_params_from_args()</span></code></a></li>
 <li class="toctree-l6"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.prior_prod"><code class="docutils literal notranslate"><span class="pre">MCSampler.prior_prod()</span></code></a></li>
@@ -654,8 +660,10 @@
 <li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.get_likelihood_threshold"><code class="docutils literal notranslate"><span class="pre">get_likelihood_threshold()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.identity_convert"><code class="docutils literal notranslate"><span class="pre">identity_convert()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.identity_convert_togpu"><code class="docutils literal notranslate"><span class="pre">identity_convert_togpu()</span></code></a></li>
+<li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.keep_reserve_from_rvs"><code class="docutils literal notranslate"><span class="pre">keep_reserve_from_rvs()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.live_volume_collapse_verdict"><code class="docutils literal notranslate"><span class="pre">live_volume_collapse_verdict()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.lnZ_from_reserve"><code class="docutils literal notranslate"><span class="pre">lnZ_from_reserve()</span></code></a></li>
+<li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.make_reserve_from_rvs"><code class="docutils literal notranslate"><span class="pre">make_reserve_from_rvs()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.make_warm_seed_reserve"><code class="docutils literal notranslate"><span class="pre">make_warm_seed_reserve()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.profile"><code class="docutils literal notranslate"><span class="pre">profile()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.sample_from_bins"><code class="docutils literal notranslate"><span class="pre">sample_from_bins()</span></code></a></li>
@@ -684,6 +692,7 @@
 <li class="toctree-l6"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerEnsemble.MCSampler.has_unbounded_support"><code class="docutils literal notranslate"><span class="pre">MCSampler.has_unbounded_support</span></code></a></li>
 <li class="toctree-l6"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerEnsemble.MCSampler.integrate"><code class="docutils literal notranslate"><span class="pre">MCSampler.integrate()</span></code></a></li>
 <li class="toctree-l6"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerEnsemble.MCSampler.integrate_log"><code class="docutils literal notranslate"><span class="pre">MCSampler.integrate_log()</span></code></a></li>
+<li class="toctree-l6"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerEnsemble.MCSampler.joint_p_s_is_normalized_density"><code class="docutils literal notranslate"><span class="pre">MCSampler.joint_p_s_is_normalized_density</span></code></a></li>
 <li class="toctree-l6"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerEnsemble.MCSampler.match_params_from_args"><code class="docutils literal notranslate"><span class="pre">MCSampler.match_params_from_args()</span></code></a></li>
 <li class="toctree-l6"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerEnsemble.MCSampler.sampling_density"><code class="docutils literal notranslate"><span class="pre">MCSampler.sampling_density()</span></code></a></li>
 <li class="toctree-l6"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerEnsemble.MCSampler.setup"><code class="docutils literal notranslate"><span class="pre">MCSampler.setup()</span></code></a></li>
@@ -692,15 +701,16 @@
 </li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerEnsemble.M_samp_vector"><code class="docutils literal notranslate"><span class="pre">M_samp_vector()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerEnsemble.NanOrInf"><code class="docutils literal notranslate"><span class="pre">NanOrInf</span></code></a></li>
+<li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerEnsemble.complete_dim_group_cover"><code class="docutils literal notranslate"><span class="pre">complete_dim_group_cover()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerEnsemble.convergence_test_MostSignificantPoint"><code class="docutils literal notranslate"><span class="pre">convergence_test_MostSignificantPoint()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerEnsemble.convergence_test_NormalSubIntegrals"><code class="docutils literal notranslate"><span class="pre">convergence_test_NormalSubIntegrals()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerEnsemble.cos_samp"><code class="docutils literal notranslate"><span class="pre">cos_samp()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerEnsemble.cos_samp_cdf_inv_vector"><code class="docutils literal notranslate"><span class="pre">cos_samp_cdf_inv_vector()</span></code></a></li>
-<li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerEnsemble.create_wide_single_component_prior"><code class="docutils literal notranslate"><span class="pre">create_wide_single_component_prior()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerEnsemble.dec_samp"><code class="docutils literal notranslate"><span class="pre">dec_samp()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerEnsemble.dec_samp_cdf_inv_vector"><code class="docutils literal notranslate"><span class="pre">dec_samp_cdf_inv_vector()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerEnsemble.delta_func_pdf"><code class="docutils literal notranslate"><span class="pre">delta_func_pdf()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerEnsemble.delta_func_samp"><code class="docutils literal notranslate"><span class="pre">delta_func_samp()</span></code></a></li>
+<li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerEnsemble.dim_group_frame"><code class="docutils literal notranslate"><span class="pre">dim_group_frame()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerEnsemble.gauss_samp"><code class="docutils literal notranslate"><span class="pre">gauss_samp()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerEnsemble.gauss_samp_withfloor"><code class="docutils literal notranslate"><span class="pre">gauss_samp_withfloor()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerEnsemble.identity_convert"><code class="docutils literal notranslate"><span class="pre">identity_convert()</span></code></a></li>
@@ -710,6 +720,7 @@
 <li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerEnsemble.q_cdf_inv_vector"><code class="docutils literal notranslate"><span class="pre">q_cdf_inv_vector()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerEnsemble.q_samp_vector"><code class="docutils literal notranslate"><span class="pre">q_samp_vector()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerEnsemble.sanityCheckSamplerIntegrateUnity"><code class="docutils literal notranslate"><span class="pre">sanityCheckSamplerIntegrateUnity()</span></code></a></li>
+<li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerEnsemble.validate_dim_group_cover"><code class="docutils literal notranslate"><span class="pre">validate_dim_group_cover()</span></code></a></li>
 </ul>
 </li>
 <li class="toctree-l4"><a class="reference internal" href="api_reference/integrators/index.html#module-RIFT.integrators.mcsamplerGPU">GPU MC Sampler</a><ul>
@@ -725,9 +736,11 @@
 <li class="toctree-l6"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerGPU.MCSampler.draw_simplified"><code class="docutils literal notranslate"><span class="pre">MCSampler.draw_simplified()</span></code></a></li>
 <li class="toctree-l6"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerGPU.MCSampler.integrate"><code class="docutils literal notranslate"><span class="pre">MCSampler.integrate()</span></code></a></li>
 <li class="toctree-l6"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerGPU.MCSampler.integrate_log"><code class="docutils literal notranslate"><span class="pre">MCSampler.integrate_log()</span></code></a></li>
+<li class="toctree-l6"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerGPU.MCSampler.joint_p_s_is_normalized_density"><code class="docutils literal notranslate"><span class="pre">MCSampler.joint_p_s_is_normalized_density</span></code></a></li>
 <li class="toctree-l6"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerGPU.MCSampler.match_params_from_args"><code class="docutils literal notranslate"><span class="pre">MCSampler.match_params_from_args()</span></code></a></li>
 <li class="toctree-l6"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerGPU.MCSampler.pdf_from_hist"><code class="docutils literal notranslate"><span class="pre">MCSampler.pdf_from_hist()</span></code></a></li>
 <li class="toctree-l6"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerGPU.MCSampler.reset_sampling"><code class="docutils literal notranslate"><span class="pre">MCSampler.reset_sampling()</span></code></a></li>
+<li class="toctree-l6"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerGPU.MCSampler.sampling_density"><code class="docutils literal notranslate"><span class="pre">MCSampler.sampling_density()</span></code></a></li>
 <li class="toctree-l6"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerGPU.MCSampler.setup"><code class="docutils literal notranslate"><span class="pre">MCSampler.setup()</span></code></a></li>
 <li class="toctree-l6"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerGPU.MCSampler.setup_hist"><code class="docutils literal notranslate"><span class="pre">MCSampler.setup_hist()</span></code></a></li>
 <li class="toctree-l6"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerGPU.MCSampler.setup_hist_single_param"><code class="docutils literal notranslate"><span class="pre">MCSampler.setup_hist_single_param()</span></code></a></li>
@@ -796,6 +809,7 @@
 <li class="toctree-l6"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.MonteCarloEnsemble.integrator.integrate"><code class="docutils literal notranslate"><span class="pre">integrator.integrate()</span></code></a></li>
 </ul>
 </li>
+<li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.MonteCarloEnsemble.validate_gmm_dict"><code class="docutils literal notranslate"><span class="pre">validate_gmm_dict()</span></code></a></li>
 </ul>
 </li>
 <li class="toctree-l4"><a class="reference internal" href="api_reference/integrators/index.html#module-RIFT.integrators.weighted_gmm">Weighted GMM</a><ul>
@@ -836,7 +850,7 @@
 </ul>
 </li>
 <li class="toctree-l4"><a class="reference internal" href="api_reference/integrators/index.html#module-RIFT.integrators.gaussian_mixture_model">Gaussian Mixture Model</a><ul>
-<li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#id31">Gaussian Mixture Model</a></li>
+<li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#id35">Gaussian Mixture Model</a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.gaussian_mixture_model.add_defensive_component"><code class="docutils literal notranslate"><span class="pre">add_defensive_component()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.gaussian_mixture_model.estimator"><code class="docutils literal notranslate"><span class="pre">estimator</span></code></a><ul>
 <li class="toctree-l6"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.gaussian_mixture_model.estimator.fit"><code class="docutils literal notranslate"><span class="pre">estimator.fit()</span></code></a></li>
@@ -1106,12 +1120,25 @@
 <li class="toctree-l4"><a class="reference internal" href="api_reference/physics/EOBTidalExternal.html">EOBTidalExternal API Reference</a></li>
 <li class="toctree-l4"><a class="reference internal" href="api_reference/physics/EOBTidalExternalC.html">EOBTidalExternalC API Reference</a></li>
 <li class="toctree-l4"><a class="reference internal" href="api_reference/physics/EOSManager.html">EOSManager API Reference</a><ul>
+<li class="toctree-l5"><a class="reference internal" href="api_reference/physics/EOSManager.html#RIFT.physics.EOSManager.EOSBranchView"><code class="docutils literal notranslate"><span class="pre">EOSBranchView</span></code></a><ul>
+<li class="toctree-l6"><a class="reference internal" href="api_reference/physics/EOSManager.html#RIFT.physics.EOSManager.EOSBranchView.LAMBDA_OUT_OF_BRANCH"><code class="docutils literal notranslate"><span class="pre">EOSBranchView.LAMBDA_OUT_OF_BRANCH</span></code></a></li>
+<li class="toctree-l6"><a class="reference internal" href="api_reference/physics/EOSManager.html#RIFT.physics.EOSManager.EOSBranchView.branches_for_m"><code class="docutils literal notranslate"><span class="pre">EOSBranchView.branches_for_m()</span></code></a></li>
+<li class="toctree-l6"><a class="reference internal" href="api_reference/physics/EOSManager.html#RIFT.physics.EOSManager.EOSBranchView.estimate_baryon_mass_from_mg"><code class="docutils literal notranslate"><span class="pre">EOSBranchView.estimate_baryon_mass_from_mg()</span></code></a></li>
+<li class="toctree-l6"><a class="reference internal" href="api_reference/physics/EOSManager.html#RIFT.physics.EOSManager.EOSBranchView.lambda_from_m"><code class="docutils literal notranslate"><span class="pre">EOSBranchView.lambda_from_m()</span></code></a></li>
+<li class="toctree-l6"><a class="reference internal" href="api_reference/physics/EOSManager.html#RIFT.physics.EOSManager.EOSBranchView.lambda_from_m_vector"><code class="docutils literal notranslate"><span class="pre">EOSBranchView.lambda_from_m_vector()</span></code></a></li>
+<li class="toctree-l6"><a class="reference internal" href="api_reference/physics/EOSManager.html#RIFT.physics.EOSManager.EOSBranchView.radius_from_m"><code class="docutils literal notranslate"><span class="pre">EOSBranchView.radius_from_m()</span></code></a></li>
+<li class="toctree-l6"><a class="reference internal" href="api_reference/physics/EOSManager.html#RIFT.physics.EOSManager.EOSBranchView.test_speed_of_sound_causal"><code class="docutils literal notranslate"><span class="pre">EOSBranchView.test_speed_of_sound_causal()</span></code></a></li>
+</ul>
+</li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/physics/EOSManager.html#RIFT.physics.EOSManager.EOSConcrete"><code class="docutils literal notranslate"><span class="pre">EOSConcrete</span></code></a><ul>
+<li class="toctree-l6"><a class="reference internal" href="api_reference/physics/EOSManager.html#RIFT.physics.EOSManager.EOSConcrete.branches_for_m"><code class="docutils literal notranslate"><span class="pre">EOSConcrete.branches_for_m()</span></code></a></li>
 <li class="toctree-l6"><a class="reference internal" href="api_reference/physics/EOSManager.html#RIFT.physics.EOSManager.EOSConcrete.estimate_baryon_mass_from_mg"><code class="docutils literal notranslate"><span class="pre">EOSConcrete.estimate_baryon_mass_from_mg()</span></code></a></li>
+<li class="toctree-l6"><a class="reference internal" href="api_reference/physics/EOSManager.html#RIFT.physics.EOSManager.EOSConcrete.for_branch"><code class="docutils literal notranslate"><span class="pre">EOSConcrete.for_branch()</span></code></a></li>
 <li class="toctree-l6"><a class="reference internal" href="api_reference/physics/EOSManager.html#RIFT.physics.EOSManager.EOSConcrete.lambda_from_m"><code class="docutils literal notranslate"><span class="pre">EOSConcrete.lambda_from_m()</span></code></a></li>
 <li class="toctree-l6"><a class="reference internal" href="api_reference/physics/EOSManager.html#RIFT.physics.EOSManager.EOSConcrete.lambda_from_m_vector"><code class="docutils literal notranslate"><span class="pre">EOSConcrete.lambda_from_m_vector()</span></code></a></li>
 <li class="toctree-l6"><a class="reference internal" href="api_reference/physics/EOSManager.html#RIFT.physics.EOSManager.EOSConcrete.pressure_density_on_grid"><code class="docutils literal notranslate"><span class="pre">EOSConcrete.pressure_density_on_grid()</span></code></a></li>
 <li class="toctree-l6"><a class="reference internal" href="api_reference/physics/EOSManager.html#RIFT.physics.EOSManager.EOSConcrete.pressure_density_on_grid_alternate"><code class="docutils literal notranslate"><span class="pre">EOSConcrete.pressure_density_on_grid_alternate()</span></code></a></li>
+<li class="toctree-l6"><a class="reference internal" href="api_reference/physics/EOSManager.html#RIFT.physics.EOSManager.EOSConcrete.radius_from_m"><code class="docutils literal notranslate"><span class="pre">EOSConcrete.radius_from_m()</span></code></a></li>
 <li class="toctree-l6"><a class="reference internal" href="api_reference/physics/EOSManager.html#RIFT.physics.EOSManager.EOSConcrete.test_speed_of_sound_causal"><code class="docutils literal notranslate"><span class="pre">EOSConcrete.test_speed_of_sound_causal()</span></code></a></li>
 <li class="toctree-l6"><a class="reference internal" href="api_reference/physics/EOSManager.html#RIFT.physics.EOSManager.EOSConcrete.test_speed_of_sound_causal_builtin"><code class="docutils literal notranslate"><span class="pre">EOSConcrete.test_speed_of_sound_causal_builtin()</span></code></a></li>
 </ul>
@@ -1126,6 +1153,7 @@
 </li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/physics/EOSManager.html#RIFT.physics.EOSManager.EOSFromTabularData"><code class="docutils literal notranslate"><span class="pre">EOSFromTabularData</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/physics/EOSManager.html#RIFT.physics.EOSManager.EOSLALSimulation"><code class="docutils literal notranslate"><span class="pre">EOSLALSimulation</span></code></a></li>
+<li class="toctree-l5"><a class="reference internal" href="api_reference/physics/EOSManager.html#RIFT.physics.EOSManager.EOSLALSimulationFromFile"><code class="docutils literal notranslate"><span class="pre">EOSLALSimulationFromFile</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/physics/EOSManager.html#RIFT.physics.EOSManager.EOSLindblomSpectral"><code class="docutils literal notranslate"><span class="pre">EOSLindblomSpectral</span></code></a><ul>
 <li class="toctree-l6"><a class="reference internal" href="api_reference/physics/EOSManager.html#RIFT.physics.EOSManager.EOSLindblomSpectral.make_spec_param_eos"><code class="docutils literal notranslate"><span class="pre">EOSLindblomSpectral.make_spec_param_eos()</span></code></a></li>
 <li class="toctree-l6"><a class="reference internal" href="api_reference/physics/EOSManager.html#RIFT.physics.EOSManager.EOSLindblomSpectral.test_bounded_adiabatic_index"><code class="docutils literal notranslate"><span class="pre">EOSLindblomSpectral.test_bounded_adiabatic_index()</span></code></a></li>
@@ -1175,6 +1203,7 @@
 <li class="toctree-l5"><a class="reference internal" href="api_reference/physics/EOSManager.html#RIFT.physics.EOSManager.make_compactness_from_lambda_approximate"><code class="docutils literal notranslate"><span class="pre">make_compactness_from_lambda_approximate()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/physics/EOSManager.html#RIFT.physics.EOSManager.make_mr_lambda"><code class="docutils literal notranslate"><span class="pre">make_mr_lambda()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/physics/EOSManager.html#RIFT.physics.EOSManager.make_mr_lambda_lal"><code class="docutils literal notranslate"><span class="pre">make_mr_lambda_lal()</span></code></a></li>
+<li class="toctree-l5"><a class="reference internal" href="api_reference/physics/EOSManager.html#RIFT.physics.EOSManager.make_mr_lambda_lal_branches"><code class="docutils literal notranslate"><span class="pre">make_mr_lambda_lal_branches()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/physics/EOSManager.html#RIFT.physics.EOSManager.make_mr_lambda_reprimand"><code class="docutils literal notranslate"><span class="pre">make_mr_lambda_reprimand()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/physics/EOSManager.html#RIFT.physics.EOSManager.mu"><code class="docutils literal notranslate"><span class="pre">mu()</span></code></a></li>
 </ul>
@@ -1566,6 +1595,8 @@
 </li>
 <li class="toctree-l4"><a class="reference internal" href="api_reference/misc/index.html#module-RIFT.misc.sky_rotations">Sky Coordinates</a><ul>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/misc/index.html#RIFT.misc.sky_rotations.assign_sky_frame"><code class="docutils literal notranslate"><span class="pre">assign_sky_frame()</span></code></a></li>
+<li class="toctree-l5"><a class="reference internal" href="api_reference/misc/index.html#RIFT.misc.sky_rotations.network_to_physical"><code class="docutils literal notranslate"><span class="pre">network_to_physical()</span></code></a></li>
+<li class="toctree-l5"><a class="reference internal" href="api_reference/misc/index.html#RIFT.misc.sky_rotations.physical_to_network"><code class="docutils literal notranslate"><span class="pre">physical_to_network()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/misc/index.html#RIFT.misc.sky_rotations.rotate_sky_backwards"><code class="docutils literal notranslate"><span class="pre">rotate_sky_backwards()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/misc/index.html#RIFT.misc.sky_rotations.rotate_sky_backwards_scalar"><code class="docutils literal notranslate"><span class="pre">rotate_sky_backwards_scalar()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/misc/index.html#RIFT.misc.sky_rotations.rotate_sky_forwards"><code class="docutils literal notranslate"><span class="pre">rotate_sky_forwards()</span></code></a></li>

@@ -123,6 +123,64 @@
   <section id="module-RIFT.physics.EOSManager">
 <span id="eosmanager-api-reference"></span><h1>EOSManager API Reference<a class="headerlink" href="#module-RIFT.physics.EOSManager" title="Link to this heading"></a></h1>
 <dl class="py class">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSBranchView">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.physics.EOSManager.</span></span><span class="sig-name descname"><span class="pre">EOSBranchView</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">source</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">branch_id</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSBranchView" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>A selected stable-family branch with the historical scalar EOS surface.</p>
+<p>This wrapper is deliberately small: attributes not related to the stellar
+family are delegated to the source EOS, while all mass-radius-tidal queries
+are pinned to <code class="docutils literal notranslate"><span class="pre">branch_id</span></code>.  It is the compatibility bridge for callers
+such as CIP and hyperpipe that cannot pass a branch keyword on every lookup.</p>
+<p>A branch is bounded at BOTH ends: a twin-star branch typically starts well
+above the family minimum mass, so <code class="docutils literal notranslate"><span class="pre">mMinMsun</span></code> is published next to
+<code class="docutils literal notranslate"><span class="pre">mMaxMsun</span></code> and consumers that mask draws should mask against both.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSBranchView.LAMBDA_OUT_OF_BRANCH">
+<span class="sig-name descname"><span class="pre">LAMBDA_OUT_OF_BRANCH</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">-inf</span></em><a class="headerlink" href="#RIFT.physics.EOSManager.EOSBranchView.LAMBDA_OUT_OF_BRANCH" title="Link to this definition"></a></dt>
+<dd><p>lambda_from_m value for a mass with no stable star on this branch.
+Legacy consumers mask only on mMaxMsun, so masses below mMinMsun still
+reach us; returning the same flag lalsimutils uses for its own failed
+conversions keeps one such draw from aborting an entire batch.  It is a
+flag, not a tidal deformability: the consumer must reject the row, which
+is why CIP filters nonfinite converted coordinates ahead of the
+likelihood fit and drops such samples on export.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSBranchView.branches_for_m">
+<span class="sig-name descname"><span class="pre">branches_for_m</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">m</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSBranchView.branches_for_m" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSBranchView.estimate_baryon_mass_from_mg">
+<span class="sig-name descname"><span class="pre">estimate_baryon_mass_from_mg</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">m</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSBranchView.estimate_baryon_mass_from_mg" title="Link to this definition"></a></dt>
+<dd><p>Estimate baryonic mass using this branch’s 1.4-Msun radius.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSBranchView.lambda_from_m">
+<span class="sig-name descname"><span class="pre">lambda_from_m</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">m</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSBranchView.lambda_from_m" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSBranchView.lambda_from_m_vector">
+<span class="sig-name descname"><span class="pre">lambda_from_m_vector</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">m</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSBranchView.lambda_from_m_vector" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSBranchView.radius_from_m">
+<span class="sig-name descname"><span class="pre">radius_from_m</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">m</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSBranchView.radius_from_m" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSBranchView.test_speed_of_sound_causal">
+<span class="sig-name descname"><span class="pre">test_speed_of_sound_causal</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">test_only_under_mmax</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fast_test</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSBranchView.test_speed_of_sound_causal" title="Link to this definition"></a></dt>
+<dd><p>Test causality only up to this branch’s maximum-mass star.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
 <dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSConcrete">
 <em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.physics.EOSManager.</span></span><span class="sig-name descname"><span class="pre">EOSConcrete</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSConcrete" title="Link to this definition"></a></dt>
 <dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
@@ -139,8 +197,14 @@
 </dl>
 <p>As many of these features are already provided by lalsimulation, we just front-end them</p>
 <dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSConcrete.branches_for_m">
+<span class="sig-name descname"><span class="pre">branches_for_m</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">m</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSConcrete.branches_for_m" title="Link to this definition"></a></dt>
+<dd><p>Return stable LAL family branches available at mass <code class="docutils literal notranslate"><span class="pre">m</span></code>.</p>
+</dd></dl>
+
+<dl class="py method">
 <dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSConcrete.estimate_baryon_mass_from_mg">
-<span class="sig-name descname"><span class="pre">estimate_baryon_mass_from_mg</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">m</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSConcrete.estimate_baryon_mass_from_mg" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">estimate_baryon_mass_from_mg</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">m</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">branch_id</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSConcrete.estimate_baryon_mass_from_mg" title="Link to this definition"></a></dt>
 <dd><p>Estimate m_b = m_g + m_g^2/(R_{1.4}/km) based on <a class="reference external" href="https://arxiv.org/pdf/1905.03784.pdf">https://arxiv.org/pdf/1905.03784.pdf</a> Eq. (6)
 Note baryon mass can be computed exactly with a TOV solution integral (e.g., Eq. 6.21 of Haensel’s book)</p>
 <blockquote>
@@ -151,13 +215,22 @@ Note baryon mass can be computed exactly with a TOV solution integral (e.g., Eq.
 </dd></dl>
 
 <dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSConcrete.for_branch">
+<span class="sig-name descname"><span class="pre">for_branch</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">branch_id</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSConcrete.for_branch" title="Link to this definition"></a></dt>
+<dd><p>Return a legacy-scalar view restricted to one stable LAL branch.</p>
+<p>Existing RIFT consumers call <code class="docutils literal notranslate"><span class="pre">lambda_from_m(m)</span></code> without a branch
+keyword.  The view preserves that API while making the branch choice
+explicit at construction time.</p>
+</dd></dl>
+
+<dl class="py method">
 <dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSConcrete.lambda_from_m">
-<span class="sig-name descname"><span class="pre">lambda_from_m</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">m</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSConcrete.lambda_from_m" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">lambda_from_m</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">m</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">branch_id</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSConcrete.lambda_from_m" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSConcrete.lambda_from_m_vector">
-<span class="sig-name descname"><span class="pre">lambda_from_m_vector</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">m</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSConcrete.lambda_from_m_vector" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">lambda_from_m_vector</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">m</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">branch_id</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSConcrete.lambda_from_m_vector" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py method">
@@ -185,8 +258,14 @@ Density computed by m*n = (epsilon+p)/c^2mn exp(-h), which does NOT rely on lals
 </dd></dl>
 
 <dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSConcrete.radius_from_m">
+<span class="sig-name descname"><span class="pre">radius_from_m</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">m</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">branch_id</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSConcrete.radius_from_m" title="Link to this definition"></a></dt>
+<dd><p>Return radius in metres; require <code class="docutils literal notranslate"><span class="pre">branch_id</span></code> for twin stars.</p>
+</dd></dl>
+
+<dl class="py method">
 <dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSConcrete.test_speed_of_sound_causal">
-<span class="sig-name descname"><span class="pre">test_speed_of_sound_causal</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">test_only_under_mmax</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fast_test</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSConcrete.test_speed_of_sound_causal" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">test_speed_of_sound_causal</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">test_only_under_mmax</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fast_test</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">branch_id</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSConcrete.test_speed_of_sound_causal" title="Link to this definition"></a></dt>
 <dd><p>Test if EOS satisfies speed of sound.
 Relies on low-level lalsimulation interpolation routines to get v(h) and as such is not very reliable</p>
 <dl class="simple">
@@ -275,6 +354,17 @@ Relies on low-level lalsimulation interpolation routines to get v(h) and as such
 <dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSLALSimulation">
 <em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.physics.EOSManager.</span></span><span class="sig-name descname"><span class="pre">EOSLALSimulation</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSLALSimulation" title="Link to this definition"></a></dt>
 <dd><p>Bases: <a class="reference internal" href="#RIFT.physics.EOSManager.EOSConcrete" title="RIFT.physics.EOSManager.EOSConcrete"><code class="xref py py-class docutils literal notranslate"><span class="pre">EOSConcrete</span></code></a></p>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSLALSimulationFromFile">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.physics.EOSManager.</span></span><span class="sig-name descname"><span class="pre">EOSLALSimulationFromFile</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fname</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dirty_phase_transitions</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">skip_family</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">minimal_family</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">phase_transition_aware</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">family_log_pressure_min</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSLALSimulationFromFile" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#RIFT.physics.EOSManager.EOSConcrete" title="RIFT.physics.EOSManager.EOSConcrete"><code class="xref py py-class docutils literal notranslate"><span class="pre">EOSConcrete</span></code></a></p>
+<p>Load a released two-column or reviewed nine-column LAL EOS table.</p>
+<p>The reviewed LALSimulation reader detects clean phase transitions in both
+formats and preserves all thermodynamic columns in the new format. Set
+<code class="docutils literal notranslate"><span class="pre">dirty_phase_transitions</span></code> to request its opt-in correction of numerically
+imperfect pressure plateaus.</p>
 </dd></dl>
 
 <dl class="py class">
@@ -606,9 +696,18 @@ DOES NOT YET WORK RELIABLY</p>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.physics.EOSManager.make_mr_lambda_lal">
-<span class="sig-prename descclassname"><span class="pre">RIFT.physics.EOSManager.</span></span><span class="sig-name descname"><span class="pre">make_mr_lambda_lal</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">eos</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_bins</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">100</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.make_mr_lambda_lal" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.EOSManager.</span></span><span class="sig-name descname"><span class="pre">make_mr_lambda_lal</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">eos</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_bins</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">100</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">branch_id</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">multipart</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">family_adapter</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reviewed_multibranch</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.make_mr_lambda_lal" title="Link to this definition"></a></dt>
 <dd><p>Construct mass-radius curve from EOS
 Based on modern code resources (<a class="reference external" href="https://git.ligo.org/publications/gw170817/bns-eos/blob/master/scripts/eos-params.py">https://git.ligo.org/publications/gw170817/bns-eos/blob/master/scripts/eos-params.py</a>) which access low-level structures</p>
+<p><code class="docutils literal notranslate"><span class="pre">branch_id</span></code> is optional for released/single-branch LALSimulation.  It is
+required for a multibranch family so an overlapping twin-star interval is
+never collapsed silently.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.make_mr_lambda_lal_branches">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.EOSManager.</span></span><span class="sig-name descname"><span class="pre">make_mr_lambda_lal_branches</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">eos</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_bins</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">100</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">multipart</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">family_adapter</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reviewed_multibranch</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.make_mr_lambda_lal_branches" title="Link to this definition"></a></dt>
+<dd><p>Return <code class="docutils literal notranslate"><span class="pre">{branch_id:</span> <span class="pre">[M,</span> <span class="pre">R,</span> <span class="pre">Lambda]}</span></code> for every stable LAL branch.</p>
 </dd></dl>
 
 <dl class="py function">

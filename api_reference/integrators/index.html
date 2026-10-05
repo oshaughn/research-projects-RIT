@@ -567,6 +567,22 @@ dec_samp_vector for the full range.</p>
 <dd></dd></dl>
 
 <dl class="py function">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsampler.to_host">
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsampler.</span></span><span class="sig-name descname"><span class="pre">to_host</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsampler.to_host" title="Link to this definition"></a></dt>
+<dd><p>Return <cite>x</cite> as a host (numpy) array, copying it off a device backend if it is on one.</p>
+<p>numpy.asarray(cupy_array) RAISES – cupy refuses implicit host conversion – so the copy
+has to go through the device module’s own asnumpy.  The module is looked up from the
+value, the same way infer_array_module does it, so this file keeps its numpy-only import
+list.  A host input is returned UNCHANGED, not re-wrapped: the numpy path must stay bit
+for bit what it was.</p>
+<p>A non-numpy backend it cannot convert RAISES rather than passing the value through.
+infer_array_module recognizes any module exposing asarray/where/clip, which is a wider
+set than the ones exposing asnumpy (torch is in the gap), so “return it unchanged” would
+hand a device array to the host-only arithmetic below the call site – the silent
+host/device mix this function exists to remove, reintroduced one backend later.</p>
+</dd></dl>
+
+<dl class="py function">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsampler.uniform_samp">
 <span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsampler.</span></span><span class="sig-name descname"><span class="pre">uniform_samp</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">a</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">b</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsampler.uniform_samp" title="Link to this definition"></a></dt>
 <dd></dd></dl>
@@ -696,7 +712,7 @@ do not rely on it.</p>
 the default AV+GMM portfolio that is the GMM member: a Gaussian mixture has
 nonzero density over the whole box, so q_mix never vanishes and a badly-seeded
 AV member costs efficiency rather than bias (measured with a deliberately
-displaced seed at d=4 and d=6: <a href="#id36"><span class="problematic" id="id37">|lnZ bias|</span></a> &lt;= 0.05 in every run).  An ALL-AV
+displaced seed at d=4 and d=6: <a href="#id40"><span class="problematic" id="id41">|lnZ bias|</span></a> &lt;= 0.05 in every run).  An ALL-AV
 portfolio has no such member – every component is a hard-edged box – and the
 same displaced seed gave lnZ bias -1.0 to -6.8 nats.</p>
 <p>And note the limit of any coverage fix: in that all-AV test, keeping one member
@@ -792,6 +808,11 @@ expecting an “adapt then freeze” control – there isn’t one.</p>
 <p>convergence_tests - dictionary of function pointers, each accepting self._rvs and self.params as arguments. CURRENTLY ONLY USED FOR REPORTING
 Pinning a value: By specifying a kwarg with the same of an existing parameter, it is possible to “pin” it. The sample draws will always be that value, and the sampling prior will use a delta function at that value.</p>
 </dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.joint_p_s_is_normalized_density">
+<span class="sig-name descname"><span class="pre">joint_p_s_is_normalized_density</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">False</span></em><a class="headerlink" href="#RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.joint_p_s_is_normalized_density" title="Link to this definition"></a></dt>
+<dd></dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.load_state">
@@ -948,6 +969,14 @@ discard_prob: threshold on CDF to throw away an entire bin.  Should be very smal
 <dd></dd></dl>
 
 <dl class="py function">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerAdaptiveVolume.keep_reserve_from_rvs">
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerAdaptiveVolume.</span></span><span class="sig-name descname"><span class="pre">keep_reserve_from_rvs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">sampler</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">label</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">integrand_is_log</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerAdaptiveVolume.keep_reserve_from_rvs" title="Link to this definition"></a></dt>
+<dd><p>Attach <code class="docutils literal notranslate"><span class="pre">sampler._warm_seed_reserve</span></code> from its own <code class="docutils literal notranslate"><span class="pre">_rvs</span></code>, or leave it None.</p>
+<p>Provenance for an export, never a reason to lose a completed integral – the same
+contract AV and the portfolio already use at their own reserve sites.</p>
+</dd></dl>
+
+<dl class="py function">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerAdaptiveVolume.live_volume_collapse_verdict">
 <span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerAdaptiveVolume.</span></span><span class="sig-name descname"><span class="pre">live_volume_collapse_verdict</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n_live</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ndim</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ess</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">khat</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_empty_cycles</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_live_collapses</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_warm_seed</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_warm_seed_rank</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_warm_seed_dim</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerAdaptiveVolume.live_volume_collapse_verdict" title="Link to this definition"></a></dt>
 <dd><p>Has the adaptive-volume live set degenerated?  -&gt; (collapsed, [reasons])</p>
@@ -1030,8 +1059,30 @@ it exactly would mean tracking whether the peak was already in the subsample.</p
 </dd></dl>
 
 <dl class="py function">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerAdaptiveVolume.make_reserve_from_rvs">
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerAdaptiveVolume.</span></span><span class="sig-name descname"><span class="pre">make_reserve_from_rvs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">rvs</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params_ordered</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_max</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">20000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">integrand_is_log</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">convert</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerAdaptiveVolume.make_reserve_from_rvs" title="Link to this definition"></a></dt>
+<dd><p>The retained-set reserve for a sampler that still has its rows in <code class="docutils literal notranslate"><span class="pre">_rvs</span></code> -&gt; dict.</p>
+<p>ONE adapter in front of make_warm_seed_reserve, for the backends that reach the fair
+draw with the retained set still in <code class="docutils literal notranslate"><span class="pre">_rvs</span></code>: mcsampler, mcsamplerGPU (both entry
+points), mcsamplerEnsemble and mcsamplerNFlow.  AV builds its own from allx/allloglkl
+because it never keeps them in <code class="docutils literal notranslate"><span class="pre">_rvs</span></code>; the portfolio aggregates its members’ rows.</p>
+<p>WHY THESE BACKENDS NEED ONE AT ALL.  Until now the reserve existed only for the L0
+rescue, so only AV and the portfolio built it and <code class="docutils literal notranslate"><span class="pre">reserve=None</span></code> elsewhere was
+described as “the honest answer, not a gap”.  It is a gap for anything that EXPORTS a
+shape: the fair draw below replaces <code class="docutils literal notranslate"><span class="pre">_rvs</span></code> with min(–fairdraw-extrinsic-output-n-max
+(5 by default), 1.5*eff_samp, 1.5*neff) rows taken WITH REPLACEMENT, and the .dgrid
+exporter then binned those five rows as though they were a likelihood-vs-distance
+curve.  The retained rows are right here; keeping a bounded copy of them costs one
+subsample and lets the exporter use the sample set instead of its export resample.</p>
+<p>BOTH CONVENTIONS.  <code class="docutils literal notranslate"><span class="pre">integrand</span></code> is lnL on some backends and linear L on others, and
+the sampler is the only thing that knows which (see RvsRecord.integrand_is_log).  The
+log columns are preferred where they exist; otherwise the linear ones are converted
+here.  log(0) is -inf, which make_warm_seed_reserve drops as a zero-weight row.</p>
+</dd></dl>
+
+<dl class="py function">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerAdaptiveVolume.make_warm_seed_reserve">
-<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerAdaptiveVolume.</span></span><span class="sig-name descname"><span class="pre">make_warm_seed_reserve</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lnL</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params_ordered</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_max</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">20000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">log_joint_prior</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">log_joint_s_prior</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rng</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerAdaptiveVolume.make_warm_seed_reserve" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerAdaptiveVolume.</span></span><span class="sig-name descname"><span class="pre">make_warm_seed_reserve</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lnL</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params_ordered</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_max</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">20000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">log_joint_prior</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">log_joint_s_prior</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rng</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">force_peak</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerAdaptiveVolume.make_warm_seed_reserve" title="Link to this definition"></a></dt>
 <dd><p>A bounded copy of the points a pass RETAINED, for a later warm start -&gt; dict.</p>
 <p>THE ONE BUILDER, because every sampler that can be L0-rescued needs the identical
 record and they reach this point by different routes: mcsamplerAdaptiveVolume from its
@@ -1062,6 +1113,30 @@ and would bias both the covariance estimate and any lnZ taken from the reserve, 
 neither is a uniform sample of the level set any more.  The one deliberate exception is
 the PEAK row, appended unconditionally because the seed is defined relative to it and a
 subsample can drop it; at one row in n_max its effect on either estimate is negligible.</p>
+<p>force_peak IS FOR A SEED, NOT FOR AN EXPORT.  Appending the peak row unconditionally
+costs a seed nothing (“at one row in n_max its effect on either estimate is
+negligible”) because a seed is a SET of points and the peak defines its centre.  A
+consumer that reads the reserve as a WEIGHTED SAMPLE sees something else.  Uniform
+subsampling without replacement gives every row the same inclusion probability, which
+cancels in a normalized histogram; that histogram is a RATIO of two unbiased estimators,
+so it carries an O(1/n) bias rather than none (measured at +1.5 to +3.9 sigma in the
+small-mass bins over 4000 seeds, i.e. negligible beside the MC noise, but not zero).
+Forcing one row in at probability 1 while the rest come in at n_max/n_finite is a
+different thing entirely: a bias that does not shrink with n.</p>
+<p>HOW BIG DEPENDS ENTIRELY ON HOW DOMINANT THE PEAK IS, so the numbers below are a
+measured range and not a constant.  On 8000 rows capped at 800, median of 15 subsample
+seeds, as the top weight is lifted above the rest: no dominant row, ESS 506 forced
+against 506 free (no effect at all); 3 e-folds up, 223 against 505; 6 e-folds, 3.6
+against 505.  On a real starved GMM extrinsic pass (180,000 retained rows capped at
+20,000, 20 seeds) the forced version reported ESS 33 where the population has 1163,
+and displaced the exported curve by up to 1.22 nats in a bin against 0.72 free.</p>
+<p>force_peak therefore stays True everywhere, and the .dgrid exporter divides that row by
+its own inclusion probability instead (reserve_distance_and_ln_weights), which is why
+n_subsample is recorded below.  Dropping the row instead is worse than it sounds: the
+unforced subsample then usually misses the dominant row entirely and reports ESS 506
+where the population has 99, against 87 for the forced-and-corrected version.</p>
+<p>Neither setting makes the SUBSAMPLE’s own ESS a description of the population – that
+is what ess_finite, recorded below before the cap, is for.</p>
 <p>ISOLATED RNG.  This reserve is built unconditionally – including when
 –sampler-warmstart-retry-neff is unset and nothing will ever read it – so drawing the
 subsample from the global numpy stream would advance it before the fair draw, before the
@@ -1275,6 +1350,11 @@ group has been trained, or if ANY trained group lacks the component.</p>
 <span class="sig-name descname"><span class="pre">integrate_log</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">func</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerEnsemble.MCSampler.integrate_log" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
+<dl class="py attribute">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerEnsemble.MCSampler.joint_p_s_is_normalized_density">
+<span class="sig-name descname"><span class="pre">joint_p_s_is_normalized_density</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">True</span></em><a class="headerlink" href="#RIFT.integrators.mcsamplerEnsemble.MCSampler.joint_p_s_is_normalized_density" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
 <dl class="py method">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerEnsemble.MCSampler.match_params_from_args">
 <em class="property"><span class="k"><span class="pre">static</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">match_params_from_args</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerEnsemble.MCSampler.match_params_from_args" title="Link to this definition"></a></dt>
@@ -1331,6 +1411,17 @@ instead of reverting to a library default.  Pass <cite>setup_forget=True</cite> 
 </dd></dl>
 
 <dl class="py function">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerEnsemble.complete_dim_group_cover">
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerEnsemble.</span></span><span class="sig-name descname"><span class="pre">complete_dim_group_cover</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">gmm_dict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ndim</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">comp_dict</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gmm_adapt</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_comp_default</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">adapt_default</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerEnsemble.complete_dim_group_cover" title="Link to this definition"></a></dt>
+<dd><p>Give every dimension not already in a dim-group its own uncorrelated 1-d group.</p>
+<p>MonteCarloEnsemble._sample() allocates sample_array with xpy.empty and writes only the
+columns a dim-group names, so a dimension in NO group is uninitialized memory – handed to
+the integrand and to the prior with no matching factor in sampling_prior_array.  That is an
+unnormalized estimator, and because the value is whatever the allocator returned it is not
+even reproducibly wrong.  Returns the keys added, so a caller can log them.</p>
+</dd></dl>
+
+<dl class="py function">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerEnsemble.convergence_test_MostSignificantPoint">
 <span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerEnsemble.</span></span><span class="sig-name descname"><span class="pre">convergence_test_MostSignificantPoint</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pcut</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rvs</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerEnsemble.convergence_test_MostSignificantPoint" title="Link to this definition"></a></dt>
 <dd></dd></dl>
@@ -1348,11 +1439,6 @@ instead of reverting to a library default.  Pass <cite>setup_forget=True</cite> 
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerEnsemble.cos_samp_cdf_inv_vector">
 <span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerEnsemble.</span></span><span class="sig-name descname"><span class="pre">cos_samp_cdf_inv_vector</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">p</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerEnsemble.cos_samp_cdf_inv_vector" title="Link to this definition"></a></dt>
-<dd></dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerEnsemble.create_wide_single_component_prior">
-<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerEnsemble.</span></span><span class="sig-name descname"><span class="pre">create_wide_single_component_prior</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">bounds</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">epsilon</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerEnsemble.create_wide_single_component_prior" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py function">
@@ -1374,6 +1460,24 @@ instead of reverting to a library default.  Pass <cite>setup_forget=True</cite> 
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerEnsemble.delta_func_samp">
 <span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerEnsemble.</span></span><span class="sig-name descname"><span class="pre">delta_func_samp</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x_0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerEnsemble.delta_func_samp" title="Link to this definition"></a></dt>
 <dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerEnsemble.dim_group_frame">
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerEnsemble.</span></span><span class="sig-name descname"><span class="pre">dim_group_frame</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">sampler</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">integrate_args</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">driven_by_integrate</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerEnsemble.dim_group_frame" title="Link to this definition"></a></dt>
+<dd><p>The parameter-name list that numbers this sampler’s gmm_dict dimension indices.</p>
+<p>mcsamplerEnsemble numbers its dimensions two DIFFERENT ways depending on how it is driven,
+and a caller that builds keys in the wrong one silently groups the wrong parameters:</p>
+<blockquote>
+<div><ul class="simple">
+<li><p>standalone: integrate(func, <a href="#id3"><span class="problematic" id="id4">*</span></a>args) builds raw_bounds from <cite>args</cite>, so dim i is args[i].</p></li>
+<li><p>portfolio member: the portfolio never calls member.integrate().  It calls
+member.setup(…) – where _setup_impl uses dim = len(self.params_ordered) – and then
+member.draw_simplified(n, <a href="#id5"><span class="problematic" id="id6">*</span></a>self.params_ordered).  So dim i is params_ordered[i].</p></li>
+</ul>
+</div></blockquote>
+<p>Pass driven_by_integrate=False for a portfolio member.  Returns a list of names; index into
+it to build a key, and len() it to know how many dimensions must be covered.</p>
+</dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerEnsemble.gauss_samp">
@@ -1419,6 +1523,16 @@ instead of reverting to a library default.  Pass <cite>setup_forget=True</cite> 
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerEnsemble.sanityCheckSamplerIntegrateUnity">
 <span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerEnsemble.</span></span><span class="sig-name descname"><span class="pre">sanityCheckSamplerIntegrateUnity</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">sampler</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerEnsemble.sanityCheckSamplerIntegrateUnity" title="Link to this definition"></a></dt>
 <dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerEnsemble.validate_dim_group_cover">
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerEnsemble.</span></span><span class="sig-name descname"><span class="pre">validate_dim_group_cover</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">gmm_dict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ndim</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerEnsemble.validate_dim_group_cover" title="Link to this definition"></a></dt>
+<dd><p>Raise ValueError unless gmm_dict partitions range(ndim) exactly.</p>
+<p>Public entry point for a DRIVER that wants to fail before it starts work.  The same check
+runs inside the integrator, but a driver that wraps its per-event call in a broad <cite>except</cite>
+can turn that refusal into an empty output file and a zero exit status, which is the one
+outcome this whole guard exists to prevent.</p>
+</dd></dl>
 
 </section>
 <section id="module-RIFT.integrators.mcsamplerGPU">
@@ -1505,7 +1619,7 @@ tempering_exp – Exponent to raise the weights of the 1-D marginalized histogra
 temper_log – Adapt in min(ln L, 10^(-5))^tempering_exp
 tempering_adapt – Gradually evolve the tempering_exp based on previous history.
 floor_level – <em>total probability</em> of a uniform distribution, averaged with the weighted sampled distribution, to generate a new sampled distribution
-n_adapt – number of chunks over which to allow the pdf to adapt. Default is zero, which will turn off adaptive sampling regardless of other settings
+n_adapt – number of chunks over which to allow the pdf to adapt. Default is 1000*n, i.e. adaptation runs on ANY run longer than one chunk – it is NOT off by default.  The kwarg is in CHUNKS and is scaled by n here, so the default 1000*n is exactly n_adapt=1000; the scaled variable is then compared against self.ntotal, a SAMPLE count.  Do NOT pass 1000*n to reproduce the default
 convergence_tests - dictionary of function pointers, each accepting self._rvs and self.params as arguments. CURRENTLY ONLY USED FOR REPORTING
 Pinning a value: By specifying a kwarg with the same of an existing parameter, it is possible to “pin” it. The sample draws will always be that value, and the sampling prior will use a delta function at that value.</p>
 </dd></dl>
@@ -1526,10 +1640,15 @@ tempering_exp – Exponent to raise the weights of the 1-D marginalized histogra
 temper_log – Adapt in min(ln L, 10^(-5))^tempering_exp
 tempering_adapt – Gradually evolve the tempering_exp based on previous history.
 floor_level – <em>total probability</em> of a uniform distribution, averaged with the weighted sampled distribution, to generate a new sampled distribution
-n_adapt – number of chunks over which to allow the pdf to adapt. Default is zero, which will turn off adaptive sampling regardless of other settings
+n_adapt – number of chunks over which to allow the pdf to adapt. Default is 1000*n, i.e. adaptation runs on ANY run longer than one chunk – it is NOT off by default.  The kwarg is in CHUNKS and is scaled by n here, so the default 1000*n is exactly n_adapt=1000; the scaled variable is then compared against self.ntotal, a SAMPLE count.  Do NOT pass 1000*n to reproduce the default
 convergence_tests - dictionary of function pointers, each accepting self._rvs and self.params as arguments. CURRENTLY ONLY USED FOR REPORTING
 Pinning a value: By specifying a kwarg with the same of an existing parameter, it is possible to “pin” it. The sample draws will always be that value, and the sampling prior will use a delta function at that value.</p>
 </dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerGPU.MCSampler.joint_p_s_is_normalized_density">
+<span class="sig-name descname"><span class="pre">joint_p_s_is_normalized_density</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">True</span></em><a class="headerlink" href="#RIFT.integrators.mcsamplerGPU.MCSampler.joint_p_s_is_normalized_density" title="Link to this definition"></a></dt>
+<dd></dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerGPU.MCSampler.match_params_from_args">
@@ -1551,6 +1670,33 @@ e.g. set A ?= set B
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerGPU.MCSampler.reset_sampling">
 <span class="sig-name descname"><span class="pre">reset_sampling</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">param</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerGPU.MCSampler.reset_sampling" title="Link to this definition"></a></dt>
 <dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerGPU.MCSampler.sampling_density">
+<span class="sig-name descname"><span class="pre">sampling_density</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerGPU.MCSampler.sampling_density" title="Link to this definition"></a></dt>
+<dd><p>Pointwise sampling density q(theta) of THIS member, evaluated at ARBITRARY points
+X (shape (N, ndim), columns in self.params_ordered order).  Returns a host (numpy)
+array of length N, or None if this sampler cannot express one.</p>
+<p>THE PORTFOLIO MEMBER CONTRACT.  mcsamplerPortfolio builds the balance-heuristic
+mixture denominator q_mix = sum_m frac_m q_m from this method, so what it returns
+must be a properly NORMALIZED probability density over the sampler’s own box, in
+original coordinates, rather than a scale factor.</p>
+<p>This sampler draws each parameter independently by inverse-CDF sampling, so the
+density is the product over parameters of pdf[p](x)/_pdf_norm[p] – exactly the
+per-sample product draw_simplified() reports as joint_p_s, and the two are kept in
+step.  Zero outside the box: cdf_inv cannot produce a point there, and pdf_from_hist
+would otherwise return the clamped edge bin rather than 0.</p>
+<p>PRECONDITION, not enforced here.  _pdf_norm[p] is only populated when add_parameter
+had to build the CDF itself; when the CALLER supplies cdf_inv (what ILE does) it stays
+at its default 1, and the result is then normalized only if the caller’s pdf already
+integrates to 1.  Every in-tree caller that supplies cdf_inv passes a normalized pdf
+(ret_uniform_samp_vector_alt is 1/(b-a), cos_samp is sin(x)/2), so this is latent.  A
+caller doing otherwise gets a q_m off by a constant and a biased mixture, with no
+diagnostic.  Pinned by
+test_portfolio_member_density.py::test_supplied_cdf_inv_with_unnormalized_pdf_is_the_known_hole.</p>
+<p>READ-ONLY – touches no sampler state and does not affect this sampler’s own
+integrate().</p>
+</dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerGPU.MCSampler.setup">
@@ -1789,7 +1935,7 @@ cold makes the mixture-level guarantee TRUE instead of merely asserted.</p>
 run-to-run scatter, so it is cheap insurance.  That is the case for the default.</p></li>
 <li><p>It is NOT what protects the DEFAULT AV+GMM portfolio.  The GMM member is a Gaussian
 mixture with nonzero density over the whole box, so q_mix never vanishes there
-regardless of this setting.  With a deliberately displaced seed, <a href="#id38"><span class="problematic" id="id39">|lnZ bias|</span></a> stayed
+regardless of this setting.  With a deliberately displaced seed, <a href="#id42"><span class="problematic" id="id43">|lnZ bias|</span></a> stayed
 &lt;= 0.05 in every d=4 and d=6 run in BOTH arms.  That unbounded support is the real
 (previously undocumented) reason production has not been biased by warm starts.</p></li>
 <li><p>It does NOT rescue a badly mismatched seed.  In an ALL-AV portfolio (every component
@@ -1936,7 +2082,7 @@ _update_support_diagnostics for definitions and limits.</p>
 
 <dl class="py class">
 <dt class="sig sig-object py" id="RIFT.integrators.MonteCarloEnsemble.integrator">
-<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.integrators.MonteCarloEnsemble.</span></span><span class="sig-name descname"><span class="pre">integrator</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">d</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">bounds</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gmm_dict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_comp</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prior</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">user_func</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">proc_count</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">L_cutoff</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_lnL</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">return_lnI</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gmm_adapt</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gmm_epsilon</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tempering_exp</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">temper_log</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lnw_failure_cut</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tempering_adapt</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ess_target</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ess_floor</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gmm_adaptive</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gmm_defensive_frac</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.05</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gmm_inflate</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.MonteCarloEnsemble.integrator" title="Link to this definition"></a></dt>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.integrators.MonteCarloEnsemble.</span></span><span class="sig-name descname"><span class="pre">integrator</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">d</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">bounds</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gmm_dict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_comp</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prior</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">user_func</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">proc_count</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">L_cutoff</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_lnL</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">return_lnI</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gmm_adapt</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gmm_epsilon</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tempering_exp</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">temper_log</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lnw_failure_cut</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tempering_adapt</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ess_target</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ess_floor</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gmm_adaptive</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gmm_defensive_frac</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.05</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gmm_inflate</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">param_names</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.MonteCarloEnsemble.integrator" title="Link to this definition"></a></dt>
 <dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
 <p>Class to iteratively perform an adaptive Monte Carlo integral where the integrand
 is a combination of one or more Gaussian curves, in one or more dimensions.</p>
@@ -1976,6 +2122,34 @@ each key in gmm_dict to an integer number of mixture model components.</p>
 </section>
 </dd></dl>
 
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.integrators.MonteCarloEnsemble.validate_gmm_dict">
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.MonteCarloEnsemble.</span></span><span class="sig-name descname"><span class="pre">validate_gmm_dict</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">bounds</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gmm_dict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">where</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'gmm_dict'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">param_names</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.MonteCarloEnsemble.validate_gmm_dict" title="Link to this definition"></a></dt>
+<dd><p>Reject a seeded proposal that does not describe the dim-group it is installed against.</p>
+<p>_sample() draws from model.sample() and divides the weights by model.score(), the model’s
+own normalized density over its OWN box.  Two things therefore have to agree with the
+group, and neither is checked anywhere else:</p>
+<blockquote>
+<div><ul class="simple">
+<li><p>DIMENSION.  A model with more axes than its group contributes a density carrying the
+extra axes, so lnZ comes out high by their log-volume – +1.84 nats for a 2-D
+(psi, phi_orb) model against the 1-element (psi,) group the ILE drivers use when
+phase is marginalized.  Fewer axes raises IndexError on the first _sample().</p></li>
+<li><p>BOUNDS.  A model normalized over a SMALLER box than the group’s is never wrong about
+any sample it draws, and never draws outside its own box – so the run silently
+explores a fraction of the group and lnZ is low by ln(area ratio).  Replaying an
+–extrinsic-proposal-breadcrumb recorded without –internal-rotate-phase into a run
+with it does exactly this: the option doubles psi and phi_orb to (0, 4pi), and the
+stored seed keeps (0, 2pi).  Measured: -1.39 nats, a quarter of the box reachable.</p></li>
+</ul>
+</div></blockquote>
+<p>Neither failure disturbs the recovered marginals, which keep their shape while only the
+evidence moves, so it has to be caught here or not at all.</p>
+<p>This is an equality check on the box, NOT an ordering check: two axes sharing a box
+(psi and phi_orb do) can be permuted without tripping it.  Axis order is
+gmm_dict_from_breadcrumb._permute_group’s job.</p>
+</dd></dl>
+
 </section>
 <section id="module-RIFT.integrators.weighted_gmm">
 <span id="weighted-gmm"></span><h2>Weighted GMM<a class="headerlink" href="#module-RIFT.integrators.weighted_gmm" title="Link to this heading"></a></h2>
@@ -1994,8 +2168,8 @@ maximum-likelihood estimation of the parameters of a GMM distribution.</p>
 <p>Initializes parameters such that every mixture component has zero
 mean and identity covariance.</p>
 <p>Read more in the <span class="xref std std-ref">User Guide</span>.</p>
-<section id="id3">
-<h3>Parameters<a class="headerlink" href="#id3" title="Link to this heading"></a></h3>
+<section id="id7">
+<h3>Parameters<a class="headerlink" href="#id7" title="Link to this heading"></a></h3>
 <dl class="simple">
 <dt>n_components<span class="classifier">int, optional</span></dt><dd><p>Number of mixture components. Defaults to 1.</p>
 </dd>
@@ -2032,11 +2206,11 @@ it prints additionally the change and time needed for each step.</p>
 <section id="attributes">
 <h3>Attributes<a class="headerlink" href="#attributes" title="Link to this heading"></a></h3>
 <dl>
-<dt><a href="#id40"><span class="problematic" id="id41">weights_</span></a><span class="classifier">array, shape (<cite>n_components</cite>,)</span></dt><dd><p>This attribute stores the mixing weights for each mixture component.</p>
+<dt><a href="#id44"><span class="problematic" id="id45">weights_</span></a><span class="classifier">array, shape (<cite>n_components</cite>,)</span></dt><dd><p>This attribute stores the mixing weights for each mixture component.</p>
 </dd>
-<dt><a href="#id42"><span class="problematic" id="id43">means_</span></a><span class="classifier">array, shape (<cite>n_components</cite>, <cite>n_features</cite>)</span></dt><dd><p>Mean parameters for each mixture component.</p>
+<dt><a href="#id46"><span class="problematic" id="id47">means_</span></a><span class="classifier">array, shape (<cite>n_components</cite>, <cite>n_features</cite>)</span></dt><dd><p>Mean parameters for each mixture component.</p>
 </dd>
-<dt><a href="#id44"><span class="problematic" id="id45">covars_</span></a><span class="classifier">array</span></dt><dd><p>Covariance parameters for each mixture component.  The shape
+<dt><a href="#id48"><span class="problematic" id="id49">covars_</span></a><span class="classifier">array</span></dt><dd><p>Covariance parameters for each mixture component.  The shape
 depends on <cite>covariance_type</cite>:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">(</span><span class="n">n_components</span><span class="p">,</span> <span class="n">n_features</span><span class="p">)</span>             <span class="k">if</span> <span class="s1">'spherical'</span><span class="p">,</span>
 <span class="p">(</span><span class="n">n_features</span><span class="p">,</span> <span class="n">n_features</span><span class="p">)</span>               <span class="k">if</span> <span class="s1">'tied'</span><span class="p">,</span>
@@ -2045,7 +2219,7 @@ depends on <cite>covariance_type</cite>:</p>
 </pre></div>
 </div>
 </dd>
-<dt><a href="#id46"><span class="problematic" id="id47">converged_</span></a><span class="classifier">bool</span></dt><dd><p>True when convergence was reached in fit(), False otherwise.</p>
+<dt><a href="#id50"><span class="problematic" id="id51">converged_</span></a><span class="classifier">bool</span></dt><dd><p>True when convergence was reached in fit(), False otherwise.</p>
 </dd>
 </dl>
 </section>
@@ -2100,8 +2274,8 @@ data to get a good estimate of the covariance matrix.</p>
 <span class="sig-name descname"><span class="pre">aic</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">w</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.weighted_gmm.WeightedGMM.aic" title="Link to this definition"></a></dt>
 <dd><p>Akaike information criterion for the current model fit
 and the proposed data</p>
-<section id="id4">
-<h4>Parameters<a class="headerlink" href="#id4" title="Link to this heading"></a></h4>
+<section id="id8">
+<h4>Parameters<a class="headerlink" href="#id8" title="Link to this heading"></a></h4>
 <p>X : array of shape(n_samples, n_dimensions)</p>
 </section>
 <section id="returns">
@@ -2115,12 +2289,12 @@ and the proposed data</p>
 <span class="sig-name descname"><span class="pre">bic</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">w</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.weighted_gmm.WeightedGMM.bic" title="Link to this definition"></a></dt>
 <dd><p>Bayesian information criterion for the current model fit
 and the proposed data</p>
-<section id="id5">
-<h4>Parameters<a class="headerlink" href="#id5" title="Link to this heading"></a></h4>
+<section id="id9">
+<h4>Parameters<a class="headerlink" href="#id9" title="Link to this heading"></a></h4>
 <p>X : array of shape(n_samples, n_dimensions)</p>
 </section>
-<section id="id6">
-<h4>Returns<a class="headerlink" href="#id6" title="Link to this heading"></a></h4>
+<section id="id10">
+<h4>Returns<a class="headerlink" href="#id10" title="Link to this heading"></a></h4>
 <p>bic: float (the lower the better)</p>
 </section>
 </dd></dl>
@@ -2134,8 +2308,8 @@ expectation-maximization (EM) algorithm. If you want to avoid
 this step, set the keyword argument init_params to the empty
 string ‘’ when creating the GMM object. Likewise, if you would
 like just to do an initialization, set n_iter=0.</p>
-<section id="id7">
-<h4>Parameters<a class="headerlink" href="#id7" title="Link to this heading"></a></h4>
+<section id="id11">
+<h4>Parameters<a class="headerlink" href="#id11" title="Link to this heading"></a></h4>
 <dl class="simple">
 <dt>X<span class="classifier">array_like, shape (n, n_features)</span></dt><dd><p>List of n_features-dimensional data points.  Each row
 corresponds to a single data point.</p>
@@ -2144,8 +2318,8 @@ corresponds to a single data point.</p>
 </dd>
 </dl>
 </section>
-<section id="id8">
-<h4>Returns<a class="headerlink" href="#id8" title="Link to this heading"></a></h4>
+<section id="id12">
+<h4>Returns<a class="headerlink" href="#id12" title="Link to this heading"></a></h4>
 <p>self</p>
 </section>
 </dd></dl>
@@ -2159,16 +2333,16 @@ with low iterations the prediction may not be 100% accurate</p>
 <div class="versionadded">
 <p><span class="versionmodified added">Added in version 0.17: </span><em>fit_predict</em> method in Gaussian Mixture Model.</p>
 </div>
-<section id="id9">
-<h4>Parameters<a class="headerlink" href="#id9" title="Link to this heading"></a></h4>
+<section id="id13">
+<h4>Parameters<a class="headerlink" href="#id13" title="Link to this heading"></a></h4>
 <p>X : array-like, shape = [n_samples, n_features]
 w : array-like, shape = [n_samples] (optional)</p>
 <blockquote>
 <div><p>Sample weights</p>
 </div></blockquote>
 </section>
-<section id="id10">
-<h4>Returns<a class="headerlink" href="#id10" title="Link to this heading"></a></h4>
+<section id="id14">
+<h4>Returns<a class="headerlink" href="#id14" title="Link to this heading"></a></h4>
 <p>C : array, shape = (n_samples,) component memberships</p>
 </section>
 </dd></dl>
@@ -2177,12 +2351,12 @@ w : array-like, shape = [n_samples] (optional)</p>
 <dt class="sig sig-object py" id="RIFT.integrators.weighted_gmm.WeightedGMM.predict">
 <span class="sig-name descname"><span class="pre">predict</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.weighted_gmm.WeightedGMM.predict" title="Link to this definition"></a></dt>
 <dd><p>Predict label for data.</p>
-<section id="id11">
-<h4>Parameters<a class="headerlink" href="#id11" title="Link to this heading"></a></h4>
+<section id="id15">
+<h4>Parameters<a class="headerlink" href="#id15" title="Link to this heading"></a></h4>
 <p>X : array-like, shape = [n_samples, n_features]</p>
 </section>
-<section id="id12">
-<h4>Returns<a class="headerlink" href="#id12" title="Link to this heading"></a></h4>
+<section id="id16">
+<h4>Returns<a class="headerlink" href="#id16" title="Link to this heading"></a></h4>
 <p>C : array, shape = (n_samples,) component memberships</p>
 </section>
 </dd></dl>
@@ -2192,12 +2366,12 @@ w : array-like, shape = [n_samples] (optional)</p>
 <span class="sig-name descname"><span class="pre">predict_proba</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">w</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.weighted_gmm.WeightedGMM.predict_proba" title="Link to this definition"></a></dt>
 <dd><p>Predict posterior probability of data under each Gaussian
 in the model.</p>
-<section id="id13">
-<h4>Parameters<a class="headerlink" href="#id13" title="Link to this heading"></a></h4>
+<section id="id17">
+<h4>Parameters<a class="headerlink" href="#id17" title="Link to this heading"></a></h4>
 <p>X : array-like, shape = [n_samples, n_features]</p>
 </section>
-<section id="id14">
-<h4>Returns<a class="headerlink" href="#id14" title="Link to this heading"></a></h4>
+<section id="id18">
+<h4>Returns<a class="headerlink" href="#id18" title="Link to this heading"></a></h4>
 <dl class="simple">
 <dt>responsibilities<span class="classifier">array-like, shape = (n_samples, n_components)</span></dt><dd><p>Returns the probability of the sample for each Gaussian
 (state) in the model.</p>
@@ -2210,15 +2384,15 @@ in the model.</p>
 <dt class="sig sig-object py" id="RIFT.integrators.weighted_gmm.WeightedGMM.sample">
 <span class="sig-name descname"><span class="pre">sample</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n_samples</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">random_state</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.weighted_gmm.WeightedGMM.sample" title="Link to this definition"></a></dt>
 <dd><p>Generate random samples from the model.</p>
-<section id="id15">
-<h4>Parameters<a class="headerlink" href="#id15" title="Link to this heading"></a></h4>
+<section id="id19">
+<h4>Parameters<a class="headerlink" href="#id19" title="Link to this heading"></a></h4>
 <dl class="simple">
 <dt>n_samples<span class="classifier">int, optional</span></dt><dd><p>Number of samples to generate. Defaults to 1.</p>
 </dd>
 </dl>
 </section>
-<section id="id16">
-<h4>Returns<a class="headerlink" href="#id16" title="Link to this heading"></a></h4>
+<section id="id20">
+<h4>Returns<a class="headerlink" href="#id20" title="Link to this heading"></a></h4>
 <dl class="simple">
 <dt>X<span class="classifier">array_like, shape (n_samples, n_features)</span></dt><dd><p>List of samples</p>
 </dd>
@@ -2230,16 +2404,16 @@ in the model.</p>
 <dt class="sig sig-object py" id="RIFT.integrators.weighted_gmm.WeightedGMM.score">
 <span class="sig-name descname"><span class="pre">score</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">w</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.weighted_gmm.WeightedGMM.score" title="Link to this definition"></a></dt>
 <dd><p>Compute the log probability under the model.</p>
-<section id="id17">
-<h4>Parameters<a class="headerlink" href="#id17" title="Link to this heading"></a></h4>
+<section id="id21">
+<h4>Parameters<a class="headerlink" href="#id21" title="Link to this heading"></a></h4>
 <dl class="simple">
 <dt>X<span class="classifier">array_like, shape (n_samples, n_features)</span></dt><dd><p>List of n_features-dimensional data points.  Each row
 corresponds to a single data point.</p>
 </dd>
 </dl>
 </section>
-<section id="id18">
-<h4>Returns<a class="headerlink" href="#id18" title="Link to this heading"></a></h4>
+<section id="id22">
+<h4>Returns<a class="headerlink" href="#id22" title="Link to this heading"></a></h4>
 <dl class="simple">
 <dt>logprob<span class="classifier">array_like, shape (n_samples,)</span></dt><dd><p>Log probabilities of each data point in X</p>
 </dd>
@@ -2254,8 +2428,8 @@ corresponds to a single data point.</p>
 <p>Compute the log probability of X under the model and
 return the posterior distribution (responsibilities) of each
 mixture component for each element of X.</p>
-<section id="id19">
-<h4>Parameters<a class="headerlink" href="#id19" title="Link to this heading"></a></h4>
+<section id="id23">
+<h4>Parameters<a class="headerlink" href="#id23" title="Link to this heading"></a></h4>
 <dl class="simple">
 <dt>X: array_like, shape (n_samples, n_features)</dt><dd><p>List of n_features-dimensional data points. Each row
 corresponds to a single data point.</p>
@@ -2264,8 +2438,8 @@ corresponds to a single data point.</p>
 </dd>
 </dl>
 </section>
-<section id="id20">
-<h4>Returns<a class="headerlink" href="#id20" title="Link to this heading"></a></h4>
+<section id="id24">
+<h4>Returns<a class="headerlink" href="#id24" title="Link to this heading"></a></h4>
 <dl class="simple">
 <dt>logprob<span class="classifier">array_like, shape (n_samples,)</span></dt><dd><p>Log probabilities of each data point in X.</p>
 </dd>
@@ -2298,15 +2472,15 @@ parameters and not others.</p>
 <div class="versionadded">
 <p><span class="versionmodified added">Added in version 1.3.</span></p>
 </div>
-<section id="id21">
-<h4>Parameters<a class="headerlink" href="#id21" title="Link to this heading"></a></h4>
+<section id="id25">
+<h4>Parameters<a class="headerlink" href="#id25" title="Link to this heading"></a></h4>
 <dl class="simple">
 <dt>w<span class="classifier">str, True, False, or None,                     default=sklearn.utils.metadata_routing.UNCHANGED</span></dt><dd><p>Metadata routing for <code class="docutils literal notranslate"><span class="pre">w</span></code> parameter in <code class="docutils literal notranslate"><span class="pre">fit</span></code>.</p>
 </dd>
 </dl>
 </section>
-<section id="id22">
-<h4>Returns<a class="headerlink" href="#id22" title="Link to this heading"></a></h4>
+<section id="id26">
+<h4>Returns<a class="headerlink" href="#id26" title="Link to this heading"></a></h4>
 <dl class="simple">
 <dt>self<span class="classifier">object</span></dt><dd><p>The updated object.</p>
 </dd>
@@ -2336,15 +2510,15 @@ parameters and not others.</p>
 <div class="versionadded">
 <p><span class="versionmodified added">Added in version 1.3.</span></p>
 </div>
-<section id="id23">
-<h4>Parameters<a class="headerlink" href="#id23" title="Link to this heading"></a></h4>
+<section id="id27">
+<h4>Parameters<a class="headerlink" href="#id27" title="Link to this heading"></a></h4>
 <dl class="simple">
 <dt>w<span class="classifier">str, True, False, or None,                     default=sklearn.utils.metadata_routing.UNCHANGED</span></dt><dd><p>Metadata routing for <code class="docutils literal notranslate"><span class="pre">w</span></code> parameter in <code class="docutils literal notranslate"><span class="pre">predict_proba</span></code>.</p>
 </dd>
 </dl>
 </section>
-<section id="id24">
-<h4>Returns<a class="headerlink" href="#id24" title="Link to this heading"></a></h4>
+<section id="id28">
+<h4>Returns<a class="headerlink" href="#id28" title="Link to this heading"></a></h4>
 <dl class="simple">
 <dt>self<span class="classifier">object</span></dt><dd><p>The updated object.</p>
 </dd>
@@ -2374,15 +2548,15 @@ parameters and not others.</p>
 <div class="versionadded">
 <p><span class="versionmodified added">Added in version 1.3.</span></p>
 </div>
-<section id="id25">
-<h4>Parameters<a class="headerlink" href="#id25" title="Link to this heading"></a></h4>
+<section id="id29">
+<h4>Parameters<a class="headerlink" href="#id29" title="Link to this heading"></a></h4>
 <dl class="simple">
 <dt>w<span class="classifier">str, True, False, or None,                     default=sklearn.utils.metadata_routing.UNCHANGED</span></dt><dd><p>Metadata routing for <code class="docutils literal notranslate"><span class="pre">w</span></code> parameter in <code class="docutils literal notranslate"><span class="pre">score</span></code>.</p>
 </dd>
 </dl>
 </section>
-<section id="id26">
-<h4>Returns<a class="headerlink" href="#id26" title="Link to this heading"></a></h4>
+<section id="id30">
+<h4>Returns<a class="headerlink" href="#id30" title="Link to this heading"></a></h4>
 <dl class="simple">
 <dt>self<span class="classifier">object</span></dt><dd><p>The updated object.</p>
 </dd>
@@ -2408,8 +2582,8 @@ parameters and not others.</p>
 <dt class="sig sig-object py" id="RIFT.integrators.weighted_gmm.log_multivariate_normal_density">
 <span class="sig-prename descclassname"><span class="pre">RIFT.integrators.weighted_gmm.</span></span><span class="sig-name descname"><span class="pre">log_multivariate_normal_density</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">means</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">covars</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">covariance_type</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'diag'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.weighted_gmm.log_multivariate_normal_density" title="Link to this definition"></a></dt>
 <dd><p>Compute the log probability under a multivariate Gaussian distribution.</p>
-<section id="id27">
-<h3>Parameters<a class="headerlink" href="#id27" title="Link to this heading"></a></h3>
+<section id="id31">
+<h3>Parameters<a class="headerlink" href="#id31" title="Link to this heading"></a></h3>
 <dl>
 <dt>X<span class="classifier">array_like, shape (n_samples, n_features)</span></dt><dd><p>List of n_features-dimensional data points.  Each row corresponds to a
 single data point.</p>
@@ -2431,8 +2605,8 @@ depends on <cite>covariance_type</cite>:</p>
 </dd>
 </dl>
 </section>
-<section id="id28">
-<h3>Returns<a class="headerlink" href="#id28" title="Link to this heading"></a></h3>
+<section id="id32">
+<h3>Returns<a class="headerlink" href="#id32" title="Link to this heading"></a></h3>
 <dl class="simple">
 <dt>lpr<span class="classifier">array_like, shape (n_samples, n_components)</span></dt><dd><p>Array containing the log probabilities of each data point in
 X under each of the n_components multivariate Gaussian distributions.</p>
@@ -2445,8 +2619,8 @@ X under each of the n_components multivariate Gaussian distributions.</p>
 <dt class="sig sig-object py" id="RIFT.integrators.weighted_gmm.sample_gaussian">
 <span class="sig-prename descclassname"><span class="pre">RIFT.integrators.weighted_gmm.</span></span><span class="sig-name descname"><span class="pre">sample_gaussian</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mean</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">covar</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">covariance_type</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'diag'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_samples</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">random_state</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.weighted_gmm.sample_gaussian" title="Link to this definition"></a></dt>
 <dd><p>Generate random samples from a Gaussian distribution.</p>
-<section id="id29">
-<h3>Parameters<a class="headerlink" href="#id29" title="Link to this heading"></a></h3>
+<section id="id33">
+<h3>Parameters<a class="headerlink" href="#id33" title="Link to this heading"></a></h3>
 <dl class="simple">
 <dt>mean<span class="classifier">array_like, shape (n_features,)</span></dt><dd><p>Mean of the distribution.</p>
 </dd>
@@ -2464,8 +2638,8 @@ X under each of the n_components multivariate Gaussian distributions.</p>
 </dd>
 </dl>
 </section>
-<section id="id30">
-<h3>Returns<a class="headerlink" href="#id30" title="Link to this heading"></a></h3>
+<section id="id34">
+<h3>Returns<a class="headerlink" href="#id34" title="Link to this heading"></a></h3>
 <dl class="simple">
 <dt>X<span class="classifier">array, shape (n_features, n_samples)</span></dt><dd><p>Randomly generated sample</p>
 </dd>
@@ -2576,8 +2750,8 @@ see also <a class="reference external" href="https://brenocon.com/blog/2008/11/c
 </section>
 <section id="module-RIFT.integrators.gaussian_mixture_model">
 <span id="gaussian-mixture-model"></span><h2>Gaussian Mixture Model<a class="headerlink" href="#module-RIFT.integrators.gaussian_mixture_model" title="Link to this heading"></a></h2>
-<section id="id31">
-<h3>Gaussian Mixture Model<a class="headerlink" href="#id31" title="Link to this heading"></a></h3>
+<section id="id35">
+<h3>Gaussian Mixture Model<a class="headerlink" href="#id35" title="Link to this heading"></a></h3>
 <p>Fit a Gaussian Mixture Model (GMM) to data and draw samples from it. Uses the
 Expectation-Maximization algorithm.</p>
 <p>Weighted data GMM formulae: different from framework in eg. <a class="reference external" href="https://arxiv.org/pdf/1509.01509.pdf">https://arxiv.org/pdf/1509.01509.pdf</a></p>
@@ -2602,11 +2776,11 @@ covers the whole [-1,1] box; truncated to the box it is near-uniform).</p>
 
 <dl class="py class">
 <dt class="sig sig-object py" id="RIFT.integrators.gaussian_mixture_model.estimator">
-<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.integrators.gaussian_mixture_model.</span></span><span class="sig-name descname"><span class="pre">estimator</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">k</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_iters</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">100</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tempering_coeff</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1e-08</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">adapt</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.gaussian_mixture_model.estimator" title="Link to this definition"></a></dt>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.integrators.gaussian_mixture_model.</span></span><span class="sig-name descname"><span class="pre">estimator</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">k</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_iters</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">100</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tempering_coeff</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1e-08</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">adapt</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.gaussian_mixture_model.estimator" title="Link to this definition"></a></dt>
 <dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
 <p>Base estimator class for GMM</p>
-<section id="id32">
-<h3>Parameters<a class="headerlink" href="#id32" title="Link to this heading"></a></h3>
+<section id="id36">
+<h3>Parameters<a class="headerlink" href="#id36" title="Link to this heading"></a></h3>
 <dl class="simple">
 <dt>k<span class="classifier">int</span></dt><dd><p>Number of Gaussian components</p>
 </dd>
@@ -2657,8 +2831,8 @@ into adaptive can only ADD components where the data earns them, never fewer
 than the layout that was validated for the primary ILE use case (e.g. a broad
 multi-modal sky keeps its default components even if the INITIAL elite cloud
 – fit before the proposal has explored every mode – looks single-peaked).</p>
-<section id="id33">
-<h3>Parameters<a class="headerlink" href="#id33" title="Link to this heading"></a></h3>
+<section id="id37">
+<h3>Parameters<a class="headerlink" href="#id37" title="Link to this heading"></a></h3>
 <p>sample_array : (N, d) array in ORIGINAL coordinates.
 bounds       : (d, 2) array of [llim, rlim] per dimension (as gmm expects).
 log_sample_weights : (N,) importance/elite log-weights (default: equal).
@@ -2678,7 +2852,7 @@ prune_weight_floor : components below this mixture weight are removed (but</p>
 
 <dl class="py class">
 <dt class="sig sig-object py" id="RIFT.integrators.gaussian_mixture_model.gmm">
-<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.integrators.gaussian_mixture_model.</span></span><span class="sig-name descname"><span class="pre">gmm</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">k</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">bounds</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_iters</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">epsilon</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tempering_coeff</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1e-08</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">memory_factor</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">3.0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.gaussian_mixture_model.gmm" title="Link to this definition"></a></dt>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.integrators.gaussian_mixture_model.</span></span><span class="sig-name descname"><span class="pre">gmm</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">k</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">bounds</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_iters</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">epsilon</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tempering_coeff</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1e-08</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">memory_factor</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">3.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.gaussian_mixture_model.gmm" title="Link to this definition"></a></dt>
 <dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
 <p>More sophisticated implementation built on top of estimator class</p>
 <dl class="py method">
@@ -2791,8 +2965,8 @@ g : optional additional function used to specify priors, if not uniform</p>
 <dt class="sig sig-object py" id="RIFT.integrators.multivariate_truncnorm.sample">
 <span class="sig-prename descclassname"><span class="pre">RIFT.integrators.multivariate_truncnorm.</span></span><span class="sig-name descname"><span class="pre">sample</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mean</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cov</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">bounds</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.multivariate_truncnorm.sample" title="Link to this definition"></a></dt>
 <dd><p>Generate samples</p>
-<section id="id34">
-<h3>Parameters<a class="headerlink" href="#id34" title="Link to this heading"></a></h3>
+<section id="id38">
+<h3>Parameters<a class="headerlink" href="#id38" title="Link to this heading"></a></h3>
 <dl class="simple">
 <dt>mean<span class="classifier">np.ndarray</span></dt><dd><p>Mean of the distribution</p>
 </dd>
@@ -2804,8 +2978,8 @@ g : optional additional function used to specify priors, if not uniform</p>
 </dd>
 </dl>
 </section>
-<section id="id35">
-<h3>Returns<a class="headerlink" href="#id35" title="Link to this heading"></a></h3>
+<section id="id39">
+<h3>Returns<a class="headerlink" href="#id39" title="Link to this heading"></a></h3>
 <dl class="simple">
 <dt>np.ndarray</dt><dd><p>Array of samples</p>
 </dd>

@@ -151,6 +151,31 @@ Example: <code class="docutils literal notranslate"><span class="pre">&quot;delt
 post-stage executable — the same convention that
 <code class="docutils literal notranslate"><span class="pre">util_ConstructEOSPosterior.py</span></code> already uses. Existing CIP coordinate
 modules (e.g. for neutron-star EOS inference) are reusable without change.</p>
+<section id="coordinate-module-options-and-the-puff-stage">
+<h3>Coordinate-module options and the puff stage<a class="headerlink" href="#coordinate-module-options-and-the-puff-stage" title="Link to this heading"></a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">coord-function</span></code>, <code class="docutils literal notranslate"><span class="pre">coord-ini</span></code> and <code class="docutils literal notranslate"><span class="pre">coord-chart</span></code> set
+<code class="docutils literal notranslate"><span class="pre">--supplementary-coordinate-{function,ini,chart}</span></code>.  Older configs that put
+these flags in <code class="docutils literal notranslate"><span class="pre">post.extra-args</span></code> keep working; give them one way or the
+other, not both.</p>
+<p><code class="docutils literal notranslate"><span class="pre">coord-input-parameters</span></code> names the data-file columns the module maps from,
+e.g. <code class="docutils literal notranslate"><span class="pre">&quot;x</span> <span class="pre">y</span> <span class="pre">z&quot;</span></code>.  Grid and posterior files are always written in these
+columns.  Set it when <code class="docutils literal notranslate"><span class="pre">coords-fit</span></code> names the module’s <em>outputs</em>, say
+<code class="docutils literal notranslate"><span class="pre">&quot;u</span> <span class="pre">v</span> <span class="pre">w&quot;</span></code>.  The puff stage then gets the module and its options.  It puffs
+in <code class="docutils literal notranslate"><span class="pre">(u,</span> <span class="pre">v,</span> <span class="pre">w)</span></code> and maps the result back to <code class="docutils literal notranslate"><span class="pre">(x,</span> <span class="pre">y,</span> <span class="pre">z)</span></code>.  The convergence
+test reads <code class="docutils literal notranslate"><span class="pre">(x,</span> <span class="pre">y,</span> <span class="pre">z)</span></code>.  Without the key, both stages are handed <code class="docutils literal notranslate"><span class="pre">u</span> <span class="pre">v</span> <span class="pre">w</span></code>
+as file columns.</p>
+<p><code class="docutils literal notranslate"><span class="pre">puff.coord-basis</span></code> takes three values.  <code class="docutils literal notranslate"><span class="pre">auto</span></code> does the above.
+<code class="docutils literal notranslate"><span class="pre">file</span></code> always uses the data-file columns and no module.  <code class="docutils literal notranslate"><span class="pre">plugin</span></code> puffs in
+the module’s output basis even when the MC samples file columns, as in a
+<code class="docutils literal notranslate"><span class="pre">coords-implied</span></code>/<code class="docutils literal notranslate"><span class="pre">coords-nofit</span></code> config.  Every puff-basis name with a <code class="docutils literal notranslate"><span class="pre">coords-sample</span></code> range is passed to
+the puff as a downselect range.</p>
+<p>A coordinate module may also define
+<code class="docutils literal notranslate"><span class="pre">get_bounds(coord_names,</span> <span class="pre">ranges,</span> <span class="pre">**kwargs)</span></code> returning
+<code class="docutils literal notranslate"><span class="pre">{name:</span> <span class="pre">[lo,</span> <span class="pre">hi]}</span></code> in the sampling basis.  <code class="docutils literal notranslate"><span class="pre">--get-range-from-external</span></code>
+(post and puffball) uses it; <code class="docutils literal notranslate"><span class="pre">--external-range-args</span> <span class="pre">key=value</span></code> supplies the
+keyword arguments.  Command-line ranges win, and an error in the hook stops
+the run.</p>
+</section>
 </section>
 <section id="parsimonious-placement-tracer-workflow">
 <h2>Parsimonious-placement Tracer Workflow<a class="headerlink" href="#parsimonious-placement-tracer-workflow" title="Link to this heading"></a></h2>
