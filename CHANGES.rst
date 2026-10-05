@@ -2,12 +2,6 @@
 ------------
 development tree is rift_O4d; PRs refer to oshaughn/research-projects-RIT.
 
-** BUG FIX, jax ILE AV/portfolio: production pseudo-pipe controls for the
-   distance prior, internal sample rate, mode retention, detector cutoffs, PSD
-   conditioning, and time interpolation are now honored by the JAX driver.
-   Previously accepted compatibility options could silently change a real-data
-   likelihood.  The AV distance prior now supports Euclidean/volumetric and
-   ``pseudo_cosmo`` and refuses unsupported choices before construction.
    - (rc0) O4d base refresh: modern Python/numpy support, portable GPU execution, generic workflow
      backends, hyperpipe and simulation-manager support; distance-likelihood export, parsimonious
      placement preview, waveform utilities and diagnostics (PRs #129, #132, #135, #143).
@@ -23,14 +17,26 @@ development tree is rift_O4d; PRs refer to oshaughn/research-projects-RIT.
      normalization, distance tails and waveform handling; strengthen calibration and CI checks
      (PRs #159, #173, #178, #188). JAX flow reuse is now off by default (opt-in via --flow-reuse);
      JAX --save-samples now exports fair posterior draws.
-   - (rc4 pending) JAX ILE gains an opt-in, fail-closed four-axis direct-marginalization policy,
+   - (rc4) JAX ILE gains an opt-in, fail-closed four-axis direct-marginalization policy,
      peak-local time/distance/angle planning with exact or band-limited reserve rules, and
      device-aware batching/pregridding.  Add value-only JAX adaptive-volume and portfolio sampling,
      phase-rotated coordinates, persistent compilation caching, and Asimov selection.  Correct
      importance-proposal regularization and refuse non-finite or implausible evidence before result
      publication.  Extend slow-rotation/finite-size response support and cross-term batching; expand
-     CPU/JAX regression and CI-roster coverage (fork PRs #213, #214, #245, #247, #255, #268,
-     #270, #274, #280--#285, #294, #301--#315, #319).
+     CPU/JAX regression and CI-roster coverage (fork PRs #214, #245, #247, #255, #268, #270,
+     #274, #280--#285, #294, #301--#315, #319).
+   - (rc5) JAX ILE now honors production pseudo-pipe controls for the distance prior,
+     internal sample rate, mode retention, detector cutoffs, PSD conditioning and time
+     interpolation; unsupported AV priors fail before likelihood construction.  Repair
+     JAX fair-draw terminal conversion, bounded multipeak marginalization and adaptive-
+     volume bounds.  Add opt-in response-order selection, component-normalized bounded
+     GMM scoring and zero-likelihood SMC accounting.  GPU compound precompute now uses
+     conservative workspace defaults and supports device-resident waveform/likelihood
+     handoff, with expanded GPU/JAX regression and contract coverage (fork PRs #325,
+     #328, #330--#332).
+
+   - (unreleased) Additional JAX terminal-output and EOS support updates
+     (fork PR #213).
      The terminal pseudo-pipe stage now recognizes JAX-ILE's tabular fair-draw
      sidecars and joins them to the paired intrinsic likelihood records.  It no
      longer sends JAX output through the XML-only converter, which could exit
