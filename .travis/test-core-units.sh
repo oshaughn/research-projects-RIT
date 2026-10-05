@@ -67,6 +67,7 @@ FILES=(
   "$C/RIFT/calmarg/test_cal_mc_error.py"
   "$C/RIFT/calmarg/test_seed_fallback.py"
   "$C/test/test_calmarg_calibration.py"
+  "$C/test/test_calmarg_rift_source.py"
   # -- likelihood dispatch
   "$C/RIFT/likelihood/test_td_dispatch_epoch.py"
   "$C/RIFT/likelihood/test_precompute_crossterm_batching.py"
@@ -83,6 +84,8 @@ FILES=(
   "$C/test/test_noloop_accumulator_shapes.py"
   # -- detector-network sky coordinates: direction and inverse round trip
   "$C/test/test_sky_rotations.py"
+  # -- pseudo_pipe: per-class disk requests reach their own job class
+  "$C/test/test_pseudo_pipe_request_disk.py"
   # The Bilby-convention noise evidence: its normalization is checked against the
   # 4/T sum |d|^2/S formula through the real ComplexIP, so a factor of two regresses
   # loudly instead of shifting every reported log evidence by a plausible amount.
@@ -142,6 +145,10 @@ FILES=(
   # -- ILE consolidation precision.  Both DAG builders and BOTH cleaner passes,
   # in the legacy and hyperpipeline formats; 7 tests, 9 s, subprocesses only.
   "$C/test/test_cleanile_intrinsic_precision.py"
+  # -- DAG postprocessing must resolve its sibling helpers without relying on the
+  # submit host's PATH, and must fail closed on helper or empty-output failures.
+  # 13 tests, subprocesses only.
+  "$C/test/test_dag_postprocess_fail_closed.py"
   # -- EOS: --sampler-method portfolio in util_ConstructEOSPosterior.py, which failed on EVERY
   # invocation -- sampler.setup() was never called, so portfolio_breakpoints stayed None and the
   # first draw() raised; without --internal-use-lnL it stopped even earlier, in integrate().
@@ -356,6 +363,11 @@ done
 #            fails rather than reports if that is wrong.
 #            MEASURED on CIT (ldas-grid; `import cupy` FAILS there) 2026-10-03, IGWN conda
 #            python 3.11: junit 661 collected / 648 passed / 13 skipped / 0 failed, 3 subtests.
+#   671/658  + test_dag_postprocess_fail_closed.py (13 tests, none skipped: the ILE and NR
+#            postprocess wrappers run as subprocesses under a sanitized PATH with stub helpers).
+#            MEASURED on CIT (citlogin6; `import cupy` FAILS there) 2026-10-04, IGWN conda
+#            python 3.11: junit 676 collected / 663 passed / 13 skipped / 0 failed, 3 subtests.
+#            The 2 above 671/658 come from base tests added after the 658/645 measurement.
 #
 # RAISE these when files are added: a floor left at the old value passes while covering less,
 # which is the failure this gate exists to catch.
@@ -378,9 +390,9 @@ done
 # Review of #377 added five more ring-coordinate tests, no skips (605/592 measured).
 # test_complex_overlap_interpolate_max.py (#375) adds 8 passing tests and no skips.
 # Merged with #375: 613/600 (see the table above).
-# PR #382 merged with rift_O4d 1b2fac84, measured ldas-grid 2026-10-04 (no cupy): junit
-# 681 collected / 667 passed / 14 skipped, 3 of them subtests -> floors 678/664.
-EXPECTED_TESTS=678
+# test_dag_postprocess_fail_closed.py adds 13 passing tests and no skips.
+# PR #382 adds 20 tests (19 passing, 1 CuPy-leg skip) over its rift_O4d base.
+EXPECTED_TESTS=691
 # Outcomes, not just exit status: a collection floor cannot see a test that collects, runs and
 # asserts nothing, and a pytest.skip can quietly absorb a lost gate.  The 13 skips are
 # environment legs -- cupy in test_seeding_reproducibility, device legs in
@@ -391,7 +403,8 @@ EXPECTED_TESTS=678
 # test_cip_portfolio_members.py 4, none of them skips.
 # test_fit_nonfinite_floor.py adds 2 tests and no skips: both routes run unconditionally, so a
 # missing dependency there FAILS the driver subprocess rather than skipping the check.
-EXPECTED_PASSED=664
+# test_dag_postprocess_fail_closed.py adds 13 tests and no skips.
+EXPECTED_PASSED=677
 # PR #382: +1 skip, the CuPy leg of test_cached_matern_gp.py (no GPU on the CI runner).
 MAX_SKIPPED=14
 

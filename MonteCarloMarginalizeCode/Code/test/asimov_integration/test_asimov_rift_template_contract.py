@@ -93,7 +93,7 @@ def _base_meta():
     }
 
 
-def _render(meta):
+def _render_context(meta):
     production = types.SimpleNamespace(
         name=meta["name"],
         meta=meta,
@@ -115,6 +115,11 @@ def _render(meta):
             "condor": {"user": "riftci"},
         },
     }
+    return context
+
+
+def _render(meta):
+    context = _render_context(meta)
     rendered = _liquid_render(TEMPLATE.read_text(), context)
     assert "{{" not in rendered
     assert "{%" not in rendered
@@ -415,3 +420,22 @@ def test_rift_liquid_template_silent_ledger_is_byte_identical_to_base():
     assert base != text
     meta = _base_meta()
     assert _render_text(text, meta) == _render_text(base, meta)
+@pytest.mark.parametrize("mode,expected", [
+    (None, None), ("auto", "auto"), ("off", "off"), (False, "off"), (True, "physics3"),
+    ("physics3", "physics3")])
+def test_rift_liquid_template_transverse_spin_opt_in(mode, expected):
+    # A silent ledger must render exactly what the template renders without the RF block.
+    meta = _base_meta()
+    if mode is not None:
+        meta["sampler"]["cip"]["transverse spin coordinates"] = mode
+    rendered, parser = _render(meta)
+    if expected is None:
+        assert not parser.has_option("rift-pseudo-pipe", "rf-transverse-spin-coordinates")
+        text = TEMPLATE.read_text()
+        start = text.index("{%- comment %} RF transverse-spin")
+        end = text.index("{%- endif %}\n{%- endif %}\n", start) + len("{%- endif %}\n{%- endif %}\n")
+        base = _liquid_render(text[:start].rstrip("\n") + "\n" + text[end:], _render_context(meta))
+        assert rendered == base
+    else:
+        assert parser.get("rift-pseudo-pipe", "rf-transverse-spin-coordinates") == '"%s"' % expected
+    assert parser.get("rift-pseudo-pipe", "cip-fit-method") == '"rf"'

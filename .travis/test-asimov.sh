@@ -11,4 +11,5 @@ set -euo pipefail
 python -m pytest -q \
     MonteCarloMarginalizeCode/Code/test/asimov_integration \
     MonteCarloMarginalizeCode/Code/test/test_asimov_compatibility.py \
-    MonteCarloMarginalizeCode/Code/test/test_asimov_bootstrap_source.py
+    MonteCarloMarginalizeCode/Code/test/test_asimov_bootstrap_source.py \
+    MonteCarloMarginalizeCode/Code/test/test_asimov_rift_ledger_options.py

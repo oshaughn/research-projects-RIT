@@ -343,6 +343,12 @@ def run_lisa_known_sky_surface(opts):
         "--transfer-file-list",
         os.path.join(workdir, "helper_transfer_files.txt"),
     ]
+    if opts.internal_ile_request_disk:
+        cepp_cmd += ["--ile-request-disk", str(opts.internal_ile_request_disk)]
+    if opts.internal_cip_request_disk:
+        cepp_cmd += ["--cip-request-disk", str(opts.internal_cip_request_disk)]
+    if opts.internal_general_request_disk:
+        cepp_cmd += ["--general-request-disk", str(opts.internal_general_request_disk)]
     # Container: let write_ILE_sub_simple emit the singularity + file-transfer
     # wiring (the LDG path's native mechanism) rather than any LISA-specific code.
     # Needs SINGULARITY_RIFT_IMAGE (+ SINGULARITY_BASE_EXE_DIR) in the env.
@@ -595,6 +601,7 @@ parser.add_argument("--internal-cip-cap-neff",type=int,default=500,help="Largest
 # The shipped default caps that net count via --internal-cip-cap-neff=500 and n-output-samples=5000,
 # and stops on the tail-blind Gaussian 'lame' convergence test -> chi1_perp under-extends vs bilby.
 # This opt-in bundle lifts the NET samples-out and switches to a tail-sensitive stop.
+parser.add_argument("--rf-transverse-spin-coordinates", choices=["off","auto","physics3"], default=None, help="Pass opt-in RF-only transverse fitting scalars to every applicable full precessing stage")
 parser.add_argument("--internal-cip-transverse-tails",action='store_true',help="OPT-IN alt config for resolving transverse-spin (chi1_perp) tails, esp. at low mass. Bundles: (a) tail-sensitive convergence test (passes --internal-test-convergence-method js_lame to helper_LDG_Events.py, unless overridden); (b) raises the NET interim posterior samples across the CIP worker cohort by lifting --internal-cip-cap-neff and --n-output-samples and scaling up --cip-explode-jobs (MORE WORKERS -> more net samples-out, NOT larger per-worker n_eff) -- the raised interim sample count is what makes js_lame's quantile-drift tolerance statistically meaningful; (c) transverse TAIL-GUARD in the puffball: --append-with-random-parameter chi1_perp appends+shuffles uniformly-random transverse draws into every puff, so the proposed grid keeps offering chi1_perp tail coverage even after the posterior contracts (the measured tail-starvation feedback), and puff is kept active through all iterations. REQUIRES A PRECESSING ANALYSIS (precessing approximant or --assume-precessing): the tail guard proposes nonzero transverse spin, so combining this with --assume-nospin/--assume-nonprecessing or an aligned-spin approximant is REJECTED rather than silently changing the spin model analyzed. Tune with the --internal-cip-transverse-tails-* flags. Default OFF (behavior unchanged). See results_triage/CONVERGENCE_PROTOCOL_2026-07-23.md.")
 parser.add_argument("--internal-cip-transverse-tails-cap-neff",type=int,default=4000,help="With --internal-cip-transverse-tails: raise --internal-cip-cap-neff to at least this (the interim net-n_eff throttle; shipped base is 500).")
 parser.add_argument("--internal-cip-transverse-tails-nout",type=int,default=20000,help="With --internal-cip-transverse-tails: raise interim --n-output-samples to at least this (net samples out, combined across workers).")
@@ -1329,6 +1336,14 @@ if opts.internal_propose_converge_last_stage:
     cmd += " --propose-converge-last-stage "
 if opts.internal_test_convergence_threshold: # pass argument if provided
     cmd += " --internal-test-convergence-threshold {}  ".format(opts.internal_test_convergence_threshold)
+# Options that rewrite the CIP fit coordinates after the helper; physics3 needs delta_mc et al.
+rf_transverse_conflicts = [name for name in ('cip_internal_use_eta_in_sampler','hierarchical_merger_prior_1g',
+    'hierarchical_merger_prior_2g','use_quadratic_early') if getattr(opts, name)]
+if opts.rf_transverse_spin_coordinates == 'physics3' and rf_transverse_conflicts:
+    raise ValueError('--rf-transverse-spin-coordinates physics3 is incompatible with {}: they replace delta_mc in the activated CIP stage'.format(
+        ', '.join('--'+name.replace('_','-') for name in rf_transverse_conflicts)))
+if opts.rf_transverse_spin_coordinates:
+    cmd += ' --rf-transverse-spin-coordinates {} '.format(opts.rf_transverse_spin_coordinates)
 if not(opts.cip_fit_method is None):
     cmd += " --force-fit-method {} ".format(opts.cip_fit_method)
     if opts.cip_fit_method == 'rf':
@@ -1851,6 +1866,14 @@ with open ("helper_test_args.txt",'r') as f:
 with open("helper_cip_arg_list.txt",'r') as f:
         raw_lines = f.readlines()
 
+# RF transverse opt-in: the helper may switch an unforced fit to rf. Build the DAG as an
+# explicit --cip-fit-method rf run (flat CIP workers; physics3 refuses --fit-load-gp).
+if opts.rf_transverse_spin_coordinates and opts.cip_fit_method is None and any(
+        '--fit-method rf' in ' '.join(line.split()) for line in raw_lines):
+    opts.cip_fit_method = 'rf'
+    npts_it *= 2  # as for explicit rf, above
+    print(" RF transverse-spin: helper selected rf; building as --cip-fit-method rf ")
+
 # MODIFY EXPLODE REQUEST
 if opts.cip_explode_jobs_auto and event_dict["SNR"]:
     snr = event_dict["SNR"]
@@ -2136,6 +2159,13 @@ if opts.internal_use_amr:
         if not(opts.assume_lowlatency_tradeoffs):
             lines[0] += " --intrinsic-param spin2z "
 
+# Final CIP lines must still satisfy CIP's physics3 guard (auto is known to have activated here).
+if opts.rf_transverse_spin_coordinates:
+    from RIFT.misc.rf_transverse_spin import stage_problem
+    for indx_rf, line_rf in enumerate(lines):
+        if '--rf-transverse-spin-coordinates physics3' in line_rf and stage_problem(line_rf):
+            raise ValueError('RF transverse-spin stage {} activated but CIP would refuse it ({}); conflicting options: {}'.format(
+                indx_rf, stage_problem(line_rf), ', '.join('--'+name.replace('_','-') for name in rf_transverse_conflicts) or 'see --manual-extra-cip-args'))
 with open("args_cip_list.txt",'w') as f:
    if not(opts.internal_truncate_cip_arg_list is None):
        lines = lines[-opts.internal_truncate_cip_arg_list:]  # truncate the cip arg list file
@@ -2425,7 +2455,7 @@ if opts.calibration_reweighting and (not opts.bilby_pickle_file):
         cmd += " --calibration-reweighting-osg "
         opts.calibration_reweighting_initial_extra_args += " --use_local_cal_files "
     if opts.calibration_reweighting_initial_extra_args:
-        cmd += " --calibration-reweighting-initial-extra-args '{}' ".format(opts.calibration_reweighting_initial_extra_args)
+        cmd += " --calibration-reweighting-initial-extra-args {} ".format(shlex.quote(opts.calibration_reweighting_initial_extra_args))
 elif opts.calibration_reweighting and opts.bilby_pickle_file:
     cmd += " --calibration-reweighting --calibration-reweighting-exe `which calibration_reweighting.py` --bilby-pickle-file {} ".format(str(opts.bilby_pickle_file))
     if opts.calibration_reweighting_count:
@@ -2436,7 +2466,7 @@ elif opts.calibration_reweighting and opts.bilby_pickle_file:
         cmd += " --calibration-reweighting-osg "
         opts.calibration_reweighting_initial_extra_args += " --use_local_cal_files "
     if opts.calibration_reweighting_initial_extra_args:
-        cmd += " --calibration-reweighting-initial-extra-args '{}' ".format(opts.calibration_reweighting_initial_extra_args)
+        cmd += " --calibration-reweighting-initial-extra-args {} ".format(shlex.quote(opts.calibration_reweighting_initial_extra_args))
 if opts.internal_tabular_eos_file:
     cmd += " --use-tabular-eos-file "
 if opts.distance_reweighting:
@@ -2546,7 +2576,7 @@ if opts.internal_cip_request_gpus:
 if opts.internal_cip_require_gpus:
     cmd += " --require-gpus-CIP {} ".format(shlex.quote(opts.internal_cip_require_gpus))
 if opts.internal_cip_request_disk:
-    cmd += " --cip-request-disk {} ".format(opts.internal_ile_request_disk)
+    cmd += " --cip-request-disk {} ".format(opts.internal_cip_request_disk)
 if opts.internal_general_request_disk:
     cmd += " --general-request-disk {} ".format(opts.internal_general_request_disk)
 if opts.use_ile_subdags:
@@ -2629,7 +2659,14 @@ if opts.calibration_reweighting:
          my_parser.add_argument("--internal-waveform-extra-kwargs",type=str, default=None)
          my_opts, unknown_opts =my_parser.parse_known_args(my_revised_args )
          print(' calmarg: parsed args ', my_opts, " and others ", unknown_opts)
+         # Same layout as ILE: lalsuite args nested under 'extra_waveform_args', then the
+         # high-level kwargs merged on top (and so winning on a shared key).
          my_extra_args = {}
+         if my_opts.internal_waveform_extra_lalsuite_args:
+             my_arg_dict = eval(my_opts.internal_waveform_extra_lalsuite_args)
+             if not(isinstance(my_arg_dict, dict)):
+                 my_arg_dict = eval(my_arg_dict)
+             my_extra_args['extra_waveform_args'] = my_arg_dict
          if my_opts.internal_waveform_extra_kwargs:
              my_arg_dict = eval(my_opts.internal_waveform_extra_kwargs)
              # due to quoting, might not evaluate to a dictionary
@@ -2638,11 +2675,6 @@ if opts.calibration_reweighting:
              if 'lmax_nyquist' in my_arg_dict:
                  my_extra_string+= " --use-gwsignal-lmax-nyquist {} ".format(my_arg_dict['lmax_nyquist'])
                  del my_arg_dict['lmax_nyquist'] # remove key
-             my_extra_args.update(my_arg_dict)
-         if my_opts.internal_waveform_extra_lalsuite_args:
-             my_arg_dict = eval(my_opts.internal_waveform_extra_lalsuite_args)
-             if not(isinstance(my_arg_dict, dict)):
-                 my_arg_dict = eval(my_arg_dict)
              my_extra_args.update(my_arg_dict)
          if my_extra_args:
             my_extra_string += ' --extra-waveform-kwargs "{}" '.format(my_extra_args)
@@ -2654,7 +2686,8 @@ if opts.calibration_reweighting:
         my_extra_string += ' --internal-waveform-fd-L-frame '
     if opts.calibration_reweighting_initial_extra_args:
         my_extra_string+= ' {} '.format(opts.calibration_reweighting_initial_extra_args) # make sure to add spaces/padding
-    cmd +=" --calibration-reweighting-initial-extra-args='  {}' ".format(my_extra_string)
+    cmd += " --calibration-reweighting-initial-extra-args={} ".format(
+        shlex.quote('  ' + my_extra_string))
 #if opts.internal_mitigate_fd_J_frame =="L_frame" and opts.use_gwsignal and not(opts.manual_extra_ile_args):
 #    cmd +=" --calibration-reweighting-initial-extra-args='--internal-waveform-fd-L-frame --use-gwsignal' "
 if opts.condor_local_nonworker_igwn_prefix:

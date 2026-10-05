@@ -164,3 +164,73 @@ def test_lisa_variable_sky_pseudo_pipe_leaves_sky_intrinsic(tmp_path):
     # latitude NAMED columns into P.phi/P.theta on read (no positional all.net).
     assert "--parameter phi" in cip_args
     assert "--parameter theta" in cip_args
+
+
+def _request_disk(sub_path):
+    values = [
+        line.split("=", 1)[1].strip()
+        for line in sub_path.read_text().splitlines()
+        if line.split("=", 1)[0].strip().lower() == "request_disk"
+    ]
+    assert len(values) == 1, (sub_path.name, values)
+    return values[0]
+
+
+def test_lisa_known_sky_pseudo_pipe_forwards_disk_requests(tmp_path):
+    rundir = tmp_path / "pseudo_lisa_disk"
+    env = os.environ.copy()
+    env["PYTHONPATH"] = CODE_DIR + os.pathsep + env.get("PYTHONPATH", "")
+    env["PATH"] = os.path.join(CODE_DIR, "bin") + os.pathsep + env.get("PATH", "")
+
+    cmd = [
+        sys.executable,
+        PSEUDO_PIPE,
+        "--lisa-known-sky",
+        "--use-rundir",
+        os.fspath(rundir),
+        "--approx",
+        "IMRPhenomD",
+        "--event-time",
+        "1234.5",
+        "--ecliptic-longitude",
+        "1.25",
+        "--ecliptic-latitude",
+        "-0.4",
+        "--lisa-cache-file",
+        os.fspath(tmp_path / "lisa.cache"),
+        "--lisa-psd-file",
+        "A={}".format(tmp_path / "A_psd.xml.gz"),
+        "--lisa-psd-file",
+        "E={}".format(tmp_path / "E_psd.xml.gz"),
+        "--lisa-psd-file",
+        "T={}".format(tmp_path / "T_psd.xml.gz"),
+        "--lisa-srate",
+        "0.25",
+        "--lisa-grid-size",
+        "1",
+        "--lisa-n-iterations",
+        "1",
+        "--lisa-n-samples-per-job",
+        "1",
+        "--internal-ile-request-memory",
+        "1024",
+        "--internal-cip-request-memory",
+        "1024",
+        "--internal-ile-request-disk",
+        "4G",
+        "--internal-cip-request-disk",
+        "9G",
+        "--internal-general-request-disk",
+        "3G",
+    ]
+    subprocess.run(cmd, check=True, env=env)
+
+    assert _request_disk(rundir / "ILE.sub") == "4G"
+    # CIP.sub plus the CIP_<n>.sub workers; CIP_prior.sub is a general job.
+    cip_subs = [rundir / "CIP.sub"] + sorted(rundir.glob("CIP_[0-9]*.sub"))
+    assert len(cip_subs) > 1
+    for sub in cip_subs:
+        assert _request_disk(sub) == "9G", sub.name
+    general_subs = [rundir / name for name in ("join.sub", "unify.sub", "CIP_prior.sub")]
+    for sub in general_subs:
+        assert _request_disk(sub) == "3G", sub.name

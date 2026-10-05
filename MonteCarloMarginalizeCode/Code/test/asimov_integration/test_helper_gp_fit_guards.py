@@ -57,3 +57,16 @@ def test_every_alternate_fit_method_line_is_guarded():
                "'G2 --fit-method quadratic", "--fit-method\\s+\\S+", "'--fit-method gp-matern'", "--force-fit-method gp-matern")
     for line in lines:
         assert any(a in line for a in allowed), line
+
+
+@pytest.mark.parametrize("mode,refused", [(None, False), ("off", False), ("auto", True), ("physics3", True)])
+def test_gp_matern_refuses_rf_transverse_modes(mode, refused):
+    node = next(n for n in TREE.body if isinstance(n, ast.If) and "rf_transverse_spin_coordinates" in ast.unparse(n.test)
+                and "gp-matern" in ast.unparse(n.test))
+    opts = types.SimpleNamespace(rf_transverse_spin_coordinates=mode)
+    if refused:
+        with pytest.raises(SystemExit, match="rf"):
+            _run(node, fit_method="gp-matern", opts=opts, parser=Parser())
+    else:
+        _run(node, fit_method="gp-matern", opts=opts, parser=Parser())
+    _run(node, fit_method="rf", opts=opts, parser=Parser())
