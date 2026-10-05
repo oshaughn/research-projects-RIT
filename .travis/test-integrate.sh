@@ -84,6 +84,15 @@ if [ "$_CIP_MULTIROW_FOUND" -ne "$_CIP_MULTIROW_EXPECTED" ]; then
 fi
 python -m pytest -q "$_CIP_MULTIROW_TESTS"
 
+# CIP startup must not import torch/cupy/jax/sklearn unless the options select them (PR #382).
+_CIP_IMPORT_TESTS=MonteCarloMarginalizeCode/Code/test/test_cip_startup_imports.py
+_CIP_IMPORT_FOUND=$(python -m pytest -q --collect-only "$_CIP_IMPORT_TESTS" 2>/dev/null | grep -c '::' || true)
+if [ "$_CIP_IMPORT_FOUND" -ne 2 ]; then
+    echo "cip-startup-imports gate: collected $_CIP_IMPORT_FOUND tests, expected 2" >&2
+    exit 1
+fi
+python -m pytest -q "$_CIP_IMPORT_TESTS"
+
 # --psi-marginalization: analytic polarization-angle marginalization made reachable on
 # the legacy scalar likelihood path (factored_likelihood.NetworkLogLikelihoodPolarizationMarginalized
 # was previously dead code, unreachable from any driver and untested by any importable

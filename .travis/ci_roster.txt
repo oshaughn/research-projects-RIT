@@ -139,3 +139,4 @@ MonteCarloMarginalizeCode/Code/test/test_skysamp.py                            L
 MonteCarloMarginalizeCode/Code/test/expensive_before_merging/integrators/test_shape_recovery.py          EXPENSIVE  4 collected, all skip unless RIFT_RUN_EXPENSIVE=1
 MonteCarloMarginalizeCode/Code/test/expensive_before_merging/integrators/test_escaped_mass_diagnostic.py EXPENSIVE  5 collected, all skip unless RIFT_RUN_EXPENSIVE=1
 MonteCarloMarginalizeCode/Code/test/test_lalsim_eos_reviewed_integration.py                                 EXPENSIVE  3 collected, all skip unless RIFT_REVIEWED_LALSIM_MANIFEST names a build-generated manifest
+MonteCarloMarginalizeCode/Code/test/test_gpytorch_wrapper.py                  OPTDEP  needs:torch,gpytorch -- importorskip on both; the CUDA case also needs a GPU

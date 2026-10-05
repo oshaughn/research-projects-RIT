@@ -102,6 +102,12 @@ FILES=(
   "$C/test/integrators/test_integrator_studies.py"
   "$C/test/integrators/test_replica_pooling.py"
   "$C/test/integrators/test_rvs_weight_derivation.py"
+  # -- intrinsic interpolators and AV stopping (PR #382)
+  "$C/test/interpolators/test_av_stopping_metric.py"
+  "$C/test/interpolators/test_cached_matern_gp.py"
+  "$C/test/test_av_host_backend.py"
+  "$C/test/test_av_kish_loop.py"
+  "$C/test/test_matern_gp.py"
   "$C/test/integrators/test_seeding_public_paths.py"
   "$C/test/integrators/test_seeding_reproducibility.py"
   "$C/test/test_mc_error.py"
@@ -387,8 +393,11 @@ done
 # test_complex_overlap_interpolate_max.py (#375) adds 8 passing tests and no skips.
 # Merged with #375: 613/600 (see the table above).
 # test_dag_postprocess_fail_closed.py adds 13 passing tests and no skips.
+# PR #382 merged with rift_O4d 7062023d, measured ldas-pcdev11 2026-10-04 with
+# CUDA_VISIBLE_DEVICES='': junit 698 collected / 683 passed, 3 of them subtests -> 695/680.
+# (pcdev11 has one extra host skip, cupy-importable in test_eos_posterior_tempering_kwarg.)
 # test_convert_coordinates_source_redshift.py adds 15 passing tests and no skips.
-EXPECTED_TESTS=686
+EXPECTED_TESTS=710
 # Outcomes, not just exit status: a collection floor cannot see a test that collects, runs and
 # asserts nothing, and a pytest.skip can quietly absorb a lost gate.  The 13 skips are
 # environment legs -- cupy in test_seeding_reproducibility, device legs in
@@ -401,8 +410,9 @@ EXPECTED_TESTS=686
 # missing dependency there FAILS the driver subprocess rather than skipping the check.
 # test_dag_postprocess_fail_closed.py adds 13 tests and no skips.
 # test_convert_coordinates_source_redshift.py adds 15 tests and no skips.
-EXPECTED_PASSED=673
-MAX_SKIPPED=13
+EXPECTED_PASSED=695
+# PR #382: +1 skip, the CuPy leg of test_cached_matern_gp.py (no GPU on the CI runner).
+MAX_SKIPPED=14
 
 # The floors must be INTEGERS, and this is checked rather than assumed.  `[ 347 -lt FOO ]` does
 # not fail the build: bash prints "integer expression expected", returns 2, and the `if` is

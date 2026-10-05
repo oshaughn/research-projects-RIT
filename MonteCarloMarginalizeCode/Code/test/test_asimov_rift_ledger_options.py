@@ -13,6 +13,7 @@ Rift = rift_asimov.Rift
 class _Stub:
     _CIP_FIT_METHODS = Rift._CIP_FIT_METHODS
     _validate_transverse_spin_coordinates = Rift._validate_transverse_spin_coordinates
+    _validate_cip_fit_method = Rift._validate_cip_fit_method
     submit_dag = Rift.submit_dag
 
     def __init__(self, meta):
@@ -69,10 +70,10 @@ def test_submit_rejects_bad_priority(value, capsys):
 
 @pytest.mark.parametrize("value", ["rf", "gp", "quadratic", "gp-jax-rff"])
 def test_cip_fit_method_ledger_values_accepted(value):
-    _Stub({"sampler": {"cip": {"fitting method": value}}})._validate_transverse_spin_coordinates()
+    _Stub({"sampler": {"cip": {"fitting method": value}}})._validate_cip_fit_method()
 
 
 @pytest.mark.parametrize("value", ["RF", "random forest", None, True, ""])
 def test_cip_fit_method_ledger_values_rejected(value):
     with pytest.raises(ValueError, match="fitting method"):
-        _Stub({"sampler": {"cip": {"fitting method": value}}})._validate_transverse_spin_coordinates()
+        _Stub({"sampler": {"cip": {"fitting method": value}}})._validate_cip_fit_method()
