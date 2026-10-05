@@ -23,6 +23,17 @@ Development tree is rift_O4c.
     Include the plotting-utilities package initializer so clean wheels and
     source distributions import RIFT without relying on untracked files.
 
+  - (rc4) PR 203 adds vectorized in-plane spin/ring coordinates (phi12,
+    chi_p_vec); source-redshift conversion now consistently uses detector-frame
+    masses. PR 204 adds transverse-spin fitting coordinates;
+    ASIMOV defaults to auto for eligible precessing BBH chirp masses <20 Msun
+    (override to off). PR 205 fixes  calibration waveform-kwargs transport pertinent to XPHM;
+    PR 206 aligns calibration waveforms with ILE defaults. ASIMOV fixes PSD
+    staging, scheduler priority, and numeric options; CIP adds local-pool/
+    no-stream settings; calibration shares ILE image routing.
+
+Release candidate is rc4.
+
 0.0.17.13
 ---------
 MR https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/55  , for ln(e) parameter access in pipeline
