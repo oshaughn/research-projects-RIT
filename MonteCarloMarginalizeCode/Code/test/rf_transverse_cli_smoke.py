@@ -4,6 +4,8 @@ from pathlib import Path
 import numpy as np
 root=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(root));os.environ['GW_SURROGATE']='';os.environ['OMP_NUM_THREADS']='1'
+# argv 'redshift': also check CIP wires --source-redshift and --downselect-enforce-kerr into the RF converter
+redshift='redshift' in sys.argv[1:]
 rng=np.random.default_rng(1);n=160
 m1=rng.uniform(20,25,n);m2=rng.uniform(10,15,n);spins=rng.uniform(-.4,.4,(n,6))
 dat=np.c_[np.arange(n),m1,m2,spins,100-rng.uniform(0,10,n),np.full(n,.1),np.full(n,100),np.full(n,1000)]
@@ -11,13 +13,28 @@ folder=Path(tempfile.mkdtemp(prefix='rf-cip-smoke-'));os.chdir(folder);np.savetx
 args=['--fname','grid.dat','--fit-method','rf','--use-precessing','--no-plots','--fref','35','--rf-transverse-spin-coordinates','physics3','--parameter','delta_mc']
 for p in ['mu1','mu2','chiMinus','s1x','s1y','s2x','s2y']:args += ['--parameter-implied',p]
 for p in ['mc','chi1','chi2','cos_theta1','cos_theta2','phi1','phi2']:args+=['--parameter-nofit',p]
+if redshift:args+=['--source-redshift','0.3','--downselect-enforce-kerr']
 sys.argv=[str(root/'bin/util_ConstructIntrinsicPosterior_GenericCoordinates.py')]+args
 class Complete(Exception):pass
 script=root/'bin/util_ConstructIntrinsicPosterior_GenericCoordinates.py';stop=next(i for i,s in enumerate(script.read_text().splitlines(),1) if s=='oracle_realizations = None')
 def tracer(frame,event,arg):
  if event=='line' and frame.f_code.co_filename==str(script) and frame.f_lineno==stop:
   g=frame.f_globals;x=g['dat_out_low_level_coord_names'];xp=g['convert_coords'](x)
-  np.testing.assert_allclose(xp,g['X'],rtol=2e-5,atol=3e-6)
+  if redshift:
+   from RIFT import lalsimutils
+   from RIFT.misc import rf_transverse_spin
+   x=np.r_[x,x[:1]];x[-1,g['low_level_coord_names'].index('chi1')]=1.2  # Kerr-violating proposal
+   xp=g['convert_coords'](x)
+   expected=rf_transverse_spin.convert(x,g['coord_names'],g['low_level_coord_names'],35.,
+       lalsimutils.convert_waveform_coordinates,source_redshift=0.3,enforce_kerr=True)
+   np.testing.assert_array_equal(xp,expected)
+   assert np.isneginf(xp[-1]).all() and np.isfinite(xp[:-1]).all()
+   unshifted=rf_transverse_spin.convert(x[:-1],g['coord_names'],g['low_level_coord_names'],35.,
+       lalsimutils.convert_waveform_coordinates)
+   assert not np.allclose(xp[:-1],unshifted)
+   xp=xp[:-1]
+  else:
+   np.testing.assert_allclose(xp,g['X'],rtol=2e-5,atol=3e-6)
   assert xp.shape[1]==11 and x.shape[1]==8
   assert np.isfinite(g['my_fit'](xp)).all()
   print('ACTUAL_CIP_TRAINING_PREDICTION_SMOKE_PASS',xp.shape,x.shape)

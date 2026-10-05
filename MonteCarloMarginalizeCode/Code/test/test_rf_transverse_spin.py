@@ -80,7 +80,7 @@ def test_cli_pseudo_forwarding_and_asimov_template():
     pseudo=(CODE/'bin/util_RIFT_pseudo_pipe.py').read_text()
     assert pseudo.index('cmd = " helper_LDG_Events.py')<pseudo.index('if opts.rf_transverse_spin_coordinates:\n    cmd +=')
     template=(CODE/'RIFT/asimov/rift.ini').read_text()
-    assert "sampler['cip'] contains 'transverse spin coordinates'" in template
+    assert "rf_mode = sampler['cip']['transverse spin coordinates']" in template
     cip=(CODE/'bin/util_ConstructIntrinsicPosterior_GenericCoordinates.py').read_text()
     assert 'coord_names = list(coord_names)' in cip
     assert '.extract_param(coord_names[' not in cip
@@ -98,13 +98,14 @@ def test_actual_native_fast_kerr_guard():
     out=f.convert(x,cols,low,20,lalsimutils.convert_waveform_coordinates,enforce_kerr=True)
     assert np.isfinite(out[0]).all() and np.isneginf(out[1]).all()
 
-@pytest.mark.parametrize('value,expected',[(None,'auto'),(False,'off'),(True,'physics3'),('off','off'),('auto','auto'),('physics3','physics3')])
+MISSING=object()
+@pytest.mark.parametrize('value,expected',[(MISSING,'auto'),(None,'auto'),(False,'off'),(True,'physics3'),('off','off'),('auto','auto'),('physics3','physics3')])
 def test_real_liquid_asimov_override(value,expected):
     liquid=pytest.importorskip('liquid')
     template=(CODE/'RIFT/asimov/rift.ini').read_text()
-    start=template.index("{% if sampler['cip'] contains 'transverse spin coordinates' %}")
+    start=template.index("{% assign rf_mode = sampler['cip']['transverse spin coordinates'] %}")
     end=template.index('cip-sampler-method=',start)
-    cip={} if value is None else {'transverse spin coordinates':value}
+    cip={} if value is MISSING else {'transverse spin coordinates':value}
     rendered=liquid.Liquid(template[start:end],from_file=False,mode='standard').render(sampler={'cip':cip})
     assert rendered.count('rf-transverse-spin-coordinates=')==1
     assert 'rf-transverse-spin-coordinates="'+expected+'"' in rendered
@@ -303,12 +304,24 @@ def test_fref_replacement_keeps_range_literals():
     assert '--fref 10' not in line and line.endswith('--fref 25.0')
 
 def test_pseudo_pipe_revalidates_after_its_rewrites():
+    import ast, types
     src = (CODE/'bin/util_RIFT_pseudo_pipe.py').read_text()
-    check = src.index('revalidate_stage(line)')
+    block = next(n for n in ast.parse(src).body if isinstance(n, ast.If)
+                 and 'revalidate_stage' in ast.unparse(n))
+    lineno = lambda text: src[:src.index(text)].count('\n') + 1
     for rewrite in ["line.replace('parameter delta_mc','parameter eta')",
                     "line.replace('parameter delta_mc', 'parameter-implied eta"]:
-        assert src.index(rewrite) < check
-    assert check < src.index('with open("args_cip_list.txt"')
+        assert lineno(rewrite) < block.lineno
+    assert block.lineno < lineno('with open("args_cip_list.txt"')
+    code = compile(ast.Module(body=[block], type_ignores=[]), 'pseudo_pipe_block', 'exec')
+    active = f.stage_arguments(ACTIVE, 'auto', 10, True, 20)
+    for mode in ('auto', 'physics3'):
+        ns = {'opts': types.SimpleNamespace(rf_transverse_spin_coordinates=mode), 'lines': [active]}
+        exec(code, ns)
+        assert ns['lines'] == [active]
+        ns['lines'] = [active.replace('parameter delta_mc', 'parameter eta')]
+        with pytest.raises(ValueError):
+            exec(code, ns)
 
 @pytest.mark.parametrize('z', [0., .3])
 def test_prediction_matches_training_with_source_redshift(z):
@@ -328,3 +341,13 @@ def test_prediction_matches_training_with_source_redshift(z):
             P.assign_param(name,value*lal.MSUN_SI if name=='mc' else value)
         P.m1*=1+z; P.m2*=1+z
         np.testing.assert_allclose(row,[f.extract(P,c) for c in cols],rtol=1e-9,atol=1e-12)
+
+def test_liquid_null_cip_block_renders_default():
+    # base template rendered with `sampler: {cip: null}`; keep that working
+    liquid=pytest.importorskip('liquid')
+    text=(CODE/'RIFT/asimov/rift.ini').read_text()
+    start=text.index('cip-fit-method=')
+    end=text.index('cip-explode-jobs=',start)
+    rendered=liquid.Liquid(text[start:end],from_file=False).render(sampler={'cip':None})
+    assert 'rf-transverse-spin-coordinates="auto"' in rendered
+    assert 'cip-fit-method="rf"' in rendered
