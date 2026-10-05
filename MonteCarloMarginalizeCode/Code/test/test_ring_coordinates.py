@@ -1,6 +1,7 @@
 """phi12 and the ring coordinates (chi1_perp, chi2_perp, SOverM2_perp, DeltaOverM2_perp, chi_p_vec):
 the vectorized spherical path of convert_waveform_coordinates must agree with extract_param."""
 import numpy as np
+import pytest
 import lal
 import RIFT.lalsimutils as lsu
 
@@ -98,3 +99,35 @@ def test_enforce_kerr_in_ring_block():
 def test_chi_p_vec_not_assignable():
     # grid readers call assign_param on every column named in valid_params; chi_p_vec is derived only
     assert 'chi_p_vec' not in lsu.valid_params
+
+
+@pytest.mark.parametrize('chi1,chi2', [(-0.5, 0.7), (0.5, -0.7), (-0.5, -0.7)])
+def test_signed_magnitudes_match_scalar_fallback(chi1, chi2):
+    # Assigning chi, then its polar/azimuthal angles, leaves a positive magnitude
+    # in ChooseWaveformParams. The optimized branch must use the same spins.
+    x = _one(10., 0.3, chi1, 0.2, 0.4, chi2, -0.4, 2.1)
+    P = lsu.ChooseWaveformParams()
+    for name, value in zip(LOW, x[0]):
+        P.assign_param(name, value)
+    ref = np.array([P.extract_param(name) for name in RING])
+    for dtype in (float, object):
+        y = lsu.convert_waveform_coordinates(x.astype(dtype), coord_names=RING,
+                                             low_level_coord_names=LOW)
+        assert np.allclose(y[0], ref, rtol=0, atol=1e-12)
+
+
+@pytest.mark.parametrize('column', [2, 5])
+@pytest.mark.parametrize('spin', [-1.2, 1.2])
+def test_signed_super_kerr_is_rejected(column, spin):
+    x = _draws(2)
+    x[0, column] = spin
+    # Cover both the early vectorized return and an additional scalar output.
+    for names in (RING, RING + ['chi_p']):
+        for dtype in (float, object):
+            y = lsu.convert_waveform_coordinates(x.astype(dtype), coord_names=names,
+                                                 low_level_coord_names=LOW, enforce_kerr=True)
+            assert np.all(y[0] == -np.inf)
+            assert np.all(np.isfinite(y[1]))
+            y = lsu.convert_waveform_coordinates(x.astype(dtype), coord_names=names,
+                                                 low_level_coord_names=LOW, enforce_kerr=False)
+            assert np.all(np.isfinite(y))

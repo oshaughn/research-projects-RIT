@@ -22,8 +22,14 @@ except:
 
 
 def _hlmoft_with_extra_waveform_kwargs(P, Lmax, extra_waveform_kwargs):
-    """Generate RIFT modes with the caller's waveform options expanded."""
-    return lalsimutils.hlmoft(P, Lmax=Lmax, **extra_waveform_kwargs)
+    """Generate RIFT modes with the caller's waveform options expanded.
+
+    Adds fd_standoff_factor=0.9 unless set, as ILE's lalsuite route does
+    (factored_likelihood.internal_hlm_generator), so calmarg builds ILE's waveform.
+    """
+    kwargs = dict(extra_waveform_kwargs)
+    kwargs.setdefault('fd_standoff_factor', 0.9)
+    return lalsimutils.hlmoft(P, Lmax=Lmax, **kwargs)
 
 
 def RIFT_lal_binary_black_hole_orig(

@@ -16,6 +16,7 @@
 
 import numpy as np
 import argparse
+import shlex
 import os
 import sys
 import lal
@@ -207,6 +208,7 @@ parser.add_argument("--internal-use-amr",action='store_true',help="Changes refin
 parser.add_argument("--internal-use-amr-bank",default="",type=str,help="Bank used for template")
 parser.add_argument("--internal-use-amr-puff",action='store_true',help="Use puffball with AMR (as usual).  May help with stalling")
 parser.add_argument("--internal-use-force-away",type=float,default=None,help="Specific force-away value")
+parser.add_argument("--rf-transverse-spin-coordinates", choices=["off","auto","physics3"], default=None, help="Pass opt-in RF-only transverse fitting scalars to every applicable full precessing stage")
 parser.add_argument("--internal-use-aligned-phase-coordinates", action='store_true', help="If present, instead of using mc...chi-eff coordinates for aligned spin, will use SM's phase-based coordinates. Requires spin for now")
 parser.add_argument("--internal-use-rescaled-transverse-spin-coordinates",action='store_true',help="If present, use coordinates which rescale the unit sphere with special transverse sampling")
 parser.add_argument("--external-fetch-native-from",type=str,help="Directory name of run where grids will be retrieved.  Recommend this is for an ACTIVE run, or otherwise producing a large grid so the retrieved grid changes/isn't fixed")
@@ -691,6 +693,8 @@ if opts.internal_use_gracedb_bayestar:
     cmd += " --internal-use-gracedb-bayestar "
 if opts.internal_use_amr:
     cmd += " --internal-use-amr " # minimal support performed in this routine, mainly for puff
+if opts.rf_transverse_spin_coordinates:
+    cmd += " --rf-transverse-spin-coordinates {} ".format(opts.rf_transverse_spin_coordinates)
 if opts.internal_use_aligned_phase_coordinates:
     cmd += " --internal-use-aligned-phase-coordinates "
 if opts.internal_use_rescaled_transverse_spin_coordinates:
@@ -1283,6 +1287,11 @@ if opts.internal_use_amr:
         if not(opts.assume_lowlatency_tradeoffs):
             lines[0] += " --intrinsic-param spin2z "
 
+if opts.rf_transverse_spin_coordinates:
+    # The edits above can remove the RF basis from a stage the helper activated
+    from RIFT.misc.rf_transverse_spin import revalidate_stage
+    lines = [revalidate_stage(line) for line in lines]
+
 with open("args_cip_list.txt",'w') as f: 
    for line in lines:
            f.write(line)
@@ -1442,7 +1451,7 @@ if opts.calibration_reweighting and (not opts.bilby_pickle_file):
         cmd += " --calibration-reweighting-osg "
         opts.calibration_reweighting_initial_extra_args += " --use_local_cal_files "
     if opts.calibration_reweighting_initial_extra_args:
-        cmd += " --calibration-reweighting-initial-extra-args '{}' ".format(opts.calibration_reweighting_initial_extra_args)
+        cmd += " --calibration-reweighting-initial-extra-args {} ".format(shlex.quote(opts.calibration_reweighting_initial_extra_args))
 elif opts.calibration_reweighting and opts.bilby_pickle_file:
     cmd += " --calibration-reweighting --calibration-reweighting-exe `which calibration_reweighting.py` --bilby-pickle-file {} ".format(str(opts.bilby_pickle_file))
     if opts.calibration_reweighting_count:
@@ -1453,7 +1462,7 @@ elif opts.calibration_reweighting and opts.bilby_pickle_file:
         cmd += " --calibration-reweighting-osg "
         opts.calibration_reweighting_initial_extra_args += " --use_local_cal_files "
     if opts.calibration_reweighting_initial_extra_args:
-        cmd += " --calibration-reweighting-initial-extra-args '{}' ".format(opts.calibration_reweighting_initial_extra_args)
+        cmd += " --calibration-reweighting-initial-extra-args {} ".format(shlex.quote(opts.calibration_reweighting_initial_extra_args))
 if opts.internal_tabular_eos_file:
     cmd += " --use-tabular-eos-file "
 if opts.distance_reweighting:
@@ -1620,7 +1629,14 @@ if opts.calibration_reweighting:
          my_parser.add_argument("--internal-waveform-extra-kwargs",type=str, default=None)
          my_opts, unknown_opts =my_parser.parse_known_args(my_revised_args )
          print(' calmarg: parsed args ', my_opts, " and others ", unknown_opts)
+         # Same layout as ILE: lalsuite args nested under 'extra_waveform_args', then the
+         # high-level kwargs merged on top (and so winning on a shared key).
          my_extra_args = {}
+         if my_opts.internal_waveform_extra_lalsuite_args:
+             my_arg_dict = eval(my_opts.internal_waveform_extra_lalsuite_args)
+             if not(isinstance(my_arg_dict, dict)):
+                 my_arg_dict = eval(my_arg_dict)
+             my_extra_args['extra_waveform_args'] = my_arg_dict
          if my_opts.internal_waveform_extra_kwargs:
              my_arg_dict = eval(my_opts.internal_waveform_extra_kwargs)
              # due to quoting, might not evaluate to a dictionary
@@ -1629,11 +1645,6 @@ if opts.calibration_reweighting:
              if 'lmax_nyquist' in my_arg_dict:
                  my_extra_string+= " --use-gwsignal-lmax-nyquist {} ".format(my_arg_dict['lmax_nyquist'])
                  del my_arg_dict['lmax_nyquist'] # remove key
-             my_extra_args.update(my_arg_dict)
-         if my_opts.internal_waveform_extra_lalsuite_args:
-             my_arg_dict = eval(my_opts.internal_waveform_extra_lalsuite_args)
-             if not(isinstance(my_arg_dict, dict)):
-                 my_arg_dict = eval(my_arg_dict)
              my_extra_args.update(my_arg_dict)
          if my_extra_args:
             my_extra_string += ' --extra-waveform-kwargs "{}" '.format(my_extra_args)
@@ -1645,7 +1656,7 @@ if opts.calibration_reweighting:
         my_extra_string += ' --internal-waveform-fd-L-frame '
     if opts.calibration_reweighting_initial_extra_args:
         my_extra_string+= ' {} '.format(opts.calibration_reweighting_initial_extra_args) # make sure to add spaces/padding
-    cmd +=" --calibration-reweighting-initial-extra-args='  {}' ".format(my_extra_string)
+    cmd += " --calibration-reweighting-initial-extra-args={} ".format(shlex.quote('  ' + my_extra_string))
 #if opts.internal_mitigate_fd_J_frame =="L_frame" and opts.use_gwsignal and not(opts.manual_extra_ile_args):
 #    cmd +=" --calibration-reweighting-initial-extra-args='--internal-waveform-fd-L-frame --use-gwsignal' "
 if opts.condor_local_nonworker_igwn_prefix:

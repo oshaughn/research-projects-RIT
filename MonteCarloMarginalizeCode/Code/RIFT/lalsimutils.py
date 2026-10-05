@@ -5171,6 +5171,17 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
     """
     x_out = np.zeros( (len(x_in), len(coord_names) ) )
     kerr_violation_ring = None   # set by the vectorized in-plane block, which can end the conversion early
+    # Source-frame input: move the mass coordinates to the detector frame ONCE, here, so every vectorized branch below
+    # and the per-row fallback see detector-frame masses.  Other mass-dimensional inputs (e.g. mu1, mu2) do not scale
+    # by (1+z); for those, the per-row fallback applies the redshift to P.m1, P.m2 instead.
+    redshift_applied_to_input = False
+    if source_redshift:
+        mass_names_in = [p for p in ['mc', 'mc_ecc', 'm1', 'm2', 'mtot'] if p in low_level_coord_names]
+        if mass_names_in:
+            x_in = np.array(x_in, dtype=float)   # copy: never rescale the caller's array
+            for p in mass_names_in:
+                x_in[:, low_level_coord_names.index(p)] *= (1+source_redshift)
+            redshift_applied_to_input = True
     # Check for trivial identity transformations and do those by direct copy, then remove those from the list of output coord names
     coord_names_reduced = coord_names.copy() 
     for p in low_level_coord_names:
@@ -5392,8 +5403,12 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
             m1f = np.asarray(m1_vals, dtype=float); m2f = np.asarray(m2_vals, dtype=float)
             indx_phi1 = low_level_coord_names.index('phi1')
             indx_phi2 = low_level_coord_names.index('phi2')
-            chi1_perp = xf[:,indx_chi1]*np.sqrt(1-xf[:,indx_ct1]**2)
-            chi2_perp = xf[:,indx_chi2]*np.sqrt(1-xf[:,indx_ct2]**2)
+            # The scalar fallback assigns chi before the angles, which use its
+            # magnitude. Signed chi must not flip vectors or bypass the Kerr bound.
+            chi1_mag = np.abs(xf[:,indx_chi1])
+            chi2_mag = np.abs(xf[:,indx_chi2])
+            chi1_perp = chi1_mag*np.sqrt(1-xf[:,indx_ct1]**2)
+            chi2_perp = chi2_mag*np.sqrt(1-xf[:,indx_ct2]**2)
             v1 = chi1_perp*np.exp(1j*xf[:,indx_phi1])
             v2 = chi2_perp*np.exp(1j*xf[:,indx_phi2])
             mtot_vals = m1f + m2f
@@ -5411,7 +5426,7 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
                     coord_names_reduced.remove(p)
             if enforce_kerr:
                 # same rule as the per-row fallthrough below, which this block can bypass
-                kerr_violation_ring = (xf[:,indx_chi1] > 1) | (xf[:,indx_chi2] > 1)
+                kerr_violation_ring = (chi1_mag > 1) | (chi2_mag > 1)
             
     # Spin pseudo-cylindrical coordinate names, standard framing
     if  ('s1z_bar' in low_level_coord_names) and ('phi1' in low_level_coord_names)  and ('s2z_bar' in low_level_coord_names) and ('phi2' in low_level_coord_names) and ('mc' in low_level_coord_names) and ('eta' in low_level_coord_names or 'delta_mc' in low_level_coord_names):
@@ -5621,13 +5636,6 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
                 coord_names_reduced.remove('DeltaLambdaTilde')
 
 
-    # perform any mass conversions needed, so output in detector frame given input in source frame
-    if source_redshift:
-        for name in ['mc', 'm1', 'm2']:
-            if name in coord_names:
-                indx_name = coord_names.index(name)
-                x_out[indx_name] *= (1+source_redshift)
-
     # return if we don't need to do any more conversions (e.g., if we only have --parameter specification)
     if kerr_violation_ring is not None:
         x_out[kerr_violation_ring] = -np.inf
@@ -5643,8 +5651,9 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
             if low_level_coord_names[indx] != 'chi_pavg':
                 P.assign_param( low_level_coord_names[indx], x_in[indx_out,indx])            
         # Apply redshift: assume input is source-frame mass, convert m1 -> m1(1+z) = m1_z, as fit used detector frame
-        P.m1 = P.m1*(1+source_redshift)
-        P.m2 = P.m2*(1+source_redshift)
+        if source_redshift and not redshift_applied_to_input:
+            P.m1 = P.m1*(1+source_redshift)
+            P.m2 = P.m2*(1+source_redshift)
         for indx in np.arange(len(coord_names_reduced)):
             p = coord_names_reduced[indx]
             indx_p_out= coord_names.index(p)
