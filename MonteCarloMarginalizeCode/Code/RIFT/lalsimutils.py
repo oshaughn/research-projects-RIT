@@ -5644,9 +5644,11 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
 
     print(" Fallthrough to non-vector-coords for ", coord_names_reduced,low_level_coord_names)
     
-    P = ChooseWaveformParams()
     # note NO MASS CONVERSION here, because the fit is in solar mass units!
     for indx_out  in np.arange(len(x_in)):
+        # Fresh P per row: assign_param reads the current state for some coordinates (mu1, mu2, q,
+        # chi1_perp_bar, ...), so a reused P makes a row's output depend on the previous row.
+        P = ChooseWaveformParams()
         for indx in np.arange(len(low_level_coord_names)):
             if low_level_coord_names[indx] != 'chi_pavg':
                 P.assign_param( low_level_coord_names[indx], x_in[indx_out,indx])            
@@ -5672,8 +5674,8 @@ def convert_waveform_coordinates_with_eos(x_in,coord_names=['mc', 'eta'],low_lev
         print( " - Failed to load EOSManager - ")  # this will occur at the start
     assert not (eos_class==None)
     x_out = np.zeros( (len(x_in), len(coord_names) ) )
-    P = ChooseWaveformParams()
     for indx_out  in np.arange(len(x_in)):
+        P = ChooseWaveformParams()  # fresh per row, as in convert_waveform_coordinates
         # WARNING UNUSUAL CONVENTION
         #   note, P.m1, P.m2 in Msun units here
         for indx in np.arange(len(low_level_coord_names)):
