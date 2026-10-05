@@ -542,6 +542,13 @@ class ChooseWaveformParams:
 
         
 
+    def _spin_azimuth(self, k):
+        # azimuth of spin k in the L frame; the last requested phi{k} (default 0) if the in-plane spin is zero
+        sx, sy = getattr(self, 's%dx' % k), getattr(self, 's%dy' % k)
+        if sx == 0 and sy == 0:
+            return getattr(self, '_phi%d_requested' % k, 0.)
+        return np.arctan2(sy, sx)
+
     def assign_param(self,p,val):
         """
         assign_param
@@ -604,14 +611,24 @@ class ChooseWaveformParams:
             self.s2z = (czp-czm)
             return self
         if p == 's1z_bar':
+            # holds chi1_perp_bar and phi1 fixed, so the three bar coordinates can be assigned in any order
+            if self.s1z**2 < 1 and val**2 <= 1:
+                fac = np.sqrt((1-val**2)/(1-self.s1z**2))
+                self.s1x *= fac
+                self.s1y *= fac
             self.s1z = val
             return self
         if p == 's2z_bar':
+            # holds chi2_perp_bar and phi2 fixed, so the three bar coordinates can be assigned in any order
+            if self.s2z**2 < 1 and val**2 <= 1:
+                fac = np.sqrt((1-val**2)/(1-self.s2z**2))
+                self.s2x *= fac
+                self.s2y *= fac
             self.s2z = val
             return self
         if p == 'chi1_perp_bar':
 #            chi1_perp = np.sqrt(self.s1x**2+self.s2y**2)
-            phi1 = np.arctan2(self.s1y, self.s1x)
+            phi1 = self._spin_azimuth(1)
             chi1_perp_new = val*np.sqrt(1-self.s1z**2)  # R=Rbar*(1-z^2)^0.5 
             self.s1x = chi1_perp_new*np.cos(phi1)
             self.s1y = chi1_perp_new*np.sin(phi1)
@@ -619,21 +636,21 @@ class ChooseWaveformParams:
         if p == 'chi1_perp_u':
 #            chi1_perp = np.sqrt(self.s1x**2+self.s2y**2)
             Rb = np.power(val, 1./p_R)
-            phi1 = np.arctan2(self.s1y, self.s1x)
+            phi1 = self._spin_azimuth(1)
             chi1_perp_new = Rb*np.sqrt(1-self.s1z**2)  # R=Rbar*(1-z^2)^0.5 
             self.s1x = chi1_perp_new*np.cos(phi1)
             self.s1y = chi1_perp_new*np.sin(phi1)
             return self
         if p == 'chi2_perp_bar':
 #            chi1_perp = np.sqrt(self.s1x**2+self.s2y**2)
-            phi2 = np.arctan2(self.s2y, self.s2x)
+            phi2 = self._spin_azimuth(2)
             chi2_perp_new = val*np.sqrt(1-self.s2z**2)  # R=Rbar*(1-z^2)^0.5 
             self.s2x = chi2_perp_new*np.cos(phi2)
             self.s2y = chi2_perp_new*np.sin(phi2)
             return self
         if p == 'chi2_perp_u':
 #            chi1_perp = np.sqrt(self.s1x**2+self.s2y**2)
-            phi2 = np.arctan2(self.s2y, self.s2x)
+            phi2 = self._spin_azimuth(2)
             Rb = np.power(val, 1./p_R)
             chi2_perp_new = Rb*np.sqrt(1-self.s2z**2)  # R=Rbar*(1-z^2)^0.5 
             self.s2x = chi2_perp_new*np.cos(phi2)
@@ -658,7 +675,11 @@ class ChooseWaveformParams:
         if p == 'chi1':
             chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
             chi1VecMag = np.sqrt(np.dot(chi1Vec,chi1Vec))
-            if chi1VecMag < 1e-5:
+            if chi1VecMag < 1e-5 and hasattr(self, '_theta1_requested'):
+                theta = self._theta1_requested
+                phi = getattr(self, '_phi1_requested', 0.)
+                self.s1x,self.s1y,self.s1z = val*np.array([np.sin(theta)*np.cos(phi), np.sin(theta)*np.sin(phi), np.cos(theta)])
+            elif chi1VecMag < 1e-5:
                 Lref = self.OrbitalAngularMomentumAtReferenceOverM2()
                 Lhat = Lref/np.sqrt(np.dot(Lref,Lref))
                 self.s1x,self.s1y,self.s1z = val*Lhat
@@ -668,7 +689,11 @@ class ChooseWaveformParams:
         if p == 'chi2':
             chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
             chi2VecMag = np.sqrt(np.dot(chi2Vec,chi2Vec))
-            if chi2VecMag < 1e-5:
+            if chi2VecMag < 1e-5 and hasattr(self, '_theta2_requested'):
+                theta = self._theta2_requested
+                phi = getattr(self, '_phi2_requested', 0.)
+                self.s2x,self.s2y,self.s2z = val*np.array([np.sin(theta)*np.cos(phi), np.sin(theta)*np.sin(phi), np.cos(theta)])
+            elif chi2VecMag < 1e-5:
                 Lref = self.OrbitalAngularMomentumAtReferenceOverM2()
                 Lhat = Lref/np.sqrt(np.dot(Lref,Lref))
                 self.s2x,self.s2y,self.s2z = val*Lhat
@@ -710,9 +735,13 @@ class ChooseWaveformParams:
             chiperp_vec_now = np.array([self.s1x,self.s1y])
             chiperp_now = np.sqrt(np.dot(chiperp_vec_now,chiperp_vec_now))
             chi_now = np.sqrt(self.s1z**2 + chiperp_now**2)
+            self._theta1_requested = val   # used by chi1 if the spin is zero now
+            if chi_now == 0:
+                return self
             if chiperp_now/chi_now < 1e-9: # aligned case - what do we do?
-                self.s1y=0
-                self.s1x = chi_now * np.sin(val)
+                phi1 = self._spin_azimuth(1)
+                self.s1x = chi_now * np.sin(val) * np.cos(phi1)
+                self.s1y = chi_now * np.sin(val) * np.sin(phi1)
                 self.s1z = chi_now * np.cos(val)
                 return self
             self.s1x = chi_now*np.sin(val) * self.s1x/chiperp_now
@@ -729,6 +758,7 @@ class ChooseWaveformParams:
             # Do it MANUALLY, assuming the L frame! 
             chiperp_vec_now = np.array([self.s1x,self.s1y])
             chiperp_now = np.sqrt(np.dot(chiperp_vec_now,chiperp_vec_now))
+            self._phi1_requested = val   # used by theta1, chi1, chi1_perp_bar if the in-plane spin is zero now
             self.s1x = chiperp_now*np.cos(val)
             self.s1y = chiperp_now*np.sin(val)
             return self
@@ -745,9 +775,13 @@ class ChooseWaveformParams:
             chiperp_vec_now = np.array([self.s2x,self.s2y])
             chiperp_now = np.sqrt(np.dot(chiperp_vec_now,chiperp_vec_now))
             chi_now = np.sqrt(self.s2z**2 + chiperp_now**2)
+            self._theta2_requested = val   # used by chi2 if the spin is zero now
+            if chi_now == 0:
+                return self
             if chiperp_now/chi_now < 1e-9: # aligned case
-                self.s2y=0
-                self.s2x = chi_now * np.sin(val)
+                phi2 = self._spin_azimuth(2)
+                self.s2x = chi_now * np.sin(val) * np.cos(phi2)
+                self.s2y = chi_now * np.sin(val) * np.sin(phi2)
                 self.s2z = chi_now * np.cos(val)
                 return self
             self.s2x = chi_now*np.sin(val) * self.s2x/chiperp_now
@@ -764,6 +798,7 @@ class ChooseWaveformParams:
             # Do it MANUALLY, assuming the L frame! 
             chiperp_vec_now = np.array([self.s2x,self.s2y])
             chiperp_now = np.sqrt(np.dot(chiperp_vec_now,chiperp_vec_now))
+            self._phi2_requested = val   # used by theta2, chi2, chi2_perp_bar if the in-plane spin is zero now
             self.s2x = chiperp_now*np.cos(val)
             self.s2y = chiperp_now*np.sin(val)
             return self

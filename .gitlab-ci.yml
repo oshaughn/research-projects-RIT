@@ -55,6 +55,7 @@ unit_tests:
   script:
     - python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_time_marginalization_perrow_offset.py
     - python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_sky_rotations.py
+    - python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_assign_param_spin_order.py
     - python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_cip_startup.py MonteCarloMarginalizeCode/Code/test/test_lalsim_eos_compat.py MonteCarloMarginalizeCode/Code/test/test_ring_coordinates.py
     - python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_convert_coordinates_source_redshift.py
     # calmarg waveform kwargs: real pseudo_pipe -> CEPP build (no test_run setup needed) and rift_source
