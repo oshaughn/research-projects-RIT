@@ -330,6 +330,10 @@ parser.add_argument("--request-memory-ILE",default=4096,type=int,help="Memory re
 parser.add_argument("--request-gpu-ILE",action='store_true',help="ILE will request a GPU. [Note: if you do this, your code will only run on GPU-enabled slots]")
 parser.add_argument("--ile-gpu-fanout",default=None,help="Multi-GPU ILE fan-out: split each ILE batch's intrinsic-grid range across N GPUs (one shard per GPU). Integer N (also requests N GPUs+CPUs) or 'auto'. Baked into ile_pre.sh; equivalent to RIFT_ILE_GPU_FANOUT. Requires --request-gpu-ILE.")
 parser.add_argument("--request-xpu-ILE",action='store_true',help="ILE will *prefer* a gpu, but not require it")
+parser.add_argument("--ile-deduplicate-grid",action='store_true',help="Build separate exact unique ordinary ILE XML grids; posterior/convergence samples retain their weights.")
+parser.add_argument("--cip-singularity-image",default=None,help="Independent CIP and nonworker builder runtime; preserve the ILE container.")
+parser.add_argument("--request-gpus-CIP",default=0,type=int,help="GPU devices per CIP fit producer and sampling worker.")
+parser.add_argument("--require-gpus-CIP",default=None,help="Condor RequireGPUs expression for CIP devices.")
 parser.add_argument("--request-memory-CIP",default=16384,type=int,help="Memory request for condor (in Mb) for fitting jobs.")
 parser.add_argument("--request-memory-CIP-flex",action='store_true',help="If true,memory request is flexible and will increment. Beware of possible runaway requests")
 parser.add_argument("--use-singularity",action='store_true',help="Attempts to use a singularity image in SINGULARITY_RIFT_IMAGE")
@@ -494,6 +498,9 @@ if not (opts.cip_args is None):
     cip_args=cip_args.rstrip()
     cip_args += ' --no-plots '  
     print("CIP", cip_args)
+
+cip_singularity_image = opts.cip_singularity_image or singularity_image
+nonworker_singularity_image = cip_singularity_image
 
 cip_args_lines = None
 cip_args_prefixes = []  # so it works correctly even in flat mode
@@ -693,7 +700,11 @@ os.chmod(cmdname, st.st_mode | stat.S_IEXEC)
 #    identify overlap grid input
 #    identify output file names (?)
 ile_args_orig = ile_args  # provides ability to strip out the output and replace it with alternate
-ile_args+= ' {} '.format(sim_grid_flag) + working_dir_inside + '/overlap-grid-$(macroiteration).{} '.format(grid_suffix)
+if opts.ile_deduplicate_grid and _use_hpip_pipeline:
+    parser.error('--ile-deduplicate-grid currently requires native XML grids')
+ile_args_forposterior = ile_args_orig + ' {} '.format(sim_grid_flag) + working_dir_inside + '/overlap-grid-$(macroiteration).{} '.format(grid_suffix)
+ordinary_grid_base = 'likelihood-grid' if opts.ile_deduplicate_grid else 'overlap-grid'
+ile_args+= ' {} '.format(sim_grid_flag) + working_dir_inside + '/'+ordinary_grid_base+'-$(macroiteration).{} '.format(grid_suffix)
 ile_args_forpuff= ile_args_orig + ' {} '.format(sim_grid_flag) + working_dir_inside + '/puffball-$(macroiteration).{} '.format(grid_suffix)
 ile_args_forfetch= ile_args_orig + ' {} '.format(sim_grid_flag) + working_dir_inside + '/fetch-$(macroiteration).{} '.format(grid_suffix)
 
@@ -817,7 +828,7 @@ if (opts.ile_n_events_to_analyze > 1) and (exe is None):
 output_file_names = None
 request_disk=opts.ile_request_disk
 if opts.use_singularity or opts.use_osg:
-    transfer_file_names.append("../overlap-grid-$(macroiteration).{}".format(grid_suffix))
+    transfer_file_names.append("../"+ordinary_grid_base+"-$(macroiteration).{}".format(grid_suffix))
     #request_disk=4
     #output_file_names = ','.join(["CME_out-$(macroevent)-$(cluster)-$(process).xml_{0}_.dat".format(x) for x in np.arange(opts.ile_n_events_to_analyze)])
     #print "OUTPUT FILES ", output_file_names
@@ -885,7 +896,7 @@ if  (opts.last_iteration_extrinsic):
     # n_eff_last = np.min([2*n_points_per_ILE,opts.last_iteration_extrinsic_samples_per_ile])  # make n_eff large enough to get all samples requested. Provide cap in case user requests very vew extrinsic workers.
     # if hasattr(opts_ile, 'n_eff'):
     #     n_eff_last  = np.max([n_eff_last, opts_ile.n_eff]) # NEVER USE FEWER n_eff THAN WAS USED FOR intrinsic run. Fallback to no change in case (never happens) not in arg list
-    ile_args_extr = ile_args + " --save-P 0.01 --save-samples --n-eff  "  +str(n_eff_last)  # modify convergence criteria so output of reasonable size/matching needs of extrinsic output
+    ile_args_extr = ile_args_forposterior + " --save-P 0.01 --save-samples --n-eff  "  +str(n_eff_last)  # modify convergence criteria so output of reasonable size/matching needs of extrinsic output
     #  - note we *disable* --no-adapt-after-first (if present), so each point is independent (e.g., in sky location)
     ile_args_extr = ile_args_extr.replace('--no-adapt-after-first','')
     if opts.last_iteration_export_marginal_distance_grid:
@@ -919,7 +930,10 @@ if  (opts.last_iteration_extrinsic):
         ile_args_extr += " --resample-time-marginalization --fairdraw-extrinsic-output --fairdraw-extrinsic-output-n-max {} ".format(n_points_per_ILE)
         print(" Time resampling in extraction iteration: **DISABLING** distance marginalization if present ")
         ile_args_extr = ile_args_extr.replace("--distance-marginalization ", ' ')  # *currently* cannot use distance marginalization in the last step if we want fairdraw output.  Note the *unfairdraw* output can ignore this ...
-    ileExtr_job, ileExtr_job_name = dag_utils.write_ILE_sub_simple(tag='ILE_extr',log_dir=None,arg_str=ile_args_extr,output_file="EXTR_out.xml",simple_unique=True,ncopies=1,exe=ile_exe,transfer_files=transfer_file_names,request_memory=opts.request_memory_ILE*2,request_gpu=opts.request_gpu_ILE,request_cross_platform=opts.request_xpu_ILE,use_cvmfs_frames=opts.use_cvmfs_frames,request_disk=request_disk,use_singularity=opts.use_singularity,singularity_image=singularity_image,use_osg=opts.use_osg,simple_osg_requirements=opts.use_osg_simple_requirements,use_oauth_files=opts.use_oauth_files,frames_dir=opts.frames_dir,cache_file=opts.cache_file)
+    transfer_file_names_extr = list(transfer_file_names)
+    if opts.use_singularity or opts.use_osg:
+        transfer_file_names_extr = [name.replace('../'+ordinary_grid_base+'-$(macroiteration).{}'.format(grid_suffix), '../overlap-grid-$(macroiteration).{}'.format(grid_suffix)) for name in transfer_file_names_extr]
+    ileExtr_job, ileExtr_job_name = dag_utils.write_ILE_sub_simple(tag='ILE_extr',log_dir=None,arg_str=ile_args_extr,output_file="EXTR_out.xml",simple_unique=True,ncopies=1,exe=ile_exe,transfer_files=transfer_file_names_extr,request_memory=opts.request_memory_ILE*2,request_gpu=opts.request_gpu_ILE,request_cross_platform=opts.request_xpu_ILE,use_cvmfs_frames=opts.use_cvmfs_frames,request_disk=request_disk,use_singularity=opts.use_singularity,singularity_image=singularity_image,use_osg=opts.use_osg,simple_osg_requirements=opts.use_osg_simple_requirements,use_oauth_files=opts.use_oauth_files,frames_dir=opts.frames_dir,cache_file=opts.cache_file)
     ileExtr_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_ile")
     ileExtr_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILEextr-$(macroevent)-$(cluster)-$(process).log")
     ileExtr_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILEextr-$(macroevent)-$(cluster)-$(process).err")
@@ -1128,7 +1142,7 @@ if opts.use_full_submit_paths:
     fname = opts.working_directory+"/"+con_job.get_sub_file()
     con_job.set_sub_file(fname)
 if opts.condor_containerize_nonworker and singularity_image:
-    con_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+    con_job.add_condor_cmd("+SingularityImage", '"' + nonworker_singularity_image + '"')
 _add_hpip_condor_env(con_job)
 con_job.write_sub_file()
 
@@ -1157,7 +1171,7 @@ if opts.use_full_submit_paths:
     fname = opts.working_directory+"/"+unify_job.get_sub_file()
     unify_job.set_sub_file(fname)
 if opts.condor_containerize_nonworker and singularity_image:
-    unify_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+    unify_job.add_condor_cmd("+SingularityImage", '"' + nonworker_singularity_image + '"')
 _add_hpip_condor_env(unify_job)
 unify_job.write_sub_file()
 
@@ -1177,7 +1191,7 @@ if opts.use_full_submit_paths:
     fname = opts.working_directory+"/"+evidence_job.get_sub_file()
     evidence_job.set_sub_file(fname)
 if opts.condor_containerize_nonworker and singularity_image:
-    evidence_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+    evidence_job.add_condor_cmd("+SingularityImage", '"' + nonworker_singularity_image + '"')
 _add_hpip_condor_env(evidence_job)
 evidence_job.write_sub_file()
 
@@ -1210,7 +1224,7 @@ ln -sf "${target}" "${alias}"
         fname = opts.working_directory+"/"+alias_grid_job.get_sub_file()
         alias_grid_job.set_sub_file(fname)
     if opts.condor_containerize_nonworker and singularity_image:
-        alias_grid_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+        alias_grid_job.add_condor_cmd("+SingularityImage", '"' + nonworker_singularity_image + '"')
     _add_hpip_condor_env(alias_grid_job)
     alias_grid_job.write_sub_file()
 
@@ -1239,7 +1253,7 @@ if (opts.cip_explode_jobs):
     else:
         cip_exe_master = "/bin/true"
 #    out_dir_base += "/iteration_$(macroiteration)_cip/"
-cip_job, cip_job_name = dag_utils.write_CIP_sub(tag='CIP',log_dir=None,arg_str=cip_args_base,request_memory=opts.request_memory_CIP,input_net=working_dir_inside_cip+'/all.net',output='overlap-grid-$(macroiterationnext)',out_dir=out_dir_inside_cip,exe=cip_exe_master,universe=local_worker_universe_cip,no_grid=cip_no_grid,use_osg=opts.use_osg_cip,use_singularity=opts.use_osg_cip and opts.use_singularity,singularity_image=singularity_image,use_simple_osg_requirements=opts.use_osg_cip,use_oauth_files=opts.use_oauth_files,transfer_files=cip_transfer_files)
+cip_job, cip_job_name = dag_utils.write_CIP_sub(tag='CIP',log_dir=None,arg_str=cip_args_base,request_memory=opts.request_memory_CIP,request_gpus=opts.request_gpus_CIP,require_gpus=opts.require_gpus_CIP,input_net=working_dir_inside_cip+'/all.net',output='overlap-grid-$(macroiterationnext)',out_dir=out_dir_inside_cip,exe=cip_exe_master,universe=local_worker_universe_cip,no_grid=cip_no_grid,use_osg=opts.use_osg_cip,use_singularity=opts.use_osg_cip and opts.use_singularity,singularity_image=cip_singularity_image,use_simple_osg_requirements=opts.use_osg_cip,use_oauth_files=opts.use_oauth_files,transfer_files=cip_transfer_files)
 # Modify: set 'initialdir'
 cip_job.add_condor_cmd("initialdir",cip_initialdir)
 # Modify output argument: change logs and working directory to be subdirectory for the run
@@ -1266,7 +1280,7 @@ if opts.cip_explode_jobs:
     transfer_files_cip =['../all.net']
     if opts.use_osg_cip and 'fit-method gp' in cip_args_base:
         transfer_files_cip += ['my_fit.pkl']  # transfer current working directory fit
-    cip_job_worker, cip_job_worker_name = dag_utils.write_CIP_sub(tag='CIP_worker',log_dir=None,arg_str=cip_args_base,request_memory=opts.request_memory_CIP,request_memory_flex=opts.request_memory_CIP_flex,input_net=working_dir_inside_cip+'/all.net',output=fname_out,out_dir=out_dir_inside_cip,exe=cip_exe,ncopies=n_explode,universe=local_worker_universe_cip,no_grid=cip_no_grid,use_osg=opts.use_osg_cip,use_singularity=opts.use_osg_cip and opts.use_singularity,singularity_image=singularity_image,use_simple_osg_requirements=opts.use_osg_cip,use_oauth_files=opts.use_oauth_files,transfer_files=transfer_files_cip)
+    cip_job_worker, cip_job_worker_name = dag_utils.write_CIP_sub(tag='CIP_worker',log_dir=None,arg_str=cip_args_base,request_memory=opts.request_memory_CIP,request_memory_flex=opts.request_memory_CIP_flex,request_gpus=opts.request_gpus_CIP,require_gpus=opts.require_gpus_CIP,input_net=working_dir_inside_cip+'/all.net',output=fname_out,out_dir=out_dir_inside_cip,exe=cip_exe,ncopies=n_explode,universe=local_worker_universe_cip,no_grid=cip_no_grid,use_osg=opts.use_osg_cip,use_singularity=opts.use_osg_cip and opts.use_singularity,singularity_image=cip_singularity_image,use_simple_osg_requirements=opts.use_osg_cip,use_oauth_files=opts.use_oauth_files,transfer_files=transfer_files_cip)
     # Modify: set 'initialdir'
     cip_job_worker.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_cip")
     # Modify output argument: change logs and working directory to be subdirectory for the run
@@ -1294,7 +1308,7 @@ if opts.cip_explode_jobs:
         fname = opts.working_directory+"/"+join_cip_job.get_sub_file()
         join_cip_job.set_sub_file(fname)
     if opts.condor_containerize_nonworker and singularity_image:
-        join_cip_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+        join_cip_job.add_condor_cmd("+SingularityImage", '"' + nonworker_singularity_image + '"')
     _add_hpip_condor_env(join_cip_job)
     join_cip_job.write_sub_file()
 
@@ -1312,7 +1326,7 @@ if puff_args and puff_cadence:
         fname = opts.working_directory+"/"+puff_job.get_sub_file()
         puff_job.set_sub_file(fname)
     if opts.condor_containerize_nonworker and singularity_image:
-        puff_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+        puff_job.add_condor_cmd("+SingularityImage", '"' + nonworker_singularity_image + '"')
     _add_hpip_condor_env(puff_job)
     puff_job.write_sub_file()
 
@@ -1344,7 +1358,7 @@ if opts.search_reflected_sky_mode and int(opts.n_iterations) > 1:
     if opts.use_full_submit_paths:
         reflected_mode_job.set_sub_file(opts.working_directory+"/"+reflected_mode_job.get_sub_file())
     if opts.condor_containerize_nonworker and singularity_image:
-        reflected_mode_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+        reflected_mode_job.add_condor_cmd("+SingularityImage", '"' + nonworker_singularity_image + '"')
     _add_hpip_condor_env(reflected_mode_job)
     reflected_mode_job.write_sub_file()
 
@@ -1405,7 +1419,7 @@ if fetch_args:
         fname = opts.working_directory+"/"+fetch_job.get_sub_file()
         fetch_job.set_sub_file(fname)
     if opts.condor_containerize_nonworker and singularity_image:
-        fetch_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+        fetch_job.add_condor_cmd("+SingularityImage", '"' + nonworker_singularity_image + '"')
     _add_hpip_condor_env(fetch_job)
     fetch_job.write_sub_file()
 
@@ -1447,7 +1461,7 @@ else:
             cip_args_truncate = " --n-eff 5 --n-max 10000 --n-output-samples 1 "  # cap n_eff, number of iterations, and *output samples* for non-worker jobs, to avoid contamination
         # Write the appropriate CIP jobs. [note only one CIP per iteration, so unique
 #        cip_exe_here =cip_exe
-        cip_job, cip_job_name = dag_utils.write_CIP_sub(tag='CIP_'+str(indx),log_dir=None,arg_str=cip_args_lines[indx]+cip_args_extra+cip_args_truncate,request_memory=opts.request_memory_CIP,request_memory_flex=opts.request_memory_CIP_flex,input_net=working_dir_inside_cip+'/all.net',output='overlap-grid-$(macroiterationnext)',out_dir=out_dir_inside_cip,exe=cip_exe_here_master,universe=local_worker_universe_cip,no_grid=cip_no_grid,use_osg=opts.use_osg_cip,use_singularity=opts.use_osg_cip and opts.use_singularity,singularity_image=singularity_image,use_simple_osg_requirements=opts.use_osg_cip,use_oauth_files=opts.use_oauth_files,transfer_files=cip_transfer_files)
+        cip_job, cip_job_name = dag_utils.write_CIP_sub(tag='CIP_'+str(indx),log_dir=None,arg_str=cip_args_lines[indx]+cip_args_extra+cip_args_truncate,request_memory=opts.request_memory_CIP,request_memory_flex=opts.request_memory_CIP_flex,request_gpus=opts.request_gpus_CIP,require_gpus=opts.require_gpus_CIP,input_net=working_dir_inside_cip+'/all.net',output='overlap-grid-$(macroiterationnext)',out_dir=out_dir_inside_cip,exe=cip_exe_here_master,universe=local_worker_universe_cip,no_grid=cip_no_grid,use_osg=opts.use_osg_cip,use_singularity=opts.use_osg_cip and opts.use_singularity,singularity_image=cip_singularity_image,use_simple_osg_requirements=opts.use_osg_cip,use_oauth_files=opts.use_oauth_files,transfer_files=cip_transfer_files)
         # Modify: set 'initialdir'
         cip_job.add_condor_cmd("initialdir",cip_initialdir)
         # Modify output argument: change logs and working directory to be subdirectory for the run
@@ -1476,13 +1490,30 @@ else:
            # if the last set of workers, we are making extrinsic samples, so change the output samples  
            if indx == len(cip_args_lines) -1 and opts.last_iteration_extrinsic: # on last iteration, doing extrinsic phase
                n_samples_per_job = int(opts.last_iteration_extrinsic_nsamples/(1.0*opts.cip_explode_jobs_last))
-               cip_args_extra +=" --n-eff {} --n-output-samples {} ".format(n_samples_per_job,n_samples_per_job)
+               # Keep a declared Kish worker integration target independent of
+               # the final extrinsic export quota (resampling can repeat rows).
+               final_target = n_samples_per_job
+               final_line = cip_args_lines[indx]+cip_args_extra
+               if '--av-stop-metric' in final_line:  # opt-in only; default lines are never tokenized
+                   try:
+                       final_tokens = [x for tok in shlex.split(final_line)
+                                       for x in (tok.split('=',1) if tok.startswith(('--av-stop-metric=','--n-eff=')) else [tok])]
+                   except ValueError as exc:
+                       print(" WARNING: cannot tokenize final CIP line ({}); using the export quota as --n-eff ".format(exc))
+                       final_tokens = []
+                   final_values = {final_tokens[k]:final_tokens[k+1] for k in range(len(final_tokens)-1)
+                                   if final_tokens[k] in ('--av-stop-metric','--n-eff')}
+                   if final_values.get('--av-stop-metric') == 'kish':
+                       # CIP permits a Kish stage with no explicit --n-eff; fall back to the
+                       # CIP default (3e3) so the declared target is still the worker's target
+                       final_target = float(final_values.get('--n-eff', 3e3))
+               cip_args_extra +=" --n-eff {} --n-output-samples {} ".format(final_target,n_samples_per_job)
                if not (opts.use_eccentricity_squared_sampling):
                    cip_args_lines[indx] = cip_args_lines[indx].replace(' --parameter eccentricity_squared ',' --parameter-implied eccentricity_squared --parameter-nofit eccentricity ')
            transfer_files_cip=['../all.net']
            if opts.use_osg_cip and 'fit-method gp' in cip_args_base:
                transfer_files_cip += ['my_fit.pkl']  # transfer current working directory fit
-           cip_job_worker, cip_job_worker_name = dag_utils.write_CIP_sub(tag='CIP_worker'+str(indx),log_dir=None,arg_str=cip_args_lines[indx]+cip_args_extra,request_memory=opts.request_memory_CIP,request_memory_flex=opts.request_memory_CIP_flex,input_net=working_dir_inside_cip+'/all.net',output=fname_out,out_dir=out_dir_inside_cip,exe=cip_exe_here,ncopies=n_explode,universe=local_worker_universe_cip,no_grid=cip_no_grid,use_osg=opts.use_osg_cip,use_singularity=opts.use_osg_cip and opts.use_singularity,singularity_image=singularity_image,use_simple_osg_requirements=opts.use_osg_cip,use_oauth_files=opts.use_oauth_files,transfer_files=transfer_files_cip)
+           cip_job_worker, cip_job_worker_name = dag_utils.write_CIP_sub(tag='CIP_worker'+str(indx),log_dir=None,arg_str=cip_args_lines[indx]+cip_args_extra,request_memory=opts.request_memory_CIP,request_memory_flex=opts.request_memory_CIP_flex,request_gpus=opts.request_gpus_CIP,require_gpus=opts.require_gpus_CIP,input_net=working_dir_inside_cip+'/all.net',output=fname_out,out_dir=out_dir_inside_cip,exe=cip_exe_here,ncopies=n_explode,universe=local_worker_universe_cip,no_grid=cip_no_grid,use_osg=opts.use_osg_cip,use_singularity=opts.use_osg_cip and opts.use_singularity,singularity_image=cip_singularity_image,use_simple_osg_requirements=opts.use_osg_cip,use_oauth_files=opts.use_oauth_files,transfer_files=transfer_files_cip)
            # Modify: set 'initialdir'
            cip_job_worker.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_cip")
            # Modify output argument: change logs and working directory to be subdirectory for the run
@@ -1543,7 +1574,7 @@ if opts.n_iterations > 0 and cip_args_for_iteration[opts.n_iterations-1] is not 
     if opts.use_full_submit_paths:
         prior_job.set_sub_file(opts.working_directory+"/"+prior_job.get_sub_file())
     if opts.condor_containerize_nonworker and singularity_image:
-        prior_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+        prior_job.add_condor_cmd("+SingularityImage", '"' + nonworker_singularity_image + '"')
     _add_hpip_condor_env(prior_job)
     prior_job.write_sub_file()
 
@@ -1568,7 +1599,7 @@ if opts.n_iterations > 0 and cip_args_for_iteration[opts.n_iterations-1] is not 
     if opts.use_full_submit_paths:
         final_evidence_job.set_sub_file(opts.working_directory+"/"+final_evidence_job.get_sub_file())
     if opts.condor_containerize_nonworker and singularity_image:
-        final_evidence_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+        final_evidence_job.add_condor_cmd("+SingularityImage", '"' + nonworker_singularity_image + '"')
     _add_hpip_condor_env(final_evidence_job)
     final_evidence_job.write_sub_file()
 ##   Test job (terminate, convergence
@@ -1589,7 +1620,7 @@ if opts.test_args:
             fname = opts.working_directory+"/"+convert_job.get_sub_file()
             convert_job.set_sub_file(fname)
         if opts.condor_containerize_nonworker and singularity_image:
-            convert_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+            convert_job.add_condor_cmd("+SingularityImage", '"' + nonworker_singularity_image + '"')
         convert_job.write_sub_file()
 
 
@@ -1608,7 +1639,7 @@ if opts.test_args:
         fname = opts.working_directory+"/"+test_job.get_sub_file()
         test_job.set_sub_file(fname)
     if opts.condor_containerize_nonworker and singularity_image:
-        test_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+        test_job.add_condor_cmd("+SingularityImage", '"' + nonworker_singularity_image + '"')
     _add_hpip_condor_env(test_job)
     test_job.write_sub_file()
 
@@ -1915,6 +1946,29 @@ for it in np.arange(it_start,opts.n_iterations):
     n_jobs_this_time = opts.n_samples_per_job
     if it ==it_start:
         n_jobs_this_time = n_initial
+    ordinary_ile_parent = parent_fit_node
+    if opts.ile_deduplicate_grid and not(it==it_start and opts.first_iteration_jumpstart):
+        grid_exe = which('util_DeduplicateIntrinsicGrid.py')
+        if grid_exe is None:
+            raise RuntimeError('Missing util_DeduplicateIntrinsicGrid.py for unique ILE grid')
+        grid_args = " --input-xml {w}/overlap-grid-{i}.xml.gz --output-file {w}/likelihood-grid-{i} --min-points {n} --receipt {w}/likelihood-grid-{i}.json ".format(w=opts.working_directory,i=it,n=n_jobs_this_time)
+        grid_job, _ = dag_utils.write_convert_sub(tag='ile_grid_'+str(it),exe=grid_exe,
+            file_input='',arg_str=grid_args,out_dir=opts.working_directory,
+            universe=local_worker_universe,no_grid=no_worker_grid)
+        grid_job.add_condor_cmd('initialdir',opts.working_directory)
+        grid_job.add_condor_cmd('request_memory','2048M')
+        grid_job.set_log_file(opts.working_directory+'/ile-grid-'+str(it)+'-$(cluster).log')
+        grid_job.set_stdout_file(opts.working_directory+'/ile-grid-'+str(it)+'-$(cluster).out')
+        grid_job.set_stderr_file(opts.working_directory+'/ile-grid-'+str(it)+'-$(cluster).err')
+        if opts.condor_containerize_nonworker and singularity_image:
+            grid_job.add_condor_cmd('+SingularityImage','"'+nonworker_singularity_image+'"')
+        _add_hpip_condor_env(grid_job)
+        grid_job.write_sub_file()
+        grid_node = pipeline.CondorDAGNode(grid_job)
+        if parent_fit_node: grid_node.add_parent(parent_fit_node)
+        grid_node.set_retry(opts.general_retries)
+        dag.add_node(grid_node)
+        ordinary_ile_parent = grid_node
     indx_max = int((1.0*n_jobs_this_time)/n_group_here)
     if indx_max*n_jobs_this_time < n_group_here:
         indx_max+=1
@@ -1932,12 +1986,12 @@ for it in np.arange(it_start,opts.n_iterations):
             main_subdag =  pipeline.CondorDAGManJob(my_ile_subdag_name)
             main_analysis_node = main_subdag.create_node()
             main_analysis_node.set_retry(0)  # currently low-level RETRY takes care of things ... beware RETRY will re do all nodes!
-            if parent_fit_node:
-                main_analysis_node.add_parent(parent_fit_node)
+            if ordinary_ile_parent:
+                main_analysis_node.add_parent(ordinary_ile_parent)
             con_node.add_parent(main_analysis_node)
             dag.add_node(main_analysis_node)
         else:
-            add_batch_ILE_nodes_to_dag(dag, ile_job, parent_fit_node, con_node, indx_max, n_group_here, it, n_retries=opts.ile_retries,it_start=it_start,convert_psd_node_list=convert_psd_node_list,node_list_dict=ile_node_list_per_iteration)
+            add_batch_ILE_nodes_to_dag(dag, ile_job, ordinary_ile_parent, con_node, indx_max, n_group_here, it, n_retries=opts.ile_retries,it_start=it_start,convert_psd_node_list=convert_psd_node_list,node_list_dict=ile_node_list_per_iteration)
             # Option C: the wide ILE jobs of iteration `it` are SEEDED from the cal proposal
             # learned by the PREVIOUS iteration's pilot -> make them depend on calpilot_{it-1}
             # so cal_consolidated_{it-1}.npz exists (the seed barrier).  The ILE args carry
@@ -2057,6 +2111,14 @@ for it in np.arange(it_start,opts.n_iterations):
         cmd += " --neff-threshold {} ".format(opts.neff_threshold)
         cmd += " --general-request-disk {} --ile-request-disk {} --cip-request-disk {} ".format(opts.general_request_disk,opts.ile_request_disk,opts.cip_request_disk)
         cmd += " --request-memory-ILE {} --request-memory-CIP {} ".format(opts.request_memory_ILE,opts.request_memory_CIP)
+        if opts.cip_singularity_image:
+            cmd += " --cip-singularity-image {} ".format(shlex.quote(opts.cip_singularity_image))
+        if opts.ile_deduplicate_grid:
+            cmd += " --ile-deduplicate-grid "
+        if opts.request_gpus_CIP:
+            cmd += " --request-gpus-CIP {} ".format(opts.request_gpus_CIP)
+        if opts.require_gpus_CIP:
+            cmd += " --require-gpus-CIP {} ".format(shlex.quote(opts.require_gpus_CIP))
         if opts.use_EOB_parameters:
             cmd += " --use-EOB-parameters "
         if opts.use_hyperbolic:
