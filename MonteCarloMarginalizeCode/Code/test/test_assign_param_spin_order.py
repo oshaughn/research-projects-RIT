@@ -107,17 +107,20 @@ def test_theta_hint_unused_on_nonzero_spin():
     assert np.allclose(_cart(P)[:3], [0., 0., 0.8], rtol=0, atol=1e-15)
 
 
-def test_s_z_bar_at_the_poles():
+@pytest.mark.parametrize("k", [1, 2])
+@pytest.mark.parametrize("pole", [1., -1.])
+def test_s_z_bar_at_the_poles(k, pole):
     P = lsu.ChooseWaveformParams()
-    P.s1z = 1.
-    P.assign_param('s1z_bar', 0.5)   # old s1z = 1: no chi1_perp_bar to hold
-    assert np.all(np.isfinite(_cart(P))) and P.s1z == 0.5
+    setattr(P, 's%dz' % k, pole)
+    P.assign_param('s%dz_bar' % k, 0.5)   # old s_z = +-1: no chi_perp_bar to hold
+    assert np.all(np.isfinite(_cart(P))) and getattr(P, 's%dz' % k) == 0.5
     P = lsu.ChooseWaveformParams()
-    P.s1x, P.s1y, P.s1z = 0.3, 0.4, 0.2
-    P.assign_param('s1z_bar', 1.)    # in-plane spin goes to zero; its azimuth is kept
-    P.assign_param('s1z_bar', 0.5)
-    P.assign_param('chi1_perp_bar', 0.4)
-    assert np.isclose(P.extract_param('phi1'), np.arctan2(0.4, 0.3), rtol=0, atol=1e-14)
+    for c, v in zip('xyz', [0.3, 0.4, 0.2]):
+        setattr(P, 's%d%s' % (k, c), v)
+    P.assign_param('s%dz_bar' % k, pole)   # in-plane spin goes to zero; its azimuth is kept
+    P.assign_param('s%dz_bar' % k, 0.5)
+    P.assign_param('chi%d_perp_bar' % k, 0.4)
+    assert np.isclose(P.extract_param('phi%d' % k), np.arctan2(0.4, 0.3), rtol=0, atol=1e-14)
 
 
 def test_swap_components_swaps_requested_angles():
