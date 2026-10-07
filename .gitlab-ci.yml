@@ -60,6 +60,8 @@ unit_tests:
     # calmarg waveform kwargs: real pseudo_pipe -> CEPP build (no test_run setup needed) and rift_source
     - python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_calmarg_extra_args_transport.py MonteCarloMarginalizeCode/Code/test/test_calmarg_rift_source.py MonteCarloMarginalizeCode/Code/test/test_calmarg_ile_waveform_alignment.py
 
+    - python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_time_marginalization_quadrature.py MonteCarloMarginalizeCode/Code/test/test_time_marginalization_wiring.py MonteCarloMarginalizeCode/Code/test/test_time_marginalization_cli.py MonteCarloMarginalizeCode/Code/test/test_noloop_time_interp.py
+
 test_run:
   stage: system tests
   script:

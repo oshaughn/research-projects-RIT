@@ -229,6 +229,7 @@ optp.add_option("-m", "--time-marginalization", action="store_true", help="Perfo
 #optp.add_option("--n-fairdraw-extrinsic-samples",default=None,type=int,help="Extracts a concrete number of fair draw extrinsic samples, bounded above by n_eff")
 optp.add_option("--resample-time-marginalization",action='store_true', help="If time-marginalizaiton is true (and should almost always be true), at the end export step use resampling. REQUIRES using fairdraw-extrinsic-output")
 optp.add_option("--srate-resample-time-marginalization",type=int, default=None, help="If time-marginalizaiton is true (and should almost always be true), an opportunity to interpolate the likelihoods on the (internal) time grid and perform time resampling at a higher sampling rate, for greater nominal time resolution. Does not change underlying calculations.")
+optp.add_option("--time-marginalization-quadrature", default='simpson', type=str, help="Time integral: simpson (default) or bandlimited (CHANGES RESULTS; reflected finite-window FFT reconstruction plus dense trapezoid at a derived resolution). Uses the current rift_O4d boundary construction. Reflection is an approximation to the unavailable full correlation, not exact recovery. Dense callback evaluations cost more as SNR increases. Requires --time-marginalization --vectorized --gpu; use --force-xpy on CPU. Time-posterior resampling is not yet supported with this O4c option.")
 optp.add_option("-d", "--distance-marginalization", action="store_true", help="Perform marginalization over distance via a look-up table. Default is false.")
 optp.add_option("-l", "--distance-marginalization-lookup-table", default=None, help="Look-up table for distance marginalization.")
 optp.add_option("--vectorized", action="store_true", help="Perform manipulations of lm and timeseries using numpy arrays, not LAL data structures.  (Combine with --gpu to enable GPU use, where available)")
@@ -449,6 +450,27 @@ if opts.gpu and xpy_default is numpy:
     if opts.force_xpy:
         opts.gpu=True
 
+# Validate the effective NoLoop selection after the cupy fallback has run.
+factored_likelihood.time_quad.validate_time_quadrature(opts.time_marginalization_quadrature)
+if opts.time_marginalization_quadrature != 'simpson':
+    required = (('--time-marginalization', bool(opts.time_marginalization)),
+                ('--vectorized', bool(opts.vectorized)),
+                ('--gpu (use --force-xpy on CPU)', bool(opts.gpu)),
+                ('not --zero-likelihood', not bool(opts.zero_likelihood)),
+                ('not --resample-time-marginalization (continuous export is not ported)',
+                 not bool(opts.resample_time_marginalization)))
+    missing = [name for name, ok in required if not ok]
+    if missing:
+        raise ValueError("--time-marginalization-quadrature cannot honour this configuration: "
+                         + "; ".join(missing))
+if opts.time_marginalization_quadrature == 'bandlimited' and opts._noloop_time_interp != 'nearest':
+    print(" Bandlimited quadrature includes the cubic Q stencil; nearest-stencil "
+          "accuracy measurements do not establish its advantage for this configuration.")
+print(" Time-marginalization quadrature : {} {}".format(
+    opts.time_marginalization_quadrature,
+    "(historical fixed-dx Simpson rule)" if opts.time_marginalization_quadrature == 'simpson'
+    else "(reflected FFT + trapezoid; RESULT-CHANGING vs simpson)"))
+
 manual_avoid_overflow_logarithm=opts.manual_logarithm_offset
 manual_avoid_overflow_logarithm_default =  manual_avoid_overflow_logarithm
 
@@ -514,6 +536,7 @@ if opts.nr_group and opts.nr_param:
 template_min_freq = opts.fmin_template # minimum frequency of template
 #t_ref_wind = 50e-3 # Interpolate in a window +/- this width about event time. 
 t_ref_wind = opts.data_integration_window_half
+
 T_safety = 2. # Safety buffer (in sec) for wraparound corruption
 
 #
@@ -1683,7 +1706,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 
                 lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
                         P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default,
-                        time_interp=opts._noloop_time_interp)
+                        time_interp=opts._noloop_time_interp, time_quadrature=opts.time_marginalization_quadrature)
 #                nEvals +=len(right_ascension)
                 if supplemental_ln_likelihood:
                   lnL += supplemental_ln_likelihood(P.phi, P.theta, P.phiref ,P.incl, P.psi, P.dist,xpy=xpy_default) # use these variables so they are already float-type
@@ -1787,7 +1810,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 
                   lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
                     P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default, loglikelihood=distmarg_loglikelihood, phase_marginalization=True,
-                    time_interp=opts._noloop_time_interp)
+                    time_interp=opts._noloop_time_interp, time_quadrature=opts.time_marginalization_quadrature)
 #                  nEvals +=len(right_ascension)
                   if supplemental_ln_likelihood:
                     lnL += supplemental_ln_likelihood(P.phi, P.theta, P.phiref ,P.incl, P.psi, 0,xpy=xpy_default) # Same API
@@ -1831,7 +1854,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 
                   lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
                     P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default, loglikelihood=distmarg_loglikelihood,
-                    time_interp=opts._noloop_time_interp)
+                    time_interp=opts._noloop_time_interp, time_quadrature=opts.time_marginalization_quadrature)
 #                  nEvals +=len(right_ascension)
                   if supplemental_ln_likelihood:
                     lnL += supplemental_ln_likelihood(P.phi, P.theta, P.phiref ,P.incl, P.psi, 0,xpy=xpy_default) # Same API

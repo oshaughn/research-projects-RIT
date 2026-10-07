@@ -49,3 +49,11 @@ jobs:
             MonteCarloMarginalizeCode/Code/test/test_rf_transverse_helper_generation.py
           python MonteCarloMarginalizeCode/Code/test/rf_transverse_cli_smoke.py
           python MonteCarloMarginalizeCode/Code/test/rf_transverse_cli_smoke.py redshift
+      - name: Run O4c time quadrature and interpolation regressions
+        run: |
+          python -m pytest -q \
+            MonteCarloMarginalizeCode/Code/test/test_time_marginalization_quadrature.py \
+            MonteCarloMarginalizeCode/Code/test/test_time_marginalization_wiring.py \
+            MonteCarloMarginalizeCode/Code/test/test_time_marginalization_cli.py \
+            MonteCarloMarginalizeCode/Code/test/test_time_marginalization_perrow_offset.py \
+            MonteCarloMarginalizeCode/Code/test/test_noloop_time_interp.py

@@ -63,6 +63,7 @@ from itertools import product, combinations
 import math
 
 from .vectorized_lal_tools import ComputeDetAMResponse,TimeDelayFromEarthCenter
+from . import time_marginalization_quadrature as time_quad
 
 import os
 if 'PROFILE' not in os.environ:
@@ -1851,7 +1852,7 @@ def _nearest_Q_window_numpy(Q_block, start_indices, npts, xpy=np):
     return Qlms
 
 
-def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=np, loglikelihood=_factored_lnL_helper,return_lnLt=False,phase_marginalization=False,time_interp='nearest'):
+def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=np, loglikelihood=_factored_lnL_helper,return_lnLt=False,phase_marginalization=False,time_interp='nearest',time_quadrature='simpson'):
     """
     DiscreteFactoredLogLikelihoodViaArray uses the array-ized data structures to compute the log likelihood,
     either as an array vs time *or* marginalized in time. 
@@ -1859,6 +1860,12 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
     The timeseries quantities are computed via discrete shifts of an existing grid
     Note 'P' must have the *sampling rate* set to correctly interpret the event time.
      Note arguments passed are NOW ARRAYS, in contrast to similar function which does not have 'Vector' postfix
+
+    time_quadrature : {'simpson', 'bandlimited'}
+        Opt-in reflected finite-window FFT reconstruction and adaptive dense
+        trapezoid quadrature, as on rift_O4d. Reflection mitigates endpoint
+        ringing; it is not exact recovery of the unavailable full correlation.
+        The callback is evaluated on the dense grid, so cost grows with SNR.
 
     time_interp : {'nearest', 'cubic'}
         Detector-time sampling convention for the data term.  'nearest'
@@ -1869,6 +1876,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
     """
     global distMpcRef
 
+    time_quad.validate_time_quadrature(time_quadrature)
     if time_interp not in ('nearest', 'cubic'):
         raise ValueError("time_interp must be 'nearest' or 'cubic'")
 
@@ -2109,6 +2117,16 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
     lnLmax  = xpy.max(lnL_t, axis=-1, keepdims=True)
     if return_lnLt:
       return lnL_t  #- lnLmax    # we want the verbatim lnL_t values, no shift
+
+    if time_quadrature == 'bandlimited':
+        # Match the current O4d numerical boundary construction and per-row
+        # offsets. The gather steps at deltaT, not the linspace spacing in tvals.
+        # Pass the caller's Simpson implementation for unrefined rows.
+        return time_quad.time_marginalize_bandlimited(
+            kappa_sq, rho_sq, deltaT, loglikelihood,
+            phase_marginalization=phase_marginalization, lnL_coarse=lnL_t,
+            simps=simps, xpy=xpy)
+
     L_t = xpy.exp(lnL_t - lnLmax, out=lnL_t)
 
     L = simps(L_t, dx=deltaT, axis=-1)
