@@ -155,7 +155,8 @@ def stage_arguments(line, mode, detector_chirp_mass, applicable, frequency):
     tokens=shlex.split(line)
     if not _supports_physics3(tokens):
         return line
-    if mode in GEOMETRIC4_MODES:
+    active_mode = 'geometric4' if mode == 'auto' else mode
+    if active_mode in GEOMETRIC4_MODES:
         _require_geometric4_basis(tokens)
     if '--rf-transverse-spin-coordinates' in tokens:
         raise ValueError('Duplicate RF transverse-spin activation')
@@ -164,7 +165,6 @@ def stage_arguments(line, mode, detector_chirp_mass, applicable, frequency):
     # Explicit fref replaces a stage-local value; it is the ILE spin reference, not fmin.
     # Edit the text in place: re-quoting every token would quote [lo,hi] ranges.
     line=re.sub(r'(^|\s)--fref(\s+|=)\S+', ' ', line)
-    active_mode = mode if mode in GEOMETRIC4_MODES else 'physics3'
     return line.rstrip()+' --rf-transverse-spin-coordinates '+active_mode+' --fref '+str(float(frequency))
 
 
@@ -185,7 +185,7 @@ def revalidate_stage(line):
 
     A rewrite that drops the native basis (e.g. delta_mc -> eta) would otherwise
     fail in every CIP job of that stage, after ILE has run. Fail at build time
-    instead, in auto and physics3 alike (as on rift_O4d).
+    instead, for every activated transverse-spin mode.
     """
     import shlex
     tokens=shlex.split(line)

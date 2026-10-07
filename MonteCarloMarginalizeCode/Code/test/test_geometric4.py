@@ -63,7 +63,7 @@ def test_stage_preserves_raw_ranges_and_waveform_dictionary(mode):
     with pytest.raises(ValueError):f.revalidate_stage(active.replace('mu1','eta'))
 
 @pytest.mark.parametrize('extra',['phi1','s1x'])
-@pytest.mark.parametrize('mode',f.GEOMETRIC4_MODES)
+@pytest.mark.parametrize('mode',('auto',)+f.GEOMETRIC4_MODES)
 def test_build_rejects_redundant_basis(extra,mode):
     line='1 --fit-method rf --use-precessing '+' '.join('--parameter-implied '+n for n in f.NATIVE_FEATURES)
     with pytest.raises(ValueError,match='exactly the eight'):

@@ -56,14 +56,20 @@ def generate(monkeypatch,tmp_path, mode, mc=10, force_method=None, fref=35):
     assert result,'Helper did not reach generated stage boundary'
     return result
 
-@pytest.mark.parametrize('mode,mc,activated',[('physics3',10,True),('auto',10,True),('auto',25,False),('off',10,False),('auto',None,False)])
-def test_actual_helper_top_level_policy(monkeypatch,tmp_path,mode,mc,activated):
+@pytest.mark.parametrize('mode,mc,expected',[('physics3',10,'physics3'),('auto',10,'geometric4'),
+    ('auto',19.9,'geometric4'),('auto',20.1,None),('auto',25,None),('off',10,None),('auto',None,None)])
+def test_actual_helper_top_level_policy(monkeypatch,tmp_path,mode,mc,expected):
+    # The exact 20 boundary is checked directly in test_auto_conservative_mass;
+    # XML mass roundtrips can put nominal 20 infinitesimally below the boundary.
     result=generate(monkeypatch,tmp_path,mode,mc)
-    active=[line for line in result['lines'] if '--rf-transverse-spin-coordinates physics3' in line]
-    assert bool(active)==activated
-    if activated:
+    import shlex
+    active=[line for line in result['lines'] if '--rf-transverse-spin-coordinates ' in line]
+    assert bool(active)==(expected is not None)
+    if expected is not None:
         assert result['fit_method']=='rf'
         for line in active:
+            tokens=shlex.split(line)
+            assert tokens[tokens.index('--rf-transverse-spin-coordinates')+1]==expected
             for name in ['delta_mc','mu1','mu2','chiMinus','s1x','s1y','s2x','s2y']:
                 assert name in line
             assert '--fref 35.0' in line
@@ -73,7 +79,7 @@ def test_actual_helper_top_level_policy(monkeypatch,tmp_path,mode,mc,activated):
 def test_actual_helper_explicit_gp_is_preserved(monkeypatch,tmp_path):
     result=generate(monkeypatch,tmp_path,'auto',10,'gp')
     assert result['fit_method']=='gp'
-    assert not any('--rf-transverse-spin-coordinates physics3' in line for line in result['lines'])
+    assert not any('--rf-transverse-spin-coordinates ' in line for line in result['lines'])
 
 
 def test_actual_off_has_unchanged_generated_stages(monkeypatch,tmp_path):
@@ -105,3 +111,19 @@ def test_actual_geometric4_helper(monkeypatch,tmp_path,mode):
 def test_actual_geometric4_rejects_gp(monkeypatch,tmp_path,mode):
     with pytest.raises(ValueError,match='No complete two-spin RF stage'):
         generate(monkeypatch,tmp_path,mode,10,'gp')
+
+
+def test_actual_asimov_default_generates_geometric4(monkeypatch,tmp_path):
+    liquid=pytest.importorskip('liquid')
+    import configparser
+    template=(ROOT/'RIFT/asimov/rift.ini').read_text()
+    start=template.index('cip-fit-method=')
+    end=template.index('cip-sampler-method=',start)
+    rendered=liquid.Liquid(template[start:end],from_file=False).render(sampler={'cip':{}})
+    parser=configparser.RawConfigParser()
+    parser.read_string('[policy]\n'+rendered)
+    mode=parser.get('policy','rf-transverse-spin-coordinates').strip('"')
+    result=generate(monkeypatch,tmp_path,mode,10)
+    active=[line for line in result['lines'] if '--rf-transverse-spin-coordinates ' in line]
+    assert active
+    assert all('--rf-transverse-spin-coordinates geometric4 ' in line for line in active)
