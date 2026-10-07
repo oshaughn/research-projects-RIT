@@ -32,7 +32,18 @@ Development tree is rift_O4c.
     staging, scheduler priority, and numeric options; CIP adds local-pool/
     no-stream settings; calibration shares ILE image routing.
 
-Release candidate is rc4.
+  - (rc5) PR 209 fixes the missing inspect import in calibration reweighting.
+    PR 210 makes coordinate-conversion fallbacks independent of row order;
+    PR 211 makes spin-coordinate assignment independent of assignment order,
+    preserving azimuth at poles and zero spin, array setters, and tiny-spin
+    directions. PR 182 adds opt-in bandlimited NoLoop time marginalization
+    with continuous time-posterior export, cubic detector-time interpolation
+    by default on that path, and bounded GPU row chunks; Simpson remains the
+    default quadrature. PR 212 adds opt-in geometric4 and
+    geometric4-phase-excess transverse-spin RF fitting bases; auto continues
+    to select physics3.
+
+Release candidate is rc5.
 
 0.0.17.13
 ---------
