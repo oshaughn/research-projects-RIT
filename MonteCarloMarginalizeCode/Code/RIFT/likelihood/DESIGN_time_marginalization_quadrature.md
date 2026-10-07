@@ -55,3 +55,17 @@ Run the three named time-quadrature test files plus
 They are registered in GitLab unit tests and the GitHub O4c workflow. GPU
 parity and production cost/accuracy still require an appropriate CUDA host;
 a CPU pass must not be reported as a real-device validation.
+
+GPU bandlimited calls partition extrinsic likelihood rows before allocating the
+coarse kappa/rho/time arrays. This bounds implementation workspace independently
+of the sampler proposal batch: production `--n-chunk` still controls the sampler.
+The conservative planner caps coarse work at 256 MiB and 4096 rows, with an
+additional available-device-memory allowance. Dense reconstruction retains its
+own chunk budget. It does not flush the device memory pool or change other jobs.
+Simpson, CPU default batching, and coarse `return_lnLt` dispatch are unchanged.
+Continuous-draw uniforms are generated once in input order and sliced across
+row groups, preserving RNG and per-row conditional results. This budget is not
+a total VRAM guarantee for arbitrary callbacks or an extreme single refined row.
+The need was exposed by the matched S250114ax IR1 production batch74287 at
+internal16384 Hz: unbounded bandlimited coarse arrays exhausted a24GB GPU while
+other processes occupied4GB. Those failed attempts are not recovery evidence.

@@ -60,4 +60,5 @@ jobs:
             MonteCarloMarginalizeCode/Code/test/test_bandlimited_time_export_driver.py \
             MonteCarloMarginalizeCode/Code/test/test_time_export_exact_gps.py \
             MonteCarloMarginalizeCode/Code/test/test_time_marginalization_perrow_offset.py \
-            MonteCarloMarginalizeCode/Code/test/test_noloop_time_interp.py
+            MonteCarloMarginalizeCode/Code/test/test_noloop_time_interp.py \
+            MonteCarloMarginalizeCode/Code/test/test_noloop_bandlimited_row_chunks.py
