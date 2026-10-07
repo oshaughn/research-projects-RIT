@@ -21,12 +21,15 @@ def test_frozen_physics3_parity():
 def test_auto_conservative_mass(mass):
     assert f.stage_arguments(FULL,'auto',mass,True,20)==FULL
 
-def test_opt_in_keeps_native_sampling_and_reference():
-    line=f.stage_arguments(FULL+' --fref 10','auto',19.9,True,25)
+@pytest.mark.parametrize('mode,expected', [('auto','geometric4'),('physics3','physics3'),
+                                         ('geometric4','geometric4'),
+                                         ('geometric4-phase-excess','geometric4-phase-excess')])
+def test_opt_in_keeps_native_sampling_and_reference(mode,expected):
+    line=f.stage_arguments(FULL+' --fref 10',mode,19.9,True,25)
     assert '--parameter-nofit chi1 --parameter-nofit chi2' in line
     assert '--fref 10' not in line
     assert '--fref 25.0' in line
-    assert '--rf-transverse-spin-coordinates physics3' in line
+    assert '--rf-transverse-spin-coordinates '+expected in line
     assert f.stage_arguments(FULL,None,10,True,20)==FULL
     assert f.stage_arguments(FULL,'off',10,True,20)==FULL
 

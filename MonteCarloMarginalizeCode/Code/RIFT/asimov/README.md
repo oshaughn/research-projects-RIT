@@ -30,7 +30,7 @@ PESummary metafile produced by Rimsky's online Bilby analysis and normalizes
 Rimsky's underscore-separated prior names for the RIFT template. See
 ``RIFT/rimsky/README.md`` for configuration and operational details.
 
-### Low-mass transverse-spin RF prototype
+### Low-mass transverse-spin RF coordinates
 
 The pipeline remains opt-in: pass `--rf-transverse-spin-coordinates physics3`
 to `helper_LDG_Events.py` or `util_RIFT_pseudo_pipe.py`. The helper enables this
@@ -48,13 +48,14 @@ recorded physical products are unchanged. No GP or GPU dependencies are added.
 
 The bundled Asimov template uses `auto`: eligible precessing BBH analyses with a
 reliable native **detector-frame** chirp-mass estimate strictly below 20 solar
-masses opt in. Missing/placeholder mass estimates and unsupported analyses keep
-the existing recipe. Override under `sampler.cip`:
+masses select the four-input `geometric4` chart described below. Explicit
+`physics3` retains the scalar augmentation described above. Missing/placeholder
+mass estimates and unsupported analyses keep the existing recipe. Override under `sampler.cip`:
 
 ```yaml
 sampler:
   cip:
-    transverse spin coordinates: "off"  # off, auto, or physics3
+    transverse spin coordinates: "off"  # off, auto, physics3, geometric4, or geometric4-phase-excess
 ```
 
 YAML boolean `false` (including an unquoted YAML 1.1 `off`) means `off`;
@@ -71,7 +72,7 @@ separate partially improved case, and known sky/data/prior discrepancies require
 separate assessment. Coordinate activation changes neither stopping criteria
 nor posterior quotas.
 
-### Four-input Geometric4 chart (opt-in)
+### Four-input Geometric4 chart
 
 Set `sampler.cip.transverse spin coordinates: "geometric4"` (or pass
 `--rf-transverse-spin-coordinates geometric4` to the helper/pipeline).
@@ -89,5 +90,6 @@ differs from `(J-J_parallel)/L_N` when `J_parallel < 0`; the regularization
 epsilon used by physics3 is absent from both four-coordinate charts.
 The raw radius has no aligned-spin/J rescaling. Historical phase-excess
 fit results do not establish performance of this raw-radius option.
-The existing `auto` policy continues to select physics3, not geometric4.
+The `auto` policy selects `geometric4` for eligible low-mass analyses.
+Select `physics3` explicitly to retain the scalar augmentation.
 This is an experimental representation, not an end-to-end accuracy claim.
