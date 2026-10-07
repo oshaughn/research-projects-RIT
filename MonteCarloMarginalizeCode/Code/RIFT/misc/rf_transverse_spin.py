@@ -39,6 +39,48 @@ def scalar_features(m1,m2,s1,s2,frequency=20.,epsilon=.1):
     return np.stack([cone2,phase_deficit,torque2],axis=-1)
 
 
+def geometric4(m1, m2, s1, s2, frequency=20.):
+    """Four-coordinate phase-excess chart in the existing L frame.
+
+    H=(J-|J_parallel|)/L_N, total-spin azimuth in [-pi,pi), and two
+    signed residuals in the total-spin frame. At exact cancellation choose
+    azimuth zero; this chart has a seam but loses no transverse information.
+    """
+    s1,s2=np.asarray(s1,float),np.asarray(s2,float)
+    if s1.shape[-1:]!=(3,) or s2.shape[-1:]!=(3,) or not np.isfinite(s1).all() or not np.isfinite(s2).all():
+        raise ValueError('Require finite three-component spins')
+    g=geometry(m1,m2,s1,s2,frequency)
+    radius=np.hypot(g['T'][...,0],g['T'][...,1])
+    theta=np.where(radius==0.,0.,np.arctan2(g['T'][...,1],g['T'][...,0]))
+    theta=(theta+np.pi)%(2*np.pi)-np.pi
+    den=g['L']*(g['J']+np.abs(g['D']))
+    H=np.divide(radius**2,den,out=np.zeros_like(radius),where=den>0)
+    h=np.hypot(g['w1'],g['w2'])
+    r=(-g['w2'][...,None]*np.asarray(s1)[...,:2]+g['w1'][...,None]*np.asarray(s2)[...,:2])/h[...,None]
+    co,si=np.cos(theta),np.sin(theta)
+    return np.stack([H,theta,co*r[...,0]+si*r[...,1],-si*r[...,0]+co*r[...,1]],axis=-1)
+
+
+def geometric4_inverse(m1,m2,z1,z2,features,frequency=20.):
+    """Diagnostic inverse at fixed masses/aligned spins; never a new sampler."""
+    f=np.asarray(features,float)
+    if f.shape[-1]!=4 or not np.isfinite(f).all() or np.any(f[...,0]<0):
+        raise ValueError('Require four finite coordinates and nonnegative phase excess')
+    s1=np.zeros(f.shape[:-1]+(3,));s2=np.zeros_like(s1)
+    s1[...,2]=z1;s2[...,2]=z2
+    g=geometry(m1,m2,s1,s2,frequency)
+    H,theta,parallel,perpendicular=np.moveaxis(f,-1,0)
+    radius=g['L']*np.sqrt(H*(H+2*np.abs(g['D'])/g['L']))
+    co,si=np.cos(theta),np.sin(theta)
+    T=np.stack([radius*co,radius*si],axis=-1)
+    r=np.stack([parallel*co-perpendicular*si,parallel*si+perpendicular*co],axis=-1)
+    h=np.hypot(g['w1'],g['w2'])
+    s1[...,:2]=(g['w1'][...,None]*T-g['w2'][...,None]*h[...,None]*r)/h[...,None]**2
+    s2[...,:2]=(g['w2'][...,None]*T+g['w1'][...,None]*h[...,None]*r)/h[...,None]**2
+    return s1,s2
+
+GEOMETRIC4_NAMES=('rf_phase_excess','rf_total_azimuth','rf_residual_parallel','rf_residual_perpendicular')
+
 FEATURE_NAMES = ('rf_cone2', 'rf_phase_deficit', 'rf_torque2')
 TRANSVERSE = ('s1x', 's1y', 's2x', 's2y')
 NATIVE_FEATURES = ('delta_mc','mu1','mu2','chiMinus') + TRANSVERSE
@@ -46,15 +88,18 @@ NATIVE_FEATURES = ('delta_mc','mu1','mu2','chiMinus') + TRANSVERSE
 def extract(P, name):
     """Fit-only extraction; P masses are SI, reference frequency follows P."""
     import lal
-    if name not in FEATURE_NAMES:
+    if name not in FEATURE_NAMES + GEOMETRIC4_NAMES:
         return P.extract_param(name)
-    values = scalar_features(P.m1/lal.MSUN_SI, P.m2/lal.MSUN_SI,
+    function = geometric4 if name in GEOMETRIC4_NAMES else scalar_features
+    names = GEOMETRIC4_NAMES if name in GEOMETRIC4_NAMES else FEATURE_NAMES
+    values = function(P.m1/lal.MSUN_SI, P.m2/lal.MSUN_SI,
         np.array([P.s1x,P.s1y,P.s1z]), np.array([P.s2x,P.s2y,P.s2z]), P.fref)
-    return values[FEATURE_NAMES.index(name)]
+    return values[names.index(name)]
 
 def convert(x, coord_names, low_level_coord_names, frequency, converter, **kwargs):
-    """Append fitting scalars using the exact same physical conversion as native CIP."""
-    base = [p for p in coord_names if p not in FEATURE_NAMES]
+    """Build fitting features using the exact same physical conversion as native CIP."""
+    names = GEOMETRIC4_NAMES if set(GEOMETRIC4_NAMES).intersection(coord_names) else FEATURE_NAMES
+    base = [p for p in coord_names if p not in names]
     native = converter(x, coord_names=base, low_level_coord_names=low_level_coord_names, **kwargs)
     physical_names = ['m1','m2','s1x','s1y','s1z','s2x','s2y','s2z']
     # Avoid native per-row fallback for aligned components in the standard spherical
@@ -81,12 +126,13 @@ def convert(x, coord_names, low_level_coord_names, frequency, converter, **kwarg
     valid = np.isfinite(physical).all(axis=1) & (physical[:,0]>0) & (physical[:,1]>0)
     if kwargs.get('enforce_kerr', False):
         valid &= (np.sum(physical[:,2:5]**2,axis=1)<=1) & (np.sum(physical[:,5:8]**2,axis=1)<=1)
-    values = np.full((len(x),3), -np.inf)
-    values[valid] = scalar_features(physical[valid,0], physical[valid,1],
+    values = np.full((len(x),len(names)), -np.inf)
+    function = geometric4 if names == GEOMETRIC4_NAMES else scalar_features
+    values[valid] = function(physical[valid,0], physical[valid,1],
         physical[valid,2:5], physical[valid,5:8], frequency)
     out = np.empty((len(x),len(coord_names)))
     for i,p in enumerate(coord_names):
-        out[:,i] = values[:,FEATURE_NAMES.index(p)] if p in FEATURE_NAMES else native[:,base.index(p)]
+        out[:,i] = values[:,names.index(p)] if p in names else native[:,base.index(p)]
     out[~valid] = -np.inf
     return out
 
@@ -98,6 +144,8 @@ def stage_arguments(line, mode, detector_chirp_mass, applicable, frequency):
     tokens=shlex.split(line)
     if not _supports_physics3(tokens):
         return line
+    if mode == 'geometric4':
+        _require_geometric4_basis(tokens)
     if '--rf-transverse-spin-coordinates' in tokens:
         raise ValueError('Duplicate RF transverse-spin activation')
     if not np.isfinite(float(frequency)) or float(frequency)<=0:
@@ -105,13 +153,20 @@ def stage_arguments(line, mode, detector_chirp_mass, applicable, frequency):
     # Explicit fref replaces a stage-local value; it is the ILE spin reference, not fmin.
     # Edit the text in place: re-quoting every token would quote [lo,hi] ranges.
     line=re.sub(r'(^|\s)--fref(\s+|=)\S+', ' ', line)
-    return line.rstrip()+' --rf-transverse-spin-coordinates physics3 --fref '+str(float(frequency))
+    active_mode = 'geometric4' if mode == 'geometric4' else 'physics3'
+    return line.rstrip()+' --rf-transverse-spin-coordinates '+active_mode+' --fref '+str(float(frequency))
 
 
 def _supports_physics3(tokens):
     def values(flag): return [tokens[i+1] for i,t in enumerate(tokens[:-1]) if t==flag]
     fit=values('--parameter')+values('--parameter-implied')
     return values('--fit-method')==['rf'] and set(NATIVE_FEATURES).issubset(fit)
+
+
+def _require_geometric4_basis(tokens):
+    fit=[tokens[i+1] for i,t in enumerate(tokens[:-1]) if t in ('--parameter','--parameter-implied')]
+    if len(fit)!=8 or set(fit)!=set(NATIVE_FEATURES):
+        raise ValueError('geometric4 requires exactly the eight native mass/aligned/transverse fitting coordinates')
 
 
 def revalidate_stage(line):
@@ -123,6 +178,10 @@ def revalidate_stage(line):
     """
     import shlex
     tokens=shlex.split(line)
+    if '--rf-transverse-spin-coordinates' in tokens:
+        mode=tokens[tokens.index('--rf-transverse-spin-coordinates')+1]
+        if mode=='geometric4':
+            _require_geometric4_basis(tokens)
     if '--rf-transverse-spin-coordinates' in tokens and not _supports_physics3(tokens):
         raise ValueError('A pipeline rewrite removed the RF basis from an activated stage; '
             'set the RF transverse-spin option to off or drop the rewriting option: '+line.strip())
@@ -131,12 +190,12 @@ def revalidate_stage(line):
 
 def enabled(mode, detector_chirp_mass, applicable):
     """Resolve the opt-in policy before constructing the native phase-fit schedule."""
-    if mode not in (None,'off','auto','physics3'):
+    if mode not in (None,'off','auto','physics3','geometric4'):
         raise ValueError('Unknown RF transverse-spin mode')
     if mode in (None,'off'):
         return False
     if not applicable:
-        if mode == 'physics3':
+        if mode in ('physics3','geometric4'):
             raise ValueError('RF transverse-spin coordinates require a precessing BBH analysis')
         return False
     try: mc=float(detector_chirp_mass) if not isinstance(detector_chirp_mass,(bool,np.bool_)) else float('nan')
