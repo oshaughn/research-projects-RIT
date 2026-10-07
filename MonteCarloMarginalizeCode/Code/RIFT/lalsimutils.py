@@ -552,9 +552,13 @@ class ChooseWaveformParams:
     def _spin_azimuth(self, k):
         # azimuth of spin k in the L frame; the last requested phi{k} (default 0) if the in-plane spin is zero
         sx, sy = getattr(self, 's%dx' % k), getattr(self, 's%dy' % k)
-        if sx == 0 and sy == 0:
-            return getattr(self, '_phi%d_requested' % k, 0.)
-        return np.arctan2(sy, sx)
+        if np.isscalar(sx) and np.isscalar(sy):
+            if sx == 0 and sy == 0:
+                return getattr(self, '_phi%d_requested' % k, 0.)
+            return np.arctan2(sy, sx)
+        return np.where((sx == 0) & (sy == 0),
+                        getattr(self, '_phi%d_requested' % k, 0.),
+                        np.arctan2(sy, sx))
 
     def assign_param(self,p,val):
         """
@@ -617,25 +621,30 @@ class ChooseWaveformParams:
             self.s1z = (czp+czm)
             self.s2z = (czp-czm)
             return self
-        if p == 's1z_bar':
-            # holds chi1_perp_bar and phi1 fixed, so the three bar coordinates can be assigned in any order
-            if self.s1z**2 < 1 and val**2 <= 1:
-                fac = np.sqrt((1-val**2)/(1-self.s1z**2))
+        if p in ('s1z_bar', 's2z_bar'):
+            # Hold chi_perp_bar and phi fixed, elementwise for array inputs too.
+            k = int(p[1])
+            old_z = getattr(self, 's%dz' % k)
+            if np.isscalar(old_z) and np.isscalar(val):
+                fac = 1.
+                if old_z**2 < 1 and val**2 <= 1:
+                    fac = np.sqrt((1-val**2)/(1-old_z**2))
                 if fac == 0:
-                    self._phi1_requested = self._spin_azimuth(1)
-                self.s1x *= fac
-                self.s1y *= fac
-            self.s1z = val
-            return self
-        if p == 's2z_bar':
-            # holds chi2_perp_bar and phi2 fixed, so the three bar coordinates can be assigned in any order
-            if self.s2z**2 < 1 and val**2 <= 1:
-                fac = np.sqrt((1-val**2)/(1-self.s2z**2))
-                if fac == 0:
-                    self._phi2_requested = self._spin_azimuth(2)
-                self.s2x *= fac
-                self.s2y *= fac
-            self.s2z = val
+                    setattr(self, '_phi%d_requested' % k, self._spin_azimuth(k))
+            else:
+                old_z, new_z = np.broadcast_arrays(old_z, val)
+                ratio = np.ones(old_z.shape, dtype=float)
+                np.divide(1-new_z**2, 1-old_z**2, out=ratio,
+                          where=(old_z**2 < 1) & (new_z**2 <= 1))
+                fac = np.sqrt(ratio)
+                if np.any(fac == 0):
+                    hint = getattr(self, '_phi%d_requested' % k, 0.)
+                    setattr(self, '_phi%d_requested' % k,
+                            np.where(fac == 0, self._spin_azimuth(k), hint))
+            for c in ('x', 'y'):
+                name = 's%d%s' % (k, c)
+                setattr(self, name, getattr(self, name) * fac)
+            setattr(self, 's%dz' % k, val)
             return self
         if p == 'chi1_perp_bar':
 #            chi1_perp = np.sqrt(self.s1x**2+self.s2y**2)
@@ -686,11 +695,11 @@ class ChooseWaveformParams:
         if p == 'chi1':
             chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
             chi1VecMag = np.sqrt(np.dot(chi1Vec,chi1Vec))
-            if chi1VecMag < 1e-5 and hasattr(self, '_theta1_requested'):
+            if chi1VecMag == 0 and hasattr(self, '_theta1_requested'):
                 theta = self._theta1_requested
                 phi = getattr(self, '_phi1_requested', 0.)
                 self.s1x,self.s1y,self.s1z = val*np.array([np.sin(theta)*np.cos(phi), np.sin(theta)*np.sin(phi), np.cos(theta)])
-            elif chi1VecMag < 1e-5:
+            elif chi1VecMag == 0:
                 Lref = self.OrbitalAngularMomentumAtReferenceOverM2()
                 Lhat = Lref/np.sqrt(np.dot(Lref,Lref))
                 self.s1x,self.s1y,self.s1z = val*Lhat
@@ -700,11 +709,11 @@ class ChooseWaveformParams:
         if p == 'chi2':
             chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
             chi2VecMag = np.sqrt(np.dot(chi2Vec,chi2Vec))
-            if chi2VecMag < 1e-5 and hasattr(self, '_theta2_requested'):
+            if chi2VecMag == 0 and hasattr(self, '_theta2_requested'):
                 theta = self._theta2_requested
                 phi = getattr(self, '_phi2_requested', 0.)
                 self.s2x,self.s2y,self.s2z = val*np.array([np.sin(theta)*np.cos(phi), np.sin(theta)*np.sin(phi), np.cos(theta)])
-            elif chi2VecMag < 1e-5:
+            elif chi2VecMag == 0:
                 Lref = self.OrbitalAngularMomentumAtReferenceOverM2()
                 Lhat = Lref/np.sqrt(np.dot(Lref,Lref))
                 self.s2x,self.s2y,self.s2z = val*Lhat

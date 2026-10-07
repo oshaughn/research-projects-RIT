@@ -133,3 +133,52 @@ def test_swap_components_swaps_requested_angles():
     want2 = 0.5*np.array([np.sin(0.7)*np.cos(2.0), np.sin(0.7)*np.sin(2.0), np.cos(0.7)])
     assert np.allclose(_cart(P)[3:], want2, rtol=0, atol=1e-15)
     assert np.allclose(_cart(P)[:3], [0., 0., 0.5], rtol=0, atol=1e-15)
+
+
+@pytest.mark.parametrize("k", [1, 2])
+@pytest.mark.parametrize("perm", list(itertools.permutations(range(3))))
+def test_tiny_nonzero_spin_keeps_direction(k, perm):
+    P = lsu.ChooseWaveformParams()
+    # Requested angles must not override a real direction, even below 1e-5.
+    P.assign_param('theta%d' % k, 1.0)
+    P.assign_param('phi%d' % k, 0.2)
+    v = np.array([1., 2., 3.])
+    for c, value in zip('xyz', 1e-7*v):
+        setattr(P, 's%d%s' % (k, c), value)
+    P.assign_param('chi%d' % k, 0.5)
+    np.testing.assert_allclose(_cart(P)[3*(k-1):3*k], 0.5*v/np.linalg.norm(v), atol=1e-15)
+
+    Q = lsu.ChooseWaveformParams()
+    names = ['chi%d' % k, 'theta%d' % k, 'phi%d' % k]
+    values = [1e-8, 1.0, 0.2]
+    for i in perm:
+        Q.assign_param(names[i], values[i])
+    want = 1e-8*np.array([np.sin(1.)*np.cos(.2), np.sin(1.)*np.sin(.2), np.cos(1.)])
+    np.testing.assert_allclose(_cart(Q)[3*(k-1):3*k], want, rtol=1e-14, atol=1e-22)
+
+
+@pytest.mark.parametrize("k", [1, 2])
+@pytest.mark.parametrize("transverse", ['bar', 'u'])
+def test_array_bar_setters_match_independent_scalars(k, transverse):
+    # Mixed zero/nonzero in-plane spins, pole collapse, and old poles exercise
+    # the elementwise branch masks. Integer initial components are supported.
+    P = lsu.ChooseWaveformParams()
+    xs, ys = np.array([0, 1, 0, 0]), np.array([0, 1, 0, 0])
+    zs, new_zs = np.array([0., .2, 1., -.4]), np.array([.3, 1., .5, -.2])
+    for c, values in zip('xyz', [xs, ys, zs]):
+        setattr(P, 's%d%s' % (k, c), values.copy())
+    hints = np.array([.7, -.2, 1.3, 2.])
+    setattr(P, '_phi%d_requested' % k, hints.copy())
+    P.assign_param('s%dz_bar' % k, new_zs)
+    P.assign_param('chi%d_perp_%s' % (k, transverse), np.array([.4, .5, .6, .7]))
+    P.assign_param('s%dz_bar' % k, np.array([.2, .5, .3, .1]))
+    for i in range(4):
+        Q = lsu.ChooseWaveformParams()
+        for c, values in zip('xyz', [xs, ys, zs]):
+            setattr(Q, 's%d%s' % (k, c), float(values[i]))
+        setattr(Q, '_phi%d_requested' % k, hints[i])
+        Q.assign_param('s%dz_bar' % k, new_zs[i])
+        Q.assign_param('chi%d_perp_%s' % (k, transverse), [.4, .5, .6, .7][i])
+        Q.assign_param('s%dz_bar' % k, [.2, .5, .3, .1][i])
+        for c in 'xyz':
+            np.testing.assert_allclose(getattr(P, 's%d%s' % (k, c))[i], getattr(Q, 's%d%s' % (k, c)), atol=1e-15)
