@@ -81,7 +81,9 @@ sum-frame residuals. It requires exactly the native eight-coordinate RF basis
 `delta_mc, mu1, mu2, chiMinus, s1x, s1y, s2x, s2y`; reduced stages remain
 unchanged. No physical sampling coordinate, prior, waveform, frame or Jacobian
 changes. Zero total transverse spin uses azimuth zero, and the angular seam
-remains. The separate opt-in `geometric4-phase-excess` replaces only that radius by
+remains; near zero total transverse spin the two residuals also flip sign with the azimuth.
+At detector chirp mass of 20 or more, enabling either mode also switches every
+helper stage to the mu1/mu2 aligned-phase basis. The separate opt-in `geometric4-phase-excess` replaces only that radius by
 `(J-|J_parallel|)/L_N`, preserving the earlier tested H variant. This phase excess
 differs from `(J-J_parallel)/L_N` when `J_parallel < 0`; the regularization
 epsilon used by physics3 is absent from both four-coordinate charts.
