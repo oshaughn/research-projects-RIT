@@ -38,6 +38,7 @@ weights.dat:
     the weights as opposed to the rejection sampling posterior samples.
 """
 
+import inspect
 import os
 import sys
 
