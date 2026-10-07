@@ -56,6 +56,10 @@ jobs:
           python MonteCarloMarginalizeCode/Code/test/rf_transverse_cli_smoke.py geometric4 redshift
           python MonteCarloMarginalizeCode/Code/test/rf_transverse_cli_smoke.py geometric4 extra
           python MonteCarloMarginalizeCode/Code/test/rf_transverse_cli_smoke.py geometric4 duplicate
+          python MonteCarloMarginalizeCode/Code/test/rf_transverse_cli_smoke.py geometric4-phase-excess
+          python MonteCarloMarginalizeCode/Code/test/rf_transverse_cli_smoke.py geometric4-phase-excess redshift
+          python MonteCarloMarginalizeCode/Code/test/rf_transverse_cli_smoke.py geometric4-phase-excess extra
+          python MonteCarloMarginalizeCode/Code/test/rf_transverse_cli_smoke.py geometric4-phase-excess duplicate
       - name: Run O4c time quadrature and interpolation regressions
         run: |
           python -m pytest -q \
