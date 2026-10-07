@@ -1855,14 +1855,14 @@ def _nearest_Q_window_numpy(Q_block, start_indices, npts, xpy=np):
 # Bound the coarse time-by-extrinsic workspace before dense quadrature starts.
 # The sampler's statistical batch size is untouched. These are implementation
 # budgets, not a promised bound for arbitrary user-supplied callback workspace.
-_NOLOOP_BANDLIMITED_COARSE_BYTES = 256 * 1024**2
+_NOLOOP_BANDLIMITED_COARSE_BYTES = 1024**3
 _NOLOOP_BANDLIMITED_MAX_ROWS = 4096
 
 
 def _bandlimited_noloop_chunk_rows(n_rows, n_time, n_modes, xpy):
     """Conservative coarse workspace planner; NumPy keeps historical batching.
 
-    Keep at most an eighth of free device VRAM plus this process's unused pool, capped at 256MiB,
+    Keep at most an eighth of free device VRAM plus this process's unused pool, capped at 1GiB,
     for coarse temporaries. Dense refinement has its own independent budget.
     Do not flush the device memory pool or alter other processes' allocations.
     Tests can override this planner on NumPy to exercise the identical wrapper.

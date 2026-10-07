@@ -3,8 +3,12 @@
 This backport replaces PR 182's August raw-window FFT implementation with the
 numerical helper from `rift_O4d` commit
 `94840482237b9324553dff8cecc87001cf19560d`. It preserves current O4c's per-row
-log offsets, nearest default, and optional cubic detector-time interpolation.
-Simpson remains the default. The integration domain remains the closed span
+log offsets and the historical nearest detector-time default with Simpson.
+Simpson remains the default quadrature. For driver calls selecting bandlimited,
+an omitted `--interpolate-time` selects cubic fractional detector-time evaluation.
+Explicit nearest/cubic and legacy booleans remain authoritative: in particular,
+`--interpolate-time nearest` or `False` reproduces the nearest-bin configuration.
+The library's own nearest defaults remain unchanged. The integration domain remains the closed span
 between the first and last gathered sample, at spacing `deltaT`.
 
 The helper reflects `[kappa, reverse(kappa)]` before Fourier refinement.
@@ -31,9 +35,17 @@ RIFT_roboto_paper's later operational protocol used bandlimited quadrature at
 AV batch size 40000, including the Q-pregrid-8 plus cubic configuration. Its
 independent time oracle separates detector-time stencil error from quadrature
 error. O4c has neither that pregrid nor the modern sinc stencil; those paper
-results must not be relabeled as an O4c calibration. Cubic remains available,
-with a startup notice that nearest-stencil accuracy comparisons do not
-establish its advantage. No production default changes here.
+results must not be relabeled as an O4c calibration. A separate full-precut
+frequency oracle on 32 S250114ax fixed-intrinsic reference extrinsics at internal
+16384 Hz found nearest-origin time-marginal errors up to 3.32 nat and conditional
+quantile shifts up to 30.1 microseconds. Existing cubic plus bandlimited reduced
+physical-arrival integral error below 0.002 nat on these rows, with conditional
+CDF error below 0.00491 and quantile error below 0.536 microseconds. This supports
+the new-mode driver default, not a universal calibration or a completed posterior
+recovery claim. Selecting bandlimited alone therefore enables cubic; existing
+Simpson runs and explicit stencil choices retain their behavior. Startup and
+help text distinguish the quadrature-dependent default from explicit choices.
+Nearest-matched comparisons cannot establish physical sky/time accuracy.
 
 Hand-written CPU commands must pass `--time-marginalization --vectorized
 --gpu --force-xpy`. The driver validates after GPU fallback, refuses requests
@@ -59,7 +71,7 @@ a CPU pass must not be reported as a real-device validation.
 GPU bandlimited calls partition extrinsic likelihood rows before allocating the
 coarse kappa/rho/time arrays. This bounds implementation workspace independently
 of the sampler proposal batch: production `--n-chunk` still controls the sampler.
-The conservative planner caps coarse work at 256 MiB and 4096 rows, with an
+The conservative planner caps coarse work at 1 GiB and 4096 rows, with an
 additional available-device-memory allowance. Dense reconstruction retains its
 own chunk budget. It does not flush the device memory pool or change other jobs.
 Simpson, CPU default batching, and coarse `return_lnLt` dispatch are unchanged.

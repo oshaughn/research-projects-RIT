@@ -128,3 +128,84 @@ def test_production_time_export_arguments_are_accepted():
     out = p.stdout + p.stderr
     assert 'Time-marginalization quadrature : bandlimited' in out, out[-3000:]
     assert 'cannot honour' not in out
+
+
+@pytest.mark.parametrize("value, expected", [
+    ("nearest", "nearest"), ("cubic", "cubic"),
+    ("True", "cubic"), ("1", "cubic"), ("yes", "cubic"),
+    ("False", "nearest"), ("0", "nearest"), ("no", "nearest"),
+])
+def test_named_and_legacy_stencils_reach_effective_noloop_banner(value, expected):
+    p = _run('--interpolate-time', value, '--time-marginalization',
+             '--vectorized', '--gpu', '--force-xpy')
+    out = p.stdout + p.stderr
+    assert 'Q_lm time stencil : ' + expected in out, out[-3000:]
+    assert '--interpolate-time cannot honour' not in out
+
+
+def test_named_cubic_bandlimited_and_production_export_arguments_are_accepted():
+    p = _run('--interpolate-time', 'cubic',
+             '--time-marginalization-quadrature', 'bandlimited',
+             '--time-marginalization', '--vectorized', '--gpu', '--force-xpy',
+             '--resample-time-marginalization', '--fairdraw-extrinsic-output',
+             '--srate-resample-time-marginalization', '16384')
+    out = p.stdout + p.stderr
+    assert 'Q_lm time stencil : cubic' in out, out[-3000:]
+    assert 'Time-marginalization quadrature : bandlimited' in out
+    assert 'cannot honour' not in out
+
+
+def test_bare_interpolate_time_retains_legacy_cubic_meaning():
+    p = _run('--interpolate-time', '--time-marginalization', '--vectorized',
+             '--gpu', '--force-xpy')
+    out = p.stdout + p.stderr
+    assert 'Q_lm time stencil : cubic' in out, out[-3000:]
+
+
+@pytest.mark.parametrize("value", ['sinc', 'cubci', 'lanczos', '2'])
+def test_unknown_or_unported_stencil_is_refused_before_loading_data(value):
+    p = _run('--interpolate-time', value)
+    out = p.stdout + p.stderr
+    assert p.returncode != 0
+    assert '--interpolate-time: unrecognised or unsupported value' in out, out[-3000:]
+    assert 'Q_lm time stencil :' not in out
+
+
+@pytest.mark.parametrize("flags", [[], ['--time-marginalization'],
+    ['--time-marginalization', '--vectorized'],
+    ['--time-marginalization', '--vectorized', '--gpu', '--force-xpy', '--zero-likelihood']])
+def test_cubic_refuses_paths_that_cannot_use_noloop(flags):
+    p = _run('--interpolate-time', 'cubic', *flags)
+    out = p.stdout + p.stderr
+    assert p.returncode != 0
+    assert '--interpolate-time cannot honour' in out, out[-3000:]
+    assert 'Q_lm time stencil : cubic' not in out
+
+
+def test_omitted_stencil_preserves_o4c_nearest_default():
+    p = _run()
+    out = p.stdout + p.stderr
+    assert 'Q_lm time stencil : nearest' in out, out[-3000:]
+
+
+@pytest.mark.parametrize('quadrature, expected', [('simpson', 'nearest'),
+                                               ('bandlimited', 'cubic')])
+def test_omitted_stencil_default_depends_on_selected_quadrature(quadrature, expected):
+    p = _run('--time-marginalization-quadrature', quadrature,
+             '--time-marginalization', '--vectorized', '--gpu', '--force-xpy')
+    out = p.stdout + p.stderr
+    assert 'Q_lm time stencil : ' + expected + ' (default for ' + quadrature in out, out[-3000:]
+    assert 'Time-marginalization quadrature : ' + quadrature in out
+    assert 'cannot honour' not in out
+
+
+@pytest.mark.parametrize('value, expected', [('nearest', 'nearest'), ('False', 'nearest'),
+                                           ('cubic', 'cubic'), ('True', 'cubic')])
+def test_bandlimited_preserves_explicit_stencil_or_boolean(value, expected):
+    p = _run('--time-marginalization-quadrature', 'bandlimited',
+             '--interpolate-time', value, '--time-marginalization',
+             '--vectorized', '--gpu', '--force-xpy')
+    out = p.stdout + p.stderr
+    assert 'Q_lm time stencil : ' + expected + ' (explicit --interpolate-time)' in out, out[-3000:]
+    assert 'Time-marginalization quadrature : bandlimited' in out
+    assert 'cannot honour' not in out

@@ -91,8 +91,17 @@ def test_gpu_planner_bounds_coarse_work_before_allocation():
     n=74287;n_time=614;n_modes=21
     rows=fl._bandlimited_noloop_chunk_rows(n,n_time,n_modes,device)
     assert 1<=rows<=4096
-    assert rows*(160*n_time+128*n_modes**2)<=256*1024**2
+    assert rows*(160*n_time+128*n_modes**2)<=min(fl._NOLOOP_BANDLIMITED_COARSE_BYTES,4*1024**3//8)
     assert fl._bandlimited_noloop_chunk_rows(n,n_time,n_modes,np)==n
+
+
+@pytest.mark.parametrize('free_bytes',[32*1024**2,4*1024**3,24*1024**3])
+def test_gpu_planner_respects_available_memory_at_production_internal_rate(free_bytes):
+    device=SimpleNamespace(cuda=SimpleNamespace(runtime=SimpleNamespace(memGetInfo=lambda:(free_bytes,24*1024**3))))
+    n_time=2457;n_modes=21
+    rows=fl._bandlimited_noloop_chunk_rows(74287,n_time,n_modes,device)
+    assert 1<=rows<=fl._NOLOOP_BANDLIMITED_MAX_ROWS
+    assert rows*(160*n_time+128*n_modes**2)<=min(fl._NOLOOP_BANDLIMITED_COARSE_BYTES,free_bytes//8)
 
 
 def test_report_aggregation_preserves_input_and_late_larger_transform():
