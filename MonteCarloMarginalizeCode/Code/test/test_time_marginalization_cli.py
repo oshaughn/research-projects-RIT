@@ -111,11 +111,20 @@ def test_every_marginalizing_driver_call_site_passes_the_option():
 
 @pytest.mark.parametrize("flags", [[], ["--time-marginalization"],
     ["--time-marginalization", "--vectorized"],
-    ["--time-marginalization", "--vectorized", "--gpu", "--force-xpy", "--zero-likelihood"],
-    ["--time-marginalization", "--vectorized", "--gpu", "--force-xpy", "--resample-time-marginalization", "--fairdraw-extrinsic-output"]])
+    ["--time-marginalization", "--vectorized", "--gpu", "--force-xpy", "--zero-likelihood"]])
 def test_bandlimited_refuses_unhonoured_paths(flags):
     p = _run("--time-marginalization-quadrature", "bandlimited", *flags)
     combined = p.stdout + p.stderr
     assert p.returncode != 0
     assert "cannot honour" in combined, combined[-3000:]
     assert "Time-marginalization quadrature : bandlimited" not in combined
+
+
+def test_production_time_export_arguments_are_accepted():
+    p = _run('--time-marginalization-quadrature', 'bandlimited',
+             '--time-marginalization', '--vectorized', '--gpu', '--force-xpy',
+             '--resample-time-marginalization', '--fairdraw-extrinsic-output',
+             '--srate-resample-time-marginalization', '16384')
+    out = p.stdout + p.stderr
+    assert 'Time-marginalization quadrature : bandlimited' in out, out[-3000:]
+    assert 'cannot honour' not in out

@@ -986,3 +986,49 @@ def test_the_edge_guard_band_is_exactly_the_outer_fraction():
         assert rep['n_flat_rows'] == 0, (j, rep)
         assert rep['upsample_factor'] >= 16, (j, rep)
         assert float(out[0]) != _simpson_value(k[0]), j
+
+
+def test_export_minimum_rate_preserves_integrals_and_refines_resolved_rows():
+    # A flat row and a broad but varying row normally remain Simpson fallbacks.
+    n = 33
+    dt = 0.01
+    x = np.arange(n) * dt
+    k = np.stack([np.zeros(n), -0.1 * (x - x.mean())**2]).astype(complex)
+    r = np.zeros_like(k.real)
+    uniforms = np.array([[0.173, 0.617], [0.619, 0.231]])
+    base = tmq.time_marginalize_bandlimited(k, r, dt, _lnL)
+    out, times, lnL = tmq.time_marginalize_bandlimited(
+        k, r, dt, _lnL, return_time_draw=True, draw_uniforms=uniforms,
+        time_draw_minimum_srate=350.0, t0=-0.16)
+    np.testing.assert_array_equal(out, base)
+    report = tmq.last_report()
+    assert report['n_refined_rows'] == 0
+    assert report['export_minimum_factor'] == 4
+    assert report['export_factor_histogram'] == {4: 2}
+    dense = tmq.reflected_bandlimited_upsample(k, 4)
+    expected_t, expected_l = tmq.draw_piecewise_linear_log_posterior(
+        _lnL(dense.real, 0), dt / 4, t0=-0.16, uniforms=uniforms)
+    np.testing.assert_allclose(times, expected_t, atol=1e-14, rtol=0)
+    np.testing.assert_allclose(lnL, expected_l, atol=1e-14, rtol=0)
+    # A minimum export rate cannot affect integral-only evaluation, even when
+    # that irrelevant rate exceeds the supported ceiling.
+    ignored = tmq.time_marginalize_bandlimited(
+        k, r, dt, _lnL, time_draw_minimum_srate=1e100)
+    np.testing.assert_array_equal(ignored, base)
+
+
+@pytest.mark.parametrize('rate', [0, -1, np.nan, np.inf])
+def test_export_minimum_rate_refuses_invalid_rates(rate):
+    k = np.zeros((1, 5), dtype=complex)
+    with pytest.raises(ValueError, match='finite and positive'):
+        tmq.time_marginalize_bandlimited(
+            k, k.real, 0.01, _lnL, return_time_draw=True,
+            time_draw_minimum_srate=rate)
+
+
+def test_export_minimum_rate_obeys_refinement_ceiling():
+    k = np.zeros((1, 5), dtype=complex)
+    with pytest.raises(RuntimeError, match='UPSAMPLE_FACTOR_MAX'):
+        tmq.time_marginalize_bandlimited(
+            k, k.real, 0.01, _lnL, return_time_draw=True,
+            time_draw_minimum_srate=(tmq.UPSAMPLE_FACTOR_MAX + 1) / 0.01)

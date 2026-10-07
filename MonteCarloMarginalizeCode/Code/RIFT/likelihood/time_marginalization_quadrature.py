@@ -1137,7 +1137,8 @@ def draw_piecewise_linear_log_posterior(lnL_t, dx, t0=0.0,
 def time_marginalize_bandlimited(kappa, rho_sq, deltaT, loglikelihood,
                                  phase_marginalization=False, simps=None,
                                  lnL_coarse=None, return_time_draw=False,
-                                 draw_uniforms=None, t0=0.0, xpy=np):
+                                 draw_uniforms=None, t0=0.0, xpy=np,
+                                 time_draw_minimum_srate=None):
     """``log \\int dt exp(lnL(t))`` with the time grid refined to the integrand.
 
     Parameters
@@ -1174,6 +1175,12 @@ def time_marginalize_bandlimited(kappa, rho_sq, deltaT, loglikelihood,
     t0 : float, optional
         Time of the first coarse knot; returned draws are in this coordinate.
 
+    time_draw_minimum_srate : float, optional
+        For draws only, the minimum knot rate requested by the historical
+        export CLI. The returned integral and its row classifications remain
+        unchanged. Rows needing a finer export representation are reconstructed
+        separately with the same width check and ceiling.
+
     Returns
     -------
     lnL : (n_extrinsic,) float
@@ -1187,6 +1194,18 @@ def time_marginalize_bandlimited(kappa, rho_sq, deltaT, loglikelihood,
     npts = kappa.shape[-1]
     n_rows = kappa.shape[0]
     deltaT = float(deltaT)
+    draw_minimum_factor = 1
+    if return_time_draw and time_draw_minimum_srate is not None:
+        rate = float(time_draw_minimum_srate)
+        if not np.isfinite(rate) or rate <= 0:
+            raise ValueError('time_draw_minimum_srate must be finite and positive')
+        need = rate * deltaT
+        if not np.isfinite(need) or need > UPSAMPLE_FACTOR_MAX:
+            raise RuntimeError('time export minimum rate exceeds UPSAMPLE_FACTOR_MAX')
+        # Power-of-two refinement keeps the retained-grid FFT optimization
+        # available for arbitrary production export rates. It still meets the
+        # requested minimum spacing, and cannot exceed the checked ceiling.
+        draw_minimum_factor = 1 << max(0, (int(np.ceil(need)) - 1).bit_length())
 
     _require_time_independent_rho_sq(rho_sq, xpy=xpy, rule='band-limited')
     rho_col = rho_sq[..., :1]
@@ -1274,6 +1293,23 @@ def time_marginalize_bandlimited(kappa, rho_sq, deltaT, loglikelihood,
         n_refine_total += n_ref
         sigma_seen = min(sigma_seen, s_min)
 
+    export_hist = {}
+    if return_time_draw and draw_minimum_factor > 1:
+        # The requested export rate is a representation floor, not an output
+        # lattice. Reconstruct only rows whose initial quadrature grid is below
+        # it, retaining the integral's original Simpson/refinement policy.
+        export_rows = xpy.where(xpy.where(refined, factors, 1)
+                                < draw_minimum_factor)[0]
+        if int(export_rows.size):
+            _, export_hist, _, _, drawn_t, drawn_lnL = _integrate_group(
+                kappa[export_rows], rho_col[export_rows], npts, deltaT,
+                draw_minimum_factor, loglikelihood, _term,
+                draw_uniforms_rows=draw_uniforms[export_rows], t0=t0,
+                retained_plan_cache=retained_plan_cache,
+                transform_report=transform_report, xpy=xpy)
+            time_draw[export_rows] = drawn_t
+            lnL_at_draw[export_rows] = drawn_lnL
+
     strategies = []
     if transform_report["retained_fft_batches"]:
         strategies.append("retained-grid-zoomfft")
@@ -1294,6 +1330,8 @@ def time_marginalize_bandlimited(kappa, rho_sq, deltaT, loglikelihood,
     _LAST_REPORT.update(
         upsample_factor=max(hist) if hist else 1,
         factor_histogram=dict(hist),
+        export_minimum_factor=draw_minimum_factor,
+        export_factor_histogram=dict(export_hist),
         n_refinements=n_refine_total,
         sigma_t_min=sigma_seen,
         n_rows=n_rows,

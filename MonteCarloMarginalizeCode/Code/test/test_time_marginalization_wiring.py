@@ -258,3 +258,35 @@ def test_scope_is_the_production_path_only():
                  "DiscreteFactoredLogLikelihoodViaArray"):
         sig = inspect.signature(getattr(fl, name))
         assert "time_quadrature" not in sig.parameters, name
+
+
+@pytest.mark.parametrize('time_interp', ['nearest', 'cubic'])
+@pytest.mark.parametrize('phase', [False, True])
+def test_noloop_continuous_export_uses_integrating_helper(time_interp, phase):
+    ctx = _build(_rholm_functions(), amp=30)
+    uniforms = np.array([[0.213, 0.617], [0.719, 0.231], [0.391, 0.817]])
+    t, lnL = _call(ctx, time_quadrature='bandlimited',
+                  phase_marginalization=phase, time_interp=time_interp,
+                  return_time_draw=True, time_draw_uniforms=uniforms,
+                  time_draw_minimum_srate=BASE_SRATE * 4)
+    assert t.shape == lnL.shape == (3,)
+    assert np.all(np.isfinite(t)) and np.all(np.isfinite(lnL))
+    t0 = _tvals(ctx['deltaT'])[0]
+    last = t0 + (len(_tvals(ctx['deltaT'])) - 1) * ctx['deltaT']
+    assert np.all((t >= t0) & (t <= last))
+    # Conditional draws must remain continuous between representation knots.
+    coordinate = (t - t0) / (ctx['deltaT'] / 4)
+    assert np.any(np.abs(coordinate - np.rint(coordinate)) > 1e-6)
+    np.testing.assert_array_equal(_call(ctx, time_quadrature='bandlimited'),
+        _call(ctx, time_quadrature='bandlimited',
+              time_draw_minimum_srate=BASE_SRATE * 4))
+
+
+@pytest.mark.parametrize('kw, message', [
+    ({'return_time_draw': True}, 'requires'),
+    ({'return_time_draw': True, 'return_lnLt': True,
+      'time_quadrature': 'bandlimited'}, 'mutually exclusive'),
+])
+def test_noloop_rejects_ambiguous_draw_contract(kw, message):
+    with pytest.raises(ValueError, match=message):
+        _call(_build(_rholm_functions()), **kw)

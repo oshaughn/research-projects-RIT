@@ -1852,7 +1852,7 @@ def _nearest_Q_window_numpy(Q_block, start_indices, npts, xpy=np):
     return Qlms
 
 
-def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=np, loglikelihood=_factored_lnL_helper,return_lnLt=False,phase_marginalization=False,time_interp='nearest',time_quadrature='simpson'):
+def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=np, loglikelihood=_factored_lnL_helper,return_lnLt=False,phase_marginalization=False,time_interp='nearest',time_quadrature='simpson',return_time_draw=False,time_draw_uniforms=None,time_draw_minimum_srate=None):
     """
     DiscreteFactoredLogLikelihoodViaArray uses the array-ized data structures to compute the log likelihood,
     either as an array vs time *or* marginalized in time. 
@@ -1867,6 +1867,13 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         ringing; it is not exact recovery of the unavailable full correlation.
         The callback is evaluated on the dense grid, so cost grows with SNR.
 
+    return_time_draw : bool
+        With bandlimited quadrature, return (continuous time offset, lnL at
+        draw), using the validated refined conditional posterior. Mutually
+        exclusive with return_lnLt.
+    time_draw_minimum_srate : float or None
+        Minimum knot rate for continuous export; never changes the integral.
+
     time_interp : {'nearest', 'cubic'}
         Detector-time sampling convention for the data term.  'nearest'
         preserves the historical NoLoop integer-bin gather.  'cubic' evaluates
@@ -1877,6 +1884,10 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
     global distMpcRef
 
     time_quad.validate_time_quadrature(time_quadrature)
+    if return_time_draw and return_lnLt:
+        raise ValueError('return_time_draw and return_lnLt are mutually exclusive')
+    if return_time_draw and time_quadrature != 'bandlimited':
+        raise ValueError("return_time_draw requires time_quadrature='bandlimited'")
     if time_interp not in ('nearest', 'cubic'):
         raise ValueError("time_interp must be 'nearest' or 'cubic'")
 
@@ -2122,10 +2133,16 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         # Match the current O4d numerical boundary construction and per-row
         # offsets. The gather steps at deltaT, not the linspace spacing in tvals.
         # Pass the caller's Simpson implementation for unrefined rows.
-        return time_quad.time_marginalize_bandlimited(
+        result = time_quad.time_marginalize_bandlimited(
             kappa_sq, rho_sq, deltaT, loglikelihood,
             phase_marginalization=phase_marginalization, lnL_coarse=lnL_t,
-            simps=simps, xpy=xpy)
+            simps=simps, return_time_draw=return_time_draw,
+            draw_uniforms=time_draw_uniforms, t0=float(tvals[0]),
+            time_draw_minimum_srate=time_draw_minimum_srate, xpy=xpy)
+        if return_time_draw:
+            _, drawn_t, drawn_lnL = result
+            return drawn_t, drawn_lnL
+        return result
 
     L_t = xpy.exp(lnL_t - lnLmax, out=lnL_t)
 

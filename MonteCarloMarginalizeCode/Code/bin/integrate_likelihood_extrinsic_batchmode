@@ -229,7 +229,7 @@ optp.add_option("-m", "--time-marginalization", action="store_true", help="Perfo
 #optp.add_option("--n-fairdraw-extrinsic-samples",default=None,type=int,help="Extracts a concrete number of fair draw extrinsic samples, bounded above by n_eff")
 optp.add_option("--resample-time-marginalization",action='store_true', help="If time-marginalizaiton is true (and should almost always be true), at the end export step use resampling. REQUIRES using fairdraw-extrinsic-output")
 optp.add_option("--srate-resample-time-marginalization",type=int, default=None, help="If time-marginalizaiton is true (and should almost always be true), an opportunity to interpolate the likelihoods on the (internal) time grid and perform time resampling at a higher sampling rate, for greater nominal time resolution. Does not change underlying calculations.")
-optp.add_option("--time-marginalization-quadrature", default='simpson', type=str, help="Time integral: simpson (default) or bandlimited (CHANGES RESULTS; reflected finite-window FFT reconstruction plus dense trapezoid at a derived resolution). Uses the current rift_O4d boundary construction. Reflection is an approximation to the unavailable full correlation, not exact recovery. Dense callback evaluations cost more as SNR increases. Requires --time-marginalization --vectorized --gpu; use --force-xpy on CPU. Time-posterior resampling is not yet supported with this O4c option.")
+optp.add_option("--time-marginalization-quadrature", default='simpson', type=str, help="Time integral: simpson (default) or bandlimited (CHANGES RESULTS; reflected finite-window FFT reconstruction plus dense trapezoid at a derived resolution). Uses the current rift_O4d boundary construction. Reflection is an approximation to the unavailable full correlation, not exact recovery. Dense callback evaluations cost more as SNR increases. Requires --time-marginalization --vectorized --gpu; use --force-xpy on CPU. Time-posterior export draws continuously from this reconstruction; the existing resampling rate is a minimum knot resolution.")
 optp.add_option("-d", "--distance-marginalization", action="store_true", help="Perform marginalization over distance via a look-up table. Default is false.")
 optp.add_option("-l", "--distance-marginalization-lookup-table", default=None, help="Look-up table for distance marginalization.")
 optp.add_option("--vectorized", action="store_true", help="Perform manipulations of lm and timeseries using numpy arrays, not LAL data structures.  (Combine with --gpu to enable GPU use, where available)")
@@ -456,9 +456,7 @@ if opts.time_marginalization_quadrature != 'simpson':
     required = (('--time-marginalization', bool(opts.time_marginalization)),
                 ('--vectorized', bool(opts.vectorized)),
                 ('--gpu (use --force-xpy on CPU)', bool(opts.gpu)),
-                ('not --zero-likelihood', not bool(opts.zero_likelihood)),
-                ('not --resample-time-marginalization (continuous export is not ported)',
-                 not bool(opts.resample_time_marginalization)))
+                ('not --zero-likelihood', not bool(opts.zero_likelihood)))
     missing = [name for name, ok in required if not ok]
     if missing:
         raise ValueError("--time-marginalization-quadrature cannot honour this configuration: "
@@ -576,7 +574,9 @@ else:
 #
 
 fiducial_epoch = lal.LIGOTimeGPS()
-fiducial_epoch = event_time.seconds + 1e-9*event_time.nanoseconds   # no more direct access to gpsSeconds
+fiducial_epoch_seconds = int(event_time.seconds)
+fiducial_epoch_nanoseconds = int(event_time.nanoseconds)
+fiducial_epoch = fiducial_epoch_seconds + 1e-9*fiducial_epoch_nanoseconds
 
 # Struct to hold template parameters
 P_list = None
@@ -1388,6 +1388,23 @@ def resample_samples(my_samples,
     # convert objects
     for name in ['phi','theta', 'phiref','incl', 'psi','dist']:
       setattr(P,name, getattr(P,name).astype(float) )
+
+  if opts.time_marginalization_quadrature == 'bandlimited':
+    # Use the reflected, width-validated reconstruction rather than interpolating
+    # its coarse log likelihood. Preserve the production resampling-rate option
+    # as a minimum knot resolution; the posterior draw itself is continuous.
+    t_out, lnL_out = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(
+        tvals, P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,
+        epochDict, Lmax=opts.l_max, xpy=xpy_default,
+        time_interp=opts._noloop_time_interp, time_quadrature='bandlimited',
+        return_time_draw=True,
+        time_draw_minimum_srate=opts.srate_resample_time_marginalization)
+    my_samples['t_ref'] = fiducial_epoch + np.asarray(identity_convert(t_out), dtype=float)
+    (my_samples['t_ref_gps_seconds'],
+     my_samples['t_ref_gps_nanoseconds']) = xmlutils.gps_add_seconds_exact(
+         fiducial_epoch_seconds, fiducial_epoch_nanoseconds, identity_convert(t_out))
+    my_samples['lnL_raw'] = np.asarray(identity_convert(lnL_out), dtype=float)
+    return my_samples
 
   lnLt = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
                         P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default,return_lnLt=True,

@@ -37,10 +37,18 @@ establish its advantage. No production default changes here.
 
 Hand-written CPU commands must pass `--time-marginalization --vectorized
 --gpu --force-xpy`. The driver validates after GPU fallback, refuses requests
-that cannot reach NoLoop, and refuses `--zero-likelihood`. This port also
-refuses bandlimited with legacy posterior-time resampling until a faithful
-continuous export is wired into O4c. Library `return_lnLt` retains its existing
-coarse-timeseries contract.
+that cannot reach NoLoop, and refuses `--zero-likelihood`. Production `--resample-time-marginalization --fairdraw-extrinsic-output`
+arguments work with either quadrature. Under bandlimited they draw continuously
+from the same reflected, width-validated density reconstruction rather than
+spline-interpolating coarse log likelihoods. The existing
+`--srate-resample-time-marginalization` is accepted as a minimum knot resolution;
+width validation may require a finer representation, and output draws have no
+lattice. A separate export refinement pass leaves marginal integrals unchanged.
+`lnL_raw` is the log of the piecewise-linear density at the drawn time, an
+approximation converging with the validated nodal spacing. Exact integer GPS
+seconds/nanoseconds serialize the draw at nanosecond precision; `t_ref` remains
+a float compatibility view. Simpson export behavior remains unchanged.
+Library `return_lnLt` retains its existing coarse-timeseries contract.
 
 Run the three named time-quadrature test files plus
 `test_time_marginalization_perrow_offset.py` and `test_noloop_time_interp.py`.
