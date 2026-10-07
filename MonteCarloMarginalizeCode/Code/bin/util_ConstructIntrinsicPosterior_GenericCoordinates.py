@@ -322,7 +322,7 @@ parser.add_argument("--n-chunk",default=1e5,type=int)
 parser.add_argument("--contingency-unevolved-neff",default=None,help="Contingency planning for when n_eff produced by CIP is small, and user doesn't want to have hard failures.  Note --fail-unless-n-eff will prevent this from happening. Options: quadpuff, ...")
 parser.add_argument("--not-worker",action='store_true',help="Nonworker jobs, IF we have workers present, don't have the 'fail unless' statement active")
 parser.add_argument("--fail-unless-n-eff",default=None,type=float,help="If nonzero, places a minimum requirement on n_eff. Code will exit if not achieved, with no sample generation")
-parser.add_argument("--rf-transverse-spin-coordinates", choices=["physics3"], help="Opt-in RF-only L-frame fitting scalars; preserves every native coordinate and the physical prior")
+parser.add_argument("--rf-transverse-spin-coordinates", choices=["physics3","geometric4","geometric4-phase-excess"], help="Opt-in RF L-frame fitting basis: physics3 appends scalars; geometric4 replaces four transverse inputs; native sampling and prior unchanged")
 parser.add_argument("--fit-method",default="rf",help="rf (default) : rf|gp|quadratic|polynomial|gp_hyper|gp_lazy|cov|kde.  Note 'polynomial' with --fit-order 0  will fit a constant")
 parser.add_argument("--fit-load-quadratic",default=None,help="Filename of hdf5 file to load quadratic fit from. ")
 parser.add_argument("--fit-load-quadratic-path",default="GW190814/annealing_mc_source_eta_chieff",help="Path in hdf5 file to specific covariance matrix to be used")
@@ -732,7 +732,7 @@ if opts.parameter_nofit:
     else:
         low_level_coord_names = opts.parameter+opts.parameter_nofit # Used for Monte Carlo
 from RIFT.misc import rf_transverse_spin
-if set(rf_transverse_spin.FEATURE_NAMES).intersection(coord_names + low_level_coord_names):
+if set(rf_transverse_spin.FEATURE_NAMES + rf_transverse_spin.GEOMETRIC4_NAMES + rf_transverse_spin.PHASE_EXCESS_NAMES).intersection(coord_names + low_level_coord_names):
     raise ValueError('RF fitting scalars are enabled only through the opt-in flag')
 if opts.rf_transverse_spin_coordinates:
     if not np.isfinite(opts.fref) or opts.fref <= 0:
@@ -740,8 +740,14 @@ if opts.rf_transverse_spin_coordinates:
     if (opts.fit_method != 'rf' or opts.fit_load_gp or not opts.use_precessing
             or opts.input_tides or opts.using_eos or opts.use_eccentricity
             or not set(rf_transverse_spin.NATIVE_FEATURES).issubset(coord_names)):
-        raise ValueError('physics3 requires a fresh RF fit with delta_mc, mu1, mu2, chiMinus, s1x, s1y, s2x, s2y in a precessing BBH L-frame analysis')
-    coord_names = list(coord_names) + list(rf_transverse_spin.FEATURE_NAMES)
+        raise ValueError('RF transverse coordinates require a fresh RF fit with delta_mc, mu1, mu2, chiMinus, s1x, s1y, s2x, s2y in a precessing BBH L-frame analysis')
+    if opts.rf_transverse_spin_coordinates in rf_transverse_spin.GEOMETRIC4_MODES:
+        if len(coord_names) != 8 or set(coord_names) != set(rf_transverse_spin.NATIVE_FEATURES):
+            raise ValueError('geometric4 requires exactly the eight native mass/aligned/transverse fitting coordinates')
+        # Preserve physical sampling coordinates: only replace the fitting basis.
+        coord_names = [p for p in coord_names if p not in rf_transverse_spin.TRANSVERSE] + list(rf_transverse_spin.geometric_names(opts.rf_transverse_spin_coordinates))
+    else:
+        coord_names = list(coord_names) + list(rf_transverse_spin.FEATURE_NAMES)
     def extract_fit_param(P, name):
         return rf_transverse_spin.extract(P, name)
 else:
@@ -755,7 +761,7 @@ if opts.fit_uses_reported_error:
 # TeX dictionary
 tex_dictionary = dict(lalsimutils.tex_dictionary)
 if opts.rf_transverse_spin_coordinates:
-    tex_dictionary.update(zip(rf_transverse_spin.FEATURE_NAMES, rf_transverse_spin.FEATURE_NAMES))
+    tex_dictionary.update(zip(rf_transverse_spin.FEATURE_NAMES + rf_transverse_spin.GEOMETRIC4_NAMES + rf_transverse_spin.PHASE_EXCESS_NAMES, rf_transverse_spin.FEATURE_NAMES + rf_transverse_spin.GEOMETRIC4_NAMES + rf_transverse_spin.PHASE_EXCESS_NAMES))
 print(" Coordinate names for fit :, ", coord_names)
 if not(opts.no_plots):
     print(" Rendering coordinate names : ",  render_coordinates(coord_names))  # map(lambda x: tex_dictionary[x], coord_names)

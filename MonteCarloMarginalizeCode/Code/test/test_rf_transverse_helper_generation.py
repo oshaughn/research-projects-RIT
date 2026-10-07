@@ -86,3 +86,22 @@ def test_actual_off_has_unchanged_generated_stages(monkeypatch,tmp_path):
 def test_actual_explicit_physics_rejects_explicit_gp(monkeypatch,tmp_path):
     with pytest.raises(ValueError,match='No complete two-spin RF stage'):
         generate(monkeypatch,tmp_path,'physics3',10,'gp')
+
+
+@pytest.mark.parametrize('mode',['geometric4','geometric4-phase-excess'])
+def test_actual_geometric4_helper(monkeypatch,tmp_path,mode):
+    import shlex
+    result=generate(monkeypatch,tmp_path,mode,25)
+    active=[shlex.split(line) for line in result['lines'] if ('--rf-transverse-spin-coordinates '+mode) in line]
+    assert active, 'Explicit geometric4 must survive actual helper generation'
+    for tokens in active:
+        i=tokens.index('--rf-transverse-spin-coordinates')
+        assert tokens[i+1]==mode
+        assert float(tokens[tokens.index('--fref')+1])==35.
+    assert result['fit_method']=='rf'
+
+
+@pytest.mark.parametrize('mode',['geometric4','geometric4-phase-excess'])
+def test_actual_geometric4_rejects_gp(monkeypatch,tmp_path,mode):
+    with pytest.raises(ValueError,match='No complete two-spin RF stage'):
+        generate(monkeypatch,tmp_path,mode,10,'gp')

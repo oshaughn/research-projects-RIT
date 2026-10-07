@@ -70,3 +70,24 @@ grid comparisons, not a universal recovery guarantee; S250830bp remains a
 separate partially improved case, and known sky/data/prior discrepancies require
 separate assessment. Coordinate activation changes neither stopping criteria
 nor posterior quotas.
+
+### Four-input Geometric4 chart (opt-in)
+
+Set `sampler.cip.transverse spin coordinates: "geometric4"` (or pass
+`--rf-transverse-spin-coordinates geometric4` to the helper/pipeline).
+This replaces the four Cartesian transverse *fitting* inputs by total transverse
+angular-momentum radius `|S_perp|/M^2`, total-spin azimuth in the L plane, and two signed
+sum-frame residuals. It requires exactly the native eight-coordinate RF basis
+`delta_mc, mu1, mu2, chiMinus, s1x, s1y, s2x, s2y`; reduced stages remain
+unchanged. No physical sampling coordinate, prior, waveform, frame or Jacobian
+changes. Zero total transverse spin uses azimuth zero, and the angular seam
+remains; near zero total transverse spin the two residuals also flip sign with the azimuth.
+At detector chirp mass of 20 or more, enabling either mode also switches every
+helper stage to the mu1/mu2 aligned-phase basis. The separate opt-in `geometric4-phase-excess` replaces only that radius by
+`(J-|J_parallel|)/L_N`, preserving the earlier tested H variant. This phase excess
+differs from `(J-J_parallel)/L_N` when `J_parallel < 0`; the regularization
+epsilon used by physics3 is absent from both four-coordinate charts.
+The raw radius has no aligned-spin/J rescaling. Historical phase-excess
+fit results do not establish performance of this raw-radius option.
+The existing `auto` policy continues to select physics3, not geometric4.
+This is an experimental representation, not an end-to-end accuracy claim.
