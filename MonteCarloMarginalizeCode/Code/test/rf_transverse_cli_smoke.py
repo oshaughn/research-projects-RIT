@@ -35,7 +35,8 @@ def tracer(frame,event,arg):
    xp=g['convert_coords'](x)
    expected=rf_transverse_spin.convert(x,g['coord_names'],g['low_level_coord_names'],35.,
        lalsimutils.convert_waveform_coordinates,source_redshift=0.3,enforce_kerr=True)
-   np.testing.assert_array_equal(xp,expected)
+   # Same conversion via two call paths; allow float64 round-off (seen at 4e-16 on py3.9).
+   np.testing.assert_allclose(xp,expected,rtol=1e-12,atol=1e-13)
    assert np.isneginf(xp[-1]).all() and np.isfinite(xp[:-1]).all()
    unshifted=rf_transverse_spin.convert(x[:-1],g['coord_names'],g['low_level_coord_names'],35.,
        lalsimutils.convert_waveform_coordinates)

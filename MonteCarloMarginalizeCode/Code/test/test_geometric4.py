@@ -105,3 +105,31 @@ def test_radius_and_phase_variant_are_distinct():
     np.testing.assert_array_equal(raw[1:],phase[1:])
     with pytest.raises(ValueError,match='Do not mix'):
         f.convert(np.zeros((1,8)),list(f.GEOMETRIC4_NAMES)+['rf_phase_excess'],[],35,None)
+
+
+@pytest.mark.parametrize('mode',f.GEOMETRIC4_MODES+('physics3',))
+def test_quadpuff_contingency_puffs_physical_components(tmp_path,mode):
+    # quadpuff cannot assign RF features; it must jitter m1,m2 and spin components and still write a grid.
+    pytest.importorskip('lal')
+    import os,subprocess,sys
+    from igwn_ligolw import utils,lsctables
+    rng=np.random.default_rng(5);n=160
+    dat=np.c_[np.arange(n),rng.uniform(20,25,n),rng.uniform(10,15,n),rng.uniform(-.4,.4,(n,6)),
+              3000-rng.uniform(0,3000,n),np.full(n,.1),np.full(n,100),np.full(n,1000)]  # sharply peaked: low n_eff
+    np.savetxt(tmp_path/'grid.dat',dat)
+    args=['--fname','grid.dat','--fit-method','rf','--use-precessing','--no-plots','--fref','35',
+          '--rf-transverse-spin-coordinates',mode,'--parameter','delta_mc',
+          '--contingency-unevolved-neff','quadpuff','--sampler-method','AV','--n-eff','1000','--n-max','20000',
+          '--n-output-samples','100','--fname-output-samples','puff']
+    for p in ['mu1','mu2','chiMinus','s1x','s1y','s2x','s2y']:args+=['--parameter-implied',p]
+    for p in ['mc','chi1','chi2','cos_theta1','cos_theta2','phi1','phi2']:args+=['--parameter-nofit',p]
+    env=dict(os.environ,PYTHONPATH=str(CODE)+os.pathsep+os.environ.get('PYTHONPATH',''),OMP_NUM_THREADS='1',GW_SURROGATE='')
+    proc=subprocess.run([sys.executable,str(CODE/'bin/util_ConstructIntrinsicPosterior_GenericCoordinates.py')]+args,
+        cwd=tmp_path,env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,universal_newlines=True,timeout=600)
+    assert proc.returncode==0, proc.stdout[-3000:]
+    assert 'Contingency: quadpuff' in proc.stdout
+    rows=lsctables.SimInspiralTable.get_table(utils.load_filename(str(tmp_path/'puff.xml.gz')))
+    assert len(rows)>0
+    m=np.array([[r.mass1,r.mass2] for r in rows]);s1=np.array([[r.spin1x,r.spin1y,r.spin1z] for r in rows])
+    assert (m>0).all() and (np.linalg.norm(s1,axis=1)<=1).all()
+    assert not np.allclose(m[:,0],dat[:len(m),1])  # actually jittered

@@ -2886,22 +2886,31 @@ if neff < opts.n_eff:
         n_output_size = np.min([len(P_list_in),opts.n_output_samples])
         print(" Preparing to write ", n_output_size , " samples ")
 
-        my_cov = np.cov(X.T)  # covariance of data points
-        rv = scipy.stats.multivariate_normal(mean=np.zeros(len(X[0])), cov=my_cov,allow_singular=True)  # they are just complaining about dynamic range
-        delta_X = rv.rvs(size=len(X))
-        X_new = X+delta_X
+        puff_names = coord_names
+        X_puff = X
+        if opts.rf_transverse_spin_coordinates:
+            # RF features (and chiMinus, mu1, ...) are not assignable: puff physical components instead.
+            puff_names = ['m1','m2','s1x','s1y','s1z','s2x','s2y','s2z']
+            X_puff = np.array([[P.extract_param(p)/(lal.MSUN_SI if p in ('m1','m2') else 1) for p in puff_names] for P in P_list_in])
+        my_cov = np.cov(X_puff.T)  # covariance of data points
+        rv = scipy.stats.multivariate_normal(mean=np.zeros(len(X_puff[0])), cov=my_cov,allow_singular=True)  # they are just complaining about dynamic range
+        delta_X = rv.rvs(size=len(X_puff))
+        X_new = X_puff+delta_X
         P_out_list = []
         # Loop over points 
-        # Jitter using the parameters we use to fit with
-        for indx_P in np.arange(np.min([len(P_list_in),len(X)])):   # make sure no past-limits errors
+        # Jitter using the parameters we use to fit with (physical components in RF modes)
+        for indx_P in np.arange(np.min([len(P_list_in),len(X_puff)])):   # make sure no past-limits errors
             include_item=True
             P = P_list_in[indx_P]
-            for indx in np.arange(len(coord_names)):
-                param  = coord_names[indx]
+            for indx in np.arange(len(puff_names)):
+                param  = puff_names[indx]
                 fac = 1
-                if coord_names[indx] in ['mc', 'mtot', 'm1', 'm2']:
+                if puff_names[indx] in ['mc', 'mtot', 'm1', 'm2']:
                     fac = lal.MSUN_SI
                 P.assign_param(param, (X_new[indx_P,indx]*fac))
+            if opts.rf_transverse_spin_coordinates and (P.m1 <= 0 or P.m2 <= 0
+                    or P.s1x**2+P.s1y**2+P.s1z**2 > 1 or P.s2x**2+P.s2y**2+P.s2z**2 > 1):
+                continue
             for p in downselect_dict.keys():
                 val = P.extract_param(p) 
                 if p in ['mc','m1','m2','mtot']:
