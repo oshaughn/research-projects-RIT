@@ -55,7 +55,19 @@ from the same reflected, width-validated density reconstruction rather than
 spline-interpolating coarse log likelihoods. The existing
 `--srate-resample-time-marginalization` is accepted as a minimum knot resolution;
 width validation may require a finer representation, and output draws have no
-lattice. A separate export refinement pass leaves marginal integrals unchanged.
+lattice. The draw-only pass uses a separate measured-width requirement
+`h <= sigma_t / 16`, remeasured on the actual dense grid and doubled if needed.
+The integral retains `h <= sigma_t / 2`; the export pass discards its integral,
+so AV weights remain bit-identical. These safety factors serve different errors:
+piecewise-linear density interpolation converges more slowly than quadrature.
+On 32 accepted S250114ax candidate rows, export safety 16 selected factor 64,
+reducing fixed-draw instantaneous error against full physical Fourier evaluation
+from 0.1233 to 0.00237 nat; controlled quantile errors fell below 7.7 ns. This is
+an event-specific engineering audit, distinct from the paper's 0.02 nat
+**time-marginal** row criterion. A warm 1000-row Blackwell GPU export took
+0.83 s versus 0.091 s at factor 8, with unchanged integral bytes. The bounded
+dense chunk budget and refinement ceiling apply to both passes. A requested
+minimum rate remains an additional floor, never an output time lattice.
 `lnL_raw` is the log of the piecewise-linear density at the drawn time, an
 approximation converging with the validated nodal spacing. Exact integer GPS
 seconds/nanoseconds serialize the draw at nanosecond precision; `t_ref` remains

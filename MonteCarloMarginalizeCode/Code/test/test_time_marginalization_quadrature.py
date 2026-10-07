@@ -107,7 +107,7 @@ def test_piecewise_linear_draw_inverts_the_density_not_log_density():
     assert at_draw[0] == pytest.approx(0.5 * np.log(3.0), abs=2e-15)
 
 
-def test_bandlimited_draw_uses_the_same_validated_dense_representation():
+def test_bandlimited_draw_uses_the_validated_export_representation():
     sig = BandLimited(amp=0.17, peak_sample=NPTS // 2 + 0.25,
                       n_period=8 * NPTS, m_hi=1400, background=0.12)
     k = sig.samples()[None, :]
@@ -117,10 +117,11 @@ def test_bandlimited_draw_uses_the_same_validated_dense_representation():
     integral, time_draw, lnL_draw = tmq.time_marginalize_bandlimited(
         k, r, DELTAT, _lnL, return_time_draw=True,
         draw_uniforms=uniforms, t0=-0.075)
+    draw_report = tmq.last_report()
     integral_only = tmq.time_marginalize_bandlimited(k, r, DELTAT, _lnL)
     np.testing.assert_allclose(integral, integral_only, rtol=0, atol=0)
 
-    factor = tmq.last_report()['upsample_factor']
+    factor = max(draw_report['export_factor_histogram'])
     assert factor > 1
     dense_k = tmq.reflected_bandlimited_upsample(k, factor)
     dense_lnL = _lnL(dense_k.real, RHO_SQ)
@@ -1032,3 +1033,77 @@ def test_export_minimum_rate_obeys_refinement_ceiling():
         tmq.time_marginalize_bandlimited(
             k, k.real, 0.01, _lnL, return_time_draw=True,
             time_draw_minimum_srate=(tmq.UPSAMPLE_FACTOR_MAX + 1) / 0.01)
+
+
+def test_export_width_safety_preserves_integral_and_resolves_point_density():
+    # Exact reflected Fourier mode, with narrow peaks at the window ends. Unlike a
+    # Gaussian cut out of a finite window this primitive has no boundary seam.
+    from scipy.integrate import cumulative_trapezoid
+    n, dt, amp = 129, 0.01, 500.0
+    x = np.arange(n) * dt
+    primitive = amp * np.cos(2 * np.pi * (np.arange(n) + 0.5) / n)
+    k = primitive[None, :].astype(complex)
+    r = np.zeros_like(k.real)
+    integral = tmq.time_marginalize_bandlimited(k, r, dt, _lnL)
+    baseline_many = tmq.time_marginalize_bandlimited(
+        np.repeat(k, 5, axis=0), np.repeat(r, 5, axis=0), dt, _lnL)
+    probabilities = np.array([0.005, 0.05, 0.5, 0.95, 0.995])
+    sigma = tmq.peak_width_from_lnL(k.real, dt)[0]
+    factor = int(tmq.required_upsample_factors(
+        sigma, dt, safety=tmq.EXPORT_UPSAMPLE_SAFETY)[0])
+    dense = tmq.reflected_bandlimited_upsample(k, factor).real[0]
+    weights = np.exp(dense - dense.max())
+    cdf = cumulative_trapezoid(weights, dx=dt/factor, initial=0)
+    cdf /= cdf[-1]
+    bins = np.minimum(np.searchsorted(cdf, probabilities, side='right')-1,
+                      len(cdf)-2)
+    second = (probabilities-cdf[bins])/(cdf[bins+1]-cdf[bins])
+    uniforms = np.column_stack([probabilities, second])
+    out, draws, lnL = tmq.time_marginalize_bandlimited(
+        np.repeat(k, 5, axis=0), np.repeat(r, 5, axis=0), dt, _lnL,
+        return_time_draw=True, draw_uniforms=uniforms)
+    np.testing.assert_array_equal(out, baseline_many)
+    truth = amp * np.cos(2*np.pi*(draws/dt+0.5)/n)
+    assert np.max(abs(lnL-truth)) < 0.01
+    fine_x = np.linspace(x[0], x[-1], 65537)
+    fine_truth = amp * np.cos(2*np.pi*(fine_x/dt+0.5)/n)
+    fine_cdf = cumulative_trapezoid(np.exp(fine_truth-amp), fine_x, initial=0)
+    fine_cdf /= fine_cdf[-1]
+    assert np.max(abs(np.interp(draws, fine_x, fine_cdf)-probabilities)) < 2e-4
+    report = tmq.last_report()
+    assert report['export_width_safety'] == 16.0
+    assert report['export_factor_histogram'] == {factor: 5}
+    assert dt/factor <= report['export_sigma_t_min']/16.0
+    # Raising the export-only rate floor cannot perturb any integral bytes.
+    higher, _, _ = tmq.time_marginalize_bandlimited(
+        k, r, dt, _lnL, return_time_draw=True,
+        draw_uniforms=uniforms[:1], time_draw_minimum_srate=2*factor/dt)
+    np.testing.assert_array_equal(higher, integral)
+    assert tmq.UPSAMPLE_SAFETY == 2.0
+
+
+def test_export_width_remeasures_and_doubles_without_changing_integral(monkeypatch):
+    n, dt = 33, 0.01
+    k = (-0.1*(np.arange(n)-16)**2)[None, :].astype(complex)
+    r = np.zeros_like(k.real)
+    baseline = tmq.time_marginalize_bandlimited(k, r, dt, _lnL)
+    original = tmq.peak_width_from_lnL
+    calls = []
+
+    def optimistic_coarse(values, spacing, xpy=np):
+        sigma, jmax, measurable = original(values, spacing, xpy=xpy)
+        calls.append(spacing)
+        if spacing == dt:
+            sigma = np.full_like(sigma, 0.16)  # Seed factor 1 optimistically.
+        elif spacing == dt/2:
+            sigma = np.full_like(sigma, 0.04)  # Requires another doubling.
+        return sigma, jmax, measurable
+
+    monkeypatch.setattr(tmq, 'peak_width_from_lnL', optimistic_coarse)
+    out, _, _ = tmq.time_marginalize_bandlimited(
+        k, r, dt, _lnL, return_time_draw=True,
+        draw_uniforms=np.array([[0.5, 0.5]]),
+        time_draw_minimum_srate=2/dt)
+    np.testing.assert_array_equal(out, baseline)
+    assert dt/2 in calls and dt/4 in calls
+    assert min(tmq.last_report()['export_factor_histogram']) >= 4

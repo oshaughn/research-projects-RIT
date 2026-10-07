@@ -162,6 +162,7 @@ import numpy as np
 __all__ = [
     "TIME_QUADRATURE_CHOICES",
     "UPSAMPLE_SAFETY",
+    "EXPORT_UPSAMPLE_SAFETY",
     "UPSAMPLE_FACTOR_MAX",
     "EDGE_GUARD_FRACTION",
     "bandlimited_upsample",
@@ -192,9 +193,15 @@ TIME_QUADRATURE_CHOICES = ("simpson", "bandlimited")
 #: 2e-34, so this is a hard-coded constant and not an accuracy/cost trade.
 UPSAMPLE_SAFETY = 2.0
 
+#: Piecewise-linear export density converges more slowly than its time integral.
+#: Draw-only grids require h <= sigma/16; AV integral grids retain sigma/2.
+EXPORT_UPSAMPLE_SAFETY = 16.0
+
 #: Fail-closed ceiling.  The band limit bounds the useful factor: with
 #: ``sigma_t >= deltaT / (pi rho)`` the derivation cannot legitimately ask for
-#: more than ``~2 rho``.  Exceeding this raises rather than silently truncating
+#: an integral factor above ``~2 rho`` (the stricter export factor may be
+#: larger). The same absolute ceiling bounds both passes. Exceeding it raises
+#: rather than silently truncating
 #: the resolution.
 UPSAMPLE_FACTOR_MAX = 4096
 
@@ -860,8 +867,8 @@ def peak_width_from_lnL(lnL_t, dx, xpy=np):
     return sigma, jmax, measurable
 
 
-def required_upsample_factors(sigma, dx, xpy=np):
-    """Per-row power-of-two factor with ``dx/factor <= sigma/UPSAMPLE_SAFETY``.
+def required_upsample_factors(sigma, dx, xpy=np, safety=UPSAMPLE_SAFETY):
+    """Per-row power-of-two factor with ``dx/factor <= sigma/safety``.
 
     PER ROW, deliberately.  A single block-wide factor is correct but ruinous:
     the handful of rows near the source impose their resolution on every other
@@ -872,7 +879,7 @@ def required_upsample_factors(sigma, dx, xpy=np):
     loop.  Grouping by the derived factor leaves every row meeting its own
     criterion while the broad majority stop paying for the sharpest few.
     """
-    need = UPSAMPLE_SAFETY * float(dx) / xpy.where(xpy.isfinite(sigma) & (sigma > 0),
+    need = safety * float(dx) / xpy.where(xpy.isfinite(sigma) & (sigma > 0),
                                                    sigma, np.inf)
     need = xpy.where(need > 1.0, need, 1.0)
     factor = xpy.exp2(xpy.ceil(xpy.log2(need)))
@@ -1166,9 +1173,11 @@ def time_marginalize_bandlimited(kappa, rho_sq, deltaT, loglikelihood,
         being nearly true.
     return_time_draw : bool, optional
         Also return one continuous conditional-posterior draw per row and its
-        instantaneous log likelihood.  Refined rows use the exact same validated
-        dense representation as the trapezoid integral.  Unrefined rows are
-        already resolved and are drawn continuously between their coarse knots.
+        log of the piecewise-linear density at that draw. The draw-only grid
+        satisfies its own stricter measured-width criterion (sigma/16), while
+        the marginal integral retains sigma/2. Flat/unmeasurable rows retain
+        their coarse representation unless a minimum export rate requires more
+        knots. Returned integral values are unchanged by this export pass.
     draw_uniforms : array, optional
         Shape ``(n_extrinsic, 2)`` uniforms for deterministic draws.  Omit to use
         numpy's global RNG, matching the batch driver's ``--seed`` behavior.
@@ -1179,7 +1188,7 @@ def time_marginalize_bandlimited(kappa, rho_sq, deltaT, loglikelihood,
         For draws only, the minimum knot rate requested by the historical
         export CLI. The returned integral and its row classifications remain
         unchanged. Rows needing a finer export representation are reconstructed
-        separately with the same width check and ceiling.
+        separately with the export width check and the same refinement ceiling.
 
     Returns
     -------
@@ -1294,21 +1303,30 @@ def time_marginalize_bandlimited(kappa, rho_sq, deltaT, loglikelihood,
         sigma_seen = min(sigma_seen, s_min)
 
     export_hist = {}
-    if return_time_draw and draw_minimum_factor > 1:
-        # The requested export rate is a representation floor, not an output
-        # lattice. Reconstruct only rows whose initial quadrature grid is below
-        # it, retaining the integral's original Simpson/refinement policy.
-        export_rows = xpy.where(xpy.where(refined, factors, 1)
-                                < draw_minimum_factor)[0]
-        if int(export_rows.size):
-            _, export_hist, _, _, drawn_t, drawn_lnL = _integrate_group(
-                kappa[export_rows], rho_col[export_rows], npts, deltaT,
-                draw_minimum_factor, loglikelihood, _term,
-                draw_uniforms_rows=draw_uniforms[export_rows], t0=t0,
-                retained_plan_cache=retained_plan_cache,
-                transform_report=transform_report, xpy=xpy)
-            time_draw[export_rows] = drawn_t
-            lnL_at_draw[export_rows] = drawn_lnL
+    export_sigma_seen = np.inf
+    if return_time_draw:
+        # Draw density interpolation has its own stricter width criterion. Its
+        # integral is deliberately discarded: changing export accuracy cannot
+        # change the AV weights or the integral's Simpson/refinement policy.
+        export_factors = xpy.maximum(required_upsample_factors(
+            sigma, deltaT, xpy=xpy, safety=EXPORT_UPSAMPLE_SAFETY),
+            xpy.maximum(factors, draw_minimum_factor))
+        for f in xpy.unique(export_factors):
+            f = int(f)
+            if f == 1:
+                continue  # Flat/already resolved coarse draws seeded above.
+            idx = xpy.where(export_factors == f)[0]
+            _, group_hist, _, s_min, drawn_t, drawn_lnL = _integrate_group(
+                kappa[idx], rho_col[idx], npts, deltaT, f,
+                loglikelihood, _term, draw_uniforms_rows=draw_uniforms[idx],
+                t0=t0, retained_plan_cache=retained_plan_cache,
+                transform_report=transform_report, xpy=xpy,
+                width_safety=EXPORT_UPSAMPLE_SAFETY)
+            time_draw[idx] = drawn_t
+            lnL_at_draw[idx] = drawn_lnL
+            export_sigma_seen = min(export_sigma_seen, s_min)
+            for f_used, n_used in group_hist.items():
+                export_hist[int(f_used)] = export_hist.get(int(f_used), 0) + int(n_used)
 
     strategies = []
     if transform_report["retained_fft_batches"]:
@@ -1331,6 +1349,8 @@ def time_marginalize_bandlimited(kappa, rho_sq, deltaT, loglikelihood,
         upsample_factor=max(hist) if hist else 1,
         factor_histogram=dict(hist),
         export_minimum_factor=draw_minimum_factor,
+        export_width_safety=EXPORT_UPSAMPLE_SAFETY,
+        export_sigma_t_min=export_sigma_seen,
         export_factor_histogram=dict(export_hist),
         n_refinements=n_refine_total,
         sigma_t_min=sigma_seen,
@@ -1349,7 +1369,8 @@ def time_marginalize_bandlimited(kappa, rho_sq, deltaT, loglikelihood,
 
 def _integrate_group(kappa_rows, rho_col_rows, npts, deltaT, factor,
                      loglikelihood, _term, draw_uniforms_rows=None, t0=0.0,
-                     retained_plan_cache=None, transform_report=None, xpy=np):
+                     retained_plan_cache=None, transform_report=None, xpy=np,
+                     width_safety=UPSAMPLE_SAFETY):
     """Refine and integrate one group of rows that share a derived factor.
 
     Returns ``(values, factor_histogram, n_refinements, sigma_dense_min,
@@ -1420,7 +1441,7 @@ def _integrate_group(kappa_rows, rho_col_rows, npts, deltaT, factor,
         finite_sigma = xpy.isfinite(current_sigma)
         if bool(xpy.any(finite_sigma)):
             sigma_seen = min(sigma_seen, float(xpy.min(current_sigma[finite_sigma])))
-        resolved = (~finite_sigma) | (dx_dense <= current_sigma / UPSAMPLE_SAFETY)
+        resolved = (~finite_sigma) | (dx_dense <= current_sigma / width_safety)
         accepted = remaining[resolved]
         values[accepted] = current_values[resolved]
         n_accepted = int(xpy.sum(resolved))

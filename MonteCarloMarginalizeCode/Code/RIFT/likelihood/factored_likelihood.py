@@ -1913,7 +1913,7 @@ def _combine_noloop_chunk_reports(reports, n_rows, row_limit):
                 merged = out.setdefault(key, {})
                 for subkey, count in value.items():
                     merged[subkey] = merged.get(subkey, 0) + count
-            elif key == 'sigma_t_min':
+            elif key in ('sigma_t_min', 'export_sigma_t_min'):
                 out[key] = min(out[key], value)
             elif key in ('upsample_factor', 'export_minimum_factor') or key.startswith('max_') or 'largest' in key:
                 out[key] = max(out[key], value)

@@ -47,6 +47,8 @@ def test_bounded_rows_match_original_and_keep_order(monkeypatch,interp,phase,non
     assert report['noloop_input_rows']==report['n_rows']==7
     for key in ('factor_histogram','export_factor_histogram','n_refined_rows','n_flat_rows','upsample_factor'):
         assert report[key]==baseline[key]
+    np.testing.assert_allclose(report['export_sigma_t_min'],
+                               baseline['export_sigma_t_min'], rtol=1e-9)
 
 
 def test_generated_uniforms_follow_original_seed_order(monkeypatch):
