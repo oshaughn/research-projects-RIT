@@ -753,9 +753,10 @@ else:
     def extract_fit_param(P, name):
         return P.extract_param(name)
 # An RF transverse fit basis must not fit more coordinates than are sampled.
-if opts.rf_transverse_spin_coordinates and len(coord_names) > len(low_level_coord_names):
-    raise ValueError("Fit uses {} coordinates {} but samples only {} {}".format(
-        len(coord_names), coord_names, len(low_level_coord_names), low_level_coord_names))
+if opts.rf_transverse_spin_coordinates:
+    sampling_problem = rf_transverse_spin.sampling_problem(coord_names, low_level_coord_names)
+    if sampling_problem:
+        raise ValueError(sampling_problem)
 error_factor = len(coord_names)
 if error_factor ==0 :
     raise Exception(" Coordinate list for fit empty; exiting ")

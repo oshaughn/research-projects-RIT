@@ -9,7 +9,7 @@ spec = importlib.util.spec_from_file_location('rf_features', CODE/'RIFT/misc/rf_
 f = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(f)
 
-FULL = '1 --parameter delta_mc --parameter-implied mu1 --parameter-implied mu2 --parameter-implied chiMinus --fit-method rf --use-precessing --parameter s1x --parameter s1y --parameter-implied s2x --parameter-implied s2y --parameter-nofit chi1 --parameter-nofit chi2'
+FULL = '1 --parameter delta_mc --parameter-implied mu1 --parameter-implied mu2 --parameter-implied chiMinus --fit-method rf --use-precessing --parameter s1x --parameter s1y --parameter-implied s2x --parameter-implied s2y --parameter-nofit chi1 --parameter-nofit chi2 --parameter-nofit mc --parameter-nofit cos_theta1 --parameter-nofit cos_theta2'
 
 def test_frozen_physics3_parity():
     # Frozen scalar values independently checked against the investigation implementation.
@@ -384,3 +384,58 @@ def test_cip_refuses_rf_fit_wider_than_sampling(tmp_path):
     # geometric4 basis is complete, but only one coordinate is sampled.
     proc=_run_cip(tmp_path,CIP_ARGS+['--rf-transverse-spin-coordinates','geometric4'])
     assert proc.returncode!=0 and 'but samples only 1' in proc.stdout, proc.stdout[-2000:]
+
+
+@pytest.mark.parametrize('mode',f.GEOMETRIC4_MODES)
+@pytest.mark.parametrize('sampled', [[], ['mc'] * 8])
+def test_pipeline_refuses_missing_or_repeated_sampling_coordinates(mode, sampled):
+    line='1 --fit-method rf --use-precessing --rf-transverse-spin-coordinates='+mode
+    line+=' '+' '.join('--parameter-implied '+p for p in f.NATIVE_FEATURES)
+    line+=' '+' '.join('--parameter-nofit '+p for p in sampled)
+    if hasattr(f, 'stage_problem'):
+        assert f.stage_problem(line) is not None
+    else:
+        with pytest.raises(ValueError, match='samples only|must be unique'):
+            f.revalidate_stage(line)
+
+
+def test_cip_refuses_duplicate_sampling_coordinates(tmp_path):
+    # Eight argument entries cannot stand in for eight independent dimensions.
+    args=CIP_ARGS+['--rf-transverse-spin-coordinates','geometric4']
+    args += ['--parameter-nofit', 'mc'] * 7  # delta_mc is the only --parameter.
+    proc=_run_cip(tmp_path,args)
+    assert proc.returncode!=0 and 'sampling coordinates must be unique' in proc.stdout, proc.stdout[-2000:]
+
+
+def test_pipeline_refuses_last_equals_form_retired_mode():
+    line=' '.join(CIP_ARGS+CIP_SAMPLED+['--rf-transverse-spin-coordinates','geometric4'])+' --rf-transverse-spin-coordinates=physics3'
+    if hasattr(f, 'stage_problem'):
+        assert 'retired' in f.stage_problem(line)
+    else:
+        with pytest.raises(ValueError, match='retired'):
+            f.revalidate_stage(line)
+
+
+@pytest.mark.parametrize('matter', [False, True])
+def test_dimension_guard_leaves_nontransverse_and_matter_fits_alone(matter):
+    # Execute the actual CIP block without launching the sampler. Redundant fit
+    # features are legitimate outside this specific RF transverse policy.
+    import ast
+    from types import SimpleNamespace
+    root=Path(__file__).resolve().parents[1]
+    tree=ast.parse((root/'bin/util_ConstructIntrinsicPosterior_GenericCoordinates.py').read_text())
+    guard=next(n for n in tree.body if isinstance(n,ast.If)
+               and 'rf_transverse_spin.sampling_problem' in ast.unparse(n))
+    ns={'opts':SimpleNamespace(rf_transverse_spin_coordinates=None,
+                              input_tides=matter, using_eos=matter),
+        'coord_names':['mc', 'eta', 'lambda1', 'lambda2', 'lambda_plus', 'lambda_minus'],
+        'low_level_coord_names':['mc', 'eta', 'lambda1', 'lambda2']}
+    exec(compile(ast.Module(body=[guard],type_ignores=[]),'CIP_dimension_policy','exec'),ns)
+
+
+def test_revalidate_rejects_retired_mode_with_argparse_spelling_and_precedence():
+    line=' '.join(CIP_ARGS+CIP_SAMPLED+['--rf-transverse-spin-coordinates','geometric4'])
+    with pytest.raises(ValueError, match='retired'):
+        f.revalidate_stage(line+' --rf-transverse-spin-coordinates=physics3')
+    overridden=line+' --rf-transverse-spin-coordinates physics3 --rf-transverse-spin-coordinates=geometric4'
+    assert f.revalidate_stage(overridden)==overridden

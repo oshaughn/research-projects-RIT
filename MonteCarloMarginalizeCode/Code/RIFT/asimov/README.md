@@ -56,8 +56,9 @@ boolean `true` means `geometric4`. Quoted string modes avoid YAML ambiguity.
 
 The earlier `physics3` mode is retired and refused at every layer. It appended
 three scalar features to the eight native coordinates, so CIP fit 11
-coordinates for 8 degrees of freedom. CIP must never fit more coordinates than
-it samples.
+coordinates for 8 degrees of freedom. This RF transverse mode requires a nonredundant fit basis. Other CIP
+configurations, including matter fits, can use more fit features than sampled
+coordinates.
 
 If a pipeline option later rewrites an activated stage so that it no longer
 fits the native basis (`--cip-internal-use-eta-in-sampler`,

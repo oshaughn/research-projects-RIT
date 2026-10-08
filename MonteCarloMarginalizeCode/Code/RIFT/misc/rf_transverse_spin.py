@@ -84,8 +84,8 @@ GEOMETRIC4_NAMES=('rf_total_perp','rf_total_azimuth','rf_residual_parallel','rf_
 PHASE_EXCESS_NAMES=('rf_phase_excess',)+GEOMETRIC4_NAMES[1:]
 GEOMETRIC4_MODES=('geometric4','geometric4-phase-excess')
 # physics3 appends three scalars to the eight native fit coordinates: 11 fit
-# coordinates for 8 degrees of freedom. CIP must never fit more coordinates
-# than it samples, so the mode is refused everywhere.
+# coordinates for 8 degrees of freedom. This RF transverse policy requires
+# a nonredundant basis; other CIP configurations can use redundant fit features.
 RETIRED_MODES=('physics3',)
 RETIRED_MESSAGE=('RF transverse-spin mode physics3 is retired: it gives CIP 11 fit coordinates '
     'for 8 degrees of freedom. Use geometric4 (auto selects it) or off.')
@@ -153,6 +153,23 @@ def convert(x, coord_names, low_level_coord_names, frequency, converter, **kwarg
     out[~valid] = -np.inf
     return out
 
+def sampling_problem(fit_names, sampled_names):
+    """Check distinct sampling coordinates, not repeated CLI argument entries."""
+    if len(set(sampled_names)) != len(sampled_names):
+        return 'RF transverse-spin sampling coordinates must be unique'
+    if len(fit_names) > len(sampled_names):
+        return "Fit uses {} coordinates {} but samples only {} {}".format(
+            len(fit_names), fit_names, len(sampled_names), sampled_names)
+    return None
+
+
+def _stage_sampling_problem(tokens):
+    def values(flag): return [tokens[i+1] for i,t in enumerate(tokens[:-1]) if t==flag]
+    parameters = values('--parameter')
+    return sampling_problem(parameters + values('--parameter-implied'),
+                            parameters + values('--parameter-nofit'))
+
+
 def stage_arguments(line, mode, detector_chirp_mass, applicable, frequency):
     """Leave reduced/non-RF stages unchanged; activate only the complete L-frame RF fit."""
     import shlex
@@ -194,16 +211,22 @@ def revalidate_stage(line):
     instead, for every activated transverse-spin mode.
     """
     import shlex
-    tokens=shlex.split(line)
-    if '--rf-transverse-spin-coordinates' in tokens:
-        mode=tokens[tokens.index('--rf-transverse-spin-coordinates')+1]
+    tokens=[]
+    for t in shlex.split(line):
+        tokens += t.split('=',1) if t.startswith('--') and '=' in t else [t]
+    modes=[tokens[i+1] for i,t in enumerate(tokens[:-1]) if t=='--rf-transverse-spin-coordinates']
+    if modes:
+        mode=modes[-1]  # argparse uses the last value for scalar options.
+        if mode in RETIRED_MODES:
+            raise ValueError(RETIRED_MESSAGE)
         if mode in GEOMETRIC4_MODES:
             _require_geometric4_basis(tokens)
-    if '--rf-transverse-spin-coordinates' in tokens and tokens[tokens.index('--rf-transverse-spin-coordinates')+1] in RETIRED_MODES:
-        raise ValueError(RETIRED_MESSAGE)
-    if '--rf-transverse-spin-coordinates' in tokens and not _supports_physics3(tokens):
-        raise ValueError('A pipeline rewrite removed the RF basis from an activated stage; '
-            'set the RF transverse-spin option to off or drop the rewriting option: '+line.strip())
+            problem = _stage_sampling_problem(tokens)
+            if problem:
+                raise ValueError(problem)
+        if not _supports_physics3(tokens):
+            raise ValueError('A pipeline rewrite removed the RF basis from an activated stage; '
+                'set the RF transverse-spin option to off or drop the rewriting option: '+line.strip())
     return line
 
 
