@@ -752,13 +752,10 @@ if opts.rf_transverse_spin_coordinates:
 else:
     def extract_fit_param(P, name):
         return P.extract_param(name)
-# Never fit more coordinates than are sampled: the excess are functions of the rest.
-if len(coord_names) > len(low_level_coord_names):
-    fit_excess_msg = "Fit uses {} coordinates {} but samples only {} {}".format(
-        len(coord_names), coord_names, len(low_level_coord_names), low_level_coord_names)
-    if opts.rf_transverse_spin_coordinates:
-        raise ValueError(fit_excess_msg)
-    print(" WARNING: " + fit_excess_msg)
+# An RF transverse fit basis must not fit more coordinates than are sampled.
+if opts.rf_transverse_spin_coordinates and len(coord_names) > len(low_level_coord_names):
+    raise ValueError("Fit uses {} coordinates {} but samples only {} {}".format(
+        len(coord_names), coord_names, len(low_level_coord_names), low_level_coord_names))
 error_factor = len(coord_names)
 if error_factor ==0 :
     raise Exception(" Coordinate list for fit empty; exiting ")
