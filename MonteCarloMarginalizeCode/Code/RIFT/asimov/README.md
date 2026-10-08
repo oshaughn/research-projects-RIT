@@ -54,6 +54,10 @@ sampler:
 YAML boolean `false` (including an unquoted YAML 1.1 `off`) means `off`;
 boolean `true` means `geometric4`. Quoted string modes avoid YAML ambiguity.
 
+Geometric4 uses the actual ILE spin reference frequency (`engine.fref` in an
+INI, otherwise the helper's template reference). It does not transport spins or
+replace the physical prior.
+
 The earlier `physics3` mode is retired and refused at every layer. It appended
 three scalar features to the eight native coordinates, so CIP fit 11
 coordinates for 8 degrees of freedom. This RF transverse mode requires a nonredundant fit basis. Other CIP

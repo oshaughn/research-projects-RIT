@@ -327,7 +327,8 @@ def test_pseudo_pipe_revalidates_after_its_rewrites():
     code = compile(ast.Module(body=[block], type_ignores=[]), 'pseudo_pipe_block', 'exec')
     active = f.stage_arguments(ACTIVE, 'auto', 10, True, 20)
     for mode in ('auto', 'geometric4'):
-        ns = {'opts': types.SimpleNamespace(rf_transverse_spin_coordinates=mode), 'lines': [active]}
+        ns = {'opts': types.SimpleNamespace(rf_transverse_spin_coordinates=mode), 'lines': [active],
+              'revalidate_stage': f.revalidate_stage}
         exec(code, ns)
         assert ns['lines'] == [active]
         ns['lines'] = [active.replace('parameter delta_mc', 'parameter eta')]
@@ -439,3 +440,24 @@ def test_revalidate_rejects_retired_mode_with_argparse_spelling_and_precedence()
         f.revalidate_stage(line+' --rf-transverse-spin-coordinates=physics3')
     overridden=line+' --rf-transverse-spin-coordinates physics3 --rf-transverse-spin-coordinates=geometric4'
     assert f.revalidate_stage(overridden)==overridden
+
+
+def test_retired_problem_finds_any_occurrence_in_any_spelling():
+    # pseudo_pipe applies this to every final CIP line, including --manual-extra-cip-args.
+    active=f.stage_arguments(FULL,'geometric4',10,True,20)
+    assert f.retired_problem(active) is None
+    for extra in [' --rf-transverse-spin-coordinates=physics3',' --rf-transverse-spin-coordinates physics3']:
+        assert 'retired' in f.retired_problem(active+extra)
+        assert 'retired' in f.retired_problem(extra+' '+active)
+
+
+def test_pseudo_pipe_refuses_physics3_from_the_ini(tmp_path):
+    # The ini overrides argparse; pseudo_pipe's own parser must refuse before the helper runs.
+    pytest.importorskip('lal')
+    import os,subprocess,sys
+    ini=tmp_path/'p.ini'
+    ini.write_text('[rift-pseudo-pipe]\nrf-transverse-spin-coordinates="physics3"\n')
+    env=dict(os.environ,PYTHONPATH=str(CODE)+os.pathsep+os.environ.get('PYTHONPATH',''),OMP_NUM_THREADS='1')
+    proc=subprocess.run([sys.executable,str(CODE/'bin/util_RIFT_pseudo_pipe.py'),'--use-ini',str(ini)],
+        cwd=tmp_path,env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,universal_newlines=True,timeout=300)
+    assert proc.returncode==2 and 'util_RIFT_pseudo_pipe.py: error: RF transverse-spin mode physics3 is retired' in proc.stdout, proc.stdout[-2000:]

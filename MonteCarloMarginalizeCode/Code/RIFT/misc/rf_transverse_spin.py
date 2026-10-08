@@ -170,6 +170,16 @@ def _stage_sampling_problem(tokens):
                             parameters + values('--parameter-nofit'))
 
 
+def retired_problem(line):
+    """RETIRED_MESSAGE if any RF transverse-spin value on a CIP line is retired; else None."""
+    import shlex
+    tokens=[]
+    for t in shlex.split(line):
+        tokens += t.split('=',1) if t.startswith('--') and '=' in t else [t]
+    modes=[tokens[i+1] for i,t in enumerate(tokens[:-1]) if t=='--rf-transverse-spin-coordinates']
+    return RETIRED_MESSAGE if set(modes) & set(RETIRED_MODES) else None
+
+
 def stage_arguments(line, mode, detector_chirp_mass, applicable, frequency):
     """Leave reduced/non-RF stages unchanged; activate only the complete L-frame RF fit."""
     import shlex
@@ -240,7 +250,8 @@ def enabled(mode, detector_chirp_mass, applicable):
         return False
     if not applicable:
         if mode in GEOMETRIC4_MODES:
-            raise ValueError('RF transverse-spin coordinates require a precessing BBH analysis')
+            raise ValueError('RF transverse-spin coordinates require a precessing BBH analysis '
+                'with no matter, eccentricity, EOB or hyperbolic parameters')
         return False
     try: mc=float(detector_chirp_mass) if not isinstance(detector_chirp_mass,(bool,np.bool_)) else float('nan')
     except (TypeError,ValueError): mc=float('nan')

@@ -81,7 +81,8 @@ def test_actual_pipeline_forwarding_and_postrewrite_guard():
     ns={'opts':types.SimpleNamespace(rf_transverse_spin_coordinates='geometric4'),'cmd':'helper_LDG_Events.py --approx IMRPhenomXPHM'}
     exec(compile(ast.Module(body=[forward],type_ignores=[]),'actual_pipeline_forward','exec'),ns)
     argv=shlex.split(ns['cmd']);assert argv[argv.index('--rf-transverse-spin-coordinates')+1]=='geometric4'
-    guard=next(n for n in blocks if 'revalidate_stage' in ast.unparse(n))
+    guard=next(n for n in ast.parse(source).body if isinstance(n,ast.If) and 'revalidate_stage' in ast.unparse(n))
+    ns['revalidate_stage']=f.revalidate_stage
     line='1 --fit-method rf --use-precessing '+' '.join('--parameter-implied '+n for n in f.NATIVE_FEATURES) + ' ' + ' '.join('--parameter-nofit '+n for n in ('mc','delta_mc','chi1','chi2','cos_theta1','cos_theta2','phi1','phi2'))
     ns['lines']=[f.stage_arguments(line,'geometric4',10,True,35)]
     exec(compile(ast.Module(body=[guard],type_ignores=[]),'actual_pipeline_guard','exec'),ns)

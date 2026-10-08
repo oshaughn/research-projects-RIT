@@ -1291,9 +1291,14 @@ if opts.internal_use_amr:
         if not(opts.assume_lowlatency_tradeoffs):
             lines[0] += " --intrinsic-param spin2z "
 
-if opts.rf_transverse_spin_coordinates:
+# Final CIP lines, from any route (e.g. --manual-extra-cip-args), must not carry a
+# retired RF mode; fail here rather than in every CIP job after ILE.
+from RIFT.misc.rf_transverse_spin import retired_problem, revalidate_stage
+for line in lines:
+    if retired_problem(line):
+        raise ValueError(retired_problem(line))
+if opts.rf_transverse_spin_coordinates or any('--rf-transverse-spin-coordinates' in line for line in lines):
     # The edits above can remove the RF basis from a stage the helper activated
-    from RIFT.misc.rf_transverse_spin import revalidate_stage
     lines = [revalidate_stage(line) for line in lines]
 
 with open("args_cip_list.txt",'w') as f: 

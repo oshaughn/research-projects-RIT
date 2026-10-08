@@ -11,7 +11,7 @@ ROOT=Path(__file__).resolve().parents[1]
 class StageBuilt(Exception):
     pass
 
-def generate(monkeypatch,tmp_path, mode, mc=10, force_method=None, fref=35):
+def generate(monkeypatch,tmp_path, mode, mc=10, force_method=None, fref=35, extra=()):
     lal=pytest.importorskip('lal')
     monkeypatch.syspath_prepend(str(ROOT))
     monkeypatch.setenv('GW_SURROGATE','')
@@ -34,6 +34,7 @@ def generate(monkeypatch,tmp_path, mode, mc=10, force_method=None, fref=35):
         lalsimutils.ChooseWaveformParams_array_to_xml([p],fname=filename,fref=fref)
         args+=['--sim-xml',filename+'.xml.gz','--event','0']
     if force_method is not None:args+=['--force-fit-method',force_method]
+    args+=list(extra)
     monkeypatch.setattr(sys,'argv',[str(script)]+args)
     stop=next(i for i,line in enumerate(script.read_text().splitlines(),1)
               if line=='with open("helper_cip_arg_list.txt",\'w+\') as f:')
@@ -94,8 +95,16 @@ def test_actual_explicit_geometric4_rejects_explicit_gp(monkeypatch,tmp_path):
         generate(monkeypatch,tmp_path,'geometric4',10,'gp')
 
 def test_actual_helper_refuses_physics3(monkeypatch,tmp_path):
-    with pytest.raises(SystemExit):
+    # parser.error exits 2; without the parse-time refusal enabled() raises ValueError.
+    with pytest.raises(SystemExit) as exc:
         generate(monkeypatch,tmp_path,'physics3',10)
+    assert exc.value.code==2
+
+@pytest.mark.parametrize('extra',[('--assume-matter-eos','SLy')])
+def test_auto_declines_analyses_outside_the_native_basis(monkeypatch,tmp_path,extra):
+    # pseudo_pipe or the helper adds fit coordinates (a6c, E0/p_phi0, tides) that geometric4 cannot carry.
+    result=generate(monkeypatch,tmp_path,'auto',10,extra=extra)
+    assert not any('--rf-transverse-spin-coordinates' in line for line in result['lines'])
 
 
 @pytest.mark.parametrize('mode',['geometric4','geometric4-phase-excess'])
