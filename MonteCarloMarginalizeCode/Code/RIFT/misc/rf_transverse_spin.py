@@ -83,6 +83,12 @@ def geometric4_inverse(m1,m2,z1,z2,features,frequency=20.,phase_excess=False):
 GEOMETRIC4_NAMES=('rf_total_perp','rf_total_azimuth','rf_residual_parallel','rf_residual_perpendicular')
 PHASE_EXCESS_NAMES=('rf_phase_excess',)+GEOMETRIC4_NAMES[1:]
 GEOMETRIC4_MODES=('geometric4','geometric4-phase-excess')
+# physics3 appends three scalars to the eight native fit coordinates: 11 fit
+# coordinates for 8 degrees of freedom. CIP must never fit more coordinates
+# than it samples, so the mode is refused everywhere.
+RETIRED_MODES=('physics3',)
+RETIRED_MESSAGE=('RF transverse-spin mode physics3 is retired: it gives CIP 11 fit coordinates '
+    'for 8 degrees of freedom. Use geometric4 (auto selects it) or off.')
 
 def geometric_names(mode):
     return PHASE_EXCESS_NAMES if mode=='geometric4-phase-excess' else GEOMETRIC4_NAMES
@@ -193,6 +199,8 @@ def revalidate_stage(line):
         mode=tokens[tokens.index('--rf-transverse-spin-coordinates')+1]
         if mode in GEOMETRIC4_MODES:
             _require_geometric4_basis(tokens)
+    if '--rf-transverse-spin-coordinates' in tokens and tokens[tokens.index('--rf-transverse-spin-coordinates')+1] in RETIRED_MODES:
+        raise ValueError(RETIRED_MESSAGE)
     if '--rf-transverse-spin-coordinates' in tokens and not _supports_physics3(tokens):
         raise ValueError('A pipeline rewrite removed the RF basis from an activated stage; '
             'set the RF transverse-spin option to off or drop the rewriting option: '+line.strip())
@@ -203,10 +211,12 @@ def enabled(mode, detector_chirp_mass, applicable):
     """Resolve the opt-in policy before constructing the native phase-fit schedule."""
     if mode not in (None,'off','auto','physics3','geometric4','geometric4-phase-excess'):
         raise ValueError('Unknown RF transverse-spin mode')
+    if mode in RETIRED_MODES:
+        raise ValueError(RETIRED_MESSAGE)
     if mode in (None,'off'):
         return False
     if not applicable:
-        if mode in ('physics3','geometric4','geometric4-phase-excess'):
+        if mode in GEOMETRIC4_MODES:
             raise ValueError('RF transverse-spin coordinates require a precessing BBH analysis')
         return False
     try: mc=float(detector_chirp_mass) if not isinstance(detector_chirp_mass,(bool,np.bool_)) else float('nan')

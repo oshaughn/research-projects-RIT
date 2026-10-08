@@ -5,7 +5,7 @@ import pytest
 liquid = pytest.importorskip("liquid")
 ROOT = Path(__file__).resolve().parents[1]
 
-@pytest.mark.parametrize("mode,expected", [(None,"auto"),("auto","auto"),("off","off"),(False,"off"),(True,"physics3"),("physics3","physics3"),("geometric4","geometric4"),("geometric4-phase-excess","geometric4-phase-excess")])
+@pytest.mark.parametrize("mode,expected", [(None,"auto"),("auto","auto"),("off","off"),(False,"off"),(True,"geometric4"),("geometric4","geometric4"),("geometric4-phase-excess","geometric4-phase-excess")])
 def test_asimov_transverse_override_render(mode, expected):
     text = (ROOT / "RIFT/asimov/rift.ini").read_text()
     start = text.index('cip-fit-method=')

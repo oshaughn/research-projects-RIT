@@ -107,7 +107,7 @@ def test_radius_and_phase_variant_are_distinct():
         f.convert(np.zeros((1,8)),list(f.GEOMETRIC4_NAMES)+['rf_phase_excess'],[],35,None)
 
 
-@pytest.mark.parametrize('mode',f.GEOMETRIC4_MODES+('physics3',))
+@pytest.mark.parametrize('mode',f.GEOMETRIC4_MODES)
 def test_quadpuff_contingency_puffs_physical_components(tmp_path,mode):
     # quadpuff cannot assign RF features; it must jitter m1,m2 and spin components and still write a grid.
     pytest.importorskip('lal')

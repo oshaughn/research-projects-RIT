@@ -56,7 +56,7 @@ def generate(monkeypatch,tmp_path, mode, mc=10, force_method=None, fref=35):
     assert result,'Helper did not reach generated stage boundary'
     return result
 
-@pytest.mark.parametrize('mode,mc,expected',[('physics3',10,'physics3'),('auto',10,'geometric4'),
+@pytest.mark.parametrize('mode,mc,expected',[('geometric4',10,'geometric4'),('auto',10,'geometric4'),
     ('auto',19.9,'geometric4'),('auto',20.1,None),('auto',25,None),('off',10,None),('auto',None,None)])
 def test_actual_helper_top_level_policy(monkeypatch,tmp_path,mode,mc,expected):
     # The exact 20 boundary is checked directly in test_auto_conservative_mass;
@@ -89,9 +89,13 @@ def test_actual_off_has_unchanged_generated_stages(monkeypatch,tmp_path):
     assert off['ile']==default['ile']
     assert off['fit_method']==default['fit_method']=='gp'
 
-def test_actual_explicit_physics_rejects_explicit_gp(monkeypatch,tmp_path):
+def test_actual_explicit_geometric4_rejects_explicit_gp(monkeypatch,tmp_path):
     with pytest.raises(ValueError,match='No complete two-spin RF stage'):
-        generate(monkeypatch,tmp_path,'physics3',10,'gp')
+        generate(monkeypatch,tmp_path,'geometric4',10,'gp')
+
+def test_actual_helper_refuses_physics3(monkeypatch,tmp_path):
+    with pytest.raises(SystemExit):
+        generate(monkeypatch,tmp_path,'physics3',10)
 
 
 @pytest.mark.parametrize('mode',['geometric4','geometric4-phase-excess'])

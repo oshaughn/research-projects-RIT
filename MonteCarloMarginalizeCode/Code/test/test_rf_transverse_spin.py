@@ -21,7 +21,7 @@ def test_frozen_physics3_parity():
 def test_auto_conservative_mass(mass):
     assert f.stage_arguments(FULL,'auto',mass,True,20)==FULL
 
-@pytest.mark.parametrize('mode,expected', [('auto','geometric4'),('physics3','physics3'),
+@pytest.mark.parametrize('mode,expected', [('auto','geometric4'),
                                          ('geometric4','geometric4'),
                                          ('geometric4-phase-excess','geometric4-phase-excess')])
 def test_opt_in_keeps_native_sampling_and_reference(mode,expected):
@@ -35,9 +35,9 @@ def test_opt_in_keeps_native_sampling_and_reference(mode,expected):
 
 def test_reduced_or_non_rf_stages_are_unchanged():
     for line in [FULL.replace('--parameter-implied s2y',''),FULL.replace('fit-method rf','fit-method gp')]:
-        assert f.stage_arguments(line,'physics3',10,True,20)==line
+        assert f.stage_arguments(line,'geometric4',10,True,20)==line
     assert f.stage_arguments(FULL,'auto',10,False,20)==FULL
-    with pytest.raises(ValueError): f.stage_arguments(FULL,'physics3',10,False,20)
+    with pytest.raises(ValueError): f.stage_arguments(FULL,'geometric4',10,False,20)
 
 def test_rotation_and_two_spin_cancellation():
     s1=np.array([.2,.3,-.1]);s2=np.array([-.1,.4,.2]);a=.4
@@ -102,7 +102,7 @@ def test_actual_native_fast_kerr_guard():
     assert np.isfinite(out[0]).all() and np.isneginf(out[1]).all()
 
 MISSING=object()
-@pytest.mark.parametrize('value,expected',[(MISSING,'auto'),(None,'auto'),(False,'off'),(True,'physics3'),('off','off'),('auto','auto'),('physics3','physics3')])
+@pytest.mark.parametrize('value,expected',[(MISSING,'auto'),(None,'auto'),(False,'off'),(True,'geometric4'),('off','off'),('auto','auto'),('geometric4','geometric4')])
 def test_real_liquid_asimov_override(value,expected):
     liquid=pytest.importorskip('liquid')
     template=(CODE/'RIFT/asimov/rift.ini').read_text()
@@ -119,7 +119,7 @@ def test_only_tested_native_basis_is_activated(missing):
     words=shlex.split(FULL)
     i=words.index(missing); del words[i-1:i+1]
     line=' '.join(shlex.quote(p) for p in words)
-    assert f.stage_arguments(line,'physics3',10,True,20)==line
+    assert f.stage_arguments(line,'geometric4',10,True,20)==line
 
 def test_basis_policy_is_resolved_after_initial_grid_before_strategy():
     src=(CODE/'bin/helper_LDG_Events.py').read_text()
@@ -128,7 +128,15 @@ def test_basis_policy_is_resolved_after_initial_grid_before_strategy():
     assert gate<src.index('if opts.propose_fit_strategy:\n    puff_max_it= 0')
     assert 'opts.internal_use_aligned_phase_coordinates = True' in src[gate:]
     assert not f.enabled('auto',True,True)
-    assert f.enabled('physics3',None,True)
+    assert f.enabled('geometric4',None,True)
+
+
+def test_physics3_is_refused_at_every_layer():
+    # physics3 fit 11 coordinates for 8 degrees of freedom.
+    with pytest.raises(ValueError,match='retired'): f.enabled('physics3',10,True)
+    with pytest.raises(ValueError,match='retired'): f.stage_arguments(FULL,'physics3',10,True,20)
+    active=f.stage_arguments(FULL,'geometric4',10,True,20)
+    with pytest.raises(ValueError,match='retired'): f.revalidate_stage(active.replace('geometric4','physics3'))
 
 
 def test_advertised_packages_survive_wheel_discovery():
@@ -302,7 +310,7 @@ def test_pipeline_rewrite_cannot_strand_activated_stage(rewrite):
     assert f.revalidate_stage(ACTIVE.replace(*rewrite)) == ACTIVE.replace(*rewrite)
 
 def test_fref_replacement_keeps_range_literals():
-    line = f.stage_arguments(ACTIVE, 'physics3', 10, True, 25)
+    line = f.stage_arguments(ACTIVE, 'geometric4', 10, True, 25)
     assert '--mc-range [9.8,10.3]' in line and "'" not in line
     assert '--fref 10' not in line and line.endswith('--fref 25.0')
 
@@ -318,7 +326,7 @@ def test_pseudo_pipe_revalidates_after_its_rewrites():
     assert block.lineno < lineno('with open("args_cip_list.txt"')
     code = compile(ast.Module(body=[block], type_ignores=[]), 'pseudo_pipe_block', 'exec')
     active = f.stage_arguments(ACTIVE, 'auto', 10, True, 20)
-    for mode in ('auto', 'physics3'):
+    for mode in ('auto', 'geometric4'):
         ns = {'opts': types.SimpleNamespace(rf_transverse_spin_coordinates=mode), 'lines': [active]}
         exec(code, ns)
         assert ns['lines'] == [active]
@@ -354,3 +362,25 @@ def test_liquid_null_cip_block_renders_default():
     rendered=liquid.Liquid(text[start:end],from_file=False).render(sampler={'cip':None})
     assert 'rf-transverse-spin-coordinates="auto"' in rendered
     assert 'cip-fit-method="rf"' in rendered
+
+
+CIP_ARGS=['--fit-method','rf','--use-precessing','--fref','35','--parameter','delta_mc']+\
+    [a for p in ['mu1','mu2','chiMinus','s1x','s1y','s2x','s2y'] for a in ('--parameter-implied',p)]
+CIP_SAMPLED=[a for p in ['mc','chi1','chi2','cos_theta1','cos_theta2','phi1','phi2'] for a in ('--parameter-nofit',p)]
+
+def _run_cip(tmp_path,args):
+    pytest.importorskip('lal')
+    import os,subprocess,sys
+    (tmp_path/'g.dat').write_text('0 20 10 0 0 0 0 0 0 10 0.1 100 1000\n')
+    cmd=[sys.executable,str(CODE/'bin/util_ConstructIntrinsicPosterior_GenericCoordinates.py'),'--fname','g.dat','--no-plots']+args
+    env=dict(os.environ,PYTHONPATH=str(CODE)+os.pathsep+os.environ.get('PYTHONPATH',''),OMP_NUM_THREADS='1')
+    return subprocess.run(cmd,cwd=tmp_path,env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,universal_newlines=True,timeout=300)
+
+def test_cip_refuses_physics3(tmp_path):
+    proc=_run_cip(tmp_path,CIP_ARGS+CIP_SAMPLED+['--rf-transverse-spin-coordinates','physics3'])
+    assert proc.returncode!=0 and 'physics3 is retired' in proc.stdout, proc.stdout[-2000:]
+
+def test_cip_refuses_rf_fit_wider_than_sampling(tmp_path):
+    # geometric4 basis is complete, but only one coordinate is sampled.
+    proc=_run_cip(tmp_path,CIP_ARGS+['--rf-transverse-spin-coordinates','geometric4'])
+    assert proc.returncode!=0 and 'but samples only 1' in proc.stdout, proc.stdout[-2000:]
