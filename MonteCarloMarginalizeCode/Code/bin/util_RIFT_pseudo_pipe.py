@@ -208,7 +208,7 @@ parser.add_argument("--internal-use-amr",action='store_true',help="Changes refin
 parser.add_argument("--internal-use-amr-bank",default="",type=str,help="Bank used for template")
 parser.add_argument("--internal-use-amr-puff",action='store_true',help="Use puffball with AMR (as usual).  May help with stalling")
 parser.add_argument("--internal-use-force-away",type=float,default=None,help="Specific force-away value")
-parser.add_argument("--rf-transverse-spin-coordinates", choices=["off","auto","physics3","geometric4","geometric4-phase-excess"], default=None, help="Pass opt-in physics3 or geometric4 RF fitting basis to every applicable full precessing stage")
+parser.add_argument("--rf-transverse-spin-coordinates", choices=["off","auto","physics3","geometric4","geometric4-phase-excess"], default=None, help="Pass opt-in geometric4 RF fitting basis to every applicable full precessing stage; auto selects geometric4. physics3 is retired and refused")
 parser.add_argument("--internal-use-aligned-phase-coordinates", action='store_true', help="If present, instead of using mc...chi-eff coordinates for aligned spin, will use SM's phase-based coordinates. Requires spin for now")
 parser.add_argument("--internal-use-rescaled-transverse-spin-coordinates",action='store_true',help="If present, use coordinates which rescale the unit sphere with special transverse sampling")
 parser.add_argument("--external-fetch-native-from",type=str,help="Directory name of run where grids will be retrieved.  Recommend this is for an ACTIVE run, or otherwise producing a large grid so the retrieved grid changes/isn't fixed")
@@ -383,6 +383,10 @@ if (opts.use_ini):
             val = rift_items[item].strip()
             ile_condor_commands.append([item, val])
 
+# After the ini, which can set the mode.
+if opts.rf_transverse_spin_coordinates == 'physics3':
+    from RIFT.misc.rf_transverse_spin import RETIRED_MESSAGE
+    parser.error(RETIRED_MESSAGE)
 
 
 if opts.use_osg:
@@ -1287,9 +1291,14 @@ if opts.internal_use_amr:
         if not(opts.assume_lowlatency_tradeoffs):
             lines[0] += " --intrinsic-param spin2z "
 
-if opts.rf_transverse_spin_coordinates:
+# Final CIP lines, from any route (e.g. --manual-extra-cip-args), must not carry a
+# retired RF mode; fail here rather than in every CIP job after ILE.
+from RIFT.misc.rf_transverse_spin import retired_problem, revalidate_stage
+for line in lines:
+    if retired_problem(line):
+        raise ValueError(retired_problem(line))
+if opts.rf_transverse_spin_coordinates or any('--rf-transverse-spin-coordinates' in line for line in lines):
     # The edits above can remove the RF basis from a stage the helper activated
-    from RIFT.misc.rf_transverse_spin import revalidate_stage
     lines = [revalidate_stage(line) for line in lines]
 
 with open("args_cip_list.txt",'w') as f: 

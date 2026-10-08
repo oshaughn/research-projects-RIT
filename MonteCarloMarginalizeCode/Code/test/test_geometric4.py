@@ -50,7 +50,7 @@ def test_native_training_and_prediction_redshift(mode):
 
 @pytest.mark.parametrize('mode',f.GEOMETRIC4_MODES)
 def test_stage_preserves_raw_ranges_and_waveform_dictionary(mode):
-    line='1 --fit-method rf --use-precessing '+ ' '.join('--parameter-implied '+n for n in f.NATIVE_FEATURES)
+    line='1 --fit-method rf --use-precessing '+ ' '.join('--parameter-implied '+n for n in f.NATIVE_FEATURES) + ' ' + ' '.join('--parameter-nofit '+n for n in ('mc','delta_mc','chi1','chi2','cos_theta1','cos_theta2','phi1','phi2'))
     line+=' --downselect-parameter chi1 --downselect-parameter-range [0,0.9] --fref=10'
     line+=' --approx IMRPhenomXPHM --lalsim-extra-waveform-args "{\'PhenomXPrecVersion\': 223}"'
     active=f.stage_arguments(line,mode,30,True,35)
@@ -65,7 +65,7 @@ def test_stage_preserves_raw_ranges_and_waveform_dictionary(mode):
 @pytest.mark.parametrize('extra',['phi1','s1x'])
 @pytest.mark.parametrize('mode',('auto',)+f.GEOMETRIC4_MODES)
 def test_build_rejects_redundant_basis(extra,mode):
-    line='1 --fit-method rf --use-precessing '+' '.join('--parameter-implied '+n for n in f.NATIVE_FEATURES)
+    line='1 --fit-method rf --use-precessing '+' '.join('--parameter-implied '+n for n in f.NATIVE_FEATURES) + ' ' + ' '.join('--parameter-nofit '+n for n in ('mc','delta_mc','chi1','chi2','cos_theta1','cos_theta2','phi1','phi2'))
     with pytest.raises(ValueError,match='exactly the eight'):
         f.stage_arguments(line+' --parameter-implied '+extra,mode,10,True,35)
     active=f.stage_arguments(line,mode,10,True,35)
@@ -81,8 +81,9 @@ def test_actual_pipeline_forwarding_and_postrewrite_guard():
     ns={'opts':types.SimpleNamespace(rf_transverse_spin_coordinates='geometric4'),'cmd':'helper_LDG_Events.py --approx IMRPhenomXPHM'}
     exec(compile(ast.Module(body=[forward],type_ignores=[]),'actual_pipeline_forward','exec'),ns)
     argv=shlex.split(ns['cmd']);assert argv[argv.index('--rf-transverse-spin-coordinates')+1]=='geometric4'
-    guard=next(n for n in blocks if 'revalidate_stage' in ast.unparse(n))
-    line='1 --fit-method rf --use-precessing '+' '.join('--parameter-implied '+n for n in f.NATIVE_FEATURES)
+    guard=next(n for n in ast.parse(source).body if isinstance(n,ast.If) and 'revalidate_stage' in ast.unparse(n))
+    ns['revalidate_stage']=f.revalidate_stage
+    line='1 --fit-method rf --use-precessing '+' '.join('--parameter-implied '+n for n in f.NATIVE_FEATURES) + ' ' + ' '.join('--parameter-nofit '+n for n in ('mc','delta_mc','chi1','chi2','cos_theta1','cos_theta2','phi1','phi2'))
     ns['lines']=[f.stage_arguments(line,'geometric4',10,True,35)]
     exec(compile(ast.Module(body=[guard],type_ignores=[]),'actual_pipeline_guard','exec'),ns)
     ns['lines'][0]+=' --parameter-implied phi1'
@@ -107,7 +108,7 @@ def test_radius_and_phase_variant_are_distinct():
         f.convert(np.zeros((1,8)),list(f.GEOMETRIC4_NAMES)+['rf_phase_excess'],[],35,None)
 
 
-@pytest.mark.parametrize('mode',f.GEOMETRIC4_MODES+('physics3',))
+@pytest.mark.parametrize('mode',f.GEOMETRIC4_MODES)
 def test_quadpuff_contingency_puffs_physical_components(tmp_path,mode):
     # quadpuff cannot assign RF features; it must jitter m1,m2 and spin components and still write a grid.
     pytest.importorskip('lal')

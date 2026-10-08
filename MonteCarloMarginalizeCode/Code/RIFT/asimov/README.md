@@ -32,45 +32,41 @@ Rimsky's underscore-separated prior names for the RIFT template. See
 
 ### Low-mass transverse-spin RF coordinates
 
-The pipeline remains opt-in: pass `--rf-transverse-spin-coordinates physics3`
-to `helper_LDG_Events.py` or `util_RIFT_pseudo_pipe.py`. The helper enables this
-only in fresh RF stages fitting the tested `delta_mc, mu1, mu2, chiMinus` basis
-and both full Cartesian transverse spins. This single option selects the native
-aligned-phase CIP schedule before adding the scalars; the initial grid is not
-changed by this schedule selection. If no fitting method was requested, the
-activated option selects RF for CIP; an explicit non-RF method is not overridden
-(`physics3` cannot be honored and fails explicitly). Reduced
-or aligned stages retain their existing coordinates. It appends three tested
-L-frame cone, geometric phase-deficit, and precession-torque scalars; it retains
-all native fitting coordinates, including `mu1`, `mu2` and the four transverse
-components. Sampling coordinates, spherical spin priors, likelihoods, ILE and
-recorded physical products are unchanged. No GP or GPU dependencies are added.
+The pipeline option `--rf-transverse-spin-coordinates` (helper or
+`util_RIFT_pseudo_pipe.py`) takes `off`, `auto`, `geometric4` or
+`geometric4-phase-excess`. An active mode changes only the fit basis of fresh RF
+stages that fit the native `delta_mc, mu1, mu2, chiMinus, s1x, s1y, s2x, s2y`
+basis; reduced or aligned stages keep their coordinates. Sampling coordinates,
+spin priors, likelihoods, ILE and physical products are unchanged.
 
 The bundled Asimov template uses `auto`: eligible precessing BBH analyses with a
 reliable native **detector-frame** chirp-mass estimate strictly below 20 solar
-masses select the four-input `geometric4` chart described below. Explicit
-`physics3` retains the scalar augmentation described above. Missing/placeholder
-mass estimates and unsupported analyses keep the existing recipe. Override under `sampler.cip`:
+masses select the four-input `geometric4` chart described below. Missing or
+placeholder mass estimates and unsupported analyses keep the existing recipe.
+Override under `sampler.cip`:
 
 ```yaml
 sampler:
   cip:
-    transverse spin coordinates: "off"  # off, auto, physics3, geometric4, or geometric4-phase-excess
+    transverse spin coordinates: "off"  # off, auto, geometric4, or geometric4-phase-excess
 ```
 
 YAML boolean `false` (including an unquoted YAML 1.1 `off`) means `off`;
-boolean `true` means `physics3`. Quoted string modes avoid YAML ambiguity.
+boolean `true` means `geometric4`. Quoted string modes avoid YAML ambiguity.
 
-The scalars use the actual ILE spin reference frequency (`engine.fref` in an INI,
-otherwise the helper's template reference). They do not transport spins or
+Geometric4 uses the actual ILE spin reference frequency (`engine.fref` in an
+INI, otherwise the helper's template reference). It does not transport spins or
 replace the physical prior.
+
+The earlier `physics3` mode is retired and refused at every layer. It appended
+three scalar features to the eight native coordinates, so CIP fit 11
+coordinates for 8 degrees of freedom. This RF transverse mode requires a nonredundant fit basis. Other CIP
+configurations, including matter fits, can use more fit features than sampled
+coordinates.
+
 If a pipeline option later rewrites an activated stage so that it no longer
 fits the native basis (`--cip-internal-use-eta-in-sampler`,
-`--use-quadratic-early`), the DAG build fails; set the option to `off`. This is a prototype supported by controlled existing
-grid comparisons, not a universal recovery guarantee; S250830bp remains a
-separate partially improved case, and known sky/data/prior discrepancies require
-separate assessment. Coordinate activation changes neither stopping criteria
-nor posterior quotas.
+`--use-quadratic-early`), the DAG build fails; set the option to `off`.
 
 ### Four-input Geometric4 chart
 
@@ -86,10 +82,8 @@ remains; near zero total transverse spin the two residuals also flip sign with t
 At detector chirp mass of 20 or more, enabling either mode also switches every
 helper stage to the mu1/mu2 aligned-phase basis. The separate opt-in `geometric4-phase-excess` replaces only that radius by
 `(J-|J_parallel|)/L_N`, preserving the earlier tested H variant. This phase excess
-differs from `(J-J_parallel)/L_N` when `J_parallel < 0`; the regularization
-epsilon used by physics3 is absent from both four-coordinate charts.
+differs from `(J-J_parallel)/L_N` when `J_parallel < 0`.
 The raw radius has no aligned-spin/J rescaling. Historical phase-excess
 fit results do not establish performance of this raw-radius option.
 The `auto` policy selects `geometric4` for eligible low-mass analyses.
-Select `physics3` explicitly to retain the scalar augmentation.
 This is an experimental representation, not an end-to-end accuracy claim.

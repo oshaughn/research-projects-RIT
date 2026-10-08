@@ -11,7 +11,7 @@ ROOT=Path(__file__).resolve().parents[1]
 class StageBuilt(Exception):
     pass
 
-def generate(monkeypatch,tmp_path, mode, mc=10, force_method=None, fref=35):
+def generate(monkeypatch,tmp_path, mode, mc=10, force_method=None, fref=35, extra=()):
     lal=pytest.importorskip('lal')
     monkeypatch.syspath_prepend(str(ROOT))
     monkeypatch.setenv('GW_SURROGATE','')
@@ -34,6 +34,7 @@ def generate(monkeypatch,tmp_path, mode, mc=10, force_method=None, fref=35):
         lalsimutils.ChooseWaveformParams_array_to_xml([p],fname=filename,fref=fref)
         args+=['--sim-xml',filename+'.xml.gz','--event','0']
     if force_method is not None:args+=['--force-fit-method',force_method]
+    args+=list(extra)
     monkeypatch.setattr(sys,'argv',[str(script)]+args)
     stop=next(i for i,line in enumerate(script.read_text().splitlines(),1)
               if line=='with open("helper_cip_arg_list.txt",\'w+\') as f:')
@@ -56,7 +57,7 @@ def generate(monkeypatch,tmp_path, mode, mc=10, force_method=None, fref=35):
     assert result,'Helper did not reach generated stage boundary'
     return result
 
-@pytest.mark.parametrize('mode,mc,expected',[('physics3',10,'physics3'),('auto',10,'geometric4'),
+@pytest.mark.parametrize('mode,mc,expected',[('geometric4',10,'geometric4'),('auto',10,'geometric4'),
     ('auto',19.9,'geometric4'),('auto',20.1,None),('auto',25,None),('off',10,None),('auto',None,None)])
 def test_actual_helper_top_level_policy(monkeypatch,tmp_path,mode,mc,expected):
     # The exact 20 boundary is checked directly in test_auto_conservative_mass;
@@ -89,9 +90,21 @@ def test_actual_off_has_unchanged_generated_stages(monkeypatch,tmp_path):
     assert off['ile']==default['ile']
     assert off['fit_method']==default['fit_method']=='gp'
 
-def test_actual_explicit_physics_rejects_explicit_gp(monkeypatch,tmp_path):
+def test_actual_explicit_geometric4_rejects_explicit_gp(monkeypatch,tmp_path):
     with pytest.raises(ValueError,match='No complete two-spin RF stage'):
-        generate(monkeypatch,tmp_path,'physics3',10,'gp')
+        generate(monkeypatch,tmp_path,'geometric4',10,'gp')
+
+def test_actual_helper_refuses_physics3(monkeypatch,tmp_path):
+    # parser.error exits 2; without the parse-time refusal enabled() raises ValueError.
+    with pytest.raises(SystemExit) as exc:
+        generate(monkeypatch,tmp_path,'physics3',10)
+    assert exc.value.code==2
+
+@pytest.mark.parametrize('extra',[('--assume-matter-eos','SLy')])
+def test_auto_declines_analyses_outside_the_native_basis(monkeypatch,tmp_path,extra):
+    # pseudo_pipe or the helper adds fit coordinates (a6c, E0/p_phi0, tides) that geometric4 cannot carry.
+    result=generate(monkeypatch,tmp_path,'auto',10,extra=extra)
+    assert not any('--rf-transverse-spin-coordinates' in line for line in result['lines'])
 
 
 @pytest.mark.parametrize('mode',['geometric4','geometric4-phase-excess'])

@@ -42,6 +42,10 @@ Development tree is rift_O4c.
     default quadrature. PR 212 adds opt-in geometric4 and
     geometric4-phase-excess transverse-spin RF fitting bases; auto continues
     to select physics3.
+  - (unreleased) PR 216 retires the physics3 RF transverse-spin mode, which
+    gave CIP 11 fit coordinates for 8 degrees of freedom; every layer now
+    refuses it. Asimov `true` and `auto` select geometric4; `auto` leaves
+    fixed-EOS analyses unchanged.
 
 Release candidate is rc5.
 

@@ -229,7 +229,7 @@ parser.add_argument("--force-grid-stretch-mc-factor",default=None,type=float,hel
 parser.add_argument("--force-notune-initial-grid",action='store_true',help="Prevent tuning of grid")
 parser.add_argument("--force-initial-grid-size",default=None,type=int,help="Force grid size for initial grid (hopefully)")
 parser.add_argument("--propose-fit-strategy",action='store_true',help="If present, the code will propose a fit strategy (i.e., cip-args or cip-args-list).  The strategy will take into account the mass scale, presence/absence of matter, and the spin of the component objects.  If --lowlatency-propose-approximant is active, the code will use a strategy suited to low latency (i.e., low cost, compatible with search PSDs, etc)")
-parser.add_argument("--rf-transverse-spin-coordinates", choices=["off","auto","physics3","geometric4","geometric4-phase-excess"], default=None, help="Opt-in RF fitting basis: physics3 augmentation or four-input geometric4; auto selects geometric4 at detector chirp mass <20 Msun")
+parser.add_argument("--rf-transverse-spin-coordinates", choices=["off","auto","physics3","geometric4","geometric4-phase-excess"], default=None, help="Opt-in RF fitting basis: four-input geometric4; auto selects geometric4 at detector chirp mass <20 Msun. physics3 is retired and refused (11 fit coordinates for 8 degrees of freedom)")
 parser.add_argument("--propose-flat-strategy",action="store_true",help="If present AND propose-fit-strategy is present, the strategy proposed will have puffball and convergence tests for every iteration, and the same CIP")
 parser.add_argument("--propose-converge-last-stage",action="store_true",help="If present, the last pre-extrinsic stage is 'iterate to convergence' form")
 parser.add_argument("--force-fit-method",type=str,default=None,help="Force specific fit method")
@@ -254,6 +254,9 @@ parser.add_argument("--use-cvmfs-frames",action='store_true',help="If true, requ
 parser.add_argument("--use-ini",default=None,type=str,help="Attempt to parse LI ini file to set corresponding options. WARNING: MAY OVERRIDE SOME OTHER COMMAND-LINE OPTIONS")
 parser.add_argument("--verbose",action='store_true')
 opts=  parser.parse_args()
+if opts.rf_transverse_spin_coordinates == 'physics3':
+    from RIFT.misc.rf_transverse_spin import RETIRED_MESSAGE
+    parser.error(RETIRED_MESSAGE)
 
 if opts.assume_matter_but_primary_bh:
     opts.assume_matter=True
@@ -1469,7 +1472,8 @@ if opts.assume_eccentric:
 if opts.rf_transverse_spin_coordinates:
     from RIFT.misc.rf_transverse_spin import enabled
     rf_applicable = (opts.assume_precessing_spin and not opts.assume_nospin
-        and not opts.assume_matter and not opts.assume_eccentric and not opts.assume_highq)
+        and not opts.assume_matter and not opts.assume_matter_eos and not opts.assume_eccentric
+        and not opts.assume_highq)
     rf_detector_mc = None if event_dict.get('rf_mass_is_placeholder', False) else event_dict.get('MChirp')
     if enabled(opts.rf_transverse_spin_coordinates, rf_detector_mc, rf_applicable):
         if opts.force_fit_method is None:
@@ -1762,11 +1766,12 @@ if opts.rf_transverse_spin_coordinates:
     if rf_fref is None:
         rf_fref = opts.fmin_template
     rf_applicable = (opts.assume_precessing_spin and not opts.assume_nospin
-        and not opts.assume_matter and not opts.assume_eccentric and not opts.assume_highq)
+        and not opts.assume_matter and not opts.assume_matter_eos and not opts.assume_eccentric
+        and not opts.assume_highq)
     helper_cip_arg_list = [stage_arguments(line, opts.rf_transverse_spin_coordinates,
         None if event_dict.get('rf_mass_is_placeholder', False) else event_dict.get('MChirp'), rf_applicable, float(rf_fref)) for line in helper_cip_arg_list]
     rf_activated = sum('--rf-transverse-spin-coordinates ' in line for line in helper_cip_arg_list)
-    if opts.rf_transverse_spin_coordinates in ('physics3','geometric4','geometric4-phase-excess') and not rf_activated:
+    if opts.rf_transverse_spin_coordinates in ('geometric4','geometric4-phase-excess') and not rf_activated:
         raise ValueError('No complete two-spin RF stage can honor the requested RF transverse-spin option')
     print('RF transverse-spin mode {}, detector chirp mass {}, fref {}, activated stages {}'.format(
         opts.rf_transverse_spin_coordinates,

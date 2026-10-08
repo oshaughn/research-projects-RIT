@@ -6,7 +6,7 @@ root=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(root));os.environ['GW_SURROGATE']='';os.environ['OMP_NUM_THREADS']='1'
 # argv 'redshift': also check CIP wires --source-redshift and --downselect-enforce-kerr into the RF converter
 redshift='redshift' in sys.argv[1:]
-mode=next((m for m in ('geometric4','geometric4-phase-excess') if m in sys.argv[1:]),'physics3')
+mode=next((m for m in ('geometric4','geometric4-phase-excess') if m in sys.argv[1:]),'geometric4')
 extra='extra' in sys.argv[1:]
 duplicate='duplicate' in sys.argv[1:]
 rng=np.random.default_rng(1);n=160
@@ -45,7 +45,7 @@ def tracer(frame,event,arg):
    if mode in ('geometric4','geometric4-phase-excess'):np.testing.assert_allclose(xp,g['X'],rtol=2e-5,atol=3e-6)
   else:
    np.testing.assert_allclose(xp,g['X'],rtol=2e-5,atol=3e-6)
-  assert xp.shape[1]==(8 if mode in ('geometric4','geometric4-phase-excess') else 11) and x.shape[1]==8
+  assert xp.shape[1]==8 and x.shape[1]==8
   assert np.isfinite(g['my_fit'](xp)).all()
   print('ACTUAL_CIP_TRAINING_PREDICTION_SMOKE_PASS',xp.shape,x.shape)
   raise Complete
