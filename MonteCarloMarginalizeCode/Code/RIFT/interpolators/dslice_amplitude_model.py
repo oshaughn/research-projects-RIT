@@ -99,14 +99,16 @@ def _robust_rho(z, loss, xp):
     raise ValueError("unknown loss %r" % loss)
 
 
-def fit_points_batched(U, Yv, W, fscale, fix_C=False, loss="linear", max_iter=200, xp=np):
+def fit_points_batched(U, Yv, W, fscale, fix_C=False, loss="linear", max_iter=200, xp=np, fmin_fixed=None):
     """Fit every point at once. U, Yv, W: (G, N) padded 1/d, lnL and weights (W = 0 marks padding);
     fscale: (G,) robust-loss scale in residual units (unused for loss='linear').
 
     Same objective and parameterization as fit_point, from its two starting points and two more. The
     optimizer is a batched Levenberg-Marquardt with forward-difference Jacobians (scipy trf with jac='2-point' is the CPU
     reference); robust losses use iteratively reweighted least squares, whose fixed points are the
-    stationary points of scipy's robust cost. Returns (params (G,4), NaN rows for failures; rms (G,))."""
+    stationary points of scipy's robust cost. fmin_fixed holds f_min at one value for every point (an
+    event-level inclination degeneracy) and fits the remaining parameters. Returns (params (G,4), NaN rows
+    for failures; rms (G,))."""
     G, N = U.shape
     mask = W > 0
     nslc = mask.sum(axis=1)
@@ -123,12 +125,19 @@ def fit_points_batched(U, Yv, W, fscale, fix_C=False, loss="linear", max_iter=20
     u10, u90 = pct(10.0), pct(90.0)
     ymax = xp.max(xp.where(mask, Yv, -xp.inf), axis=1)
     sw = xp.sqrt(W)
-    npar = 3 if fix_C else 4
+    free_f = fmin_fixed is None
+    npar = 2 + int(free_f) + int(not fix_C)
+    jC = 2 + int(free_f)          # column of C when it is fitted
     eye = xp.eye(npar)[None]
 
+    def unpack(p):
+        R, us = xp.exp(p[:, 0:1]), xp.exp(p[:, 1:2])
+        fm = 1 / (1 + xp.exp(-p[:, 2:3])) if free_f else fmin_fixed
+        C = 0.0 if fix_C else p[:, jC:jC + 1]
+        return R, us, fm, C
+
     def resid(p, ix):
-        R, us, fm = xp.exp(p[:, 0:1]), xp.exp(p[:, 1:2]), 1 / (1 + xp.exp(-p[:, 2:3]))
-        C = 0.0 if fix_C else p[:, 3:4]
+        R, us, fm, C = unpack(p)
         return xp.where(mask[ix], sw[ix] * (log_model_xp(Uf[ix], R, us, fm, C, xp=xp) - Yv[ix]), 0.0)
 
     def cost_and_w(r, ix):
@@ -145,7 +154,7 @@ def fit_points_batched(U, Yv, W, fscale, fix_C=False, loss="linear", max_iter=20
     with np.errstate(all="ignore"):
         for f_fac, u_fac, f_half in starts:
             fmin0 = xp.minimum(0.9, xp.maximum(0.05, u10 / u90 * f_fac)) * f_half
-            cols = [xp.log(xp.maximum(ymax, 1.0)), xp.log(u10 * u_fac), xp.log(fmin0 / (1 - fmin0))]
+            cols = [xp.log(xp.maximum(ymax, 1.0)), xp.log(u10 * u_fac)] + ([xp.log(fmin0 / (1 - fmin0))] if free_f else [])
             P = xp.stack(cols + ([] if fix_C else [xp.zeros(G)]), axis=1)
             allix = xp.arange(G)
             R_ = resid(P, allix)
@@ -199,8 +208,9 @@ def fit_points_batched(U, Yv, W, fscale, fix_C=False, loss="linear", max_iter=20
                 take = xp.isfinite(Cst) & ~(Cst >= best_c)
                 best_p, best_c = xp.where(take[:, None], P, best_p), xp.where(take, Cst, best_c)
         p = best_p
-        params = xp.stack([xp.exp(p[:, 0]), xp.exp(p[:, 1]), 1 / (1 + xp.exp(-p[:, 2])),
-                           xp.zeros(G) if fix_C else p[:, 3]], axis=1)
+        R_, us_, fm_, C_ = unpack(p)
+        params = xp.stack([R_[:, 0], us_[:, 0], (fm_[:, 0] if free_f else xp.full(G, float(fmin_fixed))),
+                           (xp.zeros(G) if fix_C else C_[:, 0])], axis=1)
         fail = ~xp.all(xp.isfinite(params), axis=1) | ~xp.isfinite(best_c)
         params = xp.where(fail[:, None], xp.nan, params)
         res_ = xp.where(mask, log_model_xp(Uf, params[:, 0:1], params[:, 1:2], params[:, 2:3], params[:, 3:4], xp=xp) - Yv, 0.0)
@@ -215,7 +225,7 @@ def fit_points_batched(U, Yv, W, fscale, fix_C=False, loss="linear", max_iter=20
 
 
 def fit_all_points_batched(key, u, y, sig, min_slices=5, fix_C=False, loss="linear", f_scale=1.0, xp=np,
-                           block=None):
+                           block=None, fmin_fixed=None):
     """fit_all_points with the points fit in batches by fit_points_batched on numpy or cupy."""
     block = block or (8192 if xp is np else 65536)
     uk, inv, counts = np.unique(key, axis=0, return_inverse=True, return_counts=True)
@@ -234,7 +244,8 @@ def fit_all_points_batched(key, u, y, sig, min_slices=5, fix_C=False, loss="line
         idx = order[starts[gs][:, None] + np.minimum(pos, cnt[:, None] - 1)]
         Ub, Yb, Wb = (np.where(live, a[idx], 0.0) for a in (u, y, w))
         fsc = f_scale * np.sqrt(np.nanmedian(np.where(live, Wb, np.nan), axis=1))
-        P, E = fit_points_batched(*(xp.asarray(a) for a in (Ub, Yb, Wb, fsc)), fix_C=fix_C, loss=loss, xp=xp)
+        P, E = fit_points_batched(*(xp.asarray(a) for a in (Ub, Yb, Wb, fsc)), fix_C=fix_C, loss=loss, xp=xp,
+                                  fmin_fixed=fmin_fixed)
         params[gs], rms[gs] = (a.get() if hasattr(a, 'get') else a for a in (P, E))
     return uk, params, rms, counts
 
