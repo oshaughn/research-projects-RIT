@@ -22,7 +22,7 @@ CODE = Path(__file__).resolve().parents[1]
 
 def render_manual_options(waveform, manual=None):
     source = (CODE / 'RIFT/asimov/rift.ini').read_text()
-    start = source.index('# Keep the waveform option namespaces')
+    start = source.index('# Quote dictionaries for a shell.')
     end = source.index('#{%- if sampler', start)
     ile = {} if manual is None else {'manual extra args': manual}
     text = liquid.Liquid(source[start:end], from_file=False).render(
@@ -181,13 +181,15 @@ def test_asimov_lalsuite_dictionary_reaches_actual_lal_dict(monkeypatch, tmp_pat
         fl.internal_hlm_generator(p, 4, quiet=True, use_gwsignal=False, extra_waveform_kwargs=extras)
 
 
-def test_asimov_both_namespaces_are_not_silently_prioritized(monkeypatch, tmp_path):
+def test_asimov_gwsignal_namespace_wins_as_before(monkeypatch, tmp_path):
+    """O4c compatibility: with both dictionaries, only 'gwsignal arguments' is emitted."""
     config = render_manual_options({'gwsignal arguments': {'enable_antisymmetric_modes': True},
                                     'arguments': {'PhenomXPrecVersion': 310}})
-    line = pseudo_ile_line(config, True, tmp_path)
-    with pytest.raises(SystemExit) as exc:
-        assembled_options(emit_worker_argv(line, tmp_path, monkeypatch))
-    assert exc.value.code == 2
+    argv = shlex.split(config.get('rift-pseudo-pipe', 'manual-extra-ile-args'))
+    assert argv == ['--internal-waveform-extra-kwargs', "{'enable_antisymmetric_modes': True}"]
+    config = render_manual_options({'arguments': {'PhenomXPrecVersion': 310}})
+    argv = shlex.split(config.get('rift-pseudo-pipe', 'manual-extra-ile-args'))
+    assert argv == ['--internal-waveform-extra-lalsuite-args', "{'PhenomXPrecVersion': 310}"]
 
 
 def test_asimov_omitted_options_keep_plain_worker_arguments(monkeypatch, tmp_path):

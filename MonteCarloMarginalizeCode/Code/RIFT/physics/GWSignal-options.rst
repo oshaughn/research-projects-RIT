@@ -52,6 +52,5 @@ In Asimov metadata, ``waveform.gwsignal arguments`` becomes
 ``--internal-waveform-extra-kwargs`` and requires
 ``scheduler.pipeline.use-gwsignal: true`` to select GWSignal.
 ``waveform.arguments`` becomes ``--internal-waveform-extra-lalsuite-args``.
-Both dictionaries are emitted when both are supplied, allowing the early ILE
-incompatibility check to report the conflict instead of silently prioritizing
-one. ``sampler.ile.manual extra args`` accepts a list or a single string.
+If both are supplied, only ``waveform.gwsignal arguments`` is emitted, as in
+earlier O4c releases. ``sampler.ile.manual extra args`` accepts a list or a single string.
