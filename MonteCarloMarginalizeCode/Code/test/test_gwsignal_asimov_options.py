@@ -217,3 +217,89 @@ def test_real_basiciteration_dag_build_preserves_asimov_options(monkeypatch, tmp
     end = argv.index('--sim-xml')
     _, extras = assembled_options(argv[:end])
     assert extras['gwsignal_extra_kwargs'] == requested
+
+
+def run_real_pseudo_pipeline_build(tmp_path):
+    """Build real helper+BasicIteration DAGs; never launch worker executables."""
+    import os
+    import subprocess
+    import sys
+    fixtures = CODE.parents[1] / '.travis/ref_ini'
+    if not (fixtures / 'GW150914.ini').exists():
+        pytest.skip('source-checkout CI fixtures required for top-level pipeline build')
+    requested = {'antisymmetric_modes_hm': True, 'enable_antisymmetric_modes': True,
+                 'lmax_nyquist': 1, 'dA_dict': {'2,2': 0.1},
+                 'future_nested': {'modes': [(2, 2)], 'quote': 'a "quoted" path\\--text', 'off': False}}
+    config = configparser.RawConfigParser()
+    config.read(fixtures / 'GW150914.ini')
+    rendered = render_manual_options({'gwsignal arguments': requested}, '--internal-waveform-fd-L-frame')
+    for key, value in rendered['rift-pseudo-pipe'].items():
+        config.set('rift-pseudo-pipe', key, value)
+    overrides = {'approx': repr('SEOBNRv5PHM'), 'use-gwsignal': 'True',
+                 'force-initial-grid-size': '1', 'cip-explode-jobs': '1', 'cip-explode-jobs-last': '1',
+                 'internal-marginalize-distance': 'False', 'use_osg': 'False',
+                 'use_osg_file_transfer': 'False', 'use_osg_cip': 'False',
+                 'internal-truncate-files-for-osg-file-transfer': 'False',
+                 'ile-force-gpu': 'False', 'ile-no-gpu': 'True', 'add-extrinsic': 'True',
+                 # The O4c batched-converter path has a pre-existing which_short typo.
+                 'batch-extrinsic': 'False', 'add-extrinsic-time-resampling': 'False',
+                 'calibration-reweighting': 'True', 'bilby-ini-file': repr(str(tmp_path / 'bilby.ini'))}
+    for key, value in overrides.items():
+        config.set('rift-pseudo-pipe', key, value)
+    with (tmp_path / 'production.ini').open('w') as stream:
+        config.write(stream)
+    # Build-only calibration references: the writer copies these files but no
+    # calibration or Bilby executable is run, so no numerical data are needed.
+    bilby = (fixtures / 'bilby_GW150914.ini').read_text().replace(
+        '/home/richard.oshaughnessy/rapidpe_rift_review_o4/review_real/ref_calmarg/GW150914',
+        str(tmp_path / 'bilby-fixtures'))
+    (tmp_path / 'bilby.ini').write_text(bilby)
+    for folder in ('calibration', 'psds'):
+        directory = tmp_path / 'bilby-fixtures' / folder
+        directory.mkdir(parents=True)
+        for ifo in ('H1', 'L1'):
+            name = ifo + '.dat' if folder == 'calibration' else ifo + '-psd.dat'
+            (directory / name).write_text('20 0.0 0.0 0.1 0.1\n100 0.0 0.0 0.1 0.1\n')
+    tools = tmp_path / 'build-tools'
+    tools.mkdir()
+    standin = tools / 'bilby_pipe_generation'
+    standin.write_text('#!/usr/bin/env python\nraise RuntimeError("build-only stand-in must never execute")\n')
+    standin.chmod(0o755)
+    (tmp_path / 'fake.cache').write_text('')
+    p = lsu.ChooseWaveformParams()
+    p.m1, p.m2 = 36 * lal.MSUN_SI, 29 * lal.MSUN_SI
+    p.tref = lal.LIGOTimeGPS(1126259462.391)
+    p.fmin = p.fref = 20
+    lsu.ChooseWaveformParams_array_to_xml([p], fname=str(tmp_path / 'manual-grid'))
+    env = dict(os.environ)
+    env['PATH'] = os.pathsep.join([str(CODE / 'bin'), str(tools), str(Path(sys.executable).parent), env['PATH']])
+    env['PYTHONPATH'] = str(CODE)
+    env['GW_SURROGATE'] = ''
+    command = [sys.executable, str(CODE / 'bin/util_RIFT_pseudo_pipe.py'),
+               '--use-ini', str(tmp_path / 'production.ini'), '--use-coinc', str(fixtures / 'coinc.xml'),
+               '--use-rundir', str(tmp_path / 'run'), '--manual-initial-grid', str(tmp_path / 'manual-grid.xml.gz'),
+               '--fake-data-cache', str(tmp_path / 'fake.cache'),
+               '--extra-args-helper', ' --assume-fiducial-psd-files ', '--skip-reproducibility']
+    (tmp_path / 'command.txt').write_text(shlex.join(command) + '\n')
+    built = subprocess.run(command, cwd=tmp_path, env=env, capture_output=True, text=True, timeout=60)
+    (tmp_path / 'build.log').write_text(built.stdout + '\n' + built.stderr)
+    assert built.returncode == 0, built.stdout + '\n' + built.stderr
+    assert 'Traceback' not in built.stdout + built.stderr, (tmp_path / 'build.log').read_text()
+    run = tmp_path / 'run'
+    assert (run / 'marginalize_intrinsic_parameters_BasicIterationWorkflow.dag').is_file()
+    for filename, option in [('ILE.sub', '--internal-waveform-extra-kwargs'),
+                             ('ILE_extr.sub', '--internal-waveform-extra-kwargs'),
+                             ('Calib_reweight.sub', '--extra-waveform-kwargs')]:
+        args_text = next(line.partition('=')[2].strip() for line in (run / filename).read_text().splitlines()
+                         if line.startswith('arguments ='))
+        argv = condor_argv(args_text)
+        assert '--use-gwsignal' in argv
+        payload = ast.literal_eval(argv[argv.index(option) + 1])
+        if filename.startswith('Calib'):
+            payload = payload['gwsignal_extra_kwargs']
+        assert payload == requested
+    return run
+
+
+def test_real_top_level_pseudo_helper_and_calibration_dag_build(tmp_path):
+    run_real_pseudo_pipeline_build(tmp_path)

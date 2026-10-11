@@ -1,5 +1,8 @@
 """Shell argument boundaries survive the real ILE Condor submit writer."""
 import shlex
+import json
+import subprocess
+import sys
 
 import pytest
 
@@ -85,3 +88,31 @@ def test_unquoted_helper_returns_text_and_empty_values_survive():
 def test_literal_submit_line_breaks_are_rejected(value):
     with pytest.raises(ValueError, match="literal line breaks"):
         dag_utils.quote_arguments([value])
+
+
+@pytest.mark.parametrize('command', CASES)
+def test_generic_slurm_script_preserves_literal_argv_without_condor_escaping(tmp_path, command):
+    recorder = tmp_path / 'record_argv.py'
+    recorded = tmp_path / 'argv.json'
+    recorder.write_text("#!" + sys.executable + "\nimport json,sys\nfrom pathlib import Path\n"
+                        "Path(" + repr(str(recorded)) + ").write_text(json.dumps(sys.argv[1:]))\n")
+    recorder.chmod(0o755)
+    job, _ = dag_utils_generic.write_ILE_sub_simple(
+        exe=str(recorder), tag=str(tmp_path / 'ILE'), log_dir=str(tmp_path), arg_str=command)
+    script = tmp_path / 'ILE.sbatch'
+    dag_utils_generic.SlurmBackend().emit_job(job, str(script))
+    completed = subprocess.run(['bash', str(script)], capture_output=True, text=True,
+                               env={'PATH': '/usr/bin:/bin', 'SLURM_VAR_EVENT': '7'}, timeout=10)
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert json.loads(recorded.read_text()) == shlex.split(command) + ['--event=7']
+
+
+@pytest.mark.parametrize('command', CASES)
+def test_explicit_generic_glue_emission_preserves_literal_argv(tmp_path, command):
+    job, _ = dag_utils_generic.write_ILE_sub_simple(
+        exe='/bin/true', tag=str(tmp_path / 'ILE'), log_dir=str(tmp_path), arg_str=command)
+    submit = tmp_path / 'ILE_glue.sub'
+    dag_utils_generic.GluePipelineBackend().emit_job(job, str(submit))
+    arguments = next(line.partition('=')[2].strip() for line in submit.read_text().splitlines()
+                     if line.startswith('arguments ='))
+    assert decode_condor_new_arguments(arguments) == shlex.split(command) + ['--event', '$(macroevent)']

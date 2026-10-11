@@ -121,6 +121,7 @@ from time import time
 from hashlib import md5
 
 import shutil
+import shlex
 
 import numpy as np
 from RIFT.misc.argument_quoting import _double_up_quotes, quote_arguments, safely_quote_arg_str
@@ -475,6 +476,7 @@ class _GenericJob(object):
         self.file_opts = []              # list of (name, value)        for file--opts
         self.var_opts = []               # variable opts (filled per-node from macros)
         self.arguments = []              # positional arguments
+        self.literal_argv = []           # argv tokens encoded only by the emitting backend
         self.environment = {}            # explicit env: dict of name -> value
         self.inherit_environment = False # condor's "getenv = True" / slurm's "--export=ALL"
         self.condor_cmds = []            # raw Condor submit-file commands (escape hatch / passthrough)
@@ -924,7 +926,7 @@ class WorkflowBackend(abc.ABC):
 
     # Defaults useful for sub-classes
     @staticmethod
-    def _build_argument_string(job, var_ref):
+    def _build_argument_string(job, var_ref, shell=False):
         """Render a job's argument list as a single command-line string.
 
         *var_ref* is a callable mapping a variable-opt name to whatever string
@@ -932,6 +934,8 @@ class WorkflowBackend(abc.ABC):
         Condor, ``"${event}"`` for Slurm).
         """
         parts = []
+        if job.literal_argv:
+            parts.append(shlex.join(job.literal_argv) if shell else quote_arguments(job.literal_argv))
         for name, value in job.opts:
             if value is None or value == "":
                 parts.append("--{}".format(name))
@@ -1134,6 +1138,15 @@ class GluePipelineBackend(WorkflowBackend):
             stderr_file = base + ".err"
         if stderr_file is not None:
             gjob.set_stderr_file(stderr_file)
+        if job.literal_argv:
+            encoded = quote_arguments(job.literal_argv)
+            # Keep literal ILE options before the per-node event macro, as in
+            # the historical glue writer. Other literal positional argv goes
+            # through add_arg; ILE's prefix always begins with a long option.
+            if encoded.startswith('--'):
+                gjob.add_opt(encoded[2:], '')
+            else:
+                gjob.add_arg(encoded)
         for n, v in job.opts:
             gjob.add_opt(n, v)
         for n, v in job.short_opts:
@@ -1297,7 +1310,7 @@ class SlurmBackend(WorkflowBackend):
             ev = "SLURM_VAR_" + re.sub(r"\W+", "_", name).upper()
             return "${" + ev + "}"
 
-        args = self._build_argument_string(job, slurm_var)
+        args = self._build_argument_string(job, slurm_var, shell=True)
         lines.append("")
         if not job.executable:
             raise RuntimeError("SlurmBackend.emit_job: job has no executable")
@@ -2548,11 +2561,8 @@ echo Starting ...
     #
     # Add options en mass, by brute force
     #
-    arg_str = arg_str.lstrip() # remove leading whitespace and minus signs
-    arg_str = arg_str.lstrip('-')
-    arg_str = safely_quote_arg_str(arg_str)
-    ile_job.add_opt(arg_str,'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
-#    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+    # Store real argv until backend emission; Condor and Slurm encode separately.
+    ile_job.literal_argv = shlex.split(arg_str)
 
     #
     # Macro based options.
