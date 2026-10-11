@@ -67,7 +67,11 @@ def pseudo_ile_line(config, use_gwsignal, tmp_path):
     exec(compile(ast.Module(body=[selected, manual], type_ignores=[]), '<pseudo args_ile>', 'exec'), scope)
     args_path = tmp_path / 'args_ile.txt'
     args_path.write_text(scope['line'])
-    # Actual BasicIteration file-reading/normalization statements.
+    return basiciteration_ile_args(args_path)
+
+
+def basiciteration_ile_args(args_path):
+    """Run BasicIteration's actual args_ile.txt reading/normalization statements."""
     basic = ast.parse((CODE / 'bin/create_event_parameter_pipeline_BasicIteration').read_text())
     start = next(i for i, n in enumerate(basic.body) if isinstance(n, ast.With)
                  and 'open(opts.ile_args)' in ast.unparse(n))
@@ -116,6 +120,20 @@ def emit_worker_argv(line, tmp_path, monkeypatch):
     # Automatically injected Condor event macro is not needed by narrow parser.
     argv = argv[:argv.index('--event')]
     return argv
+
+
+
+@pytest.mark.parametrize('text', [
+    'integrate_likelihood_extrinsic_batchmode --a 1 --b 2\n',
+    'integrate_likelihood_extrinsic_batchmode\n--a 1 --b 2\n',
+    'integrate_likelihood_extrinsic_batchmode --a 1 \\\n--b 2\n',
+    'integrate_likelihood_extrinsic_batchmode --a 1 \\ \n--b 2\n',
+])
+def test_basiciteration_multiline_args_keep_every_option(tmp_path, text):
+    """Line breaks and continuations separate tokens; none may drop the first option."""
+    args_path = tmp_path / 'args_ile.txt'
+    args_path.write_text(text)
+    assert shlex.split(basiciteration_ile_args(args_path)) == ['--a', '1', '--b', '2']
 
 
 @pytest.mark.parametrize('manual', [['--internal-waveform-fd-L-frame'], '--internal-waveform-fd-L-frame'])
