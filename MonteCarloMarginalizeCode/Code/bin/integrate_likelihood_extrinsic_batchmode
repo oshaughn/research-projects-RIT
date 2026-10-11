@@ -567,6 +567,12 @@ def _normalize_interpolate_time_argv(argv):
     return out
 
 opts, args = optp.parse_args(_normalize_interpolate_time_argv(sys.argv[1:]))
+# The GWSignal route does not consume RIFT's LAL-dictionary options. Reject the
+# explicit combination before data loading and the per-event exception handler,
+# so a requested physics option cannot disappear in a successful worker run.
+if opts.use_gwsignal and opts.internal_waveform_extra_lalsuite_args is not None:
+    optp.error("--internal-waveform-extra-lalsuite-args cannot be used with --use-gwsignal; "
+               "use --internal-waveform-extra-kwargs for GWSignal backend options")
 if opts.log_noise_evidence_only and opts.log_noise_evidence_output is None:
   opts.log_noise_evidence_output = "log_noise_evidence.json"
 
@@ -3750,7 +3756,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
       extra_waveform_kwargs['no_condition'] = True
     if opts.rom_group:
       extra_waveform_kwargs['rom_taper_start'] = True  # really for NRHyb3dq8 given discussion with Aasim for high-SNR sources, but valuable generally
-    if opts.use_gwsignal_lmax_nyquist:
+    if opts.use_gwsignal_lmax_nyquist is not None:
       extra_waveform_kwargs['lmax_nyquist'] = int(opts.use_gwsignal_lmax_nyquist)
     extra_waveform_kwargs['e_freq'] = int(opts.e_freq)
     if opts.internal_waveform_extra_lalsuite_args:
@@ -3767,7 +3773,15 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         if isinstance(extra_args_dict, str):
           extra_args_dict = eval(extra_args_dict)
       print(" Waveform high-level extra args passed ", extra_args_dict, type(extra_args_dict))
-      extra_waveform_kwargs.update(extra_args_dict)
+      if not isinstance(extra_args_dict, dict):
+        raise TypeError("--internal-waveform-extra-kwargs must be a dictionary")
+      if opts.use_gwsignal:
+        # Preserve the explicit backend dictionary separately from RIFT's
+        # conditioning/alignment controls. No waveform-option whitelist: new
+        # generator options (including names shared with controls) pass through.
+        extra_waveform_kwargs['gwsignal_extra_kwargs'] = extra_args_dict
+      else:
+        extra_waveform_kwargs.update(extra_args_dict)
     # Keep every precompute for this event on the same waveform-generation
     # route.  In particular, the compound slow-rotation/frequency-response
     # bank must not silently fall back to the default LAL generator when the

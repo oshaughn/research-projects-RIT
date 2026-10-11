@@ -121,8 +121,10 @@ from time import time
 from hashlib import md5
 
 import shutil
+import shlex
 
 import numpy as np
+from RIFT.misc.argument_quoting import _double_up_quotes, quote_arguments, safely_quote_arg_str
 import configparser
 
 # Container family manifest support (Feature: multi-architecture container
@@ -407,36 +409,6 @@ def generate_job_id():
     return md5((t + r).encode("utf-8")).hexdigest()
 
 
-def _double_up_quotes(instr):
-    return instr.replace("'", "''").replace('"', '""')
-
-
-def quote_arguments(args):
-    """Quote a string or list of strings using the Condor submit-file 'new' argument-quoting rules."""
-    if isinstance(args, str):
-        args_list = [args]
-    else:
-        args_list = args
-    quoted_args = []
-    for a in args_list:
-        qa = _double_up_quotes(a)
-        if " " in qa or "'" in qa:
-            qa = "'" + qa + "'"
-        quoted_args.append(qa)
-    return " ".join(quoted_args)
-
-
-def safely_quote_arg_str(arg_str):
-    if not ('"' in arg_str):
-        return quote_arguments
-    quote_breaks = arg_str.split('"')
-    if len(quote_breaks) != 3:
-        raise Exception(" Arg parsing: multiple quoted argument strings provided, not ready to handle ")
-    args0 = quote_arguments(quote_breaks[0].split())
-    args2 = quote_arguments(quote_breaks[2].split())
-    args1 = quote_arguments('"{}"'.format(quote_breaks[1]))
-    return "{} {} {}".format(args0, args1, args2)
-
 
 def bilby_ish_string_to_dict(my_str):
     items = my_str.replace('{', '').replace('}', '').strip().split(',')
@@ -527,6 +499,7 @@ class _GenericJob(object):
         self.file_opts = []              # list of (name, value)        for file--opts
         self.var_opts = []               # variable opts (filled per-node from macros)
         self.arguments = []              # positional arguments
+        self.literal_argv = []           # argv tokens encoded only by the emitting backend
         self.environment = {}            # explicit env: dict of name -> value
         self.inherit_environment = False # condor's "getenv = True" / slurm's "--export=ALL"
         self.condor_cmds = []            # raw Condor submit-file commands (escape hatch / passthrough)
@@ -976,7 +949,7 @@ class WorkflowBackend(abc.ABC):
 
     # Defaults useful for sub-classes
     @staticmethod
-    def _build_argument_string(job, var_ref):
+    def _build_argument_string(job, var_ref, shell=False):
         """Render a job's argument list as a single command-line string.
 
         *var_ref* is a callable mapping a variable-opt name to whatever string
@@ -984,6 +957,8 @@ class WorkflowBackend(abc.ABC):
         Condor, ``"${event}"`` for Slurm).
         """
         parts = []
+        if job.literal_argv:
+            parts.append(shlex.join(job.literal_argv) if shell else quote_arguments(job.literal_argv))
         for name, value in job.opts:
             if value is None or value == "":
                 parts.append("--{}".format(name))
@@ -1186,6 +1161,15 @@ class GluePipelineBackend(WorkflowBackend):
             stderr_file = base + ".err"
         if stderr_file is not None:
             gjob.set_stderr_file(stderr_file)
+        if job.literal_argv:
+            encoded = quote_arguments(job.literal_argv)
+            # Keep literal ILE options before the per-node event macro, as in
+            # the historical glue writer. Other literal positional argv goes
+            # through add_arg; ILE's prefix always begins with a long option.
+            if encoded.startswith('--'):
+                gjob.add_opt(encoded[2:], '')
+            else:
+                gjob.add_arg(encoded)
         for n, v in job.opts:
             gjob.add_opt(n, v)
         for n, v in job.short_opts:
@@ -1349,7 +1333,7 @@ class SlurmBackend(WorkflowBackend):
             ev = "SLURM_VAR_" + re.sub(r"\W+", "_", name).upper()
             return "${" + ev + "}"
 
-        args = self._build_argument_string(job, slurm_var)
+        args = self._build_argument_string(job, slurm_var, shell=True)
         lines.append("")
         if not job.executable:
             raise RuntimeError("SlurmBackend.emit_job: job has no executable")
@@ -2664,13 +2648,9 @@ echo Starting ...
     #
     # Add options en mass, by brute force
     #
-    arg_str = arg_str.lstrip() # remove leading whitespace and minus signs
-    arg_str = arg_str.lstrip('-')
-    if '"' in arg_str:
-        arg_str = safely_quote_arg_str(arg_str)
-        #arg_str = arg_str.replace('"','""') # double quote for condor - weird but true
-    ile_job.add_opt(arg_str,'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
-#    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+    # Store real argv, not shell or Condor quoting, until backend emission.
+    # Condor and Slurm use different quoting rules for the same literal values.
+    ile_job.literal_argv = shlex.split(arg_str)
 
     #
     # Macro based options.
