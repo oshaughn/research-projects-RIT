@@ -451,7 +451,8 @@ done
 # test_std_and_conj_hlmoff_sphharm.py adds 2 tests (one function, two-case parametrize, no
 # skips) -> 875/855.  RE-MEASURED on the merge of #433 with rift_O4d c46a19bf (ldas-grid, IGWN
 # python, cupy absent) 2026-10-08: 878 collected / 859 passed / 19 skipped incl. 3 subtests.
-EXPECTED_TESTS=875
+# test_dslice_amplitude_model.py: +1 (_lognorm chunk memory bound), passes, no skips.
+EXPECTED_TESTS=876
 # Outcomes, not just exit status: a collection floor cannot see a test that collects, runs and
 # asserts nothing, and a pytest.skip can quietly absorb a lost gate.  The 13 skips are
 # environment legs -- cupy in test_seeding_reproducibility, device legs in
@@ -471,7 +472,7 @@ EXPECTED_TESTS=875
 # test_gmm_score_deterministic.py adds 23 tests and no skips; 863/843 (above).
 # test_gmm_update_no_aliasing.py adds 2 tests and no skips; re-measured 873/853 (above).
 # test_std_and_conj_hlmoff_sphharm.py adds 2 tests and no skips; 875/855 (above).
-EXPECTED_PASSED=855
+EXPECTED_PASSED=856
 # PR #382: +1 skip, the CuPy leg of test_cached_matern_gp.py (no GPU on the CI runner).
 MAX_SKIPPED=19
 

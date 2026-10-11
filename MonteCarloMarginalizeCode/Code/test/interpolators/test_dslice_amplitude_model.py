@@ -275,3 +275,33 @@ def test_normalization_grid_refines_for_narrow_distance_peaks():
         top = lnl.max()
         marg = top + np.log(np.trapz(np.exp(lnl - top) * dg ** 2, dg))
         assert abs(marg - m.rf.predict(np.array([[x0]]))[0, 3]) < 0.05, (x0, marg)
+
+
+def test_lognorm_chunks_bound_memory_and_keep_values():
+    # _lognorm sizes its row chunks from the grid length: a refined grid (1e5 nodes) must not build a
+    # (4096 x 1e5) temporary per chunk, and chunking must not change any value.
+    import RIFT.interpolators.dslice_amplitude_model as dam
+    rng = np.random.default_rng(2)
+    n = 3000
+    R, us, fm = rng.uniform(20, 400, n), 1 / rng.uniform(800, 3000, n), rng.uniform(0.1, 0.9, n)
+    seen = []
+    orig = dam.log_model
+    def spy(u, *a):
+        size = np.broadcast(u, *a[:3]).size          # checked before evaluating, so a regression fails fast
+        assert size <= 2 ** 24, size
+        seen.append(size)
+        return orig(u, *a)
+    g = np.linspace(100.0, 8000.0, 131072)
+    w = np.log(g ** 2) + np.log(np.gradient(g))
+    dam.log_model = spy
+    try:
+        big = dam.DistanceAmplitudeModel._lognorm(None, R, us, fm, dgrid=g, lw=w)
+    finally:
+        dam.log_model = orig
+    assert max(seen) <= 2 ** 24 and np.all(np.isfinite(big))
+    # same values as one row at a time on a short grid
+    gs, ws = g[::64], w[::64]
+    whole = dam.DistanceAmplitudeModel._lognorm(None, R[:50], us[:50], fm[:50], dgrid=gs, lw=ws)
+    rows = np.array([dam.DistanceAmplitudeModel._lognorm(None, R[i:i + 1], us[i:i + 1], fm[i:i + 1], dgrid=gs, lw=ws)[0]
+                     for i in range(50)])
+    assert np.array_equal(whole, rows)
