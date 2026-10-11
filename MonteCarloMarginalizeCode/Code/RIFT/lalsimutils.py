@@ -3746,7 +3746,7 @@ def non_herm_hoff(P):
 #argist_FromPolarizations=lalsim.SimInspiralTDModesFromPolarizations.__doc__.split('->')[0].replace('SimInspiralTDModesFromPolarizations','').replace('REAL8','').replace('Dict','').replace('Approximant','').replace('(','').replace(')','').split(',')
 
 
-def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, silent=True, fd_standoff_factor=0.964,no_condition=False,fd_L_frame=False,fd_centering_factor=0.9,fd_alignment_postevent_time=None,**kwargs ):
+def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, silent=True, fd_standoff_factor=0.964,no_condition=False,fd_L_frame=False,fd_centering_factor=0.9,fd_alignment_postevent_time=None,fd_end_taper_max_time=1.0,**kwargs ):
     """
     Generate the TD h_lm -2-spin-weighted spherical harmonic modes of a GW
     with parameters P. Returns a SphHarmTimeSeries, a linked-list of modes with
@@ -3766,7 +3766,10 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
     
 
     no_condition: disable conditioning (for ChooseFDModes specifically). For diagnostic plots on impact of/need for conditioning.
-    fd_L_frame: rotate hlmoft to L frame from J frame for return values from ChooseFDModes (XO4/XPHM). 
+    fd_L_frame: rotate hlmoft to L frame from J frame for return values from ChooseFDModes (XO4/XPHM).
+    fd_end_taper_max_time: cap (seconds) on the ChooseFDModes end taper, which is otherwise 1% of the
+          buffer.  With fd_alignment_postevent_time=2 an uncapped end taper covers the merger once the
+          buffer exceeds ~185 s.  None restores the uncapped 1%.  Has no effect for buffers <= 100 s.
     """
     assert Lmax >= 2
 
@@ -3835,6 +3838,11 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
        ntaper = int(0.01*TDlen)  # fixed 1% of waveform length, at start
        ntaper = np.max([ntaper, int(1./(P.fmin*P.deltaT))])  # require at least one waveform cycle of tapering; should never happen
        vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
+       # End taper: same 1% rule, capped in duration so it cannot reach the merger in long buffers
+       ntaper_end = ntaper
+       if fd_end_taper_max_time is not None:
+           ntaper_end = int(np.min([ntaper, np.max([int(fd_end_taper_max_time/P.deltaT), 1])]))
+       vectaper_end = 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper_end)/(1.*ntaper_end))
 
        # Taper any wraparound that has happened after the peak
        #    - Based on SimInspiralTDFromTD  https://git.ligo.org/lscsoft/lalsuite/-/blob/master/lalsimulation/lib/LALSimInspiral.c
@@ -3843,8 +3851,8 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
        t_merge = lalsim.SimInspiralMergeTimeBound(P.m1,P.m2) + lalsim.SimInspiralRingdownTimeBound(P.m1+P.m2,s)
        t_extra = 3./P.fmin
        indx_crit = int(TDlen*(fd_centering_factor)) + int((t_merge+t_extra)/P.deltaT)  # t_extra is a lot of time generally if fmin is low
-       if indx_crit + ntaper > TDlen:
-           indx_crit = TDlen - ntaper
+       if indx_crit + ntaper_end > TDlen:
+           indx_crit = TDlen - ntaper_end
 
        for mode in hlmsdict:
           npts_fd_pre_resize = hlmsdict[mode].data.length
@@ -3869,13 +3877,13 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
               hlmsT[mode].data.data[:ntaper]*=vectaper
               # Taper anything at the *end* of the segment. This could be  important when interacting with real data, which when wrapped is strongly discontinuous
               #     - this generally will NOT taper everything, because some of the turn-on generally extends well past this
-              if TDlen-ntaper < indx_crit:
+              if TDlen-ntaper_end < indx_crit:
                   # just multiply the very end by a small amount of tapering
-                  hlmsT[mode].data.data[TDlen-ntaper:]*=vectaper[::-1]
+                  hlmsT[mode].data.data[TDlen-ntaper_end:]*=vectaper_end[::-1]
               else:
                   # zero out a a lot of time at the end, and taper time as we approach this critical extra time
-                  hlmsT[mode].data.data[indx_crit:indx_crit+ntaper] *= vectaper[::-1]
-                  hlmsT[mode].data.data[indx_crit+ntaper:] = 0
+                  hlmsT[mode].data.data[indx_crit:indx_crit+ntaper_end] *= vectaper_end[::-1]
+                  hlmsT[mode].data.data[indx_crit+ntaper_end:] = 0
 
        # Rotate if requested, and if P.fref is specified
        # see discussion in https://git.ligo.org/lscsoft/lalsuite/-/blob/master/lalsimulation/lib/LALSimInspiral.c
