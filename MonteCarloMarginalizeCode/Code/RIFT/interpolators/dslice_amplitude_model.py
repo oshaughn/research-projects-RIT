@@ -460,7 +460,9 @@ class DistanceAmplitudeModel:
         lw = self._lw if lw is None else lw
         lm = log_model if xp is np else (lambda *a: log_model_xp(*a, xp=xp))
         out = xp.empty(len(R))
-        step = 4096 if xp is np else 65536
+        # rows per chunk from the grid length: each (rows x nodes) temporary stays near 2**24 elements on the
+        # host and 2**26 on a device. A fixed row count blew up once the grid refines to 1e5 nodes.
+        step = max(1, (2 ** 24 if xp is np else 2 ** 26) // max(1, len(dgrid)))
         for s0 in range(0, len(R), step):
             sl = slice(s0, s0 + step)
             L = lm(1.0 / dgrid[None, :], R[sl, None], us[sl, None], fm[sl, None], 0.0) + lw[None, :]

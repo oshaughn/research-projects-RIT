@@ -458,7 +458,8 @@ done
 # test_fd_end_taper_cap.py adds 3 tests (two functions, one two-case parametrize, no skips)
 # -> 878/858.
 # test_dslice_rf_tails.py adds 10 tests and no skips -> 888/868.
-EXPECTED_TESTS=888
+# test_dslice_amplitude_model.py: +1 (_lognorm chunk memory bound), passes, no skips -> 889/869.
+EXPECTED_TESTS=889
 # Outcomes, not just exit status: a collection floor cannot see a test that collects, runs and
 # asserts nothing, and a pytest.skip can quietly absorb a lost gate.  The 13 skips are
 # environment legs -- cupy in test_seeding_reproducibility, device legs in
@@ -480,7 +481,7 @@ EXPECTED_TESTS=888
 # test_std_and_conj_hlmoff_sphharm.py adds 2 tests and no skips; 875/855 (above).
 # test_fd_end_taper_cap.py adds 3 tests and no skips; 878/858 (above).
 # test_dslice_rf_tails.py adds 10 tests and no skips; 888/868 (above).
-EXPECTED_PASSED=868
+EXPECTED_PASSED=869
 # PR #382: +1 skip, the CuPy leg of test_cached_matern_gp.py (no GPU on the CI runner).
 MAX_SKIPPED=19
 
