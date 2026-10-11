@@ -470,6 +470,21 @@ def check_critical_and_report(opts, optp):
         fatal.append("--zero-likelihood is not implemented")
     if is_set("--maximize-only"):
         fatal.append("--maximize-only is not implemented (this driver integrates)")
+    # Waveform backend options act inside the shared precompute, so a dropped
+    # one changes the likelihood.  Parse them here so a bad dictionary is
+    # refused before any data are read, as numpy ILE refuses the lalsuite-args
+    # combination with --use-gwsignal at option parsing.
+    for _flag in ("--internal-waveform-extra-kwargs",
+                  "--internal-waveform-extra-lalsuite-args"):
+        if is_set(_flag):
+            try:
+                _parse_waveform_dict_option(getattr(opts, _dest(_flag)), _flag)
+            except Exception as exc:
+                fatal.append("%s: %s" % (_flag, exc))
+    if is_set("--use-gwsignal") and is_set("--internal-waveform-extra-lalsuite-args"):
+        fatal.append("--internal-waveform-extra-lalsuite-args cannot be used with "
+                     "--use-gwsignal; use --internal-waveform-extra-kwargs for "
+                     "GWSignal backend options")
     # REFUSED, not reported IGNORED with the compatibility no-ops above.  The
     # no-op rule is for missing KNOBS; these two ask for a data product.  Ignoring
     # --log-noise-evidence-only would run the whole integration the user asked the
@@ -915,6 +930,9 @@ def check_critical_and_report(opts, optp):
                    "--vectorized", "--use-gwsignal", "--rotation-slow",
                    "--internal-waveform-fd-L-frame",
                    "--internal-waveform-fd-no-condition",
+                   "--internal-waveform-extra-kwargs",
+                   "--internal-waveform-extra-lalsuite-args",
+                   "--use-gwsignal-lmax-nyquist",
                    "--internal-precompute-ignore-threshold", "--no-memory",
                    "--e-freq", "--fmin-ifo",
                    "--rotation-n-harmonics", "--rotation-p-max",
@@ -3570,6 +3588,20 @@ def _parse_freqresponse_arm_length(value):
     return result
 
 
+def _parse_waveform_dict_option(text, flag):
+    """Evaluate a waveform-option dictionary the way numpy ILE does.
+
+    A condor double-quoting failure can leave the dictionary wrapped in one
+    more string layer, so a string result is evaluated once more.
+    """
+    value = eval(text)
+    if isinstance(value, str):
+        value = eval(value)
+    if not isinstance(value, dict):
+        raise TypeError("%s must be a dictionary, got %r" % (flag, value))
+    return value
+
+
 def _waveform_precompute_kwargs(opts):
     """Return the waveform controls shared with production numpy ILE.
 
@@ -3584,10 +3616,29 @@ def _waveform_precompute_kwargs(opts):
         extra["fd_L_frame"] = True
     if getattr(opts, "internal_waveform_fd_no_condition", False):
         extra["no_condition"] = True
+    use_gwsignal = bool(getattr(opts, "use_gwsignal", False))
+    # Same routing as integrate_likelihood_extrinsic_batchmode (PR #438).
+    lmax_nyquist = getattr(opts, "use_gwsignal_lmax_nyquist", None)
+    if lmax_nyquist is not None:
+        extra["lmax_nyquist"] = int(lmax_nyquist)
+    lalsuite_args = getattr(opts, "internal_waveform_extra_lalsuite_args", None)
+    if lalsuite_args:
+        if use_gwsignal:
+            raise ValueError("--internal-waveform-extra-lalsuite-args cannot be "
+                             "used with --use-gwsignal")
+        extra["extra_waveform_args"] = _parse_waveform_dict_option(
+            lalsuite_args, "--internal-waveform-extra-lalsuite-args")
+    extra_kwargs = getattr(opts, "internal_waveform_extra_kwargs", None)
+    if extra_kwargs:
+        extra_dict = _parse_waveform_dict_option(
+            extra_kwargs, "--internal-waveform-extra-kwargs")
+        if use_gwsignal:
+            extra["gwsignal_extra_kwargs"] = extra_dict
+        else:
+            extra.update(extra_dict)
     return dict(
-        use_gwsignal=bool(getattr(opts, "use_gwsignal", False)),
-        use_gwsignal_approx=(opts.approximant
-                             if getattr(opts, "use_gwsignal", False) else None),
+        use_gwsignal=use_gwsignal,
+        use_gwsignal_approx=opts.approximant if use_gwsignal else None,
         ignore_threshold=getattr(opts, "internal_precompute_ignore_threshold", None),
         no_memory=bool(getattr(opts, "no_memory", False)),
         extra_waveform_kwargs=extra)

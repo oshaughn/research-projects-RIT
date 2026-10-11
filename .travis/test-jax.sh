@@ -676,6 +676,7 @@ FILES=(
   "${JAXDIR}/test_pseudo_cosmo_distance_prior.py"
   "${JAXDIR}/test_time_log_hermite.py"
   "${JAXDIR}/test_time_log_hermite_selectable.py"
+  "${JAXDIR}/test_jax_ile_waveform_extra_kwargs.py"
 )
 
 # EXCLUDED: files in JAXDIR matching test_*.py that are deliberately NOT gated.  The
@@ -1231,7 +1232,10 @@ fi
 # n_sub).  Read off this script's own line: "collected 1002 tests from 56 files".
 # 2026-10-06: + test_jax_av_network.py (13 tests: network-frame sky sampling in JAX
 # AV/portfolio).  1002 + 13 = 1015.
-EXPECTED_TESTS=1015
+# 2026-10-11: + test_jax_ile_waveform_extra_kwargs.py (15 tests: the JAX driver
+# forwards --internal-waveform-extra-kwargs, --internal-waveform-extra-lalsuite-args
+# and --use-gwsignal-lmax-nyquist as numpy ILE does).  1015 + 15 = 1030.
+EXPECTED_TESTS=1030
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"
