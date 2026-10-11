@@ -253,9 +253,15 @@ CASES = [
     ("F_space_manual", [_manual(SPACE)], (), dict(L, note="a  b", fd_centering_factor=0.75), {}),
     ("G_space_ini", [_calarg('--extra-waveform-kwargs "{}"'.format(SPACE))], (),
      dict(L, note="a  b", fd_centering_factor=0.75), {}),
-    # lmax_nyquist is split out to --use-gwsignal-lmax-nyquist, which selects h_method gws_hlmoft
-    ("H_gwsignal", [_manual("{'lmax_nyquist': 2, 'fd_centering_factor': 0.75}")], (),
-     dict(L, lmax_nyquist=2, fd_centering_factor=0.75), {"use_gwsignal": True}),
+    # Without --use-gwsignal, ILE stays on the lalsuite route even when lmax_nyquist is set,
+    # so calmarg must too: the dictionary is merged into the wrapper kwargs.
+    ("H_lmax_lalsuite", [_manual("{'lmax_nyquist': 2, 'fd_centering_factor': 0.75}")], (),
+     dict(L, lmax_nyquist=2, fd_centering_factor=0.75), {"use_gwsignal": False}),
+    # With --use-gwsignal, the whole dictionary is the backend's, nested as ILE nests it.
+    ("H_gwsignal", [_manual("{'lmax_nyquist': 2, 'enable_antisymmetric_modes': True}")],
+     ("--use-gwsignal",),
+     dict(L, gwsignal_extra_kwargs={"lmax_nyquist": 2, "enable_antisymmetric_modes": True}),
+     {"use_gwsignal": True}),
 ]
 
 

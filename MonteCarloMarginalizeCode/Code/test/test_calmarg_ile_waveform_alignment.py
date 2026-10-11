@@ -40,9 +40,30 @@ INERT = ("e_freq",)
 CALL_FORM = ("Lmax", "approx_string")
 
 
+def _without_wrapper_controls(text):
+    """GWSignal.py source minus its _RIFT_WRAPPER_CONTROLS literal, and that literal's keys.
+
+    GWSignal forwards every kwarg it does not recognise to the backend; the keys in that set
+    are the ones it filters out.  A key named only there is never read and never forwarded.
+    """
+    tree = ast.parse(text)
+    for node in tree.body:
+        if (isinstance(node, ast.Assign) and len(node.targets) == 1
+                and getattr(node.targets[0], "id", None) == "_RIFT_WRAPPER_CONTROLS"):
+            lines = text.splitlines(keepends=True)
+            rest = "".join(lines[:node.lineno - 1] + lines[node.end_lineno:])
+            return rest, set(ast.literal_eval(node.value.args[0]))
+    return text, set()
+
+
 def test_inert_keys_are_inert():
     for path in (CODE / "RIFT" / "lalsimutils.py", CODE / "RIFT" / "physics" / "GWSignal.py"):
         text = path.read_text()
+        if path.name == "GWSignal.py":
+            text, filtered = _without_wrapper_controls(text)
+            for key in INERT:
+                assert key in filtered, \
+                    "GWSignal.py would forward {} to the backend: compare it too".format(key)
         for key in INERT:
             assert not re.search(r"\b{}\b".format(key), text), \
                 "{} now reads {}: compare it too".format(path.name, key)
