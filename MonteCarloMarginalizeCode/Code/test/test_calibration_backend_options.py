@@ -164,3 +164,46 @@ def test_native_highlevel_extra_waveform_args_keeps_existing_precedence():
                          "--internal-waveform-extra-kwargs", "{'extra_waveform_args': {'PhenomXPrecVersion': 223}}"])
     _, extras = calibration_assembled_options(calibration_cli_from_manual(manual, use_gwsignal=False))
     assert extras["extra_waveform_args"] == {"PhenomXPrecVersion": 223}
+
+
+@pytest.mark.parametrize('double_quoted', [False, True])
+def test_historical_expression_dictionary_survives_pseudo_bridge(monkeypatch, double_quoted):
+    payload = "{'dA_dict': {'2,2': 1/10}, 'enable_antisymmetric_modes': True, 'antisymmetric_modes_hm': False}"
+    if double_quoted:
+        payload = repr(payload)
+    argv = calibration_cli_from_manual(shlex.join(['--internal-waveform-extra-kwargs', payload]))
+    _, extras = calibration_assembled_options(argv)
+    assert extras['gwsignal_extra_kwargs']['dA_dict'] == {'2,2': 0.1}
+    _assert_expression_options_reach_calibration_generator(monkeypatch, extras)
+
+
+@pytest.mark.parametrize('double_quoted', [False, True])
+def test_o4c_calibration_direct_expression_dictionary_is_preserved(monkeypatch, double_quoted):
+    payload = "{'gwsignal_extra_kwargs': {'dA_dict': {'2,2': 1/10}, 'enable_antisymmetric_modes': True, 'antisymmetric_modes_hm': False}}"
+    if double_quoted:
+        payload = repr(payload)
+    _, extras = calibration_assembled_options(['--use-gwsignal', '--extra-waveform-kwargs', payload])
+    assert extras['gwsignal_extra_kwargs']['dA_dict'] == {'2,2': 0.1}
+    _assert_expression_options_reach_calibration_generator(monkeypatch, extras)
+
+
+
+def _assert_expression_options_reach_calibration_generator(monkeypatch, extras):
+    class AtGenerator(Exception):
+        pass
+    def capture(parameters, generator):
+        assert parameters['dA_dict'] == {'2,2': 0.1}
+        assert parameters['enable_antisymmetric_modes'] is True
+        assert parameters['antisymmetric_modes_hm'] is False
+        assert 'gwsignal_extra_kwargs' not in parameters
+        raise AtGenerator
+    monkeypatch.setattr(GWSignal.gws.models, 'gwsignal_get_waveform_generator', lambda name: name)
+    monkeypatch.setattr(GWSignal.wfm, 'GenerateTDModes', capture)
+    with pytest.raises(AtGenerator):
+        rift_source.RIFT_lal_binary_black_hole(
+            np.arange(1025) * 0.25, mass_1=60, mass_2=40, luminosity_distance=500,
+            spin_1x=0.4, spin_1y=0.2, spin_1z=0.3,
+            spin_2x=-0.2, spin_2y=0.1, spin_2z=-0.1, iota=0.4, phase=0,
+            waveform_approximant='SEOBNRv5PHM', minimum_frequency=30,
+            reference_frequency=30, sampling_frequency=2048,
+            h_method='gws_hlmoft', extra_waveform_kwargs=extras)

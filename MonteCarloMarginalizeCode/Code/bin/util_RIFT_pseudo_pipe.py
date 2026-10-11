@@ -15,7 +15,6 @@
 
 
 import numpy as np
-import ast
 import argparse
 import shlex
 import os
@@ -1652,16 +1651,16 @@ if opts.calibration_reweighting:
                  # Keep the option in native wrapper kwargs to match that route.
                  my_extra_args['lmax_nyquist'] = my_opts.use_gwsignal_lmax_nyquist
          if my_opts.internal_waveform_extra_lalsuite_args:
-             my_arg_dict = ast.literal_eval(my_opts.internal_waveform_extra_lalsuite_args)
+             my_arg_dict = eval(my_opts.internal_waveform_extra_lalsuite_args)
              if isinstance(my_arg_dict, str):
-                 my_arg_dict = ast.literal_eval(my_arg_dict)
+                 my_arg_dict = eval(my_arg_dict)
              if not isinstance(my_arg_dict, dict):
                  raise TypeError("--internal-waveform-extra-lalsuite-args must be a dictionary")
              my_extra_args['extra_waveform_args'] = my_arg_dict
          if my_opts.internal_waveform_extra_kwargs:
-             my_arg_dict = ast.literal_eval(my_opts.internal_waveform_extra_kwargs)
+             my_arg_dict = eval(my_opts.internal_waveform_extra_kwargs)
              if isinstance(my_arg_dict, str):
-                 my_arg_dict = ast.literal_eval(my_arg_dict)
+                 my_arg_dict = eval(my_arg_dict)
              if not isinstance(my_arg_dict, dict):
                  raise TypeError("--internal-waveform-extra-kwargs must be a dictionary")
              if effective_gwsignal:

@@ -189,3 +189,12 @@ def test_missing_gwsignal_does_not_fall_back_or_mutate_parameters(monkeypatch):
     with pytest.raises(RuntimeError, match='refusing to fall back'):
         fl.internal_hlm_generator(p, 4, use_gwsignal=True, quiet=True)
     assert p.taper == 0
+
+
+@pytest.mark.parametrize('double_quoted', [False, True])
+def test_historical_numeric_expression_dictionary_is_preserved(double_quoted):
+    payload = "{'dA_dict': {'2,2': 1/10}, 'lmax_nyquist': 0}"
+    if double_quoted:
+        payload = repr(payload)
+    _, extras = assembled_options(['--use-gwsignal', '--internal-waveform-extra-kwargs', payload])
+    assert extras['gwsignal_extra_kwargs'] == {'dA_dict': {'2,2': 0.1}, 'lmax_nyquist': 0}

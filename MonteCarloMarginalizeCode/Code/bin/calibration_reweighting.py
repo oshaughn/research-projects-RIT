@@ -357,9 +357,9 @@ if args.internal_waveform_fd_no_condition:
 if args.use_gwsignal_lmax_nyquist is not None:
     extra_waveform_kwargs['lmax_nyquist'] = int(args.use_gwsignal_lmax_nyquist)
 if args.extra_waveform_kwargs:
-    my_arg_dict = ast.literal_eval(args.extra_waveform_kwargs)
+    my_arg_dict = eval(args.extra_waveform_kwargs)
     if isinstance(my_arg_dict, str):
-        my_arg_dict = ast.literal_eval(my_arg_dict)
+        my_arg_dict = eval(my_arg_dict)
     if not isinstance(my_arg_dict, dict):
         raise TypeError("--extra-waveform-kwargs must be a dictionary")
     extra_waveform_kwargs.update(my_arg_dict)
