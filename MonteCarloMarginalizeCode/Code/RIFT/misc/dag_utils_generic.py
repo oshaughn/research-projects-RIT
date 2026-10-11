@@ -123,6 +123,7 @@ from hashlib import md5
 import shutil
 
 import numpy as np
+from RIFT.misc.argument_quoting import _double_up_quotes, quote_arguments, safely_quote_arg_str
 import configparser
 
 # Container family manifest support (Feature: multi-architecture container
@@ -383,36 +384,6 @@ def generate_job_id():
     r = str(int(np.random.random() * 100000000000000000))
     return md5((t + r).encode("utf-8")).hexdigest()
 
-
-def _double_up_quotes(instr):
-    return instr.replace("'", "''").replace('"', '""')
-
-
-def quote_arguments(args):
-    """Quote a string or list of strings using the Condor submit-file 'new' argument-quoting rules."""
-    if isinstance(args, str):
-        args_list = [args]
-    else:
-        args_list = args
-    quoted_args = []
-    for a in args_list:
-        qa = _double_up_quotes(a)
-        if " " in qa or "'" in qa:
-            qa = "'" + qa + "'"
-        quoted_args.append(qa)
-    return " ".join(quoted_args)
-
-
-def safely_quote_arg_str(arg_str):
-    if not ('"' in arg_str):
-        return quote_arguments
-    quote_breaks = arg_str.split('"')
-    if len(quote_breaks) != 3:
-        raise Exception(" Arg parsing: multiple quoted argument strings provided, not ready to handle ")
-    args0 = quote_arguments(quote_breaks[0].split())
-    args2 = quote_arguments(quote_breaks[2].split())
-    args1 = quote_arguments('"{}"'.format(quote_breaks[1]))
-    return "{} {} {}".format(args0, args1, args2)
 
 
 def bilby_ish_string_to_dict(my_str):
@@ -2579,9 +2550,7 @@ echo Starting ...
     #
     arg_str = arg_str.lstrip() # remove leading whitespace and minus signs
     arg_str = arg_str.lstrip('-')
-    if '"' in arg_str:
-        arg_str = safely_quote_arg_str(arg_str)
-        #arg_str = arg_str.replace('"','""') # double quote for condor - weird but true
+    arg_str = safely_quote_arg_str(arg_str)
     ile_job.add_opt(arg_str,'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
 #    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
 

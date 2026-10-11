@@ -5,7 +5,7 @@ import pytest
 
 pytest.importorskip("glue.pipeline")
 pytest.importorskip("numpy")
-from RIFT.misc import dag_utils
+from RIFT.misc import dag_utils, dag_utils_generic
 
 
 def decode_condor_new_arguments(value):
@@ -63,15 +63,17 @@ CASES = [
 
 
 @pytest.mark.parametrize('command', CASES)
-def test_real_submit_writer_preserves_every_argument(tmp_path, monkeypatch, command):
+@pytest.mark.parametrize('writer', [dag_utils, dag_utils_generic])
+def test_real_submit_writer_preserves_every_argument(tmp_path, monkeypatch, command, writer):
     monkeypatch.chdir(tmp_path)
-    job, filename = dag_utils.write_ILE_sub_simple(
+    job, filename = writer.write_ILE_sub_simple(
         exe='/bin/true', tag='test', log_dir=str(tmp_path), arg_str=command)
     job.write_sub_file()
     arguments = next(line.partition('=')[2].strip()
                      for line in (tmp_path / filename).read_text().splitlines()
                      if line.startswith('arguments ='))
-    assert decode_condor_new_arguments(arguments) == shlex.split(command) + ['--event', '$(macroevent)']
+    event_args = ['--event=$(macroevent)'] if writer is dag_utils_generic else ['--event', '$(macroevent)']
+    assert decode_condor_new_arguments(arguments) == shlex.split(command) + event_args
 
 
 def test_unquoted_helper_returns_text_and_empty_values_survive():
