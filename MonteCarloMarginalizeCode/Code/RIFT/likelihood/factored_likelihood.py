@@ -323,6 +323,9 @@ def internal_hlm_generator(P,
     internal_hlm_generator: top-level front end to all waveform generators used.
     Needs to be restructured so it works on a 'hook' basis, so we are not constantly changing the source code
     """
+    if use_gwsignal and not has_GWS:
+        raise RuntimeError("GWSignal was requested but is unavailable; refusing to fall back "
+                           "to a different waveform generator")
     P.taper =  lsu.lsu_TAPER_START # use to pass to romwf, rgws/gwsignal. Pass through
     if not( ROM_group is None) and not (ROM_param is None):
        # For ROM, use the ROM basis. Note that hlmoff -> basis_off henceforth

@@ -540,11 +540,10 @@ if not (opts.cip_args_list is None):
 # Load args.txt. Remove first item.  Store
 with open(opts.ile_args) as f:
     ile_args_list = f.readlines()
-ile_args = ' '.join( [x.replace('\\','') for x in ile_args_list] )
+# One argument string: line breaks and trailing-backslash continuations separate tokens.
+ile_args = ' '.join(line.rstrip().rstrip('\\') for line in ile_args_list)
 ile_args = ' '.join(ile_args.split(' ')[1:])
-# Some argument protection for later
-ile_args = ile_args.replace('[', ' \'[')
-ile_args = ile_args.replace(']', ']\'')
+# Preserve quotes, backslashes, and nested waveform dictionaries verbatim.
 ile_args=ile_args.rstrip()
 if opts.request_gpu_ILE or opts.request_xpu_ILE:
     ile_args+=" --vectorized --gpu "  # append this
