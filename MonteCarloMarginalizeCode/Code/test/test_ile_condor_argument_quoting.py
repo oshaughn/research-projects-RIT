@@ -1,0 +1,85 @@
+"""Shell argument boundaries survive the real ILE Condor submit writer."""
+import shlex
+
+import pytest
+
+pytest.importorskip("glue.pipeline")
+pytest.importorskip("numpy")
+from RIFT.misc import dag_utils
+
+
+def decode_condor_new_arguments(value):
+    """Decode documented new-syntax quoting from an actual arguments attribute.
+
+    Condor quotes the whole value in double quotes, doubles embedded double
+    quotes, groups argv with single quotes, and doubles literal single quotes
+    inside those groups. This is intentionally independent of shell shlex.
+    It does not expand submit macros or submit jobs.
+    """
+    value = value.strip()
+    assert value.startswith('"') and value.endswith('"')
+    value = value[1:-1].replace('""', '"')
+    argv, token = [], []
+    quoted = started = False
+    i = 0
+    while i < len(value):
+        char = value[i]
+        if char == "'":
+            if quoted and i + 1 < len(value) and value[i + 1] == "'":
+                token.append("'")
+                i += 2
+                continue
+            quoted = not quoted
+            started = True
+        elif char.isspace() and not quoted:
+            if started:
+                argv.append(''.join(token))
+                token = []
+                started = False
+        else:
+            token.append(char)
+            started = True
+        i += 1
+    assert not quoted, "unbalanced Condor quote groups"
+    if started:
+        argv.append(''.join(token))
+    return argv
+
+
+PAYLOAD = {'antisymmetric_modes_hm': True, 'enable_antisymmetric_modes': True,
+           'lmax_nyquist': 1, 'future_option': {'label': 'a -- b', 'quote': '"x"',
+                                                'apostrophe': "it's a value"}}
+CASES = [
+    '--use-gwsignal --approx SEOBNRv5PHM --internal-waveform-extra-kwargs '
+    '"{\'antisymmetric_modes_hm\': True, \'enable_antisymmetric_modes\': True, \'lmax_nyquist\': 1}"',
+    shlex.join(['--use-gwsignal', '--internal-waveform-extra-kwargs', repr(PAYLOAD),
+                '--label', 'second quoted value', '--empty', '', '--event', '$(macroevent)']),
+    shlex.join(['--internal-waveform-extra-lalsuite-args', "{'PhenomXPrecVersion': 310}",
+                '--internal-waveform-extra-kwargs', "{'fd_L_frame': False}"]),
+    shlex.join(['--use-gwsignal', '--internal-waveform-extra-kwargs', repr(repr(PAYLOAD))]),
+    '--approx IMRPhenomXPHM --event $(macroevent) --n-events-to-analyze 1',
+    shlex.join(['--label', 'a\tb c', '--path', '/a path/with spaces']),
+]
+
+
+@pytest.mark.parametrize('command', CASES)
+def test_real_submit_writer_preserves_every_argument(tmp_path, monkeypatch, command):
+    monkeypatch.chdir(tmp_path)
+    job, filename = dag_utils.write_ILE_sub_simple(
+        exe='/bin/true', tag='test', log_dir=str(tmp_path), arg_str=command)
+    job.write_sub_file()
+    arguments = next(line.partition('=')[2].strip()
+                     for line in (tmp_path / filename).read_text().splitlines()
+                     if line.startswith('arguments ='))
+    assert decode_condor_new_arguments(arguments) == shlex.split(command) + ['--event', '$(macroevent)']
+
+
+def test_unquoted_helper_returns_text_and_empty_values_survive():
+    assert dag_utils.safely_quote_arg_str('--x 0') == '--x 0'
+    assert decode_condor_new_arguments('"' + dag_utils.quote_arguments(['', 'a\tb']) + '"') == ['', 'a\tb']
+
+
+@pytest.mark.parametrize("value", ["a\nb", "a\rb"])
+def test_literal_submit_line_breaks_are_rejected(value):
+    with pytest.raises(ValueError, match="literal line breaks"):
+        dag_utils.quote_arguments([value])

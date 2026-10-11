@@ -15,6 +15,7 @@
 
 
 import numpy as np
+import ast
 import argparse
 import shlex
 import os
@@ -1621,42 +1622,54 @@ if opts.calibration_reweighting:
         my_extra_string += " --use-eccentricity "
     if opts.manual_extra_ile_args:
          print(" calmarg: Parsing  ", opts.manual_extra_ile_args)
-         my_str_list = opts.manual_extra_ile_args.lstrip().split("--")
-         my_revised_args = []
-         # MANUAL PARSING, SO STUPID, but argparse does not do what I want
-         for arg_item in my_str_list:
-             if 'internal-waveform-extra-lalsuite-args' in arg_item:
-                 my_revised_args += ['--internal-waveform-extra-lalsuite-args', arg_item.replace('internal-waveform-extra-lalsuite-args', '')]
-             if 'internal-waveform-extra-kwargs' in arg_item:
-                 my_revised_args += ['--internal-waveform-extra-kwargs', arg_item.replace('internal-waveform-extra-kwargs', '')]
-        
-         # Parse string for waveform arguments
-         # Currently: fork off the lmax_nyquist (the most common scenario), leave the rest to a unified dictionary to pass on
-         # ISSUE: argparse parsing does not seem to work, fall back to optparse
-         my_parser=argparse.ArgumentParser()
-         my_parser.add_argument("--internal-waveform-extra-lalsuite-args",type=str,default=None)
-         my_parser.add_argument("--internal-waveform-extra-kwargs",type=str, default=None)
-         my_opts, unknown_opts =my_parser.parse_known_args(my_revised_args )
+         # Preserve shell argument boundaries, including nested dictionaries
+         # whose string values contain '--', apostrophes or double quotes.
+         my_parser = argparse.ArgumentParser()
+         my_parser.add_argument("--use-gwsignal", action='store_true')
+         my_parser.add_argument("--use-gwsignal-lmax-nyquist", type=int, default=None)
+         my_parser.add_argument("--internal-waveform-fd-L-frame", action='store_true')
+         my_parser.add_argument("--internal-waveform-fd-no-condition", action='store_true')
+         my_parser.add_argument("--internal-waveform-extra-lalsuite-args", type=str, default=None)
+         my_parser.add_argument("--internal-waveform-extra-kwargs", type=str, default=None)
+         my_opts, unknown_opts = my_parser.parse_known_args(shlex.split(opts.manual_extra_ile_args))
          print(' calmarg: parsed args ', my_opts, " and others ", unknown_opts)
-         # Same layout as ILE: lalsuite args nested under 'extra_waveform_args', then the
-         # high-level kwargs merged on top (and so winning on a shared key).
+         effective_gwsignal = opts.use_gwsignal or my_opts.use_gwsignal
+         if my_opts.use_gwsignal and not opts.use_gwsignal:
+             my_extra_string += ' --use-gwsignal '
+         if my_opts.internal_waveform_fd_L_frame:
+             my_extra_string += ' --internal-waveform-fd-L-frame '
+         if my_opts.internal_waveform_fd_no_condition:
+             my_extra_string += ' --internal-waveform-fd-no-condition '
+         if effective_gwsignal and my_opts.internal_waveform_extra_lalsuite_args is not None:
+             my_parser.error("--internal-waveform-extra-lalsuite-args cannot be used with --use-gwsignal; "
+                             "use --internal-waveform-extra-kwargs for GWSignal backend options")
          my_extra_args = {}
+         if my_opts.use_gwsignal_lmax_nyquist is not None:
+             if effective_gwsignal:
+                 my_extra_string += ' --use-gwsignal-lmax-nyquist {} '.format(my_opts.use_gwsignal_lmax_nyquist)
+             else:
+                 # ILE does not select GWSignal merely because lmax was set.
+                 # Keep the option in native wrapper kwargs to match that route.
+                 my_extra_args['lmax_nyquist'] = my_opts.use_gwsignal_lmax_nyquist
          if my_opts.internal_waveform_extra_lalsuite_args:
-             my_arg_dict = eval(my_opts.internal_waveform_extra_lalsuite_args)
-             if not(isinstance(my_arg_dict, dict)):
-                 my_arg_dict = eval(my_arg_dict)
+             my_arg_dict = ast.literal_eval(my_opts.internal_waveform_extra_lalsuite_args)
+             if isinstance(my_arg_dict, str):
+                 my_arg_dict = ast.literal_eval(my_arg_dict)
+             if not isinstance(my_arg_dict, dict):
+                 raise TypeError("--internal-waveform-extra-lalsuite-args must be a dictionary")
              my_extra_args['extra_waveform_args'] = my_arg_dict
          if my_opts.internal_waveform_extra_kwargs:
-             my_arg_dict = eval(my_opts.internal_waveform_extra_kwargs)
-             # due to quoting, might not evaluate to a dictionary
-             if not(isinstance(my_arg_dict, dict)):
-                 my_arg_dict = eval(my_arg_dict)
-             if 'lmax_nyquist' in my_arg_dict:
-                 my_extra_string+= " --use-gwsignal-lmax-nyquist {} ".format(my_arg_dict['lmax_nyquist'])
-                 del my_arg_dict['lmax_nyquist'] # remove key
-             my_extra_args.update(my_arg_dict)
+             my_arg_dict = ast.literal_eval(my_opts.internal_waveform_extra_kwargs)
+             if isinstance(my_arg_dict, str):
+                 my_arg_dict = ast.literal_eval(my_arg_dict)
+             if not isinstance(my_arg_dict, dict):
+                 raise TypeError("--internal-waveform-extra-kwargs must be a dictionary")
+             if effective_gwsignal:
+                 my_extra_args['gwsignal_extra_kwargs'] = my_arg_dict
+             else:
+                 my_extra_args.update(my_arg_dict)
          if my_extra_args:
-            my_extra_string += ' --extra-waveform-kwargs "{}" '.format(my_extra_args)
+             my_extra_string += ' --extra-waveform-kwargs {} '.format(shlex.quote(repr(my_extra_args)))
 #         my_extra_string += ' ' + opts.manual_extra_ile_args + ' '
     if opts.use_ini:
         fref = unsafe_config_get(config,['engine','fref'])

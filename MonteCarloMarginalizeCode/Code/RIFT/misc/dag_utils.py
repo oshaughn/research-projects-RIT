@@ -18,7 +18,7 @@
 A collection of routines to manage Condor workflows (DAGs).
 """
 
-import os, sys, re, shutil
+import os, sys, re, shutil, shlex
 import numpy as np
 from time import time
 from hashlib import md5
@@ -293,27 +293,23 @@ def quote_arguments(args):
 
     quoted_args = []
     for a in args_list:
+        if "\n" in a or "\r" in a:
+            raise ValueError("Condor arguments cannot contain literal line breaks")
         qa = _double_up_quotes(a)
-        if " " in qa or "'" in qa:
+        if not qa or any(char.isspace() for char in qa) or "'" in qa:
             qa = "'" + qa + "'"
         quoted_args.append(qa)
     return " ".join(quoted_args)
 
 def safely_quote_arg_str(arg_str):
+    """Translate shell-style argument text to Condor's new argument syntax.
+
+    Shell quoting describes the argument boundaries; it is not part of argv.
+    Parse those boundaries before applying Condor escaping, including multiple
+    dictionaries, nested string values and explicitly empty arguments.
     """
-    See the document for https://htcondor.readthedocs.io/en/latest/man-pages/condor_submit.html
-    We need to carefully parse the argument string for quoted items (e.g., passing dictionaries) with quoted elements
-    """
-    # step 0: split into quoted arguments using standard "
-    if not ('"' in arg_str):
-        return quote_arguments
-    quote_breaks = arg_str.split('"')  # assume only one block of quotes to deal with
-    if len(quote_breaks) !=  3:
-        raise Exception(" Arg parsing: multiple quoted argument strings provided, not ready to handle ")
-    args0 = quote_arguments(quote_breaks[0].split()) # no quotes, so split on whitespace as usual
-    args2 = quote_arguments(quote_breaks[2].split()) # no quotes, so split on whitespace as usual
-    args1 = quote_arguments('"{}"'.format( quote_breaks[1])) # quote this properly, should be one argument
-    return "{} {} {}".format(args0,args1,args2)
+    return quote_arguments(shlex.split(arg_str))
+
 
 def bilby_ish_string_to_dict(my_str):
     items = my_str.replace('{', '').replace('}','').strip().split(',')
@@ -1098,9 +1094,7 @@ echo Starting ...
     #
     arg_str = arg_str.lstrip() # remove leading whitespace and minus signs
     arg_str = arg_str.lstrip('-')
-    if '"' in arg_str:
-        arg_str = safely_quote_arg_str(arg_str)
-        #arg_str = arg_str.replace('"','""') # double quote for condor - weird but true
+    arg_str = safely_quote_arg_str(arg_str)
     ile_job.add_opt(arg_str,'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
 #    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
 
