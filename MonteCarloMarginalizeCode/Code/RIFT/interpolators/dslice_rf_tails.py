@@ -23,7 +23,12 @@ from RIFT.interpolators.dslice_amplitude_model import fit_all_points, fit_all_po
 
 class RFDistanceTails:
     def __init__(self, base_fit, dist_index, sides="both", shared_fmin=True, xp=np, point_fit="scipy",
-                 n_jobs=1):
+                 n_jobs=1, coord_names=None):
+        """coord_names: names of the fit coordinates, needed only to spot 'inv_dist'. It is a
+        reparametrisation of the same axis as 'dist', so it varies across one point's slices: it must
+        stay out of the intrinsic key (or every slice would look like its own grid point, leaving no
+        point with enough slices to fit) and must move with 'dist' when the base fit is read at the
+        slice edge."""
         if sides not in ("near", "far", "both"):
             raise ValueError("sides must be near, far or both")
         if point_fit not in ("scipy", "batched"):
@@ -31,6 +36,10 @@ class RFDistanceTails:
         self.base_fit, self.dist_index, self.sides = base_fit, int(dist_index), sides
         self.shared_fmin, self.xp = bool(shared_fmin), xp
         self.point_fit, self.n_jobs = point_fit, int(n_jobs)
+        self.coord_names = None if coord_names is None else list(coord_names)
+        self.inv_dist_index = (self.coord_names.index("inv_dist")
+                               if self.coord_names is not None and "inv_dist" in self.coord_names else None)
+        self.drop = [self.dist_index] if self.inv_dist_index is None else [self.dist_index, self.inv_dist_index]
 
     def _fit_points(self, args, fmin_fixed=None):
         # scipy (default): one least_squares per point. batched: all points at once on numpy/cupy; it
@@ -43,13 +52,22 @@ class RFDistanceTails:
         """x: training rows in fit coordinates; y_unshifted: lnL with no shift (the model's d -> inf
         limit is 0); y_errors: per-row sigma."""
         x = np.asarray(x, dtype=float)
+        if self.coord_names is not None and len(self.coord_names) != x.shape[1]:
+            # the distance columns are found by name, so a mismatched list would drop the wrong ones
+            raise ValueError("coord_names has %d entries but the training rows have %d columns"
+                             % (len(self.coord_names), x.shape[1]))
         y_unshifted = np.asarray(y_unshifted, dtype=float)
         y_errors = np.asarray(y_errors, dtype=float)
         ok = np.all(np.isfinite(x), axis=1) & np.isfinite(y_unshifted) & np.isfinite(y_errors) \
             & (x[:, self.dist_index] > 0)          # the base fit may accept rows the tail model cannot
         x, y_unshifted, y_errors = x[ok], y_unshifted[ok], y_errors[ok]
         d = x[:, self.dist_index]
-        key = np.round(np.delete(x, self.dist_index, axis=1), 10)
+        key = np.round(np.delete(x, self.drop, axis=1), 10)
+        # a fit in distance alone leaves no intrinsic coordinate: the whole grid is one fixed point, so
+        # group it by a single constant column rather than by zero-width rows
+        self.n_int = key.shape[1]
+        if not self.n_int:
+            key = np.zeros((len(key), 1))
         uk, inv = np.unique(key, axis=0, return_inverse=True)
         inv = inv.reshape(-1)
         self.dmin = np.full(len(uk), np.inf)
@@ -67,9 +85,9 @@ class RFDistanceTails:
         self.good = np.all(np.isfinite(P), axis=1)
         self.mu, self.sd = uk.mean(0), uk.std(0)
         self.sd[self.sd == 0] = 1.0
-        self.tree = cKDTree((uk - self.mu) / self.sd)
+        self.tree = cKDTree((uk - self.mu) / self.sd) if self.n_int else None
         self.report = dict(points=int(len(uk)), points_fit=int(self.good.sum()), rows_dropped=int((~ok).sum()), sides=self.sides,
-                           fmin_shared=fmin, point_fit=self.point_fit)
+                           fmin_shared=fmin, point_fit=self.point_fit, intrinsic_dim=int(self.n_int))
         return self
 
     def __call__(self, x_in):
@@ -82,7 +100,10 @@ class RFDistanceTails:
         fin = np.all(np.isfinite(x), axis=1)
         xf = x[fin]
         d = xf[:, self.dist_index]
-        _, j = self.tree.query((np.delete(xf, self.dist_index, axis=1) - self.mu) / self.sd)
+        if self.tree is None:
+            j = np.zeros(len(xf), dtype=int)                        # distance-only fit: the one point
+        else:
+            _, j = self.tree.query((np.delete(xf, self.drop, axis=1) - self.mu) / self.sd)
         g = self.good[j]
         lo = g & (d < self.dmin[j]) if self.sides in ("near", "both") else np.zeros(len(d), bool)
         hi = g & (d > self.dmax[j]) if self.sides in ("far", "both") else np.zeros(len(d), bool)
@@ -91,6 +112,12 @@ class RFDistanceTails:
         # value), never as a batch of their own, which an sklearn forest rejects once its guard empties it
         xe = x.copy()
         xe[fin, self.dist_index] = d_edge
+        if self.inv_dist_index is not None:
+            # inv_dist is the same axis: reading the base fit at d_edge means reading it at 1/d_edge.
+            # d_edge <= 0 has no 1/d, so those rows keep the caller's value and the base fit's guard.
+            iv = x[fin, self.inv_dist_index].copy()
+            iv[d_edge > 0] = 1.0 / d_edge[d_edge > 0]
+            xe[fin, self.inv_dist_index] = iv
         out = to_host(self.base_fit(xmod.asarray(xe))).astype(float, copy=True)
         val = out[fin]
         off = lo | hi

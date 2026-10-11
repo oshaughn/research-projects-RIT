@@ -28,6 +28,50 @@ def test_inside_is_base_outside_is_continuation():
     assert near_only(np.array([[x0, 9000.0]]))[0] == 7.0 and near_only(np.array([[x0, 600.0]]))[0] < 6.0
 
 
+def _grid_with_inv_dist(seed=4):
+    rng = np.random.default_rng(seed)
+    rows = []
+    for x0 in rng.uniform(-1, 1, 120):
+        R, us = 30 + 5 * x0, 1 / (3000 * (1 + 0.2 * x0))
+        d = np.linspace(1800, 4000, 30)
+        rows.append(np.column_stack([np.full(30, x0), d, 1.0 / d,
+                                     log_model(1 / d, R, us, 0.4, 0.0) + rng.normal(0, 0.05, 30)]))
+    return np.vstack(rows)
+
+
+def test_inv_dist_does_not_split_the_intrinsic_points():
+    # 'inv_dist' is the same axis as 'dist', so it varies across one point's slices: left in the
+    # intrinsic key, each of the 30 slices becomes its own one-row point, none reaches the fitter's
+    # five-slice minimum, and the continuation silently reverts to the base fit's flat extrapolation
+    g = _grid_with_inv_dist()
+    base = lambda x: 1000.0 * np.asarray(x, dtype=float)[:, 2]     # reads 1/d: it must see 1/d_edge
+    m = RFDistanceTails(base, 1, sides="near", coord_names=["x0", "dist", "inv_dist"]) \
+        .fit(g[:, :3], g[:, 3], 0.05 * np.ones(len(g)))
+    assert m.report["intrinsic_dim"] == 1
+    assert m.report["points"] == 120 and m.report["points_fit"] == 120
+    x0 = g[:, 0].min()                                             # unique keys are sorted: this is P[0]
+    assert m.dmin[0] == 1800.0
+    near = m(np.array([[x0, 600.0, 1.0 / 600.0]]))[0]
+    P = m.P[0]
+    step = log_model(1 / 600.0, P[0], P[1], P[2], 0.0) - log_model(1 / 1800.0, P[0], P[1], P[2], 0.0)
+    # the edge value is the base fit at d_edge in BOTH distance columns (1000/1800, not 1000/600)
+    assert np.isclose(near, 1000.0 / 1800.0 + min(step, 0.0))
+
+
+def test_distance_only_fit_needs_no_tree():
+    # --parameter dist on its own: no intrinsic coordinate is left, so there is no tree to build and the
+    # whole grid is one fixed point
+    rng = np.random.default_rng(7)
+    d = np.linspace(1800.0, 4000.0, 30)
+    y = log_model(1 / d, 30.0, 1 / 3000.0, 0.4, 0.0) + rng.normal(0, 0.05, 30)
+    m = RFDistanceTails(lambda x: np.full(len(x), 7.0), 0, sides="both", coord_names=["dist"]) \
+        .fit(d[:, None], y, 0.05 * np.ones(30))
+    assert m.tree is None and m.report["intrinsic_dim"] == 0
+    assert m.report["points"] == 1 and m.report["points_fit"] == 1
+    assert m(np.array([[2500.0]]))[0] == 7.0                       # inside the slices: base unchanged
+    assert m(np.array([[600.0]]))[0] < 6.0 and m(np.array([[9000.0]]))[0] < 6.0
+
+
 def test_shared_fmin_is_reported():
     g = _grid()
     m = RFDistanceTails(lambda x: np.zeros(len(x)), 1).fit(g[:, :2], g[:, 2], 0.05 * np.ones(len(g)))

@@ -1013,9 +1013,12 @@ elif opts.fit_method == 'rf':
         _xp_tails = np
         if opts.fit_device == "gpu":
             import cupy as _xp_tails
+        # coord_names: the tail wrapper groups the slices by the intrinsic coordinates, so it needs the
+        # names to keep 'inv_dist' (the same axis as 'dist') out of that grouping
         my_fit = RFDistanceTails(my_fit, list(coord_names).index('dist'), sides=opts.rf_dslice_tails,
                                  shared_fmin=(opts.rf_dslice_tails_fmin == "shared"), xp=_xp_tails,
-                                 point_fit=opts.dslice_amp_point_fit, n_jobs=opts.dslice_amp_point_fit_jobs).fit(X, Y + lnL_shift, Y_err)
+                                 point_fit=opts.dslice_amp_point_fit, n_jobs=opts.dslice_amp_point_fit_jobs,
+                                 coord_names=list(coord_names)).fit(X, Y + lnL_shift, Y_err)
         print(" RF-DSLICE-TAILS ", my_fit.report)
 
 elif opts.fit_method == 'gp-matern':
