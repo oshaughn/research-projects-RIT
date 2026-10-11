@@ -61,6 +61,17 @@ jobs:
           python MonteCarloMarginalizeCode/Code/test/rf_transverse_cli_smoke.py geometric4-phase-excess redshift
           python MonteCarloMarginalizeCode/Code/test/rf_transverse_cli_smoke.py geometric4-phase-excess extra
           python MonteCarloMarginalizeCode/Code/test/rf_transverse_cli_smoke.py geometric4-phase-excess duplicate
+      - name: Run GWSignal backend-option transport regressions
+        # Each file importorskips optional dependencies; a skip means the leg tested nothing.
+        run: |
+          set -o pipefail
+          python -m pytest -q -rs \
+            MonteCarloMarginalizeCode/Code/test/test_gwsignal_options.py \
+            MonteCarloMarginalizeCode/Code/test/test_gwsignal_ile_options.py \
+            MonteCarloMarginalizeCode/Code/test/test_gwsignal_asimov_options.py \
+            MonteCarloMarginalizeCode/Code/test/test_calibration_backend_options.py \
+            MonteCarloMarginalizeCode/Code/test/test_ile_condor_argument_quoting.py | tee gws.log
+          ! grep -Eq '[0-9]+ skipped' gws.log
       - name: Run O4c time quadrature and interpolation regressions
         run: |
           python -m pytest -q \

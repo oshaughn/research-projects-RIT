@@ -192,7 +192,7 @@ def test_calibration_condor_value_has_no_literal_shell_quotes():
     assert imports, 'The executed builder requires a module-level shlex import'
     nodes=[n for n in ast.walk(tree) if isinstance(n,ast.If) and ast.unparse(n.test)=='opts.calibration_reweighting_initial_extra_args']
     assert len(nodes)==1
-    module=ast.parse((CODE/'RIFT/misc/dag_utils_generic.py').read_text())
+    module=ast.parse((CODE/'RIFT/misc/argument_quoting.py').read_text())
     definitions=[n for n in module.body if isinstance(n,ast.FunctionDef) and n.name in ['_double_up_quotes','quote_arguments']]
     namespace={};exec(compile(ast.Module(body=definitions,type_ignores=[]),'condor-quote','exec'),namespace)
     value=" --extra-waveform-kwargs \"{'fd_alignment_postevent_time': None, 'fd_centering_factor': 0.75}\" --fref 20 --internal-waveform-fd-L-frame "
