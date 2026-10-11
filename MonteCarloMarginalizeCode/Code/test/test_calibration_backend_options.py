@@ -140,8 +140,12 @@ def test_manual_routing_and_owned_controls_match_ile(dictionary_lmax):
     assert args.use_gwsignal
     assert extras["fd_L_frame"] is True
     assert extras["no_condition"] is True
-    assert extras["lmax_nyquist"] == 0
+    # The dictionary value wins in ILE (old: update() overwrites the flag; new: the explicit
+    # dictionary wins), so calmarg's legacy slot carries it too, for older calibration workers.
+    assert extras["lmax_nyquist"] == (0 if dictionary_lmax is None else dictionary_lmax)
     assert extras["gwsignal_extra_kwargs"] == requested
+    effective = GWSignal._with_generator_options({}, extras)
+    assert effective["lmax_nyquist"] == (0 if dictionary_lmax is None else dictionary_lmax)
 
 
 def test_manual_gwsignal_route_rejects_lal_payload():
@@ -171,3 +175,32 @@ def test_manual_dictionary_expressions_keep_existing_ile_compatibility():
     manual = shlex.join(["--internal-waveform-extra-kwargs", "{'dA_dict': {'2,2': 1/10}}"])
     _, extras = calibration_assembled_options(calibration_cli_from_manual(manual))
     assert extras["gwsignal_extra_kwargs"]["dA_dict"] == {"2,2": 0.1}
+
+
+@pytest.mark.parametrize('text,expected', [
+    # Calib_reweight.sub argv written by submit hosts with older RIFT (O4c 0.0.17.9 production): the key quotes
+    # are lost on the way through Condor (rift-v5PHM-calmarg-A, S241114bi, test_o4c_release).
+    ('"{antisymmetric_modes_hm: True, enable_antisymmetric_modes: True}"',
+     {'antisymmetric_modes_hm': True, 'enable_antisymmetric_modes': True}),
+    ('{antisymmetric_modes_hm: True}', {'antisymmetric_modes_hm': True}),
+    ('"{PhenomXHMReleaseVersion: 122022, label: a b}"',
+     {'PhenomXHMReleaseVersion': 122022, 'label': 'a b'}),
+])
+def test_existing_dag_unquoted_dictionary_still_parses(text, expected):
+    args, extras = calibration_assembled_options(
+        ['--use-gwsignal', '--use-gwsignal-lmax-nyquist', '1', '--extra-waveform-kwargs', text])
+    assert args.use_gwsignal
+    assert extras['lmax_nyquist'] == 1
+    assert {k: extras[k] for k in expected} == expected
+    assert all(type(extras[k]) is type(v) for k, v in expected.items())
+
+
+def test_lmax_nyquist_flag_kept_for_older_calibration_containers():
+    """Older calibration workers read lmax_nyquist only from the dedicated flag."""
+    manual = shlex.join(['--internal-waveform-extra-kwargs',
+                         "{'antisymmetric_modes_hm': True, 'lmax_nyquist': 1}"])
+    argv = calibration_cli_from_manual(manual)
+    assert argv[argv.index('--use-gwsignal-lmax-nyquist') + 1] == '1'
+    args, extras = calibration_assembled_options(argv)
+    assert extras['lmax_nyquist'] == 1
+    assert extras['gwsignal_extra_kwargs'] == {'antisymmetric_modes_hm': True, 'lmax_nyquist': 1}
