@@ -389,6 +389,45 @@ _ILE_ALL_OPTS = {
 }
 
 
+# Value types numpy ILE declares for the compatibility options.  An untyped
+# option accepts any string, so a value numpy ILE refuses at parse time would
+# reach the driver, or a number would arrive as a string where it is used.
+_ILE_INT_OPTS = {
+    "--amp-order", "--calibration-burn-in-nmax",
+    "--calibration-mc-error-extrinsic", "--calibration-n-realizations",
+    "--calibration-n-realizations-max", "--calibration-pilot-extrinsic",
+    "--calibration-spline-count", "--distance-slice-chunk",
+    "--distance-slice-wing-neff", "--distance-slice-wing-nmax", "--e-freq",
+    "--export-distance-slices", "--internal-gmm-max-components",
+    "--internal-gmm-phase-components", "--internal-gmm-sky-components",
+    "--mc-error-replicas", "--n-distance-slice-core", "--n-distance-slice-wing",
+    "--portfolio-grace-iters", "--portfolio-probe-period",
+    "--portfolio-revive-period", "--rom-limit-basis-size-to", "--srate-internal",
+    "--use-gwsignal-lmax-nyquist",
+}
+_ILE_FLOAT_OPTS = {
+    "--adapt-floor-level", "--calibration-burn-in-neff",
+    "--calibration-neff-cal-target", "--distance-slice-skip-threshold",
+    "--distance-slice-wing-delta-lnL", "--extrinsic-proposal-field-cover-frac",
+    "--extrinsic-proposal-field-inflate", "--internal-gmm-defensive-frac",
+    "--internal-gmm-inflate", "--internal-precompute-ignore-threshold",
+    "--inv-spec-trunc-time", "--manual-logarithm-offset", "--mc-error-ess-trigger",
+    "--mc-error-khat-trigger", "--mc-error-sigma-trigger",
+    "--portfolio-alloc-exponent", "--portfolio-freeze-wt",
+    "--portfolio-varaha-max-frac", "--portfolio-varaha-min-frac",
+    "--portfolio-weight-clip", "--psd-window-shape",
+    "--sampler-l0-rescue-puff-factor", "--sampler-l0-rescue-puff-width-frac",
+    "--sampler-l0-rescue-reject-dlnZ", "--sampler-sequential-warmstart-cover-frac",
+    "--sampler-sequential-warmstart-deltalnL", "--sampler-warmstart-cover-frac",
+    "--sampler-warmstart-inflate", "--sampler-warmstart-retry-neff", "--save-P",
+    "--save-deltalnL",
+}
+_ILE_CHOICE_OPTS = {
+    "--sampler-l0-rescue-puff-scale": ["fixed", "auto"],
+    "--time-posterior-export": ["auto", "continuous", "grid"],
+}
+
+
 def _register_compat_options(optp):
     """Add every ILE option we do not already define, as accepted-but-ignored."""
     import optparse
@@ -405,6 +444,12 @@ def _register_compat_options(optp):
         elif name in _ILE_APPEND_OPTS:
             g.add_option(name, action="append", default=[],
                          help=optparse.SUPPRESS_HELP)
+        elif name in _ILE_INT_OPTS or name in _ILE_FLOAT_OPTS:
+            g.add_option(name, default=None, help=optparse.SUPPRESS_HELP,
+                         type="int" if name in _ILE_INT_OPTS else "float")
+        elif name in _ILE_CHOICE_OPTS:
+            g.add_option(name, default=None, help=optparse.SUPPRESS_HELP,
+                         type="choice", choices=_ILE_CHOICE_OPTS[name])
         else:
             g.add_option(name, default=None, help=optparse.SUPPRESS_HELP)
     optp.add_option_group(g)
@@ -482,13 +527,6 @@ def check_critical_and_report(opts, optp):
                 _parse_waveform_dict_option(getattr(opts, _dest(_flag)), _flag)
             except Exception as exc:
                 fatal.append("%s: %s" % (_flag, exc))
-    # numpy ILE declares this option type=int; the compat layer stores a string.
-    if is_set("--use-gwsignal-lmax-nyquist"):
-        try:
-            int(opts.use_gwsignal_lmax_nyquist)
-        except ValueError:
-            fatal.append("--use-gwsignal-lmax-nyquist must be an integer, got %r"
-                         % (opts.use_gwsignal_lmax_nyquist,))
     if is_set("--use-gwsignal") and getattr(opts, "internal_waveform_extra_lalsuite_args", None):
         fatal.append("--internal-waveform-extra-lalsuite-args cannot be used with "
                      "--use-gwsignal; use --internal-waveform-extra-kwargs for "

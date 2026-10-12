@@ -8,6 +8,7 @@ them.  Each case compares the JAX driver's ``extra_waveform_kwargs`` with the on
 numpy ILE assembles for the same command line (extracted from the numpy driver by
 ``test_gwsignal_ile_options.assembled_options``).
 """
+import ast
 import contextlib
 import importlib.machinery
 import importlib.util
@@ -27,6 +28,7 @@ from RIFT.physics import GWSignal as rgws
 _CODE = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
 _DRIVER = os.path.join(_CODE, "bin", "integrate_likelihood_extrinsic_jax")
 _NUMPY_ASSEMBLY = os.path.join(_CODE, "test", "test_gwsignal_ile_options.py")
+_NUMPY_ILE = os.path.join(_CODE, "bin", "integrate_likelihood_extrinsic_batchmode")
 
 PRODUCTION = ("{'antisymmetric_modes_hm': True, 'enable_antisymmetric_modes': True, "
               "'lmax_nyquist': 1}")
@@ -65,11 +67,12 @@ def _jax_extra(driver, argv):
 
 
 def _check(driver, argv):
+    """Return (refused, text) for parsing plus check_critical_and_report."""
     optp = driver.build_parser()
-    opts, _ = optp.parse_args(list(argv))
     out = io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
         try:
+            opts, _ = optp.parse_args(list(argv))
             driver.check_critical_and_report(opts, optp)
         except SystemExit:
             return True, out.getvalue()
@@ -201,13 +204,83 @@ def test_bad_dictionary_refused_before_data(driver, restore_gh_state, flag, valu
 
 
 @pytest.mark.parametrize("value", ["1.5", "abc"])
-def test_non_integer_lmax_nyquist_refused_before_data(driver, restore_gh_state,
-                                                      value):
-    refused, text = _check(driver, ["--use-gwsignal", "--approximant",
-                                    "SEOBNRv5PHM",
-                                    "--use-gwsignal-lmax-nyquist", value])
-    assert refused
-    assert "--use-gwsignal-lmax-nyquist must be an integer" in text
+def test_non_integer_lmax_nyquist_refused_at_parse(driver, value):
+    # numpy ILE declares type=int, so optparse refuses these values there too.
+    with pytest.raises(SystemExit), \
+            contextlib.redirect_stderr(io.StringIO()):
+        driver.build_parser().parse_args(
+            ["--use-gwsignal-lmax-nyquist", value])
+
+
+def _numpy_value_types():
+    """Long option -> (type, choices) for numpy ILE's single-value options."""
+    tree = ast.parse(open(_NUMPY_ILE).read())
+    out = {}
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "add_option"):
+            continue
+        names = [a.value for a in node.args if isinstance(a, ast.Constant)
+                 and isinstance(a.value, str) and a.value.startswith("--")]
+        kw = {k.arg: k.value for k in node.keywords}
+        action = kw.get("action")
+        if not names or (action is not None and
+                         ast.literal_eval(action) != "store"):
+            continue
+        typ = kw.get("type")
+        if typ is None:
+            typ = "string"
+        elif isinstance(typ, ast.Name):  # type=int / type=float
+            typ = typ.id
+        else:
+            typ = ast.literal_eval(typ)
+        choices = (sorted(ast.literal_eval(kw["choices"]))
+                   if "choices" in kw else None)
+        out[names[0]] = ({"str": "string"}.get(typ, typ), choices)
+    return out
+
+
+# Options this driver defines itself with a wider or narrower value set than
+# numpy ILE, on purpose.  float --srate accepts every integer numpy ILE does.
+_NATIVE_TYPE_EXCEPTIONS = {"--srate", "--time-marginalization-quadrature"}
+
+
+def test_option_value_types_match_numpy_ile(driver):
+    """Hot swap: each option parses the same values in both drivers."""
+    numpy_types = _numpy_value_types()
+    assert len(numpy_types) > 100  # the AST walk found numpy ILE's options
+    mismatched = []
+    for option in driver.build_parser()._get_all_options():
+        if option.action != "store":
+            continue
+        for name in option._long_opts:
+            if name not in numpy_types or name in _NATIVE_TYPE_EXCEPTIONS:
+                continue
+            got = (option.type or "string",
+                   sorted(option.choices) if option.choices else None)
+            if got != numpy_types[name]:
+                mismatched.append((name, numpy_types[name], got))
+    assert not mismatched, mismatched
+
+
+@pytest.mark.parametrize("argv", [["--e-freq", "1.0"], ["--srate-internal", "4096.5"],
+                                  ["--time-posterior-export", "bogus"]])
+def test_values_numpy_ile_refuses_are_refused_at_parse(driver, argv):
+    with pytest.raises(SystemExit), \
+            contextlib.redirect_stderr(io.StringIO()):
+        driver.build_parser().parse_args(argv)
+
+
+def test_compat_numbers_reach_the_driver_as_numbers(driver, restore_gh_state):
+    # "1" as a string failed the "not in (None, 1)" calibration check, and
+    # the ignore threshold reached the precompute as a string.
+    refused, text = _check(driver, ["--approximant", "IMRPhenomXPHM",
+                                    "--calibration-n-realizations", "1",
+                                    "--internal-precompute-ignore-threshold", "1e-4"])
+    assert not refused, text
+    _, got = _jax_extra(driver, ["--approximant", "IMRPhenomXPHM",
+                                 "--internal-precompute-ignore-threshold", "1e-4"])
+    assert got["ignore_threshold"] == 1e-4
 
 
 @pytest.mark.parametrize("argv", [

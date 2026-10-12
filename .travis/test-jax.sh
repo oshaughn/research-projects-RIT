@@ -1236,8 +1236,8 @@ fi
 # forwards --internal-waveform-extra-kwargs, --internal-waveform-extra-lalsuite-args
 # and --use-gwsignal-lmax-nyquist as numpy ILE does).  With 15 tests, CI read
 # "collected 1032 tests from 58 files" (the base already collected 1017); review
-# fixes added 7 more.  1032 + 7 = 1039.
-EXPECTED_TESTS=1039
+# fixes and the compat-option type parity tests added 12 more.  1032 + 12 = 1044.
+EXPECTED_TESTS=1044
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"
