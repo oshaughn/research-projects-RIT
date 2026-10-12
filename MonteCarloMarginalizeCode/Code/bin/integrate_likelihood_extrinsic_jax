@@ -474,14 +474,22 @@ def check_critical_and_report(opts, optp):
     # one changes the likelihood.  Parse them here so a bad dictionary is
     # refused before any data are read, as numpy ILE refuses the lalsuite-args
     # combination with --use-gwsignal at option parsing.
+    # An empty string is unset, as in numpy ILE.
     for _flag in ("--internal-waveform-extra-kwargs",
                   "--internal-waveform-extra-lalsuite-args"):
-        if is_set(_flag):
+        if getattr(opts, _dest(_flag), None):
             try:
                 _parse_waveform_dict_option(getattr(opts, _dest(_flag)), _flag)
             except Exception as exc:
                 fatal.append("%s: %s" % (_flag, exc))
-    if is_set("--use-gwsignal") and is_set("--internal-waveform-extra-lalsuite-args"):
+    # numpy ILE declares this option type=int; the compat layer stores a string.
+    if is_set("--use-gwsignal-lmax-nyquist"):
+        try:
+            int(opts.use_gwsignal_lmax_nyquist)
+        except ValueError:
+            fatal.append("--use-gwsignal-lmax-nyquist must be an integer, got %r"
+                         % (opts.use_gwsignal_lmax_nyquist,))
+    if is_set("--use-gwsignal") and getattr(opts, "internal_waveform_extra_lalsuite_args", None):
         fatal.append("--internal-waveform-extra-lalsuite-args cannot be used with "
                      "--use-gwsignal; use --internal-waveform-extra-kwargs for "
                      "GWSignal backend options")
@@ -3592,11 +3600,13 @@ def _parse_waveform_dict_option(text, flag):
     """Evaluate a waveform-option dictionary the way numpy ILE does.
 
     A condor double-quoting failure can leave the dictionary wrapped in one
-    more string layer, so a string result is evaluated once more.
+    more string layer, so a string result is evaluated once more.  numpy ILE
+    evaluates in a namespace that has ``numpy`` bound; so does this one.
     """
-    value = eval(text)
+    namespace = dict(globals(), numpy=np)
+    value = eval(text, namespace)
     if isinstance(value, str):
-        value = eval(value)
+        value = eval(value, namespace)
     if not isinstance(value, dict):
         raise TypeError("%s must be a dictionary, got %r" % (flag, value))
     return value

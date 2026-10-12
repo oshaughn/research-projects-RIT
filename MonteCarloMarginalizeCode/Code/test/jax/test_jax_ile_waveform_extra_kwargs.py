@@ -141,6 +141,38 @@ def test_non_gwsignal_dictionary_merges_like_numpy_ile(driver, numpy_ile):
     assert got["extra_waveform_kwargs"]["lmax_nyquist"] == 2
 
 
+def test_non_gwsignal_dictionary_lmax_beats_flag_like_numpy_ile(driver, numpy_ile):
+    argv = ["--approximant", "IMRPhenomXPHM",
+            "--internal-waveform-extra-kwargs", "{'lmax_nyquist': 1}",
+            "--use-gwsignal-lmax-nyquist", "3"]
+    _, got = _jax_extra(driver, argv)
+    _, want = numpy_ile.assembled_options(argv)
+    assert got["extra_waveform_kwargs"] == want
+    assert got["extra_waveform_kwargs"]["lmax_nyquist"] == 1
+
+
+@pytest.mark.parametrize("flag", ["--internal-waveform-extra-kwargs",
+                                  "--internal-waveform-extra-lalsuite-args"])
+def test_empty_dictionary_string_is_unset_like_numpy_ile(driver, numpy_ile,
+                                                        restore_gh_state, flag):
+    argv = ["--approximant", "IMRPhenomXPHM", flag, ""]
+    refused, text = _check(driver, argv)
+    assert not refused, text
+    _, got = _jax_extra(driver, argv)
+    _, want = numpy_ile.assembled_options(argv)
+    assert got["extra_waveform_kwargs"] == want
+
+
+def test_dictionary_may_use_numpy_like_numpy_ile(driver, restore_gh_state):
+    # numpy ILE evaluates in a module namespace with ``numpy`` imported.
+    argv = ["--approximant", "IMRPhenomXPHM",
+            "--internal-waveform-extra-kwargs", "{'f_cut': numpy.inf}"]
+    refused, text = _check(driver, argv)
+    assert not refused, text
+    _, got = _jax_extra(driver, argv)
+    assert got["extra_waveform_kwargs"]["f_cut"] == float("inf")
+
+
 def test_lalsuite_args_forwarded_like_numpy_ile(driver, numpy_ile):
     argv = ["--approximant", "IMRPhenomXPHM",
             "--internal-waveform-extra-lalsuite-args", "{'PhenomXHMReleaseVersion': 122019}"]
@@ -168,11 +200,27 @@ def test_bad_dictionary_refused_before_data(driver, restore_gh_state, flag, valu
     assert flag in text
 
 
-def test_forwarded_options_not_reported_ignored(driver, restore_gh_state):
-    refused, text = _check(driver, [
-        "--use-gwsignal", "--approximant", "SEOBNRv5PHM",
-        "--internal-waveform-extra-kwargs", PRODUCTION,
-        "--use-gwsignal-lmax-nyquist", "1"])
+@pytest.mark.parametrize("value", ["1.5", "abc"])
+def test_non_integer_lmax_nyquist_refused_before_data(driver, restore_gh_state,
+                                                      value):
+    refused, text = _check(driver, ["--use-gwsignal", "--approximant",
+                                    "SEOBNRv5PHM",
+                                    "--use-gwsignal-lmax-nyquist", value])
+    assert refused
+    assert "--use-gwsignal-lmax-nyquist must be an integer" in text
+
+
+@pytest.mark.parametrize("argv", [
+    ["--use-gwsignal", "--approximant", "SEOBNRv5PHM",
+     "--internal-waveform-extra-kwargs", PRODUCTION,
+     "--use-gwsignal-lmax-nyquist", "1"],
+    ["--approximant", "IMRPhenomXPHM",
+     "--internal-waveform-extra-lalsuite-args", "{'a': 1}"],
+], ids=["gwsignal", "lalsuite"])
+def test_forwarded_options_not_reported_ignored(driver, restore_gh_state, argv):
+    refused, text = _check(driver, argv)
     assert not refused, text
-    assert "--internal-waveform-extra-kwargs" not in text
-    assert "--use-gwsignal-lmax-nyquist" not in text
+    for flag in ("--internal-waveform-extra-kwargs",
+                 "--internal-waveform-extra-lalsuite-args",
+                 "--use-gwsignal-lmax-nyquist"):
+        assert flag not in text

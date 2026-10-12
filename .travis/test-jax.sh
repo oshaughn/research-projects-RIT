@@ -1234,8 +1234,10 @@ fi
 # AV/portfolio).  1002 + 13 = 1015.
 # 2026-10-11: + test_jax_ile_waveform_extra_kwargs.py (15 tests: the JAX driver
 # forwards --internal-waveform-extra-kwargs, --internal-waveform-extra-lalsuite-args
-# and --use-gwsignal-lmax-nyquist as numpy ILE does).  1015 + 15 = 1030.
-EXPECTED_TESTS=1030
+# and --use-gwsignal-lmax-nyquist as numpy ILE does).  With 15 tests, CI read
+# "collected 1032 tests from 58 files" (the base already collected 1017); review
+# fixes added 7 more.  1032 + 7 = 1039.
+EXPECTED_TESTS=1039
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"
