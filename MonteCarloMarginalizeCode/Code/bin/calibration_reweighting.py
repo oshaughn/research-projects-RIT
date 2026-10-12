@@ -43,6 +43,7 @@ import os
 import sys
 
 import argparse
+import ast
 from copy import deepcopy, copy
 
 import numpy as np
@@ -331,7 +332,7 @@ if args.data_integration_window_half: #args.time_marginalization:
 if args.phase_marginalization:
     if not args.use_rift_samples:
         result.posterior['phase'] = np.zeros(len(result.posterior))
-if args.use_gwsignal_lmax_nyquist:
+if args.use_gwsignal_lmax_nyquist is not None:
     args.use_gwsignal = True  # force setting, in case of fallthrough
 if args.use_gwsignal:
     args.h_method = 'gws_hlmoft' 
@@ -354,20 +355,37 @@ if args.internal_waveform_fd_L_frame:
     extra_waveform_kwargs['fd_L_frame'] = True
 if args.internal_waveform_fd_no_condition:
     extra_waveform_kwargs['no_condition'] = True
-if args.use_gwsignal_lmax_nyquist:
+if args.use_gwsignal_lmax_nyquist is not None:
     extra_waveform_kwargs['lmax_nyquist'] = int(args.use_gwsignal_lmax_nyquist)
+def _legacy_unquoted_dict(text):
+    """Parse '{key: value, ...}' with unquoted keys.
+
+    Submit hosts running RIFT <= 0.0.17.9 strip the key quotes on the way through
+    Condor, so existing DAGs still deliver this form.  Values are parsed as literals
+    where possible ('True' -> True), else kept as stripped strings.
+    """
+    result = {}
+    for item in text.strip()[1:-1].split(','):
+        if item.strip():
+            key, value = item.split(':', 1)
+            try:
+                result[key.strip()] = ast.literal_eval(value.strip())
+            except (ValueError, SyntaxError):
+                result[key.strip()] = value.strip()
+    return result
+
 if args.extra_waveform_kwargs:
-    my_arg_dict = eval(args.extra_waveform_kwargs)
-    # dictionary may be malformed (eg not properly quoted) or render as string
-    if not(isinstance(my_arg_dict, dict)):
-        base_list = my_arg_dict[1:-1].split(',') # remove {} at end, assume string
-        base_dict = {}
-        for item in base_list:
-            if item:
-                key,value =item.split(':')
-                key = key.lstrip()
-                base_dict[key] = value
-        my_arg_dict = base_dict
+    try:
+        my_arg_dict = eval(args.extra_waveform_kwargs)
+    except (NameError, SyntaxError):
+        my_arg_dict = args.extra_waveform_kwargs
+    if isinstance(my_arg_dict, str):
+        try:
+            my_arg_dict = eval(my_arg_dict)
+        except (NameError, SyntaxError):
+            my_arg_dict = _legacy_unquoted_dict(my_arg_dict)
+    if not isinstance(my_arg_dict, dict):
+        raise TypeError("--extra-waveform-kwargs must be a dictionary")
     extra_waveform_kwargs.update(my_arg_dict)
 waveform_arguments['extra_waveform_kwargs'] = extra_waveform_kwargs
 if args.waveform_approximant:

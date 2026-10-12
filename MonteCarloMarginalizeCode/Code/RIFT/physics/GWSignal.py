@@ -9,6 +9,8 @@
 # References:
 #   https://git.ligo.org/waveforms/new-waveforms-interface/-/blob/master/python_interface/docs/source/examples/example_usage.ipynb
 
+from collections.abc import Mapping
+
 import lal
 import lalsimulation as lalsim
 import RIFT.lalsimutils as lalsimutils
@@ -34,6 +36,68 @@ except:
     print("GWsignal import failed")
 
 
+# These are RIFT/LAL wrapper controls, not a list of supported waveform options.
+# Explicit backend dictionaries bypass this compatibility filter, so a future
+# generator can even use a name that happens to match a RIFT control.
+_RIFT_WRAPPER_CONTROLS = frozenset({
+    "force_22_mode", "no_trust_align_method", "internal_phase_shift",
+    "fd_alignment_postevent_time", "fd_L_frame", "no_condition",
+    "rom_taper_start", "e_freq", "extra_waveform_args",
+    "nr_polarization_convention", "fixed_tapering", "silent",
+    "fd_standoff_factor", "fd_centering_factor",
+})
+
+
+def _copy_backend_option(value):
+    """Isolate ordinary option containers; preserve opaque backend objects.
+
+    SWIG values and plugin-specific objects need not support copying/pickling.
+    They are passed through with their identity intact, while nested literal
+    dictionaries/lists/tuples are safe from backend normalization in place.
+    """
+    if type(value) is dict:
+        return {key: _copy_backend_option(item) for key, item in value.items()}
+    if type(value) is list:
+        return [_copy_backend_option(item) for item in value]
+    if type(value) is tuple:
+        return tuple(_copy_backend_option(item) for item in value)
+    return value
+
+
+def _with_generator_options(parameters, kwargs):
+    """Merge arbitrary backend options without overriding RIFT's source state.
+
+    ``gwsignal_extra_kwargs`` is the explicit backend dictionary (used by ILE's
+    --internal-waveform-extra-kwargs with --use-gwsignal). Legacy direct kwargs
+    are also forwarded, except for known RIFT controls. The explicit dictionary
+    wins over legacy options, including lmax_nyquist. Physical parameters must
+    be changed on ChooseWaveformParams: changing them here would disagree with
+    the likelihood or returned series metadata. ``condition`` is a backend
+    conditioning option and can intentionally override the taper-derived value.
+    No backend option whitelist or backend exception suppression is used.
+    """
+    if kwargs.get("extra_waveform_args"):
+        raise ValueError("GWSignal cannot consume RIFT LAL-dictionary extra_waveform_args; "
+                         "use gwsignal_extra_kwargs for backend options instead")
+    options = {key: value for key, value in kwargs.items()
+               if key not in _RIFT_WRAPPER_CONTROLS
+               and key != "gwsignal_extra_kwargs"}
+    explicit = kwargs.get("gwsignal_extra_kwargs", {})
+    if not isinstance(explicit, Mapping):
+        raise TypeError("gwsignal_extra_kwargs must be a mapping")
+    options.update(explicit)
+    if any(not isinstance(key, str) for key in options):
+        raise TypeError("GWSignal backend option names must be strings")
+    conflicts = (set(parameters) - {"condition"}) & set(options)
+    if conflicts:
+        raise ValueError("GWSignal options cannot override ChooseWaveformParams "
+                         "fields: " + ", ".join(sorted(conflicts))
+                         + "; set these values on ChooseWaveformParams instead")
+    # Some generators normalize/mutate nested option dictionaries. Do not let
+    # one waveform call change the configuration of later likelihood calls.
+    return dict(parameters, **_copy_backend_option(options))
+
+
 def std_and_conj_hlmoff(P, Lmax=2,approx_string=None,**kwargs):
     hlms = hlmoft(P, Lmax,approx_string=approx_string,**kwargs)
     hlmsF = {}
@@ -54,6 +118,8 @@ def hlmoff(P, Lmax=2,approx_string=None,**kwargs):
 
 def hlmoft(P, Lmax=2,approx_string=None,no_trust_align_method=None,internal_phase_shift=np.pi/2, **kwargs):
     """
+    Backend options are forwarded generically through kwargs or an explicit
+    gwsignal_extra_kwargs mapping (see GWSignal-options.rst).
     gwsignal.  Note the call will use approx_string, NOT a lalsimulation mode ID.  If approx_string is none, use P.approx but convert to string
     """
 
@@ -82,8 +148,7 @@ def hlmoft(P, Lmax=2,approx_string=None,no_trust_align_method=None,internal_phas
               'longAscNodes' : P.psi*u.rad,
               'meanPerAno' : P.meanPerAno*u.rad,
               'condition' : taper     }
-    if 'lmax_nyquist' in kwargs:
-        python_dict['lmax_nyquist'] = kwargs['lmax_nyquist']
+    python_dict = _with_generator_options(python_dict, kwargs)
 
     # if needed
 #    lal_dict = gws.core.utils.to_lal_dict(python_dict)
@@ -222,8 +287,7 @@ def hoft(P, Fp=None, Fc=None,approx_string=None, **kwargs):
               'longAscNodes' : P.psi*u.rad,
               'meanPerAno' : P.meanPerAno*u.rad,
               'condition' : taper}
-    if 'lmax_nyquist' in kwargs:
-        python_dict['lmax_nyquist'] = kwargs['lmax_nyquist']
+    python_dict = _with_generator_options(python_dict, kwargs)
 
     # if needed
 #    lal_dict = gws.core.utils.to_lal_dict(python_dict)
@@ -323,8 +387,7 @@ def complex_hoft(P, Fp=None, Fc=None,approx_string=None,sgn=-1, **kwargs):
               'longAscNodes' : P.psi*u.rad,
               'meanPerAno' : P.meanPerAno*u.rad,
               'condition' : taper}
-    if 'lmax_nyquist' in kwargs:
-        python_dict['lmax_nyquist'] = kwargs['lmax_nyquist']
+    python_dict = _with_generator_options(python_dict, kwargs)
 
     # if needed
 #    lal_dict = gws.core.utils.to_lal_dict(python_dict)
