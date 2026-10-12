@@ -42,12 +42,20 @@ Development tree is rift_O4c.
     default quadrature. PR 212 adds opt-in geometric4 and
     geometric4-phase-excess transverse-spin RF fitting bases; auto continues
     to select physics3.
-  - (unreleased) PR 216 retires the physics3 RF transverse-spin mode, which
+  - (rc6) PR 213 selects geometric4 for automatic low-mass RF fitting.
+    PR 214 makes CIP quadpuff jitter physical spin components when fitting
+    RF transverse-spin coordinates; PR 215 reflects transverse-spin box
+    coordinates in puffball and wraps only azimuths.
+    PR 216 retires the physics3 RF transverse-spin mode, which
     gave CIP 11 fit coordinates for 8 degrees of freedom; every layer now
     refuses it. Asimov `true` and `auto` select geometric4; `auto` leaves
     fixed-EOS analyses unchanged.
+    PR 217 preserves arbitrary GWSignal backend options through ILE,
+    calibration reweighting, and production argument paths, and fixes
+    waveform-dictionary quoting through ASIMOV and HTCondor while retaining
+    compatibility with older O4c DAGs and containers.
 
-Release candidate is rc5.
+Release candidate is rc6.
 
 0.0.17.13
 ---------
