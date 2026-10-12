@@ -356,10 +356,33 @@ if args.internal_waveform_fd_no_condition:
     extra_waveform_kwargs['no_condition'] = True
 if args.use_gwsignal_lmax_nyquist is not None:
     extra_waveform_kwargs['lmax_nyquist'] = int(args.use_gwsignal_lmax_nyquist)
+def _legacy_unquoted_dict(text):
+    """Parse '{key: value, ...}' with unquoted keys.
+
+    Submit hosts running older RIFT strip the key quotes on the way through Condor,
+    so existing DAGs still deliver this form.  Values are parsed as literals where
+    possible ('True' -> True), else kept as stripped strings.
+    """
+    result = {}
+    for item in text.strip()[1:-1].split(','):
+        if item.strip():
+            key, value = item.split(':', 1)
+            try:
+                result[key.strip()] = ast.literal_eval(value.strip())
+            except (ValueError, SyntaxError):
+                result[key.strip()] = value.strip()
+    return result
+
 if args.extra_waveform_kwargs:
-    my_arg_dict = ast.literal_eval(args.extra_waveform_kwargs)
+    try:
+        my_arg_dict = ast.literal_eval(args.extra_waveform_kwargs)
+    except (ValueError, SyntaxError):
+        my_arg_dict = args.extra_waveform_kwargs
     if isinstance(my_arg_dict, str):
-        my_arg_dict = ast.literal_eval(my_arg_dict)
+        try:
+            my_arg_dict = ast.literal_eval(my_arg_dict)
+        except (ValueError, SyntaxError):
+            my_arg_dict = _legacy_unquoted_dict(my_arg_dict)
     if not isinstance(my_arg_dict, dict):
         raise TypeError("--extra-waveform-kwargs must be a dictionary")
     extra_waveform_kwargs.update(my_arg_dict)

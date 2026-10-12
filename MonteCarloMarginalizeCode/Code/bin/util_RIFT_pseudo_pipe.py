@@ -2666,13 +2666,11 @@ if opts.calibration_reweighting:
              my_parser.error("--internal-waveform-extra-lalsuite-args cannot be used with --use-gwsignal; "
                              "use --internal-waveform-extra-kwargs for GWSignal backend options")
          my_extra_args = {}
-         if my_opts.use_gwsignal_lmax_nyquist is not None:
-             if effective_gwsignal:
-                 my_extra_string += ' --use-gwsignal-lmax-nyquist {} '.format(my_opts.use_gwsignal_lmax_nyquist)
-             else:
-                 # ILE does not select GWSignal merely because lmax was set.
-                 # Keep the option in native wrapper kwargs to match that route.
-                 my_extra_args['lmax_nyquist'] = my_opts.use_gwsignal_lmax_nyquist
+         gwsignal_lmax_nyquist = my_opts.use_gwsignal_lmax_nyquist
+         if gwsignal_lmax_nyquist is not None and not effective_gwsignal:
+             # ILE does not select GWSignal merely because lmax was set.
+             # Keep the option in native wrapper kwargs to match that route.
+             my_extra_args['lmax_nyquist'] = gwsignal_lmax_nyquist
          if my_opts.internal_waveform_extra_lalsuite_args:
              my_arg_dict = eval(my_opts.internal_waveform_extra_lalsuite_args)
              if isinstance(my_arg_dict, str):
@@ -2688,8 +2686,15 @@ if opts.calibration_reweighting:
                  raise TypeError("--internal-waveform-extra-kwargs must be a dictionary")
              if effective_gwsignal:
                  my_extra_args['gwsignal_extra_kwargs'] = my_arg_dict
+                 # Also pass lmax_nyquist as the dedicated flag, as before: calibration
+                 # containers older than gwsignal_extra_kwargs read only that flag.
+                 # The dictionary value wins, as it does in ILE.
+                 if 'lmax_nyquist' in my_arg_dict:
+                     gwsignal_lmax_nyquist = my_arg_dict['lmax_nyquist']
              else:
                  my_extra_args.update(my_arg_dict)
+         if gwsignal_lmax_nyquist is not None and effective_gwsignal:
+             my_extra_string += ' --use-gwsignal-lmax-nyquist {} '.format(gwsignal_lmax_nyquist)
          if my_extra_args:
              my_extra_string += ' --extra-waveform-kwargs {} '.format(shlex.quote(repr(my_extra_args)))
 #         my_extra_string += ' ' + opts.manual_extra_ile_args + ' '
