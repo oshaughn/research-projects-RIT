@@ -31,6 +31,7 @@ else:
 
 # Backward compatibility
 from RIFT.misc.dag_utils import which
+from RIFT.misc.cip_pipeline import flag_final_group_unique
 ligolw_prefix = 'igwn_'
 if not(which(ligolw_prefix + "ligolw_add")):
     ligolw_prefix = ''
@@ -1301,9 +1302,16 @@ if opts.rf_transverse_spin_coordinates or any('--rf-transverse-spin-coordinates'
     # The edits above can remove the RF basis from a stage the helper activated
     lines = [revalidate_stage(line) for line in lines]
 
-with open("args_cip_list.txt",'w') as f: 
+with open("args_cip_list.txt",'w') as f:
+   # The final CIP group produces both the published posterior and the downstream grid,
+   # so it gets the duplicate-free fair draw (capped at sum(w)/max(w)).  Internal
+   # iterations keep the fair draw with duplicates allowed, so successive iterations feed
+   # an unbiased convergence test.  AMR arg lines drive a different executable that does
+   # not accept the flag, so that path is left untouched.
+   if not(opts.internal_use_amr):
+       lines = flag_final_group_unique(lines)
    for line in lines:
-           f.write(line)
+           f.write(line.rstrip("\n") + "\n")
 
 # Write test file
 # with open("args_test.txt",'w') as f:
