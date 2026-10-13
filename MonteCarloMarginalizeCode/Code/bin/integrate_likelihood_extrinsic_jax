@@ -389,6 +389,45 @@ _ILE_ALL_OPTS = {
 }
 
 
+# Value types numpy ILE declares for the compatibility options.  An untyped
+# option accepts any string, so a value numpy ILE refuses at parse time would
+# reach the driver, or a number would arrive as a string where it is used.
+_ILE_INT_OPTS = {
+    "--amp-order", "--calibration-burn-in-nmax",
+    "--calibration-mc-error-extrinsic", "--calibration-n-realizations",
+    "--calibration-n-realizations-max", "--calibration-pilot-extrinsic",
+    "--calibration-spline-count", "--distance-slice-chunk",
+    "--distance-slice-wing-neff", "--distance-slice-wing-nmax", "--e-freq",
+    "--export-distance-slices", "--internal-gmm-max-components",
+    "--internal-gmm-phase-components", "--internal-gmm-sky-components",
+    "--mc-error-replicas", "--n-distance-slice-core", "--n-distance-slice-wing",
+    "--portfolio-grace-iters", "--portfolio-probe-period",
+    "--portfolio-revive-period", "--rom-limit-basis-size-to", "--srate-internal",
+    "--use-gwsignal-lmax-nyquist",
+}
+_ILE_FLOAT_OPTS = {
+    "--adapt-floor-level", "--calibration-burn-in-neff",
+    "--calibration-neff-cal-target", "--distance-slice-skip-threshold",
+    "--distance-slice-wing-delta-lnL", "--extrinsic-proposal-field-cover-frac",
+    "--extrinsic-proposal-field-inflate", "--internal-gmm-defensive-frac",
+    "--internal-gmm-inflate", "--internal-precompute-ignore-threshold",
+    "--inv-spec-trunc-time", "--manual-logarithm-offset", "--mc-error-ess-trigger",
+    "--mc-error-khat-trigger", "--mc-error-sigma-trigger",
+    "--portfolio-alloc-exponent", "--portfolio-freeze-wt",
+    "--portfolio-varaha-max-frac", "--portfolio-varaha-min-frac",
+    "--portfolio-weight-clip", "--psd-window-shape",
+    "--sampler-l0-rescue-puff-factor", "--sampler-l0-rescue-puff-width-frac",
+    "--sampler-l0-rescue-reject-dlnZ", "--sampler-sequential-warmstart-cover-frac",
+    "--sampler-sequential-warmstart-deltalnL", "--sampler-warmstart-cover-frac",
+    "--sampler-warmstart-inflate", "--sampler-warmstart-retry-neff", "--save-P",
+    "--save-deltalnL",
+}
+_ILE_CHOICE_OPTS = {
+    "--sampler-l0-rescue-puff-scale": ["fixed", "auto"],
+    "--time-posterior-export": ["auto", "continuous", "grid"],
+}
+
+
 def _register_compat_options(optp):
     """Add every ILE option we do not already define, as accepted-but-ignored."""
     import optparse
@@ -405,6 +444,12 @@ def _register_compat_options(optp):
         elif name in _ILE_APPEND_OPTS:
             g.add_option(name, action="append", default=[],
                          help=optparse.SUPPRESS_HELP)
+        elif name in _ILE_INT_OPTS or name in _ILE_FLOAT_OPTS:
+            g.add_option(name, default=None, help=optparse.SUPPRESS_HELP,
+                         type="int" if name in _ILE_INT_OPTS else "float")
+        elif name in _ILE_CHOICE_OPTS:
+            g.add_option(name, default=None, help=optparse.SUPPRESS_HELP,
+                         type="choice", choices=_ILE_CHOICE_OPTS[name])
         else:
             g.add_option(name, default=None, help=optparse.SUPPRESS_HELP)
     optp.add_option_group(g)
@@ -470,6 +515,22 @@ def check_critical_and_report(opts, optp):
         fatal.append("--zero-likelihood is not implemented")
     if is_set("--maximize-only"):
         fatal.append("--maximize-only is not implemented (this driver integrates)")
+    # Waveform backend options act inside the shared precompute, so a dropped
+    # one changes the likelihood.  Parse them here so a bad dictionary is
+    # refused before any data are read, as numpy ILE refuses the lalsuite-args
+    # combination with --use-gwsignal at option parsing.
+    # An empty string is unset, as in numpy ILE.
+    for _flag in ("--internal-waveform-extra-kwargs",
+                  "--internal-waveform-extra-lalsuite-args"):
+        if getattr(opts, _dest(_flag), None):
+            try:
+                _parse_waveform_dict_option(getattr(opts, _dest(_flag)), _flag)
+            except Exception as exc:
+                fatal.append("%s: %s" % (_flag, exc))
+    if is_set("--use-gwsignal") and getattr(opts, "internal_waveform_extra_lalsuite_args", None):
+        fatal.append("--internal-waveform-extra-lalsuite-args cannot be used with "
+                     "--use-gwsignal; use --internal-waveform-extra-kwargs for "
+                     "GWSignal backend options")
     # REFUSED, not reported IGNORED with the compatibility no-ops above.  The
     # no-op rule is for missing KNOBS; these two ask for a data product.  Ignoring
     # --log-noise-evidence-only would run the whole integration the user asked the
@@ -915,6 +976,9 @@ def check_critical_and_report(opts, optp):
                    "--vectorized", "--use-gwsignal", "--rotation-slow",
                    "--internal-waveform-fd-L-frame",
                    "--internal-waveform-fd-no-condition",
+                   "--internal-waveform-extra-kwargs",
+                   "--internal-waveform-extra-lalsuite-args",
+                   "--use-gwsignal-lmax-nyquist",
                    "--internal-precompute-ignore-threshold", "--no-memory",
                    "--e-freq", "--fmin-ifo",
                    "--rotation-n-harmonics", "--rotation-p-max",
@@ -3570,6 +3634,22 @@ def _parse_freqresponse_arm_length(value):
     return result
 
 
+def _parse_waveform_dict_option(text, flag):
+    """Evaluate a waveform-option dictionary the way numpy ILE does.
+
+    A condor double-quoting failure can leave the dictionary wrapped in one
+    more string layer, so a string result is evaluated once more.  numpy ILE
+    evaluates in a namespace that has ``numpy`` bound; so does this one.
+    """
+    namespace = dict(globals(), numpy=np)
+    value = eval(text, namespace)
+    if isinstance(value, str):
+        value = eval(value, namespace)
+    if not isinstance(value, dict):
+        raise TypeError("%s must be a dictionary, got %r" % (flag, value))
+    return value
+
+
 def _waveform_precompute_kwargs(opts):
     """Return the waveform controls shared with production numpy ILE.
 
@@ -3584,10 +3664,29 @@ def _waveform_precompute_kwargs(opts):
         extra["fd_L_frame"] = True
     if getattr(opts, "internal_waveform_fd_no_condition", False):
         extra["no_condition"] = True
+    use_gwsignal = bool(getattr(opts, "use_gwsignal", False))
+    # Same routing as integrate_likelihood_extrinsic_batchmode (PR #438).
+    lmax_nyquist = getattr(opts, "use_gwsignal_lmax_nyquist", None)
+    if lmax_nyquist is not None:
+        extra["lmax_nyquist"] = int(lmax_nyquist)
+    lalsuite_args = getattr(opts, "internal_waveform_extra_lalsuite_args", None)
+    if lalsuite_args:
+        if use_gwsignal:
+            raise ValueError("--internal-waveform-extra-lalsuite-args cannot be "
+                             "used with --use-gwsignal")
+        extra["extra_waveform_args"] = _parse_waveform_dict_option(
+            lalsuite_args, "--internal-waveform-extra-lalsuite-args")
+    extra_kwargs = getattr(opts, "internal_waveform_extra_kwargs", None)
+    if extra_kwargs:
+        extra_dict = _parse_waveform_dict_option(
+            extra_kwargs, "--internal-waveform-extra-kwargs")
+        if use_gwsignal:
+            extra["gwsignal_extra_kwargs"] = extra_dict
+        else:
+            extra.update(extra_dict)
     return dict(
-        use_gwsignal=bool(getattr(opts, "use_gwsignal", False)),
-        use_gwsignal_approx=(opts.approximant
-                             if getattr(opts, "use_gwsignal", False) else None),
+        use_gwsignal=use_gwsignal,
+        use_gwsignal_approx=opts.approximant if use_gwsignal else None,
         ignore_threshold=getattr(opts, "internal_precompute_ignore_threshold", None),
         no_memory=bool(getattr(opts, "no_memory", False)),
         extra_waveform_kwargs=extra)
