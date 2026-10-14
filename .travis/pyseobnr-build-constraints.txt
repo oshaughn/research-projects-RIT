@@ -1,0 +1,4 @@
+# pygsl_lite 0.1.8 calls distutils.spawn(cmd, 1, 1). Later setuptools
+# rejects those positional arguments. Constrain the isolated build only;
+# the runtime environment and RIFT dependency ranges remain unchanged.
+setuptools==82.0.1

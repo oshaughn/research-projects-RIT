@@ -29,7 +29,7 @@ jobs:
           cache-dependency-path: requirements.txt
       - name: Install runtime and test dependencies
         run: |
-          sudo apt-get update && sudo apt-get install -y libgsl-dev
+          sudo apt-get update && sudo apt-get install -y libgsl-dev swig
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
           python -m pip install --editable . pytest
@@ -74,7 +74,8 @@ jobs:
           ! grep -Eq '[0-9]+ skipped' gws.log
       - name: Run RIFT calibration-source conditioning and epoch regressions
         run: |
-          python -m pip install bilby pyseobnr
+          python -m pip install bilby
+          python -m pip install --build-constraint .travis/pyseobnr-build-constraints.txt pyseobnr
           python -m pytest -q \
             MonteCarloMarginalizeCode/Code/test/test_calmarg_source_conditioning_epoch.py \
             MonteCarloMarginalizeCode/Code/test/test_calmarg_rift_source.py
