@@ -32,6 +32,37 @@ def _hlmoft_with_extra_waveform_kwargs(P, Lmax, extra_waveform_kwargs):
     return lalsimutils.hlmoft(P, Lmax=Lmax, **kwargs)
 
 
+def _polarizations_from_complex_time_series(hT, frequency_array):
+    """Fourier-transform the generator's strain without reconditioning or recentering.
+
+    Conditioning belongs to the selected generator: GWSignal's mode taper,
+    hlmoft's model-specific conditioning (including explicit no_condition),
+    internal_hlm_generator's selected route, or complex_hoft's polarization
+    taper. Adding a polarization taper here changes the waveform used by ILE.
+
+    The DFT treats sample zero as t=0; restore the returned physical epoch with
+    a Fourier phase. A polarization-peak rotation would instead introduce an
+    inclination/phase-dependent arrival-time shift.
+    """
+    sampling_frequency = 1.0 / hT.deltaT
+    hf_p, freqs = utils.nfft(np.real(hT.data.data), sampling_frequency)
+    hf_c, _ = utils.nfft(-np.imag(hT.data.data), sampling_frequency)
+    epoch_phase = np.exp(-2j * np.pi * freqs * float(hT.epoch))
+    hf_p *= epoch_phase
+    hf_c *= epoch_phase
+
+    if not np.array_equal(frequency_array, freqs):
+        # Includes grids starting at zero but ending below the generator's
+        # Nyquist, as well as the existing positive-start-frequency interface.
+        if np.any(frequency_array < freqs[0]) or np.any(frequency_array > freqs[-1]):
+            raise ValueError("Requested frequency grid is outside the waveform FFT grid")
+        hf_p = (np.interp(frequency_array, freqs, hf_p.real)
+                + 1j * np.interp(frequency_array, freqs, hf_p.imag))
+        hf_c = (np.interp(frequency_array, freqs, hf_c.real)
+                + 1j * np.interp(frequency_array, freqs, hf_c.imag))
+    return dict(plus=hf_p, cross=hf_c)
+
+
 def RIFT_lal_binary_black_hole_orig(
         frequency_array, mass_1, mass_2, luminosity_distance, spin_1x, spin_1y, spin_1z,
         spin_2x, spin_2y, spin_2z, lambda_1, lambda_2, iota, phase, **kwargs):
@@ -113,32 +144,7 @@ def RIFT_lal_binary_black_hole_orig(
     else:
         # Backstop waveform generator. Includes all L modes. Use cases where waveforms are J-frame calculations for hlm.
         hT = lalsimutils.complex_hoft(P)
-    tvals = lalsimutils.evaluate_tvals(hT)
-    t_max = tvals[np.argmax(np.abs(hT.data.data))]
-
-    # end max is cutting the signal such that it ends 2s after merger
-    n_max = np.argmax(np.abs(hT.data.data))
-
-    hp = lal.CreateREAL8TimeSeries("h(t)", hT.epoch, hT.f0, hT.deltaT, hT.sampleUnits, hT.data.length)
-    hp.data.data = np.real(hT.data.data)
-    hc = lal.CreateREAL8TimeSeries("h(t)", hT.epoch, hT.f0, hT.deltaT, hT.sampleUnits, hT.data.length)
-    hc.data.data = -np.imag(hT.data.data)
-
-    lalsim.SimInspiralREAL8WaveTaper(hp.data, P.taper)
-    lalsim.SimInspiralREAL8WaveTaper(hc.data, P.taper)
-
-    h_plus = hp.data.data
-    h_plus = np.concatenate([h_plus[n_max:], h_plus[:n_max]])
-    h_cross = hc.data.data
-    h_cross = np.concatenate([h_cross[n_max:], h_cross[:n_max]])
-
-    hf_p, freqs = utils.nfft(h_plus, sampling_frequency)
-    hf_c, freqs = utils.nfft(h_cross, sampling_frequency)
-
-    #hf_p *= np.exp(2j*np.pi * freqs * tvals[0])
-    #hf_c *= np.exp(2j*np.pi * freqs * tvals[0])
-
-    return dict(plus=hf_p, cross=hf_c)
+    return _polarizations_from_complex_time_series(hT, frequency_array)
 
 
 def RIFT_lal_binary_black_hole(
@@ -227,44 +233,7 @@ def RIFT_lal_binary_black_hole(
     else:
         # Backstop waveform generator. Includes all L modes. Use cases where waveforms are J-frame calculations for hlm.
         hT = lalsimutils.complex_hoft(P)
-    tvals = lalsimutils.evaluate_tvals(hT)
-    t_max = tvals[np.argmax(np.abs(hT.data.data))]
-
-    # end max is cutting the signal such that it ends 2s after merger
-    n_max = np.argmax(np.abs(hT.data.data))
-
-    hp = lal.CreateREAL8TimeSeries("h(t)", hT.epoch, hT.f0, hT.deltaT, hT.sampleUnits, hT.data.length)
-    hp.data.data = np.real(hT.data.data)
-    hc = lal.CreateREAL8TimeSeries("h(t)", hT.epoch, hT.f0, hT.deltaT, hT.sampleUnits, hT.data.length)
-    hc.data.data = -np.imag(hT.data.data)
-
-    lalsim.SimInspiralREAL8WaveTaper(hp.data, P.taper)
-    lalsim.SimInspiralREAL8WaveTaper(hc.data, P.taper)
-
-    h_plus = hp.data.data
-    h_plus = np.concatenate([h_plus[n_max:], h_plus[:n_max]])
-    h_cross = hc.data.data
-    h_cross = np.concatenate([h_cross[n_max:], h_cross[:n_max]])
-
-    hf_p, freqs = utils.nfft(h_plus, sampling_frequency)
-    hf_c, freqs = utils.nfft(h_cross, sampling_frequency)
-
-    #hf_p *= np.exp(2j*np.pi * freqs * tvals[0])
-    #hf_c *= np.exp(2j*np.pi * freqs * tvals[0])
-
-    # PROBLEM: now we need to interpolate to frequency_array : our grid does not correspond to frequency_array in general
-    if frequency_array[0] >0:
-        hf_p_out = np.zeros(frequency_array.shape,dtype=np.complex128)
-        hf_c_out = np.zeros(frequency_array.shape,dtype=np.complex128)
-        # interpolate in real, imag
-        hf_p_out += np.interp(frequency_array, freqs, np.real(hf_p))
-        hf_p_out += 1j* np.interp(frequency_array, freqs, np.imag(hf_p))
-        hf_c_out += np.interp(frequency_array, freqs, np.real(hf_c))
-        hf_c_out += 1j* np.interp(frequency_array, freqs, np.imag(hf_c))
-        hf_p = hf_p_out
-        hf_c = hf_c_out
-    
-    return dict(plus=hf_p, cross=hf_c)
+    return _polarizations_from_complex_time_series(hT, frequency_array)
 
 def RIFT_lal_eccentric_binary_black_hole(
         frequency_array, mass_1, mass_2, luminosity_distance, spin_1x, spin_1y, spin_1z,
@@ -354,44 +323,7 @@ def RIFT_lal_eccentric_binary_black_hole(
     else:
         # Backstop waveform generator. Includes all L modes. Use cases where waveforms are J-frame calculations for hlm.
         hT = lalsimutils.complex_hoft(P)
-    tvals = lalsimutils.evaluate_tvals(hT)
-    t_max = tvals[np.argmax(np.abs(hT.data.data))]
-
-    # end max is cutting the signal such that it ends 2s after merger
-    n_max = np.argmax(np.abs(hT.data.data))
-
-    hp = lal.CreateREAL8TimeSeries("h(t)", hT.epoch, hT.f0, hT.deltaT, hT.sampleUnits, hT.data.length)
-    hp.data.data = np.real(hT.data.data)
-    hc = lal.CreateREAL8TimeSeries("h(t)", hT.epoch, hT.f0, hT.deltaT, hT.sampleUnits, hT.data.length)
-    hc.data.data = -np.imag(hT.data.data)
-
-    lalsim.SimInspiralREAL8WaveTaper(hp.data, P.taper)
-    lalsim.SimInspiralREAL8WaveTaper(hc.data, P.taper)
-
-    h_plus = hp.data.data
-    h_plus = np.concatenate([h_plus[n_max:], h_plus[:n_max]])
-    h_cross = hc.data.data
-    h_cross = np.concatenate([h_cross[n_max:], h_cross[:n_max]])
-
-    hf_p, freqs = utils.nfft(h_plus, sampling_frequency)
-    hf_c, freqs = utils.nfft(h_cross, sampling_frequency)
-
-    #hf_p *= np.exp(2j*np.pi * freqs * tvals[0])
-    #hf_c *= np.exp(2j*np.pi * freqs * tvals[0])
-
-    # PROBLEM: now we need to interpolate to frequency_array : our grid does not correspond to frequency_array in general
-    if frequency_array[0] >0:
-        hf_p_out = np.zeros(frequency_array.shape,dtype=np.complex128)
-        hf_c_out = np.zeros(frequency_array.shape,dtype=np.complex128)
-        # interpolate in real, imag
-        hf_p_out += np.interp(frequency_array, freqs, np.real(hf_p))
-        hf_p_out += 1j* np.interp(frequency_array, freqs, np.imag(hf_p))
-        hf_c_out += np.interp(frequency_array, freqs, np.real(hf_c))
-        hf_c_out += 1j* np.interp(frequency_array, freqs, np.imag(hf_c))
-        hf_p = hf_p_out
-        hf_c = hf_c_out
-    
-    return dict(plus=hf_p, cross=hf_c)
+    return _polarizations_from_complex_time_series(hT, frequency_array)
 
 
 if __name__ == '__main__':
