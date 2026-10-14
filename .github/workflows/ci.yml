@@ -608,6 +608,8 @@ jobs:
           cache-dependency-path: requirements.txt
       - name: Enable symlink
         run: sudo ln -sf $(which python3) /usr/bin/python
+      - name: Install waveform build dependencies
+        run: sudo apt-get update && sudo apt-get install -y libgsl-dev
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip --break-system-packages
