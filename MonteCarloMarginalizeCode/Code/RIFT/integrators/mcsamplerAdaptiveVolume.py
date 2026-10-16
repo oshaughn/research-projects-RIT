@@ -283,7 +283,7 @@ class MCSampler(object):
         p_out = xpy_default.ones(len(x))
         indx = 0
         for param in self.params_ordered:
-            p_out *= self.prior_pdf[param](x[:,indx])
+            p_out *= xpy_default.asarray(self.prior_pdf[param](x[:,indx]))
             indx +=1
         return p_out
 
@@ -291,7 +291,7 @@ class MCSampler(object):
     def draw_simplified(self,n_to_get, *args, **kwargs):
         rv, log_p = self.draw_simple()
         p = np.exp(log_p)[:n_to_get]
-        ps = self.xpy.ones(len(p))*self.V_s/self.V   # sampling prior, full hypercube normalized to 1
+        ps = self.xpy.ones(len(p))/(self.V_s*self.V)   # density on the retained physical volume
         ps = ps[:n_to_get]
         rv = rv[:n_to_get].T
         return ps, p, rv

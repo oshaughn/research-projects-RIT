@@ -11,7 +11,7 @@ default:
 
 stages:
   - system tests
-  - unit tests # TODO: write some
+  - unit tests
   - docs
 #  - docker image
 #  - deploy
@@ -46,6 +46,22 @@ import_check:
   stage: system tests
   script:
     - python .travis/test-all-mod.py
+
+# Named unit tests.  CI runs FILES BY NAME here: a test file that is not listed
+# below never runs.  Add new regression tests to this list in the same commit
+# that adds the file.
+unit_tests:
+  stage: unit tests
+  script:
+    - python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_time_marginalization_perrow_offset.py
+    - python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_sky_rotations.py
+    - python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_assign_param_spin_order.py
+    - python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_cip_startup.py MonteCarloMarginalizeCode/Code/test/test_lalsim_eos_compat.py MonteCarloMarginalizeCode/Code/test/test_ring_coordinates.py
+    - python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_convert_coordinates_source_redshift.py MonteCarloMarginalizeCode/Code/test/test_convert_coordinates_row_independence.py
+    # calmarg waveform kwargs: real pseudo_pipe -> CEPP build (no test_run setup needed) and rift_source
+    - python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_calmarg_extra_args_transport.py MonteCarloMarginalizeCode/Code/test/test_calmarg_rift_source.py MonteCarloMarginalizeCode/Code/test/test_calmarg_ile_waveform_alignment.py
+
+    - python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_time_marginalization_quadrature.py MonteCarloMarginalizeCode/Code/test/test_time_marginalization_wiring.py MonteCarloMarginalizeCode/Code/test/test_time_marginalization_cli.py MonteCarloMarginalizeCode/Code/test/test_bandlimited_time_export_driver.py MonteCarloMarginalizeCode/Code/test/test_time_export_exact_gps.py MonteCarloMarginalizeCode/Code/test/test_noloop_time_interp.py MonteCarloMarginalizeCode/Code/test/test_noloop_bandlimited_row_chunks.py
 
 test_run:
   stage: system tests
