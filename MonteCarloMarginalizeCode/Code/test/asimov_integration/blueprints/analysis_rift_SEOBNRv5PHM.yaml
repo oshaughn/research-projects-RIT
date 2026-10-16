@@ -1,0 +1,26 @@
+kind: analysis
+name: rift-v5PHM-calmarg
+status: Ready
+pipeline: RIFT
+needs:
+    - get-calibration-ligo-H1
+    - get-calibration-ligo-L1
+    - get-calibration-virgo
+    - get-preliminary-posterior
+    - get-priors
+    - generate-psd
+waveform:
+    approximant: SEOBNRv5PHM
+    gwsignal arguments:
+       lmax_nyquist: 1
+       enable_antisymmetric_modes: True
+       antisymmetric_modes_hm: True
+comment: PE job using SEOBNRv5PHM and RIFT
+scheduler:
+    use global priors: True
+    bootstrap upstream: True
+    osg: True
+    pipeline:
+         internal-puff-transverse: True
+         cip-explode-jobs-auto-scale: 6
+         use-gwsignal: True

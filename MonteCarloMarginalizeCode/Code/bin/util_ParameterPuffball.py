@@ -199,6 +199,17 @@ for indx, name  in enumerate(coord_names):
         print(" undoing log transform for ", name)
         X_out[:,indx] = np.exp(X_out[:,indx])
 
+# Box-bounded transverse-spin coordinates (added by --internal-puff-transverse): reflect excursions
+# back into the box rather than discarding them, so the puff keeps its points near spin boundaries.
+reflect_ranges = {'s1z_bar': (-1., 1.), 's2z_bar': (-1., 1.), 'chi1_perp_u': (0., 1.), 'chi2_perp_u': (0., 1.)}
+def reflect_into(x, lo, hi):
+    width = hi - lo
+    y = np.mod(x - lo, 2*width)
+    return lo + width - np.abs(y - width)
+for indx, name in enumerate(coord_names):
+    if name in reflect_ranges:
+        X_out[:,indx] = reflect_into(X_out[:,indx], *reflect_ranges[name])
+
 
 # Sanity check parameters
 #for indx in np.arange(len(coord_names)):
@@ -276,10 +287,10 @@ for indx_P in np.arange(len(P_list)):
         if coord_names[indx] in ['mc','m1','m2','mtot']:
             fac = lal.MSUN_SI
         if coord_names[indx] in lalsimutils.periodic_params:
-            X_out[indx_P] = np.mod(X_out[indx_P], lalsimutils.periodic_params[coord_names[indx]])
+            X_out[indx_P,indx] = np.mod(X_out[indx_P,indx], lalsimutils.periodic_params[coord_names[indx]])
         P_list[indx_P].assign_param( coord_names[indx], X_out[indx_P,indx]*fac)
 
-    if np.isnan(P.m1) or np.isnan(P.m2):  # don't allow nan mass
+    if not np.all(np.isfinite([P.m1, P.m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z])):  # don't allow nan mass or spin
         continue
 
     if not(opts.enforce_duration_bound is None):

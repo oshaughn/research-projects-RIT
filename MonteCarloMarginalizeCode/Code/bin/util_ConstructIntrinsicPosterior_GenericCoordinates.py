@@ -322,6 +322,7 @@ parser.add_argument("--n-chunk",default=1e5,type=int)
 parser.add_argument("--contingency-unevolved-neff",default=None,help="Contingency planning for when n_eff produced by CIP is small, and user doesn't want to have hard failures.  Note --fail-unless-n-eff will prevent this from happening. Options: quadpuff, ...")
 parser.add_argument("--not-worker",action='store_true',help="Nonworker jobs, IF we have workers present, don't have the 'fail unless' statement active")
 parser.add_argument("--fail-unless-n-eff",default=None,type=float,help="If nonzero, places a minimum requirement on n_eff. Code will exit if not achieved, with no sample generation")
+parser.add_argument("--rf-transverse-spin-coordinates", choices=["physics3","geometric4","geometric4-phase-excess"], help="Opt-in RF L-frame fitting basis: geometric4 replaces four transverse inputs; native sampling and prior unchanged. physics3 is retired and refused (11 fit coordinates for 8 degrees of freedom)")
 parser.add_argument("--fit-method",default="rf",help="rf (default) : rf|gp|quadratic|polynomial|gp_hyper|gp_lazy|cov|kde.  Note 'polynomial' with --fit-order 0  will fit a constant")
 parser.add_argument("--fit-load-quadratic",default=None,help="Filename of hdf5 file to load quadratic fit from. ")
 parser.add_argument("--fit-load-quadratic-path",default="GW190814/annealing_mc_source_eta_chieff",help="Path in hdf5 file to specific covariance matrix to be used")
@@ -335,6 +336,9 @@ parser.add_argument("--tabular-eos-file",type=str,default=None,help="Tabular fil
 parser.add_argument("--tabular-eos-file-format",type=str,default=None,help="Format of tabular file of EOS to use.  The default prior will be UNIFORM in this table!")
 parser.add_argument("--tabular-eos-order-statistic",type=str,default=None,help="Order statistic to use.  Options will include R1p4, LambdaTildeQ1, and ...}")
 parser.add_argument("--using-eos", type=str, default=None, help="Name of EOS.  Fit parameter list should physically use lambda1, lambda2 information (but need not). If starts with 'file:', uses a filename with EOS parameters ")
+parser.add_argument("--using-eos-branch", type=int, default=None, help="Select one stable LALSimulation family branch while preserving the fixed-EOS lambda_from_m(m) interface. Required for an explicitly chosen twin-star branch; not applicable to the primary-branch nmbseq v1 contract.")
+parser.add_argument("--using-eos-dirty-phase-transitions", action='store_true', help="Compatibility flag for --using-eos lalsim_file:<path>. The reviewed PhaseTransition reader always enables its dirty-phase-transition handling.")
+parser.add_argument("--using-eos-extended-family", action='store_true', help="With --using-eos lalsim_file:<path>, build the reviewed extended family instead of the PE-oriented minimal M/R/k2 family.")
 parser.add_argument("--using-eos-index", type=int, default=None, help="Index of EOS parameters in file.")
 parser.add_argument("--no-use-lal-eos",action='store_true',help="Do not use LAL EOS interface. Used for spectral EOS. Do not use this.")
 parser.add_argument("--no-matter1", action='store_true', help="Set the lambda parameters to zero (BBH) but return them")
@@ -416,6 +420,25 @@ if  opts.input_eos_index and not(opts.tabular_eos_file):
     print(" warning: input EOS index, but not using it; presumably you are doing a model-free test ")
 if  not(opts.input_eos_index) and (opts.tabular_eos_file):
     raise Exception(" Fail: must process EOS input to be able to use it ")
+# ensure using_eos_index valid for eos file length
+if opts.using_eos and opts.using_eos.startswith('file:') and not(opts.using_eos_index is None):
+    fname = opts.using_eos.replace('file:', '')
+    try:
+        dat = np.loadtxt(fname)[opts.using_eos_index]
+    except Exception as e:
+        print(" Fail: EOS index out of range:\n   ",e)
+        sys.exit(0)
+from RIFT.physics.lalsim_eos_compat import validate_fixed_eos_branch_request
+# O4c has no EOS hyperprior mode; use the validator's default False.
+validate_fixed_eos_branch_request(
+    opts.using_eos_branch, opts.using_eos
+)
+if (opts.using_eos_dirty_phase_transitions or opts.using_eos_extended_family) and (
+        opts.using_eos is None or not opts.using_eos.startswith('lalsim_file:')):
+    raise ValueError(
+        "--using-eos-dirty-phase-transitions and --using-eos-extended-family "
+        "require --using-eos lalsim_file:<path>"
+    )
 
 my_eos=None
 #option to be used if gridded values not calculated assuming EOS
@@ -442,7 +465,7 @@ if opts.using_eos!=None:
                 spec_params['gamma4']=spec_param_array[3]
             eos_base = EOSManager.EOSLindblomSpectral(name=eos_name,spec_params=spec_params,use_lal_spec_eos=not opts.no_use_lal_eos)
             my_eos=eos_base
-        elif opts.eos_param == 'cs_spectral' and len(spec_param_array >=4):
+        elif opts.eos_param == 'cs_spectral' and len(spec_param_array) >= 4:
             spec_params ={}
             spec_params['gamma1']=spec_param_array[0]
             spec_params['gamma2']=spec_param_array[1]
@@ -451,13 +474,13 @@ if opts.using_eos!=None:
             spec_params['gamma4']=spec_param_array[3]
             eos_base = EOSManager.EOSLindblomSpectralSoundSpeedVersusPressure(name=eos_name,spec_params=spec_params,use_lal_spec_eos=not opts.no_use_lal_eos)
             my_eos = eos_base
-        elif opts.eos_param == 'PP' and len(spec_param_array >=4):
+        elif opts.eos_param == 'PP' and len(spec_param_array) >= 4:
             spec_params ={}
             spec_params['logP1'] = spec_param_array[0]
             spec_params['gamma1'] = spec_param_array[1]
             spec_params['gamma2'] = spec_param_array[2]
             spec_params['gamma3'] = spec_param_array[3]
-            eos_base = EOSManager.EOSPiecewisePolytrope(name=eos_name,params_dict=spec_params)
+            eos_base = EOSManager.EOSPiecewisePolytrope(name=eos_name,param_dict=spec_params)
             my_eos = eos_base
         else:
             raise Exception("Unknown method for parametric EOS data file {} : {} ".format(eos_name,opts.eos_param))
@@ -500,6 +523,20 @@ if opts.using_eos!=None:
         spec_params['gamma4']=spec_param_array[3]
         eos_base = EOSManager.EOSLindblomSpectralSoundSpeedVersusPressure(name=eos_name,spec_params=spec_params,use_lal_spec_eos=not opts.no_use_lal_eos)
         my_eos = eos_base
+    elif eos_name.startswith('nmbseq:'):
+        # fixed single EOS realization from a sequence file (tabular or pca):
+        #   --using-eos nmbseq:<sequence_file.h5>:<index>
+        # The exact per-EOS-evidence ("painful") mode for sequence draws.
+        _, seq_fname, seq_indx = eos_name.split(':')
+        my_eos = EOSManager.EOSSequenceSingleIndex(fname=seq_fname,
+                                                   index=int(seq_indx))
+    elif eos_name.startswith('lalsim_file:'):
+        my_eos = EOSManager.EOSLALSimulationFromFile(
+            fname=eos_name.split(':', 1)[1],
+            dirty_phase_transitions=opts.using_eos_dirty_phase_transitions,
+            minimal_family=not opts.using_eos_extended_family,
+            phase_transition_aware=opts.using_eos_branch is not None,
+        )
     elif 'lal_' in eos_name:
         eos_name = eos_name.replace('lal_','')
         my_eos = EOSManager.EOSLALSimulation(name=eos_name)
@@ -514,6 +551,16 @@ if opts.using_eos!=None:
         my_eos = EOSManager.EOSFromTabularData(name=eos_name,eos_data=my_eos_dat)
     else:
         my_eos = EOSManager.EOSFromDataFile(name=eos_name,fname =EOSManager.dirEOSTablesBase+"/" + eos_name+".dat")
+
+    if opts.using_eos_branch is not None:
+        if not hasattr(my_eos, "for_branch"):
+            raise ValueError(
+                "--using-eos-branch requires a LALSimulation-backed EOS. "
+                "The nmbseq v1 interface intentionally exposes its primary "
+                "stable branch; multi-branch NMB inference requires the "
+                "central-enthalpy sequence path."
+            )
+        my_eos = my_eos.for_branch(opts.using_eos_branch)
 
 
 with open('args.txt','w') as fp:
@@ -684,13 +731,41 @@ if opts.parameter_nofit:
         low_level_coord_names = opts.parameter_nofit # Used for Monte Carlo
     else:
         low_level_coord_names = opts.parameter+opts.parameter_nofit # Used for Monte Carlo
+from RIFT.misc import rf_transverse_spin
+if set(rf_transverse_spin.FEATURE_NAMES + rf_transverse_spin.GEOMETRIC4_NAMES + rf_transverse_spin.PHASE_EXCESS_NAMES).intersection(coord_names + low_level_coord_names):
+    raise ValueError('RF fitting scalars are enabled only through the opt-in flag')
+if opts.rf_transverse_spin_coordinates in rf_transverse_spin.RETIRED_MODES:
+    raise ValueError(rf_transverse_spin.RETIRED_MESSAGE)
+if opts.rf_transverse_spin_coordinates:
+    if not np.isfinite(opts.fref) or opts.fref <= 0:
+        raise ValueError('RF reference frequency must be finite and positive')
+    if (opts.fit_method != 'rf' or opts.fit_load_gp or not opts.use_precessing
+            or opts.input_tides or opts.using_eos or opts.use_eccentricity
+            or not set(rf_transverse_spin.NATIVE_FEATURES).issubset(coord_names)):
+        raise ValueError('RF transverse coordinates require a fresh RF fit with delta_mc, mu1, mu2, chiMinus, s1x, s1y, s2x, s2y in a precessing BBH L-frame analysis')
+    if len(coord_names) != 8 or set(coord_names) != set(rf_transverse_spin.NATIVE_FEATURES):
+        raise ValueError('geometric4 requires exactly the eight native mass/aligned/transverse fitting coordinates')
+    # Preserve physical sampling coordinates: only replace the fitting basis.
+    coord_names = [p for p in coord_names if p not in rf_transverse_spin.TRANSVERSE] + list(rf_transverse_spin.geometric_names(opts.rf_transverse_spin_coordinates))
+    def extract_fit_param(P, name):
+        return rf_transverse_spin.extract(P, name)
+else:
+    def extract_fit_param(P, name):
+        return P.extract_param(name)
+# An RF transverse fit basis must not fit more coordinates than are sampled.
+if opts.rf_transverse_spin_coordinates:
+    sampling_problem = rf_transverse_spin.sampling_problem(coord_names, low_level_coord_names)
+    if sampling_problem:
+        raise ValueError(sampling_problem)
 error_factor = len(coord_names)
 if error_factor ==0 :
     raise Exception(" Coordinate list for fit empty; exiting ")
 if opts.fit_uses_reported_error:
     error_factor=len(coord_names)*opts.fit_uses_reported_error_factor
 # TeX dictionary
-tex_dictionary = lalsimutils.tex_dictionary
+tex_dictionary = dict(lalsimutils.tex_dictionary)
+if opts.rf_transverse_spin_coordinates:
+    tex_dictionary.update(zip(rf_transverse_spin.FEATURE_NAMES + rf_transverse_spin.GEOMETRIC4_NAMES + rf_transverse_spin.PHASE_EXCESS_NAMES, rf_transverse_spin.FEATURE_NAMES + rf_transverse_spin.GEOMETRIC4_NAMES + rf_transverse_spin.PHASE_EXCESS_NAMES))
 print(" Coordinate names for fit :, ", coord_names)
 if not(opts.no_plots):
     print(" Rendering coordinate names : ",  render_coordinates(coord_names))  # map(lambda x: tex_dictionary[x], coord_names)
@@ -1830,7 +1905,7 @@ for line in dat:
         elif coord_names[x] =='ordering':
             continue
         else:
-            line_out[x] = P.extract_param(coord_names[x])
+            line_out[x] = extract_fit_param(P, coord_names[x])
  #        line_out[x] = getattr(P, coord_names[x])
     line_out[-2] = line[col_lnL]
     line_out[-1] = line[col_lnL+1]  # adjoin error estimate
@@ -1840,7 +1915,7 @@ for line in dat:
     for indx in np.arange(len(extra_plot_coord_names)):
         line_out = np.zeros(len(extra_plot_coord_names[indx]))
         for x in np.arange(len(line_out)):
-            line_out[x] = P.extract_param( extra_plot_coord_names[indx][x])
+            line_out[x] = extract_fit_param(P, extra_plot_coord_names[indx][x])
         dat_out_extra[indx].append(line_out)
 
     # results using sampling coordinates (low_level_coord_names) 
@@ -1874,7 +1949,7 @@ for line in dat:
         # INPUT GRID: Evaluate binary parameters on fitting coordinates
         line_out = np.zeros(len(coord_names)+2)
         for x in np.arange(len(coord_names)):
-            line_out[x] = P.extract_param(coord_names[x])
+            line_out[x] = extract_fit_param(P, coord_names[x])
         line_out[-2] = line[col_lnL]
         line_out[-1] = line[col_lnL+1]  # adjoin error estimate
         dat_out.append(line_out)
@@ -1883,7 +1958,7 @@ for line in dat:
         for indx in np.arange(len(extra_plot_coord_names)):
             line_out = np.zeros(len(extra_plot_coord_names[indx]))
             for x in np.arange(len(line_out)):
-                line_out[x] = P.extract_param( extra_plot_coord_names[indx][x])
+                line_out[x] = extract_fit_param(P, extra_plot_coord_names[indx][x])
             dat_out_extra[indx].append(line_out)
 
         # results using sampling coordinates (low_level_coord_names) 
@@ -1924,7 +1999,8 @@ if opts.tabular_eos_file:
     if mc_ref > 1e10:
         mc_ref = mc_ref/lal.MSUN_SI
     m_ref = mc_ref*np.power(2, 1./5.)   # assume equal mass
-    my_eos_sequence = EOSManager.EOSSequenceLandry(fname=opts.tabular_eos_file, load_ns=True, oned_order_name='Lambda', oned_order_mass=m_ref, no_sort = True)
+    # auto-detect EOSSequenceLandry vs NuclearMatter-Backend NSSequence format
+    my_eos_sequence = EOSManager.EOSSequenceFromFile(fname=opts.tabular_eos_file, load_ns=True, oned_order_name='Lambda', oned_order_mass=m_ref, no_sort = True)
 
     # Define prior, NOT NORMALIZED
     prior_map['ordering'] =lambda x: np.ones(x.shape)
@@ -2303,6 +2379,10 @@ if not no_plots:
 ###
 if not opts.using_eos:
  def convert_coords(x_in):
+    if opts.rf_transverse_spin_coordinates:
+        return rf_transverse_spin.convert(x_in, coord_names, low_level_coord_names, opts.fref,
+            lalsimutils.convert_waveform_coordinates, source_redshift=source_redshift,
+            enforce_kerr=opts.downselect_enforce_kerr)
     return lalsimutils.convert_waveform_coordinates(x_in, coord_names=coord_names,low_level_coord_names=low_level_coord_names,source_redshift=source_redshift,enforce_kerr=opts.downselect_enforce_kerr)
 else:
  def convert_coords(x_in):
@@ -2810,22 +2890,31 @@ if neff < opts.n_eff:
         n_output_size = np.min([len(P_list_in),opts.n_output_samples])
         print(" Preparing to write ", n_output_size , " samples ")
 
-        my_cov = np.cov(X.T)  # covariance of data points
-        rv = scipy.stats.multivariate_normal(mean=np.zeros(len(X[0])), cov=my_cov,allow_singular=True)  # they are just complaining about dynamic range
-        delta_X = rv.rvs(size=len(X))
-        X_new = X+delta_X
+        puff_names = coord_names
+        X_puff = X
+        if opts.rf_transverse_spin_coordinates:
+            # RF features (and chiMinus, mu1, ...) are not assignable: puff physical components instead.
+            puff_names = ['m1','m2','s1x','s1y','s1z','s2x','s2y','s2z']
+            X_puff = np.array([[P.extract_param(p)/(lal.MSUN_SI if p in ('m1','m2') else 1) for p in puff_names] for P in P_list_in])
+        my_cov = np.cov(X_puff.T)  # covariance of data points
+        rv = scipy.stats.multivariate_normal(mean=np.zeros(len(X_puff[0])), cov=my_cov,allow_singular=True)  # they are just complaining about dynamic range
+        delta_X = rv.rvs(size=len(X_puff))
+        X_new = X_puff+delta_X
         P_out_list = []
         # Loop over points 
-        # Jitter using the parameters we use to fit with
-        for indx_P in np.arange(np.min([len(P_list_in),len(X)])):   # make sure no past-limits errors
+        # Jitter using the parameters we use to fit with (physical components in RF modes)
+        for indx_P in np.arange(np.min([len(P_list_in),len(X_puff)])):   # make sure no past-limits errors
             include_item=True
             P = P_list_in[indx_P]
-            for indx in np.arange(len(coord_names)):
-                param  = coord_names[indx]
+            for indx in np.arange(len(puff_names)):
+                param  = puff_names[indx]
                 fac = 1
-                if coord_names[indx] in ['mc', 'mtot', 'm1', 'm2']:
+                if puff_names[indx] in ['mc', 'mtot', 'm1', 'm2']:
                     fac = lal.MSUN_SI
                 P.assign_param(param, (X_new[indx_P,indx]*fac))
+            if opts.rf_transverse_spin_coordinates and (P.m1 <= 0 or P.m2 <= 0
+                    or P.s1x**2+P.s1y**2+P.s1z**2 > 1 or P.s2x**2+P.s2y**2+P.s2z**2 > 1):
+                continue
             for p in downselect_dict.keys():
                 val = P.extract_param(p) 
                 if p in ['mc','m1','m2','mtot']:
@@ -3089,7 +3178,7 @@ if not no_plots:
         plt.plot(dat_out_LI[:,0],dat_out_LI[:,1],label="LI:"+opts.desc_lalinference,color='r')
    
     # Add vertical line
-    here_val = Pref.extract_param(p)
+    here_val = extract_fit_param(Pref, p)
     fac = 1
     if p in ['mc','m1','m2','mtot']:
         fac = lal.MSUN_SI
@@ -3394,7 +3483,7 @@ for indx_line  in np.arange(len(P_list)):
         fac=1
         if coord_names[indx] in ['mc', 'mtot', 'm1', 'm2']:
                 fac = lal.MSUN_SI
-        dat_mass_post[indx_line,indx] = P_list[indx_line].extract_param(coord_names[indx])/fac
+        dat_mass_post[indx_line,indx] = extract_fit_param(P_list[indx_line], coord_names[indx])/fac
 
 
 dat_extra_post = []
@@ -3406,7 +3495,7 @@ for x in np.arange(len(extra_plot_coord_names)):
             fac=1
             if coord_names_here[indx] in ['mc', 'mtot', 'm1', 'm2']:
                 fac = lal.MSUN_SI
-            feature_here[indx_line,indx] = P_list[indx_line].extract_param(coord_names_here[indx])/fac
+            feature_here[indx_line,indx] = extract_fit_param(P_list[indx_line], coord_names_here[indx])/fac
     dat_extra_post.append(feature_here)
 
 
@@ -3476,7 +3565,7 @@ for indx in np.arange(len(coord_names)):
         except:
             print("  - plot failure - ")
     # Add vertical line
-    here_val = Pref.extract_param(p)
+    here_val = extract_fit_param(Pref, p)
     fac = 1
     if p in ['mc','m1','m2','mtot']:
         fac = lal.MSUN_SI
@@ -3504,7 +3593,7 @@ for indx in np.arange(len(coord_names)):
     fac = 1
     if coord_names[indx] in ['mc','m1','m2','mtot']:
         fac = lal.MSUN_SI
-    truth_here.append(Pref.extract_param(coord_names[indx])/fac)
+    truth_here.append(extract_fit_param(Pref, coord_names[indx])/fac)
 
 
 try:
@@ -3588,7 +3677,7 @@ for indx in np.arange(len(extra_plot_coord_names)):
         fac=1
         if coord_names_here[z] in ['mc','m1','m2','mtot']:
             fac = lal.MSUN_SI
-        truth_here.append(Pref.extract_param(coord_names_here[z])/fac)
+        truth_here.append(extract_fit_param(Pref, coord_names_here[z])/fac)
 
     print(" Truth here for ", coord_names_here, truth_here)
 
@@ -3617,5 +3706,3 @@ for indx in np.arange(len(extra_plot_coord_names)):
      print(" Failed to generate corner for ", extra_plot_coord_names[indx])
 
 sys.exit(0)
-
-

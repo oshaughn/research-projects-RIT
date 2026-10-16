@@ -348,7 +348,7 @@ valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp
 
 # so far, used for puffball, to prevent insanity (infinite growth) and/or death to downselect
 #   - note we also provide for extrinsic: RA (phi), phiref, psi, just in case we need it in the future
-periodic_params = {'phi1':2*np.pi, 'phi2':2*np.pi, 'phiref':2*np.pi, 'psi':np.pi, 'meanPerAno':2*np.pi, 'phi':2*np.pi, 'phiJL':2*np.pi, 'psiJ':2*np.pi}
+periodic_params = {'phi1':2*np.pi, 'phi2':2*np.pi, 'phi12':2*np.pi, 'phiref':2*np.pi, 'psi':np.pi, 'meanPerAno':2*np.pi, 'phi':2*np.pi, 'phiJL':2*np.pi, 'psiJ':2*np.pi}
 
 tex_dictionary  = {
  "mtot": r'$M$',
@@ -371,6 +371,7 @@ tex_dictionary  = {
   "DeltaOverM2_perp" : r"$\Delta_\perp$",
   "DeltaOverM2_L" : r"$\Delta_{||}$",
   "SOverM2_perp" : r"$S_\perp$",
+  "chi_p_vec" : r"$\chi_{p,{\rm vec}}$",
   "SOverM2_L" : r"$S_{||}$",
   "eta": r"$\eta$",
   "chi_eff": r"$\chi_{eff}$",
@@ -538,8 +539,26 @@ class ChooseWaveformParams:
         self.lambda2=lam1
         self.lambda1=lam2
         self.phiref = self.phiref+np.pi
+        for name in ['_phi%d_requested', '_theta%d_requested']:
+            h1, h2 = getattr(self, name % 1, None), getattr(self, name % 2, None)
+            for k, h in [(1, h2), (2, h1)]:
+                if h is None:
+                    self.__dict__.pop(name % k, None)
+                else:
+                    setattr(self, name % k, h)
 
         
+
+    def _spin_azimuth(self, k):
+        # azimuth of spin k in the L frame; the last requested phi{k} (default 0) if the in-plane spin is zero
+        sx, sy = getattr(self, 's%dx' % k), getattr(self, 's%dy' % k)
+        if np.isscalar(sx) and np.isscalar(sy):
+            if sx == 0 and sy == 0:
+                return getattr(self, '_phi%d_requested' % k, 0.)
+            return np.arctan2(sy, sx)
+        return np.where((sx == 0) & (sy == 0),
+                        getattr(self, '_phi%d_requested' % k, 0.),
+                        np.arctan2(sy, sx))
 
     def assign_param(self,p,val):
         """
@@ -602,15 +621,34 @@ class ChooseWaveformParams:
             self.s1z = (czp+czm)
             self.s2z = (czp-czm)
             return self
-        if p == 's1z_bar':
-            self.s1z = val
-            return self
-        if p == 's2z_bar':
-            self.s2z = val
+        if p in ('s1z_bar', 's2z_bar'):
+            # Hold chi_perp_bar and phi fixed, elementwise for array inputs too.
+            k = int(p[1])
+            old_z = getattr(self, 's%dz' % k)
+            if np.isscalar(old_z) and np.isscalar(val):
+                fac = 1.
+                if old_z**2 < 1 and val**2 <= 1:
+                    fac = np.sqrt((1-val**2)/(1-old_z**2))
+                if fac == 0:
+                    setattr(self, '_phi%d_requested' % k, self._spin_azimuth(k))
+            else:
+                old_z, new_z = np.broadcast_arrays(old_z, val)
+                ratio = np.ones(old_z.shape, dtype=float)
+                np.divide(1-new_z**2, 1-old_z**2, out=ratio,
+                          where=(old_z**2 < 1) & (new_z**2 <= 1))
+                fac = np.sqrt(ratio)
+                if np.any(fac == 0):
+                    hint = getattr(self, '_phi%d_requested' % k, 0.)
+                    setattr(self, '_phi%d_requested' % k,
+                            np.where(fac == 0, self._spin_azimuth(k), hint))
+            for c in ('x', 'y'):
+                name = 's%d%s' % (k, c)
+                setattr(self, name, getattr(self, name) * fac)
+            setattr(self, 's%dz' % k, val)
             return self
         if p == 'chi1_perp_bar':
 #            chi1_perp = np.sqrt(self.s1x**2+self.s2y**2)
-            phi1 = np.arctan2(self.s1y, self.s1x)
+            phi1 = self._spin_azimuth(1)
             chi1_perp_new = val*np.sqrt(1-self.s1z**2)  # R=Rbar*(1-z^2)^0.5 
             self.s1x = chi1_perp_new*np.cos(phi1)
             self.s1y = chi1_perp_new*np.sin(phi1)
@@ -618,21 +656,21 @@ class ChooseWaveformParams:
         if p == 'chi1_perp_u':
 #            chi1_perp = np.sqrt(self.s1x**2+self.s2y**2)
             Rb = np.power(val, 1./p_R)
-            phi1 = np.arctan2(self.s1y, self.s1x)
+            phi1 = self._spin_azimuth(1)
             chi1_perp_new = Rb*np.sqrt(1-self.s1z**2)  # R=Rbar*(1-z^2)^0.5 
             self.s1x = chi1_perp_new*np.cos(phi1)
             self.s1y = chi1_perp_new*np.sin(phi1)
             return self
         if p == 'chi2_perp_bar':
 #            chi1_perp = np.sqrt(self.s1x**2+self.s2y**2)
-            phi2 = np.arctan2(self.s2y, self.s2x)
+            phi2 = self._spin_azimuth(2)
             chi2_perp_new = val*np.sqrt(1-self.s2z**2)  # R=Rbar*(1-z^2)^0.5 
             self.s2x = chi2_perp_new*np.cos(phi2)
             self.s2y = chi2_perp_new*np.sin(phi2)
             return self
         if p == 'chi2_perp_u':
 #            chi1_perp = np.sqrt(self.s1x**2+self.s2y**2)
-            phi2 = np.arctan2(self.s2y, self.s2x)
+            phi2 = self._spin_azimuth(2)
             Rb = np.power(val, 1./p_R)
             chi2_perp_new = Rb*np.sqrt(1-self.s2z**2)  # R=Rbar*(1-z^2)^0.5 
             self.s2x = chi2_perp_new*np.cos(phi2)
@@ -657,7 +695,11 @@ class ChooseWaveformParams:
         if p == 'chi1':
             chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
             chi1VecMag = np.sqrt(np.dot(chi1Vec,chi1Vec))
-            if chi1VecMag < 1e-5:
+            if chi1VecMag == 0 and hasattr(self, '_theta1_requested'):
+                theta = self._theta1_requested
+                phi = getattr(self, '_phi1_requested', 0.)
+                self.s1x,self.s1y,self.s1z = val*np.array([np.sin(theta)*np.cos(phi), np.sin(theta)*np.sin(phi), np.cos(theta)])
+            elif chi1VecMag == 0:
                 Lref = self.OrbitalAngularMomentumAtReferenceOverM2()
                 Lhat = Lref/np.sqrt(np.dot(Lref,Lref))
                 self.s1x,self.s1y,self.s1z = val*Lhat
@@ -667,7 +709,11 @@ class ChooseWaveformParams:
         if p == 'chi2':
             chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
             chi2VecMag = np.sqrt(np.dot(chi2Vec,chi2Vec))
-            if chi2VecMag < 1e-5:
+            if chi2VecMag == 0 and hasattr(self, '_theta2_requested'):
+                theta = self._theta2_requested
+                phi = getattr(self, '_phi2_requested', 0.)
+                self.s2x,self.s2y,self.s2z = val*np.array([np.sin(theta)*np.cos(phi), np.sin(theta)*np.sin(phi), np.cos(theta)])
+            elif chi2VecMag == 0:
                 Lref = self.OrbitalAngularMomentumAtReferenceOverM2()
                 Lhat = Lref/np.sqrt(np.dot(Lref,Lref))
                 self.s2x,self.s2y,self.s2z = val*Lhat
@@ -709,9 +755,13 @@ class ChooseWaveformParams:
             chiperp_vec_now = np.array([self.s1x,self.s1y])
             chiperp_now = np.sqrt(np.dot(chiperp_vec_now,chiperp_vec_now))
             chi_now = np.sqrt(self.s1z**2 + chiperp_now**2)
+            self._theta1_requested = val   # used by chi1 if the spin is zero now
+            if chi_now == 0:
+                return self
             if chiperp_now/chi_now < 1e-9: # aligned case - what do we do?
-                self.s1y=0
-                self.s1x = chi_now * np.sin(val)
+                phi1 = self._spin_azimuth(1)
+                self.s1x = chi_now * np.sin(val) * np.cos(phi1)
+                self.s1y = chi_now * np.sin(val) * np.sin(phi1)
                 self.s1z = chi_now * np.cos(val)
                 return self
             self.s1x = chi_now*np.sin(val) * self.s1x/chiperp_now
@@ -728,6 +778,7 @@ class ChooseWaveformParams:
             # Do it MANUALLY, assuming the L frame! 
             chiperp_vec_now = np.array([self.s1x,self.s1y])
             chiperp_now = np.sqrt(np.dot(chiperp_vec_now,chiperp_vec_now))
+            self._phi1_requested = val   # used by theta1, chi1, chi1_perp_bar if the in-plane spin is zero now
             self.s1x = chiperp_now*np.cos(val)
             self.s1y = chiperp_now*np.sin(val)
             return self
@@ -744,9 +795,13 @@ class ChooseWaveformParams:
             chiperp_vec_now = np.array([self.s2x,self.s2y])
             chiperp_now = np.sqrt(np.dot(chiperp_vec_now,chiperp_vec_now))
             chi_now = np.sqrt(self.s2z**2 + chiperp_now**2)
+            self._theta2_requested = val   # used by chi2 if the spin is zero now
+            if chi_now == 0:
+                return self
             if chiperp_now/chi_now < 1e-9: # aligned case
-                self.s2y=0
-                self.s2x = chi_now * np.sin(val)
+                phi2 = self._spin_azimuth(2)
+                self.s2x = chi_now * np.sin(val) * np.cos(phi2)
+                self.s2y = chi_now * np.sin(val) * np.sin(phi2)
                 self.s2z = chi_now * np.cos(val)
                 return self
             self.s2x = chi_now*np.sin(val) * self.s2x/chiperp_now
@@ -763,6 +818,7 @@ class ChooseWaveformParams:
             # Do it MANUALLY, assuming the L frame! 
             chiperp_vec_now = np.array([self.s2x,self.s2y])
             chiperp_now = np.sqrt(np.dot(chiperp_vec_now,chiperp_vec_now))
+            self._phi2_requested = val   # used by theta2, chi2, chi2_perp_bar if the in-plane spin is zero now
             self.s2x = chiperp_now*np.cos(val)
             self.s2y = chiperp_now*np.sin(val)
             return self
@@ -1199,6 +1255,20 @@ class ChooseWaveformParams:
             S2p = (m2**2 * chi2)[:2]
             Sp = np.max([np.linalg.norm( A1*S1p), np.linalg.norm(A2*S2p)])
             return Sp/(A1*m1**2)  # divide by term for *larger* BH
+        if p == 'phi12':
+            # azimuth of spin 2's in-plane component relative to spin 1's, in [0, 2 pi), L frame.
+            # Undefined if either in-plane component vanishes; 0 is returned then (same as the vectorized path).
+            if np.hypot(self.s1x, self.s1y) == 0 or np.hypot(self.s2x, self.s2y) == 0:
+                return 0.
+            val = np.mod(np.arctan2(self.s2y, self.s2x) - np.arctan2(self.s1y, self.s1x), 2*np.pi)
+            return 0. if val >= 2*np.pi else val   # np.mod of a tiny negative number rounds to 2 pi
+        if p == 'chi_p_vec':
+            # vector-sum (ring) analogue of chi_p: |A1 S1perp + A2 S2perp| / (A1 m1^2), same A1, A2 as chi_p.
+            # chi_p keeps the larger of the two terms; this keeps their vector sum, so it depends on phi12
+            # (in-plane spins that cancel give a small value).  L frame.
+            q = self.m2/self.m1
+            A1 = (2+ 3.*q/2); A2 = (2+3./(2*q))
+            return np.abs( (self.s1x + 1j*self.s1y) + (A2/A1)*q**2*(self.s2x + 1j*self.s2y) )
         if p == 'chi_pavg':
             if (abs(self.s1x) < 1e-4 and abs(self.s1y) < 1e-4 and abs(self.s2x) < 1e-4 and abs(self.s2y) < 1e-4):
                 chipavg = 0.0
@@ -3280,7 +3350,11 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
        # but that is very difficult to do because modes of different 'm' and thus typical frequency generally mix
        # Note also that unless the segment length is large, this is often surprisingly few frequency bins for tapering
        if not(no_condition):
-           our_fvals = evaluate_fvals(hlmsdict[(2,2)])
+           # lal_convention=True is REQUIRED here: ChooseFDModes returns the ascending
+           # center-DC grid, and the default (RIFT reversed) convention would shift the
+           # high-pass window by one bin between (l,m) and (l,-m), breaking the
+           # conjugate-pair identity at the percent level.  See evaluate_fvals docs.
+           our_fvals = evaluate_fvals(hlmsdict[(2,2)], lal_convention=True)
            vectaper_symmetric  = np.ones(len(our_fvals))
            indx_below = np.logical_and(np.abs(our_fvals)<P.fmin, np.abs(our_fvals)>=P.fmin*fd_standoff_factor)
            vectaper_symmetric[indx_below] = 0.5 + 0.5*np.cos(np.pi* (np.abs(our_fvals[indx_below])/P.fmin - 1)/(1-fd_standoff_factor))
@@ -3305,7 +3379,15 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
            indx_crit = TDlen - ntaper
 
        for mode in hlmsdict:
+          npts_fd_pre_resize = hlmsdict[mode].data.length
           hlmsdict[mode] = lal.ResizeCOMPLEX16FrequencySeries(hlmsdict[mode],0, TDlen)
+          if npts_fd_pre_resize > TDlen:
+              # The resize above truncated the +fNyq bin from the two-sided grid but kept
+              # its -fNyq partner (index 0).  Zero it so the truncation commutes with the
+              # conjugate-pair (f -> -f) reflection for models with support at Nyquist.
+              # Tied to the truncation itself, NOT to no_condition: an asymmetric
+              # truncation would reintroduce (l,±m) asymmetry even on the raw path.
+              hlmsdict[mode].data.data[0] = 0
           hlmsT[mode] = DataInverseFourier(hlmsdict[mode])
           # Phase factors: see crazy conventions in https://git.ligo.org/lscsoft/lalsuite/-/blob/master/lalsimulation/lib/LALSimInspiral.c
           if True: #P.approx == lalIMRPhenomXHM or P.approx == lalIMRPhenomHM:
@@ -3331,16 +3413,15 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
        # see discussion in https://git.ligo.org/lscsoft/lalsuite/-/blob/master/lalsimulation/lib/LALSimInspiral.c
        if is_precessing and fd_L_frame and P.fref:
              alpha,beta,gamma =extract_JL_angles(P,return_inverse=True)
-             # alpha0, beta==theta_JN already identified above. Missing polarization rotation factor as well
-             # zeta_pol will not be used since it is inclination-dependent and therefore depends on extrinsic choices! Also normally calling with P.incl ==0
-             _, _, _, theta_JN, alpha0, misc_phi, zeta_pol = lalsim.SimIMRPhenomXPCalculateModelParametersFromSourceFrame(P.m1,P.m2, P.fref, P.phiref, P.incl, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, extra_params)
-             # Get remaining psiJ quantity (should add to extract_JL_angles)
-             thetaJN, phiJL, theta1, theta2, phi12, chi1, chi2, psiJ  = P.extract_system_frame()
-             # theta_JN is not useful, for rotations will be close to P.incl in most cases
-             alpha+= np.pi # empirically validated sign for XPHM, comparing precessing radiation to SEOBv4PHM
-#             print(alpha, beta, gamma, zeta_pol)
-#             print(alpha0, thetaJN, np.pi - phiJL,psiJ)
-             hlmsT_alt = rotate_hlm_static(hlmsT, -gamma - np.pi/2, -beta,-alpha ,extra_polarization=psiJ)  
+             # The modes must remain intrinsic: hoft_from_hlm applies P.psi when
+             # constructing the strain.  A further alpha += pi changes odd-m
+             # modes relative to even-m modes, rather than supplying a global
+             # polarization convention.  The fixed pi/2 polarization below only
+             # cancels the historical global minus sign applied above.
+             hlmsT_alt = rotate_hlm_static(
+                 hlmsT, -gamma - np.pi/2, -beta, -alpha,
+                 extra_polarization=np.pi/2,
+             )
              hlmsT = hlmsT_alt
         # phase shift ChooseFDModes
 #       for mode in hlmsT:
@@ -4013,7 +4094,7 @@ def hoft_from_hlm(hlms,P, return_complex=False, extra_phase_shift=0):
     # Create complex strain object
     hT = lal.CreateCOMPLEX16TimeSeries("hT", h22.epoch, h22.f0,
             h22.deltaT, h22.sampleUnits, h22.data.length)
-    hT.data.data*=0  # fill with zeros
+    hT.data.data[:] = 0  # fill with zeros
 
     # create for loop over elements of the series to add it
     for mode in hlms:
@@ -4906,12 +4987,25 @@ def psd_windowing_factor(window_shape, TDlen):
 def evaluate_tvals(lal_tseries):
     return float(lal_tseries.epoch) +lal_tseries.deltaT*np.arange(lal_tseries.data.length)
 
-def evaluate_fvals(lal_2sided_fseries):
+def evaluate_fvals(lal_2sided_fseries, lal_convention=False):
     r"""
-    evaluate_fvals(lal_2sided_fseries)
+    evaluate_fvals(lal_2sided_fseries, lal_convention=False)
     Associates frequencies with a 2sided lal complex array.  Compare with 'self.longweights' code
     Done by HAND in PrecessingOrbitModesOfFrequency
     Manually *reverses* convention re sign of \omega used in lal!
+
+    lal_convention=False (default): RIFT's own two-sided packing (arrays produced by
+       DataFourier/complex_hoff): even length, REVERSED, f[k] = deltaF*(npts/2 - k).
+       WARNING: for odd-length arrays this assigns f on a grid offset by deltaF/2 --
+       it is only correct for the even-length RIFT packing.
+    lal_convention=True: the packing of two-sided series returned directly by LAL
+       generators (e.g. SimInspiralChooseFDModes): ASCENDING [-fNyq, ..., 0, ..., +fNyq]
+       with DC at index npts//2 (odd length TDlen+1; even length after truncation keeps
+       DC at npts//2).  f[k] = deltaF*(k - npts//2), exact for both parities of npts.
+       Use this - not the default - on ChooseFDModes output: the default's reversal +
+       half-bin offset shifts any |f|-symmetric window by one bin between (l,m) and
+       (l,-m) modes (which live at opposite signs of f), breaking the conjugate-pair
+       identity h_{l,-m}(f) = (-1)^l conj(h_{lm}(-f)) at the percent level.
 
     Notes:
        a) XXXFrequencySeries  have an f0 and a deltaF, and *logically* they should run from f0....f0+N*df
@@ -4944,6 +5038,8 @@ def evaluate_fvals(lal_2sided_fseries):
     """
     npts = lal_2sided_fseries.data.length
     df = lal_2sided_fseries.deltaF
+    if lal_convention:
+        return df*(np.arange(npts) - npts//2)
     fvals = np.zeros(npts)
     # https://www.lsc-group.phys.uwm.edu/daswg/projects/lal/nightly/docs/html/group___time_freq_f_f_t__h.html
     # https://www.lsc-group.phys.uwm.edu/daswg/projects/lal/nightly/docs/html/_time_freq_f_f_t_8h.html
@@ -5129,6 +5225,18 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
       - source_redshift: if nonzero, convert m1 -> m1 (1+z)=m_z, as fit is done in the detector frame.  We are **assuming source-frame sampling**
     """
     x_out = np.zeros( (len(x_in), len(coord_names) ) )
+    kerr_violation_ring = None   # set by the vectorized in-plane block, which can end the conversion early
+    # Source-frame input: move the mass coordinates to the detector frame ONCE, here, so every vectorized branch below
+    # and the per-row fallback see detector-frame masses.  Other mass-dimensional inputs (e.g. mu1, mu2) do not scale
+    # by (1+z); for those, the per-row fallback applies the redshift to P.m1, P.m2 instead.
+    redshift_applied_to_input = False
+    if source_redshift:
+        mass_names_in = [p for p in ['mc', 'mc_ecc', 'm1', 'm2', 'mtot'] if p in low_level_coord_names]
+        if mass_names_in:
+            x_in = np.array(x_in, dtype=float)   # copy: never rescale the caller's array
+            for p in mass_names_in:
+                x_in[:, low_level_coord_names.index(p)] *= (1+source_redshift)
+            redshift_applied_to_input = True
     # Check for trivial identity transformations and do those by direct copy, then remove those from the list of output coord names
     coord_names_reduced = coord_names.copy() 
     for p in low_level_coord_names:
@@ -5342,6 +5450,38 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
             x_out[:,indx_pout_s2y] = x_in[:,indx_chi2]*sintheta2*sinphi2
             coord_names_reduced.remove('s2x')
             coord_names_reduced.remove('s2y')
+        # in-plane magnitudes, relative azimuth, and ring coordinates (L frame), vectorized
+        ring_names = ['chi1_perp', 'chi2_perp', 'phi12', 'SOverM2_perp', 'DeltaOverM2_perp', 'chi_p_vec']
+        if any(p in coord_names_reduced for p in ring_names):
+            # CIP's default sampler passes an object array of python floats; ufuncs need a float array
+            xf = np.asarray(x_in, dtype=float)
+            m1f = np.asarray(m1_vals, dtype=float); m2f = np.asarray(m2_vals, dtype=float)
+            indx_phi1 = low_level_coord_names.index('phi1')
+            indx_phi2 = low_level_coord_names.index('phi2')
+            # The scalar fallback assigns chi before the angles, which use its
+            # magnitude. Signed chi must not flip vectors or bypass the Kerr bound.
+            chi1_mag = np.abs(xf[:,indx_chi1])
+            chi2_mag = np.abs(xf[:,indx_chi2])
+            chi1_perp = chi1_mag*np.sqrt(1-xf[:,indx_ct1]**2)
+            chi2_perp = chi2_mag*np.sqrt(1-xf[:,indx_ct2]**2)
+            v1 = chi1_perp*np.exp(1j*xf[:,indx_phi1])
+            v2 = chi2_perp*np.exp(1j*xf[:,indx_phi2])
+            mtot_vals = m1f + m2f
+            q_vals = m2f/m1f
+            A1 = 2 + 1.5*q_vals; A2 = 2 + 1.5/q_vals
+            ring_vals = {'chi1_perp': chi1_perp, 'chi2_perp': chi2_perp,
+                         'phi12': np.where((chi1_perp > 0) & (chi2_perp > 0), np.mod(xf[:,indx_phi2] - xf[:,indx_phi1], 2*np.pi), 0.),
+                         'SOverM2_perp': np.abs(v1*m1f**2 + v2*m2f**2)/mtot_vals**2,
+                         'DeltaOverM2_perp': np.abs(v1*m1f - v2*m2f)/mtot_vals,
+                         'chi_p_vec': np.abs(v1 + (A2/A1)*q_vals**2*v2)}
+            ring_vals['phi12'] = np.where(ring_vals['phi12'] >= 2*np.pi, 0., ring_vals['phi12'])
+            for p in ring_names:
+                if p in coord_names_reduced:
+                    x_out[:,coord_names.index(p)] = ring_vals[p]
+                    coord_names_reduced.remove(p)
+            if enforce_kerr:
+                # same rule as the per-row fallthrough below, which this block can bypass
+                kerr_violation_ring = (chi1_mag > 1) | (chi2_mag > 1)
             
     # Spin pseudo-cylindrical coordinate names, standard framing
     if  ('s1z_bar' in low_level_coord_names) and ('phi1' in low_level_coord_names)  and ('s2z_bar' in low_level_coord_names) and ('phi2' in low_level_coord_names) and ('mc' in low_level_coord_names) and ('eta' in low_level_coord_names or 'delta_mc' in low_level_coord_names):
@@ -5551,28 +5691,26 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
                 coord_names_reduced.remove('DeltaLambdaTilde')
 
 
-    # perform any mass conversions needed, so output in detector frame given input in source frame
-    if source_redshift:
-        for name in ['mc', 'm1', 'm2']:
-            if name in coord_names:
-                indx_name = coord_names.index(name)
-                x_out[indx_name] *= (1+source_redshift)
-
     # return if we don't need to do any more conversions (e.g., if we only have --parameter specification)
+    if kerr_violation_ring is not None:
+        x_out[kerr_violation_ring] = -np.inf
     if len(coord_names_reduced)<1:
         return x_out
 
     print(" Fallthrough to non-vector-coords for ", coord_names_reduced,low_level_coord_names)
     
-    P = ChooseWaveformParams()
     # note NO MASS CONVERSION here, because the fit is in solar mass units!
     for indx_out  in np.arange(len(x_in)):
+        # Fresh P per row: assign_param reads the current state for some coordinates (mu1, mu2, q,
+        # chi1_perp_bar, ...), so a reused P makes a row's output depend on the previous row.
+        P = ChooseWaveformParams()
         for indx in np.arange(len(low_level_coord_names)):
             if low_level_coord_names[indx] != 'chi_pavg':
                 P.assign_param( low_level_coord_names[indx], x_in[indx_out,indx])            
         # Apply redshift: assume input is source-frame mass, convert m1 -> m1(1+z) = m1_z, as fit used detector frame
-        P.m1 = P.m1*(1+source_redshift)
-        P.m2 = P.m2*(1+source_redshift)
+        if source_redshift and not redshift_applied_to_input:
+            P.m1 = P.m1*(1+source_redshift)
+            P.m2 = P.m2*(1+source_redshift)
         for indx in np.arange(len(coord_names_reduced)):
             p = coord_names_reduced[indx]
             indx_p_out= coord_names.index(p)
@@ -5591,8 +5729,8 @@ def convert_waveform_coordinates_with_eos(x_in,coord_names=['mc', 'eta'],low_lev
         print( " - Failed to load EOSManager - ")  # this will occur at the start
     assert not (eos_class==None)
     x_out = np.zeros( (len(x_in), len(coord_names) ) )
-    P = ChooseWaveformParams()
     for indx_out  in np.arange(len(x_in)):
+        P = ChooseWaveformParams()  # fresh per row, as in convert_waveform_coordinates
         # WARNING UNUSUAL CONVENTION
         #   note, P.m1, P.m2 in Msun units here
         for indx in np.arange(len(low_level_coord_names)):
@@ -5762,13 +5900,13 @@ def rotate_hlm_static(hlm,alphaA,betaA,gammaA,extra_polarization=None):
                 hCatOut[(L,M)] = lal.CreateCOMPLEX16TimeSeries("Template h(t)", 
                                                  h0.epoch, h0.f0, h0.deltaT, lsu_DimensionlessUnit, 
                                                  h0.data.length)
-                hCatOut[(L,M)].data.data *=0 # initialize
+                hCatOut[(L,M)].data.data[:] = 0 # initialize
                 lal_type=True
             elif isinstance(hlm[(L,M)] , lal.Complex16FrequencySeries):
                 hCatOut[(L,M)] =  lal.CreateCOMPLEX16FrequencySeries("Template h(t)", 
                                                                      h0.epoch, h0.f0, h0.deltaF, lsu_HertzUnit ,
                                                                      h0.data.length)
-                hCatOut[(L,M)].data.data *=0 # initialize
+                hCatOut[(L,M)].data.data[:] = 0 # initialize
                 lal_type=True
             elif isinstance(hlm[(L,M)], np.ndarray):
                 hCatOut[(L,M)] = np.zeros(h0.shape)
@@ -5807,29 +5945,27 @@ def extract_JL_angles(P,return_inverse=True,phase_factor=1):
     theta_JL, phi_JL = polar_angles_in_frame(VectorToFrame(Lhat), Jhat)
     # To make review-stable, be VERY explicit : try to use lalsuite function calls, not above
     my_cos = np.dot(Lhat, Jhat)
-    theta_JL = P.incl   # this is pretty close. Good enough if we are nearly aligned
-    if my_cos < 1-1e-5:  # but if we are even slightly misaligned, use the acos of above
-        theta_JL = np.arccos( my_cos ) #P.extract_param('beta')  # this is just Jhat.Jhat
+    theta_JL = np.arccos(np.clip(my_cos, -1., 1.))
 
     # Remaining angle:
     nhat_obs = np.array([ np.sin(P.incl)*np.cos(np.pi/2*phase_factor-P.phiref), np.sin(P.incl)*np.sin(np.pi/2*phase_factor-P.phiref), np.cos(P.incl)])  # base vector
-    vecZ = np.array([0,0,1])
-    vecY = np.array([0,1,0])
-
-    # thetaJL == beta.  However, we're noit going to use this
+    # thetaJL == beta.
 #    theta_jn, _, theta_1, theta_2, phi_12, a_1, a_2 =lalsim.SimInspiralTransformPrecessingWvf2PE(
 #            P.incl, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.m1, P.m2, P.fref, P.phiref)
 
-    # rotation from J to point along L for example
-    rot = np.matmul(rotation_matrix( vecY, -theta_JL), rotation_matrix( vecZ, -phi_JL))
-
-    # Rotation around L needed to rotate viewing direction
-    nhat_rot = np.matmul(rot, nhat_obs)
-    last_angle = np.angle( nhat_rot[0]+1j*nhat_rot[1])
+    # Rotate N by Rz(-phi_JL), then Ry(-theta_JL), following Appendix C
+    # explicitly.  rotation_matrix uses a different active/passive convention,
+    # so using it here changes the final Euler angle substantially.
+    cos_phi = np.cos(phi_JL)
+    sin_phi = np.sin(phi_JL)
+    nx_rot = nhat_obs[0]*cos_phi + nhat_obs[1]*sin_phi
+    ny_rot = -nhat_obs[0]*sin_phi + nhat_obs[1]*cos_phi
+    nx_jframe = nx_rot*np.cos(theta_JL) - nhat_obs[2]*np.sin(theta_JL)
+    last_angle = np.arctan2(ny_rot, nx_jframe)
 
     # Phase conventions as in XPHM paper https://journals.aps.org/prd/abstract/10.1103/PhysRevD.103.104056
     if return_inverse:
-        # the two np.pi factors end up producing a mode sign  (-1)^m (-1)^m'  to deal with  thetaJL < 0  , so we don't have a negative angle there.
+        # The two pi factors produce (-1)^m (-1)^m' while keeping beta positive.
         return np.pi - last_angle, theta_JL, np.pi-phi_JL
     else:
         # 

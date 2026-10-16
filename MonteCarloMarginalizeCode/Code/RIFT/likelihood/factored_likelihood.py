@@ -63,6 +63,7 @@ from itertools import product, combinations
 import math
 
 from .vectorized_lal_tools import ComputeDetAMResponse,TimeDelayFromEarthCenter
+from . import time_marginalization_quadrature as time_quad
 
 import os
 if 'PROFILE' not in os.environ:
@@ -139,6 +140,8 @@ def internal_hlm_generator(P,
     internal_hlm_generator: top-level front end to all waveform generators used.
     Needs to be restructured so it works on a 'hook' basis, so we are not constantly changing the source code
     """
+    if use_gwsignal and not has_GWS:
+        raise RuntimeError('GWSignal was requested but is unavailable; refusing to fall back to a different waveform generator')
     P.taper =  lsu.lsu_TAPER_START # use to pass to romwf, rgws/gwsignal. Pass through
     if not( ROM_group is None) and not (ROM_param is None):
        # For ROM, use the ROM basis. Note that hlmoff -> basis_off henceforth
@@ -1805,7 +1808,192 @@ def _factored_lnL_helper(kappa_sq, rho_sq):
     return kappa_sq - 0.5 * rho_sq
 
 
-def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=np, loglikelihood=_factored_lnL_helper,return_lnLt=False,phase_marginalization=False):
+def _cubic_Q_window_numpy(Q_block, start_indices, fractional_offsets, npts):
+    """Return cubic-interpolated Q windows with zero extension.
+
+    Q_block has shape (n_time, n_lm).  The returned array has shape
+    (n_extrinsic, npts, n_lm), matching the CPU fallback layout used by NoLoop.
+    The interpolation is a local four-point cubic Lagrange stencil; at integer
+    offsets it reproduces the original samples exactly.
+    """
+    npts_extrinsic = len(start_indices)
+    n_lms_det = Q_block.shape[1]
+    Qlms = np.zeros((npts_extrinsic, npts, n_lms_det), dtype=np.complex128)
+    tgrid = np.arange(npts)
+    n_time = Q_block.shape[0]
+    for i in range(npts_extrinsic):
+        idxs = int(start_indices[i]) + tgrid
+        u = float(fractional_offsets[i])
+        u2 = u*u
+        u3 = u2*u
+        weights = (
+            -u * (u - 1.0) * (u - 2.0) / 6.0,
+            (u + 1.0) * (u - 1.0) * (u - 2.0) / 2.0,
+            -(u + 1.0) * u * (u - 2.0) / 2.0,
+            (u + 1.0) * u * (u - 1.0) / 6.0,
+        )
+        for offset, weight in zip((-1, 0, 1, 2), weights):
+            idxs_here = idxs + offset
+            valid = (idxs_here >= 0) & (idxs_here < n_time)
+            if np.any(valid):
+                Qlms[i, valid] += weight * Q_block[idxs_here[valid]]
+    return Qlms
+
+
+def _nearest_Q_window_numpy(Q_block, start_indices, npts, xpy=np):
+    """Return nearest-grid Q windows with zero extension."""
+    npts_extrinsic = len(start_indices)
+    n_lms_det = Q_block.shape[1]
+    Qlms = xpy.zeros((npts_extrinsic, npts, n_lms_det), dtype=np.complex128)
+    tgrid = np.arange(npts)
+    n_time = Q_block.shape[0]
+    for i in range(npts_extrinsic):
+        idxs = int(start_indices[i]) + tgrid
+        valid = (idxs >= 0) & (idxs < n_time)
+        Qlms[i, valid] = Q_block[idxs[valid]]
+    return Qlms
+
+
+# Bound the coarse time-by-extrinsic workspace before dense quadrature starts.
+# The sampler's statistical batch size is untouched. These are implementation
+# budgets, not a promised bound for arbitrary user-supplied callback workspace.
+_NOLOOP_BANDLIMITED_COARSE_BYTES = 1024**3
+_NOLOOP_BANDLIMITED_MAX_ROWS = 4096
+
+
+def _bandlimited_noloop_chunk_rows(n_rows, n_time, n_modes, xpy):
+    """Conservative coarse workspace planner; NumPy keeps historical batching.
+
+    Keep at most an eighth of free device VRAM plus this process's unused pool, capped at 1GiB,
+    for coarse temporaries. Dense refinement has its own independent budget.
+    Do not flush the device memory pool or alter other processes' allocations.
+    Tests can override this planner on NumPy to exercise the identical wrapper.
+    """
+    if xpy is np:
+        return n_rows
+    free_bytes, _ = xpy.cuda.runtime.memGetInfo()
+    pool_factory = getattr(xpy, 'get_default_memory_pool', None)
+    if pool_factory is not None:
+        pool = pool_factory()
+        # These cached blocks belong to this process and can be reused by its
+        # allocator. Count no live bytes and never flush blocks in the hot loop.
+        free_bytes += max(0, pool.total_bytes() - pool.used_bytes())
+    budget = min(_NOLOOP_BANDLIMITED_COARSE_BYTES, max(1, int(free_bytes)//8))
+    # kappa/rho, detector Q result, callback/phase/offset/exp temporaries plus
+    # harmonics/einsum glue. Deliberately overestimate the native GPU path.
+    bytes_per_row = max(1, 160*int(n_time) + 128*int(n_modes)**2)
+    return max(1, min(int(n_rows), _NOLOOP_BANDLIMITED_MAX_ROWS,
+                      budget//bytes_per_row))
+
+
+def _noloop_extrinsic_row_view(P_vec, start, stop, n_rows):
+    # Never call ChooseWaveformParams.copy(): it deep-copies SWIG state and can
+    # duplicate buffers or segfault. Only the six consumed extrinsic fields are
+    # sliced; scalar/singleton broadcast fields and all intrinsic state survive.
+    from copy import copy
+    P = copy(P_vec)
+    for name in ('phi', 'theta', 'phiref', 'incl', 'psi', 'dist'):
+        value = getattr(P_vec, name)
+        shape = getattr(value, 'shape', None)
+        if shape is not None and len(shape) and shape[0] == n_rows:
+            setattr(P, name, value[start:stop])
+        elif isinstance(value, (list, tuple)) and len(value) == n_rows:
+            setattr(P, name, value[start:stop])
+    return P
+
+
+def _combine_noloop_chunk_reports(reports, n_rows, row_limit):
+    """Preserve quadrature diagnostics over all independent row chunks.
+
+    n_retained_fft_plans counts constructed plans across sequential chunks, not
+    simultaneously live plans: each numerical call releases its local cache."""
+    out = {key: dict(value) if isinstance(value, dict) else value
+           for key, value in reports[0].items()}
+    for report in reports[1:]:
+        for key, value in report.items():
+            if isinstance(value, dict):
+                merged = out.setdefault(key, {})
+                for subkey, count in value.items():
+                    merged[subkey] = merged.get(subkey, 0) + count
+            elif key in ('sigma_t_min', 'export_sigma_t_min'):
+                out[key] = min(out[key], value)
+            elif key in ('upsample_factor', 'export_minimum_factor') or key.startswith('max_') or 'largest' in key:
+                out[key] = max(out[key], value)
+            elif key.startswith('n_') or key.endswith(('_rows', '_batches')):
+                out[key] += value
+            elif key == 'bandlimited_fft_strategy' and out[key] != value:
+                out[key] = 'mixed-row-chunks'
+    out.update(noloop_row_chunks=len(reports), noloop_row_limit=row_limit,
+               noloop_input_rows=n_rows,
+               noloop_coarse_workspace_target_bytes=_NOLOOP_BANDLIMITED_COARSE_BYTES)
+    return out
+
+
+def DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict, ctVArrayDict, epochDict, Lmax=2, array_output=False, xpy=np, loglikelihood=_factored_lnL_helper, return_lnLt=False, phase_marginalization=False, time_interp='nearest', time_quadrature='simpson', return_time_draw=False, time_draw_uniforms=None, time_draw_minimum_srate=None):
+    """NoLoop likelihood, bounding GPU bandlimited work independently of sampler batching.
+
+    Simpson and coarse return_lnLt remain unchanged. Continuous draw uniforms
+    are generated once in original row order before any internal partition.
+    """
+    time_quad.validate_time_quadrature(time_quadrature)
+    if return_time_draw and return_lnLt:
+        raise ValueError('return_time_draw and return_lnLt are mutually exclusive')
+    if return_time_draw and time_quadrature != 'bandlimited':
+        raise ValueError("return_time_draw requires time_quadrature='bandlimited'")
+    if time_interp not in ('nearest', 'cubic'):
+        raise ValueError("time_interp must be 'nearest' or 'cubic'")
+    n_rows = len(P_vec.phi)
+    row_limit = n_rows
+    if time_quadrature == 'bandlimited' and not return_lnLt and n_rows:
+        n_modes = max((len(modes) for modes in lookupNKDict.values()), default=0)
+        row_limit = _bandlimited_noloop_chunk_rows(n_rows, len(tvals), n_modes, xpy)
+    kwargs = dict(Lmax=Lmax, array_output=array_output, xpy=xpy,
+                  loglikelihood=loglikelihood, return_lnLt=return_lnLt,
+                  phase_marginalization=phase_marginalization,
+                  time_interp=time_interp, time_quadrature=time_quadrature,
+                  return_time_draw=return_time_draw,
+                  time_draw_minimum_srate=time_draw_minimum_srate)
+    if row_limit >= n_rows:
+        return _DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopUnchunked(
+            tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,
+            ctVArrayDict, epochDict, time_draw_uniforms=time_draw_uniforms,
+            **kwargs)
+    # Allocate only the small final vectors over the complete sampler batch.
+    result = None
+    at_draw = None
+    uniforms = time_draw_uniforms
+    if return_time_draw:
+        if uniforms is None:
+            uniforms = np.random.random((n_rows, 2))
+        if getattr(uniforms, 'shape', np.shape(uniforms)) != (n_rows, 2):
+            raise ValueError('time_draw_uniforms must have shape (n_rows, 2)')
+    reports = []
+    for start in range(0, n_rows, row_limit):
+        stop = min(n_rows, start + row_limit)
+        P = _noloop_extrinsic_row_view(P_vec, start, stop, n_rows)
+        values = _DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopUnchunked(
+            tvals, P, lookupNKDict, rholmsArrayDict, ctUArrayDict,
+            ctVArrayDict, epochDict,
+            time_draw_uniforms=(uniforms[start:stop] if return_time_draw else None),
+            **kwargs)
+        if result is None:
+            if return_time_draw:
+                result = xpy.empty((n_rows,), dtype=values[0].dtype)
+                at_draw = xpy.empty((n_rows,), dtype=values[1].dtype)
+            else:
+                result = xpy.empty((n_rows,), dtype=values.dtype)
+        if return_time_draw:
+            result[start:stop], at_draw[start:stop] = values
+        else:
+            result[start:stop] = values
+        reports.append(time_quad.last_report())
+        del values, P
+    time_quad._LAST_REPORT.clear()
+    time_quad._LAST_REPORT.update(_combine_noloop_chunk_reports(reports, n_rows, row_limit))
+    return (result, at_draw) if return_time_draw else result
+
+
+def _DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopUnchunked(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=np, loglikelihood=_factored_lnL_helper,return_lnLt=False,phase_marginalization=False,time_interp='nearest',time_quadrature='simpson',return_time_draw=False,time_draw_uniforms=None,time_draw_minimum_srate=None):
     """
     DiscreteFactoredLogLikelihoodViaArray uses the array-ized data structures to compute the log likelihood,
     either as an array vs time *or* marginalized in time. 
@@ -1813,8 +2001,36 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
     The timeseries quantities are computed via discrete shifts of an existing grid
     Note 'P' must have the *sampling rate* set to correctly interpret the event time.
      Note arguments passed are NOW ARRAYS, in contrast to similar function which does not have 'Vector' postfix
+
+    time_quadrature : {'simpson', 'bandlimited'}
+        Opt-in reflected finite-window FFT reconstruction and adaptive dense
+        trapezoid quadrature, as on rift_O4d. Reflection mitigates endpoint
+        ringing; it is not exact recovery of the unavailable full correlation.
+        The callback is evaluated on the dense grid, so cost grows with SNR.
+
+    return_time_draw : bool
+        With bandlimited quadrature, return (continuous time offset, lnL at
+        draw), using the validated refined conditional posterior. Mutually
+        exclusive with return_lnLt.
+    time_draw_minimum_srate : float or None
+        Minimum knot rate for continuous export; never changes the integral.
+
+    time_interp : {'nearest', 'cubic'}
+        Detector-time sampling convention for the data term.  'nearest'
+        preserves the historical NoLoop integer-bin gather.  'cubic' evaluates
+        the precomputed Q_lm time series at the fractional detector arrival time
+        using a four-sample cubic Lagrange stencil, with zero extension outside
+        the precomputed buffer.
     """
     global distMpcRef
+
+    time_quad.validate_time_quadrature(time_quadrature)
+    if return_time_draw and return_lnLt:
+        raise ValueError('return_time_draw and return_lnLt are mutually exclusive')
+    if return_time_draw and time_quadrature != 'bandlimited':
+        raise ValueError("return_time_draw requires time_quadrature='bandlimited'")
+    if time_interp not in ('nearest', 'cubic'):
+        raise ValueError("time_interp must be 'nearest' or 'cubic'")
 
     detectors = rholmsArrayDict.keys()
     npts = len(tvals)
@@ -1910,7 +2126,13 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         )
         tfirst = t_det + tvals[0]
 
-        ifirst = (xpy.rint((tfirst) / deltaT) + 0.5).astype(np.int32)  # C uses 32 bit integers : be careful
+        sample_first = tfirst / deltaT
+        if time_interp == 'nearest':
+            ifirst = (xpy.rint(sample_first) + 0.5).astype(np.int32)  # C uses 32 bit integers : be careful
+            frac_first = None
+        else:
+            ifirst = xpy.floor(sample_first).astype(np.int32)
+            frac_first = (sample_first - xpy.floor(sample_first)).astype(np.float64)
 #        ilast = ifirst + npts
 
 
@@ -1983,15 +2205,22 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
           # Shape Q = (npts_time_full, nlms)
           # Shape A=FY_conj = (npts_extrinsic, nlms)
           # shape result = (npts_extrinsic, npts_time_*window* = npts)
-          Q_prod_result = Q_inner_product.Q_inner_product_cupy(
-            Q, FY_conj,
-            ifirst, npts,
-            )
+          if time_interp == 'nearest':
+            Q_prod_result = Q_inner_product.Q_inner_product_cupy(
+              Q, FY_conj,
+              ifirst, npts,
+              )
+          else:
+            Q_prod_result = Q_inner_product.Q_inner_product_cubic_cupy(
+              Q, FY_conj,
+              ifirst, frac_first, npts,
+              )
         else:
-          # Use old code completely unchanged ... very wasteful on memory management!
-          Qlms = xpy.empty((npts_extrinsic, npts, n_lms), dtype=np.complex128)
-          for i in range(npts_extrinsic):
-              Qlms[i] = rholmsArrayDict[det][...,ifirst[i]:(ifirst[i]+npts)].T
+          Q_block = rholmsArrayDict[det].T
+          if time_interp == 'nearest':
+              Qlms = _nearest_Q_window_numpy(Q_block, ifirst, npts, xpy=xpy)
+          else:
+              Qlms = _cubic_Q_window_numpy(Q_block, ifirst, frac_first, npts)
           if phase_marginalization:
               Qlms[:, :, 1] = xpy.conj(Qlms[:, :, 1])
 
@@ -2030,18 +2259,45 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         lnL_t = loglikelihood(kappa_sq.real, rho_sq)
 
     # Take exponential of the log likelihood in-place.
-    lnLmax  = xpy.max(lnL_t)
+    # The offset must be PER EXTRINSIC SAMPLE (axis=-1 is time).  A batch-wide
+    # offset underflows exp() to zero across the whole time axis for any row
+    # peaking more than ~745 nats below the loudest row in the batch, returning
+    # -inf where the likelihood is finite (onset near max lnL ~ 745, rho ~ 40).
+    # keepdims=True is load-bearing: a (npts_extrinsic,) offset would broadcast
+    # along the time axis instead.  See issue oshaughnessy-junior/
+    # research-projects-RIT#232.
+    lnLmax  = xpy.max(lnL_t, axis=-1, keepdims=True)
     if return_lnLt:
       return lnL_t  #- lnLmax    # we want the verbatim lnL_t values, no shift
+
+    if time_quadrature == 'bandlimited':
+        # Match the current O4d numerical boundary construction and per-row
+        # offsets. The gather steps at deltaT, not the linspace spacing in tvals.
+        # Pass the caller's Simpson implementation for unrefined rows.
+        result = time_quad.time_marginalize_bandlimited(
+            kappa_sq, rho_sq, deltaT, loglikelihood,
+            phase_marginalization=phase_marginalization, lnL_coarse=lnL_t,
+            simps=simps, return_time_draw=return_time_draw,
+            draw_uniforms=time_draw_uniforms, t0=float(tvals[0]),
+            time_draw_minimum_srate=time_draw_minimum_srate, xpy=xpy)
+        if return_time_draw:
+            _, drawn_t, drawn_lnL = result
+            return drawn_t, drawn_lnL
+        return result
+
     L_t = xpy.exp(lnL_t - lnLmax, out=lnL_t)
 
     L = simps(L_t, dx=deltaT, axis=-1)
 
     # Compute log likelihood in-place.
-    lnL = lnLmax + xpy.log(L, out=L)
+    lnL = lnLmax[...,0] + xpy.log(L, out=L)
 
     return lnL
 
+
+# Keep the complete existing numerical/physical API documentation public.
+DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop.__doc__ += (
+    '\n' + _DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopUnchunked.__doc__)
 
 def ComputeYlmsArray(lookupNK, theta, phi):
     """
@@ -2157,5 +2413,3 @@ def ComputeYlmsArrayVector(lookupNK, theta, phi):
 
             Ylms[indx] = lalylm(theta, phi, s, l, m)
     return Ylms
-
-

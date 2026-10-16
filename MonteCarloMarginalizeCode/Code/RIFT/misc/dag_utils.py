@@ -24,7 +24,30 @@ from time import time
 from hashlib import md5
 
 from glue import pipeline
+from RIFT.misc.argument_quoting import _double_up_quotes, quote_arguments, safely_quote_arg_str
 import configparser
+
+from RIFT.misc.container_manifest import (
+    ContainerManifestError,
+    is_container_manifest,
+    load_container_manifest,
+    build_singularity_image_expr,
+    build_transfer_input_expr,
+    build_require_gpus_floor,
+    build_container_image_select,
+    build_capability_defined_requirement,
+    build_fallback_single_image,
+)
+
+
+def _reject_unsupported_runtime_select(image):
+    if (is_container_manifest(image)
+            and os.environ.get('RIFT_CONTAINER_RUNTIME_SELECT')
+            and not os.environ.get('RIFT_CONTAINER_UNIVERSE')):
+        raise ContainerManifestError(
+            'RIFT_CONTAINER_RUNTIME_SELECT is not supported by O4c BasicIteration; '
+            'use RIFT_CONTAINER_UNIVERSE=1 for OSG container-family selection'
+        )
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gravity.phys.uwm.edu>"
 
@@ -262,59 +285,6 @@ def generate_job_id():
 # From https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
 
 # from https://github.com/dask/dask-jobqueue/blob/main/dask_jobqueue/htcondor.py
-def _double_up_quotes(instr):
-    return instr.replace("'", "''").replace('"', '""')
-def quote_arguments(args):
-    """Quote a string or list of strings using the Condor submit file "new" argument quoting rules.
-
-    Returns
-    -------
-    str
-        The arguments in a quoted form.
-
-    Warnings
-    --------
-    You will need to surround the result in double-quotes before using it in
-    the Arguments attribute.
-
-    Examples
-    --------
-    >>> quote_arguments(["3", "simple", "arguments"])
-    '3 simple arguments'
-    >>> quote_arguments(["one", "two with spaces", "three"])
-    'one \'two with spaces\' three'
-    >>> quote_arguments(["one", "\"two\"", "spacy 'quoted' argument"])
-    'one ""two"" \'spacey \'\'quoted\'\' argument\''
-    """
-    if isinstance(args, str):
-        args_list = [args]
-    else:
-        args_list = args
-
-    quoted_args = []
-    for a in args_list:
-        qa = _double_up_quotes(a)
-        if " " in qa or "'" in qa:
-            qa = "'" + qa + "'"
-        quoted_args.append(qa)
-    return " ".join(quoted_args)
-
-def safely_quote_arg_str(arg_str):
-    """
-    See the document for https://htcondor.readthedocs.io/en/latest/man-pages/condor_submit.html
-    We need to carefully parse the argument string for quoted items (e.g., passing dictionaries) with quoted elements
-    """
-    # step 0: split into quoted arguments using standard "
-    if not ('"' in arg_str):
-        return quote_arguments
-    quote_breaks = arg_str.split('"')  # assume only one block of quotes to deal with
-    if len(quote_breaks) !=  3:
-        raise Exception(" Arg parsing: multiple quoted argument strings provided, not ready to handle ")
-    args0 = quote_arguments(quote_breaks[0].split()) # no quotes, so split on whitespace as usual
-    args2 = quote_arguments(quote_breaks[2].split()) # no quotes, so split on whitespace as usual
-    args1 = quote_arguments('"{}"'.format( quote_breaks[1])) # quote this properly, should be one argument
-    return "{} {} {}".format(args0,args1,args2)
-
 def bilby_ish_string_to_dict(my_str):
     items = my_str.replace('{', '').replace('}','').strip().split(',')
     items = [x for x in items if len(x)>0] # drop cases wiith commas
@@ -706,7 +676,23 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
 
     singularity_image_used = "{}".format(singularity_image) # make copy
     extra_files = []
-    if singularity_image:
+    _reject_unsupported_runtime_select(singularity_image)
+    # CIP is CPU-only: capability selection cannot resolve on a CPU slot.
+    singularity_is_family = bool(singularity_image and is_container_manifest(singularity_image))
+    singularity_container_universe = bool(
+        singularity_is_family and use_singularity and os.environ.get('RIFT_CONTAINER_UNIVERSE')
+    )
+    singularity_container_image = None
+    singularity_fallback_runtime = None
+    if singularity_is_family:
+        manifest = load_container_manifest(singularity_image)
+        if singularity_container_universe:
+            singularity_container_image = build_container_image_select(manifest, request_gpu=False)
+        else:
+            singularity_fallback_runtime, fallback_transfer = build_fallback_single_image(manifest)
+            if fallback_transfer:
+                extra_files.append(fallback_transfer)
+    elif singularity_image:
         if 'osdf:' in singularity_image:
             singularity_image_used  = "./{}".format(singularity_image.split('/')[-1])
             extra_files += [singularity_image]
@@ -723,7 +709,7 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
         exe=singularity_base_exe_path + path_split[-1]
         if path_split[-1] == 'true':  # special universal path for /bin/true, don't override it!
             exe = "/usr/bin/true"
-    ile_job = pipeline.CondorDAGJob(universe=universe, executable=exe)
+    ile_job = pipeline.CondorDAGJob(universe=("container" if singularity_container_universe else universe), executable=exe)
     # This is a hack since CondorDAGJob hides the queue property
     ile_job._CondorJob__queue = ncopies
 
@@ -824,8 +810,12 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
         # Compare to https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
         ile_job.add_condor_cmd('request_CPUs', str(1))
         ile_job.add_condor_cmd('transfer_executable', 'False')
-        ile_job.add_condor_cmd("MY.SingularityBindCVMFS", 'True')
-        ile_job.add_condor_cmd("MY.SingularityImage", '"' + singularity_image_used + '"')
+        if singularity_container_universe:
+            ile_job.add_condor_cmd("container_image", singularity_container_image)
+        else:
+            ile_job.add_condor_cmd("MY.SingularityBindCVMFS", 'True')
+            runtime_image = singularity_fallback_runtime if singularity_is_family else singularity_image_used
+            ile_job.add_condor_cmd("MY.SingularityImage", '"' + runtime_image + '"')
         requirements.append("HAS_SINGULARITY=?=TRUE")
 
     if use_oauth_files:
@@ -859,10 +849,19 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
 
     ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
 
-    # Stream log info: always stream CIP error, it is a critical bottleneck
-    if True: # not ('RIFT_NOSTREAM_LOG' in os.environ):
+    # Honor the explicit no-stream transport policy used by blueprint deployments.
+    if 'RIFT_NOSTREAM_LOG' not in os.environ:
         ile_job.add_condor_cmd("stream_error",'True')
         ile_job.add_condor_cmd("stream_output",'True')
+
+    # Shared local images require an explicit local-pool opt-in for CIP too.
+    if os.environ.get('RIFT_CIP_FLOCK_LOCAL', '').lower() in ('1', 'true'):
+        ile_job.add_condor_cmd('MY.flock_local', 'true')
+    if os.environ.get('RIFT_CIP_POOLS'):
+        pools = os.environ['RIFT_CIP_POOLS']
+        if not all(c.isalnum() or c in '_,-' for c in pools):
+            raise ValueError('RIFT_CIP_POOLS must be a comma-separated pool list')
+        ile_job.add_condor_cmd('MY.POOLS', '"{}"'.format(pools))
 
     try:
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
@@ -1022,7 +1021,31 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
 
     singularity_image_used = "{}".format(singularity_image) # make copy
     extra_files = []
-    if singularity_image:
+    _reject_unsupported_runtime_select(singularity_image)
+    singularity_is_family = bool(singularity_image and is_container_manifest(singularity_image))
+    singularity_container_universe = bool(
+        singularity_is_family and use_singularity and os.environ.get('RIFT_CONTAINER_UNIVERSE')
+    )
+    singularity_container_image = None
+    singularity_image_expr = None
+    singularity_require_gpus_floor = None
+    if singularity_is_family:
+        manifest = load_container_manifest(singularity_image)
+        if singularity_container_universe:
+            singularity_container_image = build_container_image_select(manifest, request_gpu=request_gpu)
+        if request_gpu:
+            singularity_image_expr = build_singularity_image_expr(manifest)
+            singularity_require_gpus_floor = build_require_gpus_floor(manifest)
+            transfer_expr = build_transfer_input_expr(manifest)
+            if transfer_expr:
+                extra_files.append(transfer_expr)
+        else:
+            # A CPU-only ILE job has no capability attribute to select on.
+            # Keep both transport modes on the single CPU-safe fallback image.
+            singularity_image_used, fallback_transfer = build_fallback_single_image(manifest)
+            if fallback_transfer and not singularity_container_universe:
+                extra_files.append(fallback_transfer)
+    elif singularity_image:
         if 'osdf:' in singularity_image:
             singularity_image_used  = "./{}".format(singularity_image.split('/')[-1])
             extra_files += [singularity_image]
@@ -1077,7 +1100,9 @@ echo Starting ...
             exe = exe_here  # update executable
 
 
-    ile_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
+    ile_job = pipeline.CondorDAGJob(
+        universe=("container" if singularity_container_universe else "vanilla"), executable=exe
+    )
     # This is a hack since CondorDAGJob hides the queue property
     ile_job._CondorJob__queue = ncopies
 
@@ -1089,9 +1114,7 @@ echo Starting ...
     #
     arg_str = arg_str.lstrip() # remove leading whitespace and minus signs
     arg_str = arg_str.lstrip('-')
-    if '"' in arg_str:
-        arg_str = safely_quote_arg_str(arg_str)
-        #arg_str = arg_str.replace('"','""') # double quote for condor - weird but true
+    arg_str = safely_quote_arg_str(arg_str)
     ile_job.add_opt(arg_str,'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
 #    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
 
@@ -1197,8 +1220,14 @@ echo Starting ...
         # Compare to https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
         ile_job.add_condor_cmd('request_CPUs', str(ile_gpu_cpus))
         ile_job.add_condor_cmd('transfer_executable', 'False')
-        ile_job.add_condor_cmd("MY.SingularityBindCVMFS", 'True')
-        ile_job.add_condor_cmd("MY.SingularityImage", '"' + singularity_image_used + '"')
+        if singularity_container_universe:
+            ile_job.add_condor_cmd("container_image", singularity_container_image)
+        else:
+            ile_job.add_condor_cmd("MY.SingularityBindCVMFS", 'True')
+            ile_job.add_condor_cmd(
+                "MY.SingularityImage",
+                singularity_image_expr if singularity_is_family and request_gpu else '"' + singularity_image_used + '"',
+            )
         ile_job.add_condor_cmd("MY.flock_local",'true')  # jobs can match to local pool !
         requirements.append("HAS_SINGULARITY=?=TRUE")
 #               if not(use_simple_osg_requirements):
@@ -1299,6 +1328,11 @@ echo Starting ...
             for name in name_list:
                 requirements.append('TARGET.Machine =!= "{}" '.format(name))
 
+    if singularity_is_family and request_gpu:
+        # A per-machine image expression cannot expand on a slot without the
+        # advertised capability attribute; do not guess a fallback GPU image.
+        requirements.append(build_capability_defined_requirement(manifest))
+
     # Write requirements
     # From https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
     ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
@@ -1311,12 +1345,16 @@ echo Starting ...
 
     if not transfer_files is None:
         if not isinstance(transfer_files, list):
-            fname_str=transfer_files + ' '.join(extra_files)
+            fname_str = ','.join(part for part in [transfer_files] + extra_files if part)
         else:
             fname_str = ','.join(transfer_files+extra_files)
         fname_str=fname_str.strip()
         ile_job.add_condor_cmd('transfer_input_files', fname_str)
         ile_job.add_condor_cmd('should_transfer_files','YES')
+        if singularity_container_universe and request_gpu:
+            # condor_submit otherwise appends the bare selector basename to
+            # TransferInput, which does not exist on the access point.
+            ile_job.add_condor_cmd('MY.TransferInput', '"' + fname_str.replace('"', '\\"') + '"')
 
     if not transfer_output_files is None:
         if not isinstance(transfer_output_files, list):
@@ -1332,8 +1370,13 @@ echo Starting ...
         remove_str = 'JobStatus =?= 2 && (CurrentTime - JobStartDate) > ( {})'.format(60*max_runtime_minutes)
         ile_job.add_condor_cmd('periodic_remove', remove_str)
 
-    if 'RIFT_REQUIRE_GPUS' in os.environ:  # new convention 'require_gpus = ' to specify conditions on GPU properties
-        ile_job.add_condor_cmd('require_gpus',os.environ['RIFT_REQUIRE_GPUS'])
+    require_gpus_terms = []
+    if 'RIFT_REQUIRE_GPUS' in os.environ:
+        require_gpus_terms.append('({})'.format(os.environ['RIFT_REQUIRE_GPUS']))
+    if singularity_is_family and singularity_require_gpus_floor:
+        require_gpus_terms.append('({})'.format(singularity_require_gpus_floor))
+    if require_gpus_terms:
+        ile_job.add_condor_cmd('require_gpus', ' && '.join(require_gpus_terms))
     
 
     ###
@@ -2460,13 +2503,24 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
         sys.exit(0)
 
     singularity_image_used = "{}".format(singularity_image) # make copy
-    if singularity_image:
-        if 'osdf:' in singularity_image:
-            singularity_image_used  = "./{}".format(singularity_image.split('/')[-1])
-            if transfer_files is None:
-                transfer_files= [singularity_image]
-            else:
-                transfer_files += [singularity_image]
+    _reject_unsupported_runtime_select(singularity_image)
+    singularity_is_family = bool(singularity_image and is_container_manifest(singularity_image))
+    singularity_container_universe = bool(
+        singularity_is_family and use_singularity and os.environ.get('RIFT_CONTAINER_UNIVERSE')
+    )
+    singularity_container_image = None
+    fallback_transfer = None
+    if singularity_is_family:
+        manifest = load_container_manifest(singularity_image)
+        if singularity_container_universe:
+            singularity_container_image = build_container_image_select(manifest, request_gpu=False)
+        else:
+            singularity_image_used, fallback_transfer = build_fallback_single_image(manifest)
+            if fallback_transfer:
+                transfer_files = ([transfer_files] if isinstance(transfer_files, str) else list(transfer_files or [])) + [fallback_transfer]
+    elif singularity_image and 'osdf:' in singularity_image:
+        singularity_image_used = "./{}".format(singularity_image.split('/')[-1])
+        transfer_files = ([transfer_files] if isinstance(transfer_files, str) else list(transfer_files or [])) + [singularity_image]
 
     
     exe = exe or which("calibration_reweighting.py")
@@ -2484,7 +2538,9 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
             singularity_base_exe_path = "/usr/bin/"  # should not hardcode this ...!
         exe=singularity_base_exe_path + exe_base
 
-    ile_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
+    ile_job = pipeline.CondorDAGJob(
+        universe=("container" if singularity_container_universe else "vanilla"), executable=exe
+    )
     # This is a hack since CondorDAGJob hides the queue property
     ile_job._CondorJob__queue = ncopies
 
@@ -2500,11 +2556,21 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
         # Compare to https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
         ile_job.add_condor_cmd('request_CPUs', str(1))
         ile_job.add_condor_cmd('transfer_executable', 'False')
-        ile_job.add_condor_cmd("MY.SingularityBindCVMFS", 'True')
-        ile_job.add_condor_cmd("MY.SingularityImage", '"' + singularity_image_used + '"')
+        if singularity_container_universe:
+            ile_job.add_condor_cmd("container_image", singularity_container_image)
+        else:
+            ile_job.add_condor_cmd("MY.SingularityBindCVMFS", 'True')
+            ile_job.add_condor_cmd("MY.SingularityImage", '"' + singularity_image_used + '"')
         ile_job.add_condor_cmd("transfer_output_files", "weight_files")
         requirements.append("HAS_SINGULARITY=?=TRUE")
         print(" WARNING: cal reweighting requires bilby. Directories are moved to cal_evelopes")
+        # A local shared image is not available on arbitrary OSG hosts.
+        shared_requirement = os.environ.get('RIFT_REQUIRE_NONWORKER')
+        if shared_requirement and not singularity_container_universe and (
+            (singularity_is_family and not fallback_transfer)
+            or (not singularity_is_family and singularity_image_used == singularity_image)
+        ):
+            requirements.append('({}) =?= TRUE'.format(shared_requirement))
 #        os.system("condor_config_val UID_DOMAIN > uid_domain.txt")
 #       with open("uid_domain.txt", 'r') as f:
 #            uid_domain = f.readline().strip()
