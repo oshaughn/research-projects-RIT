@@ -265,6 +265,9 @@ class MCSampler(object):
         # if only one method is active, just call the low-level function
         if len(indx_active) == 1:
            joint_p_s, joint_p_prior, rv = self.portfolio[indx_active[0]].draw_simplified(n_samples, *self.params_ordered, **kwargs)
+           joint_p_s = self.xpy.asarray(identity_convert(joint_p_s))
+           joint_p_prior = self.xpy.asarray(identity_convert(joint_p_prior))
+           rv = self.xpy.asarray(identity_convert(rv))
         else:
           # Identify number of samples per member of the portfolio. Can be zero.
           n_samples_per_member = ((np.array(weights_active))*n_samples).astype(int)
@@ -286,11 +289,11 @@ class MCSampler(object):
             joint_p_s_here, joint_p_prior_here, rv_here = member.draw_simplified(
                 n_samples_per_member[indx_member], *self.params_ordered, **kwargs
                 )
-            # type convert as needed, to GPU
-            if not(isinstance( type(joint_p_s_here), type(joint_p_s))):
-              joint_p_s_here = self.identity_convert_togpu(joint_p_s_here)
-              joint_p_prior_here = self.identity_convert_togpu(joint_p_prior_here)
-              rv_here = self.identity_convert_togpu(rv_here)
+            # Members and the container may use different backends. In particular,
+            # explicit NumPy portfolios still encounter CuPy-enabled members.
+            joint_p_s_here = self.xpy.asarray(identity_convert(joint_p_s_here))
+            joint_p_prior_here = self.xpy.asarray(identity_convert(joint_p_prior_here))
+            rv_here = self.xpy.asarray(identity_convert(rv_here))
             indx_start = int(n_index_start_per_member[indx_member])
             indx_end = indx_start + int(n_samples_per_member[indx_member])
             joint_p_s[indx_start:indx_end] = joint_p_s_here
@@ -307,7 +310,7 @@ class MCSampler(object):
             rvs_tmp = dict(list(zip(args, rv)))
             #for p, ar in self._rvs.items():
             for p in self.params_ordered:
-                self._rvs[p] = numpy.hstack( (self._rvs[p], rvs_tmp[p]) )
+                self._rvs[p] = self.xpy.hstack((self._rvs[p], rvs_tmp[p]))
 
 
         return joint_p_s, joint_p_prior, rv
@@ -321,7 +324,8 @@ class MCSampler(object):
         
 
     def integrate_log(self, lnF, *args, xpy=xpy_default,**kwargs):
-        xpy_here = self.xpy
+        xpy = xpy_here = self.xpy
+        special_here = xpy_special_default if cupy_ok and xpy is cupy else special
         
         #
         # Determine stopping conditions
@@ -426,9 +430,7 @@ class MCSampler(object):
             else:
                 lnL= lnF(**unpacked)  # protect order using dictionary
             # take log if we are NOT using lnL
-            if cupy_ok:
-              if not(isinstance(lnL,cupy.ndarray)):
-                lnL = identity_convert_togpu(lnL)  # send to GPU, if not already there
+            lnL = self.xpy.asarray(identity_convert(lnL))
 
             log_integrand =lnL + self.xpy.log(joint_p_prior) - self.xpy.log(joint_p_s)
             # tempering_exp done inside the update proposal, NOT here
@@ -459,9 +461,9 @@ class MCSampler(object):
 
             # n, Mean, error tracked by statutils structure
             if current_log_aggregate is None:
-              current_log_aggregate = init_log(log_integrand,xpy=xpy,special=xpy_special_default)
+              current_log_aggregate = init_log(log_integrand,xpy=xpy,special=special_here)
             else:
-              current_log_aggregate = update_log(current_log_aggregate, log_integrand,xpy=xpy,special=xpy_special_default)
+              current_log_aggregate = update_log(current_log_aggregate, log_integrand,xpy=xpy,special=special_here)
             outvals = finalize_log(current_log_aggregate,xpy=xpy)
             self.ntotal = current_log_aggregate[0]
             # effective samples
@@ -561,7 +563,9 @@ class MCSampler(object):
                     member.update_sampling_prior(log_weights, n_history,external_rvs=rvs_train,log_scale_weights=True, **update_dict)
                   else:
                     # just do a single VARAHA step, independent of others
-                    member.update_sampling_prior_selfish(lnF)
+                    member.update_sampling_prior_selfish(
+                        lambda *coords: identity_convert(lnF(*(
+                            self.xpy.asarray(identity_convert(x)) for x in coords))))
                 else:
                   if self.portfolio_draw_iteration > self.portfolio_breakpoints[indx]:  
                     print("   - frozen sampling for member {} {}".format(indx, self.portfolio_weights[indx]))
@@ -615,9 +619,10 @@ class MCSampler(object):
            # Host-convert each operand BEFORE the arithmetic: self.xpy may be numpy while a
            # device-native integrand leaves these keys cupy-typed, and numpy.array() on a cupy
            # array raises the same TypeError as the draw below, one line earlier.
-           ln_wt = self.xpy.asarray(identity_convert(self._rvs["log_integrand"])
+           ln_wt = np.asarray(identity_convert(self._rvs["log_integrand"])
                                     + identity_convert(self._rvs["log_joint_prior"])
                                     - identity_convert(self._rvs["log_joint_s_prior"]), dtype=float)
+           # SciPy normalizes on the host; transfer only the normalized weights.
            ln_wt += - special.logsumexp(ln_wt)
            # Build the weights on the SAMPLER's backend (self.xpy), which is what draws below.
            # The module-global `identity_convert_togpu` is cupy.asarray independently of self.xpy

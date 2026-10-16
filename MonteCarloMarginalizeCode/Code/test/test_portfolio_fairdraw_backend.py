@@ -113,7 +113,7 @@ class _DeviceArray(object):
 
 def _to_host(x):
     """cupy.asnumpy, for _DeviceArray."""
-    return x.get() if isinstance(x, _DeviceArray) else x
+    return x.get() if hasattr(x, "get") else x
 
 
 class _DeviceRandom(object):
@@ -172,25 +172,11 @@ _KW = dict(nmax=100000, neff=20, n=10000, no_protect_names=True, verbose=False,
 
 def _integrate(s):
     np.random.seed(SEED)
+    if PF.cupy_ok:
+        PF.cupy.random.seed(SEED)
     return s.integrate_log(_peaked, *NAMES, **_KW)
 
 
-def _skip_if_draw_cannot_aggregate_mixed_backends(exc):
-    """Skip when the failure is the SEPARATE draw()-aggregation defect, not the fair draw.
-
-    On this branch mcsamplerPortfolio.draw() converts each member's draw with the INSTANCE
-    identity_convert_togpu and then assigns the result into host-typed buffers, so a
-    device-typed instance converter raises inside draw() -- long before integrate_log reaches
-    the fair-draw block this file is about.  That defect is pre-existing and untouched here
-    (rift_O4d solves it by aggregating on the host); attributing it to the fair draw would be
-    wrong.  Skip with the reason rather than fail, so these re-enable themselves if draw() is
-    ever fixed.  The fair-draw gather is pinned regardless by the device-typed INDEX test,
-    which does run on this branch.
-    """
-    for frame in traceback.extract_tb(exc.__traceback__):
-        if frame.name == 'draw' and 'mcsamplerPortfolio' in frame.filename:
-            pytest.skip('blocked upstream by the draw() mixed-backend aggregation defect '
-                        '(separate, pre-existing, untouched by this change)')
 
 
 ###
@@ -300,7 +286,6 @@ def test_gather_survives_a_device_typed_stored_array(monkeypatch):
     try:
         res = _integrate(s)
     except TypeError as e:
-        _skip_if_draw_cannot_aggregate_mixed_backends(e)
         if 'Implicit conversion to a NumPy array' in str(e):
             pytest.fail("the gather could not index a device-typed stored array: {}".format(e))
         raise
@@ -329,7 +314,6 @@ def test_the_gather_leaves_no_device_typed_entry_behind(monkeypatch):
     try:
         _integrate(s)
     except TypeError as e:
-        _skip_if_draw_cannot_aggregate_mixed_backends(e)
         raise
     for k, v in s._rvs.items():
         assert isinstance(v, np.ndarray), \
@@ -386,3 +370,75 @@ def test_fairdraw_on_the_cupy_backend():
     for k, v in s._rvs.items():
         assert not isinstance(v, cupy.ndarray), \
             'key {} came back on the device'.format(k)
+
+
+class _StrictDeviceRandom(_DeviceRandom):
+    def choice(self, a, size=None, replace=True, p=None):
+        return _DeviceArray(np.random.choice(_to_host(a), size=size,
+                                            replace=replace, p=_to_host(p)))
+
+
+class _StrictDeviceBackend(_XpyDeviceChoice):
+    random = _StrictDeviceRandom()
+    asnumpy = staticmethod(_to_host)
+
+    @staticmethod
+    def asarray(x, **kwargs):
+        return _DeviceArray(np.asarray(_to_host(x), **kwargs))
+
+
+def _exercise_device_fairdraw(backend, convert):
+    # Run the real export block independently of upstream member adaptation.
+    import ast
+    from pathlib import Path
+    from types import SimpleNamespace
+    from scipy import special
+    tree = ast.parse(Path(inspect.getfile(PF)).read_text())
+    tree = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
+                and n.name == "integrate_log")
+    block = next(n for n in ast.walk(tree) if isinstance(n, ast.If)
+                 and isinstance(n.test, ast.BoolOp)
+                 and isinstance(n.test.values[0], ast.Name)
+                 and n.test.values[0].id == 'bFairdraw')
+    sampler = SimpleNamespace(xpy=backend, _rvs={
+        'log_integrand': backend.asarray(np.linspace(-2., -1., 100)),
+        'log_joint_prior': backend.asarray(np.zeros(100)),
+        'log_joint_s_prior': backend.asarray(np.zeros(100)),
+        'x': np.arange(100.)})
+    scope = dict(self=sampler, n_extr=8, eff_samp=10, neff=10,
+                 numpy=np, np=np, identity_convert=convert, special=special)
+    exec(compile(ast.Module(body=block.body, type_ignores=[]), '<fairdraw>', 'exec'), scope)
+    assert len(sampler._rvs['log_integrand']) == 8
+    assert all(isinstance(v, np.ndarray) for v in sampler._rvs.values())
+
+
+def test_device_weight_construction_keeps_scipy_normalization_on_host():
+    _exercise_device_fairdraw(_StrictDeviceBackend(), _to_host)
+
+
+@pytest.mark.skipif(not PF.cupy_ok, reason='no cupy/GPU on this host')
+def test_device_fairdraw_with_actual_cupy_weights():
+    import cupy
+    _exercise_device_fairdraw(cupy, cupy.asnumpy)
+
+
+@pytest.mark.skipif(not PF.cupy_ok, reason='no cupy/GPU on this host')
+@pytest.mark.parametrize('device_sampler', [False, True])
+def test_cupy_host_honors_instance_backend_across_batches(device_sampler):
+    import cupy
+    s = _sampler()
+    backend = cupy if device_sampler else np
+    for sampler in [s] + s.portfolio_realizations:
+        sampler.xpy = backend
+        sampler.identity_convert = cupy.asnumpy
+        sampler.identity_convert_togpu = backend.asarray
+    def target(*args):
+        x = cupy.asarray(args).T
+        return -0.5*cupy.sum(((x-0.5)/0.15)**2, axis=1)
+    np.random.seed(SEED)
+    cupy.random.seed(SEED)
+    kw = dict(_KW, nmax=20000, neff=50000)
+    result = s.integrate_log(target, *NAMES, **kw)
+    assert s.ntotal == 20000
+    assert np.isfinite(float(result[0]))
+    assert all(isinstance(v, np.ndarray) for v in s._rvs.values())

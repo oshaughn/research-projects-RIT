@@ -944,7 +944,6 @@ elif opts.sampler_method == "portfolio" and mcsampler_Portfolio_ok:
     print(" PORTFOLIO ", opts.sampler_portfolio)
     xpy_asarray_already = lambda x: x  # do nothing because we are already on the board for GPU-generated 
     if opts.sampler_xpy == "numpy":
-      mcsampler.set_xpy_to_numpy()
       my_xpy= numpy
       my_identity_convert= lambda x: x
       my_identity_convert_togpu= lambda x: x
@@ -965,7 +964,7 @@ elif opts.sampler_method == "portfolio" and mcsampler_Portfolio_ok:
         if hasattr(sampler, 'xpy'):
           sampler.xpy = my_xpy
           sampler.identity_convert= my_identity_convert
-          sampler.identity_convert_togpu=identity_convert_togpu
+          sampler.identity_convert_togpu=my_identity_convert_togpu
         sampler_list.append(sampler)
     sampler = mcsamplerPortfolio.MCSampler(portfolio=sampler_list)
     sampler.xpy = my_xpy

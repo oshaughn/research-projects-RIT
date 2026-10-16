@@ -197,9 +197,9 @@ class MCSampler(object):
         for index in range(len(self.curr_args)):
             if self.curr_args[index] in self.prior_pdf:
                 pdf_func = self.prior_pdf[self.curr_args[index]]
-                temp_samples = samples[:,index]
+                temp_samples = self.identity_convert(samples[:,index])
                 # monte carlo integrator expects a column
-                temp_ret *= pdf_func(temp_samples).reshape( temp_ret.shape) #self.xpy.rot90([pdf_func(temp_samples)], -1)
+                temp_ret *= self.xpy.asarray(pdf_func(temp_samples)).reshape(temp_ret.shape) #self.xpy.rot90([pdf_func(temp_samples)], -1)
         return temp_ret
 
     def setup(self,n_comp=None,**kwargs):
@@ -288,10 +288,10 @@ class MCSampler(object):
       n_history_to_use = np.min([n_history, len(ln_weights), len(rvs_here[self.params_ordered[0]])] )
 
       # Create appropriate history array
-      # keep in GPU form, because we don't need it all !  Only adapt in SOME dimensions, reduce bandwidth!
-      sample_array = self.xpy.empty( (len(self.params_ordered), n_history_to_use))
+      # GMM fitting is CPU-only, even when the enclosing portfolio uses CuPy.
+      sample_array = np.empty((len(self.params_ordered), n_history_to_use))
       for indx, p in enumerate(self.params_ordered):
-          sample_array[indx] = rvs_here[p][-n_history_to_use:]
+          sample_array[indx] = self.identity_convert(rvs_here[p][-n_history_to_use:])
       sample_array = sample_array.T
 
 
