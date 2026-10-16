@@ -55,7 +55,24 @@ Development tree is rift_O4c.
     waveform-dictionary quoting through ASIMOV and HTCondor while retaining
     compatibility with older O4c DAGs and containers.
 
-Release candidate is rc6.
+  - (rc7) PR 220 aggregates all CIP worker evidence values; PR 221 adds
+    container-family selection to BasicIteration. PR 219 fixes duplicate
+    calibration waveform tapering and preserves the waveform epoch; PR 180
+    propagates tidal parameters through GWSignal, including SEOBNRv5THM.
+    PR 190 normalizes the psi and phi_orb priors over their sampling ranges:
+    ILE lnZ decreases by ln(2), or ln(8) with --internal-rotate-phase,
+    without changing posteriors; old and new likelihood tables require these
+    offsets before combining. PR 179 adds Bilby-compatible noise evidence.
+    PR 218 makes CIP posterior export fair with systematic resampling and
+    caps the final group's draw for uniqueness; PR 181 corrects exported
+    time-grid spacing labels. PR 168 fixes portfolio fair-draw backend and
+    proposal normalization; PR 172 makes portfolio driver selection explicit
+    and validates sampler requests before loading detector data.
+    PR 171 fixes AV empty-live-volume collapse and adds extrinsic zoom boxes
+    with consistent cosine-sampler limits and GPU support. PR 174 adds CIP
+    intrinsic-prior regression coverage and CI checks.
+
+Release candidate is rc7.
 
 0.0.17.13
 ---------
