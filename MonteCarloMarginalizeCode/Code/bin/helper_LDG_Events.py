@@ -261,6 +261,8 @@ parser.add_argument("--force-grid-stretch-mc-factor",default=None,type=float,hel
 parser.add_argument("--force-notune-initial-grid",action='store_true',help="Prevent tuning of grid")
 parser.add_argument("--force-initial-grid-size",default=None,type=int,help="Force grid size for initial grid (hopefully)")
 parser.add_argument("--propose-fit-strategy",action='store_true',help="If present, the code will propose a fit strategy (i.e., cip-args or cip-args-list).  The strategy will take into account the mass scale, presence/absence of matter, and the spin of the component objects.  If --lowlatency-propose-approximant is active, the code will use a strategy suited to low latency (i.e., low cost, compatible with search PSDs, etc)")
+from RIFT.misc import eccentric_phase_pipeline
+eccentric_phase_pipeline.add_arguments(parser)
 parser.add_argument("--propose-flat-strategy",action="store_true",help="If present AND propose-fit-strategy is present, the strategy proposed will have puffball and convergence tests for every iteration, and the same CIP")
 parser.add_argument("--propose-converge-last-stage",action="store_true",help="If present, the last pre-extrinsic stage is 'iterate to convergence' form")
 parser.add_argument("--rf-transverse-spin-coordinates", choices=["off","auto","physics3","geometric4","geometric4-phase-excess"], default=None, help="Opt-in RF geometric4 radius/phase-excess fit bases; auto selects geometric4 at detector chirp mass <20 Msun. physics3 is retired and refused (11 fit coordinates for 8 degrees of freedom)")
@@ -290,6 +292,10 @@ parser.add_argument("--force-plunge-grids",action='store_true',help="Eliminates 
 parser.add_argument("--force-zoomwhirl-grids",action='store_true',help="Eliminates all non-zoomwhirl intrinsic points from hyperbolic grids throughout the workflow.")
 parser.add_argument('--force-hyperbolic-22', action='store_true', help='Forces just the 22 modes for hyperbolic waveforms')
 opts=  parser.parse_args()
+if opts.eccentric_phase_coordinates:
+    if not opts.assume_eccentric or not opts.use_meanPerAno:
+        parser.error('--eccentric-phase-coordinates requires --assume-eccentric and --use-meanPerAno')
+    eccentric_phase_pipeline.frequency_arguments(opts.eccentric_phase_reference_frequency,opts.eccentric_phase_target_frequency)
 if opts.rf_transverse_spin_coordinates == 'physics3':
     from RIFT.misc.rf_transverse_spin import RETIRED_MESSAGE
     parser.error(RETIRED_MESSAGE)
@@ -2028,6 +2034,15 @@ refuse_unless_time_quadrature_emitted(
 # Same discipline, same reason, for the Q_lm pregrid factor.
 refuse_unless_q_time_pregrid_emitted(
     q_time_pregrid_factor, helper_ile_args, "helper_ile_args.txt")
+
+if opts.eccentric_phase_coordinates:
+    helper_cip_args = eccentric_phase_pipeline.stage_arguments(helper_cip_args,
+        opts.eccentric_phase_reference_frequency,opts.eccentric_phase_target_frequency)
+    helper_cip_arg_list = [eccentric_phase_pipeline.stage_arguments(line,
+        opts.eccentric_phase_reference_frequency,opts.eccentric_phase_target_frequency)
+        for line in helper_cip_arg_list]
+    helper_puff_args = eccentric_phase_pipeline.puff_arguments(helper_puff_args,
+        opts.eccentric_phase_reference_frequency,opts.eccentric_phase_target_frequency)
 
 # editing ILE args based on strategy above, so only writing now
 with open("helper_ile_args.txt",'w') as f:

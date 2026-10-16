@@ -477,6 +477,8 @@ parser.add_argument("--use-meanPerAno",action='store_true', help="Add meanPerAno
 parser.add_argument("--use-EOB-parameters",action='store_true', help="Add sampling in EOB parameters; currently only a6c")
 parser.add_argument("--assume-hyperbolic",action='store_true', help="Add hyperbolic options for each part of analysis")
 parser.add_argument("--internal-cip-use-periodic-ecc-vars",action='store_true', help="use e cos ell, e sin ell as fitting variables ")
+from RIFT.misc import eccentric_phase_pipeline
+eccentric_phase_pipeline.add_arguments(parser)
 parser.add_argument("--assume-lowlatency-tradeoffs",action='store_true', help="Force analysis with various low-latency tradeoffs (e.g., drop spin 2, use aligned, etc)")
 parser.add_argument("--assume-highq",action='store_true', help="Force analysis with the high-q strategy, neglecting spin2. Passed to 'helper'")
 parser.add_argument("--assume-well-placed",action='store_true',help="If present, the code will adopt a strategy that assumes the initial grid is very well placed, and will minimize the number of early iterations performed. Not as extrme as --propose-flat-strategy")
@@ -672,6 +674,12 @@ parser.add_argument("--force-plunge-grids",action='store_true',help="Eliminates 
 parser.add_argument("--force-zoomwhirl-grids",action='store_true',help="Eliminates all non-zoomwhirl intrinsic points from hyperbolic grids throughout the workflow.")
 parser.add_argument("--force-hyperbolic-22", action='store_true', help='Forces just the 22 modes for hyperbolic waveforms')
 opts=  parser.parse_args()
+if opts.eccentric_phase_coordinates:
+    if not opts.assume_eccentric or not opts.use_meanPerAno:
+        parser.error('--eccentric-phase-coordinates requires --assume-eccentric and --use-meanPerAno')
+    if opts.internal_cip_use_periodic_ecc_vars or opts.internal_use_amr:
+        parser.error('Effective eccentric-phase coordinates cannot be combined with the legacy periodic-ecc basis or AMR')
+    eccentric_phase_pipeline.frequency_arguments(opts.eccentric_phase_reference_frequency,opts.eccentric_phase_target_frequency)
 
 # Resolve the sub-sample stencil request IMMEDIATELY, so a bare flag / retired 'True' / typo
 # fails here rather than being forwarded into a workflow build.  Value unused at this point --
@@ -1287,6 +1295,9 @@ if opts.internal_use_gracedb_bayestar:
     cmd += " --internal-use-gracedb-bayestar "
 if opts.internal_use_amr:
     cmd += " --internal-use-amr " # minimal support performed in this routine, mainly for puff
+if opts.eccentric_phase_coordinates:
+    cmd += ' --eccentric-phase-coordinates '+eccentric_phase_pipeline.frequency_arguments(
+        opts.eccentric_phase_reference_frequency,opts.eccentric_phase_target_frequency)
 if opts.internal_use_aligned_phase_coordinates:
     cmd += " --internal-use-aligned-phase-coordinates "
 if opts.internal_use_rescaled_transverse_spin_coordinates:
@@ -2173,6 +2184,13 @@ for indx_rf, line_rf in enumerate(lines):
     if '--rf-transverse-spin-coordinates' in line_rf and stage_problem(line_rf):
         raise ValueError('RF transverse-spin stage {} activated but CIP would refuse it ({}); conflicting options: {}'.format(
             indx_rf, stage_problem(line_rf), ', '.join('--'+name.replace('_','-') for name in rf_transverse_conflicts) or 'see --manual-extra-cip-args'))
+
+if opts.eccentric_phase_coordinates:
+    lines = [eccentric_phase_pipeline.stage_arguments(line,
+        opts.eccentric_phase_reference_frequency,opts.eccentric_phase_target_frequency) for line in lines]
+    if not any(eccentric_phase_pipeline.FLAG in line for line in lines):
+        raise ValueError('No CIP stage fits native eccentricity/anomaly for the requested effective coordinates')
+
 with open("args_cip_list.txt",'w') as f:
    if not(opts.internal_truncate_cip_arg_list is None):
        if opts.internal_truncate_cip_arg_list < 1:
@@ -2228,6 +2246,9 @@ if opts.internal_cip_transverse_tails:
     # safe to append them unconditionally here.
     puff_params += ' --append-with-random-parameter chi1_perp --append-with-random-fraction {} '.format(opts.internal_cip_transverse_tails_puff_fraction)
     puff_max_it = max(puff_max_it, 30)
+if opts.eccentric_phase_coordinates:
+    puff_params = eccentric_phase_pipeline.puff_arguments(puff_params,
+        opts.eccentric_phase_reference_frequency,opts.eccentric_phase_target_frequency)
 if opts.assume_matter:
 #    puff_params += " --parameter LambdaTilde "  # should already be present
     puff_max_it +=5   # make sure we resolve the correlations
