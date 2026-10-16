@@ -1,0 +1,92 @@
+name: CIP startup
+
+on:
+  push:
+    branches: [rift_O4c]
+  pull_request:
+    branches: [rift_O4c]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cip-startup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GW_SURROGATE: ""
+      MPLBACKEND: Agg
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - name: Install runtime and test dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y libgsl-dev swig
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install --editable . pytest
+      - name: Run real CIP startup and EOS validation regressions
+        run: |
+          python -m pytest -q \
+            MonteCarloMarginalizeCode/Code/test/test_cip_startup.py \
+            MonteCarloMarginalizeCode/Code/test/test_assign_param_spin_order.py \
+            MonteCarloMarginalizeCode/Code/test/test_lalsim_eos_compat.py \
+            MonteCarloMarginalizeCode/Code/test/test_convert_coordinates_source_redshift.py \
+            MonteCarloMarginalizeCode/Code/test/test_convert_coordinates_row_independence.py \
+            MonteCarloMarginalizeCode/Code/test/test_ring_coordinates.py
+      - name: Run transverse-spin RF coordinate and helper contracts
+        run: |
+          python -m pip install liquidpy
+          python -m pytest -q \
+            MonteCarloMarginalizeCode/Code/test/test_geometric4.py \
+            MonteCarloMarginalizeCode/Code/test/test_puffball_transverse_reflect.py \
+            MonteCarloMarginalizeCode/Code/test/test_rf_transverse_spin.py \
+            MonteCarloMarginalizeCode/Code/test/test_rf_transverse_asimov_render.py \
+            MonteCarloMarginalizeCode/Code/test/test_rf_transverse_helper_generation.py
+          python MonteCarloMarginalizeCode/Code/test/rf_transverse_cli_smoke.py
+          python MonteCarloMarginalizeCode/Code/test/rf_transverse_cli_smoke.py redshift
+          python MonteCarloMarginalizeCode/Code/test/rf_transverse_cli_smoke.py geometric4
+          python MonteCarloMarginalizeCode/Code/test/rf_transverse_cli_smoke.py geometric4 redshift
+          python MonteCarloMarginalizeCode/Code/test/rf_transverse_cli_smoke.py geometric4 extra
+          python MonteCarloMarginalizeCode/Code/test/rf_transverse_cli_smoke.py geometric4 duplicate
+          python MonteCarloMarginalizeCode/Code/test/rf_transverse_cli_smoke.py geometric4-phase-excess
+          python MonteCarloMarginalizeCode/Code/test/rf_transverse_cli_smoke.py geometric4-phase-excess redshift
+          python MonteCarloMarginalizeCode/Code/test/rf_transverse_cli_smoke.py geometric4-phase-excess extra
+          python MonteCarloMarginalizeCode/Code/test/rf_transverse_cli_smoke.py geometric4-phase-excess duplicate
+      - name: Run GWSignal backend-option transport regressions
+        # Each file importorskips optional dependencies; a skip means the leg tested nothing.
+        run: |
+          set -o pipefail
+          python -m pytest -q -rs \
+            MonteCarloMarginalizeCode/Code/test/test_gwsignal_options.py \
+            MonteCarloMarginalizeCode/Code/test/test_gwsignal_ile_options.py \
+            MonteCarloMarginalizeCode/Code/test/test_gwsignal_asimov_options.py \
+            MonteCarloMarginalizeCode/Code/test/test_calibration_backend_options.py \
+            MonteCarloMarginalizeCode/Code/test/test_ile_condor_argument_quoting.py | tee gws.log
+          ! grep -Eq '[0-9]+ skipped' gws.log
+      - name: Run RIFT calibration-source conditioning and epoch regressions
+        run: |
+          python -m pip install bilby
+          python -m pip install --build-constraint .travis/pyseobnr-build-constraints.txt pyseobnr
+          python -m pytest -q \
+            MonteCarloMarginalizeCode/Code/test/test_calmarg_source_conditioning_epoch.py \
+            MonteCarloMarginalizeCode/Code/test/test_calmarg_rift_source.py
+      - name: Run O4c time quadrature and interpolation regressions
+        run: |
+          python -m pytest -q \
+            MonteCarloMarginalizeCode/Code/test/test_time_marginalization_quadrature.py \
+            MonteCarloMarginalizeCode/Code/test/test_time_marginalization_wiring.py \
+            MonteCarloMarginalizeCode/Code/test/test_time_marginalization_cli.py \
+            MonteCarloMarginalizeCode/Code/test/test_bandlimited_time_export_driver.py \
+            MonteCarloMarginalizeCode/Code/test/test_time_export_exact_gps.py \
+            MonteCarloMarginalizeCode/Code/test/test_time_marginalization_perrow_offset.py \
+            MonteCarloMarginalizeCode/Code/test/test_noloop_time_interp.py \
+            MonteCarloMarginalizeCode/Code/test/test_noloop_bandlimited_row_chunks.py
