@@ -358,6 +358,11 @@ if (opts.use_ini):
 
         if not('RIFT_REQUIRE_GPUS' in os.environ) and 'ile_require_gpus' in rift_items:
             os.environ['RIFT_REQUIRE_GPUS'] = rift_items['ile_require_gpus']
+
+        if 'SINGULARITY_RIFT_IMAGE' not in os.environ and 'singularity_rift_image' in rift_items:
+            os.environ['SINGULARITY_RIFT_IMAGE'] = rift_items['singularity_rift_image']
+        if 'SINGULARITY_BASE_EXE_DIR' not in os.environ and 'singularity_base_exe_dir' in rift_items:
+            os.environ['SINGULARITY_BASE_EXE_DIR'] = rift_items['singularity_base_exe_dir']
         
         # attempt to lazy-select the command-line that are present in the ini file section
         for item in rift_items:
