@@ -346,7 +346,44 @@ def _normalize_interpolate_time_argv(argv):
         i += 1
     return out
 
+def _validate_sampler_selection(opts):
+    """Reject unavailable samplers and malformed portfolios before data loading."""
+    builtins = {'adaptive_cartesian': True, 'adaptive_cartesian_gpu': mcsampler_gpu_ok,
+                'AV': mcsampler_AV_ok, 'GMM': mcsampler_gmm_ok}
+    plugins = mcsamplerPortfolio.known_pipelines if mcsampler_Portfolio_ok else {}
+    if opts.sampler_method != 'portfolio':
+        if opts.sampler_method in builtins:
+            if not builtins[opts.sampler_method]:
+                raise ValueError('--sampler-method: {} is unavailable'.format(opts.sampler_method))
+        elif opts.sampler_method not in plugins:
+            raise ValueError('--sampler-method: unknown or unavailable sampler {!r}'.format(opts.sampler_method))
+        return
+    if not mcsampler_Portfolio_ok:
+        raise ValueError('Portfolio integrator requested but not available')
+    members = [name.strip() for entry in (opts.sampler_portfolio or [])
+               for name in entry.split(',') if name.strip()]
+    if not members:
+        raise ValueError('--sampler-method portfolio requires at least one --sampler-portfolio member')
+    available = {'AV': mcsampler_AV_ok, 'GMM': mcsampler_gmm_ok,
+                 'AC': mcsampler_gpu_ok, 'adaptive_cartesian_gpu': mcsampler_gpu_ok}
+    for name in members:
+        if name in available:
+            if not available[name]:
+                raise ValueError('--sampler-portfolio: member {!r} is unavailable'.format(name))
+        elif name not in plugins:
+            raise ValueError('--sampler-portfolio: unknown member {!r}. Known: {}'.format(
+                name, ', '.join(sorted(set(available) | set(plugins)))))
+    if opts.sampler_portfolio_args is not None and len(opts.sampler_portfolio_args) != len(members):
+        raise ValueError('--sampler-portfolio-args requires one dictionary per portfolio member')
+    opts.sampler_portfolio = members
+
+
 opts, args = optp.parse_args(_normalize_interpolate_time_argv(sys.argv[1:]))
+if not opts.log_noise_evidence_only:
+    try:
+        _validate_sampler_selection(opts)
+    except ValueError as exc:
+        optp.error(str(exc))
 if opts.log_noise_evidence_only and opts.log_noise_evidence_output is None:
   opts.log_noise_evidence_output = "log_noise_evidence.json"
 # GWSignal and LALSuite option dictionaries target different interfaces.
@@ -939,15 +976,8 @@ elif opts.sampler_method == "portfolio":
     use_portfolio=True
     opts.internal_use_lnL=True  # required, we only implement those scenarios right now
     sampler_list = []
-    # The option is action='append', but its help has always documented a comma-separated
-    # list.  Accept both (and a mix), because the undocumented half silently misbehaved:
-    # '--sampler-portfolio AV,GMM' arrived as the single member name "AV,GMM", matched no
-    # branch in the loop below, and -- the loop having no else -- appended whatever `sampler`
-    # happened to hold, i.e. the plain MCSampler constructed before this chain.  The run then
-    # died later and elsewhere with a misleading "no attribute 'draw_simplified'".
-    sampler_types = [_n.strip() for _entry in (opts.sampler_portfolio or []) for _n in str(_entry).split(',') if _n.strip()]
-    if not sampler_types:
-      raise Exception(" --sampler-method portfolio requires at least one --sampler-portfolio member")
+    # Startup validation accepts repeated options, comma lists, and mixed forms.
+    sampler_types = opts.sampler_portfolio
 
     # prep xpy, etc
     my_xpy = xpy_default
