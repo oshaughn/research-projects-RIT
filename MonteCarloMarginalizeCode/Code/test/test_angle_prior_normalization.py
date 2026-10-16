@@ -88,3 +88,28 @@ def test_driver_priors_are_built_from_their_ranges(name):
         i_rot = text.index("param_limits['psi'] = (0, 4*numpy.pi)")
         i_cap = text.index("psi_prior_range = (")
         assert i_rot < i_cap, "%s captures the prior range before the rotate-phase widening" % name
+
+
+@pytest.mark.parametrize("rotated", [False, True])
+@pytest.mark.parametrize("limit", [None, "0.3,1.1"])
+def test_batchmode_psi_box_retains_full_prior_density(rotated, limit):
+    """A zoom box removes prior mass even after the periodic-prior correction."""
+    from types import SimpleNamespace
+    from RIFT.integrators import mcsampler
+
+    text = DRIVERS["batchmode"].read_text()
+    start = text.index('param_limits = {')
+    end = text.index('\n#\n# Parameter integral sampling strategy', start)
+    scope = dict(numpy=np, dmin=1.0, dmax=100.0, t_ref_wind=0.1,
+                 clip_angle_limits=mcsampler.clip_angle_limits,
+                 opts=SimpleNamespace(internal_rotate_phase=rotated, limit_psi=limit,
+                     limit_right_ascension=None, limit_declination=None,
+                     limit_inclination=None))
+    exec(compile(text[start:end], str(DRIVERS["batchmode"]), "exec"), scope)
+    lo, hi = scope["param_limits"]["psi"]
+    prior_lo, prior_hi = scope["psi_prior_range"]
+    period = (4 if rotated else 2) * np.pi
+    assert (prior_lo, prior_hi) == pytest.approx((0, period))
+    density = mcsampler.ret_uniform_samp_vector_alt(prior_lo, prior_hi)
+    mass = float(density(np.array([(lo + hi) / 2]))[0]) * (hi - lo)
+    assert mass == pytest.approx(1.0 if limit is None else 0.8 / period)
