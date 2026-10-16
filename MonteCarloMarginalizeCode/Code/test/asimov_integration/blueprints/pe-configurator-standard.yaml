@@ -1,0 +1,14 @@
+kind: analysis
+name: get-priors
+pipeline: peconfigurator
+minimum mass ratio: 0.05
+checks:
+  - higher modes
+  - luminosity distance
+  - no safety
+needs:
+  - get-preliminary-posterior
+scheduler:
+  accounting group: ligo.dev.o4.cbc.pe.bilby
+  request memory: 1024
+  request post memory: 16384

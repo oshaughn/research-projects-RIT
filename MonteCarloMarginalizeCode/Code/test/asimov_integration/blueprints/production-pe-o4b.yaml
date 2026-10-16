@@ -1,0 +1,76 @@
+kind: configuration
+data:
+  channels:
+    H1: H1:DCS-CALIB_STRAIN_CLEAN_AR01
+    L1: L1:DCS-CALIB_STRAIN_CLEAN_AR01
+    V1: V1:Hrec_hoftRepro1AR_16384Hz
+  frame types:
+    H1: H1_HOFT_AR01
+    L1: L1_HOFT_AR01
+    V1: HoftAR1U02
+likelihood:
+  roll off time: 1.0
+pipelines:
+  gwdata:
+    scheduler:
+      accounting group: ligo.prod.o4.cbc.pe.bilby
+      request cpus: 1
+  peconfigurator:
+    scheduler:
+      accounting group: ligo.prod.o4.cbc.pe.bilby
+      request cpus: 1
+  bayeswave:
+    scheduler:
+      environment: /cvmfs/software.igwn.org/conda/envs/igwn-py310-20250729
+      accounting group: ligo.prod.o4.cbc.pe.bilby
+      request memory: 4096 MB
+      request post memory: 16384 MB
+      copy frames: True
+      request disk: 8 GB
+      request post disk: 8 GB
+      osg: True
+    likelihood:
+      roll off time: 1
+      iterations: 250000
+      chains: 16
+      threads: 4
+  rift:
+    scheduler:
+      osg: True
+      bootstrap upstream: True
+      bootstrap coinc: True
+      use global priors: True
+      accounting group: ligo.prod.o4.cbc.pe.rift
+      request memory: 1024
+      singularity image: osdf://igwn/cit/staging/pe.o4/containers/o4b-production/Reviewed-GWTC5-RIFT-20250919.sif
+      singularity base exe directory: /opt/conda/envs/Reviewed_GWTC_reruns_yml/bin/
+      pipeline:
+        internal-ile-data-tukey-window-time: "1.0"
+        internal-ile-psd-common-window: True
+        manual-extra-puff-args: "--downselect-parameter m1 --downselect-parameter-range [1,1000] --downselect-parameter m2 --downselect-parameter-range [1,1000]"
+        calibration-reweighting-count: 300
+    sampler:
+      cip:
+        fitting method: rf
+        explode jobs auto: True
+        request disk: "4G"
+      ile:
+        n eff: 10
+        jobs per worker: 100
+        request disk: "4G"
+      likelihood:
+        calibration:
+           sample: True
+      use aligned phase coordinates: True
+      correlate parameters default: True
+      use rescaled transverse spin coordinates: False
+      n output samples last: 60000
+quality:
+  state vector:
+    L1: L1:GDS-CALIB_STATE_VECTOR_AR01
+    H1: H1:GDS-CALIB_STATE_VECTOR_AR01
+    V1: V1:DQ_ANALYSIS_STATE_VECTOR
+  minimum frequency:
+    H1: 20
+    L1: 20
+    V1: 20

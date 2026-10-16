@@ -1,0 +1,82 @@
+{
+  "base_commit": "c2c421a543c7e26c4525b2afdbb3e6798523c9e6",
+  "adapter_sha256": "71e768af287b3c2da0af217771a4d900145dc806df244ae55e28dcb4f516a4df",
+  "scope": "Fixed-time common RIFT-source injection, unchanged NoLoop, no empirical phase/time corrections; 4096 Hz, 1792-Hz cutoff, antisymmetric modes enabled.",
+  "rows": [
+    {
+      "ra": 1.2,
+      "dec": 0.3,
+      "bilby_rift_adapter": 392.2555463970359,
+      "noloop_refined8": 392.2555428740254,
+      "delta_nat": 3.523010491335299e-06
+    },
+    {
+      "ra": 1.4283943561583687,
+      "dec": -0.37522654397474736,
+      "bilby_rift_adapter": 151.23958278224904,
+      "noloop_refined8": 151.23957964701802,
+      "delta_nat": 3.1352310259080696e-06
+    },
+    {
+      "ra": 0.763561138124638,
+      "dec": 0.5186354806466867,
+      "bilby_rift_adapter": 562.7194663977723,
+      "noloop_refined8": 562.7194541632114,
+      "delta_nat": 1.2234560927026905e-05
+    }
+  ],
+  "fixture_configuration": {
+    "a1": 0.017862023,
+    "a2": 0.087820028,
+    "analysis_fmin": 20.0,
+    "approximant": "SEOBNRv5PHM",
+    "dec": 0.0,
+    "distance": 552.15344,
+    "duration": 8.0,
+    "event_time": 1126259462.44179,
+    "fmax": 1792.0,
+    "h1_psd": "/Users/rossma/unixhome/Projects/LIGO-ScienceMode/O4_era/rapidpe_rift_review_o4/review_real/rundir_GW150914/H1-psd.xml.gz",
+    "l1_psd": "/Users/rossma/unixhome/Projects/LIGO-ScienceMode/O4_era/rapidpe_rift_review_o4/review_real/rundir_GW150914/L1-psd.xml.gz",
+    "lmax": 4,
+    "mass1": 40.565894,
+    "mass2": 30.012597,
+    "n_sky": 100,
+    "output": "outputs/bilby_rift_asimov_noloop_sky_scan.json",
+    "phase": 3.4402436140544648,
+    "phi12": 0.0,
+    "phijl": 0.0,
+    "progress": true,
+    "psi": 1.4728494,
+    "ra": 0.0,
+    "randomize_psi": false,
+    "sample_rate": 4096.0,
+    "seed": 12345,
+    "start_time": 1126259458.44179,
+    "t_window": 0.15,
+    "template_fmin": 13.33,
+    "theta_jn": 2.9141031880754924,
+    "tilt1": 3.141592653589793,
+    "tilt2": 3.141592653589793,
+    "q_pregrid_factor": 1,
+    "waveform_extra_kwargs": {
+      "enable_antisymmetric_modes": true,
+      "antisymmetric_modes_hm": true,
+      "lmax_nyquist": 1
+    }
+  },
+  "dependencies": {
+    "numpy": "2.3.5",
+    "scipy": "1.15.2",
+    "bilby": "2.8.0",
+    "lalsuite": "7.26",
+    "pyseobnr": "0.3.6"
+  },
+  "input_sha256": {
+    "h1_psd": "fd86bb8b0f10e6b2657309fb2bf17081a98a3b0a556286e080697bc7d7f6ff94",
+    "l1_psd": "d702748ed1d8e75f794e4944e36b9f2c260ea80e8588c7dd10b46e352a1fd6e0"
+  },
+  "fixture_source": "oshaughnessy-junior/RIFT_roboto_paper:analyses/rift_backend_likelihood_internal_20261014/comparison.json (PR234)",
+  "validation_script_sha256": "c631af2cae7d6c9f766224eb6ff4ad2b9f59a13d2b2d7e7da3a20b74a43742ad",
+  "validation_script": "import sys,json,subprocess,hashlib\nfrom pathlib import Path\nfrom types import SimpleNamespace\nimport numpy as np\nroot=Path(sys.argv[1]);sys.path.insert(0,str(root/'MonteCarloMarginalizeCode/Code'))\nfrom RIFT.likelihood import factored_likelihood as fl\nfrom RIFT.calmarg import rift_source\nassert str(rift_source.__file__).startswith(str(root))\nsys.path.insert(0,'/Users/rossma/RIFT_roboto_paper/analyses/bilby_v_rift_likelihood')\nimport bilby_rift_asimov_noloop as b\nimport bilby\nbase=json.loads(Path('/Users/rossma/RIFT_roboto_paper/analyses/rift_backend_likelihood_internal_20261014/comparison.json').read_text())\nrows=[]\nfor ra,dec in [(1.2,.3),(base['samples'][0]['ra'],base['samples'][0]['dec']),(base['samples'][58]['ra'],base['samples'][58]['dec'])]:\n    cfg=dict(base['configuration']);cfg.update(ra=ra,dec=dec,time_interp='cubic',q_pregrid_factor=8)\n    args=SimpleNamespace(**cfg);p=b.choose_waveform_params(args);pars=b.bilby_parameters(args)\n    cp=dict(pars,spin_1x=p.s1x,spin_1y=p.s1y,spin_1z=p.s1z,spin_2x=p.s2x,spin_2y=p.s2y,spin_2z=p.s2z,iota=p.incl)\n    wg=bilby.gw.WaveformGenerator(duration=args.duration,sampling_frequency=args.sample_rate,\n        frequency_domain_source_model=rift_source.RIFT_lal_binary_black_hole,parameter_conversion=lambda x:(x,[]),\n        waveform_arguments=dict(waveform_approximant=args.approximant,reference_frequency=args.analysis_fmin,minimum_frequency=args.template_fmin,maximum_frequency=args.fmax,sampling_frequency=args.sample_rate,Lmax=args.lmax,h_method='gws_hlmoft',extra_waveform_kwargs=args.waveform_extra_kwargs))\n    ifos=bilby.gw.detector.InterferometerList([]);data={};psds={}\n    for det in ['H1','L1']:\n        psds[det]=b.psd_for_rift(getattr(args,det.lower()+'_psd'),det,1/args.duration,args.sample_rate/2,args.analysis_fmin)\n        ifo=bilby.gw.detector.get_empty_interferometer(det);ifo.minimum_frequency=args.analysis_fmin;ifo.maximum_frequency=args.fmax\n        ifo.set_strain_data_from_zero_noise(sampling_frequency=args.sample_rate,duration=args.duration,start_time=args.start_time)\n        ifo.power_spectral_density=b.psd_for_bilby(psds[det],ifo.frequency_array)\n        ifo.inject_signal(cp,waveform_generator=wg,raise_error=True);ifos.append(ifo)\n        data[det]=b.lal_complex_fd_from_bilby_time_series(args,det,ifo.time_domain_strain)\n    like=bilby.gw.likelihood.GravitationalWaveTransient(ifos,wg,time_marginalization=False,distance_marginalization=False,phase_marginalization=False)\n    like.parameters.update(cp);lr=float(like.log_likelihood_ratio())\n    noloop=b.rift_noloop(args,data,psds)['lnLambda_fixed_time'];delta=lr-noloop\n    assert abs(delta)<3e-5,(ra,dec,delta)\n    rows.append(dict(ra=ra,dec=dec,bilby_rift_adapter=lr,noloop_refined8=noloop,delta_nat=delta))\n    print(rows[-1],flush=True)\nresult=dict(base_commit=subprocess.check_output(['git','-C',str(root),'rev-parse','HEAD'],text=True).strip(),adapter_sha256=hashlib.sha256(Path(rift_source.__file__).read_bytes()).hexdigest(),scope='Fixed-time common RIFT-source injection, unchanged NoLoop, no empirical phase/time corrections; 4096 Hz, 1792-Hz cutoff, antisymmetric modes enabled.',rows=rows)\nPath('/private/tmp/rift-taper-fix-likelihood.json').write_text(json.dumps(result,indent=2)+'\\n')\n",
+  "validation_scope_note": "Development-only numerical replay on the Mac; script needs the recorded paper checkout and external PSDs. Production branch separately passes real-generator source tests. This receipt does not validate calibration integration or production posteriors."
+}
