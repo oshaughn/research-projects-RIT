@@ -8,7 +8,9 @@ Integrate the extrinsic parameters of the prefactored likelihood function.
 """
 
 import sys
+import json
 import functools
+import traceback
 from optparse import OptionParser, OptionGroup
 
 import numpy
@@ -48,7 +50,14 @@ from igwn_ligolw import utils,  ligolw
 import glue.lal
 
 import RIFT.lalsimutils as lalsimutils
+from RIFT.likelihood.noise_evidence import compute_network_log_noise_evidence
 import RIFT.integrators.mcsampler as mcsampler
+# NOTE: the name 'mcsampler' above is REBOUND below to mcsamplerGPU for some --sampler-method
+# choices, so the zoom-box helpers are imported under their own names (they are pure-numpy,
+# xpy-aware, and identical for every backend).
+from RIFT.integrators.mcsampler import (clip_angle_limits, cosine_sampler_limits,
+                                        ret_dec_samp_vector, ret_dec_samp_cdf_inv_vector,
+                                        ret_cos_samp_vector, ret_cos_samp_cdf_inv_vector)
 import RIFT.misc.sky_rotations as sky_rotations
 try:
     import RIFT.integrators.mcsamplerEnsemble as mcsamplerEnsemble
@@ -177,6 +186,8 @@ optp.add_option( "--zero-likelihood", action='store_true', help="Run with exactl
 optp.add_option("-c", "--cache-file", default=None, help="LIGO cache file containing all data needed.")
 optp.add_option("-C", "--channel-name", action="append", help="instrument=channel-name, e.g. H1=FAKE-STRAIN. Can be given multiple times for different instruments.")
 optp.add_option("-p", "--psd-file", action="append", help="instrument=psd-file, e.g. H1=H1_PSD.xml.gz. Can be given multiple times for different instruments.")
+optp.add_option("--log-noise-evidence-output", default=None, help="Write Bilby-compatible fixed-PSD log noise evidence and per-detector (d|d) values to this JSON file. Uses the same conditioned data and PSD as ILE.")
+optp.add_option("--log-noise-evidence-only", action="store_true", help="Exit after writing --log-noise-evidence-output, before waveform generation and Monte Carlo integration. If no output path is supplied, use log_noise_evidence.json.")
 optp.add_option("-k", "--skymap-file", help="Use skymap stored in given FITS file.")
 optp.add_option("-x", "--coinc-xml", help="gstlal_inspiral XML file containing coincidence information.")
 optp.add_option("-I", "--sim-xml", help="XML file containing mass grid to be evaluated")
@@ -229,6 +240,7 @@ optp.add_option("-m", "--time-marginalization", action="store_true", help="Perfo
 #optp.add_option("--n-fairdraw-extrinsic-samples",default=None,type=int,help="Extracts a concrete number of fair draw extrinsic samples, bounded above by n_eff")
 optp.add_option("--resample-time-marginalization",action='store_true', help="If time-marginalizaiton is true (and should almost always be true), at the end export step use resampling. REQUIRES using fairdraw-extrinsic-output")
 optp.add_option("--srate-resample-time-marginalization",type=int, default=None, help="If time-marginalizaiton is true (and should almost always be true), an opportunity to interpolate the likelihoods on the (internal) time grid and perform time resampling at a higher sampling rate, for greater nominal time resolution. Does not change underlying calculations.")
+optp.add_option("--time-marginalization-quadrature", default='simpson', type=str, help="Time integral: simpson (default) or bandlimited (CHANGES RESULTS; reflected finite-window FFT reconstruction plus dense trapezoid at a derived resolution). Uses the current rift_O4d boundary construction. Reflection is an approximation to the unavailable full correlation, not exact recovery. Dense callback evaluations cost more as SNR increases. Requires --time-marginalization --vectorized --gpu; use --force-xpy on CPU. When --interpolate-time is omitted, bandlimited also selects cubic fractional detector-time evaluation; explicit nearest reproduces the nearest-stencil configuration. Simpson retains nearest by default. Time-posterior export draws continuously from this reconstruction; the existing resampling rate is a minimum knot resolution.")
 optp.add_option("-d", "--distance-marginalization", action="store_true", help="Perform marginalization over distance via a look-up table. Default is false.")
 optp.add_option("-l", "--distance-marginalization-lookup-table", default=None, help="Look-up table for distance marginalization.")
 optp.add_option("--vectorized", action="store_true", help="Perform manipulations of lm and timeseries using numpy arrays, not LAL data structures.  (Combine with --gpu to enable GPU use, where available)")
@@ -273,13 +285,17 @@ integration_params.add_option("--adapt-weight-exponent", type=float, default=1.0
 integration_params.add_option("--adapt-floor-level", type=float, default=0.1, help="Floor to use with weights (likelihood integrand) when doing adaptive sampling. This is necessary to ensure the *sampling* prior is non zero during adaptive sampling and to prevent overconvergence. Default is 0.1 (no floor)")
 integration_params.add_option("--adapt-adapt",action='store_true',help="Adapt the tempering exponent")
 integration_params.add_option("--adapt-log",action='store_true',help="Use a logarithmic tempering exponent")
-integration_params.add_option("--interpolate-time", default=False,help="If using time marginalization, compute using a continuously-interpolated array. (Default=false)")
+integration_params.add_option("--interpolate-time", default=None,help="If using the maintained NoLoop likelihood, evaluate Q_lm at fractional detector times using cubic interpolation instead of nearest sample bins. Accepts nearest/cubic or legacy booleans (True/1/yes selects cubic; False/0/no selects nearest). A bare flag selects cubic. Requires --time-marginalization --vectorized --gpu (with --force-xpy on CPU) for cubic. (When omitted: nearest with simpson, cubic with bandlimited. Explicit choices are preserved.)")
 integration_params.add_option("--d-prior",default='Euclidean' ,type=str,help="Distance prior for dL.  Options are dL^2 (Euclidean), 'pseudo_cosmo', and 'cosmo'  and 'cosmo_sourceframe' .")
 integration_params.add_option("--d-prior-redshift", action='store_true', help="If true, distance prior is computed in redshift. This option MAY be enforced for 'cosmo' sampling")
 integration_params.add_option("--d-max", default=10000,type=float,help="Maximum distance in volume integral. Used to SET THE PRIOR; changing this value changes the numerical answer.")
 integration_params.add_option("--d-min", default=1,type=float,help="Minimum distance in volume integral. Used to SET THE PRIOR; changing this value changes the numerical answer.")
 integration_params.add_option("--declination-cosine-sampler",action='store_true',help="If specified, the parameter used for declination is cos(dec), not dec")
 integration_params.add_option("--inclination-cosine-sampler",action='store_true',help="If specified, the parameter used for inclination is cos(dec), not dec")
+integration_params.add_option("--limit-right-ascension",default=None,help="Restrict RA sampling AND prior to 'LO,HI' [rad] (truth-centered zoom box). Narrows the extrinsic prior like --d-min/--d-max do for distance; keep the box large vs the posterior so credible regions are unaffected.  Not compatible with --internal-sky-network-coordinates (the sampled sky angles are then in a rotated frame).")
+integration_params.add_option("--limit-declination",default=None,help="Restrict declination sampling AND prior to 'LO,HI' [rad].  Always given in radians of DECLINATION: with --declination-cosine-sampler the box is transformed internally to the sampled coordinate sin(dec).  Not compatible with --internal-sky-network-coordinates.")
+integration_params.add_option("--limit-inclination",default=None,help="Restrict inclination sampling AND prior to 'LO,HI' [rad].  Always given in radians of INCLINATION: with --inclination-cosine-sampler the box is transformed internally to the sampled coordinate cos(iota), which reverses the limit order.")
+integration_params.add_option("--limit-psi",default=None,help="Restrict polarization psi sampling AND prior to 'LO,HI' [rad].")
 integration_params.add_option("--internal-rotate-phase", action='store_true',help="If specified, the integration sampler uses phase_p ==phi+psi and phase_m == phi-psi as sampling coordinates, both ranging from 0 to 4 pi.  The prior is twice as large.")
 integration_params.add_option("--internal-sky-network-coordinates",action='store_true',help="If specified, perform integration in sky coordinates aligned with the first two IFOs provided")
 integration_params.add_option("--internal-sky-network-coordinates-raw",action='store_true',help="If specified, does not attempt to organize IFO network sensibly, uses them AS PROVIDED IN ORDER.")
@@ -287,7 +303,7 @@ integration_params.add_option("--manual-logarithm-offset",type=float,default=0,h
 integration_params.add_option("--auto-logarithm-offset",action='store_true',help="Use the 'guess_snr' field returned in the precompute stage to change --manual-logarithm-offset for each event.")
 integration_params.add_option("--internal-use-lnL",action='store_true',help="likelihood returns lnL, and integrator integrates lnL")
 integration_params.add_option("--sampler-method",default="adaptive_cartesian_gpu",help="adaptive_cartesian|GMM|adaptive_cartesian_gpu")
-integration_params.add_option("--sampler-portfolio",default=None,action='append',type=str,help="comma-separated strings, matching sampler methods other than portfolio")
+integration_params.add_option("--sampler-portfolio",default=None,action='append',type=str,help="Portfolio member sampler, one of AV / GMM / AC (adaptive_cartesian_gpu) or a discovered plugin. Repeat the option per member, or give one comma-separated list; both forms may be mixed. An unrecognized name is an error.")
 integration_params.add_option("--sampler-portfolio-args",default=None, action='append', type=str, help='eval-able dictionaryo to be passed to that sampler')
 integration_params.add_option("--sampler-xpy",default=None,help="numpy|cupy  if the adaptive_cartesian_gpu sampler is active, use that.")
 integration_params.add_option("--supplementary-likelihood-factor-code", default=None,type=str,help="Import a module (in your pythonpath!) containing a supplementary factor for the likelihood.  Used to impose supplementary external priors of arbitrary complexity and external dependence (e.g., EM observations). EXPERTS-ONLY")
@@ -331,7 +347,87 @@ for pin_param in LIKELIHOOD_PINNABLE_PARAMS:
     pinnable.add_option(option, type=float, help="Pin the value of %s." % pin_param)
 optp.add_option_group(pinnable)
 
-opts, args = optp.parse_args()
+def _normalize_interpolate_time_argv(argv):
+    out = []
+    i = 0
+    while i < len(argv):
+        out.append(argv[i])
+        if argv[i] == "--interpolate-time" and (i + 1 == len(argv) or argv[i + 1].startswith("--")):
+            out.append("True")
+        i += 1
+    return out
+
+def _validate_sampler_selection(opts):
+    """Reject unavailable samplers and malformed portfolios before data loading."""
+    builtins = {'adaptive_cartesian': True, 'adaptive_cartesian_gpu': mcsampler_gpu_ok,
+                'AV': mcsampler_AV_ok, 'GMM': mcsampler_gmm_ok}
+    plugins = mcsamplerPortfolio.known_pipelines if mcsampler_Portfolio_ok else {}
+    if opts.sampler_method != 'portfolio':
+        if opts.sampler_method in builtins:
+            if not builtins[opts.sampler_method]:
+                raise ValueError('--sampler-method: {} is unavailable'.format(opts.sampler_method))
+        elif opts.sampler_method not in plugins:
+            raise ValueError('--sampler-method: unknown or unavailable sampler {!r}'.format(opts.sampler_method))
+        return
+    if not mcsampler_Portfolio_ok:
+        raise ValueError('Portfolio integrator requested but not available')
+    members = [name.strip() for entry in (opts.sampler_portfolio or [])
+               for name in entry.split(',') if name.strip()]
+    if not members:
+        raise ValueError('--sampler-method portfolio requires at least one --sampler-portfolio member')
+    available = {'AV': mcsampler_AV_ok, 'GMM': mcsampler_gmm_ok,
+                 'AC': mcsampler_gpu_ok, 'adaptive_cartesian_gpu': mcsampler_gpu_ok}
+    for name in members:
+        if name in available:
+            if not available[name]:
+                raise ValueError('--sampler-portfolio: member {!r} is unavailable'.format(name))
+        elif name not in plugins:
+            raise ValueError('--sampler-portfolio: unknown member {!r}. Known: {}'.format(
+                name, ', '.join(sorted(set(available) | set(plugins)))))
+    if opts.sampler_portfolio_args is not None and len(opts.sampler_portfolio_args) != len(members):
+        raise ValueError('--sampler-portfolio-args requires one dictionary per portfolio member')
+    opts.sampler_portfolio = members
+
+
+opts, args = optp.parse_args(_normalize_interpolate_time_argv(sys.argv[1:]))
+if not opts.log_noise_evidence_only:
+    try:
+        _validate_sampler_selection(opts)
+    except ValueError as exc:
+        optp.error(str(exc))
+if opts.log_noise_evidence_only and opts.log_noise_evidence_output is None:
+  opts.log_noise_evidence_output = "log_noise_evidence.json"
+# GWSignal and LALSuite option dictionaries target different interfaces.
+# Validate before data loading and before the event-level exception handler.
+if opts.use_gwsignal and opts.internal_waveform_extra_lalsuite_args is not None:
+  optp.error('--internal-waveform-extra-lalsuite-args cannot be used with --use-gwsignal; use --internal-waveform-extra-kwargs for GWSignal backend options')
+
+def _truthy_option(value):
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    return str(value).strip().lower() in ("1", "true", "t", "yes", "y", "on")
+
+def _resolve_noloop_time_interp(value, time_quadrature="simpson"):
+    """Accept named O4d stencils and O4c's legacy boolean spellings."""
+    if value is None:
+        return "cubic" if time_quadrature == "bandlimited" else "nearest"
+    raw = str(value).strip().lower()
+    if raw in ("nearest", "cubic"):
+        return raw
+    if raw in ("1", "true", "t", "yes", "y", "on",
+               "0", "false", "f", "no", "n", "off", "none"):
+        return "cubic" if _truthy_option(value) else "nearest"
+    raise ValueError("--interpolate-time: unrecognised or unsupported value %r. "
+                     "Use nearest|cubic or a legacy boolean." % (value,))
+
+opts._interp_time_from_default = opts.interpolate_time is None
+opts._noloop_time_interp = _resolve_noloop_time_interp(
+    opts.interpolate_time, opts.time_marginalization_quadrature)
+# Legacy scalar callers expect a boolean; a nonempty named 'nearest' must not
+# accidentally enable interpolation on those paths.
+opts.interpolate_time = opts._noloop_time_interp == "cubic"
 
 # cosmo d prior tools for interpolation:  not used normally, but set if needed
 final_scipy_interpolate=None
@@ -430,6 +526,38 @@ if opts.gpu and xpy_default is numpy:
     if opts.force_xpy:
         opts.gpu=True
 
+# Validate the effective NoLoop selection after the cupy fallback has run.
+if opts._noloop_time_interp != 'nearest':
+    required = (('--time-marginalization', bool(opts.time_marginalization)),
+                ('--vectorized', bool(opts.vectorized)),
+                ('--gpu (use --force-xpy on CPU)', bool(opts.gpu)),
+                ('not --zero-likelihood', not bool(opts.zero_likelihood)))
+    missing = [name for name, ok in required if not ok]
+    if missing:
+        raise ValueError("--interpolate-time cannot honour this configuration: "
+                         + "; ".join(missing))
+print(" Q_lm time stencil : {} ({})".format(
+    opts._noloop_time_interp,
+    "default for {}; explicit --interpolate-time nearest preserves nearest bins".format(
+        opts.time_marginalization_quadrature)
+    if opts._interp_time_from_default else "explicit --interpolate-time"))
+factored_likelihood.time_quad.validate_time_quadrature(opts.time_marginalization_quadrature)
+if opts.time_marginalization_quadrature != 'simpson':
+    required = (('--time-marginalization', bool(opts.time_marginalization)),
+                ('--vectorized', bool(opts.vectorized)),
+                ('--gpu (use --force-xpy on CPU)', bool(opts.gpu)),
+                ('not --zero-likelihood', not bool(opts.zero_likelihood)))
+    missing = [name for name, ok in required if not ok]
+    if missing:
+        raise ValueError("--time-marginalization-quadrature cannot honour this configuration: "
+                         + "; ".join(missing))
+if opts.time_marginalization_quadrature == 'bandlimited' and opts._noloop_time_interp != 'nearest':
+    print(" Bandlimited quadrature uses cubic fractional detector-time evaluation.")
+print(" Time-marginalization quadrature : {} {}".format(
+    opts.time_marginalization_quadrature,
+    "(historical fixed-dx Simpson rule)" if opts.time_marginalization_quadrature == 'simpson'
+    else "(reflected FFT + trapezoid; RESULT-CHANGING vs simpson)"))
+
 manual_avoid_overflow_logarithm=opts.manual_logarithm_offset
 manual_avoid_overflow_logarithm_default =  manual_avoid_overflow_logarithm
 
@@ -495,6 +623,7 @@ if opts.nr_group and opts.nr_param:
 template_min_freq = opts.fmin_template # minimum frequency of template
 #t_ref_wind = 50e-3 # Interpolate in a window +/- this width about event time. 
 t_ref_wind = opts.data_integration_window_half
+
 T_safety = 2. # Safety buffer (in sec) for wraparound corruption
 
 #
@@ -534,7 +663,9 @@ else:
 #
 
 fiducial_epoch = lal.LIGOTimeGPS()
-fiducial_epoch = event_time.seconds + 1e-9*event_time.nanoseconds   # no more direct access to gpsSeconds
+fiducial_epoch_seconds = int(event_time.seconds)
+fiducial_epoch_nanoseconds = int(event_time.nanoseconds)
+fiducial_epoch = fiducial_epoch_seconds + 1e-9*fiducial_epoch_nanoseconds
 
 # Struct to hold template parameters
 P_list = None
@@ -733,6 +864,37 @@ for Psig in P_list:
   Psig.deltaf = P.deltaF
 
 
+# Bilby's fixed-PSD noise hypothesis has no sampled parameters: its evidence is
+# the zero-signal likelihood, -1/2 sum_k (d_k|d_k).  Compute it only after all
+# ILE data/PSD conditioning so the normalization exactly matches this run.
+if opts.log_noise_evidence_output:
+  log_noise_evidence, noise_evidence_by_detector = compute_network_log_noise_evidence(
+      data_dict, psd_dict, fmin=P.fmin, fmax=fmax, fnyq=0.5/P.deltaT,
+      inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec)
+  noise_evidence_payload = {
+      "schema": "rift.log-noise-evidence/v1",
+      "convention": "bilby-fixed-psd-no-gaussian-determinant",
+      "log_noise_evidence": log_noise_evidence,
+      "per_detector": noise_evidence_by_detector,
+      "analysis": {
+          "fmin": float(P.fmin),
+          "fmax": float(fmax),
+          "fnyq": float(0.5/P.deltaT),
+          "inverse_spectrum_truncation_time": float(T_spec),
+          "data_start_time": float(start_time),
+          "data_end_time": float(end_time),
+      },
+  }
+  with open(opts.log_noise_evidence_output, "w") as noise_evidence_file:
+    json.dump(noise_evidence_payload, noise_evidence_file,
+              indent=2, sort_keys=True)
+    noise_evidence_file.write("\n")
+  print("Wrote log noise evidence {} to {}".format(
+      log_noise_evidence, opts.log_noise_evidence_output))
+  if opts.log_noise_evidence_only:
+    sys.exit(0)
+
+
 
 #
 # Set up parameters and bounds
@@ -760,6 +922,41 @@ param_limits = { "psi": (0, 2*numpy.pi),
 if opts.internal_rotate_phase:
   param_limits['psi'] = (0, 4*numpy.pi)
   param_limits['phi_orb'] = (0, 4*numpy.pi)
+# Angle priors are derived from the FULL sampling range of each periodic angle, captured here
+# after phase widening and BEFORE zoom-box restrictions, which remove prior mass.
+# The old prior_pdf for psi was the fixed
+# constant mcsampler.uniform_samp_psi = 1/pi, written for [0, pi), while psi is sampled on
+# (0, 2 pi) so that --internal-rotate-phase can use (phi+psi, phi-psi) coordinates.  That
+# prior integrated to 2 (4 with the rotation, whose (0, 4 pi) phi_orb range doubled the fixed
+# 1/(2 pi) phi prior as well), so every reported lnZ carried +ln 2 (+ln 8 rotated).  The
+# likelihood is periodic in both angles and each sampled range covers whole periods, so a
+# prior normalized on the sampled range gives the lnZ of a prior normalized on one period.
+psi_prior_range = (param_limits["psi"][0], param_limits["psi"][1])
+phi_orb_prior_range = (param_limits["phi_orb"][0], param_limits["phi_orb"][1])
+
+# Optional truth-centered "zoom box": narrow the extrinsic sampling AND prior ranges so the
+# adaptive sampler can resolve a narrow high-SNR peak it could never find from the full prior.
+# Threads through param_limits into every sky/orientation sampler + its pdf/cdf_inv/prior_pdf.
+# The limits are ALWAYS specified in radians of the physical angle; the cosine samplers
+# (--declination-cosine-sampler / --inclination-cosine-sampler) transform them below into the
+# coordinate they actually sample (sin(dec) resp. cos(iota)).
+for _optv, _k in [(opts.limit_psi, 'psi'), (opts.limit_right_ascension, 'right_ascension'),
+                  (opts.limit_declination, 'declination'), (opts.limit_inclination, 'inclination')]:
+  if _optv:
+    try:
+      _lo, _hi = [float(_x) for _x in str(_optv).split(',')]
+    except ValueError:
+      raise SystemExit(" --limit-{} expects 'LO,HI' in radians, got '{}'".format(_k.replace('_','-'), _optv))
+    if _k in ('declination', 'inclination'):
+      # validates lo<hi and overlap with the physical domain; raises loudly otherwise
+      _lo, _hi = clip_angle_limits(_lo, _hi, _k)
+    elif not (_hi > _lo):
+      raise SystemExit(" --limit-{}: empty or inverted range [{}, {}] (need LO < HI)".format(_k.replace('_','-'), _lo, _hi))
+    param_limits[_k] = (_lo, _hi)
+    print("  [limit] restricting {} sampling/prior to [{:.4f}, {:.4f}]".format(_k, _lo, _hi))
+limit_declination_active = bool(opts.limit_declination)
+limit_inclination_active = bool(opts.limit_inclination)
+
 
 #
 # Parameter integral sampling strategy
@@ -804,12 +1001,17 @@ elif opts.sampler_method == 'AV':
       mcsampler.set_xpy_to_numpy()
       sampler.xpy= numpy
       sampler.identity_convert= lambda x: x
-elif opts.sampler_method == "portfolio" and mcsampler_Portfolio_ok:
+elif opts.sampler_method == "portfolio":
+    # NB the `and mcsampler_Portfolio_ok` that used to be part of this test made the raise
+    # below dead code AND sent an unavailable portfolio to the `else` fallback at the end of
+    # this chain, which silently runs the plain mcsampler.MCSampler instead.  Requesting a
+    # sampler that cannot be built must fail, not quietly become a different sampler.
     if not(mcsampler_Portfolio_ok):
       raise Exception(" Portfolio integrator requested but not available")
     use_portfolio=True
     opts.internal_use_lnL=True  # required, we only implement those scenarios right now
     sampler_list = []
+    # Startup validation accepts repeated options, comma lists, and mixed forms.
     sampler_types = opts.sampler_portfolio
 
     # prep xpy, etc
@@ -819,7 +1021,6 @@ elif opts.sampler_method == "portfolio" and mcsampler_Portfolio_ok:
     print(" PORTFOLIO ", opts.sampler_portfolio)
     xpy_asarray_already = lambda x: x  # do nothing because we are already on the board for GPU-generated 
     if opts.sampler_xpy == "numpy":
-      mcsampler.set_xpy_to_numpy()
       my_xpy= numpy
       my_identity_convert= lambda x: x
       my_identity_convert_togpu= lambda x: x
@@ -835,19 +1036,25 @@ elif opts.sampler_method == "portfolio" and mcsampler_Portfolio_ok:
             mcsampler  = mcsamplerGPU  # force use of routines in that file, for properly configured GPU-accelerated code as needed
         elif name in mcsamplerPortfolio.known_pipelines:  # everything else, including nflow
             sampler =  mcsamplerPortfolio.known_pipelines[name]()
+        else:
+            # No else clause here meant an unrecognized name left `sampler` bound to its
+            # previous value -- the plain MCSampler built before this chain, or, on the second
+            # and later iterations, the PREVIOUS member -- and appended it silently.  The
+            # portfolio then ran with a member the user never asked for.
+            raise Exception(" --sampler-portfolio: unknown member '{}'.  Known: AV, GMM, AC/adaptive_cartesian_gpu, {}".format(name, sorted(mcsamplerPortfolio.known_pipelines)))
         print('PORTFOLIO: adding {} '.format(name))
         # enable xpy for low level sampler as needed 
         if hasattr(sampler, 'xpy'):
           sampler.xpy = my_xpy
           sampler.identity_convert= my_identity_convert
-          sampler.identity_convert_togpu=identity_convert_togpu
+          sampler.identity_convert_togpu=my_identity_convert_togpu
         sampler_list.append(sampler)
     sampler = mcsamplerPortfolio.MCSampler(portfolio=sampler_list)
     sampler.xpy = my_xpy
     sampler.identity_convert= my_identity_convert
     sampler.identity_convert_togpu= my_identity_convert_togpu
     # sampler weights will be CPU-typed, so don't change them
-elif opts.sampler_method in mcsamplerPortfolio.known_pipelines: # access from plugins
+elif mcsampler_Portfolio_ok and opts.sampler_method in mcsamplerPortfolio.known_pipelines: # access from plugins
   sampler = mcsamplerPortfolio.known_pipelines[opts.sampler_method]()
   # prep xpy, etc
   my_xpy = xpy_default
@@ -858,12 +1065,16 @@ elif opts.sampler_method in mcsamplerPortfolio.known_pipelines: # access from pl
   sampler.identity_convert_togpu= my_identity_convert_togpu
 else:
     print(" ILE: **original sampler** ")
-    print(" ILE requested: {}".format(opts.sampler_method), " compare to ", mcsamplerPortfolio.known_pipelines)
+    # mcsamplerPortfolio is only bound if its import succeeded; reaching this line with a
+    # failed import used to raise NameError from the diagnostic itself.
+    print(" ILE requested: {}".format(opts.sampler_method), " compare to ",
+          sorted(mcsamplerPortfolio.known_pipelines) if mcsampler_Portfolio_ok else "<mcsamplerPortfolio unavailable>")
 
 #
 # Psi -- polarization angle
-# sampler: uniform in [0, pi)
+# sampler: uniform over psi_prior_range ((0, 2 pi) by default); prior 1/(range), which integrates to 1
 #
+psi_prior_pdf = mcsampler.ret_uniform_samp_vector_alt(psi_prior_range[0], psi_prior_range[1])
 psi_sampler = mcsampler.ret_uniform_samp_vector_alt( 
     param_limits["psi"][0], param_limits["psi"][1])
 psi_sampler_cdf_inv = functools.partial(mcsampler.uniform_samp_cdf_inv_vector, 
@@ -873,7 +1084,7 @@ sampler.add_parameter("psi",
     cdf_inv = psi_sampler_cdf_inv, 
     left_limit = param_limits["psi"][0], 
     right_limit = param_limits["psi"][1],
-    prior_pdf = mcsampler.uniform_samp_psi,
+    prior_pdf = psi_prior_pdf,
     adaptive_sampling=opts.internal_rotate_phase or opts.force_adapt_all)
 
 #
@@ -890,7 +1101,7 @@ if not (opts.distance_marginalization and lookup_table["phase_marginalization"])
         cdf_inv = phi_sampler_cdf_inv,
         left_limit = param_limits["phi_orb"][0], 
         right_limit = param_limits["phi_orb"][1],
-        prior_pdf = mcsampler.uniform_samp_phase,
+        prior_pdf = mcsampler.ret_uniform_samp_vector_alt(phi_orb_prior_range[0], phi_orb_prior_range[1]),
         adaptive_sampling=opts.internal_rotate_phase or opts.force_adapt_all)
 
 
@@ -904,23 +1115,40 @@ if (opts.sampler_method == "adaptive_cartesian_gpu"  or opts.sampler_method == '
   adapt_extra_extrinsic=True
 
 if not opts.inclination_cosine_sampler:
- incl_sampler = mcsampler.cos_samp_vector # this is NOT dec_samp_vector, because the angular zero point is different!
- incl_sampler_cdf_inv = mcsampler.cos_samp_cdf_inv_vector
- sampler.add_parameter("inclination", 
-    pdf = incl_sampler, 
-    cdf_inv = incl_sampler_cdf_inv, 
-    left_limit = param_limits["inclination"][0], 
+ if limit_inclination_active:
+   # truncated uniform-in-cos(iota) draw, expressed in the ANGLE coordinate
+   incl_sampler = ret_cos_samp_vector(param_limits["inclination"][0], param_limits["inclination"][1])
+   incl_sampler_cdf_inv = ret_cos_samp_cdf_inv_vector(param_limits["inclination"][0], param_limits["inclination"][1])
+ else:
+   incl_sampler = mcsampler.cos_samp_vector # this is NOT dec_samp_vector, because the angular zero point is different!
+   incl_sampler_cdf_inv = mcsampler.cos_samp_cdf_inv_vector
+ sampler.add_parameter("inclination",
+    pdf = incl_sampler,
+    cdf_inv = incl_sampler_cdf_inv,
+    left_limit = param_limits["inclination"][0],
     right_limit = param_limits["inclination"][1],
     prior_pdf = mcsampler.uniform_samp_theta)  # do not adapt in parameter going to zero at edge
 else:
- incl_sampler = mcsampler.ret_uniform_samp_vector_alt(-1.0,1.0)
- incl_sampler_cdf_inv = lambda x: x*2.0-1.  #functools.partial(mcsampler.uniform_samp_cdf_inv_vector,-1,1) 
- sampler.add_parameter("inclination", 
-    pdf = incl_sampler, 
-    cdf_inv = incl_sampler_cdf_inv, 
-    left_limit = -1, 
-    right_limit = 1,
-    prior_pdf = incl_sampler,
+ # Sample uniformly in cos(iota) [=1 face-on, -1 face-off]: the likelihood closure below
+ # converts back with iota = arccos(z).  A --limit-inclination box must therefore be mapped
+ # into z, and because cos() DECREASES on [0,pi] the limits SWAP:
+ #    [iota_lo, iota_hi]  ->  [cos(iota_hi), cos(iota_lo)]
+ # (before this fix the range was hardcoded to [-1,1] and --limit-inclination was silently ignored).
+ incl_z_lo, incl_z_hi = cosine_sampler_limits(param_limits["inclination"][0], param_limits["inclination"][1], 'inclination')
+ if limit_inclination_active:
+   print("  [limit] inclination box [{:.4f}, {:.4f}] rad -> cos(iota) sampling range [{:.6f}, {:.6f}]".format(
+       param_limits["inclination"][0], param_limits["inclination"][1], incl_z_lo, incl_z_hi))
+ incl_sampler = mcsampler.ret_uniform_samp_vector_alt(incl_z_lo, incl_z_hi)
+ incl_sampler_cdf_inv = lambda x, _a=incl_z_lo, _b=incl_z_hi: _a + x*(_b-_a)  # functools.partial(mcsampler.uniform_samp_cdf_inv_vector,_a,_b)
+ sampler.add_parameter("inclination",
+    pdf = incl_sampler,
+    cdf_inv = incl_sampler_cdf_inv,
+    left_limit = incl_z_lo,
+    right_limit = incl_z_hi,
+    # prior density in cos(iota) is the FULL-RANGE constant 1/2, deliberately not renormalized
+    # to the box, so restricting the box costs exactly the prior mass it should -- matching the
+    # non-cosine branch, where prior_pdf=0.5*sin(iota) is likewise not renormalized.
+    prior_pdf = mcsampler.ret_uniform_samp_vector_alt(-1.0,1.0),
     adaptive_sampling=adapt_extra_extrinsic)
 
 #
@@ -1015,9 +1243,17 @@ if opts.internal_sky_network_coordinates:
     opts.internal_sky_network_coordinates = False # stop using this code
   else:
     sky_rotations.assign_sky_frame(ifo_list[0], ifo_list[1], fiducial_epoch)
-    frm = identity_convert_togpu(sky_rotations.frm)
-    my_rotation = functools.partial(lalsimutils.polar_angles_in_frame_alt,frm,xpy=xpy_default) 
-    my_rotation_cpu = functools.partial(lalsimutils.polar_angles_in_frame_alt,sky_rotations.frm,xpy=np) 
+    # The integration variables are angles in the network-aligned frame.  The
+    # likelihood and output XML require physical equatorial angles, so apply
+    # the inverse frame here.  Using ``frm`` would instead apply the
+    # physical->network transform a second time.
+    frm_inverse = identity_convert_togpu(sky_rotations.frmInverse)
+    my_rotation = functools.partial(sky_rotations.network_to_physical,inverse_frame=frm_inverse,xpy=xpy_default)
+    my_rotation_cpu = functools.partial(sky_rotations.network_to_physical,inverse_frame=sky_rotations.frmInverse,xpy=np)
+if opts.internal_sky_network_coordinates and (opts.limit_right_ascension or opts.limit_declination):
+  # The sampled RA/dec live in the network-aligned frame, so a truth-centered sky box given in
+  # equatorial coordinates would silently select the wrong patch of sky.  Fail loudly.
+  raise SystemExit(" --limit-right-ascension / --limit-declination are sky boxes in EQUATORIAL coordinates and are not compatible with --internal-sky-network-coordinates (which samples in a rotated, network-aligned frame). Drop --internal-sky-network-coordinates when using a sky zoom box.")
 
 #
 # Intrinsic parameters
@@ -1088,26 +1324,42 @@ else:
     # sky sampler: cos(dec) uniform in [-1, 1), adaptive sampling
     #
     if not opts.declination_cosine_sampler:
-     dec_sampler = mcsampler.dec_samp_vector
-     dec_sampler_cdf_inv = mcsampler.dec_samp_cdf_inv_vector
-     sampler.add_parameter("declination", 
-        pdf = dec_sampler, 
-        cdf_inv = dec_sampler_cdf_inv, 
-        left_limit = param_limits["declination"][0], 
+     if limit_declination_active:
+       # truncated uniform-in-sin(dec) draw, expressed in the ANGLE coordinate
+       dec_sampler = ret_dec_samp_vector(param_limits["declination"][0], param_limits["declination"][1])
+       dec_sampler_cdf_inv = ret_dec_samp_cdf_inv_vector(param_limits["declination"][0], param_limits["declination"][1])
+     else:
+       dec_sampler = mcsampler.dec_samp_vector
+       dec_sampler_cdf_inv = mcsampler.dec_samp_cdf_inv_vector
+     sampler.add_parameter("declination",
+        pdf = dec_sampler,
+        cdf_inv = dec_sampler_cdf_inv,
+        left_limit = param_limits["declination"][0],
         right_limit = param_limits["declination"][1],
         prior_pdf = mcsampler.uniform_samp_dec,
         adaptive_sampling = opts.force_adapt_all or (not opts.no_adapt))
     else:
      # Sample uniformly in cos(polar_theta), =1 for north pole, -1 for south pole.
      # Propagate carefully in conversions: time of flight libraries use RA,DEC
-     dec_sampler = mcsampler.ret_uniform_samp_vector_alt(-1.0,1.0)
-     dec_sampler_cdf_inv = lambda x: x*2.0-1. # functools.partial(mcsampler.uniform_samp_cdf_inv_vector,-1,1)
-     sampler.add_parameter("declination", 
-        pdf = dec_sampler, 
-        cdf_inv = dec_sampler_cdf_inv, 
-        left_limit = -1, 
-        right_limit = 1,
-        prior_pdf = dec_sampler,
+     # polar_theta = pi/2 - dec, so the sampled variable is z = sin(dec) (see the likelihood
+     # closures: dec = pi/2 - arccos(z)).  sin() INCREASES on [-pi/2,pi/2], so a
+     # --limit-declination box maps order-preservingly:  [lo,hi] -> [sin(lo), sin(hi)]
+     # (before this fix the range was hardcoded to [-1,1] and --limit-declination was silently ignored).
+     dec_z_lo, dec_z_hi = cosine_sampler_limits(param_limits["declination"][0], param_limits["declination"][1], 'declination')
+     if limit_declination_active:
+       print("  [limit] declination box [{:.4f}, {:.4f}] rad -> sin(dec) sampling range [{:.6f}, {:.6f}]".format(
+           param_limits["declination"][0], param_limits["declination"][1], dec_z_lo, dec_z_hi))
+     dec_sampler = mcsampler.ret_uniform_samp_vector_alt(dec_z_lo, dec_z_hi)
+     dec_sampler_cdf_inv = lambda x, _a=dec_z_lo, _b=dec_z_hi: _a + x*(_b-_a) # functools.partial(mcsampler.uniform_samp_cdf_inv_vector,_a,_b)
+     sampler.add_parameter("declination",
+        pdf = dec_sampler,
+        cdf_inv = dec_sampler_cdf_inv,
+        left_limit = dec_z_lo,
+        right_limit = dec_z_hi,
+        # prior density in sin(dec) is the FULL-RANGE constant 1/2, deliberately not renormalized
+        # to the box, so the prior mass removed by the box matches the non-cosine branch, where
+        # prior_pdf=uniform_samp_dec=0.5*cos(dec) is likewise not renormalized.
+        prior_pdf = mcsampler.ret_uniform_samp_vector_alt(-1.0,1.0),
         adaptive_sampling = opts.force_adapt_all or (not opts.no_adapt))
 
 if not opts.time_marginalization:
@@ -1330,7 +1582,12 @@ def resample_samples(my_samples,
 
   # if we are using GPU-based generation this is ok; if itis mcsampler, we will have a lot of 'object' casts to fix, arg
   
-  tvals = xpy_default.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
+  # Spacing must be deltaT, the step the likelihood takes: NoLoop reads only
+  # tvals[0] and len(tvals), then walks the Q_lm buffer one SAMPLE at a time from
+  # ifirst.  linspace(-W,W,npts) spans the closed interval, spacing 2W/(npts-1),
+  # so it mislabels those samples -- and t_out below becomes the exported 't_ref'.
+  # tvals[0] and len(tvals) are unchanged, so lnLt is bit-identical: labels only.
+  tvals = -t_ref_wind + float(P.deltaT)*xpy_default.arange(int((t_ref_wind)*2/P.deltaT))  # target sampling rate. P is inherited globally
   P.phi =  identity_convert_togpu(my_samples['right_ascension'])  # cast to float
   P.theta =   identity_convert_togpu(my_samples['declination'])
   P.tref = float(fiducial_epoch)
@@ -1343,8 +1600,26 @@ def resample_samples(my_samples,
     for name in ['phi','theta', 'phiref','incl', 'psi','dist']:
       setattr(P,name, getattr(P,name).astype(float) )
 
+  if opts.time_marginalization_quadrature == 'bandlimited':
+    # Use the reflected, width-validated reconstruction rather than interpolating
+    # its coarse log likelihood. Preserve the production resampling-rate option
+    # as a minimum knot resolution; the posterior draw itself is continuous.
+    t_out, lnL_out = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(
+        tvals, P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,
+        epochDict, Lmax=opts.l_max, xpy=xpy_default,
+        time_interp=opts._noloop_time_interp, time_quadrature='bandlimited',
+        return_time_draw=True,
+        time_draw_minimum_srate=opts.srate_resample_time_marginalization)
+    my_samples['t_ref'] = fiducial_epoch + np.asarray(identity_convert(t_out), dtype=float)
+    (my_samples['t_ref_gps_seconds'],
+     my_samples['t_ref_gps_nanoseconds']) = xmlutils.gps_add_seconds_exact(
+         fiducial_epoch_seconds, fiducial_epoch_nanoseconds, identity_convert(t_out))
+    my_samples['lnL_raw'] = np.asarray(identity_convert(lnL_out), dtype=float)
+    return my_samples
+
   lnLt = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
-                        P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default,return_lnLt=True)
+                        P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default,return_lnLt=True,
+                        time_interp=opts._noloop_time_interp)
 
   lnLt = identity_convert(lnLt) # back to CPU.  Note we have removed offsets 
   if opts.zero_likelihood:
@@ -1360,13 +1635,13 @@ def resample_samples(my_samples,
   if opts.srate_resample_time_marginalization and opts.srate_resample_time_marginalization > fSample:
     # Resample the marginalization-time grid to EXACTLY the requested rate, so
     # the exported geocenter time is quantized at 1/srate_resample seconds.  We
-    # step by exactly 1/srate_resample rather than by an integer subdivision of
-    # the internal grid: that internal grid is a closed-interval linspace whose
-    # spacing is ~1/fSample but NOT exactly (here ~4086.7 Hz vs 4096), so an
-    # integer-factor upsample would land at ~n/deltaT_orig, tens of percent off
-    # the request.  For the usual power-of-two rates 1/srate is exactly
-    # representable in float64, so consecutive output times differ by exactly
-    # that step.
+    # step by exactly 1/srate_resample.  For the usual power-of-two rates 1/srate
+    # is exactly representable in float64, so consecutive output times differ by
+    # exactly that step.  (This comment used to justify the choice by the internal
+    # grid being a closed-interval linspace of spacing ~4086.7 Hz rather than 4096;
+    # that grid is now deltaT-spaced, so an integer-factor upsample would be exact
+    # too -- but more to the point its labels are now the times the likelihood
+    # actually evaluated.)
     dt_target = 1.0/opts.srate_resample_time_marginalization
     # floor(): stay within [tvals[0], tvals[-1]] so the spline never
     # extrapolates.  At most one step (<1/srate s, tens of us) is dropped at the
@@ -1416,7 +1691,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
       extra_waveform_kwargs['no_condition'] = True
     if opts.rom_group:
       extra_waveform_kwargs['rom_taper_start'] = True  # really for NRHyb3dq8 given discussion with Aasim for high-SNR sources, but valuable generally
-    if opts.use_gwsignal_lmax_nyquist:
+    if opts.use_gwsignal_lmax_nyquist is not None:
       extra_waveform_kwargs['lmax_nyquist'] = int(opts.use_gwsignal_lmax_nyquist)
     extra_waveform_kwargs['e_freq'] = int(opts.e_freq)
     if opts.internal_waveform_extra_lalsuite_args:
@@ -1433,7 +1708,14 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         if isinstance(extra_args_dict, str):
           extra_args_dict = eval(extra_args_dict)
       print(" Waveform high-level extra args passed ", extra_args_dict, type(extra_args_dict))
-      extra_waveform_kwargs.update(extra_args_dict)
+      if not isinstance(extra_args_dict, dict):
+        raise TypeError("--internal-waveform-extra-kwargs must be a dictionary")
+      if opts.use_gwsignal:
+        # Keep backend options separate from RIFT alignment/conditioning controls.
+        # No whitelist: future generator options, even shared names, pass through.
+        extra_waveform_kwargs['gwsignal_extra_kwargs'] = extra_args_dict
+      else:
+        extra_waveform_kwargs.update(extra_args_dict)
     # Precompute
     t_window = opts.internal_data_storage_window_half
     ignore_threshold=None
@@ -1547,7 +1829,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             tvals = numpy.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
 
             for ph, th, phr, ic, ps, di in zip(right_ascension, dec,
-                    phi_orb, inclination, psi, distance):
+                    phi_orb, incl, psi, distance):   # 'incl', NOT the raw sampled 'inclination': under --inclination-cosine-sampler the sampled variable is cos(iota)
                 P.phi = ph # right ascension
                 P.theta = th # declination
                 P.tref = fiducial_epoch  # see 'tvals', above
@@ -1658,7 +1940,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 
 
                 lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
-                        P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default)
+                        P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default,
+                        time_interp=opts._noloop_time_interp, time_quadrature=opts.time_marginalization_quadrature)
 #                nEvals +=len(right_ascension)
                 if supplemental_ln_likelihood:
                   lnL += supplemental_ln_likelihood(P.phi, P.theta, P.phiref ,P.incl, P.psi, P.dist,xpy=xpy_default) # use these variables so they are already float-type
@@ -1761,7 +2044,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                     P.phiref = phi_orb_true
 
                   lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
-                    P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default, loglikelihood=distmarg_loglikelihood, phase_marginalization=True)
+                    P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default, loglikelihood=distmarg_loglikelihood, phase_marginalization=True,
+                    time_interp=opts._noloop_time_interp, time_quadrature=opts.time_marginalization_quadrature)
 #                  nEvals +=len(right_ascension)
                   if supplemental_ln_likelihood:
                     lnL += supplemental_ln_likelihood(P.phi, P.theta, P.phiref ,P.incl, P.psi, 0,xpy=xpy_default) # Same API
@@ -1804,7 +2088,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                     P.phiref = phi_orb_true
 
                   lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
-                    P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default, loglikelihood=distmarg_loglikelihood)
+                    P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default, loglikelihood=distmarg_loglikelihood,
+                    time_interp=opts._noloop_time_interp, time_quadrature=opts.time_marginalization_quadrature)
 #                  nEvals +=len(right_ascension)
                   if supplemental_ln_likelihood:
                     lnL += supplemental_ln_likelihood(P.phi, P.theta, P.phiref ,P.incl, P.psi, 0,xpy=xpy_default) # Same API
@@ -2265,7 +2550,31 @@ for indx in numpy.arange(len(P_list)):
   #  if failure_mode in str(exception_failure):
   #    sys.exit(opts.custom_fail_codes[i])
 
-  print( " Probable reasons: SEOB nyquist or starting frequency limit or signal duration ")
+  # Attribute the failure to something the traceback actually supports.  This line used to
+  # read "Probable reasons: SEOB nyquist or starting frequency limit or signal duration"
+  # UNCONDITIONALLY, for every exception raised anywhere in the block above.  That pointed
+  # the high-SNR adaptive-volume live-volume collapse -- the dominant extrinsic-export
+  # failure at rho_net >~ 100, where >90% of exports died -- at the waveform generation
+  # code instead, which is why it went undiagnosed for so long.
+  if ((mcsampler_AV_ok and isinstance(exception_failure, mcsamplerAdaptiveVolume.LiveVolumeCollapse))
+      or 'live volume' in str_err or 'live set' in str_err
+      or ('zero-size array' in str_err and 'no identity' in str_err
+          and 'mcsamplerAdaptiveVolume' in traceback.format_exc())):
+    # covers both the named exception and the bare numpy/cupy empty-reduction error that
+    # older trees (and any other integrator with the same defect) still raise.  The string
+    # fallback additionally requires the traceback to name the integrator, because this
+    # handler also covers waveform generation, data conditioning and the likelihood stack.
+    print( " Probable reason: the INTEGRATOR's live volume collapsed -- no samples survived the")
+    print( " adaptive-volume likelihood threshold.  This is NOT a waveform problem: nyquist, start")
+    print( " frequency and segment duration are all irrelevant to it.  At high network SNR the")
+    print( " likelihood underflows (exp() of a lnL more than ~745 nats below the peak returns 0),")
+    print( " so a cold extrinsic prior yields almost no finite draw.  Narrow the extrinsic prior")
+    print( " (--limit-right-ascension/--limit-declination/--limit-inclination, tighter --d-min/--d-max).")
+  elif ('nyquist' in str_err.lower() or 'srate' in str_err.lower() or 'duration' in str_err.lower()
+        or 'ChooseFDWaveform' in str_err or 'ChooseTDWaveform' in str_err or 'gwsignal' in str_err):
+    print( " Probable reasons: SEOB nyquist or starting frequency limit or signal duration ")
+  else:
+    print( " Cause not classified -- read the traceback above; it names the failing call.")
   print( " Skipping the following binary! ")
   # Zero out extrinsic parameters -- these are CUDA-populated / meaningless, but could cause errors if populated
   P_list[indx].incl = P_list[indx].tref = P_list[indx].dist = P_list[indx].phiref = P_list[indx].psi =P_list[indx].theta = P_list[indx].phi =0
