@@ -422,6 +422,9 @@ def test_gpu_sampler_draws_inside_the_box(angle, factory_pdf, factory_cdf, prior
     mcsamplerGPU = pytest.importorskip('RIFT.integrators.mcsamplerGPU')
     lo, hi = box
     s = mcsamplerGPU.MCSampler()
+    s.xpy = mcsamplerGPU.xpy_default
+    s.identity_convert = mcsamplerGPU.identity_convert
+    s.identity_convert_togpu = mcsamplerGPU.identity_convert_togpu
     s.add_parameter(angle, pdf=factory_pdf(lo, hi), cdf_inv=factory_cdf(lo, hi),
                     left_limit=lo, right_limit=hi,
                     prior_pdf=getattr(mcsamplerGPU, prior_name))

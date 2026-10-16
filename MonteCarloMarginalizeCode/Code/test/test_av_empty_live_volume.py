@@ -173,7 +173,7 @@ def _lone_survivor(*args):
     Signature in production: the crash arrives BEFORE any per-cycle line is printed
     (rho_net 146.8).
     """
-    x = np.array(args).T
+    x = np.array([to_host(arg) for arg in args]).T
     out = np.full(len(x), -np.inf)
     out[0] = 100.0
     return out
@@ -185,7 +185,7 @@ def _ratchet_to_one(*args):
     Signature in production: int_var 0.7071 (2 samples) -> 0.0 (1 sample) -> crash
     (rho_net 72.1).
     """
-    x = np.array(args).T
+    x = np.array([to_host(arg) for arg in args]).T
     out = np.full(len(x), -np.inf)
     k = min(3, len(x))
     out[:k] = 100.0 + np.arange(k)
@@ -208,7 +208,7 @@ def test_degenerate_live_volume_does_not_raise_an_empty_reduction(fn, label):
 def test_no_finite_sample_anywhere_raises_a_named_error_not_a_reduction_error():
     """Nothing finite ever: there IS no integral, so fail -- but say why."""
     def all_underflowed(*args):
-        return np.full(len(np.array(args).T), -np.inf)
+        return np.full(len(np.array([to_host(arg) for arg in args]).T), -np.inf)
 
     with pytest.raises(LiveVolumeCollapse) as excinfo:
         _integrate(all_underflowed, nmax=30000)
@@ -231,7 +231,7 @@ def _peaked(rho, underflow=True):
     lnLmax = 0.5 * rho ** 2
 
     def lnL(*args):
-        x = np.array(args).T
+        x = np.array([to_host(arg) for arg in args]).T
         out = lnLmax - 0.5 * np.sum(((x - x0) / width) ** 2, axis=-1)
         if underflow:
             out = np.where(out > lnLmax - 745.0, out, -np.inf)
@@ -243,6 +243,7 @@ def test_collapse_is_flagged_in_dict_return_at_high_snr():
     """rho ~ 147 with a production-sized chunk: a few finite draws, then a degenerate
     contraction.  The run COMPLETES -- and must say that its answer is degenerate."""
     np.random.seed(20260810)
+    xpy.random.seed(20260810)
     s, res = _integrate(_peaked(146.8), nmax=300000, neff=8, n_chunk=100000)
     dd = res[3]
     assert dd.get('live_volume_collapsed') is True, dd
@@ -269,6 +270,7 @@ def test_collapse_verdict_matches_the_measured_regimes(n_live, ess, expect):
 def test_a_healthy_run_is_not_flagged_as_collapsed():
     """The guard must not cry wolf on the regime that already works (rho ~ 51)."""
     np.random.seed(20260810)
+    xpy.random.seed(20260810)
     s, res = _integrate(_peaked(20.0), nmax=400000, neff=20, n_chunk=20000)
     dd = res[3]
     assert dd.get('live_volume_collapsed') is False, dd.get('collapse_reason')
@@ -296,10 +298,11 @@ def test_known_gaussian_integral_is_recovered():
     x0 = 0.5 * np.ones(NDIM)
 
     def lnL(*args):
-        x = np.array(args).T
+        x = np.array([to_host(arg) for arg in args]).T
         return -0.5 * np.sum(((x - x0) / w) ** 2, axis=-1)
 
     np.random.seed(20260810)
+    xpy.random.seed(20260810)
     s, res = _integrate(lnL, nmax=600000, neff=30, n_chunk=20000)
     expected = NDIM * np.log(w * np.sqrt(2 * np.pi))
     # Tolerance is loose on purpose: AV carries a known few-tenths-of-a-nat bias on this
