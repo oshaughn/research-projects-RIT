@@ -121,8 +121,10 @@ from time import time
 from hashlib import md5
 
 import shutil
+import shlex
 
 import numpy as np
+from RIFT.misc.argument_quoting import _double_up_quotes, quote_arguments, safely_quote_arg_str
 import configparser
 
 # Container family manifest support (Feature: multi-architecture container
@@ -384,36 +386,6 @@ def generate_job_id():
     return md5((t + r).encode("utf-8")).hexdigest()
 
 
-def _double_up_quotes(instr):
-    return instr.replace("'", "''").replace('"', '""')
-
-
-def quote_arguments(args):
-    """Quote a string or list of strings using the Condor submit-file 'new' argument-quoting rules."""
-    if isinstance(args, str):
-        args_list = [args]
-    else:
-        args_list = args
-    quoted_args = []
-    for a in args_list:
-        qa = _double_up_quotes(a)
-        if " " in qa or "'" in qa:
-            qa = "'" + qa + "'"
-        quoted_args.append(qa)
-    return " ".join(quoted_args)
-
-
-def safely_quote_arg_str(arg_str):
-    if not ('"' in arg_str):
-        return quote_arguments
-    quote_breaks = arg_str.split('"')
-    if len(quote_breaks) != 3:
-        raise Exception(" Arg parsing: multiple quoted argument strings provided, not ready to handle ")
-    args0 = quote_arguments(quote_breaks[0].split())
-    args2 = quote_arguments(quote_breaks[2].split())
-    args1 = quote_arguments('"{}"'.format(quote_breaks[1]))
-    return "{} {} {}".format(args0, args1, args2)
-
 
 def bilby_ish_string_to_dict(my_str):
     items = my_str.replace('{', '').replace('}', '').strip().split(',')
@@ -504,6 +476,7 @@ class _GenericJob(object):
         self.file_opts = []              # list of (name, value)        for file--opts
         self.var_opts = []               # variable opts (filled per-node from macros)
         self.arguments = []              # positional arguments
+        self.literal_argv = []           # argv tokens encoded only by the emitting backend
         self.environment = {}            # explicit env: dict of name -> value
         self.inherit_environment = False # condor's "getenv = True" / slurm's "--export=ALL"
         self.condor_cmds = []            # raw Condor submit-file commands (escape hatch / passthrough)
@@ -953,7 +926,7 @@ class WorkflowBackend(abc.ABC):
 
     # Defaults useful for sub-classes
     @staticmethod
-    def _build_argument_string(job, var_ref):
+    def _build_argument_string(job, var_ref, shell=False):
         """Render a job's argument list as a single command-line string.
 
         *var_ref* is a callable mapping a variable-opt name to whatever string
@@ -961,6 +934,8 @@ class WorkflowBackend(abc.ABC):
         Condor, ``"${event}"`` for Slurm).
         """
         parts = []
+        if job.literal_argv:
+            parts.append(shlex.join(job.literal_argv) if shell else quote_arguments(job.literal_argv))
         for name, value in job.opts:
             if value is None or value == "":
                 parts.append("--{}".format(name))
@@ -1163,6 +1138,15 @@ class GluePipelineBackend(WorkflowBackend):
             stderr_file = base + ".err"
         if stderr_file is not None:
             gjob.set_stderr_file(stderr_file)
+        if job.literal_argv:
+            encoded = quote_arguments(job.literal_argv)
+            # Keep literal ILE options before the per-node event macro, as in
+            # the historical glue writer. Other literal positional argv goes
+            # through add_arg; ILE's prefix always begins with a long option.
+            if encoded.startswith('--'):
+                gjob.add_opt(encoded[2:], '')
+            else:
+                gjob.add_arg(encoded)
         for n, v in job.opts:
             gjob.add_opt(n, v)
         for n, v in job.short_opts:
@@ -1326,7 +1310,7 @@ class SlurmBackend(WorkflowBackend):
             ev = "SLURM_VAR_" + re.sub(r"\W+", "_", name).upper()
             return "${" + ev + "}"
 
-        args = self._build_argument_string(job, slurm_var)
+        args = self._build_argument_string(job, slurm_var, shell=True)
         lines.append("")
         if not job.executable:
             raise RuntimeError("SlurmBackend.emit_job: job has no executable")
@@ -2301,10 +2285,19 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
 
     ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
 
-    # Stream log info: always stream CIP error, it is a critical bottleneck
-    if True: # not ('RIFT_NOSTREAM_LOG' in os.environ):
+    # Honor the explicit no-stream transport policy used by blueprint deployments.
+    if 'RIFT_NOSTREAM_LOG' not in os.environ:
         ile_job.add_condor_cmd("stream_error",'True')
         ile_job.add_condor_cmd("stream_output",'True')
+
+    # Shared local images require an explicit local-pool opt-in for CIP too.
+    if os.environ.get('RIFT_CIP_FLOCK_LOCAL', '').lower() in ('1', 'true'):
+        ile_job.add_condor_cmd('MY.flock_local', 'true')
+    if os.environ.get('RIFT_CIP_POOLS'):
+        pools = os.environ['RIFT_CIP_POOLS']
+        if not all(c.isalnum() or c in '_,-' for c in pools):
+            raise ValueError('RIFT_CIP_POOLS must be a comma-separated pool list')
+        ile_job.add_condor_cmd('MY.POOLS', '"{}"'.format(pools))
 
     try:
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
@@ -2498,10 +2491,9 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
         # Selective transfer: only the matched osdf image is fetched (via the
         # $$() token, which is comma-free so it survives transfer_input_files
         # comma-splitting).  CVMFS/local images are referenced in place and
-        # never transferred, so the whole family is never pulled.  In container-
-        # universe mode the image is delivered via container_image itself, so we
-        # do NOT add the transfer token.
-        if singularity_transfer_expr and not singularity_container_universe:
+        # never transferred, so the whole family is never pulled. Container
+        # universe selects basenames, so it also needs the full-URL transfer.
+        if singularity_transfer_expr and (request_gpu or not singularity_container_universe):
             extra_files += [singularity_transfer_expr]
     elif singularity_image:
         if 'osdf:' in singularity_image:
@@ -2569,13 +2561,8 @@ echo Starting ...
     #
     # Add options en mass, by brute force
     #
-    arg_str = arg_str.lstrip() # remove leading whitespace and minus signs
-    arg_str = arg_str.lstrip('-')
-    if '"' in arg_str:
-        arg_str = safely_quote_arg_str(arg_str)
-        #arg_str = arg_str.replace('"','""') # double quote for condor - weird but true
-    ile_job.add_opt(arg_str,'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
-#    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+    # Store real argv until backend emission; Condor and Slurm encode separately.
+    ile_job.literal_argv = shlex.split(arg_str)
 
     #
     # Macro based options.
@@ -2831,12 +2818,21 @@ echo Starting ...
 
     if not transfer_files is None:
         if not isinstance(transfer_files, list):
-            fname_str=transfer_files + ' '.join(extra_files)
+            fname_str = ','.join(part for part in [transfer_files] + extra_files if part)
         else:
             fname_str = ','.join(transfer_files+extra_files)
         fname_str=fname_str.strip()
         ile_job.add_condor_cmd('transfer_input_files', fname_str)
         ile_job.add_condor_cmd('should_transfer_files','YES')
+        if singularity_container_universe and request_gpu:
+            # condor_submit APPENDS the container_image value to the derived
+            # TransferInput.  Our selector names basenames (it may not contain a
+            # '/'), so that appended entry would ask the execute point to fetch a
+            # bare file name from the access point and fail.  Set TransferInput
+            # directly -- emitted after transfer_input_files, it wins -- so the
+            # list is exactly ours, with the matched image supplied by the
+            # comma-free $$() ternary already in extra_files.
+            ile_job.add_condor_cmd('MY.TransferInput', '"' + fname_str.replace('"', '\\"') + '"')
 
     if not transfer_output_files is None:
         if not isinstance(transfer_output_files, list):
@@ -3060,14 +3056,15 @@ def write_calpilot_sub(tag='calpilot', exe=None, log_dir=None, universe="vanilla
         singularity_require_gpus_floor = build_require_gpus_floor(_manifest)
         singularity_container_universe = bool(use_singularity and os.environ.get('RIFT_CONTAINER_UNIVERSE'))
         if singularity_container_universe:
-            singularity_container_image_select = build_container_image_select(_manifest)
-        else:
-            # Selective ($$()) transfer of only the matched osdf image (comma-free so
-            # it survives transfer_input_files comma-splitting).  In container-universe
-            # mode the image is delivered via container_image itself, so skip this.
-            _transfer_expr = build_transfer_input_expr(_manifest)
-            if on_osg and _transfer_expr:
-                transfer_files += [_transfer_expr]
+            singularity_container_image_select = build_container_image_select(_manifest, request_gpu=request_gpu)
+        # Selective ($$()) transfer of only the matched osdf image (comma-free so it
+        # survives transfer_input_files comma-splitting).  Container universe needs it
+        # too: its container_image selector names BASENAMES (it may not contain a '/',
+        # or condor_submit truncates it), so the image arrives by file transfer.
+        # (container universe requires use_singularity, which already implies on_osg)
+        _transfer_expr = build_transfer_input_expr(_manifest)
+        if on_osg and _transfer_expr and (request_gpu or not singularity_container_universe):
+            transfer_files += [_transfer_expr]
 
     if use_singularity:
         base = os.environ.get('SINGULARITY_BASE_EXE_DIR', '/usr/bin/')
@@ -3138,7 +3135,7 @@ def write_calpilot_sub(tag='calpilot', exe=None, log_dir=None, universe="vanilla
     if use_singularity and singularity_image:
         job.add_condor_cmd('transfer_executable', 'False')
         if singularity_container_universe:
-            # Container universe: the per-machine image is delivered via container_image,
+            # Container universe: select the basename; transfer the full URL separately,
             # a $$()-substituted (match-time) literal -- emit it raw/unquoted (a $$()
             # value must not be wrapped in quotes), with NO MY.SingularityImage /
             # MY.SingularityBindCVMFS.  GPU access is automatic under request_gpus.
@@ -3174,8 +3171,14 @@ def write_calpilot_sub(tag='calpilot', exe=None, log_dir=None, universe="vanilla
         # absolute paths -> condor transfers each to the worker scratch dir by basename,
         # which is what the stage args (basenames) reference.
         transfer_files += [wd + "/consolidated_$(macroiteration).composite", ile_args_file]
-        job.add_condor_cmd('transfer_input_files', ','.join(transfer_files))
+        _tif_str = ','.join(transfer_files)
+        job.add_condor_cmd('transfer_input_files', _tif_str)
         job.add_condor_cmd('should_transfer_files', 'YES')
+        if singularity_container_universe and request_gpu:
+            # condor_submit APPENDS the container_image value to the derived
+            # TransferInput; our selector names basenames, so that entry would ask
+            # the execute point to fetch a bare file name and fail.  Pin the list.
+            job.add_condor_cmd('MY.TransferInput', '"' + _tif_str.replace('"', '\\"') + '"')
         job.add_condor_cmd('when_to_transfer_output', 'ON_EXIT')
         job.add_condor_cmd('transfer_output_files', 'cal_consolidated_$(macroiteration).npz')
     # Container-family GPU jobs (CALPILOT runs ILE on a GPU): exclude slots that
@@ -4323,13 +4326,23 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
 
     singularity_image_used = "{}".format(singularity_image) # make copy
     extra_files = []
-    if singularity_image:
-            if 'osdf:' in singularity_image:
-                singularity_image_used  = "./{}".format(singularity_image.split('/')[-1])
-                extra_files += [singularity_image]
+    singularity_is_family = bool(singularity_image and is_container_manifest(singularity_image))
+    singularity_container_universe = bool(
+        singularity_is_family and use_singularity and os.environ.get('RIFT_CONTAINER_UNIVERSE')
+    )
+    singularity_container_image = None
+    if singularity_is_family:
+        _manifest = load_container_manifest(singularity_image)
+        if singularity_container_universe:
+            singularity_container_image = build_container_image_select(_manifest, request_gpu=False)
+        else:
+            singularity_image_used, fallback_transfer = build_fallback_single_image(_manifest)
+            if fallback_transfer:
+                extra_files.append(fallback_transfer)
+    elif singularity_image and 'osdf:' in singularity_image:
+        singularity_image_used = "./{}".format(singularity_image.split('/')[-1])
+        extra_files.append(singularity_image)
 
-
-    
     exe = exe or which("calibration_reweighting.py")
     if exe is None:
         print(" Calibration Reweighting code not available. ")
@@ -4345,7 +4358,7 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
             singularity_base_exe_path = "/usr/bin/"  # should not hardcode this ...!
         exe=singularity_base_exe_path + exe_base
 
-    ile_job = CondorDAGJob(universe="vanilla", executable=exe)
+    ile_job = CondorDAGJob(universe=("container" if singularity_container_universe else "vanilla"), executable=exe)
     # This is a hack since CondorDAGJob hides the queue property
     ile_job._CondorJob__queue = ncopies
 
@@ -4361,11 +4374,19 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
         # Compare to https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
         ile_job.add_condor_cmd('request_CPUs', str(1))
         ile_job.add_condor_cmd('transfer_executable', 'False')
-        ile_job.add_condor_cmd("MY.SingularityBindCVMFS", 'True')
-        ile_job.add_condor_cmd("MY.SingularityImage", '"' + singularity_image_used + '"')
+        if singularity_container_universe:
+            ile_job.add_condor_cmd("container_image", singularity_container_image)
+        else:
+            ile_job.add_condor_cmd("MY.SingularityBindCVMFS", 'True')
+            ile_job.add_condor_cmd("MY.SingularityImage", '"' + singularity_image_used + '"')
         ile_job.add_condor_cmd("transfer_output_files", "weight_files")
         requirements.append("HAS_SINGULARITY=?=TRUE")
         print(" WARNING: cal reweighting requires bilby. Directories are moved to cal_evelopes")
+        # Shared images must match the same filesystem constraint as ILE.
+        # Transferred images and container-universe manifests remain portable.
+        shared_requirement = os.environ.get('RIFT_REQUIRE_NONWORKER')
+        if shared_requirement and not singularity_container_universe and not extra_files:
+            requirements.append('({}) =?= TRUE'.format(shared_requirement))
 #        os.system("condor_config_val UID_DOMAIN > uid_domain.txt")
 #       with open("uid_domain.txt", 'r') as f:
 #            uid_domain = f.readline().strip()

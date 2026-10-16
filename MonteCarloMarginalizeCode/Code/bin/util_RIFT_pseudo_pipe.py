@@ -16,6 +16,7 @@
 
 import numpy as np
 import argparse
+import shlex
 import os
 import sys
 import lal
@@ -177,6 +178,8 @@ parser.add_argument("--assume-matter-but-primary-bh",action='store_true',help="I
 parser.add_argument("--internal-tabular-eos-file",type=str,default=None,help="Tabular file of EOS to use.  The default prior will be UNIFORM in this table!")
 parser.add_argument("--sample-eccentricity-squared",action='store_true', help="Option for sampling as well as fitting in eccentricity_squared instead of fitting in eccentricity_squared and sampling in eccentricity (also need option --use-eccentricity-squared")
 parser.add_argument("--use-eccentricity-squared",action='store_true', help="Allows for fitting and sampling in eccentricity_squared instead of eccentricity")
+parser.add_argument("--sample-eccentricity-ln",action='store_true', help="Option for sampling as well as fitting in eccentricity_ln instead of fitting in eccentricity_ln and sampling in eccentricity (also need option --use-eccentricity-ln")
+parser.add_argument("--use-eccentricity-ln",action='store_true', help="Allows for fitting and sampling in eccentricity_ln instead of eccentricity")
 parser.add_argument("--assume-eccentric",action='store_true', help="Add eccentric options for each part of analysis")
 parser.add_argument("--use-meanPerAno",action='store_true', help="Add meanPerAno options for each part of analysis")
 parser.add_argument("--internal-cip-use-periodic-ecc-vars",action='store_true', help="use e cos ell, e sin ell as fitting variables ")
@@ -205,6 +208,7 @@ parser.add_argument("--internal-use-amr",action='store_true',help="Changes refin
 parser.add_argument("--internal-use-amr-bank",default="",type=str,help="Bank used for template")
 parser.add_argument("--internal-use-amr-puff",action='store_true',help="Use puffball with AMR (as usual).  May help with stalling")
 parser.add_argument("--internal-use-force-away",type=float,default=None,help="Specific force-away value")
+parser.add_argument("--rf-transverse-spin-coordinates", choices=["off","auto","physics3","geometric4","geometric4-phase-excess"], default=None, help="Pass opt-in geometric4 RF fitting basis to every applicable full precessing stage; auto selects geometric4. physics3 is retired and refused")
 parser.add_argument("--internal-use-aligned-phase-coordinates", action='store_true', help="If present, instead of using mc...chi-eff coordinates for aligned spin, will use SM's phase-based coordinates. Requires spin for now")
 parser.add_argument("--internal-use-rescaled-transverse-spin-coordinates",action='store_true',help="If present, use coordinates which rescale the unit sphere with special transverse sampling")
 parser.add_argument("--external-fetch-native-from",type=str,help="Directory name of run where grids will be retrieved.  Recommend this is for an ACTIVE run, or otherwise producing a large grid so the retrieved grid changes/isn't fixed")
@@ -213,6 +217,7 @@ parser.add_argument("--internal-n-iterations-subdag-max",default=10,type=int,hel
 parser.add_argument("--internal-n-evaluations-per-iteration",default=None,type=int,help="Number of ILE evaluation points per iteration, if not set then pipeline selects experience-based default.  Each ILE worker will do a fraction of this total workload.")
 parser.add_argument("--add-extrinsic",action='store_true')
 parser.add_argument("--add-extrinsic-time-resampling",action='store_true',help="adds the time resampling option.  Only deployed for vectorized calculations (which should be all that end-users can access)")
+parser.add_argument("--internal-ile-interpolate-time",action='store_true',help="Pass --interpolate-time True to ILE, enabling cubic interpolation of Q_lm at fractional detector arrival times in the maintained NoLoop likelihood.")
 parser.add_argument("--internal-ile-srate-time-resampling",default=None, help=" Adds --srate-resample-time-marginalization to ILE for  output, to provide higher-resolution time output ")
 parser.add_argument("--internal-ile-srate-internal",default=None, help=" Adds --srate-internal to ILE, modifying how calculations are performed internally to use a higher sampling rate ")
 parser.add_argument("--batch-extrinsic",action='store_true')
@@ -237,6 +242,7 @@ parser.add_argument("--ile-force-gpu",action='store_true')
 parser.add_argument("--ile-gpu-fanout",default=None,help="Multi-GPU ILE fan-out: split each ILE batch's intrinsic-grid range across N GPUs on the node (one shard per GPU).  Integer N (also requests N GPUs+CPUs) or 'auto' (split across whatever GPUs are visible at runtime).  Baked into the generated ile_pre.sh, so it needs no runtime environment.  Equivalent to setting RIFT_ILE_GPU_FANOUT.  Requires --ile-force-gpu.")
 parser.add_argument("--fake-data-cache",type=str)
 parser.add_argument("--spin-magnitude-prior",default='default',type=str,help="options are default [uniform mag for precessing, zprior for aligned], volumetric, uniform_mag_prec, uniform_mag_aligned, zprior_aligned")
+parser.add_argument("--eccentricity-prior",default='uniform',type=str,help="options are uniform in e ('uniform') and uniform in log(e) ('log_uniform')")
 parser.add_argument("--force-lambda-max",default=None,type=float,help="Provide this value to override the value of lambda-max provided") 
 parser.add_argument("--force-lambda-small-max",default=None,type=float,help="Provide this value to override the value of lambda-small-max provided") 
 parser.add_argument("--force-lambda-no-linear-init",action='store_true',help="Disables use of priors focused towards small lambda for initial iterations. Designed for PP plot tests with wide/uniform priors.")
@@ -352,6 +358,11 @@ if (opts.use_ini):
 
         if not('RIFT_REQUIRE_GPUS' in os.environ) and 'ile_require_gpus' in rift_items:
             os.environ['RIFT_REQUIRE_GPUS'] = rift_items['ile_require_gpus']
+
+        if 'SINGULARITY_RIFT_IMAGE' not in os.environ and 'singularity_rift_image' in rift_items:
+            os.environ['SINGULARITY_RIFT_IMAGE'] = rift_items['singularity_rift_image']
+        if 'SINGULARITY_BASE_EXE_DIR' not in os.environ and 'singularity_base_exe_dir' in rift_items:
+            os.environ['SINGULARITY_BASE_EXE_DIR'] = rift_items['singularity_base_exe_dir']
         
         # attempt to lazy-select the command-line that are present in the ini file section
         for item in rift_items:
@@ -376,7 +387,11 @@ if (opts.use_ini):
         for item in rift_items:
             val = rift_items[item].strip()
             ile_condor_commands.append([item, val])
-            
+
+# After the ini, which can set the mode.
+if opts.rf_transverse_spin_coordinates == 'physics3':
+    from RIFT.misc.rf_transverse_spin import RETIRED_MESSAGE
+    parser.error(RETIRED_MESSAGE)
 
 
 if opts.use_osg:
@@ -687,6 +702,8 @@ if opts.internal_use_gracedb_bayestar:
     cmd += " --internal-use-gracedb-bayestar "
 if opts.internal_use_amr:
     cmd += " --internal-use-amr " # minimal support performed in this routine, mainly for puff
+if opts.rf_transverse_spin_coordinates:
+    cmd += " --rf-transverse-spin-coordinates {} ".format(opts.rf_transverse_spin_coordinates)
 if opts.internal_use_aligned_phase_coordinates:
     cmd += " --internal-use-aligned-phase-coordinates "
 if opts.internal_use_rescaled_transverse_spin_coordinates:
@@ -957,6 +974,8 @@ if opts.internal_ile_reset_adapt or ((opts.ile_sampler_method =='adaptive_cartes
     #   - requested or
     #   - AC + not freezeadapt
     line += " --force-reset-all "
+if opts.internal_ile_interpolate_time:
+    line += " --interpolate-time True "
 if not(opts.manual_extra_ile_args is None):
     line += " {} ".format(opts.manual_extra_ile_args)  # embed with space on each side, avoid collisions
     if '--declination ' in opts.manual_extra_ile_args:   # if we are pinning dec, we aren't using a cosine coordinate. Don't mess up.
@@ -1108,6 +1127,7 @@ for indx in np.arange(len(instructions_cip)):
     if opts.internal_cip_tripwire:
         line += " --tripwire-fraction {} ".format(opts.internal_cip_tripwire)
     line += prior_args_lookup[opts.spin_magnitude_prior]
+
     if opts.cip_internal_use_eta_in_sampler:
         line = line.replace('parameter delta_mc','parameter eta')
     if opts.cip_fit_method == 'quadratic' or opts.cip_fit_method == 'polynomial':
@@ -1189,11 +1209,14 @@ for indx in np.arange(len(instructions_cip)):
 
     if opts.fit_save_gp:
         line += " --fit-save-gp my_gp "  # fiducial filename, stored in each iteration
+    line += " --eccentricity-prior {}".format(opts.eccentricity_prior)
     if opts.assume_eccentric:
         if opts.use_meanPerAno:
             line += " --parameter meanPerAno --use-meanPerAno "
         if opts.use_eccentricity_squared:
             line += " --use-eccentricity --parameter eccentricity_squared "
+        elif opts.use_eccentricity_ln:
+            line += " --use-eccentricity --parameter eccentricity_ln "
         else:
             line += " --use-eccentricity --parameter eccentricity "
         # if opts.use_eccentricity_squared:
@@ -1272,6 +1295,16 @@ if opts.internal_use_amr:
         lines[0] += " --intrinsic-param spin1z "
         if not(opts.assume_lowlatency_tradeoffs):
             lines[0] += " --intrinsic-param spin2z "
+
+# Final CIP lines, from any route (e.g. --manual-extra-cip-args), must not carry a
+# retired RF mode; fail here rather than in every CIP job after ILE.
+from RIFT.misc.rf_transverse_spin import retired_problem, revalidate_stage
+for line in lines:
+    if retired_problem(line):
+        raise ValueError(retired_problem(line))
+if opts.rf_transverse_spin_coordinates or any('--rf-transverse-spin-coordinates' in line for line in lines):
+    # The edits above can remove the RF basis from a stage the helper activated
+    lines = [revalidate_stage(line) for line in lines]
 
 with open("args_cip_list.txt",'w') as f: 
    for line in lines:
@@ -1416,6 +1449,8 @@ if opts.assume_eccentric:
     cmd += " --use-eccentricity "
     if opts.sample_eccentricity_squared:
         cmd += " --use-eccentricity-squared-sampling "
+    if opts.sample_eccentricity_ln:
+        cmd += " --use-eccentricity-ln-sampling "
     if opts.use_meanPerAno:
         cmd += " --use-meanPerAno "
 if opts.calibration_reweighting and (not opts.bilby_pickle_file):
@@ -1430,7 +1465,7 @@ if opts.calibration_reweighting and (not opts.bilby_pickle_file):
         cmd += " --calibration-reweighting-osg "
         opts.calibration_reweighting_initial_extra_args += " --use_local_cal_files "
     if opts.calibration_reweighting_initial_extra_args:
-        cmd += " --calibration-reweighting-initial-extra-args '{}' ".format(opts.calibration_reweighting_initial_extra_args)
+        cmd += " --calibration-reweighting-initial-extra-args {} ".format(shlex.quote(opts.calibration_reweighting_initial_extra_args))
 elif opts.calibration_reweighting and opts.bilby_pickle_file:
     cmd += " --calibration-reweighting --calibration-reweighting-exe `which calibration_reweighting.py` --bilby-pickle-file {} ".format(str(opts.bilby_pickle_file))
     if opts.calibration_reweighting_count:
@@ -1441,7 +1476,7 @@ elif opts.calibration_reweighting and opts.bilby_pickle_file:
         cmd += " --calibration-reweighting-osg "
         opts.calibration_reweighting_initial_extra_args += " --use_local_cal_files "
     if opts.calibration_reweighting_initial_extra_args:
-        cmd += " --calibration-reweighting-initial-extra-args '{}' ".format(opts.calibration_reweighting_initial_extra_args)
+        cmd += " --calibration-reweighting-initial-extra-args {} ".format(shlex.quote(opts.calibration_reweighting_initial_extra_args))
 if opts.internal_tabular_eos_file:
     cmd += " --use-tabular-eos-file "
 if opts.distance_reweighting:
@@ -1591,40 +1626,59 @@ if opts.calibration_reweighting:
         my_extra_string += " --use-eccentricity "
     if opts.manual_extra_ile_args:
          print(" calmarg: Parsing  ", opts.manual_extra_ile_args)
-         my_str_list = opts.manual_extra_ile_args.lstrip().split("--")
-         my_revised_args = []
-         # MANUAL PARSING, SO STUPID, but argparse does not do what I want
-         for arg_item in my_str_list:
-             if 'internal-waveform-extra-lalsuite-args' in arg_item:
-                 my_revised_args += ['--internal-waveform-extra-lalsuite-args', arg_item.replace('internal-waveform-extra-lalsuite-args', '')]
-             if 'internal-waveform-extra-kwargs' in arg_item:
-                 my_revised_args += ['--internal-waveform-extra-kwargs', arg_item.replace('internal-waveform-extra-kwargs', '')]
-        
-         # Parse string for waveform arguments
-         # Currently: fork off the lmax_nyquist (the most common scenario), leave the rest to a unified dictionary to pass on
-         # ISSUE: argparse parsing does not seem to work, fall back to optparse
-         my_parser=argparse.ArgumentParser()
-         my_parser.add_argument("--internal-waveform-extra-lalsuite-args",type=str,default=None)
-         my_parser.add_argument("--internal-waveform-extra-kwargs",type=str, default=None)
-         my_opts, unknown_opts =my_parser.parse_known_args(my_revised_args )
+         # Preserve shell argument boundaries, including nested dictionaries
+         # whose string values contain '--', apostrophes or double quotes.
+         my_parser = argparse.ArgumentParser()
+         my_parser.add_argument("--use-gwsignal", action='store_true')
+         my_parser.add_argument("--use-gwsignal-lmax-nyquist", type=int, default=None)
+         my_parser.add_argument("--internal-waveform-fd-L-frame", action='store_true')
+         my_parser.add_argument("--internal-waveform-fd-no-condition", action='store_true')
+         my_parser.add_argument("--internal-waveform-extra-lalsuite-args", type=str, default=None)
+         my_parser.add_argument("--internal-waveform-extra-kwargs", type=str, default=None)
+         my_opts, unknown_opts = my_parser.parse_known_args(shlex.split(opts.manual_extra_ile_args))
          print(' calmarg: parsed args ', my_opts, " and others ", unknown_opts)
+         effective_gwsignal = opts.use_gwsignal or my_opts.use_gwsignal
+         if my_opts.use_gwsignal and not opts.use_gwsignal:
+             my_extra_string += ' --use-gwsignal '
+         if my_opts.internal_waveform_fd_L_frame:
+             my_extra_string += ' --internal-waveform-fd-L-frame '
+         if my_opts.internal_waveform_fd_no_condition:
+             my_extra_string += ' --internal-waveform-fd-no-condition '
+         if effective_gwsignal and my_opts.internal_waveform_extra_lalsuite_args is not None:
+             my_parser.error("--internal-waveform-extra-lalsuite-args cannot be used with --use-gwsignal; "
+                             "use --internal-waveform-extra-kwargs for GWSignal backend options")
          my_extra_args = {}
-         if my_opts.internal_waveform_extra_kwargs:
-             my_arg_dict = eval(my_opts.internal_waveform_extra_kwargs)
-             # due to quoting, might not evaluate to a dictionary
-             if not(isinstance(my_arg_dict, dict)):
-                 my_arg_dict = eval(my_arg_dict)
-             if 'lmax_nyquist' in my_arg_dict:
-                 my_extra_string+= " --use-gwsignal-lmax-nyquist {} ".format(my_arg_dict['lmax_nyquist'])
-                 del my_arg_dict['lmax_nyquist'] # remove key
-             my_extra_args.update(my_arg_dict)
+         gwsignal_lmax_nyquist = my_opts.use_gwsignal_lmax_nyquist
+         if gwsignal_lmax_nyquist is not None and not effective_gwsignal:
+             # ILE does not select GWSignal merely because lmax was set.
+             # Keep the option in native wrapper kwargs to match that route.
+             my_extra_args['lmax_nyquist'] = gwsignal_lmax_nyquist
          if my_opts.internal_waveform_extra_lalsuite_args:
              my_arg_dict = eval(my_opts.internal_waveform_extra_lalsuite_args)
-             if not(isinstance(my_arg_dict, dict)):
+             if isinstance(my_arg_dict, str):
                  my_arg_dict = eval(my_arg_dict)
-             my_extra_args.update(my_arg_dict)
+             if not isinstance(my_arg_dict, dict):
+                 raise TypeError("--internal-waveform-extra-lalsuite-args must be a dictionary")
+             my_extra_args['extra_waveform_args'] = my_arg_dict
+         if my_opts.internal_waveform_extra_kwargs:
+             my_arg_dict = eval(my_opts.internal_waveform_extra_kwargs)
+             if isinstance(my_arg_dict, str):
+                 my_arg_dict = eval(my_arg_dict)
+             if not isinstance(my_arg_dict, dict):
+                 raise TypeError("--internal-waveform-extra-kwargs must be a dictionary")
+             if effective_gwsignal:
+                 my_extra_args['gwsignal_extra_kwargs'] = my_arg_dict
+                 # Also pass lmax_nyquist as the dedicated flag, as before: calibration
+                 # containers older than gwsignal_extra_kwargs read only that flag.
+                 # The dictionary value wins, as it does in ILE.
+                 if 'lmax_nyquist' in my_arg_dict:
+                     gwsignal_lmax_nyquist = my_arg_dict['lmax_nyquist']
+             else:
+                 my_extra_args.update(my_arg_dict)
+         if gwsignal_lmax_nyquist is not None and effective_gwsignal:
+             my_extra_string += ' --use-gwsignal-lmax-nyquist {} '.format(gwsignal_lmax_nyquist)
          if my_extra_args:
-            my_extra_string += ' --extra-waveform-kwargs "{}" '.format(my_extra_args)
+             my_extra_string += ' --extra-waveform-kwargs {} '.format(shlex.quote(repr(my_extra_args)))
 #         my_extra_string += ' ' + opts.manual_extra_ile_args + ' '
     if opts.use_ini:
         fref = unsafe_config_get(config,['engine','fref'])
@@ -1633,7 +1687,7 @@ if opts.calibration_reweighting:
         my_extra_string += ' --internal-waveform-fd-L-frame '
     if opts.calibration_reweighting_initial_extra_args:
         my_extra_string+= ' {} '.format(opts.calibration_reweighting_initial_extra_args) # make sure to add spaces/padding
-    cmd +=" --calibration-reweighting-initial-extra-args='  {}' ".format(my_extra_string)
+    cmd += " --calibration-reweighting-initial-extra-args={} ".format(shlex.quote('  ' + my_extra_string))
 #if opts.internal_mitigate_fd_J_frame =="L_frame" and opts.use_gwsignal and not(opts.manual_extra_ile_args):
 #    cmd +=" --calibration-reweighting-initial-extra-args='--internal-waveform-fd-L-frame --use-gwsignal' "
 if opts.condor_local_nonworker_igwn_prefix:
@@ -1654,7 +1708,7 @@ if not(ile_condor_commands is None):
         for key, val in ile_condor_commands:
             f.write(key+ '  ' + val + '\n')
     cmd += " --ile-condor-commands `pwd`/ile_condor_commands.txt "
-    
+
 print(cmd)
 os.system(cmd)
 

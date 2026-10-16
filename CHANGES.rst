@@ -1,3 +1,70 @@
+0.0.17.14
+---------
+Development tree is rift_O4c.
+
+  - (rc0) PR 187 stabilizes vectorized time marginalization for loud signals;
+    PR 183 (including PR 163) corrects ChooseFDModes conditioning and J-to-L
+    frame rotation; PR 176 adds ASIMOV 0.7 and PESummary handoff compatibility.
+  - (rc1) PR 192 forwards ChooseFDModes frame options through calibration
+    marginalization; PR 153 adds cubic fractional-time interpolation to the
+    NoLoop likelihood; PR 194 adds ASIMOV 0.8 production compatibility and
+    hardens legacy log collection.
+  - (rc2) PRs 195 and 196 correct batch and non-batch network sky-frame
+    mapping and output; PR 185 adds Rimsky orchestration; PR 175 fixes the
+    TEOBResumSDALI GWSignal mode sign; PR 169 interleaves worker grids before
+    nested ILE; PR 184 adds reviewed multibranch LALSimulation EOS support.
+  - (rc3) PR 199 restores ordinary BBH CIP startup after the EOS validation
+    backport. PR 197 resolves postprocessing helpers relative to the installed
+    wrappers and propagates helper failures and empty-output errors.
+    PR 200 fixes container-universe image transfers for GPU ILE and calibration
+    pilot jobs, selects literal fallback images for CPU jobs (including
+    calibration reweighting), and preserves transfer delimiters for string
+    inputs. CPU ILE retains its --gpu NoLoop code path.
+    Include the plotting-utilities package initializer so clean wheels and
+    source distributions import RIFT without relying on untracked files.
+
+  - (rc4) PR 203 adds vectorized in-plane spin/ring coordinates (phi12,
+    chi_p_vec); source-redshift conversion now consistently uses detector-frame
+    masses. PR 204 adds transverse-spin fitting coordinates;
+    ASIMOV defaults to auto for eligible precessing BBH chirp masses <20 Msun
+    (override to off). PR 205 fixes  calibration waveform-kwargs transport pertinent to XPHM;
+    PR 206 aligns calibration waveforms with ILE defaults. ASIMOV fixes PSD
+    staging, scheduler priority, and numeric options; CIP adds local-pool/
+    no-stream settings; calibration shares ILE image routing.
+
+  - (rc5) PR 209 fixes the missing inspect import in calibration reweighting.
+    PR 210 makes coordinate-conversion fallbacks independent of row order;
+    PR 211 makes spin-coordinate assignment independent of assignment order,
+    preserving azimuth at poles and zero spin, array setters, and tiny-spin
+    directions. PR 182 adds opt-in bandlimited NoLoop time marginalization
+    with continuous time-posterior export, cubic detector-time interpolation
+    by default on that path, and bounded GPU row chunks; Simpson remains the
+    default quadrature. PR 212 adds opt-in geometric4 and
+    geometric4-phase-excess transverse-spin RF fitting bases; auto continues
+    to select physics3.
+  - (rc6) PR 213 selects geometric4 for automatic low-mass RF fitting.
+    PR 214 makes CIP quadpuff jitter physical spin components when fitting
+    RF transverse-spin coordinates; PR 215 reflects transverse-spin box
+    coordinates in puffball and wraps only azimuths.
+    PR 216 retires the physics3 RF transverse-spin mode, which
+    gave CIP 11 fit coordinates for 8 degrees of freedom; every layer now
+    refuses it. Asimov `true` and `auto` select geometric4; `auto` leaves
+    fixed-EOS analyses unchanged.
+    PR 217 preserves arbitrary GWSignal backend options through ILE,
+    calibration reweighting, and production argument paths, and fixes
+    waveform-dictionary quoting through ASIMOV and HTCondor while retaining
+    compatibility with older O4c DAGs and containers.
+
+Release candidate is rc6.
+
+0.0.17.13
+---------
+MR https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/55  , for ln(e) parameter access in pipeline
+
+0.0.17.12
+---------
+MR https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/54  , for eccentricity prior (log-uniform)
+
 0.0.17.11
 ---------
 MR https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/53  , so user can specify the bootstrap file in asimov yaml
