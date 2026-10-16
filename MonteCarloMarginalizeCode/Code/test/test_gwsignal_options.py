@@ -29,6 +29,7 @@ def waveform_params():
     P.s1x, P.s1y, P.s1z = 0.4, 0.2, 0.3
     P.s2x, P.s2y, P.s2z = -0.2, 0.1, -0.1
     P.dist = 500e6 * lal.PC_SI
+    P.lambda1, P.lambda2 = 500.0, 800.0
     P.fmin = P.fref = 30.0
     P.deltaT, P.deltaF = 1.0 / 2048, None
     P.taper = lalsim.SIM_INSPIRAL_TAPER_NONE
@@ -76,6 +77,8 @@ def test_generic_options_reach_every_generator(monkeypatch, entry):
             assert control not in parameters
         assert "gwsignal_extra_kwargs" not in parameters
         assert parameters["mass1"].value == pytest.approx(60)
+        assert parameters["lambda1"].value == pytest.approx(500)
+        assert parameters["lambda2"].value == pytest.approx(800)
         assert parameters["deltaT"].value == pytest.approx(1.0 / 2048)
         parameters["future_nested_option"]["flags"]["x"] = True
 
@@ -106,7 +109,7 @@ def test_legacy_options_remain_generic(monkeypatch, entry):
 
 @pytest.mark.parametrize("entry", ["hlmoft", "hoft", "complex_hoft"])
 @pytest.mark.parametrize("field", ["mass1", "mass2", "spin1x", "spin1y", "spin1z",
-                                    "spin2x", "spin2y", "spin2z", "deltaT",
+                                    "spin2x", "spin2y", "spin2z", "lambda1", "lambda2", "deltaT",
                                     "f22_start", "f22_ref", "distance", "inclination",
                                     "phi_ref", "eccentricity", "longAscNodes", "meanPerAno"])
 @pytest.mark.parametrize("explicit", [True, False])
