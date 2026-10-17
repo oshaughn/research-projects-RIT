@@ -23,8 +23,60 @@ source-redshift/native-mass conversion.
 
 ## Usage
 
-Add the same configuration to eligible CIP and puff commands, or to
-`util_RIFT_pseudo_pipe.py` / `helper_LDG_Events.py`:
+The helper resolves the frequency once at workflow build time. Enable the
+coordinate in an eccentric Asimov production with:
+
+```yaml
+sampler:
+  extra eccentric arguments:
+    eccentric-phase-coordinates: true
+```
+
+Keep the production's existing eccentricity bounds and priors in that block.
+Asimov supplies `eccentric-phase-frequency-policy: lvk-mass` by default; the
+pseudo-pipe forwards the request to `helper_LDG_Events.py`. The helper resolves
+one value from the build event's **detector-frame** masses, writes
+`eccentric_phase_build.json`, and emits numerical frequencies for eligible CIP
+stages and puffing. The outer pseudo-pipe reads that record rather than
+selecting again. Workers never select an anchor. The feature remains opt-in.
+
+### LVK mass policy and high-mass fallback
+
+For detector-frame total mass M in solar masses, compute
+
+```
+f_mass = 0.05**1.5 / (pi * 4.9254909476412675e-6 * M)  # Hz
+```
+
+This uses the dimensionless frequency x=(pi G M f/c^3)^(2/3)=0.05
+(approximately a20M circular-orbit separation at Newtonian order). It is a
+versioned early-inspiral coordinate policy, not a calibrated sensitivity
+maximum or guarantee of PN accuracy. The LVK default early-band interval is
+20--40Hz; its floor is raised to the lowest active detector fmin if needed,
+and its ceiling respects the analysis fmax.
+
+- If f_mass is within the interval, use it continuously, without quantizing.
+- If f_mass exceeds the ceiling, use the ceiling.
+- **High mass:** if f_mass falls below the interval floor, use the native epoch
+  itself: an identity shear/native circular chart. Do not push a weak-field
+  landmark into the later observed band merely to satisfy its lower bound.
+- If the otherwise selected anchor precedes the native epoch, also use the
+  identity shear. The receipt records the fallback and achieved x.
+
+At native10Hz and network fmin20Hz this gives about40Hz for10Msun,
+32.84Hz for22Msun,20.07Hz for36Msun, and an identity shear for70/120Msun.
+These are build-time event mass estimates, not sample-by-sample anchor choices;
+the shear itself still uses each physical point's masses. The completed paired
+pilot and archival plots retain their previously specified fixed anchors.
+
+The native epoch is inferred when template start and waveform reference agree.
+For SEOBNRv5EHM it follows template start when they differ. Other ambiguous
+backend conventions require an explicit `eccentric-phase-reference-frequency`.
+Missing/placeholder event masses are refused; manual builds can provide
+`--eccentric-phase-detector-mass M` (detector total mass) or a fixed target.
+
+Explicit overrides remain available through Asimov's same block or either
+builder CLI:
 
 ```
 --eccentric-phase-coordinates \
@@ -32,10 +84,14 @@ Add the same configuration to eligible CIP and puff commands, or to
 --eccentric-phase-target-frequency 20
 ```
 
-These two frequencies configure **only the coordinate**. They do not set
-`--fref`, `--fmin`, or a waveform-generator argument. Set the reference label
-appropriately for the original eccentricity/angle convention. Defaults are
-10 and 20 Hz. The helper/pipeline requires `--assume-eccentric --use-meanPerAno`.
+An explicit target wins over the mass policy. The legacy fixed20Hz policy is
+available with `--eccentric-phase-frequency-policy fixed`. Negative/nonfinite
+inputs, backward explicit transport, conflicting stage frequencies and late
+manual ILE frequency changes fail before submission. A rebuild may select a
+new value, recorded in the new build receipt; an executing workflow does not
+retune. These frequencies configure **only the coordinate**, never waveform
+fref/fmin or the physical priors. Direct CIP/puff calls continue requiring a
+fixed numerical configuration (their legacy defaults remain10/20Hz).
 
 CIP continues sampling native `meanPerAno` and the selected native eccentricity
 coordinate, with the original bounds/prior options. Only its fitted angle is
@@ -100,3 +156,9 @@ and following a curved effective-phase band through the actual puff CLI.
 
 Pipeline compatibility checks run after INI loading, so CLI and INI options
 are validated together before workflow setup.
+
+Build-policy regressions in `test/test_eccentric_phase_policy.py` exercise the
+mass law, LVK bounds, high-mass identity fallback, real Asimov Liquid rendering,
+explicit overrides, actual helper hook, saved decision and consistent CIP/puff
+arguments. Production-readiness also requires supported-runtime checks of the
+actual generated DAG/submit files, not just accepting new options.

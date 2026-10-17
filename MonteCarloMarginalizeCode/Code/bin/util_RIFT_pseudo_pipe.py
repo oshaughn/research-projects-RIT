@@ -397,7 +397,7 @@ if opts.eccentric_phase_coordinates:
         parser.error('--eccentric-phase-coordinates requires --assume-eccentric and --use-meanPerAno')
     if opts.internal_cip_use_periodic_ecc_vars or opts.internal_use_amr:
         parser.error('Effective eccentric-phase coordinates cannot be combined with the legacy periodic-ecc basis or AMR')
-    eccentric_phase_pipeline.frequency_arguments(opts.eccentric_phase_reference_frequency,opts.eccentric_phase_target_frequency)
+    eccentric_phase_pipeline.validate_request(opts)
 
 if opts.rf_transverse_spin_coordinates == 'physics3':
     from RIFT.misc.rf_transverse_spin import RETIRED_MESSAGE
@@ -715,8 +715,7 @@ if opts.internal_use_amr:
 if opts.rf_transverse_spin_coordinates:
     cmd += " --rf-transverse-spin-coordinates {} ".format(opts.rf_transverse_spin_coordinates)
 if opts.eccentric_phase_coordinates:
-    cmd += ' --eccentric-phase-coordinates '+eccentric_phase_pipeline.frequency_arguments(
-        opts.eccentric_phase_reference_frequency,opts.eccentric_phase_target_frequency)
+    cmd += eccentric_phase_pipeline.build_arguments(opts)
 if opts.internal_use_aligned_phase_coordinates:
     cmd += " --internal-use-aligned-phase-coordinates "
 if opts.internal_use_rescaled_transverse_spin_coordinates:
@@ -890,7 +889,15 @@ if opts.fake_data_cache:
         short_list = " {} ".format(event_dict['IFOs'])        
         cmd += " --manual-ifo-list {} ".format(short_list.replace(' ',''))
 print( cmd)
-os.system(cmd)
+helper_status = os.system(cmd)
+if opts.eccentric_phase_coordinates:
+    if helper_status != 0:
+        raise RuntimeError('Helper failed before freezing the eccentric-phase mass anchor')
+    from RIFT.misc import eccentric_phase_policy
+    eccentric_phase_build = eccentric_phase_policy.read_into(opts)
+    if not opts.skip_reproducibility:
+        with open('reproducibility/the_arguments_used.json','w') as f:
+            json.dump(vars(opts),f)
 # we MUST make helper_ile_args.txt
 if not(os.path.exists('helper_ile_args.txt')):
     print(" FAILURE: helper call failed to generate required file helper_ile_args.txt")
@@ -1014,6 +1021,8 @@ if opts.internal_ile_srate_internal:
 # strictly the next argument only does anything at the extrinsic step, otherwis it is ignored
 if opts.internal_ile_srate_time_resampling:
     line += " --srate-resample-time-marginalization {} ".format(opts.internal_ile_srate_time_resampling)
+if opts.eccentric_phase_coordinates:
+    eccentric_phase_policy.check_final_ile(eccentric_phase_build,line)
 with open('args_ile.txt','w') as f:
         f.write(line)
 

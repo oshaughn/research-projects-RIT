@@ -10,8 +10,10 @@ ECCENTRICITIES = {'eccentricity','eccentricity_ln','eccentricity_squared'}
 
 def add_arguments(parser):
     parser.add_argument(FLAG,action='store_true',help='Use an effective eccentric-phase coordinate for eligible fits and puffing, retaining native priors and waveform inputs')
-    parser.add_argument(REFERENCE,type=float,default=10.,help='Reference frequency label for the effective coordinate only; normally the eccentricity reference frequency')
-    parser.add_argument(TARGET,type=float,default=20.,help='Target frequency label for the effective coordinate only')
+    parser.add_argument(REFERENCE,type=float,default=None,help='Native backend eccentricity/anomaly epoch; inferred at build time when unambiguous')
+    parser.add_argument(TARGET,type=float,default=None,help='Explicit fixed target override; otherwise resolve the build-time frequency policy')
+    parser.add_argument('--eccentric-phase-frequency-policy',choices=['lvk-mass','fixed'],default='lvk-mass',help='Build-time anchor policy; lvk-mass uses detector total mass and an LVK early-band interval')
+    parser.add_argument('--eccentric-phase-detector-mass',type=float,default=None,help='Explicit detector-frame total mass in solar masses for manual builds without an event mass estimate')
 
 
 def option_tokens(line):
@@ -71,3 +73,25 @@ def puff_arguments(line, reference=10., target=20.):
     if 'meanPerAno' not in names or not ECCENTRICITIES.intersection(names):
         raise ValueError('Effective eccentric-phase puff requires native eccentricity and meanPerAno parameters')
     return _append(line,reference,target)
+
+
+def validate_request(options):
+    if getattr(options,'eccentric_phase_frequency_policy','lvk-mass') not in ('lvk-mass','fixed'):
+        raise ValueError('Unknown eccentric-phase frequency policy')
+    for name in ['eccentric_phase_reference_frequency','eccentric_phase_target_frequency','eccentric_phase_detector_mass']:
+        value=getattr(options,name,None)
+        if value is not None and (not math.isfinite(value) or value<=0):
+            raise ValueError(name+' must be finite and positive')
+    reference=getattr(options,'eccentric_phase_reference_frequency',None)
+    target=getattr(options,'eccentric_phase_target_frequency',None)
+    if reference is not None and target is not None:
+        frequency_arguments(reference,target)
+
+
+def build_arguments(options):
+    validate_request(options)
+    line=' --eccentric-phase-coordinates --eccentric-phase-frequency-policy '+options.eccentric_phase_frequency_policy
+    for flag,name in [(REFERENCE,'eccentric_phase_reference_frequency'),(TARGET,'eccentric_phase_target_frequency'),('--eccentric-phase-detector-mass','eccentric_phase_detector_mass')]:
+        value=getattr(options,name,None)
+        if value is not None:line+=' {} {}'.format(flag,float(value))
+    return line

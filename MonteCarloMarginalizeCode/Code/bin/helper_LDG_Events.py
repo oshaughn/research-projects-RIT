@@ -259,7 +259,7 @@ opts=  parser.parse_args()
 if opts.eccentric_phase_coordinates:
     if not opts.assume_eccentric or not opts.use_meanPerAno:
         parser.error('--eccentric-phase-coordinates requires --assume-eccentric and --use-meanPerAno')
-    eccentric_phase_pipeline.frequency_arguments(opts.eccentric_phase_reference_frequency,opts.eccentric_phase_target_frequency)
+    eccentric_phase_pipeline.validate_request(opts)
 if opts.rf_transverse_spin_coordinates == 'physics3':
     from RIFT.misc.rf_transverse_spin import RETIRED_MESSAGE
     parser.error(RETIRED_MESSAGE)
@@ -1732,6 +1732,10 @@ if opts.propose_fit_strategy:
 
 
 if opts.eccentric_phase_coordinates:
+    from RIFT.misc import eccentric_phase_policy
+    phase_approximant = config.get('engine','approx') if use_ini else (approx_str if opts.lowlatency_propose_approximant else None)
+    phase_decision = eccentric_phase_policy.resolve(opts,event_dict,helper_ile_args,phase_approximant)
+    eccentric_phase_policy.write(phase_decision)
     helper_cip_args = eccentric_phase_pipeline.stage_arguments(helper_cip_args,
         opts.eccentric_phase_reference_frequency,opts.eccentric_phase_target_frequency)
     helper_cip_arg_list = [eccentric_phase_pipeline.stage_arguments(line,
