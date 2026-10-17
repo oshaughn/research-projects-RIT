@@ -146,3 +146,16 @@ def test_network_floor_and_analysis_ceiling_are_respected():
     assert policy.mass_anchor(10,10,20,35)['target_frequency_hz']==35
     r=policy.resolve(options(),{'m1':18,'m2':18},ILE.replace('H1=20','H1=30').replace('L1=20','L1=40'),'SEOBNRv5EHM')
     assert r['allowed_band_hz']==[30,40] and r['identity_fallback']
+
+
+def test_late_detector_band_changes_cannot_bypass_the_frozen_policy():
+    r=policy.resolve(options(),{'m1':18,'m2':18},ILE,'SEOBNRv5EHM')
+    with pytest.raises(ValueError,match='detector-band override'):
+        policy.check_final_ile(r,ILE+' --fmin-ifo H1=30 --fmin-ifo L1=30')
+    with pytest.raises(ValueError,match='detector-band override'):
+        policy.check_final_ile(r,ILE+' --fmax 15')
+
+
+def test_last_detector_override_sets_the_actual_network_floor():
+    r=policy.resolve(options(),{'m1':18,'m2':18},ILE+' --fmin-ifo H1=30 --fmin-ifo=L1=40','SEOBNRv5EHM')
+    assert r['allowed_band_hz']==[30,40] and r['identity_fallback']

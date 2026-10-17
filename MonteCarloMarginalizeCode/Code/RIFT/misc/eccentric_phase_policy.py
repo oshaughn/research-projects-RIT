@@ -42,15 +42,31 @@ def native_epoch(arguments, approximant, explicit=None):
     raise ValueError('Ambiguous eccentricity/anomaly epoch: set --eccentric-phase-reference-frequency explicitly')
 
 
-def mass_anchor(total_mass, native, detector_floor=20., maximum_frequency=None):
-    total_mass = positive(total_mass, 'detector-frame total mass')
-    native = positive(native, 'native epoch')
+def network_floor(arguments):
+    tokens = shlex.split(arguments)
+    flows = {}
+    for i, token in enumerate(tokens):
+        value = tokens[i+1] if token == '--fmin-ifo' else token.split('=',1)[1] if token.startswith('--fmin-ifo=') else None
+        if value is not None:
+            detector, frequency = value.split('=',1)
+            flows[detector] = positive(frequency, 'detector low frequency')
+    return min(flows.values()) if flows else LVK_BAND[0]
+
+
+def lvk_interval(detector_floor, maximum_frequency):
     lower = max(LVK_BAND[0], positive(detector_floor, 'detector floor'))
     upper = max(lower, LVK_BAND[1])
     if maximum_frequency is not None:
         upper = min(upper, positive(maximum_frequency, 'maximum frequency'))
     if upper < lower:
         raise ValueError('No LVK anchor interval below the analysis maximum frequency')
+    return lower, upper
+
+
+def mass_anchor(total_mass, native, detector_floor=20., maximum_frequency=None):
+    total_mass = positive(total_mass, 'detector-frame total mass')
+    native = positive(native, 'native epoch')
+    lower, upper = lvk_interval(detector_floor, maximum_frequency)
     raw = ANCHOR_X**1.5 / (math.pi * MTSUN * total_mass)
     clipped = min(upper, max(lower, raw))
     # If the weak-field landmark lies below the observed band, moving it up
@@ -90,10 +106,7 @@ def resolve(options, event, ile_arguments, approximant):
     else:
         if total is None:
             raise ValueError('LVK mass anchor needs measured detector-frame masses; provide --eccentric-phase-detector-mass or an explicit target (placeholder masses are refused)')
-        # Actual network low-frequency edge, with the LVK20Hz default lower bound.
-        tokens = shlex.split(ile_arguments)
-        flows = [float(tokens[i+1].split('=')[-1]) for i,t in enumerate(tokens[:-1]) if t == '--fmin-ifo']
-        decision = mass_anchor(total, native, min(flows) if flows else 20., last_option(ile_arguments, '--fmax'))
+        decision = mass_anchor(total, native, network_floor(ile_arguments), last_option(ile_arguments, '--fmax'))
         target = decision['target_frequency_hz']
     if target < native:
         raise ValueError('Effective phase target must not precede the native epoch')
@@ -136,3 +149,10 @@ def check_final_ile(record, arguments):
     reference = positive(last_option(arguments, '--reference-freq', start), 'final waveform reference')
     if start != record['waveform_start_hz'] or reference != record['waveform_reference_hz']:
         raise ValueError('ILE frequency override after eccentric-phase resolution; configure the waveform epoch before the helper build')
+    if record['policy_version'] == VERSION:
+        try:
+            final_band = list(lvk_interval(network_floor(arguments),last_option(arguments,'--fmax')))
+        except ValueError as error:
+            raise ValueError('ILE detector-band override after eccentric-phase resolution') from error
+        if final_band != record['allowed_band_hz']:
+            raise ValueError('ILE detector-band override after eccentric-phase resolution; configure frequency limits before the helper build')

@@ -87,7 +87,7 @@ builder CLI:
 An explicit target wins over the mass policy. The legacy fixed20Hz policy is
 available with `--eccentric-phase-frequency-policy fixed`. Negative/nonfinite
 inputs, backward explicit transport, conflicting stage frequencies and late
-manual ILE frequency changes fail before submission. A rebuild may select a
+manual ILE epoch or detector-band frequency changes fail before submission. A rebuild may select a
 new value, recorded in the new build receipt; an executing workflow does not
 retune. These frequencies configure **only the coordinate**, never waveform
 fref/fmin or the physical priors. Direct CIP/puff calls continue requiring a
