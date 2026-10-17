@@ -33,6 +33,8 @@ def frequency_arguments(reference, target):
 
 
 def _append(line, reference, target):
+    # Pipeline stages arrive from readlines(); append options before the newline.
+    line = line.rstrip('\r\n')
     tokens=option_tokens(line)
     for flag,value in [(REFERENCE,reference),(TARGET,target)]:
         previous=values(tokens,flag)

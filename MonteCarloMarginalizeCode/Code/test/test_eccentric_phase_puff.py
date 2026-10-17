@@ -132,3 +132,11 @@ def test_cli_puff_follows_a_curved_effective_phase_band(tmp_path):
         assert all((p.fmin,p.fref) in expected_frequencies for p in ps)
     assert spread['effective']<.06
     assert spread['native']>.5
+
+
+@pytest.mark.parametrize('ending', ['\n', '\r\n'])
+def test_stage_options_stay_on_one_line(ending):
+    stage = '--use-eccentricity --use-meanPerAno --parameter eccentricity --parameter meanPerAno'
+    actual = pipeline.stage_arguments(stage + ending, 15, 30)
+    assert len(actual.splitlines()) == 1
+    assert actual == pipeline.stage_arguments(stage, 15, 30)
