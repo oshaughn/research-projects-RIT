@@ -165,3 +165,70 @@ def test_stage_options_stay_on_one_line(ending):
     actual = pipeline.stage_arguments(stage + ending, 15, 30)
     assert len(actual.splitlines()) == 1
     assert actual == pipeline.stage_arguments(stage, 15, 30)
+
+
+@pytest.mark.parametrize('mode', ['valid', 'amr', 'periodic', 'missing-anomaly'])
+def test_pipeline_checks_resolved_ini_configuration(monkeypatch, tmp_path, capsys, mode):
+    import runpy
+    code = Path(__file__).resolve().parents[1]
+    script = code / 'bin/util_RIFT_pseudo_pipe.py'
+    options = ['assume-eccentric=True']
+    if mode != 'missing-anomaly':
+        options += ['use-meanPerAno=True']
+    if mode == 'amr':
+        options += ['internal-use-amr=True']
+    if mode == 'periodic':
+        options += ['internal-cip-use-periodic-ecc-vars=True']
+    if mode != 'valid':
+        options += ['eccentric-phase-coordinates=True']
+    ini = tmp_path / 'config.ini'
+    ini.write_text('[rift-pseudo-pipe]\n' + '\n'.join(options))
+    argv = [str(script), '--use-ini', str(ini)]
+    if mode == 'valid':
+        argv += ['--eccentric-phase-coordinates']
+    monkeypatch.setattr(sys, 'argv', argv)
+    boundary = next(i for i, line in enumerate(script.read_text().splitlines(), 1)
+                    if line == "if opts.rf_transverse_spin_coordinates == 'physics3':")
+    class Resolved(Exception):
+        pass
+    def trace(frame, event, arg):
+        if frame.f_code.co_filename == str(script) and event == 'line' and frame.f_lineno == boundary:
+            assert frame.f_globals['opts'].eccentric_phase_coordinates
+            raise Resolved
+        return trace
+    previous = sys.gettrace()
+    sys.settrace(trace)
+    try:
+        if mode == 'valid':
+            with pytest.raises(Resolved):
+                runpy.run_path(str(script), run_name='__main__')
+        else:
+            with pytest.raises(SystemExit) as error:
+                runpy.run_path(str(script), run_name='__main__')
+            assert error.value.code == 2
+            assert 'eccentric-phase' in capsys.readouterr().err
+    finally:
+        sys.settrace(previous)
+
+
+def test_effective_puff_refuses_native_angle_reflection(tmp_path):
+    code = Path(__file__).resolve().parents[1]
+    cmd = [sys.executable, str(code/'bin/util_ParameterPuffball.py'),
+           '--inj-file', str(tmp_path/'absent.xml.gz'),
+           '--parameter', 'eccentricity', '--parameter', 'meanPerAno',
+           '--eccentric-phase-coordinates', '--reflect-parameter', 'meanPerAno',
+           '--downselect-parameter', 'meanPerAno', '--downselect-parameter-range', '[0,0.5]']
+    done = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+    assert done.returncode != 0
+    message = done.stdout + done.stderr
+    assert ('cannot reflect native meanPerAno' in message
+            or 'unrecognized arguments: --reflect-parameter meanPerAno' in message)
+
+
+def test_pipeline_refuses_quadratic_only_when_effective_fit_is_active():
+    early = '--fit-method quadratic --use-eccentricity --use-meanPerAno --parameter eccentricity --parameter-nofit meanPerAno'
+    assert pipeline.stage_arguments(early) == early
+    fitting = early.replace('--parameter-nofit meanPerAno', '--parameter meanPerAno')
+    assert pipeline.FLAG in pipeline.stage_arguments(fitting + ' --integrate-prior')
+    with pytest.raises(ValueError, match='quadratic.*constrained circle'):
+        pipeline.stage_arguments(fitting)

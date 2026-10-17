@@ -105,7 +105,7 @@ def test_cip_opt_in_layout_and_unsupported_modes():
     from types import SimpleNamespace
     tree=ast.parse((ROOT/'bin/util_ConstructIntrinsicPosterior_GenericCoordinates.py').read_text())
     block=next(n for n in tree.body if isinstance(n,ast.If) and ast.unparse(n.test)=='opts.eccentric_phase_coordinates')
-    defaults=dict(use_eccentricity=True,use_meanPerAno=True,using_eos=False,input_tides=False,input_eos_index=False,tabular_eos_file=None,rf_transverse_spin_coordinates=None,fit_load_gp=None,fit_load_quadratic=None,contingency_unevolved_neff=None,report_best_point=False,eccentric_phase_reference_frequency=10.,eccentric_phase_target_frequency=20.)
+    defaults=dict(fit_method="rf",integrate_prior=False,use_eccentricity=True,use_meanPerAno=True,using_eos=False,input_tides=False,input_eos_index=False,tabular_eos_file=None,rf_transverse_spin_coordinates=None,fit_load_gp=None,fit_load_quadratic=None,contingency_unevolved_neff=None,report_best_point=False,eccentric_phase_reference_frequency=10.,eccentric_phase_target_frequency=20.)
     def run(**overrides):
         opts=SimpleNamespace(**dict(defaults,**overrides))
         names=['mc','eta','eccentricity_ln','meanPerAno']
@@ -113,6 +113,7 @@ def test_cip_opt_in_layout_and_unsupported_modes():
         for node in block.body: exec(compile(ast.Module(body=[node],type_ignores=[]),'cip-config','exec'),ns)
         return ns
     result=run()
+    run(fit_method='quadratic', integrate_prior=True)  # no fit is computed
     assert result['low_level_coord_names']==['mc','eta','eccentricity_ln','meanPerAno']
     assert result['coord_names']==['mc','eta','eccentricity_ln',*ep.FEATURE_NAMES]
     for overrides in (dict(use_meanPerAno=False),dict(using_eos=True),dict(fit_load_gp='old.pkl'),dict(contingency_unevolved_neff='quadpuff'),dict(report_best_point=True),dict(eccentric_phase_target_frequency=-10)):
@@ -144,3 +145,68 @@ def test_alias_projection_rejects_bad_rows_without_scalar_fallback(alias,values)
     assert np.isfinite(out[0]).all()
     assert np.isneginf(out[1]).all()
     np.testing.assert_array_equal(x,saved)
+
+
+
+def test_cip_refuses_singular_effective_quadratic_fit(monkeypatch, tmp_path, capsys):
+    import runpy
+    import sys
+    code = Path(__file__).resolve().parents[1]
+    script = code/'bin/util_ConstructIntrinsicPosterior_GenericCoordinates.py'
+    monkeypatch.chdir(tmp_path)
+    # One row is sufficient: rejection must precede data loading and fitting.
+    np.savetxt('grid.dat', [[0,20,15,0,0,0,0,0,0,.1,1.,100,.1,100,1000]])
+    args = ['--fname','grid.dat','--use-eccentricity','--use-meanPerAno',
+            '--fit-method','quadratic','--eccentric-phase-coordinates','--no-plots']
+    for name in ['mc','delta_mc','eccentricity','meanPerAno']:
+        args += ['--parameter',name]
+    monkeypatch.setattr(sys,'argv',[str(script)]+args)
+    with pytest.raises(ValueError, match='quadratic.*constrained circle'):
+        runpy.run_path(str(script),run_name='__main__')
+
+
+@pytest.mark.parametrize('alias', ['eccentricity', 'eccentricity_squared', 'eccentricity_ln'])
+def test_actual_cip_training_matches_native_prediction(monkeypatch, tmp_path, alias):
+    import runpy
+    import sys
+    root = Path(__file__).resolve().parents[1]
+    script = root/'bin/util_ConstructIntrinsicPosterior_GenericCoordinates.py'
+    rng = np.random.default_rng(914)
+    n = 180
+    m1 = rng.uniform(19, 21, n)
+    m2 = rng.uniform(16, 18, n)
+    e = rng.uniform(.07, .14, n)
+    angle = rng.uniform(0, 2*np.pi, n)
+    y = 100 - 3*(e-.1)**2 - (1-np.cos(angle))
+    grid = np.c_[np.arange(n), m1, m2, np.zeros((n, 6)), e, angle,
+                 y, np.full(n, .1), np.full(n, 100), np.full(n, 1000)]
+    monkeypatch.chdir(tmp_path)
+    np.savetxt('grid.dat', grid)
+    args = ['--fname', 'grid.dat', '--fit-method', 'rf', '--no-plots',
+            '--use-eccentricity', '--use-meanPerAno', '--eccentric-phase-coordinates',
+            '--source-redshift', '.3']
+    for name in ['mc', 'eta', alias, 'meanPerAno']:
+        args += ['--parameter', name]
+    monkeypatch.setattr(sys, 'argv', [str(script)] + args)
+    boundary = next(i for i, line in enumerate(script.read_text().splitlines(), 1)
+                    if line == 'oracle_realizations = None')
+    class FitChecked(Exception):
+        pass
+    def trace(frame, event, arg):
+        if frame.f_code.co_filename == str(script) and event == 'line' and frame.f_lineno == boundary:
+            g = frame.f_globals
+            native = g['dat_out_low_level_coord_names'].copy()
+            native[:, g['low_level_coord_names'].index('mc')] /= 1.3
+            predicted = g['convert_coords'](native)
+            np.testing.assert_allclose(predicted, g['X'], rtol=2e-5, atol=3e-6)
+            assert predicted.shape[1] == 5 and native.shape[1] == 4
+            assert np.isfinite(g['my_fit'](predicted)).all()
+            raise FitChecked
+        return trace
+    previous = sys.gettrace()
+    sys.settrace(trace)
+    try:
+        with pytest.raises(FitChecked):
+            runpy.run_path(str(script), run_name='__main__')
+    finally:
+        sys.settrace(previous)

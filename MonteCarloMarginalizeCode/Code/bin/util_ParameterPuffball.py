@@ -94,6 +94,8 @@ if opts.eccentric_phase_coordinates:
         raise ValueError('Effective eccentric-phase puffing requires meanPerAno and exactly one eccentricity coordinate')
     if len(coord_names) != len(set(coord_names)):
         raise ValueError('Effective eccentric-phase puff coordinates must be unique')
+    if 'meanPerAno' in (opts.reflect_parameter or []):
+        raise ValueError('Effective phase puffing cannot reflect native meanPerAno bounds in the effective angular chart; use native downselection instead')
     if opts.random_parameter:
         raise ValueError('Effective eccentric-phase puffing does not support independent random-parameter overrides')
     eccentric_phase.phase_advance(1.,1.,0.,opts.eccentric_phase_reference_frequency,
