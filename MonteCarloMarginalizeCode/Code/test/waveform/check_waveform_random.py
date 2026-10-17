@@ -182,10 +182,12 @@ extra_waveform_args ={}
 extra_waveform_args['fd_centering_factor']= 0.9
 if opts.use_extra_fd_args:
     extra_waveform_args['fd_L_frame'] = True
+lal_waveform_args = {}
 if opts.use_xphm_spintaylor:
-    extra_waveform_args['FinalSpinMod'] =2
-    extra_waveform_args['PhenomXPHMReleaseVersion'] = 122022
-    extra_waveform_args['PrecVersion'] = 320
+    lal_waveform_args = {'PhenomXPFinalSpinMod': 2,
+                        'PhenomXHMReleaseVersion': 122022,
+                        'PhenomXPrecVersion': 320}
+    extra_waveform_args['extra_waveform_args'] = lal_waveform_args
 
 
 P_copy = P.manual_copy() # beware, call may change P!
@@ -201,7 +203,7 @@ if opts.verbose:
 
 # hoft direct. Currently lalsuite only
 if not(opts.use_gwsignal):
-  hTc_2  = lalsimutils.complex_hoft(P,extra_waveform_args=extra_waveform_args)
+  hTc_2  = lalsimutils.complex_hoft(P,extra_waveform_args=lal_waveform_args)
 else:
   hTc_2 = rift_gws.complex_hoft(P, approx_string=opts.approximant, extra_waveform_args=extra_waveform_args)
   # import astropy.units as u
