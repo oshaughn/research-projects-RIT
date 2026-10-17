@@ -200,6 +200,10 @@ FILES=(
   "$C/test/test_fd_end_taper_cap.py"
   # Fixed-phase Phenom mode conventions: generic spins first, aligned boundaries.
   "$C/test/test_phenom_lframe_conventions.py"
+  # Native SEOB mode conditioning: linear shared-grid filtering, canonical
+  # trimming before mode selection, zero modes, and explicit reference state.
+  # Does not require the optional pySEOBNR waveform backend.
+  "$C/test/test_gwsignal_seob_conditioning.py"
   "$C/test/test_complex_overlap_interpolate_max.py"
   # -- coordinates: vectorized in-plane spin / ring coordinates agree with extract_param
   "$C/test/test_ring_coordinates.py"
@@ -463,7 +467,9 @@ done
 # test_dslice_amplitude_model.py: +1 (_lognorm chunk memory bound), passes, no skips -> 889/869.
 # test_phenom_lframe_conventions.py adds 34 passing tests: generic-spin waveform
 # and polarization controls, aligned boundaries, and SpinTaylor option transport.
-EXPECTED_TESTS=923
+# test_gwsignal_seob_conditioning.py adds 7 passing tests, measured with the
+# CI-pinned LALSuite 7.26.16; shared-grid operator tests need no pySEOBNR backend.
+EXPECTED_TESTS=930
 # Outcomes, not just exit status: a collection floor cannot see a test that collects, runs and
 # asserts nothing, and a pytest.skip can quietly absorb a lost gate.  The 13 skips are
 # environment legs -- cupy in test_seeding_reproducibility, device legs in
@@ -485,7 +491,7 @@ EXPECTED_TESTS=923
 # test_std_and_conj_hlmoff_sphharm.py adds 2 tests and no skips; 875/855 (above).
 # test_fd_end_taper_cap.py adds 3 tests and no skips; 878/858 (above).
 # test_dslice_rf_tails.py adds 10 tests and no skips; 888/868 (above).
-EXPECTED_PASSED=903
+EXPECTED_PASSED=910
 # PR #382: +1 skip, the CuPy leg of test_cached_matern_gp.py (no GPU on the CI runner).
 MAX_SKIPPED=19
 
