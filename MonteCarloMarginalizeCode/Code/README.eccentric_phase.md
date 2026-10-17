@@ -65,6 +65,14 @@ and its ceiling respects the analysis fmax.
 
 At native10Hz and network fmin20Hz this gives about40Hz for10Msun,
 32.84Hz for22Msun,20.07Hz for36Msun, and an identity shear for70/120Msun.
+The normal mass source is the pipeline's coincidence file: the helper reads
+its detector-frame component masses before selecting the anchor. A bootstrapped
+coincidence file works identically to a search-produced one; it need not contain
+posterior estimates or independently recovered injection truth. Use the supplied
+`--use-coinc` path (or the pipeline-resolved/downloaded coincidence) rather than
+searching unrelated directories for another file. Explicit mass/target hints
+remain optional overrides, not a requirement for bootstrapped files.
+
 These are build-time event mass estimates, not sample-by-sample anchor choices;
 the shear itself still uses each physical point's masses. The completed paired
 pilot and archival plots retain their previously specified fixed anchors.
