@@ -325,6 +325,9 @@ parser.add_argument("--contingency-unevolved-neff",default=None,help="Contingenc
 parser.add_argument("--not-worker",action='store_true',help="Nonworker jobs, IF we have workers present, don't have the 'fail unless' statement active")
 parser.add_argument("--fail-unless-n-eff",default=None,type=float,help="If nonzero, places a minimum requirement on n_eff. Code will exit if not achieved, with no sample generation")
 parser.add_argument("--rf-transverse-spin-coordinates", choices=["physics3","geometric4","geometric4-phase-excess"], help="Opt-in RF L-frame fitting basis: geometric4 replaces four transverse inputs; native sampling and prior unchanged. physics3 is retired and refused (11 fit coordinates for 8 degrees of freedom)")
+parser.add_argument("--eccentric-phase-coordinates", action="store_true", help="Opt-in waveform-free effective eccentric phase sine/cosine fitting features; native sampling, priors and waveform reference frequencies unchanged")
+parser.add_argument("--eccentric-phase-reference-frequency", type=float, default=10., help="Reference frequency for the effective fitting/proposal coordinate only (Hz)")
+parser.add_argument("--eccentric-phase-target-frequency", type=float, default=20., help="Target frequency for the effective fitting/proposal coordinate only (Hz)")
 parser.add_argument("--fit-method",default="rf",help="rf (default) : rf|gp|quadratic|polynomial|gp_hyper|gp_lazy|cov|kde.  Note 'polynomial' with --fit-order 0  will fit a constant")
 parser.add_argument("--fit-load-quadratic",default=None,help="Filename of hdf5 file to load quadratic fit from. ")
 parser.add_argument("--fit-load-quadratic-path",default="GW190814/annealing_mc_source_eta_chieff",help="Path in hdf5 file to specific covariance matrix to be used")
@@ -733,9 +736,22 @@ if opts.parameter_nofit:
         low_level_coord_names = opts.parameter_nofit # Used for Monte Carlo
     else:
         low_level_coord_names = opts.parameter+opts.parameter_nofit # Used for Monte Carlo
-from RIFT.misc import rf_transverse_spin
+from RIFT.misc import rf_transverse_spin, eccentric_phase
 if set(rf_transverse_spin.FEATURE_NAMES + rf_transverse_spin.GEOMETRIC4_NAMES + rf_transverse_spin.PHASE_EXCESS_NAMES).intersection(coord_names + low_level_coord_names):
     raise ValueError('RF fitting scalars are enabled only through the opt-in flag')
+if set(eccentric_phase.FEATURE_NAMES).intersection(coord_names + low_level_coord_names):
+    raise ValueError('Eccentric phase fitting features are enabled only through the opt-in flag')
+if opts.eccentric_phase_coordinates:
+    if opts.fit_method == 'quadratic':
+        raise ValueError('Effective phase quadratic fitting is unsupported on the constrained circle; use rf, gp or polynomial')
+    eccentric_phase.validate_frequencies(opts.eccentric_phase_reference_frequency, opts.eccentric_phase_target_frequency)
+    if (not opts.use_eccentricity or not opts.use_meanPerAno or opts.using_eos
+            or opts.input_tides or opts.input_eos_index or opts.tabular_eos_file
+            or opts.rf_transverse_spin_coordinates or opts.fit_load_gp or opts.fit_load_quadratic
+            or opts.contingency_unevolved_neff == 'quadpuff' or opts.report_best_point
+            or set(('lambda1', 'lambda2', 'LambdaTilde', 'DeltaLambdaTilde', 'eos_table_index')).intersection(coord_names + low_level_coord_names)):
+        raise ValueError('Eccentric phase fitting requires eccentricity/anomaly input columns and a fresh BBH fit; EOS/tides, stored fits, RF transverse coordinates, report-best-point and internal quadpuff are unsupported')
+    coord_names = eccentric_phase.fitting_names(coord_names, low_level_coord_names)
 if opts.rf_transverse_spin_coordinates in rf_transverse_spin.RETIRED_MODES:
     raise ValueError(rf_transverse_spin.RETIRED_MESSAGE)
 if opts.rf_transverse_spin_coordinates:
@@ -751,6 +767,10 @@ if opts.rf_transverse_spin_coordinates:
     coord_names = [p for p in coord_names if p not in rf_transverse_spin.TRANSVERSE] + list(rf_transverse_spin.geometric_names(opts.rf_transverse_spin_coordinates))
     def extract_fit_param(P, name):
         return rf_transverse_spin.extract(P, name)
+elif opts.eccentric_phase_coordinates:
+    def extract_fit_param(P, name):
+        return eccentric_phase.extract(P, name, opts.eccentric_phase_reference_frequency,
+                                       opts.eccentric_phase_target_frequency)
 else:
     def extract_fit_param(P, name):
         return P.extract_param(name)
@@ -759,20 +779,27 @@ if opts.rf_transverse_spin_coordinates:
     sampling_problem = rf_transverse_spin.sampling_problem(coord_names, low_level_coord_names)
     if sampling_problem:
         raise ValueError(sampling_problem)
-error_factor = len(coord_names)
+# Sine/cosine embed one physical angle; retain the native error calibration.
+physical_fit_dimension = len(coord_names) - int(opts.eccentric_phase_coordinates)
+error_factor = physical_fit_dimension
 if error_factor ==0 :
     raise Exception(" Coordinate list for fit empty; exiting ")
 if opts.fit_uses_reported_error:
-    error_factor=len(coord_names)*opts.fit_uses_reported_error_factor
+    error_factor=physical_fit_dimension*opts.fit_uses_reported_error_factor
 # TeX dictionary
 tex_dictionary = dict(lalsimutils.tex_dictionary)
 if opts.rf_transverse_spin_coordinates:
     tex_dictionary.update(zip(rf_transverse_spin.FEATURE_NAMES + rf_transverse_spin.GEOMETRIC4_NAMES + rf_transverse_spin.PHASE_EXCESS_NAMES, rf_transverse_spin.FEATURE_NAMES + rf_transverse_spin.GEOMETRIC4_NAMES + rf_transverse_spin.PHASE_EXCESS_NAMES))
+if opts.eccentric_phase_coordinates:
+    tex_dictionary.update(zip(eccentric_phase.FEATURE_NAMES, (r'$\sin\theta_{\rm eff}$', r'$\cos\theta_{\rm eff}$')))
+# The effective shear is invariant under component exchange, so both features
+# have the same exchange parity as the native anomaly.
+fit_symmetry_names = ['meanPerAno' if p in eccentric_phase.FEATURE_NAMES else p for p in coord_names]
 print(" Coordinate names for fit :, ", coord_names)
 if not(opts.no_plots):
     print(" Rendering coordinate names : ",  render_coordinates(coord_names))  # map(lambda x: tex_dictionary[x], coord_names)
 if opts.fit_method =="polynomial" or opts.fit_method == 'quadratic':
-    print(" Symmetry for these fitting coordinates :", lalsimutils.symmetry_sign_exchange(coord_names))
+    print(" Symmetry for these fitting coordinates :", lalsimutils.symmetry_sign_exchange(fit_symmetry_names))
 print(" Coordinate names for Monte Carlo :, ", low_level_coord_names)
 if not(opts.no_plots):
     print(" Rendering coordinate names : ", list(map(lambda x: tex_dictionary[x], low_level_coord_names)))
@@ -1830,7 +1857,7 @@ for item in extra_plot_coord_names:
 symmetry_list=None
 if not(opts.tabular_eos_file):
     if opts.fit_method == 'quadratic' or opts.fit_method == 'polynomial':
-        symmetry_list =lalsimutils.symmetry_sign_exchange(coord_names)  # identify symmetry due to exchange
+        symmetry_list =lalsimutils.symmetry_sign_exchange(fit_symmetry_names)  # identify symmetry due to exchange
 mc_min = 1e10
 mc_max = -1
 
@@ -2381,6 +2408,12 @@ if not no_plots:
 ###
 if not opts.using_eos:
  def convert_coords(x_in):
+    if opts.eccentric_phase_coordinates:
+        return eccentric_phase.convert(x_in, coord_names, low_level_coord_names,
+            lalsimutils.convert_waveform_coordinates,
+            reference_frequency=opts.eccentric_phase_reference_frequency,
+            target_frequency=opts.eccentric_phase_target_frequency,
+            source_redshift=source_redshift, enforce_kerr=opts.downselect_enforce_kerr)
     if opts.rf_transverse_spin_coordinates:
         return rf_transverse_spin.convert(x_in, coord_names, low_level_coord_names, opts.fref,
             lalsimutils.convert_waveform_coordinates, source_redshift=source_redshift,
@@ -2716,6 +2749,15 @@ if len(low_level_coord_names) ==10:
             return my_fit([x,y,z,a,b,c,d,e,f,g])+ my_log_prior_scale([x,y,z,a,b,c,d,e,f,g])
         else:
             return my_fit(convert_coords(np.c_[x,y,z,a,b,c,d,e,f,g]))+ my_log_prior_scale(np.c_[x,y,z,a,b,c,d,e,f,g])
+
+# Native scalar shortcuts above bypass coordinate conversion. An effective fit
+# has one extra feature, so scalar and vector calls must use the same projection.
+if opts.eccentric_phase_coordinates:
+    def log_likelihood_function(*args):
+        x_native = np.column_stack([np.atleast_1d(x) for x in args])
+        return my_fit(convert_coords(x_native)) + my_log_prior_scale(x_native)
+    def likelihood_function(*args):
+        return np.exp(log_likelihood_function(*args))
 
 ###
 ### Prior reweight functions

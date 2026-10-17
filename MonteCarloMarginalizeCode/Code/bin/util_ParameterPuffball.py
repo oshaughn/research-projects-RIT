@@ -28,6 +28,7 @@ import lalsimulation as lalsim
 import lal
 import functools
 import itertools
+import json
 
 
 from igwn_ligolw import lsctables, utils, ligolw
@@ -55,7 +56,13 @@ parser.add_argument("--downselect-parameter",action='append', help='Name of para
 parser.add_argument("--downselect-parameter-range",action='append',type=str)
 parser.add_argument("--enforce-duration-bound",default=None,type=float,help="If present, enforce a duration bound. Used to prevent grid placement for obscenely long signals, when the window size is prescribed")
 parser.add_argument("--regularize",action='store_true',help="Add some ad-hoc terms based on priors, to help with nearly-singular matricies")
+parser.add_argument("--eccentric-phase-coordinates",action='store_true',help="Puff in an effective PN eccentric phase and invert to the original waveform anomaly; no waveform or prior redefinition")
+parser.add_argument("--eccentric-phase-reference-frequency",type=float,default=10.,help="Frequency label for the effective coordinate only, in Hz; does not change fref/fmin")
+parser.add_argument("--eccentric-phase-target-frequency",type=float,default=20.,help="Target frequency label for the effective coordinate only, in Hz")
+parser.add_argument("--random-seed",type=int,default=None,help="Optional reproducible seed for puff draws")
 opts=  parser.parse_args()
+if opts.random_seed is not None:
+    np.random.seed(opts.random_seed)
 
 if opts.random_parameter is None:
     opts.random_parameter = []
@@ -69,6 +76,17 @@ coord_names = opts.parameter # Used  in fit
 #    coord_names = coord_names + opts.parameter_nofit
 if coord_names is None:
     sys.exit(0)
+if opts.eccentric_phase_coordinates:
+    from RIFT.misc import eccentric_phase, eccentric_phase_puff
+    if (coord_names.count('meanPerAno') != 1 or
+            sum(name in coord_names for name in eccentric_phase.ECCENTRICITY_NAMES) != 1):
+        raise ValueError('Effective eccentric-phase puffing requires meanPerAno and exactly one eccentricity coordinate')
+    if len(coord_names) != len(set(coord_names)):
+        raise ValueError('Effective eccentric-phase puff coordinates must be unique')
+    if opts.random_parameter:
+        raise ValueError('Effective eccentric-phase puffing does not support independent random-parameter overrides')
+    eccentric_phase.phase_advance(1.,1.,0.,opts.eccentric_phase_reference_frequency,
+                                  opts.eccentric_phase_target_frequency)
 
 # match up pairs in --no-correlation
 corr_list = None
@@ -143,6 +161,15 @@ for P in P_list:
 # relabel data
 dat_out = np.array(dat_out)
 X =dat_out[:,0:len(coord_names)]
+if opts.eccentric_phase_coordinates:
+    phase_column = coord_names.index('meanPerAno')
+    theta = eccentric_phase.forward(
+        np.array([p.m1/lal.MSUN_SI for p in P_list]),
+        np.array([p.m2/lal.MSUN_SI for p in P_list]),
+        np.array([p.eccentricity for p in P_list]),X[:,phase_column],
+        reference_frequency=opts.eccentric_phase_reference_frequency,
+        target_frequency=opts.eccentric_phase_target_frequency)
+    X[:,phase_column], phase_center = eccentric_phase_puff.centered_angles(theta)
 
 # Perform log transformation on variables
 for indx, name  in enumerate(coord_names):
@@ -156,7 +183,7 @@ if len(coord_names) >1:
     cov = cov_in*opts.puff_factor*opts.puff_factor
 
     # Check for singularities
-    if np.min(np.linalg.eig(cov)[0])<1e-10:
+    if np.min(np.linalg.eig(cov)[0])<1e-10 and not (opts.eccentric_phase_coordinates and opts.puff_factor==0):
         print(" ===> WARNING: SINGULAR MATRIX: are you sure you varied this parameters? <=== ")
         icov_pseudo = np.linalg.pinv(cov)
         # Prior range for each parameter is 1000, so icov diag terms are 10^(-6)
@@ -223,8 +250,18 @@ for indx, name in enumerate(coord_names):
 # Apply downselect constraints, using conversion utility for speed
 #   WARNING: For spin, we are NOT retaining transverse DOF by default!
 names_downselect = list(downselect_dict.keys())
-x_out_down = lalsimutils.convert_waveform_coordinates(X_out, coord_names=names_downselect, low_level_coord_names=coord_names)
+if opts.eccentric_phase_coordinates:
+    P_list, X_native = eccentric_phase_puff.native_proposals(
+        P_list,X_out,coord_names,opts.eccentric_phase_reference_frequency,
+        opts.eccentric_phase_target_frequency)
+    x_out_down = np.array([[p.extract_param(name)/(lal.MSUN_SI if name in ['mc','m1','m2','mtot'] else 1.)
+                            for name in names_downselect] for p in P_list])
+else:
+    X_native = X_out
+    x_out_down = lalsimutils.convert_waveform_coordinates(X_out, coord_names=names_downselect, low_level_coord_names=coord_names)
 indx_ok = np.ones(len(x_out_down),dtype=bool)
+if opts.eccentric_phase_coordinates:
+    indx_ok &= np.all(np.isfinite(X_native),axis=1)
 for indx, name in enumerate(names_downselect):
     indx_ok = np.logical_and(indx_ok,  np.logical_not(np.isnan(x_out_down[:,indx])))
     indx_ok = np.logical_and(indx_ok,  x_out_down[:,indx]<= downselect_dict[name][1] )
@@ -232,16 +269,21 @@ for indx, name in enumerate(names_downselect):
     print('   Increment downselect : {} {} '.format(name, np.sum(indx_ok) ))
 print(" Range downselect : ", np.sum(indx_ok), len(indx_ok))
 X_out = X_out[indx_ok]
+X_native = X_native[indx_ok]
 P_list = list(itertools.compress(P_list, indx_ok))  # https://stackoverflow.com/questions/18665873/filtering-a-list-based-on-a-list-of-booleans
 
 # Discard points which are 'close' to the original data set
 #   - there are MUCH faster codes eg in scipy which should do this
 if opts.force_away > 0:
     icov= np.linalg.pinv(cov_orig)
-    Y = np.min(scipy.spatial.distance.cdist(X,X_out, metric='mahalanobis',VI=icov),axis=0)
+    if opts.eccentric_phase_coordinates:
+        Y = eccentric_phase_puff.minimum_periodic_distances(X,X_out,icov,phase_column)
+    else:
+        Y = np.min(scipy.spatial.distance.cdist(X,X_out, metric='mahalanobis',VI=icov),axis=0)
     Y_id = Y > opts.force_away
     print(" Puffball distance rejection size change " , np.sum(Y_id), len(Y_id))
     X_out = X_out[Y_id]
+    X_native = X_native[Y_id]
     P_list = list(itertools.compress(P_list, Y_id))  # https://stackoverflow.com/questions/18665873/filtering-a-list-based-on-a-list-of-booleans
 
 
@@ -287,8 +329,8 @@ for indx_P in np.arange(len(P_list)):
         if coord_names[indx] in ['mc','m1','m2','mtot']:
             fac = lal.MSUN_SI
         if coord_names[indx] in lalsimutils.periodic_params:
-            X_out[indx_P,indx] = np.mod(X_out[indx_P,indx], lalsimutils.periodic_params[coord_names[indx]])
-        P_list[indx_P].assign_param( coord_names[indx], X_out[indx_P,indx]*fac)
+            X_native[indx_P,indx] = np.mod(X_native[indx_P,indx], lalsimutils.periodic_params[coord_names[indx]])
+        P_list[indx_P].assign_param( coord_names[indx], X_native[indx_P,indx]*fac)
 
     if not np.all(np.isfinite([P.m1, P.m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z])):  # don't allow nan mass or spin
         continue
@@ -330,6 +372,14 @@ if len(opts.random_parameter) >0:
         P.assign_param(param,val)
 
 print(" The number of exported points is ", len(P_out))
+if opts.eccentric_phase_coordinates:
+    with open(opts.inj_file_out+'_eccentric_phase.json','w') as f:
+        json.dump(dict(coordinate='effective_eccentric_phase',
+            reference_frequency=opts.eccentric_phase_reference_frequency,
+            target_frequency=opts.eccentric_phase_target_frequency,
+            circular_chart_center=phase_center,exported_points=len(P_out),
+            original_waveform_parameters=['eccentricity','meanPerAno'],
+            prior_change=False),f,indent=2)
 
 if opts.fail_if_empty and len(P_out)<1:
     raise Exception(" Puff file will be empty ! Fail  without output ! You probably have settings which lead to either (a) a singular puff matrix (eg., duplicated coordinates or unused variables) or (b) your puff is far too large")

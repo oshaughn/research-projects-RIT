@@ -229,6 +229,8 @@ parser.add_argument("--force-grid-stretch-mc-factor",default=None,type=float,hel
 parser.add_argument("--force-notune-initial-grid",action='store_true',help="Prevent tuning of grid")
 parser.add_argument("--force-initial-grid-size",default=None,type=int,help="Force grid size for initial grid (hopefully)")
 parser.add_argument("--propose-fit-strategy",action='store_true',help="If present, the code will propose a fit strategy (i.e., cip-args or cip-args-list).  The strategy will take into account the mass scale, presence/absence of matter, and the spin of the component objects.  If --lowlatency-propose-approximant is active, the code will use a strategy suited to low latency (i.e., low cost, compatible with search PSDs, etc)")
+from RIFT.misc import eccentric_phase_pipeline
+eccentric_phase_pipeline.add_arguments(parser)
 parser.add_argument("--rf-transverse-spin-coordinates", choices=["off","auto","physics3","geometric4","geometric4-phase-excess"], default=None, help="Opt-in RF fitting basis: four-input geometric4; auto selects geometric4 at detector chirp mass <20 Msun. physics3 is retired and refused (11 fit coordinates for 8 degrees of freedom)")
 parser.add_argument("--propose-flat-strategy",action="store_true",help="If present AND propose-fit-strategy is present, the strategy proposed will have puffball and convergence tests for every iteration, and the same CIP")
 parser.add_argument("--propose-converge-last-stage",action="store_true",help="If present, the last pre-extrinsic stage is 'iterate to convergence' form")
@@ -254,6 +256,10 @@ parser.add_argument("--use-cvmfs-frames",action='store_true',help="If true, requ
 parser.add_argument("--use-ini",default=None,type=str,help="Attempt to parse LI ini file to set corresponding options. WARNING: MAY OVERRIDE SOME OTHER COMMAND-LINE OPTIONS")
 parser.add_argument("--verbose",action='store_true')
 opts=  parser.parse_args()
+if opts.eccentric_phase_coordinates:
+    if not opts.assume_eccentric or not opts.use_meanPerAno:
+        parser.error('--eccentric-phase-coordinates requires --assume-eccentric and --use-meanPerAno')
+    eccentric_phase_pipeline.validate_request(opts)
 if opts.rf_transverse_spin_coordinates == 'physics3':
     from RIFT.misc.rf_transverse_spin import RETIRED_MESSAGE
     parser.error(RETIRED_MESSAGE)
@@ -1724,6 +1730,19 @@ if opts.propose_fit_strategy:
 #        for indx in np.arange(len(helper_cip_arg_list))[1:]:
 #            helper_cip_arg_list[indx] += " --lnL-offset 20 "  # enforce lnL cutoff past the first iteration. Focuses fit on high-likelihood points as in O1/O2
 
+
+if opts.eccentric_phase_coordinates:
+    from RIFT.misc import eccentric_phase_policy
+    phase_approximant = config.get('engine','approx') if use_ini else (approx_str if opts.lowlatency_propose_approximant else None)
+    phase_decision = eccentric_phase_policy.resolve(opts,event_dict,helper_ile_args,phase_approximant)
+    eccentric_phase_policy.write(phase_decision)
+    helper_cip_args = eccentric_phase_pipeline.stage_arguments(helper_cip_args,
+        opts.eccentric_phase_reference_frequency,opts.eccentric_phase_target_frequency)
+    helper_cip_arg_list = [eccentric_phase_pipeline.stage_arguments(line,
+        opts.eccentric_phase_reference_frequency,opts.eccentric_phase_target_frequency)
+        for line in helper_cip_arg_list]
+    helper_puff_args = eccentric_phase_pipeline.puff_arguments(helper_puff_args,
+        opts.eccentric_phase_reference_frequency,opts.eccentric_phase_target_frequency)
 
 # editing ILE args based on strategy above, so only writing now
 with open("helper_ile_args.txt",'w') as f:
