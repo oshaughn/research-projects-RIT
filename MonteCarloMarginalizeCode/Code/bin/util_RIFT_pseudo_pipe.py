@@ -331,12 +331,6 @@ parser.add_argument("--archive-pesummary-label",default=None,help="If provided, 
 parser.add_argument("--archive-pesummary-event-label",default="this_event",help="Label to use on the pesummary page itself")
 parser.add_argument("--internal-mitigate-fd-J-frame",default="L_frame",help="L_frame|rotate, choose method to deal with ChooseFDWaveform being in wrong frame. Default is to request L frame for inputs")
 opts=  parser.parse_args()
-if opts.eccentric_phase_coordinates:
-    if not opts.assume_eccentric or not opts.use_meanPerAno:
-        parser.error('--eccentric-phase-coordinates requires --assume-eccentric and --use-meanPerAno')
-    if opts.internal_cip_use_periodic_ecc_vars or opts.internal_use_amr:
-        parser.error('Effective eccentric-phase coordinates cannot be combined with the legacy periodic-ecc basis or AMR')
-    eccentric_phase_pipeline.frequency_arguments(opts.eccentric_phase_reference_frequency,opts.eccentric_phase_target_frequency)
 
 # Multi-GPU ILE fan-out: --ile-gpu-fanout funnels through RIFT_ILE_GPU_FANOUT, which
 # create_event_parameter_pipeline_BasicIteration (run via os.system, inheriting this
@@ -398,6 +392,13 @@ if (opts.use_ini):
             ile_condor_commands.append([item, val])
 
 # After the ini, which can set the mode.
+if opts.eccentric_phase_coordinates:
+    if not opts.assume_eccentric or not opts.use_meanPerAno:
+        parser.error('--eccentric-phase-coordinates requires --assume-eccentric and --use-meanPerAno')
+    if opts.internal_cip_use_periodic_ecc_vars or opts.internal_use_amr:
+        parser.error('Effective eccentric-phase coordinates cannot be combined with the legacy periodic-ecc basis or AMR')
+    eccentric_phase_pipeline.frequency_arguments(opts.eccentric_phase_reference_frequency,opts.eccentric_phase_target_frequency)
+
 if opts.rf_transverse_spin_coordinates == 'physics3':
     from RIFT.misc.rf_transverse_spin import RETIRED_MESSAGE
     parser.error(RETIRED_MESSAGE)

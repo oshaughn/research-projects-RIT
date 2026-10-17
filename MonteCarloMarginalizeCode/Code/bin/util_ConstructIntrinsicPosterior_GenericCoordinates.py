@@ -742,6 +742,8 @@ if set(rf_transverse_spin.FEATURE_NAMES + rf_transverse_spin.GEOMETRIC4_NAMES + 
 if set(eccentric_phase.FEATURE_NAMES).intersection(coord_names + low_level_coord_names):
     raise ValueError('Eccentric phase fitting features are enabled only through the opt-in flag')
 if opts.eccentric_phase_coordinates:
+    if opts.fit_method == 'quadratic':
+        raise ValueError('Effective phase quadratic fitting is unsupported on the constrained circle; use rf, gp or polynomial')
     eccentric_phase.validate_frequencies(opts.eccentric_phase_reference_frequency, opts.eccentric_phase_target_frequency)
     if (not opts.use_eccentricity or not opts.use_meanPerAno or opts.using_eos
             or opts.input_tides or opts.input_eos_index or opts.tabular_eos_file

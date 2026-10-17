@@ -60,6 +60,8 @@ def stage_arguments(line, reference=10., target=20.):
         if FLAG in tokens:
             raise ValueError('Effective eccentric-phase flag on a stage that does not fit eccentricity/anomaly')
         return line
+    if 'quadratic' in values(tokens, '--fit-method'):
+        raise ValueError('Effective phase quadratic fitting is unsupported on the constrained circle')
     return _append(line,reference,target)
 
 

@@ -80,8 +80,13 @@ a flat Cartesian eccentricity disk or impose a new prior.
 
 The initial fit option rejects EOS/tidal runs, RF-transverse coordinate mode,
 loading previously saved fits, internal `quadpuff`, and `--report-best-point`.
+The `quadratic` fitter is also refused: its normal matrix is singular because
+`sin(theta)^2 + cos(theta)^2 = 1`. Use RF, GP, or polynomial fitting instead.
 Those paths need separate support for a constrained periodic feature manifold.
-Puffing rejects independent `--random-parameter` overrides in this mode. The
+Puffing rejects independent `--random-parameter` overrides in this mode.
+It also refuses `--reflect-parameter meanPerAno`: physical anomaly bounds cannot
+be reflected in the effective angular chart. Native anomaly downselection remains
+available through `--downselect-parameter meanPerAno`. The
 legacy periodic-eccentricity fit option and AMR cannot be combined with the
 top-level flag. No physical PN accuracy at high eccentricity or across waveform
 families is claimed; approximation error changes ridge straightness, not the
@@ -92,3 +97,6 @@ Focused tests are `test/test_eccentric_phase.py` and
 periodic seams, row-independent/redshift-aware conversion, inverse order when
 masses change, exact circular distance, serialized frequency preservation,
 and following a curved effective-phase band through the actual puff CLI.
+
+Pipeline compatibility checks run after INI loading, so CLI and INI options
+are validated together before workflow setup.
