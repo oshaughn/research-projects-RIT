@@ -142,6 +142,8 @@ def test_actual_pipeline_emits_effective_cip_and_puff_jobs(tmp_path):
                   'internal-truncate-files-for-osg-file-transfer=False', text)
     text += '\nassume-eccentric=True\nuse-meanPerAno=True\neccentric-phase-coordinates=True\n'
     text += 'eccentric-phase-reference-frequency=15\neccentric-phase-target-frequency=30\n'
+    text += 'force-ecc-min=0.01\nforce-ecc-max=0.3\nile-no-gpu=True\n'
+    text = text.replace('ile-force-gpu=True', 'ile-force-gpu=False')
     ini = tmp_path / 'eccentric.ini'
     ini.write_text(text)
     proc, rundir = _build(tmp_path, ini)
@@ -150,7 +152,8 @@ def test_actual_pipeline_emits_effective_cip_and_puff_jobs(tmp_path):
     cip = (rundir / 'args_cip_list.txt').read_text().splitlines()
     assert any(pipeline.FLAG in line for line in cip)
     assert all(pipeline.stage_arguments(line, 15, 30) == line for line in cip)
-    puffs = [p.read_text() for p in rundir.rglob('*.sub') if 'puff' in p.name.lower()]
+    puffs = [p.read_text() for p in rundir.rglob('*.sub')
+             if 'util_ParameterPuffball.py' in p.read_text()]
     assert puffs, sorted(p.name for p in rundir.rglob('*.sub'))
     assert all(pipeline.FLAG in line for line in puffs)
     assert all('--eccentric-phase-target-frequency 30.0' in line for line in puffs)
