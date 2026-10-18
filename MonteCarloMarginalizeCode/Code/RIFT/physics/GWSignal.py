@@ -264,6 +264,8 @@ def hlmoft(P, Lmax=2,approx_string=None,no_trust_align_method=None,internal_phas
     if gwsignal_mode_conditioning == "native":
         if approx_string_here not in ("SEOBNRv5HM", "SEOBNRv5PHM"):
             raise ValueError("Native mode conditioning supports SEOBNRv5HM/PHM only")
+        if kwargs.get("no_condition", False):
+            raise ValueError("Native SEOB mode conditioning conflicts with no_condition=True")
         if not taper or python_dict["condition"] != 1:
             raise ValueError("Native SEOB mode conditioning requires taper and condition=1")
         if python_dict.get("conditioning", 2) != 2:

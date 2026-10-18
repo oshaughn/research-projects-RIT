@@ -316,6 +316,7 @@ optp.add_option("--nr-use-provided-strain",default=False,action='store_true')
 optp.add_option("--no-memory",default=False,action='store_true', help="At present, turns off m=0 modes. Use with EXTREME caution only if requested by model developer")
 optp.add_option("--restricted-mode-list-file",default=None,help="A list of ALL modes to use in likelihood. Incredibly dangerous. Only use when comparing with models which provide restricted mode sets, or otherwise to isolate the effect of subsets of modes on the whole")
 optp.add_option("--use-gwsignal",default=False,action='store_true',help='Use gwsignal. In this case the approx name is passed as a string to the lalsimulation.gwsignal interface')
+optp.add_option("--gwsignal-mode-conditioning", type="choice", choices=("legacy", "native"), default="legacy", help="GWSignal mode conditioning: legacy (default) or native SEOBNRv5HM/PHM conditioning-2. Native requires --use-gwsignal and a positive reference frequency.")
 optp.add_option("--use-gwsignal-lmax-nyquist",default=None,type=int,help='Passes lmax_nyquist integer to the gwsignal waveform interface')
 optp.add_option("--use-external-EOB",default=False,action='store_true')
 optp.add_option("--maximize-only",default=False, action='store_true',help="After integrating, attempts to find the single best fitting point")
@@ -573,6 +574,10 @@ opts, args = optp.parse_args(_normalize_interpolate_time_argv(sys.argv[1:]))
 if opts.use_gwsignal and opts.internal_waveform_extra_lalsuite_args is not None:
     optp.error("--internal-waveform-extra-lalsuite-args cannot be used with --use-gwsignal; "
                "use --internal-waveform-extra-kwargs for GWSignal backend options")
+if opts.gwsignal_mode_conditioning == "native" and not opts.use_gwsignal:
+    optp.error("--gwsignal-mode-conditioning native requires --use-gwsignal")
+if opts.gwsignal_mode_conditioning == "native" and opts.internal_waveform_fd_no_condition:
+    optp.error("--gwsignal-mode-conditioning native conflicts with --internal-waveform-fd-no-condition")
 if opts.log_noise_evidence_only and opts.log_noise_evidence_output is None:
   opts.log_noise_evidence_output = "log_noise_evidence.json"
 
@@ -3758,6 +3763,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
       extra_waveform_kwargs['rom_taper_start'] = True  # really for NRHyb3dq8 given discussion with Aasim for high-SNR sources, but valuable generally
     if opts.use_gwsignal_lmax_nyquist is not None:
       extra_waveform_kwargs['lmax_nyquist'] = int(opts.use_gwsignal_lmax_nyquist)
+    if opts.use_gwsignal:
+      extra_waveform_kwargs['gwsignal_mode_conditioning'] = opts.gwsignal_mode_conditioning
     extra_waveform_kwargs['e_freq'] = int(opts.e_freq)
     if opts.internal_waveform_extra_lalsuite_args:
       extra_args_dict = eval(opts.internal_waveform_extra_lalsuite_args)  # should only do this once and for all, not in loop!

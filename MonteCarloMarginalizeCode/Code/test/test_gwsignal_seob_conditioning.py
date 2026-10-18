@@ -109,3 +109,9 @@ def test_invalid_mode_conditioning_policy_is_refused(option):
     with pytest.raises(ValueError, match="legacy or native"):
         GWSignal.hlmoft(parameters(), approx_string="SEOBNRv5PHM",
                         gwsignal_mode_conditioning=option)
+
+
+def test_native_no_condition_conflict_is_refused():
+    with pytest.raises(ValueError, match="conflicts with no_condition"):
+        GWSignal.hlmoft(parameters(), approx_string="SEOBNRv5PHM",
+                        gwsignal_mode_conditioning="native", no_condition=True)

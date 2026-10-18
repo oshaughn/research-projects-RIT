@@ -52,6 +52,33 @@ requested peak realignment instead of silently selecting a different waveform.
 The reference frequency must be explicitly positive, as required by pySEOBNR
 0.3.7; zero is not reinterpreted at the lowered generation frequency.
 
+### Selecting the policy in production
+
+Both `integrate_likelihood_extrinsic_batchmode` and
+`integrate_likelihood_extrinsic_jax` accept the same
+`--gwsignal-mode-conditioning legacy|native` option, defaulting to `legacy`.
+This is a wrapper policy, separate from `--internal-waveform-extra-kwargs`,
+which supplies backend options when GWSignal is selected. Native requires
+`--use-gwsignal`; unsupported models and conditioning combinations are refused.
+
+Asimov can select it without a backend dictionary:
+
+```yaml
+waveform:
+  approximant: SEOBNRv5PHM
+  gwsignal mode conditioning: native
+```
+
+Select the existing GWSignal generator route as usual. Omitting the new field
+preserves the legacy default and existing generated arguments. The template
+carries this one selector through `manual-extra-ile-args`; no additional
+pseudo-pipeline configuration surface is introduced. Existing manual ILE args
+retain their normal last-value override precedence. Calibration reweighting
+receives the same resolved policy as a top-level wrapper control, while backend
+options remain in `gwsignal_extra_kwargs`. The option acts in shared waveform
+precomputation before NumPy NoLoop or JAX likelihood packing, so neither driver
+implements a separate conditioning algorithm.
+
 ## Preserve the physical epoch
 
 For a complex strain with sample interval `deltaT` and returned epoch `t0`, the
