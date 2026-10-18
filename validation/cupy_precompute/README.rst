@@ -114,6 +114,42 @@ the actual 50-point sequence below to assess the intended many-point use case.
 The GPU-required combined suite passed 153 tests without skips on RTX PRO 4000
 Blackwell SFF Edition, using the CUDA 12.8 container and CuPy 14.1.1.
 
+Real detector data and heterogeneous IFO settings
+------------------------------------------------
+
+A separate GPU check used archived observing H1/L1/V1 strain from the Caltech
+paper project, with three independent measured PSDs and different strain
+channels (including glitch-subtracted L1). It used the ordinary ILE frame reader,
+resampling, PSD interpolation/window correction and per-IFO cutoff handling.
+The final analysis grid was 8 s at 4096 Hz, deltaF 0.125 Hz. IMRPhenomXPHM,
+Lmax 4 templates were used in place of that source analysis's SEOBNRv5PHM;
+this checks precompute arithmetic, not reproduction of its posterior/model.
+
+Three configurations passed for LAL, NumPy and CuPy, each with two nearby
+intrinsic points and persistent array contexts:
+
+* Original per-IFO low-frequency cutoffs: H1/L1/V1 = 20/20/20 Hz.
+* Unequal per-IFO cutoffs: 20/25/30 Hz, keeping the real independent PSDs.
+* The same unequal cutoffs with 2 s inverse-spectrum truncation.
+
+Per-IFO PSD zero-bin counts were 160/160/160 for the original case and
+160/200/240 for the unequal-cutoff cases, confirming the distinct masks reached
+precompute. Distinct loaded strain and PSD fingerprints were also checked.
+Across all configurations and points, maximum scaled Q/U/V discrepancy was
+1.47e-15, maximum absolute scalar lnL discrepancy was 3.41e-13, and maximum
+absolute SNR discrepancy was 3.56e-15. Q epochs, spacing, lengths and
+interpolants were checked independently for each IFO.
+
+``real_data_check.py OUTPUT.json ILE_EXECUTABLE [ILE arguments]`` instruments the
+actual precompute boundary and stops before sampling. It enables interpolants
+for the parity check, which ordinary vectorized ILE skips. Numeric results are
+in ``results-real-data.json``; raw input manifests and logs are archived outside
+Git. No strain, PSD values or intrinsic source parameters are committed.
+This is an 8 s real-data correctness test; the long BNS throughput evidence
+below remains a separate synthetic-input benchmark. Different final per-IFO
+FFT grids are not qualified by this test: ordinary ILE resamples to its common
+analysis rate before precompute.
+
 Measured many-point BNS result
 -----------------------------
 
