@@ -100,9 +100,8 @@ The frozen reference test helper records target 28b1f71d9 and preserves the
 pre-port function body. Geometry regressions additionally compare against
 frozen pre-split formulas, rather than comparing wrappers to themselves.
 
-Evidence summaries and logs accompany this document under
-docs/o4c-critical-ports-evidence/. GPU scratch directory:
-/scratch/richard.oshaughnessy/rift-o4c-ports-20261018.y3XQrL on pcdev12-alt.
+Raw gate, regression and mutation logs are not kept in this repository; the
+summaries above stand for them, and the gate above reproduces them.
 
 Performance interpretation
 --------------------------
