@@ -6,7 +6,7 @@ the waveform inputs or the physical prior. It is off by default.
 
 The input called `meanPerAno` is treated as the backend's original periodic
 angle. Different backends may mean different things by that name. The coordinate
-is an effective shear, not a claim that this angle is a particular PN/EOB mean
+defaults to an effective shear, not a claim that this angle is a particular PN/EOB mean
 anomaly or that the phase prediction is exact:
 
 ```
@@ -138,9 +138,8 @@ posterior estimates or independently recovered injection truth. Use the supplied
 searching unrelated directories for another file. Explicit mass/target hints
 remain optional overrides, not a requirement for bootstrapped files.
 
-These are build-time event mass estimates, not sample-by-sample anchor choices;
-the shear itself still uses each physical point's masses. The completed paired
-pilot and archival plots retain their previously specified fixed anchors.
+These are build-time event mass estimates, not sample-by-sample anchor choices.
+Each coordinate uses the proposed point's detector masses at that fixed anchor.
 
 The native epoch is inferred when template start and waveform reference agree.
 For SEOBNRv5EHM it follows template start when they differ. Other ambiguous
@@ -186,8 +185,8 @@ util_ParameterPuffball.py --inj-file grid.xml.gz --inj-file-out puff \
 Puffing replaces the angle internally with a circular covariance chart. It
 retains the requested eccentricity representation; choose `eccentricity_ln`
 instead of `eccentricity` if log-e puffing is wanted. All proposed non-angle
-parameters are assigned first, then the inverse uses the **new** masses and
-eccentricity. The existing downselects act on physical/native parameters, and
+parameters are assigned first, then the inverse uses the **new** masses, spins
+and eccentricity. The existing downselects act on physical/native parameters, and
 the output XML has the original eccentricity and anomaly fields. Unchanged
 waveform fields are retained from the input objects. `--force-away` minimizes
 the correlated Mahalanobis distance over all integer lifts of the effective
@@ -200,11 +199,12 @@ previous random behavior.
 
 ## Prior preservation and scope
 
-Keeping eccentricity and all other physical parameters unchanged makes this
-an angular shear with determinant one. Uniform native anomaly remains uniform;
-the original eccentricity prior, including a log-uniform prior, is unchanged.
-Fitting sine/cosine features adds no Jacobian to an integral performed in native
-coordinates. Grid proposals are not posterior draws. The code does not sample
+The Peters procedures are angular shears with determinant one. The EOB clock
+map generally has a nonunit angular Jacobian, so a uniform native anomaly
+need not be uniform in the transformed angle. All procedures nevertheless
+preserve the original physical prior because sampling and integration stay
+in native coordinates. Fitting sine/cosine features adds no Jacobian to that
+native integral. Grid proposals are not posterior draws. The code does not sample
 a flat Cartesian eccentricity disk or impose a new prior.
 
 The initial fit option rejects EOS/tidal runs, RF-transverse coordinate mode,
@@ -221,8 +221,8 @@ top-level flag. No physical PN accuracy at high eccentricity or across waveform
 families is claimed; approximation error changes ridge straightness, not the
 explicit inverse or the waveform parameters.
 
-Focused tests are `test/test_eccentric_phase.py` and
-`test/test_eccentric_phase_puff.py`. They exercise native sampling preservation,
+Focused tests are `test/test_eccentric_phase.py`,
+`test/test_eccentric_phase_puff.py` and `test/test_eccentric_phase_models.py`. They exercise native sampling preservation,
 periodic seams, row-independent/redshift-aware conversion, inverse order when
 masses change, exact circular distance, serialized frequency preservation,
 and following a curved effective-phase band through the actual puff CLI.
