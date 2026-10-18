@@ -67,6 +67,7 @@ jobs:
           set -o pipefail
           python -m pytest -q -rs \
             MonteCarloMarginalizeCode/Code/test/test_gwsignal_options.py \
+            MonteCarloMarginalizeCode/Code/test/test_gwsignal_seob_conditioning.py \
             MonteCarloMarginalizeCode/Code/test/test_gwsignal_ile_options.py \
             MonteCarloMarginalizeCode/Code/test/test_gwsignal_asimov_options.py \
             MonteCarloMarginalizeCode/Code/test/test_calibration_backend_options.py \

@@ -311,7 +311,7 @@ CASES = [
     # lmax_nyquist also travels as --use-gwsignal-lmax-nyquist, for older calibration workers.
     ("H_gwsignal", [_manual("{'lmax_nyquist': 2, 'enable_antisymmetric_modes': True}")],
      ("--use-gwsignal",),
-     dict(L, lmax_nyquist=2,
+     dict(L, lmax_nyquist=2, gwsignal_mode_conditioning="legacy",
           gwsignal_extra_kwargs={"lmax_nyquist": 2, "enable_antisymmetric_modes": True}),
      {"use_gwsignal": True}),
 ]

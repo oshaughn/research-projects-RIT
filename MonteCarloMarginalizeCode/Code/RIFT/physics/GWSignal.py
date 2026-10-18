@@ -45,6 +45,7 @@ _RIFT_WRAPPER_CONTROLS = frozenset({
     "rom_taper_start", "e_freq", "extra_waveform_args",
     "nr_polarization_convention", "fixed_tapering", "silent",
     "fd_standoff_factor", "fd_centering_factor",
+    "gwsignal_mode_conditioning",
 })
 
 
@@ -146,8 +147,67 @@ def hlmoff(P, Lmax=2,approx_string=None,**kwargs):
     return hlmsF
 
 
-def hlmoft(P, Lmax=2,approx_string=None,no_trust_align_method=None,internal_phase_shift=np.pi/2, **kwargs):
+def _seob_native_conditioning_parameters(P):
+    """The pySEOBNR conditioning-2 bounds, independent of mode/projection.
+
+    Keep the requested reference frequency and source state unchanged while
+    extending mode generation below the requested template starting frequency.
+    These are the same LAL bounds used by pySEOBNR 0.3.7's conditioned TD
+    polarizations; the filtering itself is applied to the shared mode set.
     """
+    if not np.isfinite(P.fmin) or P.fmin <= 0:
+        raise ValueError("Native SEOB mode conditioning requires positive fmin")
+    if not np.isfinite(P.fref) or P.fref <= 0:
+        raise ValueError("Native SEOB mode conditioning requires positive fref; "
+                         "set the reference frequency explicitly")
+    total_mass = (P.m1 + P.m2) / lal.MSUN_SI
+    f_min = min(P.fmin, 1.0 / (9.0**1.5 * np.pi * total_mass * lal.MTSUN_SI))
+    tchirp = lalsim.SimInspiralChirpTimeBound(
+        f_min, P.m1, P.m2, P.s1z, P.s2z)
+    spin_bound = lalsim.SimInspiralFinalBlackHoleSpinBound(P.s1z, P.s2z)
+    tmerge = (lalsim.SimInspiralMergeTimeBound(P.m1, P.m2)
+              + lalsim.SimInspiralRingdownTimeBound(P.m1 + P.m2, spin_bound))
+    textra = 3.0 / f_min
+    start = lalsim.SimInspiralChirpStartFrequencyBound(
+        1.1 * tchirp + tmerge + textra, P.m1, P.m2)
+    end = 1.0 / (6.0**1.5 * np.pi * total_mass * lal.MTSUN_SI)
+    return start, 0.1 * tchirp + textra, f_min, end
+
+
+def _condition_seob_mode(h, P, conditioning, common_length):
+    """Apply one common linear conditioning operator before padding modes.
+
+    Stage1's usual trailing-zero trim depends on its two input arrays. Apply
+    its taper/highpass separately, then use the full mode set's common trim,
+    avoiding mode/projection-dependent lengths and all-zero-mode underflow.
+    """
+    _, taper_time, f_min, f_end = conditioning
+    components = [lal.CreateREAL8TimeSeries(
+        "SEOB mode component", h.epoch, 0., h.deltaT,
+        lal.DimensionlessUnit, h.data.length) for _ in range(2)]
+    components[0].data.data[:] = h.data.data.real
+    components[1].data.data[:] = h.data.data.imag
+    ntaper = int(np.floor(taper_time / h.deltaT + 0.5))
+    if ntaper > h.data.length:
+        raise ValueError("SEOB waveform is shorter than its native start taper")
+    window = 0.5 - 0.5 * np.cos(np.arange(ntaper) * np.pi / ntaper)
+    for component in components:
+        component.data.data[:ntaper] *= window
+        lal.HighPassREAL8TimeSeries(component, P.fmin, 0.99, 8)
+    components = [lal.ResizeREAL8TimeSeries(c, 0, common_length) for c in components]
+    lalsim.SimInspiralTDConditionStage2(*components, f_min, f_end)
+    if any(c.data.length != common_length or c.epoch != h.epoch
+           or c.deltaT != h.deltaT for c in components):
+        raise RuntimeError("Native SEOB conditioning changed the shared mode grid")
+    h = lal.ResizeCOMPLEX16TimeSeries(h, 0, common_length)
+    h.data.data[:] = components[0].data.data + 1j * components[1].data.data
+    return h
+
+
+def hlmoft(P, Lmax=2,approx_string=None,no_trust_align_method=None,internal_phase_shift=np.pi/2,
+           gwsignal_mode_conditioning="legacy", **kwargs):
+    """
+    Native SEOB mode conditioning is opt-in via gwsignal_mode_conditioning="native".
     Backend options are forwarded generically through kwargs or an explicit
     gwsignal_extra_kwargs mapping (see GWSignal-options.rst).
     gwsignal.  Note the call will use approx_string, NOT a lalsimulation mode ID.  If approx_string is none, use P.approx but convert to string
@@ -169,6 +229,23 @@ def hlmoft(P, Lmax=2,approx_string=None,no_trust_align_method=None,internal_phas
     if not(approx_string):
         approx_string_here = lalsim.GetStringFromApproximant(P.approx)
 
+    if gwsignal_mode_conditioning not in ("legacy", "native"):
+        raise ValueError("gwsignal_mode_conditioning must be legacy or native")
+    conditioning = None
+    if gwsignal_mode_conditioning == "native":
+        if approx_string_here not in ("SEOBNRv5HM", "SEOBNRv5PHM"):
+            raise ValueError("Native mode conditioning supports SEOBNRv5HM/PHM only")
+        if kwargs.get("no_condition", False):
+            raise ValueError("Native SEOB mode conditioning conflicts with no_condition=True")
+        if not taper or python_dict["condition"] != 1:
+            raise ValueError("Native SEOB mode conditioning requires taper and condition=1")
+        if python_dict.get("conditioning", 2) != 2:
+            raise ValueError("Native SEOB mode conditioning requires backend conditioning=2")
+        if no_trust_align_method is not None:
+            raise ValueError("Native SEOB mode conditioning preserves the backend epoch")
+        conditioning = _seob_native_conditioning_parameters(P)
+        python_dict["f22_start"] = conditioning[0] * u.Hz
+
     # Fork on calling different generators
     gen = gws.models.gwsignal_get_waveform_generator(approx_string_here)
     # if "NRSur7dq4_gwsurr" == approx_string_here:
@@ -183,6 +260,25 @@ def hlmoft(P, Lmax=2,approx_string=None,no_trust_align_method=None,internal_phas
     npts = len(tvals)
     epoch = float(tvals[0]/u.second)
 
+    common_length = npts
+    if conditioning is not None:
+        # Decide this once from all returned modes, before Lmax/22-only filters.
+        # Stage1's native polarization trim removes the same common padding,
+        # except at exact projection cancellations; mode factorization must
+        # retain one grid for every inclination and orbital phase.
+        last_nonzero = 0
+        for mode, values in hlm.items():
+            if isinstance(mode, str):
+                continue
+            if not np.array_equal(np.asarray(values.times), np.asarray(tvals)):
+                raise RuntimeError("SEOB backend modes do not share a native grid")
+            nonzero = np.flatnonzero(np.asarray(values) != 0)
+            if nonzero.size:
+                last_nonzero = max(last_nonzero, int(nonzero[-1]) + 1)
+        if last_nonzero == 0:
+            raise ValueError("Native SEOB conditioning received only zero modes")
+        common_length = last_nonzero
+
     # Repack in conventional structure (typing)
     hlmT = {}
     for mode in hlm:
@@ -196,6 +292,10 @@ def hlmoft(P, Lmax=2,approx_string=None,no_trust_align_method=None,internal_phas
                 npts)
         h.data.data = np.array(hlm[mode])
         h.epoch = epoch
+        if conditioning is not None:
+            if h.data.length != npts:
+                raise RuntimeError("SEOB backend modes do not share a native grid")
+            h = _condition_seob_mode(h, P, conditioning, common_length)
         # Resize if needed
         if P.deltaF:
             TDlen = int(1./P.deltaF * 1./P.deltaT)
@@ -204,7 +304,7 @@ def hlmoft(P, Lmax=2,approx_string=None,no_trust_align_method=None,internal_phas
             elif TDlen > h.data.length:   # Zero pad, extend at end
                 h = lal.ResizeCOMPLEX16TimeSeries(h,0,TDlen)
         # WARNING:  realistically, the GWSignal mode output was NEVER tapered, oddly -- so do it by hand, following lalsimutils choices
-        if taper:
+        if taper and conditioning is None:
             ntaper = int(0.01*TDlen)
             if P.fmin > 0: # avoid failure if waveform start frequency 0 is nominally specified
                 ntaper = np.max([ntaper, int(1./(P.fmin*P.deltaT))]) 

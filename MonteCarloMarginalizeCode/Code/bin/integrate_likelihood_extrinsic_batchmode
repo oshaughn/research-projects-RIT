@@ -218,6 +218,7 @@ optp.add_option("--nr-use-provided-strain",default=False,action='store_true')
 optp.add_option("--no-memory",default=False,action='store_true', help="At present, turns off m=0 modes. Use with EXTREME caution only if requested by model developer")
 optp.add_option("--restricted-mode-list-file",default=None,help="A list of ALL modes to use in likelihood. Incredibly dangerous. Only use when comparing with models which provide restricted mode sets, or otherwise to isolate the effect of subsets of modes on the whole")
 optp.add_option("--use-gwsignal",default=False,action='store_true',help='Use gwsignal. In this case the approx name is passed as a string to the lalsimulation.gwsignal interface')
+optp.add_option("--gwsignal-mode-conditioning", type="choice", choices=["legacy", "native"], default="legacy", help="Shared SEOBNRv5 mode conditioning (default: legacy)")
 optp.add_option("--use-gwsignal-lmax-nyquist",default=None,type=int,help='Passes lmax_nyquist integer to the gwsignal waveform interface')
 optp.add_option("--use-external-EOB",default=False,action='store_true')
 optp.add_option("--maximize-only",default=False, action='store_true',help="After integrating, attempts to find the single best fitting point")
@@ -467,6 +468,11 @@ if cupy_success and opts.gpu and opts.sampler_method == 'adaptive_cartesian_gpu'
 
 
 # FACTORED LIKELIHOOD LATER, SO WE CAN SET OPTIONS TO CONTROL IMPORT OF SUPERFLUOUS PACKAGES
+if opts.gwsignal_mode_conditioning != "legacy" and not opts.use_gwsignal:
+  optp.error("--gwsignal-mode-conditioning native requires --use-gwsignal")
+if opts.gwsignal_mode_conditioning == "native" and opts.internal_waveform_fd_no_condition:
+  optp.error("--gwsignal-mode-conditioning native is incompatible with --internal-waveform-fd-no-condition")
+
 if not(opts.use_gwsignal):
   os.environ['RIFT_NO_GWSIGNAL'] = 'True'
 import RIFT.likelihood.factored_likelihood as factored_likelihood
@@ -1716,6 +1722,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         extra_waveform_kwargs['gwsignal_extra_kwargs'] = extra_args_dict
       else:
         extra_waveform_kwargs.update(extra_args_dict)
+    if opts.use_gwsignal:
+      extra_waveform_kwargs["gwsignal_mode_conditioning"] = opts.gwsignal_mode_conditioning
     # Precompute
     t_window = opts.internal_data_storage_window_half
     ignore_threshold=None
