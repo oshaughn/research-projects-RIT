@@ -35,12 +35,24 @@ development tree is rift_O4d; PRs refer to oshaughn/research-projects-RIT.
      handoff, with expanded GPU/JAX regression and contract coverage (fork PRs #325,
      #328, #330--#332).
 
+   - (rc6) Correct ILE angle-prior normalization: lnZ decreases by ln(2), or ln(8)
+     with --internal-rotate-phase; reconcile old likelihood tables before reuse.
+     Fix zero-weight evidence accounting, proposal-density/portfolio contracts, spin priors,
+     posterior exports and CPU/GPU sampler compatibility.  Align calibration waveforms with ILE,
+     including FD frame, alignment and typed LALSuite options; precessing XPHM/XO4a reweightings change.
+     Add reviewed LALSimulation multibranch EOS support with explicit branch selection;
+     fixed-EOS CIP now rejects masses outside published EOS support.  Repair JAX terminal conversion,
+     distance priors, sky/spin/redshift coordinates, hyperpipe coordinate passing and multi-row CIP.
+     Add Asimov 0.8 compatibility; fix container transfers, disk requests and failure propagation.
+     Add Bilby-compatible noise evidence and opt-in GPU GP, AV stopping and RF spin features;
+     expand numerical, workflow and CPU/GPU regression coverage (PR #208).
+
    - (unreleased) Fork PR #435 retires the physics3 RF transverse-spin mode, which
      gave CIP 11 fit coordinates for 8 degrees of freedom; every layer now refuses it.
      `auto` and Asimov `true` select geometric4; `auto` leaves fixed-EOS, EOB-parameter
      and hyperbolic analyses unchanged.
 
-   - (unreleased) Additional JAX terminal-output and EOS support updates
+   - (rc6 detail) Additional JAX terminal-output and EOS support updates
      (fork PR #213).
      The terminal pseudo-pipe stage now recognizes JAX-ILE's tabular fair-draw
      sidecars and joins them to the paired intrinsic likelihood records.  It no
