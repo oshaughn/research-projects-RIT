@@ -239,7 +239,7 @@ def test_real_basiciteration_dag_build_preserves_asimov_options(monkeypatch, tmp
     assert extras['gwsignal_extra_kwargs'] == requested
 
 
-def run_real_pseudo_pipeline_build(tmp_path):
+def run_real_pseudo_pipeline_build(tmp_path, conditioning=None, manual_conditioning=None):
     """Build real helper+BasicIteration DAGs; never launch worker executables."""
     import os
     import subprocess
@@ -252,7 +252,13 @@ def run_real_pseudo_pipeline_build(tmp_path):
                  'future_nested': {'modes': [(2, 2)], 'quote': 'a "quoted" path\\--text', 'off': False}}
     config = configparser.RawConfigParser()
     config.read(fixtures / 'GW150914.ini')
-    rendered = render_manual_options({'gwsignal arguments': requested}, '--internal-waveform-fd-L-frame')
+    waveform = {'gwsignal arguments': requested}
+    if conditioning is not None:
+        waveform['gwsignal mode conditioning'] = conditioning
+    manual = '--internal-waveform-fd-L-frame'
+    if manual_conditioning is not None:
+        manual += ' --gwsignal-mode-conditioning ' + manual_conditioning
+    rendered = render_manual_options(waveform, manual)
     for key, value in rendered['rift-pseudo-pipe'].items():
         config.set('rift-pseudo-pipe', key, value)
     overrides = {'approx': repr('SEOBNRv5PHM'), 'use-gwsignal': 'True',
@@ -316,10 +322,29 @@ def run_real_pseudo_pipeline_build(tmp_path):
         assert '--use-gwsignal' in argv
         payload = ast.literal_eval(argv[argv.index(option) + 1])
         if filename.startswith('Calib'):
+            assert payload['gwsignal_mode_conditioning'] == (manual_conditioning or conditioning or 'legacy')
             payload = payload['gwsignal_extra_kwargs']
+        elif conditioning is not None or manual_conditioning is not None:
+            selector_argv = ['--use-gwsignal']
+            for index, item in enumerate(argv):
+                if item == '--gwsignal-mode-conditioning':
+                    selector_argv.extend([item, argv[index + 1]])
+            _, assembled = assembled_options(selector_argv)
+            assert assembled['gwsignal_mode_conditioning'] == (manual_conditioning or conditioning)
         assert payload == requested
     return run
 
 
-def test_real_top_level_pseudo_helper_and_calibration_dag_build(tmp_path):
-    run_real_pseudo_pipeline_build(tmp_path)
+@pytest.mark.parametrize("conditioning,manual_conditioning", [(None, None), ("native", None),
+                                                              ("native", "legacy"), ("legacy", "native")])
+def test_real_top_level_pseudo_helper_and_calibration_dag_build(tmp_path, conditioning, manual_conditioning):
+    run_real_pseudo_pipeline_build(tmp_path, conditioning, manual_conditioning)
+
+
+@pytest.mark.parametrize('policy', ['legacy', 'native'])
+def test_asimov_conditioning_selector_without_backend_dictionary(policy, tmp_path, monkeypatch):
+    config = render_manual_options({'gwsignal mode conditioning': policy})
+    line = pseudo_ile_line(config, True, tmp_path)
+    _, extras = assembled_options(emit_worker_argv(line, tmp_path, monkeypatch))
+    assert extras['gwsignal_mode_conditioning'] == policy
+    assert 'gwsignal_extra_kwargs' not in extras

@@ -63,3 +63,32 @@ sky points are 3.5e-6, 3.1e-6 and 1.2e-5 nat, with no empirical time correction.
 source hash, development base commit, dependency versions and replay script.
 The replay needs the recorded Mac paper checkout and external PSDs; it is not
 an automatic CI test or a calibration-integration/production-posterior validation.
+
+
+## Optional native SEOB mode conditioning
+
+Use `--gwsignal-mode-conditioning native` with `--use-gwsignal` to select
+SEOBNRv5HM/PHM native conditioning on the shared modes. Legacy remains the
+default. The Asimov key is `waveform.gwsignal mode conditioning`; see
+`RIFT/physics/GWSignal-options.rst` for an example. The selector travels through
+ordinary/extrinsic ILE and calibration reweighting without entering the native
+backend options dictionary. Native conditioning rejects disabled tapering,
+`no_condition`, invalid/zero reference frequency, unsupported models and epoch
+realignment. Its common linear operation retains physical mode asymmetry and
+NoLoop factorization.
+
+The O4c adaptation targets the maintained release commit
+`28b1f71d9d6b7aa863c7808a55b5f2069b2d7a5a`, identical on GitLab
+`rapidpe-rift/rift` and GitHub `oshaughn/research-projects-RIT` when checked on
+2026-10-18. The two conditioning helpers match the O4d implementation exactly;
+O4c's existing tidal parameter constructor and Lmax selection are retained.
+O4c has no JAX ILE executable; the public selector/default match O4d's batch and
+JAX drivers, without adding a JAX implementation to this port.
+
+At CIT with pySEOBNR 0.3.7, LALSuite 7.26.16, Bilby 2.5.0, NumPy 2.4.6 and
+SciPy 1.17.1, the existing cross-code runner passes all four standard cases
+(generic spins first) with asymmetric modes retained and cubic NoLoop.
+Maximum polarization residual is `1.6502004e-7`; maximum Bilby/NoLoop and
+NoLoop/direct differences are `0.04967248` and `0.04973451` nat respectively,
+under the unchanged `0.1` nat criterion. Source imports were explicitly checked;
+installed distribution metadata is not used to identify the tested source.

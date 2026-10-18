@@ -54,3 +54,28 @@ In Asimov metadata, ``waveform.gwsignal arguments`` becomes
 ``waveform.arguments`` becomes ``--internal-waveform-extra-lalsuite-args``.
 If both are supplied, only ``waveform.gwsignal arguments`` is emitted, as in
 earlier O4c releases. ``sampler.ile.manual extra args`` accepts a list or a single string.
+
+Native SEOB mode conditioning
+-----------------------------
+
+The optional ``--gwsignal-mode-conditioning native`` selector uses native
+SEOBNRv5HM/PHM conditioning on shared modes before padding and projection.
+``legacy`` remains the default. Native conditioning requires GWSignal, a
+positive explicit reference frequency, enabled tapering and backend
+conditioning 2. It refuses ``--internal-waveform-fd-no-condition`` and
+projection-based epoch realignment. The selector is a RIFT wrapper control;
+it is not a member of ``gwsignal arguments``.
+
+An Asimov configuration can select it without additional backend switches::
+
+    waveform:
+      approximant: SEOBNRv5PHM
+      reference frequency: 20
+      gwsignal mode conditioning: native
+    scheduler:
+      pipeline:
+        use-gwsignal: true
+
+Asimov forwards the same selection through ordinary ILE, extrinsic jobs and
+calibration reweighting. Omitting it preserves existing defaults. The public
+selector and default match O4d batch and JAX ILE; O4c has no JAX ILE executable.
