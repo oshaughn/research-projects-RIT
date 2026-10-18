@@ -127,6 +127,7 @@ FILES=(
   "$C/test/test_dgrid_retained_set.py"
   "$C/test/test_distance_tail.py"
   "$C/test/test_dslice_device_native.py"
+  "$C/test/test_dslice_bounds.py"
   # -- hyperpipe (paper4 area; the hydra leg is rostered OPTDEP, not here)
   "$C/test/hyperpipe/tests/test_config.py"
   "$C/test/hyperpipe/tests/test_coords.py"
@@ -467,9 +468,10 @@ done
 # test_dslice_amplitude_model.py: +1 (_lognorm chunk memory bound), passes, no skips -> 889/869.
 # test_phenom_lframe_conventions.py adds 34 passing tests: generic-spin waveform
 # and polarization controls, aligned boundaries, and SpinTaylor option transport.
-# test_gwsignal_seob_conditioning.py adds 7 passing tests, measured with the
-# CI-pinned LALSuite 7.26.16; shared-grid operator tests need no pySEOBNR backend.
-EXPECTED_TESTS=931
+# test_dslice_bounds.py adds 2 tests and no skips.
+# test_gwsignal_seob_conditioning.py adds 8 passing tests with LALSuite 7.26.16:
+# shared-grid operator tests plus native/no_condition conflict refusal.
+EXPECTED_TESTS=933
 # Outcomes, not just exit status: a collection floor cannot see a test that collects, runs and
 # asserts nothing, and a pytest.skip can quietly absorb a lost gate.  The 13 skips are
 # environment legs -- cupy in test_seeding_reproducibility, device legs in
@@ -491,7 +493,8 @@ EXPECTED_TESTS=931
 # test_std_and_conj_hlmoff_sphharm.py adds 2 tests and no skips; 875/855 (above).
 # test_fd_end_taper_cap.py adds 3 tests and no skips; 878/858 (above).
 # test_dslice_rf_tails.py adds 10 tests and no skips; 888/868 (above).
-EXPECTED_PASSED=911
+# test_dslice_bounds.py adds 2 tests; SEOB conditioning adds 8, all passing.
+EXPECTED_PASSED=913
 # PR #382: +1 skip, the CuPy leg of test_cached_matern_gp.py (no GPU on the CI runner).
 MAX_SKIPPED=19
 

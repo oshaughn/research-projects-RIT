@@ -15,7 +15,12 @@ import pytest
 from RIFT import lalsimutils as lsu
 from RIFT.likelihood import factored_likelihood as fl
 
-SPINTAYLOR = {"PhenomXPrecVersion": 320, "PhenomXPFinalSpinMod": 2,
+# RIFT generates modes without multibanding; use the same model settings in
+# the independent native polarization reference and the production-mode path.
+NO_MULTIBANDING = {"PhenomXPHMMBandVersion": 0,
+                   "PhenomXHMThresholdMband": 0.,
+                   "PhenomXPHMThresholdMband": 0.}
+SPINTAYLOR = {**NO_MULTIBANDING, "PhenomXPrecVersion": 320, "PhenomXPFinalSpinMod": 2,
              "PhenomXHMReleaseVersion": 122022}
 GENERIC = [
     (70., 20., .45, .3, .8, 1.7, .7, 1.2, 1.1, 1.4),
@@ -45,6 +50,7 @@ def parameters(approx, case):
 
 
 def mode_waveform(p, options):
+    options = {**NO_MULTIBANDING, **options}
     intrinsic = p.manual_copy()
     intrinsic.phiref = intrinsic.incl = 0.
     modes, _ = fl.internal_hlm_generator(
@@ -60,6 +66,7 @@ def mode_waveform(p, options):
 
 
 def direct_waveform(p, options):
+    options = {**NO_MULTIBANDING, **options}
     d = p.to_lal_dict_extended(extra_args_dict=copy.deepcopy(options))
     hp, hc = ls.SimInspiralChooseFDWaveform(
         p.m1, p.m2, p.s1x, p.s1y, p.s1z, p.s2x, p.s2y, p.s2z,
