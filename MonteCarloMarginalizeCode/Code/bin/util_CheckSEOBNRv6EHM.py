@@ -37,7 +37,11 @@ def provenance():
             versions[name] = None
     root = Path(__file__).resolve().parents[3]
     def git(*args):
-        p = subprocess.run(['git', '-C', str(root), *args], capture_output=True, text=True)
+        try:
+            p = subprocess.run(['git', '-C', str(root), *args], capture_output=True, text=True)
+        except OSError:
+            # Minimal execute environments may intentionally omit Git.
+            return None
         return p.stdout.strip() if p.returncode == 0 else None
     return {'python': sys.version, 'executable': sys.executable, 'packages': versions,
             'rift_commit': git('rev-parse', 'HEAD'), 'rift_tree': git('rev-parse', 'HEAD^{tree}'),

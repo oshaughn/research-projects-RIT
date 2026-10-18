@@ -12,6 +12,16 @@ readiness = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(readiness)
 
 
+def test_provenance_does_not_require_git(monkeypatch):
+    def missing_git(*args, **kwargs):
+        raise FileNotFoundError('git is absent on this execute node')
+    monkeypatch.setattr(readiness.subprocess, 'run', missing_git)
+    report = readiness.provenance()
+    assert report['rift_commit'] is None
+    assert report['rift_tree'] is None
+    assert report['rift_dirty'] is None
+
+
 def test_missing_registry_entry_is_unavailable():
     def absent(name):
         assert name == 'SEOBNRv6EHM'
