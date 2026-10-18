@@ -183,15 +183,18 @@ extra_waveform_args['fd_centering_factor']= 0.9
 if opts.use_extra_fd_args:
     extra_waveform_args['fd_L_frame'] = True
 # Keep the independent native reference consistent with RIFT mode generation.
-lal_waveform_args = {'PhenomXAntisymmetricWaveform': 0,
-                     'PhenomXPHMMBandVersion': 0,
-                     'PhenomXHMThresholdMband': 0.,
-                     'PhenomXPHMThresholdMband': 0.}
+lal_waveform_args = {}
+if not opts.use_gwsignal:
+    lal_waveform_args = {'PhenomXAntisymmetricWaveform': 0,
+                         'PhenomXPHMMBandVersion': 0,
+                         'PhenomXHMThresholdMband': 0.,
+                         'PhenomXPHMThresholdMband': 0.}
 if opts.use_xphm_spintaylor:
     lal_waveform_args.update({'PhenomXPFinalSpinMod': 2,
                         'PhenomXHMReleaseVersion': 122022,
                         'PhenomXPrecVersion': 320})
-extra_waveform_args['extra_waveform_args'] = lal_waveform_args
+if lal_waveform_args:
+    extra_waveform_args['extra_waveform_args'] = lal_waveform_args
 
 
 P_copy = P.manual_copy() # beware, call may change P!
