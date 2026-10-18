@@ -36,7 +36,7 @@ def frequency_arguments(reference, target):
     return '{} {} {} {}'.format(REFERENCE,float(reference),TARGET,float(target))
 
 
-def _append(line, reference, target, procedure='peters-small-e', map_data=None):
+def _append(line, reference, target, procedure='peters-full-e', map_data=None):
     # Pipeline stages arrive from readlines(); append options before the newline.
     line = line.rstrip('\r\n')
     tokens=option_tokens(line)
@@ -57,14 +57,19 @@ def _append(line, reference, target, procedure='peters-small-e', map_data=None):
     return line
 
 
-def stage_arguments(line, reference=10., target=20., procedure='peters-small-e', map_data=None):
+def eligible(line):
+    tokens=option_tokens(line)
+    fitting=values(tokens,'--parameter')+values(tokens,'--parameter-implied')
+    return ('--use-eccentricity' in tokens and '--use-meanPerAno' in tokens
+              and 'meanPerAno' in fitting and bool(ECCENTRICITIES.intersection(fitting)))
+
+
+def stage_arguments(line, reference=10., target=20., procedure='peters-full-e', map_data=None):
     """Leave no-anomaly-fit stages intact; transform eligible fit stages only."""
     frequency_arguments(reference,target)
     tokens=option_tokens(line)
-    fitting=values(tokens,'--parameter')+values(tokens,'--parameter-implied')
-    eligible=('--use-eccentricity' in tokens and '--use-meanPerAno' in tokens
-              and 'meanPerAno' in fitting and bool(ECCENTRICITIES.intersection(fitting)))
-    if not eligible:
+    is_eligible=eligible(line)
+    if not is_eligible:
         if FLAG in tokens:
             raise ValueError('Effective eccentric-phase flag on a stage that does not fit eccentricity/anomaly')
         return line
@@ -73,7 +78,7 @@ def stage_arguments(line, reference=10., target=20., procedure='peters-small-e',
     return _append(line,reference,target,procedure,map_data)
 
 
-def puff_arguments(line, reference=10., target=20., procedure='peters-small-e', map_data=None):
+def puff_arguments(line, reference=10., target=20., procedure='peters-full-e', map_data=None):
     frequency_arguments(reference,target)
     names=values(option_tokens(line),'--parameter')
     if 'meanPerAno' not in names or not ECCENTRICITIES.intersection(names):

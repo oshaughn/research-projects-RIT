@@ -2196,6 +2196,10 @@ for indx_rf, line_rf in enumerate(lines):
             indx_rf, stage_problem(line_rf), ', '.join('--'+name.replace('_','-') for name in rf_transverse_conflicts) or 'see --manual-extra-cip-args'))
 
 if opts.eccentric_phase_coordinates:
+    eccentric_phase_build=eccentric_phase_policy.finalize_map(opts,eccentric_phase_build,lines)
+    if not opts.skip_reproducibility:
+        with open('reproducibility/the_arguments_used.json','w') as f:
+            json.dump(vars(opts),f)
     lines = [eccentric_phase_pipeline.stage_arguments(line,
         opts.eccentric_phase_reference_frequency,opts.eccentric_phase_target_frequency,
         **eccentric_phase_models.worker_options(opts)) for line in lines]
