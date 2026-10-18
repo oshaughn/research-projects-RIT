@@ -26,6 +26,59 @@ also be unsafe for internal routes whose conditioning differs by model.
 Required default tapering remains in the selected generator. This patch does
 not change those generators, their defaults, or their interpretation of options.
 
+## Native SEOBNRv5 mode conditioning
+
+For independent comparisons to pySEOBNR's conditioned FD polarizations, pass
+`gwsignal_mode_conditioning="native"` in the shared
+`extra_waveform_kwargs` supplied to the adapter and likelihood precomputation.
+The option supports SEOBNRv5HM and SEOBNRv5PHM with taper enabled and backend
+`condition=1`, `conditioning=2`. It extends generation below the requested
+template minimum using pySEOBNR's LAL chirp-time bounds, then applies identical
+Stage1/Stage2 tapering and filtering to every mode's real and imaginary
+components on their common native grid. Stage1 filtering runs on the full
+native grid before a single trailing-zero trim determined from all returned
+modes, before Lmax or 22-only selection. This avoids mode-dependent lengths
+and the native Stage1 routine's unsafe trailing-zero scan on an all-zero mode.
+Padding follows conditioning; the
+usual cosine mode taper is omitted on this policy. Original source parameters,
+the reference frequency, and the physical mode epoch are retained.
+
+Because this operator is linear and projection independent, the same modes
+serve the adapter and production NoLoop precomputation. No inclination-specific
+polarization taper, fitted timing shift or phase correction is added.
+`gwsignal_mode_conditioning="legacy"` remains the default. Native conditioning
+refuses unsupported models, a conflicting backend conditioning choice or
+requested peak realignment instead of silently selecting a different waveform.
+The reference frequency must be explicitly positive, as required by pySEOBNR
+0.3.7; zero is not reinterpreted at the lowered generation frequency.
+
+### Selecting the policy in production
+
+Both `integrate_likelihood_extrinsic_batchmode` and
+`integrate_likelihood_extrinsic_jax` accept the same
+`--gwsignal-mode-conditioning legacy|native` option, defaulting to `legacy`.
+This is a wrapper policy, separate from `--internal-waveform-extra-kwargs`,
+which supplies backend options when GWSignal is selected. Native requires
+`--use-gwsignal`; unsupported models and conditioning combinations are refused.
+
+Asimov can select it without a backend dictionary:
+
+```yaml
+waveform:
+  approximant: SEOBNRv5PHM
+  gwsignal mode conditioning: native
+```
+
+Select the existing GWSignal generator route as usual. Omitting the new field
+preserves the legacy default and existing generated arguments. The template
+carries this one selector through `manual-extra-ile-args`; no additional
+pseudo-pipeline configuration surface is introduced. Existing manual ILE args
+retain their normal last-value override precedence. Calibration reweighting
+receives the same resolved policy as a top-level wrapper control, while backend
+options remain in `gwsignal_extra_kwargs`. The option acts in shared waveform
+precomputation before NumPy NoLoop or JAX likelihood packing, so neither driver
+implements a separate conditioning algorithm.
+
 ## Preserve the physical epoch
 
 For a complex strain with sample interval `deltaT` and returned epoch `t0`, the

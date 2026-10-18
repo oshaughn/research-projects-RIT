@@ -265,6 +265,10 @@
       "decision": "NA",
       "reason": "Finite light-travel-time transfer across the arms for 3G ground detectors (CE/ET), built on lalsimulation detector geometry and an arm-length override in metres. LISA's finite-size response is not an add-on: it is the whole point of the TDI response the LISA driver already applies."
     },
+    "OPTION:--gwsignal-mode-conditioning": {
+      "decision": "NA",
+      "reason": "Selects native conditioning only for ground-based SEOBNRv5HM/PHM. The LISA mode/frame path does not offer this model-specific conditioning policy; unsupported LISA requests must not silently select a different waveform."
+    },
     "OPTION:--internal-data-storage-window-half": {
       "decision": "NA",
       "reason": "Half-width of the main driver's internal precompute storage window. The LISA driver has its own equivalent under a different name, --data-integration-window-half, which it passes straight into PrecomputeAlignedSpinLISA. Same role, already present."

@@ -21,7 +21,7 @@ from RIFT.likelihood import factored_likelihood as fl
 from RIFT.physics import GWSignal as rgws
 
 ILE = Path(__file__).resolve().parents[1] / 'bin' / 'integrate_likelihood_extrinsic_batchmode'
-FLAGS = {'--use-gwsignal', '--approximant', '--internal-waveform-extra-kwargs',
+FLAGS = {'--gwsignal-mode-conditioning', '--use-gwsignal', '--approximant', '--internal-waveform-extra-kwargs',
          '--internal-waveform-fd-L-frame', '--internal-waveform-fd-no-condition',
          '--use-gwsignal-lmax-nyquist', '--internal-waveform-extra-lalsuite-args',
          '--rom-group', '--e-freq'}
@@ -44,6 +44,9 @@ def assembled_options(argv):
                  and 'internal_waveform_extra_lalsuite_args' in ast.unparse(node.test)
                  and 'use_gwsignal' in ast.unparse(node.test))
     exec(compile(ast.Module(body=[guard], type_ignores=[]), str(ILE), 'exec'), scope)
+    for guard in tree.body:
+        if isinstance(guard, ast.If) and 'gwsignal_mode_conditioning' in ast.unparse(guard.test):
+            exec(compile(ast.Module(body=[guard], type_ignores=[]), str(ILE), 'exec'), scope)
     # Optional wrappers not requested by the production command.
     for key, default in [('rom_group', None), ('e_freq', 0),
                          ('internal_waveform_extra_lalsuite_args', None)]:
@@ -189,3 +192,41 @@ def test_missing_gwsignal_does_not_fall_back_or_mutate_parameters(monkeypatch):
     with pytest.raises(RuntimeError, match='refusing to fall back'):
         fl.internal_hlm_generator(p, 4, use_gwsignal=True, quiet=True)
     assert p.taper == 0
+
+
+@pytest.mark.parametrize('policy', ['legacy', 'native'])
+def test_mode_conditioning_selector_reaches_wrapper_not_backend(monkeypatch, policy):
+    opts, extras = assembled_options(['--use-gwsignal', '--approx', 'SEOBNRv5PHM',
+                                     '--gwsignal-mode-conditioning', policy])
+    assert extras['gwsignal_mode_conditioning'] == policy
+    p = lsu.ChooseWaveformParams()
+    p.m1, p.m2 = 60 * lal.MSUN_SI, 30 * lal.MSUN_SI
+    p.fmin = p.fref = 20.
+    p.taper = rgws.lalsim.SIM_INSPIRAL_TAPER_START
+    captured = {}
+    class AtGenerator(Exception):
+        pass
+    def capture(params, generator):
+        captured.update(params)
+        raise AtGenerator
+    monkeypatch.setattr(rgws.wfm, 'GenerateTDModes', capture)
+    monkeypatch.setattr(rgws.gws.models, 'gwsignal_get_waveform_generator', lambda _: object())
+    with pytest.raises(AtGenerator):
+        rgws.hlmoft(p, approx_string=opts.approximant, **extras)
+    assert 'gwsignal_mode_conditioning' not in captured
+    import astropy.units as u
+    start = captured['f22_start'].to_value(u.Hz)
+    assert (start < p.fmin) if policy == 'native' else (start == p.fmin)
+
+
+def test_mode_conditioning_defaults_and_invalid_route():
+    _, extras = assembled_options(['--use-gwsignal'])
+    assert extras['gwsignal_mode_conditioning'] == 'legacy'
+    with pytest.raises(SystemExit):
+        assembled_options(['--gwsignal-mode-conditioning', 'native'])
+    with pytest.raises(SystemExit):
+        assembled_options(['--use-gwsignal', '--gwsignal-mode-conditioning', 'other'])
+
+    with pytest.raises(SystemExit):
+        assembled_options(['--use-gwsignal', '--gwsignal-mode-conditioning', 'native',
+                           '--internal-waveform-fd-no-condition'])

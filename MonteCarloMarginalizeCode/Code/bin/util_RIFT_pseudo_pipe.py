@@ -2691,6 +2691,7 @@ if opts.calibration_reweighting:
          # whose string values contain '--', apostrophes or double quotes.
          my_parser = argparse.ArgumentParser()
          my_parser.add_argument("--use-gwsignal", action='store_true')
+         my_parser.add_argument("--gwsignal-mode-conditioning", choices=("legacy", "native"), default="legacy")
          my_parser.add_argument("--use-gwsignal-lmax-nyquist", type=int, default=None)
          my_parser.add_argument("--internal-waveform-fd-L-frame", action='store_true')
          my_parser.add_argument("--internal-waveform-fd-no-condition", action='store_true')
@@ -2709,6 +2710,12 @@ if opts.calibration_reweighting:
              my_parser.error("--internal-waveform-extra-lalsuite-args cannot be used with --use-gwsignal; "
                              "use --internal-waveform-extra-kwargs for GWSignal backend options")
          my_extra_args = {}
+         if my_opts.gwsignal_mode_conditioning == "native" and not effective_gwsignal:
+             my_parser.error("--gwsignal-mode-conditioning native requires --use-gwsignal")
+         if my_opts.gwsignal_mode_conditioning == 'native' and my_opts.internal_waveform_fd_no_condition:
+             my_parser.error('--gwsignal-mode-conditioning native conflicts with --internal-waveform-fd-no-condition')
+         if effective_gwsignal:
+             my_extra_args['gwsignal_mode_conditioning'] = my_opts.gwsignal_mode_conditioning
          gwsignal_lmax_nyquist = my_opts.use_gwsignal_lmax_nyquist
          if gwsignal_lmax_nyquist is not None and not effective_gwsignal:
              # ILE does not select GWSignal merely because lmax was set.

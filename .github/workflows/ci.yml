@@ -388,6 +388,8 @@ jobs:
           python -m pip install -r requirements.txt --break-system-packages
           python -m pip install coverage pytest --break-system-packages
           python -m pip install --editable . --break-system-packages
+      # The manifest includes test_gwsignal_seob_conditioning.py: shared linear
+      # SEOB filtering, common trimming and epoch/selection invariants (no backend).
       # The manifest includes test_phenom_lframe_conventions.py: generic-spin
       # controls and fixed-phase aligned Phenom boundary regressions.
       - name: Run core unit gate

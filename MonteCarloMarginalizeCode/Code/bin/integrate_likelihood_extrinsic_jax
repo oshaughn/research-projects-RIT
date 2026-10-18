@@ -384,7 +384,7 @@ _ILE_ALL_OPTS = {
     "--supplementary-likelihood-factor-function",
     "--supplementary-likelihood-factor-ini", "--time-marginalization",
     "--time-posterior-export", "--use-external-EOB", "--use-gwsignal",
-    "--use-gwsignal-lmax-nyquist", "--vectorized", "--verbose",
+    "--use-gwsignal-lmax-nyquist", "--gwsignal-mode-conditioning", "--vectorized", "--verbose",
     "--window-shape", "--zero-likelihood",
 }
 
@@ -531,6 +531,10 @@ def check_critical_and_report(opts, optp):
         fatal.append("--internal-waveform-extra-lalsuite-args cannot be used with "
                      "--use-gwsignal; use --internal-waveform-extra-kwargs for "
                      "GWSignal backend options")
+    if getattr(opts, "gwsignal_mode_conditioning", "legacy") == "native" and not is_set("--use-gwsignal"):
+        fatal.append("--gwsignal-mode-conditioning native requires --use-gwsignal")
+    if getattr(opts, "gwsignal_mode_conditioning", "legacy") == "native" and is_set("--internal-waveform-fd-no-condition"):
+        fatal.append("--gwsignal-mode-conditioning native conflicts with --internal-waveform-fd-no-condition")
     # REFUSED, not reported IGNORED with the compatibility no-ops above.  The
     # no-op rule is for missing KNOBS; these two ask for a data product.  Ignoring
     # --log-noise-evidence-only would run the whole integration the user asked the
@@ -978,7 +982,7 @@ def check_critical_and_report(opts, optp):
                    "--internal-waveform-fd-no-condition",
                    "--internal-waveform-extra-kwargs",
                    "--internal-waveform-extra-lalsuite-args",
-                   "--use-gwsignal-lmax-nyquist",
+                   "--use-gwsignal-lmax-nyquist", "--gwsignal-mode-conditioning",
                    "--internal-precompute-ignore-threshold", "--no-memory",
                    "--e-freq", "--fmin-ifo",
                    "--rotation-n-harmonics", "--rotation-p-max",
@@ -1100,6 +1104,12 @@ def _av_sky_sampling_kwargs(opts, detector_names=()):
 
 def build_parser():
     optp = OptionParser(usage="%prog [options]", description=__doc__)
+
+    optp.add_option("--gwsignal-mode-conditioning", type="choice",
+                    choices=("legacy", "native"), default="legacy",
+                    help="GWSignal mode conditioning: legacy (default) or native "
+                         "SEOBNRv5HM/PHM conditioning-2. Native requires --use-gwsignal "
+                         "and a positive reference frequency.")
 
     g = OptionGroup(optp, "JAX compilation cache")
     g.add_option("--jax-cache-dir", default=None,
@@ -3665,6 +3675,8 @@ def _waveform_precompute_kwargs(opts):
     if getattr(opts, "internal_waveform_fd_no_condition", False):
         extra["no_condition"] = True
     use_gwsignal = bool(getattr(opts, "use_gwsignal", False))
+    if use_gwsignal:
+        extra["gwsignal_mode_conditioning"] = getattr(opts, "gwsignal_mode_conditioning", "legacy")
     # Same routing as integrate_likelihood_extrinsic_batchmode (PR #438).
     lmax_nyquist = getattr(opts, "use_gwsignal_lmax_nyquist", None)
     if lmax_nyquist is not None:

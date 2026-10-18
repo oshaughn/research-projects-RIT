@@ -297,3 +297,27 @@ def test_forwarded_options_not_reported_ignored(driver, restore_gh_state, argv):
                  "--internal-waveform-extra-lalsuite-args",
                  "--use-gwsignal-lmax-nyquist"):
         assert flag not in text
+
+
+@pytest.mark.parametrize("policy", [None, "legacy", "native"])
+def test_conditioning_policy_matches_numpy_ile(driver, numpy_ile, policy):
+    argv = ["--use-gwsignal", "--approximant", "SEOBNRv5PHM"]
+    if policy is not None:
+        argv += ["--gwsignal-mode-conditioning", policy]
+    _, got = _jax_extra(driver, argv)
+    _, want = numpy_ile.assembled_options(argv)
+    assert got["extra_waveform_kwargs"] == want
+    assert want["gwsignal_mode_conditioning"] == (policy or "legacy")
+
+
+def test_native_conditioning_without_gwsignal_refused(driver, restore_gh_state):
+    refused, text = _check(driver, ["--gwsignal-mode-conditioning", "native"])
+    assert refused
+    assert "native requires --use-gwsignal" in text
+
+
+def test_native_unconditioned_request_refused(driver, restore_gh_state):
+    refused, text = _check(driver, ["--use-gwsignal", "--gwsignal-mode-conditioning", "native",
+                                  "--internal-waveform-fd-no-condition"])
+    assert refused
+    assert "conflicts with --internal-waveform-fd-no-condition" in text
