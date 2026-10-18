@@ -599,17 +599,24 @@ def fresh_sample_slices(reference_sampler, like_to_integrate, d_slices,
             sample = next(iter(kw.values()))
             xp = _array_module(sample)
             full = {}
+            inside = None
             for p, arr in kw.items():
                 lo, hi = omega_bounds.get(p, (-np.inf, np.inf))
                 # nudge inward by a tiny epsilon relative to range, so arccos
                 # and friends never see the exact boundary
                 eps = 1e-12 * max(abs(hi - lo), 1.0)
-                full[p] = xp.clip(xp.asarray(arr, dtype=float), lo + eps, hi - eps)
+                arr = xp.asarray(arr, dtype=float)
+                ok = (arr >= lo - eps) & (arr <= hi + eps)
+                inside = ok if inside is None else (inside & ok)
+                full[p] = xp.clip(arr, lo + eps, hi - eps)
             full["distance"] = xp.full_like(sample, d_fixed, dtype=float)
             # like_to_integrate is the cached ILE likelihood -> returns CUPY on a
             # GPU run; the AV bookkeeping downstream is host-side, so bring the
-            # lnL vector (and only that) back.
-            return _to_cpu(like_to_integrate(*(full[a] for a in arg_names)))
+            # lnL vector (and only that) back.  A draw outside the prior box is
+            # outside the integral: lnL = -inf there, never the clipped edge value
+            # (test_dslice_bounds.py).
+            lnL = like_to_integrate(*(full[a] for a in arg_names))
+            return _to_cpu(xp.where(inside, lnL, -xp.inf))
 
         try:
             res = sampler.integrate_log(
@@ -622,6 +629,10 @@ def fresh_sample_slices(reference_sampler, like_to_integrate, d_slices,
                 # already turns on, so passing it only implied a knob that
                 # does not exist.
                 tempering_exp=0.1,
+                # Integer bin counts, as ILE's main loop and CIP pass: otherwise edge
+                # bins overhang the box and lnZ includes the overhang
+                # (test_dslice_bounds.py).
+                enforce_bounds=True,
                 verbose=verbose,
             )
         except Exception as e:
