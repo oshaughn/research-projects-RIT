@@ -120,6 +120,8 @@ def resolve(options, event, ile_arguments, approximant):
                     approximant=approximant, frozen_at='workflow-build',
                     ile_arguments_sha256=hashlib.sha256(ile_arguments.encode()).hexdigest(),
                     waveform_frequency_change=False, physical_prior_change=False)
+    from RIFT.misc.eccentric_phase_models import freeze
+    decision.update(freeze(options,native,target))
     options.eccentric_phase_reference_frequency = native
     options.eccentric_phase_target_frequency = target
     return decision
@@ -140,6 +142,11 @@ def read_into(options, path=RECEIPT):
         if requested is not None and float(requested) != value:
             raise ValueError('Helper frequency decision conflicts with the explicit build request')
         setattr(options, name, value)
+    from RIFT.misc.eccentric_phase_models import freeze
+    selected=freeze(options,native,target)
+    for key in ['coordinate_procedure','coordinate_map_data','coordinate_map_sha256']:
+        expected=record.get(key,'peters-small-e' if key=='coordinate_procedure' else None)
+        if selected[key] != expected:raise ValueError('Helper coordinate procedure/map conflicts with build request')
     return record
 
 

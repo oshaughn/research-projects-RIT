@@ -1,10 +1,12 @@
 """Optional waveform-free effective eccentric phase coordinates.
 
-Masses are detector-frame solar masses. This leading-PN O(e**2) shear is a
-regression/proposal coordinate, not waveform evolution or a change to fref.
+Masses are detector-frame solar masses. The default leading-PN O(e**2) shear
+and selectable full-e/tabulated maps are regression/proposal coordinates,
+not waveform evolution or a change to fref.
 The input angle is generic: a backend's ``meanPerAno`` need not be a dynamical
 mean anomaly. Native parameters and priors retain their original meanings.
-At fixed masses/e, angle -> theta is a circle translation with unit Jacobian.
+The default shear has unit angular Jacobian; tabulated clock maps need not.
+All choices retain native sampling and priors.
 The redundant sine/cosine embedding is for fitting, never a sampling measure.
 """
 import numpy as np
@@ -44,24 +46,23 @@ def phase_advance(m1, m2, e, reference_frequency=10., target_frequency=20.):
     return x0**(-2.5) * (circular - eccentric)
 
 
-def forward(m1, m2, e, angle, reference_frequency=10., target_frequency=20.):
-    """Native input angle -> wrapped effective theta in [0, 2*pi)."""
-    angle = np.asarray(angle, float)
-    if not np.isfinite(angle).all():
-        raise ValueError('Require finite angles')
-    return (angle + phase_advance(m1, m2, e, reference_frequency, target_frequency)) % (2*np.pi)
+def forward(m1,m2,e,angle,reference_frequency=10.,target_frequency=20.,
+            procedure='peters-small-e',map_data=None,s1z=0.,s2z=0.):
+    """Invertible fit/proposal map; sampling and waveform inputs stay native."""
+    from RIFT.misc.eccentric_phase_models import transform
+    return transform(m1,m2,e,angle,reference_frequency,target_frequency,
+                     procedure,map_data,s1z,s2z,inverse=False)
 
 
-def inverse(m1, m2, e, theta, reference_frequency=10., target_frequency=20.):
-    """Invert using the *proposed* masses and eccentricity, not the seed's."""
-    theta = np.asarray(theta, float)
-    if not np.isfinite(theta).all():
-        raise ValueError('Require finite angles')
-    return (theta - phase_advance(m1, m2, e, reference_frequency, target_frequency)) % (2*np.pi)
+def inverse(m1,m2,e,theta,reference_frequency=10.,target_frequency=20.,
+            procedure='peters-small-e',map_data=None,s1z=0.,s2z=0.):
+    from RIFT.misc.eccentric_phase_models import transform
+    return transform(m1,m2,e,theta,reference_frequency,target_frequency,
+                     procedure,map_data,s1z,s2z,inverse=True)
 
 
-def features(m1, m2, e, angle, reference_frequency=10., target_frequency=20.):
-    theta = forward(m1, m2, e, angle, reference_frequency, target_frequency)
+def features(m1, m2, e, angle, reference_frequency=10., target_frequency=20., **model):
+    theta = forward(m1, m2, e, angle, reference_frequency, target_frequency, **model)
     return np.stack((np.sin(theta), np.cos(theta)), axis=-1)
 
 
@@ -76,17 +77,18 @@ def fitting_names(fit_names, sampled_names):
     return [q for p in fit_names for q in (FEATURE_NAMES if p == 'meanPerAno' else (p,))]
 
 
-def extract(P, name, reference_frequency=10., target_frequency=20.):
+def extract(P, name, reference_frequency=10., target_frequency=20., **model):
     """Scalar training/plot extraction; waveform-object masses are SI."""
     if name not in FEATURE_NAMES:
         return P.extract_param(name)
     import lal
     return features(P.m1/lal.MSUN_SI, P.m2/lal.MSUN_SI, P.eccentricity,
-                    P.meanPerAno, reference_frequency, target_frequency)[FEATURE_NAMES.index(name)]
+                    P.meanPerAno, reference_frequency, target_frequency,
+                    s1z=P.s1z,s2z=P.s2z,**model)[FEATURE_NAMES.index(name)]
 
 
 def convert(x, coord_names, low_level_coord_names, converter,
-            reference_frequency=10., target_frequency=20., **kwargs):
+            reference_frequency=10., target_frequency=20., procedure='peters-small-e', map_data=None, **kwargs):
     """Vector fit projection using native masses/redshift/Kerr conversion.
 
     Invalid native rows remain rejected (-inf) without poisoning valid rows.
@@ -96,6 +98,8 @@ def convert(x, coord_names, low_level_coord_names, converter,
     base = [p for p in coord_names if p not in FEATURE_NAMES]
     native = converter(x, coord_names=base, low_level_coord_names=low_level_coord_names, **kwargs)
     physical_names = ['m1', 'm2', 'eccentricity', 'meanPerAno']
+    if procedure == 'eob-tabulated':
+        physical_names += ['s1z','s2z']
     if kwargs.get('enforce_kerr', False):
         physical_names += ['chi1', 'chi2']
     # Avoid native scalar fallback merely to undo the sampled e representation.
@@ -117,9 +121,11 @@ def convert(x, coord_names, low_level_coord_names, converter,
              (physical[:, 1] > 0) & (physical[:, 2] >= 0) & (physical[:, 2] < 1))
     valid &= np.isfinite(native).all(axis=1)
     if kwargs.get('enforce_kerr', False):
-        valid &= (physical[:, 4] <= 1) & (physical[:, 5] <= 1)
+        valid &= (physical[:, physical_names.index('chi1')] <= 1) & (physical[:, physical_names.index('chi2')] <= 1)
     values = np.full((len(x), 2), -np.inf)
-    values[valid] = features(*physical[valid, :4].T, reference_frequency, target_frequency)
+    spin = {'s1z':physical[valid,4], 's2z':physical[valid,5]} if procedure == 'eob-tabulated' else {}
+    values[valid] = features(*physical[valid, :4].T, reference_frequency, target_frequency,
+                             procedure=procedure,map_data=map_data,**spin)
     out = np.empty((len(x), len(coord_names)))
     for i, name in enumerate(coord_names):
         out[:, i] = values[:, FEATURE_NAMES.index(name)] if name in FEATURE_NAMES else native[:, base.index(name)]

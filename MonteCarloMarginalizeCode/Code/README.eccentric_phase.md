@@ -21,6 +21,71 @@ Component masses in this module are detector-frame solar masses. The waveform
 object extractor handles SI masses, and the CIP projection uses the existing
 source-redshift/native-mass conversion.
 
+## Selectable procedures
+
+Use `--eccentric-phase-procedure` (or the same key under Asimov's
+`sampler: extra eccentric arguments`) to choose:
+
+- `peters-small-e`: the existing O(e²) shear, retained as the default.
+- `peters-full-e`: the full Peters quadrupole phase, retaining the circular
+  term and using the same mean-frequency endpoints. It is independent of spin.
+- `eob-tabulated`: a frozen numerical phase/clock map informed by public EOB
+  dynamics, using detector masses, eccentricity and both spin-z components.
+
+These are fitting and proposal coordinates. Invertibility and useful ridge
+geometry are the acceptance criteria; exact alignment between waveform
+approximations is neither required nor expected. The fitting model sees sine
+and cosine features, while CIP samples the original parameters with the
+original prior. No transformed-density Jacobian enters that native integral.
+Puffing first assigns all proposed masses, spins and eccentricity, then inverts
+at those proposed values. It never reuses the seed's phase shift.
+
+For example, a nominal36-solar-mass production with a15Hz native epoch can use
+this packaged public-equation map with the automatic mass anchor:
+
+```yaml
+sampler:
+  extra eccentric arguments:
+    eccentric-phase-coordinates: true
+    eccentric-phase-procedure: eob-tabulated
+    eccentric-phase-map: builtin:danilo-public-spin-v1
+```
+
+Keep the production's existing eccentricity limits and priors. The example
+map is derived from public LO spin–orbit/spin–spin Hamiltonian terms and
+relative2PN RR (Khalil et al., https://arxiv.org/abs/2104.11705v2), with explicit
+geometric-e/Kepler-mean initialization. Its embedded provenance identifies
+the source profiles and equations. It is a coordinate definition, not a
+waveform backend or a new likelihood calculation. It can be applied to other
+waveform approximations at the same coordinate epochs.
+
+A user-generated JSON map can replace the built-in name. The builder validates
+its schema and frequencies, freezes its coefficients as a bounded base64
+payload, and records a SHA256 in `eccentric_phase_build.json`. Identical
+payloads go to every eligible CIP and puff command. Workers need no shared
+filesystem or separate map-file transfer; ILE receives no coordinate flags.
+The original file is only a build input. Conflicting stage choices are refused.
+The high-mass identity fallback applies to every procedure, including EOB.
+
+### Numerical map contract
+
+`rift-eccentric-map-v1` stores normalized polynomial coefficients for the
+unwrapped advance and sine harmonics of the native-to-radial clock. Features
+are total detector mass M, primary-first mass difference delta, geometric e,
+chi_eff and primary-first chi_a. The JSON supplies center, scale, domain bounds,
+powers, coefficients, endpoint frequencies and nonempty provenance. No source
+code is executed when loading a map.
+
+Inside the declared box the map supplies its phase/clock prediction. A smooth
+compact taper returns it to full-e Peters outside that box. Harmonics are
+regularized so their derivative norm is at most0.8, guaranteeing an angular
+derivative at least0.2. Bisection inverts this monotone circle map, including
+periodic seams. This global extension avoids rejecting otherwise valid native
+prior support. Native Kerr checks remain the native converter's responsibility.
+The taper/regularization are fixed parts of the coordinate, not inferred
+physics or sampler-dependent adjustments. New maps can represent other EOB
+orders, models, or useful approximations through the same interface.
+
 ## Usage
 
 The helper resolves the frequency once at workflow build time. Enable the

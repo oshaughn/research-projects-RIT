@@ -56,6 +56,8 @@ parser.add_argument("--downselect-parameter",action='append', help='Name of para
 parser.add_argument("--downselect-parameter-range",action='append',type=str)
 parser.add_argument("--enforce-duration-bound",default=None,type=float,help="If present, enforce a duration bound. Used to prevent grid placement for obscenely long signals, when the window size is prescribed")
 parser.add_argument("--regularize",action='store_true',help="Add some ad-hoc terms based on priors, to help with nearly-singular matricies")
+from RIFT.misc import eccentric_phase_models
+eccentric_phase_models.add_arguments(parser)
 parser.add_argument("--eccentric-phase-coordinates",action='store_true',help="Puff in an effective PN eccentric phase and invert to the original waveform anomaly; no waveform or prior redefinition")
 parser.add_argument("--eccentric-phase-reference-frequency",type=float,default=10.,help="Frequency label for the effective coordinate only, in Hz; does not change fref/fmin")
 parser.add_argument("--eccentric-phase-target-frequency",type=float,default=20.,help="Target frequency label for the effective coordinate only, in Hz")
@@ -87,6 +89,7 @@ if opts.eccentric_phase_coordinates:
         raise ValueError('Effective eccentric-phase puffing does not support independent random-parameter overrides')
     eccentric_phase.phase_advance(1.,1.,0.,opts.eccentric_phase_reference_frequency,
                                   opts.eccentric_phase_target_frequency)
+    eccentric_phase_models.freeze(opts,opts.eccentric_phase_reference_frequency,opts.eccentric_phase_target_frequency)
 
 # match up pairs in --no-correlation
 corr_list = None
@@ -168,7 +171,9 @@ if opts.eccentric_phase_coordinates:
         np.array([p.m2/lal.MSUN_SI for p in P_list]),
         np.array([p.eccentricity for p in P_list]),X[:,phase_column],
         reference_frequency=opts.eccentric_phase_reference_frequency,
-        target_frequency=opts.eccentric_phase_target_frequency)
+        target_frequency=opts.eccentric_phase_target_frequency,
+        s1z=np.array([p.s1z for p in P_list]),s2z=np.array([p.s2z for p in P_list]),
+        **eccentric_phase_models.worker_options(opts))
     X[:,phase_column], phase_center = eccentric_phase_puff.centered_angles(theta)
 
 # Perform log transformation on variables
@@ -253,7 +258,7 @@ names_downselect = list(downselect_dict.keys())
 if opts.eccentric_phase_coordinates:
     P_list, X_native = eccentric_phase_puff.native_proposals(
         P_list,X_out,coord_names,opts.eccentric_phase_reference_frequency,
-        opts.eccentric_phase_target_frequency)
+        opts.eccentric_phase_target_frequency,**eccentric_phase_models.worker_options(opts))
     x_out_down = np.array([[p.extract_param(name)/(lal.MSUN_SI if name in ['mc','m1','m2','mtot'] else 1.)
                             for name in names_downselect] for p in P_list])
 else:
@@ -377,6 +382,7 @@ if opts.eccentric_phase_coordinates:
         json.dump(dict(coordinate='effective_eccentric_phase',
             reference_frequency=opts.eccentric_phase_reference_frequency,
             target_frequency=opts.eccentric_phase_target_frequency,
+            **eccentric_phase_models.worker_options(opts),
             circular_chart_center=phase_center,exported_points=len(P_out),
             original_waveform_parameters=['eccentricity','meanPerAno'],
             prior_change=False),f,indent=2)

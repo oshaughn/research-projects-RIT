@@ -184,7 +184,7 @@ parser.add_argument("--use-eccentricity-ln",action='store_true', help="Allows fo
 parser.add_argument("--assume-eccentric",action='store_true', help="Add eccentric options for each part of analysis")
 parser.add_argument("--use-meanPerAno",action='store_true', help="Add meanPerAno options for each part of analysis")
 parser.add_argument("--internal-cip-use-periodic-ecc-vars",action='store_true', help="use e cos ell, e sin ell as fitting variables ")
-from RIFT.misc import eccentric_phase_pipeline
+from RIFT.misc import eccentric_phase_pipeline, eccentric_phase_models
 eccentric_phase_pipeline.add_arguments(parser)
 parser.add_argument("--assume-lowlatency-tradeoffs",action='store_true', help="Force analysis with various low-latency tradeoffs (e.g., drop spin 2, use aligned, etc)")
 parser.add_argument("--assume-highq",action='store_true', help="Force analysis with the high-q strategy, neglecting spin2. Passed to 'helper'")
@@ -1330,7 +1330,8 @@ if opts.rf_transverse_spin_coordinates or any('--rf-transverse-spin-coordinates'
 
 if opts.eccentric_phase_coordinates:
     lines = [eccentric_phase_pipeline.stage_arguments(line,
-        opts.eccentric_phase_reference_frequency,opts.eccentric_phase_target_frequency) for line in lines]
+        opts.eccentric_phase_reference_frequency,opts.eccentric_phase_target_frequency,
+        **eccentric_phase_models.worker_options(opts)) for line in lines]
     if not any(eccentric_phase_pipeline.FLAG in line for line in lines):
         raise ValueError('No CIP stage fits native eccentricity/anomaly for the requested effective coordinates')
 
@@ -1372,7 +1373,8 @@ if opts.internal_puff_transverse:
     puff_params +=  ' --parameter phi1 --parameter phi2 --parameter chi1_perp_u --parameter chi2_perp_u '
 if opts.eccentric_phase_coordinates:
     puff_params = eccentric_phase_pipeline.puff_arguments(puff_params,
-        opts.eccentric_phase_reference_frequency,opts.eccentric_phase_target_frequency)
+        opts.eccentric_phase_reference_frequency,opts.eccentric_phase_target_frequency,
+        **eccentric_phase_models.worker_options(opts))
 if opts.assume_matter:
 #    puff_params += " --parameter LambdaTilde "  # should already be present
     puff_max_it +=5   # make sure we resolve the correlations

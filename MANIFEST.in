@@ -3,3 +3,5 @@ include MonteCarloMarginalizeCode/Code/bin/*
 include MonteCarloMarginalizeCode/Code/RIFT/physics/*  
 include MonteCarloMarginalizeCode/Code/RIFT/integrators/*  
 include MonteCarloMarginalizeCode/Code/RIFT/asimov/*  
+
+recursive-include MonteCarloMarginalizeCode/Code/RIFT/misc/eccentric_phase_maps *.json

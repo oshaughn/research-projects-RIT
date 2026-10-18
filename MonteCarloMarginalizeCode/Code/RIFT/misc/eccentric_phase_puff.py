@@ -33,7 +33,7 @@ def minimum_periodic_distances(existing, proposed, inverse_covariance, column,
 
 
 def native_proposals(parameters, values, names, reference_frequency,
-                     target_frequency):
+                     target_frequency, **model):
     """Assign all non-angle proposals before inverting the effective angle.
 
     Retain unchanged fields from each original waveform object. This also works
@@ -58,10 +58,15 @@ def native_proposals(parameters, values, names, reference_frequency,
     m2 = np.array([p.m2/lal.MSUN_SI for p in candidates])
     e = np.array([p.eccentricity for p in candidates])
     valid = np.isfinite(m1+m2+e+values[:,angle_column]) & (m1>0) & (m2>0) & (e>=0) & (e<1)
+    if model.get('procedure') == 'eob-tabulated':
+        spins=np.array([[p.s1z,p.s2z] for p in candidates])
+        valid &= np.isfinite(spins).all(axis=1)
     physical[:,angle_column] = np.nan
     physical[valid,angle_column] = eccentric_phase.inverse(
         m1[valid],m2[valid],e[valid],values[valid,angle_column],
-        reference_frequency=reference_frequency,target_frequency=target_frequency)
+        reference_frequency=reference_frequency,target_frequency=target_frequency,
+        s1z=np.array([p.s1z for p in candidates])[valid],
+        s2z=np.array([p.s2z for p in candidates])[valid],**model)
     for p, angle in zip(candidates, physical[:,angle_column]):
         p.meanPerAno = angle
     return candidates, physical

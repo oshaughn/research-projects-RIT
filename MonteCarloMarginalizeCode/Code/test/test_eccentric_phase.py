@@ -165,7 +165,8 @@ def test_cip_refuses_singular_effective_quadratic_fit(monkeypatch, tmp_path, cap
 
 
 @pytest.mark.parametrize('alias', ['eccentricity', 'eccentricity_squared', 'eccentricity_ln'])
-def test_actual_cip_training_matches_native_prediction(monkeypatch, tmp_path, alias):
+@pytest.mark.parametrize('procedure',['peters-small-e','peters-full-e','eob-tabulated'])
+def test_actual_cip_training_matches_native_prediction(monkeypatch, tmp_path, alias, procedure):
     import runpy
     import sys
     root = Path(__file__).resolve().parents[1]
@@ -179,13 +180,22 @@ def test_actual_cip_training_matches_native_prediction(monkeypatch, tmp_path, al
     y = 100 - 3*(e-.1)**2 - (1-np.cos(angle))
     grid = np.c_[np.arange(n), m1, m2, np.zeros((n, 6)), e, angle,
                  y, np.full(n, .1), np.full(n, 100), np.full(n, 1000)]
+    if procedure=='eob-tabulated':
+        grid[:,5]=rng.uniform(.3,.8,n);grid[:,8]=rng.uniform(.1,.6,n)
     monkeypatch.chdir(tmp_path)
     np.savetxt('grid.dat', grid)
     args = ['--fname', 'grid.dat', '--fit-method', 'rf', '--no-plots',
             '--use-eccentricity', '--use-meanPerAno', '--eccentric-phase-coordinates',
             '--source-redshift', '.3']
-    for name in ['mc', 'eta', alias, 'meanPerAno']:
+    names=['mc','eta',alias,'meanPerAno']
+    if procedure=='eob-tabulated':names+=['s1z','s2z']
+    for name in names:
         args += ['--parameter', name]
+    args += ['--eccentric-phase-procedure',procedure,'--eccentric-phase-reference-frequency','15','--eccentric-phase-target-frequency','20']
+    if procedure=='eob-tabulated':
+        from test_eccentric_phase_models import map_record
+        from RIFT.misc.eccentric_phase_models import encode_map
+        args += ['--eccentric-phase-map-data',encode_map(map_record())]
     monkeypatch.setattr(sys, 'argv', [str(script)] + args)
     boundary = next(i for i, line in enumerate(script.read_text().splitlines(), 1)
                     if line == 'oracle_realizations = None')
@@ -198,7 +208,7 @@ def test_actual_cip_training_matches_native_prediction(monkeypatch, tmp_path, al
             native[:, g['low_level_coord_names'].index('mc')] /= 1.3
             predicted = g['convert_coords'](native)
             np.testing.assert_allclose(predicted, g['X'], rtol=2e-5, atol=3e-6)
-            assert predicted.shape[1] == 5 and native.shape[1] == 4
+            assert predicted.shape[1] == len(names)+1 and native.shape[1] == len(names)
             assert np.isfinite(g['my_fit'](predicted)).all()
             raise FitChecked
         return trace
