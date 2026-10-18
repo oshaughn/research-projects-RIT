@@ -77,9 +77,15 @@ def prior_specification(lines,zero_spin=False):
 
 
 def sources():
+    # The stored correction is relative to full_e_advance, so its modules are keyed too.
+    import scipy
+    from . import eccentric_phase,eccentric_phase_models
     from .eccentric_phase_eob import analytic_eob,aligned_spin,radial_core,public_rr,public_transport
-    return {m.__name__.rsplit('.',1)[-1]:hashlib.sha256(Path(m.__file__).read_bytes()).hexdigest()
-            for m in [analytic_eob,aligned_spin,radial_core,public_rr,public_transport]} | {'builder':hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}
+    modules=[analytic_eob,aligned_spin,radial_core,public_rr,public_transport,eccentric_phase,eccentric_phase_models]
+    return {m.__name__.rsplit('.',1)[-1]:hashlib.sha256(Path(m.__file__).read_bytes()).hexdigest() for m in modules} | {
+        'builder':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        'numpy_version':np.__version__,'scipy_version':scipy.__version__,
+        'cumulative_simpson':public_transport.cumulative_simpson.__name__}
 
 
 def profile(point,reference,target):
@@ -138,10 +144,13 @@ def generate(seed,priors,reference,target,cache_path=CACHE,evaluator=None):
     active=np.flatnonzero(bounds[1]>bounds[0]);powers=np.array([p for p in itertools.product(range(3),repeat=5) if sum(p)<=2 and all(p[k]==0 for k in set(range(5))-set(active))])
     provenance=dict(generator=VERSION,public_equations='https://arxiv.org/abs/2104.11705v2',source_sha256=model_sources,
                     input_sha256=signature_hash,seed=seed,priors={k:v for k,v in priors.items() if k!='stages'},
-                    initialization='geometric-e and Kepler-mean; public LO SO/SS Hamiltonian and relative2PN RR',
+                    initialization='geometric-e and Kepler-mean; public LO SO/SS Hamiltonian and relative 2PN RR',
                     coverage='Prior-clipped local chart around coincidence; smooth full-e Peters exterior; native prior support unchanged')
-    # Degenerate prior dimensions use a neutral taper coordinate, not a hole.
-    table_bounds=np.array([center-1.5*scale,center+1.5*scale])
+    # Full weight (inner 3/4 of the taper radius) is exactly the sampled box;
+    # extrapolation is confined to the taper. Degenerate prior dimensions use
+    # a neutral taper coordinate, not a hole.
+    radius=np.where(bounds[1]>bounds[0],scale/.75,1.5*scale)
+    table_bounds=np.array([center-radius,center+radius])
     values=[];design_points=[];failures=[];validation=[];attempts=0
     evaluator=profile if evaluator is None else evaluator
     if reference==target:state='identity-frequency-fallback'
@@ -159,7 +168,7 @@ def generate(seed,priors,reference,target,cache_path=CACHE,evaluator=None):
             try:
                 value,diagnostic=evaluator(point,reference,target)
                 if np.asarray(value).shape!=(9,) or not np.isfinite(value).all():raise AccuracyError('invalid EOB coordinate profile')
-            except (DomainError,AccuracyError,AdiabaticError,ValueError,ArithmeticError,np.linalg.LinAlgError) as error:
+            except (DomainError,AccuracyError,AdiabaticError,ValueError,ArithmeticError,RuntimeError,np.linalg.LinAlgError) as error:
                 failures.append({'point':point.tolist(),'reason':type(error).__name__+': '+str(error)});continue
             row=np.prod(((point-center)/scale)[None,:]**powers,axis=1)
             entry=dict(point=point.tolist(),values=np.asarray(value).tolist(),diagnostic=diagnostic)

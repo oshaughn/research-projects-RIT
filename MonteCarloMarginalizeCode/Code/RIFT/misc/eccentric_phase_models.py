@@ -66,6 +66,8 @@ def load_map(data):
     if not isinstance(data,str) or len(data)>MAX_DATA:raise ValueError('Invalid/oversized eccentric map payload')
     try:r=json.loads(base64.b64decode(data,altchars=b'-_',validate=True))
     except Exception as error:raise ValueError('Invalid eccentric map payload') from error
+    if not isinstance(r,dict) or any(k not in r for k in ['center','scale','bounds','powers','coefficients','reference_frequency','target_frequency']):
+        raise ValueError('Incomplete eccentric map record')
     if r.get('schema') not in ('rift-eccentric-map-v1','rift-eccentric-map-v2'):raise ValueError('Unknown eccentric map schema')
     expected=['M','delta','e','chi_eff','chi_a'] if r['schema']=='rift-eccentric-map-v1' else ['mc_detector','delta','e','s1z','s2z']
     if r.get('features')!=expected:raise ValueError('Unsupported eccentric map features')

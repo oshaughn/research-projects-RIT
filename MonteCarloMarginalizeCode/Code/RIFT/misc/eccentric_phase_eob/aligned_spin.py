@@ -100,6 +100,7 @@ class AlignedSpinEOB(AnalyticEOB):
         potential,k,_,_=self.spin_terms(r,0.,j)
         target=energy-potential
         he0=1+target+.5*self.eta*target*target
+        if he0<=0 or 1+self.eta*target<=0:raise DomainError('nonphysical real-to-effective energy map')
         a=self.potentials(r)[0];quartic=a*self.z3/r**2
         gap=he0*he0-a*(1+j*j/r**2)
         if gap<0:raise DomainError('forbidden spinning radial shell')

@@ -159,3 +159,11 @@ def test_late_detector_band_changes_cannot_bypass_the_frozen_policy():
 def test_last_detector_override_sets_the_actual_network_floor():
     r=policy.resolve(options(),{'m1':18,'m2':18},ILE+' --fmin-ifo H1=30 --fmin-ifo=L1=40','SEOBNRv5EHM')
     assert r['allowed_band_hz']==[30,40] and r['identity_fallback']
+
+
+def test_nonfinite_coincidence_seed_and_dangling_flag_are_refused():
+    for bad in [dict(m1=float('nan')),dict(s1z=float('nan')),dict(s2z=1.)]:
+        event=dict(dict(m1=20.,m2=16.,s1z=.1,s2z=.1),**bad)
+        with pytest.raises(ValueError):
+            policy.resolve(options(eccentric_phase_procedure='eob-tabulated',eccentric_phase_detector_mass=36.),event,ILE,'SEOBNRv5EHM')
+    with pytest.raises(ValueError,match='Missing value'):policy.last_option('X --fmax','--fmax')

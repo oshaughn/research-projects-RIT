@@ -114,3 +114,10 @@ def test_full_e_is_default_and_no_event_map_is_packaged():
     assert models.worker_options(argparse.Namespace())['procedure']=='peters-full-e'
     assert not list((Path(models.__file__).parent/'eccentric_phase_maps').glob('*.json'))
     with pytest.raises(ValueError):models.map_path('builtin:danilo-public-spin-v1')
+
+
+@pytest.mark.parametrize('payload',[[1,2],dict(schema='rift-eccentric-map-v1')])
+def test_incomplete_map_payload_is_a_value_error(payload):
+    import base64
+    data=base64.urlsafe_b64encode(json.dumps(payload).encode()).decode()
+    with pytest.raises(ValueError):models.load_map(data)

@@ -24,6 +24,8 @@ def last_option(arguments, name, default=None):
     values = []
     for i, token in enumerate(tokens):
         if token == name:
+            if i+1 == len(tokens):
+                raise ValueError('Missing value for '+name)
             values.append(tokens[i+1])
         elif token.startswith(name+'='):
             values.append(token.split('=', 1)[1])
@@ -125,8 +127,14 @@ def resolve(options, event, ile_arguments, approximant):
     if decision.get('coordinate_map_pending'):
         if masses is None and (event.get('m1') is None or event.get('m2') is None or event.get('rf_mass_is_placeholder',False)):
             raise ValueError('Automatic EOB coordinates require coincidence component masses')
-        decision['coordinate_seed']={name:float(event.get(name,0.) or 0.) for name in ['m1','m2','s1z','s2z']}
-        decision['coordinate_seed']['eccentricity']=None if event.get('eccentricity') is None else float(event['eccentricity'])
+        seed={name:float(event.get(name,0.) or 0.) for name in ['m1','m2','s1z','s2z']}
+        seed['eccentricity']=None if event.get('eccentricity') is None else float(event['eccentricity'])
+        # A nonfinite seed would otherwise fail later inside the JSON cache signature.
+        if (not all(math.isfinite(v) for v in seed.values() if v is not None) or min(seed['m1'],seed['m2'])<=0
+                or max(abs(seed['s1z']),abs(seed['s2z']))>=1
+                or (seed['eccentricity'] is not None and not 0<=seed['eccentricity']<1)):
+            raise ValueError('Automatic EOB coordinates require finite coincidence masses, sub-extremal spins and 0<=e<1')
+        decision['coordinate_seed']=seed
         decision['coordinate_zero_spin']=bool(getattr(options,'assume_nospin',False))
     options.eccentric_phase_reference_frequency = native
     options.eccentric_phase_target_frequency = target

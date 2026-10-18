@@ -57,7 +57,7 @@ The helper records the coincidence component masses/spins and frequency anchor.
 After resolving all CIP prior overrides, the outer build constructs a bounded
 local chart using public LO spin-orbit/spin-spin Hamiltonian terms and relative
 2PN radiation reaction (Khalil et al., https://arxiv.org/abs/2104.11705v2).
-Initialization uses geometric eccentricity and Kepler mean anomaly. At most48
+Initialization uses geometric eccentricity and Kepler mean anomaly. At most 48
 profiles are attempted; no waveform, likelihood or posterior archive is used.
 The chart is clipped to the configured mass, eccentricity and spin support;
 its exterior returns smoothly to full-e Peters. The original prior remains
@@ -86,10 +86,13 @@ Automatic builds use `rift-eccentric-map-v2`, with detector chirp mass, delta,
 eccentricity and primary-first component spin-z features. They store a phase
 correction to full-e Peters and clock harmonics.
 
-Inside the declared box the map supplies its phase/clock prediction. A smooth
-compact taper returns it to full-e Peters outside that box. Harmonics are
-regularized so their derivative norm is at most0.8, guaranteeing an angular
-derivative at least0.2. Bisection inverts this monotone circle map, including
+The map supplies its phase/clock prediction with full weight over the inner
+three quarters of each declared half-width. A C1 taper returns it to full-e
+Peters at the box edge, and it is pure Peters outside. Automatic builds place
+the full-weight region exactly on the sampled profile box, so extrapolation is
+confined to the taper. Harmonics are
+regularized so their derivative norm is at most 0.8, guaranteeing an angular
+derivative at least 0.2. Bisection inverts this monotone circle map, including
 periodic seams. This global extension avoids rejecting otherwise valid native
 prior support. Native Kerr checks remain the native converter's responsibility.
 The taper/regularization are fixed parts of the coordinate, not inferred
@@ -124,10 +127,10 @@ f_mass = 0.05**1.5 / (pi * 4.9254909476412675e-6 * M)  # Hz
 ```
 
 This uses the dimensionless frequency x=(pi G M f/c^3)^(2/3)=0.05
-(approximately a20M circular-orbit separation at Newtonian order). It is a
+(approximately a 20M circular-orbit separation at Newtonian order). It is a
 versioned early-inspiral coordinate policy, not a calibrated sensitivity
 maximum or guarantee of PN accuracy. The LVK default early-band interval is
-20--40Hz; its floor is raised to the lowest active detector fmin if needed,
+20--40 Hz; its floor is raised to the lowest active detector fmin if needed,
 and its ceiling respects the analysis fmax.
 
 - If f_mass is within the interval, use it continuously, without quantizing.
@@ -138,8 +141,8 @@ and its ceiling respects the analysis fmax.
 - If the otherwise selected anchor precedes the native epoch, also use the
   identity shear. The receipt records the fallback and achieved x.
 
-At native10Hz and network fmin20Hz this gives about40Hz for10Msun,
-32.84Hz for22Msun,20.07Hz for36Msun, and an identity shear for70/120Msun.
+At native 10 Hz and network fmin 20 Hz this gives about 40 Hz for 10 Msun,
+32.84 Hz for 22 Msun, 20.07 Hz for 36 Msun, and an identity shear for 70/120 Msun.
 The normal mass source is the pipeline's coincidence file: the helper reads
 its detector-frame component masses before selecting the anchor. A bootstrapped
 coincidence file works identically to a search-produced one; it need not contain
@@ -166,14 +169,14 @@ builder CLI:
 --eccentric-phase-target-frequency 20
 ```
 
-An explicit target wins over the mass policy. The legacy fixed20Hz policy is
+An explicit target wins over the mass policy. The legacy fixed 20 Hz policy is
 available with `--eccentric-phase-frequency-policy fixed`. Negative/nonfinite
 inputs, backward explicit transport, conflicting stage frequencies and late
 manual ILE epoch or detector-band frequency changes fail before submission. A rebuild may select a
 new value, recorded in the new build receipt; an executing workflow does not
 retune. These frequencies configure **only the coordinate**, never waveform
 fref/fmin or the physical priors. Direct CIP/puff calls continue requiring a
-fixed numerical configuration (their legacy defaults remain10/20Hz).
+fixed numerical configuration (their legacy defaults remain 10/20 Hz).
 
 CIP continues sampling native `meanPerAno` and the selected native eccentricity
 coordinate, with the original bounds/prior options. Only its fitted angle is
@@ -223,8 +226,9 @@ The `quadratic` fitter is also refused: its normal matrix is singular because
 `sin(theta)^2 + cos(theta)^2 = 1`. Use RF, GP, or polynomial fitting instead.
 Those paths need separate support for a constrained periodic feature manifold.
 Puffing rejects independent `--random-parameter` overrides in this mode.
-It also refuses `--reflect-parameter meanPerAno`: physical anomaly bounds cannot
-be reflected in the effective angular chart. Native anomaly downselection remains
+The O4c puffball has no `--reflect-parameter`; a branch that adds it must refuse
+`meanPerAno`, because physical anomaly bounds cannot be reflected in the
+effective angular chart. Native anomaly downselection remains
 available through `--downselect-parameter meanPerAno`. The
 legacy periodic-eccentricity fit option and AMR cannot be combined with the
 top-level flag. No physical PN accuracy at high eccentricity or across waveform

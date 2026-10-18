@@ -61,3 +61,25 @@ def test_public_spin_hamiltonian_derivatives_and_label_exchange(spins):
     assert model.momentum_from_energy(r,H(r,p,j),j,1)==pytest.approx(p,abs=1e-11)
     assert H(r,p,j)==pytest.approx(swapped.hamiltonian(r,p,j),abs=1e-14)
     np.testing.assert_allclose(model.forces(r,p,j),swapped.forces(r,p,j),rtol=1e-13,atol=1e-15)
+
+def test_cache_signature_covers_peters_baseline_and_libraries():
+    keys=build.sources()
+    assert {'eccentric_phase','eccentric_phase_models','numpy_version','scipy_version','cumulative_simpson'}<=set(keys)
+
+def test_map_taper_ends_at_sampled_box_and_runtime_errors_fall_back():
+    priors=build.prior_specification([LINE])
+    data,report=build.generate(SEED,priors,15.,20.,None,evaluator=synthetic)
+    record=models.load_map(data)[0];bounds=np.array(report['local_domain'])
+    active=bounds[1]>bounds[0]
+    center=np.array(record['center'])[active]
+    np.testing.assert_allclose(center+.75*(np.array(record['bounds'])[:,active]-center),bounds[:,active],atol=1e-12)
+    def stalled(*args):raise RuntimeError('brentq failed to converge')
+    _,report=build.generate(SEED,priors,15.,20.,None,evaluator=stalled)
+    assert report['successful_profiles']==0 and report['failed_profiles']>0
+
+def test_initial_orbit_survives_a_bracket_end_outside_the_bound_domain():
+    from RIFT.misc.eccentric_phase_eob.aligned_spin import AlignedSpinEOB
+    from RIFT.misc.eccentric_phase_eob.public_transport import initial_orbit
+    w0=np.pi*100*ep.MTSUN*20;guess=(1-.85**2)/w0**(2/3)
+    p,_=initial_orbit(.2,.85,w0,n=32,model_factory=lambda nu:AlignedSpinEOB(nu,.9,.9))
+    assert 1.1<p/guess<1.3

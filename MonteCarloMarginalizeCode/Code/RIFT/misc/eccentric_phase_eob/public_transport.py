@@ -20,7 +20,7 @@ from scipy.interpolate import PchipInterpolator
 from scipy.optimize import brentq
 from .analytic_eob import bound_orbit
 from .public_rr import RadiatingEOB
-from .radial_core import CycleIntegrals,DomainError,AdiabaticError
+from .radial_core import CycleIntegrals,DomainError,AdiabaticError,AccuracyError
 
 
 @lru_cache(None)
@@ -51,15 +51,27 @@ def initial_orbit(eta,e,omega0,n=64,model_factory=None):
     def residual(p):
         orbit=orbit_at(eta,p,e,model_factory)
         return fixed_cycle(orbit,n).omega_phi-omega0
-    p=brentq(residual,.8*guess,1.3*guess,xtol=1e-9,rtol=1e-10)
-    return p,orbit_at(eta,p,e,model_factory)
+    def safe(p):
+        try:return residual(p)
+        except DomainError:return None
+    # Default bracket first; widen only if an end leaves the bound domain or
+    # misses the root (high e/mass), so a bracketed root is never discarded.
+    ratios=[.8,1.3];values=[safe(r*guess) for r in ratios]
+    if None in values or values[0]*values[1]>0:
+        ratios=[.8,.9,1.,1.1,1.2,1.3,1.45,1.6,1.8,2.];values=[safe(r*guess) for r in ratios]
+    for (a,fa),(b,fb) in zip(zip(ratios,values),zip(ratios[1:],values[1:])):
+        if fa is not None and fb is not None and fa*fb<=0:
+            p=brentq(residual,a*guess,b*guess,xtol=1e-9,rtol=1e-10)
+            return p,orbit_at(eta,p,e,model_factory)
+    raise DomainError('no bound orbit brackets the initial azimuthal frequency')
 
 
 def mean_to_clock(orbit,e,mean_anomaly,n=1025):
     """Proxy Kepler-mean input -> uniform physical-time radial phase."""
     l=np.asarray(mean_anomaly)%(2*pi)
-    eccentric=l.copy()
-    for _ in range(12):eccentric-=(eccentric-e*np.sin(eccentric)-l)/(1-e*np.cos(eccentric))
+    eccentric=l.copy() if e<=.8 else np.full_like(l,pi)
+    for _ in range(50):eccentric-=(eccentric-e*np.sin(eccentric)-l)/(1-e*np.cos(eccentric))
+    if not np.all(abs(eccentric-e*np.sin(eccentric)-l)<1e-12):raise AccuracyError('Kepler equation did not converge')
     a=(orbit.r_peri+orbit.r_apo)/2
     radius=a*(1-e*np.cos(eccentric))
     u=np.arcsin(np.sqrt(np.clip((radius-orbit.r_peri)/orbit.width,0,1)))
