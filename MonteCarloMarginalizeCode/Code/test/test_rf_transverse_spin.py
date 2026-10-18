@@ -7,7 +7,7 @@ import pytest
 ROOT=Path(__file__).resolve().parents[1]
 spec=importlib.util.spec_from_file_location('rf_transverse_spin', ROOT/'RIFT/misc/rf_transverse_spin.py')
 rf=importlib.util.module_from_spec(spec);spec.loader.exec_module(rf)
-FULL='3 --fit-method rf --use-precessing --parameter mc --parameter delta_mc --parameter-implied mu1 --parameter-implied mu2 --parameter-implied chiMinus --parameter-implied s1x --parameter-implied s1y --parameter-implied s2x --parameter-implied s2y --parameter-nofit chi1 --parameter-nofit chi2 --parameter-nofit cos_theta1 --parameter-nofit cos_theta2 --parameter-nofit phi1 --parameter-nofit phi2'
+FULL='3 --fit-method rf --use-precessing --parameter-nofit mc --parameter delta_mc --parameter-implied mu1 --parameter-implied mu2 --parameter-implied chiMinus --parameter-implied s1x --parameter-implied s1y --parameter-implied s2x --parameter-implied s2y --parameter-nofit chi1 --parameter-nofit chi2 --parameter-nofit cos_theta1 --parameter-nofit cos_theta2 --parameter-nofit phi1 --parameter-nofit phi2'
 
 @pytest.mark.parametrize('mc',[None,float('nan'),float('inf'),-1,0,20,21,'not a mass'])
 def test_auto_unknown_and_boundary_off(mc):
@@ -16,23 +16,23 @@ def test_auto_unknown_and_boundary_off(mc):
 @pytest.mark.parametrize('mc',[1,19.999,'10'])
 def test_auto_lowmass_fullstage(mc):
     line=rf.stage_arguments(FULL,'auto',mc,True,40)
-    assert line==FULL+' --rf-transverse-spin-coordinates physics3 --fref 40.0'
+    assert line==FULL+' --rf-transverse-spin-coordinates geometric4 --fref 40.0'
     assert '--parameter-nofit phi2' in line
 
 @pytest.mark.parametrize('line',[FULL.replace('fit-method rf','fit-method gp'),FULL.replace('fit-method rf','fit-method quadratic'),FULL.replace('--parameter-implied s2y','--parameter-nofit s2y')])
 def test_reduced_or_other_interpolator_unchanged(line):
-    assert rf.stage_arguments(line,'physics3',10,True,20)==line
+    assert rf.stage_arguments(line,'geometric4',10,True,20)==line
 
 def test_override_and_applicability():
     assert rf.stage_arguments(FULL,'off',10,True,20)==FULL
     assert rf.stage_arguments(FULL,'auto',10,False,20)==FULL
-    with pytest.raises(ValueError):rf.stage_arguments(FULL,'physics3',10,False,20)
-    assert 'physics3' in rf.stage_arguments(FULL,'physics3',25,True,20)
+    with pytest.raises(ValueError):rf.stage_arguments(FULL,'geometric4',10,False,20)
+    assert 'geometric4' in rf.stage_arguments(FULL,'geometric4',25,True,20)
 
 def test_frequency_replaces_existing_without_mixing_sampling():
-    out=rf.stage_arguments(FULL+' --fref 11','physics3',10,True,30)
+    out=rf.stage_arguments(FULL+' --fref 11','geometric4',10,True,30)
     assert out.count('--fref')==1 and '--fref 30.0' in out
-    with pytest.raises(ValueError):rf.stage_arguments(FULL,'physics3',10,True,float('nan'))
+    with pytest.raises(ValueError):rf.stage_arguments(FULL,'geometric4',10,True,float('nan'))
 
 def test_exact_frozen_scalar_formulas_and_zero_axis():
     rng=np.random.default_rng(131)
@@ -109,11 +109,13 @@ def test_actual_native_kerr_rejection_mixed_batch():
 
 def test_requires_tested_native_phase_basis():
     line=FULL.replace('--parameter-implied mu1','--parameter-implied xi')
-    assert rf.stage_arguments(line,'physics3',10,True,20)==line
+    assert rf.stage_arguments(line,'geometric4',10,True,20)==line
 
 CIP_FIT=['--parameter','delta_mc']+[a for p in ['mu1','mu2','chiMinus','s1x','s1y','s2x','s2y'] for a in ('--parameter-implied',p)]
 
-CIP_BASE=['--fit-method','rf','--use-precessing','--fref','35','--rf-transverse-spin-coordinates','physics3']+CIP_FIT
+CIP_SAMPLED=[a for p in ['mc','chi1','chi2','cos_theta1','cos_theta2','phi1','phi2'] for a in ('--parameter-nofit',p)]
+
+CIP_BASE=['--fit-method','rf','--use-precessing','--fref','35','--rf-transverse-spin-coordinates','geometric4']+CIP_FIT+CIP_SAMPLED
 
 def _replace(args,old,new):
     args=list(args); args[args.index(old)]=new; return args
@@ -121,7 +123,7 @@ def _replace(args,old,new):
 def _drop(args,flag):
     return [a for a in args if a!=flag]
 
-# One case per CIP physics3 refusal, keyed by the CIP option the condition reads.
+# One case per CIP RF transverse-spin refusal, keyed by the CIP option the condition reads.
 CIP_REFUSALS={
     'fref (nan)':        lambda a: _replace(a,'35','nan'),
     'fref (zero)':       lambda a: _replace(a,'35','0'),
@@ -138,7 +140,7 @@ CIP_REFUSALS={
 def test_every_cip_refusal_has_a_case():
     import re
     src=(ROOT/'bin/util_ConstructIntrinsicPosterior_GenericCoordinates.py').read_text()
-    guard=src[src.index('if opts.rf_transverse_spin_coordinates:'):src.index('coord_names = list(coord_names) + list(rf_transverse_spin.FEATURE_NAMES)')]
+    guard=src[src.index('if opts.rf_transverse_spin_coordinates:'):src.index('# Preserve physical sampling coordinates')]
     read=set(re.findall(r'opts\.(\w+)',guard))-{'rf_transverse_spin_coordinates'}
     covered={k.split()[0] for k in CIP_REFUSALS}
     assert read<=covered, read-covered
@@ -160,7 +162,35 @@ def test_stage_problem_mirrors_each_cip_refusal(tmp_path,case):
     env=dict(os.environ,PYTHONPATH=str(ROOT)+os.pathsep+os.environ.get('PYTHONPATH',''),OMP_NUM_THREADS='1')
     proc=subprocess.run(cmd,cwd=tmp_path,env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,universal_newlines=True,timeout=300)
     assert proc.returncode!=0
-    assert ('physics3 requires a fresh RF fit' in proc.stdout) or ('RF reference frequency' in proc.stdout), proc.stdout[-2000:]
+    assert ('RF transverse coordinates require a fresh RF fit' in proc.stdout) or ('RF reference frequency' in proc.stdout), proc.stdout[-2000:]
+
+def test_physics3_is_refused_at_every_layer():
+    # physics3 fit 11 coordinates for 8 degrees of freedom.
+    with pytest.raises(ValueError,match='retired'):rf.enabled('physics3',10,True)
+    with pytest.raises(ValueError,match='retired'):rf.stage_arguments(FULL,'physics3',10,True,20)
+    assert 'retired' in rf.stage_problem(' '.join(CIP_BASE).replace('geometric4','physics3'))
+
+
+def _run_cip(tmp_path,args):
+    pytest.importorskip('lal')
+    import os,subprocess,sys
+    (tmp_path/'g.dat').write_text('0 20 10 0 0 0 0 0 0 10 0.1 100 1000\n')
+    cmd=[sys.executable,str(ROOT/'bin/util_ConstructIntrinsicPosterior_GenericCoordinates.py'),'--fname','g.dat','--no-plots']+args
+    env=dict(os.environ,PYTHONPATH=str(ROOT)+os.pathsep+os.environ.get('PYTHONPATH',''),OMP_NUM_THREADS='1')
+    return subprocess.run(cmd,cwd=tmp_path,env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,universal_newlines=True,timeout=300)
+
+
+def test_cip_refuses_physics3(tmp_path):
+    proc=_run_cip(tmp_path,[a if a!='geometric4' else 'physics3' for a in CIP_BASE])
+    assert proc.returncode!=0 and 'physics3 is retired' in proc.stdout, proc.stdout[-2000:]
+
+
+def test_cip_refuses_rf_fit_wider_than_sampling(tmp_path):
+    # geometric4 basis is complete, but only one coordinate is sampled.
+    args=[a for a in CIP_BASE if a not in CIP_SAMPLED]
+    proc=_run_cip(tmp_path,args)
+    assert proc.returncode!=0 and 'but samples only 1' in proc.stdout, proc.stdout[-2000:]
+
 
 def test_default_and_off_never_enter_the_policy():
     # Helper behavior under each mode is executed in test_rf_transverse_helper_generation.py.
@@ -252,3 +282,67 @@ def test_asimov_psd_staging_targets_rundir_from_foreign_cwd(tmp_path,monkeypatch
     for name in ['build_dag','submit_dag']:
         fn=next(n for n in ast.walk(tree) if isinstance(n,ast.FunctionDef) and n.name==name)
         assert any(isinstance(n,ast.Call) and isinstance(n.func,ast.Attribute) and n.func.attr=='_stage_xml_psds' for n in ast.walk(fn))
+
+
+@pytest.mark.parametrize('mode',rf.GEOMETRIC4_MODES)
+@pytest.mark.parametrize('sampled', [[], ['mc'] * 8])
+def test_pipeline_refuses_missing_or_repeated_sampling_coordinates(mode, sampled):
+    line='1 --fit-method rf --use-precessing --rf-transverse-spin-coordinates='+mode
+    line+=' '+' '.join('--parameter-implied '+p for p in rf.NATIVE_FEATURES)
+    line+=' '+' '.join('--parameter-nofit '+p for p in sampled)
+    if hasattr(rf, 'stage_problem'):
+        assert rf.stage_problem(line) is not None
+    else:
+        with pytest.raises(ValueError, match='samples only|must be unique'):
+            rf.revalidate_stage(line)
+
+
+def test_cip_refuses_duplicate_sampling_coordinates(tmp_path):
+    # Eight argument entries cannot stand in for eight independent dimensions.
+    args=CIP_BASE[:CIP_BASE.index('--parameter-nofit')]
+    args += ['--parameter-nofit', 'mc'] * 7  # delta_mc is the only --parameter.
+    proc=_run_cip(tmp_path,args)
+    assert proc.returncode!=0 and 'sampling coordinates must be unique' in proc.stdout, proc.stdout[-2000:]
+
+
+def test_pipeline_refuses_last_equals_form_retired_mode():
+    line=' '.join(CIP_BASE)+' --rf-transverse-spin-coordinates=physics3'
+    if hasattr(rf, 'stage_problem'):
+        assert 'retired' in rf.stage_problem(line)
+    else:
+        with pytest.raises(ValueError, match='retired'):
+            rf.revalidate_stage(line)
+
+
+@pytest.mark.parametrize('matter', [False, True])
+def test_dimension_guard_leaves_nontransverse_and_matter_fits_alone(matter):
+    # Execute the actual CIP block without launching the sampler. Redundant fit
+    # features are legitimate outside this specific RF transverse policy.
+    import ast
+    from types import SimpleNamespace
+    root=Path(__file__).resolve().parents[1]
+    tree=ast.parse((root/'bin/util_ConstructIntrinsicPosterior_GenericCoordinates.py').read_text())
+    guard=next(n for n in tree.body if isinstance(n,ast.If)
+               and 'rf_transverse_spin.sampling_problem' in ast.unparse(n))
+    ns={'opts':SimpleNamespace(rf_transverse_spin_coordinates=None,
+                              input_tides=matter, using_eos=matter),
+        'coord_names':['mc', 'eta', 'lambda1', 'lambda2', 'lambda_plus', 'lambda_minus'],
+        'low_level_coord_names':['mc', 'eta', 'lambda1', 'lambda2']}
+    exec(compile(ast.Module(body=[guard],type_ignores=[]),'CIP_dimension_policy','exec'),ns)
+
+
+def test_revalidate_rejects_retired_mode_with_argparse_spelling_and_precedence():
+    line=' '.join(CIP_BASE)
+    with pytest.raises(ValueError, match='retired'):
+        rf.revalidate_stage(line+' --rf-transverse-spin-coordinates=physics3')
+    overridden=line+' --rf-transverse-spin-coordinates physics3 --rf-transverse-spin-coordinates=geometric4'
+    assert rf.revalidate_stage(overridden)==overridden
+
+
+def test_retired_problem_finds_any_occurrence_in_any_spelling():
+    # pseudo_pipe applies this to every final CIP line, including --manual-extra-cip-args.
+    base=' '.join(CIP_BASE)
+    assert rf.retired_problem(base) is None
+    for extra in [' --rf-transverse-spin-coordinates=physics3',' --rf-transverse-spin-coordinates physics3']:
+        assert 'retired' in rf.retired_problem(base+extra)
+        assert 'retired' in rf.retired_problem(extra+' '+base)

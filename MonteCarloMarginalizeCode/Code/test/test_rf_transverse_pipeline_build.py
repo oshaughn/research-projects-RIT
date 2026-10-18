@@ -1,7 +1,7 @@
 """Build (never submit) a real pseudo_pipe DAG that opts in without --cip-fit-method.
 
 The helper switches the unforced gp fit to rf. The DAG must then be built as an explicit
-rf run: flat CIP workers, so no worker is handed both physics3 and --fit-load-gp.
+rf run: flat CIP workers, so no worker is handed both RF transverse coordinates and --fit-load-gp.
 """
 import os
 from pathlib import Path
@@ -17,8 +17,12 @@ REF_INI = REPO / ".travis" / "ref_ini" / "GW150914.ini"
 COINC = REPO / ".travis" / "ref_ini" / "coinc.xml"
 
 
-def _opt_in_ini(tmp_path, mode="physics3", extra=(), chirpmass=None):
+def _opt_in_ini(tmp_path, mode="geometric4", extra=(), chirpmass=None):
     text = REF_INI.read_text()
+    # This contract builds a DAG with an empty placeholder cache; it performs
+    # no strain IO. Automatic truncation must reject that cache in real runs.
+    text = re.sub(r'(?m)^internal-truncate-files-for-osg-file-transfer=.*$',
+                  'internal-truncate-files-for-osg-file-transfer=False', text)
     text = re.sub(r'(?m)^cip-fit-method=.*\n', '', text)
     text = re.sub(r'(?m)^cip-explode-jobs=.*$', '\n'.join(
         ['cip-explode-jobs=3', 'rf-transverse-spin-coordinates="{}"'.format(mode)] + list(extra)), text)
@@ -64,31 +68,59 @@ def _build(tmp_path, ini, coinc=COINC):
     return proc, rundir
 
 
-def test_unforced_opt_in_builds_flat_cip_workers(tmp_path):
+@pytest.mark.parametrize('mode',['geometric4','geometric4-phase-excess'])
+def test_unforced_opt_in_builds_flat_cip_workers(tmp_path,mode):
     pytest.importorskip("lal")
-    proc, rundir = _build(tmp_path, _opt_in_ini(tmp_path))
+    proc, rundir = _build(tmp_path, _opt_in_ini(tmp_path,mode))
     assert proc.returncode == 0, proc.stdout[-3000:]
     assert "--cip-explode-jobs-flat" in proc.stdout
     subs = {p.name: p.read_text() for p in rundir.glob("CIP*.sub")}
     workers = [n for n in subs if n.startswith("CIP_worker")]
     assert workers
-    activated = [n for n in workers if "--rf-transverse-spin-coordinates physics3" in subs[n]]
+    activated = [n for n in workers if ("--rf-transverse-spin-coordinates "+mode) in subs[n]]
     assert activated, sorted(subs)
     for name, sub in subs.items():
-        assert not ("physics3" in sub and "--fit-load-gp" in sub), name
+        assert not ("--rf-transverse-spin-coordinates " in sub and "--fit-load-gp" in sub), name
     for name in workers:
         assert "--fit-method rf" in subs[name], name
 
 
 @pytest.mark.parametrize("option", ["cip-internal-use-eta-in-sampler=True",
                                     "hierarchical-merger-prior-1g=True"])
-def test_physics3_refuses_coordinate_rewrites_before_the_helper(tmp_path, option):
+def test_geometric4_refuses_coordinate_rewrites_before_the_helper(tmp_path, option):
     # These options replace delta_mc in every CIP stage after the helper runs.
     pytest.importorskip("lal")
     proc, rundir = _build(tmp_path, _opt_in_ini(tmp_path, extra=[option]))
     assert proc.returncode != 0
     assert "incompatible with --" + option.split("=")[0] in proc.stdout, proc.stdout[-3000:]
     assert not (rundir / "helper_cip_arg_list.txt").exists()
+
+
+def test_physics3_is_refused_before_the_helper(tmp_path):
+    proc, rundir = _build(tmp_path, _opt_in_ini(tmp_path, "physics3"))
+    assert proc.returncode != 0
+    # pseudo_pipe's own parser, not the helper's, must refuse it.
+    assert "util_RIFT_pseudo_pipe.py: error: RF transverse-spin mode physics3 is retired" in proc.stdout, proc.stdout[-3000:]
+    assert not (rundir / "helper_cip_arg_list.txt").exists()
+
+
+def test_physics3_via_manual_cip_args_is_refused_at_build(tmp_path):
+    pytest.importorskip("lal")
+    ini = _opt_in_ini(tmp_path, "off", ["manual-extra-cip-args=--rf-transverse-spin-coordinates=physics3"])
+    proc, rundir = _build(tmp_path, ini)
+    assert proc.returncode != 0
+    assert "physics3 is retired" in proc.stdout and "CIP stage" in proc.stdout, proc.stdout[-3000:]
+    assert not (rundir / "args_cip_list.txt").exists()
+
+
+def test_auto_declines_eob_parameters(tmp_path):
+    # pseudo_pipe appends --parameter a6c after the helper; geometric4 cannot carry it.
+    pytest.importorskip("lal")
+    ini = _opt_in_ini(tmp_path, "auto", ["use-EOB-parameters=True"], (8, 16))
+    proc, rundir = _build(tmp_path, ini, _low_mass_coinc(tmp_path))
+    assert proc.returncode == 0, proc.stdout[-3000:]
+    cip = (rundir / "args_cip_list.txt").read_text()
+    assert "--parameter a6c" in cip and "--rf-transverse-spin-coordinates" not in cip
 
 
 def test_auto_refuses_eta_sampler_once_it_activates(tmp_path):

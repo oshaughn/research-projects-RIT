@@ -6,8 +6,10 @@ import RIFT.integrators.mcsamplerAdaptiveVolume as av
 
 pytestmark = pytest.mark.skipif(av.xpy_default is not np, reason="pinned values are for the numpy backend")
 
-# Default-path result of the merge base (rift_O4d 1b2fac84; also 76ead4ce), same seed and settings.
-BASE_LNZ = -5.0105830977664745
+# Default-path result, same seed and settings.  The draws and retained rows are those of the
+# merge base (rift_O4d 1b2fac84); lnZ is re-pinned for the mixture-density normalization.
+BASE_LNZ = -5.069133372778350
+EXACT_LNZ = np.log(2*np.pi*0.2*0.5/100.)
 BASE_ROWS = 4506
 
 
@@ -26,6 +28,7 @@ def _run(**kwargs):
 def test_default_matches_base_and_explicit_max_weight():
     res, lw, stats = _run()
     assert res[0] == pytest.approx(BASE_LNZ, rel=1e-12, abs=0)
+    assert abs(res[0] - EXACT_LNZ) < 0.03
     assert len(lw) == BASE_ROWS
     res2, lw2, _ = _run(av_stop_metric='max-weight')
     assert res2[0] == res[0] and res2[2] == res[2]

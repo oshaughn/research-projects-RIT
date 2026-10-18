@@ -66,6 +66,7 @@ except:
   cupy_pi = np.pi
 
 from RIFT.integrators.rvs_record import RvsRecord, SamplerOutputMixin   # see DESIGN_rvs_naming.md
+from RIFT.integrators.mcsampler import infer_array_module
 
 def set_xpy_to_numpy():
    xpy_default=numpy
@@ -730,8 +731,21 @@ class MCSampler(SamplerOutputMixin, object):
 
 
 
+    def _to_instance_backend(self, x):
+        """Put an integrand chunk on self.xpy, the backend of joint_p_s/joint_p_prior.
+
+        The integrand is one chunk and can move; the sampler state cannot.  It may arrive on
+        either side: a host callable on a GPU sampler, or a --gpu likelihood (device) with
+        --sampler-xpy numpy.  self.identity_convert_togpu is the identity on a numpy
+        sampler, so it cannot bring a device array back."""
+        if isinstance(x, self.xpy.ndarray):
+            return x
+        if self.xpy is numpy:
+            return numpy.asarray(identity_convert(x))   # cupy.asnumpy accepts host input too
+        return self.xpy.asarray(x)
+
     @profile
-    def integrate_log(self, lnF, *args, xpy=xpy_default,**kwargs):
+    def integrate_log(self, lnF, *args, xpy=None,**kwargs):
         """
         Integrate exp(lnF) returning lnI, by using n sample points, assuming integrand is lnF
         Does NOT allow for tuples of arguments, an unused feature in mcsampler
@@ -759,6 +773,12 @@ class MCSampler(SamplerOutputMixin, object):
             self.setup_hist_single_param(self.llim[p], self.rlim[p], n_bins, p)
 
         xpy_here = self.xpy
+        # The aggregates follow the INSTANCE backend.  A default of xpy_default was bound at
+        # import, so on a cupy host a sampler left on numpy (the constructor default, and
+        # --sampler-xpy numpy) fed host arrays to cupy ufuncs in init_log.
+        if xpy is None:
+            xpy = self.xpy
+        special_here = xpy_special_default if xpy is not numpy else special
 
         #
         # Pin values
@@ -831,15 +851,7 @@ class MCSampler(SamplerOutputMixin, object):
         current_log_aggregate = None
         eff_samp = 0  # ratio of max weight to sum of weights
         maxlnL = -np.inf  # max lnL
-        # NOTE this is a LOG-scale running max (of log_integrand), initialized with a
-        # LINEAR-weight idiom: on a log scale 0 asserts max w >= 1, so eff_samp = sum(w)/max(w)
-        # is floored below its true value whenever the largest weight is < 1 -- it under-reports
-        # n_eff by 1/max w and keeps drawing to nmax.  Real GW lnL is large and positive so the
-        # floor does not bite in production, and -inf (what integrate(), the linear sibling,
-        # correctly uses) is DELIBERATELY not adopted here: it would move n_eff, hence run
-        # lengths, on every log-space backend, and the same initializer is copied verbatim in
-        # mcsamplerPortfolio and mcsamplerNFlow.  Change all of them together or none.
-        maxval=0   # max weight
+        maxval = -np.inf   # running max of the LOG weight; 0 would floor it at w=1
         outvals=None  # define in top level scope
         self.ntotal = 0
         # per-chunk lnZ record: each chunk used a (different) adapted proposal, so the
@@ -901,11 +913,7 @@ class MCSampler(SamplerOutputMixin, object):
             else:
                 lnL= lnF(**unpacked)  # protect order using dictionary
             # take log if we are NOT using lnL
-            if cupy_ok:
-              # instance converter tracks self.xpy; module-level converter would
-              # force lnL onto the GPU even in CPU mode (see note in integrate()).
-              if not(isinstance(lnL, self.xpy.ndarray)):
-                lnL = self.identity_convert_togpu(lnL)
+            lnL = self._to_instance_backend(lnL)
 
             log_integrand =lnL + self.xpy.log(joint_p_prior) - self.xpy.log(joint_p_s)
             log_weights = tempering_exp*lnL + self.xpy.log(joint_p_prior) - self.xpy.log(joint_p_s)
@@ -943,14 +951,14 @@ class MCSampler(SamplerOutputMixin, object):
 
             # n, Mean, error tracked by statutils structure
             if current_log_aggregate is None:
-              current_log_aggregate = init_log(log_integrand,xpy=xpy,special=xpy_special_default)
+              current_log_aggregate = init_log(log_integrand,xpy=xpy,special=special_here)
             else:
-              current_log_aggregate = update_log(current_log_aggregate, log_integrand,xpy=xpy,special=xpy_special_default)
+              current_log_aggregate = update_log(current_log_aggregate, log_integrand,xpy=xpy,special=special_here)
             outvals = finalize_log(current_log_aggregate,xpy=xpy)
             # per-chunk lnZ for the between-chunk error floor (init_log returns
             # (n, log_mean, log_M2, log_ref) so lnZ_chunk = log_mean + log_ref)
             try:
-              _chunk_agg = init_log(log_integrand,xpy=xpy,special=xpy_special_default)
+              _chunk_agg = init_log(log_integrand,xpy=xpy,special=special_here)
               lnZ_chunk_list.append(float(identity_convert(_chunk_agg[1])) + float(identity_convert(_chunk_agg[3])))
               n_chunk_list.append(int(_chunk_agg[0]))
             except Exception:
@@ -1077,7 +1085,8 @@ class MCSampler(SamplerOutputMixin, object):
         #   - find and remove samples which contribute too little to the cumulative weights
         if (not save_no_samples) and ( "log_integrand" in self._rvs):
             self._trim_rvs_to_record("log_integrand")
-            self._rvs["sample_n"] = numpy.arange(len(self._rvs["log_integrand"]))  # create 'iteration number'        
+            # on self.xpy with the other keys: the fair draw gathers every key with a device index
+            self._rvs["sample_n"] = self.xpy.arange(len(self._rvs["log_integrand"]))  # create 'iteration number'
             # Step 1: Cut out any sample with lnL belw threshold
             indx_list = [k for k, value in enumerate( (self._rvs["log_integrand"] > maxlnL - deltalnL)) if value] # threshold number 1
             # FIXME: This is an unncessary initial copy, the second step (cum i
@@ -1150,7 +1159,7 @@ class MCSampler(SamplerOutputMixin, object):
            ln_wt = self.xpy.array(self._rvs["log_integrand"] + self._rvs["log_joint_prior"] - self._rvs["log_joint_s_prior"] ,dtype=float)
            ln_wt = identity_convert(ln_wt)  # send to CPU
            ln_wt += - special.logsumexp(ln_wt)
-           wt = xpy.exp(identity_convert_togpu(ln_wt))
+           wt = xpy.exp(self._to_instance_backend(ln_wt))
            if n_extr < len(self._rvs["log_integrand"]):
                # RETAINED-SET RESERVE, taken HERE.  The gather just below rebinds every _rvs
                # key to n_extr rows drawn WITH REPLACEMENT, so this is the last moment at
@@ -1393,14 +1402,7 @@ class MCSampler(SamplerOutputMixin, object):
             else:
                 fval = func(**unpacked) # Chris' original plan: note this insures the function arguments are tied to the parameters, using a dictionary. 
 
-            if cupy_ok:
-              # Use the *instance* converter (self.identity_convert_togpu), which
-              # tracks self.xpy. The module-level converter would force fval onto
-              # the GPU even when this sampler is running on the CPU (self.xpy is
-              # numpy by default), producing a numpy/cupy mismatch against the
-              # numpy joint_p_prior / joint_p_s built in draw_simplified.
-              if not(isinstance(fval, self.xpy.ndarray)):
-                fval = self.identity_convert_togpu(fval)
+            fval = self._to_instance_backend(fval)
 
             #
             # Check if there is any practical contribution to the integral
@@ -1602,7 +1604,8 @@ class MCSampler(SamplerOutputMixin, object):
         #   - find and remove samples which contribute too little to the cumulative weights
         if (not save_no_samples) and ( "integrand" in self._rvs):
             self._trim_rvs_to_record("integrand")
-            self._rvs["sample_n"] = numpy.arange(len(self._rvs["integrand"]))  # create 'iteration number'        
+            # on self.xpy with the other keys: the fair draw gathers every key with a device index
+            self._rvs["sample_n"] = self.xpy.arange(len(self._rvs["integrand"]))  # create 'iteration number'
             if deltalnL < 1e10:
               # Step 1: Cut out any sample with lnL belw threshold
               indx_list = [k for k, value in enumerate( (self._rvs["integrand"] > maxlnL - deltalnL)) if value] # threshold number 1
@@ -1615,7 +1618,7 @@ class MCSampler(SamplerOutputMixin, object):
                 else:
                     self._rvs[key] = self._rvs[key][indx_list]
             # Step 2: Create and sort the cumulative weights, among the remaining points, then use that as a threshold
-            wt = self._rvs["integrand"]*self._rvs["joint_prior"]/self._rvs["joint_s_prior"]
+            wt = identity_convert(self._rvs["integrand"]*self._rvs["joint_prior"]/self._rvs["joint_s_prior"])  # to CPU, as the log path does
             idx_sorted_index = numpy.lexsort((numpy.arange(len(wt)), wt))  # Sort the array of weights, recovering index values
             indx_list = numpy.array( [[k, wt[k]] for k in idx_sorted_index])     # pair up with the weights again. NOTE NOT INTEGER TYPE ANY MORE
             cum_sum = numpy.cumsum(indx_list[:,1])  # find the cumulative sum
@@ -1709,22 +1712,24 @@ def uniform_samp_cdf_inv_vector(a,b,p):
 #    Note NO cupy implementation yet
 #    """
 #    return numpy.heaviside(x-a,0)*numpy.heaviside(b-x,0)/(b-a)
-def uniform_samp_vector(a,b,x,xpy=xpy_default):
+def uniform_samp_vector(a,b,x,xpy=None):
    """
    uniform_samp_vector_lazy:
       Implement uniform sampling as multiplication by a constant.
       Much faster and lighter weight. We never use the cutoffs anyways, because the limits are hardcoded elsewhere.
    """
+   xpy = infer_array_module(x, xpy)
    return xpy.ones(len(x))/(b-a)  # requires the variable in range.  Needed because there is no cupy implementation of np.heavyside
 # if cupy_ok:
 #    uniform_samp_vector = uniform_samp_vector_lazy  
 
 def ret_uniform_samp_vector_alt(a,b):
-    return lambda x: xpy_default.ones(len(x))/(b-a)
+    return lambda x: infer_array_module(x).ones(len(x))/(b-a)
 #    return lambda x: 1./(b-a)
 
 
-def uniform_samp_withfloor_vector(rmaxQuad,rmaxFlat,pFlat,x,xpy=xpy_default):
+def uniform_samp_withfloor_vector(rmaxQuad,rmaxFlat,pFlat,x,xpy=None):
+    xpy = infer_array_module(x, xpy)
     if isinstance(x, float):
         ret =0.
         if x<rmaxQuad:
@@ -1733,46 +1738,54 @@ def uniform_samp_withfloor_vector(rmaxQuad,rmaxFlat,pFlat,x,xpy=xpy_default):
             ret +=pFlat/rmaxFlat
         return  ret
     ret = xpy.zeros(x.shape,dtype=numpy.float64)
-    ret += xpy.select([x<rmaxQuad],[(1.-pFlat)/rmaxQuad])
-    ret += xpy.select([x<rmaxFlat],[pFlat/rmaxFlat])
+    ret += xpy.where(x<rmaxQuad, (1.-pFlat)/rmaxQuad, 0.)   # cupy.select refuses scalar choices
+    ret += xpy.where(x<rmaxFlat, pFlat/rmaxFlat, 0.)
     return ret
 
 
 
 # syntatic sugar : predefine the most common distributions
-def uniform_samp_phase(x,xpy=xpy_default):
+def uniform_samp_phase(x,xpy=None):
    """
    Assume range known as 0,2pi
    """
+   xpy = infer_array_module(x, xpy)
    return xpy.ones(len(x))/(2*cupy_pi) 
-def uniform_samp_psi(x,xpy=xpy_default):
+def uniform_samp_psi(x,xpy=None):
    """
    Assume range known as 0,pi
    """
+   xpy = infer_array_module(x, xpy)
    return xpy.ones(len(x))/(cupy_pi) 
-def uniform_samp_theta(x,xpy=xpy_default):
+def uniform_samp_theta(x,xpy=None):
    """
    Assume range known as 
    """
+   xpy = infer_array_module(x, xpy)
    return xpy.sin(x)/(2.) 
-def uniform_samp_dec(x,xpy=xpy_default):
+def uniform_samp_dec(x,xpy=None):
    """
    Assume range known as 
    """
+   xpy = infer_array_module(x, xpy)
    return xpy.cos(x)/(2.) 
 
 
-def cos_samp(x,xpy=xpy_default):
+def cos_samp(x,xpy=None):
+        xpy = infer_array_module(x, xpy)
         return xpy.sin(x)/2   # x from 0, pi
 
-def dec_samp(x,xpy=xpy_default):
+def dec_samp(x,xpy=None):
+        xpy = infer_array_module(x, xpy)
         return xpy.sin(x+cupy_pi/2)/2   # x from 0, pi
 
 cos_samp_vector = cos_samp
 dec_samp_vector = dec_samp
-def cos_samp_cdf_inv_vector(p,xpy=xpy_default):
+def cos_samp_cdf_inv_vector(p,xpy=None):
+    xpy = infer_array_module(p, xpy)
     return xpy.arccos( 2*p-1)   # returns from 0 to pi
-def dec_samp_cdf_inv_vector(p,xpy=xpy_default):
+def dec_samp_cdf_inv_vector(p,xpy=None):
+    xpy = infer_array_module(p, xpy)
     return xpy.arccos(2*p-1) - xpy.pi/2  # target from -pi/2 to pi/2
 
 
@@ -1787,7 +1800,7 @@ def dec_samp_cdf_inv_vector(p,xpy=xpy_default):
 def q_samp_vector(qmin,qmax,x):
     scale = 1./(1+qmin) - 1./(1+qmax)
     return 1/numpy.power((1+x),2)/scale
-def q_cdf_inv_vector(qmin,qmax,x,xpy=xpy_default):
+def q_cdf_inv_vector(qmin,qmax,x,xpy=None):
     return np.array((qmin + qmax*qmin + qmax*x - qmin*x)/(1 + qmax - qmax*x + qmin*x),dtype=RiftFloat)
 
 # total mass. Assumed used with q.  2M/Mmax^2-Mmin^2

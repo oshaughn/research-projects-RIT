@@ -17,8 +17,8 @@ import os
 
 import pytest
 
-from shape_recovery import (MixtureTarget, PRESETS, assert_rift_under_test, cell_budget,
-                            evaluate, run_one)
+from shape_recovery import (GROUP_CASES, GroupedMixtureTarget, MixtureTarget, PRESETS,
+                            assert_rift_under_test, cell_budget, evaluate, run_group_case, run_one)
 
 _EXPENSIVE = bool(os.environ.get("RIFT_RUN_EXPENSIVE"))
 
@@ -81,3 +81,14 @@ def test_shape_recovery(kind, ndim, ncomp, tseed):
         pytest.skip(why + " [not a pass: use run_shape_recovery.sh + compare_shape_results.py "
                           "to gate starvation against a base run]")
     assert status == "PASS", why
+
+
+@pytest.mark.parametrize("kind,sizes,ncomp,tseed,nmax,neff", GROUP_CASES)
+def test_group_case(kind, sizes, ncomp, tseed, nmax, neff):
+    if os.environ.get("RIFT_SHAPE_PRESET") != "standard":
+        # as in run_shape_recovery.sh: the multi-dim-group lane is part of the standard preset
+        pytest.skip("multi-dim-group lane runs with RIFT_SHAPE_PRESET=standard")
+    target = GroupedMixtureTarget(sizes, ncomp, tseed)
+    status, reasons = evaluate(run_group_case(kind, target, nmax, neff))
+    assert status == "PASS", "{} on {}: {} -- {}".format(kind, target.name, status,
+                                                         "; ".join(reasons))

@@ -38,9 +38,9 @@ def _av_weight_statistics_from_log(log_weights):
 
 @functools.lru_cache(maxsize=None)
 def _prior_pdf_accepts_xpy(fn):
-    """True if a prior_pdf callable takes an `xpy` kwarg.  Many of the mcsamplerGPU prior
-    helpers default xpy=cupy, so evaluating them on the host CPU copy (as prior_prod does)
-    would feed a numpy array to cupy and raise; we pass xpy=numpy to those that accept it."""
+    """True if a prior_pdf callable takes an `xpy` kwarg.  prior_prod passes xpy=numpy to
+    those that accept it, so a prior that binds a device backend still evaluates on the
+    host CPU copy."""
     try:
         return 'xpy' in inspect.signature(fn).parameters
     except (TypeError, ValueError):
@@ -841,6 +841,103 @@ def sample_from_bins(xrange, dx, bu, ninbin, reject_out_of_range=False):
         return x
 
 
+def dilate_bins(bins, nbins, axes, layers=1):
+    """Occupied bins plus their axis neighbours (``layers`` steps along each axis in ``axes``),
+    clipped to the grid.  The occupied set is built from retained points, so it misses the part
+    of the live region that holds no point yet; the neighbour layer keeps that part drawable."""
+    bins = np.asarray(bins).astype(np.int64)
+    if layers <= 0 or len(bins) == 0 or len(axes) == 0:
+        return bins
+    nb_max = np.ceil(np.asarray(nbins, dtype=float) - 1e-9).astype(np.int64)
+    for _ in range(int(layers)):
+        parts = [bins]
+        for ax in axes:
+            for step in (-1, 1):
+                nb = bins.copy()
+                nb[:, ax] += step
+                parts.append(nb[(nb[:, ax] >= 0) & (nb[:, ax] < nb_max[ax])])
+        bins = np.unique(np.vstack(parts), axis=0)
+    return bins
+
+
+class _BinSet(object):
+    """Occupied bins of one grid as sorted int64 keys with a count per key (rows only if keys
+    would overflow).  Bins projected onto fewer dimensions can coincide; the count is how many
+    original bins sit at each projected location, since draw_simple draws from every one."""
+
+    def __init__(self, bins, n_bins=None):
+        bins = np.asarray(bins).astype(np.int64)
+        self.n_bins = len(bins) if n_bins is None else int(n_bins)
+        self.shape = bins.max(axis=0) + 1 if len(bins) else np.ones(bins.shape[1], dtype=np.int64)
+        self.keys = self.rows = self.counts = None
+        if bins.shape[1] == 0:
+            return
+        if np.prod([float(v) for v in self.shape]) < 2.0**62:
+            self.keys, self.counts = np.unique(np.ravel_multi_index(tuple(bins.T), self.shape),
+                                               return_counts=True)
+        else:
+            self.rows, self.counts = np.unique(bins, axis=0, return_counts=True)
+
+    def multiplicity(self, idx):
+        """Number of bins at each point's projected location (0 if none)."""
+        if len(self.shape) == 0:          # every dimension pinned: all bins share one location
+            return np.full(len(idx), self.n_bins, dtype=np.int64)
+        out = np.zeros(len(idx), dtype=np.int64)
+        if self.rows is not None:
+            _, inv = np.unique(np.vstack([self.rows, idx]), axis=0, return_inverse=True)
+            inv = np.asarray(inv).ravel()
+            where = {int(v): j for j, v in enumerate(inv[:len(self.rows)])}
+            hit = np.array([where.get(int(v), -1) for v in inv[len(self.rows):]], dtype=np.int64)
+            out[hit >= 0] = self.counts[hit[hit >= 0]]
+            return out
+        if self.keys is None or len(self.keys) == 0 or len(idx) == 0:
+            return out
+        ok = np.all((idx >= 0) & (idx < self.shape), axis=1)
+        k = np.ravel_multi_index(tuple(np.where(ok[:, None], idx, 0).T), self.shape)
+        pos = np.minimum(np.searchsorted(self.keys, k), len(self.keys) - 1)
+        hit = ok & (self.keys[pos] == k)
+        out[hit] = self.counts[pos[hit]]
+        return out
+
+    def contains(self, idx):
+        return self.multiplicity(idx) > 0
+
+
+def log_retained_density(X, origin, grids, box_lo, dx0, pinned_dims=()):
+    """Per-point log density of the retained set, for the deterministic-mixture estimator.
+
+    grids[k] = (dx, bins, n_drawn) is the proposal integrate_log drew cycle k from: uniform
+    over the occupied bins (an (M, ndim) array, or a _BinSet over the non-pinned dims),
+    density 1/|B_k|.  The pooled draws come from the mixture sum_k n_k 1[x in B_k]/|B_k|;
+    dividing by the retained count gives a density for which
+    logsumexp(lnL + ln p - ln p_s) - ln(n_retained) is the balance-heuristic estimate
+    (1/N) sum L p / q_mix.  origin[i] is the cycle that drew point i, which is a member of
+    its own grid by construction (guards rounding at a bin's upper edge).  Pinned
+    dimensions are not drawn from the bins, so they enter with their full width.
+    """
+    X = np.asarray(X, dtype=float)
+    origin = np.asarray(origin, dtype=int)
+    dx0 = np.asarray(dx0, dtype=float)
+    box_lo = np.asarray(box_lo, dtype=float)
+    keep = np.ones(len(dx0), dtype=bool)
+    if len(pinned_dims):
+        keep[np.asarray(pinned_dims, dtype=int)] = False
+    log_dx0_pinned = float(np.sum(np.log(dx0[~keep])))
+    acc = np.full(len(X), -np.inf)
+    for k, (dx, bins, n_k) in enumerate(grids):
+        dx = np.asarray(dx, dtype=float)
+        if not isinstance(bins, _BinSet):
+            bins = np.asarray(bins).astype(np.int64)
+            bins = _BinSet(bins[:, keep], n_bins=len(bins))
+        log_vol = np.log(bins.n_bins) + np.sum(np.log(dx[keep])) + log_dx0_pinned
+        idx = np.floor((X[:, keep] - box_lo[keep]) / dx[keep]).astype(np.int64)
+        mult = bins.multiplicity(idx)
+        mult[(mult == 0) & (origin == k)] = 1
+        member = mult > 0
+        acc[member] = np.logaddexp(acc[member], np.log(n_k) + np.log(mult[member]) - log_vol)
+    return acc - np.log(len(X))
+
+
 class MCSampler(SamplerOutputMixin, object):
 
     # PORTFOLIO MEMBER CONTRACT.  draw_simplified() reports p_s on this sampler's own scale
@@ -927,6 +1024,9 @@ class MCSampler(SamplerOutputMixin, object):
         # broad -- distance/inclination), instead of the default equal split.  Keeps the same
         # total bin budget (prod(nbins)=1/delta_V) so the estimator is unchanged.  Default off.
         self.anisotropic_bins = False
+        # Axis-neighbour layers added to the occupied bins each cycle in integrate_log (see
+        # dilate_bins).  0 draws only from bins that hold a retained point.
+        self.dilate_layers = 0
 
 
     def setup(self, **kwargs):
@@ -946,6 +1046,9 @@ class MCSampler(SamplerOutputMixin, object):
         self.V_s = np.prod([ self.rlim[x] - self.llim[x] for x in self.llim])  # global sampling volume
         self.lnL_thresh = -np.inf
         self.enc_prob = 0.999
+        # Live set, threshold and truncated probability carried between
+        # update_sampling_prior_selfish calls; None = start cold on the next call.
+        self._selfish_state = None
 
         self.is_varaha=True
 
@@ -1013,8 +1116,8 @@ class MCSampler(SamplerOutputMixin, object):
         for param in self.params_ordered:
             fn = self.prior_pdf[param]
             xc = x_cpu[:, indx]
-            # Force host evaluation: several mcsamplerGPU prior helpers default xpy=cupy, which
-            # would raise on the numpy host copy when cupy is importable (e.g. GPU container runs).
+            # Force host evaluation: a prior_pdf may bind a device backend, which would raise on
+            # the numpy host copy when cupy is importable (e.g. GPU container runs).
             val = fn(xc, xpy=numpy) if _prior_pdf_accepts_xpy(fn) else fn(xc)
             p_out *= identity_convert_togpu(val)
             indx += 1
@@ -1034,6 +1137,8 @@ class MCSampler(SamplerOutputMixin, object):
         warm = getattr(self, '_warm', None)
         if warm is None or getattr(self, '_warm_applied', False):
             return
+        # A new grid invalidates the selfish step's live set and threshold.
+        self._selfish_state = None
         try:
             self.binunique = np.array(warm['binunique'])
             self.dx = np.array(warm['dx'])
@@ -1081,8 +1186,7 @@ class MCSampler(SamplerOutputMixin, object):
         # NOT A DENSITY, DELIBERATELY.  The points are uniform over the live volume, whose
         # measure is V_s*V (V_s = full box, V = live FRACTION), so the density they come from is
         # 1/(V_s*V) -- what sampling_density() returns.  What is reported here is V_s/V, larger by
-        # V_s**2.  This sampler's own integrate_log is written against that scale and is exact on
-        # it, and changing it would move every production CIP/ILE evidence, so it stays.
+        # V_s**2.  It is kept for callers that read this scale; integrate_log does not use it.
         # A PORTFOLIO MUST NOT USE THIS AS A MIXTURE DENOMINATOR: sampling_density() is the member
         # contract (see mcsamplerPortfolio.integrate_log).  Mixing this scale with a member that
         # does report a density cost 0.63 nats on a constant integrand whose exact ln Z is 1.386.
@@ -1112,13 +1216,13 @@ class MCSampler(SamplerOutputMixin, object):
 
         VARAHA draws uniformly over its live volume -- the union of the
         currently-occupied hypercubes (self.binunique), each of width self.dx.
-        The density is therefore the SAME constant this sampler reports in
-        integrate_log's log_joint_s_prior,
+        The density of the CURRENT grid is therefore the constant
 
-            q_live = 1 / (n_occupied_bins * prod(dx))   (== 1/(V*prod(dx0))
-                                                          for VARAHA's geometric V),
+            q_live = 1 / (n_occupied_bins * prod(dx))
 
-        inside the live volume and 0 outside it.  We use the geometric form
+        inside the live volume and 0 outside it.  (integrate_log's own
+        log_joint_s_prior is the mixture of every grid it drew from; see
+        log_retained_density.)  We use the geometric form
         1/(n_bins*prod(dx)) directly: it is *exactly* the density of the points
         draw_simple() produces (equal draws per occupied bin, uniform within a
         bin), so a multiple-importance-sampling denominator built from it is
@@ -1192,6 +1296,46 @@ class MCSampler(SamplerOutputMixin, object):
             nbins[adaptive] = np.exp(c[adaptive] / csum * total_log)  # prod(adaptive)=1/delta_V
         return nbins
 
+    @staticmethod
+    def _at_final_threshold(trunc_p, enc_prob=0.999):
+        """The test integrate_log uses to stop moving the likelihood threshold."""
+        return np.round(enc_prob/trunc_p) - np.round(enc_prob/(1 - enc_prob)) == 0
+
+    def reset_selfish_state(self):
+        """Start a new integration pass: forget the live set and threshold, keep the grid.
+
+        A new pass may use a different integrand (e.g. the calmarg burn-in followed by the
+        full likelihood), so a threshold carried from the previous pass could exclude every
+        new draw.  If the previous pass had reached the final threshold, the grid is frozen
+        as adapted for the new pass: the selfish step then does nothing, so the grid is
+        neither contracted again nor re-binned.  Otherwise contraction restarts from the
+        current grid."""
+        state = getattr(self, '_selfish_state', None)
+        if state is not None and (state.get('frozen')
+                                  or self._at_final_threshold(state['trunc_p'])):
+            self._selfish_state = dict(frozen=True)
+        else:
+            self._selfish_state = None
+
+    def _cap_selfish_live_set(self, loglkl, first_in_bin, nsel):
+        """Indices of the carried live set to keep, or None to keep all.
+
+        After the final threshold nothing is removed from the live set, so without a cap it
+        grows by about n_chunk per call.  Keep one point per occupied bin (so the rebuilt grid
+        and live volume do not change), the nsel highest-lnL points (which set the threshold),
+        and a random fill up to the cap."""
+        cap = int(getattr(self, 'selfish_live_set_cap', 0) or 4 * self.n_chunk)
+        n = len(loglkl)
+        if n <= cap:
+            return None
+        must = np.union1d(np.asarray(first_in_bin, dtype=int),
+                          np.argsort(np.asarray(loglkl))[-int(nsel):])
+        rest = np.setdiff1d(np.arange(n), must, assume_unique=True)
+        n_fill = max(cap - len(must), 0)
+        if n_fill < len(rest):
+            rest = np.random.choice(rest, size=n_fill, replace=False)
+        return np.sort(np.concatenate([must, rest]))
+
     def update_sampling_prior_selfish(self, lnF, *args, xpy=xpy_default,no_protect_names=True,**kwargs):
         """
       update_sampling_prior
@@ -1203,22 +1347,39 @@ class MCSampler(SamplerOutputMixin, object):
 
       We therefore do a single pure step of VARAHA, including *independent* draws.  We will keep state about 'V' etc from previous iterations.
         We therefore also have to know about the function we are integrating. However, we do not keep track of the integral result here -- the top -level routine does this.
+
+      One call is one cycle of integrate_log's loop, so the cycle state persists between
+      calls in self._selfish_state: the live set (allx/allloglkl/allp), the threshold and
+      the truncated probability trunc_p.  Restarted on every call, each call would keep
+      only the top nsel of its own draws, V would shrink by n_chunk/nsel per call, the
+      final threshold would never be reached, and the live volume would contract without
+      limit.  The state is cleared by setup(), by installing a warm seed, and by
+      reset_selfish_state(), which mcsamplerPortfolio calls at the start of each pass.
+      The carried live set is capped (_cap_selfish_live_set) to bound memory and cost.
        """
         xpy_here = self.xpy
         enforce_bounds=True
 
         # VT specific items
-        loglkl_thr = -1e15
         enc_prob = 0.999 #The approximate upper limit on the final probability enclosed by histograms.
         V = self.V  # nominal scale factor for hypercube volume
         ndim = len(self.params_ordered)
-        allx, allloglkl = np.transpose([[]] * ndim), []
-        allp = []
-        trunc_p = 1e-10 #How much probability analysis removes with evolution
         nsel = 1000# number of largest log-likelihood samples selected to estimate lkl_thr for the next cycle.
-        if cupy_ok:
-          allx = identity_convert_togpu(allx)
-          allloglkl = identity_convert_togpu(allloglkl)
+        nsel = np.min([nsel, int(0.1*self.n_chunk)]) #  if chunk size is small, don't pick too many points
+        state = getattr(self, '_selfish_state', None)
+        if state is not None and state.get('frozen'):
+            return   # grid adapted by an earlier pass; see reset_selfish_state
+        if state is None:
+            allx, allloglkl = np.transpose([[]] * ndim), []
+            allp = []
+            loglkl_thr = -1e15
+            trunc_p = 1e-10 #How much probability analysis removes with evolution
+            if cupy_ok:
+              allx = identity_convert_togpu(allx)
+              allloglkl = identity_convert_togpu(allloglkl)
+        else:
+            allx, allloglkl, allp = state['allx'], state['allloglkl'], state['allp']
+            loglkl_thr, trunc_p = state['loglkl_thr'], state['trunc_p']
 
         ntotal_true = 0
         if True: # while (eff_samp < neff and ntotal_true < nmax ): #  and (not bConvergenceTests):
@@ -1269,6 +1430,8 @@ class MCSampler(SamplerOutputMixin, object):
             # take log if we are NOT using lnL
             if cupy_ok:
               if not(isinstance(lnL,cupy.ndarray)):
+                if getattr(lnL, 'dtype', None) == RiftFloat:
+                    lnL = lnL.astype(np.float64)   # cupy has no extended precision (CIP's fit returns RiftFloat)
                 lnL = identity_convert_togpu(lnL)  # send to GPU, if not already there
 
 
@@ -1283,20 +1446,20 @@ class MCSampler(SamplerOutputMixin, object):
             # or, if ALL are non-finite, yields an empty set -> the reported crash chain
             # (get_likelihood_threshold max of empty array; then this method's max at line ~532).
             idxsel = xpy_here.where(xpy_here.logical_and(loglkl > loglkl_thr, xpy_here.isfinite(loglkl)))
+            n_new = len(idxsel[0])
+            if n_new == 0:
+                # Nothing finite in the live volume this step (cold portfolio member / degenerate
+                # draw).  Leave V, the threshold and the grid UNCHANGED: re-thresholding the
+                # carried live set on no new evidence would shrink V for nothing (integrate_log
+                # has the same guard).  The portfolio's other members carry this step.
+                print("  [AV selfish-update] no finite in-volume samples this step; live volume unchanged")
+                self.V = V
+                return
             #only admit samples that lie inside the live volume, i.e. one that cross likelihood threshold
             allx = xpy_here.append(allx, rv[idxsel], axis = 0)
             allloglkl = xpy_here.append(allloglkl, loglkl[idxsel])
             allp = xpy_here.append(allp, log_joint_p_prior[idxsel])
             ninj = len(allloglkl)
-            if ninj == 0:
-                # Nothing finite in the live volume this step (cold portfolio member / degenerate
-                # draw).  Leave V and the grid UNCHANGED rather than crashing on empty-array
-                # reductions downstream.  The portfolio's other members carry this step; a later
-                # draw with finite samples lets AV resume training.  (This method is a SINGLE
-                # selfish step, so an early return is correct -- unlike integrate_log's loop.)
-                print("  [AV selfish-update] no finite in-volume samples this step; live volume unchanged")
-                self.V = V
-                return
 
 
             #just some test to verify if we dont discard more than 1 - Pthr probability
@@ -1344,13 +1507,24 @@ class MCSampler(SamplerOutputMixin, object):
             self.dx = np.diff(self.my_ranges, axis = 1).flatten() / self.nbins   # update bin widths
             binidx = ( (( identity_convert(allx) - self.my_ranges.T[0]) / self.dx.T).astype(int)  ) #bin indexs of the samples ... sent back to CPU as needed
 
-            self.binunique = np.unique(binidx, axis = 0)
+            self.binunique, first_in_bin = np.unique(binidx, axis = 0, return_index=True)
             self.ninbin = ((self.n_chunk // self.binunique.shape[0] + 1) * np.ones(self.binunique.shape[0])).astype(int)
 
             self.cycle += 1
 
+            # Cap only once the threshold is final: before then a fixed-size set can hold
+            # trunc_p just short of final while the threshold keeps rising.
+            keep = None
+            if self._at_final_threshold(trunc_p, enc_prob):
+                keep = self._cap_selfish_live_set(identity_convert(allloglkl), first_in_bin, nsel)
+            if keep is not None:
+                keep = xpy_here.asarray(keep) if cupy_ok else keep
+                allx, allloglkl, allp = allx[keep], allloglkl[keep], allp[keep]
+
         self.V = V
         self.delta_V  = delta_V
+        self._selfish_state = dict(allx=allx, allloglkl=allloglkl, allp=allp,
+                                   loglkl_thr=loglkl_thr, trunc_p=trunc_p)
 
 
     ###
@@ -1365,9 +1539,8 @@ class MCSampler(SamplerOutputMixin, object):
     #
     # These methods seed the live-volume state (`self._warm`) from prior
     # information; integrate_log() then starts from that concentrated grid.  The
-    # seeded fractional volume is set GEOMETRICALLY (n_occupied_bins / prod(nbins))
-    # so the final integral normalization (log_joint_s_prior = log(1/V) - sum log dx0)
-    # stays unbiased regardless of how the state was produced.
+    # seeded fractional volume is set GEOMETRICALLY (n_occupied_bins / prod(nbins)),
+    # which sizes the first contraction's bins.
 
     def _order_columns(self, samples, params=None):
         """Return samples as an (M, ndim) array whose columns are in
@@ -1806,6 +1979,8 @@ class MCSampler(SamplerOutputMixin, object):
         # opt-in anisotropic (per-axis) bin allocation; also settable as a sampler attribute
         if "anisotropic_bins" in kwargs:
             self.anisotropic_bins = bool(kwargs["anisotropic_bins"])
+        if kwargs.get("dilate_layers") is not None:
+            self.dilate_layers = int(kwargs["dilate_layers"])
         # FIXME: The adaptive step relies on the _rvs cache, so this has to be
         # on in order to work
         if n_adapt > 0 and tempering_exp > 0.0:
@@ -1897,9 +2072,9 @@ class MCSampler(SamplerOutputMixin, object):
                     "?" if n_warm_seed_rank is None else n_warm_seed_rank,
                     "?" if n_warm_seed_dim is None else n_warm_seed_dim))
 
-        var_lnV = 0.0  # accumulated variance of ln(V): V is a stochastic product of per-cycle
-                       # binomial survival fractions, and Z ~ V*mean(w), so Var(lnV) is a
-                       # component of the lnZ error the weight variance is structurally blind to
+        var_lnV = 0.0  # accumulated variance of ln(V), V a stochastic product of per-cycle
+                       # binomial survival fractions; reported as sigma_lnV.  V sizes the bins
+                       # only; it does not enter lnZ (see log_retained_density)
         if cupy_ok:
           allx = identity_convert_togpu(allx)
           allloglkl = identity_convert_togpu(allloglkl)
@@ -1909,7 +2084,11 @@ class MCSampler(SamplerOutputMixin, object):
         n_live_collapses = 0    # cycles in which the threshold would have emptied the live set
         collapse_reported = False
         nrec = 0
-        allloglkl_prev, allp_prev, allx_prev = allloglkl, allp, allx
+        allcyc = np.zeros(0, dtype=int)   # index into draw_grids of the cycle that drew each retained point
+        draw_grids = []                   # (dx, binunique, n_drawn) of every proposal drawn from
+        _pinned = [self.params_ordered.index(p) for p in self.params_pinned_vals]
+        _keep_dims = np.setdiff1d(np.arange(ndim), _pinned)   # bins of pinned dims are not stored
+        allloglkl_prev, allp_prev, allx_prev, allcyc_prev = allloglkl, allp, allx, allcyc
         loglkl_thr_prev = loglkl_thr
 
         ntotal_true = 0
@@ -1917,6 +2096,8 @@ class MCSampler(SamplerOutputMixin, object):
             # Draw samples. Note state variables binunique, ninbin -- so we can re-use the sampler later outside the loop
             rv, log_joint_p_prior = self.draw_simple()  # Beware reversed order of rv
             ntotal_true += len(rv)
+            _bu = np.asarray(identity_convert(self.binunique))
+            draw_grids.append((np.array(identity_convert(self.dx)), _BinSet(_bu[:, _keep_dims], n_bins=len(_bu)), len(rv)))
             if cupy_ok:
               rv = identity_convert_togpu(rv) # send random numbers to GPU : ugh
               log_joint_p_prior = identity_convert_togpu(log_joint_p_prior)    # send to GPU if required. Don't waste memory reassignment otherwise
@@ -1949,6 +2130,8 @@ class MCSampler(SamplerOutputMixin, object):
             # take log if we are NOT using lnL
             if cupy_ok:
               if not(isinstance(lnL,cupy.ndarray)):
+                if getattr(lnL, 'dtype', None) == RiftFloat:
+                    lnL = lnL.astype(np.float64)   # cupy has no extended precision (CIP's fit returns RiftFloat)
                 lnL = identity_convert_togpu(lnL)  # send to GPU, if not already there
 
 
@@ -1973,12 +2156,13 @@ class MCSampler(SamplerOutputMixin, object):
             # detect LEADING empty chunks.  Once a single sample has survived, a later chunk
             # contributing nothing would sail past such a test and re-threshold the recycled
             # live set -- shedding a point and shrinking V every cycle on no new evidence at
-            # all, which biases lnZ (Z ~ V*mean(w)).  Measured before this guard: 20 live
+            # all, which contracts the grid on no evidence.  Measured before this guard: 20 live
             # points and ln V decreasing monotonically -0.05, -0.11, -0.16, -0.22, ... over
             # chunks that each returned zero finite samples.
             n_new = len(idxsel[0])
             #only admit samples that lie inside the live volume, i.e. one that cross likelihood threshold
             allx = xpy_here.append(allx, rv[idxsel], axis = 0)
+            allcyc = np.append(allcyc, np.full(n_new, len(draw_grids) - 1, dtype=int))
             allloglkl = xpy_here.append(allloglkl, loglkl[idxsel])
             allp = xpy_here.append(allp, log_joint_p_prior[idxsel])
             ninj = len(allloglkl)
@@ -2022,6 +2206,7 @@ class MCSampler(SamplerOutputMixin, object):
             allloglkl = allloglkl[idxsel]
             allp = allp[idxsel]
             allx = allx[idxsel]
+            allcyc = allcyc[identity_convert(idxsel[0])]
             nrec = len(allloglkl)   # recovered size of active volume at present, after selection
 
             _av_trace("cycle {}: after selection at thr={:.6g}: nrec={} (was ninj={})".format(
@@ -2034,7 +2219,8 @@ class MCSampler(SamplerOutputMixin, object):
                 n_live_collapses += 1
                 print("  [AV collapse] cycle {}: threshold {:.6g} emptied a live volume of {}; ".format(cycle, loglkl_thr, ninj)
                       + "restoring it and stopping contraction.")
-                allloglkl, allp, allx = allloglkl_prev, allp_prev, allx_prev
+                allloglkl, allp, allx, allcyc = allloglkl_prev, allp_prev, allx_prev, allcyc_prev
+                draw_grids.pop()   # this cycle's draws are discarded, so its grid leaves the mixture
                 loglkl_thr = loglkl_thr_prev
                 nrec = len(allloglkl)
                 if nrec == 0:
@@ -2045,7 +2231,7 @@ class MCSampler(SamplerOutputMixin, object):
                 break
 
             # remember the last GOOD state, so a degenerate contraction can be undone
-            allloglkl_prev, allp_prev, allx_prev, loglkl_thr_prev = allloglkl, allp, allx, loglkl_thr
+            allloglkl_prev, allp_prev, allx_prev, allcyc_prev, loglkl_thr_prev = allloglkl, allp, allx, allcyc, loglkl_thr
 
             # Weights
             lw = allloglkl - xpy_here.max(allloglkl)
@@ -2075,6 +2261,8 @@ class MCSampler(SamplerOutputMixin, object):
             binidx = ( (( identity_convert(allx) - self.my_ranges.T[0]) / self.dx.T).astype(int)  ) #bin indexs of the samples ... sent back to CPU as needed
 
             self.binunique = np.unique(binidx, axis = 0)
+            if self.d_adaptive > 0:
+              self.binunique = dilate_bins(self.binunique, self.nbins, self.indx_adaptive, self.dilate_layers)
             self.ninbin = ((self.n_chunk // self.binunique.shape[0] + 1) * np.ones(self.binunique.shape[0])).astype(int)
             self.ntotal = current_log_aggregate[0]
             # accumulate the binomial variance of this cycle's ln(V) update:
@@ -2113,11 +2301,14 @@ class MCSampler(SamplerOutputMixin, object):
         # write out log integrand
         self._rvs['log_integrand']  = allloglkl - allp  # remember 'allloglkl' really is Lp -- despite the misleading name! --  so we are *undoing* that
         self._rvs['log_joint_prior'] = allp
-        # ones_like(allloglkl) follows allloglkl's backend (cupy via numpy's
-        # __array_function__ dispatch when on GPU); xpy_here.ones(len) would
-        # instead create a host array, leaving this term on a different backend
-        # than log_integrand / log_joint_prior and breaking the arithmetic below.
-        self._rvs['log_joint_s_prior'] = xpy_here.ones_like(allloglkl)*(np.log(1/V) - np.sum(np.log(self.dx0)))  # effective uniform sampling on this volume
+        # Sampling density of the retained set: the mixture of every grid drawn from, not
+        # 1/(V*prod(dx0)).  V (the product of per-cycle survival fractions nrec/ninj) is
+        # biased high whenever a cycle's occupied bins miss part of the previous live
+        # region, because the missed part is its low-likelihood rim; V now only sizes bins.
+        # Result is put on allloglkl's backend so the arithmetic below stays on one backend.
+        _log_ps = log_retained_density(identity_convert(allx), allcyc, draw_grids,
+                                       self.my_ranges.T[0], self.dx0, pinned_dims=_pinned)
+        self._rvs['log_joint_s_prior'] = xpy_here.ones_like(allloglkl)*(identity_convert_togpu(_log_ps) if cupy_ok else _log_ps)
 
         # WARM-SEED RESERVE: keep a bounded copy of the points this pass actually RETAINED,
         # before the fair draw below overwrites self._rvs in place.
@@ -2159,13 +2350,16 @@ class MCSampler(SamplerOutputMixin, object):
         log_wt = self._rvs["log_integrand"] + self._rvs["log_joint_prior"] - self._rvs["log_joint_s_prior"]
         log_wt = identity_convert(log_wt)  # convert to CPU
         log_int = special.logsumexp( log_wt) - np.log(len(log_wt))  # mean value
-        rel_var_mc = np.var( np.exp(log_wt - log_int))/len(log_wt)   # error in integral, estimated: just taking int = <w> , so error is V(w_k)/N (sample mean/variance)
-        # Total DISCLOSED relative variance: the naive weight-variance term above is
-        # structurally blind to (a) the stochasticity of the live volume V itself
-        # (Z ~ V*mean(w); var_lnV accumulated per cycle) and (b) the probability
-        # deliberately truncated by the likelihood threshold (trunc_p, a one-sided
-        # systematic entered here as a variance in quadrature).  Add them.
-        rel_var = rel_var_mc + var_lnV + trunc_p**2
+        # Relative variance of (1/N_drawn) sum w over ALL draws: rejected draws are zeros in that
+        # average, so the count is N_drawn, not the retained count.
+        _w = np.exp(log_wt - np.max(log_wt))
+        _n_drawn = float(sum(g[2] for g in draw_grids))
+        rel_var_mc = max(float(np.sum(_w**2) / np.sum(_w)**2) - 1.0 / _n_drawn, 0.0)
+        # Total DISCLOSED relative variance: the weight-variance term above plus the
+        # probability deliberately truncated by the likelihood threshold (trunc_p, a
+        # one-sided systematic entered here as a variance in quadrature).  var_lnV is not
+        # added: V no longer enters the estimate (see log_joint_s_prior above).
+        rel_var = rel_var_mc + trunc_p**2
         eff_samp = np.sum(np.exp(log_wt - np.max(log_wt)))
         maxval = np.max(allloglkl)  # max of log
 
@@ -2247,9 +2441,7 @@ class MCSampler(SamplerOutputMixin, object):
         dict_return = {"av_stopping_statistics": self.last_stopping_statistics.copy()}
 
         # MC-error diagnostics: disclose the components and the weight-tail state.
-        # NOTE the AV estimator assigns the surviving (threshold-selected) samples a
-        # pretend-uniform density on the final live volume, so the naive term is if
-        # anything MORE optimistic than for the other samplers -- k-hat matters here.
+        # sigma_lnV describes the grid-sizing volume V, which no longer enters lnZ.
         try:
             mc_diag = {'sigma_lnZ_mc': float(np.sqrt(rel_var_mc)),
                        'sigma_lnV': float(np.sqrt(var_lnV)),
@@ -2259,7 +2451,7 @@ class MCSampler(SamplerOutputMixin, object):
                 mc_diag['pareto_khat'] = _kh
             mc_diag['n_ESS'] = ess_from_log_weights(log_wt)
             if np.sqrt(rel_var) > 0.3:
-                _q = bootstrap_lnZ_quantiles(log_wt, n_total=len(log_wt))
+                _q = bootstrap_lnZ_quantiles(log_wt, n_total=len(log_wt), n_drawn=_n_drawn)
                 if _q is not None:
                     mc_diag['lnZ_ci90'] = _q
             dict_return.update(mc_diag)

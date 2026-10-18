@@ -28,7 +28,7 @@ class _Stub:
         self.staged.append(dryrun)
 
 
-@pytest.mark.parametrize("value", ["off", "auto", "physics3", True, False])
+@pytest.mark.parametrize("value", ["off", "auto", "geometric4", "geometric4-phase-excess", True, False])
 def test_transverse_spin_ledger_values_accepted(value):
     _Stub({"sampler": {"cip": {"transverse spin coordinates": value}}})._validate_transverse_spin_coordinates()
 
@@ -38,7 +38,7 @@ def test_transverse_spin_silent_ledger_accepted(meta):
     _Stub(meta)._validate_transverse_spin_coordinates()
 
 
-@pytest.mark.parametrize("value", ["Auto", "OFF", "physics", "on", None, 1, 0, 20.0])
+@pytest.mark.parametrize("value", ["physics3", "Auto", "OFF", "physics", "Geometric4", "geometric4_phase_excess", "on", None, 1, 0, 20.0])
 def test_transverse_spin_ledger_values_rejected(value):
     with pytest.raises(ValueError, match="transverse spin coordinates"):
         _Stub({"sampler": {"cip": {"transverse spin coordinates": value}}})._validate_transverse_spin_coordinates()

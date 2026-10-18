@@ -346,6 +346,31 @@ def test_portfolio_adaptive_allocation_is_explicit_opt_in(monkeypatch):
             portfolio_adaptive_alloc=True)
 
 
+def test_av_dilate_layers_reaches_integrate_log_on_standalone_av_only(monkeypatch):
+    from RIFT.integrators import mcsamplerAdaptiveVolume as AV
+
+    observed = []
+    original = AV.MCSampler.integrate_log
+
+    def capture(self, *args, **kwargs):
+        observed.append(kwargs.get("dilate_layers"))
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(AV.MCSampler, "integrate_log", capture)
+    common = dict(d_min=1.0, d_max=100.0, nmax=20000, neff=25,
+                  n_chunk=2000, eval_chunk=512, seed=11)
+    for layers in (0, 1):
+        result = samplers.adaptive_volume_sample(
+            _ToySkyLikelihood(), sampler_method="AV", dilate_layers=layers, **common)
+        assert np.isfinite(result["logZ"])
+    assert observed == [None, 1]
+
+    # a portfolio's AV member contracts without dilation, so the option must not be dropped silently
+    with pytest.raises(ValueError, match="standalone AV"):
+        samplers.adaptive_volume_sample(
+            _ToySkyLikelihood(), sampler_method="portfolio", dilate_layers=1, **common)
+
+
 def test_pure_av_runs_inside_a_narrow_sky_sampling_window():
     bounds = {"ra": (1.7, 2.3), "dec": (-0.1, 0.5)}
     result = samplers.adaptive_volume_sample(
@@ -457,6 +482,30 @@ def test_driver_rejects_inert_portfolio_allocation_option(monkeypatch, capsys):
         with pytest.raises(SystemExit):
             driver.check_critical_and_report(invalid, invalid_parser)
         assert "requires --sampler-method portfolio" in capsys.readouterr().err
+
+
+def test_driver_rejects_dilate_layers_outside_standalone_av(monkeypatch, capsys):
+    monkeypatch.delenv("JAX_ILE_DISTMARG_GH", raising=False)
+    driver = _driver_module()
+    parser = driver.build_parser()
+    opts, _ = parser.parse_args(["--sampler-method", "AV", "--sampler-av-dilate-layers", "1"])
+    driver.check_critical_and_report(opts, parser)
+    assert opts.sampler_av_dilate_layers == 1
+
+    for args in (["--sampler-method", "portfolio"], []):
+        invalid_parser = driver.build_parser()
+        invalid, _ = invalid_parser.parse_args([*args, "--sampler-av-dilate-layers", "1"])
+        with pytest.raises(SystemExit):
+            driver.check_critical_and_report(invalid, invalid_parser)
+        assert "--sampler-av-dilate-layers is inert unless --sampler-method AV" in capsys.readouterr().err
+
+    # unset, it must not appear in the ignored-option report
+    for args in (["--sampler-method", "portfolio"], []):
+        unset_parser = driver.build_parser()
+        unset, _ = unset_parser.parse_args(args)
+        driver.check_critical_and_report(unset, unset_parser)
+        out = capsys.readouterr()
+        assert "--sampler-av-dilate-layers" not in out.out + out.err
 
 
 def test_driver_accepts_pseudo_cosmo_for_av_backend(monkeypatch):

@@ -63,3 +63,8 @@ asimov.log
 /*.pdf
 /*.jpg
 /*.jpeg
+
+# Automatic eccentric coordinate maps are per-run build products, never source.
+eccentric_phase_auto_cache.json
+eccentric_phase_auto_cache.json.tmp
+eccentric_phase_build.json

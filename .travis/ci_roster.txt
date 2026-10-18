@@ -116,6 +116,10 @@ MonteCarloMarginalizeCode/Code/RIFT/interpolators/jax_gp/test_interpolators.py B
 # the marker.  That is a better home than this file: the decision sits beside the gate it
 # belongs to.  Their roster lines were deleted when #242 merged, exactly as the census
 # demanded ("listed as GPU but IS now reachable -- delete it").
+# GPU forest predictor and GPU ExtraTrees grower for util_ConstructEOSPosterior --fit-device gpu.
+# Module-level skip without cupy and a device. Run by hand on a GPU node (pcdev13, 2026-10-05: 18 pass).
+MonteCarloMarginalizeCode/Code/test/interpolators/test_cupy_forest.py           GPU  cupy device predictor vs sklearn; skips without a device
+MonteCarloMarginalizeCode/Code/test/interpolators/test_cupy_extratrees.py       GPU  cupy ExtraTrees vs numpy reference and sklearn; skips without a device
 MonteCarloMarginalizeCode/Code/test/hyperpipe/tests/test_hydra_integration.py  OPTDEP  needs:hydra,omegaconf -- skips cleanly without them
 MonteCarloMarginalizeCode/Code/test/test_gwsignal_teob_mode_sign.py            OPTDEP  needs:EOBRun_module -- the gwsignal TEOB route; 2 collected, 1 passes and 1 skips without it
 MonteCarloMarginalizeCode/Code/test/test_gwsignal_teob_near_aligned.py         OPTDEP  needs:EOBRun_module -- 1 collected, skips without it
@@ -136,7 +140,13 @@ MonteCarloMarginalizeCode/Code/test/test_skysamp.py                            L
 
 # ---------------------------------------------------------------------------------------
 # EXPENSIVE -- correctly gated already, by an env var rather than by CI membership.
-MonteCarloMarginalizeCode/Code/test/expensive_before_merging/integrators/test_shape_recovery.py          EXPENSIVE  4 collected, all skip unless RIFT_RUN_EXPENSIVE=1
+MonteCarloMarginalizeCode/Code/test/expensive_before_merging/integrators/test_shape_recovery.py          EXPENSIVE  10 collected, all skip unless RIFT_RUN_EXPENSIVE=1
 MonteCarloMarginalizeCode/Code/test/expensive_before_merging/integrators/test_escaped_mass_diagnostic.py EXPENSIVE  5 collected, all skip unless RIFT_RUN_EXPENSIVE=1
 MonteCarloMarginalizeCode/Code/test/test_lalsim_eos_reviewed_integration.py                                 EXPENSIVE  3 collected, all skip unless RIFT_REVIEWED_LALSIM_MANIFEST names a build-generated manifest
 MonteCarloMarginalizeCode/Code/test/test_gpytorch_wrapper.py                  OPTDEP  needs:torch,gpytorch -- importorskip on both; the CUDA case also needs a GPU
+
+# Actual pipeline/subdag/frame CLI regressions use the native HTCondor runtime;
+# measured on the IGWN test runtime (43 tests) and accompanied by Condor dry-run
+# and dirty-source package-install receipts. Ordinary CI does not install htcondor.
+MonteCarloMarginalizeCode/Code/test/pipeline_deployment/test_deployment_cli.py OPTDEP needs:htcondor -- actual HTCondor backend, native condor_submit dry-run, GWPy GWF IO; real CIT suite, no inference jobs
+MonteCarloMarginalizeCode/Code/test/pipeline_deployment/test_mock_workflow.py OPTDEP needs:htcondor -- native-parsed emitted DAG mock execution, real dynamic subdag builders and partial-batch CLI coverage; no inference jobs

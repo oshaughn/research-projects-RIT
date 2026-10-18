@@ -112,6 +112,22 @@ def test_extra_candidate_record_is_not_a_regression():
     assert not verdict.startswith("REGRESSION"), verdict
 
 
+def test_group_case_rerun_runs_the_group_list():
+    """A multi-group row is not a matrix cell: its rerun must enable the group list (and only
+    that), or the child emits no matching record and the row is never really re-tested."""
+    rec = dict(_rec(kind="GMM_pairs", target="grp222_n2_s101"), ndim=6, ncomp=2)
+    cmd = CR._rerun_cmd(rec, 11, 2, "out.json")
+    assert "--no-matrix" in cmd, cmd
+    assert cmd[cmd.index("--group-cases") + 1] == "on", cmd
+    assert cmd[cmd.index("--run-seed") + 1] == "11", cmd
+
+
+def test_matrix_rerun_skips_the_group_list():
+    cmd = CR._rerun_cmd(_rec(), 11, 2, "out.json")
+    assert cmd[cmd.index("--group-cases") + 1] == "off", cmd
+    assert "--no-matrix" not in cmd, cmd
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):

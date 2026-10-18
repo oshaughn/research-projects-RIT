@@ -1131,7 +1131,7 @@ class MCSampler(SamplerOutputMixin, MCSamplerGeneric):
         current_log_aggregate = None
         eff_samp = 0  # ratio of max weight to sum of weights
         maxlnL = -np.inf  # max lnL
-        maxval=0   # max weight
+        maxval = -np.inf   # running max of the LOG weight; 0 would floor it at w=1
         outvals=None  # define in top level scope
         self.ntotal = 0
         if bShowEvaluationLog:

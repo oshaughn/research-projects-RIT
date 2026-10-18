@@ -477,6 +477,8 @@ parser.add_argument("--use-meanPerAno",action='store_true', help="Add meanPerAno
 parser.add_argument("--use-EOB-parameters",action='store_true', help="Add sampling in EOB parameters; currently only a6c")
 parser.add_argument("--assume-hyperbolic",action='store_true', help="Add hyperbolic options for each part of analysis")
 parser.add_argument("--internal-cip-use-periodic-ecc-vars",action='store_true', help="use e cos ell, e sin ell as fitting variables ")
+from RIFT.misc import eccentric_phase_pipeline, eccentric_phase_models
+eccentric_phase_pipeline.add_arguments(parser)
 parser.add_argument("--assume-lowlatency-tradeoffs",action='store_true', help="Force analysis with various low-latency tradeoffs (e.g., drop spin 2, use aligned, etc)")
 parser.add_argument("--assume-highq",action='store_true', help="Force analysis with the high-q strategy, neglecting spin2. Passed to 'helper'")
 parser.add_argument("--assume-well-placed",action='store_true',help="If present, the code will adopt a strategy that assumes the initial grid is very well placed, and will minimize the number of early iterations performed. Not as extrme as --propose-flat-strategy")
@@ -601,7 +603,7 @@ parser.add_argument("--internal-cip-cap-neff",type=int,default=500,help="Largest
 # The shipped default caps that net count via --internal-cip-cap-neff=500 and n-output-samples=5000,
 # and stops on the tail-blind Gaussian 'lame' convergence test -> chi1_perp under-extends vs bilby.
 # This opt-in bundle lifts the NET samples-out and switches to a tail-sensitive stop.
-parser.add_argument("--rf-transverse-spin-coordinates", choices=["off","auto","physics3"], default=None, help="Pass opt-in RF-only transverse fitting scalars to every applicable full precessing stage")
+parser.add_argument("--rf-transverse-spin-coordinates", choices=["off","auto","physics3","geometric4","geometric4-phase-excess"], default=None, help="Pass opt-in geometric4 RF fit basis to applicable full precessing stages; auto selects geometric4. physics3 is retired and refused")
 parser.add_argument("--internal-cip-transverse-tails",action='store_true',help="OPT-IN alt config for resolving transverse-spin (chi1_perp) tails, esp. at low mass. Bundles: (a) tail-sensitive convergence test (passes --internal-test-convergence-method js_lame to helper_LDG_Events.py, unless overridden); (b) raises the NET interim posterior samples across the CIP worker cohort by lifting --internal-cip-cap-neff and --n-output-samples and scaling up --cip-explode-jobs (MORE WORKERS -> more net samples-out, NOT larger per-worker n_eff) -- the raised interim sample count is what makes js_lame's quantile-drift tolerance statistically meaningful; (c) transverse TAIL-GUARD in the puffball: --append-with-random-parameter chi1_perp appends+shuffles uniformly-random transverse draws into every puff, so the proposed grid keeps offering chi1_perp tail coverage even after the posterior contracts (the measured tail-starvation feedback), and puff is kept active through all iterations. REQUIRES A PRECESSING ANALYSIS (precessing approximant or --assume-precessing): the tail guard proposes nonzero transverse spin, so combining this with --assume-nospin/--assume-nonprecessing or an aligned-spin approximant is REJECTED rather than silently changing the spin model analyzed. Tune with the --internal-cip-transverse-tails-* flags. Default OFF (behavior unchanged). See results_triage/CONVERGENCE_PROTOCOL_2026-07-23.md.")
 parser.add_argument("--internal-cip-transverse-tails-cap-neff",type=int,default=4000,help="With --internal-cip-transverse-tails: raise --internal-cip-cap-neff to at least this (the interim net-n_eff throttle; shipped base is 500).")
 parser.add_argument("--internal-cip-transverse-tails-nout",type=int,default=20000,help="With --internal-cip-transverse-tails: raise interim --n-output-samples to at least this (net samples out, combined across workers).")
@@ -752,6 +754,18 @@ if (opts.use_ini):
         for item in rift_items:
             val = rift_items[item].strip()
             ile_condor_commands.append([item, val])
+
+# After the ini, which can set the mode.
+if opts.eccentric_phase_coordinates:
+    if not opts.assume_eccentric or not opts.use_meanPerAno:
+        parser.error('--eccentric-phase-coordinates requires --assume-eccentric and --use-meanPerAno')
+    if opts.internal_cip_use_periodic_ecc_vars or opts.internal_use_amr:
+        parser.error('Effective eccentric-phase coordinates cannot be combined with the legacy periodic-ecc basis or AMR')
+    eccentric_phase_pipeline.validate_request(opts)
+
+if opts.rf_transverse_spin_coordinates == 'physics3':
+    from RIFT.misc.rf_transverse_spin import RETIRED_MESSAGE
+    parser.error(RETIRED_MESSAGE)
 
 # Multi-GPU ILE fan-out: funnel --ile-gpu-fanout (CLI) OR ile-gpu-fanout=... (ini
 # [rift-pseudo-pipe]) through RIFT_ILE_GPU_FANOUT.  Done AFTER the ini is parsed so an
@@ -1282,6 +1296,8 @@ if opts.internal_use_gracedb_bayestar:
     cmd += " --internal-use-gracedb-bayestar "
 if opts.internal_use_amr:
     cmd += " --internal-use-amr " # minimal support performed in this routine, mainly for puff
+if opts.eccentric_phase_coordinates:
+    cmd += eccentric_phase_pipeline.build_arguments(opts)
 if opts.internal_use_aligned_phase_coordinates:
     cmd += " --internal-use-aligned-phase-coordinates "
 if opts.internal_use_rescaled_transverse_spin_coordinates:
@@ -1336,11 +1352,11 @@ if opts.internal_propose_converge_last_stage:
     cmd += " --propose-converge-last-stage "
 if opts.internal_test_convergence_threshold: # pass argument if provided
     cmd += " --internal-test-convergence-threshold {}  ".format(opts.internal_test_convergence_threshold)
-# Options that rewrite the CIP fit coordinates after the helper; physics3 needs delta_mc et al.
+# Options that rewrite the CIP fit coordinates after the helper; geometric4 needs delta_mc et al.
 rf_transverse_conflicts = [name for name in ('cip_internal_use_eta_in_sampler','hierarchical_merger_prior_1g',
     'hierarchical_merger_prior_2g','use_quadratic_early') if getattr(opts, name)]
-if opts.rf_transverse_spin_coordinates == 'physics3' and rf_transverse_conflicts:
-    raise ValueError('--rf-transverse-spin-coordinates physics3 is incompatible with {}: they replace delta_mc in the activated CIP stage'.format(
+if opts.rf_transverse_spin_coordinates in ('physics3','geometric4','geometric4-phase-excess') and rf_transverse_conflicts:
+    raise ValueError('RF transverse-spin coordinates are incompatible with {}: they replace delta_mc in the activated CIP stage'.format(
         ', '.join('--'+name.replace('_','-') for name in rf_transverse_conflicts)))
 if opts.rf_transverse_spin_coordinates:
     cmd += ' --rf-transverse-spin-coordinates {} '.format(opts.rf_transverse_spin_coordinates)
@@ -1588,6 +1604,14 @@ if _helper_rc != 0:
     print(" FAILURE: helper call exited nonzero; refusing to use any pre-existing "
           "helper_ile_args.txt")
     sys.exit(1)
+if opts.eccentric_phase_coordinates:
+    if _helper_rc != 0:
+        raise RuntimeError('Helper failed before freezing the eccentric-phase mass anchor')
+    from RIFT.misc import eccentric_phase_policy
+    eccentric_phase_build = eccentric_phase_policy.read_into(opts)
+    if not opts.skip_reproducibility:
+        with open('reproducibility/the_arguments_used.json','w') as f:
+            json.dump(vars(opts),f)
 # we MUST make helper_ile_args.txt
 if not(os.path.exists('helper_ile_args.txt')):
     print(" FAILURE: helper call failed to generate required file helper_ile_args.txt")
@@ -1826,6 +1850,8 @@ refuse_unless_time_quadrature_emitted(
 refuse_unless_q_time_pregrid_emitted(
     opts.internal_ile_q_time_pregrid_factor, line, "args_ile.txt")
 
+if opts.eccentric_phase_coordinates:
+    eccentric_phase_policy.check_final_ile(eccentric_phase_build,line)
 with open('args_ile.txt','w') as f:
         f.write(line)
 
@@ -1867,7 +1893,7 @@ with open("helper_cip_arg_list.txt",'r') as f:
         raw_lines = f.readlines()
 
 # RF transverse opt-in: the helper may switch an unforced fit to rf. Build the DAG as an
-# explicit --cip-fit-method rf run (flat CIP workers; physics3 refuses --fit-load-gp).
+# explicit --cip-fit-method rf run (flat CIP workers; CIP refuses RF transverse coordinates with --fit-load-gp).
 if opts.rf_transverse_spin_coordinates and opts.cip_fit_method is None and any(
         '--fit-method rf' in ' '.join(line.split()) for line in raw_lines):
     opts.cip_fit_method = 'rf'
@@ -2159,16 +2185,33 @@ if opts.internal_use_amr:
         if not(opts.assume_lowlatency_tradeoffs):
             lines[0] += " --intrinsic-param spin2z "
 
-# Final CIP lines must still satisfy CIP's physics3 guard (auto is known to have activated here).
-if opts.rf_transverse_spin_coordinates:
-    from RIFT.misc.rf_transverse_spin import stage_problem
-    for indx_rf, line_rf in enumerate(lines):
-        if '--rf-transverse-spin-coordinates physics3' in line_rf and stage_problem(line_rf):
-            raise ValueError('RF transverse-spin stage {} activated but CIP would refuse it ({}); conflicting options: {}'.format(
-                indx_rf, stage_problem(line_rf), ', '.join('--'+name.replace('_','-') for name in rf_transverse_conflicts) or 'see --manual-extra-cip-args'))
+# Final CIP lines, from any route (e.g. --manual-extra-cip-args), must satisfy CIP's
+# RF transverse-spin guard; fail here rather than in every CIP job after ILE.
+from RIFT.misc.rf_transverse_spin import retired_problem, stage_problem
+for indx_rf, line_rf in enumerate(lines):
+    if retired_problem(line_rf):
+        raise ValueError('CIP stage {}: {}'.format(indx_rf, retired_problem(line_rf)))
+    if '--rf-transverse-spin-coordinates' in line_rf and stage_problem(line_rf):
+        raise ValueError('RF transverse-spin stage {} activated but CIP would refuse it ({}); conflicting options: {}'.format(
+            indx_rf, stage_problem(line_rf), ', '.join('--'+name.replace('_','-') for name in rf_transverse_conflicts) or 'see --manual-extra-cip-args'))
+
+if opts.eccentric_phase_coordinates:
+    eccentric_phase_build=eccentric_phase_policy.finalize_map(opts,eccentric_phase_build,lines)
+    if not opts.skip_reproducibility:
+        with open('reproducibility/the_arguments_used.json','w') as f:
+            json.dump(vars(opts),f)
+    lines = [eccentric_phase_pipeline.stage_arguments(line,
+        opts.eccentric_phase_reference_frequency,opts.eccentric_phase_target_frequency,
+        **eccentric_phase_models.worker_options(opts)) for line in lines]
+    if not any(eccentric_phase_pipeline.FLAG in line for line in lines):
+        raise ValueError('No CIP stage fits native eccentricity/anomaly for the requested effective coordinates')
+
 with open("args_cip_list.txt",'w') as f:
    if not(opts.internal_truncate_cip_arg_list is None):
+       if opts.internal_truncate_cip_arg_list < 1:
+           parser.error("--internal-truncate-cip-arg-list must be positive")
        lines = lines[-opts.internal_truncate_cip_arg_list:]  # truncate the cip arg list file
+       n_iterations = sum(1 if line.split()[0] == "Z" else int(line.split()[0].lstrip("G")) for line in lines)
    # The final CIP group produces both the published posterior and the downstream grid,
    # so it gets the duplicate-free fair draw (capped at sum(w)/max(w)).  Internal
    # iterations keep the fair draw with duplicates allowed, so successive iterations feed
@@ -2204,6 +2247,8 @@ puff_params = ' '.join(instructions_puff)
 if opts.internal_puff_transverse:
     puff_params = puff_params.replace('--parameter chieff_aligned', '--parameter s1z_bar --parameter s2z_bar ')
     puff_params +=  ' --parameter phi1 --parameter phi2 --parameter chi1_perp_u --parameter chi2_perp_u --reflect-parameter chi1_perp_u --downselect-parameter chi1_perp_u  --downselect-parameter-range [0,1]  --reflect-parameter chi2_perp_u --downselect-parameter chi2_perp_u  --downselect-parameter-range [0,1] '
+    # s_z_bar past +-1 gives |chi|>1, which the chi1/chi2 downselect would discard: reflect instead.
+    puff_params += ' --reflect-parameter s1z_bar --downselect-parameter s1z_bar --downselect-parameter-range [-1,1] --reflect-parameter s2z_bar --downselect-parameter s2z_bar --downselect-parameter-range [-1,1] '
 if opts.internal_cip_transverse_tails:
     # transverse TAIL-GUARD (transverse-spin study 2026-07): every puff APPENDS (and shuffles in)
     # uniformly-random chi1_perp draws (range defaults to [0, chi1-downselect-cap], azimuth also
@@ -2216,6 +2261,10 @@ if opts.internal_cip_transverse_tails:
     # safe to append them unconditionally here.
     puff_params += ' --append-with-random-parameter chi1_perp --append-with-random-fraction {} '.format(opts.internal_cip_transverse_tails_puff_fraction)
     puff_max_it = max(puff_max_it, 30)
+if opts.eccentric_phase_coordinates:
+    puff_params = eccentric_phase_pipeline.puff_arguments(puff_params,
+        opts.eccentric_phase_reference_frequency,opts.eccentric_phase_target_frequency,
+        **eccentric_phase_models.worker_options(opts))
 if opts.assume_matter:
 #    puff_params += " --parameter LambdaTilde "  # should already be present
     puff_max_it +=5   # make sure we resolve the correlations
@@ -2587,9 +2636,15 @@ if opts.cip_explode_jobs:
    cmd+= " --cip-explode-jobs  " + str(opts.cip_explode_jobs) + " --cip-explode-jobs-dag "  # use dag workers
    if opts.cip_fit_method and opts.cip_fit_method not in ('gp', 'gp-matern'):
        # if we are not using default GP fit, so all fit instances are equal
-       cmd += " --cip-explode-jobs-flat "  
+       cmd += " --cip-explode-jobs-flat "
    if opts.cip_explode_jobs_last:
        cmd += " --cip-explode-jobs-last {} ".format(opts.cip_explode_jobs_last)
+# Effective phase coordinates need flat workers for EVERY fit method, including the default gp:
+# CIP refuses stored fits (--fit-load-gp) with these coordinates, so each exploded worker must
+# compute its own fresh fit.  Either explode route above creates workers.
+if opts.eccentric_phase_coordinates and (opts.cip_explode_jobs or opts.cip_explode_jobs_dag) \
+   and ' --cip-explode-jobs-flat ' not in cmd:
+    cmd += " --cip-explode-jobs-flat "
 if opts.make_bw_psds:
     cmd+= " --use-bw-psd --bw-exe `which BayesWave` --bw-post-exe `which BayesWavePost` "
 if opts.use_osg:
@@ -2599,17 +2654,7 @@ if opts.use_osg:
     if not(opts.use_osg_file_transfer):
         cmd += " --use-cvmfs-frames "
     elif (opts.internal_truncate_files_for_osg_file_transfer):  # attempt to make copies of frame files, and set up to transfer them with *every* job (!)
-        if os.path.exists('local.cache'):
-            os.system("util_ForOSG_MakeTruncatedLocalFramesDir.sh .")
-        else:
-            print(" --- WARNING --- ")
-            print(" File truncation not yet performed")
-        # if environment variable active, check that frames were created! Fail otherwise
-        if 'RIFT_TRUNCATE_CHECK' in os.environ:
-            fnames_gwf = os.listdir('./frames_dir/')
-            if len(fnames_gwf)< len(event_dict["IFOs"]):
-                raise Exception(" Pipeline build failure: Problem generating truncated frames for OSG")
-            
+        # Frame staging is performed once, with checked failure handling, below.
 #        os.system("echo ../frames_dir >> helper_transfer_files.txt")
         cmd += " --frames-dir `pwd`/frames_dir "
     elif opts.use_osg_file_transfer:
@@ -2642,42 +2687,66 @@ if opts.calibration_reweighting:
         my_extra_string += " --use-eccentricity "
     if opts.manual_extra_ile_args:
          print(" calmarg: Parsing  ", opts.manual_extra_ile_args)
-         my_str_list = opts.manual_extra_ile_args.lstrip().split("--")
-         my_revised_args = []
-         # MANUAL PARSING, SO STUPID, but argparse does not do what I want
-         for arg_item in my_str_list:
-             if 'internal-waveform-extra-lalsuite-args' in arg_item:
-                 my_revised_args += ['--internal-waveform-extra-lalsuite-args', arg_item.replace('internal-waveform-extra-lalsuite-args', '')]
-             if 'internal-waveform-extra-kwargs' in arg_item:
-                 my_revised_args += ['--internal-waveform-extra-kwargs', arg_item.replace('internal-waveform-extra-kwargs', '')]
-        
-         # Parse string for waveform arguments
-         # Currently: fork off the lmax_nyquist (the most common scenario), leave the rest to a unified dictionary to pass on
-         # ISSUE: argparse parsing does not seem to work, fall back to optparse
-         my_parser=argparse.ArgumentParser()
-         my_parser.add_argument("--internal-waveform-extra-lalsuite-args",type=str,default=None)
-         my_parser.add_argument("--internal-waveform-extra-kwargs",type=str, default=None)
-         my_opts, unknown_opts =my_parser.parse_known_args(my_revised_args )
+         # Preserve shell argument boundaries, including nested dictionaries
+         # whose string values contain '--', apostrophes or double quotes.
+         my_parser = argparse.ArgumentParser()
+         my_parser.add_argument("--use-gwsignal", action='store_true')
+         my_parser.add_argument("--gwsignal-mode-conditioning", choices=("legacy", "native"), default="legacy")
+         my_parser.add_argument("--use-gwsignal-lmax-nyquist", type=int, default=None)
+         my_parser.add_argument("--internal-waveform-fd-L-frame", action='store_true')
+         my_parser.add_argument("--internal-waveform-fd-no-condition", action='store_true')
+         my_parser.add_argument("--internal-waveform-extra-lalsuite-args", type=str, default=None)
+         my_parser.add_argument("--internal-waveform-extra-kwargs", type=str, default=None)
+         my_opts, unknown_opts = my_parser.parse_known_args(shlex.split(opts.manual_extra_ile_args))
          print(' calmarg: parsed args ', my_opts, " and others ", unknown_opts)
-         # Same layout as ILE: lalsuite args nested under 'extra_waveform_args', then the
-         # high-level kwargs merged on top (and so winning on a shared key).
+         effective_gwsignal = opts.use_gwsignal or my_opts.use_gwsignal
+         if my_opts.use_gwsignal and not opts.use_gwsignal:
+             my_extra_string += ' --use-gwsignal '
+         if my_opts.internal_waveform_fd_L_frame:
+             my_extra_string += ' --internal-waveform-fd-L-frame '
+         if my_opts.internal_waveform_fd_no_condition:
+             my_extra_string += ' --internal-waveform-fd-no-condition '
+         if effective_gwsignal and my_opts.internal_waveform_extra_lalsuite_args is not None:
+             my_parser.error("--internal-waveform-extra-lalsuite-args cannot be used with --use-gwsignal; "
+                             "use --internal-waveform-extra-kwargs for GWSignal backend options")
          my_extra_args = {}
+         if my_opts.gwsignal_mode_conditioning == "native" and not effective_gwsignal:
+             my_parser.error("--gwsignal-mode-conditioning native requires --use-gwsignal")
+         if my_opts.gwsignal_mode_conditioning == 'native' and my_opts.internal_waveform_fd_no_condition:
+             my_parser.error('--gwsignal-mode-conditioning native conflicts with --internal-waveform-fd-no-condition')
+         if effective_gwsignal:
+             my_extra_args['gwsignal_mode_conditioning'] = my_opts.gwsignal_mode_conditioning
+         gwsignal_lmax_nyquist = my_opts.use_gwsignal_lmax_nyquist
+         if gwsignal_lmax_nyquist is not None and not effective_gwsignal:
+             # ILE does not select GWSignal merely because lmax was set.
+             # Keep the option in native wrapper kwargs to match that route.
+             my_extra_args['lmax_nyquist'] = gwsignal_lmax_nyquist
          if my_opts.internal_waveform_extra_lalsuite_args:
              my_arg_dict = eval(my_opts.internal_waveform_extra_lalsuite_args)
-             if not(isinstance(my_arg_dict, dict)):
+             if isinstance(my_arg_dict, str):
                  my_arg_dict = eval(my_arg_dict)
+             if not isinstance(my_arg_dict, dict):
+                 raise TypeError("--internal-waveform-extra-lalsuite-args must be a dictionary")
              my_extra_args['extra_waveform_args'] = my_arg_dict
          if my_opts.internal_waveform_extra_kwargs:
              my_arg_dict = eval(my_opts.internal_waveform_extra_kwargs)
-             # due to quoting, might not evaluate to a dictionary
-             if not(isinstance(my_arg_dict, dict)):
+             if isinstance(my_arg_dict, str):
                  my_arg_dict = eval(my_arg_dict)
-             if 'lmax_nyquist' in my_arg_dict:
-                 my_extra_string+= " --use-gwsignal-lmax-nyquist {} ".format(my_arg_dict['lmax_nyquist'])
-                 del my_arg_dict['lmax_nyquist'] # remove key
-             my_extra_args.update(my_arg_dict)
+             if not isinstance(my_arg_dict, dict):
+                 raise TypeError("--internal-waveform-extra-kwargs must be a dictionary")
+             if effective_gwsignal:
+                 my_extra_args['gwsignal_extra_kwargs'] = my_arg_dict
+                 # Also pass lmax_nyquist as the dedicated flag, as before: calibration
+                 # containers older than gwsignal_extra_kwargs read only that flag.
+                 # The dictionary value wins, as it does in ILE.
+                 if 'lmax_nyquist' in my_arg_dict:
+                     gwsignal_lmax_nyquist = my_arg_dict['lmax_nyquist']
+             else:
+                 my_extra_args.update(my_arg_dict)
+         if gwsignal_lmax_nyquist is not None and effective_gwsignal:
+             my_extra_string += ' --use-gwsignal-lmax-nyquist {} '.format(gwsignal_lmax_nyquist)
          if my_extra_args:
-            my_extra_string += ' --extra-waveform-kwargs "{}" '.format(my_extra_args)
+             my_extra_string += ' --extra-waveform-kwargs {} '.format(shlex.quote(repr(my_extra_args)))
 #         my_extra_string += ' ' + opts.manual_extra_ile_args + ' '
     if opts.use_ini:
         fref = unsafe_config_get(config,['engine','fref'])
@@ -2693,14 +2762,17 @@ if opts.calibration_reweighting:
 if opts.condor_local_nonworker_igwn_prefix:
     cmd += " --condor-local-nonworker-igwn-prefix "
 
-# Make copy of local.cache for use in file transfer
-if opts.use_osg_file_transfer and opts.internal_truncate_files_for_osg_file_transfer and os.path.exists('local.cache'):
-    shutil.copyfile('local.cache', 'local_orig.cache')
-    # Move contents of ile_pre.sh here
-    os.system("cat local.cache > awk '{print $1, $2, $3, $4}' > local_stripped.cache")
-    os.system('for i in `ls frames_dir/*.gwf`; do echo frames_local/${i} ; done > base_paths.dat') # yes probably easier to do the ls myself
-    os.system("paste local_stripped.cache base_paths.dat > local_relative.cache ")
-    os.system("cp local_relative.cache local.cache")
+# Stage frames before emitting jobs: a truncation failure must not leave a
+# seemingly launchable DAG or replace the cache with an empty file.
+if opts.use_osg_file_transfer and opts.internal_truncate_files_for_osg_file_transfer:
+    if opts.fake_data_cache:
+        shutil.copyfile(opts.fake_data_cache, "local.cache")
+    subprocess.run(["util_ForOSG_MakeTruncatedLocalFramesDir.sh", "."], check=True)
+    # Check only after the helper-produced or explicit cache has been staged.
+    if 'RIFT_TRUNCATE_CHECK' in os.environ:
+        fnames_gwf = [name for name in os.listdir('frames_dir') if name.endswith('.gwf')]
+        if len(fnames_gwf) < len(event_dict["IFOs"]):
+            raise RuntimeError("Pipeline build failure: Problem generating truncated frames for OSG")
 
 if not(ile_condor_commands is None):
     # create file
@@ -2747,16 +2819,6 @@ if opts.internal_ile_check_good_enough:
     # Populate 'ile_check_good_enough' through all subdirectories
     cmd_enough = r"find . -name 'iter*ile' -type d -exec touch {}/ile_good_enough \; "
     os.system(cmd_enough)   # was os.system(cmd): re-ran the pipeline builder
-
-if opts.use_osg_file_transfer and opts.internal_truncate_files_for_osg_file_transfer:
-    if opts.fake_data_cache:
-        shutil.copyfile(opts.fake_data_cache, 'local.cache')
-    # build truncated frames.  Note this parses ILE arguments, so must be done last
-    if os.path.exists('local.cache'):
-        os.system("util_ForOSG_MakeTruncatedLocalFramesDir.sh .")
-
-
-    
 
 ## RUNMON
 try:

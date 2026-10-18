@@ -431,17 +431,18 @@ class Rift(Pipeline):
     def _validate_transverse_spin_coordinates(self):
         """Reject CIP ledger values the template cannot pass to pseudo_pipe.
 
-        YAML on/yes/true load as True, which selects physics3 at any mass.
+        YAML on/yes/true load as True, which selects geometric4 at any mass.
+        physics3 is retired: it gives CIP 11 fit coordinates for 8 degrees of freedom.
         """
         cip = (self.production.meta.get("sampler") or {}).get("cip") or {}
         if "transverse spin coordinates" not in cip:
             return
         value = cip["transverse spin coordinates"]
-        if isinstance(value, bool) or (isinstance(value, str) and value in ("off", "auto", "physics3")):
+        if isinstance(value, bool) or (isinstance(value, str) and value in ("off", "auto", "geometric4", "geometric4-phase-excess")):
             return
         raise ValueError(
-            "sampler.cip.transverse spin coordinates must be off, auto, physics3 "
-            "or a YAML boolean; got {!r}".format(value))
+            "sampler.cip.transverse spin coordinates must be off, auto, "
+            "geometric4, geometric4-phase-excess or a YAML boolean (physics3 is retired); got {!r}".format(value))
 
     def before_config(self, dryrun=False):
         """

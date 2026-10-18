@@ -19,7 +19,8 @@ my_library_prefixes=["mcsampler", "mcsamplerGPU", "mcsamplerEnsemble", "MonteCar
 my_library_total = [("MonteCarloMarginalizeCode/Code/"+x+".py") for x in my_library_prefixes]
 
 import glob
-my_scripts = glob.glob("MonteCarloMarginalizeCode/Code/bin/*")
+import os
+my_scripts = [path for path in glob.glob("MonteCarloMarginalizeCode/Code/bin/*") if os.path.isfile(path)]
 #print my_scripts
 # No packages found
 #print setuptools.find_packages('MonteCarloMarginalizeCode/Code')

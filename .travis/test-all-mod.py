@@ -53,6 +53,8 @@ EXCLUDE = re.compile("({})".format("|".join([
 IGNORE = re.compile("({})".format("|".join([
     r"\ANo module named torch\Z",
     r"\ANo module named 'torch'\Z",
+    r"\ANo module named gpytorch\Z",
+    r"\ANo module named 'gpytorch'\Z",
     r"\ANo module named cupy\Z",
     r"\ANo module named 'cupy'\Z",
     r"\ANo module named asimov\Z",

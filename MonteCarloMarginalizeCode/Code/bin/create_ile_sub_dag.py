@@ -4,6 +4,9 @@ import argparse
 import sys
 import os
 import shutil
+import re
+from RIFT.misc.pipeline_arguments import parse_submit_arguments, format_submit_arguments
+from pathlib import Path
 # Backend-neutral pipeline namespace (htcondor/glue/slurm) provided by dag_utils_generic
 from RIFT.misc.dag_utils_generic import pipeline
 from igwn_ligolw import utils, ligolw, lsctables
@@ -32,24 +35,68 @@ try:
         print(" === NUMBER OF EVENTS === ")
         print(n_events)
 except ValueError:
-        print("No SimInspiral table found in xml file", file=sys.stderr)
+        parser.error("No SimInspiral table found in xml file")
+if n_events == 0:
+    parser.error("Intrinsic grid must contain at least one point")
 
-if not (opts.cap_points is None):
-    if n_events > opts.cap_points:
-        n_event = opts.cap_points
+if opts.cap_points is not None:
+    if opts.cap_points < 1:
+        parser.error("--cap-points must be positive")
+    n_events = min(n_events, opts.cap_points)
 
 dag = pipeline.CondorDAG(log=os.getcwd())
 
-with open(opts.submit_script,'r') as f:
-    lines = f.readlines()
-    for line in lines:
-        if 'executable = ' in line:
-            exe = line.split("=")[-1].strip()
-        if 'arguments' in line:
-            argsplit = line.split('"')[1].split()
-            for i,arg in enumerate(argsplit):
-                if arg == "--n-events-to-analyze":
-                    n_events_per_job = int(argsplit[i+1])
+submit_text = Path(opts.submit_script).read_text()
+exe_match = re.search(r'^\s*executable\s*=\s*(.*?)\s*$', submit_text, re.I | re.M)
+if exe_match is None:
+    parser.error("Submit description must specify executable")
+exe = exe_match.group(1)
+assignments = list(re.finditer(r'^\s*arguments\s*=\s*(.*?)\s*$', submit_text, re.I | re.M))
+if len(assignments) > 1:
+    parser.error("Submit description has multiple arguments assignments")
+raw_args = assignments[0].group(1) if assignments else ""
+argv = parse_submit_arguments(raw_args)
+counts = []
+for index, arg in enumerate(argv):
+    if arg == "--n-events-to-analyze":
+        if index + 1 == len(argv):
+            parser.error("Missing --n-events-to-analyze value")
+        counts.append(argv[index + 1])
+    elif arg.startswith("--n-events-to-analyze="):
+        counts.append(arg.split("=", 1)[1])
+try:
+    counts = [int(value) for value in counts]
+except ValueError:
+    parser.error("--n-events-to-analyze must be a positive integer")
+if len(set(counts)) > 1 or any(value < 1 for value in counts):
+    parser.error("Conflicting or nonpositive --n-events-to-analyze settings")
+# The ILE driver's default is one point; older builders omit this flag for one.
+n_events_per_job = counts[0] if counts else 1
+submit_script = opts.submit_script
+if opts.cap_points is not None and n_events % n_events_per_job:
+    # Preserve the shared template. A private copy makes the final worker obey
+    # an exact cap even when it ends in the middle of a worker's normal batch.
+    capped_argv = []
+    skip = False
+    for arg in argv:
+        if skip:
+            skip = False
+            continue
+        if arg == "--n-events-to-analyze":
+            skip = True
+            continue
+        if arg.startswith("--n-events-to-analyze="):
+            continue
+        capped_argv.append(arg)
+    capped_argv += ["--n-events-to-analyze", "$(macrobatchsize)"]
+    replacement = "arguments = " + format_submit_arguments(capped_argv)
+    if assignments:
+        match = assignments[0]
+        submit_text = submit_text[:match.start()] + replacement + submit_text[match.end():]
+    else:
+        submit_text += "\n" + replacement + "\n"
+    submit_script = os.path.join(opts.target_dir, f"iteration_{opts.macroiteration}_{opts.output_suffix}_capped.sub")
+    Path(submit_script).write_text(submit_text)
 
 print(f"exe is {exe}")
 print(f"num events per job is {n_events_per_job}")
@@ -58,11 +105,13 @@ num_jobs = ceil(n_events/n_events_per_job)
 # Create one node per index
 for i in np.arange(num_jobs):        
     ile_blank =  pipeline.CondorDAGJob(universe="vanilla", executable=exe)
-    ile_blank.set_sub_file(opts.submit_script)
+    ile_blank.set_sub_file(submit_script)
 
     ile_node = pipeline.CondorDAGNode(ile_blank)
     ile_node.add_macro("macroevent", n_events_per_job*i)
     ile_node.add_macro("macroiteration",opts.macroiteration)
+    if submit_script != opts.submit_script:
+        ile_node.add_macro("macrobatchsize", min(n_events_per_job, n_events - n_events_per_job*i))
 
     ile_node.set_category("ILE")
     dag.add_node(ile_node)

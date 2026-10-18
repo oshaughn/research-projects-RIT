@@ -56,6 +56,13 @@ echo "== RIFT/likelihood/test_q_window_interp_gpu.py + test_noloop_gpu_stencils.
   "${CODE}/RIFT/likelihood/test_q_window_interp_gpu.py" \
   "${CODE}/RIFT/likelihood/test_noloop_gpu_stencils.py" || fail=1
 
+echo "== GMM sampling on the device (real cupy; RIFT_REQUIRE_GPU refuses a missing device) =="
+# PYTHONPATH: test/ has no __init__.py, so without it pytest imports the INSTALLED RIFT.
+PYTHONPATH="${CODE}${PYTHONPATH:+:$PYTHONPATH}" RIFT_REQUIRE_GPU=1 "${PYTHON_BIN}" -m pytest -q \
+  "${CODE}/test/integrators/test_gmm_sample_matches_score.py" \
+  "${CODE}/test/integrators/test_gmm_sample_row_independence.py" \
+  "${CODE}/test/test_gmm_backend_dispatch.py" || fail=1
+
 echo "== .travis/test-calmarg-gpu.sh =="
 bash .travis/test-calmarg-gpu.sh || fail=1
 

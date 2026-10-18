@@ -617,8 +617,22 @@ class ChooseWaveformParams:
         self.lambda2=lam1
         self.lambda1=lam2
         self.phiref = self.phiref+np.pi
+        for name in ['_phi%d_requested', '_theta%d_requested']:
+            h1, h2 = getattr(self, name % 1, None), getattr(self, name % 2, None)
+            for k, h in [(1, h2), (2, h1)]:
+                if h is None:
+                    self.__dict__.pop(name % k, None)
+                else:
+                    setattr(self, name % k, h)
 
         
+
+    def _spin_azimuth(self, k):
+        # azimuth of spin k in the L frame; the last requested phi{k} (default 0) if the in-plane spin is zero
+        sx, sy = getattr(self, 's%dx' % k), getattr(self, 's%dy' % k)
+        if sx == 0 and sy == 0:
+            return getattr(self, '_phi%d_requested' % k, 0.)
+        return np.arctan2(sy, sx)
 
     def assign_param(self,p,val):
         """
@@ -682,14 +696,28 @@ class ChooseWaveformParams:
             self.s2z = (czp-czm)
             return self
         if p == 's1z_bar':
+            # holds chi1_perp_bar and phi1 fixed, so the three bar coordinates can be assigned in any order
+            if self.s1z**2 < 1 and val**2 <= 1:
+                fac = np.sqrt((1-val**2)/(1-self.s1z**2))
+                if fac == 0:
+                    self._phi1_requested = self._spin_azimuth(1)
+                self.s1x *= fac
+                self.s1y *= fac
             self.s1z = val
             return self
         if p == 's2z_bar':
+            # holds chi2_perp_bar and phi2 fixed, so the three bar coordinates can be assigned in any order
+            if self.s2z**2 < 1 and val**2 <= 1:
+                fac = np.sqrt((1-val**2)/(1-self.s2z**2))
+                if fac == 0:
+                    self._phi2_requested = self._spin_azimuth(2)
+                self.s2x *= fac
+                self.s2y *= fac
             self.s2z = val
             return self
         if p == 'chi1_perp_bar':
 #            chi1_perp = np.sqrt(self.s1x**2+self.s2y**2)
-            phi1 = np.arctan2(self.s1y, self.s1x)
+            phi1 = self._spin_azimuth(1)
             chi1_perp_new = val*np.sqrt(1-self.s1z**2)  # R=Rbar*(1-z^2)^0.5 
             self.s1x = chi1_perp_new*np.cos(phi1)
             self.s1y = chi1_perp_new*np.sin(phi1)
@@ -697,21 +725,21 @@ class ChooseWaveformParams:
         if p == 'chi1_perp_u':
 #            chi1_perp = np.sqrt(self.s1x**2+self.s2y**2)
             Rb = np.power(val, 1./p_R)
-            phi1 = np.arctan2(self.s1y, self.s1x)
+            phi1 = self._spin_azimuth(1)
             chi1_perp_new = Rb*np.sqrt(1-self.s1z**2)  # R=Rbar*(1-z^2)^0.5 
             self.s1x = chi1_perp_new*np.cos(phi1)
             self.s1y = chi1_perp_new*np.sin(phi1)
             return self
         if p == 'chi2_perp_bar':
 #            chi1_perp = np.sqrt(self.s1x**2+self.s2y**2)
-            phi2 = np.arctan2(self.s2y, self.s2x)
+            phi2 = self._spin_azimuth(2)
             chi2_perp_new = val*np.sqrt(1-self.s2z**2)  # R=Rbar*(1-z^2)^0.5 
             self.s2x = chi2_perp_new*np.cos(phi2)
             self.s2y = chi2_perp_new*np.sin(phi2)
             return self
         if p == 'chi2_perp_u':
 #            chi1_perp = np.sqrt(self.s1x**2+self.s2y**2)
-            phi2 = np.arctan2(self.s2y, self.s2x)
+            phi2 = self._spin_azimuth(2)
             Rb = np.power(val, 1./p_R)
             chi2_perp_new = Rb*np.sqrt(1-self.s2z**2)  # R=Rbar*(1-z^2)^0.5 
             self.s2x = chi2_perp_new*np.cos(phi2)
@@ -736,7 +764,11 @@ class ChooseWaveformParams:
         if p == 'chi1':
             chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
             chi1VecMag = np.sqrt(np.dot(chi1Vec,chi1Vec))
-            if chi1VecMag < 1e-5:
+            if chi1VecMag < 1e-5 and hasattr(self, '_theta1_requested'):
+                theta = self._theta1_requested
+                phi = getattr(self, '_phi1_requested', 0.)
+                self.s1x,self.s1y,self.s1z = val*np.array([np.sin(theta)*np.cos(phi), np.sin(theta)*np.sin(phi), np.cos(theta)])
+            elif chi1VecMag < 1e-5:
                 Lref = self.OrbitalAngularMomentumAtReferenceOverM2()
                 Lhat = Lref/np.sqrt(np.dot(Lref,Lref))
                 self.s1x,self.s1y,self.s1z = val*Lhat
@@ -746,7 +778,11 @@ class ChooseWaveformParams:
         if p == 'chi2':
             chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
             chi2VecMag = np.sqrt(np.dot(chi2Vec,chi2Vec))
-            if chi2VecMag < 1e-5:
+            if chi2VecMag < 1e-5 and hasattr(self, '_theta2_requested'):
+                theta = self._theta2_requested
+                phi = getattr(self, '_phi2_requested', 0.)
+                self.s2x,self.s2y,self.s2z = val*np.array([np.sin(theta)*np.cos(phi), np.sin(theta)*np.sin(phi), np.cos(theta)])
+            elif chi2VecMag < 1e-5:
                 Lref = self.OrbitalAngularMomentumAtReferenceOverM2()
                 Lhat = Lref/np.sqrt(np.dot(Lref,Lref))
                 self.s2x,self.s2y,self.s2z = val*Lhat
@@ -788,9 +824,13 @@ class ChooseWaveformParams:
             chiperp_vec_now = np.array([self.s1x,self.s1y])
             chiperp_now = np.sqrt(np.dot(chiperp_vec_now,chiperp_vec_now))
             chi_now = np.sqrt(self.s1z**2 + chiperp_now**2)
+            self._theta1_requested = val   # used by chi1 if the spin is zero now
+            if chi_now == 0:
+                return self
             if chiperp_now/chi_now < 1e-9: # aligned case - what do we do?
-                self.s1y=0
-                self.s1x = chi_now * np.sin(val)
+                phi1 = self._spin_azimuth(1)
+                self.s1x = chi_now * np.sin(val) * np.cos(phi1)
+                self.s1y = chi_now * np.sin(val) * np.sin(phi1)
                 self.s1z = chi_now * np.cos(val)
                 return self
             self.s1x = chi_now*np.sin(val) * self.s1x/chiperp_now
@@ -807,6 +847,7 @@ class ChooseWaveformParams:
             # Do it MANUALLY, assuming the L frame! 
             chiperp_vec_now = np.array([self.s1x,self.s1y])
             chiperp_now = np.sqrt(np.dot(chiperp_vec_now,chiperp_vec_now))
+            self._phi1_requested = val   # used by theta1, chi1, chi1_perp_bar if the in-plane spin is zero now
             self.s1x = chiperp_now*np.cos(val)
             self.s1y = chiperp_now*np.sin(val)
             return self
@@ -823,9 +864,13 @@ class ChooseWaveformParams:
             chiperp_vec_now = np.array([self.s2x,self.s2y])
             chiperp_now = np.sqrt(np.dot(chiperp_vec_now,chiperp_vec_now))
             chi_now = np.sqrt(self.s2z**2 + chiperp_now**2)
+            self._theta2_requested = val   # used by chi2 if the spin is zero now
+            if chi_now == 0:
+                return self
             if chiperp_now/chi_now < 1e-9: # aligned case
-                self.s2y=0
-                self.s2x = chi_now * np.sin(val)
+                phi2 = self._spin_azimuth(2)
+                self.s2x = chi_now * np.sin(val) * np.cos(phi2)
+                self.s2y = chi_now * np.sin(val) * np.sin(phi2)
                 self.s2z = chi_now * np.cos(val)
                 return self
             self.s2x = chi_now*np.sin(val) * self.s2x/chiperp_now
@@ -842,6 +887,7 @@ class ChooseWaveformParams:
             # Do it MANUALLY, assuming the L frame! 
             chiperp_vec_now = np.array([self.s2x,self.s2y])
             chiperp_now = np.sqrt(np.dot(chiperp_vec_now,chiperp_vec_now))
+            self._phi2_requested = val   # used by theta2, chi2, chi2_perp_bar if the in-plane spin is zero now
             self.s2x = chiperp_now*np.cos(val)
             self.s2y = chiperp_now*np.sin(val)
             return self
@@ -3700,7 +3746,7 @@ def non_herm_hoff(P):
 #argist_FromPolarizations=lalsim.SimInspiralTDModesFromPolarizations.__doc__.split('->')[0].replace('SimInspiralTDModesFromPolarizations','').replace('REAL8','').replace('Dict','').replace('Approximant','').replace('(','').replace(')','').split(',')
 
 
-def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, silent=True, fd_standoff_factor=0.964,no_condition=False,fd_L_frame=False,fd_centering_factor=0.9,fd_alignment_postevent_time=None,**kwargs ):
+def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, silent=True, fd_standoff_factor=0.964,no_condition=False,fd_L_frame=False,fd_centering_factor=0.9,fd_alignment_postevent_time=None,fd_end_taper_max_time=1.0,**kwargs ):
     """
     Generate the TD h_lm -2-spin-weighted spherical harmonic modes of a GW
     with parameters P. Returns a SphHarmTimeSeries, a linked-list of modes with
@@ -3720,7 +3766,10 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
     
 
     no_condition: disable conditioning (for ChooseFDModes specifically). For diagnostic plots on impact of/need for conditioning.
-    fd_L_frame: rotate hlmoft to L frame from J frame for return values from ChooseFDModes (XO4/XPHM). 
+    fd_L_frame: rotate hlmoft to L frame from J frame for return values from ChooseFDModes (XO4/XPHM).
+    fd_end_taper_max_time: cap (seconds) on the ChooseFDModes end taper, which is otherwise 1% of the
+          buffer.  With fd_alignment_postevent_time=2 an uncapped end taper covers the merger once the
+          buffer exceeds ~185 s.  None restores the uncapped 1%.  Has no effect for buffers <= 100 s.
     """
     assert Lmax >= 2
 
@@ -3745,7 +3794,11 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
        is_precessing=True
        if np.sqrt(P.s1x**2 + P.s1y**2 + P.s2x**2+P.s2y**2)<1e-10:  # only perform if really precessing, otherwise skip. Really only for XP variants
            is_precessing=False
-       if P.fref==0 and (P.approx == lalIMRPhenomXPHM):
+       # Keep LAL's default reference at the requested start frequency,
+       # before applying our lower generation standoff frequency.
+       if P.fref==0 and (P.approx == lalIMRPhenomXPHM or
+                         (fd_L_frame and not is_precessing and P.approx in
+                          (lalIMRPhenomXO4a, lalIMRPhenomXPNR))):
           P.fref=P.fmin
 #       extra_params = P.to_lal_dict_extended(extra_args_dict=extra_waveform_args)
        fNyq = 0.5/P.deltaT
@@ -3789,6 +3842,11 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
        ntaper = int(0.01*TDlen)  # fixed 1% of waveform length, at start
        ntaper = np.max([ntaper, int(1./(P.fmin*P.deltaT))])  # require at least one waveform cycle of tapering; should never happen
        vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
+       # End taper: same 1% rule, capped in duration so it cannot reach the merger in long buffers
+       ntaper_end = ntaper
+       if fd_end_taper_max_time is not None:
+           ntaper_end = int(np.min([ntaper, np.max([int(fd_end_taper_max_time/P.deltaT), 1])]))
+       vectaper_end = 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper_end)/(1.*ntaper_end))
 
        # Taper any wraparound that has happened after the peak
        #    - Based on SimInspiralTDFromTD  https://git.ligo.org/lscsoft/lalsuite/-/blob/master/lalsimulation/lib/LALSimInspiral.c
@@ -3797,8 +3855,8 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
        t_merge = lalsim.SimInspiralMergeTimeBound(P.m1,P.m2) + lalsim.SimInspiralRingdownTimeBound(P.m1+P.m2,s)
        t_extra = 3./P.fmin
        indx_crit = int(TDlen*(fd_centering_factor)) + int((t_merge+t_extra)/P.deltaT)  # t_extra is a lot of time generally if fmin is low
-       if indx_crit + ntaper > TDlen:
-           indx_crit = TDlen - ntaper
+       if indx_crit + ntaper_end > TDlen:
+           indx_crit = TDlen - ntaper_end
 
        for mode in hlmsdict:
           npts_fd_pre_resize = hlmsdict[mode].data.length
@@ -3823,13 +3881,13 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
               hlmsT[mode].data.data[:ntaper]*=vectaper
               # Taper anything at the *end* of the segment. This could be  important when interacting with real data, which when wrapped is strongly discontinuous
               #     - this generally will NOT taper everything, because some of the turn-on generally extends well past this
-              if TDlen-ntaper < indx_crit:
+              if TDlen-ntaper_end < indx_crit:
                   # just multiply the very end by a small amount of tapering
-                  hlmsT[mode].data.data[TDlen-ntaper:]*=vectaper[::-1]
+                  hlmsT[mode].data.data[TDlen-ntaper_end:]*=vectaper_end[::-1]
               else:
                   # zero out a a lot of time at the end, and taper time as we approach this critical extra time
-                  hlmsT[mode].data.data[indx_crit:indx_crit+ntaper] *= vectaper[::-1]
-                  hlmsT[mode].data.data[indx_crit+ntaper:] = 0
+                  hlmsT[mode].data.data[indx_crit:indx_crit+ntaper_end] *= vectaper_end[::-1]
+                  hlmsT[mode].data.data[indx_crit+ntaper_end:] = 0
 
        # Rotate if requested, and if P.fref is specified
        # see discussion in https://git.ligo.org/lscsoft/lalsuite/-/blob/master/lalsimulation/lib/LALSimInspiral.c
@@ -3845,6 +3903,16 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
                  extra_polarization=np.pi/2,
              )
              hlmsT = hlmsT_alt
+       elif (not is_precessing and fd_L_frame and P.approx in
+             (lalIMRPhenomXPHM, lalIMRPhenomXO4a, lalIMRPhenomXPNR)):
+             # ChooseFDModes uses Y_lm(incl, pi/2 - phiRef), including at
+             # zero transverse spin. The precessing rotation above supplies
+             # that azimuth conversion and cancels our historical global minus.
+             # Aligned inputs need the same convention conversion, although
+             # their J and L axes coincide and no spatial tilt is needed.
+             # Use exact quarter turns: the dominant (2,+/-2) modes are unchanged.
+             for mode in hlmsT:
+                 hlmsT[mode].data.data *= -(1j ** int(mode[1]))
         # phase shift ChooseFDModes
 #       for mode in hlmsT:
  #          hlmsT[mode].data.data *= np.exp(-1j*mode[1]*np.pi/2) # phase correction factor, empirically to match phase convention for precession for example. Note this should always be done
@@ -4752,7 +4820,7 @@ def std_and_conj_hlmoff(P, Lmax=2,**kwargs):
         for m in range(-l, l+1):
             hxx = lalsim.SphHarmTimeSeriesGetMode(hlms, l, m)
             if hxx:
-                hlmsT[mode]=hxx
+                hlmsT[(l,m)]=hxx
     hlms=hlmsT
     #
     hlmsF = {}
@@ -6395,6 +6463,70 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
                 coord_names_reduced.remove('DeltaLambdaTilde')
 
 
+    # Mass-ratio, total-mass and aligned-spin coordinates from component masses (a data file's m1, m2)
+    # or from (mc, delta_mc|eta), and xi/chiMinus/mu1/mu2 from Cartesian s1z, s2z: vectorized forms of
+    # the extract_param definitions the per-row loop below applies (L frame).  Not used with
+    # source_redshift, which that loop applies to the masses before extracting.  On valid rows the two
+    # agree to roundoff.  They differ where the loop is wrong: it reuses one ChooseWaveformParams, so a
+    # NaN or delta_mc > 1 row corrupts the masses of every later row, and eta > 0.25 is clamped or not
+    # depending on name order; here each row stands alone and eta goes to m1m2 as given.
+    vec_mass_names = ['delta_mc', 'eta', 'mc', 'q', 'mtot', 'm1', 'm2']
+    vec_spin_names = ['xi', 'chiMinus', 'mu1', 'mu2']
+    have_m12 = ('m1' in low_level_coord_names) and ('m2' in low_level_coord_names)
+    have_mc_eta = ('mc' in low_level_coord_names) and ('delta_mc' in low_level_coord_names or 'eta' in low_level_coord_names)
+    have_sz = ('s1z' in low_level_coord_names) and ('s2z' in low_level_coord_names) and spin_convention == "L"
+    wanted = [p for p in coord_names_reduced if p in vec_mass_names or (have_sz and p in vec_spin_names)]
+    kerr_ok = True
+    if enforce_kerr and wanted:
+        cart = ['s1x', 's1y', 's1z', 's2x', 's2y', 's2z']
+        if all(n in low_level_coord_names for n in cart):
+            xf = np.asarray(x_in, dtype=float)
+            c = [xf[:, low_level_coord_names.index(n)] for n in cart]
+            kerr_bad = (np.sqrt(c[0]**2 + c[1]**2 + c[2]**2) > 1) | (np.sqrt(c[3]**2 + c[4]**2 + c[5]**2) > 1)
+        elif 'chi1' in low_level_coord_names and 'chi2' in low_level_coord_names:
+            xf = np.asarray(x_in, dtype=float)
+            kerr_bad = (xf[:, low_level_coord_names.index('chi1')] > 1) | (xf[:, low_level_coord_names.index('chi2')] > 1)
+        elif 's1z' in low_level_coord_names and 's2z' in low_level_coord_names and \
+                set(low_level_coord_names) <= {'m1', 'm2', 'mc', 'eta', 'delta_mc', 's1z', 's2z', 'lambda1', 'lambda2', 'dist'}:
+            # aligned spins only (CIP's common case), and no other name that assigns a spin: the loop's
+            # in-plane components stay 0
+            xf = np.asarray(x_in, dtype=float)
+            kerr_bad = (np.abs(xf[:, low_level_coord_names.index('s1z')]) > 1) | (np.abs(xf[:, low_level_coord_names.index('s2z')]) > 1)
+        else:
+            kerr_ok = False      # cannot apply the per-row Kerr rule here; leave these to the loop
+    if wanted and not source_redshift and kerr_ok and (have_m12 or have_mc_eta):
+        xf = np.asarray(x_in, dtype=float)
+        if have_m12:
+            m1_vals = xf[:, low_level_coord_names.index('m1')]
+            m2_vals = xf[:, low_level_coord_names.index('m2')]
+        else:
+            if 'delta_mc' in low_level_coord_names:
+                eta_vals = 0.25*(1 - xf[:, low_level_coord_names.index('delta_mc')]**2)
+            else:
+                eta_vals = xf[:, low_level_coord_names.index('eta')]
+            m1_vals, m2_vals = m1m2(xf[:, low_level_coord_names.index('mc')], eta_vals)
+        vals = {'delta_mc': lambda: (m1_vals - m2_vals)/(m1_vals + m2_vals),
+                'eta': lambda: symRatio(m1_vals, m2_vals),
+                'mc': lambda: mchirp(m1_vals, m2_vals),
+                'q': lambda: m2_vals/m1_vals,
+                'mtot': lambda: m2_vals + m1_vals,
+                'm1': lambda: m1_vals, 'm2': lambda: m2_vals}
+        if have_sz:
+            s1z = xf[:, low_level_coord_names.index('s1z')]
+            s2z = xf[:, low_level_coord_names.index('s2z')]
+            vals['xi'] = lambda: (m1_vals*s1z + m2_vals*s2z)/(m1_vals + m2_vals)
+            vals['chiMinus'] = lambda: (m1_vals*s1z - m2_vals*s2z)/(m1_vals + m2_vals)
+            if 'mu1' in wanted or 'mu2' in wanted:
+                fac = np.where(m1_vals > 1e10, lal.MSUN_SI, 1.0)
+                mu1, mu2, mu3 = tools.Mcqchi1chi2Tomu1mu2mu3(mchirp(m1_vals, m2_vals)/fac, m2_vals/m1_vals, s1z, s2z)
+                vals['mu1'] = lambda: mu1
+                vals['mu2'] = lambda: mu2
+        for p in wanted:
+            x_out[:, coord_names.index(p)] = vals[p]()
+            coord_names_reduced.remove(p)
+        if enforce_kerr:
+            kerr_violation_ring = kerr_bad if kerr_violation_ring is None else (kerr_violation_ring | kerr_bad)
+
     # return if we don't need to do any more conversions (e.g., if we only have --parameter specification)
     if kerr_violation_ring is not None:
         x_out[kerr_violation_ring] = -np.inf
@@ -6403,9 +6535,11 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
 
     print(" Fallthrough to non-vector-coords for ", coord_names_reduced,low_level_coord_names)
     
-    P = ChooseWaveformParams()
     # note NO MASS CONVERSION here, because the fit is in solar mass units!
     for indx_out  in np.arange(len(x_in)):
+        # Fresh P per row: assign_param reads the current state for some coordinates (mu1, mu2, q,
+        # chi1_perp_bar, ...), so a reused P makes a row's output depend on the previous row.
+        P = ChooseWaveformParams()
         for indx in np.arange(len(low_level_coord_names)):
             if low_level_coord_names[indx] != 'chi_pavg':
                 P.assign_param( low_level_coord_names[indx], x_in_source[indx_out,indx])
@@ -6453,8 +6587,8 @@ def convert_waveform_coordinates_with_eos(x_in,coord_names=['mc', 'eta'],low_lev
         # Now call normal converter, with new variables defined
         return convert_waveform_coordinates(x_in_extended, coord_names=coord_names,low_level_coord_names=low_level_coord_names_extended,enforce_kerr=enforce_kerr, source_redshift=source_redshift)
             
-    P = ChooseWaveformParams()
     for indx_out  in np.arange(len(x_in)):
+        P = ChooseWaveformParams()  # fresh per row, as in convert_waveform_coordinates
         # WARNING UNUSUAL CONVENTION
         #   note, P.m1, P.m2 in Msun units here
         for indx in np.arange(len(low_level_coord_names)):

@@ -59,7 +59,7 @@ def test_every_alternate_fit_method_line_is_guarded():
         assert any(a in line for a in allowed), line
 
 
-@pytest.mark.parametrize("mode,refused", [(None, False), ("off", False), ("auto", True), ("physics3", True)])
+@pytest.mark.parametrize("mode,refused", [(None, False), ("off", False), ("auto", True), ("geometric4", True)])
 def test_gp_matern_refuses_rf_transverse_modes(mode, refused):
     node = next(n for n in TREE.body if isinstance(n, ast.If) and "rf_transverse_spin_coordinates" in ast.unparse(n.test)
                 and "gp-matern" in ast.unparse(n.test))

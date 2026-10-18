@@ -208,7 +208,10 @@ class MCSampler(SamplerOutputMixin, object):
         temp = []
         for index in range(len(self.curr_args)):
             temp.append(samples[:,index])
-        temp_ret = self.identity_convert_togpu(self.func(*temp))
+        temp_ret = self.func(*temp)
+        if self.xpy is not np and getattr(temp_ret, 'dtype', None) == RiftFloat:
+            temp_ret = temp_ret.astype(np.float64)   # cupy has no extended precision (CIP's fit returns RiftFloat)
+        temp_ret = self.identity_convert_togpu(temp_ret)
         # column vector (n,1); cupy.rot90 does not accept array-likes/lists, and
         # reshape is backend-agnostic and order-preserving (equiv. to the old
         # np.rot90([temp_ret], -1)).
@@ -343,7 +346,10 @@ class MCSampler(SamplerOutputMixin, object):
       if external_rvs:
         rvs_here = external_rvs
 
-      ln_weights  = self.xpy.array(self.identity_convert(ln_weights))
+      ln_weights = self.identity_convert(ln_weights)
+      if self.xpy is not np and getattr(ln_weights, 'dtype', None) == RiftFloat:
+          ln_weights = ln_weights.astype(np.float64)   # a portfolio's weights carry CIP's RiftFloat lnL
+      ln_weights  = self.xpy.array(ln_weights)
       ln_weights *= tempering_exp
 
       gmm_dict = self.integrator.gmm_dict
@@ -813,7 +819,7 @@ class MCSampler(SamplerOutputMixin, object):
            n_extr = int(min(float(n_extr), 1.5*float(eff_samp), 1.5*float(neff)))
            print(" Fairdraw size : ", n_extr)
            if return_lnI:
-               ln_wt =  integrator.cumulative_values
+               ln_wt = self.xpy.copy(integrator.cumulative_values)   # += below must not rewrite the stored lnL (_rvs aliases it)
            else:
                ln_wt = self.xpy.log(value_array)
            ln_wt += self.xpy.log(prior_array/p_array)

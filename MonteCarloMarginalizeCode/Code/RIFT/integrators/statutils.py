@@ -304,14 +304,19 @@ def block_scatter_sigma(lnZ_blocks, n_blocks):
     return float(numpy.sqrt(var_jk))
 
 
-def bootstrap_lnZ_quantiles(log_wt, n_total=None, n_boot=200, quantiles=(0.05, 0.5, 0.95), rng_seed=None):
+def bootstrap_lnZ_quantiles(log_wt, n_total=None, n_boot=200, quantiles=(0.05, 0.5, 0.95), rng_seed=None,
+                            n_drawn=None):
     """Bootstrap quantiles of lnZ_hat = ln( sum_i w_i / n_total ) by resampling
     the stored LOG weights with replacement.  When the relative error is O(1)
     the delta-method +-sigma interval on lnZ is meaningless (the distribution is
     strongly skewed); these quantiles are an honest same-sample interval.  They
     remain blind to tail mass never sampled -- pair with pareto_khat_from_log.
     n_total: divisor if the stored weights are a pruned subset of a larger run
-    (the pruned-away weights contribute negligibly to the sum).  Returns a
+    (the pruned-away weights contribute negligibly to the sum).
+    n_drawn: if the stored weights are the nonzero terms of an average over n_drawn draws
+    (the rest rejected as zeros), resample all n_drawn draws: each replicate keeps
+    k ~ Binomial(n_drawn, n/n_drawn) of the stored weights, so the survivor count varies too.
+    The divisor stays n_total, which is the normalization of the stored weights.  Returns a
     numpy array of lnZ quantiles, or None if too few weights."""
     lw = numpy.asarray(log_wt, dtype=float)
     lw = lw[numpy.isfinite(lw)]
@@ -336,8 +341,11 @@ def bootstrap_lnZ_quantiles(log_wt, n_total=None, n_boot=200, quantiles=(0.05, 0
     ref = lw.max()
     w = numpy.exp(lw - ref)
     out = numpy.empty(n_boot)
+    zero_aware = n_drawn is not None and n_drawn > n
     for b in range(n_boot):
-        idx = rng.integers(0, n, n)
-        out[b] = numpy.log(numpy.sum(w[idx]))
+        k = rng.binomial(int(n_drawn), n / float(n_drawn)) if zero_aware else n
+        idx = rng.integers(0, n, k)
+        with numpy.errstate(divide='ignore'):
+            out[b] = numpy.log(numpy.sum(w[idx]))   # -inf when k = 0: no survivors, Z = 0
     out += ref - numpy.log(n_total)
     return numpy.quantile(out, quantiles)

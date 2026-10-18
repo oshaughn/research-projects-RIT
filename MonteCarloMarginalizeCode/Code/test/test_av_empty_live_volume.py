@@ -568,26 +568,49 @@ class _FiniteFirstChunkOnly(object):
         return out
 
 
-def _run_first_chunk_only(nmax, n_chunk=5000):
+def _run_first_chunk_only(nmax, n_chunk=5000, return_sampler=False):
+    # Both runs must draw the same first chunk.  On a cupy backend the draws come from cupy's
+    # global RNG, which np.random.seed does not touch: seed a fresh one, restore it after.
     np.random.seed(7)
     s = _sampler(n_chunk)
     fn = _FiniteFirstChunkOnly()
-    res = s.integrate_log(fn, *NAMES, nmax=nmax, neff=8, n=n_chunk,
-                          no_protect_names=True, verbose=False,
-                          igrand_fairdraw_samples=True,
-                          igrand_fairdraw_samples_max=50)
+    prev = None
+    if mcsamplerAV.cupy_ok:
+        import cupy
+        prev = cupy.random.get_random_state()
+        cupy.random.set_random_state(cupy.random.RandomState(7))
+    try:
+        res = s.integrate_log(fn, *NAMES, nmax=nmax, neff=8, n=n_chunk,
+                              no_protect_names=True, verbose=False,
+                              igrand_fairdraw_samples=True,
+                              igrand_fairdraw_samples_max=50)
+    finally:
+        if prev is not None:
+            cupy.random.set_random_state(prev)
+    if return_sampler:
+        return res, fn.calls, s
     return res, fn.calls
 
 
 def test_empty_chunks_after_a_successful_one_do_not_change_the_result():
-    """The invariant: extra chunks that contribute nothing must be a no-op."""
-    short, n_short = _run_first_chunk_only(nmax=10000)     # ~2 chunks
-    long_, n_long = _run_first_chunk_only(nmax=60000)      # ~12 chunks
+    """The invariant: extra chunks that contribute nothing must not contract the live set."""
+    short, n_short, s_short = _run_first_chunk_only(nmax=10000, return_sampler=True)   # ~2 chunks
+    long_, n_long, s_long = _run_first_chunk_only(nmax=60000, return_sampler=True)     # ~12 chunks
     assert n_long > n_short, 'the long run must actually evaluate more chunks'
 
-    # same evidence, same live set, same weights -- the empty chunks taught us nothing
-    assert float(long_[0]) == pytest.approx(float(short[0]), rel=1e-12), \
-        'lnZ moved on chunks that contributed no finite sample'
+    # The empty chunks are still draws, from the grid left by chunk 1 (B2), so the retained
+    # points' mixture density gains n2/|B2| per empty chunk.  Chunk 1 drew n1 over the box B1.
+    np.testing.assert_array_equal(s_long.binunique, s_short.binunique)
+    cold = _sampler(5000)
+    cold.setup()
+    n1 = float(np.sum(cold.ninbin))
+    vol1 = len(cold.binunique) * float(np.prod(cold.dx))
+    n2 = float(np.sum(s_long.ninbin))
+    vol2 = len(s_long.binunique) * float(np.prod(s_long.dx))
+    expect = (np.log(n1 / vol1 + (n_short - 1) * n2 / vol2)
+              - np.log(n1 / vol1 + (n_long - 1) * n2 / vol2))
+    assert float(long_[0]) - float(short[0]) == pytest.approx(expect, abs=1e-9), \
+        'lnZ shift over empty chunks is not the one the draw counts imply'
     assert long_[3]['n_live_final'] == short[3]['n_live_final'], \
         'the live set was eroded by chunks that contributed nothing'
 

@@ -30,6 +30,7 @@ import numpy as np
 import pytest
 
 import RIFT.integrators.mcsamplerAdaptiveVolume as mcsamplerAV
+from RIFT.precision import RiftFloat, RIFT_FLOAT_HIGH_PRECISION
 
 NAMES = ['right_ascension', 'declination', 'phi_orb', 'inclination', 'psi', 'distance']
 NDIM = len(NAMES)
@@ -84,7 +85,11 @@ class _DeviceLike(object):
     def __init__(self, a):
         # dtype is NOT forced: np.where returns integer index arrays and the comparisons
         # return booleans, and both are re-wrapped and then used as indices.
-        self._a = np.asarray(a)
+        a = np.asarray(a)
+        # cupy has no extended precision: cupy.asarray(longdouble) raises this ValueError.
+        if a.dtype.kind == 'f' and a.dtype.itemsize > 8:
+            raise ValueError('Unsupported dtype %s' % a.dtype)
+        self._a = a
 
     def __array__(self, *args, **kwargs):
         raise TypeError(_CUPY_MESSAGE)
@@ -202,6 +207,13 @@ class _HostOnly(object):
         return np.where(out > 0.5 * self.rho ** 2 - 745.0, out, -np.inf)
 
 
+class _HostOnlyExtended(_HostOnly):
+    """Returns RiftFloat, as CIP's fitted lnL does (issue #414)."""
+
+    def __call__(self, *args, **kwargs):
+        return np.asarray(_HostOnly.__call__(self, *args, **kwargs), dtype=RiftFloat)
+
+
 def _av_member(n_chunk=2000):
     s = mcsamplerAV.MCSampler(n_chunk=n_chunk)
     s.xpy = mcsamplerAV.xpy_default          # numpy here; dispatch carries the stand-in
@@ -240,6 +252,12 @@ def test_the_stand_in_refuses_implicit_conversion_and_converts_through_get():
         np.asarray(d)
     assert 'Please use `.get()`' in str(e.value)
     assert np.array_equal(d.get(), np.arange(4.0))
+
+
+@pytest.mark.skipif(not RIFT_FLOAT_HIGH_PRECISION, reason='no extended precision on this platform')
+def test_the_stand_in_refuses_extended_precision_like_cupy():
+    with pytest.raises(ValueError, match='Unsupported dtype'):
+        _to_device(np.arange(4.0).astype(RiftFloat))
 
 
 def test_numpy_dispatches_to_the_stand_in():
@@ -441,3 +459,99 @@ def test_the_portfolio_hands_its_backend_verdict_to_the_member(on_a_device):
     assert lnF.n_device_attempts == 1, 'the member re-discovered a verdict it was given'
     assert s._integrand_wants_host is True
     assert s.portfolio_realizations[0]._integrand_wants_host is True
+
+
+###
+### 3. an extended-precision integrand (issue #414): CIP's fit returns RiftFloat, which the
+###    device cannot hold, so it must reach the device as float64
+###
+
+needs_extended = pytest.mark.skipif(not RIFT_FLOAT_HIGH_PRECISION,
+                                    reason='RiftFloat is float64 on this platform')
+
+
+def _refusing_push(x):
+    """cupy.asarray as far as dtype goes: extended precision raises.  Returns host numpy, so
+    the rest of the integrator stays on the host and only the push is under test."""
+    x = np.asarray(x)
+    if x.dtype.kind == 'f' and x.dtype.itemsize > 8:
+        raise ValueError('Unsupported dtype %s' % x.dtype)
+    return x
+
+
+@pytest.fixture
+def refusing_push(monkeypatch):
+    if REAL_CUPY:
+        return          # the real push already refuses
+    monkeypatch.setattr(mcsamplerAV, 'cupy_ok', True)
+    monkeypatch.setattr(mcsamplerAV, 'cupy', types.SimpleNamespace(ndarray=_DeviceLike),
+                        raising=False)
+    monkeypatch.setattr(mcsamplerAV, 'identity_convert_togpu', _refusing_push)
+
+
+@needs_extended
+def test_integrate_log_takes_an_extended_precision_integrand(refusing_push):
+    np.random.seed(20261006)
+    s = _av_member(256)
+    lnF = _HostOnlyExtended()
+    res = s.integrate_log(lnF, *NAMES, nmax=512, neff=1, n=256,
+                          no_protect_names=True, verbose=False, save_intg=True)
+    assert lnF.n_calls > 0 and np.isfinite(float(res[0]))
+
+
+@needs_extended
+def test_the_gmm_member_takes_an_extended_precision_integrand():
+    """mcsamplerEnsemble.evaluate, the push CIP --sampler-method GMM hit.  A non-numpy
+    instance backend is what selects the device branch there."""
+    import RIFT.integrators.mcsamplerEnsemble as mcsamplerEnsemble
+
+    class _Backend(object):
+        def __getattr__(self, name):
+            return getattr(np, name)
+    s = mcsamplerEnsemble.MCSampler()
+    s.xpy = _Backend()
+    s.identity_convert = lambda x: x
+    s.identity_convert_togpu = _refusing_push
+    s.curr_args = ['x', 'y']
+    s.func = lambda x, y: np.asarray(-0.5 * (x ** 2 + y ** 2), dtype=RiftFloat)
+    out = s.evaluate(np.random.uniform(size=(16, 2)))
+    assert out.shape == (16, 1) and out.dtype == np.float64
+
+
+@needs_extended
+def test_the_selfish_update_takes_an_extended_precision_integrand(on_a_device):
+    np.random.seed(20261006)
+    s = _av_member()
+    lnF = _HostOnlyExtended()
+    s.update_sampling_prior_selfish(lnF)
+    assert lnF.n_calls > 0
+    assert s.V < 1.0, 'the live volume did not contract: the update did not do its work'
+
+
+class _RefusingBackend(object):
+    """numpy, except that array/asarray refuse extended precision as cupy's do."""
+
+    def __getattr__(self, name):
+        return getattr(np, name)
+
+    def array(self, x, *a, **k):
+        return _refusing_push(np.array(x, *a, **k))
+
+    def asarray(self, x, *a, **k):
+        return _refusing_push(np.asarray(x, *a, **k))
+
+
+@needs_extended
+def test_a_portfolio_gmm_member_takes_extended_precision_weights(on_a_device):
+    """CIP --sampler-method portfolio with a GMM member and a quadratic fit: the portfolio
+    hands its host RiftFloat log-weights to mcsamplerEnsemble.update_sampling_prior, whose
+    xpy is cupy on a GPU host.  Reproduced on an A100 at mcsamplerEnsemble.py:349."""
+    np.random.seed(20261006)
+    s = _portfolio(256)
+    gmm = s.portfolio_realizations[1]
+    if not REAL_CUPY:
+        gmm.xpy = _RefusingBackend()
+    lnF = _HostOnlyExtended()
+    s.integrate_log(lnF, *NAMES, nmax=1024, neff=1, n=256,
+                    no_protect_names=True, verbose=False, save_intg=True)
+    assert lnF.n_calls > 0

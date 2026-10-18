@@ -421,8 +421,8 @@ def test_rift_liquid_template_silent_ledger_is_byte_identical_to_base():
     meta = _base_meta()
     assert _render_text(text, meta) == _render_text(base, meta)
 @pytest.mark.parametrize("mode,expected", [
-    (None, None), ("auto", "auto"), ("off", "off"), (False, "off"), (True, "physics3"),
-    ("physics3", "physics3")])
+    (None, None), ("auto", "auto"), ("off", "off"), (False, "off"), (True, "geometric4"),
+    ("geometric4", "geometric4")])
 def test_rift_liquid_template_transverse_spin_opt_in(mode, expected):
     # A silent ledger must render exactly what the template renders without the RF block.
     meta = _base_meta()

@@ -602,6 +602,21 @@ JAXDIR="MonteCarloMarginalizeCode/Code/test/jax"
 #                                         test relies on) confirm the resolved count reaches
 #                                         the run log end to end.  Needs no lal beyond what
 #                                         build_likelihood_data already requires; no GPU.
+#   test_time_log_hermite.py          18  the log-space cubic-Hermite terminal time
+#                                         rule itself: agreement with Simpson where
+#                                         Simpson is trustworthy, better where it is
+#                                         not, quadratic reproduction including the
+#                                         boundary intervals, the non-finite table
+#                                         (mixed -inf falls back to Simpson),
+#                                         jit/vmap/grad and two exact identities.
+#   test_time_log_hermite_selectable.py
+#                                     22  driver --time-marginalization-quadrature
+#                                         accepts every _TIME_QUAD_CHOICES member
+#                                         (subprocess, not --help), bitwise dispatch
+#                                         in _time_marginalize_terminal, and the
+#                                         phi_ref+psi marginalized endpoint where
+#                                         'bandlimited' is refused; both multipeak
+#                                         schemes refuse log-hermite.
 
 FILES=(
   "${JAXDIR}/test_jax_time_quadrature.py"
@@ -616,6 +631,7 @@ FILES=(
   "${JAXDIR}/test_network_coords.py"
   "${JAXDIR}/test_nuts_phimarg.py"
   "${JAXDIR}/test_jax_av.py"
+  "${JAXDIR}/test_jax_av_network.py"
   "${JAXDIR}/test_jax_fairdraw_export.py"
   "${JAXDIR}/test_smc_evidence.py"
   "${JAXDIR}/test_jax_tempering_chooser.py"
@@ -658,6 +674,9 @@ FILES=(
   "${JAXDIR}/test_jax_ile_short_option_forms.py"
   "${JAXDIR}/test_cosmo_distance_prior.py"
   "${JAXDIR}/test_pseudo_cosmo_distance_prior.py"
+  "${JAXDIR}/test_time_log_hermite.py"
+  "${JAXDIR}/test_time_log_hermite_selectable.py"
+  "${JAXDIR}/test_jax_ile_waveform_extra_kwargs.py"
 )
 
 # EXCLUDED: files in JAXDIR matching test_*.py that are deliberately NOT gated.  The
@@ -1205,7 +1224,21 @@ fi
 # 2026-10-01: + test_pseudo_cosmo_distance_prior.py (16 tests: --d-prior
 # pseudo_cosmo on the distance grids and 6-D prior) and one more
 # test_driver_grid_distance_prior case.  945 + 17 = 962.
-EXPECTED_TESTS=962
+# 2026-10-04: merged into the log-hermite branch (#266), + test_time_log_hermite.py
+# (16) and test_time_log_hermite_selectable.py (20).  Read off this script's own line
+# on the merged tree: "collected 998 tests from 56 files" (citlogin6,
+# ~/.cache/jaxci_venv, PYTHONPATH pinned to the tree under test, DESELECT applied).
+# 2026-10-04: review fixes, +4 tests (multipeak refusal x2, all -inf gradient,
+# n_sub).  Read off this script's own line: "collected 1002 tests from 56 files".
+# 2026-10-06: + test_jax_av_network.py (13 tests: network-frame sky sampling in JAX
+# AV/portfolio).  1002 + 13 = 1015.
+# 2026-10-11: + test_jax_ile_waveform_extra_kwargs.py (15 tests: the JAX driver
+# forwards --internal-waveform-extra-kwargs, --internal-waveform-extra-lalsuite-args
+# and --use-gwsignal-lmax-nyquist as numpy ILE does).  With 15 tests, CI read
+# "collected 1032 tests from 58 files" (the base already collected 1017); review
+# fixes and the compat-option type parity tests added 12 more.  1032 + 12 = 1044.
+# SEOB conditioning selector: +5 numpy/JAX routing and refusal parity tests.
+EXPECTED_TESTS=1049
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"

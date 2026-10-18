@@ -313,11 +313,11 @@ def main():
         # DO NOT replace this with a z-score, and do not widen the threshold to
         # clear a PR.  If it fires, run it over several seeds before believing it.
         #
-        # Each replicate runs in a FRESH PROCESS (_isolated_decoy_run).  That is
-        # required, not tidiness: scipy's mvnun, used to normalize each GMM
-        # component in gmm.score, carries its own RNG that np.random.seed cannot
-        # reach, so repeating this arm inside one interpreter changes the answer
+        # Each replicate runs in a FRESH PROCESS (_isolated_decoy_run).  It was
+        # required while gmm.score normalized with scipy's mvnun, whose RNG no seed
+        # reaches: repeating this arm inside one interpreter changed the answer
         # (+0.186, -0.711, -0.572, +1.057 on four consecutive calls at one seed).
+        # gmm.score is now deterministic and in-process repeats agree bitwise.
         log_biases = np.array([float(r["bias"]) for r in new_runs])
         mean_log_bias = float(np.mean(log_biases))
         ratios = np.exp(log_biases)

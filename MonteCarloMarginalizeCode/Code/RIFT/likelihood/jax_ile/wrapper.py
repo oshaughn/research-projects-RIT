@@ -146,6 +146,18 @@ def _validate_nonlinear_time_quadrature(time_quadrature, endpoint):
             "use 'simpson'" % endpoint)
 
 
+def _refuse_controller_time_quadrature(time_quadrature, scheme):
+    """Refuse any terminal time rule for a scheme that integrates time itself.
+
+    The multipeak controllers never read ``time_quadrature``, so accepting a
+    non-default value would record a rule that did not run.
+    """
+    if time_quadrature != "simpson":
+        raise ValueError(
+            "--angle-marg-scheme %s integrates time inside its controller and "
+            "ignores the terminal time rule; got time_quadrature=%r.  Use "
+            "'simpson' (the default) with this scheme." % (scheme, time_quadrature))
+
 def build_rotation_data_from_precompute(P, data_dict, psd_dict, fiducial_epoch,
                                         integration_window_half, Lmax, fMax,
                                         t_window=0.1, harmonics=(-2, -1, 0, 1, 2),
@@ -1334,6 +1346,7 @@ class JAXDistPhiPsiMargLikelihood:
             # The four-axis controller: it OWNS the time integral, so there is no
             # lnL(t) and time_quadrature does not reach it.  Reachable only by
             # name; not in 'auto'.
+            _refuse_controller_time_quadrature(time_quadrature, scheme)
             if d_prior not in ("euclidean", "volumetric"):
                 # its local branch integrates against the d^2 measure
                 # (multipeak_planner) regardless of log_w_grid
@@ -1359,7 +1372,7 @@ class JAXDistPhiPsiMargLikelihood:
             # exceeds the envelope or fails a warrant returns nan.  Planning
             # is stop_gradient control data; AD differentiates the accepted
             # fixed-plan integral and carries no derivative-accuracy claim.
-            # The endpoint time-quadrature validation already requires Simpson.
+            _refuse_controller_time_quadrature(time_quadrature, scheme)
             if dist_grid != "uniform":
                 raise ValueError(
                     "--angle-marg-scheme multipeak-jax derives its local "

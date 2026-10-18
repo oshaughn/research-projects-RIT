@@ -1396,7 +1396,7 @@ class MCSampler(SamplerOutputMixin, object):
         current_log_aggregate = None
         eff_samp = 0  # ratio of max weight to sum of weights
         maxlnL = -np.inf  # max lnL
-        maxval=0   # max weight
+        maxval = -np.inf   # running max of the LOG weight; 0 would floor it at w=1
         outvals=None  # define in top level scope
         self.ntotal = 0
         if bShowEvaluationLog:
@@ -1426,6 +1426,11 @@ class MCSampler(SamplerOutputMixin, object):
         # then seed this point's live volume from a different point's peak.  Drop it on
         # entry, so "present" always means "this pass wrote it".
         self._warm_seed_reserve = None
+        # AV members carry their selfish-step live set and threshold between chunks.  Keep
+        # the adapted grid across passes, but not a threshold set on another integrand.
+        for _member in self.portfolio_realizations:
+            if hasattr(_member, 'reset_selfish_state'):
+                _member.reset_selfish_state()
         while (eff_samp < neff and self.ntotal < nmax): #  and (not bConvergenceTests):
             
 
@@ -2010,7 +2015,16 @@ class MCSampler(SamplerOutputMixin, object):
                     # whose target is device-native, so there is nothing to clear.
                     if getattr(self, '_integrand_wants_host', False):
                       member._integrand_wants_host = True
-                    member.update_sampling_prior_selfish(lnF)
+                    # The member calls its integrand positionally, in ITS parameter order.
+                    # Unless the caller asked for positional calls (no_protect_names), the
+                    # portfolio calls lnF by name, and the signature order can differ from
+                    # the parameter order (classic ILE), so pass the member the by-name form.
+                    if 'no_protect_names' in kwargs:
+                      member_lnF = lnF
+                    else:
+                      _names_m = list(member.params_ordered)
+                      member_lnF = lambda *cols, _n=_names_m: lnF(**dict(zip(_n, cols)))
+                    member.update_sampling_prior_selfish(member_lnF)
                 else:
                   if self.portfolio_draw_iteration > self.portfolio_breakpoints[indx]:  
                     print("   - frozen sampling for member {} {}".format(indx, self.portfolio_weights[indx]))

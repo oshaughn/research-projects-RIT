@@ -37,6 +37,12 @@ Notes for agents:
 - "STARVED" rows (n_eff < 100) are not absolute failures — high-D mixtures
   legitimately exhaust production budgets — but base-healthy -> starved IS a
   blocking regression.
+- The matrix runs GMM as ONE all-dims group.  The multi-group lane (`GMM_pp`, `GMM_pairs`,
+  `portfolio_pairs`; `GROUP_CASES` in shape_recovery.py) runs CIP's one-group-per-parameter
+  shape and ILE's pairs from a seeded, frozen proposal.  A change to how dim groups are
+  drawn, scored or written into rows (`MonteCarloEnsemble._sample`, `gmm.sample`/`score`)
+  is visible only there.  `--preset standard` runs it; alone: `shape_recovery.py --no-matrix
+  --warm-cases off --group-cases on` (about 10-25 s with `--jobs 6`).
 - If your change is behind an opt-in flag, the default-path gate will show
   bitwise-identical results; you must ALSO probe the flag ON (use
   shape_recovery.py as a library; see its docstring).

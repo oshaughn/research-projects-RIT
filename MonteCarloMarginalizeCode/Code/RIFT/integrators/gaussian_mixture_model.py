@@ -69,9 +69,79 @@ if not _ORIGINAL_AVAILABLE:
         # Return probability and a '0' for success (mimicking legacy API)
         return p, 0
 
-        
+
+# Primes for the Richtmyer lattice in _box_mass, one per integrated dimension (d <= 169).
+_LATTICE_PRIMES = np.array([p for p in range(2, 1000) if all(p % q for q in range(2, int(p**0.5) + 1))])
+
+def _normal_interval(a, b):
+    '''Standard-normal CDF data for the intervals [a, b] (elementwise), evaluated in the
+    lower tail: the reflection sign, the endpoint CDFs p_lo <= p_hi of the REFLECTED
+    interval, and the mass Phi(b) - Phi(a).
+
+    ndtr saturates at exactly 1.0 beyond about 8.3, so differencing the two CDFs of an
+    interval deep in the POSITIVE tail -- a component mean far below the box -- gives
+    exactly zero.  score() then divides that component's pdf by the 1e-300 floor and
+    overestimates its density by hundreds of orders of magnitude, while sample() can still
+    draw the same component (it reflects, see _whitened_box).  Phi(b) - Phi(a) ==
+    Phi(-a) - Phi(-b), and in the lower tail ndtr -- and ndtri, used for the conditional
+    draw -- keep full relative accuracy down to ~1e-300, so evaluate reflected there.'''
+    from scipy.special import ndtr
+    sign = np.where(np.asarray(a) > 0, -1.0, 1.0)
+    p_lo = ndtr(np.where(sign < 0, -b, a))
+    p_hi = ndtr(np.where(sign < 0, -a, b))
+    return sign, p_lo, p_hi, p_hi - p_lo
+
+
+def _box_mass(lower, upper, mean, cov, n_points=2**12):
+    '''
+    Gaussian probability mass of the box [lower, upper]: Genz's separation-of-variables
+    integral on a FIXED Richtmyer lattice, so the same inputs always give the same value.
+
+    mvnun for d>=3 draws its lattice shifts from a Fortran RNG that no seed reaches, so its
+    result depends on how many calls preceded it in the process.  Accuracy here is
+    comparable to mvnun at its default abseps/releps=1e-5.
+    '''
+    from scipy.special import ndtri
+    lower = np.asarray(lower, dtype=float)
+    a = lower - mean
+    b = np.asarray(upper, dtype=float) - mean
+    cov = np.asarray(cov, dtype=float)
+    d = len(a)
+    if not (np.all(np.isfinite(mean)) and np.all(np.isfinite(cov))):
+        return float('nan')
+    # Integrate the least-probable dimensions first (Genz's variable reordering).
+    sd = np.sqrt(np.diag(cov))
+    order = np.argsort(_normal_interval(a / sd, b / sd)[3])
+    a, b, cov = a[order], b[order], cov[np.ix_(order, order)]
+    scale = max(float(np.max(np.abs(np.diag(cov)))), 1e-300)
+    for k in range(80):
+        try:
+            L = np.linalg.cholesky(cov + (0.0 if k == 0 else 1e-12 * 2.0**k * scale) * np.eye(d))
+            break
+        except np.linalg.LinAlgError:
+            pass
+    else:
+        return float('nan')
+    # Richtmyer lattice with the baker's (periodizing) transform; d-1 dimensions are
+    # sampled, the last is integrated exactly.
+    j = np.arange(1, n_points + 1)[:, None]
+    w = np.abs(2.0 * np.mod(j * np.sqrt(_LATTICE_PRIMES[:d - 1]) + 0.5, 1.0) - 1.0)
+    y = np.empty((n_points, d))
+    f = np.ones(n_points)
+    for i in range(d):
+        s = y[:, :i] @ L[i, :i]
+        sign, p_lo, p_hi, dp = _normal_interval((a[i] - s) / L[i, i], (b[i] - s) / L[i, i])
+        f *= dp
+        if i < d - 1:
+            # Interpolate on the reflected interval as well: for a positive-tail interval
+            # p_lo + w*dp rounds to 1 and ndtri saturates.  w=0 gives the lower endpoint
+            # of the original interval either way.
+            u = np.where(sign < 0, p_hi - w[:, i] * dp, p_lo + w[:, i] * dp)
+            y[:, i] = sign * ndtri(np.clip(u, 1e-300, 1.0 - 1e-16))
+    return float(np.mean(f))
+
+
 from scipy.special import logsumexp
-from . import multivariate_truncnorm as truncnorm
 import itertools
 import math
 
@@ -535,7 +605,7 @@ class gmm:
         renormalize.  Over-allocated components collapse to ~zero weight under
         EM; removing them (a) prevents a spurious sharp component from dominating
         the importance weights and (b) cuts score() cost, which is O(k) in the
-        per-component mvnun box normalization.  Keeps at least max(1, min_keep)
+        per-component box normalization (_box_mass, a few ms per component).  Keeps at least max(1, min_keep)
         components (the highest-weight ones) -- pass min_keep to preserve a safety
         floor.  No-op if nothing is below the floor.'''
         min_keep = max(1, int(min_keep))
@@ -627,7 +697,14 @@ class gmm:
         # density to the 1e-300 floor in score(), silently.  The conversion is this line's
         # own doing, so the guard has to live here.  test_gmm_backend_dispatch.py::
         # test_update_keeps_weights_floating_point fails if the dtype is dropped.
-        self.weights = _to_backend(xpy, np.asarray(_to_host(self.weights), dtype=float))
+        # ...and through a COPY: the loop below writes into self.weights/means/covariances
+        # element-wise, and np.asarray hands back a caller's own float array unchanged.  A seed
+        # built as `m.weights = target_weights` then had the CALLER's array rewritten on every
+        # update (measured: a test target's mixture weights drifted 0.561->0.518, so lnL
+        # re-evaluated after the run disagreed with the stored log_integrand by up to 0.23).
+        self.weights = _to_backend(xpy, np.array(_to_host(self.weights), dtype=float))
+        self.means = self.means.copy()               # list or ndarray: copy keeps the type
+        self.covariances = self.covariances.copy()
         order = self._match_components(new_model)
         for i in range(self.k):
             j = order[i]
@@ -762,10 +839,13 @@ class gmm:
                         x=sample_array_norm, mean=mean, cov=cov,
                         allow_singular=True)
                 
-                # mvnun is CPU only
+                # mvnun / _box_mass are CPU only.  mvnun is deterministic only for d==2.
                 mean_cpu = _to_host(mean)
                 cov_cpu = _to_host(cov)
-                component_mass = mvnun(bounds_norm_cpu[:,0], bounds_norm_cpu[:,1], mean_cpu, cov_cpu)[0]
+                if self.d == 2:
+                    component_mass = mvnun(bounds_norm_cpu[:,0], bounds_norm_cpu[:,1], mean_cpu, cov_cpu)[0]
+                else:
+                    component_mass = _box_mass(bounds_norm_cpu[:,0], bounds_norm_cpu[:,1], mean_cpu, cov_cpu)
             else:
                 sigma2 = cov[0,0]
                 component_pdf = (1./xpy.sqrt(2*xpy.pi*sigma2)
@@ -797,48 +877,15 @@ class gmm:
         the original coordinate frame before being returned, matching the
         pre-port behavior expected by MonteCarloEnsemble._sample().
         '''
-        # Sampling is kept on CPU for stability (truncnorm is CPU-only).  The RESULT goes
-        # back onto the backend the mixture PARAMETERS live on: sample() has no argument to
-        # read a backend off, so the model itself is the only honest source.  A host-fitted
-        # model must keep returning host draws on a GPU host, and a device-fitted one must
-        # keep returning device draws -- MonteCarloEnsemble._sample writes them straight
-        # into a self.xpy array.
+        # Draws are made on the backend the mixture PARAMETERS live on: sample() has no
+        # argument to read a backend off, so the model itself is the only honest source.  A
+        # host-fitted model must keep returning host draws on a GPU host, and a device-fitted
+        # one must keep returning device draws -- MonteCarloEnsemble._sample writes them
+        # straight into a self.xpy array.
         xpy = _model_backend(self)
-        means_np = [_to_host(m) for m in self.means]
-        covs_np = [_to_host(c) for c in self.covariances]
-        weights_np = _to_host(self.weights)
-
-        # truncnorm bounds must match the coordinate frame of the model
-        # parameters (mean/cov), which is normalized [-1, 1].
-        bounds_normalized = np.empty((self.d, 2))
-        bounds_normalized[:, 0] = -1.0
-        bounds_normalized[:, 1] = 1.0
-
-        sample_array_np = np.empty((n, self.d))
-        start = 0
-        for component in range(self.k):
-            w = weights_np[component]
-            mean = means_np[component]
-            cov = covs_np[component]
-            num_samples = int(n * w)
-            if component == self.k - 1:
-                end = n
-            else:
-                end = start + num_samples
-            try:
-                if not use_bounds:
-                    sample_array_np[start:end] = np.random.multivariate_normal(mean, cov, end - start)
-                else:
-                    sample_array_np[start:end] = truncnorm.sample(mean, cov, bounds_normalized, end - start)
-                start = end
-            except Exception as e:
-                print('Exiting due to non-positive-semidefinite', e)
-                raise Exception("gmm covariance not positive-semidefinite")
-
-        # Move to xpy and unnormalize back to original [llim, rlim] coordinates,
-        # so callers receive samples in the same frame as self.bounds.
-        sample_array_xpy = _to_backend(xpy, sample_array_np)
-        return self._unnormalize(sample_array_xpy)
+        draws = _sample_mixture_normalized(xpy, self.means, self.covariances, self.weights,
+                                           n, use_bounds=use_bounds)
+        return self._unnormalize(draws)
 
     def print_params(self):
         '''
@@ -865,6 +912,152 @@ class gmm:
                 print(weight, '\n')
             else:
                 print(i, weight, self._unnormalize(np.array([mean]))[0,0], mean[0], np.sqrt(cov[0,0]))
+
+
+def _special_for(xpy):
+    '''scipy.special for the host backend, the device's special-function module otherwise.'''
+    if xpy is np:
+        import scipy.special
+        return scipy.special
+    if xpy_special_default is None:
+        raise RuntimeError("no special-function module for backend %r" % (xpy,))
+    return xpy_special_default
+
+
+def _cov_factor(cov):
+    '''Q with cov = Q Q^T, from the symmetric eigendecomposition (Q = V sqrt(Lambda)).
+    eigh, not eig: for a repeated eigenvalue eig can return non-orthogonal eigenvectors.'''
+    cov = np.asarray(cov, dtype=float)
+    lam, V = np.linalg.eigh(0.5 * (cov + cov.T))
+    if not (np.all(np.isfinite(lam)) and lam.min() > 0):
+        raise Exception("gmm covariance not positive-semidefinite")
+    return V * np.sqrt(lam)
+
+
+def _whitened_box(mean, cov):
+    '''Host-side setup for drawing N(mean, cov) truncated to the normalized box [-1,1]^d.
+
+    With cov = Q Q^T (Q = V sqrt(Lambda)), x = mean + Q z and z ~ N(0, I).  The box pulls
+    back to a parallelotope in z; its bounding box [a, b] is returned.  Drawing each z_j
+    from a standard normal truncated to [a_j, b_j] and rejecting x outside the box gives
+    exactly N(mean, cov) truncated to the box -- the same algorithm as
+    multivariate_truncnorm.sample, which this replaces.
+
+    The 1-D truncated draws are made by inverse CDF.  To keep the CDF away from 1, an
+    interval with a > 0 is reflected through zero (sign -1).  Returns Q, sign, the
+    reflected lower bounds and upper bounds, and their CDF values.'''
+    from scipy.special import ndtr
+    mean = np.asarray(mean, dtype=float).reshape(-1)
+    Q = _cov_factor(cov)        # cov = Q Q^T
+    C = np.linalg.inv(Q)        # z = C (x - mean)
+    lo = -1.0 - mean
+    hi = 1.0 - mean
+    a = np.sum(np.minimum(C * lo, C * hi), axis=1)
+    b = np.sum(np.maximum(C * lo, C * hi), axis=1)
+    sign = np.where(a > 0, -1.0, 1.0)
+    lo_r = np.where(sign < 0, -b, a)
+    hi_r = np.where(sign < 0, -a, b)
+    p_lo = ndtr(lo_r)
+    dp = ndtr(hi_r) - p_lo
+    if not np.all(dp > 0):
+        raise RuntimeError("gmm.sample: a component has no numerical mass inside the "
+                           "bounds (whitened interval [%s, %s])" % (lo_r, hi_r))
+    return Q, sign, lo_r, hi_r, p_lo, dp
+
+
+# Total candidate rows one sample(n) call may draw before giving up, as a multiple of n.
+# Generous: the old host sampler allowed n rounds of n candidates per component.
+_MAX_CANDIDATES_PER_ROW = 10000
+# Candidate rows held in memory at once.
+_MAX_CANDIDATES_PER_ROUND = 2 ** 19
+
+
+def _sample_mixture_normalized(xpy, means, covs, weights, n, use_bounds=True):
+    '''n draws (n, d) on backend `xpy` from the mixture in normalized coordinates, each
+    component truncated to [-1,1]^d individually (use_bounds) -- the density
+    gmm.score() reports.
+
+    Every random number comes from xpy.random, so on the device the whole draw is
+    seeded by cupy.random (RIFT.integrators.seeding.seed_everything seeds both).
+
+    Per-component counts are floor(n*w) plus a categorical draw of the remainder in
+    proportion to the fractional parts (residual sampling), so E[count_k] = n*w_k exactly.
+    Component labels are then permuted, so row order carries no component label:
+    MonteCarloEnsemble._sample writes several dim groups' draws into the SAME rows and
+    scores them as a product of independent group densities.'''
+    n = int(n)                  # cupy.random.permutation rejects a numpy integer (portfolio passes one)
+    special = _special_for(xpy)
+    k = len(means)
+    w = np.asarray(_to_host(weights), dtype=float).reshape(-1)
+    w = w / np.sum(w)
+    means_h = [np.asarray(_to_host(m), dtype=float).reshape(-1) for m in means]
+    covs_h = [np.asarray(_to_host(c), dtype=float) for c in covs]
+    d = means_h[0].shape[0]
+    out = xpy.empty((n, d))
+    if n == 0:
+        return out
+
+    counts = np.floor(n * w).astype(int)
+    n_left = int(n - np.sum(counts))
+    if n_left > 0:
+        frac = n * w - counts
+        extra = xpy.random.choice(k, size=n_left, p=xpy.asarray(frac / np.sum(frac)))
+        counts += _to_host(xpy.bincount(extra, minlength=k)).astype(int)
+    labels = xpy.repeat(xpy.arange(k), [int(c) for c in counts])
+    labels = labels[xpy.random.permutation(n)]
+
+    # Set up only the components that are drawn: a component with no rows is never checked.
+    setup = []
+    for j in range(k):
+        if counts[j] == 0:
+            setup.append((np.eye(d),) + (np.ones(d),) * 5)    # placeholder, never indexed
+        elif use_bounds:
+            setup.append(_whitened_box(means_h[j], covs_h[j]))
+        else:
+            setup.append((_cov_factor(covs_h[j]),) + (np.ones(d),) * 5)
+
+    def stack(i):
+        return xpy.asarray(np.stack([s[i] for s in setup]))
+    Q_k = stack(0)
+    mean_k = xpy.asarray(np.stack(means_h))
+
+    if not use_bounds:
+        z = xpy.random.standard_normal((n, d))
+        out[...] = mean_k[labels] + xpy.einsum('nij,nj->ni', Q_k[labels], z)
+        return out
+
+    sign_k, lo_k, hi_k, plo_k, dp_k = (stack(i) for i in range(1, 6))
+    # Rows still to fill.  Each round takes a batch of them, draws r candidates for each and
+    # keeps the first accepted one; rows without an accepted candidate go back in the queue.
+    # Every row is filled from its own sequence of independent candidates, so the batching
+    # and r change the cost, not the distribution.
+    todo = xpy.arange(n)
+    r = 1
+    drawn = 0
+    while todo.shape[0] > 0:
+        n_cur = int(min(todo.shape[0], max(1, _MAX_CANDIDATES_PER_ROUND // r)))
+        cur, rest = todo[:n_cur], todo[n_cur:]
+        lab = xpy.repeat(labels[cur], r)
+        m = n_cur * r
+        u = xpy.random.uniform(0.0, 1.0, (m, d))
+        zr = special.ndtri(plo_k[lab] + u * dp_k[lab])
+        zr = xpy.minimum(xpy.maximum(zr, lo_k[lab]), hi_k[lab])
+        x = mean_k[lab] + xpy.einsum('nij,nj->ni', Q_k[lab], sign_k[lab] * zr)
+        ok = xpy.all((x > -1.0) & (x < 1.0), axis=1).reshape(n_cur, r)
+        got = xpy.any(ok, axis=1)
+        first = xpy.argmax(ok, axis=1)          # the first accepted candidate of each row
+        pick = x.reshape(n_cur, r, d)[xpy.arange(n_cur), first]
+        out[cur[got]] = pick[got]
+        todo = xpy.concatenate([rest, cur[~got]])
+        drawn += m
+        if todo.shape[0] > 0:
+            if drawn > _MAX_CANDIDATES_PER_ROW * n:
+                raise RuntimeError("gmm.sample: truncated-component acceptance too low "
+                                   "(%d of %d rows still unfilled after %d candidates)"
+                                   % (todo.shape[0], n, drawn))
+            rate = max(int(_to_host(xpy.sum(ok))), 1) / float(m)
+            r = int(min(max(1, np.ceil(2.0 / rate)), _MAX_CANDIDATES_PER_ROUND))
+    return out
 
 
 def _mixture_log_density_normalized(model, Xn):
@@ -943,7 +1136,7 @@ def fit_gmm_adaptive(sample_array, bounds, log_sample_weights=None, k_max=8,
       * A fixed LARGE k is both statistically fragile (a spurious sharp
         component collapses onto ~1 elite sample and dominates the importance
         weights) and computationally costly (score() does an O(k) per-component
-        mvnun box normalization on the CPU).
+        box normalization on the CPU).
     BIC threads between the two: fit k over a ladder, penalize free parameters
     by ln(N_eff), keep the best, and drop dead components.  It allocates more
     components only where the (importance-weighted) cloud is genuinely

@@ -114,7 +114,10 @@ from RIFT.likelihood.jax_ile.samplers import regularize_cov as _regularize_cov
 # before averaging, which conditions Z on prior support and biases it upward.
 from RIFT.likelihood.jax_ile.samplers import _finalize_evidence
 from RIFT.likelihood.jax_ile.samplers import evidence_from_logweights
-from RIFT.likelihood.jax_ile.core import _GATHERERS as _JAX_GATHERERS, JAX_INTERP_DEFAULT
+from RIFT.likelihood.jax_ile.core import (_GATHERERS as _JAX_GATHERERS,
+                                          JAX_INTERP_DEFAULT,
+                                          TIME_QUAD_DEFAULT,
+                                          _TIME_QUAD_CHOICES)
 from RIFT.likelihood.jax_ile.anglemarg import (ANGLE_MARG_DEFAULT, ANGLE_MARG_LEGACY,
                                                ANGLE_MARG_CHOICES,
                                                ANGLE_MARG_CROSSOVER_AMPLITUDE)
@@ -363,6 +366,7 @@ _ILE_ALL_OPTS = {
     "--sampler-anisotropic-bins", "--sampler-l0-rescue-accept-truncated",
     "--sampler-l0-rescue-puff-factor", "--sampler-l0-rescue-puff-scale",
     "--sampler-l0-rescue-puff-width-frac", "--sampler-l0-rescue-reject-dlnZ",
+    "--sampler-av-dilate-layers",
     "--sampler-load-state", "--sampler-method", "--sampler-portfolio",
     "--sampler-portfolio-allow-stratified-density",
     "--sampler-portfolio-args", "--sampler-save-state",
@@ -380,8 +384,47 @@ _ILE_ALL_OPTS = {
     "--supplementary-likelihood-factor-function",
     "--supplementary-likelihood-factor-ini", "--time-marginalization",
     "--time-posterior-export", "--use-external-EOB", "--use-gwsignal",
-    "--use-gwsignal-lmax-nyquist", "--vectorized", "--verbose",
+    "--use-gwsignal-lmax-nyquist", "--gwsignal-mode-conditioning", "--vectorized", "--verbose",
     "--window-shape", "--zero-likelihood",
+}
+
+
+# Value types numpy ILE declares for the compatibility options.  An untyped
+# option accepts any string, so a value numpy ILE refuses at parse time would
+# reach the driver, or a number would arrive as a string where it is used.
+_ILE_INT_OPTS = {
+    "--amp-order", "--calibration-burn-in-nmax",
+    "--calibration-mc-error-extrinsic", "--calibration-n-realizations",
+    "--calibration-n-realizations-max", "--calibration-pilot-extrinsic",
+    "--calibration-spline-count", "--distance-slice-chunk",
+    "--distance-slice-wing-neff", "--distance-slice-wing-nmax", "--e-freq",
+    "--export-distance-slices", "--internal-gmm-max-components",
+    "--internal-gmm-phase-components", "--internal-gmm-sky-components",
+    "--mc-error-replicas", "--n-distance-slice-core", "--n-distance-slice-wing",
+    "--portfolio-grace-iters", "--portfolio-probe-period",
+    "--portfolio-revive-period", "--rom-limit-basis-size-to", "--srate-internal",
+    "--use-gwsignal-lmax-nyquist",
+}
+_ILE_FLOAT_OPTS = {
+    "--adapt-floor-level", "--calibration-burn-in-neff",
+    "--calibration-neff-cal-target", "--distance-slice-skip-threshold",
+    "--distance-slice-wing-delta-lnL", "--extrinsic-proposal-field-cover-frac",
+    "--extrinsic-proposal-field-inflate", "--internal-gmm-defensive-frac",
+    "--internal-gmm-inflate", "--internal-precompute-ignore-threshold",
+    "--inv-spec-trunc-time", "--manual-logarithm-offset", "--mc-error-ess-trigger",
+    "--mc-error-khat-trigger", "--mc-error-sigma-trigger",
+    "--portfolio-alloc-exponent", "--portfolio-freeze-wt",
+    "--portfolio-varaha-max-frac", "--portfolio-varaha-min-frac",
+    "--portfolio-weight-clip", "--psd-window-shape",
+    "--sampler-l0-rescue-puff-factor", "--sampler-l0-rescue-puff-width-frac",
+    "--sampler-l0-rescue-reject-dlnZ", "--sampler-sequential-warmstart-cover-frac",
+    "--sampler-sequential-warmstart-deltalnL", "--sampler-warmstart-cover-frac",
+    "--sampler-warmstart-inflate", "--sampler-warmstart-retry-neff", "--save-P",
+    "--save-deltalnL",
+}
+_ILE_CHOICE_OPTS = {
+    "--sampler-l0-rescue-puff-scale": ["fixed", "auto"],
+    "--time-posterior-export": ["auto", "continuous", "grid"],
 }
 
 
@@ -401,6 +444,12 @@ def _register_compat_options(optp):
         elif name in _ILE_APPEND_OPTS:
             g.add_option(name, action="append", default=[],
                          help=optparse.SUPPRESS_HELP)
+        elif name in _ILE_INT_OPTS or name in _ILE_FLOAT_OPTS:
+            g.add_option(name, default=None, help=optparse.SUPPRESS_HELP,
+                         type="int" if name in _ILE_INT_OPTS else "float")
+        elif name in _ILE_CHOICE_OPTS:
+            g.add_option(name, default=None, help=optparse.SUPPRESS_HELP,
+                         type="choice", choices=_ILE_CHOICE_OPTS[name])
         else:
             g.add_option(name, default=None, help=optparse.SUPPRESS_HELP)
     optp.add_option_group(g)
@@ -466,6 +515,26 @@ def check_critical_and_report(opts, optp):
         fatal.append("--zero-likelihood is not implemented")
     if is_set("--maximize-only"):
         fatal.append("--maximize-only is not implemented (this driver integrates)")
+    # Waveform backend options act inside the shared precompute, so a dropped
+    # one changes the likelihood.  Parse them here so a bad dictionary is
+    # refused before any data are read, as numpy ILE refuses the lalsuite-args
+    # combination with --use-gwsignal at option parsing.
+    # An empty string is unset, as in numpy ILE.
+    for _flag in ("--internal-waveform-extra-kwargs",
+                  "--internal-waveform-extra-lalsuite-args"):
+        if getattr(opts, _dest(_flag), None):
+            try:
+                _parse_waveform_dict_option(getattr(opts, _dest(_flag)), _flag)
+            except Exception as exc:
+                fatal.append("%s: %s" % (_flag, exc))
+    if is_set("--use-gwsignal") and getattr(opts, "internal_waveform_extra_lalsuite_args", None):
+        fatal.append("--internal-waveform-extra-lalsuite-args cannot be used with "
+                     "--use-gwsignal; use --internal-waveform-extra-kwargs for "
+                     "GWSignal backend options")
+    if getattr(opts, "gwsignal_mode_conditioning", "legacy") == "native" and not is_set("--use-gwsignal"):
+        fatal.append("--gwsignal-mode-conditioning native requires --use-gwsignal")
+    if getattr(opts, "gwsignal_mode_conditioning", "legacy") == "native" and is_set("--internal-waveform-fd-no-condition"):
+        fatal.append("--gwsignal-mode-conditioning native conflicts with --internal-waveform-fd-no-condition")
     # REFUSED, not reported IGNORED with the compatibility no-ops above.  The
     # no-op rule is for missing KNOBS; these two ask for a data product.  Ignoring
     # --log-noise-evidence-only would run the whole integration the user asked the
@@ -566,6 +635,11 @@ def check_critical_and_report(opts, optp):
         if getattr(opts, "jax_av_seed", "none") != "none" \
                 and not any("--jax-av-seed requires" in item for item in fatal):
             fatal.append("--jax-av-seed requires --sampler-method AV/portfolio")
+    if (getattr(opts, "sampler_av_dilate_layers", None) or 0) < 0:
+        fatal.append("--sampler-av-dilate-layers must be >= 0")
+    if _sampler_method != "AV" and getattr(opts, "sampler_av_dilate_layers", None):
+        # a portfolio's AV member contracts without dilation
+        fatal.append("--sampler-av-dilate-layers is inert unless --sampler-method AV")
     if is_set("--psi-marginalization"):
         fatal.append("--psi-marginalization (analytic polarization-angle "
                      "marginalization) is not implemented for psi-sampling modes "
@@ -906,6 +980,9 @@ def check_critical_and_report(opts, optp):
                    "--vectorized", "--use-gwsignal", "--rotation-slow",
                    "--internal-waveform-fd-L-frame",
                    "--internal-waveform-fd-no-condition",
+                   "--internal-waveform-extra-kwargs",
+                   "--internal-waveform-extra-lalsuite-args",
+                   "--use-gwsignal-lmax-nyquist", "--gwsignal-mode-conditioning",
                    "--internal-precompute-ignore-threshold", "--no-memory",
                    "--e-freq", "--fmin-ifo",
                    "--rotation-n-harmonics", "--rotation-p-max",
@@ -925,10 +1002,14 @@ def check_critical_and_report(opts, optp):
         implemented |= {"--sampler-method", "--n-eff",
                         "--d-prior",
                         "--sampler-anisotropic-bins",
+                        "--internal-sky-network-coordinates",
+                        "--internal-sky-network-coordinates-raw",
                         "--limit-right-ascension", "--limit-declination",
                         "--limit-psi", "--limit-inclination"}
         if getattr(opts, "sampler_method", None) == "portfolio":
             implemented.add("--sampler-portfolio")
+        else:
+            implemented.add("--sampler-av-dilate-layers")
     _tempered_mode_active = (mode in _TEMPERED_MODES
                              and getattr(opts, "sampler_method", None)
                              not in ("AV", "portfolio"))
@@ -974,13 +1055,12 @@ def check_critical_and_report(opts, optp):
     if getattr(opts, "phase_marginalization", False) and mode in _PHASE_ANALYTIC_MODES:
         print("Note: --phase-marginalization is accepted but IGNORED for "
               "--mode %s (phase is already marginalized analytically)." % mode)
-    # --sky-coordinates network: wired only for --mode multistart-nuts (the
-    # other modes' samplers assume the equatorial (ra, sin(dec)) parameterization
-    # end to end -- reparameterizing them is more than plumbing, see the PR).
+    # AV/portfolio and multistart NUTS implement network-frame sky sampling.
     _skyc = getattr(opts, "sky_coordinates", "equatorial")
-    if _skyc != "equatorial" and mode != "multistart-nuts":
+    if (_skyc != "equatorial" and mode != "multistart-nuts"
+            and getattr(opts, "sampler_method", None) not in ("AV", "portfolio")):
         print("Note: --sky-coordinates %s is accepted but IGNORED for --mode "
-              "%s (only --mode multistart-nuts samples the sky in network-"
+              "%s (only AV/portfolio and --mode multistart-nuts sample the sky in network-"
               "frame coordinates; other modes use the default equatorial "
               "parameterization)." % (_skyc, mode))
     if ignored:
@@ -1001,8 +1081,35 @@ def _jax_core_dist_tol_default():
     return DIST_GRID_TOL_DEFAULT
 
 
+def _av_sky_sampling_kwargs(opts, detector_names=()):
+    """Classic alias uses its usual HL preference; explicit network uses all IFOs.
+
+    Like classic ILE, the alias excludes V1/K1 unless ``-raw`` is also given, and
+    falls back to equatorial sampling when fewer than two detectors remain (e.g.
+    HV, LV or single-IFO events).
+    """
+    if getattr(opts, "internal_sky_network_coordinates", False):
+        exclude = (() if getattr(opts, "internal_sky_network_coordinates_raw", False)
+                   else ("V1", "K1"))
+        eligible = [name for name in detector_names if name not in exclude]
+        if len(eligible) < 2:
+            print("Note: --internal-sky-network-coordinates needs two detectors "
+                  "after excluding %s (have %s); sampling the sky in equatorial "
+                  "coordinates, as classic ILE does."
+                  % (list(exclude), list(detector_names)))
+            return dict(sky_coords="equatorial")
+        return dict(sky_coords="network", network_exclude_detectors=exclude)
+    return dict(sky_coords=opts.sky_coordinates)
+
+
 def build_parser():
     optp = OptionParser(usage="%prog [options]", description=__doc__)
+
+    optp.add_option("--gwsignal-mode-conditioning", type="choice",
+                    choices=("legacy", "native"), default="legacy",
+                    help="GWSignal mode conditioning: legacy (default) or native "
+                         "SEOBNRv5HM/PHM conditioning-2. Native requires --use-gwsignal "
+                         "and a positive reference frequency.")
 
     g = OptionGroup(optp, "JAX compilation cache")
     g.add_option("--jax-cache-dir", default=None,
@@ -1187,6 +1294,14 @@ def build_parser():
                       "periodic probes (default: validated fixed schedule).")
     g.add_option("--sampler-anisotropic-bins", action="store_true", default=False,
                  help="Allocate AV bins preferentially along compressed coordinates.")
+    g.add_option("--sampler-av-dilate-layers", type=int, default=None,
+                 help="--sampler-method AV only: add this many layers of axis-neighbour "
+                      "bins to AV's occupied bins each cycle, so parts of a thin or "
+                      "curved live region that hold no retained point stay drawable "
+                      "(otherwise lnZ comes out low).  Costs several times more "
+                      "likelihood calls and can grow the per-cycle batch to several "
+                      "times --n-chunk.  Default off.  Left as None when unset so the "
+                      "ignored-option report does not claim the user passed it.")
     g.add_option("--jax-av-seed", type="choice", choices=("none", "fisher-sky"),
                  default="none",
                  help="Optional JAX initializer for AV/portfolio: hill-climb several "
@@ -1281,12 +1396,19 @@ def build_parser():
                       "the box comfortably wider than the posterior.  Must lie "
                       "inside [--d-min,--d-max].")
     g.add_option("--phase-marginalization", action="store_true", default=False)
+    # choices= and default= are DERIVED from the library, never re-typed.  A
+    # hardcoded ("simpson","bandlimited") tuple here made 'log-hermite'
+    # unreachable from every command line, ini and sub file for the life of the
+    # option -- the rule existed, passed its unit tests, and could only be
+    # selected by a direct Python caller.  test_time_log_hermite_selectable.py
+    # pins the derivation so the same gap cannot reopen.
     g.add_option("--time-marginalization-quadrature", type="choice",
-                 choices=("simpson", "bandlimited"), default="simpson",
-                 help="Rule for the time integral: historical fixed-grid "
-                      "Simpson or adaptive reflected-FFT refinement followed "
-                      "by a converged trapezoid. No resolution knob is exposed; "
-                      "the factor is derived and rechecked per row. "
+                 choices=list(_TIME_QUAD_CHOICES), default=TIME_QUAD_DEFAULT,
+                 help="Rule for the time integral: %s.  DEFAULT '%s', the "
+                      "historical fixed-grid Simpson rule.  'bandlimited' is "
+                      "adaptive reflected-FFT refinement followed by a converged "
+                      "trapezoid. No resolution knob is exposed; the factor is "
+                      "derived and rechecked per row. "
                       "'bandlimited' is honoured by the 6-D modes and, under "
                       "--distance-marginalization, by every mode except the "
                       "phi/psi-marginalized ones, which refuse it and say so. "
@@ -1295,7 +1417,14 @@ def build_parser():
                       "laplace-is, map, nuts) are refused at parse time unless "
                       "--data-integration-window-half is at least 2 R_earth / c "
                       "(0.0426 s), the largest arrival shift of a wrong-sky "
-                      "draw; 0.05 s is the measured clean value.")
+                      "draw; 0.05 s is the measured clean value.  'log-hermite' "
+                      "makes no band-limited claim: it interpolates lnL(t) in "
+                      "log space and integrates exp of the interpolant per "
+                      "interval, so it is accepted on the phi/psi-marginalized "
+                      "endpoints.  It is refused by the multipeak angle schemes "
+                      "and by --direct-marginalization-policy auto, which own "
+                      "the time integral."
+                      % ("|".join(_TIME_QUAD_CHOICES), TIME_QUAD_DEFAULT))
     g.add_option("--resample-time-marginalization", action="store_true",
                  default=False,
                  help="Conventional ILE option; currently unsupported by JAX ILE.")
@@ -1730,8 +1859,9 @@ def build_parser():
     g.add_option("--sky-coordinates", default="equatorial",
                  choices=["equatorial", "network"],
                  help="Optional: 'network' samples the sky in the two-detector "
-                      "baseline frame (folds the time-delay ring); multistart-nuts "
-                      "only, falls back to equatorial if <2 detectors.")
+                      "baseline frame (folds the time-delay ring); AV/portfolio or "
+                      "multistart-nuts. AV requires two distinct detectors and "
+                      "unrestricted sky bounds; NUTS falls back if <2 detectors.")
     g.add_option("--proposal-inflate", type=float, default=3.0,
                  help="Scale on the adaptive Gaussian proposal covariance.")
     g.add_option("--seed", type=int, default=0)
@@ -3514,6 +3644,22 @@ def _parse_freqresponse_arm_length(value):
     return result
 
 
+def _parse_waveform_dict_option(text, flag):
+    """Evaluate a waveform-option dictionary the way numpy ILE does.
+
+    A condor double-quoting failure can leave the dictionary wrapped in one
+    more string layer, so a string result is evaluated once more.  numpy ILE
+    evaluates in a namespace that has ``numpy`` bound; so does this one.
+    """
+    namespace = dict(globals(), numpy=np)
+    value = eval(text, namespace)
+    if isinstance(value, str):
+        value = eval(value, namespace)
+    if not isinstance(value, dict):
+        raise TypeError("%s must be a dictionary, got %r" % (flag, value))
+    return value
+
+
 def _waveform_precompute_kwargs(opts):
     """Return the waveform controls shared with production numpy ILE.
 
@@ -3528,10 +3674,31 @@ def _waveform_precompute_kwargs(opts):
         extra["fd_L_frame"] = True
     if getattr(opts, "internal_waveform_fd_no_condition", False):
         extra["no_condition"] = True
+    use_gwsignal = bool(getattr(opts, "use_gwsignal", False))
+    if use_gwsignal:
+        extra["gwsignal_mode_conditioning"] = getattr(opts, "gwsignal_mode_conditioning", "legacy")
+    # Same routing as integrate_likelihood_extrinsic_batchmode (PR #438).
+    lmax_nyquist = getattr(opts, "use_gwsignal_lmax_nyquist", None)
+    if lmax_nyquist is not None:
+        extra["lmax_nyquist"] = int(lmax_nyquist)
+    lalsuite_args = getattr(opts, "internal_waveform_extra_lalsuite_args", None)
+    if lalsuite_args:
+        if use_gwsignal:
+            raise ValueError("--internal-waveform-extra-lalsuite-args cannot be "
+                             "used with --use-gwsignal")
+        extra["extra_waveform_args"] = _parse_waveform_dict_option(
+            lalsuite_args, "--internal-waveform-extra-lalsuite-args")
+    extra_kwargs = getattr(opts, "internal_waveform_extra_kwargs", None)
+    if extra_kwargs:
+        extra_dict = _parse_waveform_dict_option(
+            extra_kwargs, "--internal-waveform-extra-kwargs")
+        if use_gwsignal:
+            extra["gwsignal_extra_kwargs"] = extra_dict
+        else:
+            extra.update(extra_dict)
     return dict(
-        use_gwsignal=bool(getattr(opts, "use_gwsignal", False)),
-        use_gwsignal_approx=(opts.approximant
-                             if getattr(opts, "use_gwsignal", False) else None),
+        use_gwsignal=use_gwsignal,
+        use_gwsignal_approx=opts.approximant if use_gwsignal else None,
         ignore_threshold=getattr(opts, "internal_precompute_ignore_threshold", None),
         no_memory=bool(getattr(opts, "no_memory", False)),
         extra_waveform_kwargs=extra)
@@ -4061,8 +4228,10 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
             sky_inflate=opts.jax_av_sky_inflate,
             seed_prior_frac=opts.jax_av_seed_prior_frac,
             anisotropic_bins=opts.sampler_anisotropic_bins,
+            dilate_layers=(opts.sampler_av_dilate_layers or 0),
             verbose=opts.verbose, sample_bounds=_sample_bounds,
             distance_prior=opts.d_prior,
+            **_av_sky_sampling_kwargs(opts, like.data.detector_names),
             **_distance_sampling)
         theta, lnL = res["theta"], res["lnL"]
         logZ, sig, neff = res["logZ"], res["sigma_over_Z"], res["neff"]

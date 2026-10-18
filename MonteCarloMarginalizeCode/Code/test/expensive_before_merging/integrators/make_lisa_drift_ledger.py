@@ -161,6 +161,9 @@ RULES = [
      "for it is if anything stronger there: the LISA extrinsic axes are no more "
      "isotropic than the ground-based ones, and a sky pair that localizes tightly "
      "while distance stays broad is the exact case this exists for."),
+    (r"^OPTION:--sampler-av-dilate-layers$", "PORT",
+     "AV axis-neighbour bin dilation each cycle. Pure AV plumbing (a sampler attribute "
+     "set at construction), so it applies to LISA as it does to the ground-based driver."),
     (r"^OPTION:--sampler-(save|load)-state$", "PORTED",
      "AV live-volume state serialization. AV is wired in LISA; the state is the "
      "sampler's own internal grid, so it carries no LIGO-specific convention."),
@@ -409,6 +412,10 @@ RULES = [
     (r"^OPTION:--internal-use-gwpy$", "NA",
      "gwpy low-level frame io. The LISA driver reads its data from h5 frames "
      "(--h5-frame/--h5-frame-FD), not from GWF via gwpy."),
+    (r"^OPTION:--gwsignal-mode-conditioning$", "NA",
+     "Selects native conditioning only for ground-based SEOBNRv5HM/PHM. "
+     "The LISA mode/frame path does not offer this model-specific conditioning "
+     "policy; unsupported LISA requests must not silently select a different waveform."),
     (r"^OPTION:--internal-waveform-(taper|extra-kwargs)$", "NA",
      "lalsimulation taper / extra-kwargs passthrough for the ground-based waveform "
      "path. The LISA driver has its own passthroughs for the generator it uses "

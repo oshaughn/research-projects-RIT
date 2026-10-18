@@ -2377,6 +2377,65 @@ def _av_param_order(like):
     return _FULL_EXTRINSIC_ORDER
 
 
+class _AVNetworkSky:
+    """Rotate an isotropic sky, leaving the physical likelihood API unchanged.
+
+    AV adapts uniform ``cos_theta_n, phi_n``. Rotation preserves solid angle:
+    p(cos_theta_n, phi_n)=1/(4*pi). Exported densities in dRA dDEC acquire
+    |d(cos_theta_n, phi_n)/d(RA,DEC)|=cos(DEC), for BOTH prior and proposal.
+    """
+    def __init__(self, like, exclude_detectors=()):
+        from . import coordinates
+        names = [name for name in like.data.detector_names
+                 if name not in exclude_detectors]
+        if len(names) < 2:
+            raise ValueError("AV network sky coordinates require two detectors (after excluding %s), have %s" % (list(exclude_detectors), list(like.data.detector_names)))
+        self.physical = like
+        self.order = _av_param_order(like)
+        if "ra" not in self.order or "dec" not in self.order:
+            raise ValueError("AV network coordinates require sampled ra and dec")
+        self.ra_index, self.dec_index = self.order.index("ra"), self.order.index("dec")
+        self.ANGULAR_PARAM_ORDER = tuple(
+            "cos_theta_n" if n == "ra" else "phi_n" if n == "dec" else n
+            for n in self.order)
+        self.coordinates = coordinates
+        self.gmst = float(like.data.gmst)
+        self.rotation = coordinates.build_network_frame(
+            np.asarray(like.data.detectors[names[0]]["location"]),
+            np.asarray(like.data.detectors[names[1]]["location"]), self.gmst)
+        self.baseline = tuple(names[:2])
+        # One compiled transform per batch shape; eager dispatch of the rotation
+        # otherwise dominates the GPU wall time of each likelihood chunk.
+        self._to_physical = jax.jit(self._to_physical_impl)
+        self._physical_columns = jax.jit(self._physical_columns_impl)
+
+    def __getattr__(self, name):
+        return getattr(self.physical, name)
+
+    def _to_physical_impl(self, theta):
+        ra, dec = self.coordinates.network_to_equatorial(
+            jnp.arccos(jnp.clip(theta[..., self.ra_index], -1., 1.)),
+            theta[..., self.dec_index], self.rotation, self.gmst)
+        return theta.at[..., self.ra_index].set(ra).at[..., self.dec_index].set(dec)
+
+    def to_physical(self, theta):
+        return self._to_physical(jnp.asarray(theta))
+
+    def from_physical(self, theta):
+        theta = jnp.asarray(theta)
+        polar, azimuth = self.coordinates.equatorial_to_network(
+            theta[..., self.ra_index], theta[..., self.dec_index],
+            self.rotation, self.gmst)
+        return theta.at[..., self.ra_index].set(jnp.cos(polar)).at[..., self.dec_index].set(azimuth)
+
+    def _physical_columns_impl(self, *cols):
+        theta = self._to_physical_impl(jnp.stack(cols, axis=-1))
+        return tuple(theta[..., j] for j in range(len(self.order)))
+
+    def log_likelihood(self, *cols):
+        return self.physical.log_likelihood(*self._physical_columns(*cols))
+
+
 def _av_sample_bounds(order, d_min, d_max, sample_d_min=None,
                       sample_d_max=None, sample_bounds=None,
                       distance_prior="euclidean"):
@@ -2436,6 +2495,10 @@ def _av_prior_draw(order, n, rng, d_min, d_max, sample_bounds=None,
         "distMpc": _av_distance_prior_draw(
             n, rng, dist_lo, dist_hi, d_min, d_max, distance_prior),
     }
+    if "cos_theta_n" in order:
+        draws["cos_theta_n"] = rng.uniform(*bounds["cos_theta_n"], n)
+    if "phi_n" in order:
+        draws["phi_n"] = rng.uniform(*bounds["phi_n"], n)
     return np.column_stack([draws[name] for name in order])
 
 
@@ -2458,6 +2521,10 @@ def _av_prior_spec(name, d_min, d_max, sample_d_min=None, sample_d_max=None,
     elif name == "dec":
         spec = (-_PI / 2, _PI / 2,
                 lambda x: 0.5 * np.maximum(np.cos(np.asarray(x)), 0.0))
+    elif name == "cos_theta_n":
+        spec = (-1., 1., lambda x: np.ones(np.shape(x)) / 2.)
+    elif name == "phi_n":
+        spec = (0., _TWO_PI, lambda x: np.ones(np.shape(x)) / _TWO_PI)
     elif name == "psi":
         spec = (0.0, _PI, lambda x: np.ones(np.shape(x)) / _PI)
     elif name == "incl":
@@ -2655,10 +2722,11 @@ def adaptive_volume_sample(like, d_min, d_max, sampler_method="AV",
                            initial_samples=None,
                            sky_inflate=2.0,
                            seed_prior_frac=0.1, anisotropic_bins=True,
-                           gmm_components=2,
+                           dilate_layers=0, gmm_components=2,
                            verbose=False, sample_d_min=None, sample_d_max=None,
                            sample_bounds=None, distance_prior="euclidean",
-                           portfolio_adaptive_alloc=False):
+                           portfolio_adaptive_alloc=False, sky_coords="equatorial",
+                           network_exclude_detectors=()):
     """Run production AV/portfolio control logic on a value-only JAX likelihood.
 
     ``sampler_method`` is ``AV`` or ``portfolio``.  The optional ``fisher-sky``
@@ -2670,6 +2738,11 @@ def adaptive_volume_sample(like, d_min, d_max, sampler_method="AV",
     global-impact allocation with periodic member probes. This can keep a
     full-support GMM from being starved after AV contracts; the default remains
     the previously validated portfolio schedule.
+
+    ``sky_coords="network"`` adapts cos(theta_n) and phi_n about the first
+    detector baseline. Input seeds and returned theta/prior/proposal densities
+    retain physical RA/DEC coordinates; sampler internals and seed_cloud use
+    the network coordinates. Restricted physical sky windows are refused.
     """
     from RIFT.integrators import mcsamplerAdaptiveVolume as AV
 
@@ -2678,6 +2751,25 @@ def adaptive_volume_sample(like, d_min, d_max, sampler_method="AV",
         raise ValueError("sampler_method must be 'AV' or 'portfolio', got %r" % method)
     if portfolio_adaptive_alloc and method != "portfolio":
         raise ValueError("portfolio_adaptive_alloc requires sampler_method='portfolio'")
+    physical_like = like
+    physical_order = _av_param_order(like)
+    network = None
+    if sky_coords not in ("equatorial", "network"):
+        raise ValueError("unknown AV sky coordinates %r" % sky_coords)
+    if sky_coords == "network":
+        # A rectangle in RA/DEC is not a rectangle in the rotated coordinates.
+        # Refuse restricted sky support rather than silently changing the prior.
+        sample_bounds = dict(sample_bounds or {})
+        for name in ("ra", "dec"):
+            if name in sample_bounds:
+                full = _av_prior_spec(name, d_min, d_max)[:2]
+                # Tolerate a full range typed to ~6 digits (e.g. 0,6.283185).
+                if not np.allclose(sample_bounds.pop(name), full, rtol=0., atol=1e-5):
+                    raise ValueError("AV network sky coordinates do not support restricted %s bounds" % name)
+        network = _AVNetworkSky(like, exclude_detectors=network_exclude_detectors)
+        like = network
+        if verbose:
+            print("  AV sky sampled in network frame (baseline %s-%s)" % network.baseline)
     order = _av_param_order(like)
     n_dim = len(order)
     resolved_bounds = _av_sample_bounds(
@@ -2737,6 +2829,14 @@ def adaptive_volume_sample(like, d_min, d_max, sampler_method="AV",
         if seed_cloud.shape[1] != n_dim:
             raise ValueError("initial_samples must have %d columns, got %d"
                              % (n_dim, seed_cloud.shape[1]))
+        if network is not None:
+            if not np.all(np.isfinite(seed_cloud)):
+                raise ValueError("initial_samples must be finite physical coordinates")
+            for j, name in enumerate(physical_order):
+                lo, hi = _av_prior_spec(name, d_min, d_max)[:2]
+                if np.any(seed_cloud[:, j] < lo) or np.any(seed_cloud[:, j] > hi):
+                    raise ValueError("initial_samples fall outside physical bounds for %s" % name)
+            seed_cloud = np.asarray(network.from_physical(seed_cloud))
         for j, name in enumerate(order):
             lo, hi = resolved_bounds[name]
             if np.any(seed_cloud[:, j] < lo) or np.any(seed_cloud[:, j] > hi):
@@ -2750,12 +2850,18 @@ def adaptive_volume_sample(like, d_min, d_max, sampler_method="AV",
         if seed_method != "fisher-sky":
             raise ValueError("unknown JAX-AV seed method %r" % seed_method)
         seed_cloud, seed_modes_theta, seed_modes_lnL = _fisher_sky_seed(
-            like, order, lnL, np.random.default_rng(seed), d_min, d_max,
+            physical_like, physical_order,
+            _fixed_shape_value_callback(physical_like, n_dim, eval_chunk),
+            np.random.default_rng(seed), d_min, d_max,
             n_seed=(seed_points or n_chunk), n_pilot=seed_pilot,
             n_modes=seed_modes, sky_inflate=sky_inflate,
             prior_frac=seed_prior_frac, initial_points=seed_initial_points,
-            sample_bounds=resolved_bounds, verbose=verbose,
+            sample_bounds=_av_sample_bounds(
+                physical_order, d_min, d_max, sample_d_min, sample_d_max,
+                sample_bounds, distance_prior), verbose=verbose,
             distance_prior=distance_prior)
+        if network is not None:
+            seed_cloud = np.asarray(network.from_physical(seed_cloud))
         if method == "portfolio":
             sampler.bootstrap_from_samples(seed_cloud, params=order, seed=seed)
         else:
@@ -2772,6 +2878,12 @@ def adaptive_volume_sample(like, d_min, d_max, sampler_method="AV",
     try:
         allocation_kwargs = ({"portfolio_adaptive_alloc": True}
                              if portfolio_adaptive_alloc else {})
+        if dilate_layers:
+            if int(dilate_layers) < 0:
+                raise ValueError("dilate_layers must be >= 0")
+            if method != "AV":
+                raise ValueError("dilate_layers acts only on standalone AV, not %r" % method)
+            allocation_kwargs["dilate_layers"] = int(dilate_layers)
         result = sampler.integrate_log(
             lnL, *order, nmax=int(nmax), neff=float(neff), n=int(n_chunk),
             no_protect_names=True, verbose=bool(verbose), save_intg=True,
@@ -2810,6 +2922,16 @@ def adaptive_volume_sample(like, d_min, d_max, sampler_method="AV",
         log_joint_prior = np.asarray(sampler._rvs["log_joint_prior"], dtype=float)
         log_joint_s_prior = np.asarray(sampler._rvs["log_joint_s_prior"], dtype=float)
         log_weight = out_lnL + log_joint_prior - log_joint_s_prior
+    if network is not None:
+        theta = np.asarray(network.to_physical(theta))
+        if not already_fair:
+            with np.errstate(divide="ignore"):
+                log_jacobian = np.log(np.maximum(np.cos(theta[:, network.dec_index]), 0.))
+            log_joint_prior = log_joint_prior + log_jacobian
+            log_joint_s_prior = log_joint_s_prior + log_jacobian
+            # The equal Jacobians cancel: preserve the original stable weights.
+        diagnostics = dict(diagnostics, sky_coordinates="network",
+                           sky_baseline=network.baseline)
     sigma_over_Z = float(np.exp(0.5 * float(log_var) - float(logZ)))
     peak = float(np.max(out_lnL)) if len(out_lnL) else np.nan
     logZ, sigma_over_Z, eff_samp = _finalize_evidence(

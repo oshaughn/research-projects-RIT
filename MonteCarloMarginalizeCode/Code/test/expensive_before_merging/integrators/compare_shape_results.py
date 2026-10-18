@@ -16,7 +16,7 @@ import sys
 
 import numpy as np
 
-from shape_recovery import evaluate
+from shape_recovery import GROUP_KINDS, evaluate
 
 # metric-worsening tolerances (candidate - base), applied only when both pass
 TOL_WORSE = dict(js=0.005, mean_pull=0.05, width_dev=0.05, corr=0.05,
@@ -121,7 +121,8 @@ def main():
     ap.add_argument("--confirm-repeats", type=int, default=5)
     ap.add_argument("--confirm-jobs", type=int, default=4)
     ap.add_argument("--strict-samplers",
-                    default="AV,GMM,portfolio_warm,portfolio_seq,portfolio_seq_nobs")
+                    default="AV,GMM,portfolio_warm,portfolio_seq,portfolio_seq_nobs,"
+                            + ",".join(GROUP_KINDS))
     opts = ap.parse_args()
     strict = set(x.strip() for x in opts.strict_samplers.split(","))
 

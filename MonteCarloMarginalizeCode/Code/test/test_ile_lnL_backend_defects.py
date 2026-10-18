@@ -26,12 +26,9 @@ GMM as the only backends that could produce a .dgrid at all.
      next line mixes it into a device expression, which cupy refuses.  It is invisible on
      CPU because `numpy.max` returns a numpy SCALAR, which cupy accepts.
 
-     Those same two lines carry a second, quieter defect that is DELIBERATELY NOT fixed here:
-     `maxval` is a LOG-scale accumulator initialized at 0, a linear-weight idiom, so
-     eff_samp = sum(w)/max(w) is floored whenever the largest weight is < 1.  Real GW lnL is
-     large and positive so it does not bite in production, and the identical initializer is
-     copied verbatim into mcsamplerPortfolio and mcsamplerNFlow -- changing one would split
-     n_eff, and hence run lengths, across backends mid-campaign.  Recorded in the code.
+     `maxval` used to start at 0, which under-reported n_eff whenever every weight was < 1.
+     It now starts at -inf in all three log-space samplers; see
+     test/integrators/test_integrate_log_neff_negative_lnZ.py.
 
   2. Any --sampler-method that lands on the driver's "original sampler" fallback -- e.g.
      `adaptive_cartesian` -- died AFTER a successful integration with

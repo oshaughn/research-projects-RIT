@@ -94,9 +94,15 @@ FILES=(
   "$C/test/integrators/test_convergence_sample_order.py"
   "$C/test/integrators/test_extrinsic_phase_group_uniform.py"
   "$C/test/integrators/test_gmm_adaptive.py"
+  "$C/test/integrators/test_gmm_sample_row_independence.py"
+  "$C/test/integrators/test_gmm_update_no_aliasing.py"
+  "$C/test/integrators/test_integrate_log_neff_negative_lnZ.py"
+  "$C/test/integrators/test_gmm_sample_matches_score.py"
+  "$C/test/integrators/test_gmm_score_deterministic.py"
   "$C/test/integrators/test_mcsamplerGPU_default_adapt.py"
   "$C/test/integrators/test_portfolio_gmm_member_trains.py"
   "$C/test/integrators/test_portfolio_restrict_and_warm.py"
+  "$C/test/integrators/test_av_selfish_state.py"
   # Wraps the five integrator studies as subprocesses (29 s).  They collect nothing
   # themselves -- pytest exits 5 on each -- so this is how their gates reach CI at all.
   "$C/test/integrators/test_integrator_studies.py"
@@ -107,6 +113,7 @@ FILES=(
   "$C/test/interpolators/test_cached_matern_gp.py"
   "$C/test/test_av_host_backend.py"
   "$C/test/test_av_kish_loop.py"
+  "$C/test/test_av_retained_density.py"
   "$C/test/test_matern_gp.py"
   "$C/test/integrators/test_seeding_public_paths.py"
   "$C/test/integrators/test_seeding_reproducibility.py"
@@ -120,6 +127,7 @@ FILES=(
   "$C/test/test_dgrid_retained_set.py"
   "$C/test/test_distance_tail.py"
   "$C/test/test_dslice_device_native.py"
+  "$C/test/test_dslice_bounds.py"
   # -- hyperpipe (paper4 area; the hydra leg is rostered OPTDEP, not here)
   "$C/test/hyperpipe/tests/test_config.py"
   "$C/test/hyperpipe/tests/test_coords.py"
@@ -184,11 +192,42 @@ FILES=(
   "$C/test/test_lisa_ini_contract.py"
   "$C/test/test_tracer_placement_gp.py"
   "$C/test/waveforms/test_uv_symmetry.py"
+  # -- std_and_conj_hlmoff's SphHarmTimeSeries branch must key its output by (l,m), the way
+  # every caller indexes it.  A dict keyed the other way is still a populated dict: the
+  # mode sum silently loses modes rather than raising.
+  "$C/test/test_std_and_conj_hlmoff_sphharm.py"
+  # -- hlmoft ChooseFDModes end taper is capped in duration: long buffers keep the merger,
+  # buffers <= 100 s are bit-identical to the uncapped 1% rule.
+  "$C/test/test_fd_end_taper_cap.py"
+  # Fixed-phase Phenom mode conventions: generic spins first, aligned boundaries.
+  "$C/test/test_phenom_lframe_conventions.py"
+  # Native SEOB mode conditioning: linear shared-grid filtering, canonical
+  # trimming before mode selection, zero modes, and explicit reference state.
+  # Does not require the optional pySEOBNR waveform backend.
+  "$C/test/test_gwsignal_seob_conditioning.py"
   "$C/test/test_complex_overlap_interpolate_max.py"
   # -- coordinates: vectorized in-plane spin / ring coordinates agree with extract_param
   "$C/test/test_ring_coordinates.py"
   # -- coordinates: source_redshift gives detector-frame values, vectorized vs extract_param
   "$C/test/test_convert_coordinates_source_redshift.py"
+  # -- coordinates: assign_param gives the same spin for any order within one spin system
+  "$C/test/test_assign_param_spin_order.py"
+  # -- EOSPosterior distance-slice fits: vectorized coordinates and the dslice-amp model
+  #    (numpy legs; the cupy legs skip here and run by hand on a GPU node)
+  "$C/test/test_convert_waveform_coordinates_vectorized.py"
+  "$C/test/test_waveform_coordinates_xpy.py"
+  "$C/test/interpolators/test_dslice_amplitude_model.py"
+  "$C/test/interpolators/test_dslice_rf_tails.py"
+  # -- EOSPosterior gp-matern driver, cupy Matern fit
+  #    (numpy legs; cupy legs skip).  test_eos_gp_matern.py runs the driver end to end: ~100 s on CIT.
+  "$C/test/interpolators/test_cupy_matern_fit.py"
+  "$C/test/test_eos_gp_matern.py"
+  # -- --rf-seed regrows the same forest (driver run three times, ~30 s on CIT)
+  "$C/test/test_eos_rf_seed.py"
+  # -- reported evidence restores the lnL shift (explicit and automatic), known answer
+  "$C/test/test_eos_evidence_lnL_shift.py"
+  # -- coordinates: per-row fallbacks convert each row independently of the others
+  "$C/test/test_convert_coordinates_row_independence.py"
 )
 
 # A manifest entry that stops existing is a SILENT no-op: the gate keeps passing while
@@ -397,7 +436,42 @@ done
 # CUDA_VISIBLE_DEVICES='': junit 698 collected / 683 passed, 3 of them subtests -> 695/680.
 # (pcdev11 has one extra host skip, cupy-importable in test_eos_posterior_tempering_kwarg.)
 # test_convert_coordinates_source_redshift.py adds 16 passing tests and no skips.
-EXPECTED_TESTS=711
+# PR #391 (EOSPosterior GPU port and dslice fits), merged with rift_O4d 7e2984a0: measured on CIT
+# ldas-grid (IGWN python, cupy importable, no device) 2026-10-05, outcomes 751 collected / 732 passed /
+# 19 skipped incl. 3 subtests -> 748/729; less test_dslice_quadratic_gp.py (2, removed) -> 746/727;
+# final review added 4 tests to test_dslice_amplitude_model.py (all pass on CPU) -> 750/731.
+# test_eos_evidence_lnL_shift.py adds 3 collected, 3 passed, no skips.
+# test_assign_param_spin_order.py adds 35 passing tests and no skips -> 788/769.
+# test_convert_coordinates_row_independence.py adds 9 passing tests and no skips -> 797/778.
+# test_gmm_sample_row_independence.py adds 10 passing tests and no skips -> 807/788.
+# test_integrate_log_neff_negative_lnZ.py adds 7 passing tests and no skips -> 814/795.
+# test_gmm_sample_matches_score.py adds 17 passing tests and no skips (its device legs are
+# collected only where a device is usable).  RE-MEASURED with it on rift_O4d dd1ea9511
+# (ldas-pcdev2, IGWN python, cupy importable, CUDA_VISIBLE_DEVICES='') 2026-10-07: junit 843
+# collected / 823 passed / 20 skipped incl. 3 subtests -> 840/820.  The 20th skip is the
+# cupy-importable leg of test_eos_posterior_tempering_kwarg, absent on the CI runner.  The
+# previous floors (814/795) sat 9 below the tree before this file was added.
+# test_gmm_score_deterministic.py adds 19 passing tests and no skips.  RE-MEASURED on 9b0e4085a
+# (ldas-pcdev2, IGWN python, cupy importable, CUDA_VISIBLE_DEVICES='') 2026-10-07: 862 collected /
+# 842 passed / 20 skipped incl. 3 subtests -> 859/839; the 20 skips are the same as above.
+# Its accuracy test then made it 20 (file alone: 20 passed) -> 860/840; three tail-mass tests
+# made it 23 (file alone: 23 passed) -> 863/843.
+# test_gmm_update_no_aliasing.py (#420) adds 2 passing tests and no skips.  RE-MEASURED on the
+# merge of #420 with rift_O4d c7476627e (ldas-pcdev11, same setup) 2026-10-07: 876 collected /
+# 856 passed / 20 skipped incl. 3 subtests -> 873/853 (base floors sat 8 below the tree).
+# test_std_and_conj_hlmoff_sphharm.py adds 2 tests (one function, two-case parametrize, no
+# skips) -> 875/855.  RE-MEASURED on the merge of #433 with rift_O4d c46a19bf (ldas-grid, IGWN
+# python, cupy absent) 2026-10-08: 878 collected / 859 passed / 19 skipped incl. 3 subtests.
+# test_fd_end_taper_cap.py adds 3 tests (two functions, one two-case parametrize, no skips)
+# -> 878/858.
+# test_dslice_rf_tails.py adds 10 tests and no skips -> 888/868.
+# test_dslice_amplitude_model.py: +1 (_lognorm chunk memory bound), passes, no skips -> 889/869.
+# test_phenom_lframe_conventions.py adds 34 passing tests: generic-spin waveform
+# and polarization controls, aligned boundaries, and SpinTaylor option transport.
+# test_dslice_bounds.py adds 2 tests and no skips.
+# test_gwsignal_seob_conditioning.py adds 8 passing tests with LALSuite 7.26.16:
+# shared-grid operator tests plus native/no_condition conflict refusal.
+EXPECTED_TESTS=933
 # Outcomes, not just exit status: a collection floor cannot see a test that collects, runs and
 # asserts nothing, and a pytest.skip can quietly absorb a lost gate.  The 13 skips are
 # environment legs -- cupy in test_seeding_reproducibility, device legs in
@@ -410,9 +484,19 @@ EXPECTED_TESTS=711
 # missing dependency there FAILS the driver subprocess rather than skipping the check.
 # test_dag_postprocess_fail_closed.py adds 13 tests and no skips.
 # test_convert_coordinates_source_redshift.py adds 16 tests and no skips.
-EXPECTED_PASSED=696
+# test_assign_param_spin_order.py adds 35 tests and no skips.
+# test_convert_coordinates_row_independence.py adds 9 tests and no skips.
+# test_gmm_sample_row_independence.py adds 10 tests and no skips.
+# test_gmm_sample_matches_score.py adds 17 tests and no skips; re-measured 840/820 (above).
+# test_gmm_score_deterministic.py adds 23 tests and no skips; 863/843 (above).
+# test_gmm_update_no_aliasing.py adds 2 tests and no skips; re-measured 873/853 (above).
+# test_std_and_conj_hlmoff_sphharm.py adds 2 tests and no skips; 875/855 (above).
+# test_fd_end_taper_cap.py adds 3 tests and no skips; 878/858 (above).
+# test_dslice_rf_tails.py adds 10 tests and no skips; 888/868 (above).
+# test_dslice_bounds.py adds 2 tests; SEOB conditioning adds 8, all passing.
+EXPECTED_PASSED=913
 # PR #382: +1 skip, the CuPy leg of test_cached_matern_gp.py (no GPU on the CI runner).
-MAX_SKIPPED=14
+MAX_SKIPPED=19
 
 # The floors must be INTEGERS, and this is checked rather than assumed.  `[ 347 -lt FOO ]` does
 # not fail the build: bash prints "integer expression expected", returns 2, and the `if` is

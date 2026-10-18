@@ -140,6 +140,18 @@ if [ "$_PORTDENS_FOUND" -ne "$_PORTDENS_EXPECTED" ]; then
     exit 1
 fi
 python -m pytest -q "$_PORTDENS_TESTS"
+# mcsamplerGPU.integrate_log aggregates on self.xpy, not the backend bound at import.  On a cupy
+# host the import-time default was cupy while the instance was numpy, and every adaptive run
+# raised "Unsupported type numpy.ndarray".  Here only the 3 wiring tests run; the other 18 need a
+# usable cupy device and skip, so this job cannot certify the device lane.
+_GPUBACKEND_TESTS=MonteCarloMarginalizeCode/Code/test/integrators/test_mcsamplerGPU_instance_backend.py
+_GPUBACKEND_EXPECTED=21
+_GPUBACKEND_FOUND=$(python -m pytest -q --collect-only "$_GPUBACKEND_TESTS" 2>/dev/null | grep -c '::' || true)
+if [ "$_GPUBACKEND_FOUND" -ne "$_GPUBACKEND_EXPECTED" ]; then
+    echo "mcsamplerGPU instance-backend gate: collected $_GPUBACKEND_FOUND tests, expected $_GPUBACKEND_EXPECTED" >&2
+    exit 1
+fi
+python -m pytest -q "$_GPUBACKEND_TESTS"
 
 # The --zero-likelihood stand-in, checked as WIRING rather than as an answer: its argument order
 # against the driver's own supplemental_ln_likelihood call sites, its generated signature against

@@ -22,9 +22,8 @@ FLAKE RISK, since these are Monte Carlo studies with tolerance-based gates: all 
 explicitly, through RIFT.integrators.seeding.seed_everything, which reaches cupy as well as numpy
 (a bare numpy.random.seed is inert on the GPU backend the samplers draw through).  But a seed does
 not make a low-effective-sample-size result reliable across platforms, and it does not even fix the
-result on ONE platform: scipy's mvnun, which normalizes each GMM component inside gmm.score,
-carries an RNG that NEITHER seeding path can reach, so repeating an arm inside one interpreter
-changes its answer.  The decoy balance-heuristic study therefore checks the mean log bias over
+result on ONE platform: before gmm.score dropped scipy's mvnun for d>=3, an RNG that NEITHER
+seeding path reached made a repeated arm inside one interpreter change its answer.  The decoy balance-heuristic study therefore checks the mean log bias over
 independent, process-isolated runs against a fixed threshold in nats.  If a study proves marginal
 in CI, investigate its sampling and statistical contract; do not delete the gate and do not widen
 its threshold.

@@ -42,6 +42,8 @@ Policy
 Strict (hard-fail) samplers default to AV + GMM; NF and portfolio default to
 warn-only (they are known-weaker in older code lines, e.g. rift_O4c).  Override
 with --strict-samplers / --samplers.  Exit code 1 iff any strict run fails.
+The multi-dim-group GMM cases (GROUP_CASES, kinds in GROUP_KINDS) are also strict;
+--group-cases controls them, --no-matrix skips the matrix.
 
 Usage
 -----
@@ -753,6 +755,195 @@ def run_seq_case(kind, target_b, target_a, nmax, neff, n_chunk=10000, seed=98765
 
 
 # ----------------------------------------------------------------------------
+# Multi-group lane: the production GMM dim-group shape
+# ----------------------------------------------------------------------------
+# The matrix runs GMM with correlate_all_dims=True (one group), but production does not: CIP's
+# default is one group per parameter, and ILE uses (ra,dec)(distance,inclination)(psi,phi_orb)
+# pairs.  MonteCarloEnsemble._sample writes each group's draw into the SAME rows and scores the
+# row as a product of group densities, so a defect that correlates rows across groups is
+# invisible with one group.  Example: before PR #407, gmm.sample returned rows grouped by
+# component, so every group's component labels lined up row by row.
+#
+# The target is an exact PRODUCT of per-group mixtures with unequal-width modes, so the true
+# cross-group correlation is zero and corr_diff_max reads the defect directly.
+#
+# The proposal is SEEDED and FROZEN: each group's GMM holds the target's own components, widened
+# 1.3x, as ILE's --extrinsic-proposal-breadcrumb installs them (frozen by default).  Standalone
+# cold-started GMM does not resolve these modes on either side of #407 (fitted means stay near the
+# box centre, both components ~2.6 wide), so its fitted groups give a row-alignment defect almost
+# nothing to act on.  Measured 2026-10-06, run seeds 987654 and 988654.  The lane exercises
+# _sample / gmm.sample / score, not _train: a matched seed reaches neff in one chunk.
+GROUP_KINDS = ("GMM_pp", "GMM_pairs", "portfolio_pairs")
+GROUP_CASES = [   # (kind, group_sizes, ncomp, target_seed, nmax, neff)
+    # CIP's grouping: one group per parameter (int n_comp, as `--internal-n-comp`)
+    ("GMM_pp",          (1, 1, 1, 1), 2, 101, 400000, 3000),
+    ("GMM_pp",          (1, 1, 1, 1), 3, 202, 400000, 3000),
+    # ILE shape: correlated pairs, per-group n_comp dict
+    ("GMM_pairs",       (2, 2, 2),    2, 101, 600000, 3000),
+    ("GMM_pairs",       (2, 2, 2),    3, 202, 600000, 3000),
+    # the same pairs as the GMM member of an AV+GMM portfolio (gmm_dict passed through setup)
+    ("portfolio_pairs", (2, 2, 2),    2, 101, 600000, 3000),
+    ("portfolio_pairs", (2, 2, 2),    3, 202, 600000, 3000),
+]
+# A matched seed stops on neff after one chunk: measured n_eff 3300-4500 in both arms, so
+# starvation here is a defect, not an untestable cell.
+STARVE_IS_FAIL = STARVE_IS_FAIL + GROUP_KINDS
+
+
+class GroupedMixtureTarget(object):
+    """Product of independent Gaussian mixtures, one per dim group of size `group_sizes[g]`.
+
+    Each group has `ncomp` separated modes with means spread along a random direction over
+    [-SPREAD, SPREAD], widths spanning SIG_MIN to SIG_MAX (unequal by construction) and unequal
+    weights.  A pair group's modes are also elongated in a random orientation."""
+
+    SIG_MIN, SIG_MAX, SPREAD = 0.3, 0.9, 2.5
+
+    def __init__(self, group_sizes, ncomp, seed):
+        self.group_sizes = tuple(int(g) for g in group_sizes)
+        self.ndim = int(sum(self.group_sizes))
+        self.ncomp = int(ncomp)
+        self.seed = int(seed)
+        self.name = "grp{}_n{}_s{}".format("".join(str(g) for g in self.group_sizes), ncomp, seed)
+        self.params = ["x{}".format(i) for i in range(self.ndim)]
+        self.llim = -BOX_HALF_WIDTH * np.ones(self.ndim)
+        self.rlim = BOX_HALF_WIDTH * np.ones(self.ndim)
+        rng = np.random.RandomState(seed)
+        self.groups, self.blocks = [], []
+        start = 0
+        for size in self.group_sizes:
+            self.groups.append(tuple(range(start, start + size)))
+            start += size
+            v = rng.normal(size=size)
+            v /= np.linalg.norm(v)
+            t = np.linspace(-self.SPREAD, self.SPREAD, ncomp) + rng.uniform(-0.3, 0.3, ncomp)
+            sig = self.SIG_MIN * (self.SIG_MAX / self.SIG_MIN) ** (
+                rng.permutation(ncomp) / max(ncomp - 1.0, 1.0))
+            wt = rng.uniform(0.3, 1.0, ncomp)
+            means, covs = [], []
+            for k in range(ncomp):
+                q, _ = np.linalg.qr(rng.normal(size=(size, size)))
+                eig = sig[k] ** 2 * np.concatenate([[1.0], rng.uniform(0.1, 0.6, size - 1)])
+                means.append(t[k] * v)
+                covs.append(np.atleast_2d((q * eig) @ q.T))
+            self.blocks.append(dict(wt=wt / wt.sum(), means=means, covs=covs,
+                                    mvns=[multivariate_normal(m, c) for m, c in zip(means, covs)]))
+        self._pool = None
+        self._box_mass = None
+
+    def lnL(self, X):
+        X = np.atleast_2d(X)
+        out = np.full(len(X), LNL_OFFSET)
+        for g, b in zip(self.groups, self.blocks):
+            terms = np.column_stack([mvn.logpdf(X[:, g]).reshape(len(X)) + np.log(w)
+                                     for mvn, w in zip(b["mvns"], b["wt"])])
+            out += logsumexp(terms, axis=1)
+        return out
+
+    as_lnfunc = MixtureTarget.as_lnfunc
+    as_func = MixtureTarget.as_func
+
+    def _build_pool(self):
+        """Exact fair draws: each group independently by rejection, so rows are independent."""
+        rng = np.random.RandomState(self.seed + 7)
+        cols, mass = [], 1.0
+        for g, b in zip(self.groups, self.blocks):
+            kept, n_tot, n_in = [], 0, 0
+            while n_in < TRUTH_POOL_N:
+                counts = rng.multinomial(200000, b["wt"])
+                draw = np.vstack([rng.multivariate_normal(b["means"][k], b["covs"][k], counts[k])
+                                  for k in range(self.ncomp) if counts[k] > 0])
+                rng.shuffle(draw)
+                n_tot += len(draw)
+                draw = draw[np.all((draw > self.llim[list(g)]) & (draw < self.rlim[list(g)]),
+                                   axis=1)]
+                n_in += len(draw)
+                kept.append(draw)
+            cols.append(np.vstack(kept)[:TRUTH_POOL_N])
+            mass *= float(n_in) / n_tot
+        self._pool = np.hstack(cols)
+        self._box_mass = mass
+
+    pool = MixtureTarget.pool
+    true_lnZ = MixtureTarget.true_lnZ
+
+
+def _seed_group_models(target, adapt, widen=1.3):
+    """Per-group GMMs holding the target's own components (widths x `widen`), in the model's
+    normalized [-1, 1] frame -- what an ILE breadcrumb seed installs.
+
+    Call after build_sampler(): the parameters go on the integrator's backend, as
+    extrinsic_handoff.reconstruct_gmm does.  Host parameters under a cupy integrator make
+    _sample raise, and the integrator then drops every seed and runs cold."""
+    from RIFT.integrators import MonteCarloEnsemble
+    from RIFT.integrators import gaussian_mixture_model as GMM
+    xpy = MonteCarloEnsemble.xpy_default
+    out = {}
+    for g, b in zip(target.groups, target.blocks):
+        lo, hi = target.llim[list(g)], target.rlim[list(g)]
+        half, mid = 0.5 * (hi - lo), 0.5 * (hi + lo)
+        m = GMM.gmm(target.ncomp, np.column_stack([lo, hi]))
+        m.means = [xpy.asarray((mu - mid) / half) for mu in b["means"]]
+        m.covariances = [xpy.asarray(widen ** 2 * c / np.outer(half, half)) for c in b["covs"]]
+        m.weights = xpy.asarray(b["wt"], dtype=float)
+        m.adapt = [bool(adapt)] * target.ncomp
+        m.d = len(g)
+        out[g] = m
+    return out
+
+
+def run_group_case(kind, target, nmax, neff, n_chunk=10000, seed=987654, verbose=False,
+                   proposal="seed_frozen"):
+    """GMM (standalone or as a portfolio member) with one dim group per target group.
+
+    proposal: "seed_frozen" (the gate), "seed_adapt" (seeded, then refit), or "cold"."""
+    t0 = time.time()
+    out = dict(kind=kind, target=target.name, ndim=target.ndim, ncomp=target.ncomp,
+               target_seed=target.seed, group_sizes=list(target.group_sizes), nmax=int(nmax))
+    try:
+        np.random.seed(seed)
+        out["proposal"] = proposal
+        s = build_sampler("portfolio" if kind == "portfolio_pairs" else "GMM", target, n_chunk)
+        gmm_dict = {g: None for g in target.groups}
+        gmm_kw = {}
+        if proposal in ("seed_frozen", "seed_adapt"):
+            gmm_dict = _seed_group_models(target, adapt=(proposal == "seed_adapt"))
+            gmm_kw["gmm_adapt"] = {g: proposal == "seed_adapt" for g in target.groups}
+            seeds = {g: (m, [_asnumpy(mu).copy() for mu in m.means]) for g, m in gmm_dict.items()}
+        # CIP passes an int n_comp, ILE a per-group dict; use each lane's production form
+        n_comp = target.ncomp if kind == "GMM_pp" else {g: target.ncomp for g in target.groups}
+        extra = dict(n=n_chunk, n_adapt=100, floor_level=0.0, tempering_exp=1.0,
+                     tempering_adapt=True, neff=neff, nmax=int(nmax), save_intg=True,
+                     verbose=verbose)
+        ln_f = target.as_lnfunc()
+        if kind == "portfolio_pairs":
+            s.setup(n_comp=n_comp, gmm_dict=gmm_dict, **gmm_kw)
+            lnI, logvar, eff, _ = s.integrate_log(ln_f, *target.params,
+                                                  no_protect_names=True, **extra)
+        else:
+            n_iters = max(2, int(nmax / n_chunk))
+            lnI, logvar, eff, _ = s.integrate(ln_f, *target.params, min_iter=n_iters,
+                                              max_iter=n_iters, gmm_dict=gmm_dict, n_comp=n_comp,
+                                              use_lnL=True, return_lnI=True, **gmm_kw, **extra)
+        if proposal == "seed_frozen":
+            # A sampling error makes the integrator _reset() and blank every model, and a lost
+            # gmm_adapt lets the seeds refit; either way the run can still pass.  Require the
+            # SAME seed objects, unmoved, at the end.
+            gmm = s.portfolio_realizations[1] if kind == "portfolio_pairs" else s
+            live = gmm.integrator.gmm_dict
+            out["seed_kept"] = all(
+                live.get(g) is m and len(m.means) == len(mu0) and
+                all(np.array_equal(_asnumpy(a), b) for a, b in zip(m.means, mu0))
+                for g, (m, mu0) in seeds.items())
+        _finish_record(out, target, s, lnI, logvar, eff, nmax, seed, t0)
+    except Exception as e:
+        import traceback
+        out.update(error="{}: {}".format(type(e).__name__, e),
+                   traceback=traceback.format_exc(), wallclock=time.time() - t0)
+    return out
+
+
+# ----------------------------------------------------------------------------
 # Pass/fail policy
 # ----------------------------------------------------------------------------
 def evaluate(r):
@@ -766,10 +957,12 @@ def evaluate(r):
     a regression (see compare_shape_results.py)."""
     if r.get("error"):
         return "ERROR", ["ERROR " + r["error"]]
+    if r.get("seed_kept") is False:
+        return "FAIL", ["frozen seed GMM models were replaced or refit during the run"]
     if r["kind"] in STARVE_IS_FAIL and r["n_eff"] < MIN_NEFF_FOR_SHAPE:
         # NOT "untestable": correct code clears this floor by >= 8x on these cases (measured
         # 799-2103 vs 0.0-12.8 when state leaks), so starvation here IS the defect.
-        return "FAIL", ["n_eff={:.0f} < {:.0f}: warm/sequential case must not starve".format(
+        return "FAIL", ["n_eff={:.0f} < {:.0f}: this case must not starve".format(
             r["n_eff"], MIN_NEFF_FOR_SHAPE)]
     if r["n_eff"] < MIN_NEFF_FOR_SHAPE:
         return "STARVED", ["n_eff={:.0f} < {:.0f}: shape untestable at this budget".format(
@@ -908,6 +1101,10 @@ PRESETS = {
 def _worker(job):
     kind, tgt_args, nmax, neff, seed = job[:5]
     extra = job[5] if len(job) > 5 else {}
+    if kind in GROUP_KINDS:
+        group_sizes, ncomp, ts = tgt_args
+        return run_group_case(kind, GroupedMixtureTarget(group_sizes, ncomp, ts), nmax, neff,
+                              seed=seed)
     if kind == "portfolio_warm":
         return run_warm_case(MixtureTarget(*tgt_args, **extra), nmax, neff, seed=seed)
     if kind in ("portfolio_seq", "portfolio_seq_nobs", "AV_seq"):
@@ -927,7 +1124,12 @@ def main(argv=None):
     ap.add_argument("--warm-cases", default="auto", choices=("auto", "on", "off"),
                     help="run the warm-start/sequential-reuse cases "
                          "(auto = on for --preset standard, off for quick)")
-    ap.add_argument("--strict-samplers", default="AV,GMM",
+    ap.add_argument("--group-cases", default="auto", choices=("auto", "on", "off"),
+                    help="run the multi-dim-group GMM cases (GROUP_CASES; "
+                         "auto = on for --preset standard, off for quick)")
+    ap.add_argument("--no-matrix", action="store_true",
+                    help="skip the sampler x target matrix; run only the enabled case lists")
+    ap.add_argument("--strict-samplers", default="AV,GMM," + ",".join(GROUP_KINDS),
                     help="samplers whose failures set exit code 1 (others warn)")
     ap.add_argument("--dims", default=None, help="override preset, e.g. 2,4,8")
     ap.add_argument("--ncomps", default=None)
@@ -979,7 +1181,7 @@ def main(argv=None):
     strict = set(x.strip() for x in opts.strict_samplers.split(",") if x.strip())
 
     jobs = []
-    for d in cfg["dims"]:
+    for d in ([] if opts.no_matrix else cfg["dims"]):
         for nc in cfg["ncomps"]:
             for ts in cfg["seeds"]:
                 for kind in samplers:
@@ -993,9 +1195,16 @@ def main(argv=None):
     if want_warm:
         for kind, d, nc, ts, nmax, neff, extra in WARM_CASES:
             jobs.append((kind, (d, nc, ts), nmax, neff, opts.run_seed, dict(extra)))
-    print("# shape_recovery: {} runs ({} targets x {} samplers){}, preset={}".format(
-        len(jobs), n_matrix // len(samplers), len(samplers),
-        " + {} warm/sequential cases".format(len(jobs) - n_matrix) if want_warm else "",
+    n_warm = len(jobs) - n_matrix
+    want_group = (opts.group_cases == "on" or
+                  (opts.group_cases == "auto" and opts.preset == "standard"))
+    if want_group:
+        for kind, sizes, nc, ts, nmax, neff in GROUP_CASES:
+            jobs.append((kind, (sizes, nc, ts), nmax, neff, opts.run_seed))
+    print("# shape_recovery: {} runs ({} targets x {} samplers){}{}, preset={}".format(
+        len(jobs), n_matrix // max(len(samplers), 1), len(samplers),
+        " + {} warm/sequential cases".format(n_warm) if want_warm else "",
+        " + {} multi-group cases".format(len(jobs) - n_matrix - n_warm) if want_group else "",
         opts.preset))
     sys.stdout.flush()
 

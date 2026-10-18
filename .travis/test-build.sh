@@ -26,7 +26,12 @@ mkdir -p $TEST_BUILD_BIN
 ln -sf /bin/true $TEST_BUILD_BIN/bilby_pipe_generation
 export PATH=$TEST_BUILD_BIN:$PATH
 
-REF_INI=`pwd`/.travis/ref_ini/GW150914.ini
+# This DAG-only fixture has an empty placeholder cache. Explicitly disable
+# strain IO here; real frame staging and empty-cache rejection are tested in
+# test/pipeline_deployment, while the general reference ini stays unchanged.
+REF_INI=`pwd`/test_build_ref.ini
+sed 's/^internal-truncate-files-for-osg-file-transfer=True/internal-truncate-files-for-osg-file-transfer=False/' \
+    .travis/ref_ini/GW150914.ini > $REF_INI
 COINC=`pwd`/.travis/ref_ini/coinc.xml
 DAG_CONTRACT=`pwd`/MonteCarloMarginalizeCode/Code/test/dag_contract/rift_pipeline_contract.py
 
