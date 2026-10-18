@@ -2636,9 +2636,15 @@ if opts.cip_explode_jobs:
    cmd+= " --cip-explode-jobs  " + str(opts.cip_explode_jobs) + " --cip-explode-jobs-dag "  # use dag workers
    if opts.cip_fit_method and opts.cip_fit_method not in ('gp', 'gp-matern'):
        # if we are not using default GP fit, so all fit instances are equal
-       cmd += " --cip-explode-jobs-flat "  
+       cmd += " --cip-explode-jobs-flat "
    if opts.cip_explode_jobs_last:
        cmd += " --cip-explode-jobs-last {} ".format(opts.cip_explode_jobs_last)
+# Effective phase coordinates need flat workers for EVERY fit method, including the default gp:
+# CIP refuses stored fits (--fit-load-gp) with these coordinates, so each exploded worker must
+# compute its own fresh fit.  Either explode route above creates workers.
+if opts.eccentric_phase_coordinates and (opts.cip_explode_jobs or opts.cip_explode_jobs_dag) \
+   and ' --cip-explode-jobs-flat ' not in cmd:
+    cmd += " --cip-explode-jobs-flat "
 if opts.make_bw_psds:
     cmd+= " --use-bw-psd --bw-exe `which BayesWave` --bw-post-exe `which BayesWavePost` "
 if opts.use_osg:

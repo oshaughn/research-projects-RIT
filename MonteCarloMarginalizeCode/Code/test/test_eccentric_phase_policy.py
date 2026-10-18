@@ -129,6 +129,38 @@ def test_actual_build_hooks_execute_policy_not_only_accept_options(tmp_path):
     assert parent.index('eccentric_phase_policy.check_final_ile')<parent.index("with open('args_ile.txt'")
 
 
+def _explode_blocks():
+    tree=ast.parse((ROOT/'bin/util_RIFT_pseudo_pipe.py').read_text())
+    blocks=[n for n in tree.body if isinstance(n,ast.If) and '--cip-explode-jobs' in ast.unparse(n)]
+    assert len(blocks)==3,[ast.unparse(n.test) for n in blocks]
+    return blocks
+
+
+def _explode_cmd(blocks,**kw):
+    settings=dict(cip_explode_jobs=None,cip_explode_jobs_dag=None,cip_explode_jobs_last=None,cip_fit_method=None)
+    settings.update(kw)
+    ns=dict(opts=options(**settings),cmd='')
+    exec(compile(ast.Module(body=blocks,type_ignores=[]),'real-pseudo-pipe-explode','exec'),ns)
+    return ns['cmd']
+
+
+@pytest.mark.parametrize('fit',[None,'gp','gp-matern','rf','quadratic'])
+@pytest.mark.parametrize('route',[{'cip_explode_jobs':2},{'cip_explode_jobs_dag':2.},{'cip_explode_jobs':2,'cip_explode_jobs_dag':2.}])
+def test_every_explode_route_builds_flat_cip_workers(fit,route):
+    # Non-flat workers are handed --fit-load-gp, which CIP refuses with these coordinates:
+    # each activated worker must compute its own fresh fit, including for the default gp.
+    blocks=_explode_blocks()
+    cmd=_explode_cmd(blocks,cip_fit_method=fit,**route)
+    assert cmd.count('--cip-explode-jobs-flat')==1,cmd
+
+
+def test_flat_workers_are_not_forced_without_the_opt_in():
+    blocks=_explode_blocks()
+    assert '--cip-explode-jobs-flat' not in _explode_cmd(blocks,eccentric_phase_coordinates=False,cip_explode_jobs=2)
+    assert '--cip-explode-jobs-flat' not in _explode_cmd(blocks,eccentric_phase_coordinates=False,cip_explode_jobs_dag=2.)
+    assert '--cip-explode-jobs' not in _explode_cmd(blocks)  # no workers requested: nothing added
+
+
 def test_ini_policy_is_revalidated_before_shell_propagation():
     with pytest.raises(ValueError,match='Unknown'):
         pipeline.build_arguments(options(eccentric_phase_frequency_policy='unsupported-policy'))
