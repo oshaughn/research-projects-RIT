@@ -78,9 +78,12 @@ realignment. Its common linear operation retains physical mode asymmetry and
 NoLoop factorization.
 
 The O4c adaptation targets the maintained release commit
-`28b1f71d9d6b7aa863c7808a55b5f2069b2d7a5a`, identical on GitLab
-`rapidpe-rift/rift` and GitHub `oshaughn/research-projects-RIT` when checked on
-2026-10-18. The two conditioning helpers match the O4d implementation exactly;
+`b0fc1469c4d2f6ac4ddf8daf361c50ad5cf9915e` on GitHub
+`oshaughn/research-projects-RIT:rift_O4c` when checked on 2026-10-18.
+The earlier validation below used its ancestor
+`28b1f71d9d6b7aa863c7808a55b5f2069b2d7a5a`; the updated upstream adds
+NoLoop/precompute optimizations, so that receipt is not a substitute for testing
+the current target. The two conditioning helpers match the O4d implementation exactly;
 O4c's existing tidal parameter constructor and Lmax selection are retained.
 O4c has no JAX ILE executable; the public selector/default match O4d's batch and
 JAX drivers, without adding a JAX implementation to this port.
