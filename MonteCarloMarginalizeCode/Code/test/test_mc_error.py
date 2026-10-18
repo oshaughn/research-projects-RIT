@@ -1,5 +1,6 @@
 import math
 
+import numpy as np
 import pytest
 
 from RIFT.misc.mc_error import relative_mc_error
@@ -25,3 +26,23 @@ def test_relative_mc_error_propagates_non_finite_inputs():
     assert math.isnan(relative_mc_error(math.nan, 1.0))
     assert relative_mc_error(0.0, -math.inf, log_space=True) == 0.0
     assert relative_mc_error(1.0, math.inf) == math.inf
+
+
+@pytest.mark.skipif(
+    np.finfo(np.longdouble).maxexp <= np.finfo(np.float64).maxexp,
+    reason="longdouble has no wider exponent range than float64",
+)
+@pytest.mark.parametrize("result, variance", [
+    ("1e200", "1e396"),   # variance overflows float64
+    ("1e-200", "1e-404"), # variance underflows float64
+    ("1e400", "1e796"),   # result also overflows float64
+    ("1e-400", "1e-804"), # result also underflows float64
+])
+def test_relative_mc_error_preserves_extended_range(result, variance):
+    # Construct from strings only after the platform check, to avoid overflow
+    # on platforms where longdouble is float64 (e.g. macOS ARM).
+    result = np.longdouble(result)
+    variance = np.longdouble(variance)
+    error = relative_mc_error(result, variance)
+    assert np.isfinite(error)
+    assert error == pytest.approx(0.01)
