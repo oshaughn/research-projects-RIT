@@ -66,12 +66,13 @@ def load_map(data):
     if not isinstance(data,str) or len(data)>MAX_DATA:raise ValueError('Invalid/oversized eccentric map payload')
     try:r=json.loads(base64.b64decode(data,altchars=b'-_',validate=True))
     except Exception as error:raise ValueError('Invalid eccentric map payload') from error
-    if r.get('schema')!='rift-eccentric-map-v1':raise ValueError('Unknown eccentric map schema')
-    if r.get('features')!=['M','delta','e','chi_eff','chi_a']:raise ValueError('Unsupported eccentric map features')
+    if r.get('schema') not in ('rift-eccentric-map-v1','rift-eccentric-map-v2'):raise ValueError('Unknown eccentric map schema')
+    expected=['M','delta','e','chi_eff','chi_a'] if r['schema']=='rift-eccentric-map-v1' else ['mc_detector','delta','e','s1z','s2z']
+    if r.get('features')!=expected:raise ValueError('Unsupported eccentric map features')
     center=np.asarray(r['center'],float);scale=np.asarray(r['scale'],float)
     bounds=np.asarray(r['bounds'],float);powers=np.asarray(r['powers'],float);coef=np.asarray(r['coefficients'],float)
     if center.shape!=(5,) or scale.shape!=(5,) or bounds.shape!=(2,5):raise ValueError('Invalid eccentric map domain')
-    if powers.ndim!=2 or powers.shape[1]!=5 or len(powers)>56 or coef.shape[0]!=len(powers) or coef.ndim!=2 or not 2<=coef.shape[1]<=17:raise ValueError('Invalid eccentric map polynomial')
+    if powers.ndim!=2 or powers.shape[1]!=5 or len(powers)>56 or coef.ndim!=2 or coef.shape[0]!=len(powers) or not 2<=coef.shape[1]<=17:raise ValueError('Invalid eccentric map polynomial')
     if np.any(abs(coef)>1e9):raise ValueError('Unbounded eccentric map coefficients')
     if any(not np.isfinite(v).all() for v in [center,scale,bounds,powers,coef]) or np.any(scale<=0) or np.any(bounds[0]>=bounds[1]):raise ValueError('Nonfinite/degenerate eccentric map')
     if np.any(powers<0) or np.any(powers!=np.floor(powers)) or np.any(powers.sum(axis=1)>3):raise ValueError('Invalid polynomial powers')
@@ -89,7 +90,10 @@ def map_profile(m1,m2,e,s1z,s2z,reference,target,data):
     # Spin associations follow the actual bodies, including swapped labels.
     total=m1+m2;d=(m1-m2)/total
     ce=(m1*s1z+m2*s2z)/total;ca=np.where(d>=0,(s1z-s2z)/2,(s2z-s1z)/2)
-    feats=np.stack([total,abs(d),e,ce,ca],axis=-1)
+    if r['schema']=='rift-eccentric-map-v2':
+        primary=np.where(d>=0,s1z,s2z);secondary=np.where(d>=0,s2z,s1z)
+        feats=np.stack([total*((1-d*d)/4)**.6,abs(d),e,primary,secondary],axis=-1)
+    else:feats=np.stack([total,abs(d),e,ce,ca],axis=-1)
     z=np.clip((feats-center)/scale,-4,4)
     predicted=np.zeros(feats.shape[:-1]+(coef.shape[1],))
     for power,coeff in zip(powers,coef):predicted+=np.prod(z**power,axis=-1)[...,None]*coeff
@@ -97,7 +101,7 @@ def map_profile(m1,m2,e,s1z,s2z,reference,target,data):
     edge=np.clip(4*(1-abs((feats-middle)/radius)),0,1)
     weight=np.prod(edge*edge*(3-2*edge),axis=-1)
     advance=full_e_advance(m1,m2,e,reference,target)
-    advance+=weight*(predicted[...,0]-advance)
+    advance+=weight*(predicted[...,0] if r['schema']=='rift-eccentric-map-v2' else predicted[...,0]-advance)
     harmonics=predicted[...,1:]*weight[...,None]
     # A fixed coordinate regularization gives a global dtheta/dangle >= .2,
     # independent of interpolation quality; no physical row is rejected.
@@ -131,25 +135,23 @@ def transform(m1,m2,e,angle,reference,target,procedure,data,s1z,s2z,inverse=Fals
 
 
 def add_arguments(parser,build=False):
-    parser.add_argument('--eccentric-phase-procedure',choices=PROCEDURES,default='peters-small-e',help='Explicit fit/proposal coordinate; physical priors and waveform inputs remain native')
+    parser.add_argument('--eccentric-phase-procedure',choices=PROCEDURES,default='peters-full-e',help='Explicit fit/proposal coordinate; physical priors and waveform inputs remain native')
     parser.add_argument('--eccentric-phase-map-data',default=None,help='Frozen base64 numerical map emitted by the workflow builder')
-    if build:parser.add_argument('--eccentric-phase-map',default=None,help='JSON numerical EOB map; frozen into worker arguments at build time')
+    if build:parser.add_argument('--eccentric-phase-map',default=None,help='Optional numerical map override; otherwise EOB is generated automatically from the coincidence and resolved priors')
 
 
 def worker_options(options):
-    return dict(procedure=getattr(options,'eccentric_phase_procedure','peters-small-e'),
+    return dict(procedure=getattr(options,'eccentric_phase_procedure','peters-full-e'),
                 map_data=getattr(options,'eccentric_phase_map_data',None))
 
 
 def map_path(path):
     from pathlib import Path
-    if str(path).startswith('builtin:'):
-        if path!='builtin:danilo-public-spin-v1':raise ValueError('Unknown built-in eccentric map')
-        return Path(__file__).parent/'eccentric_phase_maps/danilo_public_spin_v1.json'
+    if str(path).startswith('builtin:'):raise ValueError('No event-specific maps are packaged; use automatic build-time EOB generation')
     return Path(path).resolve(strict=True)
 
 
-def freeze(options,native,target):
+def freeze(options,native,target,allow_pending=False):
     import hashlib
     from pathlib import Path
     selected=worker_options(options);path=getattr(options,'eccentric_phase_map',None)
@@ -158,10 +160,12 @@ def freeze(options,native,target):
         selected['map_data']=encode_map(json.loads(map_path(path).read_text()))
     procedure,data=selected['procedure'],selected['map_data']
     if procedure not in PROCEDURES:raise ValueError('Unknown eccentric coordinate procedure')
+    if procedure=='eob-tabulated' and data is None and allow_pending:
+        return dict(coordinate_procedure=procedure,coordinate_map_data=None,coordinate_map_sha256=None,coordinate_map_pending=True)
     if procedure=='eob-tabulated':
         r=load_map(data)[0]
         if native!=target and (r['reference_frequency']!=native or r['target_frequency']!=target):raise ValueError('EOB map frequencies differ from the resolved workflow anchor')
     elif data is not None:raise ValueError('Numerical map requires eob-tabulated')
     options.eccentric_phase_map_data=data
-    return dict(coordinate_procedure=procedure,coordinate_map_data=data,
+    return dict(coordinate_procedure=procedure,coordinate_map_data=data,coordinate_map_pending=False,
                 coordinate_map_sha256=None if data is None else hashlib.sha256(data.encode()).hexdigest())

@@ -108,9 +108,9 @@ def test_asimov_preserves_model_selection_and_map_path():
     assert ast.literal_eval(ini['rift-pseudo-pipe']['eccentric-phase-frequency-policy'])=='lvk-mass'
 
 
-def test_packaged_public_spin_map_and_schema():
-    record=json.loads(models.map_path('builtin:danilo-public-spin-v1').read_text())
-    data=models.encode_map(record)
-    assert models.load_map(data)[0]['provenance']['public_equations']=='https://arxiv.org/abs/2104.11705v2'
-    assert len(data)<models.MAX_DATA
-    with pytest.raises(ValueError):models.map_path('builtin:unknown')
+def test_full_e_is_default_and_no_event_map_is_packaged():
+    parser=argparse.ArgumentParser();pipe.add_arguments(parser)
+    assert parser.parse_args([]).eccentric_phase_procedure=='peters-full-e'
+    assert models.worker_options(argparse.Namespace())['procedure']=='peters-full-e'
+    assert not list((Path(models.__file__).parent/'eccentric_phase_maps').glob('*.json'))
+    with pytest.raises(ValueError):models.map_path('builtin:danilo-public-spin-v1')

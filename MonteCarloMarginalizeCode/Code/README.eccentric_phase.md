@@ -14,7 +14,7 @@ theta = (meanPerAno + A(m1, m2, eccentricity)) mod 2pi
 meanPerAno = (theta - A(m1, m2, eccentricity)) mod 2pi
 ```
 
-`A` is the leading secular PN phase advance through eccentricity squared,
+`A` is the full-eccentricity Peters quadrupole phase advance,
 including the mass-dependent circular term. `RIFT.misc.eccentric_phase` provides
 vectorized `phase_advance`, `forward`, `inverse` and periodic feature functions.
 Component masses in this module are detector-frame solar masses. The waveform
@@ -26,8 +26,8 @@ source-redshift/native-mass conversion.
 Use `--eccentric-phase-procedure` (or the same key under Asimov's
 `sampler: extra eccentric arguments`) to choose:
 
-- `peters-small-e`: the existing O(e²) shear, retained as the default.
-- `peters-full-e`: the full Peters quadrupole phase, retaining the circular
+- `peters-small-e`: the legacy O(e²) shear, available explicitly.
+- `peters-full-e`: the default and recommended full Peters quadrupole phase, retaining the circular
   term and using the same mean-frequency endpoints. It is independent of spin.
 - `eob-tabulated`: a frozen numerical phase/clock map informed by public EOB
   dynamics, using detector masses, eccentricity and both spin-z components.
@@ -40,41 +40,51 @@ original prior. No transformed-density Jacobian enters that native integral.
 Puffing first assigns all proposed masses, spins and eccentricity, then inverts
 at those proposed values. It never reuses the seed's phase shift.
 
-For example, a nominal36-solar-mass production with a15Hz native epoch can use
-this packaged public-equation map with the automatic mass anchor:
+The recommended configuration needs only `eccentric-phase-coordinates: true`.
+Full-e Peters requires no EOB quadratures, coefficient payload, map file, or
+additional container file transfer. The feature itself remains opt-in.
+
+For an optional public-EOB correction, select:
 
 ```yaml
 sampler:
   extra eccentric arguments:
     eccentric-phase-coordinates: true
     eccentric-phase-procedure: eob-tabulated
-    eccentric-phase-map: builtin:danilo-public-spin-v1
 ```
 
-Keep the production's existing eccentricity limits and priors. The example
-map is derived from public LO spin–orbit/spin–spin Hamiltonian terms and
-relative2PN RR (Khalil et al., https://arxiv.org/abs/2104.11705v2), with explicit
-geometric-e/Kepler-mean initialization. Its embedded provenance identifies
-the source profiles and equations. It is a coordinate definition, not a
-waveform backend or a new likelihood calculation. It can be applied to other
-waveform approximations at the same coordinate epochs.
+The helper records the coincidence component masses/spins and frequency anchor.
+After resolving all CIP prior overrides, the outer build constructs a bounded
+local chart using public LO spin-orbit/spin-spin Hamiltonian terms and relative
+2PN radiation reaction (Khalil et al., https://arxiv.org/abs/2104.11705v2).
+Initialization uses geometric eccentricity and Kepler mean anomaly. At most48
+profiles are attempted; no waveform, likelihood or posterior archive is used.
+The chart is clipped to the configured mass, eccentricity and spin support;
+its exterior returns smoothly to full-e Peters. The original prior remains
+unchanged. Unavailable returning orbits produce an explicit Peters fallback.
 
-A user-generated JSON map can replace the built-in name. The builder validates
-its schema and frequencies, freezes its coefficients as a bounded base64
-payload, and records a SHA256 in `eccentric_phase_build.json`. Identical
-payloads go to every eligible CIP and puff command. Workers need no shared
-filesystem or separate map-file transfer; ILE receives no coordinate flags.
-The original file is only a build input. Conflicting stage choices are refused.
-The high-mass identity fallback applies to every procedure, including EOB.
+Generated coefficients and diagnostics are per-run artifacts, cached only for
+identical sources, coincidence, priors and endpoints. No event map is shipped.
+The finalized `eccentric_phase_build.json` records the source/input hashes and
+fallback status. A bounded immutable base64 payload travels in ordinary worker
+arguments to every eligible CIP/puff job. No separate map-file transfer or
+shared filesystem is needed, including with containers. ILE receives no
+coordinate flags. The high-mass identity fallback skips EOB generation entirely.
+An explicit JSON override remains supported for advanced use; conflicting
+choices are refused. Build hosts need SciPy for EOB; workers need only NumPy.
 
 ### Numerical map contract
 
-`rift-eccentric-map-v1` stores normalized polynomial coefficients for the
+The legacy `rift-eccentric-map-v1` stores normalized polynomial coefficients for the
 unwrapped advance and sine harmonics of the native-to-radial clock. Features
 are total detector mass M, primary-first mass difference delta, geometric e,
 chi_eff and primary-first chi_a. The JSON supplies center, scale, domain bounds,
 powers, coefficients, endpoint frequencies and nonempty provenance. No source
 code is executed when loading a map.
+
+Automatic builds use `rift-eccentric-map-v2`, with detector chirp mass, delta,
+eccentricity and primary-first component spin-z features. They store a phase
+correction to full-e Peters and clock harmonics.
 
 Inside the declared box the map supplies its phase/clock prediction. A smooth
 compact taper returns it to full-e Peters outside that box. Harmonics are

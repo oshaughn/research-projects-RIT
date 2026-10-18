@@ -1,7 +1,7 @@
 """Optional waveform-free effective eccentric phase coordinates.
 
-Masses are detector-frame solar masses. The default leading-PN O(e**2) shear
-and selectable full-e/tabulated maps are regression/proposal coordinates,
+Masses are detector-frame solar masses. The default full-e Peters shear
+and selectable small-e/tabulated maps are regression/proposal coordinates,
 not waveform evolution or a change to fref.
 The input angle is generic: a backend's ``meanPerAno`` need not be a dynamical
 mean anomaly. Native parameters and priors retain their original meanings.
@@ -47,7 +47,7 @@ def phase_advance(m1, m2, e, reference_frequency=10., target_frequency=20.):
 
 
 def forward(m1,m2,e,angle,reference_frequency=10.,target_frequency=20.,
-            procedure='peters-small-e',map_data=None,s1z=0.,s2z=0.):
+            procedure='peters-full-e',map_data=None,s1z=0.,s2z=0.):
     """Invertible fit/proposal map; sampling and waveform inputs stay native."""
     from RIFT.misc.eccentric_phase_models import transform
     return transform(m1,m2,e,angle,reference_frequency,target_frequency,
@@ -55,7 +55,7 @@ def forward(m1,m2,e,angle,reference_frequency=10.,target_frequency=20.,
 
 
 def inverse(m1,m2,e,theta,reference_frequency=10.,target_frequency=20.,
-            procedure='peters-small-e',map_data=None,s1z=0.,s2z=0.):
+            procedure='peters-full-e',map_data=None,s1z=0.,s2z=0.):
     from RIFT.misc.eccentric_phase_models import transform
     return transform(m1,m2,e,theta,reference_frequency,target_frequency,
                      procedure,map_data,s1z,s2z,inverse=True)
@@ -88,7 +88,7 @@ def extract(P, name, reference_frequency=10., target_frequency=20., **model):
 
 
 def convert(x, coord_names, low_level_coord_names, converter,
-            reference_frequency=10., target_frequency=20., procedure='peters-small-e', map_data=None, **kwargs):
+            reference_frequency=10., target_frequency=20., procedure='peters-full-e', map_data=None, **kwargs):
     """Vector fit projection using native masses/redshift/Kerr conversion.
 
     Invalid native rows remain rejected (-inf) without poisoning valid rows.

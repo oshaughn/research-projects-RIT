@@ -121,7 +121,13 @@ def resolve(options, event, ile_arguments, approximant):
                     ile_arguments_sha256=hashlib.sha256(ile_arguments.encode()).hexdigest(),
                     waveform_frequency_change=False, physical_prior_change=False)
     from RIFT.misc.eccentric_phase_models import freeze
-    decision.update(freeze(options,native,target))
+    decision.update(freeze(options,native,target,allow_pending=True))
+    if decision.get('coordinate_map_pending'):
+        if masses is None and (event.get('m1') is None or event.get('m2') is None or event.get('rf_mass_is_placeholder',False)):
+            raise ValueError('Automatic EOB coordinates require coincidence component masses')
+        decision['coordinate_seed']={name:float(event.get(name,0.) or 0.) for name in ['m1','m2','s1z','s2z']}
+        decision['coordinate_seed']['eccentricity']=None if event.get('eccentricity') is None else float(event['eccentricity'])
+        decision['coordinate_zero_spin']=bool(getattr(options,'assume_nospin',False))
     options.eccentric_phase_reference_frequency = native
     options.eccentric_phase_target_frequency = target
     return decision
@@ -143,6 +149,10 @@ def read_into(options, path=RECEIPT):
             raise ValueError('Helper frequency decision conflicts with the explicit build request')
         setattr(options, name, value)
     from RIFT.misc.eccentric_phase_models import freeze
+    if record.get('coordinate_map_pending'):
+        if getattr(options,'eccentric_phase_procedure','peters-full-e')!='eob-tabulated' or getattr(options,'eccentric_phase_map_data',None) is not None or getattr(options,'eccentric_phase_map',None) is not None:
+            raise ValueError('Helper pending EOB generation conflicts with build request')
+        return record
     selected=freeze(options,native,target)
     for key in ['coordinate_procedure','coordinate_map_data','coordinate_map_sha256']:
         expected=record.get(key,'peters-small-e' if key=='coordinate_procedure' else None)
@@ -163,3 +173,17 @@ def check_final_ile(record, arguments):
             raise ValueError('ILE detector-band override after eccentric-phase resolution') from error
         if final_band != record['allowed_band_hz']:
             raise ValueError('ILE detector-band override after eccentric-phase resolution; configure frequency limits before the helper build')
+
+
+def finalize_map(options,record,lines):
+    """Freeze automatic EOB only after all worker prior overrides are resolved."""
+    if not record.get('coordinate_map_pending'):return record
+    from .eccentric_phase_build import generate,prior_specification
+    from .eccentric_phase_models import freeze
+    priors=prior_specification(lines,record.get('coordinate_zero_spin',False))
+    data,report=generate(record['coordinate_seed'],priors,record['reference_frequency_hz'],record['target_frequency_hz'])
+    options.eccentric_phase_map_data=data
+    record.update(freeze(options,record['reference_frequency_hz'],record['target_frequency_hz']))
+    record['coordinate_map_generation']=report
+    write(record)
+    return record
