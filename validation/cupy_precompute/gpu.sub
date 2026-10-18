@@ -1,0 +1,20 @@
+universe = vanilla
+executable = /scratch/richard.oshaughnessy/o4c_fullrate_cupy_review_20261018/run_gpu.sh
+arguments = $(band)
+initialdir = /scratch/richard.oshaughnessy/o4c_fullrate_cupy_review_20261018/$(band)
+request_cpus = 1
+request_gpus = 1
+request_memory = 12G
+request_disk = 2GB
+requirements = (TARGET.GPUs_Capability >= $(caplo)) && (TARGET.GPUs_Capability < $(caphi))
+getenv = False
+MY.flock_local = true
+accounting_group = ligo.dev.o4.cbc.pe.rift
+accounting_group_user = richard.oshaughnessy
+log = /scratch/richard.oshaughnessy/o4c_fullrate_cupy_review_20261018/$(band)/job.log
+output = /scratch/richard.oshaughnessy/o4c_fullrate_cupy_review_20261018/$(band)/job.out
+error = /scratch/richard.oshaughnessy/o4c_fullrate_cupy_review_20261018/$(band)/job.err
+should_transfer_files = NO
+queue band,caplo,caphi from (
+blackwell 12.0 13.0
+)
