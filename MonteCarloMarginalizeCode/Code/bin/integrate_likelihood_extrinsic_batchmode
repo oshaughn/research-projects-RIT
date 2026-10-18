@@ -248,6 +248,8 @@ optp.add_option("--vectorized", action="store_true", help="Perform manipulations
 optp.add_option("--gpu", action="store_true", help="Perform manipulations of lm and timeseries using numpy arrays, CONVERTING TO GPU when available. You MUST use this option with --vectorized (otherwise it is a no-op). You MUST have a suitable version of cupy installed, your cuda operational, etc")
 optp.add_option("--force-gpu-only", action="store_true", help="Hard fail if no GPU present (assessed by cupy not loading)")
 optp.add_option("--force-xpy", action="store_true", help="Use the xpy code path.  Use with --vectorized --gpu to use the fallback CPU-based code path. Useful for debugging.")
+optp.add_option("--precompute-backend", type="choice", choices=["lal", "numpy", "cupy"], default="lal", help="Full-rate Q/U/V backend, independent of the integration backend (default: lal). Explicit cupy requires a usable CUDA GPU. Waveform generation is unchanged.")
+optp.add_option("--precompute-batch-size", type="int", default=4, help="Number of full-rate precompute FFT/matrix rows processed at once (default: 4). Reduce to limit GPU memory.")
 optp.add_option("-o", "--output-file", help="Save result to this file.")
 optp.add_option("-O", "--output-format", default='xml', help="[xml|hdf5]")
 optp.add_option("-S", "--save-samples", action="store_true", help="Save sample points to output-file. Requires --output-file to be defined.")
@@ -391,6 +393,8 @@ def _validate_sampler_selection(opts):
 
 
 opts, args = optp.parse_args(_normalize_interpolate_time_argv(sys.argv[1:]))
+if opts.precompute_batch_size < 1:
+    optp.error('--precompute-batch-size must be positive')
 if not opts.log_noise_evidence_only:
     try:
         _validate_sampler_selection(opts)
@@ -1678,6 +1682,14 @@ def resample_samples(my_samples,
 
   
 
+# One explicit context per worker; detector products persist across intrinsic points.
+precompute_context = None
+if opts.precompute_backend != 'lal':
+    from RIFT.likelihood.precompute_array import FullRatePrecompute
+    precompute_context = FullRatePrecompute(opts.precompute_backend, opts.precompute_batch_size)
+    print(' Full-rate precompute: backend {}, batch size {}'.format(
+        opts.precompute_backend, opts.precompute_batch_size))
+
 def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec):
     nEvals=0
     P = P_list[indx_event]
@@ -1733,6 +1745,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
     rholms_intp, cross_terms, cross_terms_V,  rholms,  guess_snr, rest=factored_likelihood.PrecomputeLikelihoodTerms(
             fiducial_epoch, t_window, P, data_dict, psd_dict, opts.l_max, fmax,
             False, inv_spec_trunc_Q, T_spec,
+            precompute_backend=opts.precompute_backend, precompute_batch_size=opts.precompute_batch_size,
+            precompute_context=precompute_context,
             ignore_threshold=ignore_threshold,   # default is None, old default was 1e-4. Use to speed calculation and/or discard 'junky' modes, esp at lower SNR. Dangerous at high SNR
             NR_group=NR_template_group,NR_param=NR_template_param,
             use_gwsignal=opts.use_gwsignal,

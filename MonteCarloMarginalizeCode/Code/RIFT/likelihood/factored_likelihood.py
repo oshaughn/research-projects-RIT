@@ -430,9 +430,14 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         extra_waveform_kwargs={},
         use_gwsignal=False,
         use_gwsignal_approx=None,
-       use_external_EOB=False,nr_lookup=False,nr_lookup_valid_groups=None,no_memory=True,perturbative_extraction=False,perturbative_extraction_full=False,hybrid_use=False,hybrid_method='taper_add',use_provided_strain=False,ROM_group=None,ROM_param=None,ROM_use_basis=False,ROM_limit_basis_size=None,skip_interpolation=False):
+       use_external_EOB=False,nr_lookup=False,nr_lookup_valid_groups=None,no_memory=True,perturbative_extraction=False,perturbative_extraction_full=False,hybrid_use=False,hybrid_method='taper_add',use_provided_strain=False,ROM_group=None,ROM_param=None,ROM_use_basis=False,ROM_limit_basis_size=None,skip_interpolation=False,
+       precompute_backend="lal", precompute_batch_size=4, precompute_context=None):
     """
     Compute < h_lm(t) | d > and < h_lm | h_l'm' >
+
+    precompute_backend selects lal (the default), numpy or cupy for full-rate
+    inner products. An optional FullRatePrecompute context retains detector
+    products across calls; precompute_batch_size bounds array workspaces.
 
     Returns:
         - Dictionary of interpolating functions, keyed on detector, then (l,m)
@@ -444,6 +449,21 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
           Their main use is to validate the interpolating functions
     """
     assert data_dict.keys() == psd_dict.keys()
+    if precompute_backend not in ("lal", "numpy", "cupy"):
+        raise ValueError("precompute backend must be lal, numpy or cupy")
+    array_precompute = None
+    if precompute_backend != "lal":
+        from .precompute_array import FullRatePrecompute
+        array_precompute = precompute_context
+        if array_precompute is None:
+            array_precompute = FullRatePrecompute(precompute_backend, precompute_batch_size)
+        if (array_precompute.backend != precompute_backend or
+                array_precompute.batch_size != precompute_batch_size):
+            raise ValueError("precompute context does not match selected backend/batch size")
+        array_precompute.prepare(data_dict, psd_dict, P.fmin, fMax, 0.5 / P.deltaT,
+                                 analyticPSD_Q, inv_spec_trunc_Q, T_spec)
+    elif precompute_context is not None:
+        raise ValueError("an array precompute context requires numpy or cupy")
     global distMpcRef
     detectors = list(data_dict.keys())
     first_data = data_dict[detectors[0]]
@@ -503,6 +523,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
       for mode in hlms.keys():
         print(mode, first_data.data.length, hlms[mode].data.length, hlms[mode].data.length*P.deltaT, hlms[mode].epoch, hlms[mode].epoch/P.deltaT)
 
+    device_modes = None if array_precompute is None else array_precompute.upload_modes(hlms)
     for det in detectors:
         # This is the event time at the detector
         t_det = ComputeArrivalTimeAtDetector(det, P.phi, P.theta,event_time_geo)
@@ -518,16 +539,20 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         # Number of samples in the window [t_ref - t_window, t_ref + t_window]
         N_window = int( 2 * t_window / P.deltaT )
         # Compute cross terms < h_lm | h_l'm' >
-        crossTerms[det] = ComputeModeCrossTermIP(hlms, hlms, psd_dict[det], P.fmin,
-                fMax, 1./2./P.deltaT, P.deltaF, analyticPSD_Q,
-                inv_spec_trunc_Q, T_spec,verbose=verbose,same_waveform_Q=internal_fast_precompute)
-        crossTermsV[det] = ComputeModeCrossTermIP(hlms_conj, hlms, psd_dict[det], P.fmin,
-                fMax, 1./2./P.deltaT, P.deltaF, analyticPSD_Q,
-                inv_spec_trunc_Q, T_spec,prefix="V",verbose=verbose,same_waveform_Q=internal_fast_precompute)
-        # Compute rholm(t) = < h_lm(t) | d >
-        rholms[det] = ComputeModeIPTimeSeries(hlms, data_dict[det],
-                psd_dict[det], P.fmin, fMax, 1./2./P.deltaT, N_shift, N_window,
-                analyticPSD_Q, inv_spec_trunc_Q, T_spec)
+        if array_precompute is not None:
+            crossTerms[det], crossTermsV[det], rholms[det] = array_precompute.compute(
+                hlms, hlms_conj, det, N_shift, N_window, modes=device_modes)
+        else:
+            crossTerms[det] = ComputeModeCrossTermIP(hlms, hlms, psd_dict[det], P.fmin,
+                    fMax, 1./2./P.deltaT, P.deltaF, analyticPSD_Q,
+                    inv_spec_trunc_Q, T_spec,verbose=verbose,same_waveform_Q=internal_fast_precompute)
+            crossTermsV[det] = ComputeModeCrossTermIP(hlms_conj, hlms, psd_dict[det], P.fmin,
+                    fMax, 1./2./P.deltaT, P.deltaF, analyticPSD_Q,
+                    inv_spec_trunc_Q, T_spec,prefix="V",verbose=verbose,same_waveform_Q=internal_fast_precompute)
+            # Compute rholm(t) = < h_lm(t) | d >
+            rholms[det] = ComputeModeIPTimeSeries(hlms, data_dict[det],
+                    psd_dict[det], P.fmin, fMax, 1./2./P.deltaT, N_shift, N_window,
+                    analyticPSD_Q, inv_spec_trunc_Q, T_spec)
         rhoXX = rholms[det][list(rholms[det].keys())[0]]
         # The vector of time steps within our window of interest
         # for which we have discrete values of the rholms
