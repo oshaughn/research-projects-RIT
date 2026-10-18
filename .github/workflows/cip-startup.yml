@@ -46,6 +46,11 @@ jobs:
         run: |
           python -m pip install liquidpy
           python -m pytest -q \
+            MonteCarloMarginalizeCode/Code/test/test_eccentric_phase.py \
+            MonteCarloMarginalizeCode/Code/test/test_eccentric_phase_puff.py \
+            MonteCarloMarginalizeCode/Code/test/test_eccentric_phase_policy.py \
+            MonteCarloMarginalizeCode/Code/test/test_eccentric_phase_models.py \
+            MonteCarloMarginalizeCode/Code/test/test_eccentric_phase_auto.py \
             MonteCarloMarginalizeCode/Code/test/test_geometric4.py \
             MonteCarloMarginalizeCode/Code/test/test_puffball_transverse_reflect.py \
             MonteCarloMarginalizeCode/Code/test/test_rf_transverse_spin.py \
