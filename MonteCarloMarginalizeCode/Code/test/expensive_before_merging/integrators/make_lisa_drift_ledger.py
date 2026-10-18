@@ -412,6 +412,10 @@ RULES = [
     (r"^OPTION:--internal-use-gwpy$", "NA",
      "gwpy low-level frame io. The LISA driver reads its data from h5 frames "
      "(--h5-frame/--h5-frame-FD), not from GWF via gwpy."),
+    (r"^OPTION:--gwsignal-mode-conditioning$", "NA",
+     "Selects native conditioning only for ground-based SEOBNRv5HM/PHM. "
+     "The LISA mode/frame path does not offer this model-specific conditioning "
+     "policy; unsupported LISA requests must not silently select a different waveform."),
     (r"^OPTION:--internal-waveform-(taper|extra-kwargs)$", "NA",
      "lalsimulation taper / extra-kwargs passthrough for the ground-based waveform "
      "path. The LISA driver has its own passthroughs for the generator it uses "
