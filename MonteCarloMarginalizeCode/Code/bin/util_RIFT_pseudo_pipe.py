@@ -477,6 +477,8 @@ parser.add_argument("--use-meanPerAno",action='store_true', help="Add meanPerAno
 parser.add_argument("--use-EOB-parameters",action='store_true', help="Add sampling in EOB parameters; currently only a6c")
 parser.add_argument("--assume-hyperbolic",action='store_true', help="Add hyperbolic options for each part of analysis")
 parser.add_argument("--internal-cip-use-periodic-ecc-vars",action='store_true', help="use e cos ell, e sin ell as fitting variables ")
+from RIFT.misc import eccentric_phase_pipeline, eccentric_phase_models
+eccentric_phase_pipeline.add_arguments(parser)
 parser.add_argument("--assume-lowlatency-tradeoffs",action='store_true', help="Force analysis with various low-latency tradeoffs (e.g., drop spin 2, use aligned, etc)")
 parser.add_argument("--assume-highq",action='store_true', help="Force analysis with the high-q strategy, neglecting spin2. Passed to 'helper'")
 parser.add_argument("--assume-well-placed",action='store_true',help="If present, the code will adopt a strategy that assumes the initial grid is very well placed, and will minimize the number of early iterations performed. Not as extrme as --propose-flat-strategy")
@@ -754,6 +756,13 @@ if (opts.use_ini):
             ile_condor_commands.append([item, val])
 
 # After the ini, which can set the mode.
+if opts.eccentric_phase_coordinates:
+    if not opts.assume_eccentric or not opts.use_meanPerAno:
+        parser.error('--eccentric-phase-coordinates requires --assume-eccentric and --use-meanPerAno')
+    if opts.internal_cip_use_periodic_ecc_vars or opts.internal_use_amr:
+        parser.error('Effective eccentric-phase coordinates cannot be combined with the legacy periodic-ecc basis or AMR')
+    eccentric_phase_pipeline.validate_request(opts)
+
 if opts.rf_transverse_spin_coordinates == 'physics3':
     from RIFT.misc.rf_transverse_spin import RETIRED_MESSAGE
     parser.error(RETIRED_MESSAGE)
@@ -1287,6 +1296,8 @@ if opts.internal_use_gracedb_bayestar:
     cmd += " --internal-use-gracedb-bayestar "
 if opts.internal_use_amr:
     cmd += " --internal-use-amr " # minimal support performed in this routine, mainly for puff
+if opts.eccentric_phase_coordinates:
+    cmd += eccentric_phase_pipeline.build_arguments(opts)
 if opts.internal_use_aligned_phase_coordinates:
     cmd += " --internal-use-aligned-phase-coordinates "
 if opts.internal_use_rescaled_transverse_spin_coordinates:
@@ -1593,6 +1604,14 @@ if _helper_rc != 0:
     print(" FAILURE: helper call exited nonzero; refusing to use any pre-existing "
           "helper_ile_args.txt")
     sys.exit(1)
+if opts.eccentric_phase_coordinates:
+    if _helper_rc != 0:
+        raise RuntimeError('Helper failed before freezing the eccentric-phase mass anchor')
+    from RIFT.misc import eccentric_phase_policy
+    eccentric_phase_build = eccentric_phase_policy.read_into(opts)
+    if not opts.skip_reproducibility:
+        with open('reproducibility/the_arguments_used.json','w') as f:
+            json.dump(vars(opts),f)
 # we MUST make helper_ile_args.txt
 if not(os.path.exists('helper_ile_args.txt')):
     print(" FAILURE: helper call failed to generate required file helper_ile_args.txt")
@@ -1831,6 +1850,8 @@ refuse_unless_time_quadrature_emitted(
 refuse_unless_q_time_pregrid_emitted(
     opts.internal_ile_q_time_pregrid_factor, line, "args_ile.txt")
 
+if opts.eccentric_phase_coordinates:
+    eccentric_phase_policy.check_final_ile(eccentric_phase_build,line)
 with open('args_ile.txt','w') as f:
         f.write(line)
 
@@ -2173,6 +2194,18 @@ for indx_rf, line_rf in enumerate(lines):
     if '--rf-transverse-spin-coordinates' in line_rf and stage_problem(line_rf):
         raise ValueError('RF transverse-spin stage {} activated but CIP would refuse it ({}); conflicting options: {}'.format(
             indx_rf, stage_problem(line_rf), ', '.join('--'+name.replace('_','-') for name in rf_transverse_conflicts) or 'see --manual-extra-cip-args'))
+
+if opts.eccentric_phase_coordinates:
+    eccentric_phase_build=eccentric_phase_policy.finalize_map(opts,eccentric_phase_build,lines)
+    if not opts.skip_reproducibility:
+        with open('reproducibility/the_arguments_used.json','w') as f:
+            json.dump(vars(opts),f)
+    lines = [eccentric_phase_pipeline.stage_arguments(line,
+        opts.eccentric_phase_reference_frequency,opts.eccentric_phase_target_frequency,
+        **eccentric_phase_models.worker_options(opts)) for line in lines]
+    if not any(eccentric_phase_pipeline.FLAG in line for line in lines):
+        raise ValueError('No CIP stage fits native eccentricity/anomaly for the requested effective coordinates')
+
 with open("args_cip_list.txt",'w') as f:
    if not(opts.internal_truncate_cip_arg_list is None):
        if opts.internal_truncate_cip_arg_list < 1:
@@ -2228,6 +2261,10 @@ if opts.internal_cip_transverse_tails:
     # safe to append them unconditionally here.
     puff_params += ' --append-with-random-parameter chi1_perp --append-with-random-fraction {} '.format(opts.internal_cip_transverse_tails_puff_fraction)
     puff_max_it = max(puff_max_it, 30)
+if opts.eccentric_phase_coordinates:
+    puff_params = eccentric_phase_pipeline.puff_arguments(puff_params,
+        opts.eccentric_phase_reference_frequency,opts.eccentric_phase_target_frequency,
+        **eccentric_phase_models.worker_options(opts))
 if opts.assume_matter:
 #    puff_params += " --parameter LambdaTilde "  # should already be present
     puff_max_it +=5   # make sure we resolve the correlations
@@ -2599,9 +2636,15 @@ if opts.cip_explode_jobs:
    cmd+= " --cip-explode-jobs  " + str(opts.cip_explode_jobs) + " --cip-explode-jobs-dag "  # use dag workers
    if opts.cip_fit_method and opts.cip_fit_method not in ('gp', 'gp-matern'):
        # if we are not using default GP fit, so all fit instances are equal
-       cmd += " --cip-explode-jobs-flat "  
+       cmd += " --cip-explode-jobs-flat "
    if opts.cip_explode_jobs_last:
        cmd += " --cip-explode-jobs-last {} ".format(opts.cip_explode_jobs_last)
+# Effective phase coordinates need flat workers for EVERY fit method, including the default gp:
+# CIP refuses stored fits (--fit-load-gp) with these coordinates, so each exploded worker must
+# compute its own fresh fit.  Either explode route above creates workers.
+if opts.eccentric_phase_coordinates and (opts.cip_explode_jobs or opts.cip_explode_jobs_dag) \
+   and ' --cip-explode-jobs-flat ' not in cmd:
+    cmd += " --cip-explode-jobs-flat "
 if opts.make_bw_psds:
     cmd+= " --use-bw-psd --bw-exe `which BayesWave` --bw-post-exe `which BayesWavePost` "
 if opts.use_osg:
