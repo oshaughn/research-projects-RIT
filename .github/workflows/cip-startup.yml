@@ -67,12 +67,17 @@ jobs:
           set -o pipefail
           python -m pytest -q -rs \
             MonteCarloMarginalizeCode/Code/test/test_gwsignal_options.py \
+            MonteCarloMarginalizeCode/Code/test/test_gwsignal_mode_lengths.py \
+            MonteCarloMarginalizeCode/Code/test/test_seobnrv6ehm_pipeline.py \
             MonteCarloMarginalizeCode/Code/test/test_gwsignal_seob_conditioning.py \
             MonteCarloMarginalizeCode/Code/test/test_gwsignal_ile_options.py \
             MonteCarloMarginalizeCode/Code/test/test_gwsignal_asimov_options.py \
             MonteCarloMarginalizeCode/Code/test/test_calibration_backend_options.py \
             MonteCarloMarginalizeCode/Code/test/test_ile_condor_argument_quoting.py | tee gws.log
           ! grep -Eq '[0-9]+ skipped' gws.log
+      - name: Run optional public SEOBNRv6EHM waveform check
+        # A missing public v6 backend is an expected skip, outside the no-skip gate.
+        run: python -m pytest -q -rs MonteCarloMarginalizeCode/Code/test/test_seobnrv6ehm_availability.py
       - name: Run Phenom L-frame convention regressions
         run: |
           python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_phenom_lframe_conventions.py
