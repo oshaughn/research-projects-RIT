@@ -3794,7 +3794,11 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
        is_precessing=True
        if np.sqrt(P.s1x**2 + P.s1y**2 + P.s2x**2+P.s2y**2)<1e-10:  # only perform if really precessing, otherwise skip. Really only for XP variants
            is_precessing=False
-       if P.fref==0 and (P.approx == lalIMRPhenomXPHM):
+       # Keep LAL's default reference at the requested start frequency,
+       # before applying our lower generation standoff frequency.
+       if P.fref==0 and (P.approx == lalIMRPhenomXPHM or
+                         (fd_L_frame and not is_precessing and P.approx in
+                          (lalIMRPhenomXO4a, lalIMRPhenomXPNR))):
           P.fref=P.fmin
 #       extra_params = P.to_lal_dict_extended(extra_args_dict=extra_waveform_args)
        fNyq = 0.5/P.deltaT
@@ -3899,6 +3903,16 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
                  extra_polarization=np.pi/2,
              )
              hlmsT = hlmsT_alt
+       elif (not is_precessing and fd_L_frame and P.approx in
+             (lalIMRPhenomXPHM, lalIMRPhenomXO4a, lalIMRPhenomXPNR)):
+             # ChooseFDModes uses Y_lm(incl, pi/2 - phiRef), including at
+             # zero transverse spin. The precessing rotation above supplies
+             # that azimuth conversion and cancels our historical global minus.
+             # Aligned inputs need the same convention conversion, although
+             # their J and L axes coincide and no spatial tilt is needed.
+             # Use exact quarter turns: the dominant (2,+/-2) modes are unchanged.
+             for mode in hlmsT:
+                 hlmsT[mode].data.data *= -(1j ** int(mode[1]))
         # phase shift ChooseFDModes
 #       for mode in hlmsT:
  #          hlmsT[mode].data.data *= np.exp(-1j*mode[1]*np.pi/2) # phase correction factor, empirically to match phase convention for precession for example. Note this should always be done
