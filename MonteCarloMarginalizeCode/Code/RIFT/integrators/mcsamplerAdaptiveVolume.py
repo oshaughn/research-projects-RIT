@@ -232,6 +232,84 @@ def sample_from_bins(xrange, dx, bu, ninbin, reject_out_of_range=False):
         return x
 
 
+class _BinSet(object):
+    """Occupied bins of one grid as sorted int64 keys with a count per key (rows only if keys
+    would overflow).  Bins projected onto fewer dimensions can coincide; the count is how many
+    original bins sit at each projected location, since draw_simple draws from every one."""
+
+    def __init__(self, bins, n_bins=None):
+        bins = np.asarray(bins).astype(np.int64)
+        self.n_bins = len(bins) if n_bins is None else int(n_bins)
+        self.shape = bins.max(axis=0) + 1 if len(bins) else np.ones(bins.shape[1], dtype=np.int64)
+        self.keys = self.rows = self.counts = None
+        if bins.shape[1] == 0:
+            return
+        if np.prod([float(v) for v in self.shape]) < 2.0**62:
+            self.keys, self.counts = np.unique(np.ravel_multi_index(tuple(bins.T), self.shape),
+                                               return_counts=True)
+        else:
+            self.rows, self.counts = np.unique(bins, axis=0, return_counts=True)
+
+    def multiplicity(self, idx):
+        """Number of bins at each point's projected location (0 if none)."""
+        if len(self.shape) == 0:          # every dimension pinned: all bins share one location
+            return np.full(len(idx), self.n_bins, dtype=np.int64)
+        out = np.zeros(len(idx), dtype=np.int64)
+        if self.rows is not None:
+            _, inv = np.unique(np.vstack([self.rows, idx]), axis=0, return_inverse=True)
+            inv = np.asarray(inv).ravel()
+            where = {int(v): j for j, v in enumerate(inv[:len(self.rows)])}
+            hit = np.array([where.get(int(v), -1) for v in inv[len(self.rows):]], dtype=np.int64)
+            out[hit >= 0] = self.counts[hit[hit >= 0]]
+            return out
+        if self.keys is None or len(self.keys) == 0 or len(idx) == 0:
+            return out
+        ok = np.all((idx >= 0) & (idx < self.shape), axis=1)
+        k = np.ravel_multi_index(tuple(np.where(ok[:, None], idx, 0).T), self.shape)
+        pos = np.minimum(np.searchsorted(self.keys, k), len(self.keys) - 1)
+        hit = ok & (self.keys[pos] == k)
+        out[hit] = self.counts[pos[hit]]
+        return out
+
+    def contains(self, idx):
+        return self.multiplicity(idx) > 0
+
+
+def log_retained_density(X, origin, grids, box_lo, dx0, pinned_dims=()):
+    """Per-point log density of the retained set, for the deterministic-mixture estimator.
+
+    grids[k] = (dx, bins, n_drawn) is the proposal integrate_log drew cycle k from: uniform
+    over the occupied bins (an (M, ndim) array, or a _BinSet over the non-pinned dims),
+    density 1/|B_k|.  The pooled draws come from the mixture sum_k n_k 1[x in B_k]/|B_k|;
+    dividing by the retained count gives a density for which
+    logsumexp(lnL + ln p - ln p_s) - ln(n_retained) is the balance-heuristic estimate
+    (1/N) sum L p / q_mix.  origin[i] is the cycle that drew point i, which is a member of
+    its own grid by construction (guards rounding at a bin's upper edge).  Pinned
+    dimensions are not drawn from the bins, so they enter with their full width.
+    """
+    X = np.asarray(X, dtype=float)
+    origin = np.asarray(origin, dtype=int)
+    dx0 = np.asarray(dx0, dtype=float)
+    box_lo = np.asarray(box_lo, dtype=float)
+    keep = np.ones(len(dx0), dtype=bool)
+    if len(pinned_dims):
+        keep[np.asarray(pinned_dims, dtype=int)] = False
+    log_dx0_pinned = float(np.sum(np.log(dx0[~keep])))
+    acc = np.full(len(X), -np.inf)
+    for k, (dx, bins, n_k) in enumerate(grids):
+        dx = np.asarray(dx, dtype=float)
+        if not isinstance(bins, _BinSet):
+            bins = np.asarray(bins).astype(np.int64)
+            bins = _BinSet(bins[:, keep], n_bins=len(bins))
+        log_vol = np.log(bins.n_bins) + np.sum(np.log(dx[keep])) + log_dx0_pinned
+        idx = np.floor((X[:, keep] - box_lo[keep]) / dx[keep]).astype(np.int64)
+        mult = bins.multiplicity(idx)
+        mult[(mult == 0) & (origin == k)] = 1
+        member = mult > 0
+        acc[member] = np.logaddexp(acc[member], np.log(n_k) + np.log(mult[member]) - log_vol)
+    return acc - np.log(len(X))
+
+
 class MCSampler(object):
     """
     Class to define a set of parameter names, limits, and probability densities.
@@ -298,6 +376,9 @@ class MCSampler(object):
         # sampling tool
         self.V=None  # fractional volume
         self.delta_V=None  # fractional volume
+        # Largest Good-Turing unseen fraction (weight of live points alone in a bin) integrate_log
+        # accepts before coarsening the grid; see _coarsen_for_coverage.  0 disables.
+        self.coverage_unseen_tol = 0.05
         
 
     def setup(self, **kwargs):
@@ -389,6 +470,56 @@ class MCSampler(object):
         rv = rv[:n_to_get].T
         return ps, p, rv
 
+    def _coarsen_for_coverage(self, X, lnw, nbins, enforce_bounds):
+        """Coarsen nbins until the live points cover the occupied region (backport of rift_O4d #458).
+
+        A bin with no live point leaves the next grid while retained points stay in every
+        later one, so log_retained_density over-counts where points remain and lnZ reads low
+        when the live set has fewer points than the live region has bins.  Acts only when an
+        adaptive axis is unresolved (live points within 2 bins) and another spans more: while
+        the weight of live points alone in their bin (Good-Turing) exceeds
+        coverage_unseen_tol, the axes spanning the most bins are coarsened by 0.8.
+        Returns (nbins, unseen fraction, steps)."""
+        tol = float(getattr(self, 'coverage_unseen_tol', 0) or 0)
+        nbins = np.array(nbins, dtype=float)
+        X = np.asarray(identity_convert(X), dtype=float)
+        ax = np.array(self.indx_adaptive, dtype=int)
+        if len(X) == 0 or len(ax) == 0:
+            return nbins, 0.0, 0
+        w = np.asarray(identity_convert(lnw), dtype=float)
+        w = np.exp(w - np.max(w))
+        w /= np.sum(w)
+        lo = self.my_ranges.T[0]
+        width = np.diff(self.my_ranges, axis=1).flatten()
+        steps = 0
+        while True:
+            idx = ((X[:, ax] - lo[ax]) / (width[ax] / nbins[ax])).astype(np.int64)
+            idx -= idx.min(axis=0)
+            shape = idx.max(axis=0) + 1
+            if np.prod(shape.astype(float)) < 2.0**62:   # 1-D keys: far cheaper than unique(axis=0)
+                _, inv, counts = np.unique(np.ravel_multi_index(tuple(idx.T), shape), return_inverse=True, return_counts=True)
+            else:
+                _, inv, counts = np.unique(idx, axis=0, return_inverse=True, return_counts=True)
+            unseen = float(np.sum(w[counts[np.asarray(inv).ravel()] == 1]))
+            span = np.array([len(np.unique(idx[:, j])) for j in range(len(ax))])
+            if tol <= 0 or unseen <= tol or span.min() > 2 or span.max() <= 2:
+                return nbins, unseen, steps
+            pick = ax[(span == span.max()) & (nbins[ax] > 1)]
+            nbins[pick] = np.maximum(1.0, nbins[pick] * 0.8)
+            if enforce_bounds:
+                nbins[pick] = np.floor(nbins[pick])
+            steps += 1
+
+    def _drawn_inside_box(self, x, xpy, to_xpy):
+        """Rows of x inside the prior box on every drawn coordinate.  A pinned coordinate is the
+        caller's value, not a proposal draw, so it is not tested: a pin outside the sampling
+        limits is integrated as before rather than zeroing every draw."""
+        keep = [i for i, p in enumerate(self.params_ordered) if p not in self.params_pinned_vals]
+        if not keep:
+            return to_xpy(np.ones(len(x), dtype=bool))
+        xk = x[:, keep]
+        return xpy.all((xk >= to_xpy(self.my_ranges[keep, 0])) & (xk <= to_xpy(self.my_ranges[keep, 1])), axis=1)
+
     def draw_simple(self):
         # Draws
         x =  sample_from_bins(self.my_ranges, self.dx, self.binunique, self.ninbin)
@@ -399,7 +530,14 @@ class MCSampler(object):
                x[:,indx_p] = self.params_pinned_vals[p]
           
         # probabilities at these points.  
-        log_p = np.log(self.prior_prod(x))
+        inside = self._drawn_inside_box(x, xpy_default, xpy_default.asarray)
+        log_p = xpy_default.full(len(x), -np.inf)
+        if bool(xpy_default.all(inside)):
+            with np.errstate(divide='ignore'):
+                log_p = xpy_default.log(self.prior_prod(x))
+        elif bool(xpy_default.any(inside)):
+            with np.errstate(divide='ignore'):
+                log_p[inside] = xpy_default.log(self.prior_prod(x[inside]))
         # Not including any sampling prior factors, since it is de facto uniform right now (just discarding 'irrelevant' regions)
         return x, log_p
 
@@ -602,7 +740,9 @@ class MCSampler(object):
         dict_return_q = kwargs["dict_return"] if "dict_return" in kwargs else False  # default.  Method for passing back rich data structures for debugging
 
         # use integer numbers of bins always
-        enforce_bounds = kwargs["enforce_bounds"] if "enforce_bounds" in kwargs else False
+        enforce_bounds = kwargs.get("enforce_bounds", False)
+        if kwargs.get("coverage_unseen_tol") is not None:
+            self.coverage_unseen_tol = float(kwargs["coverage_unseen_tol"])
 
         if bShowEvaluationLog:
             print(" .... mcsampler : providing verbose output ..... ")
@@ -635,22 +775,37 @@ class MCSampler(object):
           allx = identity_convert_togpu(allx)
           allloglkl = identity_convert_togpu(allloglkl)
 
+        allcyc = np.zeros(0, dtype=int)
+        draw_grids = []  # actual proposal and draw count of every evaluated cycle
+        _pinned = [self.params_ordered.index(p) for p in self.params_pinned_vals]
+        _keep_dims = np.setdiff1d(np.arange(ndim), _pinned)
         ntotal_true = 0
+        n_coarsen_cycles = 0    # cycles in which _coarsen_for_coverage coarsened the grid
+        unseen_frac = 0.0       # Good-Turing unseen fraction of the last grid
         while (eff_samp < neff and ntotal_true < nmax ): #  and (not bConvergenceTests):
             # Draw samples. Note state variables binunique, ninbin -- so we can re-use the sampler later outside the loop
             rv, log_joint_p_prior = self.draw_simple()  # Beware reversed order of rv
             ntotal_true += len(rv)
+            _bu = np.asarray(identity_convert(self.binunique))
+            draw_grids.append((np.array(identity_convert(self.dx)),
+                               _BinSet(_bu[:, _keep_dims], n_bins=len(_bu)), len(rv)))
             if cupy_ok:
               rv = identity_convert_togpu(rv) # send random numbers to GPU : ugh
               log_joint_p_prior = identity_convert_togpu(log_joint_p_prior)    # send to GPU if required. Don't waste memory reassignment otherwise
 
-            # Evaluate function, protecting argument order
-            if 'no_protect_names' in kwargs:
-                unpacked0 = rv.T
-                lnL = lnF(*unpacked0)  # do not protect order
-            else:
-                unpacked = dict(list(zip(self.params_ordered,rv.T)))
-                lnL= lnF(**unpacked)  # protect order using dictionary
+            # #455's bounded-domain contract: outside proposals have zero weight,
+            # but still count as draws. Do not evaluate physics at illegal coordinates.
+            inside = self._drawn_inside_box(rv, xpy_here, identity_convert_togpu)
+            lnL = xpy_default.full(len(rv), -np.inf)
+            all_inside = bool(xpy_here.all(inside))
+            if all_inside or bool(xpy_here.any(inside)):
+                valid_rv = rv if all_inside else rv[inside]
+                if 'no_protect_names' in kwargs:
+                    value = lnF(*valid_rv.T)
+                else:
+                    unpacked = dict(zip(self.params_ordered, valid_rv.T))
+                    value = lnF(**unpacked)
+                lnL[inside] = identity_convert_togpu(value)
             # take log if we are NOT using lnL
             if cupy_ok:
               if not(isinstance(lnL,cupy.ndarray)):
@@ -671,6 +826,7 @@ class MCSampler(object):
             idxsel = xpy_here.where(loglkl > loglkl_thr)
             #only admit samples that lie inside the live volume, i.e. one that cross likelihood threshold
             allx = xpy_here.append(allx, rv[idxsel], axis = 0)
+            allcyc = np.append(allcyc, np.full(len(idxsel[0]), len(draw_grids) - 1, dtype=int))
             allloglkl = xpy_here.append(allloglkl, loglkl[idxsel])
             allp = xpy_here.append(allp, log_joint_p_prior[idxsel])
             ninj = len(allloglkl)
@@ -688,6 +844,7 @@ class MCSampler(object):
             allloglkl = allloglkl[idxsel]
             allp = allp[idxsel]
             allx = allx[idxsel]
+            allcyc = allcyc[identity_convert(idxsel[0])]
             nrec = len(allloglkl)   # recovered size of active volume at present, after selection
 
             # Weights
@@ -710,11 +867,16 @@ class MCSampler(object):
 
             # bin sizes integers?  May slow us down
             if enforce_bounds:
-              self.nbins = np.floor(self.nbins)
+              self.nbins = np.maximum(1, np.floor(self.nbins))
+            if self.d_adaptive > 0:
+              self.nbins, unseen_frac, n_coarsen = self._coarsen_for_coverage(allx, allloglkl, self.nbins, enforce_bounds)
+              n_coarsen_cycles += int(n_coarsen > 0)
 
             self.dx = np.diff(self.my_ranges, axis = 1).flatten() / self.nbins   # update bin widths
             binidx = ( (( identity_convert(allx) - self.my_ranges.T[0]) / self.dx.T).astype(int)  ) #bin indexs of the samples ... sent back to CPU as needed
 
+            if enforce_bounds:
+                binidx = np.minimum(binidx, self.nbins.astype(int) - 1)
             self.binunique = np.unique(binidx, axis = 0)
             self.ninbin = ((self.n_chunk // self.binunique.shape[0] + 1) * np.ones(self.binunique.shape[0])).astype(int)
             self.ntotal = current_log_aggregate[0]
@@ -736,13 +898,21 @@ class MCSampler(object):
         # write out log integrand
         self._rvs['log_integrand']  = allloglkl - allp  # remember 'allloglkl' really is Lp -- despite the misleading name! --  so we are *undoing* that
         self._rvs['log_joint_prior'] = allp
-        self._rvs['log_joint_s_prior'] = xpy_here.ones(len(allloglkl))*(np.log(1/V) - np.sum(np.log(self.dx0)))  # effective uniform sampling on this volume
+        # #412/#430: balance-heuristic density from every proposal actually drawn.
+        # V only guides grid sizing; it is not the sampling density of retained rows.
+        _log_ps = log_retained_density(identity_convert(allx), allcyc, draw_grids,
+                                       self.my_ranges[:, 0], self.dx0, pinned_dims=_pinned)
+        self._rvs['log_joint_s_prior'] = identity_convert_togpu(_log_ps)
 
         # Manual estimate of integrand, done transparently (no 'log aggregate' or running calculation -- so memory hog
         log_wt = self._rvs["log_integrand"] + self._rvs["log_joint_prior"] - self._rvs["log_joint_s_prior"]
         log_wt = identity_convert(log_wt)  # convert to CPU
         log_int = special.logsumexp( log_wt) - np.log(len(log_wt))  # mean value
-        rel_var = np.var( np.exp(log_wt - log_int))/len(log_wt)   # error in integral, estimated: just taking int = <w> , so error is V(w_k)/N (sample mean/variance)
+        # Rejected draws contribute zero to the Monte Carlo mean and its variance.
+        _w = np.exp(log_wt - np.max(log_wt))
+        _n_drawn = float(sum(g[2] for g in draw_grids))
+        rel_var_mc = max(float(np.sum(_w**2) / np.sum(_w)**2) - 1.0 / _n_drawn, 0.0)
+        rel_var = rel_var_mc + trunc_p**2
         eff_samp = np.sum(np.exp(log_wt - np.max(log_wt)))
         maxval = np.max(allloglkl)  # max of log
 
@@ -778,7 +948,8 @@ class MCSampler(object):
             if isinstance(self._rvs[name],xpy_default.ndarray):
               self._rvs[name] = identity_convert(self._rvs[name])   # this is trivial if xpy_default is numpy, and a conversion otherwise
 
-        dict_return = {}
+        dict_return = {'total_draws': ntotal_true, 'sigma_lnZ_mc': np.sqrt(rel_var_mc),
+                       'n_coarsen_cycles': int(n_coarsen_cycles), 'unseen_frac_final': float(unseen_frac)}
 
         # ------------------------------------------------------------------
         # LIVE-VOLUME COLLAPSE VERDICT.  The threshold clamp in get_likelihood_threshold
