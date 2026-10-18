@@ -62,7 +62,9 @@ from scipy import special
 from itertools import product, combinations
 import math
 
-from .vectorized_lal_tools import ComputeDetAMResponse,TimeDelayFromEarthCenter
+from .vectorized_lal_tools import (ComputeDetAMResponse, TimeDelayFromEarthCenter,
+    SourcePolarizationBasis, SourcePropagationDirection,
+    ComputeDetAMResponsePrecomputed, TimeDelayFromEarthCenterPrecomputed)
 from . import time_marginalization_quadrature as time_quad
 
 import os
@@ -120,6 +122,69 @@ else:
   useNR=False
 
 distMpcRef = 1000 # a fiducial distance for the template source.
+
+def _backend_device_key(xpy):
+    """Keep module-level device arrays separate across CUDA contexts/devices."""
+    cuda = getattr(xpy, 'cuda', None)
+    return None if cuda is None else int(cuda.runtime.getDevice())
+
+
+_DETECTOR_GEOMETRY_CACHE = {}
+
+def _detector_geometry(det, xpy):
+    """(location, response) for detector prefix ``det`` as ``xpy`` arrays, cached."""
+    key = (det, id(xpy), _backend_device_key(xpy))
+    hit = _DETECTOR_GEOMETRY_CACHE.get(key)
+    if hit is None:
+        detector = lalsim.DetectorPrefixToLALDetector(det)
+        hit = (xpy.asarray(detector.location), xpy.asarray(detector.response))
+        _DETECTOR_GEOMETRY_CACHE[key] = hit
+    return hit
+
+_SIMPS_WEIGHTS_CACHE = {}
+
+def _simps_weights(simps, npts, deltaT, xpy, block=256):
+    """Quadrature weight vector w with simps(y, dx=deltaT, axis=-1) == y . w.
+
+    Built a BLOCK OF ROWS AT A TIME rather than from a full (npts, npts) identity.
+    npts is 2*data_integration_window_half*srate, and the batch driver's DEFAULT srate
+    is 16384, so npts is 2457 in the default configuration, not the 614 of an
+    srate-4096 run: a whole identity is then 48 MB, and cupy's pool holds ~97 MB
+    across the simps call -- a transient that lands inside the first likelihood
+    evaluation of every --vectorized --gpu run, in a function whose n_chunk is already
+    bounded by device memory.  Blocking caps it at block*npts*8 bytes (5 MB at the
+    default).  simps reduces along axis=-1, so rows are independent and the blocked
+    result is bitwise identical to the whole-identity one.
+
+    Cache separately by quadrature callable, grid, backend and CUDA device. The
+    GPU's vendored even='avg' rule differs from scipy's Cartwright rule; reusing
+    either rule's weights for the other would change the integral. Retaining the
+    callable also prevents a collected function's id being reused by another rule.
+    """
+    if int(block) <= 0:
+        raise ValueError('Simpson weight block must be positive')
+    # Retain the callable itself: an id-only key can be recycled after GC.
+    key = (int(npts), float(deltaT), id(xpy), _backend_device_key(xpy), simps)
+    w = _SIMPS_WEIGHTS_CACHE.get(key)
+    if w is None:
+        n = int(npts)
+        parts = []
+        for lo in range(0, n, int(block)):
+            hi = min(lo + int(block), n)
+            rows = xpy.zeros((hi - lo, n), dtype=np.float64)
+            idx = xpy.arange(hi - lo)
+            rows[idx, idx + lo] = 1.0
+            parts.append(simps(rows, dx=deltaT, axis=-1))
+        w = xpy.concatenate(parts) if len(parts) > 1 else parts[0]
+        _SIMPS_WEIGHTS_CACHE[key] = w
+    return w
+
+def _mode_list_key(lms):
+    """Read a mode list's value; callers may replace or mutate it between calls."""
+    host = lms.get() if hasattr(lms, "get") else lms
+    return tuple(map(tuple, np.asarray(host).tolist()))
+
+
 tWindowExplore = [-0.15, 0.15] # Not used in main code.  Provided for backward compatibility for ROS. Should be consistent with t_ref_wind in ILE.
 rosDebugMessages = True
 rosDebugMessagesDictionary = {}   # Mutable after import (passed by reference). Not clear if it can be used by caling routines
@@ -990,8 +1055,22 @@ def InterpolateRholms(rholms, t,verbose=False):
 
     return rholm_intp
 
+# --- opt-in batching of the mode cross terms ---------------------------------------
+# OFF by default: the batched path reorders the frequency reduction and so does not
+# reproduce the shipped rounding bit-for-bit (~1e-15 of max|U|; see
+# DESIGN_precompute_crossterm_batching.md).  Enable per run with
+#     RIFT_PRECOMPUTE_BATCHED_CROSSTERMS=1
+# or per call with the `batched=` keyword, which overrides the environment.
+_CROSSTERM_BATCH_CALLS = [0]     # observability: a run that never took the path reads 0
+
+
+def _crossterm_batched_default():
+    return os.environ.get("RIFT_PRECOMPUTE_BATCHED_CROSSTERMS", "0").strip() in ("1", "true", "True")
+
+
 def ComputeModeCrossTermIP(hlmsA, hlmsB, psd, fmin, fMax, fNyq, deltaF, 
-        analyticPSD_Q=False, inv_spec_trunc_Q=False, T_spec=0., verbose=True,prefix="U",same_waveform_Q=False):
+        analyticPSD_Q=False, inv_spec_trunc_Q=False, T_spec=0., verbose=True,prefix="U",same_waveform_Q=False,
+        batched=None):
     """
     Compute the 'cross terms' between waveform modes, i.e.
     < h_lm | h_l'm' >.
@@ -1009,6 +1088,40 @@ def ComputeModeCrossTermIP(hlmsA, hlmsB, psd, fmin, fMax, fNyq, deltaF,
             inv_spec_trunc_Q, T_spec)
 
     crossTerms = {}
+
+    if batched is None:
+        batched = _crossterm_batched_default()
+    if batched:
+      # One GEMM over the whole (mode x mode) block instead of Na*Nb separate full-length
+      # reductions.  The symmetry bookkeeping below is kept identical to the loop, so the
+      # exact Hermitian/transpose relations the shipped path guarantees still hold.
+      _CROSSTERM_BATCH_CALLS[0] += 1
+      modesA = list(hlmsA.keys())
+      modesB = list(hlmsB.keys())
+      if same_waveform_Q:
+        assert set(modesA) == set(modesB), "same_waveform_Q requires the same mode keys on both sides"
+        # The legacy loop indexes B by A's keys, independent of dict insertion order.
+        modesB = modesA
+      M = IP.ip_matrix([hlmsA[m] for m in modesA], [hlmsB[m] for m in modesB])
+      if same_waveform_Q:
+        for i, mode in enumerate(modesA):
+          crossTerms[ (mode,mode) ] = M[i,i]
+        for i, mode1 in enumerate(modesA):
+          for j in range(i+1, len(modesA)):
+            mode2 = modesA[j]
+            crossTerms[ (mode1,mode2) ] = M[i,j]
+            if prefix == "V":
+              crossTerms[ (mode2,mode1) ] = crossTerms[(mode1,mode2)]
+            else:
+              crossTerms[ (mode2,mode1) ] = np.conj(crossTerms[(mode1,mode2)])
+      else:
+        for i, mode1 in enumerate(modesA):
+          for j, mode2 in enumerate(modesB):
+            crossTerms[ (mode1,mode2) ] = M[i,j]
+            if verbose:
+                print("       : ", prefix, " populated ", (mode1, mode2), "  = ",\
+                        crossTerms[(mode1,mode2) ])
+      return crossTerms
 
     if same_waveform_Q:
       mode_list = list(hlmsA.keys())
@@ -2069,8 +2182,9 @@ def _DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopUnchunked(tvals, P_vec, lo
 
     # Used to accumulate kappa^2 and rho^2 over all detectors.  They are just
     # the sum in quadrature of the individual detector contributions.
-    kappa_sq = xpy.zeros((npts_extrinsic, npts), dtype=np.complex128)
-    rho_sq = xpy.zeros((npts_extrinsic, npts), dtype=np.float64)
+    # Reuse the first data-term buffer; the norm is time-independent.
+    kappa_sq = None
+    rho_sq_vec = xpy.zeros(npts_extrinsic, dtype=np.float64)
 
     if (xpy is np) or (optimized_gpu_tools is None):
         simps = my_simps
@@ -2079,12 +2193,19 @@ def _DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopUnchunked(tvals, P_vec, lo
     else:
         raise NotImplementedError("Backend not supported: {}".format(xpy))
 
-    # strings right now - need to change to make ufunc-able
+    # Read tiny device mode lists before launching geometry work; no long-lived
+    # identity cache, which would silently reuse stale modes after mutation.
+    mode_keys = {det: _mode_list_key(lookupNKDict[det]) for det in detectors}
+    # Source-only geometry is shared across detectors at fixed extrinsic samples.
+    XY_basis = SourcePolarizationBasis(RA, DEC, psi,
+        greenwich_mean_sidereal_time_tref, xpy=xpy)
+    ehat_src = SourcePropagationDirection(RA, DEC,
+        float(greenwich_mean_sidereal_time_tref), xpy=xpy)
+    _ylm_by_modes = {}
+
     for det in detectors:
         # Compute the detector's location and response matrix
-        detector = lalsim.DetectorPrefixToLALDetector(det)
-        detector_location = xpy.asarray(detector.location)
-        detector_response = xpy.asarray(detector.response)
+        detector_location, detector_response = _detector_geometry(det, xpy)
 
         # These do not depend on extrinsic params.
         # Arrays of shape (n_lms, n_lms).
@@ -2097,20 +2218,21 @@ def _DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopUnchunked(tvals, P_vec, lo
 
         # These do depend on extrinsic params
         # Array of shape (npts_extrinsic, n_lms,)
-        Ylms_vec = SphericalHarmonicsVectorized(
-            lms, incl, -phiref,
-            xpy=xpy,
-            l_max=Lmax,
-        )
+        mode_key = mode_keys[det]
+        Ylms_vec = _ylm_by_modes.get(mode_key)
+        if Ylms_vec is None:
+            Ylms_vec = SphericalHarmonicsVectorized(
+                lms, incl, -phiref, xpy=xpy, l_max=Lmax)
+            _ylm_by_modes[mode_key] = Ylms_vec
+        if phase_marginalization:
+            # The phase path conjugates a column in place below. Never mutate
+            # the shared array or the next detector would see conjugated modes.
+            Ylms_vec = Ylms_vec.copy()
 
         # Array of shape (npts_extrinsic,)
 #        F_vec_old = xpy.asarray(lalF(det, RA, DEC, psi, tref))
-        F_vec = ComputeDetAMResponse(
-            detector_response,
-            RA, DEC, psi,
-            greenwich_mean_sidereal_time_tref,
-            xpy=xpy
-        )
+        F_vec = ComputeDetAMResponsePrecomputed(
+            detector_response, XY_basis[0], XY_basis[1], xpy=xpy)
 
         # Scalar -- is constant for each IFO
         t_ref = epochDict[det]
@@ -2119,11 +2241,8 @@ def _DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopUnchunked(tvals, P_vec, lo
         # Note that to save on precision compared to ...NoLoopOrig, we CHANGE the t_det definition to be relative to the IFO statt time t_ref
         #    ... this means we don't keep a 1e9 out in front, so we have more significant digits in the event time (and can if needed reduce precision in GPU ops)
         # an array of shape (npts_extrinsic,)
-        t_det = float(tref - float(t_ref)) + TimeDelayFromEarthCenter(
-            detector_location, RA, DEC,
-            float(greenwich_mean_sidereal_time_tref),
-            xpy=xpy
-        )
+        t_det = float(tref - float(t_ref)) + TimeDelayFromEarthCenterPrecomputed(
+            detector_location, ehat_src, xpy=xpy)
         tfirst = t_det + tvals[0]
 
         sample_first = tfirst / deltaT
@@ -2234,7 +2353,11 @@ def _DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopUnchunked(tvals, P_vec, lo
             np.conj(FY_dummy_t), Qlms,
             )
 
-        kappa_sq += Q_prod_result * (distMpcRef/distMpc)[..., np.newaxis]
+        xpy.multiply(Q_prod_result, invDistMpc[..., np.newaxis], out=Q_prod_result)
+        if kappa_sq is None:
+            kappa_sq = Q_prod_result
+        else:
+            kappa_sq += Q_prod_result
         # lnL_t_accum += Q_prod_result * (distMpcRef/distMpc)[...,None]
 
         # lnL_t_accum += Q_inner_product.Q_inner_product_cupy(
@@ -2245,13 +2368,21 @@ def _DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopUnchunked(tvals, P_vec, lo
 
         # Accumulate term2 into the time-dependent log likelihood.
         # Have to create a view with an extra axis so they broadcast.
-        rho_sq += rho_sq_det[..., np.newaxis]
+        rho_sq_vec += rho_sq_det
         # lnL_t_accum += term2[..., np.newaxis]
 
 #        print lnL_t_accum.shape, lnL_t.shape
 
 #        lnL_t_accum += lnL_t
 
+
+    if kappa_sq is None:
+        kappa_sq = xpy.zeros((npts_extrinsic, npts), dtype=np.complex128)
+    rho_sq = xpy.broadcast_to(rho_sq_vec[:, None], (npts_extrinsic, npts))
+    # Preserve the existing writable callback API for user-supplied likelihoods.
+    # The built-in helper allocates its output and never writes into rho_sq.
+    if loglikelihood is not _factored_lnL_helper:
+        rho_sq = xpy.array(rho_sq, copy=True)
 
     if phase_marginalization:
         lnL_t = loglikelihood(xpy.abs(kappa_sq), rho_sq)
@@ -2275,7 +2406,7 @@ def _DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopUnchunked(tvals, P_vec, lo
         # offsets. The gather steps at deltaT, not the linspace spacing in tvals.
         # Pass the caller's Simpson implementation for unrefined rows.
         result = time_quad.time_marginalize_bandlimited(
-            kappa_sq, rho_sq, deltaT, loglikelihood,
+            kappa_sq, xpy.array(rho_sq, copy=True), deltaT, loglikelihood,
             phase_marginalization=phase_marginalization, lnL_coarse=lnL_t,
             simps=simps, return_time_draw=return_time_draw,
             draw_uniforms=time_draw_uniforms, t0=float(tvals[0]),
@@ -2287,7 +2418,7 @@ def _DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopUnchunked(tvals, P_vec, lo
 
     L_t = xpy.exp(lnL_t - lnLmax, out=lnL_t)
 
-    L = simps(L_t, dx=deltaT, axis=-1)
+    L = L_t.dot(_simps_weights(simps, npts, deltaT, xpy))
 
     # Compute log likelihood in-place.
     lnL = lnLmax[...,0] + xpy.log(L, out=L)

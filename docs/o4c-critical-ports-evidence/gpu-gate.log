@@ -1,0 +1,11 @@
+........................................................................ [ 85%]
+............                                                             [100%]
+=============================== warnings summary ===============================
+../../../cvmfs/software.igwn.org/conda/envs/igwn/lib/python3.11/site-packages/qnm/schwarzschild/tabulated.py:169
+  /cvmfs/software.igwn.org/conda/envs/igwn/lib/python3.11/site-packages/qnm/schwarzschild/tabulated.py:169: DeprecationWarning: Please import `OptimizeResult` from the `scipy.optimize` namespace; the `scipy.optimize.optimize` namespace is deprecated and will be removed in SciPy 2.0.0.
+    loaded = pickle.load(handle, encoding='latin1')
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /local/richard.oshaughnessy/.codex-tmp/rift-o4c-ports.dYZC4n.xml -
+84 passed, 1 warning in 102.99s (0:01:42)
+Critical ports gate: 84 cases, 84 passed, 0 skipped

@@ -35,9 +35,32 @@ def TimeDelayFromEarthCenter(
     -------
     time_delay_from_earth_center : array_like, shape = det_shape + sample_shape
     """
-    negative_speed_of_light = xpy.asarray(-299792458.0)
+    ehat_src = SourcePropagationDirection(
+        source_right_ascension_radians, source_declination_radians,
+        greenwich_mean_sidereal_time, xpy=xpy, dtype=dtype,
+    )
+    return TimeDelayFromEarthCenterPrecomputed(
+        detector_earthfixed_xyz_metres, ehat_src, xpy=xpy,
+    )
 
-    det_shape = detector_earthfixed_xyz_metres.shape[:-1]
+
+def SourcePropagationDirection(
+        source_right_ascension_radians,
+        source_declination_radians,
+        greenwich_mean_sidereal_time,
+        xpy=xpy_default, dtype=numpy.float64,
+    ):
+    """Unit vector from Earth's center towards the source, in Earth-fixed frame.
+
+    This depends only on the SOURCE, not on the detector, so a caller looping over
+    detectors with a fixed set of extrinsic samples can build it once and hand it to
+    ``TimeDelayFromEarthCenterPrecomputed`` for each detector instead of recomputing
+    three trig evaluations per detector.
+
+    Returns
+    -------
+    ehat_src : array_like, shape = sample_shape + (3,)
+    """
     sample_shape = source_right_ascension_radians.shape
 
     cos_dec = xpy.cos(source_declination_radians)
@@ -51,6 +74,20 @@ def TimeDelayFromEarthCenter(
     ehat_src[...,0] = cos_dec * xpy.cos(greenwich_hour_angle)
     ehat_src[...,1] = -cos_dec * xpy.sin(greenwich_hour_angle)
     ehat_src[...,2] = xpy.sin(source_declination_radians)
+
+    return ehat_src
+
+
+def TimeDelayFromEarthCenterPrecomputed(
+        detector_earthfixed_xyz_metres, ehat_src, xpy=xpy_default,
+    ):
+    """Per-detector half of :func:`TimeDelayFromEarthCenter`.
+
+    ``ehat_src`` comes from :func:`SourcePropagationDirection`.  The arithmetic is the
+    same ``inner`` contraction the combined function performs, so results are bitwise
+    identical to calling ``TimeDelayFromEarthCenter`` directly.
+    """
+    negative_speed_of_light = xpy.asarray(-299792458.0)
 
     neg_separation = xpy.inner(detector_earthfixed_xyz_metres, ehat_src)
     return xpy.divide(
@@ -89,9 +126,34 @@ def ComputeDetAMResponse(
     -------
     F : array_like, shape = det_shape + sample_shape
     """
-    det_shape = detector_response_matrix.shape[:-1]
+    X, Y = SourcePolarizationBasis(
+        source_right_ascension_radians, source_declination_radians,
+        source_polarization_radians, greenwich_mean_sidereal_time,
+        xpy=xpy, dtype_real=dtype_real,
+    )
+    return ComputeDetAMResponsePrecomputed(
+        detector_response_matrix, X, Y, xpy=xpy,
+    )
+
+
+def SourcePolarizationBasis(
+        source_right_ascension_radians,
+        source_declination_radians,
+        source_polarization_radians,
+        greenwich_mean_sidereal_time,
+        xpy=xpy_default, dtype_real=numpy.float64,
+    ):
+    """The (X, Y) polarization basis vectors in the Earth-fixed frame.
+
+    Six trig evaluations and twelve elementwise combinations, none of which depend on
+    the DETECTOR -- only the contraction with the response matrix does.  A caller
+    looping over detectors at fixed extrinsic samples should build this once.
+
+    Returns
+    -------
+    X, Y : array_like, shape = sample_shape + (3,)
+    """
     sample_shape = source_right_ascension_radians.shape
-    matrix_shape = 3, 3
 
     # Initialize trig matrices.
     X = xpy.empty(sample_shape+(3,), dtype=dtype_real)
@@ -119,6 +181,20 @@ def ComputeDetAMResponse(
     Y[...,1] =  sin_psi*cos_gha + cos_psi*sin_gha*sin_dec
     Y[...,2] =  cos_psi*cos_dec
 
+    return X, Y
+
+
+def ComputeDetAMResponsePrecomputed(
+        detector_response_matrix, X, Y, xpy=xpy_default,
+    ):
+    """Per-detector half of :func:`ComputeDetAMResponse`.
+
+    ``X, Y`` come from :func:`SourcePolarizationBasis`.  The contractions are the same
+    ``inner`` calls in the same order as the combined function, so results are bitwise
+    identical to calling ``ComputeDetAMResponse`` directly.  (A single batched einsum
+    over stacked detectors would be fewer launches still, but reassociates the
+    contraction and is only equal to ~4e-16; that is deliberately not done here.)
+    """
     # Compute F for each polarization state.
     F_plus = (
         X*xpy.inner(X, detector_response_matrix) -

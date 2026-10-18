@@ -1,0 +1,188 @@
+........................................FFFFF.....                       [100%]
+=================================== FAILURES ===================================
+_____________ test_calmarg_passes_ile_waveform_options[no_L_frame] _____________
+
+tmp_path = PosixPath('/private/var/folders/s8/z3q_zcj5431b31bb3j3tdxn40000gs/T/pytest-of-rossma/pytest-346/test_calmarg_passes_ile_wavefo0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x16bee2c30>
+name = 'no_L_frame', ini_lines = ["internal-mitigate-fd-J-frame='rotate'"]
+expected = {'fd_alignment_postevent_time': 2, 'fd_standoff_factor': 0.9}
+
+    @pytest.mark.parametrize("name,ini_lines,expected", CASES, ids=[c[0] for c in CASES])
+    def test_calmarg_passes_ile_waveform_options(tmp_path, monkeypatch, name, ini_lines, expected):
+>       cal_argv, ile_argv = _argvs(tmp_path, name, ini_lines)
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+MonteCarloMarginalizeCode/Code/test/test_calmarg_ile_waveform_alignment.py:234:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+MonteCarloMarginalizeCode/Code/test/test_calmarg_ile_waveform_alignment.py:229: in _argvs
+    return argv("Calib_reweight.sub"), argv("ILE_extr.sub")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+MonteCarloMarginalizeCode/Code/test/test_calmarg_ile_waveform_alignment.py:225: in argv
+    text = _sub_text(rundir, sub)
+           ^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+rundir = PosixPath('/private/var/folders/s8/z3q_zcj5431b31bb3j3tdxn40000gs/T/pytest-of-rossma/pytest-346/test_calmarg_passes_ile_wavefo0/no_L_frame')
+name = 'Calib_reweight.sub'
+
+    def _sub_text(rundir, name):
+        path = rundir / name
+>       assert path.exists(), "%s was not generated" % name
+E       AssertionError: Calib_reweight.sub was not generated
+E       assert False
+E        +  where False = exists()
+E        +    where exists = PosixPath('/private/var/folders/s8/z3q_zcj5431b31bb3j3tdxn40000gs/T/pytest-of-rossma/pytest-346/test_calmarg_passes_ile_wavefo0/no_L_frame/Calib_reweight.sub').exists
+
+MonteCarloMarginalizeCode/Code/test/test_calmarg_extra_args_transport.py:216: AssertionError
+__________ test_calmarg_passes_ile_waveform_options[L_frame_default] ___________
+
+tmp_path = PosixPath('/private/var/folders/s8/z3q_zcj5431b31bb3j3tdxn40000gs/T/pytest-of-rossma/pytest-346/test_calmarg_passes_ile_wavefo1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x16e44fda0>
+name = 'L_frame_default', ini_lines = []
+expected = {'fd_L_frame': True, 'fd_alignment_postevent_time': 2, 'fd_standoff_factor': 0.9}
+
+    @pytest.mark.parametrize("name,ini_lines,expected", CASES, ids=[c[0] for c in CASES])
+    def test_calmarg_passes_ile_waveform_options(tmp_path, monkeypatch, name, ini_lines, expected):
+>       cal_argv, ile_argv = _argvs(tmp_path, name, ini_lines)
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+MonteCarloMarginalizeCode/Code/test/test_calmarg_ile_waveform_alignment.py:234:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+MonteCarloMarginalizeCode/Code/test/test_calmarg_ile_waveform_alignment.py:229: in _argvs
+    return argv("Calib_reweight.sub"), argv("ILE_extr.sub")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+MonteCarloMarginalizeCode/Code/test/test_calmarg_ile_waveform_alignment.py:225: in argv
+    text = _sub_text(rundir, sub)
+           ^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+rundir = PosixPath('/private/var/folders/s8/z3q_zcj5431b31bb3j3tdxn40000gs/T/pytest-of-rossma/pytest-346/test_calmarg_passes_ile_wavefo1/L_frame_default')
+name = 'Calib_reweight.sub'
+
+    def _sub_text(rundir, name):
+        path = rundir / name
+>       assert path.exists(), "%s was not generated" % name
+E       AssertionError: Calib_reweight.sub was not generated
+E       assert False
+E        +  where False = exists()
+E        +    where exists = PosixPath('/private/var/folders/s8/z3q_zcj5431b31bb3j3tdxn40000gs/T/pytest-of-rossma/pytest-346/test_calmarg_passes_ile_wavefo1/L_frame_default/Calib_reweight.sub').exists
+
+MonteCarloMarginalizeCode/Code/test/test_calmarg_extra_args_transport.py:216: AssertionError
+_________ test_calmarg_passes_ile_waveform_options[xphm_lalsuite_args] _________
+
+tmp_path = PosixPath('/private/var/folders/s8/z3q_zcj5431b31bb3j3tdxn40000gs/T/pytest-of-rossma/pytest-346/test_calmarg_passes_ile_wavefo2')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x16e435d00>
+name = 'xphm_lalsuite_args'
+ini_lines = ['manual-extra-ile-args=--internal-waveform-extra-lalsuite-args "{\'PhenomXPrecVersion\': 102}"']
+expected = {'extra_waveform_args': {'PhenomXPrecVersion': 102}, 'fd_L_frame': True, 'fd_alignment_postevent_time': 2, 'fd_standoff_factor': 0.9}
+
+    @pytest.mark.parametrize("name,ini_lines,expected", CASES, ids=[c[0] for c in CASES])
+    def test_calmarg_passes_ile_waveform_options(tmp_path, monkeypatch, name, ini_lines, expected):
+>       cal_argv, ile_argv = _argvs(tmp_path, name, ini_lines)
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+MonteCarloMarginalizeCode/Code/test/test_calmarg_ile_waveform_alignment.py:234:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+MonteCarloMarginalizeCode/Code/test/test_calmarg_ile_waveform_alignment.py:229: in _argvs
+    return argv("Calib_reweight.sub"), argv("ILE_extr.sub")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+MonteCarloMarginalizeCode/Code/test/test_calmarg_ile_waveform_alignment.py:225: in argv
+    text = _sub_text(rundir, sub)
+           ^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+rundir = PosixPath('/private/var/folders/s8/z3q_zcj5431b31bb3j3tdxn40000gs/T/pytest-of-rossma/pytest-346/test_calmarg_passes_ile_wavefo2/xphm_lalsuite_args')
+name = 'Calib_reweight.sub'
+
+    def _sub_text(rundir, name):
+        path = rundir / name
+>       assert path.exists(), "%s was not generated" % name
+E       AssertionError: Calib_reweight.sub was not generated
+E       assert False
+E        +  where False = exists()
+E        +    where exists = PosixPath('/private/var/folders/s8/z3q_zcj5431b31bb3j3tdxn40000gs/T/pytest-of-rossma/pytest-346/test_calmarg_passes_ile_wavefo2/xphm_lalsuite_args/Calib_reweight.sub').exists
+
+MonteCarloMarginalizeCode/Code/test/test_calmarg_extra_args_transport.py:216: AssertionError
+________ test_calmarg_passes_ile_waveform_options[user_alignment_none] _________
+
+tmp_path = PosixPath('/private/var/folders/s8/z3q_zcj5431b31bb3j3tdxn40000gs/T/pytest-of-rossma/pytest-346/test_calmarg_passes_ile_wavefo3')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x16e408290>
+name = 'user_alignment_none'
+ini_lines = ['manual-extra-ile-args=--internal-waveform-extra-kwargs "{\'fd_alignment_postevent_time\': None}"']
+expected = {'fd_L_frame': True, 'fd_alignment_postevent_time': None, 'fd_standoff_factor': 0.9}
+
+    @pytest.mark.parametrize("name,ini_lines,expected", CASES, ids=[c[0] for c in CASES])
+    def test_calmarg_passes_ile_waveform_options(tmp_path, monkeypatch, name, ini_lines, expected):
+>       cal_argv, ile_argv = _argvs(tmp_path, name, ini_lines)
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+MonteCarloMarginalizeCode/Code/test/test_calmarg_ile_waveform_alignment.py:234:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+MonteCarloMarginalizeCode/Code/test/test_calmarg_ile_waveform_alignment.py:229: in _argvs
+    return argv("Calib_reweight.sub"), argv("ILE_extr.sub")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+MonteCarloMarginalizeCode/Code/test/test_calmarg_ile_waveform_alignment.py:225: in argv
+    text = _sub_text(rundir, sub)
+           ^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+rundir = PosixPath('/private/var/folders/s8/z3q_zcj5431b31bb3j3tdxn40000gs/T/pytest-of-rossma/pytest-346/test_calmarg_passes_ile_wavefo3/user_alignment_none')
+name = 'Calib_reweight.sub'
+
+    def _sub_text(rundir, name):
+        path = rundir / name
+>       assert path.exists(), "%s was not generated" % name
+E       AssertionError: Calib_reweight.sub was not generated
+E       assert False
+E        +  where False = exists()
+E        +    where exists = PosixPath('/private/var/folders/s8/z3q_zcj5431b31bb3j3tdxn40000gs/T/pytest-of-rossma/pytest-346/test_calmarg_passes_ile_wavefo3/user_alignment_none/Calib_reweight.sub').exists
+
+MonteCarloMarginalizeCode/Code/test/test_calmarg_extra_args_transport.py:216: AssertionError
+____ test_calmarg_passes_ile_waveform_options[user_alignment_and_standoff] _____
+
+tmp_path = PosixPath('/private/var/folders/s8/z3q_zcj5431b31bb3j3tdxn40000gs/T/pytest-of-rossma/pytest-346/test_calmarg_passes_ile_wavefo4')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x16e40a1b0>
+name = 'user_alignment_and_standoff'
+ini_lines = ['manual-extra-ile-args=--internal-waveform-extra-kwargs "{\'fd_alignment_postevent_time\': 1.5, \'fd_standoff_factor\': 0.95}"']
+expected = {'fd_L_frame': True, 'fd_alignment_postevent_time': 1.5, 'fd_standoff_factor': 0.95}
+
+    @pytest.mark.parametrize("name,ini_lines,expected", CASES, ids=[c[0] for c in CASES])
+    def test_calmarg_passes_ile_waveform_options(tmp_path, monkeypatch, name, ini_lines, expected):
+>       cal_argv, ile_argv = _argvs(tmp_path, name, ini_lines)
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+MonteCarloMarginalizeCode/Code/test/test_calmarg_ile_waveform_alignment.py:234:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+MonteCarloMarginalizeCode/Code/test/test_calmarg_ile_waveform_alignment.py:229: in _argvs
+    return argv("Calib_reweight.sub"), argv("ILE_extr.sub")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+MonteCarloMarginalizeCode/Code/test/test_calmarg_ile_waveform_alignment.py:225: in argv
+    text = _sub_text(rundir, sub)
+           ^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+rundir = PosixPath('/private/var/folders/s8/z3q_zcj5431b31bb3j3tdxn40000gs/T/pytest-of-rossma/pytest-346/test_calmarg_passes_ile_wavefo4/user_alignment_and_standoff')
+name = 'Calib_reweight.sub'
+
+    def _sub_text(rundir, name):
+        path = rundir / name
+>       assert path.exists(), "%s was not generated" % name
+E       AssertionError: Calib_reweight.sub was not generated
+E       assert False
+E        +  where False = exists()
+E        +    where exists = PosixPath('/private/var/folders/s8/z3q_zcj5431b31bb3j3tdxn40000gs/T/pytest-of-rossma/pytest-346/test_calmarg_passes_ile_wavefo4/user_alignment_and_standoff/Calib_reweight.sub').exists
+
+MonteCarloMarginalizeCode/Code/test/test_calmarg_extra_args_transport.py:216: AssertionError
+=============================== warnings summary ===============================
+../../../../miniconda3/envs/junior_tools/lib/python3.12/site-packages/qnm/schwarzschild/tabulated.py:169
+  /Users/rossma/miniconda3/envs/junior_tools/lib/python3.12/site-packages/qnm/schwarzschild/tabulated.py:169: DeprecationWarning: Please import `OptimizeResult` from the `scipy.optimize` namespace; the `scipy.optimize.optimize` namespace is deprecated and will be removed in SciPy 2.0.0.
+    loaded = pickle.load(handle, encoding='latin1')
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED MonteCarloMarginalizeCode/Code/test/test_calmarg_ile_waveform_alignment.py::test_calmarg_passes_ile_waveform_options[no_L_frame]
+FAILED MonteCarloMarginalizeCode/Code/test/test_calmarg_ile_waveform_alignment.py::test_calmarg_passes_ile_waveform_options[L_frame_default]
+FAILED MonteCarloMarginalizeCode/Code/test/test_calmarg_ile_waveform_alignment.py::test_calmarg_passes_ile_waveform_options[xphm_lalsuite_args]
+FAILED MonteCarloMarginalizeCode/Code/test/test_calmarg_ile_waveform_alignment.py::test_calmarg_passes_ile_waveform_options[user_alignment_none]
+FAILED MonteCarloMarginalizeCode/Code/test/test_calmarg_ile_waveform_alignment.py::test_calmarg_passes_ile_waveform_options[user_alignment_and_standoff]
+5 failed, 45 passed, 1 warning in 120.80s (0:02:00)

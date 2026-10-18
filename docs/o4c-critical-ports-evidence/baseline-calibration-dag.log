@@ -1,0 +1,40 @@
+F
+=================================== FAILURES ===================================
+_____________ test_calmarg_passes_ile_waveform_options[no_L_frame] _____________
+
+tmp_path = PosixPath('/private/var/folders/s8/z3q_zcj5431b31bb3j3tdxn40000gs/T/pytest-of-rossma/pytest-347/test_calmarg_passes_ile_wavefo0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x104d8eb70>
+name = 'no_L_frame', ini_lines = ["internal-mitigate-fd-J-frame='rotate'"]
+expected = {'fd_alignment_postevent_time': 2, 'fd_standoff_factor': 0.9}
+
+    @pytest.mark.parametrize("name,ini_lines,expected", CASES, ids=[c[0] for c in CASES])
+    def test_calmarg_passes_ile_waveform_options(tmp_path, monkeypatch, name, ini_lines, expected):
+>       cal_argv, ile_argv = _argvs(tmp_path, name, ini_lines)
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+/tmp/rift-audit-20261018/o4c/MonteCarloMarginalizeCode/Code/test/test_calmarg_ile_waveform_alignment.py:234:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+/tmp/rift-audit-20261018/o4c/MonteCarloMarginalizeCode/Code/test/test_calmarg_ile_waveform_alignment.py:229: in _argvs
+    return argv("Calib_reweight.sub"), argv("ILE_extr.sub")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+/tmp/rift-audit-20261018/o4c/MonteCarloMarginalizeCode/Code/test/test_calmarg_ile_waveform_alignment.py:225: in argv
+    text = _sub_text(rundir, sub)
+           ^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+rundir = PosixPath('/private/var/folders/s8/z3q_zcj5431b31bb3j3tdxn40000gs/T/pytest-of-rossma/pytest-347/test_calmarg_passes_ile_wavefo0/no_L_frame')
+name = 'Calib_reweight.sub'
+
+    def _sub_text(rundir, name):
+        path = rundir / name
+>       assert path.exists(), "%s was not generated" % name
+E       AssertionError: Calib_reweight.sub was not generated
+E       assert False
+E        +  where False = exists()
+E        +    where exists = PosixPath('/private/var/folders/s8/z3q_zcj5431b31bb3j3tdxn40000gs/T/pytest-of-rossma/pytest-347/test_calmarg_passes_ile_wavefo0/no_L_frame/Calib_reweight.sub').exists
+
+/tmp/rift-audit-20261018/o4c/MonteCarloMarginalizeCode/Code/test/test_calmarg_extra_args_transport.py:216: AssertionError
+=========================== short test summary info ============================
+FAILED ../../../tmp/rift-audit-20261018/o4c/MonteCarloMarginalizeCode/Code/test/test_calmarg_ile_waveform_alignment.py::test_calmarg_passes_ile_waveform_options[no_L_frame]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 10 deselected in 23.22s

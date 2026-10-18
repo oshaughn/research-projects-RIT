@@ -2,6 +2,16 @@
 ---------
 Development tree is rift_O4c.
 
+  - (unreleased) Port O4d #385/#439/#433: invalid RF query rows receive
+    the negative likelihood floor (including all-invalid batches), FD-mode end
+    tapering is capped to protect the merger in long buffers, and native
+    SphHarmTimeSeries modes use (l,m) keys. Port #311's opt-in batched cross
+    terms (RIFT_PRECOMPUTE_BATCHED_CROSSTERMS=1; default remains off) and
+    bit-preserving inner-product setup optimizations. Port #255/#256's shared
+    NoLoop geometry, compact accumulators and blocked cached Simpson weights,
+    preserving O4c bandlimited quadrature/export and writable custom callbacks.
+    Adversarial regressions cover mutable mode lists and per-device caches.
+
   - (rc0) PR 187 stabilizes vectorized time marginalization for loud signals;
     PR 183 (including PR 163) corrects ChooseFDModes conditioning and J-to-L
     frame rotation; PR 176 adds ASIMOV 0.7 and PESummary handoff compatibility.

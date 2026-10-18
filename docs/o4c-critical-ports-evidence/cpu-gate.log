@@ -1,0 +1,10 @@
+..................................................s..................... [ 85%]
+............                                                             [100%]
+=============================== warnings summary ===============================
+../../../../miniconda3/lib/python3.13/site-packages/_pytest/cacheprovider.py:475
+  /Users/rossma/miniconda3/lib/python3.13/site-packages/_pytest/cacheprovider.py:475: PytestCacheWarning: could not create cache path /Users/rossma/.codex/worktrees/o4c-critical-ports/RIFT/.pytest_cache/v/cache/nodeids: [Errno 1] Operation not permitted: '/Users/rossma/.codex/worktrees/o4c-critical-ports/RIFT/pytest-cache-files-6i562j6a'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+83 passed, 1 skipped, 1 warning in 5.27s
+Critical ports gate: 84 cases, 83 passed, 1 skipped

@@ -2172,18 +2172,20 @@ class InnerProduct(object):
             else: # if we get here psd must be an array
                 fPSD = (len(psd) - 1) * self.deltaF # -1 b/c start at f=0
                 assert self.fMax <= fPSD
-                # ivals = np.arange(self.minIdx,self.maxIdx)
-                # ivals_ok = psd[ivals]>0
-                # extra_weight=np.ones(len(self.weights))
-                # if waveform_is_psi4:
-                #     extra_weight[ivals_ok] = 1./(2*np.pi*ivals[ivals_ok]*deltaF)**2
-                # self.weights[ivals_ok] = 1./psd[ivals_ok] * extra_weight[ivals_ok]
-                for i in range(self.minIdx,self.maxIdx):
-                    if psd[i] != 0.:
-                        extra_weight=1.0
-                        if waveform_is_psi4:
-                            extra_weight=1.0/(2*np.pi*i*deltaF)/(2*np.pi*i*deltaF)
-                        self.weights[i] = 1./psd[i]*extra_weight
+                # Vectorised form of the per-bin loop this replaces: 22.2 ms -> 1.9 ms at
+                # 128512 in-band bins (seglen 128 s, srate 8192, ldas-grid).  The driver
+                # passes a REAL8FrequencySeries, so this branch is off that path.
+                # Bit-identical: the mask stays `!= 0` as in the loop, since the `> 0` used
+                # by the REAL8FrequencySeries branch above would drop negative bins here,
+                # and the psi4 weight keeps the `1/x/x` association rather than `1/x**2`.
+                ivals = np.arange(self.minIdx, self.maxIdx)
+                ivals_ok = ivals[psd[self.minIdx:self.maxIdx] != 0.]
+                if waveform_is_psi4:
+                    _x = 2*np.pi*ivals_ok*deltaF
+                    extra_weight = 1.0/_x/_x
+                else:
+                    extra_weight = 1.0
+                self.weights[ivals_ok] = 1./psd[ivals_ok]*extra_weight
         else:
             raise ValueError("analyticPSD_Q must be either True or False")
 
@@ -2204,8 +2206,11 @@ class InnerProduct(object):
             WFD.data.data[:] = np.sqrt(self.weights) # W_FD is 1/sqrt(S_n(f))
             WFD.data.data[0] = WFD.data.data[-1] = 0. # zero 0, f_Nyq bins
             lal.REAL8FreqTimeFFT(WTD, WFD, revplan) # IFFT to TD
-            for i in range(int(N_spec/2), self.len2side - int(N_spec/2)):
-                WTD.data.data[i] = 0. # Zero all but T_spec/2 ends of W_TD
+            # Zero all but T_spec/2 ends of W_TD.  Slice assignment, bit-identical to the
+            # per-element loop it replaces -- which was ~1e6 SWIG element writes at seglen
+            # 128 s / srate 8192, ~0.3-0.7 s, and inverse spectrum truncation is ON by
+            # default (--inv-spec-trunc-time 8), so it was paid once per ComputeModeCrossTermIP.
+            WTD.data.data[int(N_spec/2) : self.len2side - int(N_spec/2)] = 0.
             lal.REAL8TimeFreqFFT(WFD, WTD, fwdplan) # FFT back to FD
             WFD.data.data[0] = WFD.data.data[-1] = 0. # zero 0, f_Nyq bins
             # Square to get trunc. inv. PSD
@@ -2217,6 +2222,17 @@ class InnerProduct(object):
         # In particular,freqs = +-i*df are in N/2+-i bins of array
         self.weights2side[:len(self.weights)] = self.weights[::-1]
         self.weights2side[len(self.weights)-1:] = self.weights[0:-1]
+
+        # Contiguous support of the band weights.  Everything outside [band_lo, band_hi)
+        # multiplies by exactly zero, so a batched inner product may skip it; interior
+        # zeros (dead PSD bins) stay inside the range and are still multiplied through.
+        # Used only by the opt-in batched path -- self.ip() still integrates the full array.
+        _nz2 = self.weights2side != 0
+        if _nz2.any():
+            self.band_lo2side = int(np.argmax(_nz2))
+            self.band_hi2side = len(_nz2) - int(np.argmax(_nz2[::-1]))
+        else:
+            self.band_lo2side, self.band_hi2side = 0, 0
 
     def ip(self, h1, h2):
         """
@@ -2327,13 +2343,59 @@ class ComplexIP(InnerProduct):
         assert abs(h1.deltaF-h2.deltaF) <= TOL_DF\
                 and abs(h1.deltaF-self.deltaF) <= TOL_DF
         val = 0.
-        factor_shift = np.ones( len(h1.data.data))
         if include_epoch_differences:
             fvals = evaluate_fvals(h1)
             factor_shift = np.exp(-1j* (float(h1.epoch) - float(h2.epoch))*fvals*2*np.pi)  # exp( i omega( t_2 - t_1) )
-        val = np.sum( np.conj(h1.data.data)*h2.data.data*factor_shift*self.weights2side )
+            val = np.sum( np.conj(h1.data.data)*h2.data.data*factor_shift*self.weights2side )
+        else:
+            # Bit-identical to multiplying by an all-ones factor_shift (x*1.0 == x in IEEE
+            # 754), but skips a len2side float64 allocation + one full-length complex
+            # multiply per call.  At 1e6 bins that was ~0.5 ms of allocation and ~20% of the
+            # arithmetic, times O(10^5) calls in a higher-mode rotation precompute.
+            val = np.sum( np.conj(h1.data.data)*h2.data.data*self.weights2side )
         val *= 2. * self.deltaF
         return val
+
+    def ip_matrix(self, listA, listB, chunk=1<<18):
+        r"""Batched form of ip(): returns the matrix M[a,b] = self.ip(listA[a], listB[b]).
+
+        listA, listB are sequences of COMPLEX16FrequencySeries on the same 2-sided grid.
+        The double loop over (a,b) is a single matrix product,
+
+            M = 2 df . conj(A) . (B . W)^T ,   A[a,f] = listA[a](f),  B[b,f] = listB[b](f)
+
+        which turns O(Na.Nb) separate full-length reductions into one pass over the data
+        plus a GEMM, and skips the frequency bins where the band weight is exactly zero.
+        Accumulated in chunks of `chunk` bins so the working set stays bounded.
+
+        NOT bit-identical to the loop: the reduction order changes (pairwise np.sum over
+        the full array vs. blocked GEMM accumulation over the band).  Measured deviation is
+        ~1e-15 relative to max|M| -- see DESIGN_precompute_crossterm_batching.md.  Callers
+        that need the shipped rounding must keep using ip().
+        """
+        lo, hi = self.band_lo2side, self.band_hi2side
+        na, nb = len(listA), len(listB)
+        out = np.zeros((na, nb), dtype=np.complex128)
+        if int(chunk) != chunk or chunk <= 0:
+            raise ValueError('frequency chunk must be a positive integer')
+        chunk = int(chunk)
+        for m in listA:
+            assert m.data.length == self.len2side
+            assert abs(m.deltaF - self.deltaF) <= TOL_DF
+        for m in listB:
+            assert m.data.length == self.len2side
+            assert abs(m.deltaF - self.deltaF) <= TOL_DF
+        if hi <= lo or not na or not nb:
+            return out
+        colsA = [m.data.data for m in listA]
+        colsB = [m.data.data for m in listB]
+        for s in range(lo, hi, chunk):
+            e = min(s+chunk, hi)
+            A = np.conj(np.stack([c[s:e] for c in colsA], axis=0))
+            B = np.stack([c[s:e] for c in colsB], axis=0) * self.weights2side[s:e]
+            out += A @ B.T
+        out *= 2. * self.deltaF
+        return out
 
     def norm(self, h):
         """
@@ -3278,7 +3340,7 @@ def non_herm_hoff(P):
 #argist_FromPolarizations=lalsim.SimInspiralTDModesFromPolarizations.__doc__.split('->')[0].replace('SimInspiralTDModesFromPolarizations','').replace('REAL8','').replace('Dict','').replace('Approximant','').replace('(','').replace(')','').split(',')
 
 
-def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, silent=True, fd_standoff_factor=0.964,no_condition=False,fd_L_frame=False,fd_centering_factor=0.9,fd_alignment_postevent_time=None,**kwargs ):
+def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, silent=True, fd_standoff_factor=0.964,no_condition=False,fd_L_frame=False,fd_centering_factor=0.9,fd_alignment_postevent_time=None,fd_end_taper_max_time=1.0,**kwargs ):
     """
     Generate the TD h_lm -2-spin-weighted spherical harmonic modes of a GW
     with parameters P. Returns a SphHarmTimeSeries, a linked-list of modes with
@@ -3298,7 +3360,10 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
     
 
     no_condition: disable conditioning (for ChooseFDModes specifically). For diagnostic plots on impact of/need for conditioning.
-    fd_L_frame: rotate hlmoft to L frame from J frame for return values from ChooseFDModes (XO4/XPHM). 
+    fd_L_frame: rotate hlmoft to L frame from J frame for return values from ChooseFDModes (XO4/XPHM).
+    fd_end_taper_max_time: cap (seconds) on the ChooseFDModes end taper, which is otherwise 1% of the
+          buffer.  With fd_alignment_postevent_time=2 an uncapped end taper covers the merger once the
+          buffer exceeds ~185 s.  None restores the uncapped 1%.  Has no effect for buffers <= 100 s.
     """
     assert Lmax >= 2
 
@@ -3367,6 +3432,11 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
        ntaper = int(0.01*TDlen)  # fixed 1% of waveform length, at start
        ntaper = np.max([ntaper, int(1./(P.fmin*P.deltaT))])  # require at least one waveform cycle of tapering; should never happen
        vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
+       # End taper: same 1% rule, capped in duration so it cannot reach the merger in long buffers
+       ntaper_end = ntaper
+       if fd_end_taper_max_time is not None:
+           ntaper_end = int(np.min([ntaper, np.max([int(fd_end_taper_max_time/P.deltaT), 1])]))
+       vectaper_end = 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper_end)/(1.*ntaper_end))
 
        # Taper any wraparound that has happened after the peak
        #    - Based on SimInspiralTDFromTD  https://git.ligo.org/lscsoft/lalsuite/-/blob/master/lalsimulation/lib/LALSimInspiral.c
@@ -3375,8 +3445,8 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
        t_merge = lalsim.SimInspiralMergeTimeBound(P.m1,P.m2) + lalsim.SimInspiralRingdownTimeBound(P.m1+P.m2,s)
        t_extra = 3./P.fmin
        indx_crit = int(TDlen*(fd_centering_factor)) + int((t_merge+t_extra)/P.deltaT)  # t_extra is a lot of time generally if fmin is low
-       if indx_crit + ntaper > TDlen:
-           indx_crit = TDlen - ntaper
+       if indx_crit + ntaper_end > TDlen:
+           indx_crit = TDlen - ntaper_end
 
        for mode in hlmsdict:
           npts_fd_pre_resize = hlmsdict[mode].data.length
@@ -3401,13 +3471,13 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
               hlmsT[mode].data.data[:ntaper]*=vectaper
               # Taper anything at the *end* of the segment. This could be  important when interacting with real data, which when wrapped is strongly discontinuous
               #     - this generally will NOT taper everything, because some of the turn-on generally extends well past this
-              if TDlen-ntaper < indx_crit:
+              if TDlen-ntaper_end < indx_crit:
                   # just multiply the very end by a small amount of tapering
-                  hlmsT[mode].data.data[TDlen-ntaper:]*=vectaper[::-1]
+                  hlmsT[mode].data.data[TDlen-ntaper_end:]*=vectaper_end[::-1]
               else:
                   # zero out a a lot of time at the end, and taper time as we approach this critical extra time
-                  hlmsT[mode].data.data[indx_crit:indx_crit+ntaper] *= vectaper[::-1]
-                  hlmsT[mode].data.data[indx_crit+ntaper:] = 0
+                  hlmsT[mode].data.data[indx_crit:indx_crit+ntaper_end] *= vectaper_end[::-1]
+                  hlmsT[mode].data.data[indx_crit+ntaper_end:] = 0
 
        # Rotate if requested, and if P.fref is specified
        # see discussion in https://git.ligo.org/lscsoft/lalsuite/-/blob/master/lalsimulation/lib/LALSimInspiral.c
@@ -4073,7 +4143,7 @@ def std_and_conj_hlmoff(P, Lmax=2,**kwargs):
         for m in range(-l, l+1):
             hxx = lalsim.SphHarmTimeSeriesGetMode(hlms, l, m)
             if hxx:
-                hlmsT[mode]=hxx
+                hlmsT[(l,m)]=hxx
     hlms=hlmsT
     #
     hlmsF = {}
