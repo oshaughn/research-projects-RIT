@@ -21,10 +21,135 @@ Component masses in this module are detector-frame solar masses. The waveform
 object extractor handles SI masses, and the CIP projection uses the existing
 source-redshift/native-mass conversion.
 
+## Selectable procedures
+
+Use `--eccentric-phase-procedure` (or the same key under Asimov's
+`sampler: extra eccentric arguments`) to choose:
+
+- `peters-small-e`: the existing O(e²) shear, retained as the default.
+- `peters-full-e`: the full Peters quadrupole phase, retaining the circular
+  term and using the same mean-frequency endpoints. It is independent of spin.
+- `eob-tabulated`: a frozen numerical phase/clock map informed by public EOB
+  dynamics, using detector masses, eccentricity and both spin-z components.
+
+These are fitting and proposal coordinates. Invertibility and useful ridge
+geometry are the acceptance criteria; exact alignment between waveform
+approximations is neither required nor expected. The fitting model sees sine
+and cosine features, while CIP samples the original parameters with the
+original prior. No transformed-density Jacobian enters that native integral.
+Puffing first assigns all proposed masses, spins and eccentricity, then inverts
+at those proposed values. It never reuses the seed's phase shift.
+
+For example, a nominal36-solar-mass production with a15Hz native epoch can use
+this packaged public-equation map with the automatic mass anchor:
+
+```yaml
+sampler:
+  extra eccentric arguments:
+    eccentric-phase-coordinates: true
+    eccentric-phase-procedure: eob-tabulated
+    eccentric-phase-map: builtin:danilo-public-spin-v1
+```
+
+Keep the production's existing eccentricity limits and priors. The example
+map is derived from public LO spin–orbit/spin–spin Hamiltonian terms and
+relative2PN RR (Khalil et al., https://arxiv.org/abs/2104.11705v2), with explicit
+geometric-e/Kepler-mean initialization. Its embedded provenance identifies
+the source profiles and equations. It is a coordinate definition, not a
+waveform backend or a new likelihood calculation. It can be applied to other
+waveform approximations at the same coordinate epochs.
+
+A user-generated JSON map can replace the built-in name. The builder validates
+its schema and frequencies, freezes its coefficients as a bounded base64
+payload, and records a SHA256 in `eccentric_phase_build.json`. Identical
+payloads go to every eligible CIP and puff command. Workers need no shared
+filesystem or separate map-file transfer; ILE receives no coordinate flags.
+The original file is only a build input. Conflicting stage choices are refused.
+The high-mass identity fallback applies to every procedure, including EOB.
+
+### Numerical map contract
+
+`rift-eccentric-map-v1` stores normalized polynomial coefficients for the
+unwrapped advance and sine harmonics of the native-to-radial clock. Features
+are total detector mass M, primary-first mass difference delta, geometric e,
+chi_eff and primary-first chi_a. The JSON supplies center, scale, domain bounds,
+powers, coefficients, endpoint frequencies and nonempty provenance. No source
+code is executed when loading a map.
+
+Inside the declared box the map supplies its phase/clock prediction. A smooth
+compact taper returns it to full-e Peters outside that box. Harmonics are
+regularized so their derivative norm is at most0.8, guaranteeing an angular
+derivative at least0.2. Bisection inverts this monotone circle map, including
+periodic seams. This global extension avoids rejecting otherwise valid native
+prior support. Native Kerr checks remain the native converter's responsibility.
+The taper/regularization are fixed parts of the coordinate, not inferred
+physics or sampler-dependent adjustments. New maps can represent other EOB
+orders, models, or useful approximations through the same interface.
+
 ## Usage
 
-Add the same configuration to eligible CIP and puff commands, or to
-`util_RIFT_pseudo_pipe.py` / `helper_LDG_Events.py`:
+The helper resolves the frequency once at workflow build time. Enable the
+coordinate in an eccentric Asimov production with:
+
+```yaml
+sampler:
+  extra eccentric arguments:
+    eccentric-phase-coordinates: true
+```
+
+Keep the production's existing eccentricity bounds and priors in that block.
+Asimov supplies `eccentric-phase-frequency-policy: lvk-mass` by default; the
+pseudo-pipe forwards the request to `helper_LDG_Events.py`. The helper resolves
+one value from the build event's **detector-frame** masses, writes
+`eccentric_phase_build.json`, and emits numerical frequencies for eligible CIP
+stages and puffing. The outer pseudo-pipe reads that record rather than
+selecting again. Workers never select an anchor. The feature remains opt-in.
+
+### LVK mass policy and high-mass fallback
+
+For detector-frame total mass M in solar masses, compute
+
+```
+f_mass = 0.05**1.5 / (pi * 4.9254909476412675e-6 * M)  # Hz
+```
+
+This uses the dimensionless frequency x=(pi G M f/c^3)^(2/3)=0.05
+(approximately a20M circular-orbit separation at Newtonian order). It is a
+versioned early-inspiral coordinate policy, not a calibrated sensitivity
+maximum or guarantee of PN accuracy. The LVK default early-band interval is
+20--40Hz; its floor is raised to the lowest active detector fmin if needed,
+and its ceiling respects the analysis fmax.
+
+- If f_mass is within the interval, use it continuously, without quantizing.
+- If f_mass exceeds the ceiling, use the ceiling.
+- **High mass:** if f_mass falls below the interval floor, use the native epoch
+  itself: an identity shear/native circular chart. Do not push a weak-field
+  landmark into the later observed band merely to satisfy its lower bound.
+- If the otherwise selected anchor precedes the native epoch, also use the
+  identity shear. The receipt records the fallback and achieved x.
+
+At native10Hz and network fmin20Hz this gives about40Hz for10Msun,
+32.84Hz for22Msun,20.07Hz for36Msun, and an identity shear for70/120Msun.
+The normal mass source is the pipeline's coincidence file: the helper reads
+its detector-frame component masses before selecting the anchor. A bootstrapped
+coincidence file works identically to a search-produced one; it need not contain
+posterior estimates or independently recovered injection truth. Use the supplied
+`--use-coinc` path (or the pipeline-resolved/downloaded coincidence) rather than
+searching unrelated directories for another file. Explicit mass/target hints
+remain optional overrides, not a requirement for bootstrapped files.
+
+These are build-time event mass estimates, not sample-by-sample anchor choices;
+the shear itself still uses each physical point's masses. The completed paired
+pilot and archival plots retain their previously specified fixed anchors.
+
+The native epoch is inferred when template start and waveform reference agree.
+For SEOBNRv5EHM it follows template start when they differ. Other ambiguous
+backend conventions require an explicit `eccentric-phase-reference-frequency`.
+Missing/placeholder event masses are refused; manual builds can provide
+`--eccentric-phase-detector-mass M` (detector total mass) or a fixed target.
+
+Explicit overrides remain available through Asimov's same block or either
+builder CLI:
 
 ```
 --eccentric-phase-coordinates \
@@ -32,10 +157,14 @@ Add the same configuration to eligible CIP and puff commands, or to
 --eccentric-phase-target-frequency 20
 ```
 
-These two frequencies configure **only the coordinate**. They do not set
-`--fref`, `--fmin`, or a waveform-generator argument. Set the reference label
-appropriately for the original eccentricity/angle convention. Defaults are
-10 and 20 Hz. The helper/pipeline requires `--assume-eccentric --use-meanPerAno`.
+An explicit target wins over the mass policy. The legacy fixed20Hz policy is
+available with `--eccentric-phase-frequency-policy fixed`. Negative/nonfinite
+inputs, backward explicit transport, conflicting stage frequencies and late
+manual ILE epoch or detector-band frequency changes fail before submission. A rebuild may select a
+new value, recorded in the new build receipt; an executing workflow does not
+retune. These frequencies configure **only the coordinate**, never waveform
+fref/fmin or the physical priors. Direct CIP/puff calls continue requiring a
+fixed numerical configuration (their legacy defaults remain10/20Hz).
 
 CIP continues sampling native `meanPerAno` and the selected native eccentricity
 coordinate, with the original bounds/prior options. Only its fitted angle is
@@ -100,3 +229,9 @@ and following a curved effective-phase band through the actual puff CLI.
 
 Pipeline compatibility checks run after INI loading, so CLI and INI options
 are validated together before workflow setup.
+
+Build-policy regressions in `test/test_eccentric_phase_policy.py` exercise the
+mass law, LVK bounds, high-mass identity fallback, real Asimov Liquid rendering,
+explicit overrides, actual helper hook, saved decision and consistent CIP/puff
+arguments. Production-readiness also requires supported-runtime checks of the
+actual generated DAG/submit files, not just accepting new options.

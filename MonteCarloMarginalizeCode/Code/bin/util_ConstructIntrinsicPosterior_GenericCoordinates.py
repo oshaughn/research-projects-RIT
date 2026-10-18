@@ -279,6 +279,8 @@ parser.add_argument("--not-worker",action='store_true',help="Nonworker jobs, IF 
 parser.add_argument("--fail-unless-n-eff",default=None,type=float,help="If nonzero, places a minimum requirement on n_eff. Code will exit if not achieved, with no sample generation")
 parser.add_argument("--rf-transverse-spin-coordinates", choices=["physics3","geometric4","geometric4-phase-excess"], help="Opt-in RF fitting basis: geometric4 replaces four transverse inputs; sampler/prior unchanged. physics3 is retired and refused (11 fit coordinates for 8 degrees of freedom)")
 parser.add_argument("--fit-method",default="rf",help="rf (default) : rf|gp|gp-matern|gp-torch|quadratic|polynomial|gp_hyper|gp_lazy|cov|kde|gp-jax-svgp|gp-jax-rff|gp-jax-exact.  Note 'polynomial' with --fit-order 0  will fit a constant. The gp-jax-* methods use the optional JAX interpolators (RIFT.interpolators.jax_gp) and support a differentiable export via --fit-save-jax.")
+from RIFT.misc import eccentric_phase_models
+eccentric_phase_models.add_arguments(parser)
 parser.add_argument("--eccentric-phase-coordinates", action="store_true", help="Opt-in waveform-free effective eccentric phase sine/cosine fitting features; native sampling, priors and waveform reference frequencies unchanged")
 parser.add_argument("--eccentric-phase-reference-frequency", type=float, default=10., help="Reference frequency for the effective fitting/proposal coordinate only (Hz)")
 parser.add_argument("--eccentric-phase-target-frequency", type=float, default=20., help="Target frequency for the effective fitting/proposal coordinate only (Hz)")
@@ -874,6 +876,8 @@ if opts.eccentric_phase_coordinates:
     if opts.fit_method == 'quadratic' and not opts.integrate_prior:
         raise ValueError('Effective phase quadratic fitting is unsupported on the constrained circle; use rf, gp or polynomial')
     eccentric_phase.validate_frequencies(opts.eccentric_phase_reference_frequency, opts.eccentric_phase_target_frequency)
+    from RIFT.misc import eccentric_phase_models
+    eccentric_phase_models.freeze(opts,opts.eccentric_phase_reference_frequency,opts.eccentric_phase_target_frequency)
     if (not opts.use_eccentricity or not opts.use_meanPerAno or opts.using_eos
             or opts.input_tides or opts.input_eos_index or opts.tabular_eos_file
             or opts.rf_transverse_spin_coordinates or opts.fit_load_gp or opts.fit_load_quadratic
@@ -899,7 +903,7 @@ if opts.rf_transverse_spin_coordinates:
 elif opts.eccentric_phase_coordinates:
     def extract_fit_param(P, name):
         return eccentric_phase.extract(P, name, opts.eccentric_phase_reference_frequency,
-                                       opts.eccentric_phase_target_frequency)
+                                       opts.eccentric_phase_target_frequency,**eccentric_phase_models.worker_options(opts))
 else:
     def extract_fit_param(P, name):
         return P.extract_param(name)
@@ -3229,6 +3233,7 @@ if not opts.using_eos or (fake_eos):
             lalsimutils.convert_waveform_coordinates,
             reference_frequency=opts.eccentric_phase_reference_frequency,
             target_frequency=opts.eccentric_phase_target_frequency,
+            **eccentric_phase_models.worker_options(opts),
             source_redshift=source_redshift, enforce_kerr=opts.downselect_enforce_kerr)
     if opts.rf_transverse_spin_coordinates:
         return rf_transverse_spin.convert(x_in, coord_names, low_level_coord_names, opts.fref,
