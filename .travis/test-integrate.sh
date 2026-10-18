@@ -7,7 +7,7 @@
 # regression is here for the same reason (it is a threshold identity, not a run test).
 python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_limit_cosine_samplers.py
 python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_av_empty_live_volume.py
-python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_av_retained_density.py MonteCarloMarginalizeCode/Code/test/test_av_backport_adversarial.py
+python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_av_retained_density.py MonteCarloMarginalizeCode/Code/test/test_av_backport_adversarial.py MonteCarloMarginalizeCode/Code/test/test_av_coverage_guard.py
 
 python MonteCarloMarginalizeCode/Code/test/test_mcsamplerEnsemble_extended.py --as-test --n-max 100000
 

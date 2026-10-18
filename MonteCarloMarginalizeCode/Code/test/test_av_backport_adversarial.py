@@ -55,7 +55,7 @@ def test_pinned_nonunit_box_and_upper_edge(pin):
     seed(311)
     s = sampler([(0., 1.), (-2., 4.)])
     out = s.integrate_log(lambda x0, x1: xp.zeros(len(x0)), n=4000, nmax=8001,
-                          neff=1e9, x0=pin)
+                          neff=1e9, enforce_bounds=True, x0=pin)
     assert out[0] == pytest.approx(np.log(6), abs=1e-10)
     assert np.all(s.binunique[:, 0] == 0)
     assert np.all(s._rvs['x0'] == pin)
@@ -131,3 +131,22 @@ def test_eos_driver_explicitly_requests_bounded_bins():
     path = Path(__file__).parents[1]/'bin/util_ConstructEOSPosterior.py'
     text = path.read_text()
     assert 'if opts.sampler_method == "AV":\n    extra_args["enforce_bounds"] = True' in text
+
+
+@pytest.mark.parametrize('pin', [-0.5, 1.5])
+def test_pin_outside_sampling_limits_is_integrated(pin):
+    # A pin is the caller's value, not a draw: only drawn coordinates are tested against the box.
+    seed(523)
+    s = sampler([(0., 1.), (-2., 4.)])
+    out = s.integrate_log(lambda x0, x1: xp.zeros(len(x0)), n=4000, nmax=8001,
+                          neff=1e9, enforce_bounds=True, x0=pin)
+    assert out[0] == pytest.approx(np.log(6), abs=1e-10)
+
+
+def test_enforce_bounds_defaults_off():
+    # rift_O4d keeps integer bins opt-in; ILE, CIP and the EOS driver request them.
+    seed(17)
+    s = sampler([(0., 1.), (0., 1.)], n=2000)
+    s.integrate_log(lambda x0, x1: -0.5*((x0 - .3)**2 + (x1 - .6)**2)/.01**2,
+                    n=2000, nmax=6001, neff=1e9)
+    assert np.any(s.nbins != np.floor(s.nbins))

@@ -96,6 +96,7 @@ jobs:
             MonteCarloMarginalizeCode/Code/test/test_av_empty_live_volume.py \
             MonteCarloMarginalizeCode/Code/test/test_av_retained_density.py \
             MonteCarloMarginalizeCode/Code/test/test_av_backport_adversarial.py \
+            MonteCarloMarginalizeCode/Code/test/test_av_coverage_guard.py \
             MonteCarloMarginalizeCode/Code/test/test_portfolio_compatibility.py \
             MonteCarloMarginalizeCode/Code/test/test_portfolio_fairdraw_backend.py \
             MonteCarloMarginalizeCode/Code/test/test_portfolio_driver_selection.py

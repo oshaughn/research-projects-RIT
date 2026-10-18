@@ -16,9 +16,16 @@ of the critical-performance ports in PR #223.
   additions are not imported.
 * O4d #455 (``a61407ec7``): carry the prior-box support contract into O4c's
   existing sampler and EOS caller. O4c has no distance_slices module to patch.
-  Integer bin counts are the default, EOS requests them explicitly, and
-  out-of-box draws retain zero weight even with enforce_bounds=False.
-  Neither priors nor likelihoods are evaluated at those illegal coordinates.
+  ``enforce_bounds`` keeps its default (False, as on rift_O4d); ILE, CIP and
+  now the EOS driver request integer bins. Draws outside the box on a drawn
+  coordinate keep zero weight with either setting, and neither priors nor
+  likelihoods are evaluated there. Pinned coordinates are not tested against
+  the box: a pin outside the sampling limits (for example
+  ``--pin-distance-to-sim`` beyond ``--d-max``) is integrated as before.
+* O4d #458 (open): coverage guard ``MCSampler._coarsen_for_coverage``. Without
+  it the mixture density reads low when the live set has fewer points than
+  the live region has bins (a peak narrower than one bin on some axes, broad
+  axes elsewhere). ``coverage_unseen_tol=0`` disables it.
 
 The existing portfolio draw_simplified density convention, fair-draw cache
 aliases, threshold clamp and collapse diagnostics are preserved. The
@@ -73,8 +80,31 @@ matches the #430 reference errors (-0.03953, +0.04119, -0.06976), also with
 zero outside exports. This is an analytic correctness probe, not a production
 EOS analysis or a throughput benchmark.
 
-Final adversarial review
-------------------------
+Review, 2026-10-18
+------------------
+
+Known-answer suite, 20 seeds per row, lnZ minus exact (nats), enforce_bounds
+on, chunk 10000. "Base" is rift_O4c b0fc1469c; "#412" is this PR without the
+guard; "guard" adds the #458 backport.
+
+==========================================  ======  ======  ======
+Target (n_eff)                              base    #412    guard
+==========================================  ======  ======  ======
+6-D narrow, lnL offset 300 (50)             +0.74   -0.01   -0.01
+6-D widths 0.01-0.3 (50)                    +0.30   -0.02   -0.02
+4 narrow modes + flat axis (300)            +0.21   -0.00   -0.00
+2 narrow + 3 flat adaptive axes (300)       -0.01   -1.30   -0.01
+8-D, 1 narrow, 5 broad (300)                +0.40   -0.51   -0.04
+ILE-shaped, ILE default adaptivity (50)     +0.08   -0.24   -0.04
+ILE-shaped, all axes adaptive (50)          +0.19   -1.56   -0.11
+==========================================  ======  ======  ======
+
+On every target where the guard does not act, the guard and #412 columns are
+bit-identical. Scripts, the full table and the GPU (A100, CuPy) runs are in
+RIFT_roboto_paper ``analyses/integrator_validation/RESULTS_2026-10-18_pr224_o4c_av.md``.
+
+Final adversarial review (original author)
+------------------------------------------
 
 No unresolved blocking finding after the tests and mutation checks. Reviewed
 all-draw counting, proposal snapshots and origin labels through pruning,
