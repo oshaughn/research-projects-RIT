@@ -267,23 +267,15 @@ except:
     lalNRSur7dq2 = -9
     lalNRHybSur3dq8 = -10
 
-try:
-   lalIMRPhenomHM = lalsim.IMRPhenomHM
-   lalIMRPhenomXHM = lalsim.IMRPhenomXHM
-   lalSEOBNRv4HM_ROM = lalsim.SEOBNRv4HM_ROM
-   lalIMRPhenomXP = lalsim.IMRPhenomXP
-   lalIMRPhenomXPHM = lalsim.IMRPhenomXPHM
-   lalIMRPhenomXO4a = lalsim.IMRPhenomXO4a
-   lalIMRPhenomXPNR = lalsim.IMRPhenomXPNR
-   
-except:
-   lalIMRPhenomXP = -11
-   lalIMRPhenomHM = -14
-   lalIMRPhenomXHM = -15
-   lalSEOBNRv4HM_ROM = -16
-   lalIMRPhenomXPHM = -17
-   lalIMRPhenomXO4a = -18
-   lalIMRPhenomXPNR = -19
+# Resolve optional approximants independently: an older LALSuite lacking a
+# newer model must retain the native mode route for models it does provide.
+lalIMRPhenomHM = getattr(lalsim, 'IMRPhenomHM', -14)
+lalIMRPhenomXHM = getattr(lalsim, 'IMRPhenomXHM', -15)
+lalSEOBNRv4HM_ROM = getattr(lalsim, 'SEOBNRv4HM_ROM', -16)
+lalIMRPhenomXP = getattr(lalsim, 'IMRPhenomXP', -11)
+lalIMRPhenomXPHM = getattr(lalsim, 'IMRPhenomXPHM', -17)
+lalIMRPhenomXO4a = getattr(lalsim, 'IMRPhenomXO4a', -18)
+lalIMRPhenomXPNR = getattr(lalsim, 'IMRPhenomXPNR', -19)
 
 pending_FD_approx = ['IMRPhenomXP_NRTidalv2','IMRPhenomXP_NRTidalv3']
 pending_approx_code = {}
