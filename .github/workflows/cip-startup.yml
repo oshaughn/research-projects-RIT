@@ -72,6 +72,9 @@ jobs:
             MonteCarloMarginalizeCode/Code/test/test_calibration_backend_options.py \
             MonteCarloMarginalizeCode/Code/test/test_ile_condor_argument_quoting.py | tee gws.log
           ! grep -Eq '[0-9]+ skipped' gws.log
+      - name: Run Phenom L-frame convention regressions
+        run: |
+          python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_phenom_lframe_conventions.py
       - name: Run RIFT calibration-source conditioning and epoch regressions
         run: |
           python -m pip install bilby

@@ -75,6 +75,16 @@ test_run:
     -  bash .travis/test-run-alts.sh
     -  bash .travis/test-build.sh
 
+test_phenom_conventions:
+  stage: unit tests
+  variables:
+    OMP_NUM_THREADS: "1"
+    OPENBLAS_NUM_THREADS: "1"
+    MPLBACKEND: Agg
+    RIFT_NO_EXTERNAL: "1"
+  script:
+    - python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_phenom_lframe_conventions.py
+
 # build:test:
 #   image: docker:latest
 #   stage: docker image
