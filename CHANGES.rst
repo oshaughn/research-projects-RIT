@@ -2,16 +2,6 @@
 ---------
 Development tree is rift_O4c.
 
-  - (unreleased) Port O4d #385/#439/#433: invalid RF query rows receive
-    the negative likelihood floor (including all-invalid batches), FD-mode end
-    tapering is capped to protect the merger in long buffers, and native
-    SphHarmTimeSeries modes use (l,m) keys. Port #311's opt-in batched cross
-    terms (RIFT_PRECOMPUTE_BATCHED_CROSSTERMS=1; default remains off) and
-    bit-preserving inner-product setup optimizations. Port #255/#256's shared
-    NoLoop geometry, compact accumulators and blocked cached Simpson weights,
-    preserving O4c bandlimited quadrature/export and writable custom callbacks.
-    Adversarial regressions cover mutable mode lists and per-device caches.
-
   - (rc0) PR 187 stabilizes vectorized time marginalization for loud signals;
     PR 183 (including PR 163) corrects ChooseFDModes conditioning and J-to-L
     frame rotation; PR 176 adds ASIMOV 0.7 and PESummary handoff compatibility.
@@ -82,7 +72,27 @@ Development tree is rift_O4c.
     with consistent cosine-sampler limits and GPU support. PR 174 adds CIP
     intrinsic-prior regression coverage and CI checks.
 
-Release candidate is rc7.
+  - (rc8) PR 223 ports O4d #385/#439/#433: invalid RF query rows receive
+    the negative likelihood floor (including all-invalid batches), FD-mode end
+    tapering is capped to protect the merger in long buffers, and native
+    SphHarmTimeSeries modes use (l,m) keys. Port #311's opt-in batched cross
+    terms (RIFT_PRECOMPUTE_BATCHED_CROSSTERMS=1; default remains off) and
+    bit-preserving inner-product setup optimizations. Port #255/#256's shared
+    NoLoop geometry, compact accumulators and blocked cached Simpson weights,
+    preserving O4c bandlimited quadrature/export and writable custom callbacks.
+    Adversarial regressions cover mutable mode lists and per-device caches.
+    PR 226 adds opt-in native shared-mode conditioning for GWSignal
+    SEOBNRv5HM/PHM through ILE, ASIMOV and calibration reweighting; legacy
+    conditioning remains the default. PR 227 corrects aligned Phenom
+    L-frame conventions and adds waveform regression coverage.
+    PR 222 adds opt-in invertible effective eccentric-phase coordinates for
+    CIP fitting and puffing, using full-e Peters by default with selectable
+    small-e Peters and frozen spin-dependent EOB maps. Automatic EOB builds
+    use coincidence inputs and resolved priors, with explicit Peters fallback;
+    waveform inputs and native sampling priors are preserved.
+    PR 225 removes tracked Python bytecode and excludes generated caches.
+
+Release candidate is rc8.
 
 0.0.17.13
 ---------
