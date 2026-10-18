@@ -1277,8 +1277,8 @@ if opts.cip_explode_jobs:
         fname_out = 'overlap-grid-$(macroiterationnext)-$(cluster)'
     cip_args_base = cip_args_base.replace('my_fit', 'my_fit.pkl')  # yes, asymmetric arguments
     transfer_files_cip =['../all.net']
-    if opts.use_osg_cip and 'fit-method gp' in cip_args_base:
-        transfer_files_cip += ['my_fit.pkl']  # transfer current working directory fit
+    if opts.use_osg_cip and 'fit-method gp' in cip_args_base and not opts.cip_explode_jobs_flat:
+        transfer_files_cip += ['my_fit.pkl']  # transfer current working directory fit; flat mode has no shared fit to transfer
     cip_job_worker, cip_job_worker_name = dag_utils.write_CIP_sub(tag='CIP_worker',log_dir=None,arg_str=cip_args_base,request_memory=opts.request_memory_CIP,request_memory_flex=opts.request_memory_CIP_flex,request_gpus=opts.request_gpus_CIP,require_gpus=opts.require_gpus_CIP,input_net=working_dir_inside_cip+'/all.net',output=fname_out,out_dir=out_dir_inside_cip,exe=cip_exe,ncopies=n_explode,universe=local_worker_universe_cip,no_grid=cip_no_grid,use_osg=opts.use_osg_cip,use_singularity=opts.use_osg_cip and opts.use_singularity,singularity_image=cip_singularity_image,use_simple_osg_requirements=opts.use_osg_cip,use_oauth_files=opts.use_oauth_files,transfer_files=transfer_files_cip)
     # Modify: set 'initialdir'
     cip_job_worker.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_cip")
@@ -1510,8 +1510,8 @@ else:
                if not (opts.use_eccentricity_squared_sampling):
                    cip_args_lines[indx] = cip_args_lines[indx].replace(' --parameter eccentricity_squared ',' --parameter-implied eccentricity_squared --parameter-nofit eccentricity ')
            transfer_files_cip=['../all.net']
-           if opts.use_osg_cip and 'fit-method gp' in cip_args_base:
-               transfer_files_cip += ['my_fit.pkl']  # transfer current working directory fit
+           if opts.use_osg_cip and 'fit-method gp' in cip_args_base and not opts.cip_explode_jobs_flat:
+               transfer_files_cip += ['my_fit.pkl']  # transfer current working directory fit; flat mode has no shared fit to transfer
            cip_job_worker, cip_job_worker_name = dag_utils.write_CIP_sub(tag='CIP_worker'+str(indx),log_dir=None,arg_str=cip_args_lines[indx]+cip_args_extra,request_memory=opts.request_memory_CIP,request_memory_flex=opts.request_memory_CIP_flex,request_gpus=opts.request_gpus_CIP,require_gpus=opts.require_gpus_CIP,input_net=working_dir_inside_cip+'/all.net',output=fname_out,out_dir=out_dir_inside_cip,exe=cip_exe_here,ncopies=n_explode,universe=local_worker_universe_cip,no_grid=cip_no_grid,use_osg=opts.use_osg_cip,use_singularity=opts.use_osg_cip and opts.use_singularity,singularity_image=cip_singularity_image,use_simple_osg_requirements=opts.use_osg_cip,use_oauth_files=opts.use_oauth_files,transfer_files=transfer_files_cip)
            # Modify: set 'initialdir'
            cip_job_worker.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_cip")
