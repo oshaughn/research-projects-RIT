@@ -90,3 +90,12 @@ jobs:
             MonteCarloMarginalizeCode/Code/test/test_time_marginalization_perrow_offset.py \
             MonteCarloMarginalizeCode/Code/test/test_noloop_time_interp.py \
             MonteCarloMarginalizeCode/Code/test/test_noloop_bandlimited_row_chunks.py
+      - name: Run adaptive-volume density, bounds and portfolio regressions
+        run: |
+          python -m pytest -q \
+            MonteCarloMarginalizeCode/Code/test/test_av_empty_live_volume.py \
+            MonteCarloMarginalizeCode/Code/test/test_av_retained_density.py \
+            MonteCarloMarginalizeCode/Code/test/test_av_backport_adversarial.py \
+            MonteCarloMarginalizeCode/Code/test/test_portfolio_compatibility.py \
+            MonteCarloMarginalizeCode/Code/test/test_portfolio_fairdraw_backend.py \
+            MonteCarloMarginalizeCode/Code/test/test_portfolio_driver_selection.py

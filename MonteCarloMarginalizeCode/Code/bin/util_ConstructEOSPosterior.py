@@ -727,6 +727,9 @@ extra_args.update({
     "tripwire_fraction":opts.tripwire_fraction
 })
 
+if opts.sampler_method == "AV":
+    extra_args["enforce_bounds"] = True
+
 fn_passed = likelihood_function
 if supplemental_ln_likelihood:
     fn_passed =  lambda *x: likelihood_function(*x)*np.exp(supplemental_ln_likelihood(*x))
