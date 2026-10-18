@@ -62,6 +62,7 @@
 <li class="toctree-l1"><a class="reference internal" href="../../troubleshooting.html">General Troubleshooting</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../api_samples_utils.html">Samples Utilities</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../gp_likelihood_export.html">Differentiable GP likelihood export and validation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../cip-distance-slices.html">CIP and distance-slice operator workflow</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../executables/index.html">Executables</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../physics/index.html">Waveform Generation</a></li>
 </ul>
@@ -163,13 +164,13 @@ Use alternative configuration methods instead.</p>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.misc.sky_rotations.network_to_physical">
-<span class="sig-prename descclassname"><span class="pre">RIFT.misc.sky_rotations.</span></span><span class="sig-name descname"><span class="pre">network_to_physical</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">theta</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">phi</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">inverse_frame=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.sky_rotations.network_to_physical" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.sky_rotations.</span></span><span class="sig-name descname"><span class="pre">network_to_physical</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">theta</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">phi</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">inverse_frame=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.sky_rotations.network_to_physical" title="Link to this definition"></a></dt>
 <dd><p>Map sampled network-frame angles back to physical equatorial angles.</p>
 </dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.misc.sky_rotations.physical_to_network">
-<span class="sig-prename descclassname"><span class="pre">RIFT.misc.sky_rotations.</span></span><span class="sig-name descname"><span class="pre">physical_to_network</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">theta</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">phi</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">frame=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.sky_rotations.physical_to_network" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.sky_rotations.</span></span><span class="sig-name descname"><span class="pre">physical_to_network</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">theta</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">phi</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">frame=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.sky_rotations.physical_to_network" title="Link to this definition"></a></dt>
 <dd><p>Map physical equatorial angles into the assigned network frame.</p>
 </dd></dl>
 
@@ -1234,42 +1235,6 @@ value at DAG-build time.</p>
 <dd></dd></dl>
 
 <dl class="py function">
-<dt class="sig sig-object py" id="RIFT.misc.dag_utils.quote_arguments">
-<span class="sig-prename descclassname"><span class="pre">RIFT.misc.dag_utils.</span></span><span class="sig-name descname"><span class="pre">quote_arguments</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">args</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.dag_utils.quote_arguments" title="Link to this definition"></a></dt>
-<dd><p>Quote a string or list of strings using the Condor submit file “new” argument quoting rules.</p>
-<section id="id8">
-<h3>Returns<a class="headerlink" href="#id8" title="Link to this heading"></a></h3>
-<dl class="simple">
-<dt>str</dt><dd><p>The arguments in a quoted form.</p>
-</dd>
-</dl>
-</section>
-<section id="warnings">
-<h3>Warnings<a class="headerlink" href="#warnings" title="Link to this heading"></a></h3>
-<p>You will need to surround the result in double-quotes before using it in
-the Arguments attribute.</p>
-</section>
-<section id="examples">
-<h3>Examples<a class="headerlink" href="#examples" title="Link to this heading"></a></h3>
-<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">quote_arguments</span><span class="p">([</span><span class="s2">"3"</span><span class="p">,</span> <span class="s2">"simple"</span><span class="p">,</span> <span class="s2">"arguments"</span><span class="p">])</span>
-<span class="go">'3 simple arguments'</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="n">quote_arguments</span><span class="p">([</span><span class="s2">"one"</span><span class="p">,</span> <span class="s2">"two with spaces"</span><span class="p">,</span> <span class="s2">"three"</span><span class="p">])</span>
-<span class="go">'one 'two with spaces' three'</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="n">quote_arguments</span><span class="p">([</span><span class="s2">"one"</span><span class="p">,</span> <span class="s2">""</span><span class="n">two</span><span class="s2">""</span><span class="p">,</span> <span class="s2">"spacy 'quoted' argument"</span><span class="p">])</span>
-<span class="go">'one ""two"" 'spacey ''quoted'' argument''</span>
-</pre></div>
-</div>
-</section>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="RIFT.misc.dag_utils.safely_quote_arg_str">
-<span class="sig-prename descclassname"><span class="pre">RIFT.misc.dag_utils.</span></span><span class="sig-name descname"><span class="pre">safely_quote_arg_str</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">arg_str</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.dag_utils.safely_quote_arg_str" title="Link to this definition"></a></dt>
-<dd><p>See the document for <a class="reference external" href="https://htcondor.readthedocs.io/en/latest/man-pages/condor_submit.html">https://htcondor.readthedocs.io/en/latest/man-pages/condor_submit.html</a>
-We need to carefully parse the argument string for quoted items (e.g., passing dictionaries) with quoted elements</p>
-</dd></dl>
-
-<dl class="py function">
 <dt class="sig sig-object py" id="RIFT.misc.dag_utils.which">
 <span class="sig-prename descclassname"><span class="pre">RIFT.misc.dag_utils.</span></span><span class="sig-name descname"><span class="pre">which</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">program</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.dag_utils.which" title="Link to this definition"></a></dt>
 <dd></dd></dl>
@@ -1512,7 +1477,7 @@ submit per condor ‘cluster’</p></li>
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.misc.dag_utils.write_joingrids_sub">
 <span class="sig-prename descclassname"><span class="pre">RIFT.misc.dag_utils.</span></span><span class="sig-name descname"><span class="pre">write_joingrids_sub</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tag</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'join_grids'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">exe</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">universe</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'vanilla'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">input_pattern</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target_dir</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_base</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">log_dir</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_explode</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gzip</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'/usr/bin/gzip'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">old_add</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">old_style_add</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">no_grid</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">extra_text</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">''</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.dag_utils.write_joingrids_sub" title="Link to this definition"></a></dt>
-<dd><p>Write script to merge CIP ‘overlap-grid-(iteration)-<a href="#id9"><span class="problematic" id="id10">*</span></a>.xml.gz  results.  Issue is that</p>
+<dd><p>Write script to merge CIP ‘overlap-grid-(iteration)-<a href="#id8"><span class="problematic" id="id9">*</span></a>.xml.gz  results.  Issue is that</p>
 </dd></dl>
 
 <dl class="py function">
@@ -1833,15 +1798,15 @@ parameters and not others.</p>
 <div class="versionadded">
 <p><span class="versionmodified added">Added in version 1.3.</span></p>
 </div>
-<section id="id11">
-<h4>Parameters<a class="headerlink" href="#id11" title="Link to this heading"></a></h4>
+<section id="id10">
+<h4>Parameters<a class="headerlink" href="#id10" title="Link to this heading"></a></h4>
 <dl class="simple">
 <dt>copy<span class="classifier">str, True, False, or None,                     default=sklearn.utils.metadata_routing.UNCHANGED</span></dt><dd><p>Metadata routing for <code class="docutils literal notranslate"><span class="pre">copy</span></code> parameter in <code class="docutils literal notranslate"><span class="pre">transform</span></code>.</p>
 </dd>
 </dl>
 </section>
-<section id="id12">
-<h4>Returns<a class="headerlink" href="#id12" title="Link to this heading"></a></h4>
+<section id="id11">
+<h4>Returns<a class="headerlink" href="#id11" title="Link to this heading"></a></h4>
 <dl class="simple">
 <dt>self<span class="classifier">object</span></dt><dd><p>The updated object.</p>
 </dd>
@@ -1887,8 +1852,8 @@ K : numpy array of shape [n_samples, n_samples]</p>
 <blockquote>
 <div><p>Kernel matrix.</p>
 </div></blockquote>
-<section id="id13">
-<h3>Returns<a class="headerlink" href="#id13" title="Link to this heading"></a></h3>
+<section id="id12">
+<h3>Returns<a class="headerlink" href="#id12" title="Link to this heading"></a></h3>
 <p>self : returns an instance of self.</p>
 </section>
 </dd></dl>
@@ -1915,15 +1880,15 @@ parameters and not others.</p>
 <div class="versionadded">
 <p><span class="versionmodified added">Added in version 1.3.</span></p>
 </div>
-<section id="id14">
-<h3>Parameters<a class="headerlink" href="#id14" title="Link to this heading"></a></h3>
+<section id="id13">
+<h3>Parameters<a class="headerlink" href="#id13" title="Link to this heading"></a></h3>
 <dl class="simple">
 <dt>K<span class="classifier">str, True, False, or None,                     default=sklearn.utils.metadata_routing.UNCHANGED</span></dt><dd><p>Metadata routing for <code class="docutils literal notranslate"><span class="pre">K</span></code> parameter in <code class="docutils literal notranslate"><span class="pre">fit</span></code>.</p>
 </dd>
 </dl>
 </section>
-<section id="id15">
-<h3>Returns<a class="headerlink" href="#id15" title="Link to this heading"></a></h3>
+<section id="id14">
+<h3>Returns<a class="headerlink" href="#id14" title="Link to this heading"></a></h3>
 <dl class="simple">
 <dt>self<span class="classifier">object</span></dt><dd><p>The updated object.</p>
 </dd>
@@ -1953,8 +1918,8 @@ parameters and not others.</p>
 <div class="versionadded">
 <p><span class="versionmodified added">Added in version 1.3.</span></p>
 </div>
-<section id="id16">
-<h3>Parameters<a class="headerlink" href="#id16" title="Link to this heading"></a></h3>
+<section id="id15">
+<h3>Parameters<a class="headerlink" href="#id15" title="Link to this heading"></a></h3>
 <dl class="simple">
 <dt>K<span class="classifier">str, True, False, or None,                     default=sklearn.utils.metadata_routing.UNCHANGED</span></dt><dd><p>Metadata routing for <code class="docutils literal notranslate"><span class="pre">K</span></code> parameter in <code class="docutils literal notranslate"><span class="pre">transform</span></code>.</p>
 </dd>
@@ -1962,8 +1927,8 @@ parameters and not others.</p>
 </dd>
 </dl>
 </section>
-<section id="id17">
-<h3>Returns<a class="headerlink" href="#id17" title="Link to this heading"></a></h3>
+<section id="id16">
+<h3>Returns<a class="headerlink" href="#id16" title="Link to this heading"></a></h3>
 <dl class="simple">
 <dt>self<span class="classifier">object</span></dt><dd><p>The updated object.</p>
 </dd>
@@ -1985,8 +1950,8 @@ K : numpy array of shape [n_samples1, n_samples2]</p>
 <dt>copy<span class="classifier">boolean, optional, default True</span></dt><dd><p>Set to False to perform inplace computation.</p>
 </dd>
 </dl>
-<section id="id18">
-<h3>Returns<a class="headerlink" href="#id18" title="Link to this heading"></a></h3>
+<section id="id17">
+<h3>Returns<a class="headerlink" href="#id17" title="Link to this heading"></a></h3>
 <p>K_new : numpy array of shape [n_samples1, n_samples2]</p>
 </section>
 </dd></dl>
@@ -2014,15 +1979,15 @@ is already a numpy array).</p>
 <section id="attributes">
 <h3>Attributes<a class="headerlink" href="#attributes" title="Link to this heading"></a></h3>
 <dl>
-<dt><a href="#id46"><span class="problematic" id="id47">scale_</span></a><span class="classifier">ndarray, shape (n_features,)</span></dt><dd><p>Per feature relative scaling of the data.
+<dt><a href="#id44"><span class="problematic" id="id45">scale_</span></a><span class="classifier">ndarray, shape (n_features,)</span></dt><dd><p>Per feature relative scaling of the data.
 .. versionadded:: 0.17</p>
 <blockquote>
 <div><p><em>scale_</em> attribute.</p>
 </div></blockquote>
 </dd>
-<dt><a href="#id48"><span class="problematic" id="id49">max_abs_</span></a><span class="classifier">ndarray, shape (n_features,)</span></dt><dd><p>Per feature maximum absolute value.</p>
+<dt><a href="#id46"><span class="problematic" id="id47">max_abs_</span></a><span class="classifier">ndarray, shape (n_features,)</span></dt><dd><p>Per feature maximum absolute value.</p>
 </dd>
-<dt><a href="#id50"><span class="problematic" id="id51">n_samples_seen_</span></a><span class="classifier">int</span></dt><dd><p>The number of samples processed by the estimator. Will be reset on
+<dt><a href="#id48"><span class="problematic" id="id49">n_samples_seen_</span></a><span class="classifier">int</span></dt><dd><p>The number of samples processed by the estimator. Will be reset on
 new calls to fit, but increments across <code class="docutils literal notranslate"><span class="pre">partial_fit</span></code> calls.</p>
 </dd>
 </dl>
@@ -2115,30 +2080,30 @@ feature_range : tuple (min, max), default=(0, 1)</p>
 copy (if the input is already a numpy array).</p>
 </dd>
 </dl>
-<section id="id19">
-<h3>Attributes<a class="headerlink" href="#id19" title="Link to this heading"></a></h3>
+<section id="id18">
+<h3>Attributes<a class="headerlink" href="#id18" title="Link to this heading"></a></h3>
 <dl>
-<dt><a href="#id52"><span class="problematic" id="id53">min_</span></a><span class="classifier">ndarray, shape (n_features,)</span></dt><dd><p>Per feature adjustment for minimum.</p>
+<dt><a href="#id50"><span class="problematic" id="id51">min_</span></a><span class="classifier">ndarray, shape (n_features,)</span></dt><dd><p>Per feature adjustment for minimum.</p>
 </dd>
-<dt><a href="#id54"><span class="problematic" id="id55">scale_</span></a><span class="classifier">ndarray, shape (n_features,)</span></dt><dd><p>Per feature relative scaling of the data.
+<dt><a href="#id52"><span class="problematic" id="id53">scale_</span></a><span class="classifier">ndarray, shape (n_features,)</span></dt><dd><p>Per feature relative scaling of the data.
 .. versionadded:: 0.17</p>
 <blockquote>
 <div><p><em>scale_</em> attribute.</p>
 </div></blockquote>
 </dd>
-<dt><a href="#id56"><span class="problematic" id="id57">data_min_</span></a><span class="classifier">ndarray, shape (n_features,)</span></dt><dd><p>Per feature minimum seen in the data
+<dt><a href="#id54"><span class="problematic" id="id55">data_min_</span></a><span class="classifier">ndarray, shape (n_features,)</span></dt><dd><p>Per feature minimum seen in the data
 .. versionadded:: 0.17</p>
 <blockquote>
 <div><p><em>data_min_</em> instead of deprecated <em>data_min</em>.</p>
 </div></blockquote>
 </dd>
-<dt><a href="#id58"><span class="problematic" id="id59">data_max_</span></a><span class="classifier">ndarray, shape (n_features,)</span></dt><dd><p>Per feature maximum seen in the data
+<dt><a href="#id56"><span class="problematic" id="id57">data_max_</span></a><span class="classifier">ndarray, shape (n_features,)</span></dt><dd><p>Per feature maximum seen in the data
 .. versionadded:: 0.17</p>
 <blockquote>
 <div><p><em>data_max_</em> instead of deprecated <em>data_max</em>.</p>
 </div></blockquote>
 </dd>
-<dt><a href="#id60"><span class="problematic" id="id61">data_range_</span></a><span class="classifier">ndarray, shape (n_features,)</span></dt><dd><p>Per feature range <code class="docutils literal notranslate"><span class="pre">(data_max_</span> <span class="pre">-</span> <span class="pre">data_min_)</span></code> seen in the data
+<dt><a href="#id58"><span class="problematic" id="id59">data_range_</span></a><span class="classifier">ndarray, shape (n_features,)</span></dt><dd><p>Per feature range <code class="docutils literal notranslate"><span class="pre">(data_max_</span> <span class="pre">-</span> <span class="pre">data_min_)</span></code> seen in the data
 .. versionadded:: 0.17</p>
 <blockquote>
 <div><p><em>data_range_</em> instead of deprecated <em>data_range</em>.</p>
@@ -2146,8 +2111,8 @@ copy (if the input is already a numpy array).</p>
 </dd>
 </dl>
 </section>
-<section id="id20">
-<h3>See also<a class="headerlink" href="#id20" title="Link to this heading"></a></h3>
+<section id="id19">
+<h3>See also<a class="headerlink" href="#id19" title="Link to this heading"></a></h3>
 <p>minmax_scale: Equivalent function without the object oriented API.</p>
 <dl class="py property">
 <dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.MinMaxScaler.data_min">
@@ -2245,8 +2210,8 @@ copy (if the input is already a numpy array or a scipy.sparse
 CSR matrix).</p>
 </dd>
 </dl>
-<section id="id21">
-<h3>Notes<a class="headerlink" href="#id21" title="Link to this heading"></a></h3>
+<section id="id20">
+<h3>Notes<a class="headerlink" href="#id20" title="Link to this heading"></a></h3>
 <p>This estimator is stateless (besides constructor parameters), the
 fit method does nothing but is useful when used in a pipeline.
 See also
@@ -2282,15 +2247,15 @@ parameters and not others.</p>
 <div class="versionadded">
 <p><span class="versionmodified added">Added in version 1.3.</span></p>
 </div>
-<section id="id22">
-<h4>Parameters<a class="headerlink" href="#id22" title="Link to this heading"></a></h4>
+<section id="id21">
+<h4>Parameters<a class="headerlink" href="#id21" title="Link to this heading"></a></h4>
 <dl class="simple">
 <dt>copy<span class="classifier">str, True, False, or None,                     default=sklearn.utils.metadata_routing.UNCHANGED</span></dt><dd><p>Metadata routing for <code class="docutils literal notranslate"><span class="pre">copy</span></code> parameter in <code class="docutils literal notranslate"><span class="pre">transform</span></code>.</p>
 </dd>
 </dl>
 </section>
-<section id="id23">
-<h4>Returns<a class="headerlink" href="#id23" title="Link to this heading"></a></h4>
+<section id="id22">
+<h4>Returns<a class="headerlink" href="#id22" title="Link to this heading"></a></h4>
 <dl class="simple">
 <dt>self<span class="classifier">object</span></dt><dd><p>The updated object.</p>
 </dd>
@@ -2363,23 +2328,23 @@ Non-categorical features are always stacked to the right of the matrix.</p>
 present during transform.</p>
 </dd>
 </dl>
-<section id="id24">
-<h3>Attributes<a class="headerlink" href="#id24" title="Link to this heading"></a></h3>
+<section id="id23">
+<h3>Attributes<a class="headerlink" href="#id23" title="Link to this heading"></a></h3>
 <dl class="simple">
-<dt><a href="#id62"><span class="problematic" id="id63">active_features_</span></a><span class="classifier">array</span></dt><dd><p>Indices for active features, meaning values that actually occur
+<dt><a href="#id60"><span class="problematic" id="id61">active_features_</span></a><span class="classifier">array</span></dt><dd><p>Indices for active features, meaning values that actually occur
 in the training set. Only available when n_values is <code class="docutils literal notranslate"><span class="pre">'auto'</span></code>.</p>
 </dd>
-<dt><a href="#id64"><span class="problematic" id="id65">feature_indices_</span></a><span class="classifier">array of shape (n_features,)</span></dt><dd><p>Indices to feature ranges.
+<dt><a href="#id62"><span class="problematic" id="id63">feature_indices_</span></a><span class="classifier">array of shape (n_features,)</span></dt><dd><p>Indices to feature ranges.
 Feature <code class="docutils literal notranslate"><span class="pre">i</span></code> in the original data is mapped to features
 from <code class="docutils literal notranslate"><span class="pre">feature_indices_[i]</span></code> to <code class="docutils literal notranslate"><span class="pre">feature_indices_[i+1]</span></code>
 (and then potentially masked by <cite>active_features_</cite> afterwards)</p>
 </dd>
-<dt><a href="#id66"><span class="problematic" id="id67">n_values_</span></a><span class="classifier">array of shape (n_features,)</span></dt><dd><p>Maximum number of values per feature.</p>
+<dt><a href="#id64"><span class="problematic" id="id65">n_values_</span></a><span class="classifier">array of shape (n_features,)</span></dt><dd><p>Maximum number of values per feature.</p>
 </dd>
 </dl>
 </section>
-<section id="id25">
-<h3>Examples<a class="headerlink" href="#id25" title="Link to this heading"></a></h3>
+<section id="examples">
+<h3>Examples<a class="headerlink" href="#examples" title="Link to this heading"></a></h3>
 <p>Given a dataset with three features and two samples, we let the encoder
 find the maximum value per feature and transform the data to a binary
 one-hot encoding.
@@ -2421,8 +2386,8 @@ X : array-like, shape [n_samples, n_feature]</p>
 <blockquote>
 <div><p>Input array of type int.</p>
 </div></blockquote>
-<section id="id26">
-<h4>Returns<a class="headerlink" href="#id26" title="Link to this heading"></a></h4>
+<section id="id24">
+<h4>Returns<a class="headerlink" href="#id24" title="Link to this heading"></a></h4>
 <p>self</p>
 </section>
 </dd></dl>
@@ -2445,8 +2410,8 @@ X : array-like, shape [n_samples, n_features]</p>
 <blockquote>
 <div><p>Input array of type int.</p>
 </div></blockquote>
-<section id="id27">
-<h4>Returns<a class="headerlink" href="#id27" title="Link to this heading"></a></h4>
+<section id="id25">
+<h4>Returns<a class="headerlink" href="#id25" title="Link to this heading"></a></h4>
 <dl class="simple">
 <dt>X_out<span class="classifier">sparse matrix if sparse=True else a 2-d array, dtype=int</span></dt><dd><p>Transformed input.</p>
 </dd>
@@ -2501,12 +2466,12 @@ not a NumPy array or scipy.sparse CSR matrix, a copy may still be
 returned.</p>
 </dd>
 </dl>
-<section id="id28">
-<h3>Attributes<a class="headerlink" href="#id28" title="Link to this heading"></a></h3>
+<section id="id26">
+<h3>Attributes<a class="headerlink" href="#id26" title="Link to this heading"></a></h3>
 <dl>
-<dt><a href="#id68"><span class="problematic" id="id69">center_</span></a><span class="classifier">array of floats</span></dt><dd><p>The median value for each feature in the training set.</p>
+<dt><a href="#id66"><span class="problematic" id="id67">center_</span></a><span class="classifier">array of floats</span></dt><dd><p>The median value for each feature in the training set.</p>
 </dd>
-<dt><a href="#id70"><span class="problematic" id="id71">scale_</span></a><span class="classifier">array of floats</span></dt><dd><p>The (scaled) interquartile range for each feature in the training set.
+<dt><a href="#id68"><span class="problematic" id="id69">scale_</span></a><span class="classifier">array of floats</span></dt><dd><p>The (scaled) interquartile range for each feature in the training set.
 .. versionadded:: 0.17</p>
 <blockquote>
 <div><p><em>scale_</em> attribute.</p>
@@ -2514,8 +2479,8 @@ returned.</p>
 </dd>
 </dl>
 </section>
-<section id="id29">
-<h3>See also<a class="headerlink" href="#id29" title="Link to this heading"></a></h3>
+<section id="id27">
+<h3>See also<a class="headerlink" href="#id27" title="Link to this heading"></a></h3>
 <p>robust_scale: Equivalent function without the object oriented API.
 <code class="xref py py-class docutils literal notranslate"><span class="pre">sklearn.decomposition.PCA</span></code></p>
 <blockquote>
@@ -2523,8 +2488,8 @@ returned.</p>
 ‘whiten=True’.</p>
 </div></blockquote>
 </section>
-<section id="id30">
-<h3>Notes<a class="headerlink" href="#id30" title="Link to this heading"></a></h3>
+<section id="id28">
+<h3>Notes<a class="headerlink" href="#id28" title="Link to this heading"></a></h3>
 <p>See examples/preprocessing/plot_robust_scaling.py for an example.
 <a class="reference external" href="https://en.wikipedia.org/wiki/Median_(statistics">https://en.wikipedia.org/wiki/Median_(statistics</a>)
 <a class="reference external" href="https://en.wikipedia.org/wiki/Interquartile_range">https://en.wikipedia.org/wiki/Interquartile_range</a></p>
@@ -2611,27 +2576,27 @@ not a NumPy array or scipy.sparse CSR matrix, a copy may still be
 returned.</p>
 </dd>
 </dl>
-<section id="id31">
-<h3>Attributes<a class="headerlink" href="#id31" title="Link to this heading"></a></h3>
+<section id="id29">
+<h3>Attributes<a class="headerlink" href="#id29" title="Link to this heading"></a></h3>
 <dl>
-<dt><a href="#id72"><span class="problematic" id="id73">scale_</span></a><span class="classifier">ndarray, shape (n_features,)</span></dt><dd><p>Per feature relative scaling of the data.
+<dt><a href="#id70"><span class="problematic" id="id71">scale_</span></a><span class="classifier">ndarray, shape (n_features,)</span></dt><dd><p>Per feature relative scaling of the data.
 .. versionadded:: 0.17</p>
 <blockquote>
 <div><p><em>scale_</em> is recommended instead of deprecated <em>std_</em>.</p>
 </div></blockquote>
 </dd>
-<dt><a href="#id74"><span class="problematic" id="id75">mean_</span></a><span class="classifier">array of floats with shape [n_features]</span></dt><dd><p>The mean value for each feature in the training set.</p>
+<dt><a href="#id72"><span class="problematic" id="id73">mean_</span></a><span class="classifier">array of floats with shape [n_features]</span></dt><dd><p>The mean value for each feature in the training set.</p>
 </dd>
-<dt><a href="#id76"><span class="problematic" id="id77">var_</span></a><span class="classifier">array of floats with shape [n_features]</span></dt><dd><p>The variance for each feature in the training set. Used to compute
+<dt><a href="#id74"><span class="problematic" id="id75">var_</span></a><span class="classifier">array of floats with shape [n_features]</span></dt><dd><p>The variance for each feature in the training set. Used to compute
 <cite>scale_</cite></p>
 </dd>
-<dt><a href="#id78"><span class="problematic" id="id79">n_samples_seen_</span></a><span class="classifier">int</span></dt><dd><p>The number of samples processed by the estimator. Will be reset on
+<dt><a href="#id76"><span class="problematic" id="id77">n_samples_seen_</span></a><span class="classifier">int</span></dt><dd><p>The number of samples processed by the estimator. Will be reset on
 new calls to fit, but increments across <code class="docutils literal notranslate"><span class="pre">partial_fit</span></code> calls.</p>
 </dd>
 </dl>
 </section>
-<section id="id32">
-<h3>See also<a class="headerlink" href="#id32" title="Link to this heading"></a></h3>
+<section id="id30">
+<h3>See also<a class="headerlink" href="#id30" title="Link to this heading"></a></h3>
 <p>scale: Equivalent function without the object oriented API.
 <code class="xref py py-class docutils literal notranslate"><span class="pre">sklearn.decomposition.PCA</span></code></p>
 <blockquote>
@@ -2706,15 +2671,15 @@ parameters and not others.</p>
 <div class="versionadded">
 <p><span class="versionmodified added">Added in version 1.3.</span></p>
 </div>
-<section id="id33">
-<h4>Parameters<a class="headerlink" href="#id33" title="Link to this heading"></a></h4>
+<section id="id31">
+<h4>Parameters<a class="headerlink" href="#id31" title="Link to this heading"></a></h4>
 <dl class="simple">
 <dt>copy<span class="classifier">str, True, False, or None,                     default=sklearn.utils.metadata_routing.UNCHANGED</span></dt><dd><p>Metadata routing for <code class="docutils literal notranslate"><span class="pre">copy</span></code> parameter in <code class="docutils literal notranslate"><span class="pre">inverse_transform</span></code>.</p>
 </dd>
 </dl>
 </section>
-<section id="id34">
-<h4>Returns<a class="headerlink" href="#id34" title="Link to this heading"></a></h4>
+<section id="id32">
+<h4>Returns<a class="headerlink" href="#id32" title="Link to this heading"></a></h4>
 <dl class="simple">
 <dt>self<span class="classifier">object</span></dt><dd><p>The updated object.</p>
 </dd>
@@ -2744,15 +2709,15 @@ parameters and not others.</p>
 <div class="versionadded">
 <p><span class="versionmodified added">Added in version 1.3.</span></p>
 </div>
-<section id="id35">
-<h4>Parameters<a class="headerlink" href="#id35" title="Link to this heading"></a></h4>
+<section id="id33">
+<h4>Parameters<a class="headerlink" href="#id33" title="Link to this heading"></a></h4>
 <dl class="simple">
 <dt>copy<span class="classifier">str, True, False, or None,                     default=sklearn.utils.metadata_routing.UNCHANGED</span></dt><dd><p>Metadata routing for <code class="docutils literal notranslate"><span class="pre">copy</span></code> parameter in <code class="docutils literal notranslate"><span class="pre">transform</span></code>.</p>
 </dd>
 </dl>
 </section>
-<section id="id36">
-<h4>Returns<a class="headerlink" href="#id36" title="Link to this heading"></a></h4>
+<section id="id34">
+<h4>Returns<a class="headerlink" href="#id34" title="Link to this heading"></a></h4>
 <dl class="simple">
 <dt>self<span class="classifier">object</span></dt><dd><p>The updated object.</p>
 </dd>
@@ -2796,15 +2761,15 @@ X : {array-like, sparse matrix}, shape [n_samples, n_features]</p>
 <dt>value<span class="classifier">float</span></dt><dd><p>Value to use for the dummy feature.</p>
 </dd>
 </dl>
-<section id="id37">
-<h3>Returns<a class="headerlink" href="#id37" title="Link to this heading"></a></h3>
+<section id="id35">
+<h3>Returns<a class="headerlink" href="#id35" title="Link to this heading"></a></h3>
 <dl class="simple">
 <dt>X<span class="classifier">{array, sparse matrix}, shape [n_samples, n_features + 1]</span></dt><dd><p>Same data with dummy feature added as first column.</p>
 </dd>
 </dl>
 </section>
-<section id="id38">
-<h3>Examples<a class="headerlink" href="#id38" title="Link to this heading"></a></h3>
+<section id="id36">
+<h3>Examples<a class="headerlink" href="#id36" title="Link to this heading"></a></h3>
 <div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.preprocessing</span><span class="w"> </span><span class="kn">import</span> <span class="n">add_dummy_feature</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="n">add_dummy_feature</span><span class="p">([[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">]])</span>
 <span class="go">array([[ 1.,  0.,  1.],</span>
@@ -2836,8 +2801,8 @@ Threshold may not be less than 0 for operations on sparse matrices.</p>
 matrix and if axis is 1).</p>
 </dd>
 </dl>
-<section id="id39">
-<h3>See also<a class="headerlink" href="#id39" title="Link to this heading"></a></h3>
+<section id="id37">
+<h3>See also<a class="headerlink" href="#id37" title="Link to this heading"></a></h3>
 <dl class="simple">
 <dt>Binarizer: Performs binarization using the <code class="docutils literal notranslate"><span class="pre">Transformer</span></code> API</dt><dd><p>(e.g. as part of a preprocessing <code class="xref py py-class docutils literal notranslate"><span class="pre">sklearn.pipeline.Pipeline</span></code>).</p>
 </dd>
@@ -2865,8 +2830,8 @@ otherwise (if 1) scale each sample.</p>
 is already a numpy array).</p>
 </dd>
 </dl>
-<section id="id40">
-<h3>See also<a class="headerlink" href="#id40" title="Link to this heading"></a></h3>
+<section id="id38">
+<h3>See also<a class="headerlink" href="#id38" title="Link to this heading"></a></h3>
 <dl class="simple">
 <dt>MaxAbsScaler: Performs scaling to the [-1, 1] range using the``Transformer`` API</dt><dd><p>(e.g. as part of a preprocessing <code class="xref py py-class docutils literal notranslate"><span class="pre">sklearn.pipeline.Pipeline</span></code>).</p>
 </dd>
@@ -2895,8 +2860,8 @@ Read more in the <span class="xref std std-ref">User Guide</span>.
 <div><p><em>minmax_scale</em> function interface
 to <code class="xref py py-class docutils literal notranslate"><span class="pre">sklearn.preprocessing.MinMaxScaler</span></code>.</p>
 </div></blockquote>
-<section id="id41">
-<h3>Parameters<a class="headerlink" href="#id41" title="Link to this heading"></a></h3>
+<section id="id39">
+<h3>Parameters<a class="headerlink" href="#id39" title="Link to this heading"></a></h3>
 <dl class="simple">
 <dt>feature_range<span class="classifier">tuple (min, max), default=(0, 1)</span></dt><dd><p>Desired range of transformed data.</p>
 </dd>
@@ -2908,8 +2873,8 @@ is already a numpy array).</p>
 </dd>
 </dl>
 </section>
-<section id="id42">
-<h3>See also<a class="headerlink" href="#id42" title="Link to this heading"></a></h3>
+<section id="id40">
+<h3>See also<a class="headerlink" href="#id40" title="Link to this heading"></a></h3>
 <dl class="simple">
 <dt>MinMaxScaler: Performs scaling to a given range using the``Transformer`` API</dt><dd><p>(e.g. as part of a preprocessing <code class="xref py py-class docutils literal notranslate"><span class="pre">sklearn.pipeline.Pipeline</span></code>).</p>
 </dd>
@@ -2944,8 +2909,8 @@ CSR matrix and if axis is 1).</p>
 <dt>return_norm<span class="classifier">boolean, default False</span></dt><dd><p>whether to return the computed norms</p>
 </dd>
 </dl>
-<section id="id43">
-<h3>See also<a class="headerlink" href="#id43" title="Link to this heading"></a></h3>
+<section id="id41">
+<h3>See also<a class="headerlink" href="#id41" title="Link to this heading"></a></h3>
 <dl class="simple">
 <dt>Normalizer: Performs normalization using the <code class="docutils literal notranslate"><span class="pre">Transformer</span></code> API</dt><dd><p>(e.g. as part of a preprocessing <code class="xref py py-class docutils literal notranslate"><span class="pre">sklearn.pipeline.Pipeline</span></code>).</p>
 </dd>
@@ -2985,8 +2950,8 @@ copy (if the input is already a numpy array or a scipy.sparse
 CSR matrix and if axis is 1).</p>
 </dd>
 </dl>
-<section id="id44">
-<h3>Notes<a class="headerlink" href="#id44" title="Link to this heading"></a></h3>
+<section id="id42">
+<h3>Notes<a class="headerlink" href="#id42" title="Link to this heading"></a></h3>
 <p>This implementation will refuse to center scipy.sparse matrices
 since it would make them non-sparse and would potentially crash the
 program with memory exhaustion problems.
@@ -3031,8 +2996,8 @@ copy (if the input is already a numpy array or a scipy.sparse
 CSC matrix and if axis is 1).</p>
 </dd>
 </dl>
-<section id="id45">
-<h3>Notes<a class="headerlink" href="#id45" title="Link to this heading"></a></h3>
+<section id="id43">
+<h3>Notes<a class="headerlink" href="#id43" title="Link to this heading"></a></h3>
 <p>This implementation will refuse to center scipy.sparse matrices
 since it would make them non-sparse and would potentially crash the
 program with memory exhaustion problems.

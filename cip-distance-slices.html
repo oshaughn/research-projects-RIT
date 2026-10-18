@@ -1,0 +1,350 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CIP and distance-slice operator workflow &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="_static/custom.css?v=82021441" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=911654a9"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+      <script async="async" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Executables" href="executables/index.html" />
+    <link rel="prev" title="Differentiable GP likelihood export and validation" href="gp_likelihood_export.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            RIFT
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="architecture.html">RIFT Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="overview.html">RIFT Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="getting-data.html">Getting data for RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="data_formats.html">Data Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="examples-ini.html">RIFT pipeline examples: the ini file</a></li>
+<li class="toctree-l1"><a class="reference internal" href="examples-noini.html">RIFT pipeline examples: command-line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="osg.html">Using the OSG</a></li>
+<li class="toctree-l1"><a class="reference internal" href="containers.html">Containers and multi-architecture deployment</a></li>
+<li class="toctree-l1"><a class="reference internal" href="injections.html">Signal Injections</a></li>
+<li class="toctree-l1"><a class="reference internal" href="plotting.html">Plotting with RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="demos.html">Demos</a></li>
+<li class="toctree-l1"><a class="reference internal" href="hyperpipe.html">HyperPipe</a></li>
+<li class="toctree-l1"><a class="reference internal" href="troubleshooting.html">General Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="gp_likelihood_export.html">Differentiable GP likelihood export and validation</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">CIP and distance-slice operator workflow</a></li>
+<li class="toctree-l1"><a class="reference internal" href="executables/index.html">Executables</a></li>
+<li class="toctree-l1"><a class="reference internal" href="physics/index.html">Waveform Generation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">RIFT API Reference:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api_reference/index.html">API Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_reference/index.html#indices-and-tables">Indices and tables</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">RIFT</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">CIP and distance-slice operator workflow</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/cip-distance-slices.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="cip-and-distance-slice-operator-workflow">
+<h1>CIP and distance-slice operator workflow<a class="headerlink" href="#cip-and-distance-slice-operator-workflow" title="Link to this heading"></a></h1>
+<p>Use this workflow when an iterative RIFT analysis must both construct the next
+intrinsic grid with CIP and retain the distance dependence of the
+extrinsic-marginalized likelihood.  CIP consumes ILE likelihood evaluations and
+exports posterior samples for the next iteration.  Distance-slice export is an
+optional ILE product: it evaluates the extrinsic likelihood at fixed luminosity
+distances and writes one <code class="docutils literal notranslate"><span class="pre">.dslice</span></code> table per event.</p>
+<p>The two products answer different questions.  A CIP posterior is a draw over
+intrinsic coordinates used to advance or finish the iterative analysis.  A
+distance-slice table preserves fixed-distance likelihood information for later
+inspection or re-marginalization.  Do not substitute one for the other.</p>
+<section id="pipeline-data-flow">
+<h2>Pipeline data flow<a class="headerlink" href="#pipeline-data-flow" title="Link to this heading"></a></h2>
+<p>The relevant stages and products are:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>intrinsic grid
+    |
+    v
+integrate_likelihood_extrinsic_batchmode (ILE)
+    |-- marginalized likelihood rows --&gt; consolidated_*.composite
+    `-- optional fixed-distance rows --&gt; &lt;output&gt;_&lt;event&gt;_.dslice
+                                           |
+                                           `-- diagnostics / later re-marginalization
+
+consolidated_*.composite
+    |
+    v
+util_ConstructIntrinsicPosterior_GenericCoordinates (CIP)
+    |-- posterior samples --&gt; next intrinsic grid
+    `-- final posterior --&gt; downstream analysis
+</pre></div>
+</div>
+<p>The generated <code class="docutils literal notranslate"><span class="pre">ILE.sub</span></code> and <code class="docutils literal notranslate"><span class="pre">CIP.sub</span></code> files are the first places to verify
+the actual executable arguments.  See <a class="reference internal" href="using-pipeline.html"><span class="doc">Using the pipeline</span></a> for the normal
+run-directory layout and <a class="reference internal" href="executables/integrate_likelihood_extrinsic_batchmode.html"><span class="doc">integrate_likelihood_extrinsic_batchmode</span></a>
+and <a class="reference internal" href="executables/util_ConstructIntrinsicPosterior_GenericCoordinates.html"><span class="doc">util_ConstructIntrinsicPosterior_GenericCoordinates</span></a>
+for the command references.</p>
+</section>
+<section id="cip-export-contract">
+<h2>CIP export contract<a class="headerlink" href="#cip-export-contract" title="Link to this heading"></a></h2>
+<p>CIP fits the marginalized likelihood over intrinsic coordinates, samples the
+fit with the requested prior, and exports the samples used by the next stage.
+The export uses systematic resampling of its weighted cache.  This keeps the
+expected count for cache point <span class="math notranslate nohighlight">\(i\)</span> equal to <span class="math notranslate nohighlight">\(N w_i / \sum_j w_j\)</span>
+and shuffles the returned indices, so truncating the draw does not privilege
+high-weight rows at the front.</p>
+<p>For the final non-Gaussian CIP argument group, pipeline generation adds
+<code class="docutils literal notranslate"><span class="pre">--posterior-unique-draw</span></code>.  That option caps the delivered sample count at</p>
+<div class="math notranslate nohighlight">
+\[\left\lfloor \frac{\sum_i w_i}{\max_i w_i} \right\rfloor,\]</div>
+<p>the largest systematic-resampling draw that can remain duplicate-free.  The
+delivered count may therefore be smaller than <code class="docutils literal notranslate"><span class="pre">--n-output-samples</span></code>.  Treat
+that as honest undersupply, not as a failed request.  Inspect the generated
+<code class="docutils literal notranslate"><span class="pre">+annotation_export.dat</span></code> sidecar, whose columns are <code class="docutils literal notranslate"><span class="pre">n_requested</span></code>,
+<code class="docutils literal notranslate"><span class="pre">n_delivered</span></code>, <code class="docutils literal notranslate"><span class="pre">n_distinct</span></code>, and <code class="docutils literal notranslate"><span class="pre">unique_draw_bound</span></code>.</p>
+<p>Intermediate groups permit duplicate cache indices so that a requested draw
+remains statistically fair even when it exceeds the unique bound.  A terminal
+<code class="docutils literal notranslate"><span class="pre">G</span></code> (Gaussian-resampling) group is not given the flag because that executable
+does not accept it.  If unique final samples are required, do not end the CIP
+schedule with a <code class="docutils literal notranslate"><span class="pre">G</span></code> group.  Convergence thresholds use distinct rows rather
+than raw row count only when <code class="docutils literal notranslate"><span class="pre">convergence_test_samples.py</span></code> uses <code class="docutils literal notranslate"><span class="pre">js_lame</span></code>
+with <code class="docutils literal notranslate"><span class="pre">--js-lame-auto-threshold</span></code>.  Other convergence methods do not provide
+that duplicate-safety guarantee; see
+<a class="reference internal" href="executables/convergence_test_samples.html"><span class="doc">convergence_test_samples</span></a>.</p>
+</section>
+<section id="enabling-distance-slice-export">
+<h2>Enabling distance-slice export<a class="headerlink" href="#enabling-distance-slice-export" title="Link to this heading"></a></h2>
+<p>Distance-slice export is disabled by default.  It runs only when all of the
+following are true:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--export-distance-slices</span> <span class="pre">K</span></code> specifies a positive number of total slices;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--internal-use-lnL</span></code> is active;</p></li>
+<li><p>ILE has an output file; and</p></li>
+<li><p>distance marginalization is not active.</p></li>
+</ul>
+<p>A representative ILE fragment is:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>integrate_likelihood_extrinsic_batchmode<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>...<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--internal-use-lnL<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--export-distance-slices<span class="w"> </span><span class="m">10</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--distance-slice-wing-nmax<span class="w"> </span><span class="m">20000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--distance-slice-wing-neff<span class="w"> </span><span class="m">30</span>
+</pre></div>
+</div>
+<p>Pass these options through the mechanism that owns ILE arguments in your
+pipeline, then inspect <code class="docutils literal notranslate"><span class="pre">ILE.sub</span></code> before submission.  Do not copy the fragment
+as a complete command: data, PSD, waveform, intrinsic-grid, and output options
+remain analysis-specific.</p>
+<section id="choosing-core-and-fresh-slices">
+<h3>Choosing core and fresh slices<a class="headerlink" href="#choosing-core-and-fresh-slices" title="Link to this heading"></a></h3>
+<p>The default mixed strategy divides <code class="docutils literal notranslate"><span class="pre">K</span></code> into a cheap importance-reweighted
+core and fresh wing integrations:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--n-distance-slice-core</span></code> defaults to <code class="docutils literal notranslate"><span class="pre">ceil(0.6*K)</span></code> when set to zero;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--n-distance-slice-wing</span></code> defaults to the remaining rows when set to zero;</p></li>
+<li><p>core centers are fixed posterior-distance quantiles; and</p></li>
+<li><p>fresh wing centers extend beyond the core toward a default target drop of
+seven log-likelihood nats.</p></li>
+</ul>
+<p>The core reuses the main ILE sampler’s angular samples.  It is reliable only
+when those samples form a healthy importance sample at each fixed distance.
+At low main-loop effective sample count, especially with GMM below 50, use
+<code class="docutils literal notranslate"><span class="pre">--distance-slice-all-fresh</span></code> or increase the main integration budget.  ILE
+also forces all-fresh mode when its stored rows are already posterior-resampled;
+reweighting those rows again would double-count their importance weights.</p>
+<p>All-fresh mode independently integrates the angular variables at every slice.
+Its centers remain posterior-distance quantiles, but the precision of each row
+comes from that row’s own fixed-distance integration.  Add
+<code class="docutils literal notranslate"><span class="pre">--distance-slice-randomize</span></code> only with all-fresh mode when randomized
+posterior quantiles are intended.  With <code class="docutils literal notranslate"><span class="pre">K=1</span></code> this draws one distance from
+each intrinsic point’s distance posterior instead of always choosing its
+median.  Seed the ILE process with <code class="docutils literal notranslate"><span class="pre">--seed</span></code> when reproducible randomized
+placement and Monte Carlo draws are required.</p>
+</section>
+<section id="fresh-slice-budgets-and-safe-parameterization">
+<h3>Fresh-slice budgets and safe parameterization<a class="headerlink" href="#fresh-slice-budgets-and-safe-parameterization" title="Link to this heading"></a></h3>
+<p>The fresh integration defaults are:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--distance-slice-wing-nmax</span> <span class="pre">20000</span></code> per slice;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--distance-slice-wing-neff</span> <span class="pre">30</span></code> per slice; and</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--distance-slice-chunk</span></code> unset, inheriting ILE’s <code class="docutils literal notranslate"><span class="pre">--n-chunk</span></code> (default
+<code class="docutils literal notranslate"><span class="pre">10000</span></code>).</p></li>
+</ul>
+<p>The sample budget is block-granular, not a strict cap.  Adaptive-volume
+integration checks the budget before drawing a whole block.  Keep <code class="docutils literal notranslate"><span class="pre">nmax</span></code> a
+whole multiple of the resolved chunk size when predictable cost matters.
+An inherited chunk below <code class="docutils literal notranslate"><span class="pre">10000</span></code> is raised to <code class="docutils literal notranslate"><span class="pre">10000</span></code> because smaller
+blocks do not saturate the adaptive-volume threshold sample.  An explicitly
+set <code class="docutils literal notranslate"><span class="pre">--distance-slice-chunk</span></code> is honored, must be positive, and can override
+that protection.  Values below <code class="docutils literal notranslate"><span class="pre">10000</span></code> receive a stability warning; values
+above <code class="docutils literal notranslate"><span class="pre">15000</span></code> receive a memory/quality warning.  Increase resource requests
+after measuring the chosen waveform, detector network, and backend rather than
+assuming that a larger block is always better.</p>
+<p>The mixed strategy skips fresh wings when the peak core likelihood is below
+<code class="docutils literal notranslate"><span class="pre">--distance-slice-skip-threshold</span></code> (default <code class="docutils literal notranslate"><span class="pre">1.0</span></code> nat), treating the event as
+effectively uninformative.  <code class="docutils literal notranslate"><span class="pre">--distance-slice-wing-delta-lnL</span></code> defaults to
+<code class="docutils literal notranslate"><span class="pre">7.0</span></code> nats for parabolic wing placement; a degenerate fit falls back to
+log-uniform placement over the allowed distance range.  Review warnings and
+the written method column before interpreting sparse or fallback placement.</p>
+</section>
+</section>
+<section id="cpu-and-gpu-boundaries">
+<h2>CPU and GPU boundaries<a class="headerlink" href="#cpu-and-gpu-boundaries" title="Link to this heading"></a></h2>
+<p>Fresh fixed-distance slices use the same array backend as the adaptive-volume
+sample block.  On a CuPy-enabled ILE run, angular arrays are clipped and the
+distance array is constructed on the device before the likelihood call; only
+the likelihood vector and final summary values cross to the host for reduction
+and output.  On a NumPy run, the same operations remain on the CPU.</p>
+<p>The sampler deliberately retains a compatibility fallback: if the supplied
+likelihood rejects device arrays with <code class="docutils literal notranslate"><span class="pre">TypeError</span></code> or <code class="docutils literal notranslate"><span class="pre">ValueError</span></code>, it
+retries on host arrays and remembers that choice for later blocks.  A run that
+falls back is valid, but its transfer and memory profile differs from a
+device-native run.  Do not infer GPU execution merely from requesting a GPU;
+check the job environment and logs.  The focused regression tests skip their
+CuPy assertions on hosts without a working GPU, so a CPU-only test pass is not
+GPU validation.</p>
+</section>
+<section id="output-schema-and-diagnostics">
+<h2>Output schema and diagnostics<a class="headerlink" href="#output-schema-and-diagnostics" title="Link to this heading"></a></h2>
+<p>Each <code class="docutils literal notranslate"><span class="pre">&lt;output&gt;_&lt;event&gt;_.dslice</span></code> file has one row per intrinsic point and
+slice distance.  The structured fields include:</p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">lnL</span></code></dt><dd><p>Fixed-distance, extrinsic-marginalized log likelihood on the same absolute
+overflow-corrected scale as the main ILE result.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">sigmaL</span></code></dt><dd><p>Monte Carlo standard error in log-likelihood space.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">neff</span></code> and <code class="docutils literal notranslate"><span class="pre">ntotal</span></code></dt><dd><p>Effective and total samples used by that row.  A non-finite likelihood,
+low <code class="docutils literal notranslate"><span class="pre">neff</span></code>, or exhausted block-granular budget requires investigation.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">method</span></code></dt><dd><p><code class="docutils literal notranslate"><span class="pre">0</span></code> for an importance-reweighted core row and <code class="docutils literal notranslate"><span class="pre">1</span></code> for a fresh
+fixed-distance integration.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">dist</span></code> and <code class="docutils literal notranslate"><span class="pre">ln_prior_d_sampling</span></code></dt><dd><p>Slice distance and the sampling-distance log prior evaluated there.</p>
+</dd>
+</dl>
+<p>Intrinsic-coordinate columns are repeated on every slice row.  Use the method,
+uncertainty, and sample-count columns together; a visually smooth sequence of
+<code class="docutils literal notranslate"><span class="pre">lnL</span></code> values is not by itself evidence of adequate Monte Carlo precision.
+The table can be re-marginalized over distance with
+<code class="docutils literal notranslate"><span class="pre">RIFT.misc.distance_slices.reconstruct_marginal_lnL</span></code>, which uses trapezoidal
+integration across the available slice points.  That reconstruction is only as
+reliable as the distance coverage and row uncertainties; it does not repair
+missing tails or under-resolved slices.</p>
+<p>Before submitting a large workflow, verify one representative ILE job
+interactively and check:</p>
+<ol class="arabic simple">
+<li><p>the expected number of <code class="docutils literal notranslate"><span class="pre">.dslice</span></code> rows was written;</p></li>
+<li><p>core/fresh counts and forced-all-fresh warnings match the intended strategy;</p></li>
+<li><p>every <code class="docutils literal notranslate"><span class="pre">lnL</span></code> and <code class="docutils literal notranslate"><span class="pre">sigmaL</span></code> is finite;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">neff</span></code> and <code class="docutils literal notranslate"><span class="pre">ntotal</span></code> agree with the requested budgets;</p></li>
+<li><p>chunk, low-information, fallback-placement, and GMM warnings are understood;</p></li>
+<li><p>the CIP annotation reports the requested, delivered, and distinct counts;
+and</p></li>
+<li><p>any duplicate-safety claim is limited to <code class="docutils literal notranslate"><span class="pre">js_lame</span></code> with
+<code class="docutils literal notranslate"><span class="pre">--js-lame-auto-threshold</span></code>; other convergence methods require their own
+interpretation.</p></li>
+</ol>
+</section>
+<section id="reproducibility-checklist">
+<h2>Reproducibility checklist<a class="headerlink" href="#reproducibility-checklist" title="Link to this heading"></a></h2>
+<p>Archive the following together:</p>
+<ul class="simple">
+<li><p>the exact RIFT Git SHA and environment lock;</p></li>
+<li><p>generated <code class="docutils literal notranslate"><span class="pre">ILE.sub</span></code>, <code class="docutils literal notranslate"><span class="pre">CIP.sub</span></code>, CIP argument list, and test arguments;</p></li>
+<li><p>the ILE seed and all distance-slice options;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">.composite</span></code>, <code class="docutils literal notranslate"><span class="pre">.dslice</span></code>, posterior, and <code class="docutils literal notranslate"><span class="pre">+annotation_export.dat</span></code>
+products; and</p></li>
+<li><p>job logs containing backend selection, warnings, sample budgets, and software
+versions.</p></li>
+</ul>
+<p>Fixed quantile centers are deterministic for fixed sampler rows.  Randomized
+centers and Monte Carlo integration are not reproducible without control of the
+random-number state.  Even with a seed, CPU and GPU libraries or different
+dependency versions may not produce bitwise-identical draws.  Compare results
+against their quoted Monte Carlo uncertainty and record the execution backend.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="gp_likelihood_export.html" class="btn btn-neutral float-left" title="Differentiable GP likelihood export and validation" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="executables/index.html" class="btn btn-neutral float-right" title="Executables" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, K Wagner.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

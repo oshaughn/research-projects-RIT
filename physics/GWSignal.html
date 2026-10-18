@@ -62,6 +62,7 @@
 <li class="toctree-l1"><a class="reference internal" href="../troubleshooting.html">General Troubleshooting</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../api_samples_utils.html">Samples Utilities</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../gp_likelihood_export.html">Differentiable GP likelihood export and validation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cip-distance-slices.html">CIP and distance-slice operator workflow</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../executables/index.html">Executables</a></li>
 <li class="toctree-l1 current"><a class="reference internal" href="index.html">Waveform Generation</a><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="LALSimUtils.html">LALSimulation Utilities</a></li>
@@ -142,6 +143,50 @@
 <li><p><strong>Tapering</strong>: Since <code class="docutils literal notranslate"><span class="pre">gwsignal</span></code> output is often not tapered, the module manually applies a cosine taper to the start of the segments to avoid spectral leakage.</p></li>
 <li><p><strong>Epoch Alignment</strong>: The module supports an <code class="docutils literal notranslate"><span class="pre">align_method='peak'</span></code> option, which shifts the waveform epoch to coincide with the peak of the total power $sum <a href="#id1"><span class="problematic" id="id2">|</span></a>h_{lm}|^2$.</p></li>
 </ul>
+</section>
+<section id="backend-options">
+<h2>Backend options<a class="headerlink" href="#backend-options" title="Link to this heading"></a></h2>
+<p>With <code class="docutils literal notranslate"><span class="pre">--use-gwsignal</span></code>, ILE passes the complete dictionary supplied to
+<code class="docutils literal notranslate"><span class="pre">--internal-waveform-extra-kwargs</span></code> to the selected waveform generator. For
+example, the production SEOBNRv5PHM settings use:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="o">--</span><span class="n">use</span><span class="o">-</span><span class="n">gwsignal</span> <span class="o">--</span><span class="n">approx</span> <span class="n">SEOBNRv5PHM</span> \
+<span class="o">--</span><span class="n">internal</span><span class="o">-</span><span class="n">waveform</span><span class="o">-</span><span class="n">extra</span><span class="o">-</span><span class="n">kwargs</span> <span class="s2">"{'antisymmetric_modes_hm': True, 'enable_antisymmetric_modes': True, 'lmax_nyquist': 1}"</span>
+</pre></div>
+</div>
+<p>No list of approved backend options is maintained in RIFT. Nested dictionaries,
+false values and zero values are preserved, and errors from the generator are
+allowed to propagate. A generator can still reject unsupported options or
+ignore them according to its own interface; RIFT does not validate a plugin’s
+option schema.</p>
+<p>The explicit dictionary is kept separate from RIFT alignment and conditioning
+controls, including <code class="docutils literal notranslate"><span class="pre">--internal-waveform-fd-L-frame</span></code>. It takes precedence over
+<code class="docutils literal notranslate"><span class="pre">--use-gwsignal-lmax-nyquist</span></code>. Direct Python callers can use
+<code class="docutils literal notranslate"><span class="pre">gwsignal_extra_kwargs={...}</span></code> with <code class="docutils literal notranslate"><span class="pre">hlmoft</span></code>, <code class="docutils literal notranslate"><span class="pre">hoft</span></code> or <code class="docutils literal notranslate"><span class="pre">complex_hoft</span></code> for
+the same behavior. Legacy direct keyword arguments are forwarded too, except
+for known RIFT wrapper controls.</p>
+<p>Masses, spins, sampling and other physical parameters must be set on
+<code class="docutils literal notranslate"><span class="pre">ChooseWaveformParams</span></code>. Backend options that override those translated fields
+raise <code class="docutils literal notranslate"><span class="pre">ValueError</span></code> to prevent disagreement with likelihood parameters or
+series metadata. <code class="docutils literal notranslate"><span class="pre">condition</span></code> may override the taper-derived backend
+conditioning value. RIFT’s own tapering and alignment of returned modes still
+apply. Plain nested dictionaries, lists and tuples are copied before generation;
+opaque backend objects are passed through unchanged.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--internal-waveform-extra-lalsuite-args</span></code> targets the native LAL-dictionary
+route, not GWSignal. ILE rejects its combination with <code class="docutils literal notranslate"><span class="pre">--use-gwsignal</span></code> before
+loading detector data, including an explicitly supplied empty dictionary.
+Use <code class="docutils literal notranslate"><span class="pre">--internal-waveform-extra-kwargs</span></code> for GWSignal backend options. Direct
+GWSignal callers receive an error for a nonempty legacy <code class="docutils literal notranslate"><span class="pre">extra_waveform_args</span></code>
+payload; an explicitly namespaced backend option with that name remains allowed.</p>
+<p>The same dictionary separation is preserved when pseudo-pipeline arguments are
+forwarded to calibration reweighting. <code class="docutils literal notranslate"><span class="pre">--extra-waveform-kwargs</span></code> in that
+executable is a wrapper-options dictionary; its <code class="docutils literal notranslate"><span class="pre">gwsignal_extra_kwargs</span></code> member
+holds explicit backend options. The pseudo-pipeline constructs this member from
+<code class="docutils literal notranslate"><span class="pre">--internal-waveform-extra-kwargs</span></code> when GWSignal is selected.</p>
+<p>Asimov’s waveform dictionaries are quoted as shell arguments. BasicIteration
+preserves their nested list syntax and backslashes, and the ILE submit writer
+translates complete shell argument boundaries into HTCondor’s new argument
+syntax. Multiple dictionaries and quoted string values are supported. Literal
+line breaks inside an individual submit argument are rejected.</p>
 </section>
 </section>
 

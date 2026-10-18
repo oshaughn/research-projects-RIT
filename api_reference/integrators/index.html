@@ -63,6 +63,7 @@
 <li class="toctree-l1"><a class="reference internal" href="../../troubleshooting.html">General Troubleshooting</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../api_samples_utils.html">Samples Utilities</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../gp_likelihood_export.html">Differentiable GP likelihood export and validation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../cip-distance-slices.html">CIP and distance-slice operator workflow</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../executables/index.html">Executables</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../physics/index.html">Waveform Generation</a></li>
 </ul>
@@ -168,12 +169,12 @@ Reference: See <a class="reference external" href="https://arxiv.org/abs/2505.11
 
 <dl class="py method">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsampler_generic.MCSamplerGeneric.integrate">
-<span class="sig-name descname"><span class="pre">integrate</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">lnF</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">*args</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">**kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsampler_generic.MCSamplerGeneric.integrate" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">integrate</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">lnF</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">*args</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">**kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsampler_generic.MCSamplerGeneric.integrate" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsampler_generic.MCSamplerGeneric.integrate_log">
-<span class="sig-name descname"><span class="pre">integrate_log</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">lnF</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">*args</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">**kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsampler_generic.MCSamplerGeneric.integrate_log" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">integrate_log</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">lnF</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">*args</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">**kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsampler_generic.MCSamplerGeneric.integrate_log" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py method">
@@ -440,7 +441,7 @@ zero mass, which is a configuration error, not something to clip silently.</p>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsampler.distance_sampler_kwargs">
-<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsampler.</span></span><span class="sig-name descname"><span class="pre">distance_sampler_kwargs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">sampler_module</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sampling_range</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prior_range</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">d_prior='Euclidean'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">adaptive_sampling=False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsampler.distance_sampler_kwargs" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsampler.</span></span><span class="sig-name descname"><span class="pre">distance_sampler_kwargs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">sampler_module</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sampling_range</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prior_range</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">d_prior='Euclidean'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">adaptive_sampling=False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsampler.distance_sampler_kwargs" title="Link to this definition"></a></dt>
 <dd><p>Build the add_parameter() kwargs for the distance coordinate.</p>
 <p><cite>sampler_module</cite> supplies the backend-appropriate uniform sampler helpers
 (mcsampler / mcsamplerGPU / mcsamplerAdaptiveVolume all export them, and the
@@ -599,22 +600,22 @@ host/device mix this function exists to remove, reintroduced one backend later.<
 
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsampler.uniform_samp_dec">
-<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsampler.</span></span><span class="sig-name descname"><span class="pre">uniform_samp_dec</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">numpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsampler.uniform_samp_dec" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsampler.</span></span><span class="sig-name descname"><span class="pre">uniform_samp_dec</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">numpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsampler.uniform_samp_dec" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsampler.uniform_samp_phase">
-<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsampler.</span></span><span class="sig-name descname"><span class="pre">uniform_samp_phase</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">numpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsampler.uniform_samp_phase" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsampler.</span></span><span class="sig-name descname"><span class="pre">uniform_samp_phase</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">numpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsampler.uniform_samp_phase" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsampler.uniform_samp_psi">
-<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsampler.</span></span><span class="sig-name descname"><span class="pre">uniform_samp_psi</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">numpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsampler.uniform_samp_psi" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsampler.</span></span><span class="sig-name descname"><span class="pre">uniform_samp_psi</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">numpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsampler.uniform_samp_psi" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsampler.uniform_samp_theta">
-<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsampler.</span></span><span class="sig-name descname"><span class="pre">uniform_samp_theta</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">numpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsampler.uniform_samp_theta" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsampler.</span></span><span class="sig-name descname"><span class="pre">uniform_samp_theta</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">numpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsampler.uniform_samp_theta" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py function">
@@ -782,7 +783,7 @@ Pinning a value: By specifying a kwarg with the same of an existing parameter, i
 
 <dl class="py method">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.integrate_log">
-<span class="sig-name descname"><span class="pre">integrate_log</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">lnF</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">*args</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">**kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.integrate_log" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">integrate_log</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">lnF</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">*args</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">**kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.integrate_log" title="Link to this definition"></a></dt>
 <dd><p>Integrate exp(lnF) returning lnI, by using n sample points, assuming integrand is lnF
 Does NOT allow for tuples of arguments, an unused feature in mcsampler</p>
 <p>tempering is done with lnF, suitably modified.</p>
@@ -843,6 +844,18 @@ is not in use.</p>
 </dd></dl>
 
 <dl class="py method">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.reset_selfish_state">
+<span class="sig-name descname"><span class="pre">reset_selfish_state</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.reset_selfish_state" title="Link to this definition"></a></dt>
+<dd><p>Start a new integration pass: forget the live set and threshold, keep the grid.</p>
+<p>A new pass may use a different integrand (e.g. the calmarg burn-in followed by the
+full likelihood), so a threshold carried from the previous pass could exclude every
+new draw.  If the previous pass had reached the final threshold, the grid is frozen
+as adapted for the new pass: the selfish step then does nothing, so the grid is
+neither contracted again nor re-binned.  Otherwise contraction restarts from the
+current grid.</p>
+</dd></dl>
+
+<dl class="py method">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.sampling_density">
 <span class="sig-name descname"><span class="pre">sampling_density</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.sampling_density" title="Link to this definition"></a></dt>
 <dd><p>Pointwise sampling density q(theta) of THIS member, evaluated at
@@ -851,15 +864,13 @@ order).  Returns a host (numpy) array of length N, or None if the
 live-volume state has not been set up yet.</p>
 <p>VARAHA draws uniformly over its live volume – the union of the
 currently-occupied hypercubes (self.binunique), each of width self.dx.
-The density is therefore the SAME constant this sampler reports in
-integrate_log’s log_joint_s_prior,</p>
+The density of the CURRENT grid is therefore the constant</p>
 <blockquote>
-<div><dl class="simple">
-<dt>q_live = 1 / (n_occupied_bins * prod(dx))   (== 1/(V*prod(dx0))</dt><dd><p>for VARAHA’s geometric V),</p>
-</dd>
-</dl>
+<div><p>q_live = 1 / (n_occupied_bins * prod(dx))</p>
 </div></blockquote>
-<p>inside the live volume and 0 outside it.  We use the geometric form
+<p>inside the live volume and 0 outside it.  (integrate_log’s own
+log_joint_s_prior is the mixture of every grid it drew from; see
+log_retained_density.)  We use the geometric form
 1/(n_bins*prod(dx)) directly: it is <em>exactly</em> the density of the points
 draw_simple() produces (equal draws per occupied bin, uniform within a
 bin), so a multiple-importance-sampling denominator built from it is
@@ -886,7 +897,7 @@ just an integer bin-index array plus a few scalars.</p>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.update_sampling_prior_selfish">
-<span class="sig-name descname"><span class="pre">update_sampling_prior_selfish</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">lnF</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">*args</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">no_protect_names=True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">**kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.update_sampling_prior_selfish" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">update_sampling_prior_selfish</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">lnF</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">*args</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">no_protect_names=True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">**kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.update_sampling_prior_selfish" title="Link to this definition"></a></dt>
 <dd><p>update_sampling_prior</p>
 <p>Update VARAHA sampling hypercubes/</p>
 <p>Note that external samples are NOT uniform.
@@ -895,6 +906,14 @@ VARAHA should only be trained on its own samples, not others!</p>
 <dt>We therefore do a single pure step of VARAHA, including <em>independent</em> draws.  We will keep state about ‘V’ etc from previous iterations.</dt><dd><p>We therefore also have to know about the function we are integrating. However, we do not keep track of the integral result here – the top -level routine does this.</p>
 </dd>
 </dl>
+<p>One call is one cycle of integrate_log’s loop, so the cycle state persists between
+calls in self._selfish_state: the live set (allx/allloglkl/allp), the threshold and
+the truncated probability trunc_p.  Restarted on every call, each call would keep
+only the top nsel of its own draws, V would shrink by n_chunk/nsel per call, the
+final threshold would never be reached, and the live volume would contract without
+limit.  The state is cleared by setup(), by installing a warm seed, and by
+reset_selfish_state(), which mcsamplerPortfolio calls at the start of each pass.
+The carried live set is capped (_cap_selfish_live_set) to bound memory and cost.</p>
 </dd></dl>
 
 <dl class="py method">
@@ -949,8 +968,16 @@ measured optimum and both tails are wrong – see warm_seed_scale_from_finite_po
 </dd></dl>
 
 <dl class="py function">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerAdaptiveVolume.dilate_bins">
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerAdaptiveVolume.</span></span><span class="sig-name descname"><span class="pre">dilate_bins</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">bins</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nbins</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">axes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">layers</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerAdaptiveVolume.dilate_bins" title="Link to this definition"></a></dt>
+<dd><p>Occupied bins plus their axis neighbours (<code class="docutils literal notranslate"><span class="pre">layers</span></code> steps along each axis in <code class="docutils literal notranslate"><span class="pre">axes</span></code>),
+clipped to the grid.  The occupied set is built from retained points, so it misses the part
+of the live region that holds no point yet; the neighbour layer keeps that part drawable.</p>
+</dd></dl>
+
+<dl class="py function">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerAdaptiveVolume.get_likelihood_threshold">
-<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerAdaptiveVolume.</span></span><span class="sig-name descname"><span class="pre">get_likelihood_threshold</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">lkl</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lkl_thr</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nsel</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">discard_prob</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy_here=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerAdaptiveVolume.get_likelihood_threshold" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerAdaptiveVolume.</span></span><span class="sig-name descname"><span class="pre">get_likelihood_threshold</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">lkl</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lkl_thr</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nsel</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">discard_prob</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy_here=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerAdaptiveVolume.get_likelihood_threshold" title="Link to this definition"></a></dt>
 <dd><p>Find the likelihood threshold that encolses a probability
 lkl  : array of likelihoods (on bins)
 lkl_thr: scalar cutoff
@@ -1056,6 +1083,20 @@ behaviour unchanged.</p>
 peak row, so the kept rows are very slightly peak-biased rather than uniform.  At one row
 in n_max (default 20000) that sits far below the MC error on either pass, and correcting
 it exactly would mean tracking whether the peak was already in the subsample.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerAdaptiveVolume.log_retained_density">
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerAdaptiveVolume.</span></span><span class="sig-name descname"><span class="pre">log_retained_density</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">origin</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">grids</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">box_lo</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dx0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pinned_dims</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">()</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerAdaptiveVolume.log_retained_density" title="Link to this definition"></a></dt>
+<dd><p>Per-point log density of the retained set, for the deterministic-mixture estimator.</p>
+<p>grids[k] = (dx, bins, n_drawn) is the proposal integrate_log drew cycle k from: uniform
+over the occupied bins (an (M, ndim) array, or a _BinSet over the non-pinned dims),
+density 1/<a href="#id42"><span class="problematic" id="id43">|B_k|</span></a>.  The pooled draws come from the mixture sum_k n_k 1[x in B_k]/<a href="#id44"><span class="problematic" id="id45">|B_k|</span></a>;
+dividing by the retained count gives a density for which
+logsumexp(lnL + ln p - ln p_s) - ln(n_retained) is the balance-heuristic estimate
+(1/N) sum L p / q_mix.  origin[i] is the cycle that drew point i, which is a member of
+its own grid by construction (guards rounding at a bin’s upper edge).  Pinned
+dimensions are not drawn from the bins, so they enter with their full width.</p>
 </dd></dl>
 
 <dl class="py function">
@@ -1626,7 +1667,7 @@ Pinning a value: By specifying a kwarg with the same of an existing parameter, i
 
 <dl class="py method">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerGPU.MCSampler.integrate_log">
-<span class="sig-name descname"><span class="pre">integrate_log</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">lnF</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">*args</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">**kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerGPU.MCSampler.integrate_log" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">integrate_log</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">lnF</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerGPU.MCSampler.integrate_log" title="Link to this definition"></a></dt>
 <dd><p>Integrate exp(lnF) returning lnI, by using n sample points, assuming integrand is lnF
 Does NOT allow for tuples of arguments, an unused feature in mcsampler</p>
 <p>tempering is done with lnF, suitably modified.</p>
@@ -1748,32 +1789,32 @@ which lets us sample well away from the posterior at the expense of not being as
 
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerGPU.cos_samp">
-<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerGPU.</span></span><span class="sig-name descname"><span class="pre">cos_samp</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerGPU.cos_samp" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerGPU.</span></span><span class="sig-name descname"><span class="pre">cos_samp</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerGPU.cos_samp" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerGPU.cos_samp_cdf_inv_vector">
-<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerGPU.</span></span><span class="sig-name descname"><span class="pre">cos_samp_cdf_inv_vector</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">p</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerGPU.cos_samp_cdf_inv_vector" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerGPU.</span></span><span class="sig-name descname"><span class="pre">cos_samp_cdf_inv_vector</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">p</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerGPU.cos_samp_cdf_inv_vector" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerGPU.cos_samp_vector">
-<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerGPU.</span></span><span class="sig-name descname"><span class="pre">cos_samp_vector</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerGPU.cos_samp_vector" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerGPU.</span></span><span class="sig-name descname"><span class="pre">cos_samp_vector</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerGPU.cos_samp_vector" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerGPU.dec_samp">
-<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerGPU.</span></span><span class="sig-name descname"><span class="pre">dec_samp</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerGPU.dec_samp" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerGPU.</span></span><span class="sig-name descname"><span class="pre">dec_samp</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerGPU.dec_samp" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerGPU.dec_samp_cdf_inv_vector">
-<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerGPU.</span></span><span class="sig-name descname"><span class="pre">dec_samp_cdf_inv_vector</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">p</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerGPU.dec_samp_cdf_inv_vector" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerGPU.</span></span><span class="sig-name descname"><span class="pre">dec_samp_cdf_inv_vector</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">p</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerGPU.dec_samp_cdf_inv_vector" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerGPU.dec_samp_vector">
-<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerGPU.</span></span><span class="sig-name descname"><span class="pre">dec_samp_vector</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerGPU.dec_samp_vector" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerGPU.</span></span><span class="sig-name descname"><span class="pre">dec_samp_vector</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerGPU.dec_samp_vector" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py function">
@@ -1808,7 +1849,7 @@ which lets us sample well away from the posterior at the expense of not being as
 
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerGPU.q_cdf_inv_vector">
-<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerGPU.</span></span><span class="sig-name descname"><span class="pre">q_cdf_inv_vector</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">qmin</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">qmax</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerGPU.q_cdf_inv_vector" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerGPU.</span></span><span class="sig-name descname"><span class="pre">q_cdf_inv_vector</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">qmin</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">qmax</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerGPU.q_cdf_inv_vector" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py function">
@@ -1843,31 +1884,31 @@ which lets us sample well away from the posterior at the expense of not being as
 
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerGPU.uniform_samp_dec">
-<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerGPU.</span></span><span class="sig-name descname"><span class="pre">uniform_samp_dec</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerGPU.uniform_samp_dec" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerGPU.</span></span><span class="sig-name descname"><span class="pre">uniform_samp_dec</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerGPU.uniform_samp_dec" title="Link to this definition"></a></dt>
 <dd><p>Assume range known as</p>
 </dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerGPU.uniform_samp_phase">
-<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerGPU.</span></span><span class="sig-name descname"><span class="pre">uniform_samp_phase</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerGPU.uniform_samp_phase" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerGPU.</span></span><span class="sig-name descname"><span class="pre">uniform_samp_phase</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerGPU.uniform_samp_phase" title="Link to this definition"></a></dt>
 <dd><p>Assume range known as 0,2pi</p>
 </dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerGPU.uniform_samp_psi">
-<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerGPU.</span></span><span class="sig-name descname"><span class="pre">uniform_samp_psi</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerGPU.uniform_samp_psi" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerGPU.</span></span><span class="sig-name descname"><span class="pre">uniform_samp_psi</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerGPU.uniform_samp_psi" title="Link to this definition"></a></dt>
 <dd><p>Assume range known as 0,pi</p>
 </dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerGPU.uniform_samp_theta">
-<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerGPU.</span></span><span class="sig-name descname"><span class="pre">uniform_samp_theta</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerGPU.uniform_samp_theta" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerGPU.</span></span><span class="sig-name descname"><span class="pre">uniform_samp_theta</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerGPU.uniform_samp_theta" title="Link to this definition"></a></dt>
 <dd><p>Assume range known as</p>
 </dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerGPU.uniform_samp_vector">
-<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerGPU.</span></span><span class="sig-name descname"><span class="pre">uniform_samp_vector</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">a</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">b</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerGPU.uniform_samp_vector" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerGPU.</span></span><span class="sig-name descname"><span class="pre">uniform_samp_vector</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">a</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">b</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerGPU.uniform_samp_vector" title="Link to this definition"></a></dt>
 <dd><dl class="simple">
 <dt>uniform_samp_vector_lazy:</dt><dd><p>Implement uniform sampling as multiplication by a constant.
 Much faster and lighter weight. We never use the cutoffs anyways, because the limits are hardcoded elsewhere.</p>
@@ -1877,7 +1918,7 @@ Much faster and lighter weight. We never use the cutoffs anyways, because the li
 
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerGPU.uniform_samp_withfloor_vector">
-<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerGPU.</span></span><span class="sig-name descname"><span class="pre">uniform_samp_withfloor_vector</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">rmaxQuad</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rmaxFlat</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pFlat</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerGPU.uniform_samp_withfloor_vector" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerGPU.</span></span><span class="sig-name descname"><span class="pre">uniform_samp_withfloor_vector</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">rmaxQuad</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rmaxFlat</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pFlat</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerGPU.uniform_samp_withfloor_vector" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 </section>
@@ -1935,7 +1976,7 @@ cold makes the mixture-level guarantee TRUE instead of merely asserted.</p>
 run-to-run scatter, so it is cheap insurance.  That is the case for the default.</p></li>
 <li><p>It is NOT what protects the DEFAULT AV+GMM portfolio.  The GMM member is a Gaussian
 mixture with nonzero density over the whole box, so q_mix never vanishes there
-regardless of this setting.  With a deliberately displaced seed, <a href="#id42"><span class="problematic" id="id43">|lnZ bias|</span></a> stayed
+regardless of this setting.  With a deliberately displaced seed, <a href="#id46"><span class="problematic" id="id47">|lnZ bias|</span></a> stayed
 &lt;= 0.05 in every d=4 and d=6 run in BOTH arms.  That unbounded support is the real
 (previously undocumented) reason production has not been biased by warm starts.</p></li>
 <li><p>It does NOT rescue a badly mismatched seed.  In an ALL-AV portfolio (every component
@@ -1977,12 +2018,12 @@ Restricts to ACTIVE members.</p>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerPortfolio.MCSampler.integrate">
-<span class="sig-name descname"><span class="pre">integrate</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">lnF</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">*args</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">**kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerPortfolio.MCSampler.integrate" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">integrate</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">lnF</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">*args</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">**kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerPortfolio.MCSampler.integrate" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerPortfolio.MCSampler.integrate_log">
-<span class="sig-name descname"><span class="pre">integrate_log</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">lnF</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">*args</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">**kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerPortfolio.MCSampler.integrate_log" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">integrate_log</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">lnF</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">*args</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">**kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerPortfolio.MCSampler.integrate_log" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py method">
@@ -2047,7 +2088,7 @@ _update_support_diagnostics for definitions and limits.</p>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerPortfolio.portfolio_default_weights">
-<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerPortfolio.</span></span><span class="sig-name descname"><span class="pre">portfolio_default_weights</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n_ess_list</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">wt_previous</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">portfolio_probability_floor=0.01</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">history_factor=0.5</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">identity_convert=&lt;function</span> <span class="pre">&lt;lambda&gt;&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">**kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerPortfolio.portfolio_default_weights" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerPortfolio.</span></span><span class="sig-name descname"><span class="pre">portfolio_default_weights</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n_ess_list</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">wt_previous</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">portfolio_probability_floor=0.01</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">history_factor=0.5</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">identity_convert=&lt;function</span> <span class="pre">&lt;lambda&gt;&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">**kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerPortfolio.portfolio_default_weights" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py function">
@@ -2206,11 +2247,11 @@ it prints additionally the change and time needed for each step.</p>
 <section id="attributes">
 <h3>Attributes<a class="headerlink" href="#attributes" title="Link to this heading"></a></h3>
 <dl>
-<dt><a href="#id44"><span class="problematic" id="id45">weights_</span></a><span class="classifier">array, shape (<cite>n_components</cite>,)</span></dt><dd><p>This attribute stores the mixing weights for each mixture component.</p>
+<dt><a href="#id48"><span class="problematic" id="id49">weights_</span></a><span class="classifier">array, shape (<cite>n_components</cite>,)</span></dt><dd><p>This attribute stores the mixing weights for each mixture component.</p>
 </dd>
-<dt><a href="#id46"><span class="problematic" id="id47">means_</span></a><span class="classifier">array, shape (<cite>n_components</cite>, <cite>n_features</cite>)</span></dt><dd><p>Mean parameters for each mixture component.</p>
+<dt><a href="#id50"><span class="problematic" id="id51">means_</span></a><span class="classifier">array, shape (<cite>n_components</cite>, <cite>n_features</cite>)</span></dt><dd><p>Mean parameters for each mixture component.</p>
 </dd>
-<dt><a href="#id48"><span class="problematic" id="id49">covars_</span></a><span class="classifier">array</span></dt><dd><p>Covariance parameters for each mixture component.  The shape
+<dt><a href="#id52"><span class="problematic" id="id53">covars_</span></a><span class="classifier">array</span></dt><dd><p>Covariance parameters for each mixture component.  The shape
 depends on <cite>covariance_type</cite>:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">(</span><span class="n">n_components</span><span class="p">,</span> <span class="n">n_features</span><span class="p">)</span>             <span class="k">if</span> <span class="s1">'spherical'</span><span class="p">,</span>
 <span class="p">(</span><span class="n">n_features</span><span class="p">,</span> <span class="n">n_features</span><span class="p">)</span>               <span class="k">if</span> <span class="s1">'tied'</span><span class="p">,</span>
@@ -2219,7 +2260,7 @@ depends on <cite>covariance_type</cite>:</p>
 </pre></div>
 </div>
 </dd>
-<dt><a href="#id50"><span class="problematic" id="id51">converged_</span></a><span class="classifier">bool</span></dt><dd><p>True when convergence was reached in fit(), False otherwise.</p>
+<dt><a href="#id54"><span class="problematic" id="id55">converged_</span></a><span class="classifier">bool</span></dt><dd><p>True when convergence was reached in fit(), False otherwise.</p>
 </dd>
 </dl>
 </section>
@@ -2663,14 +2704,18 @@ or None if fewer than 2 usable chunks.</p>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.integrators.statutils.bootstrap_lnZ_quantiles">
-<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.statutils.</span></span><span class="sig-name descname"><span class="pre">bootstrap_lnZ_quantiles</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">log_wt</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_total</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_boot</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">200</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">quantiles</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">(0.05,</span> <span class="pre">0.5,</span> <span class="pre">0.95)</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rng_seed</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.statutils.bootstrap_lnZ_quantiles" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.statutils.</span></span><span class="sig-name descname"><span class="pre">bootstrap_lnZ_quantiles</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">log_wt</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_total</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_boot</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">200</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">quantiles</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">(0.05,</span> <span class="pre">0.5,</span> <span class="pre">0.95)</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rng_seed</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_drawn</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.statutils.bootstrap_lnZ_quantiles" title="Link to this definition"></a></dt>
 <dd><p>Bootstrap quantiles of lnZ_hat = ln( sum_i w_i / n_total ) by resampling
 the stored LOG weights with replacement.  When the relative error is O(1)
 the delta-method +-sigma interval on lnZ is meaningless (the distribution is
 strongly skewed); these quantiles are an honest same-sample interval.  They
 remain blind to tail mass never sampled – pair with pareto_khat_from_log.
 n_total: divisor if the stored weights are a pruned subset of a larger run
-(the pruned-away weights contribute negligibly to the sum).  Returns a
+(the pruned-away weights contribute negligibly to the sum).
+n_drawn: if the stored weights are the nonzero terms of an average over n_drawn draws
+(the rest rejected as zeros), resample all n_drawn draws: each replicate keeps
+k ~ Binomial(n_drawn, n/n_drawn) of the stored weights, so the survivor count varies too.
+The divisor stays n_total, which is the normalization of the stored weights.  Returns a
 numpy array of lnZ quantiles, or None if too few weights.</p>
 </dd></dl>
 
@@ -2697,13 +2742,13 @@ numpy array of lnZ quantiles, or None if too few weights.</p>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.integrators.statutils.finalize_log">
-<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.statutils.</span></span><span class="sig-name descname"><span class="pre">finalize_log</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">existingAggregate</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.statutils.finalize_log" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.statutils.</span></span><span class="sig-name descname"><span class="pre">finalize_log</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">existingAggregate</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.statutils.finalize_log" title="Link to this definition"></a></dt>
 <dd><p>fallback mode: if special is fallback, then the aggregate is internally done with the normal numpy calculation!</p>
 </dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.integrators.statutils.init_log">
-<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.statutils.</span></span><span class="sig-name descname"><span class="pre">init_log</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">newLogValues_orig</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">special=&lt;module</span> <span class="pre">'scipy.special'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/scipy/special/__init__.py'&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.statutils.init_log" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.statutils.</span></span><span class="sig-name descname"><span class="pre">init_log</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">newLogValues_orig</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">special=&lt;module</span> <span class="pre">'scipy.special'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/site-packages/scipy/special/__init__.py'&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.statutils.init_log" title="Link to this definition"></a></dt>
 <dd><p>fallback mode: if special is fallback, then the aggregate is internally done with the normal numpy calculation!</p>
 </dd></dl>
 
@@ -2730,12 +2775,12 @@ k &gt; 0.7 : the weight tail is unresolved – the naive sigma is a lower bound<
 
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.integrators.statutils.update">
-<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.statutils.</span></span><span class="sig-name descname"><span class="pre">update</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">existingAggregate</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">newValues</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.statutils.update" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.statutils.</span></span><span class="sig-name descname"><span class="pre">update</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">existingAggregate</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">newValues</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.statutils.update" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.integrators.statutils.update_log">
-<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.statutils.</span></span><span class="sig-name descname"><span class="pre">update_log</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">existingLogAggregate</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">newLogValues_orig</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">special=&lt;module</span> <span class="pre">'scipy.special'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/scipy/special/__init__.py'&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.statutils.update_log" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.statutils.</span></span><span class="sig-name descname"><span class="pre">update_log</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">existingLogAggregate</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">newLogValues_orig</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">special=&lt;module</span> <span class="pre">'scipy.special'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/site-packages/scipy/special/__init__.py'&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.statutils.update_log" title="Link to this definition"></a></dt>
 <dd><p>logsumexp : warning it is implemented but has a different function name, need to wrap it carefully and detect which is used</p>
 </dd></dl>
 
@@ -2817,7 +2862,7 @@ the honest effective sample size stays ~1.</p></li>
 <li><p>A fixed LARGE k is both statistically fragile (a spurious sharp
 component collapses onto ~1 elite sample and dominates the importance
 weights) and computationally costly (score() does an O(k) per-component
-mvnun box normalization on the CPU).</p></li>
+box normalization on the CPU).</p></li>
 </ul>
 </dd>
 </dl>
@@ -2881,7 +2926,7 @@ k means (k*d) + k covariances (k*d*(d+1)/2) + (k-1) mixture weights.</p>
 renormalize.  Over-allocated components collapse to ~zero weight under
 EM; removing them (a) prevents a spurious sharp component from dominating
 the importance weights and (b) cuts score() cost, which is O(k) in the
-per-component mvnun box normalization.  Keeps at least max(1, min_keep)
+per-component box normalization (_box_mass, a few ms per component).  Keeps at least max(1, min_keep)
 components (the highest-weight ones) – pass min_keep to preserve a safety
 floor.  No-op if nothing is below the floor.</p>
 </dd></dl>

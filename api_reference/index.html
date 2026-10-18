@@ -62,6 +62,7 @@
 <li class="toctree-l1"><a class="reference internal" href="../troubleshooting.html">General Troubleshooting</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../api_samples_utils.html">Samples Utilities</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../gp_likelihood_export.html">Differentiable GP likelihood export and validation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cip-distance-slices.html">CIP and distance-slice operator workflow</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../executables/index.html">Executables</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../physics/index.html">Waveform Generation</a></li>
 </ul>
@@ -215,6 +216,7 @@
 <li class="toctree-l4"><a class="reference internal" href="integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.load_state"><code class="docutils literal notranslate"><span class="pre">MCSampler.load_state()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.match_params_from_args"><code class="docutils literal notranslate"><span class="pre">MCSampler.match_params_from_args()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.prior_prod"><code class="docutils literal notranslate"><span class="pre">MCSampler.prior_prod()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.reset_selfish_state"><code class="docutils literal notranslate"><span class="pre">MCSampler.reset_selfish_state()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.sampling_density"><code class="docutils literal notranslate"><span class="pre">MCSampler.sampling_density()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.save_state"><code class="docutils literal notranslate"><span class="pre">MCSampler.save_state()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.setup"><code class="docutils literal notranslate"><span class="pre">MCSampler.setup()</span></code></a></li>
@@ -224,12 +226,14 @@
 </li>
 <li class="toctree-l3"><a class="reference internal" href="integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.NanOrInf"><code class="docutils literal notranslate"><span class="pre">NanOrInf</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.build_warm_seed"><code class="docutils literal notranslate"><span class="pre">build_warm_seed()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.dilate_bins"><code class="docutils literal notranslate"><span class="pre">dilate_bins()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.get_likelihood_threshold"><code class="docutils literal notranslate"><span class="pre">get_likelihood_threshold()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.identity_convert"><code class="docutils literal notranslate"><span class="pre">identity_convert()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.identity_convert_togpu"><code class="docutils literal notranslate"><span class="pre">identity_convert_togpu()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.keep_reserve_from_rvs"><code class="docutils literal notranslate"><span class="pre">keep_reserve_from_rvs()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.live_volume_collapse_verdict"><code class="docutils literal notranslate"><span class="pre">live_volume_collapse_verdict()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.lnZ_from_reserve"><code class="docutils literal notranslate"><span class="pre">lnZ_from_reserve()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.log_retained_density"><code class="docutils literal notranslate"><span class="pre">log_retained_density()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.make_reserve_from_rvs"><code class="docutils literal notranslate"><span class="pre">make_reserve_from_rvs()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.make_warm_seed_reserve"><code class="docutils literal notranslate"><span class="pre">make_warm_seed_reserve()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.profile"><code class="docutils literal notranslate"><span class="pre">profile()</span></code></a></li>
@@ -1336,8 +1340,6 @@
 <li class="toctree-l3"><a class="reference internal" href="misc/index.html#RIFT.misc.dag_utils.is_exe"><code class="docutils literal notranslate"><span class="pre">is_exe()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="misc/index.html#RIFT.misc.dag_utils.match_expr"><code class="docutils literal notranslate"><span class="pre">match_expr()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="misc/index.html#RIFT.misc.dag_utils.mkdir"><code class="docutils literal notranslate"><span class="pre">mkdir()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="misc/index.html#RIFT.misc.dag_utils.quote_arguments"><code class="docutils literal notranslate"><span class="pre">quote_arguments()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="misc/index.html#RIFT.misc.dag_utils.safely_quote_arg_str"><code class="docutils literal notranslate"><span class="pre">safely_quote_arg_str()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="misc/index.html#RIFT.misc.dag_utils.which"><code class="docutils literal notranslate"><span class="pre">which()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="misc/index.html#RIFT.misc.dag_utils.write_1dpos_plot_sub"><code class="docutils literal notranslate"><span class="pre">write_1dpos_plot_sub()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="misc/index.html#RIFT.misc.dag_utils.write_CIP_single_iteration_subdag"><code class="docutils literal notranslate"><span class="pre">write_CIP_single_iteration_subdag()</span></code></a></li>

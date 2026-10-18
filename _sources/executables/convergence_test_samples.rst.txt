@@ -62,3 +62,10 @@ Output Details
 --------------
 
 The tool prints the calculated divergence value to the standard output. If the convergence criteria are met, it creates the file specified by ``--write-file-on-success``.
+
+Related workflow
+----------------
+
+See :doc:`../cip-distance-slices` for how CIP's resampling and unique final-
+export contract interacts with convergence testing, including the distinct-row
+auto-threshold available specifically to the ``js_lame`` method.

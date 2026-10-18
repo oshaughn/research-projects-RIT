@@ -29,6 +29,7 @@ Rapid inference via Iterative FiTting: this algorithm provides a framework for e
    troubleshooting
    api_samples_utils
    gp_likelihood_export
+   cip-distance-slices
    executables/index
    physics/index
 
@@ -37,7 +38,6 @@ Rapid inference via Iterative FiTting: this algorithm provides a framework for e
    :caption: RIFT API Reference:
 
    api_reference/index
-
 
 
 
