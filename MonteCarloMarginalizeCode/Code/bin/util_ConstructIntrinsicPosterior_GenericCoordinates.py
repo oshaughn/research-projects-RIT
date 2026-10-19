@@ -1113,7 +1113,7 @@ elif  opts.aligned_prior == 'alignedspin-zprior-positive':
     # prior on s1z constructed to produce the standard distribution
     prior_map["s1z"] = s_component_zprior_positive
     prior_map["s2z"] = functools.partial(s_component_zprior_positive,R=chi_small_max)
-    prior_map["s1z_bar"] = s_compone+nt_zprior_positive
+    prior_map["s1z_bar"] = s_component_zprior_positive
     prior_map["s2z_bar"] = functools.partial(s_component_zprior_positive,R=chi_small_max)
     prior_range_map['s1z'] = [0,chi_max]
     prior_range_map['s2z'] = [0,chi_small_max]
