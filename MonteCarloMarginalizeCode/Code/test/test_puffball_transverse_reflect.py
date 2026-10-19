@@ -129,3 +129,64 @@ def test_reflection_uses_native_bounds_for_eta_and_logged_tides(tmp_path, name, 
     assert len(out) == 400
     values = np.array([p.extract_param(name) for p in out])
     assert np.all((values >= lo - 1e-7) & (values <= hi + 1e-7))
+
+
+def test_skipped_eta_setter_cannot_export_parent_outside_reflected_bounds(tmp_path):
+    _, out = _puff(tmp_path, [
+        '--parameter', 'mc', '--parameter', 'eta', '--reflect-parameter', 'eta',
+        '--eta-range', '[1e-7,1e-6]', '--random-seed', '917'])
+    assert not out
+
+
+def test_random_override_cannot_undo_explicit_reflection(tmp_path):
+    _, out = _puff(tmp_path, [
+        '--parameter', 'mc', '--parameter', 'lambda1', '--reflect-parameter', 'lambda1',
+        '--downselect-parameter', 'lambda1', '--downselect-parameter-range', '[50,60]',
+        '--random-parameter', 'lambda1', '--random-parameter-range', '[100,200]',
+        '--random-seed', '917'])
+    assert not out
+
+
+@pytest.mark.parametrize('name, bounds', [('phi1', '[5.3,5.8]'),
+                                         ('meanPerAno', '[-1,-0.5]')])
+def test_reflected_periodic_exports_satisfy_bounds_modulo_period(tmp_path, name, bounds):
+    import ast
+    lo, hi = ast.literal_eval(bounds)
+    _, out = _puff(tmp_path, [
+        '--parameter', 'mc', '--parameter', name, '--reflect-parameter', name,
+        '--downselect-parameter', name, '--downselect-parameter-range', bounds,
+        '--random-seed', '917'])
+    assert len(out) > 390
+    values = np.array([p.extract_param(name) for p in out])
+    offsets = (values-lo) % (2*np.pi)
+    assert np.all(offsets <= hi-lo + 1e-6)
+
+
+def test_reflection_rejects_overflowing_period_before_input_read():
+    proc = subprocess.run([
+        sys.executable, str(CODE/'bin/util_ParameterPuffball.py'),
+        '--parameter', 'mc', '--reflect-parameter', 'mc', '--mc-range', '[0,1e308]',
+        '--inj-file', '/nonexistent/grid.xml.gz'],
+        env=dict(os.environ, PYTHONPATH=str(CODE), GW_SURROGATE=''),
+        capture_output=True, text=True, timeout=60)
+    assert proc.returncode != 0
+    assert 'finite increasing bounds' in proc.stderr
+
+
+@pytest.mark.parametrize('parameters', [['mc', 'q'], ['q', 'mc']])
+def test_coupled_mass_setters_cannot_export_outside_reflected_bounds(tmp_path, parameters):
+    args = [token for name in parameters for token in ('--parameter', name)]
+    _, out = _puff(tmp_path, args + [
+        '--reflect-parameter', 'mc', '--mc-range', '[28,28.1]',
+        '--reflect-parameter', 'q', '--downselect-parameter', 'q',
+        '--downselect-parameter-range', '[0.1,0.2]', '--random-seed', '917'])
+    if parameters == ['mc', 'q']:
+        # q holds total mass fixed and changes the previously assigned mc.
+        assert not out
+    else:
+        # mc holds q fixed; this order realizes both reflected coordinates.
+        assert len(out) == 400
+        mc = np.array([p.extract_param('mc')/lal.MSUN_SI for p in out])
+        q = np.array([p.extract_param('q') for p in out])
+        assert np.all((mc >= 28-2e-6) & (mc <= 28.1+2e-6))
+        assert np.all((q >= .1-1e-7) & (q <= .2+1e-7))

@@ -183,7 +183,8 @@ if opts.reflect_parameter and not opts.puff_coordinate_system:
             parser.error('--reflect-parameter requires a downselection range: ' + name)
         limits = np.asarray(downselect_dict[name], dtype=float)
         if (limits.shape != (2,) or not np.isfinite(limits).all()
-                or limits[0] >= limits[1] or not np.isfinite(limits[1] - limits[0])):
+                or limits[0] >= limits[1] or not np.isfinite(limits[1] - limits[0])
+                or limits[1] - limits[0] > np.finfo(float).max / 2):
             parser.error('reflection requires finite increasing bounds: ' + name)
         explicit_reflect_ranges[name] = tuple(limits)
 
@@ -307,7 +308,7 @@ reflect_ranges.update(explicit_reflect_ranges)
 def reflect_into(x, lo, hi):
     width = hi - lo
     y = np.mod(x - lo, 2*width)
-    return lo + width - np.abs(y - width)
+    return lo + np.minimum(y, 2*width - y)
 for indx, name in enumerate(coord_names):
     if name in reflect_ranges:
         X_out[:,indx] = reflect_into(X_out[:,indx], *reflect_ranges[name])
@@ -445,6 +446,36 @@ if len(opts.random_parameter) >0:
         if param in ['mc','m1','m2','mtot']:
             val = val* lal.MSUN_SI
         P.assign_param(param,val)
+
+# Sequential setters can change an earlier coordinate or skip an unsupported
+# value; independent random overrides run last. Validate explicit reflections
+# on the finished waveform objects so neither path can export stale parents or
+# points outside the requested interval. Default spin-box handling is unchanged.
+if explicit_reflect_ranges:
+    reflected_output = []
+    for P in P_out:
+        keep = True
+        for name, (lo, hi) in explicit_reflect_ranges.items():
+            value = P.extract_param(name)
+            if name in ['mc', 'm1', 'm2', 'mtot']:
+                value /= lal.MSUN_SI
+            if name in lalsimutils.periodic_params:
+                # Spin azimuths extract in a signed chart, while other angles
+                # export modulo their period. Compare equivalent lifts in the
+                # requested interval rather than rejecting a chart change.
+                period = lalsimutils.periodic_params[name]
+                offset = np.remainder(value - lo, period)
+                tolerance = 32*np.finfo(float).eps*max(1., abs(lo), abs(hi), period)
+                keep = (np.isfinite(offset) and
+                        (offset <= hi-lo+tolerance or period-offset <= tolerance))
+            else:
+                tolerance = 32*np.finfo(float).eps*max(1., abs(lo), abs(hi))
+                keep = np.isfinite(value) and lo-tolerance <= value <= hi+tolerance
+            if not keep:
+                break
+        if keep:
+            reflected_output.append(P)
+    P_out = reflected_output
 
 print(" The number of exported points is ", len(P_out))
 if opts.eccentric_phase_coordinates:

@@ -8,6 +8,7 @@ Development tree is rift_O4c.
     means unchanged legacy settings. See docs/mu-puffball.rst.
   - General --reflect-parameter support for legacy puff coordinates with finite
     downselection bounds; automatic transverse spin box reflection is retained.
+    Final reflected bounds are checked after coupled setters and random overrides.
 
   - (rc0) PR 187 stabilizes vectorized time marginalization for loud signals;
     PR 183 (including PR 163) corrects ChooseFDModes conditioning and J-to-L

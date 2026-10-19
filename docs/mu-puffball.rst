@@ -81,9 +81,17 @@ For example::
 Reflection folds excursions repeatedly into the interval, rather than clipping
 or discarding points. Bounds use native coordinate units (solar masses for
 mass coordinates); log-transformed coordinates are reflected after converting
-back to native values. Native downselection still runs afterward.
+back to native values. Native downselection still runs afterward. Explicit
+reflection bounds are also checked on the finished waveform after sequential
+setters and random overrides; inconsistent rows are rejected. This includes
+legacy setters that skip unsupported values, such as eta below 1e-5.
+Legacy setter order still matters: for example, assign ``q`` before ``mc``
+to preserve both values (the q setter holds total mass fixed). Reversing that
+order can reject the entire puff; ``--fail-if-empty`` exposes this as an error.
 The four transverse spin box coordinates retain their automatic default
 reflection. Explicit bounds override those defaults for a named coordinate.
-Azimuth wrapping is unchanged. Native mean-anomaly reflection is refused when
+Azimuth wrapping is unchanged; periodic export values can differ by an integer
+period from the requested interval. Final checks compare equivalent angle lifts.
+Native mean-anomaly reflection is refused when
 using the effective eccentric-phase chart, whose angle is a different coordinate.
 Mu mode retains its separate coupled q/s2z reflection before inversion.
