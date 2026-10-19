@@ -10,6 +10,7 @@ Welcome to RIFT's documentation!
    :maxdepth: 2
    :caption: Contents:
 
+   mu-puffball
 
 
 Indices and tables

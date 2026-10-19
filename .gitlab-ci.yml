@@ -54,6 +54,7 @@ unit_tests:
   stage: unit tests
   script:
     - bash .travis/test-o4c-critical-ports.sh
+    - python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_mu_puffball.py MonteCarloMarginalizeCode/Code/test/test_mu_puffball_pipeline.py MonteCarloMarginalizeCode/Code/test/test_puffball_transverse_reflect.py
     - python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_cip_priors.py
     - python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_mc_error.py MonteCarloMarginalizeCode/Code/test/test_cip_lnL_annotation.py
     - python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_time_marginalization_perrow_offset.py
