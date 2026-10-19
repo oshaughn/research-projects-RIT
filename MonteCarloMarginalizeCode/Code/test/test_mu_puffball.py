@@ -100,6 +100,49 @@ def test_default_budget_does_not_resample_away_seed_branches():
     assert stats['attempted'] == len(rows)
 
 
+def test_reflection_handles_multiple_crossings_and_preserves_mu_inverse():
+    rows = np.tile([40, 20, 0, 0, .2, 0, 0, -.3], (5, 1))
+    z = puff.aligned_coordinates(rows)
+    z[:, 2] = [-2.3, -.3, .3, 1.7, 4.3]
+    z[:, 3] = [-8.3, -2.3, -.3, 1.7, 6.3]
+    reflected = puff.reflect_coordinates(z, {'q': (0, 1), 's2z': (-1, 1)})
+    np.testing.assert_allclose(reflected[:, 2], [.3, .3, .3, .3, .3], atol=1e-14)
+    np.testing.assert_allclose(reflected[:, 3], [-.3, .3, -.3, .3, -.3], atol=1e-14)
+    np.testing.assert_array_equal(reflected[:, :2], z[:, :2])
+    mc, z1 = puff.inverse_mu(*reflected.T)
+    mu1, mu2, _ = tools.Mcqchi1chi2Tomu1mu2mu3(mc, reflected[:, 2], z1, reflected[:, 3])
+    np.testing.assert_allclose(np.column_stack((mu1, mu2)), z[:, :2], atol=1e-11)
+    # The input chart remains untouched, including out-of-bounds values.
+    assert z[0, 2] == -2.3
+
+
+def test_reflection_narrows_to_native_eta_and_spin_cuts_and_keeps_nan_invalid():
+    bounds = puff.reflection_ranges(['q', 's2z'], {'eta': [.1, .24], 'q': [.2, .9], 's2z': [-.5, .5]})
+    np.testing.assert_allclose(bounds['q'], [max(.2, tools.etaToq(.1)), tools.etaToq(.24)])
+    assert bounds['s2z'] == (-.5, .5)
+    with np.errstate(all='raise'):
+        out = puff.reflect_coordinates([[1, 2, np.inf, np.nan]], bounds)
+        mc, z1 = puff.inverse_mu(*out.T)
+    assert np.isnan(mc[0]) and np.isnan(z1[0])
+    for bounds in ({'s1z': [-1, 1]}, {'q': [1, 0]}, {'q': [-1, 1]}, {'s2z': [-2, 2]}):
+        with pytest.raises(ValueError):
+            puff.reflect_coordinates([[1, 2, .5, 0]], bounds)
+
+
+def test_reflection_rescues_proposals_without_exceeding_spin_bounds():
+    rows = physical_rows(500)
+    plain, _, _ = puff.propose(rows, count=4000, scale=2, rng=448)
+    reflected, _, stats = puff.propose(rows, count=4000, scale=2, rng=448,
+                                     reflection_bounds={'q': (.1, .9), 's2z': (-.8, .8)})
+    assert len(reflected) > len(plain)
+    q = reflected[:, 1]/reflected[:, 0]
+    assert np.all((q >= .1) & (q <= .9))
+    assert np.all(np.abs(reflected[:, 7]) <= .8)
+    assert np.all(np.linalg.norm(reflected[:, 2:5], axis=1) <= 1+1e-12)
+    assert np.all(np.linalg.norm(reflected[:, 5:8], axis=1) <= 1+1e-12)
+    assert set(stats['reflection_bounds']) == {'q', 's2z'}
+
+
 @pytest.mark.parametrize('kwargs', [{'scale': -1}, {'scale': np.nan},
                                   {'transverse_max': 1.01}, {'count': 0}])
 def test_invalid_configuration(kwargs):

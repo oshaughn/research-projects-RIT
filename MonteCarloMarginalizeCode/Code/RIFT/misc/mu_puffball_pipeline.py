@@ -38,7 +38,8 @@ def discovery_arguments(arguments):
         elif name != '--force-away':
             output.extend((name, value))
         i += 1
-    return shlex.join(['--puff-coordinate-system', 'mu-random-transverse'] + output)
+    return shlex.join(['--puff-coordinate-system', 'mu-random-transverse',
+                       '--reflect-parameter', 'q', '--reflect-parameter', 's2z'] + output)
 
 
 def stage_arguments(cip_lines, arguments):

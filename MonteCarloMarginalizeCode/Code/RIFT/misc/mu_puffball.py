@@ -72,7 +72,49 @@ def aligned_coordinates(rows):
     return np.column_stack((mu1, mu2, q, rows[:, 7]))
 
 
-def propose(rows, *, count=None, scale=1., transverse_max=1., rng=None):
+def reflection_ranges(parameters, downselect):
+    """Physical chart bounds, narrowed by native q/eta/s2z cuts if present."""
+    bounds = {}
+    for name in parameters or ():
+        if name not in ('q', 's2z'):
+            raise ValueError('mu puff reflection supports only q and s2z')
+        lo, hi = (0., 1.) if name == 'q' else (-1., 1.)
+        if name in downselect:
+            limits = downselect[name]
+            if len(limits) != 2 or not np.isfinite(limits).all() or limits[0] >= limits[1]:
+                raise ValueError('invalid native reflection bounds for ' + name)
+            lo, hi = max(lo, limits[0]), min(hi, limits[1])
+        if name == 'q' and 'eta' in downselect:
+            emin, emax = downselect['eta']
+            if not np.isfinite([emin, emax]).all() or not 0 <= emin < emax <= .25:
+                raise ValueError('q reflection requires 0 <= eta_min < eta_max <= 0.25')
+            # Stable also at eta=0 and near equal mass; etaToq subtracts
+            # large nearly equal quantities at small eta and divides by zero.
+            lo = max(lo, 4*emin/(1+np.sqrt(1-4*emin))**2)
+            hi = min(hi, 4*emax/(1+np.sqrt(1-4*emax))**2)
+        bounds[name] = (lo, hi)
+    return bounds
+
+
+def reflect_coordinates(coordinates, bounds):
+    """Fold q/s2z repeatedly before inversion, keeping both mu values fixed."""
+    out = np.array(coordinates, dtype=float, copy=True)
+    for name, limits in (bounds or {}).items():
+        if name not in ('q', 's2z'):
+            raise ValueError('mu puff reflection supports only q and s2z')
+        lo, hi = map(float, limits)
+        physical = (0., 1.) if name == 'q' else (-1., 1.)
+        if not np.isfinite([lo, hi]).all() or not physical[0] <= lo < hi <= physical[1]:
+            raise ValueError('invalid reflection bounds for ' + name)
+        index = 2 if name == 'q' else 3
+        with np.errstate(invalid='ignore', over='ignore'):
+            folded = np.remainder(out[:, index] - lo, 2*(hi-lo))
+            out[:, index] = lo + np.minimum(folded, 2*(hi-lo)-folded)
+    return out
+
+
+def propose(rows, *, count=None, scale=1., transverse_max=1., rng=None,
+            reflection_bounds=None):
     """Puff four correlated coordinates, independently REDRAW transverse spins.
 
     By default each input row gets one proposal. An explicit count instead
@@ -82,6 +124,7 @@ def propose(rows, *, count=None, scale=1., transverse_max=1., rng=None):
     exploration, not an isotropic-spin prior. It works with aligned seeds and
     with contracted later grids using the same settings. Rejected inverse rows
     are discarded without clipping or retries; the attempted budget is count.
+    Optional q/s2z reflections precede the coupled inverse, preserving mu1/mu2.
     """
     if not np.isfinite(scale) or scale < 0:
         raise ValueError('mu puff scale must be finite and nonnegative')
@@ -105,6 +148,7 @@ def propose(rows, *, count=None, scale=1., transverse_max=1., rng=None):
     factor = units[:, None] * vec * np.sqrt(np.maximum(ev, 0))[None, :]
     parents = np.arange(len(z)) if one_per_seed else rng.integers(len(z), size=count)
     out = z[parents] + scale * (rng.normal(size=(count, 4)) @ factor.T)
+    out = reflect_coordinates(out, reflection_bounds)
     mc, z1 = inverse_mu(*out.T)
     q, z2 = out[:, 2], out[:, 3]
     valid = (np.isfinite(mc) & np.isfinite(z1) & (np.abs(z1) <= 1)
@@ -121,10 +165,11 @@ def propose(rows, *, count=None, scale=1., transverse_max=1., rng=None):
         attempted=count, inverse_accepted=len(proposed),
         coordinate_system='mu-random-transverse', puff_factor=float(scale),
         transverse_max=float(transverse_max),
+        reflection_bounds={k: list(v) for k, v in (reflection_bounds or {}).items()},
         transverse_distribution='uniform radius conditional on aligned spin; uniform azimuth')
 
 
-def waveform_proposals(parameters, *, downselect, fref=None, fmin=None,
+def waveform_proposals(parameters, *, downselect, reflect_parameters=None, fref=None, fmin=None,
                        duration_bound=None, **kwargs):
     """Atomically update mass/spin fields and apply native physical cuts.
 
@@ -139,7 +184,8 @@ def waveform_proposals(parameters, *, downselect, fref=None, fmin=None,
     fields = ('m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z')
     rows = np.array([[getattr(p, name) / (lal.MSUN_SI if i < 2 else 1.)
                       for i, name in enumerate(fields)] for p in parameters])
-    rows, parents, stats = propose(rows, **kwargs)
+    rows, parents, stats = propose(
+        rows, reflection_bounds=reflection_ranges(reflect_parameters, downselect), **kwargs)
     result = []
     for row, parent in zip(rows, parents):
         p = parameters[parent].copy()

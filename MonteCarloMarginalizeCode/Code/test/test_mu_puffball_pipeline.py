@@ -50,7 +50,8 @@ def test_schedule_pairs_first_finite_batch_then_legacy_including_z_and_g():
     assert [x.split()[0] for x in actual] == ['3', 'G2', 'Z']
     first = shlex.split(actual[0])
     assert first[1:3] == ['--puff-coordinate-system', 'mu-random-transverse']
-    assert '--parameter' not in first and '--reflect-parameter' not in first
+    assert '--parameter' not in first
+    assert [first[i+1] for i, t in enumerate(first) if t == '--reflect-parameter'] == ['q', 's2z']
     assert '--force-away' not in first
     assert first[first.index('--puff-factor')+1] == '2'
     assert actual[1] == 'G2 ' + LEGACY
@@ -89,6 +90,7 @@ def test_real_build_schedule_routes_first_batch_and_refinement(tmp_path):
     assert [x.split()[0] for x in cip] == [x.split()[0] for x in puff]
     assert any('--rf-transverse-spin-coordinates geometric4' in x for x in cip)
     assert '--puff-coordinate-system mu-random-transverse' in puff[0]
+    assert '--reflect-parameter q --reflect-parameter s2z' in puff[0]
     assert all('--puff-coordinate-system' not in x for x in puff[1:])
     assert all('--parameter chi1_perp_u' in x for x in puff[1:])
     assert '--puff-coordinate-system mu-random-transverse' in (run/'PUFF_0.sub').read_text()
@@ -122,6 +124,9 @@ def test_real_build_schedule_routes_first_batch_and_refinement(tmp_path):
                             capture_output=True, text=True, timeout=60)
     assert actual.returncode == 0, actual.stdout + actual.stderr
     assert (tmp_path/'actual-discovery_mu_puff.json').exists()
+    import json
+    summary = json.loads((tmp_path/'actual-discovery_mu_puff.json').read_text())
+    assert set(summary['reflection_bounds']) == {'q', 's2z'}
 
 
 def test_nonprecessing_optin_is_refused(tmp_path):
