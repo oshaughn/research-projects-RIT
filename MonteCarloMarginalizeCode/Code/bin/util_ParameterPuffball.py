@@ -44,7 +44,7 @@ parser.add_argument("--force-away", default=0,type=float,help="If >0, uses the i
 parser.add_argument("--approx-output",default="SEOBNRv2", help="approximant to use when writing output XML files.")
 parser.add_argument("--fref",default=None,type=float, help="Reference frequency used for spins in the ILE output.  (Since I usually use SEOBNRv3, the best choice is 20Hz). Default is to use what is in the original overlap-grid.xml.gz file")
 parser.add_argument("--fmin",type=float,default=None,help="Min frequency, default is to use what is in original file")
-parser.add_argument("--reflect-parameter", action="append", help="In mu-random-transverse mode, reflect q or s2z before inversion using physical bounds narrowed by native downselection")
+parser.add_argument("--reflect-parameter", action="append", help="Reflect a puff coordinate into its downselection range (repeatable). Mu mode supports q and s2z using physical bounds narrowed by native downselection.")
 parser.add_argument("--parameter", action='append', help="Parameters used as fitting parameters AND varied at a low level to make a posterior")
 parser.add_argument("--no-correlation", type=str,action='append', help="Pairs of parameters, in format [mc,eta]  The corresponding term in the covariance matrix is eliminated")
 #parser.add_argument("--parameter-implied", action='append', help="Parameter used in fit, but not independently varied for Monte Carlo")
@@ -83,7 +83,6 @@ log_coord_names = ['lambda1', 'lambda2', 'LambdaTilde']
 if opts.reflect_parameter and not opts.puff_coordinate_system:
     if opts.eccentric_phase_coordinates and 'meanPerAno' in opts.reflect_parameter:
         parser.error('Effective phase puffing cannot reflect native meanPerAno bounds; use native downselection instead')
-    parser.error('--reflect-parameter requires --puff-coordinate-system mu-random-transverse on this branch')
 coord_names = opts.parameter # Used  in fit
 if opts.puff_coordinate_system:
     incompatible = [name for name in (
@@ -108,6 +107,8 @@ elif opts.mu_puff_n_proposals is not None or opts.mu_puff_transverse_max != 1.:
 #if opts.parameter_nofit:
 #    coord_names = coord_names + opts.parameter_nofit
 if coord_names is None:
+    if opts.reflect_parameter:
+        parser.error('--reflect-parameter requires a --parameter coordinate')
     sys.exit(0)
 if opts.eccentric_phase_coordinates:
     from RIFT.misc import eccentric_phase, eccentric_phase_puff
@@ -168,7 +169,23 @@ for indx in np.arange(len(dlist_ranges)):
     downselect_dict[dlist[indx]] = dlist_ranges[indx]
 
 
-
+# Explicit legacy reflections use native coordinate bounds, including solar
+# masses for mass coordinates. Keep native cuts after reflection because
+# coupled coordinate conversion can still violate other physical constraints.
+explicit_reflect_ranges = {}
+if opts.reflect_parameter and not opts.puff_coordinate_system:
+    if len(dlist) != len(dlist_ranges):
+        parser.error('reflection requires one range for every downselect parameter')
+    for name in opts.reflect_parameter:
+        if name not in coord_names:
+            parser.error('--reflect-parameter must name a --parameter coordinate: ' + name)
+        if name not in downselect_dict:
+            parser.error('--reflect-parameter requires a downselection range: ' + name)
+        limits = np.asarray(downselect_dict[name], dtype=float)
+        if (limits.shape != (2,) or not np.isfinite(limits).all()
+                or limits[0] >= limits[1] or not np.isfinite(limits[1] - limits[0])):
+            parser.error('reflection requires finite increasing bounds: ' + name)
+        explicit_reflect_ranges[name] = tuple(limits)
 
 # Load data
 P_list = lalsimutils.xml_to_ChooseWaveformParams_array(opts.inj_file)
@@ -262,7 +279,7 @@ if len(coord_names) >1:
     rv = scipy.stats.multivariate_normal(mean=np.zeros(len(coord_names)), cov=cov,allow_singular=True)  # they are just complaining about dynamic range of parameters, usually
     delta_X = rv.rvs(size=len(X))
     X_out = X+delta_X
-    if 'eta' in coord_names:
+    if 'eta' in coord_names and 'eta' not in explicit_reflect_ranges:
         indx_eta = coord_names.index('eta')
         X_out[:,indx_eta] = np.where(X_out[:,indx_eta] > 1/4, 1/2- X_out[:,indx_eta], X_out[:,indx_eta]) # reflection boundary condition, preserve points
         X_out[:,indx_eta] = np.where(X_out[:,indx_eta] < 0, -X_out[:,indx_eta], X_out[:,indx_eta]) # reflection on other side
@@ -271,7 +288,7 @@ else:
     cov = sigma*sigma
     delta_X =np.random.normal(size=len(coord_names), scale=sigma)
     X_out = X+delta_X
-    if 'eta' in coord_names:
+    if 'eta' in coord_names and 'eta' not in explicit_reflect_ranges:
         indx_eta = coord_names.index('eta')
         X_out[:,indx_eta] = np.where(X_out[:,indx_eta] > 1/4, 1/2- X_out[:,indx_eta], X_out[:,indx_eta]) # reflection boundary condition, preserve points
         X_out[:,indx_eta] = np.where(X_out[:,indx_eta] < 0, -X_out[:,indx_eta], X_out[:,indx_eta]) # reflection on other side
@@ -285,6 +302,8 @@ for indx, name  in enumerate(coord_names):
 # Box-bounded transverse-spin coordinates (added by --internal-puff-transverse): reflect excursions
 # back into the box rather than discarding them, so the puff keeps its points near spin boundaries.
 reflect_ranges = {'s1z_bar': (-1., 1.), 's2z_bar': (-1., 1.), 'chi1_perp_u': (0., 1.), 'chi2_perp_u': (0., 1.)}
+# Explicit native bounds also allow narrower intervals for the default spin box.
+reflect_ranges.update(explicit_reflect_ranges)
 def reflect_into(x, lo, hi):
     width = hi - lo
     y = np.mod(x - lo, 2*width)

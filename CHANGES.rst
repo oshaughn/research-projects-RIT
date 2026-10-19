@@ -6,6 +6,8 @@ Development tree is rift_O4c.
     ported from O4d PR 463. Later batches retain the existing O4c transverse
     puff. BasicIteration can pair puff settings with each CIP batch; no opt-in
     means unchanged legacy settings. See docs/mu-puffball.rst.
+  - General --reflect-parameter support for legacy puff coordinates with finite
+    downselection bounds; automatic transverse spin box reflection is retained.
 
   - (rc0) PR 187 stabilizes vectorized time marginalization for loud signals;
     PR 183 (including PR 163) corrects ChooseFDModes conditioning and J-to-L

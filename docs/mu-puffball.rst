@@ -24,7 +24,7 @@ not use the legacy singular-covariance fallback.
 
 The flag enables O4c's existing ``internal_puff_transverse`` for later batches
 and refinement subdags. It does not change that existing implementation or
-import O4d's reflection or ASCII-grid machinery. Without the new flag, the
+import O4d's ASCII-grid machinery. Without the new flag, the
 ordinary single-configuration puff settings and routing are unchanged.
 
 ``args_puff_list.txt`` pairs one puff line with each final ``args_cip_list.txt``
@@ -55,7 +55,7 @@ does not vary those nuisance coordinates. A ``<output>_mu_puff.json`` sidecar
 records the proposal settings and attempted/accepted/exported counts.
 
 Mass/spin downselection, duration bounds and fref/fmin overrides are supported.
-Legacy coordinate, reflection, force-away, independent random override and
+Legacy coordinate, force-away, independent random override and
 effective eccentric-phase options are refused in the standalone new mode.
 The early pipeline stage preserves helper native cuts and scales, but omits
 force-away exclusion: a nearby mass/aligned point can have a new transverse
@@ -67,3 +67,23 @@ Core inverse/physical-bound, actual XML CLI and real DAG-routing tests accompany
 the port. Production XPHM/geometric4 recovery qualification is tracked with the
 O4d experiment. Proposal speed or geometric support alone is not evidence of
 likelihood recovery; score all proposals with production ILE before inference.
+
+General coordinate reflection
+-----------------------------
+
+The legacy puff also accepts repeatable ``--reflect-parameter NAME`` options.
+Each name must be a puff ``--parameter`` with a finite, increasing
+``--downselect-parameter-range`` (or the corresponding built-in range option).
+For example::
+
+    --parameter mc --reflect-parameter mc --mc-range '[20,40]'
+
+Reflection folds excursions repeatedly into the interval, rather than clipping
+or discarding points. Bounds use native coordinate units (solar masses for
+mass coordinates); log-transformed coordinates are reflected after converting
+back to native values. Native downselection still runs afterward.
+The four transverse spin box coordinates retain their automatic default
+reflection. Explicit bounds override those defaults for a named coordinate.
+Azimuth wrapping is unchanged. Native mean-anomaly reflection is refused when
+using the effective eccentric-phase chart, whose angle is a different coordinate.
+Mu mode retains its separate coupled q/s2z reflection before inversion.
