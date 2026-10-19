@@ -3383,6 +3383,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
        # Keep LAL's default reference at the requested start frequency,
        # before applying our lower generation standoff frequency.
        if P.fref==0 and (P.approx == lalIMRPhenomXPHM or
+                         (fd_L_frame and P.approx == lalIMRPhenomXPNR) or
                          (fd_L_frame and not is_precessing and P.approx in
                           (lalIMRPhenomXO4a, lalIMRPhenomXPNR))):
           P.fref=P.fmin
@@ -3478,7 +3479,12 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
        # Rotate if requested, and if P.fref is specified
        # see discussion in https://git.ligo.org/lscsoft/lalsuite/-/blob/master/lalsimulation/lib/LALSimInspiral.c
        if is_precessing and fd_L_frame and P.fref:
-             alpha,beta,gamma =extract_JL_angles(P,return_inverse=True)
+             opening_angle = None
+             if P.approx == lalIMRPhenomXPNR:
+                 opening_angle = _xpnr_reference_opening_angle(
+                     P, extra_params, P.fmin*fd_standoff_factor, fNyq)
+             alpha,beta,gamma = extract_JL_angles(
+                 P, return_inverse=True, opening_angle=opening_angle)
              # The modes must remain intrinsic: hoft_from_hlm applies P.psi when
              # constructing the strain.  A further alpha += pi changes odd-m
              # modes relative to even-m modes, rather than supplying a global
@@ -6005,7 +6011,53 @@ def rotate_hlm_static(hlm,alphaA,betaA,gammaA,extra_polarization=None):
     return hCatOut
 
 
-def extract_JL_angles(P,return_inverse=True,phase_factor=1):
+def _xpnr_reference_opening_angle(P, params, fmin, fmax):
+    """Match XPNR's reference emission axis when undoing its J-frame mapping.
+
+    LAL's PNR_RemapThetaJSF uses tuned beta(fref), not the geometrical J/L
+    opening angle. Reuse its public angle generator and the same generation
+    band; leave the existing static rotation and mode content unchanged.
+    """
+    if np.linalg.norm([P.s1x, P.s1y, P.s2x, P.s2y]) < 1e-3:
+        # PNR_RemapThetaJSF itself skips the remapping below this threshold.
+        return None
+    angle_params = lal.DictDuplicate(params)
+    # ChooseFDModes supplies these model defaults internally, whereas the
+    # public angle API does not. Preserve explicit caller overrides.
+    defaults = {
+        "PhenomXPNRUseTunedAngles": ("PNRUseTunedAngles", 1),
+        "PhenomXPNRUseTunedCoprec": ("PNRUseTunedCoprec", 1),
+        "PhenomXPNRUseTunedCoprec33": ("PNRUseTunedCoprec33", 0),
+        "PhenomXPNRForceXHMAlignment": ("PNRForceXHMAlignment", 0),
+        "PhenomXPrecVersion": ("PrecVersion", 330),
+        "PhenomXPFinalSpinMod": ("FinalSpinMod", 7),
+        "PhenomXPHMMBandVersion": ("MBandPrecVersion", 2),
+    }
+    for name, (key, value) in defaults.items():
+        if not lal.DictContains(angle_params, key):
+            getattr(lalsim, "SimInspiralWaveformParamsInsert" + name)(angle_params, value)
+    if not lalsim.SimInspiralWaveformParamsLookupPhenomXPNRUseTunedAngles(angle_params):
+        return None
+    # XPNR unconditionally selects this HM release in ChooseFDModes.
+    lalsim.SimInspiralWaveformParamsInsertPhenomXHMReleaseVersion(angle_params, 122019)
+    _, beta, _, frequencies, _, _ = lalsim.SimIMRPhenomX_PNR_GeneratePNRAnglesHM(
+        P.m1, P.m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,
+        P.incl, P.deltaF, fmin, fmax, P.fref, 2, 2, angle_params)
+    # fref need not coincide with the public API's sampling grid.
+    # The public grid stops at floor(f_max_prime/deltaF)*deltaF. Native
+    # ChooseFDModes can still evaluate its spline in the final partial bin.
+    # Extend only that terminal bin, using the same cubic polynomial; never
+    # clamp the reference angle or extrapolate beyond one native grid step.
+    terminal_bin = (frequencies.data[-1] < P.fref <=
+                    min(fmax, frequencies.data[-1] + P.deltaF))
+    angle = float(interpolate.CubicSpline(frequencies.data, beta.data,
+                                         extrapolate=terminal_bin)(P.fref))
+    if not np.isfinite(angle):
+        raise ValueError("XPNR reference opening angle is not finite at fref")
+    return angle
+
+
+def extract_JL_angles(P,return_inverse=True,phase_factor=1,opening_angle=None):
     """
     extract_JL_angles:  finds Euler angles for transformation  see eg C13, C14 in 2004.06503
 
@@ -6022,6 +6074,8 @@ def extract_JL_angles(P,return_inverse=True,phase_factor=1):
     # To make review-stable, be VERY explicit : try to use lalsuite function calls, not above
     my_cos = np.dot(Lhat, Jhat)
     theta_JL = np.arccos(np.clip(my_cos, -1., 1.))
+    if opening_angle is not None:
+        theta_JL = opening_angle
 
     # Remaining angle:
     nhat_obs = np.array([ np.sin(P.incl)*np.cos(np.pi/2*phase_factor-P.phiref), np.sin(P.incl)*np.sin(np.pi/2*phase_factor-P.phiref), np.cos(P.incl)])  # base vector

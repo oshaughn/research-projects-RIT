@@ -1,9 +1,8 @@
 """Fixed-phase Phenom production-mode comparisons; no fitted lag or phase.
 
 Generic spins are the primary waveform control. Aligned inputs exercise the
-separate zero-tilt convention branch. XPNR's known generic-spin polarization
-mismatch is investigated separately; intrinsic polarization independence is
-still a mandatory regression for that model.
+separate zero-tilt convention branch. Symmetric XPNR uses its native reference
+emission axis; raw upstream LAL projection defects are tested separately.
 """
 import copy
 
@@ -95,6 +94,34 @@ def test_generic_spintaylor_fixed_phase(case):
     p = parameters("IMRPhenomXPHM", case)
     assert np.linalg.norm([p.s1x, p.s1y, p.s2x, p.s2y]) > .1
     assert_fixed_phase_agreement(p, SPINTAYLOR)
+
+
+@pytest.mark.parametrize("case", GENERIC, ids=["q3.5", "two-tilted-spins", "q5.3"])
+@pytest.mark.parametrize("phase", [None, 0.], ids=["fixture-phase", "zero-phase"])
+@pytest.mark.parametrize("fref", [0., 20., 35.013])
+def test_generic_symmetric_xpnr_fixed_phase(case, phase, fref):
+    p = parameters("IMRPhenomXPNR", case)
+    if phase is not None:
+        # Hold Cartesian spins fixed: compare identical inputs between routes.
+        p.phiref = phase
+    p.fref = fref
+    assert_fixed_phase_agreement(p, PHENOM_TEST_OPTIONS)
+
+
+def test_xpnr_reference_in_native_cutoff_partial_bin():
+    # For this mass pair native f_max_prime is 676.751489 Hz, whereas the
+    # public beta samples stop at 676.75 Hz. This is a valid native request.
+    p = parameters("IMRPhenomXPNR", GENERIC[0])
+    p.fref = 676.751
+    assert_fixed_phase_agreement(p, PHENOM_TEST_OPTIONS)
+
+
+def test_xpnr_reference_mapping_preserves_explicit_angle_selection():
+    p = parameters("IMRPhenomXPNR", GENERIC[0])
+    d = p.to_lal_dict_extended(extra_args_dict={**PHENOM_TEST_OPTIONS,
+                                               "PhenomXPNRUseTunedAngles": 0})
+    assert lsu._xpnr_reference_opening_angle(p, d, 18., 2048.) is None
+    assert ls.SimInspiralWaveformParamsLookupPhenomXPNRUseTunedAngles(d) == 0
 
 
 @pytest.mark.parametrize("approx,options", [("IMRPhenomXPHM", SPINTAYLOR),
