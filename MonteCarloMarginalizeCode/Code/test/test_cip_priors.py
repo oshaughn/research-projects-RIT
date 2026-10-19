@@ -49,6 +49,7 @@ Two layers of coverage:
 """
 
 import ast
+import functools
 import os
 import re
 import types
@@ -156,6 +157,38 @@ def _load_priors():
 
 
 PRIORS = _load_priors()
+
+
+def test_positive_aligned_prior_dispatch():
+    """The positive-spin option must install callable priors for all coordinates."""
+    with open(CIP_SCRIPT) as handle:
+        tree = ast.parse(handle.read())
+    # Execute the shipped option branch without running CIP's I/O and fitting.
+    branches = [
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.If)
+        and isinstance(node.test, ast.Compare)
+        and isinstance(node.test.left, ast.Attribute)
+        and isinstance(node.test.left.value, ast.Name)
+        and node.test.left.value.id == "opts"
+        and node.test.left.attr == "aligned_prior"
+        and any(ast.literal_eval(value) == "alignedspin-zprior-positive"
+                for value in node.test.comparators)
+    ]
+    assert len(branches) == 1
+    namespace = dict(PRIORS, functools=functools, chi_max=CHI_MAX,
+                     chi_small_max=0.6, prior_map={}, prior_range_map={})
+    module = ast.Module(body=branches[0].body, type_ignores=[])
+    exec(compile(module, CIP_SCRIPT, "exec"), namespace)
+
+    positive_prior = PRIORS["s_component_zprior_positive"]
+    for coord, maximum in (("s1z", CHI_MAX), ("s1z_bar", CHI_MAX),
+                           ("s2z", 0.6), ("s2z_bar", 0.6)):
+        selected = namespace["prior_map"][coord]
+        samples = np.array([0.1, 0.3])
+        assert np.allclose(selected(samples), positive_prior(samples, R=maximum))
+        assert namespace["prior_range_map"][coord] == [0, maximum]
+
 
 # Support on which each prior may be evaluated.  Only used to feed the smoke
 # test valid inputs; priors with an integrable singularity at an endpoint are
