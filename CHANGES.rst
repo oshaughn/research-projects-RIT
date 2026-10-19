@@ -92,7 +92,21 @@ Development tree is rift_O4c.
     waveform inputs and native sampling priors are preserved.
     PR 225 removes tracked Python bytecode and excludes generated caches.
 
-Release candidate is rc8.
+  - (rc9) PR 231 corrects CIP log-evidence annotations when --internal-use-lnL
+    is enabled; PR 232 preserves extended precision in Monte Carlo relative
+    errors. PR 224 corrects AV retained-grid proposal densities and bounded
+    prior support, with a coverage guard for unresolved adaptive grids.
+    PR 229 adds opt-in full-rate NumPy/CuPy likelihood precomputation; LAL
+    remains the default. PR 228 hardens GWSignal mode-length handling and adds
+    optional SEOBNRv6EHM readiness checks, without supplying or certifying the
+    backend; available older LAL approximants remain usable.
+    PR 234 uses the native XPNR reference axis in mode rotation; PR 235 fixes
+    positive aligned-spin prior dispatch. PR 233 adds opt-in first-batch
+    mu-coordinate puffing with random transverse spins, bounded coordinate
+    reflection, per-stage puff routing, and refinement jumpstart consolidation
+    fixes, with Condor workflow validation.
+
+Release candidate is rc9.
 
 0.0.17.13
 ---------
