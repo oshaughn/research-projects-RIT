@@ -95,3 +95,37 @@ period from the requested interval. Final checks compare equivalent angle lifts.
 Native mean-anomaly reflection is refused when
 using the effective eccentric-phase chart, whose angle is a different coordinate.
 Mu mode retains its separate coupled q/s2z reflection before inversion.
+
+Workflow integration tests
+--------------------------
+
+The pipeline regressions execute every generated PUFF submit command, including
+ordinary PUFF, every scheduled stage and the refinement child. They validate
+nonempty physical XML output and reject malformed schedules in the real builder::
+
+    GW_SURROGATE='' python -m pytest -q \
+        MonteCarloMarginalizeCode/Code/test/test_mu_puffball_pipeline.py
+
+For real HTCondor/DAGMan execution, use the standalone integration driver on a
+host with the usual RIFT dependencies. Choose a fresh directory for each run::
+
+    python MonteCarloMarginalizeCode/Code/test/run_puffball_workflow_integration.py \
+        --directory /tmp/puff-integration-scheduled --case scheduled \
+        --local-toys --submit
+
+    # After DAGMan finishes:
+    python MonteCarloMarginalizeCode/Code/test/run_puffball_workflow_integration.py \
+        --directory /tmp/puff-integration-scheduled --case scheduled --verify
+
+Repeat with cases ``baseline``, ``general``, ``invalid`` and ``empty``. The last
+two must fail at PUFF without exporting a grid or running dependent puff ILE.
+The verifier treats those expected failures as successful negative checks.
+
+Only ILE and CIP calculations are toys; PUFF, consolidation, unification,
+conversion, convergence testing and refinement-grid fetching remain real.
+``--local-toys`` changes only toy-worker submit files to local universe;
+PUFF and other jobs retain the universe selected by the real builder.
+The driver records build/submit logs, DAGMan metrics, toy execution traces and
+``verification.json``. This tests workflow execution, not scientific recovery.
+A jumpstarted child consumes inherited parent composites directly; consolidation
+starts when the child actually runs ILE in its next iteration.

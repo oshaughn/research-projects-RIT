@@ -1506,7 +1506,12 @@ for it in np.arange(it_start,opts.n_iterations):
     # Create unify job
     unify_node = pipeline.CondorDAGNode(unify_job)
     unify_node.add_macro("macroiteration",it)
-    unify_node.add_parent(con_node)
+    # A jumpstarted refinement inherits input_*.composite from its parent and
+    # intentionally has no initial ILE work. Do not consolidate an empty ILE
+    # directory or make unification depend on that nonexistent work.
+    consolidate_this_iteration = not (it == it_start and opts.first_iteration_jumpstart)
+    if consolidate_this_iteration:
+        unify_node.add_parent(con_node)
     unify_node.set_retry(opts.general_retries)
     if not(it ==0) and not(opts.first_iteration_jumpstart):  # don't require first composite to be nonempty if we are running a jumpstart!
         unify_node_list.append(unify_node)
@@ -1605,8 +1610,9 @@ for it in np.arange(it_start,opts.n_iterations):
         #     dag.add_node(ile_node)
         #     ile_node_list_per_iteration[it].append(ile_node)
             
-    # add con job
-    dag.add_node(con_node)
+    # add con job only when this iteration actually ran ILE
+    if consolidate_this_iteration:
+        dag.add_node(con_node)
     dag.add_node(unify_node)
     
     # Create fit node, which depends on consolidate node

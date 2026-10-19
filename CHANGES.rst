@@ -9,6 +9,8 @@ Development tree is rift_O4c.
   - General --reflect-parameter support for legacy puff coordinates with finite
     downselection bounds; automatic transverse spin box reflection is retained.
     Final reflected bounds are checked after coupled setters and random overrides.
+    Jumpstarted refinement subdags reuse parent composites without attempting
+    to consolidate their intentionally absent first ILE batch.
 
   - (rc0) PR 187 stabilizes vectorized time marginalization for loud signals;
     PR 183 (including PR 163) corrects ChooseFDModes conditioning and J-to-L
