@@ -62,6 +62,12 @@ parser.add_argument("--eccentric-phase-coordinates",action='store_true',help="Pu
 parser.add_argument("--eccentric-phase-reference-frequency",type=float,default=10.,help="Frequency label for the effective coordinate only, in Hz; does not change fref/fmin")
 parser.add_argument("--eccentric-phase-target-frequency",type=float,default=20.,help="Target frequency label for the effective coordinate only, in Hz")
 parser.add_argument("--random-seed",type=int,default=None,help="Optional reproducible seed for puff draws")
+parser.add_argument("--puff-coordinate-system", choices=['mu-random-transverse'], default=None,
+                    help="Opt-in fixed mu1,mu2,q,s2z covariance puff with independent RANDOM transverse spins; omit --parameter. Default: legacy puff.")
+parser.add_argument("--mu-puff-transverse-max", type=float, default=1.,
+                    help="Maximum random transverse radius for each spin in mu mode (default 1); further bounded by sqrt(1-siz^2). Independent of --puff-factor.")
+parser.add_argument("--mu-puff-n-proposals", type=int, default=None,
+                    help="Attempted proposal budget in mu mode; default: number of input seeds. No retries after rejection.")
 opts=  parser.parse_args()
 if opts.random_seed is not None:
     np.random.seed(opts.random_seed)
@@ -74,6 +80,24 @@ log_coord_names = ['lambda1', 'lambda2', 'LambdaTilde']
     
 # Extract parameter names
 coord_names = opts.parameter # Used  in fit
+if opts.puff_coordinate_system:
+    incompatible = [name for name in (
+        'parameter', 'no_correlation', 'reflect_parameter', 'random_parameter',
+        'append_with_random_parameter', 'eccentric_phase_coordinates',
+        'regularize', 'force_away', 'force_scatter', 'force_plunge', 'force_zoomwhirl')
+        if getattr(opts, name, False)]
+    if incompatible:
+        parser.error('mu-random-transverse does not support ' + ', '.join(
+            '--' + name.replace('_', '-') for name in incompatible))
+    if not np.isfinite(opts.puff_factor) or opts.puff_factor < 0:
+        parser.error('mu puff requires a finite nonnegative --puff-factor')
+    if not np.isfinite(opts.mu_puff_transverse_max) or not 0 <= opts.mu_puff_transverse_max <= 1:
+        parser.error('--mu-puff-transverse-max must lie in [0,1]')
+    if opts.mu_puff_n_proposals is not None and opts.mu_puff_n_proposals < 1:
+        parser.error('--mu-puff-n-proposals must be positive')
+    coord_names = []  # fixed chart; no legacy extraction or sequential assignment
+elif opts.mu_puff_n_proposals is not None or opts.mu_puff_transverse_max != 1.:
+    parser.error('--mu-puff-* options require --puff-coordinate-system mu-random-transverse')
 #if opts.parameter_nofit:
 #    coord_names = coord_names + opts.parameter_nofit
 if coord_names is None:
@@ -141,6 +165,25 @@ for indx in np.arange(len(dlist_ranges)):
 
 # Load data
 P_list = lalsimutils.xml_to_ChooseWaveformParams_array(opts.inj_file)
+
+if opts.puff_coordinate_system:
+    from RIFT.misc import mu_puffball
+    if len(dlist) != len(dlist_ranges):
+        parser.error('mu puff requires one range for every downselect parameter')
+    P_out, summary = mu_puffball.waveform_proposals(
+        P_list, count=opts.mu_puff_n_proposals, scale=opts.puff_factor,
+        transverse_max=opts.mu_puff_transverse_max, rng=opts.random_seed,
+        downselect=downselect_dict, fref=opts.fref, fmin=opts.fmin,
+        duration_bound=opts.enforce_duration_bound)
+    print(' Mu/random-transverse puff:', json.dumps(summary, sort_keys=True))
+    if opts.fail_if_empty and not P_out:
+        raise ValueError('mu/random-transverse puff has no surviving proposals')
+    output_fref = opts.fref if opts.fref is not None else P_list[0].fref
+    lalsimutils.ChooseWaveformParams_array_to_xml(
+        P_out, fname=opts.inj_file_out, fref=output_fref)
+    with open(opts.inj_file_out + '_mu_puff.json', 'w') as f:
+        json.dump(dict(summary, random_seed=opts.random_seed), f, indent=2)
+    sys.exit(0)
 
 # extract parameters to measure the coordinates. 
 dat_out = []

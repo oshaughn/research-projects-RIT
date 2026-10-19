@@ -221,6 +221,8 @@ parser.add_argument("--cip-explode-jobs-subdag",action='store_true',help="If usi
 parser.add_argument("--cip-explode-jobs-flat",action='store_true',help="Pass to use the same arguments for all worker jobs. The main job will be /bin/true.")
 parser.add_argument("--puff-exe",default=None,help="util_ParameterPuffball.py")
 parser.add_argument("--puff-args",default=None,help="util_ParameterPuffball arguments.  If not specified, puffball will not be performed  ")
+parser.add_argument("--puff-args-list", default=None,
+                    help="Optional puff schedule paired line-for-line with --cip-args-list, using identical count/Z/G prefixes. Mutually exclusive with --puff-args. A Z subdag inherits its stage's single configuration.")
 parser.add_argument("--puff-cadence",default=None,type=int,help="Every n iterations (not including 0), the puffball code will be applied.  Puffball points will be done *in addition* to the usual results from the DAG.  (The puffball is based on perturbing points from that iteration, and this will roughly double that iteration in ILE job size).  Proposed value 2 (i.e., puff overlap-grid-2, ...-4, ...-6.  If not specified, puffball will not be performed ")
 parser.add_argument("--puff-max-it",default=-1,type=int,help="Maximum iteration number that puffball is applied.  If negative, puffball is not applied ")
 parser.add_argument("--first-iteration-jumpstart",action='store_true',help="No ILE jobs the first iteration.  Assumes you already have .composite files and want to get going. Particularly helpful for subdag systems")
@@ -457,6 +459,31 @@ print("ILE", ile_args)
 puff_args=None
 puff_cadence = None
 puff_max_it = opts.puff_max_it
+if opts.puff_args_list and (opts.puff_args or not opts.cip_args_list or not opts.puff_cadence):
+    raise ValueError('--puff-args-list needs --cip-args-list and --puff-cadence; cannot combine with --puff-args')
+puff_stage_args = None
+puff_stage_files = None
+if opts.puff_args_list:
+    with open(opts.puff_args_list) as f:
+        puff_lines = f.readlines()
+    if len(puff_lines) != len(cip_args_prefixes):
+        raise ValueError('puff/CIP schedules must have the same number of lines')
+    puff_stage_args, puff_stage_files = [], []
+    for index, line in enumerate(puff_lines):
+        parts = line.strip().split(None, 1)
+        if len(parts) != 2 or parts[0] != cip_args_prefixes[index]:
+            raise ValueError('puff/CIP schedule prefixes must match on line {}'.format(index+1))
+        # Match legacy bracket protection, except already-quoted ranges must not
+        # be quoted a second time (the pseudo_pipe schedule uses shlex.join).
+        args = shlex.join(shlex.split(parts[1]))
+        puff_stage_args.append(args)
+        path = os.path.join(opts.working_directory, 'args_puff_stage_{}.txt'.format(index))
+        with open(path, 'w') as f:
+            f.write('X ' + parts[1] + '\n')
+        puff_stage_files.append(path)
+    puff_args = puff_stage_args[0]
+    puff_cadence = opts.puff_cadence
+
 if opts.puff_args and opts.puff_cadence:
     puff_cadence = opts.puff_cadence
     # Load args.txt. Remove first item.  Store
@@ -732,7 +759,7 @@ if opts.use_full_submit_paths:
     ile_job.set_sub_file(fname)
 ile_job.write_sub_file()
 
-if not (opts.puff_args is None):
+if opts.puff_args or opts.puff_args_list:
     transfer_file_names_puff = list(transfer_file_names[:-1])
     transfer_file_names_puff.append(opts.working_directory+"/puffball-$(macroiteration).xml.gz") # could also use ../puffball, because relative is ok to initialdir
     # Write a version of the ILE job that uses puffball inputs ... IDENTICAL to code above for standard ILE case,just different argument for input
@@ -1036,21 +1063,23 @@ if opts.cip_explode_jobs:
 
 ##   puffball job: default case
 if puff_args and puff_cadence:
-    puff_job, puff_job_name = dag_utils.write_puff_sub(tag='PUFF',log_dir=None,arg_str=puff_args,request_memory=opts.request_memory_ILE,input_net=opts.working_directory+'/overlap-grid-$(macroiterationnext).xml.gz',output=opts.working_directory+'/puffball-$(macroiterationnext)',out_dir=opts.working_directory,exe=opts.puff_exe,universe=local_worker_universe,no_grid=no_worker_grid,extra_text=extra_text)
-    # Modify: set 'initialdir' to CIP WORKING DIR 
-    puff_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_cip")
-    # Modify output argument: change logs and working directory to be subdirectory for the run
-    puff_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/puff-$(cluster)-$(process).log")
-    puff_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/puff-$(cluster)-$(process).err")
-    puff_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/puff-$(cluster)-$(process).out")
-    puff_job.add_condor_cmd('request_disk',opts.general_request_disk)
-    if opts.use_full_submit_paths:
-        fname = opts.working_directory+"/"+puff_job.get_sub_file()
-        puff_job.set_sub_file(fname)
-    if opts.condor_containerize_nonworker and singularity_image:
-        puff_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
-    puff_job.write_sub_file()
-
+    puff_jobs = []
+    for stage, stage_args in enumerate(puff_stage_args or [puff_args]):
+        puff_job, puff_job_name = dag_utils.write_puff_sub(tag=('PUFF_{}'.format(stage) if puff_stage_args else 'PUFF'),log_dir=None,arg_str=stage_args,request_memory=opts.request_memory_ILE,input_net=opts.working_directory+'/overlap-grid-$(macroiterationnext).xml.gz',output=opts.working_directory+'/puffball-$(macroiterationnext)',out_dir=opts.working_directory,exe=opts.puff_exe,universe=local_worker_universe,no_grid=no_worker_grid,extra_text=extra_text)
+        # Modify: set 'initialdir' to CIP WORKING DIR
+        puff_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_cip")
+        # Modify output argument: change logs and working directory to be subdirectory for the run
+        puff_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/puff-$(cluster)-$(process).log")
+        puff_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/puff-$(cluster)-$(process).err")
+        puff_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/puff-$(cluster)-$(process).out")
+        puff_job.add_condor_cmd('request_disk',opts.general_request_disk)
+        if opts.use_full_submit_paths:
+            fname = opts.working_directory+"/"+puff_job.get_sub_file()
+            puff_job.set_sub_file(fname)
+        if opts.condor_containerize_nonworker and singularity_image:
+            puff_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+        puff_job.write_sub_file()
+        puff_jobs.append(puff_job)
 
 ##   fetch job.  Fetch is before CURRENT iteration, so it is just-in-time and can be used at iteration 0
 if fetch_args:
@@ -1072,6 +1101,7 @@ if fetch_args:
 
 
 cip_job_list = None
+cip_stage_for_iteration = []
 if  (cip_args_lines is None):
     # Write the default cip_job into cip_job_list n times
     # add some redundancy in case this happens : we're hitting a problem with having too few copies of this/fencepost error later
@@ -1079,6 +1109,7 @@ if  (cip_args_lines is None):
         cip_job_list =(opts.n_iterations)* [cip_job ]
     else:
         cip_job_list =(opts.n_iterations)* [ [cip_job, cip_job_worker] ]
+    cip_stage_for_iteration = opts.n_iterations * [0]
 else:  
     # we have different cip jobs for different iteration numbers
     cip_job_list = []
@@ -1165,9 +1196,11 @@ else:
             else:
                 print(" Exploding stage 3 ")
                 cip_job_list = cip_job_list + n_to_add*[[cip_job,cip_job_worker]]
+            cip_stage_for_iteration += n_to_add * [int(indx)]
         else:
             print(" Indefinite subdag-to-convergence requested for group ", indx)
             cip_job_list += ["Subdag"]
+            cip_stage_for_iteration += [int(indx)]
 print(" ===> Iteration size ", len(cip_job_list), opts.n_iterations)
 ##   Test job (terminate, convergence
 if opts.test_args:
@@ -1659,9 +1692,11 @@ for it in np.arange(it_start,opts.n_iterations):
             test_args_optin = re.sub('--iteration-threshold [1-9] ', '', test_args_optin)
         else:
             test_args_optin = "X  --parameter m1 --method lame "
-        if opts.puff_args and opts.puff_cadence:
+        if (opts.puff_args or opts.puff_args_list) and opts.puff_cadence:
             # always puff in the final stage, it can be dangerous not to.  ALL iterations
-            cmd += " --puff-exe {} --puff-args {} --puff-cadence {} --puff-max-it {}  ".format(opts.puff_exe, opts.puff_args, opts.puff_cadence,opts.n_iterations_subdag_max) 
+            subdag_puff_file = puff_stage_files[cip_stage_for_iteration[it]] if puff_stage_files else opts.puff_args
+            cmd += " --puff-exe {} --puff-args {} --puff-cadence {} --puff-max-it {}  ".format(
+                opts.puff_exe, shlex.quote(subdag_puff_file), opts.puff_cadence, opts.n_iterations_subdag_max)
         fname_subdag_test_args = opts.working_directory+"/iteration_{}_cip/args_test.txt".format(it)
         with open(fname_subdag_test_args,'w') as f:
             f.write(test_args_optin)
@@ -1794,7 +1829,7 @@ for it in np.arange(it_start,opts.n_iterations):
     if puff_args and puff_cadence:
       if it > -1 and it <= puff_max_it and it%puff_cadence ==0:
         print(" Puffball for iteration ", it)
-        puff_node = pipeline.CondorDAGNode(puff_job)
+        puff_node = pipeline.CondorDAGNode(puff_jobs[cip_stage_for_iteration[it]] if puff_stage_args else puff_job)
         puff_node.add_macro("macroiteration", it)
         puff_node.add_macro("macroiterationnext", it+1)
         puff_node.set_category("PUFF")

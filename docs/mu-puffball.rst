@@ -1,0 +1,69 @@
+First batch mu puff with random transverse spins
+===============================================
+
+This is the XML-only O4c port of O4d PR 463. Enable with::
+
+    util_RIFT_pseudo_pipe.py [usual precessing BBH arguments] \
+        --internal-puff-mu-random-transverse \
+        --rf-transverse-spin-coordinates geometric4
+
+The new flag uses a covariance puff in ``mu1,mu2,q=m2/m1,s2z`` for the first
+finite CIP batch, followed by independent RANDOM transverse-spin redraws.
+An aligned grid has no transverse covariance, so transverse coordinates are
+never included in that covariance. An atomic vectorized inverse reconstructs
+both masses and aligned spins together. It supports physical negative mu1;
+the relevant positive inverse target is ``mu1 - U02/U12 * mu2``. The mu
+convention uses 200 Hz independently of waveform fref.
+
+For each spin the transverse radius is uniform from zero to
+``min(transverse_max,sqrt(1-siz**2))`` and azimuth is uniform on ``[0,2*pi)``.
+Both spins are redrawn independently, even at puff-factor zero. This is an
+exploration proposal distribution, not an isotropic-spin prior. Genuine zero
+directions in the four-dimensional covariance remain zero; the new path does
+not use the legacy singular-covariance fallback.
+
+The flag enables O4c's existing ``internal_puff_transverse`` for later batches
+and refinement subdags. It does not change that existing implementation or
+import O4d's reflection or ASCII-grid machinery. Without the new flag, the
+ordinary single-configuration puff settings and routing are unchanged.
+
+``args_puff_list.txt`` pairs one puff line with each final ``args_cip_list.txt``
+line, using identical iteration-count, ``G`` or ``Z`` prefixes. The first batch
+count sets the discovery duration. Existing puff cadence and stop policy apply,
+with the stop extended if needed to cover that first batch. Later batches use
+the ordinary puff. A ``Z`` child inherits its stage's single puff configuration.
+The first puff follows CIP-0 and is scored by ILE puff jobs in the next
+iteration; it does not change the initial grid before ILE-0.
+
+Direct BasicIteration users may pass ``--puff-args-list`` instead of
+``--puff-args``, with a list paired line-for-line to ``--cip-args-list``.
+Mismatched counts or prefixes are refused. ``args_puff.txt`` remains the
+ordinary configuration for consumers of the legacy file.
+
+Standalone proposal generation::
+
+    util_ParameterPuffball.py --inj-file selected.xml.gz --inj-file-out puff \
+        --puff-coordinate-system mu-random-transverse --puff-factor 1 \
+        --random-seed 448 --fail-if-empty
+
+Omit ``--parameter`` because the chart is fixed. The default makes one attempt
+per input seed. ``--mu-puff-n-proposals N`` instead samples N parents uniformly.
+The optional ``--mu-puff-transverse-max`` is in [0,1], default 1. Invalid inverse
+rows and failed native cuts are discarded without clipping or retries. Other
+waveform fields come from each parent, including tides and eccentricity; this
+does not vary those nuisance coordinates. A ``<output>_mu_puff.json`` sidecar
+records the proposal settings and attempted/accepted/exported counts.
+
+Mass/spin downselection, duration bounds and fref/fmin overrides are supported.
+Legacy coordinate, reflection, force-away, independent random override and
+effective eccentric-phase options are refused in the standalone new mode.
+The early pipeline stage preserves helper native cuts and scales, but omits
+force-away exclusion: a nearby mass/aligned point can have a new transverse
+orientation. Later stages retain the existing exclusion. The initial pipeline
+prototype supports precessing BBH with BasicIteration; nuisance-coordinate
+puffing and alternate/AMR builders are refused.
+
+Core inverse/physical-bound, actual XML CLI and real DAG-routing tests accompany
+the port. Production XPHM/geometric4 recovery qualification is tracked with the
+O4d experiment. Proposal speed or geometric support alone is not evidence of
+likelihood recovery; score all proposals with production ILE before inference.

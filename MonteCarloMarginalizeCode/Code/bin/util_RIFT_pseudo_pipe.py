@@ -308,6 +308,8 @@ parser.add_argument("--manual-initial-grid-supplements",action='store_true', hel
 parser.add_argument("--manual-extra-ile-args",default=None,type=str,help="Avenue to adjoin extra ILE arguments.  Needed for unusual configurations (e.g., if channel names are not being selected, etc)")
 parser.add_argument("--internal-ile-force-adapt-all",action='store_true', help="Syntactic sugar to prevent need to add manual-extra-ile-args for this: easier on user")
 parser.add_argument("--internal-puff-transverse",action='store_true', help=" appends the following arguments: --parameter phi1 --parameter phi2 --parameter chi1_perp_u --parameter chi2_perp_u ")
+parser.add_argument("--internal-puff-mu-random-transverse", action='store_true',
+                    help="Opt-in BBH/BasicIteration: use mu1,mu2,q,s2z puff plus RANDOM transverse spins for the first CIP batch; later batches (including refinement subdags) use internal-puff-transverse covariance puff. Default: unchanged legacy puff.")
 parser.add_argument("--manual-extra-puff-args",default=None,type=str,help="Avenue to adjoin extra PUFF arguments.  ")
 parser.add_argument("--manual-extra-test-args",default=None,type=str,help="Avenue to adjoin extra TEST arguments.  ")
 parser.add_argument("--manual-extra-cip-args",default=None,type=str,help="Avenue to adjoin extra CIP arguments.  Needed for external priors or likelihoods in CIP stage")
@@ -595,6 +597,16 @@ if opts.assume_nonprecessing:
         is_analysis_precessing = False
 if opts.assume_eccentric:
         is_analysis_eccentric = True
+
+if opts.internal_puff_mu_random_transverse:
+    if opts.assume_nospin or opts.assume_nonprecessing or not is_analysis_precessing:
+        raise ValueError('--internal-puff-mu-random-transverse requires a precessing analysis')
+    if any(getattr(opts, name, False) for name in (
+            'assume_matter', 'assume_eccentric', 'use_EOB_parameters',
+            'internal_use_amr', 'use_subdags')):
+        raise ValueError('early mu/random-transverse puff currently supports precessing BBH with BasicIteration')
+    opts.internal_puff_transverse = True
+
 
 
 dirname_run = gwid+ "_" + opts.calibration+ "_"+ opts.approx+"_fmin" + str(fmin) +"_fmin-template"+str(fmin_template) +"_lmax"+str(opts.l_max) + "_"+opts.spin_magnitude_prior
@@ -1432,6 +1444,20 @@ with open("args_puff.txt",'w') as f:
             puff_args += " {} ".format(opts.manual_extra_puff_args)  # embed with space on each side, avoid collisions
         f.write("X " + puff_args)
 
+if opts.internal_puff_mu_random_transverse:
+    from RIFT.misc import mu_puffball_pipeline
+    # The refinement grid has measured transverse covariance. The early aligned
+    # grid does not: keep its RANDOM transverse discovery out of that covariance.
+    # Each puff line is paired with a CIP batch, including its count/Z/G prefix.
+    # Keep args_puff.txt as the legacy single configuration for other consumers.
+    scheduled_puff_args = mu_puffball_pipeline.stage_arguments(lines, puff_args)
+    with open('args_puff_list.txt', 'w') as f:
+        f.write('\n'.join(scheduled_puff_args) + '\n')
+    # Ensure the first batch can actually puff. Preserve the existing stop
+    # policy for subsequent outer batches; subdags retain their normal policy.
+    puff_max_it = max(puff_max_it, int(lines[0].split()[0].lstrip('G')) - 1)
+
+
 # Create archive dag.  Based on Udall's experience/code
 #    * if ini file, use it
 #    * PSD files: will need to convert from XML.  Will need wrapper to generate this (not raw pesummary call).. Not now.
@@ -1488,7 +1514,10 @@ if opts.assume_matter or opts.assume_eccentric:
 if not(opts.ile_runtime_max_minutes is None):
     cmd += " --ile-runtime-max-minutes {} ".format(opts.ile_runtime_max_minutes)
 if not(opts.internal_use_amr) or opts.internal_use_amr_puff:
-    cmd+= " --puff-exe `which util_ParameterPuffball.py` --puff-cadence 1 --puff-max-it " + str(puff_max_it)+ " --puff-args `pwd`/args_puff.txt "
+    if opts.internal_puff_mu_random_transverse:
+        cmd += " --puff-exe `which util_ParameterPuffball.py` --puff-cadence 1 --puff-max-it {} --puff-args-list `pwd`/args_puff_list.txt ".format(puff_max_it)
+    else:
+        cmd+= " --puff-exe `which util_ParameterPuffball.py` --puff-cadence 1 --puff-max-it " + str(puff_max_it)+ " --puff-args `pwd`/args_puff.txt "
 if opts.assume_eccentric:
     cmd += " --use-eccentricity "
     if opts.sample_eccentricity_squared:
