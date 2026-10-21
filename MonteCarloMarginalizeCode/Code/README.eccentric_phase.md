@@ -155,9 +155,11 @@ remain optional overrides, not a requirement for bootstrapped files.
 These are build-time event mass estimates, not sample-by-sample anchor choices.
 Each coordinate uses the proposed point's detector masses at that fixed anchor.
 
-The native epoch is inferred when template start and waveform reference agree.
-For SEOBNRv5EHM it follows template start when they differ. Other ambiguous
-backend conventions require an explicit `eccentric-phase-reference-frequency`.
+When `eccentric-phase-reference-frequency` is omitted, the helper uses the
+waveform reference frequency `fref`, including when peconfigurator selects a
+different template start frequency. Asimov passes its waveform reference
+frequency through `engine.fref`; an explicit coordinate reference still overrides
+this default.
 Missing/placeholder event masses are refused; manual builds can provide
 `--eccentric-phase-detector-mass M` (detector total mass) or a fixed target.
 

@@ -52,14 +52,15 @@ def test_no_fake_event_mass_and_explicit_target_override():
     assert policy.resolve(hinted,{},ILE,'SEOBNRv5EHM')['mass_source']=='explicit-detector-total-mass'
 
 
-def test_native_epoch_and_late_override_guards():
+@pytest.mark.parametrize('approximant',['SEOBNRv5EHM','TEOBResumSDALI'])
+def test_native_epoch_defaults_to_waveform_fref(approximant):
     different=ILE.replace('--reference-freq 10','--reference-freq 20')
-    r=policy.resolve(options(),{'m1':18,'m2':18},different,'SEOBNRv5EHM')
-    assert r['reference_frequency_hz']==10 and r['waveform_reference_hz']==20
-    with pytest.raises(ValueError,match='Ambiguous'):
-        policy.resolve(options(),{'m1':18,'m2':18},different,'TEOBResumSDALI')
+    r=policy.resolve(options(),{'m1':18,'m2':18},different,approximant)
+    assert r['reference_frequency_hz']==20 and r['waveform_reference_hz']==20
+    assert r['waveform_start_hz']==10 and r['native_epoch_source']=='waveform-reference'
     explicit=options(eccentric_phase_reference_frequency=10)
-    assert policy.resolve(explicit,{'m1':18,'m2':18},different,'TEOBResumSDALI')['native_epoch_source']=='explicit'
+    override=policy.resolve(explicit,{'m1':18,'m2':18},different,approximant)
+    assert override['native_epoch_source']=='explicit' and override['reference_frequency_hz']==10
     with pytest.raises(ValueError,match='override'):
         policy.check_final_ile(r,different+' --fmin-template 15')
     policy.check_final_ile(r,different+' --fmax 1024')

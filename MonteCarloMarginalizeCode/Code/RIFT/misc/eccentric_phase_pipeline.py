@@ -14,7 +14,7 @@ def add_arguments(parser):
     model_arguments(parser,build=True)
     parser.add_argument(FLAG,action='store_true',help='Use an effective eccentric-phase coordinate for eligible fits and puffing, retaining native priors and waveform inputs')
     parser.add_argument(SAMPLING,action='store_true',help='Also sample the periodic sheared angle internally; implies --eccentric-phase-coordinates')
-    parser.add_argument(REFERENCE,type=float,default=None,help='Native backend eccentricity/anomaly epoch; inferred at build time when unambiguous')
+    parser.add_argument(REFERENCE,type=float,default=None,help='Native eccentricity/anomaly epoch; defaults to the waveform reference frequency fref')
     parser.add_argument(TARGET,type=float,default=None,help='Explicit fixed target override; otherwise resolve the build-time frequency policy')
     parser.add_argument('--eccentric-phase-frequency-policy',choices=['lvk-mass','fixed'],default='lvk-mass',help='Build-time anchor policy; lvk-mass uses detector total mass and an LVK early-band interval')
     parser.add_argument('--eccentric-phase-detector-mass',type=float,default=None,help='Explicit detector-frame total mass in solar masses for manual builds without an event mass estimate')
