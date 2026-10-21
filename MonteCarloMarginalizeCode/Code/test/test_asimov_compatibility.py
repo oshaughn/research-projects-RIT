@@ -309,7 +309,7 @@ def test_multiple_sample_files_are_rejected_for_bootstrap():
         meta={"scheduler": {}},
     )
 
-    with pytest.raises(PipelineException, match="exactly one PESummary metafile"):
+    with pytest.raises(PipelineException, match="exactly one posterior file"):
         _pipe(production)._find_posterior()
 
 

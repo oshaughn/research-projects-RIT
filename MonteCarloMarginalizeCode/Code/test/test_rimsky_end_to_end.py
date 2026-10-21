@@ -266,17 +266,31 @@ def test_first_rimsky_result_creates_bootstrapped_rift_production(
         def communicate(self):
             return self.stdout, None
 
+    # Patching the module attribute also patches subprocess.run's global Popen.
+    # Keep the converter real: only the pipeline/scheduler are test boundaries.
+    real_popen = rift_asimov.subprocess.Popen
+    converter_commands = []
+
+    def popen_at_scheduler_boundary(command, **kwargs):
+        if Path(command[0]).name == "convert_output_format_inference2ile":
+            converter_commands.append(command)
+            return real_popen(command, **kwargs)
+        return SchedulerBoundary(command, **kwargs)
+
     # Run Rimsky's real Asimov submission helper.  Only the heavyweight
     # pseudo-pipeline process and final scheduler process are replaced; PSD
     # conversion, config rendering, posterior reading, and bootstrap conversion
     # run for real against the synthetic files above.
     with chdir(Path(settings.asimovdir)), patch("asimov.git.time.sleep"), patch(
-        "RIFT.asimov.rift.subprocess.Popen", SchedulerBoundary
+        "RIFT.asimov.rift.subprocess.Popen", popen_at_scheduler_boundary
     ):
         build_and_submit(event, production, ledger)
 
     bootstrap = category_dir / "rift-online_bootstrap.xml.gz"
     assert bootstrap.is_file()
+    assert len(converter_commands) == 1
+    converter = converter_commands[0]
+    assert (project_dir / converter[converter.index("--output-xml") + 1]).resolve() == bootstrap.resolve()
     assert (category_dir / "coinc.xml").is_file()
     configuration = category_dir / "rift-online.ini"
     assert configuration.is_file()
