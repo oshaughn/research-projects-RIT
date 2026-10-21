@@ -11,6 +11,8 @@ ESS) is the exact frontier of the fair-AND-unique region: no fair draw of size
 N > sum(w)/max(w) can avoid duplicates.
 """
 
+import re
+
 import numpy as np
 
 POSTERIOR_UNIQUE_FLAG = "--posterior-unique-draw"
@@ -99,3 +101,23 @@ def flag_final_group_unique(lines):
         return lines
     lines[-1] = "{} {}".format(final_line, POSTERIOR_UNIQUE_FLAG)
     return lines
+
+
+def configure_eccentricity_prior(lines, final_prior):
+    """Use uniform exploration priors and the requested prior in the final group.
+
+    Apply after stage insertion and truncation, so copied early stages stay
+    uniform and a terminal Z (run-to-convergence) group uses the final prior.
+    A one-group schedule consists entirely of final iterations.
+    """
+    if final_prior not in ('uniform', 'log_uniform'):
+        raise ValueError("Unknown eccentricity prior: {}".format(final_prior))
+    lines = [line.rstrip() for line in lines if line.strip()]
+    configured = []
+    for index, line in enumerate(lines):
+        prior = final_prior if index == len(lines) - 1 else 'uniform'
+        # Replace existing options, including manual overrides, so an early
+        # stage cannot accidentally regain the log-uniform final prior.
+        line = re.sub(r'(?<!\S)--eccentricity-prior(?:\s+|=)\S+', '', line)
+        configured.append("{} --eccentricity-prior {}".format(line.rstrip(), prior))
+    return configured

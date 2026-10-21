@@ -31,6 +31,17 @@ for various features.  The most important feature for most users is their accoun
   export LIGO_USER_NAME=albert.einstein
   export LIGO_ACCOUNTING=ligo.dev.o4.rift
 
+For eccentric PE (:code:`--assume-eccentric`), preliminary CIP iteration
+groups always use :code:`--eccentricity-prior uniform` to explore the likelihood.
+The pipeline option :code:`--eccentricity-prior log_uniform` selects the prior
+only for the final CIP argument group, including all iterations in a terminal
+:code:`Z` run-to-convergence group. The default, :code:`uniform`, keeps all
+groups uniform. A schedule containing only one group uses the requested final
+prior throughout. Inspect :code:`args_cip_list.txt` before submission to see
+the prior assigned to each group. This scheduling policy also applies when
+extra CIP arguments specify an eccentricity prior; direct CIP invocations
+continue to use the prior passed to them.
+
 When you run :code:`util_RIFT_psuedo_pipe.py`, the pipeline will create a directory structure as follows:
 
 .. code-block:: console
