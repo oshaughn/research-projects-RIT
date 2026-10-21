@@ -256,6 +256,8 @@ parser.add_argument("--use-cvmfs-frames",action='store_true',help="If true, requ
 parser.add_argument("--use-ini",default=None,type=str,help="Attempt to parse LI ini file to set corresponding options. WARNING: MAY OVERRIDE SOME OTHER COMMAND-LINE OPTIONS")
 parser.add_argument("--verbose",action='store_true')
 opts=  parser.parse_args()
+if opts.eccentric_phase_sampling:
+    opts.eccentric_phase_coordinates = True
 if opts.eccentric_phase_coordinates:
     if not opts.assume_eccentric or not opts.use_meanPerAno:
         parser.error('--eccentric-phase-coordinates requires --assume-eccentric and --use-meanPerAno')
@@ -1738,10 +1740,10 @@ if opts.eccentric_phase_coordinates:
     eccentric_phase_policy.write(phase_decision)
     helper_cip_args = eccentric_phase_pipeline.stage_arguments(helper_cip_args,
         opts.eccentric_phase_reference_frequency,opts.eccentric_phase_target_frequency,
-        **eccentric_phase_models.worker_options(opts))
+        sampling=opts.eccentric_phase_sampling, **eccentric_phase_models.worker_options(opts))
     helper_cip_arg_list = [eccentric_phase_pipeline.stage_arguments(line,
         opts.eccentric_phase_reference_frequency,opts.eccentric_phase_target_frequency,
-        **eccentric_phase_models.worker_options(opts))
+        sampling=opts.eccentric_phase_sampling, **eccentric_phase_models.worker_options(opts))
         for line in helper_cip_arg_list]
     helper_puff_args = eccentric_phase_pipeline.puff_arguments(helper_puff_args,
         opts.eccentric_phase_reference_frequency,opts.eccentric_phase_target_frequency,

@@ -47,6 +47,7 @@ jobs:
           python -m pip install liquidpy
           python -m pytest -q \
             MonteCarloMarginalizeCode/Code/test/test_eccentric_phase.py \
+            MonteCarloMarginalizeCode/Code/test/test_eccentric_phase_sampling.py \
             MonteCarloMarginalizeCode/Code/test/test_eccentric_phase_puff.py \
             MonteCarloMarginalizeCode/Code/test/test_eccentric_phase_policy.py \
             MonteCarloMarginalizeCode/Code/test/test_eccentric_phase_models.py \
