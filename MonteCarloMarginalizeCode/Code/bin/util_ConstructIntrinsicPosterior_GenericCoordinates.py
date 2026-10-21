@@ -281,6 +281,7 @@ parser.add_argument("--rf-transverse-spin-coordinates", choices=["physics3","geo
 parser.add_argument("--fit-method",default="rf",help="rf (default) : rf|gp|gp-matern|gp-torch|quadratic|polynomial|gp_hyper|gp_lazy|cov|kde|gp-jax-svgp|gp-jax-rff|gp-jax-exact.  Note 'polynomial' with --fit-order 0  will fit a constant. The gp-jax-* methods use the optional JAX interpolators (RIFT.interpolators.jax_gp) and support a differentiable export via --fit-save-jax.")
 from RIFT.misc import eccentric_phase_models
 eccentric_phase_models.add_arguments(parser)
+parser.add_argument("--eccentric-phase-sampling", action="store_true", help="Sample one periodic sheared angle internally, preserving native physical priors and exports; implies --eccentric-phase-coordinates")
 parser.add_argument("--eccentric-phase-coordinates", action="store_true", help="Opt-in waveform-free effective eccentric phase sine/cosine fitting features; native sampling, priors and waveform reference frequencies unchanged")
 parser.add_argument("--eccentric-phase-reference-frequency", type=float, default=10., help="Reference frequency for the effective fitting/proposal coordinate only (Hz)")
 parser.add_argument("--eccentric-phase-target-frequency", type=float, default=20., help="Target frequency for the effective fitting/proposal coordinate only (Hz)")
@@ -868,6 +869,10 @@ if opts.parameter_nofit:
     else:
         low_level_coord_names = opts.parameter+opts.parameter_nofit # Used for Monte Carlo
 from RIFT.misc import rf_transverse_spin, eccentric_phase
+from RIFT.misc import eccentric_phase_sampling
+if opts.eccentric_phase_sampling:
+    opts.eccentric_phase_coordinates = True
+    eccentric_phase_sampling.validate_options(opts)
 if set(rf_transverse_spin.FEATURE_NAMES + rf_transverse_spin.GEOMETRIC4_NAMES + rf_transverse_spin.PHASE_EXCESS_NAMES).intersection(coord_names + low_level_coord_names):
     raise ValueError('RF fitting scalars are enabled only through the opt-in flag')
 if set(eccentric_phase.FEATURE_NAMES).intersection(coord_names + low_level_coord_names):
@@ -3306,6 +3311,12 @@ if opts.sampler_method == 'portfolio' and not(opts.sampler_oracle is None):
         oracle_realizations.append(my_oracle)
     
 
+# The phase adapter and fit predictors operate on host arrays, even on GPU hosts.
+if opts.eccentric_phase_sampling and (opts.sampler_method == 'AV' or
+        (opts.sampler_method == 'portfolio' and 'AV' in opts.sampler_portfolio)):
+    from RIFT.misc.av_backend import configure_host_av
+    configure_host_av(mcsamplerAdaptiveVolume)
+
 # Sampler
 sampler = mcsampler.MCSampler()
 use_portfolio=False
@@ -3402,6 +3413,20 @@ elif mcsampler_Portfolio_ok and opts.sampler_method in mcsamplerPortfolio.known_
 if supplemental_ln_likelihood_prep:
     supplemental_ln_likelihood_prep(config=supplemental_ln_likelihood_parsed_ini,coords=low_level_coord_names)
 
+# Keep native coordinate declarations for callbacks and exports.
+# Only the sampler's angular slot is renamed.
+phase_sampling_chart = None
+sampling_coord_names = list(low_level_coord_names)
+if opts.eccentric_phase_sampling:
+    phase_sampling_chart = eccentric_phase_sampling.SamplingChart(
+        low_level_coord_names, lalsimutils.convert_waveform_coordinates,
+        prior_map['meanPerAno'], prior_range_map['meanPerAno'],
+        opts.eccentric_phase_reference_frequency, opts.eccentric_phase_target_frequency,
+        **eccentric_phase_models.worker_options(opts),
+        source_redshift=source_redshift, enforce_kerr=opts.downselect_enforce_kerr)
+    sampling_coord_names = phase_sampling_chart.names
+    print(" Internal sheared sampling coordinates: ", sampling_coord_names)
+
 ##
 ## Loop over param names
 ##
@@ -3434,7 +3459,13 @@ for p in low_level_coord_names:
         adapt_me=False
     # sampling prior initial normalization: normally not used, provided for sanity's sake just in case it is
     fac = (range_here[1] - range_here[0])
-    sampler.add_parameter(p, pdf=np.vectorize(lambda x,z=fac:1./z), prior_pdf=prior_here,left_limit=range_here[0],right_limit=range_here[1],adaptive_sampling=adapt_me)
+    sampling_name = p
+    if phase_sampling_chart is not None and p == 'meanPerAno':
+        sampling_name = eccentric_phase_sampling.ANGLE
+        range_here = [0., 2*np.pi]
+        fac = 2*np.pi
+        prior_here = lambda x: np.ones_like(x, dtype=float)/(2*np.pi)
+    sampler.add_parameter(sampling_name, pdf=np.vectorize(lambda x,z=fac:1./z), prior_pdf=prior_here,left_limit=range_here[0],right_limit=range_here[1],adaptive_sampling=adapt_me)
 
 
 ###
@@ -3775,6 +3806,8 @@ if opts.internal_use_lnL:
     extra_args.update({"use_lnL":True,"return_lnI":True})
 if opts.internal_temper_log:
     extra_args.update({'temper_log':True})
+if phase_sampling_chart is not None:
+    fn_passed = phase_sampling_chart.wrap(fn_passed, log_space=opts.internal_use_lnL)
 if hasattr(sampler, 'setup'):
     extra_args_here = {}
     extra_args_here.update(extra_args)
@@ -3822,7 +3855,7 @@ if sampler_oracle:  # NON-PORTFOLIO SCENARIO TARGET
 
     
 
-res, var, neff, dict_return = sampler.integrate(fn_passed, *low_level_coord_names,  verbose=True,nmax=int(opts.n_max),n=n_step,neff=opts.n_eff, save_intg=True,tempering_adapt=tempering_adapt, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,tempering_exp=my_exp,no_protect_names=True, **extra_args)  # weight ecponent needs better choice. We are using arbitrary-name functions
+res, var, neff, dict_return = sampler.integrate(fn_passed, *sampling_coord_names,  verbose=True,nmax=int(opts.n_max),n=n_step,neff=opts.n_eff, save_intg=True,tempering_adapt=tempering_adapt, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,tempering_exp=my_exp,no_protect_names=True, **extra_args)  # weight ecponent needs better choice. We are using arbitrary-name functions
 # result value:  be careful, if return lnL, then must not take log twice!
 ln_integrand_value =  None
 if opts.internal_use_lnL:  # eg, AV integrator, etc
@@ -3981,6 +4014,8 @@ if neff < len(low_level_coord_names):
 
 
 samples = sampler._rvs
+if phase_sampling_chart is not None:
+    phase_sampling_chart.restore_samples(samples, log_space=opts.internal_use_lnL)
 samples_type_names = list(samples.keys())
 print(samples_type_names)
 n_params = len(coord_names)

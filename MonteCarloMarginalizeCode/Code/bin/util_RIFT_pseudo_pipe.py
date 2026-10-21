@@ -756,6 +756,8 @@ if (opts.use_ini):
             ile_condor_commands.append([item, val])
 
 # After the ini, which can set the mode.
+if opts.eccentric_phase_sampling:
+    opts.eccentric_phase_coordinates = True
 if opts.eccentric_phase_coordinates:
     if not opts.assume_eccentric or not opts.use_meanPerAno:
         parser.error('--eccentric-phase-coordinates requires --assume-eccentric and --use-meanPerAno')
@@ -2202,7 +2204,7 @@ if opts.eccentric_phase_coordinates:
             json.dump(vars(opts),f)
     lines = [eccentric_phase_pipeline.stage_arguments(line,
         opts.eccentric_phase_reference_frequency,opts.eccentric_phase_target_frequency,
-        **eccentric_phase_models.worker_options(opts)) for line in lines]
+        sampling=opts.eccentric_phase_sampling, **eccentric_phase_models.worker_options(opts)) for line in lines]
     if not any(eccentric_phase_pipeline.FLAG in line for line in lines):
         raise ValueError('No CIP stage fits native eccentricity/anomaly for the requested effective coordinates')
 

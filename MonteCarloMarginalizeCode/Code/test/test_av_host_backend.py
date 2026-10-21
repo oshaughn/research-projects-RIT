@@ -34,11 +34,18 @@ def test_default_av_keeps_native_backend():
 
 
 def test_cip_calls_configure_host_av_only_under_gate():
-    src = (Path(__file__).parents[1]/'bin/util_ConstructIntrinsicPosterior_GenericCoordinates.py').read_text().splitlines()
-    calls = [i for i, line in enumerate(src) if 'configure_host_av(' in line and 'import' not in line]
+    import ast
+    src = (Path(__file__).parents[1]/'bin/util_ConstructIntrinsicPosterior_GenericCoordinates.py').read_text()
+    tree=ast.parse(src)
+    parents={child:parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
+    calls=[n for n in ast.walk(tree) if isinstance(n,ast.Call) and isinstance(n.func,ast.Name) and n.func.id=='configure_host_av']
     assert calls
-    for i in calls:
-        assert src[i-1].strip().startswith('if needs_host_av('), src[i-1]
+    for node in calls:
+        guards=[]
+        while node in parents:
+            node=parents[node]
+            if isinstance(node,ast.If):guards.append(ast.unparse(node.test))
+        assert any('needs_host_av(' in guard or 'opts.eccentric_phase_sampling' in guard for guard in guards),guards
 
 
 def test_cip_rejects_cupy_backend_for_other_fit_methods():
