@@ -308,3 +308,7 @@ The existing fit-only exclusions also apply. The opt-in is off by default.
 support, all eccentricity aliases, source redshift, moving masses/spins, EOB
 Jacobians, unchanged importance weights, Asimov/helper propagation, and actual CIP
 fit/integration/native XML recovery of a seam-crossing ~0.05-radian posterior.
+
+The helper owns sampling-mode activation and emits the sampling option on
+eligible CIP stages. Pseudo-pipe forwards the coordinate request and preserves
+the helper's stage options; it does not select or inject sampling mode.

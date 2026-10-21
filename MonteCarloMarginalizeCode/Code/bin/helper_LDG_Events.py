@@ -231,6 +231,7 @@ parser.add_argument("--force-initial-grid-size",default=None,type=int,help="Forc
 parser.add_argument("--propose-fit-strategy",action='store_true',help="If present, the code will propose a fit strategy (i.e., cip-args or cip-args-list).  The strategy will take into account the mass scale, presence/absence of matter, and the spin of the component objects.  If --lowlatency-propose-approximant is active, the code will use a strategy suited to low latency (i.e., low cost, compatible with search PSDs, etc)")
 from RIFT.misc import eccentric_phase_pipeline, eccentric_phase_models
 eccentric_phase_pipeline.add_arguments(parser)
+eccentric_phase_pipeline.add_helper_arguments(parser)
 parser.add_argument("--rf-transverse-spin-coordinates", choices=["off","auto","physics3","geometric4","geometric4-phase-excess"], default=None, help="Opt-in RF fitting basis: four-input geometric4; auto selects geometric4 at detector chirp mass <20 Msun. physics3 is retired and refused (11 fit coordinates for 8 degrees of freedom)")
 parser.add_argument("--propose-flat-strategy",action="store_true",help="If present AND propose-fit-strategy is present, the strategy proposed will have puffball and convergence tests for every iteration, and the same CIP")
 parser.add_argument("--propose-converge-last-stage",action="store_true",help="If present, the last pre-extrinsic stage is 'iterate to convergence' form")
@@ -1738,13 +1739,7 @@ if opts.eccentric_phase_coordinates:
     phase_approximant = config.get('engine','approx') if use_ini else (approx_str if opts.lowlatency_propose_approximant else None)
     phase_decision = eccentric_phase_policy.resolve(opts,event_dict,helper_ile_args,phase_approximant)
     eccentric_phase_policy.write(phase_decision)
-    helper_cip_args = eccentric_phase_pipeline.stage_arguments(helper_cip_args,
-        opts.eccentric_phase_reference_frequency,opts.eccentric_phase_target_frequency,
-        sampling=opts.eccentric_phase_sampling, **eccentric_phase_models.worker_options(opts))
-    helper_cip_arg_list = [eccentric_phase_pipeline.stage_arguments(line,
-        opts.eccentric_phase_reference_frequency,opts.eccentric_phase_target_frequency,
-        sampling=opts.eccentric_phase_sampling, **eccentric_phase_models.worker_options(opts))
-        for line in helper_cip_arg_list]
+    helper_cip_args = eccentric_phase_pipeline.helper_cip_stage(helper_cip_args,opts)
     helper_puff_args = eccentric_phase_pipeline.puff_arguments(helper_puff_args,
         opts.eccentric_phase_reference_frequency,opts.eccentric_phase_target_frequency,
         **eccentric_phase_models.worker_options(opts))
@@ -1801,6 +1796,10 @@ if opts.rf_transverse_spin_coordinates:
         opts.rf_transverse_spin_coordinates,
         None if event_dict.get('rf_mass_is_placeholder', False) else event_dict.get('MChirp'),
         rf_fref, rf_activated))
+
+if opts.eccentric_phase_coordinates:
+    helper_cip_arg_list = [eccentric_phase_pipeline.helper_cip_stage(line,opts,first=(i==0))
+                          for i,line in enumerate(helper_cip_arg_list)]
 
 with open("helper_cip_arg_list.txt",'w+') as f:
     f.write("\n".join(helper_cip_arg_list))

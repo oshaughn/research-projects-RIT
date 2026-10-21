@@ -20,6 +20,36 @@ def add_arguments(parser):
     parser.add_argument('--eccentric-phase-detector-mass',type=float,default=None,help='Explicit detector-frame total mass in solar masses for manual builds without an event mass estimate')
 
 
+def add_helper_arguments(parser):
+    """Existing workflow eccentricity choices, accepted by the helper itself."""
+    parser.add_argument('--use-eccentricity-squared',action='store_true')
+    parser.add_argument('--eccentricity-prior',default='uniform',choices=['uniform','log_uniform'])
+    for name in ('ecc-min','ecc-max','meanPerAno-min','meanPerAno-max'):
+        parser.add_argument('--force-'+name,type=float,default=None)
+
+
+def helper_cip_stage(line, options, first=False):
+    """Build native eccentric declarations before selecting the worker chart."""
+    eccentricity='eccentricity_squared' if first or options.use_eccentricity_squared else 'eccentricity'
+    line=line.rstrip('\r\n')+' --use-eccentricity --parameter '+eccentricity
+    if options.use_meanPerAno:
+        line+=' --use-meanPerAno '+('--parameter-nofit' if first else '--parameter')+' meanPerAno'
+    line+=' --eccentricity-prior '+options.eccentricity_prior
+    for name in ('ecc-min','ecc-max','meanPerAno-min','meanPerAno-max'):
+        value=getattr(options,'force_'+name.replace('-','_'),None)
+        if value is not None:line+=' --{} {}'.format(name,value)
+    from .eccentric_phase_models import worker_options
+    return stage_arguments(line,options.eccentric_phase_reference_frequency,
+        options.eccentric_phase_target_frequency,sampling=options.eccentric_phase_sampling,
+        **worker_options(options))
+
+
+def requested(options):
+    """Recognize the user's fitting or sampling request without rewriting it."""
+    return bool(getattr(options,'eccentric_phase_coordinates',False) or
+                getattr(options,'eccentric_phase_sampling',False))
+
+
 def option_tokens(line):
     """Recognize both argparse spellings without rewriting the saved command."""
     tokens = []
@@ -111,6 +141,11 @@ def build_arguments(options):
     validate_request(options)
     line=' --eccentric-phase-coordinates --eccentric-phase-frequency-policy '+options.eccentric_phase_frequency_policy
     if getattr(options,'eccentric_phase_sampling',False):line+=' '+SAMPLING
+    if getattr(options,'use_eccentricity_squared',False):line+=' --use-eccentricity-squared'
+    line+=' --eccentricity-prior '+getattr(options,'eccentricity_prior','uniform')
+    for name in ('ecc-min','ecc-max','meanPerAno-min','meanPerAno-max'):
+        value=getattr(options,'force_'+name.replace('-','_'),None)
+        if value is not None:line+=' --force-{} {}'.format(name,value)
     for flag,name in [(REFERENCE,'eccentric_phase_reference_frequency'),(TARGET,'eccentric_phase_target_frequency'),('--eccentric-phase-detector-mass','eccentric_phase_detector_mass')]:
         value=getattr(options,name,None)
         if value is not None:line+=' {} {}'.format(flag,float(value))

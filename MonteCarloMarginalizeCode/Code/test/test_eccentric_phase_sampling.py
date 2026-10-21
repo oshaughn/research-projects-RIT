@@ -148,6 +148,34 @@ def test_helper_and_asimov_propagate_sampling_only_to_eligible_cip(tmp_path):
     assert '--eccentric-phase-sampling' not in puff
 
 
+def test_sampling_activation_is_owned_by_helper():
+    defaults=dict(eccentric_phase_coordinates=False,eccentric_phase_sampling=False)
+    assert not pipeline.requested(SimpleNamespace(**defaults))
+    for flag in defaults:
+        assert pipeline.requested(SimpleNamespace(**dict(defaults,**{flag:True})))
+    pseudo=ast.parse((ROOT/'bin/util_RIFT_pseudo_pipe.py').read_text())
+    assert not any(isinstance(n,ast.Attribute) and n.attr=='eccentric_phase_sampling'
+                   for n in ast.walk(pseudo))
+    helper=(ROOT/'bin/helper_LDG_Events.py').read_text()
+    assert 'if opts.eccentric_phase_sampling:' in helper
+    assert 'eccentric_phase_pipeline.helper_cip_stage' in helper
+
+
+def test_helper_builds_complete_native_stages_before_sampling():
+    parser=argparse.ArgumentParser();pipeline.add_arguments(parser);pipeline.add_helper_arguments(parser)
+    opts=parser.parse_args(['--eccentric-phase-sampling','--eccentric-phase-reference-frequency','15',
+        '--eccentric-phase-target-frequency','20','--force-ecc-min','.02','--eccentricity-prior','log_uniform'])
+    opts.use_meanPerAno=True
+    line='2 --fit-method rf --parameter mc --parameter delta_mc'
+    early=pipeline.helper_cip_stage(line,opts,first=True)
+    late=pipeline.helper_cip_stage(line,opts)
+    assert '--parameter-nofit meanPerAno' in early and pipeline.SAMPLING not in early
+    assert '--parameter eccentricity_squared' in early
+    assert pipeline.eligible(late) and pipeline.SAMPLING in pipeline.option_tokens(late)
+    assert '--ecc-min 0.02' in late and '--eccentricity-prior log_uniform' in late
+    assert pipeline.stage_arguments(late,15,20)==late
+
+
 def test_unsupported_native_only_paths_fail_closed():
     defaults=dict(eccentric_phase_sampling=True,sampler_method='AV',meanPerAno_min=0.,meanPerAno_max=2*np.pi)
     validate_options(SimpleNamespace(**defaults))
@@ -251,6 +279,10 @@ def test_actual_generated_submit_files_route_sampling_to_cip_only(tmp_path):
     proc=subprocess.run(cmd,cwd=tmp_path,env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,timeout=240)
     (tmp_path/'build.log').write_text(proc.stdout)
     assert proc.returncode==0,proc.stdout[-12000:]
+    helper_stages=(run/'helper_cip_arg_list.txt').read_text().splitlines()
+    assert any(pipeline.eligible(line) for line in helper_stages)
+    assert all(pipeline.SAMPLING in pipeline.option_tokens(line)
+               for line in helper_stages if pipeline.eligible(line))
     stages=(run/'args_cip_list.txt').read_text().splitlines()
     eligible=[line for line in stages if pipeline.eligible(line)]
     assert eligible and all(pipeline.SAMPLING in pipeline.option_tokens(line) for line in eligible)
