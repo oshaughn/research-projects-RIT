@@ -5,4 +5,6 @@ set -euo pipefail
 # frozen RIFT build command, and the cross-version adapter contracts.
 python -m pytest -q \
     MonteCarloMarginalizeCode/Code/test/asimov_integration \
-    MonteCarloMarginalizeCode/Code/test/test_asimov_compatibility.py
+    MonteCarloMarginalizeCode/Code/test/test_asimov_compatibility.py \
+    MonteCarloMarginalizeCode/Code/test/test_asimov_bootstrap_source.py \
+    MonteCarloMarginalizeCode/Code/test/test_eccentric_bootstrap.py

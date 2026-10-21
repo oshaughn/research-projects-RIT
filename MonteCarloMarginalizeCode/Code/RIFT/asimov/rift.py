@@ -269,7 +269,7 @@ class Rift(Pipeline):
 
     def _dataset_label(self, posterior_file):
         """
-        The PESummary analysis label to read out of ``posterior_file``.
+        The PESummary label, or None for a raw Bilby JSON/HDF5 result.
 
         An explicit ``dataset:`` is returned as-is without opening the file,
         preserving the previous ``if "dataset" not in self.production.meta``
@@ -285,36 +285,56 @@ class Rift(Pipeline):
         if requested:
             return requested
 
-        import h5py
+        from RIFT.misc.bootstrap import posterior_label
+        try:
+            return posterior_label(posterior_file)
+        except (ValueError, OSError) as exc:
+            raise PipelineException("RIFT bootstrap: {}".format(exc),
+                                    production=self.production.name) from exc
 
-        with h5py.File(posterior_file, 'r') as handle:
-            keys = list(handle.keys())
-            # A PESummary analysis label is a group holding the samples; other
-            # root-level entries (metadata, and the raw-bilby layout below) are
-            # not candidates.
-            labels = [k for k in keys
-                      if k not in self._PESUMMARY_RESERVED
-                      and hasattr(handle[k], 'keys')
-                      and ('posterior_samples' in handle[k] or 'posterior' in handle[k])]
-            root_is_samples = 'posterior' in keys and not labels
-
-        if root_is_samples:
-            # A raw bilby result file: samples live at the root rather than
-            # under an analysis label, so the PESummary reader cannot consume
-            # it.  Say so, instead of raising 'Unknown key in file'.
-            raise PipelineException(
-                "RIFT bootstrap: {} looks like a raw bilby result file, not a "
-                "PESummary metafile. Point 'bootstrap file' at the PESummary "
-                "output (.../pesummary/samples/posterior_samples.h5).".format(
-                    posterior_file),
-                production=self.production.name)
-
-        if len(labels) != 1:
-            raise PipelineException(
-                "RIFT bootstrap: {} has {} analysis labels ({}); set 'dataset:' "
-                "to choose one".format(posterior_file, len(labels), labels),
-                production=self.production.name)
-        return labels[0]
+    def _convert_bootstrap_grid(self, posterior_file, bootstrap_file, ascii_file):
+        """Convert a posterior to a grid, and propagate conversion failures."""
+        from RIFT.misc.bootstrap import dump_samples
+        try:
+            Path(bootstrap_file).parent.mkdir(parents=True, exist_ok=True)
+            samples = dump_samples(posterior_file, self.production.meta.get('dataset'), ascii_file)
+            reference = self.production.meta.get('waveform', {}).get(
+                'reference frequency', self.production.meta.get('likelihood', {}).get('start frequency'))
+            if (reference is not None and 'eccentricity' in samples.dtype.names
+                    and np.any(samples['eccentricity'] > 0) and 'f_ref' in samples.dtype.names
+                    and not np.allclose(samples['f_ref'], float(reference), rtol=0, atol=1e-8)):
+                raise ValueError('Eccentric bootstrap reference frequency differs from the target; '
+                                 'transport the posterior to the target reference frequency first')
+            executable = shutil.which('convert_output_format_inference2ile')
+            if executable is None:
+                raise ValueError('convert_output_format_inference2ile is not on PATH')
+            command = [executable, '--posterior-samples', str(ascii_file),
+                       '--output-xml', str(bootstrap_file)]
+            assumptions = self.production.meta.get('likelihood', {}).get('assume', [])
+            sampler = dict(self.production.meta.get('sampler', {}))
+            sampler.update(sampler.get('extra eccentric arguments', {}) or {})
+            if 'eccentric' in assumptions:
+                command.append('--add-eccentricity-params')
+                for edge in ('min', 'max'):
+                    if 'force-ecc-' + edge in sampler:
+                        command += ['--ecc-' + edge, str(sampler['force-ecc-' + edge])]
+            if ('no spin' in assumptions
+                    or self.production.meta.get('waveform', {}).get('non-spin', False)):
+                command.append('--use-no-spin')
+            elif 'nonprecessing' in assumptions:
+                command.append('--use-aligned-spin')
+            scheduler = self.production.meta.get('scheduler', {})
+            if 'bootstrap size' in scheduler:
+                command += ['--target-size', str(int(scheduler['bootstrap size']))]
+            if reference is not None:
+                command += ['--fref', str(reference)]
+            subprocess.run(command, check=True, capture_output=True, text=True)
+            if not os.path.isfile(bootstrap_file):
+                raise ValueError('Converter did not produce {}'.format(bootstrap_file))
+        except (ValueError, KeyError, OSError, ImportError, subprocess.CalledProcessError) as exc:
+            detail = getattr(exc, 'stderr', None) or str(exc)
+            raise PipelineException('RIFT bootstrap conversion failed: {}'.format(detail),
+                                    production=self.production.name) from exc
 
     def _find_posterior(self):
         """
@@ -342,7 +362,7 @@ class Rift(Pipeline):
                             if len(posterior_file) != 1:
                                 raise PipelineException(
                                     "RIFT bootstrap: {} publishes {} sample files; "
-                                    "need exactly one PESummary metafile".format(
+                                    "need exactly one posterior file".format(
                                         previous_job, len(posterior_file)),
                                     production=self.production.name)
                             posterior_file = posterior_file[0]
@@ -685,21 +705,7 @@ class Rift(Pipeline):
                 # test if bootstrap file already exists
                 if not self._reuse_existing_bootstrap(
                         bootstrap_file, posterior_file):
-                       import RIFT.misc.samples_utils
-                       RIFT.misc.samples_utils.dump_pesummary_samples_to_file_as_rift(posterior_file, self.production.meta['dataset'], bootstrap_file_ascii)
-                       extra_args =''
-                       # bootstrap eccentricity from samples
-                       if 'eccentric' in self.production.meta['likelihood']['assume']:
-                           extra_args += ' --add-eccentricity-params  '
-                           if 'force-ecc-max' in self.production.meta['sampler']:
-                               extra_args+= ' --ecc-max {} '.format(self.production.meta['sampler']['force-ecc-max'])
-                       # zero out transverse spin if needed
-                       if 'nonprecessing' in self.production.meta['likelihood']['assume']:
-                           extra_args += " --use-aligned-spin "
-                       if 'bootstrap size' in self.production.meta['scheduler']:
-                               bootstrap_size = int(self.production.meta['scheduler']['bootstrap size'])
-                               extra_args += " --target-size {} ".format(bootstrap_size)
-                       os.system("convert_output_format_inference2ile --posterior-samples {} --output {} {} ".format(bootstrap_file_ascii, bootstrap_file, extra_args) )
+                    self._convert_bootstrap_grid(posterior_file, bootstrap_file, bootstrap_file_ascii)
                 self.bootstrap="manual"
                 # as needed, parse bootstrap file for signal
                 if 'bootstrap amplitude' in self.production.meta['scheduler']:

@@ -31,6 +31,7 @@ jobs:
         run: |
           python -m pip install \
             'asimov==0.8.0a1' \
+            bilby \
             'asimov-gwdata>=0.4,<0.5' \
             'asimov-bayeswave>=0.2,<0.3' \
             'pe-configurator>=1,<2' \
