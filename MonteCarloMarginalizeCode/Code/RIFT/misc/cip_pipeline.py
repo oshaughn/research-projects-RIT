@@ -104,10 +104,11 @@ def flag_final_group_unique(lines):
 
 
 def configure_eccentricity_prior(lines, final_prior):
-    """Use uniform exploration priors and the requested prior in the final group.
+    """Use uniform exploration priors and the target prior for convergence/final groups.
 
     Apply after stage insertion and truncation, so copied early stages stay
-    uniform and a terminal Z (run-to-convergence) group uses the final prior.
+    uniform and every Z (run-to-convergence) group uses the target prior,
+    including a Z group followed by final extrinsic processing.
     A one-group schedule consists entirely of final iterations.
     """
     if final_prior not in ('uniform', 'log_uniform'):
@@ -115,7 +116,8 @@ def configure_eccentricity_prior(lines, final_prior):
     lines = [line.rstrip() for line in lines if line.strip()]
     configured = []
     for index, line in enumerate(lines):
-        prior = final_prior if index == len(lines) - 1 else 'uniform'
+        is_target_stage = line.split()[0] == 'Z' or index == len(lines) - 1
+        prior = final_prior if is_target_stage else 'uniform'
         # Replace existing options, including manual overrides, so an early
         # stage cannot accidentally regain the log-uniform final prior.
         line = re.sub(r'(?<!\S)--eccentricity-prior(?:\s+|=)\S+', '', line)
