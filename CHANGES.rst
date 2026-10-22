@@ -106,7 +106,15 @@ Development tree is rift_O4c.
     reflection, per-stage puff routing, and refinement jumpstart consolidation
     fixes, with Condor workflow validation.
 
-Release candidate is rc9.
+  - (rc10) PR 237 preserves eccentricity and mean anomaly in posterior
+    bootstrap grids, supports native Bilby JSON/HDF5 results, and checks
+    reference-frequency compatibility and conversion failures in ASIMOV.
+    PR 239 adds opt-in internal eccentric-phase angle sampling in CIP with
+    native-prior and Jacobian corrections, preserving evidence and native
+    posterior exports. The helper activates sampling on eligible stages;
+    the coordinate reference epoch defaults to waveform fref through ASIMOV.
+
+Release candidate is rc10.
 
 0.0.17.13
 ---------
