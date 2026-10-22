@@ -834,7 +834,7 @@ if  (opts.last_iteration_extrinsic):
         which_shuf = which('shuf'); which_sort = which('sort')
         if isinstance(which_shuf, str):
             extra_shuffle_command = ' | {} '.format(which_shuf)
-        elif isinstance(which_short,str):
+        elif isinstance(which_sort,str):
             extra_shuffle_command  = ' | {} -R '.format(which_sort)
         with open("allinone_convert.sh",'w') as f:
             f.write(f"""#! /bin/bash

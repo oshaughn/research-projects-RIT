@@ -14,7 +14,7 @@ ILE='X --fmin-template 10 --reference-freq 10 --fmin-ifo H1=20 --fmin-ifo L1=20 
 
 
 def options(**kw):
-    parser=argparse.ArgumentParser();pipeline.add_arguments(parser)
+    parser=argparse.ArgumentParser();pipeline.add_arguments(parser);pipeline.add_helper_arguments(parser)
     result=parser.parse_args(['--eccentric-phase-coordinates'])
     for key,val in kw.items():setattr(result,key,val)
     return result
@@ -52,14 +52,15 @@ def test_no_fake_event_mass_and_explicit_target_override():
     assert policy.resolve(hinted,{},ILE,'SEOBNRv5EHM')['mass_source']=='explicit-detector-total-mass'
 
 
-def test_native_epoch_and_late_override_guards():
+@pytest.mark.parametrize('approximant',['SEOBNRv5EHM','TEOBResumSDALI'])
+def test_native_epoch_defaults_to_waveform_fref(approximant):
     different=ILE.replace('--reference-freq 10','--reference-freq 20')
-    r=policy.resolve(options(),{'m1':18,'m2':18},different,'SEOBNRv5EHM')
-    assert r['reference_frequency_hz']==10 and r['waveform_reference_hz']==20
-    with pytest.raises(ValueError,match='Ambiguous'):
-        policy.resolve(options(),{'m1':18,'m2':18},different,'TEOBResumSDALI')
+    r=policy.resolve(options(),{'m1':18,'m2':18},different,approximant)
+    assert r['reference_frequency_hz']==20 and r['waveform_reference_hz']==20
+    assert r['waveform_start_hz']==10 and r['native_epoch_source']=='waveform-reference'
     explicit=options(eccentric_phase_reference_frequency=10)
-    assert policy.resolve(explicit,{'m1':18,'m2':18},different,'TEOBResumSDALI')['native_epoch_source']=='explicit'
+    override=policy.resolve(explicit,{'m1':18,'m2':18},different,approximant)
+    assert override['native_epoch_source']=='explicit' and override['reference_frequency_hz']==10
     with pytest.raises(ValueError,match='override'):
         policy.check_final_ile(r,different+' --fmin-template 15')
     policy.check_final_ile(r,different+' --fmax 1024')
@@ -98,7 +99,7 @@ def test_actual_asimov_render_defaults_and_overrides(extra,tmp_path):
     pipeline.validate_request(opts)
     assert opts.eccentric_phase_frequency_policy==extra.get('eccentric-phase-frequency-policy','lvk-mass')
     helper_args=pipeline.build_arguments(opts)
-    parser=argparse.ArgumentParser();pipeline.add_arguments(parser)
+    parser=argparse.ArgumentParser();pipeline.add_arguments(parser);pipeline.add_helper_arguments(parser)
     import shlex
     helper=parser.parse_args(shlex.split(helper_args))
     r=policy.resolve(helper,{'m1':18,'m2':18},ILE,'SEOBNRv5EHM')
@@ -112,17 +113,24 @@ def test_actual_build_hooks_execute_policy_not_only_accept_options(tmp_path):
     # Execute the real helper's opt-in block after its ILE/mass setup.
     tree=ast.parse((ROOT/'bin/helper_LDG_Events.py').read_text())
     block=next(n for n in tree.body if isinstance(n,ast.If) and ast.unparse(n.test)=='opts.eccentric_phase_coordinates' and any(isinstance(x,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='phase_decision' for t in x.targets) for x in n.body))
-    stage='--fit-method rf --use-eccentricity --use-meanPerAno --parameter eccentricity_ln --parameter meanPerAno'
-    ns=dict(opts=options(),event_dict={'m1':18.,'m2':18.},helper_ile_args=ILE,helper_cip_args=stage,helper_cip_arg_list=[stage],helper_puff_args='--parameter eccentricity_ln --parameter meanPerAno',eccentric_phase_pipeline=pipeline,use_ini=False,approx_str=None)
+    stage='--fit-method rf --parameter mc --parameter eta'
+    ns=dict(opts=options(),event_dict={'m1':18.,'m2':18.},helper_ile_args=ILE,helper_cip_args=stage,helper_cip_arg_list=[stage,stage],helper_puff_args='--parameter eccentricity_ln --parameter meanPerAno',eccentric_phase_pipeline=pipeline,use_ini=False,approx_str=None)
     ns['opts'].lowlatency_propose_approximant=False
+    ns['opts'].use_meanPerAno=True
+    final_block=next(n for n in tree.body if isinstance(n,ast.If)
+        and ast.unparse(n.test)=='opts.eccentric_phase_coordinates'
+        and any(isinstance(x,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='helper_cip_arg_list'
+                    for t in x.targets) for x in n.body))
     import os
     before=os.getcwd()
     try:
-        os.chdir(tmp_path);exec(compile(ast.Module(body=[block],type_ignores=[]),'real-helper-hook','exec'),ns)
+        os.chdir(tmp_path);exec(compile(ast.Module(body=[block,final_block],type_ignores=[]),'real-helper-hook','exec'),ns)
     finally:os.chdir(before)
     r=json.loads((tmp_path/policy.RECEIPT).read_text())
     assert r['target_frequency_hz']==pytest.approx(policy.mass_anchor(36,10)['target_frequency_hz'])
-    assert '--eccentric-phase-target-frequency' in ns['helper_cip_arg_list'][0]
+    assert '--parameter-nofit meanPerAno' in ns['helper_cip_arg_list'][0]
+    assert pipeline.FLAG not in pipeline.option_tokens(ns['helper_cip_arg_list'][0])
+    assert '--eccentric-phase-target-frequency' in ns['helper_cip_arg_list'][1]
     assert '--eccentric-phase-target-frequency' in ns['helper_puff_args']
     parent=(ROOT/'bin/util_RIFT_pseudo_pipe.py').read_text()
     assert parent.index('eccentric_phase_policy.read_into(opts)')<parent.index('# Final CIP lines')

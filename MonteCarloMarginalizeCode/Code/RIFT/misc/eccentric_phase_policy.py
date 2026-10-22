@@ -37,11 +37,7 @@ def native_epoch(arguments, approximant, explicit=None):
     reference = positive(last_option(arguments, '--reference-freq', start), 'waveform reference')
     if explicit is not None:
         return positive(explicit, 'coordinate reference'), 'explicit', start, reference
-    if start == reference:
-        return start, 'equal-template-start-and-reference', start, reference
-    if approximant == 'SEOBNRv5EHM':
-        return start, 'SEOBNRv5EHM-start-angle-convention', start, reference
-    raise ValueError('Ambiguous eccentricity/anomaly epoch: set --eccentric-phase-reference-frequency explicitly')
+    return reference, 'waveform-reference', start, reference
 
 
 def network_floor(arguments):
