@@ -55,6 +55,8 @@ parser.add_argument("--downselect-parameter",action='append', help='Name of para
 parser.add_argument("--downselect-parameter-range",action='append',type=str)
 parser.add_argument("--enforce-duration-bound",default=None,type=float,help="If present, enforce a duration bound. Used to prevent grid placement for obscenely long signals, when the window size is prescribed")
 parser.add_argument("--regularize",action='store_true',help="Add some ad-hoc terms based on priors, to help with nearly-singular matricies")
+parser.add_argument("--reflect-parameter", action='append', default=[],
+                    help="Reflect this puff coordinate into its downselect interval")
 opts=  parser.parse_args()
 
 if opts.random_parameter is None:
@@ -117,6 +119,13 @@ for indx in np.arange(len(dlist_ranges)):
 
 
 
+
+# Reflect bounded native coordinates before physical conversion and selection.
+reflection_ranges = {}
+for name in opts.reflect_parameter:
+    if name not in coord_names or name not in downselect_dict:
+        raise ValueError("Reflection needs a puff coordinate and a matching downselect interval: " + name)
+    reflection_ranges[name] = downselect_dict[name]
 
 # Load data
 P_list = lalsimutils.xml_to_ChooseWaveformParams_array(opts.inj_file)
@@ -200,6 +209,11 @@ for indx, name  in enumerate(coord_names):
         X_out[:,indx] = np.exp(X_out[:,indx])
 
 
+from RIFT.misc.eccentric_defaults import reflect_into
+for name, limits in reflection_ranges.items():
+    index = coord_names.index(name)
+    X_out[:, index] = reflect_into(X_out[:, index], *limits)
+
 # Sanity check parameters
 #for indx in np.arange(len(coord_names)):
     # if coord_names[indx] == 'eta':
@@ -276,7 +290,7 @@ for indx_P in np.arange(len(P_list)):
         if coord_names[indx] in ['mc','m1','m2','mtot']:
             fac = lal.MSUN_SI
         if coord_names[indx] in lalsimutils.periodic_params:
-            X_out[indx_P] = np.mod(X_out[indx_P], lalsimutils.periodic_params[coord_names[indx]])
+            X_out[indx_P,indx] = np.mod(X_out[indx_P,indx], lalsimutils.periodic_params[coord_names[indx]])
         P_list[indx_P].assign_param( coord_names[indx], X_out[indx_P,indx]*fac)
 
     if np.isnan(P.m1) or np.isnan(P.m2):  # don't allow nan mass

@@ -1457,7 +1457,11 @@ if event_dict["MChirp"] >25:
 else:
     helper_puff_args = " --parameter mc --parameter eta --fmin {} --fref {} ".format(opts.fmin_template,opts.fmin_template)
 if opts.assume_eccentric:
-    helper_puff_args += " --parameter eccentricity "
+    # Match the configured native eccentricity box and retain boundary proposals.
+    eccentric_puff_range = ecc_range_str if 'ecc_range_str' in globals() else '[0,1]'
+    helper_puff_args += (" --parameter eccentricity --reflect-parameter eccentricity"
+                         " --downselect-parameter eccentricity --downselect-parameter-range "
+                         + eccentric_puff_range + " ")
     if opts.use_meanPerAno:
         helper_puff_args += " --parameter meanPerAno "
 
