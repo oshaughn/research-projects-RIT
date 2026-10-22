@@ -213,6 +213,7 @@ SUPPORT = {
     "log_eccentricity_prior": (ECC_MIN, ECC_MAX),
     "uniform_eccentricity_ln_prior": (ECC_MIN, ECC_MAX),
     "eccentricity_squared_prior": (ECC_MIN, ECC_MAX),
+    "log_eccentricity_squared_prior": (ECC_MIN**2, ECC_MAX**2),
     "meanPerAno_prior": (0.0, 2 * np.pi),
     "precession_prior": (0.0, 2.0),
     "lambda_prior": (LAMBDA_MIN, LAMBDA_MAX),
@@ -271,6 +272,7 @@ NORMALIZED = [
     ("eccentricity_prior", ECC_MIN, ECC_MAX, "x", ()),
     # The regression target: log-uniform in e over [ECC_MIN, ECC_MAX].
     ("log_eccentricity_prior", ECC_MIN, ECC_MAX, "x", ()),
+    ("log_eccentricity_squared_prior", ECC_MIN**2, ECC_MAX**2, "x", ()),
     # Density against d(ln e), so it must integrate to 1 over ln-space.
     ("uniform_eccentricity_ln_prior", ECC_MIN, ECC_MAX, "log", ()),
     # Density against d(e^2); see the INCONSISTENT note in CIP.

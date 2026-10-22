@@ -144,7 +144,7 @@ def test_pseudo_pipe_writer_flags_final_group(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     lines = ["3 --fit-method rf\n", "Z --fit-method rf\n", "1 --fit-method rf\n"]
     for amr in (False, True):
-        exec(code, {"opts": types.SimpleNamespace(internal_use_amr=amr), "lines": list(lines),
+        exec(code, {"opts": types.SimpleNamespace(internal_use_amr=amr, assume_eccentric=False), "lines": list(lines),
                     "flag_final_group_unique": flag_final_group_unique})
         written = (tmp_path / "args_cip_list.txt").read_text().splitlines()
         assert [FLAG in line.split() for line in written] == [False, False, not amr]

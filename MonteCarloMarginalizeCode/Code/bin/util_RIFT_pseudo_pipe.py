@@ -31,7 +31,7 @@ else:
 
 # Backward compatibility
 from RIFT.misc.dag_utils import which
-from RIFT.misc.cip_pipeline import flag_final_group_unique
+from RIFT.misc.cip_pipeline import flag_final_group_unique, configure_eccentricity_prior
 ligolw_prefix = 'igwn_'
 if not(which(ligolw_prefix + "ligolw_add")):
     ligolw_prefix = ''
@@ -245,7 +245,7 @@ parser.add_argument("--ile-force-gpu",action='store_true')
 parser.add_argument("--ile-gpu-fanout",default=None,help="Multi-GPU ILE fan-out: split each ILE batch's intrinsic-grid range across N GPUs on the node (one shard per GPU).  Integer N (also requests N GPUs+CPUs) or 'auto' (split across whatever GPUs are visible at runtime).  Baked into the generated ile_pre.sh, so it needs no runtime environment.  Equivalent to setting RIFT_ILE_GPU_FANOUT.  Requires --ile-force-gpu.")
 parser.add_argument("--fake-data-cache",type=str)
 parser.add_argument("--spin-magnitude-prior",default='default',type=str,help="options are default [uniform mag for precessing, zprior for aligned], volumetric, uniform_mag_prec, uniform_mag_aligned, zprior_aligned")
-parser.add_argument("--eccentricity-prior",default='uniform',type=str,help="options are uniform in e ('uniform') and uniform in log(e) ('log_uniform')")
+parser.add_argument("--eccentricity-prior",default='uniform',type=str,help="Target prior for convergence subdags and the final CIP group: uniform in e ('uniform') or uniform in log(e) ('log_uniform'). Preliminary eccentric PE groups use uniform.")
 parser.add_argument("--force-lambda-max",default=None,type=float,help="Provide this value to override the value of lambda-max provided") 
 parser.add_argument("--force-lambda-small-max",default=None,type=float,help="Provide this value to override the value of lambda-small-max provided") 
 parser.add_argument("--force-lambda-no-linear-init",action='store_true',help="Disables use of priors focused towards small lambda for initial iterations. Designed for PP plot tests with wide/uniform priors.")
@@ -1353,6 +1353,8 @@ if eccentric_phase_pipeline.requested(opts):
         raise ValueError('No CIP stage fits native eccentricity/anomaly for the requested effective coordinates')
 
 with open("args_cip_list.txt",'w') as f:
+   if opts.assume_eccentric and not opts.internal_use_amr:
+       lines = configure_eccentricity_prior(lines, opts.eccentricity_prior)
    # The final CIP group produces both the published posterior and the downstream grid,
    # so it gets the duplicate-free fair draw (capped at sum(w)/max(w)).  Internal
    # iterations keep the fair draw with duplicates allowed, so successive iterations feed
