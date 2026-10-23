@@ -114,7 +114,14 @@ Development tree is rift_O4c.
     posterior exports. The helper activates sampling on eligible stages;
     the coordinate reference epoch defaults to waveform fref through ASIMOV.
 
-Release candidate is rc10.
+  - (rc11) PR 236 uses uniform eccentricity priors in preliminary CIP groups
+    and the requested target prior in convergence subdags and the final group,
+    including squared eccentricity coordinates. PR 241 scales eccentric
+    iteration grids by the number of intrinsic dimensions and reflects
+    eccentricity proposals in PUFF, preserving configured bounds and explicit
+    overrides, including logarithmic-prior limits.
+
+Release candidate is rc11.
 
 0.0.17.13
 ---------
