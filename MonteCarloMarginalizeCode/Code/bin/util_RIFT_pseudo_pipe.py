@@ -755,13 +755,18 @@ else:
         npts_it = 1500
 if is_analysis_eccentric:
     cmd += " --assume-eccentric "
-    npts_it = int(npts_it*1.5)
+    from RIFT.misc.eccentric_defaults import iteration_points
+    # Physical intrinsic dimensions before eccentricity and its anomaly.
+    dimensions = 2 + (0 if opts.assume_nospin else (6 if is_analysis_precessing else 2))
+    if opts.assume_matter:
+        dimensions += 1 if opts.assume_matter_but_primary_bh else 2
     if opts.use_meanPerAno:
         cmd += " --use-meanPerAno "
-        npts_it = int(npts_it*1.5)
 if opts.assume_highq:
     cmd+= ' --assume-highq  --force-grid-stretch-mc-factor 2'  # the mc range, tuned to equal-mass binaries, is probably too narrow. Workaround until fixed in helper
     npts_it =1000
+if is_analysis_eccentric:
+    npts_it = iteration_points(npts_it, dimensions, 1 + int(opts.use_meanPerAno))
 if opts.internal_propose_converge_last_stage:
     cmd += " --propose-converge-last-stage "
 if opts.internal_test_convergence_threshold: # pass argument if provided
