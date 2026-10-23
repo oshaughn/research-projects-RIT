@@ -4,9 +4,46 @@ import importlib.util
 from pathlib import Path
 import unittest
 import numpy as np
+import pytest
+import shlex
 CODE = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("defaults", CODE/"RIFT/misc/eccentric_defaults.py")
 policy = importlib.util.module_from_spec(spec); spec.loader.exec_module(policy)
+
+def helper_arguments(configured=None, lower=None, upper=None, prior='uniform', use_angle=False):
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    import sys
+    tree = ast.parse((CODE/'bin/helper_LDG_Events.py').read_text())
+    node = next(n for n in ast.walk(tree) if isinstance(n, ast.If)
+                and isinstance(n.test, ast.Attribute) and n.test.attr == 'assume_eccentric'
+                and any(isinstance(c, ast.Assign) and any(isinstance(t, ast.Name)
+                        and t.id == 'eccentric_puff_range' for t in c.targets) for c in n.body))
+    env = dict(opts=SimpleNamespace(use_meanPerAno=use_angle, force_ecc_min=lower,
+               force_ecc_max=upper, eccentricity_prior=prior),
+               helper_puff_args=' --parameter meanPerAno --parameter delta_mc --parameter mc ')
+    if configured is not None:
+        env['ecc_range_str'] = configured
+    with patch.dict(sys.modules, {'RIFT.misc.eccentric_defaults': policy}):
+        exec(compile(ast.Module(body=node.body, type_ignores=[]), 'helper', 'exec'), env)
+    return env['helper_puff_args']
+
+
+def pipeline_arguments(arguments, lower=None, upper=None, prior='uniform', logarithmic=False):
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    import sys
+    tree = ast.parse((CODE/'bin/util_RIFT_pseudo_pipe.py').read_text())
+    node = next(n for n in ast.walk(tree) if isinstance(n, ast.If)
+                and isinstance(n.test, ast.Attribute) and n.test.attr == 'assume_eccentric'
+                and any(isinstance(c, ast.Assign) and any(isinstance(t, ast.Name)
+                        and t.id == 'puff_params' for t in c.targets) for c in n.body))
+    env = dict(opts=SimpleNamespace(force_ecc_min=lower, force_ecc_max=upper,
+               eccentricity_prior=prior, use_eccentricity_ln=logarithmic), puff_params=arguments)
+    with patch.dict(sys.modules, {'RIFT.misc.eccentric_defaults': policy}):
+        exec(compile(ast.Module(body=node.body, type_ignores=[]), 'pipeline', 'exec'), env)
+    return env['puff_params']
+
 
 class Defaults(unittest.TestCase):
     def test_counts(self):
@@ -31,15 +68,11 @@ class Defaults(unittest.TestCase):
             with self.assertRaises(ValueError):policy.reflect_into(np.array([.1]),*bounds)
         with self.assertRaises(ValueError):policy.iteration_points(500,0)
     def test_emitted_helper_contract(self):
-        tree=ast.parse((CODE/"bin/helper_LDG_Events.py").read_text())
-        nodes=[n for n in ast.walk(tree) if isinstance(n,ast.If) and isinstance(n.test,ast.Attribute) and n.test.attr=="assume_eccentric" and any(isinstance(c,ast.Assign) and any(isinstance(t,ast.Name) and t.id=="eccentric_puff_range" for t in c.targets) for c in n.body)]
-        self.assertEqual(len(nodes),1)
-        from types import SimpleNamespace
-        for use_angle in [False,True]:
-            env={"opts":SimpleNamespace(use_meanPerAno=use_angle),"helper_puff_args":"X ","ecc_range_str":"[0,0.25]"}
-            exec(compile(ast.Module(body=nodes[0].body,type_ignores=[]),"helper","exec"),env)
-            self.assertIn("--reflect-parameter eccentricity",env["helper_puff_args"])
-            self.assertIn("--downselect-parameter-range [0,0.25]",env["helper_puff_args"])
+        for use_angle in [False, True]:
+            emitted = helper_arguments('[0,0.25]', use_angle=use_angle)
+            self.assertIn('--reflect-parameter eccentricity', emitted)
+            self.assertIn('--downselect-parameter-range [0.0,0.25]', emitted)
+
     def test_explicit_count_override_still_last(self):
         text=(CODE/"bin/util_RIFT_pseudo_pipe.py").read_text()
         self.assertGreater(text.index("npts_it = opts.internal_n_evaluations_per_iteration"),text.index("npts_it = iteration_points"))
@@ -100,7 +133,18 @@ class BranchIntegration(unittest.TestCase):
 
 
 # XML-level coverage is optional in minimal environments; CI with LAL runs it.
-def test_eccentric_reflection_xml_retains_rows_and_mass(tmp_path):
+@pytest.mark.parametrize('configured,lower,upper,prior,expected', [
+    (None,None,None,'uniform',(0.,.9)),
+    ('[0,0.25]',None,None,'uniform',(0.,.25)),
+    ('[0,0.25]',.01,None,'uniform',(.01,.25)),
+    ('[0,0.25]',None,.15,'uniform',(0.,.15)),
+    ('[0,0.25]',.01,.15,'uniform',(.01,.15)),
+    (None,.01,None,'uniform',(.01,.9)),
+    (None,None,.25,'uniform',(0.,.25)),
+    (None,None,None,'log_uniform',(.001,.9)),
+    ('[0,0.25]',0.,.15,'log_uniform',(.001,.15)),
+])
+def test_eccentric_reflection_xml_retains_rows_and_mass(tmp_path, configured, lower, upper, prior, expected):
     import os
     import subprocess
     import sys
@@ -117,20 +161,51 @@ def test_eccentric_reflection_xml_retains_rows_and_mass(tmp_path):
         p.fmin = p.fref = 20.
         points.append(p)
     lalsimutils.ChooseWaveformParams_array_to_xml(points, fname=str(tmp_path/'in'))
+    # Exercise both exact emitter blocks, including the final pipeline merge.
+    # Ordinary pseudo_pipe does not forward its prior selection to the helper.
+    helper = helper_arguments(configured, lower, upper, 'uniform')
+    arguments = pipeline_arguments(helper, lower, upper, prior)
+    tokens = shlex.split(arguments)
+    assert tokens.count('--downselect-parameter') == 1
+    import ast
+    assert ast.literal_eval(tokens[tokens.index('--downselect-parameter-range')+1]) == list(expected)
     command = [sys.executable, str(CODE/'bin/util_ParameterPuffball.py'),
                '--inj-file', str(tmp_path/'in.xml.gz'), '--inj-file-out', str(tmp_path/'out'),
-               '--puff-factor','3','--random-seed','240',
-               '--parameter','meanPerAno','--parameter','eccentricity',
-               '--parameter','delta_mc','--parameter','mc',
-               '--reflect-parameter','eccentricity','--downselect-parameter','eccentricity',
-               '--downselect-parameter-range','[0,0.25]']
+               '--puff-factor','3','--random-seed','240', *tokens]
     result = subprocess.run(command, cwd=tmp_path, capture_output=True, text=True, timeout=60,
                             env=dict(os.environ, PYTHONPATH=str(CODE), GW_SURROGATE='', OMP_NUM_THREADS='1'))
     assert result.returncode == 0, result.stdout + result.stderr
     out = lalsimutils.xml_to_ChooseWaveformParams_array(str(tmp_path/'out.xml.gz'))
     assert len(out) == 400
-    assert all(0 <= p.eccentricity <= .25 for p in out)
+    assert all(expected[0] <= p.eccentricity <= expected[1] for p in out)
     assert all(0 <= p.meanPerAno < 2*np.pi for p in out)
     assert np.median([p.extract_param('mc')/lal.MSUN_SI for p in out]) > 20
+
+@pytest.mark.parametrize('bounds', ['[0,0]', '[0.2,0.1]', '[0,float("inf")]', '[0]'])
+def test_invalid_resolved_bounds(bounds):
+    with pytest.raises((ValueError, TypeError)):
+        policy.eccentricity_interval(bounds)
+
+
+def test_pipeline_only_override_preserves_helper_endpoint():
+    for lower, upper, expected in [(None,None,(.02,.3)), (.05,None,(.05,.3)),
+                                   (None,.2,(.02,.2)), (.05,.2,(.05,.2))]:
+        args = pipeline_arguments(helper_arguments('[0.02,0.3]'), lower, upper)
+        tokens = shlex.split(args)
+        assert tokens.count('--downselect-parameter') == 1
+        assert ast.literal_eval(tokens[tokens.index('--downselect-parameter-range')+1]) == list(expected)
+
+
+@pytest.mark.parametrize('helper_prior,pipeline_prior,logarithmic', [
+    ('log_uniform','log_uniform',False),
+    ('uniform','log_uniform',False),
+    ('uniform','uniform',True),
+])
+def test_logarithmic_native_floor_after_real_prior_handoff(helper_prior, pipeline_prior, logarithmic):
+    args = pipeline_arguments(helper_arguments(prior=helper_prior), prior=pipeline_prior,
+                              logarithmic=logarithmic)
+    tokens = shlex.split(args)
+    assert ast.literal_eval(tokens[tokens.index('--downselect-parameter-range')+1]) == [.001,.9]
+
 
 if __name__ == "__main__": unittest.main()

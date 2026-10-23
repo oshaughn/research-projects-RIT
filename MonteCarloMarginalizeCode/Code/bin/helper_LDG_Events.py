@@ -1473,7 +1473,11 @@ else:
     helper_puff_args = " --parameter mc --parameter eta --fmin {} --fref {} ".format(opts.fmin_template,opts.fmin_template)
 if opts.assume_eccentric:
     # Match the configured native eccentricity box and retain boundary proposals.
-    eccentric_puff_range = ecc_range_str if 'ecc_range_str' in globals() else '[0,1]'
+    from RIFT.misc.eccentric_defaults import eccentricity_interval
+    eccentric_puff_bounds = eccentricity_interval(
+        ecc_range_str if 'ecc_range_str' in globals() else '[0,0.9]',
+        opts.force_ecc_min, opts.force_ecc_max, opts.eccentricity_prior)
+    eccentric_puff_range = '[{},{}]'.format(*eccentric_puff_bounds)
     helper_puff_args += (" --parameter eccentricity --reflect-parameter eccentricity"
                          " --downselect-parameter eccentricity --downselect-parameter-range "
                          + eccentric_puff_range + " ")

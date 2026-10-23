@@ -1403,7 +1403,10 @@ if opts.assume_matter:
 #    puff_params += " --parameter LambdaTilde "  # should already be present
     puff_max_it +=5   # make sure we resolve the correlations
 if opts.assume_eccentric:
-        puff_params += " --downselect-parameter eccentricity --downselect-parameter-range [{},{}] ".format(opts.force_ecc_min,opts.force_ecc_max)
+    from RIFT.misc.eccentric_defaults import override_puff_eccentricity
+    puff_params = override_puff_eccentricity(
+        puff_params, opts.force_ecc_min, opts.force_ecc_max, opts.eccentricity_prior,
+        logarithmic=opts.use_eccentricity_ln)
 if opts.assume_highq:
         puff_params = puff_params.replace(' delta_mc ', ' eta ')  # use natural coordinates in the high q strategy. May want to do this always
         puff_max_it +=3
