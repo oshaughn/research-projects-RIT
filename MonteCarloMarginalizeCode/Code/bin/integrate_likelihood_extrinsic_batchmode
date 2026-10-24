@@ -288,6 +288,7 @@ integration_params.add_option("--adapt-weight-exponent", type=float, default=1.0
 integration_params.add_option("--adapt-floor-level", type=float, default=0.1, help="Floor to use with weights (likelihood integrand) when doing adaptive sampling. This is necessary to ensure the *sampling* prior is non zero during adaptive sampling and to prevent overconvergence. Default is 0.1 (no floor)")
 integration_params.add_option("--adapt-adapt",action='store_true',help="Adapt the tempering exponent")
 integration_params.add_option("--adapt-log",action='store_true',help="Use a logarithmic tempering exponent")
+integration_params.add_option("--q-time-pregrid-factor", type="int", default=1, help="Refine packed Q only by 1/2/4/8; data, waveform and integration grid stay unchanged. >1 requires ordinary vectorized cubic NoLoop; failure aborts.")
 integration_params.add_option("--interpolate-time", default=None,help="If using the maintained NoLoop likelihood, evaluate Q_lm at fractional detector times using cubic interpolation instead of nearest sample bins. Accepts nearest/cubic or legacy booleans (True/1/yes selects cubic; False/0/no selects nearest). A bare flag selects cubic. Requires --time-marginalization --vectorized --gpu (with --force-xpy on CPU) for cubic. (When omitted: nearest with simpson, cubic with bandlimited. Explicit choices are preserved.)")
 integration_params.add_option("--d-prior",default='Euclidean' ,type=str,help="Distance prior for dL.  Options are dL^2 (Euclidean), 'pseudo_cosmo', and 'cosmo'  and 'cosmo_sourceframe' .")
 integration_params.add_option("--d-prior-redshift", action='store_true', help="If true, distance prior is computed in redshift. This option MAY be enforced for 'cosmo' sampling")
@@ -432,6 +433,15 @@ opts._noloop_time_interp = _resolve_noloop_time_interp(
     opts.interpolate_time, opts.time_marginalization_quadrature)
 # Legacy scalar callers expect a boolean; a nonempty named 'nearest' must not
 # accidentally enable interpolation on those paths.
+from RIFT.likelihood.q_time_pregrid import (
+    validate_q_time_pregrid_factor, STENCIL_CONFLICT_MESSAGE, QTimePregridError)
+opts.q_time_pregrid_factor = validate_q_time_pregrid_factor(opts.q_time_pregrid_factor)
+if opts.q_time_pregrid_factor > 1:
+    if not opts.vectorized or getattr(opts, "rotation_slow", False) or getattr(opts, "freqresponse", False) or getattr(opts, "calibration_envelope_directory", None):
+        raise NotImplementedError("Q refinement requires ordinary vectorized NoLoop without rotation, frequency response or calibration")
+    if not opts._interp_time_from_default and opts._noloop_time_interp != "cubic":
+        raise ValueError(STENCIL_CONFLICT_MESSAGE)
+    opts._noloop_time_interp = "cubic"
 opts.interpolate_time = opts._noloop_time_interp == "cubic"
 
 # cosmo d prior tools for interpolation:  not used normally, but set if needed
@@ -1578,7 +1588,7 @@ if opts.sampler_method == 'adaptive_cartesian_gpu' and opts.skymap_file:
 
 
 def resample_samples(my_samples,
-                     lookupNKDict=None, rholmArrayDict=None, ctUArrayDict=None, ctVArrayDict=None,epochDict=None): # uses LOTS of global variables, don't pass them all
+                     lookupNKDict=None, rholmArrayDict=None, ctUArrayDict=None, ctVArrayDict=None,epochDict=None, q_deltaT=None): # uses LOTS of global variables, don't pass them all
   global fSample # access global sampling rate
   # will look a LOT like the likelihood function definitions, unfortunately
   if not opts.vectorized:
@@ -1619,7 +1629,7 @@ def resample_samples(my_samples,
         epochDict, Lmax=opts.l_max, xpy=xpy_default,
         time_interp=opts._noloop_time_interp, time_quadrature='bandlimited',
         return_time_draw=True,
-        time_draw_minimum_srate=opts.srate_resample_time_marginalization)
+        time_draw_minimum_srate=opts.srate_resample_time_marginalization, q_deltaT=q_deltaT)
     my_samples['t_ref'] = fiducial_epoch + np.asarray(identity_convert(t_out), dtype=float)
     (my_samples['t_ref_gps_seconds'],
      my_samples['t_ref_gps_nanoseconds']) = xmlutils.gps_add_seconds_exact(
@@ -1629,7 +1639,7 @@ def resample_samples(my_samples,
 
   lnLt = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
                         P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default,return_lnLt=True,
-                        time_interp=opts._noloop_time_interp)
+                        time_interp=opts._noloop_time_interp, q_deltaT=q_deltaT)
 
   lnLt = identity_convert(lnLt) # back to CPU.  Note we have removed offsets 
   if opts.zero_likelihood:
@@ -1783,6 +1793,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         ctUArrayDict = {}
         ctVArrayDict={}
         rholmArrayDict={}
+        q_deltaT = None
         rholms_intpArrayDict={}
         epochDict={}
         for det in rholms_intp.keys():
@@ -1790,11 +1801,27 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             lookupNKDict[det],lookupKNDict[det], lookupKNconjDict[det], ctUArrayDict[det], ctVArrayDict[det], rholmArrayDict[det], rholms_intpArrayDict[det], epochDict[det] = factored_likelihood.PackLikelihoodDataStructuresAsArrays( rholms[det].keys(), rholms_intp[det], rholms[det], cross_terms[det],cross_terms_V[det])
             if opts.gpu and (not xpy_default is np):
                 lookupNKDict[det] = cupy.asarray(lookupNKDict[det])
-                rholmArrayDict[det] = cupy.asarray(rholmArrayDict[det])
+                if opts.q_time_pregrid_factor == 1:
+                    rholmArrayDict[det] = cupy.asarray(rholmArrayDict[det])
                 ctUArrayDict[det] = cupy.asarray(ctUArrayDict[det])
                 ctVArrayDict[det] = cupy.asarray(ctVArrayDict[det])
                 epochDict[det] = cupy.asarray(epochDict[det])
 
+        if opts.q_time_pregrid_factor > 1:
+            import time as _q_time
+            _q_started = _q_time.perf_counter()
+            _q_transfer = cupy.asarray if opts.gpu and xpy_default is not np else None
+            _q_cleanup = cupy.get_default_memory_pool().free_all_blocks if _q_transfer else None
+            rholmArrayDict, _q_reports, _q_failure = factored_likelihood.prepare_reflected_q_pregrid(
+                rholmArrayDict, factor=opts.q_time_pregrid_factor,
+                transfer=_q_transfer, cleanup=_q_cleanup)
+            if _q_failure is not None:
+                raise QTimePregridError("Requested Q refinement failed: %r" % _q_failure)
+            q_deltaT = float(P.deltaT)/opts.q_time_pregrid_factor
+            print("Q_TIME_PREGRID", dict(factor=opts.q_time_pregrid_factor,
+                waveform_deltaT=float(P.deltaT), integration_deltaT=float(P.deltaT),
+                q_deltaT=q_deltaT, seconds=_q_time.perf_counter()-_q_started,
+                detectors=_q_reports))
 
 
     # Likelihood
@@ -1963,7 +1990,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 
                 lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
                         P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default,
-                        time_interp=opts._noloop_time_interp, time_quadrature=opts.time_marginalization_quadrature)
+                        time_interp=opts._noloop_time_interp, time_quadrature=opts.time_marginalization_quadrature, q_deltaT=q_deltaT)
 #                nEvals +=len(right_ascension)
                 if supplemental_ln_likelihood:
                   lnL += supplemental_ln_likelihood(P.phi, P.theta, P.phiref ,P.incl, P.psi, P.dist,xpy=xpy_default) # use these variables so they are already float-type
@@ -2067,7 +2094,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 
                   lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
                     P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default, loglikelihood=distmarg_loglikelihood, phase_marginalization=True,
-                    time_interp=opts._noloop_time_interp, time_quadrature=opts.time_marginalization_quadrature)
+                    time_interp=opts._noloop_time_interp, time_quadrature=opts.time_marginalization_quadrature, q_deltaT=q_deltaT)
 #                  nEvals +=len(right_ascension)
                   if supplemental_ln_likelihood:
                     lnL += supplemental_ln_likelihood(P.phi, P.theta, P.phiref ,P.incl, P.psi, 0,xpy=xpy_default) # Same API
@@ -2111,7 +2138,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 
                   lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
                     P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default, loglikelihood=distmarg_loglikelihood,
-                    time_interp=opts._noloop_time_interp, time_quadrature=opts.time_marginalization_quadrature)
+                    time_interp=opts._noloop_time_interp, time_quadrature=opts.time_marginalization_quadrature, q_deltaT=q_deltaT)
 #                  nEvals +=len(right_ascension)
                   if supplemental_ln_likelihood:
                     lnL += supplemental_ln_likelihood(P.phi, P.theta, P.phiref ,P.incl, P.psi, 0,xpy=xpy_default) # Same API
@@ -2386,7 +2413,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             samples["alpha3"] = numpy.zeros(samples["psi"].shape)
 
       if opts.resample_time_marginalization:
-        samples = resample_samples(samples,lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict)
+        samples = resample_samples(samples,lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict, q_deltaT=q_deltaT)
         samples["loglikelihood" ] = samples["lnL_raw"]  # export the non-time-marginalized likelihood, if we are in the final stages
 #        print(samples['t_ref'] - fiducial_epoch, len(samples['t_ref']))
       xmlutils.append_samples_to_xmldoc(xmldoc, samples)
@@ -2541,6 +2568,8 @@ for indx in numpy.arange(len(P_list)):
       # Note this needs to be done in a few places
       pinned_params.update({"force_no_adapt":True,"save_intg":False, "igrand_threshold_deltalnL":20})  # massively reduce memory usage in logic branch, don't save all. Highly redundant sequence to self-document all related logic branches
  except Exception as exception_failure:
+  if isinstance(exception_failure, QTimePregridError):
+    raise
   print( "  ===> FAILED ANALYSIS <==== ")
   print( exception_failure)
   if opts.internal_make_empty_file_on_error:

@@ -28,6 +28,9 @@ import gzip
 
 # Backward compatibility
 from RIFT.misc.dag_utils import which
+from RIFT.likelihood.q_time_pregrid import (
+    Q_TIME_PREGRID_CHOICES, validate_q_time_pregrid_factor,
+    refuse_unless_q_time_pregrid_emitted)
 lalapps_path2cache = which('lal_path2cache')
 ligolw_add = 'igwn_ligolw_add'
 if not(which(ligolw_add)):
@@ -214,6 +217,7 @@ parser.add_argument("--propose-ile-convergence-options",action='store_true',help
 parser.add_argument("--internal-propose-ile-convergence-freezeadapt",action='store_true',help="If present, uses the --no-adapt-after-first --no-adapt-distance options (at one point default)")
 parser.add_argument("--internal-propose-ile-adapt-log",action='store_true',help="If present, uses the --adapt-log argument. Useful for very loud signals. Note only lnL information is used for adapting, not prior, so samples will be *uniform* in prior range if lnL is low")
 parser.add_argument("--internal-ile-rotate-phase", action='store_true')
+parser.add_argument("--internal-ile-q-time-pregrid-factor",default=None,type=int,choices=list(Q_TIME_PREGRID_CHOICES),help="Opt-in Q-only pregrid factor: %s. Emit --q-time-pregrid-factor without changing data, generation or integration rates. Factors above 1 require ordinary vectorized NoLoop with cubic interpolation, excluding rotation, frequency-response and calibration-envelope paths; incompatible requests are refused. Default None emits nothing." % ("|".join(str(c) for c in Q_TIME_PREGRID_CHOICES),))
 parser.add_argument("--internal-ile-auto-logarithm-offset",action='store_true',help="Passthrough to ILE")
 parser.add_argument("--internal-ile-use-lnL",action='store_true',help="Passthrough to ILE.  Will DISABLE auto-logarithm-offset and manual-logarithm-offset")
 parser.add_argument("--internal-cip-use-lnL",action='store_true')
@@ -257,6 +261,8 @@ parser.add_argument("--use-cvmfs-frames",action='store_true',help="If true, requ
 parser.add_argument("--use-ini",default=None,type=str,help="Attempt to parse LI ini file to set corresponding options. WARNING: MAY OVERRIDE SOME OTHER COMMAND-LINE OPTIONS")
 parser.add_argument("--verbose",action='store_true')
 opts=  parser.parse_args()
+if opts.internal_ile_q_time_pregrid_factor is not None:
+    validate_q_time_pregrid_factor(opts.internal_ile_q_time_pregrid_factor)
 if opts.eccentric_phase_sampling:
     opts.eccentric_phase_coordinates = True
 if opts.eccentric_phase_coordinates:
@@ -1753,6 +1759,10 @@ if opts.eccentric_phase_coordinates:
         **eccentric_phase_models.worker_options(opts))
 
 # editing ILE args based on strategy above, so only writing now
+if opts.internal_ile_q_time_pregrid_factor is not None:
+    helper_ile_args = helper_ile_args.rstrip() + " --q-time-pregrid-factor " + str(opts.internal_ile_q_time_pregrid_factor) + " "
+refuse_unless_q_time_pregrid_emitted(
+    opts.internal_ile_q_time_pregrid_factor, helper_ile_args, "helper_ile_args.txt")
 with open("helper_ile_args.txt",'w') as f:
     f.write(helper_ile_args)
 if not opts.lowlatency_propose_approximant:

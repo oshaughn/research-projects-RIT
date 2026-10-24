@@ -31,6 +31,10 @@ else:
 
 # Backward compatibility
 from RIFT.misc.dag_utils import which
+# Adapted from O4d 6d409f7f5: validate at build time and check emitted bytes.
+from RIFT.likelihood.q_time_pregrid import (
+    Q_TIME_PREGRID_CHOICES, validate_q_time_pregrid_factor,
+    refuse_unhonourable_q_time_pregrid, refuse_unless_q_time_pregrid_emitted)
 from RIFT.misc.cip_pipeline import flag_final_group_unique, configure_eccentricity_prior
 ligolw_prefix = 'igwn_'
 if not(which(ligolw_prefix + "ligolw_add")):
@@ -221,6 +225,7 @@ parser.add_argument("--internal-n-evaluations-per-iteration",default=None,type=i
 parser.add_argument("--add-extrinsic",action='store_true')
 parser.add_argument("--add-extrinsic-time-resampling",action='store_true',help="adds the time resampling option.  Only deployed for vectorized calculations (which should be all that end-users can access)")
 parser.add_argument("--internal-ile-interpolate-time",action='store_true',help="Pass --interpolate-time True to ILE, enabling cubic interpolation of Q_lm at fractional detector arrival times in the maintained NoLoop likelihood.")
+parser.add_argument("--internal-ile-q-time-pregrid-factor",default=None,type=int,choices=list(Q_TIME_PREGRID_CHOICES),help="Opt-in Q-only Fourier pregrid factor: %s. Keeps strain, waveform generation and geocentric time-integration rates unchanged. Forwarded through the helper as --q-time-pregrid-factor. Values above 1 require ordinary vectorized NoLoop and cubic interpolation; unsupported rotation/frequency-response/calibration paths or a conflicting explicit stencil are refused at workflow build time. Default None emits nothing. INI non-boolean values override CLI, so do not specify conflicting values in both." % ("|".join(str(c) for c in Q_TIME_PREGRID_CHOICES),))
 parser.add_argument("--internal-ile-srate-time-resampling",default=None, help=" Adds --srate-resample-time-marginalization to ILE for  output, to provide higher-resolution time output ")
 parser.add_argument("--internal-ile-srate-internal",default=None, help=" Adds --srate-internal to ILE, modifying how calculations are performed internally to use a higher sampling rate ")
 parser.add_argument("--batch-extrinsic",action='store_true')
@@ -392,6 +397,14 @@ if (opts.use_ini):
         for item in rift_items:
             val = rift_items[item].strip()
             ile_condor_commands.append([item, val])
+
+# The INI can override non-boolean CLI values, so validate the resolved request.
+if opts.internal_ile_q_time_pregrid_factor is not None:
+    validate_q_time_pregrid_factor(opts.internal_ile_q_time_pregrid_factor)
+    refuse_unhonourable_q_time_pregrid(
+        opts.internal_ile_q_time_pregrid_factor,
+        "--vectorized " + (opts.manual_extra_ile_args or ""),
+        "pipeline options before invoking the helper")
 
 # After the ini, which can set the mode.
 if eccentric_phase_pipeline.requested(opts):
@@ -720,6 +733,8 @@ if not(opts.skip_reproducibility): # not(assume_lowlatency):
 # Run helper command
 npts_it = 500
 cmd = " helper_LDG_Events.py --force-notune-initial-grid   --propose-fit-strategy --propose-ile-convergence-options  --fmin " + str(fmin) + " --fmin-template " + str(fmin_template) + " --working-directory " + base_dir + "/" + dirname_run  + helper_psd_args  + " --no-enforce-duration-bound --test-convergence "
+if opts.internal_ile_q_time_pregrid_factor is not None:
+    cmd += " --internal-ile-q-time-pregrid-factor " + str(opts.internal_ile_q_time_pregrid_factor) + " "
 if opts.internal_use_gracedb_bayestar:
     cmd += " --internal-use-gracedb-bayestar "
 if opts.internal_use_amr:
@@ -1040,6 +1055,9 @@ if opts.internal_ile_srate_time_resampling:
     line += " --srate-resample-time-marginalization {} ".format(opts.internal_ile_srate_time_resampling)
 if eccentric_phase_pipeline.requested(opts):
     eccentric_phase_policy.check_final_ile(eccentric_phase_build,line)
+# Check the final bytes, including manual arguments and helper/version skew.
+refuse_unless_q_time_pregrid_emitted(
+    opts.internal_ile_q_time_pregrid_factor, line, "args_ile.txt")
 with open('args_ile.txt','w') as f:
         f.write(line)
 

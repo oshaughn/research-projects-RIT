@@ -1946,7 +1946,112 @@ def _factored_lnL_helper(kappa_sq, rho_sq):
     return kappa_sq - 0.5 * rho_sq
 
 
-def _cubic_Q_window_numpy(Q_block, start_indices, fractional_offsets, npts):
+def build_reflected_q_pregrid(rholms, factor=8, xpy=np):
+    """Build a one-time finer Q grid without changing the likelihood time grid.
+
+    The finite cut Q window is reflected before FFT interpolation so its unlike
+    endpoints are never identified.  Only the forward interval is retained;
+    consequently the epoch is unchanged and every ``factor``-th sample must
+    reproduce the input.  This helper is intentionally opt-in at the driver.
+    """
+    factor = int(factor)
+    if factor < 1:
+        raise ValueError("Q pregrid factor must be positive")
+    if factor == 1:
+        return rholms, dict(factor=1, input_bytes=int(rholms.nbytes),
+                            output_bytes=int(rholms.nbytes), roundtrip_max=0.0)
+    retained_view = time_quad.reflected_bandlimited_upsample(
+        xpy.asarray(rholms), factor, xpy=xpy)
+    # reflected_bandlimited_upsample returns a short VIEW into the full 2*N*factor
+    # inverse FFT.  Copy it so retaining the useful forward interval does not pin
+    # the much larger backing allocation for the whole ILE run.
+    dense = xpy.array(retained_view, copy=True)
+    del retained_view
+    scale = float(xpy.max(xpy.abs(rholms)))
+    mismatch = float(xpy.max(xpy.abs(dense[..., ::factor] - rholms)))
+    relative = mismatch / scale if scale else mismatch
+    if not np.isfinite(relative) or relative > 5e-12:
+        raise RuntimeError("Q pregrid round-trip failed: %.3g" % relative)
+    full_dense_bytes = int(rholms.nbytes)*2*factor
+    peak_bytes = (int(rholms.nbytes)*4 + 2*full_dense_bytes + int(dense.nbytes))
+    return dense, dict(factor=factor, input_bytes=int(rholms.nbytes),
+                       retained_bytes=int(dense.nbytes), output_bytes=int(dense.nbytes),
+                       peak_allocation_bytes=peak_bytes, roundtrip_max=relative)
+
+
+def prepare_reflected_q_pregrid(rholms_by_detector, factor=8, transfer=None,
+                                cleanup=None):
+    """Transactionally build and optionally transfer a detector Q pregrid.
+
+    A backend OOM after one detector transfer cannot leave a mixed host/device,
+    coarse/fine dictionary.  Partial temporaries are dropped, ``cleanup`` is
+    invoked (normally CuPy's memory-pool release), and the original coarse Q
+    dictionary is transferred instead.  The caller can then restore its prior
+    stencil and continue with an explicit fallback telemetry record.
+    """
+    original = dict(rholms_by_detector)
+    transfer = (lambda value: value) if transfer is None else transfer
+    prepared = {}
+    reports = []
+    try:
+        host_fine = {}
+        for det, values in original.items():
+            host_fine[det], report = build_reflected_q_pregrid(values, factor=factor)
+            report['detector'] = det
+            reports.append(report)
+        for det, values in host_fine.items():
+            prepared[det] = transfer(values)
+        return prepared, reports, None
+    except Exception as error:
+        allocation_failure = (isinstance(error, (MemoryError, RuntimeError)) or
+                              error.__class__.__name__ == 'OutOfMemoryError')
+        if not allocation_failure:
+            raise
+        failure = dict(type=error.__class__.__name__, repr=repr(error))
+        prepared.clear()
+        reports[:] = []
+        try:
+            host_fine.clear()
+        except UnboundLocalError:
+            pass
+        if cleanup is not None:
+            cleanup()
+        fallback = {}
+        for det, values in original.items():
+            fallback[det] = transfer(values)
+        # Never return ``error`` itself: its traceback retains this frame and
+        # therefore the last expanded host Q array that triggered backend OOM.
+        return fallback, reports, failure
+
+
+def _q_sample_positions(t_det, tvals, integration_delta_t, q_delta_t,
+                        time_interp, explicit_time_values, xpy=np):
+    """Map geocentric integration nodes onto an independently spaced Q grid."""
+    q_delta_t = float(q_delta_t)
+    integration_delta_t = float(integration_delta_t)
+    if q_delta_t <= 0 or integration_delta_t <= 0:
+        raise ValueError("time-grid spacings must be positive")
+    separate_grid = not np.isclose(q_delta_t, integration_delta_t,
+                                   rtol=0.0, atol=1e-15*integration_delta_t)
+    ratio = integration_delta_t/q_delta_t
+    stride = int(round(ratio)) if separate_grid else 1
+    regular_stride = (not separate_grid or
+                      abs(ratio - stride) <= 1e-12*max(1.0, abs(ratio)))
+    per_time = bool(explicit_time_values or not regular_stride)
+    if per_time:
+        samples = ((t_det[:, None] + xpy.asarray(tvals)[None, :]) / q_delta_t)
+    else:
+        samples = (t_det + tvals[0]) / q_delta_t
+    if time_interp == 'nearest':
+        starts = (xpy.rint(samples) + 0.5).astype(np.int32)
+        fractions = None
+    else:
+        starts = xpy.floor(samples).astype(np.int32)
+        fractions = (samples - xpy.floor(samples)).astype(np.float64)
+    return starts, fractions, per_time, stride
+
+
+def _cubic_Q_window_numpy(Q_block, start_indices, fractional_offsets, npts, time_stride=1):
     """Return cubic-interpolated Q windows with zero extension.
 
     Q_block has shape (n_time, n_lm).  The returned array has shape
@@ -1957,7 +2062,7 @@ def _cubic_Q_window_numpy(Q_block, start_indices, fractional_offsets, npts):
     npts_extrinsic = len(start_indices)
     n_lms_det = Q_block.shape[1]
     Qlms = np.zeros((npts_extrinsic, npts, n_lms_det), dtype=np.complex128)
-    tgrid = np.arange(npts)
+    tgrid = np.arange(npts) * int(time_stride)
     n_time = Q_block.shape[0]
     for i in range(npts_extrinsic):
         idxs = int(start_indices[i]) + tgrid
@@ -2067,7 +2172,7 @@ def _combine_noloop_chunk_reports(reports, n_rows, row_limit):
     return out
 
 
-def DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict, ctVArrayDict, epochDict, Lmax=2, array_output=False, xpy=np, loglikelihood=_factored_lnL_helper, return_lnLt=False, phase_marginalization=False, time_interp='nearest', time_quadrature='simpson', return_time_draw=False, time_draw_uniforms=None, time_draw_minimum_srate=None):
+def DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict, ctVArrayDict, epochDict, Lmax=2, array_output=False, xpy=np, loglikelihood=_factored_lnL_helper, return_lnLt=False, phase_marginalization=False, time_interp='nearest', time_quadrature='simpson', return_time_draw=False, time_draw_uniforms=None, time_draw_minimum_srate=None, q_deltaT=None):
     """NoLoop likelihood, bounding GPU bandlimited work independently of sampler batching.
 
     Simpson and coarse return_lnLt remain unchanged. Continuous draw uniforms
@@ -2080,6 +2185,17 @@ def DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDict
         raise ValueError("return_time_draw requires time_quadrature='bandlimited'")
     if time_interp not in ('nearest', 'cubic'):
         raise ValueError("time_interp must be 'nearest' or 'cubic'")
+    if q_deltaT is not None:
+        q_dt = float(q_deltaT)
+        integration_dt = float(P_vec.deltaT)
+        if not np.isfinite(q_dt) or q_dt <= 0:
+            raise ValueError('q_deltaT must be finite and positive')
+        ratio = integration_dt/q_dt
+        stride = int(round(ratio))
+        if stride < 1 or abs(ratio-stride) > 1e-12*max(1., abs(ratio)):
+            raise ValueError('q_deltaT must divide the integration spacing by an integer')
+        if stride != 1 and time_interp != 'cubic':
+            raise ValueError('separate Q spacing requires cubic interpolation')
     n_rows = len(P_vec.phi)
     row_limit = n_rows
     if time_quadrature == 'bandlimited' and not return_lnLt and n_rows:
@@ -2090,7 +2206,7 @@ def DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDict
                   phase_marginalization=phase_marginalization,
                   time_interp=time_interp, time_quadrature=time_quadrature,
                   return_time_draw=return_time_draw,
-                  time_draw_minimum_srate=time_draw_minimum_srate)
+                  time_draw_minimum_srate=time_draw_minimum_srate, q_deltaT=q_deltaT)
     if row_limit >= n_rows:
         return _DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopUnchunked(
             tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,
@@ -2131,7 +2247,7 @@ def DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDict
     return (result, at_draw) if return_time_draw else result
 
 
-def _DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopUnchunked(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=np, loglikelihood=_factored_lnL_helper,return_lnLt=False,phase_marginalization=False,time_interp='nearest',time_quadrature='simpson',return_time_draw=False,time_draw_uniforms=None,time_draw_minimum_srate=None):
+def _DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopUnchunked(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=np, loglikelihood=_factored_lnL_helper,return_lnLt=False,phase_marginalization=False,time_interp='nearest',time_quadrature='simpson',return_time_draw=False,time_draw_uniforms=None,time_draw_minimum_srate=None, q_deltaT=None):
     """
     DiscreteFactoredLogLikelihoodViaArray uses the array-ized data structures to compute the log likelihood,
     either as an array vs time *or* marginalized in time. 
@@ -2152,6 +2268,10 @@ def _DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopUnchunked(tvals, P_vec, lo
         exclusive with return_lnLt.
     time_draw_minimum_srate : float or None
         Minimum knot rate for continuous export; never changes the integral.
+
+    q_deltaT : float or None
+        Packed Q spacing only; P_vec.deltaT and integration nodes stay unchanged.
+        An integer refinement and cubic interpolation are required.
 
     time_interp : {'nearest', 'cubic'}
         Detector-time sampling convention for the data term.  'nearest'
@@ -2270,13 +2390,22 @@ def _DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopUnchunked(tvals, P_vec, lo
             detector_location, ehat_src, xpy=xpy)
         tfirst = t_det + tvals[0]
 
-        sample_first = tfirst / deltaT
-        if time_interp == 'nearest':
-            ifirst = (xpy.rint(sample_first) + 0.5).astype(np.int32)  # C uses 32 bit integers : be careful
-            frac_first = None
+        time_stride = 1
+        if q_deltaT is None:
+            sample_first = tfirst / deltaT
+            if time_interp == 'nearest':
+                ifirst = (xpy.rint(sample_first) + 0.5).astype(np.int32)
+                frac_first = None
+            else:
+                ifirst = xpy.floor(sample_first).astype(np.int32)
+                frac_first = (sample_first - xpy.floor(sample_first)).astype(np.float64)
         else:
-            ifirst = xpy.floor(sample_first).astype(np.int32)
-            frac_first = (sample_first - xpy.floor(sample_first)).astype(np.float64)
+            ifirst, frac_first, per_time, time_stride = _q_sample_positions(
+                t_det, tvals, deltaT, q_deltaT, time_interp, False, xpy=xpy)
+            if per_time or time_stride < 1:
+                raise ValueError('q_deltaT must divide the integration spacing by an integer')
+            if time_stride != 1 and time_interp != 'cubic':
+                raise ValueError('separate Q spacing requires cubic interpolation')
 #        ilast = ifirst + npts
 
 
@@ -2357,14 +2486,14 @@ def _DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopUnchunked(tvals, P_vec, lo
           else:
             Q_prod_result = Q_inner_product.Q_inner_product_cubic_cupy(
               Q, FY_conj,
-              ifirst, frac_first, npts,
+              ifirst, frac_first, npts, time_stride=time_stride,
               )
         else:
           Q_block = rholmsArrayDict[det].T
           if time_interp == 'nearest':
               Qlms = _nearest_Q_window_numpy(Q_block, ifirst, npts, xpy=xpy)
           else:
-              Qlms = _cubic_Q_window_numpy(Q_block, ifirst, frac_first, npts)
+              Qlms = _cubic_Q_window_numpy(Q_block, ifirst, frac_first, npts, time_stride=time_stride)
           if phase_marginalization:
               Qlms[:, :, 1] = xpy.conj(Qlms[:, :, 1])
 
