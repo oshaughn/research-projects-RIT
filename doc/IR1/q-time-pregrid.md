@@ -66,3 +66,5 @@ is unchanged. This cannot repair waveform/normalization differences and does
 not by itself establish posterior JSD agreement. Historical marginalized Q2
 diagnostics also refined integration nodes, so they are not clean Q-only
 marginalization controls. Native tests must hold those nodes fixed.
+
+Review hardening: ILE wraps all requested pregrid preparation failures, including an exception in helper cleanup or the coarse recovery transfer, as fatal QTimePregridError. The existing event-level skip/soft-failure policy cannot swallow these exceptions. This changes failure handling only; successful factor1/factor2 numerical paths retain the validated implementation.

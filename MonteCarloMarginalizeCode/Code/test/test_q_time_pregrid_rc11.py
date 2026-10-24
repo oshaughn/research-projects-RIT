@@ -122,3 +122,38 @@ def test_export_passes_q_spacing_explicitly_and_pregrid_failure_is_not_swallowed
     assert any(any(isinstance(x,ast.If) and "QTimePregridError" in ast.unparse(x.test)
                    and any(isinstance(y,ast.Raise) for y in x.body) for x in n.body)
                for n in handlers)
+
+
+@pytest.mark.parametrize("failure_stage", ["coarse_transfer", "cleanup", "spacing"])
+def test_driver_pregrid_preparation_failures_are_fatal(failure_stage):
+    """Execute the driver's actual block, including the helper recovery path."""
+    from RIFT.likelihood.q_time_pregrid import QTimePregridError
+    driver=Path(fl.__file__).parents[2]/"bin/integrate_likelihood_extrinsic_batchmode"
+    tree=ast.parse(driver.read_text())
+    analyze=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=="analyze_event")
+    blocks=[n for n in ast.walk(analyze) if isinstance(n,ast.If)
+            and ast.unparse(n.test)=="opts.q_time_pregrid_factor > 1"]
+    assert len(blocks)==1
+    code=compile(ast.fix_missing_locations(ast.Module(body=blocks,type_ignores=[])),str(driver),"exec")
+    transfers=[];cleanups=[]
+    def transfer(value):
+        transfers.append(value.shape[-1])
+        raise MemoryError("forced transfer")
+    def cleanup():
+        cleanups.append(True)
+        if failure_stage=="cleanup":raise RuntimeError("forced cleanup")
+    fake_cupy=SimpleNamespace(asarray=transfer,
+        get_default_memory_pool=lambda:SimpleNamespace(free_all_blocks=cleanup))
+    gpu=failure_stage!="spacing"
+    ns=dict(opts=SimpleNamespace(q_time_pregrid_factor=2,gpu=gpu),
+        np=np,xpy_default=object() if gpu else np,cupy=fake_cupy,
+        rholmArrayDict={"H1":np.ones((2,9),complex)},factored_likelihood=fl,
+        P=SimpleNamespace(deltaT=None if failure_stage=="spacing" else 1/4096),
+        QTimePregridError=QTimePregridError)
+    with pytest.raises(QTimePregridError) as caught:
+        exec(code,ns)
+    assert isinstance(caught.value.__cause__,{"coarse_transfer":MemoryError,
+        "cleanup":RuntimeError,"spacing":TypeError}[failure_stage])
+    if failure_stage=="coarse_transfer":
+        assert transfers==[17,9] and cleanups==[True]
+    assert "q_deltaT" not in ns

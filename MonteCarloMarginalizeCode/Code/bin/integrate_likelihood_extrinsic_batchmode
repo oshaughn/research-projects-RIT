@@ -1810,18 +1810,25 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         if opts.q_time_pregrid_factor > 1:
             import time as _q_time
             _q_started = _q_time.perf_counter()
-            _q_transfer = cupy.asarray if opts.gpu and xpy_default is not np else None
-            _q_cleanup = cupy.get_default_memory_pool().free_all_blocks if _q_transfer else None
-            rholmArrayDict, _q_reports, _q_failure = factored_likelihood.prepare_reflected_q_pregrid(
-                rholmArrayDict, factor=opts.q_time_pregrid_factor,
-                transfer=_q_transfer, cleanup=_q_cleanup)
-            if _q_failure is not None:
-                raise QTimePregridError("Requested Q refinement failed: %r" % _q_failure)
-            q_deltaT = float(P.deltaT)/opts.q_time_pregrid_factor
-            print("Q_TIME_PREGRID", dict(factor=opts.q_time_pregrid_factor,
-                waveform_deltaT=float(P.deltaT), integration_deltaT=float(P.deltaT),
-                q_deltaT=q_deltaT, seconds=_q_time.perf_counter()-_q_started,
-                detectors=_q_reports))
+            try:
+                _q_transfer = cupy.asarray if opts.gpu and xpy_default is not np else None
+                _q_cleanup = cupy.get_default_memory_pool().free_all_blocks if _q_transfer else None
+                rholmArrayDict, _q_reports, _q_failure = factored_likelihood.prepare_reflected_q_pregrid(
+                    rholmArrayDict, factor=opts.q_time_pregrid_factor,
+                    transfer=_q_transfer, cleanup=_q_cleanup)
+                if _q_failure is not None:
+                    raise QTimePregridError("Requested Q refinement failed: %r" % _q_failure)
+                q_deltaT = float(P.deltaT)/opts.q_time_pregrid_factor
+                print("Q_TIME_PREGRID", dict(factor=opts.q_time_pregrid_factor,
+                    waveform_deltaT=float(P.deltaT), integration_deltaT=float(P.deltaT),
+                    q_deltaT=q_deltaT, seconds=_q_time.perf_counter()-_q_started,
+                    detectors=_q_reports))
+            except QTimePregridError:
+                raise
+            except Exception as _q_error:
+                # Includes failure of the helper's coarse recovery transfer or cleanup.
+                # Requested accuracy must never become a skipped point or zero-exit job.
+                raise QTimePregridError("Requested Q refinement could not be prepared") from _q_error
 
 
     # Likelihood
