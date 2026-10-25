@@ -121,7 +121,14 @@ Development tree is rift_O4c.
     eccentricity proposals in PUFF, preserving configured bounds and explicit
     overrides, including logarithmic-prior limits.
 
-Release candidate is rc11.
+  - (rc12) PR 242 adds opt-in Q-only time refinement for the vectorized
+    GPU NoLoop likelihood via --q-time-pregrid-factor (1, 2, 4 or 8; default
+    1), with cubic detector-time interpolation when refinement is enabled.
+    Data and waveform sample rates, integration nodes and quadrature remain
+    unchanged. ASIMOV and pipeline helpers propagate and validate the setting;
+    requested refinement failures abort instead of silently using coarse Q.
+
+Release candidate is rc12.
 
 0.0.17.13
 ---------
