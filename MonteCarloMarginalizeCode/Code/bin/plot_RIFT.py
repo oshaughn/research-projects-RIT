@@ -18,6 +18,11 @@ import RIFT.lalsimutils as lsu
 from argparse import ArgumentParser
 import corner
 import re
+import json
+import html
+import time
+import base64
+import io
 from scipy.stats import chi2
 
 # Matplotlib configuration
@@ -50,6 +55,8 @@ parser.add_argument("--LISA", action = "store_true", help = "Use this argument i
 parser.add_argument("--eccentric", action = "store_true", help = "Use this argument if the run has eccentricity and meanPerAno")
 parser.add_argument("--precessing", action = "store_true", help = "Use this argument if the run is precessing")
 parser.add_argument("--non-spinning", action = "store_true", help = "Use this argument if the run is non-spinning")
+parser.add_argument("--html-max-width", default = 1600, type = int, help = "Images are embedded in Diagnostics.html and downscaled to this width (pixels) if wider, to keep the file small. Use 0 to embed the images at full resolution. Default is 1600.")
+parser.add_argument("--html-show-paths", action = "store_true", help = "Keep absolute paths in the ILE, CIP and Visual text of Diagnostics.html. By default they are shortened so the html file can be shared. The Run summary always shows the full paths.")
 parser.add_argument("--truth-file", default = None, type = str,  help = "Path to the truth file. If not provided, the code will search for a truth file in the parent directory or the frames directory. The frames directory is expected to be located in the parent directory.")
 opts = parser.parse_args()
 
@@ -78,6 +85,7 @@ corner_plot_exe = os.popen("which plot_posterior_corner.py").read()[:-1]
 
 # Define file paths
 all_net_path = os.path.join(path, "all.net")
+corner_all_net_path = all_net_path # all.net used in the corner plots, updated in the generate plots section if there is a subdag
 
 # Determine if truth file should be used
 if opts.truth_file is not None:
@@ -139,7 +147,7 @@ def get_lnL_cut_points(all_net_path, lnL_cut=15, error_threshold=0.4, composite=
                 - Number of high-likelihood points.
     """
     # Load data from all.net file
-    data = np.loadtxt(all_net_path)
+    data = np.loadtxt(all_net_path, ndmin=2)
     
     # Extract lnL and error columns
     samples = data[:, :9]
@@ -160,9 +168,16 @@ def get_lnL_cut_points(all_net_path, lnL_cut=15, error_threshold=0.4, composite=
         error = data[:, 12]
         samples = data[:,:11]
     
-    # Remove NaN values from lnL
+    # Remove NaN values from lnL (and the same rows from error and samples, so they stay aligned with lnL)
     total_points = len(lnL)
-    lnL = lnL[~np.isnan(lnL)]
+    not_nan = ~np.isnan(lnL)
+    lnL = lnL[not_nan]
+    error = error[not_nan]
+    samples = samples[not_nan]
+
+    # Every evaluation in this composite failed
+    if composite and len(lnL) == 0:
+        return run_diagnostics["max_lnL"], 0, np.nan, total_points
 
     # Find high likelihood points based on lnL_cut
     max_lnL = np.max(lnL)
@@ -188,6 +203,10 @@ def get_lnL_cut_points(all_net_path, lnL_cut=15, error_threshold=0.4, composite=
     low_error_indices = np.argwhere(error <= error_threshold).flatten()
     lnL = lnL[low_error_indices]
     error = error[low_error_indices]
+
+    # No high likelihood points with low error in this composite (can happen in early iterations)
+    if composite and len(lnL) == 0:
+        return run_diagnostics["max_lnL"], 0, np.nan, total_points
     
     # Update diagnostics with results
     max_lnL = np.max(lnL)
@@ -405,6 +424,50 @@ def convert_all_net_to_posterior_format(all_net_path):
     posterior_format_all_net = np.hstack([all_net_data[:,1:9], chirpmass, eta, zeros_for_extrinsic, zeros_for_extrinsic, zeros_for_extrinsic, zeros_for_extrinsic, zeros_for_extrinsic, zeros_for_extrinsic, zeros_for_extrinsic, zeros_for_extrinsic, zeros_for_extrinsic, zeros_for_extrinsic, zeros_for_extrinsic, lnL, totalmass, massratio])
     return posterior_format_all_net
 
+def count_evaluations(file_path):
+    """
+    Counts the rows (marginalized lnL evaluations) in an all.net or composite file without loading it.
+
+    Args:
+        file_path (str): Path to the all.net or composite file.
+
+    Returns:
+        int: Number of rows.
+    """
+    with open(file_path, "r") as f:
+        return sum(1 for line in f if line.strip() and not line.startswith("#"))
+
+def choose_all_net_for_corner_plots(main_all_net_path, subdag_folder_path):
+    """
+    Chooses the all.net used in all the corner plots (the coloured high lnL points in the posterior corner plots and the exploration corner plot).
+    Without a subdag this is the main all.net. With a subdag, the all.net with more evaluations (rows) is used, as it covers more of the explored
+    parameter space. The main all.net is kept if the subdag all.net is missing, empty, or has the same number of evaluations.
+
+    Args:
+        main_all_net_path (str): Path to the main all.net.
+        subdag_folder_path (str or None): Path to the subdag folder (output of find_posteriors_in_sub), None if there is no subdag.
+
+    Returns:
+        str: Path to the all.net to use in the corner plots.
+    """
+    if subdag_folder_path is None:
+        return main_all_net_path
+    subdag_all_net_path = f"{subdag_folder_path}/all.net"
+    try:
+        if not os.path.exists(subdag_all_net_path) or os.path.getsize(subdag_all_net_path) == 0:
+            print(f"\n--> Subdag all.net not found or empty ({subdag_all_net_path}), using the main all.net in the corner plots.")
+            return main_all_net_path
+        main_evaluations = count_evaluations(main_all_net_path)
+        subdag_evaluations = count_evaluations(subdag_all_net_path)
+    except Exception as e:
+        print(e)
+        print("Couldn't compare the main and subdag all.net, using the main all.net in the corner plots.")
+        return main_all_net_path
+    use_subdag = subdag_evaluations > main_evaluations
+    run_diagnostics["corner_plots_all_net"] = {"used": "Subdag" if use_subdag else "Main", "main_evaluations": main_evaluations, "subdag_evaluations": subdag_evaluations}
+    print(f"\n--> all.net for the corner plots: main has {main_evaluations} evaluations, subdag has {subdag_evaluations}. Using the {'subdag' if use_subdag else 'main'} all.net.")
+    return subdag_all_net_path if use_subdag else main_all_net_path
+
 def find_posteriors_in_main(path_to_main_folder, limit_iterations=None):
     """
     Finds and sorts posterior sample files in the main folder.
@@ -520,7 +583,9 @@ def plot_neff_data(path_to_main_folder, plot_title):
     fig, ax = plt.subplots()
     ax.set_xlabel("iteration")
     ax.set_ylabel("neff")
-    iterations = np.arange(len(cip_iteration_folders)) 
+    # iteration numbers come from the folder names, a folder can be missing in the middle so counting them would drop the last iteration
+    folder_iterations = [int(re.search(r"iteration_(\d+)_cip", os.path.basename(folder)).group(1)) for folder in cip_iteration_folders if re.search(r"iteration_(\d+)_cip", os.path.basename(folder))]
+    iterations = np.arange(max(folder_iterations)+1) if folder_iterations else np.arange(0)
     
     run_diagnostics[plot_title] = {}
     run_diagnostics[plot_title]["CIP_neff"] = {}
@@ -548,16 +613,18 @@ def plot_neff_data(path_to_main_folder, plot_title):
     run_diagnostics[plot_title]["CIP_neff_achieved"] = {}
     for n in iterations:
         i = path_to_main_folder + f"/iteration_{n}_cip"
+        # the neff data is stored in the plots folder, not in the run directory (which might not be writable), and removed once it is read
+        neff_file = f"{save_path}/plots/neff_{plot_title}_iteration_{n}.txt"
         # remove existing data file because I append
-        os.system(f"rm {i}/neff_data.txt 2> /dev/null")
-        # read neff data from each file and store it in neff_data.txt
-        cmd=f"for i in {i}/overlap-grid-*-*ESS* ; do cat $i | tail -n 1 >> {i}/neff_data.txt; done 2> /dev/null"
+        os.system(f"rm {neff_file} 2> /dev/null")
+        # read neff data from each file and store it in the neff file
+        cmd=f"for i in {i}/overlap-grid-*-*ESS* ; do cat $i | tail -n 1 >> {neff_file}; done 2> /dev/null"
         os.system(cmd) 
         # calculate neff statistics
         try:
-            if os.path.getsize(f"{i}/neff_data.txt") == 0: 
+            if os.path.getsize(neff_file) == 0: 
                 continue
-            tmp_ESS_data=np.loadtxt(f"{i}/neff_data.txt", usecols=[2])
+            tmp_ESS_data=np.loadtxt(neff_file, usecols=[2])
             low, avg, high = np.percentile(tmp_ESS_data, [2.5,50,97.5]) # 2 std
             low_1_std, avg, high_1_std = np.percentile(tmp_ESS_data, [16,50,84]) # 1 std
             mini, maxi = np.min(tmp_ESS_data), np.max(tmp_ESS_data)
@@ -572,13 +639,17 @@ def plot_neff_data(path_to_main_folder, plot_title):
             #print(f"Couldn't plot neff for iteration = {iterations[n]}")
             #break
             continue  # try plotting all possible cip's incase there is one folder where subdag exists
+        finally:
+            # the neff file is not needed anymore
+            os.system(f"rm {neff_file} 2> /dev/null")
+    # remove any neff file that was left behind
+    os.system(f"rm {save_path}/plots/neff_{plot_title}_iteration_*.txt 2> /dev/null")
     
     # read max lnL data from CIP output files
     lnL_files_last_iteration = glob.glob(path_to_main_folder + f"/iteration_{iterations[iteration_prog]}_cip/*lnL*")
     run_diagnostics[plot_title]["latest_grid"] = f"overlap-grid-{iteration_prog+1}.xml.gz"
     run_diagnostics[plot_title]["latest_iteration"] = int(iteration_prog)
     max_lnL, no_points = get_lnL_cut_points(all_net_path)
-    ax.set_title(f"Workers ({plot_title})= {len(lnL_files_last_iteration)-1}")
     ax.set_xticks(np.arange(0, run_diagnostics[plot_title]["latest_iteration"]+1, 1))
     fig.savefig(save_path + f"/plots/Effective_samples_per_CIPworker_{plot_title}.png", bbox_inches='tight')
     plt.close(fig)
@@ -602,22 +673,22 @@ def plot_exploration_corner(all_net_path):
              truths.append([P.extract_param('lambda'),  P.extract_param('beta')])
     if LISA and eccentricity:
         use_cols.append([9,10,11,12])
-        labels=[r"$m_1$ $(\times 10^6 M_\odot)$", r"$m_2$ $(\times 10^6 M_\odot)$", r"$\chi_{1z}$", r"$\chi_{2z}$", r"$\lambda$", r"$\beta$", r'$e$', '$\ell$']
+        labels=[r"$m_1$ $(\times 10^6 M_\odot)$", r"$m_2$ $(\times 10^6 M_\odot)$", r"$\chi_{1z}$", r"$\chi_{2z}$", r"$\lambda$", r"$\beta$", r'$e$', r'$\ell$']
         if use_truths:
             truths.append([P.extract_param('lambda'),  P.extract_param('beta'), P.extract_param('eccentricity'), P.extract_param('meanPerAno')])
     if not(LISA) and eccentricity:
         use_cols.append([9,10])
-        labels=[r"$m_1$", r"$m_2$", r"$\chi_{1z}$", r"$\chi_{2z}$",  r'$e$', '$\ell$']
+        labels=[r"$m_1$", r"$m_2$", r"$\chi_{1z}$", r"$\chi_{2z}$",  r'$e$', r'$\ell$']
         if use_truths:
             truths.append([P.extract_param('eccentricity'), P.extract_param('meanPerAno')])
         if precessing:
             use_cols.append([3,4,6,7])
-            labels=[r"$m_1$", r"$m_2$", r"$\chi_{1z}$", r"$\chi_{2z}$", r'$e$', '$\ell$', r"$\chi_{2z}$", r"$\chi_{1x}$", r"$\chi_{1y}$", r"$\chi_{2x}$", r"$\chi_{2y}$"]
+            labels=[r"$m_1$", r"$m_2$", r"$\chi_{1z}$", r"$\chi_{2z}$", r'$e$', r'$\ell$', r"$\chi_{1x}$", r"$\chi_{1y}$", r"$\chi_{2x}$", r"$\chi_{2y}$"]
             if use_truths:
                 truths.append([P.extract_param('s1x'), P.extract_param('s1y'), P.extract_param('s2x'), P.extract_param('s2y')])
     if not(LISA) and precessing and not(eccentricity):
         use_cols.append([3,4,6,7])
-        labels=[r"$m_1$", r"$m_2$", r"$\chi_{1z}$", r"$\chi_{2z}$", r"$\chi_{2z}$", r"$\chi_{1x}$", r"$\chi_{1y}$", r"$\chi_{2x}$", r"$\chi_{2y}$"]
+        labels=[r"$m_1$", r"$m_2$", r"$\chi_{1z}$", r"$\chi_{2z}$", r"$\chi_{1x}$", r"$\chi_{1y}$", r"$\chi_{2x}$", r"$\chi_{2y}$"]
         if use_truths:
             truths.append([P.extract_param('s1x'), P.extract_param('s1y'), P.extract_param('s2x'), P.extract_param('s2y')])
     # Load all.net
@@ -640,6 +711,59 @@ def plot_exploration_corner(all_net_path):
     fig.savefig(save_path + f'/plots/Exploration_corner_plot.png', bbox_inches='tight')
 
 
+def plot_lnL_points_in_ranges(all_net_path, lnL_cuts=[2, 5, 10, 12, 15], error_threshold=0.4):
+    """
+    Plots a histogram of the number of points (marginalized lnL evaluations in all.net) that lie in ranges of lnL below the maximum lnL,
+    e.g. 0-2, 2-5, 5-10, 10-12 and 12-15 below the maximum. Only points with Monte Carlo error below the threshold are counted.
+
+    Args:
+        all_net_path (str): Path to the all.net file.
+        lnL_cuts (list of float): Edges of the ranges, measured below the maximum lnL. Default is [2, 5, 10, 12, 15].
+        error_threshold (float): Maximum allowed Monte Carlo error. Default is 0.4.
+    """
+    print("\n--> Plotting number of points in lnL ranges.")
+    data = np.loadtxt(all_net_path)
+
+    # Extract lnL and error columns (same convention as get_lnL_cut_points)
+    lnL = data[:, 9]
+    error = data[:, 10]
+    if LISA and not(eccentricity):
+        lnL = data[:, 11]
+        error = data[:, 12]
+    if LISA and eccentricity:
+        lnL = data[:, 13]
+        error = data[:, 14]
+    if not(LISA) and eccentricity:
+        lnL = data[:, 11]
+        error = data[:, 12]
+
+    # Remove NaN and inf values and keep only the points with low Monte Carlo error
+    finite = np.isfinite(lnL) & np.isfinite(error)
+    lnL = lnL[finite]
+    error = error[finite]
+    lnL = lnL[error <= error_threshold]
+
+    # maximum lnL of the points with low error, this is the maximum lnL reported in the ILE diagnostics
+    max_lnL = np.max(lnL)
+
+    # distance below the maximum lnL
+    delta_lnL = max_lnL - lnL
+    edges = [0] + list(lnL_cuts)
+    counts, _ = np.histogram(delta_lnL, bins=edges)
+
+    fig, ax = plt.subplots()
+    x = np.arange(len(counts))
+    bars = ax.bar(x, counts, width=0.6, color="royalblue")
+    ax.bar_label(bars, fontsize=12)
+    ax.set_xticks(x)
+    ax.set_xticklabels([f"{edges[i]}-{edges[i+1]}" for i in range(len(counts))])
+    ax.set_xlabel("lnL below max lnL")
+    ax.set_ylabel("points")
+    ax.set_title(f"max lnL = {max_lnL:0.2f}, points within {edges[-1]} = {np.sum(counts)}")
+
+    fig.savefig(save_path + "/plots/lnL_points_in_ranges.png", bbox_inches='tight')
+    plt.close(fig)
+
 def plot_cip_max_lnL(path_to_main_folder, plot_title):
     """
     Plot the maximum log-likelihood (lnL) values sampled from different iterations.
@@ -660,7 +784,14 @@ def plot_cip_max_lnL(path_to_main_folder, plot_title):
         except:
             continue
         for file_name in files_iteration:
-            all_lnL_hist.append(np.loadtxt(file_name))
+            try:
+                data = np.atleast_1d(np.loadtxt(file_name))
+            except Exception:
+                continue
+            if data.size > 0:
+                all_lnL_hist.append(data)
+    if not all_lnL_hist:
+        raise ValueError(f"No lnL data found in any {path_to_main_folder}/iteration_*_cip folder.")
     all_lnL_hist = np.concatenate(all_lnL_hist)
     bins = np.linspace(np.min(all_lnL_hist), np.max(all_lnL_hist), 40)
 
@@ -677,11 +808,20 @@ def plot_cip_max_lnL(path_to_main_folder, plot_title):
         collec_lnL_hist = np.zeros((1,1))
         samples_total = 0
         for j in np.arange(len(files_iteration)):
-            data = np.loadtxt(files_iteration[j])
+            try:
+                data = np.atleast_1d(np.loadtxt(files_iteration[j]))
+            except Exception:
+                continue
+            if data.size == 0:
+                continue
             collect_lnL.append(np.max(data))
             samples_total += len(data)
             collec_lnL_hist = np.vstack([collec_lnL_hist, data[:, None]])
-        samples_total_per_worker = samples_total/len(files_iteration)
+        # missing or empty folder, skip this iteration and keep going with the others
+        if len(collect_lnL) == 0:
+            print(f"No usable lnL files in {path_to_main_folder}/iteration_{iteration}_cip, skipping iteration {iteration}.")
+            continue
+        samples_total_per_worker = samples_total/len(collect_lnL)
         collec_lnL_hist = np.delete(collec_lnL_hist, 0, 0)
         collect_lnL = np.array(collect_lnL)
         low_1_std, max_lnL_avg_this_iteration, high_1_std  = np.percentile(collect_lnL, [16,50,84]) # 1 std
@@ -695,8 +835,10 @@ def plot_cip_max_lnL(path_to_main_folder, plot_title):
         ax.errorbar(iteration, max_lnL_avg_this_iteration, yerr = np.array([max_lnL_avg_this_iteration-low_1_std, high_1_std-max_lnL_avg_this_iteration]).reshape(-1,1), color = "royalblue", ecolor = "green", fmt ='o')
         ax_hist.hist(collec_lnL_hist, label=iteration, histtype='step', linewidth = 1.0, bins=bins, density=True)
     
-    run_diagnostics[plot_title]["cip_average_max_lnL_sampled"] = run_diagnostics[plot_title]['cip_sampled_lnL'][iterations[-1]]['avg']#np.round(np.mean(collect_lnL), 2)
-    run_diagnostics[plot_title]["cip_std_max_lnL_sampled"] = [run_diagnostics[plot_title]['cip_sampled_lnL'][iterations[-1]]['+']-run_diagnostics[plot_title]["cip_average_max_lnL_sampled"], run_diagnostics[plot_title]["cip_average_max_lnL_sampled"]-run_diagnostics[plot_title]['cip_sampled_lnL'][iterations[-1]]['-']]#np.round(np.std(collect_lnL), 2)
+    # statistics of the latest iteration that has lnL data
+    last_iteration_with_data = [iteration for iteration in iterations if run_diagnostics[plot_title]['cip_sampled_lnL'][iteration]][-1]
+    run_diagnostics[plot_title]["cip_average_max_lnL_sampled"] = run_diagnostics[plot_title]['cip_sampled_lnL'][last_iteration_with_data]['avg']#np.round(np.mean(collect_lnL), 2)
+    run_diagnostics[plot_title]["cip_std_max_lnL_sampled"] = [run_diagnostics[plot_title]['cip_sampled_lnL'][last_iteration_with_data]['+']-run_diagnostics[plot_title]["cip_average_max_lnL_sampled"], run_diagnostics[plot_title]["cip_average_max_lnL_sampled"]-run_diagnostics[plot_title]['cip_sampled_lnL'][last_iteration_with_data]['-']]#np.round(np.std(collect_lnL), 2)
     
     ax.set_xlabel('iteration')
     ax.set_ylabel('lnL')
@@ -715,6 +857,8 @@ def plot_cip_max_lnL(path_to_main_folder, plot_title):
 def plot_high_likelihood_expoloration(path_to_main_folder, plot_title):
     """
     Plots high likelihood points over iterations.
+    Every iteration up to the latest CIP iteration is checked, plus any consolidated_*.composite file beyond it (ILE can be ahead of CIP).
+    An iteration with a missing, empty or unreadable composite file is reported and skipped, the other iterations are still processed.
 
     Args:
         path_to_main_folder (str): Path to the folder containing the composite files.
@@ -723,6 +867,14 @@ def plot_high_likelihood_expoloration(path_to_main_folder, plot_title):
     print(f"\n--> Plotting likelihood exploration for {plot_title} iterations.")
 
     run_diagnostics[plot_title]["composite_information"] = {}
+
+    # iterations to check: up to the latest CIP iteration and any composite file that exists beyond it
+    composite_iterations = []
+    for composite_file in glob.glob(f"{path_to_main_folder}/consolidated_*.composite"):
+        match = re.search(r"consolidated_(\d+)\.composite", os.path.basename(composite_file))
+        if match:
+            composite_iterations.append(int(match.group(1)))
+    iterations = np.arange(0, max([run_diagnostics[plot_title]["latest_iteration"]] + composite_iterations)+1, 1)
     
     fig, ax = plt.subplots()
     ax.set_xlabel("iteration")
@@ -731,26 +883,42 @@ def plot_high_likelihood_expoloration(path_to_main_folder, plot_title):
     collect_data = []
     collect_iter = []
     print("\nIteration | Global max lnL | High-lnL points | Iteration max lnL | Total lnL points")
-    for iteration in np.arange(0, run_diagnostics[plot_title]["latest_iteration"]+1, 1):
+    for iteration in iterations:
+        composite_file = f"{path_to_main_folder}/consolidated_{iteration}.composite"
         run_diagnostics[plot_title]["composite_information"][iteration] = {}
-        try:
-            max_lnL, no_points, max_lnL_composite, total_points = get_lnL_cut_points(f"{path_to_main_folder}/consolidated_{iteration}.composite", composite=True)
-        except Exception as e:
-            print(f"Error loading file {path_to_main_folder}/consolidated_{iteration}.composite: {e}")
+        note = None
+        if not os.path.exists(composite_file):
+            note = "file not found"
+        elif os.path.getsize(composite_file) == 0:
+            note = "file is empty"
+        else:
+            try:
+                max_lnL, no_points, max_lnL_composite, total_points = get_lnL_cut_points(composite_file, composite=True)
+            except Exception as e:
+                note = f"could not read file: {e}"
+        if note is not None:
+            print(f"{iteration:9d} | {composite_file}: {note}")
+            run_diagnostics[plot_title]["composite_information"][iteration].update({"note": note})
             continue
-        print(f"{iteration:9d} | {max_lnL:14.2f} | {no_points:15d} | {max_lnL_composite:17.2f} | {total_points:16d}")
         percent_high_lnL_points =  np.round(no_points/total_points*100, 2)
+        if no_points == 0:
+            max_lnL_composite = "NA"
+            run_diagnostics[plot_title]["composite_information"][iteration].update({"note": "no points within 15 lnL of the global max with error <= 0.4"})
+            print(f"{iteration:9d} | {max_lnL:14.2f} | {no_points:15d} | {'NA':>17} | {total_points:16d}")
+        else:
+            print(f"{iteration:9d} | {max_lnL:14.2f} | {no_points:15d} | {max_lnL_composite:17.2f} | {total_points:16d}")
         collect_data.append(no_points)
         collect_iter.append(iteration)
-        ax.scatter(iteration, no_points, label = f"{max_lnL_composite} ({percent_high_lnL_points})", s=25)
+        ax.scatter(iteration, no_points, label = f"{max_lnL_composite} ({percent_high_lnL_points}%)", s=25)
         run_diagnostics[plot_title]["composite_information"][iteration].update({
                 "max_lnL":max_lnL_composite,
                 "high_lnL_points":no_points,
-                "percent_high_lnL_points": percent_high_lnL_points})
+                "percent_high_lnL_points": percent_high_lnL_points,
+                "total_evaluations": total_points})
     
     ax.grid(alpha=0.4)
     ax.plot(collect_iter, collect_data, color = "black", linestyle = "--", linewidth = 1.5, alpha = 0.5)
-    ax.set_xticks(np.arange(0, run_diagnostics[plot_title]["latest_iteration"]+1, 1))
+    ax.set_xticks(iterations)
     ax.legend(loc="upper left")
     fig.savefig(save_path + f"/plots/Likelihood_exploration_plot_{plot_title}.png", bbox_inches='tight')
     plt.close(fig)
@@ -853,21 +1021,18 @@ def plot_corner(sorted_posterior_file_paths, plot_title, iterations = None, para
 
     print(f"\n--> Plotting corner plot for params ({plot_title}) {parameters}")
 
-    # title
-    if "Subdag" in plot_title:
-        subdag_path = find_posteriors_in_sub(path, return_subdag_folder_path=True)
-        _, no_points, max_lnL, _ = get_lnL_cut_points(f"{subdag_path}/all.net", composite=True)
-    else:
+    # title, from the all.net used in the corner plots (the extrinsic plots always show the main all.net values)
+    if plot_title.startswith("extrinsic") or corner_all_net_path == all_net_path:
         max_lnL, no_points = run_diagnostics["max_lnL"], run_diagnostics["high_lnL_points"]
+    else:
+        _, no_points, max_lnL, _ = get_lnL_cut_points(corner_all_net_path, composite=True)
     title = f"max_lnL={max_lnL:0.2f},points_cut={no_points}" 
 
     # Plotting command begins
     plotting_command = f"python {corner_plot_exe} --plot-1d-extra --quantiles None --ci-list [0.9] --use-title {title} --no-special-param-ranges "
 
-    if plot_title != "extrinsic" and "Main" in plot_title:
-        plotting_command += f"--composite-file {all_net_path} --lnL-cut 15 --sigma-cut 0.4 "
-    elif plot_title != "extrinsic" and "Subdag" in plot_title:
-        plotting_command += f"--composite-file {subdag_path}/all.net --lnL-cut 15 --sigma-cut 0.4 "
+    if not plot_title.startswith("extrinsic"):
+        plotting_command += f"--composite-file {corner_all_net_path} --lnL-cut 15 --sigma-cut 0.4 "
 
     # Append iteration-related options to the command
     if iterations is not None:
@@ -1002,13 +1167,8 @@ def plot_JS_divergence(posterior_1_path, posterior_2_path, posterior_3_path=None
     ax.set_ylabel("JSD")
     ax.axhline( y = threshold, linewidth = 1.0, linestyle = "--", color = "red")
     
-    if "Main_subdag" in plot_title:
-        main_iteration = run_diagnostics["Main"]["latest_iteration"]
-        subdag_iteration = run_diagnostics["Subdag"]["latest_iteration"]
-        label_second = f"Main {main_iteration} vs Subdag {subdag_iteration}"
-    else:
-        latest_iteration = run_diagnostics[plot_title.split("_")[0]]["latest_iteration"]
-        label_second = f"Iter {latest_iteration} vs Iter {latest_iteration-1}"
+    latest_iteration = run_diagnostics[plot_title.split("_")[0]]["latest_iteration"]
+    label_second = f"Iter {latest_iteration} vs Iter {latest_iteration-1}"
     
     ax.errorbar(parameters, JSD_array, np.array(JSD_error).T, color="royalblue", ecolor="red", fmt='o', markersize=5, label=label_second)
     if posterior_3_path is not None:
@@ -1104,7 +1264,7 @@ def plot_log_likelihood(extrinsic_path):
     plt.xlabel('lnL')
     plt.ylabel('Points')
     plt.hist(extrinsic_data[:, index_lnL], histtype='step', color='black', bins=40)
-    plt.savefig(path+f"/plots/lnL_distribution_from_extrinsic_step.png", bbox_inches='tight')
+    plt.savefig(save_path+f"/plots/lnL_distribution_from_extrinsic_step.png", bbox_inches='tight')
     plt.cla()
     plt.close()
 
@@ -1142,9 +1302,12 @@ def evaluate_run(run_diagnostics):
             f.write("\tNo composite information available.\n")
             return
 
-        f.write("\titeration | max lnL | high lnL points | percent high lnL points\n")
+        f.write("\titeration | max lnL | high lnL points | percent high lnL points | total evaluations\n")
         for iteration, values in composite_information.items():
-            f.write(f"\t{iteration:>9} | {values.get('max_lnL', 'NA'):>7} | {values.get('high_lnL_points', 'NA'):>15} | {values.get('percent_high_lnL_points', 'NA')}%\n")
+            percent = values.get('percent_high_lnL_points', 'NA')
+            percent = f"{percent}%" if percent != 'NA' else 'NA'
+            note = f"  ({values['note']})" if values.get('note') else ""
+            f.write(f"\t{iteration:>9} | {values.get('max_lnL', 'NA'):>7} | {values.get('high_lnL_points', 'NA'):>15} | {percent:>23} | {values.get('total_evaluations', 'NA'):>17}{note}\n")
 
     def write_neff_information(f, plot_title):
         requested_neff = run_diagnostics.get(plot_title, {}).get("CIP_neff", {})
@@ -1198,8 +1361,8 @@ def evaluate_run(run_diagnostics):
             if expected_median - average_lnL > 1.5:
                 f.write(f"\t--> The expected median max lnL ({expected_median:0.2f}) is more than 1.5 above the average sampled max lnL ({average_lnL}). CIP may not be sampling the peak well enough, or there may be interpolation error near the peak.\n")
                 sampling_is_good = False
-            	if run_diagnostics.get("run_is_complete") == False:
-                	f.write(f"\t--> Since the run is incomplete, this warning can be ignored.\n")
+            if run_diagnostics.get("run_is_complete") == False:
+                f.write(f"\t--> Since the run is incomplete, this warning can be ignored.\n")
         except Exception:
             f.write("\tCould not compute the expected median lnL.\n")
 
@@ -1222,13 +1385,8 @@ def evaluate_run(run_diagnostics):
             #f.write(f"\n\t{jsd_label}:\n")
 
             if jsd_data:
-                if "Main_subdag" in jsd_label:
-                    main_iteration = run_diagnostics.get("Main", {}).get("latest_iteration", "latest")
-                    subdag_iteration = run_diagnostics.get("Subdag", {}).get("latest_iteration", "latest")
-                    f.write(f"\t  Main iteration {main_iteration} vs Subdag iteration {subdag_iteration}:\n")
-                else:
-                    latest_iteration = run_diagnostics.get(jsd_label.split("_")[0], {}).get("latest_iteration", "latest")
-                    f.write(f"\t  iteration {latest_iteration} vs iteration {latest_iteration - 1}:\n")
+                latest_iteration = run_diagnostics.get(jsd_label.split("_")[0], {}).get("latest_iteration", "latest")
+                f.write(f"\t  iteration {latest_iteration} vs iteration {latest_iteration - 1}:\n")
 
                 for parameter, value in jsd_data.items():
                     marker = "  <-- above threshold" if value > threshold else ""
@@ -1348,9 +1506,8 @@ def evaluate_run(run_diagnostics):
 
         jsd_is_good_main = write_jsd_information(f, ["Main_iteration"], "Main iteration JSD")
         jsd_is_good_subdag = write_jsd_information(f, ["Subdag_iteration"], "Subdag iteration JSD")
-        jsd_is_good_main_subdag = write_jsd_information(f, ["Main_subdag_iteration"], "Main-subdag JSD")
 
-        if not jsd_is_good_main or not jsd_is_good_subdag or not jsd_is_good_main_subdag:
+        if not jsd_is_good_main or not jsd_is_good_subdag:
             latest_grid = run_diagnostics.get("Main", {}).get("latest_grid", "latest grid")
             f.write(f"\n\t--> At least one JSD value is above {JSD_threshold}. This suggests that the run may not have converged. Consider rerunning with {latest_grid} as the starting grid and copying this run's all.net as bonus.composite.\n")
             if run_diagnostics.get("run_is_complete") is False:
@@ -1368,7 +1525,7 @@ def evaluate_run(run_diagnostics):
         #    write_dict_information(f, "Equal-tailed 90% intervals", run_diagnostics["sample_statistics"])
 
         write_header(f, "Visual diagnostics")
-        f.write("\t 1) Is the 90% credible interval mostly around the red points? If not, it could be that the run needs more iterations. If the SNR < 30, then the prior might impact it and the shift is expected.")
+        f.write("\t 1) Is the 90% credible interval mostly around the red points? If not, it could be that the run needs more iterations.")
         f.write(f"\n\t 2) Has the parameter space been sufficiently explored? Are there blue points around the red points? Continuing the run will help if this is true with {run_diagnostics['Main']['latest_grid']} as your starting grid and copying this run's all.net as bonus.composite in your new run directory")
         f.write("\n\t 3) Is the approximate SNR captured close to True SNR? A significant difference implies the inference got stuck at a local lnL maxima. Happens rarely")
     print("\n###########################################################################################")
@@ -1391,11 +1548,536 @@ def check_extrinsic_present(path):
             True if extrinsic_posterior_samples.dat exists, otherwise False.
     """
     return os.path.exists(f"{path}/extrinsic_posterior_samples.dat")
+
+def mask_paths(text):
+    """
+    Shortens absolute paths (e.g. /home/user/runs/run1) to .../last_directory, so the html file can be shared
+    without revealing usernames or the directory structure of the cluster.
+
+    Args:
+        text (str): Text of a section from Diagnostics.txt.
+
+    Returns:
+        str: Text with the absolute paths shortened.
+    """
+    return re.sub(r"(?<!\S)/(?:[^\s/]+/)*[^\s/]+", lambda m: ".../" + m.group(0).rstrip("/").split("/")[-1], text)
+
+def read_diagnostics_sections(diagnostics_path):
+    """
+    Splits Diagnostics.txt into its sections using the headers written by evaluate_run.
+
+    Args:
+        diagnostics_path (str): Path to Diagnostics.txt.
+
+    Returns:
+        dict: Section title (e.g. 'ILE diagnostics') -> text of the section.
+    """
+    sections = {}
+    current = None
+    with open(diagnostics_path, "r") as f:
+        lines = f.read().splitlines()
+    for i, line in enumerate(lines):
+        if line.startswith("# ") and i > 0 and lines[i-1].startswith("#####"):
+            current = line[2:].strip()
+            sections[current] = []
+            continue
+        if line.startswith("#####"):
+            continue
+        if current is not None:
+            sections[current].append(line)
+    return {title: "\n".join(text).strip("\n") for title, text in sections.items()}
+
+def diagnostics_text_to_html(text):
+    """
+    Escapes diagnostics text for html and highlights status lines and warnings.
+
+    Args:
+        text (str): Text of a section from Diagnostics.txt.
+
+    Returns:
+        str: html-safe text with <span> tags around status lines and warnings.
+    """
+    lines = []
+    for line in text.split("\n"):
+        escaped = html.escape(line)
+        stripped = line.strip()
+        if "status: GOOD" in stripped:
+            lines.append(f'<span class="good">{escaped}</span>')
+        elif "status: BAD" in stripped:
+            lines.append(f'<span class="bad">{escaped}</span>')
+        elif stripped.startswith("-->") or "<-- above threshold" in stripped:
+            lines.append(f'<span class="warn">{escaped}</span>')
+        else:
+            lines.append(escaped)
+    return "\n".join(lines)
+
+def split_parameter_string(parameter_string):
+    """
+    Converts the parameter string in a corner plot filename (e.g. 'mc_eta_chi_eff')
+    into a readable list (e.g. 'mc, eta, chi_eff'). Falls back to the input string if it cannot be split.
+
+    Args:
+        parameter_string (str): Parameters joined by underscores.
+
+    Returns:
+        str: Readable, comma separated parameters.
+    """
+    known = ["mc", "q", "eta", "m1", "m2", "mtot", "s1x", "s1y", "s1z", "s2x", "s2y", "s2z", "a1z", "a2z", "chi_eff", "chiMinus", "chi1", "chi2", "chi_p", "chi1_perp", "chi2_perp",
+             "dec", "ra", "eccentricity", "meanPerAno", "distance", "incl", "phiorb", "psi", "time", "m1_source", "m2_source", "mtotal_source"]
+    known.sort(key = len, reverse = True) # prefer the longest match (e.g. m1_source over m1)
+    tokens = re.findall("|".join(re.escape(k) for k in known), parameter_string)
+    if "_".join(tokens) == parameter_string:
+        return ", ".join(tokens)
+    return parameter_string
+
+def build_plot_manifest(save_path, reference_file=None):
+    """
+    Searches the plots folder and builds a description of the available plots for the html file.
+    Histograms and corner plots are identified from their filenames, so no parameter lists are hard coded.
+
+    Args:
+        save_path (str): Path containing the plots folder.
+        reference_file (str, optional): Plots modified before this file are not included, so plots left over from an earlier run
+            (e.g. with different options) are not shown as current. Defaults to None, which includes all plots.
+
+    Returns:
+        dict: Histograms, corner plots and figure groups (per section) that exist in the plots folder.
+    """
+    plots = save_path + "/plots"
+    reference_time = os.path.getmtime(reference_file) if reference_file and os.path.exists(reference_file) else None
+    stale_plots = []
+    def is_current(file_path):
+        if reference_time is not None and os.path.getmtime(file_path) < reference_time:
+            stale_plots.append(os.path.relpath(file_path, plots))
+            return False
+        return True
+    run_order = {"Main": 0, "Subdag": 1, "Extrinsic": 2}
+    parameter_order = ["mc", "q", "eta", "m1", "m2", "mtot", "s1z", "s2z", "chi_eff", "chiMinus", "chi1", "chi2", "dec", "ra", "eccentricity", "meanPerAno",
+                       "s1x", "s1y", "s2x", "s2y", "chi_p", "chi1_perp", "chi2_perp"]
+    manifest = {"histograms": [], "corners": [], "figures": {}}
+
+    # 1D histograms: histogram_{plot_title}_{parameter}.png
+    for file_path in glob.glob(plots + "/histograms/histogram_*.png"):
+        if not is_current(file_path):
+            continue
+        name = os.path.basename(file_path)[len("histogram_"):-len(".png")]
+        for title in ["Main_Final", "Subdag_Final", "Main", "Subdag"]:
+            if name.startswith(title + "_"):
+                parameter = name[len(title)+1:]
+                manifest["histograms"].append({"run": title.split("_")[0], "latest": title.endswith("_Final"), "key": parameter, "file": os.path.relpath(file_path, plots)})
+                break
+    manifest["histograms"].sort(key = lambda e: (run_order[e["run"]], e["latest"], parameter_order.index(e["key"]) if e["key"] in parameter_order else len(parameter_order), e["key"]))
+
+    # corner plots: corner_{parameters}_{plot_title}.png
+    for file_path in glob.glob(plots + "/corner_plots/corner_*.png"):
+        if not is_current(file_path):
+            continue
+        name = os.path.basename(file_path)[len("corner_"):-len(".png")]
+        for title in ["Main_Final", "Subdag_Final", "extrinsic_source_mass", "extrinsic", "Main", "Subdag"]:
+            if name.endswith("_" + title):
+                parameters = name[:-(len(title)+1)]
+                run = "Extrinsic" if title.startswith("extrinsic") else title.split("_")[0]
+                latest = True if run == "Extrinsic" else title.endswith("_Final")
+                manifest["corners"].append({"run": run, "latest": latest, "key": split_parameter_string(parameters), "file": os.path.relpath(file_path, plots)})
+                break
+    manifest["corners"].sort(key = lambda e: (run_order[e["run"]], e["latest"], len(e["key"]), e["key"]))
+
+    # figure groups: each group is a title and a list of (label, file). A label can have a list of files, which are shown side by side.
+    # Only files that exist are kept. A group can have a description (shown above the plot) and a note (small text shown below the plot)
+    def figure_group(title, items, description=None, note=None):
+        existing = []
+        for label, files in items:
+            file_list = [files] if isinstance(files, str) else list(files)
+            file_list = [file for file in file_list if os.path.exists(f"{plots}/{file}") and is_current(f"{plots}/{file}")]
+            if not file_list:
+                continue
+            existing.append({"label": label, "file": file_list[0]} if isinstance(files, str) else {"label": label, "files": file_list})
+        group = {"title": title, "items": existing}
+        if description:
+            group["description"] = description
+        if note:
+            group["note"] = note
+        return group if existing else None
+
+    figures = {
+        "ile": [
+            figure_group("Points in lnL ranges", [("all.net", "lnL_points_in_ranges.png")],
+                         note="Numbers are for points with Monte Carlo error < 0.4."),
+            figure_group("High lnL points per iteration", [("Main", "Likelihood_exploration_plot_Main.png"), ("Subdag", "Likelihood_exploration_plot_Subdag.png")],
+                         note="In the legend, the first number is the maximum lnL found in that iteration and the second is the percentage of high lnL points in that iteration."),
+        ],
+        "cip": [
+            figure_group("Effective samples per CIP worker", [("Main", "Effective_samples_per_CIPworker_Main.png"), ("Subdag", "Effective_samples_per_CIPworker_Subdag.png")],
+                         description="This shows the effective number of samples (neff) per worker. The total neff is the sum of the neff of all the workers. Earlier iterations may have different neff values than later iterations. Increasing worker numbers typically correspond to workers used in later iterations."),
+            figure_group("lnL distribution and maximum lnL sampled per CIP worker",
+                         [("Main", ("CIP_lnL_distribution_per_iteration_Main.png", "Maximum_sampled_lnL_per_CIPworker_Main.png")),
+                          ("Subdag", ("CIP_lnL_distribution_per_iteration_Subdag.png", "Maximum_sampled_lnL_per_CIPworker_Subdag.png"))],
+                         description="The lnL distribution produced by the sampler using the interpolant is compared with the maximum lnL value in the `all.net` training data. This distribution should stabilize across iterations and remain close to the maximum lnL value."),
+            figure_group("Jensen-Shannon divergence", [("Main: latest vs previous iterations", "JSD_per_parameter_Main_iteration.png"),
+                                                       ("Subdag: latest vs previous iterations", "JSD_per_parameter_Subdag_iteration.png")],
+                         description="This metric assesses convergence by comparing the posterior distributions from the previous and latest iterations using the Jensen-Shannon divergence (JSD). Ideally, the JSD should be below 0.005. Convergence can also be assessed visually using the histograms and corner plots below.\nNote: RIFT may use a different internal convergence threshold, but the JSD remains a useful diagnostic."),
+        ],
+        "visual": [
+            figure_group("Exploration corner (all.net)", [("all.net", "Exploration_corner_plot.png")],
+                         description="Points at which the marginalized likelihood was evaluated."),
+            figure_group("lnL distribution of extrinsic samples", [("extrinsic", "lnL_distribution_from_extrinsic_step.png")]),
+        ],
+    }
+    manifest["figures"] = {section: [g for g in groups if g is not None] for section, groups in figures.items()}
+    if stale_plots:
+        print(f"Left out {len(stale_plots)} plot(s) older than the start of this run: {', '.join(stale_plots[:5])}{' ...' if len(stale_plots) > 5 else ''}")
+    return manifest
+
+def encode_image(image_path, max_width=1600):
+    """
+    Reads a png file and returns it as a base64 data URI so that it can be embedded in an html file.
+    Images wider than max_width are downscaled (keeping the aspect ratio) and the png is optimized, to keep the html file small.
+
+    Args:
+        image_path (str): Path to the png file.
+        max_width (int): Maximum width in pixels. Use 0 to embed the image as it is. Default is 1600.
+
+    Returns:
+        str: data URI of the image.
+    """
+    try:
+        from PIL import Image # installed along with matplotlib
+        image = Image.open(image_path)
+        if max_width and image.width > max_width:
+            image = image.resize((max_width, int(round(image.height * max_width / image.width))), Image.LANCZOS)
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG", optimize=True)
+        raw = buffer.getvalue()
+    except Exception:
+        with open(image_path, "rb") as f:
+            raw = f.read()
+    return "data:image/png;base64," + base64.b64encode(raw).decode("ascii")
+
+def embed_images_in_manifest(manifest, plots, max_width=1600):
+    """
+    Replaces the (relative) image paths in the manifest by base64 data URIs, so the html file does not depend on the plots folder.
+
+    Args:
+        manifest (dict): Output of build_plot_manifest.
+        plots (str): Path to the plots folder, the image paths in the manifest are relative to it.
+        max_width (int): Maximum width in pixels of the embedded images. Use 0 for full resolution.
+    """
+    entries = list(manifest["histograms"]) + list(manifest["corners"])
+    for groups in manifest["figures"].values():
+        for group in groups:
+            entries += group["items"]
+    print(f"Embedding {sum(len(entry['files']) if 'files' in entry else 1 for entry in entries)} images in the html file.")
+    for entry in entries:
+        if "files" in entry:
+            entry["files"] = [encode_image(f"{plots}/{file}", max_width=max_width) for file in entry["files"]]
+        else:
+            entry["file"] = encode_image(f"{plots}/{entry['file']}", max_width=max_width)
+
+HTML_TEMPLATE = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RIFT run diagnostics</title>
+<style>
+:root { --bg:#ffffff; --fg:#1d2330; --muted:#667085; --card:#f6f7f9; --border:#d9dde3; --accent:#2b5fd9; --good:#1a7f37; --bad:#c62828; --warn:#b26a00; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#14171c; --fg:#e6e8ec; --muted:#9aa3b2; --card:#1c2027; --border:#2f3541; --accent:#7aa2ff; --good:#4cc27a; --bad:#ff6b6b; --warn:#f0b24a; }
+}
+* { box-sizing: border-box; }
+body { margin:0; font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background:var(--bg); color:var(--fg); line-height:1.5; }
+header { position:sticky; top:0; z-index:10; background:var(--bg); border-bottom:1px solid var(--border); padding:10px 24px; display:flex; align-items:baseline; gap:24px; flex-wrap:wrap; }
+header h1 { font-size:20px; margin:0; }
+header .muted { margin:0; }
+nav a { margin-right:16px; color:var(--accent); text-decoration:none; font-weight:600; }
+main { max-width:1500px; margin:0 auto; padding:16px 24px 64px; }
+section { margin-top:32px; scroll-margin-top:70px; }
+h2 { font-size:40px; line-height:1.1; margin:0; }
+.section-box { display:flex; align-items:center; gap:16px; flex-wrap:wrap; border:2px solid var(--accent); border-radius:12px; background:var(--card); padding:16px 24px; }
+.section-box .badge { margin-left:0; }
+.intro { margin:16px 2px 12px; font-size:15px; }
+h3 { font-size:17px; margin:28px 0 8px; }
+.muted { color:var(--muted); font-size:14px; }
+pre { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:12px 16px; overflow-x:auto; white-space:pre-wrap; tab-size:4; font-size:13px; }
+.good { color:var(--good); font-weight:600; }
+.bad { color:var(--bad); font-weight:600; }
+.warn { color:var(--warn); }
+.badge { font-size:13px; padding:2px 10px; border-radius:12px; margin-left:10px; vertical-align:middle; color:#fff; }
+.badge.good { background:var(--good); } .badge.bad { background:var(--bad); } .badge.unknown { background:var(--muted); }
+.controls { display:flex; flex-wrap:wrap; gap:16px; align-items:center; margin:8px 0 12px; }
+.btn-row { display:inline-flex; border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+.btn-row button { background:var(--card); color:var(--fg); border:0; border-right:1px solid var(--border); padding:6px 14px; cursor:pointer; font-size:14px; }
+.btn-row button:last-child { border-right:0; }
+.btn-row button.active { background:var(--accent); color:#fff; }
+select { background:var(--card); color:var(--fg); border:1px solid var(--border); border-radius:8px; padding:6px 10px; font-size:14px; }
+.grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(var(--min, 380px), 1fr)); gap:12px; }
+figure { margin:0; background:var(--card); border:1px solid var(--border); border-radius:8px; padding:8px; }
+figure img { width:100%; height:auto; display:block; background:#fff; border-radius:4px; }
+figcaption { font-size:13px; color:var(--muted); margin-top:4px; text-align:center; }
+.single img { max-width:1100px; background:#fff; border-radius:4px; border:1px solid var(--border); }
+.single .pair { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.single .pair img { max-width:100%; width:100%; }
+.desc { font-size:14px; margin:2px 0 10px; white-space:pre-line; }
+#figures-ile { display:grid; grid-template-columns:1fr 1fr; gap:24px; align-items:start; }
+#figures-ile .single img { width:100%; max-width:100%; }
+.note { font-size:12px; color:var(--muted); margin:6px 2px 0; }
+code { background:var(--card); border:1px solid var(--border); border-radius:4px; padding:0 4px; font-size:0.92em; }
+figure img, .single img { cursor:zoom-in; }
+#lightbox { display:none; position:fixed; inset:0; z-index:100; background:rgba(0,0,0,0.85); align-items:center; justify-content:center; cursor:zoom-out; }
+#lightbox img { max-width:96vw; max-height:96vh; background:#fff; border-radius:4px; }
+details { margin-top:16px; }
+summary { cursor:pointer; font-weight:600; }
+</style>
+</head>
+<body>
+<header>
+  <h1>RIFT run diagnostics</h1>
+  <p class="muted">Generated __TIMESTAMP__</p>
+  <nav><a href="#ile">ILE</a><a href="#cip">CIP</a><a href="#visual">Visual</a></nav>
+</header>
+<main>
+<details open><summary>Run summary</summary><pre>__SUMMARY__</pre></details>
+
+<section id="ile">
+  <div class="section-box"><h2>ILE</h2><span class="badge __ILE_CLASS__">__ILE_STATUS__</span></div>
+  <p class="intro">Here, we examine the marginalized likelihood evaluations used to construct the intrinsic posterior distributions. Ideally, there should be thousands of high-lnL points, with good coverage across the lnL ranges. Later iterations should also maintain a high fraction of high-lnL points, indicating continued exploration of the high-likelihood region.</p>
+  <pre>__ILE_TEXT__</pre>
+  <div id="figures-ile"></div>
+</section>
+
+<section id="cip">
+  <div class="section-box"><h2>CIP</h2><span class="badge __CIP_CLASS__">__CIP_STATUS__</span></div>
+  <p class="intro">Here, we examine the effective number of samples obtained by each worker, assess the health of the interpolant by comparing its likelihood distribution with the underlying lnL values, and evaluate convergence.</p>
+  <pre>__CIP_TEXT__</pre>
+  <div id="figures-cip"></div>
+  <h3>1D posterior histograms</h3>
+  <div id="hist-gallery"></div>
+</section>
+
+<section id="visual">
+  <div class="section-box"><h2>Visual</h2></div>
+  <pre>__VISUAL_TEXT__</pre>
+  <h3>Corner plots</h3>
+  <p class="desc">This provides an excellent visual check of convergence. The posteriors should typically cluster around the red points. If the red regions are surrounded by blue and green points, it indicates that the high-lnL region has been thoroughly explored. The colored points represent the maximum lnL and maximum lnL &minus; 15 levels, while the grey points (if shown) represent lower lnL values.</p>
+  <div id="corner-gallery"></div>
+  <div id="figures-visual"></div>
+</section>
+</main>
+
+<script>
+const MANIFEST = __MANIFEST__;
+
+// Row of buttons. Calls onSelect(label) when one is clicked.
+function buttonRow(labels, selected, onSelect, display) {
+  const row = document.createElement("div");
+  row.className = "btn-row";
+  labels.forEach(label => {
+    const b = document.createElement("button");
+    b.textContent = display ? display(label) : label;
+    if (label === selected) b.className = "active";
+    b.onclick = () => onSelect(label);
+    row.appendChild(b);
+  });
+  return row;
+}
+
+// Click an image to enlarge it, click again (or press Esc) to close
+const lightbox = document.createElement("div");
+lightbox.id = "lightbox";
+const lightboxImg = document.createElement("img");
+lightbox.appendChild(lightboxImg);
+document.body.appendChild(lightbox);
+function openLightbox(src) { lightboxImg.src = src; lightbox.style.display = "flex"; }
+lightbox.onclick = () => { lightbox.style.display = "none"; };
+document.addEventListener("keydown", e => { if (e.key === "Escape") lightbox.style.display = "none"; });
+
+// Text where `code` is shown as code
+function richText(element, text) {
+  text.split("`").forEach((part, i) => {
+    if (i % 2) { const c = document.createElement("code"); c.textContent = part; element.appendChild(c); }
+    else element.appendChild(document.createTextNode(part));
+  });
+  return element;
+}
+
+// One image, click to enlarge
+function plotFigure(file, caption) {
+  const fig = document.createElement("figure");
+  const img = document.createElement("img");
+  img.src = file; img.alt = caption;
+  img.onclick = () => openLightbox(file);
+  fig.appendChild(img);
+  if (caption) {
+    const cap = document.createElement("figcaption");
+    cap.textContent = caption;
+    fig.appendChild(cap);
+  }
+  return fig;
+}
+
+// Gallery with toggles: run (Main/Subdag/...), latest vs all iterations, and which parameter(s) to show.
+function makeGallery(rootId, entries, keyName, minWidth, singleDefault) {
+  const root = document.getElementById(rootId);
+  if (!entries.length) { root.innerHTML = '<p class="muted">No plots found.</p>'; return; }
+  const runs = [...new Set(entries.map(e => e.run))];
+  const state = {run: runs[0], latest: true, key: null};
+  const controls = document.createElement("div");
+  controls.className = "controls";
+  const grid = document.createElement("div");
+  grid.className = "grid";
+  grid.style.setProperty("--min", minWidth + "px");
+  root.append(controls, grid);
+
+  function render() {
+    const forRun = entries.filter(e => e.run === state.run);
+    const modes = [...new Set(forRun.map(e => e.latest))];
+    if (!modes.includes(state.latest)) state.latest = modes[0];
+    const shown = forRun.filter(e => e.latest === state.latest);
+    const keys = [...new Set(shown.map(e => e.key))];
+    // start on a single parameter when singleDefault is set, otherwise on all of them
+    if (state.key === null || (state.key !== "__all__" && !keys.includes(state.key))) state.key = singleDefault ? keys[0] : "__all__";
+
+    controls.innerHTML = "";
+    if (runs.length > 1) controls.appendChild(buttonRow(runs, state.run, r => { state.run = r; render(); }));
+    if (modes.length > 1) {
+      controls.appendChild(buttonRow([true, false], state.latest, m => { state.latest = m; render(); }, m => m ? "Latest iteration" : "All iterations"));
+    }
+    const select = document.createElement("select");
+    const all = document.createElement("option");
+    all.value = "__all__"; all.textContent = "All " + keyName;
+    select.appendChild(all);
+    keys.forEach(k => { const o = document.createElement("option"); o.value = k; o.textContent = k; select.appendChild(o); });
+    select.value = state.key;
+    select.onchange = () => { state.key = select.value; render(); };
+    controls.appendChild(select);
+
+    grid.innerHTML = "";
+    shown.filter(e => state.key === "__all__" || e.key === state.key).forEach(e => grid.appendChild(plotFigure(e.file, e.key)));
+  }
+  render();
+}
+
+// Figure group: title, optional description above the plot, buttons to switch between the items (e.g. Main/Subdag) when there is more than one,
+// the plot (or plots side by side) and an optional small note below
+function makeFigureGroups(rootId, groups) {
+  const root = document.getElementById(rootId);
+  groups.forEach(group => {
+    const wrapper = document.createElement("div");
+    wrapper.className = "group";
+    root.appendChild(wrapper);
+    const title = document.createElement("h3");
+    title.textContent = group.title;
+    wrapper.appendChild(title);
+    if (group.description) {
+      const description = document.createElement("p");
+      description.className = "desc";
+      wrapper.appendChild(richText(description, group.description));
+    }
+    const holder = document.createElement("div");
+    holder.className = "single";
+    wrapper.appendChild(holder);
+    if (group.note) {
+      const note = document.createElement("p");
+      note.className = "note";
+      wrapper.appendChild(richText(note, group.note));
+    }
+    let selected = group.items[0].label;
+    function render() {
+      holder.innerHTML = "";
+      if (group.items.length > 1) {
+        const controls = document.createElement("div");
+        controls.className = "controls";
+        controls.appendChild(buttonRow(group.items.map(i => i.label), selected, l => { selected = l; render(); }));
+        holder.appendChild(controls);
+      }
+      const item = group.items.find(i => i.label === selected);
+      const files = item.files || [item.file];
+      const images = document.createElement("div");
+      if (files.length > 1) images.className = "pair";
+      files.forEach(file => {
+        const img = document.createElement("img");
+        img.src = file; img.alt = group.title;
+        img.onclick = () => openLightbox(file);
+        images.appendChild(img);
+      });
+      holder.appendChild(images);
+    }
+    render();
+  });
+}
+
+makeFigureGroups("figures-ile", MANIFEST.figures.ile);
+makeFigureGroups("figures-cip", MANIFEST.figures.cip);
+makeGallery("hist-gallery", MANIFEST.histograms, "parameters", 380, true);
+makeGallery("corner-gallery", MANIFEST.corners, "parameter sets", 560, false);
+makeFigureGroups("figures-visual", MANIFEST.figures.visual);
+</script>
+</body>
+</html>
+"""
+
+def write_html_diagnostics(save_path, diagnostics_file="Diagnostics.txt", html_file="Diagnostics.html", max_width=1600, show_paths=False):
+    """
+    Writes an html page (ILE, CIP and Visual sections) in the plots folder, using the text in Diagnostics.txt
+    and the plots that exist in the plots folder. The plots are embedded in the html file (base64), so the file is
+    self-contained and can be shared without the plots folder.
+
+    Args:
+        save_path (str): Path containing the plots folder.
+        diagnostics_file (str): Name of the text diagnostics file inside the plots folder.
+        html_file (str): Name of the html file to create inside the plots folder.
+        max_width (int): Maximum width in pixels of the embedded images, wider images are downscaled. Use 0 for full resolution.
+        show_paths (bool): If False (default), absolute paths in the ILE, CIP and Visual text are shortened to the last directory, so the file can be shared. The Run summary always keeps the full paths.
+    """
+    print("\n--> Writing HTML diagnostics.")
+    plots = save_path + "/plots"
+    sections = read_diagnostics_sections(f"{plots}/{diagnostics_file}")
+    if not show_paths:
+        # the Run summary always keeps the full paths
+        sections = {title: (text if title == "Run summary" else mask_paths(text)) for title, text in sections.items()}
+    manifest = build_plot_manifest(save_path, reference_file=f"{plots}/.run_start")
+    embed_images_in_manifest(manifest, plots, max_width=max_width)
+
+    def get_status(text, name):
+        if f"{name} status: GOOD" in text:
+            return "good", "GOOD"
+        if f"{name} status: BAD" in text:
+            return "bad", "BAD"
+        return "unknown", "UNKNOWN"
+
+    ile_text = sections.get("ILE diagnostics", "No ILE diagnostics available.")
+    cip_text = sections.get("CIP diagnostics", "No CIP diagnostics available.")
+    visual_text = sections.get("Visual diagnostics", "")
+    ile_class, ile_status = get_status(ile_text, "ILE")
+    cip_class, cip_status = get_status(cip_text, "CIP")
+
+    page = HTML_TEMPLATE
+    replacements = {
+        "__TIMESTAMP__": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "__SUMMARY__": html.escape(sections.get("Run summary", "")),
+        "__ILE_CLASS__": ile_class,
+        "__ILE_STATUS__": ile_status,
+        "__ILE_TEXT__": diagnostics_text_to_html(ile_text),
+        "__CIP_CLASS__": cip_class,
+        "__CIP_STATUS__": cip_status,
+        "__CIP_TEXT__": diagnostics_text_to_html(cip_text),
+        "__VISUAL_TEXT__": diagnostics_text_to_html(visual_text),
+        "__MANIFEST__": json.dumps(manifest),
+    }
+    for placeholder, value in replacements.items():
+        page = page.replace(placeholder, value)
+
+    with open(f"{plots}/{html_file}", "w") as f:
+        f.write(page)
+    print(f"HTML diagnostics written to {plots}/{html_file} ({os.path.getsize(f'{plots}/{html_file}')/1e6:0.1f} MB)")
 ###########################################################################################
 # Generate plots
 ###########################################################################################
 # create plots folder
 create_plots_folder(save_path)
+
+# marks the start of this run, plots older than this marker are left out of Diagnostics.html
+open(save_path + "/plots/.run_start", "w").close()
 
 # finding posterior files
 main_posterior_files, main_iterations = find_posteriors_in_main(path)
@@ -1403,6 +2085,9 @@ if len(main_posterior_files) > 7:
     limit_main_iterations = 5
     main_posterior_files, main_iterations = find_posteriors_in_main(path, limit_iterations=limit_main_iterations)
 subdag_posterior_files, subdag_iterations = find_posteriors_in_sub(path)
+
+# all.net used in all the corner plots: if there is a subdag, the larger of the main and subdag all.net
+corner_all_net_path = choose_all_net_for_corner_plots(all_net_path, find_posteriors_in_sub(path, return_subdag_folder_path=True))
 
 # plot neff
 try:
@@ -1415,10 +2100,17 @@ except Exception as e:
 
 # plot exploration corner
 try:
-    plot_exploration_corner(all_net_path)
+    plot_exploration_corner(corner_all_net_path)
 except Exception as e:
     print(e)
     print("Couldn't plot exploration corner plot")
+
+# plot number of points in lnL ranges
+try:
+    plot_lnL_points_in_ranges(all_net_path)
+except Exception as e:
+    print(e)
+    print("Couldn't plot number of points in lnL ranges")
 
 # plot sampled max lnL
 try:
@@ -1533,6 +2225,7 @@ if analyse_subdag:
 
 
     plot_histograms(subdag_posterior_files, plot_title="Subdag", iterations=subdag_iterations, JSD = False)
+    plot_histograms([subdag_posterior_files[-1]], plot_title="Subdag_Final", iterations=None, JSD = False)
 
     # plot corner plots
     if LISA:
@@ -1589,7 +2282,6 @@ if analyse_subdag:
             plot_JS_divergence(subdag_posterior_files[-1], subdag_posterior_files[-2], subdag_posterior_files[-3], "Subdag_iteration")
         except:
            print("Couldn't plot Jensen Shannon Divergence plot.") 
-    plot_JS_divergence(main_posterior_files[-1], subdag_posterior_files[-1], None, "Main_subdag_iteration") # the last main and subdag iteration
 
 run_diagnostics['run_is_complete'] = False
 if check_extrinsic_present(path):
@@ -1601,3 +2293,10 @@ if check_extrinsic_present(path):
 
 # run diagnostics
 evaluate_run(run_diagnostics)
+
+# html diagnostics (ILE, CIP and Visual sections)
+try:
+    write_html_diagnostics(save_path, max_width=opts.html_max_width, show_paths=opts.html_show_paths)
+except Exception as e:
+    print(e)
+    print("Couldn't write the HTML diagnostics file.")
