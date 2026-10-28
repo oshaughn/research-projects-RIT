@@ -824,6 +824,7 @@ def test_legacy_manual_bootstrap_missing_grid_fails_explicitly(native):
 def test_native_frame_failure_stops_before_dag_emission(native):
     from RIFT.asimov.rift import PipelineException
     n = native
+    n.production.meta["scheduler"]["osg"] = True
     original = n.cache.read_bytes()
     n.production.meta["scheduler"]["pipeline"].update({
         "use-osg": True, "use-osg-file-transfer": True,
@@ -846,6 +847,7 @@ def test_native_frame_staging_uses_ini_cache_without_late_restoration(native):
     import lal, lalframe
     from gwpy.timeseries import TimeSeries
     n = native
+    n.production.meta["scheduler"]["osg"] = True
     n.production.meta["scheduler"]["pipeline"].pop("fake-data-cache", None)
     n.production.meta["scheduler"]["pipeline"].update({
         "use-osg": True, "use-osg-file-transfer": True,
