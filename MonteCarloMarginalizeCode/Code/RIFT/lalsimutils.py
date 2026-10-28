@@ -5818,9 +5818,10 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
             x_out[indx_out] = -np.inf*np.ones( len(coord_names) ) # return negative infinity for all coordinates, if Kerr bound violated
     return x_out
 
-def convert_waveform_coordinates_with_eos(x_in,coord_names=['mc', 'eta'],low_level_coord_names=['m1','m2'],enforce_kerr=False,eos_class=None,no_matter1=False,no_matter2=False,source_redshift=0):
+def convert_waveform_coordinates_with_eos(x_in,coord_names=['mc', 'eta'],low_level_coord_names=['m1','m2'],enforce_kerr=False,eos_class=None,no_matter1=False,no_matter2=False,source_redshift=0,fref=None):
     """
     A wrapper for ChooseWaveformParams() 's coordinate tools (extract_param, assign_param) providing array-formatted coordinate changes.  BE VERY CAREFUL, because coordinates may be defined inconsistently (e.g., holding different variables constant: M and eta, or mc and q)
+    fref sets the reference frequency for frequency-dependent fit coordinates (including rf_*).
     """
     try:
         import RIFT.physics.EOSManager  as EOSManager # be careful to avoid recursive dependence!
@@ -5830,6 +5831,8 @@ def convert_waveform_coordinates_with_eos(x_in,coord_names=['mc', 'eta'],low_lev
     x_out = np.zeros( (len(x_in), len(coord_names) ) )
     for indx_out  in np.arange(len(x_in)):
         P = ChooseWaveformParams()  # fresh per row, as in convert_waveform_coordinates
+        if fref is not None:
+            P.fref = fref  # Match the reference frequency used for training coordinates.
         # WARNING UNUSUAL CONVENTION
         #   note, P.m1, P.m2 in Msun units here
         for indx in np.arange(len(low_level_coord_names)):
