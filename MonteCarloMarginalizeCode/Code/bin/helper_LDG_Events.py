@@ -236,7 +236,7 @@ parser.add_argument("--propose-fit-strategy",action='store_true',help="If presen
 from RIFT.misc import eccentric_phase_pipeline, eccentric_phase_models
 eccentric_phase_pipeline.add_arguments(parser)
 eccentric_phase_pipeline.add_helper_arguments(parser)
-parser.add_argument("--rf-transverse-spin-coordinates", choices=["off","auto","physics3","geometric4","geometric4-phase-excess"], default=None, help="Opt-in RF fitting basis: four-input geometric4; auto selects geometric4 at detector chirp mass <20 Msun. physics3 is retired and refused (11 fit coordinates for 8 degrees of freedom)")
+parser.add_argument("--rf-transverse-spin-coordinates", choices=["off","auto","physics3","geometric4","geometric4-phase-excess"], default=None, help="Opt-in: on rf CIP stages that imply s1x,s1y,s2x,s2y, imply the geometric4 chart (rf_total_perp, ...) instead, at --fref. auto selects geometric4 at detector chirp mass <20 Msun. physics3 is retired and refused")
 parser.add_argument("--propose-flat-strategy",action="store_true",help="If present AND propose-fit-strategy is present, the strategy proposed will have puffball and convergence tests for every iteration, and the same CIP")
 parser.add_argument("--propose-converge-last-stage",action="store_true",help="If present, the last pre-extrinsic stage is 'iterate to convergence' form")
 parser.add_argument("--force-fit-method",type=str,default=None,help="Force specific fit method")
@@ -1807,7 +1807,7 @@ if opts.rf_transverse_spin_coordinates:
         and not opts.assume_highq)
     helper_cip_arg_list = [stage_arguments(line, opts.rf_transverse_spin_coordinates,
         None if event_dict.get('rf_mass_is_placeholder', False) else event_dict.get('MChirp'), rf_applicable, float(rf_fref)) for line in helper_cip_arg_list]
-    rf_activated = sum('--rf-transverse-spin-coordinates ' in line for line in helper_cip_arg_list)
+    rf_activated = sum('--parameter-implied rf_total_azimuth' in line for line in helper_cip_arg_list)
     if opts.rf_transverse_spin_coordinates in ('geometric4','geometric4-phase-excess') and not rf_activated:
         raise ValueError('No complete two-spin RF stage can honor the requested RF transverse-spin option')
     print('RF transverse-spin mode {}, detector chirp mass {}, fref {}, activated stages {}'.format(

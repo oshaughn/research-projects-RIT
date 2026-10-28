@@ -123,7 +123,7 @@ def test_real_build_schedule_routes_first_batch_and_refinement(tmp_path):
     cip = (run/'args_cip_list.txt').read_text().splitlines()
     puff = (run/'args_puff_list.txt').read_text().splitlines()
     assert [x.split()[0] for x in cip] == [x.split()[0] for x in puff]
-    assert any('--rf-transverse-spin-coordinates geometric4' in x for x in cip)
+    assert any('--parameter-implied rf_total_azimuth' in x and '--rf-transverse-spin-coordinates' not in x for x in cip)
     assert '--puff-coordinate-system mu-random-transverse' in puff[0]
     assert '--reflect-parameter q --reflect-parameter s2z' in puff[0]
     assert all('--puff-coordinate-system' not in x for x in puff[1:])

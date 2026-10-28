@@ -7,6 +7,14 @@ import runpy
 import sys
 import pytest
 ROOT=Path(__file__).resolve().parents[1]
+ACTIVE='--parameter-implied rf_total_azimuth'
+CHART={'geometric4':('rf_total_perp','rf_total_azimuth','rf_residual_parallel','rf_residual_perpendicular'),
+       'geometric4-phase-excess':('rf_phase_excess','rf_total_azimuth','rf_residual_parallel','rf_residual_perpendicular')}
+
+def implied(line):
+    import shlex
+    tokens=shlex.split(line)
+    return [tokens[i+1] for i,t in enumerate(tokens[:-1]) if t=='--parameter-implied']
 
 class StageBuilt(Exception):
     pass
@@ -64,14 +72,15 @@ def test_actual_helper_top_level_policy(monkeypatch,tmp_path,mode,mc,expected):
     # XML mass roundtrips can put nominal 20 infinitesimally below the boundary.
     result=generate(monkeypatch,tmp_path,mode,mc)
     import shlex
-    active=[line for line in result['lines'] if '--rf-transverse-spin-coordinates ' in line]
+    active=[line for line in result['lines'] if ACTIVE in line]
     assert bool(active)==(expected is not None)
+    assert not any('--rf-transverse-spin-coordinates' in line for line in result['lines'])
     if expected is not None:
         assert result['fit_method']=='rf'
         for line in active:
-            tokens=shlex.split(line)
-            assert tokens[tokens.index('--rf-transverse-spin-coordinates')+1]==expected
-            for name in ['delta_mc','mu1','mu2','chiMinus','s1x','s1y','s2x','s2y']:
+            names=implied(line)
+            assert set(CHART[expected])<=set(names) and not set(names)&{'s1x','s1y','s2x','s2y'}
+            for name in ['delta_mc','mu1','mu2','chiMinus']:
                 assert name in line
             assert '--fref 35.0' in line
         assert '--reference-freq 35.0' in result['ile']
@@ -80,7 +89,7 @@ def test_actual_helper_top_level_policy(monkeypatch,tmp_path,mode,mc,expected):
 def test_actual_helper_explicit_gp_is_preserved(monkeypatch,tmp_path):
     result=generate(monkeypatch,tmp_path,'auto',10,'gp')
     assert result['fit_method']=='gp'
-    assert not any('--rf-transverse-spin-coordinates ' in line for line in result['lines'])
+    assert not any(ACTIVE in line for line in result['lines'])
 
 
 def test_actual_off_has_unchanged_generated_stages(monkeypatch,tmp_path):
@@ -104,18 +113,18 @@ def test_actual_helper_refuses_physics3(monkeypatch,tmp_path):
 def test_auto_declines_analyses_outside_the_native_basis(monkeypatch,tmp_path,extra):
     # pseudo_pipe or the helper adds fit coordinates (a6c, E0/p_phi0, tides) that geometric4 cannot carry.
     result=generate(monkeypatch,tmp_path,'auto',10,extra=extra)
-    assert not any('--rf-transverse-spin-coordinates' in line for line in result['lines'])
+    assert not any(ACTIVE in line for line in result['lines'])
 
 
 @pytest.mark.parametrize('mode',['geometric4','geometric4-phase-excess'])
 def test_actual_geometric4_helper(monkeypatch,tmp_path,mode):
     import shlex
     result=generate(monkeypatch,tmp_path,mode,25)
-    active=[shlex.split(line) for line in result['lines'] if ('--rf-transverse-spin-coordinates '+mode) in line]
+    active=[shlex.split(line) for line in result['lines'] if ACTIVE in line]
     assert active, 'Explicit geometric4 must survive actual helper generation'
     for tokens in active:
-        i=tokens.index('--rf-transverse-spin-coordinates')
-        assert tokens[i+1]==mode
+        names=[tokens[i+1] for i,t in enumerate(tokens[:-1]) if t=='--parameter-implied']
+        assert set(CHART[mode])<=set(names)
         assert float(tokens[tokens.index('--fref')+1])==35.
     assert result['fit_method']=='rf'
 
@@ -137,6 +146,20 @@ def test_actual_asimov_default_generates_geometric4(monkeypatch,tmp_path):
     parser.read_string('[policy]\n'+rendered)
     mode=parser.get('policy','rf-transverse-spin-coordinates').strip('"')
     result=generate(monkeypatch,tmp_path,mode,10)
-    active=[line for line in result['lines'] if '--rf-transverse-spin-coordinates ' in line]
+    active=[line for line in result['lines'] if ACTIVE in line]
     assert active
-    assert all('--rf-transverse-spin-coordinates geometric4 ' in line for line in active)
+    assert all('rf_total_perp' in implied(line) for line in active)
+
+
+@pytest.mark.parametrize('mode',['geometric4','auto'])
+def test_volumetric_stage_activates(monkeypatch,tmp_path,mode):
+    # --assume-volumetric-spin samples and fits s1x..s2y with --parameter on the precessing stage.
+    import shlex
+    result=generate(monkeypatch,tmp_path,mode,10,extra=['--assume-volumetric-spin'])
+    active=[shlex.split(line) for line in result['lines'] if ACTIVE in line]
+    assert active
+    for tokens in active:
+        fitted=[tokens[i+1] for i,t in enumerate(tokens[:-1]) if t=='--parameter']
+        nofit=[tokens[i+1] for i,t in enumerate(tokens[:-1]) if t=='--parameter-nofit']
+        assert not set(('s1x','s1y','s2x','s2y'))&set(fitted)
+        assert set(('s1x','s1y','s2x','s2y'))<=set(nofit)

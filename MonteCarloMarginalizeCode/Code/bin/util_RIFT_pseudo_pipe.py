@@ -1357,13 +1357,10 @@ if opts.internal_use_amr:
 
 # Final CIP lines, from any route (e.g. --manual-extra-cip-args), must not carry a
 # retired RF mode; fail here rather than in every CIP job after ILE.
-from RIFT.misc.rf_transverse_spin import retired_problem, revalidate_stage
+from RIFT.misc.rf_transverse_spin import retired_problem
 for line in lines:
     if retired_problem(line):
         raise ValueError(retired_problem(line))
-if opts.rf_transverse_spin_coordinates or any('--rf-transverse-spin-coordinates' in line for line in lines):
-    # The edits above can remove the RF basis from a stage the helper activated
-    lines = [revalidate_stage(line) for line in lines]
 
 if eccentric_phase_pipeline.requested(opts):
     eccentric_phase_build=eccentric_phase_policy.finalize_map(opts,eccentric_phase_build,lines)
