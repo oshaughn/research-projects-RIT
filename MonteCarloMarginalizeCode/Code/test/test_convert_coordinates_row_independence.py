@@ -83,3 +83,49 @@ def test_eos_rows_are_independent():
     assert np.isfinite(got).all()
     perm = rng.permutation(N)
     np.testing.assert_array_equal(lsu.convert_waveform_coordinates_with_eos(x_in[perm], **kw), got[perm])
+
+
+@pytest.mark.parametrize('mode', ['geometric4', 'geometric4-phase-excess'])
+@pytest.mark.parametrize('z', [0., .3])
+@pytest.mark.parametrize('frequency', [17., 43.])
+@pytest.mark.parametrize('entry', ['converter', 'cip'])
+def test_eos_rf_training_matches_prediction(mode, z, frequency, entry):
+    """EOS prediction must use the same detector-frame chart and fref as training."""
+    import ast
+    from pathlib import Path
+    from types import SimpleNamespace
+    from RIFT.misc import rf_transverse_spin
+
+    low = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z']
+    names = ['m1', 'm2', 'lambda1', 'lambda2'] + list(rf_transverse_spin.geometric_names(mode))
+    x = np.array([[1.4, 1.2, .1, -.2, .3, -.2, .1, -.1],
+                  [1.7, 1.1, -.3, .1, -.2, .2, -.1, .4]])
+    eos = _StubEOS()
+    if entry == 'converter':
+        got = lsu.convert_waveform_coordinates_with_eos(
+            x, coord_names=names, low_level_coord_names=low, eos_class=eos,
+            source_redshift=z, fref=frequency)
+    else:
+        # Execute CIP's actual EOS branch so a converter-only fix cannot pass.
+        source = Path(__file__).resolve().parents[1] / 'bin/util_ConstructIntrinsicPosterior_GenericCoordinates.py'
+        blocks = [n for n in ast.parse(source.read_text()).body
+                  if isinstance(n, ast.If) and ast.unparse(n.test) == 'not opts.using_eos'
+                  and any(isinstance(b, ast.FunctionDef) and b.name == 'convert_coords' for b in n.orelse)]
+        assert len(blocks) == 1
+        ns = dict(opts=SimpleNamespace(using_eos=True, fref=frequency, no_matter1=False,
+                                      no_matter2=False, downselect_enforce_kerr=False),
+                  lalsimutils=lsu, coord_names=names, low_level_coord_names=low,
+                  my_eos=eos, source_redshift=z)
+        exec(compile(ast.Module(body=blocks, type_ignores=[]), str(source), 'exec'), ns)
+        got = ns['convert_coords'](x)
+
+    expected = []
+    for row in x:
+        p = lsu.ChooseWaveformParams(fref=frequency)
+        p.m1, p.m2 = row[:2] * lsu.lal.MSUN_SI * (1 + z)
+        p.s1x, p.s1y, p.s1z, p.s2x, p.s2y, p.s2z = row[2:]
+        # The EOS is evaluated on source masses, before detector-frame redshift.
+        p.lambda1, p.lambda2 = [eos.lambda_from_m(m * lsu.lal.MSUN_SI) for m in row[:2]]
+        expected.append([p.m1 / lsu.lal.MSUN_SI, p.m2 / lsu.lal.MSUN_SI,
+                         p.lambda1, p.lambda2] + [p.extract_param(n) for n in names[4:]])
+    np.testing.assert_allclose(got, expected, rtol=1e-12, atol=1e-14)
