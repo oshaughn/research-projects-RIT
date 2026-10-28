@@ -1099,6 +1099,14 @@ with open ("helper_test_args.txt",'r') as f:
 with open("helper_cip_arg_list.txt",'r') as f:
         raw_lines = f.readlines()
 
+# RF transverse opt-in: the helper may switch an unforced fit to rf. Build the DAG as an
+# explicit --cip-fit-method rf run (flat CIP workers).
+if opts.rf_transverse_spin_coordinates and opts.cip_fit_method is None and any(
+        '--fit-method rf' in ' '.join(line.split()) for line in raw_lines):
+    opts.cip_fit_method = 'rf'
+    npts_it *= 2  # as for explicit rf, above
+    print(" RF transverse-spin: helper selected rf; building as --cip-fit-method rf ")
+
 # MODIFY EXPLODE REQUEST
 if opts.cip_explode_jobs_auto and event_dict["SNR"]:
     snr = event_dict["SNR"]
