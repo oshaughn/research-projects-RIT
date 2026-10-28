@@ -434,20 +434,121 @@ class Rift(Pipeline):
 
         pass
 
+    def _require_fresh_rundir(self, dryrun=False):
+        """Reject occupied paths before any adapter writes; mkdir remains atomic.
+
+        No directory, even an empty/provenance-only one, is adopted. lexists
+        also rejects dangling symlinks. No ownership marker grants permission.
+        A refusal marks the production stuck: Asimov leaves a production ready
+        after a transient submit failure, and would otherwise retry forever.
+        """
+        rundir = self.production.rundir or os.path.join(
+            os.path.expanduser("~"), self.production.event.name, self.production.name
+        )
+        rundir = os.path.abspath(os.path.expanduser(rundir))
+        if not dryrun:
+            self.production.rundir = rundir
+        if os.path.lexists(rundir):
+            if not dryrun:
+                self.production.status = "stuck"
+            raise PipelineException(
+                f"RIFT run directory already exists: {rundir}. Choose a fresh "
+                "run directory; existing runs are never overwritten.",
+                production=self.production.name,
+            )
+
+    def _capture_build_environment(self):
+        """Capture at the final location, and fail closed on ASIMOV 0.8 errors.
+
+        ASIMOV catches capture errors internally. Do not let stale ledger
+        metadata turn such an error into a successful build without provenance.
+        Older supported ASIMOV versions have a no-op base hook.
+        """
+        if callable(getattr(Pipeline, "_capture_environment", None)):
+            for name in ("environment.json", "environment-pip.txt", "environment-conda.txt"):
+                if os.path.lexists(os.path.join(self.production.rundir, name)):
+                    raise PipelineException(
+                        f"Refusing to replace build provenance: {name}",
+                        production=self.production.name,
+                    )
+            environment = self.production.meta.setdefault("environment", {})
+            environment.pop("files", None)
+            environment.pop("captured_at", None)
+            # ASIMOV caches package lists per process, including a timed-out
+            # pip freeze (None). Retry it rather than fail every later build.
+            try:
+                from asimov import environment as asimov_environment
+                cache = asimov_environment._PACKAGE_CACHE
+            except (ImportError, AttributeError):
+                cache = {}
+            for key, packages in list(cache.items()):
+                if packages.get("pip_packages") is None:
+                    del cache[key]
+        super().before_config(dryrun=False)
+        if callable(getattr(Pipeline, "_capture_environment", None)):
+            environment = self.production.meta.get("environment", {})
+            files = environment.get("files", {})
+            valid = (environment.get("captured_at") is True
+                     and any(key in files for key in ("pip", "conda"))
+                     and files.get("metadata") == os.path.join(
+                         self.production.rundir, "environment.json"))
+            for filename in files.values():
+                path = Path(filename)
+                valid = valid and (path.parent == Path(self.production.rundir)
+                                   and path.is_file() and not path.is_symlink()
+                                   and path.stat().st_size > 0)
+            if not valid:
+                self.production.status = "stuck"
+                raise PipelineException(
+                    "RIFT workflow was generated but environment capture failed. "
+                    "Retaining partial output; retry with a fresh run directory.",
+                    production=self.production.name,
+                )
+
+    def _validate_builder_paths(self, ini):
+        """Keep the native builder and deferred provenance on the same path."""
+        options = self.production.meta.get("scheduler", {}).get("pipeline", {})
+        for key in options:
+            if any(option.startswith(key.partition("=")[0].replace("_", "-"))
+                   for option in ("use-rundir", "use-ini", "help")):
+                raise PipelineException(
+                    f"scheduler.pipeline.{key} is owned by Asimov and cannot be overridden",
+                    production=self.production.name,
+                )
+        # Parse as the builder does (case-sensitive keys), so a valid INI is
+        # never rejected and a parse failure is a PipelineException.
+        settings = configparser.ConfigParser(interpolation=None)
+        settings.optionxform = str
+        try:
+            settings.read(ini)
+        except configparser.Error as error:
+            raise PipelineException(
+                f"Unable to read INI {ini}: {error}",
+                production=self.production.name,
+            ) from error
+        if settings.has_section("rift-pseudo-pipe"):
+            for key in settings["rift-pseudo-pipe"]:
+                if key.replace("_", "-") in ("use-rundir", "use-ini"):
+                    raise PipelineException(
+                        f"INI {key} is owned by Asimov and cannot be overridden",
+                        production=self.production.name,
+                    )
+
     def before_config(self, dryrun=False):
         """
         - Convert the text-based PSD to an XML psd if the xml doesn't exist already.
         - Find bilby ini file (needed for calmarg)
         - Find all-event priors and copy to production, overwriting
         """
-        # ASIMOV 0.8 captures the execution environment in this hook. Keep
-        # calling the base implementation so provenance is not silently lost;
-        # older supported ASIMOV releases implement this as a no-op.
-        super().before_config(dryrun=dryrun)
+        # ASIMOV 0.8's base hook creates rundir for environment capture.
+        # The native builder must own its atomic mkdir, so defer that hook
+        # until a successful build instead of adopting an existing directory.
+        self._require_fresh_rundir(dryrun=dryrun)
 
         event = self.production.event
         category = config.get("general", "calibration_directory")
-        self._prepare_frame_caches()
+        if not dryrun:
+            self._prepare_frame_caches()
         # XML PSDs
         self.logger.info("Checking for XML format PSDs")
         if len(self._get_psds("xml")) == 0 and "psds" in self.production.meta:
@@ -557,6 +658,7 @@ class Rift(Pipeline):
 
 
         """
+        self._require_fresh_rundir(dryrun=dryrun)
         self.before_build()
         cwd = os.getcwd()
         if self.production.event.repository:
@@ -595,6 +697,8 @@ class Rift(Pipeline):
         else:
             ini = "INI MISSING"
             coinc_file = os.path.join(cwd, "coinc.xml")
+
+        self._validate_builder_paths(ini)
 
         if self.production.get_meta("user"):
             user = self.production.get_meta("user")
@@ -791,7 +895,7 @@ class Rift(Pipeline):
                 out, err = pipe.communicate()
                 # very large amount of information for asimov log !
                 self.logger.info(out)
-                if err:
+                if pipe.returncode != 0:
                     self.production.status = "stuck"
                     if hasattr(self.production.event, "issue_object"):
                         self.logger.info(out) #, production=self.production)
@@ -810,13 +914,18 @@ class Rift(Pipeline):
                         )
                 else:
                     dagfile = os.path.join(rundir,'marginalize_intrinsic_parameters_BasicIterationWorkflow.dag')
-                    if not(os.path.exists(dagfile)):
+                    if not (os.path.isfile(dagfile) and not os.path.islink(dagfile)
+                            and os.path.getsize(dagfile) > 0):
                         self.production.status = "stuck"
                         self.logger.info(out) #, production=self.production)
                         self.logger.error(err) # , production=self.production)
                         raise PipelineException(f"DAG file could not be created.\n{command}\n{out}\n\n{err}",
                             production=self.production.name,
                         )
+                    # Capture directly at the final location only after this
+                    # invocation succeeded at the builder's fresh-directory guard.
+                    # Never capture on a failed builder, even if a stale DAG exists.
+                    self._capture_build_environment()
                     if self.production.event.repository:
                         # with set_directory(os.path.abspath(self.production.rundir)):
                         self._stage_xml_psds(rundir=rundir)

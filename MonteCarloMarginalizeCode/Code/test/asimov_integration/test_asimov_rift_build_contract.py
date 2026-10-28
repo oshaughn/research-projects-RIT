@@ -166,8 +166,17 @@ def test_rift_build_dag_uses_frozen_inputs(monkeypatch, tmp_path):
     monkeypatch.setattr(rift_module.config, "get", fake_config_get)
 
     calls = []
+    real_popen = rift_module.subprocess.Popen
 
     class FakePopen:
+        returncode = 0
+        def __new__(cls, command, *args, **kwargs):
+            # Only the builder is faked; Asimov's provenance capture (pip
+            # freeze) shares this subprocess module and must stay real.
+            if not str(command[0]).endswith("util_RIFT_pseudo_pipe.py"):
+                return real_popen(command, *args, **kwargs)
+            return super().__new__(cls)
+
         def __init__(self, command, stdout=None, stderr=None):
             self.command = command
             calls.append(command)
