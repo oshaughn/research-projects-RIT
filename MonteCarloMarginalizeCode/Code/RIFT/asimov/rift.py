@@ -458,6 +458,12 @@ class Rift(Pipeline):
                 production=self.production.name,
             )
 
+    def _bootstrap_source_requested(self):
+        """A nonempty file wins; false/missing upstream and empty files are disabled."""
+        scheduler = self.production.meta.get("scheduler", {})
+        return (bool(scheduler.get("bootstrap file"))
+                or bool(scheduler.get("bootstrap upstream", False)))
+
     def _bootstrap_coinc_requested(self):
         scheduler = self.production.meta.get("scheduler", {})
         requested = scheduler.get("bootstrap coinc", False)
@@ -466,7 +472,7 @@ class Rift(Pipeline):
                 "scheduler.bootstrap coinc must be a YAML boolean",
                 production=self.production.name,
             )
-        if requested and not any(key in scheduler for key in ("bootstrap file", "bootstrap upstream")):
+        if requested and not self._bootstrap_source_requested():
             raise PipelineException(
                 "bootstrap coinc requires a configured bootstrap source",
                 production=self.production.name,
@@ -562,7 +568,7 @@ class Rift(Pipeline):
         options = self.production.meta.get("scheduler", {}).get("pipeline", {})
         scheduler = self.production.meta.get("scheduler", {})
         bootstrap_paths = ("use-coinc",) if scheduler.get("bootstrap coinc") is True else ()
-        if self.bootstrap == "manual" or any(key in scheduler for key in ("bootstrap file", "bootstrap upstream")):
+        if self.bootstrap == "manual" or self._bootstrap_source_requested():
             bootstrap_paths += ("manual-initial-grid",)
         for key in options:
             if any(option.startswith(key.partition("=")[0].replace("_", "-"))
@@ -853,8 +859,7 @@ class Rift(Pipeline):
                 f"{self.production.name}_bootstrap.xml.gz")
         # Generate initial samples, based on previous PE results (or an
         # explicitly-specified posterior, via scheduler: bootstrap file:)
-        if ('bootstrap upstream' in self.production.meta['scheduler']
-                or 'bootstrap file' in self.production.meta['scheduler']):
+        if self._bootstrap_source_requested():
             # get posterior file
             posterior_file = self._find_posterior()
             if not posterior_file:

@@ -60,6 +60,11 @@ lookup can write coinc.xml in its caller's working directory).
 Native bootstrap input binding
 ------------------------------
 
+A false or missing scheduler.bootstrap upstream flag does not request a
+posterior bootstrap or reserve an INI manual grid. Null/empty optional bootstrap
+file fields are also disabled. A nonempty explicit bootstrap file still requests
+conversion even when upstream bootstrap is disabled.
+
 Configured posterior bootstraps are converted directly into a new private input
 directory for each build invocation. The selected manual grid and, when
 scheduler.bootstrap coinc is explicitly true, the selected coincidence file
