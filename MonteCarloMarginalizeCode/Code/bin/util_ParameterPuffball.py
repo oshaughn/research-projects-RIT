@@ -340,7 +340,13 @@ if opts.eccentric_phase_coordinates:
                             for name in names_downselect] for p in P_list])
 else:
     X_native = X_out
-    x_out_down = lalsimutils.convert_waveform_coordinates(X_out, coord_names=names_downselect, low_level_coord_names=coord_names)
+    X_out_wrapped = X_out.copy()
+    for indx, name in enumerate(coord_names):
+        if name in lalsimutils.periodic_params:
+            X_out_wrapped[:,indx] = np.mod(X_out_wrapped[:,indx], lalsimutils.periodic_params[name])
+            if name in downselect_dict:
+                print(" Downselect range {} on the periodic parameter {} is applied to the angle wrapped into [0,{:.4f}) ".format(downselect_dict[name], name, lalsimutils.periodic_params[name]))
+    x_out_down = lalsimutils.convert_waveform_coordinates(X_out_wrapped, coord_names=names_downselect, low_level_coord_names=coord_names)
 indx_ok = np.ones(len(x_out_down),dtype=bool)
 if opts.eccentric_phase_coordinates:
     indx_ok &= np.all(np.isfinite(X_native),axis=1)
