@@ -882,12 +882,15 @@ def test_native_frame_staging_uses_ini_cache_without_late_restoration(native):
         assert (path.read_bytes(), path.stat().st_mtime_ns) == snapshot
 
 
-@pytest.mark.parametrize("upstream", ["missing", False])
-def test_disabled_upstream_bootstrap_preserves_native_manual_grid(native, upstream):
+@pytest.mark.parametrize("selection", [
+    {}, {"bootstrap upstream": False},
+    {"bootstrap upstream": False, "bootstrap file": None},
+    {"bootstrap upstream": False, "bootstrap file": ""},
+], ids=["missing", "disabled", "disabled-null-file", "disabled-empty-file"])
+def test_disabled_upstream_bootstrap_preserves_native_manual_grid(native, selection):
     n = native
     n.production.meta["scheduler"].pop("bootstrap upstream", None)
-    if upstream is False:
-        n.production.meta["scheduler"]["bootstrap upstream"] = False
+    n.production.meta["scheduler"].update(selection)
     before = n.coinc.read_bytes(), n.coinc.stat().st_mtime_ns
     n.pipe.before_config()
     n.configure()
@@ -917,10 +920,13 @@ def test_disabled_upstream_does_not_disable_explicit_native_bootstrap_file(nativ
     assert list(n.coinc.parent.glob(".rift-bootstrap-coinc-*"))
 
 
-def test_disabled_upstream_cannot_satisfy_requested_bootstrap_coincidence(native):
+@pytest.mark.parametrize("file_value", ["missing", None, ""])
+def test_disabled_upstream_cannot_satisfy_requested_bootstrap_coincidence(native, file_value):
     from RIFT.asimov.rift import PipelineException
     n = native
     n.production.meta["scheduler"].update({"bootstrap upstream": False, "bootstrap coinc": True})
+    if file_value != "missing":
+        n.production.meta["scheduler"]["bootstrap file"] = file_value
     before = _snapshot(n.root)
     with pytest.raises(PipelineException, match="configured bootstrap source"):
         n.pipe.build_dag()

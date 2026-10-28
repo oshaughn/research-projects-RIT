@@ -459,9 +459,9 @@ class Rift(Pipeline):
             )
 
     def _bootstrap_source_requested(self):
-        """An explicit file wins; a false/missing upstream flag is disabled."""
+        """A nonempty file wins; false/missing upstream and empty files are disabled."""
         scheduler = self.production.meta.get("scheduler", {})
-        return ("bootstrap file" in scheduler
+        return (bool(scheduler.get("bootstrap file"))
                 or bool(scheduler.get("bootstrap upstream", False)))
 
     def _bootstrap_coinc_requested(self):
