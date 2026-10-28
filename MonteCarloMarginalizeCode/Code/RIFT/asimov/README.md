@@ -60,23 +60,24 @@ replace the physical prior.
 
 The earlier `physics3` mode is retired and refused at every layer. It appended
 three scalar features to the eight native coordinates, so CIP fit 11
-coordinates for 8 degrees of freedom. This RF transverse mode requires a nonredundant fit basis. Other CIP
-configurations, including matter fits, can use more fit features than sampled
-coordinates.
+coordinates for 8 degrees of freedom.
 
-If a pipeline option later rewrites an activated stage so that it no longer
-fits the native basis (`--cip-internal-use-eta-in-sampler`,
-`--use-quadratic-early`), the DAG build fails; set the option to `off`.
+The chart is computed from physical masses and spins, so pipeline options that
+later rewrite the sampling coordinates (`--cip-internal-use-eta-in-sampler`,
+`--use-quadratic-early`) do not conflict with it.
 
 ### Four-input Geometric4 chart
 
 Set `sampler.cip.transverse spin coordinates: "geometric4"` (or pass
 `--rf-transverse-spin-coordinates geometric4` to the helper/pipeline).
-This replaces the four Cartesian transverse *fitting* inputs by total transverse
-angular-momentum radius `|S_perp|/M^2`, total-spin azimuth in the L plane, and two signed
-sum-frame residuals. It requires exactly the native eight-coordinate RF basis
-`delta_mc, mu1, mu2, chiMinus, s1x, s1y, s2x, s2y`; reduced stages remain
-unchanged. No physical sampling coordinate, prior, waveform, frame or Jacobian
+On each RF stage that fits all four of s1x, s1y, s2x, s2y, this replaces those
+*fitting* inputs. The new inputs are the total transverse radius `|S_perp|/M^2`,
+the total-spin azimuth in the L plane, and two signed sum-frame residuals.
+Other stages remain unchanged. The chart names (`rf_total_perp`,
+`rf_total_azimuth`, `rf_residual_parallel`, `rf_residual_perpendicular`,
+`rf_phase_excess`) are ordinary CIP coordinates: name them with
+`--parameter-implied` and set `--fref`. CIP's `--rf-transverse-spin-coordinates`
+is a deprecated alias that only renames implied s1x, s1y, s2x, s2y. No physical sampling coordinate, prior, waveform, frame or Jacobian
 changes. Zero total transverse spin uses azimuth zero, and the angular seam
 remains; near zero total transverse spin the two residuals also flip sign with the azimuth.
 At detector chirp mass of 20 or more, enabling either mode also switches every
