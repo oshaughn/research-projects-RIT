@@ -2,7 +2,8 @@
 
 The Production below supplies only persistence/lookup interfaces. No pipeline
 hook, provenance writer, builder subprocess, directory guard or generated file is
-mocked. Run with the branch installed (including its bin scripts) in the selected
+mocked in the native success and concurrency tests. Separate negative contract
+tests inject explicit builder/capture/converter failures. Run with the branch installed (including its bin scripts) in the selected
 Asimov 0.8 environment. These tests generate workflows; they never submit jobs.
 """
 from contextlib import contextmanager
@@ -583,3 +584,299 @@ def test_builder_ini_parsing_matches_builder(native):
     from RIFT.asimov.rift import PipelineException
     with pytest.raises(PipelineException, match="Unable to read INI"):
         n.pipe._validate_builder_paths(str(n.ini))
+
+
+def test_real_native_q2_configuration_reaches_workers_at_4096_hz(native):
+    import shlex
+    n = native
+    n.production.meta["likelihood"]["sample rate"] = 4096
+    n.production.meta["sampler"]["ile"]["q time pregrid factor"] = 2
+    n.pipe.before_config()
+    n.configure()
+    assert not n.run.exists()
+    n.pipe.build_dag()
+    args = shlex.split((n.run / "args_ile.txt").read_text())
+    assert float(args[args.index("--srate") + 1]) == 4096
+    assert args[args.index("--q-time-pregrid-factor") + 1] == "2"
+    assert "--srate-internal" not in args
+    assert "--time-marginalization" in args and "--vectorized" in args and "--gpu" in args
+    submits = list(n.run.glob("ILE*.sub"))
+    assert submits and (n.run / DAG).is_file()
+    for path in submits:
+        assert "--q-time-pregrid-factor 2" in path.read_text(), path
+    assert n.production.meta["environment"]["captured_at"] is True
+
+
+def _native_bootstrap_source(n):
+    import h5py
+    import numpy as np
+    columns = ("mass_1", "mass_2", "chirp_mass", "luminosity_distance",
+               "geocent_time", "iota", "psi", "ra", "dec", "phase",
+               "spin_1x", "spin_1y", "spin_1z", "spin_2x", "spin_2y", "spin_2z")
+    samples = np.zeros(2, dtype=[(name, float) for name in columns])
+    samples["mass_1"] = 25
+    samples["mass_2"] = 20
+    samples["chirp_mass"] = (25*20)**.6 / 45**.2
+    samples["luminosity_distance"] = 400
+    samples["geocent_time"] = n.production.meta["event time"]
+    samples["iota"] = .5
+    source = n.root / "bootstrap-input.h5"
+    with h5py.File(source, "w") as handle:
+        handle.create_group("native").create_dataset("posterior_samples", data=samples)
+    n.production.meta["scheduler"].update({"bootstrap file": str(source), "bootstrap size": 2})
+    n.production.meta["sampler"].pop("manual grid", None)
+    n.production.meta["priors"]["chirp mass"].update(minimum=10, maximum=50)
+    return source
+
+
+@pytest.mark.parametrize("requested", [None, False, True])
+def test_native_bootstrap_binds_final_coincidence_and_preserves_initial_input(native, requested):
+    from RIFT import lalsimutils
+    import lal
+    from igwn_ligolw import lsctables, utils
+    n = native
+    _native_bootstrap_source(n)
+    if requested is not None:
+        n.production.meta["scheduler"]["bootstrap coinc"] = requested
+    initial = n.root / "repo/analyses/coinc.xml"
+    initial.parent.mkdir()
+    shutil.copy2(n.coinc, initial)
+    old = initial.read_bytes(), initial.stat().st_mtime_ns
+    initial_row = lsctables.SnglInspiralTable.get_table(utils.load_filename(
+        str(initial), contenthandler=lalsimutils.cthdler))[0]
+    original_mass = initial_row.mass1
+    category_before = n.coinc.read_bytes(), n.coinc.stat().st_mtime_ns
+    # The repository is project-relative; the real builder changes cwd.
+    n.production.event.repository.directory = "repo"
+    n.production.get_coincfile = lambda: "repo/analyses/coinc.xml"
+    work = n.root / "work"
+    work.mkdir()
+    n.production.event.work_dir = str(work)
+    n.pipe.before_config()
+    n.configure()
+    n.pipe.build_dag()
+    assert (initial.read_bytes(), initial.stat().st_mtime_ns) == old
+    target = lalsimutils.xml_to_ChooseWaveformParams_array(str(n.run / "target_params.xml.gz"))[0]
+    if requested is True:
+        assert target.m1 / lal.MSUN_SI == pytest.approx(25, abs=1e-4)
+        assert target.m2 / lal.MSUN_SI == pytest.approx(20, abs=1e-4)
+        import shlex
+        args = shlex.split((n.run / "args_ile.txt").read_text())
+        assert float(args[args.index("--event-time") + 1]) == pytest.approx(
+            n.production.meta["event time"], abs=2e-6)
+    else:
+        assert target.m1 / lal.MSUN_SI == pytest.approx(original_mass, abs=1e-4)
+        assert (n.coinc.read_bytes(), n.coinc.stat().st_mtime_ns) == category_before
+    assert (n.run / DAG).is_file()
+
+
+@pytest.mark.parametrize("value", ["False", "true", 0, 1, None])
+def test_bootstrap_coincidence_requires_explicit_boolean(native, value):
+    from RIFT.asimov.rift import PipelineException
+    n = native
+    n.production.meta["scheduler"]["bootstrap coinc"] = value
+    before = _snapshot(n.root)
+    with pytest.raises(PipelineException, match="YAML boolean"):
+        n.pipe.build_dag()
+    assert not n.run.exists() and _snapshot(n.root) == before
+
+
+@pytest.mark.parametrize("source", ["absent", "unresolved"])
+def test_requested_bootstrap_coincidence_cannot_use_stale_input_without_source(native, source):
+    from RIFT.asimov.rift import PipelineException
+    n = native
+    n.production.meta["scheduler"]["bootstrap coinc"] = True
+    if source == "unresolved":
+        n.production.meta["scheduler"]["bootstrap upstream"] = True
+        n.production.meta["sampler"].pop("manual grid", None)
+        n.configure()
+    before = n.coinc.read_bytes(), n.coinc.stat().st_mtime_ns
+    with pytest.raises(PipelineException, match="bootstrap source"):
+        n.pipe.build_dag()
+    assert not n.run.exists()
+    assert (n.coinc.read_bytes(), n.coinc.stat().st_mtime_ns) == before
+
+
+@pytest.mark.parametrize("failure", ["nonzero", "missing", "invalid-xml"])
+def test_native_bootstrap_conversion_failure_never_selects_stale_coincidence(native, monkeypatch, failure):
+    from RIFT.asimov import rift
+    from RIFT.asimov.rift import PipelineException
+    n = native
+    _native_bootstrap_source(n)
+    n.production.meta["scheduler"]["bootstrap coinc"] = True
+    n.pipe.before_config()
+    n.configure()
+    before = n.coinc.read_bytes(), n.coinc.stat().st_mtime_ns
+    real_run = rift.subprocess.run
+    def fail_only_coincidence(command, *args, **kwargs):
+        if Path(command[0]).name != "util_SimInspiralToCoinc.py":
+            return real_run(command, *args, **kwargs)
+        if failure != "missing":
+            Path(command[command.index("--output") + 1]).write_text("<invalid/>")
+        return subprocess.CompletedProcess(command, 1 if failure == "nonzero" else 0, stdout="injected conversion result")
+    monkeypatch.setattr(rift.subprocess, "run", fail_only_coincidence)
+    with pytest.raises(PipelineException, match="coincidence conversion failed"):
+        n.pipe.build_dag()
+    assert not n.run.exists()
+    assert (n.coinc.read_bytes(), n.coinc.stat().st_mtime_ns) == before
+    assert not list(n.coinc.parent.glob(".rift-bootstrap-coinc-*"))
+
+
+@pytest.mark.parametrize("coincidence", [False, True])
+def test_native_bootstrap_dryrun_creates_no_grid_coincidence_or_run(native, capsys, coincidence):
+    n = native
+    _native_bootstrap_source(n)
+    n.production.meta["scheduler"]["bootstrap coinc"] = coincidence
+    n.configure()
+    before = _snapshot(n.root)
+    n.pipe.build_dag(dryrun=True)
+    preview = capsys.readouterr().out
+    assert "<new-private-bootstrap-grid>" in preview
+    if coincidence:
+        assert "<new-private-bootstrap-input>" in preview
+    assert not n.run.exists() and _snapshot(n.root) == before
+
+
+@pytest.mark.parametrize("key", ["use-coinc", "use-coi", "use-coinc=/tmp/other.xml"])
+def test_bootstrap_coincidence_cannot_be_redirected_after_native_selection(native, key):
+    from RIFT.asimov.rift import PipelineException
+    n = native
+    _native_bootstrap_source(n)
+    n.production.meta["scheduler"].update({"bootstrap coinc": True})
+    n.production.meta["scheduler"]["pipeline"][key] = True
+    n.configure()
+    with pytest.raises(PipelineException, match="owned by Asimov"):
+        n.pipe.build_dag()
+    assert not n.run.exists()
+
+
+def test_bootstrap_coincidence_inputs_remain_private_across_invocations(native):
+    from RIFT import lalsimutils
+    import lal
+    n = native
+    inputs = []
+    for mass in (25, 35):
+        point = lalsimutils.ChooseWaveformParams()
+        point.m1, point.m2 = mass * lal.MSUN_SI, 20 * lal.MSUN_SI
+        point.fref = point.fmin = 20
+        point.tref = n.production.meta["event time"]
+        stem = n.root / ("grid-" + str(mass))
+        lalsimutils.ChooseWaveformParams_array_to_xml([point], fname=str(stem), fref=20.)
+        path = Path(n.pipe._convert_bootstrap_coinc(str(stem)+".xml.gz", sys.prefix))
+        inputs.append((path, path.read_bytes()))
+    assert inputs[0][0] != inputs[1][0]
+    for path, content in inputs:
+        assert path.read_bytes() == content
+    from igwn_ligolw import lsctables, utils
+    for (path, _), mass in zip(inputs, (25, 35)):
+        rows = lsctables.SnglInspiralTable.get_table(utils.load_filename(
+            str(path), contenthandler=lalsimutils.cthdler))
+        assert rows[0].mass1 == pytest.approx(mass, abs=1e-4)
+
+
+@pytest.mark.parametrize("key", ["manual-initial-grid", "manual-init", "manual_initial_grid"])
+def test_native_bootstrap_rejects_competing_grid_selection(native, key):
+    from RIFT.asimov.rift import PipelineException
+    n = native
+    _native_bootstrap_source(n)
+    n.production.meta["scheduler"]["pipeline"][key] = "/tmp/foreign.xml.gz"
+    n.configure()
+    with pytest.raises(PipelineException, match="owned by Asimov"):
+        n.pipe.build_dag()
+    assert not n.run.exists()
+
+
+def test_native_bootstrap_rejects_competing_ini_grid_selection(native):
+    from RIFT.asimov.rift import PipelineException
+    n = native
+    _native_bootstrap_source(n)
+    n.production.meta["sampler"]["manual grid"] = str(n.root / "seed.xml.gz")
+    n.configure()
+    with pytest.raises(PipelineException, match="owned by Asimov"):
+        n.pipe.build_dag()
+    assert not n.run.exists()
+
+
+def test_legacy_manual_bootstrap_uses_existing_readonly_grid(native):
+    n = native
+    target = n.coinc.parent / (n.production.name + "_bootstrap.xml.gz")
+    shutil.copy2(n.root / "seed.xml.gz", target)
+    before = target.read_bytes(), target.stat().st_mtime_ns
+    n.production.meta["sampler"].pop("manual grid", None)
+    n.pipe.bootstrap = "manual"
+    n.configure()
+    n.pipe.build_dag()
+    assert (target.read_bytes(), target.stat().st_mtime_ns) == before
+    assert (n.run / DAG).is_file()
+
+
+def test_legacy_manual_bootstrap_missing_grid_fails_explicitly(native):
+    from RIFT.asimov.rift import PipelineException
+    n = native
+    n.pipe.bootstrap = "manual"
+    n.production.meta["sampler"].pop("manual grid", None)
+    n.configure()
+    with pytest.raises(PipelineException, match="Manual bootstrap grid is missing"):
+        n.pipe.build_dag()
+    assert not n.run.exists()
+
+
+def test_native_frame_failure_stops_before_dag_emission(native):
+    from RIFT.asimov.rift import PipelineException
+    n = native
+    n.production.meta["scheduler"]["osg"] = True
+    original = n.cache.read_bytes()
+    n.production.meta["scheduler"]["pipeline"].update({
+        "use-osg": True, "use-osg-file-transfer": True,
+        "internal-truncate-files-for-osg-file-transfer": True,
+    })
+    n.pipe.before_config()
+    n.configure()
+    with pytest.raises(PipelineException):
+        n.pipe.build_dag()
+    assert n.run.is_dir()
+    assert not (n.run / DAG).exists()
+    assert not (n.run / "ILE.sub").exists()
+    assert n.cache.read_bytes() == original
+    assert not (n.run / "frames_dir").exists()
+
+
+def test_native_frame_staging_uses_ini_cache_without_late_restoration(native):
+    import math
+    import numpy as np
+    import lal, lalframe
+    from gwpy.timeseries import TimeSeries
+    n = native
+    n.production.meta["scheduler"]["osg"] = True
+    n.production.meta["scheduler"]["pipeline"].pop("fake-data-cache", None)
+    n.production.meta["scheduler"]["pipeline"].update({
+        "use-osg": True, "use-osg-file-transfer": True,
+        "internal-truncate-files-for-osg-file-transfer": True,
+    })
+    caches = {}
+    originals = {}
+    start = math.floor(n.production.meta["event time"]) - 48
+    for ifo in n.production.meta["interferometers"]:
+        channel = ifo + ":" + n.production.meta["data"]["channels"][ifo].removeprefix(ifo + ":")
+        path = n.root / (ifo + "-INPUT-" + str(start) + "-64.gwf")
+        TimeSeries(np.zeros(64*4096), t0=start, sample_rate=4096,
+                   name=channel, channel=channel).write(str(path))
+        cache = n.root / (ifo + "-input.cache")
+        cache.write_text(f"{ifo} INPUT {start} 64 {path.as_uri()}\n")
+        caches[ifo] = str(cache)
+        originals[cache] = cache.read_bytes(), cache.stat().st_mtime_ns
+    n.production.meta["data"]["frame cache"] = caches
+    n.pipe.before_config()
+    n.configure()
+    n.pipe.build_dag()
+    assert (n.run / DAG).is_file()
+    original = (n.run / "local_orig.cache").read_text()
+    assert all(Path(path).read_text() in original for path in caches.values())
+    rows = (n.run / "local.cache").read_text().splitlines()
+    assert len(rows) == len(caches)
+    for row in rows:
+        assert row.split()[-1].startswith("file://localhost/")
+    stream = lalframe.FrStreamCacheOpen(lal.CacheImport(str(n.run / "local.cache")))
+    assert stream is not None
+    for path, snapshot in originals.items():
+        assert (path.read_bytes(), path.stat().st_mtime_ns) == snapshot

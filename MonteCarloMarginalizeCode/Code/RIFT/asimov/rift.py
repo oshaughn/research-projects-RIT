@@ -6,6 +6,7 @@ import os
 import re
 import subprocess
 import shutil
+import tempfile
 from pathlib import Path
 
 from ligo.gracedb.rest import HTTPError
@@ -457,6 +458,57 @@ class Rift(Pipeline):
                 production=self.production.name,
             )
 
+    def _bootstrap_coinc_requested(self):
+        scheduler = self.production.meta.get("scheduler", {})
+        requested = scheduler.get("bootstrap coinc", False)
+        if type(requested) is not bool:
+            raise PipelineException(
+                "scheduler.bootstrap coinc must be a YAML boolean",
+                production=self.production.name,
+            )
+        if requested and not any(key in scheduler for key in ("bootstrap file", "bootstrap upstream")):
+            raise PipelineException(
+                "bootstrap coinc requires a configured bootstrap source",
+                production=self.production.name,
+            )
+        return requested
+
+    def _convert_bootstrap_coinc(self, bootstrap_file, environment):
+        """Select a private validated coincidence input for this invocation.
+
+        Concurrent productions must never replace each other's selected input.
+        Retain a unique directory on success; remove only our new directory on
+        conversion failure. Canonical event coincidence inputs remain untouched.
+        """
+        parent = Path(os.path.abspath(os.path.join(
+            self.production.event.repository.directory, "C01_offline")))
+        directory = None
+        try:
+            parent.mkdir(parents=True, exist_ok=True)
+            directory = Path(tempfile.mkdtemp(prefix=".rift-bootstrap-coinc-", dir=parent))
+            output = directory / "coinc.xml"
+            command = [os.path.join(environment, "bin", "util_SimInspiralToCoinc.py"),
+                       "--sim-xml", os.path.abspath(bootstrap_file), "--output", str(output)]
+            result = subprocess.run(command, stdout=subprocess.PIPE,
+                                    stderr=subprocess.STDOUT, text=True, check=False)
+            if result.returncode != 0 or not output.is_file() or output.stat().st_size == 0:
+                raise ValueError(str(result.stdout)[-4000:])
+            from igwn_ligolw import lsctables, utils
+            from RIFT import lalsimutils
+            rows = lsctables.SnglInspiralTable.get_table(utils.load_filename(
+                str(output), contenthandler=lalsimutils.cthdler))
+            if not rows or any(not np.isfinite(row.mass1) or not np.isfinite(row.mass2)
+                               or row.mass1 <= 0 or row.mass2 <= 0 for row in rows):
+                raise ValueError("bootstrap coincidence has no valid positive-mass detector rows")
+        except Exception as error:
+            if directory is not None:
+                shutil.rmtree(directory)
+            raise PipelineException(
+                "Native bootstrap coincidence conversion failed; prior input retained: " + str(error),
+                production=self.production.name,
+            ) from error
+        return str(output)
+
     def _capture_build_environment(self):
         """Capture at the final location, and fail closed on ASIMOV 0.8 errors.
 
@@ -508,9 +560,13 @@ class Rift(Pipeline):
     def _validate_builder_paths(self, ini):
         """Keep the native builder and deferred provenance on the same path."""
         options = self.production.meta.get("scheduler", {}).get("pipeline", {})
+        scheduler = self.production.meta.get("scheduler", {})
+        bootstrap_paths = ("use-coinc",) if scheduler.get("bootstrap coinc") is True else ()
+        if self.bootstrap == "manual" or any(key in scheduler for key in ("bootstrap file", "bootstrap upstream")):
+            bootstrap_paths += ("manual-initial-grid",)
         for key in options:
             if any(option.startswith(key.partition("=")[0].replace("_", "-"))
-                   for option in ("use-rundir", "use-ini", "help")):
+                   for option in ("use-rundir", "use-ini", "help") + bootstrap_paths):
                 raise PipelineException(
                     f"scheduler.pipeline.{key} is owned by Asimov and cannot be overridden",
                     production=self.production.name,
@@ -528,7 +584,7 @@ class Rift(Pipeline):
             ) from error
         if settings.has_section("rift-pseudo-pipe"):
             for key in settings["rift-pseudo-pipe"]:
-                if key.replace("_", "-") in ("use-rundir", "use-ini"):
+                if key.replace("_", "-") in ("use-rundir", "use-ini") + bootstrap_paths:
                     raise PipelineException(
                         f"INI {key} is owned by Asimov and cannot be overridden",
                         production=self.production.name,
@@ -659,6 +715,7 @@ class Rift(Pipeline):
 
         """
         self._require_fresh_rundir(dryrun=dryrun)
+        bootstrap_coinc = self._bootstrap_coinc_requested()
         self.before_build()
         cwd = os.getcwd()
         if self.production.event.repository:
@@ -784,19 +841,27 @@ class Rift(Pipeline):
                 "util_RIFT_pseudo_pipe.py",
             ),
         ]
-        if coinc_file:
-            command += ["--use-coinc", coinc_file]
-
         if "non-spin" in self.production.meta["waveform"]:
             if self.production.meta["waveform"]["non-spin"]:
                 command += ["--assume-nospin"]
 
+        # Legacy bootstrap=manual selects a supplied read-only grid. Native
+        # posterior conversion below replaces this binding with private input.
+        bootstrap_file = os.path.abspath(os.path.join(
+            self.production.event.repository.directory, "C01_offline",
+            f"{self.production.name}_bootstrap.xml.gz")) if self.production.event.repository else os.path.abspath(
+                f"{self.production.name}_bootstrap.xml.gz")
         # Generate initial samples, based on previous PE results (or an
         # explicitly-specified posterior, via scheduler: bootstrap file:)
         if ('bootstrap upstream' in self.production.meta['scheduler']
                 or 'bootstrap file' in self.production.meta['scheduler']):
             # get posterior file
             posterior_file = self._find_posterior()
+            if not posterior_file:
+                raise PipelineException(
+                    "Native generation requires a resolved bootstrap source",
+                    production=self.production.name,
+                )
             self.logger.info("  Bootstrap requested, attempting with file {}".format(posterior_file) )                        
             if posterior_file:
                 # convert posterior samples to temp location
@@ -805,27 +870,42 @@ class Rift(Pipeline):
                         "C01_offline",
                         f"{self.production.name}_bootstrap.xml.gz",
                     )
+                if dryrun:
+                    bootstrap_file = os.path.abspath(os.path.join(
+                        self.production.event.repository.directory, "C01_offline",
+                        "<new-private-bootstrap-grid>", "grid.xml.gz"))
+                if not dryrun:
+                    # Converter outputs are private from the start: competing
+                    # builds cannot truncate or replace each other's inputs.
+                    parent = Path(bootstrap_file).resolve().parent
+                    parent.mkdir(parents=True, exist_ok=True)
+                    directory = tempfile.mkdtemp(prefix=".rift-bootstrap-grid-", dir=parent)
+                    bootstrap_file = str(Path(directory) / "grid.xml.gz")
                 bootstrap_file_ascii = str(bootstrap_file) + "_ascii"
-                # test if bootstrap file already exists
-                if not self._reuse_existing_bootstrap(
-                        bootstrap_file, posterior_file):
+                if not dryrun:
                     self._convert_bootstrap_grid(posterior_file, bootstrap_file, bootstrap_file_ascii)
                 self.bootstrap="manual"
                 # as needed, parse bootstrap file for signal
-                if 'bootstrap amplitude' in self.production.meta['scheduler']:
+                if not dryrun and 'bootstrap amplitude' in self.production.meta['scheduler']:
                            dat = np.genfromtxt(bootstrap_file_ascii,names=True)
                            if 'lnL' in dat.dtype.names: # remember, cast to RIFT format ! name change !
                                if np.max(dat['lnL']) >   500:   # threshold,
                                    command +=[ "--internal-ile-force-adapt-all"]   # force 
 
-                # bootstrap coinc file !  note the intention will be to OVERWRITE the existing coinc (or to deal with the absence of one for this event)
-                if  'bootstrap coinc' in self.production.meta['scheduler']:
-                    coinc_file = os.path.join(
-                        self.production.event.repository.directory,
-                        "C01_offline",
-                        'coinc.xml')
-                    os.system("util_SimInspiralToCoinc.py --sim-xml {} --output {} ".format(bootstrap_file, coinc_file) )
-                    
+                if bootstrap_coinc:
+                    if dryrun:
+                        coinc_file = os.path.abspath(os.path.join(
+                            self.production.event.repository.directory, "C01_offline",
+                            "<new-private-bootstrap-input>", "coinc.xml"))
+                        self.logger.info("Dry run: generate private bootstrap grid and coincidence input")
+                    else:
+                        coinc_file = self._convert_bootstrap_coinc(bootstrap_file, my_env)
+
+        # Bind only after native bootstrap has selected its final input. The
+        # builder runs from event.work_dir, so the chosen path must be absolute.
+        if coinc_file:
+            command += ["--use-coinc", os.path.abspath(coinc_file)]
+
         command += [
             "--calibration",
             f"{calibration}",
@@ -857,16 +937,13 @@ class Rift(Pipeline):
 
         if self.bootstrap:
             if self.bootstrap == "manual":
-                if self.production.event.repository:
-                    bootstrap_file = os.path.join(
-                        self.production.event.repository.directory,
-                        "C01_offline",
-                        f"{self.production.name}_bootstrap.xml.gz",
+                # Use the exact invocation-private grid selected above.
+                bootstrap_file = os.path.abspath(bootstrap_file)
+                if not dryrun and not os.path.isfile(bootstrap_file):
+                    raise PipelineException(
+                        "Manual bootstrap grid is missing: " + bootstrap_file,
+                        production=self.production.name,
                     )
-                    if bootstrap_file[0] != '/': # need absolute path!
-                        bootstrap_file = os.getcwd() + "/" + bootstrap_file
-                else:
-                    bootstrap_file = "{self.production.name}_bootstrap.xml.gz"
             else:
                 raise PipelineException(
                     f"Unable to find the bootstrapping production for {self.production.name}.",

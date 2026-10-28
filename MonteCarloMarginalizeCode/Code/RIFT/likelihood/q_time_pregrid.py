@@ -46,6 +46,7 @@ guard) to resolve abbreviations, and reject exactly the tokens optparse itself w
 """
 
 import ast
+from numbers import Integral
 import os
 import shutil
 import sysconfig
@@ -64,19 +65,22 @@ _LEGACY_TRUTHY = ("1", "true", "t", "yes", "y", "on")
 _LEGACY_FALSY = ("0", "false", "f", "no", "n", "off", "none")
 
 # The driver's own wording (bin/integrate_likelihood_extrinsic_batchmode, q_time_pregrid_factor
-# == 8 branch), reproduced VERBATIM so a workflow-build-time refusal and the driver's own
+# >1 branch), reproduced VERBATIM so a workflow-build-time refusal and the driver's own
 # first-job refusal read identically.
 STENCIL_CONFLICT_MESSAGE = (
     "--q-time-pregrid-factor >1 uses four-tap cubic interpolation; remove the "
     "explicit --interpolate-time option or set it to cubic")
 
 _PIPELINE_REQUIRED_ILE_FLAGS = (
+    ('--time-marginalization', 'Q refinement requires the time-marginalized NoLoop likelihood'),
+    ('--gpu', 'Q refinement requires NoLoop dispatch (--force-xpy selects it on CPU)'),
     ('--vectorized',
      'the driver restricts --q-time-pregrid-factor >1 to ordinary vectorized NoLoop'),
 )
 # Pure boolean flags: the driver reads these as opts.rotation_slow / opts.freqresponse
 # directly, so presence on the command line is exactly the excluded condition.
 _PIPELINE_EXCLUDING_ILE_FLAGS = (
+    ('--zero-likelihood', 'Q refinement requires an evaluated NoLoop likelihood'),
     ('--rotation-slow',
      'the driver restricts --q-time-pregrid-factor >1 to ordinary vectorized NoLoop without rotation'),
     ('--freqresponse',
@@ -103,9 +107,12 @@ def validate_q_time_pregrid_factor(value):
     Mirrors the driver's own ``if opts.q_time_pregrid_factor not in (1, 2, 4, 8): raise`` exactly,
     so this module and the driver can never disagree about the legal set.
     """
+    if isinstance(value, bool) or not isinstance(value, (str, Integral)):
+        raise ValueError(
+            "--q-time-pregrid-factor must be an integer, got %r" % (value,))
     try:
         factor = int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         raise ValueError(
             "--q-time-pregrid-factor must be an integer, got %r" % (value,))
     if factor not in Q_TIME_PREGRID_CHOICES:

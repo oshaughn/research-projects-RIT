@@ -18,7 +18,9 @@ Activation is required so real builder child commands resolve to this installed
 candidate. The lock pins Asimov 0.8.0, LALSuite 7.26.16 and HTCondor 24.12.24;
 setup uses CVMFS CPython 3.11.14. The test uses real pipeline hooks, Asimov's
 make_config, real builder subprocesses and provenance writers, with a minimal
-production persistence interface. It generates scientific input fixtures and
+production persistence interface. Negative contract cases separately inject
+builder/capture/converter faults; native success and concurrency cases use the
+real operations. It generates scientific input fixtures and
 workflow files, and submits no jobs. Missing dependencies fail rather than
 being replaced by test doubles. The native regression is pinned to Asimov 0.8.0;
 the older supported adapters retain the upstream no-op provenance hook.
@@ -54,3 +56,62 @@ permissions, or defend against a hostile process renaming/replacing an owned
 run directory during generation. No claim is made that direct standalone
 pseudo_pipe calls are globally side-effect-free before mkdir (legacy GraceDB
 lookup can write coinc.xml in its caller's working directory).
+
+Native bootstrap input binding
+------------------------------
+
+Configured posterior bootstraps are converted directly into a new private input
+directory for each build invocation. The selected manual grid and, when
+scheduler.bootstrap coinc is explicitly true, the selected coincidence file
+are bound after successful conversion. Canonical event coincidence files and
+prior runs are never replaced. Private successful inputs are retained for
+reproducibility. A configured but unresolved source, failed/invalid conversion,
+non-boolean bootstrap-coinc value, or competing CLI/INI grid selection fails
+before workflow generation. Legacy bootstrap: manual selects its supplied
+existing grid read-only. Dry run prints a planned private coincidence input
+without converting or creating files. Integer and float solar-mass prior bounds
+are both accepted without mutating the source arrays.
+
+Q-only development witness
+--------------------------
+
+Refinement requires GPU vectorized time marginalization; incompatible modes
+fail before generating a workflow. Data, waveform requests and physical
+integration nodes remain at 4096 Hz. No srate-internal change is used. The
+versioned q2-worker-witness.py runs one bounded installed GPU-only worker using
+unchanged generated args_ile.txt, records all bounded sampling overrides, and
+checks generated and scientific input hashes before/after. It submits no jobs.
+Its native generated run directory and grid must be supplied explicitly; it
+must not be used to repair an existing run or strip incompatible arguments.
+
+On pcdev13, select an available GPU and explicitly configure the installed CUDA
+toolkit (the dependency lock alone does not provide NVRTC)::
+
+    export CUDA_VISIBLE_DEVICES=3 CUDA_PATH=/usr/local/cuda-12.8
+    export LD_LIBRARY_PATH=/usr/local/cuda-12.8/lib64
+    unset PYTHONPATH PYTHONHOME
+    python validation/asimov-rundir/q2-worker-witness.py \
+        --run-directory /absolute/native/generated/run \
+        --grid /absolute/native/generated/run/proposed-grid.xml.gz \
+        --output /absolute/new/witness
+
+This bounded development witness does not qualify a published RC, a production
+container, posterior accuracy, full PE, CIP or calibration.
+
+Refusal status and upstream persistence
+---------------------------------------
+
+A refused existing destination sets stuck in memory. Asimov 0.8 can catch that
+exception without saving the event, so this does not guarantee that a later CLI
+process skips it. Choose a new destination for a new build. The adapter does not
+blindly save the whole event/ledger: the native YAML API can replace concurrent
+job status and job-ID updates from a stale snapshot. Cross-process refusal
+status persistence needs an upstream conditional update; it is not claimed here.
+
+Frame staging must succeed before DAG emission. The native cropper reads the
+emitted worker channels/times, requires the full padded interval, writes private
+staging files, and validates them with ILE's LALFrame reader before publishing
+frames/cache. It emits file://localhost URLs accepted by that reader. Output run
+paths containing whitespace are refused because LAL cache parsing cannot carry
+them; input frame filenames with spaces remain supported. Failed cropping leaves
+the original cache intact and does not emit a seemingly launchable DAG.
