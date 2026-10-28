@@ -29,19 +29,25 @@ def _pipe(production):
     return pipe
 
 
-def test_before_config_calls_asimov_base_hook_first(monkeypatch):
-    class HookCalled(Exception):
-        pass
-
+def test_before_config_defers_asimov_capture(monkeypatch, tmp_path):
     def base_before_config(self, dryrun=False):
-        assert dryrun is True
-        raise HookCalled
+        pytest.fail("Environment capture must wait for successful DAG generation")
 
     monkeypatch.setattr(rift_asimov.Pipeline, "before_config", base_before_config)
-    production = types.SimpleNamespace(category="C01_offline")
-
-    with pytest.raises(HookCalled):
-        _pipe(production).before_config(dryrun=True)
+    production = types.SimpleNamespace(category="C01_offline", name="test",
+        rundir=str(tmp_path / "fresh"), event=types.SimpleNamespace(),
+        meta={"scheduler": {}})
+    pipe = _pipe(production)
+    # Stop at the first configuration setting, after the guard but before
+    # unrelated PSD configuration. The real lifecycle has separate coverage.
+    class ConfigReached(Exception):
+        pass
+    def get(*args, **kwargs):
+        raise ConfigReached
+    monkeypatch.setattr(rift_asimov.config, "get", get)
+    with pytest.raises(ConfigReached):
+        pipe.before_config(dryrun=False)
+    assert not (tmp_path / "fresh").exists()
 
 
 def test_collect_logs_delegates_to_asimov_08(monkeypatch):

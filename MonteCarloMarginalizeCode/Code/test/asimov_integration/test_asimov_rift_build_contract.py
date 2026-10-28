@@ -168,6 +168,7 @@ def test_rift_build_dag_uses_frozen_inputs(monkeypatch, tmp_path):
     calls = []
 
     class FakePopen:
+        returncode = 0
         def __init__(self, command, stdout=None, stderr=None):
             self.command = command
             calls.append(command)
