@@ -89,7 +89,7 @@ test_phenom_conventions:
     MPLBACKEND: Agg
     RIFT_NO_EXTERNAL: "1"
   script:
-    - python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_phenom_lframe_conventions.py
+    - python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_phenom_lframe_conventions.py MonteCarloMarginalizeCode/Code/test/test_imrpv2_mode_buffer_init.py
 
 # build:test:
 #   image: docker:latest

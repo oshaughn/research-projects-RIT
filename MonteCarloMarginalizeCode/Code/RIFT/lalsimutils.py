@@ -4002,7 +4002,8 @@ def hlmoft_IMRPv2_dict(P,sgn=-1):
         hlmT[(2,m)] = lal.CreateCOMPLEX16TimeSeries("Complex h(t)", hTC.epoch, hTC.f0, 
             hTC.deltaT, lsu_DimensionlessUnit, hTC.data.length)
         hlmT[(2,m)].epoch = float(hTC_list[0].epoch)
-        hlmT[(2,m)].data.data *=0   # this is needed, memory is not reliably cleaned
+        # Assign, do not scale: the lal buffer is uninitialized, and NaN*0 = NaN (#488).
+        hlmT[(2,m)].data.data = np.zeros(hTC.data.length, dtype=complex)
         for indx in np.arange(len(paramsForward)):
             hlmT[(2,m)].data.data += mtx[indx2,indx] * hTC_list[indx].data.data
     
