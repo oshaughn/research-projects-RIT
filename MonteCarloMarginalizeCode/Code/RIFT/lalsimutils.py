@@ -5909,6 +5909,8 @@ def RangeProtectReduce(fn,val):
 def symmetry_sign_exchange(coord_names):
     P=ChooseWaveformParams()
     P.randomize()
+    if set(rf_transverse_param_names).intersection(coord_names) and not (P.fref and P.fref > 0):
+        P.fref = 20.   # rf_* need a reference frequency; exchange parity does not depend on it
 
     sig_list = []
     for indx in np.arange(len(coord_names)):

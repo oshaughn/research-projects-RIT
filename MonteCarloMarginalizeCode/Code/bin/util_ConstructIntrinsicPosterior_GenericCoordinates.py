@@ -752,7 +752,8 @@ if opts.rf_transverse_spin_coordinates:
         raise ValueError('--rf-transverse-spin-coordinates needs s1x, s1y, s2x, s2y once each among the fit coordinates')
     print(" DEPRECATED: --rf-transverse-spin-coordinates; use --parameter-implied with the geometric4 names")
     coord_names = [p for p in coord_names if p not in rf_transverse_spin.TRANSVERSE] + list(rf_transverse_spin.geometric_names(opts.rf_transverse_spin_coordinates))
-if set(lalsimutils.rf_transverse_param_names).intersection(coord_names) and opts.fit_method != 'rf':
+rf_chart_names = set(rf_transverse_spin.GEOMETRIC4_NAMES + rf_transverse_spin.PHASE_EXCESS_NAMES)
+if rf_chart_names.intersection(coord_names) and opts.fit_method != 'rf':
     print(" WARNING: rf_total_azimuth wraps at +/-pi; fit method {} may not fit across that seam (rf does)".format(opts.fit_method))
 if set(eccentric_phase.FEATURE_NAMES).intersection(coord_names + low_level_coord_names):
     raise ValueError('Eccentric phase fitting features are enabled only through the opt-in flag')
@@ -764,7 +765,7 @@ if opts.eccentric_phase_coordinates:
     eccentric_phase_models.freeze(opts,opts.eccentric_phase_reference_frequency,opts.eccentric_phase_target_frequency)
     if (not opts.use_eccentricity or not opts.use_meanPerAno or opts.using_eos
             or opts.input_tides or opts.input_eos_index or opts.tabular_eos_file
-            or set(lalsimutils.rf_transverse_param_names).intersection(coord_names) or opts.fit_load_gp or opts.fit_load_quadratic
+            or rf_chart_names.intersection(coord_names) or opts.fit_load_gp or opts.fit_load_quadratic
             or opts.contingency_unevolved_neff == 'quadpuff' or opts.report_best_point
             or set(('lambda1', 'lambda2', 'LambdaTilde', 'DeltaLambdaTilde', 'eos_table_index')).intersection(coord_names + low_level_coord_names)):
         raise ValueError('Eccentric phase fitting requires eccentricity/anomaly input columns and a fresh BBH fit; EOS/tides, stored fits, RF transverse coordinates, report-best-point and internal quadpuff are unsupported')
@@ -3018,8 +3019,10 @@ if neff < opts.n_eff:
         puff_sampled = not all(_assignable(p) for p in coord_names)
         if puff_sampled:
             # Some fit coordinates (chiMinus, chi_p, rf_*, ...) cannot be assigned: puff the sampling coordinates.
-            puff_names = [p for p in low_level_coord_names if p != 'chi_pavg']
-            X_puff = np.array([[P.extract_param(p)/(lal.MSUN_SI if p in ('mc','mtot','m1','m2') else 1) for p in puff_names] for P in P_list_in])
+            # Retained rows only, in step with X; masses in Msun like X.
+            keep = [i for i,p in enumerate(low_level_coord_names) if p != 'chi_pavg']
+            puff_names = [low_level_coord_names[i] for i in keep]
+            X_puff = np.asarray(dat_out_low_level_coord_names, dtype=float)[:,keep]
         my_cov = np.cov(X_puff.T)  # covariance of data points
         rv = scipy.stats.multivariate_normal(mean=np.zeros(len(X_puff[0])), cov=my_cov,allow_singular=True)  # they are just complaining about dynamic range
         delta_X = rv.rvs(size=len(X_puff))

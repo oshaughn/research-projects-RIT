@@ -388,9 +388,9 @@ def _cip_alias_block(coord_names, mode, fit_method='rf'):
     pytest.importorskip('lal')
     from RIFT import lalsimutils
     tree=ast.parse((CODE/'bin/util_ConstructIntrinsicPosterior_GenericCoordinates.py').read_text())
-    body=[n for n in tree.body if isinstance(n,ast.If) and ('rf_transverse_spin' in ast.unparse(n.test) or 'rf_transverse_param_names' in ast.unparse(n.test))
-          and 'eccentric' not in ast.unparse(n)]
-    assert len(body)==3, [ast.unparse(n.test) for n in body]
+    body=[n for n in tree.body if (isinstance(n,ast.If) and ('rf_transverse_spin' in ast.unparse(n.test) or 'rf_chart_names' in ast.unparse(n.test))
+          and 'eccentric' not in ast.unparse(n)) or (isinstance(n,ast.Assign) and ast.unparse(n.targets[0])=='rf_chart_names')]
+    assert len(body)==4, [ast.unparse(n) for n in body]
     ns={'opts':SimpleNamespace(rf_transverse_spin_coordinates=mode,fit_method=fit_method),'coord_names':list(coord_names),
         'rf_transverse_spin':f,'lalsimutils':lalsimutils}
     out=io.StringIO()
@@ -437,3 +437,11 @@ def test_pseudo_pipe_refuses_physics3_from_the_ini(tmp_path):
     proc=subprocess.run([sys.executable,str(CODE/'bin/util_RIFT_pseudo_pipe.py'),'--use-ini',str(ini)],
         cwd=tmp_path,env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,universal_newlines=True,timeout=300)
     assert proc.returncode==2 and 'util_RIFT_pseudo_pipe.py: error: RF transverse-spin mode physics3 is retired' in proc.stdout, proc.stdout[-2000:]
+
+
+def test_symmetry_sign_exchange_accepts_rf_names():
+    # quadratic/polynomial fits call this; rf_* need a reference frequency
+    pytest.importorskip('lal')
+    from RIFT import lalsimutils
+    signs=lalsimutils.symmetry_sign_exchange(['mc','delta_mc']+G4)
+    assert len(signs)==6 and all(s in (-1,1) for s in signs)

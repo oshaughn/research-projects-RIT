@@ -109,7 +109,8 @@ def test_cip_opt_in_layout_and_unsupported_modes():
     def run(**overrides):
         opts=SimpleNamespace(**dict(defaults,**overrides))
         names=['mc','eta','eccentricity_ln','meanPerAno']
-        ns=dict(opts=opts,eccentric_phase=ep,coord_names=names.copy(),low_level_coord_names=names.copy())
+        ns=dict(opts=opts,eccentric_phase=ep,coord_names=names.copy(),low_level_coord_names=names.copy(),
+                rf_chart_names={'rf_total_perp','rf_total_azimuth','rf_residual_parallel','rf_residual_perpendicular','rf_phase_excess'})
         for node in block.body: exec(compile(ast.Module(body=[node],type_ignores=[]),'cip-config','exec'),ns)
         return ns
     result=run()
