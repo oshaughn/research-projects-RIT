@@ -58,6 +58,8 @@ parser.add_argument("--mtot-range",default=None,help="Chirp mass range [mc1,mc2]
 parser.add_argument("--downselect-parameter",action='append', help='Name of parameter to be used to eliminate grid points. Note mc-range, eta-range,mtot-range are syntactic sugar for this usage ')
 parser.add_argument("--downselect-parameter-range",action='append',type=str)
 parser.add_argument("--reflect-parameter",action='append',type=str)
+parser.add_argument("--unwrap-parameter",action='append',type=str,help="Periodic parameter (must ALSO be given as a --parameter, and must be in lalsimutils.periodic_params, e.g. meanPerAno) to UNWRAP before the covariance is measured and the puff is drawn; the puffed values are wrapped back into [0,period) before export.  Without this, a posterior that straddles the 0/period seam has a spuriously huge raw variance and a wrong-sign correlation with the other parameters, so the puff is far too wide in this coordinate and points the wrong way along any ridge.  Repeatable.  Not combinable with --eccentric-phase-coordinates for meanPerAno (that mode already centers the angle).  Only meaningful if the samples leave an empty arc on the circle (a warning is printed if not).")
+parser.add_argument("--unwrap-center",default='gap',choices=['gap','mean'],help="Where to cut the circle when unwrapping.  'gap' (default): cut in the middle of the largest EMPTY arc of the samples (robust to multi-lobed or off-center samples).  'mean': center on the circular mean (cut opposite to it; fails for lobes spread around the circle).")
 parser.add_argument("--enforce-duration-bound",default=None,type=float,help="If present, enforce a duration bound. Used to prevent grid placement for obscenely long signals, when the window size is prescribed")
 parser.add_argument("--regularize",action='store_true',help="Add some ad-hoc terms based on priors, to help with nearly-singular matricies")
 parser.add_argument('--force-scatter',default=False,action='store_true',help='For hyperbolic analyses forces only scatter grid points.')
@@ -89,6 +91,8 @@ coord_names = opts.parameter # Used  in fit
 #    coord_names = coord_names + opts.parameter_nofit
 if coord_names is None:
     sys.exit(0)
+if opts.eccentric_phase_coordinates and ('meanPerAno' in (opts.unwrap_parameter or [])):
+    raise ValueError('--unwrap-parameter meanPerAno cannot be combined with --eccentric-phase-coordinates: that mode already centers the effective angle')
 if opts.eccentric_phase_coordinates:
     from RIFT.misc import eccentric_phase, eccentric_phase_puff
     if (coord_names.count('meanPerAno') != 1 or
@@ -165,6 +169,15 @@ for indx in np.arange(len(rlist)):
         raise Exception(" Reflection requires parameter range specified as a downselection ")
     reflect_dict[rlist[indx]] = downselect_dict[rlist[indx]]
 
+# periodic parameters to unwrap before the covariance is measured: validate
+unwrap_dict = {}
+for name in (opts.unwrap_parameter or []):
+    if not(name in coord_names):
+        raise Exception(" --unwrap-parameter {} must also be specified as a --parameter ".format(name))
+    if not(name in lalsimutils.periodic_params):
+        raise Exception(" --unwrap-parameter {} is not periodic: lalsimutils.periodic_params has {} ".format(name, list(lalsimutils.periodic_params.keys())))
+    unwrap_dict[name] = lalsimutils.periodic_params[name]
+
 
 
 # ----------------------------------------------------------------------
@@ -227,6 +240,23 @@ for indx, name  in enumerate(coord_names):
     if name in log_coord_names:
         print(" log transform for ", name)
         X[:,indx] = np.log(X[:,indx])
+
+# Unwrap periodic parameters, so that the covariance below is measured on ONE connected cloud
+#   rather than on a cloud split across the 0/period seam (which inflates the variance and flips the sign of correlations)
+for name, period in unwrap_dict.items():
+    indx = coord_names.index(name)
+    ang = np.mod(X[:,indx], period)
+    s_ang = np.sort(ang); gaps = np.diff(np.r_[s_ang, s_ang[0]+period]); k_gap = np.argmax(gaps)       # largest empty arc of the samples
+    resultant = np.abs(np.mean(np.exp(2j*np.pi*ang/period)))
+    if opts.unwrap_center == 'mean':
+        center = np.mod(np.angle(np.mean(np.exp(2j*np.pi*ang/period))), 2*np.pi)*period/(2*np.pi)    # circular mean
+    else:
+        center = np.mod(s_ang[k_gap] + gaps[k_gap]/2. + period/2., period)                          # cut in the middle of the largest empty arc
+    std_raw = np.std(ang)
+    X[:,indx] = center + (np.mod(ang - center + period/2., period) - period/2.)                       # now within +- period/2 of the center
+    print(" Unwrapped {} ({} rule): center {:.4f}, cut at {:.4f}, period {:.4f}; std {:.4f} -> {:.4f}; largest empty arc {:.3f}; mean resultant length {:.3f}".format(name, opts.unwrap_center, center, np.mod(center+period/2., period), period, std_raw, np.std(X[:,indx]), gaps[k_gap], resultant))
+    if gaps[k_gap] < period/6.:
+        print(" ===> WARNING: {} samples leave no large empty arc on the circle (largest empty arc {:.3f} < period/6): unwrapping is not meaningful here <=== ".format(name, gaps[k_gap]))
 
 # Measure covariance matrix and generate random errors
 if len(coord_names) >1:
@@ -363,6 +393,12 @@ else:
     print(" The one dimensional width is", np.sqrt(cov_out))
 
 print(" The number of raw points is ", len(P_list))
+
+# Wrap unwrapped periodic parameters back into [0,period)  (the export loop below assigns from X_native)
+for name, period in unwrap_dict.items():
+    indx = coord_names.index(name)
+    X_out[:,indx] = np.mod(X_out[:,indx], period)
+    X_native[:,indx] = np.mod(X_native[:,indx], period)
 
 
 
