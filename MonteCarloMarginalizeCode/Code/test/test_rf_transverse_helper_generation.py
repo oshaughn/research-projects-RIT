@@ -149,3 +149,17 @@ def test_actual_asimov_default_generates_geometric4(monkeypatch,tmp_path):
     active=[line for line in result['lines'] if ACTIVE in line]
     assert active
     assert all('rf_total_perp' in implied(line) for line in active)
+
+
+@pytest.mark.parametrize('mode',['geometric4','auto'])
+def test_volumetric_stage_activates(monkeypatch,tmp_path,mode):
+    # --assume-volumetric-spin samples and fits s1x..s2y with --parameter on the precessing stage.
+    import shlex
+    result=generate(monkeypatch,tmp_path,mode,10,extra=['--assume-volumetric-spin'])
+    active=[shlex.split(line) for line in result['lines'] if ACTIVE in line]
+    assert active
+    for tokens in active:
+        fitted=[tokens[i+1] for i,t in enumerate(tokens[:-1]) if t=='--parameter']
+        nofit=[tokens[i+1] for i,t in enumerate(tokens[:-1]) if t=='--parameter-nofit']
+        assert not set(('s1x','s1y','s2x','s2y'))&set(fitted)
+        assert set(('s1x','s1y','s2x','s2y'))<=set(nofit)

@@ -31,11 +31,32 @@ def test_opt_in_keeps_native_sampling_and_reference(mode,expected):
     assert f.stage_arguments(FULL,'off',10,True,20)==FULL
 
 def test_reduced_or_non_rf_stages_are_unchanged():
-    sampled=FULL.replace('--parameter-implied s1x','--parameter s1x')  # a sampled transverse name is not swapped
-    for line in [FULL.replace('--parameter-implied s2y',''),FULL.replace('fit-method rf','fit-method gp'),sampled]:
+    for line in [FULL.replace('--parameter-implied s2y',''),FULL.replace('fit-method rf','fit-method gp'),FULL+' --parameter s1x']:
         assert f.stage_arguments(line,'geometric4',10,True,20)==line
     assert f.stage_arguments(FULL,'auto',10,False,20)==FULL
     with pytest.raises(ValueError): f.stage_arguments(FULL,'geometric4',10,False,20)
+
+SAMPLED='3 --fit-method rf --parameter-nofit mc --parameter delta_mc --parameter-implied mu1 --parameter-implied mu2 --parameter-implied chiMinus --parameter-nofit s1z --parameter-nofit s2z --use-precessing --parameter s1x --parameter s1y --parameter s2x  --parameter s2y'
+
+@pytest.mark.parametrize('mode',f.GEOMETRIC4_MODES)
+def test_sampled_transverse_stay_sampled_and_chart_is_fit(mode):
+    # Volumetric-spin stages sample and fit s1x..s2y with --parameter.
+    import shlex
+    tokens=shlex.split(f.stage_arguments(SAMPLED,mode,10,True,20))
+    def values(flag): return [tokens[i+1] for i,t in enumerate(tokens[:-1]) if t==flag]
+    assert not set(f.TRANSVERSE)&set(values('--parameter'))
+    assert set(f.TRANSVERSE)<=set(values('--parameter-nofit'))
+    assert values('--parameter-implied')==['mu1','mu2','chiMinus']+list(f.geometric_names(mode))
+    before=shlex.split(SAMPLED)
+    def sampled(t): return sorted(t[i+1] for i,x in enumerate(t[:-1]) if x in ('--parameter','--parameter-nofit'))
+    assert sampled(tokens)==sampled(before)
+    assert values('--fref')==['20.0']
+
+def test_mixed_sampled_and_implied_components():
+    line=FULL.replace('--parameter-implied s2y','--parameter s2y')
+    out=f.stage_arguments(line,'geometric4',10,True,20)
+    assert '--parameter-nofit s2y --parameter-implied rf_residual_perpendicular' in out
+    assert '--parameter-implied rf_total_perp' in out
 
 def test_rotation_and_two_spin_cancellation():
     s1=np.array([.2,.3,-.1]);s2=np.array([-.1,.4,.2]);a=.4

@@ -146,17 +146,26 @@ def retired_problem(line):
 
 
 def stage_arguments(line, mode, detector_chirp_mass, applicable, frequency):
-    """Helper policy: on an rf stage that implies all four transverse components, imply the chart instead."""
+    """Helper policy: on an rf stage that fits all four transverse components, fit the chart instead.
+
+    An implied component is replaced by a chart name. A component that is also sampled
+    (--parameter) stays sampled as --parameter-nofit, and the chart name is implied.
+    """
     if not enabled(mode, detector_chirp_mass, applicable):
         return line
-    implied = re.findall(r'--parameter-implied\s+(\S+)', line)
-    if not re.search(r'--fit-method\s+rf(\s|$)', line) or sorted(p for p in implied if p in TRANSVERSE) != sorted(TRANSVERSE):
+    pattern = r'--parameter(-implied)?\s+(s1x|s1y|s2x|s2y)(?=\s|$)'
+    fitted = [m.group(2) for m in re.finditer(pattern, line)]
+    if not re.search(r'--fit-method\s+rf(\s|$)', line) or sorted(fitted) != sorted(TRANSVERSE):
         return line
     if not np.isfinite(float(frequency)) or float(frequency)<=0:
         raise ValueError('RF reference frequency must be finite and positive')
     chart = iter(geometric_names('geometric4' if mode == 'auto' else mode))
-    line = re.sub(r'--parameter-implied\s+(s1x|s1y|s2x|s2y)(?=\s|$)',
-                  lambda m: '--parameter-implied '+next(chart), line)
+    def swap(m):
+        name = next(chart)
+        if m.group(1):
+            return '--parameter-implied '+name
+        return '--parameter-nofit '+m.group(2)+' --parameter-implied '+name
+    line = re.sub(pattern, swap, line)
     # CIP evaluates the chart at --fref: use the ILE spin reference, not fmin.
     line=re.sub(r'(^|\s)--fref(\s+|=)\S+', ' ', line)
     return line.rstrip()+' --fref '+str(float(frequency))
