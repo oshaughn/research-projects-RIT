@@ -276,13 +276,14 @@ def test_actual_build_bootstrap_block_converts_bilby_and_attaches_grid(tmp_path,
         event=SimpleNamespace(repository=SimpleNamespace(directory=str(tmp_path / 'repo')))),
         logger=SimpleNamespace(info=lambda *_: None), bootstrap=False)
     stub._find_posterior = lambda: str(path)
+    stub._bootstrap_source_requested = lambda: Rift._bootstrap_source_requested(stub)
     stub._reuse_existing_bootstrap = lambda *_: False
     stub._convert_bootstrap_grid = lambda *args: Rift._convert_bootstrap_grid(stub, *args)
     tree = ast.parse((CODE / 'RIFT/asimov/rift.py').read_text())
     cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'Rift')
     build = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == 'build_dag')
     convert_block = next(n for n in build.body if isinstance(n, ast.If)
-                         and 'bootstrap upstream' in ast.unparse(n.test))
+                         and ast.unparse(n.test) == 'self._bootstrap_source_requested()')
     attach_block = next(n for n in build.body if isinstance(n, ast.If)
                         and ast.unparse(n.test) == 'self.bootstrap')
     import tempfile

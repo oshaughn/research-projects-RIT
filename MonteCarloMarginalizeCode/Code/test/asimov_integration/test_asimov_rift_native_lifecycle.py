@@ -880,3 +880,48 @@ def test_native_frame_staging_uses_ini_cache_without_late_restoration(native):
     assert stream is not None
     for path, snapshot in originals.items():
         assert (path.read_bytes(), path.stat().st_mtime_ns) == snapshot
+
+
+@pytest.mark.parametrize("upstream", ["missing", False])
+def test_disabled_upstream_bootstrap_preserves_native_manual_grid(native, upstream):
+    n = native
+    n.production.meta["scheduler"].pop("bootstrap upstream", None)
+    if upstream is False:
+        n.production.meta["scheduler"]["bootstrap upstream"] = False
+    before = n.coinc.read_bytes(), n.coinc.stat().st_mtime_ns
+    n.pipe.before_config()
+    n.configure()
+    n.pipe.build_dag()
+    assert (n.run / DAG).is_file()
+    assert n.pipe.bootstrap is False
+    assert not list(n.coinc.parent.glob(".rift-bootstrap-*"))
+    assert (n.coinc.read_bytes(), n.coinc.stat().st_mtime_ns) == before
+
+
+def test_disabled_upstream_does_not_disable_explicit_native_bootstrap_file(native):
+    from RIFT import lalsimutils
+    import lal
+    n = native
+    _native_bootstrap_source(n)
+    n.production.meta["scheduler"].update({"bootstrap upstream": False, "bootstrap coinc": True})
+    before = n.coinc.read_bytes(), n.coinc.stat().st_mtime_ns
+    n.pipe.before_config()
+    n.configure()
+    n.pipe.build_dag()
+    target = lalsimutils.xml_to_ChooseWaveformParams_array(str(n.run / "target_params.xml.gz"))[0]
+    assert target.m1 / lal.MSUN_SI == pytest.approx(25, abs=1e-4)
+    assert target.m2 / lal.MSUN_SI == pytest.approx(20, abs=1e-4)
+    assert (n.run / DAG).is_file()
+    assert (n.coinc.read_bytes(), n.coinc.stat().st_mtime_ns) == before
+    assert list(n.coinc.parent.glob(".rift-bootstrap-grid-*"))
+    assert list(n.coinc.parent.glob(".rift-bootstrap-coinc-*"))
+
+
+def test_disabled_upstream_cannot_satisfy_requested_bootstrap_coincidence(native):
+    from RIFT.asimov.rift import PipelineException
+    n = native
+    n.production.meta["scheduler"].update({"bootstrap upstream": False, "bootstrap coinc": True})
+    before = _snapshot(n.root)
+    with pytest.raises(PipelineException, match="configured bootstrap source"):
+        n.pipe.build_dag()
+    assert not n.run.exists() and _snapshot(n.root) == before
