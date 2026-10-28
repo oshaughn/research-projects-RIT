@@ -156,4 +156,13 @@ def test_puffball_vectorized_spin_downselect_matches_per_point(tmp_path, pair, e
     ref, _ = run("ref", cuts + ["--internal-scalar-spin-downselect"])
     assert ("Increment downselect : chi1" in log_vec) == (pair[0] != "chieff_aligned")
     assert len(vec) > 0 and vec.shape == ref.shape
+    # Agreement alone misses a shared omission of the late scalar cuts. Check
+    # the actual exported spins independently in both arms before comparing rows.
+    for rows in (vec, ref):
+        assert np.all(np.linalg.norm(rows[:, 2:5], axis=1) <= 0.5 + 1e-12)
+        assert np.all(np.linalg.norm(rows[:, 5:8], axis=1) <= 0.6 + 1e-12)
+        assert np.all((-0.4 - 1e-12 <= rows[:, 4]) & (rows[:, 4] <= 0.45 + 1e-12))
+        xi = (rows[:, 0]*rows[:, 4] + rows[:, 1]*rows[:, 7])/(rows[:, 0] + rows[:, 1])
+        assert np.all(np.abs(xi) <= 0.3 + 1e-12)
+        assert np.all(np.abs((rows[:, 4] - rows[:, 7])/2) <= 0.2 + 1e-12)
     assert np.array_equal(vec, ref)
