@@ -17,6 +17,7 @@
 import numpy as np
 import argparse
 import shlex
+import subprocess
 import os
 import sys
 import lal
@@ -403,7 +404,7 @@ if opts.internal_ile_q_time_pregrid_factor is not None:
     validate_q_time_pregrid_factor(opts.internal_ile_q_time_pregrid_factor)
     refuse_unhonourable_q_time_pregrid(
         opts.internal_ile_q_time_pregrid_factor,
-        "--vectorized " + (opts.manual_extra_ile_args or ""),
+        "--time-marginalization --vectorized --gpu " + (opts.manual_extra_ile_args or ""),
         "pipeline options before invoking the helper")
 
 # After the ini, which can set the mode.
@@ -1688,14 +1689,7 @@ if opts.use_osg:
         cmd += " --use-osg-cip "
     if not(opts.use_osg_file_transfer):
         cmd += " --use-cvmfs-frames "
-    elif not(opts.internal_truncate_files_for_osg_file_transfer):  # attempt to make copies of frame files, and set up to transfer them with *every* job (!)
-        os.system("util_ForOSG_MakeTruncatedLocalFramesDir.sh .")
-        # if environment variable active, check that frames were created! Fail otherwise
-        if 'RIFT_TRUNCATE_CHECK' in os.environ:
-            fnames_gwf = os.listdir('./frames_dir/')
-            if len(fnames_gwf)< len(event_dict["IFOs"]):
-                raise Exception(" Pipeline build failure: Problem generating truncated frames for OSG")
-            
+    elif opts.internal_truncate_files_for_osg_file_transfer:
 #        os.system("echo ../frames_dir >> helper_transfer_files.txt")
         cmd += " --frames-dir `pwd`/frames_dir "
     elif opts.use_osg_file_transfer:
@@ -1802,14 +1796,8 @@ if opts.calibration_reweighting:
 if opts.condor_local_nonworker_igwn_prefix:
     cmd += " --condor-local-nonworker-igwn-prefix "
 
-# Make copy of local.cache for use in file transfer
-if opts.use_osg_file_transfer and opts.internal_truncate_files_for_osg_file_transfer and os.path.exists('local.cache'):
-    shutil.copyfile('local.cache', 'local_orig.cache')
-    # Move contents of ile_pre.sh here
-    os.system("cat local.cache > awk '{print $1, $2, $3, $4}' > local_stripped.cache")
-    os.system('for i in `ls frames_dir/*.gwf`; do echo frames_local/${i} ; done > base_paths.dat') # yes probably easier to do the ls myself
-    os.system("paste local_stripped.cache base_paths.dat > local_relative.cache ")
-    os.system("cp local_relative.cache local.cache")
+# The cropper owns cache publication; worker-local relativization belongs to
+# ile_pre.sh. Never rewrite the source cache before frame staging succeeds.
 
 if not(ile_condor_commands is None):
     # create file
@@ -1817,6 +1805,17 @@ if not(ile_condor_commands is None):
         for key, val in ile_condor_commands:
             f.write(key+ '  ' + val + '\n')
     cmd += " --ile-condor-commands `pwd`/ile_condor_commands.txt "
+
+# Stage and validate frames before emitting jobs. args_ile.txt already holds
+# the native worker channels/times, so no submit-file parsing or repair is needed.
+if opts.use_osg_file_transfer and opts.internal_truncate_files_for_osg_file_transfer:
+    if opts.fake_data_cache:
+        shutil.copyfile(opts.fake_data_cache, "local.cache")
+    subprocess.run(["util_ForOSG_MakeTruncatedLocalFramesDir.sh", "."], check=True)
+    if 'RIFT_TRUNCATE_CHECK' in os.environ:
+        frames = [name for name in os.listdir('frames_dir') if name.endswith('.gwf')]
+        if len(frames) < len(event_dict["IFOs"]):
+            raise RuntimeError("Pipeline build failure: Problem generating truncated frames for OSG")
 
 print(cmd)
 os.system(cmd)
@@ -1826,11 +1825,6 @@ if opts.internal_ile_check_good_enough:
     cmd_enough = r"find . -name 'iter*ile' -type d -exec touch {}/ile_good_enough \; "
     os.system(cmd)
 
-if opts.use_osg_file_transfer and opts.internal_truncate_files_for_osg_file_transfer:
-    if opts.fake_data_cache:
-        shutil.copyfile(opts.fake_data_cache, 'local.cache')
-    # build truncated frames.  Note this parses ILE arguments, so must be done last
-    os.system("util_ForOSG_MakeTruncatedLocalFramesDir.sh .")
 
 ## RUNMON
 try:

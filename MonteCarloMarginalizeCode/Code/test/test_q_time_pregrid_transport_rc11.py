@@ -43,7 +43,7 @@ def test_pipeline_helper_emission_roundtrip(factor):
     cmd=emit("util_RIFT_pseudo_pipe.py","cmd",dict(opts=pipe,cmd="helper_LDG_Events.py "))
     helper=parser_for("helper_LDG_Events.py").parse_args(cmd.split()[1:])
     args=emit("helper_LDG_Events.py","helper_ile_args",
-              dict(opts=helper,helper_ile_args="--vectorized --gpu --srate 4096 "))
+              dict(opts=helper,helper_ile_args="--time-marginalization --vectorized --gpu --srate 4096 "))
     assert args.count("--q-time-pregrid-factor")==1
     assert "--q-time-pregrid-factor "+str(factor) in args
     q.refuse_unless_q_time_pregrid_emitted(factor,args,"args_ile.txt")
@@ -51,7 +51,7 @@ def test_pipeline_helper_emission_roundtrip(factor):
 
 def test_unset_preserves_argument_bytes():
     for name,target,value in [("util_RIFT_pseudo_pipe.py","cmd","helper_LDG_Events.py "),
-                              ("helper_LDG_Events.py","helper_ile_args","--vectorized --gpu ")]:
+                              ("helper_LDG_Events.py","helper_ile_args","--time-marginalization --vectorized --gpu ")]:
         opts=parser_for(name).parse_args([])
         assert emit(name,target,dict(opts=opts,**{target:value}))==value
 
@@ -62,14 +62,14 @@ def test_unsupported_factor_rejected_by_actual_parser(name):
 
 def test_stale_helper_lost_request_is_refused():
     with pytest.raises(ValueError,match="contains no"):
-        q.refuse_unless_q_time_pregrid_emitted(2,"--vectorized --gpu","args_ile.txt")
+        q.refuse_unless_q_time_pregrid_emitted(2,"--time-marginalization --vectorized --gpu","args_ile.txt")
 
-@pytest.mark.parametrize("extra",["--rotation-slow","--freqresponse",
+@pytest.mark.parametrize("extra",["--zero-likelihood","--rotation-slow","--freqresponse",
     "--calibration-envelope-directory draws","--interpolate-time nearest"])
 def test_incompatible_final_arguments_are_refused(extra):
     with pytest.raises(ValueError):
         q.refuse_unless_q_time_pregrid_emitted(
-            2,"--vectorized --gpu --q-time-pregrid-factor 2 "+extra,"args_ile.txt")
+            2,"--time-marginalization --vectorized --gpu --q-time-pregrid-factor 2 "+extra,"args_ile.txt")
 
 def test_both_actual_scripts_guard_before_writing():
     for name,filename in [("util_RIFT_pseudo_pipe.py","args_ile.txt"),
@@ -103,3 +103,20 @@ def test_asimov_template_renders_q_only_key(factor):
     else:
         assert "internal-ile-q-time-pregrid-factor="+str(factor) in rendered
     assert "srate-internal" not in rendered
+
+
+@pytest.mark.parametrize("value", [True, False, 1.5, 2.0, 2.9, 8.1, float("inf"), float("nan")])
+def test_fractional_or_boolean_refinement_requests_are_rejected(value):
+    from RIFT.likelihood.q_time_pregrid import validate_q_time_pregrid_factor
+    with pytest.raises(ValueError, match="must be an integer"):
+        validate_q_time_pregrid_factor(value)
+
+
+@pytest.mark.parametrize("factor", [2, 4, 8])
+@pytest.mark.parametrize("missing", ["--time-marginalization", "--vectorized", "--gpu"])
+def test_refined_emission_requires_actual_noloop_dispatch(factor, missing):
+    args = ["--time-marginalization", "--vectorized", "--gpu"]
+    args.remove(missing)
+    with pytest.raises(ValueError, match=missing):
+        q.refuse_unless_q_time_pregrid_emitted(factor,
+            "X " + " ".join(args) + " --q-time-pregrid-factor " + str(factor), "args_ile.txt")

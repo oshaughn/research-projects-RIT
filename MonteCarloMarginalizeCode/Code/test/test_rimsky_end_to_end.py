@@ -308,7 +308,9 @@ def test_first_rimsky_result_creates_bootstrapped_rift_production(
             assert path.is_file() and not path.is_symlink()
             assert path.stat().st_size > 0
 
-    bootstrap = category_dir / "rift-online_bootstrap.xml.gz"
+    bootstraps = list(category_dir.glob(".rift-bootstrap-grid-*/grid.xml.gz"))
+    assert len(bootstraps) == 1
+    bootstrap = bootstraps[0]
     assert bootstrap.is_file()
     assert len(converter_commands) == 1
     converter = converter_commands[0]

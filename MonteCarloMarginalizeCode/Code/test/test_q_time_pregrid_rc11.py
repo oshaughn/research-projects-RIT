@@ -110,7 +110,7 @@ def test_chunk_wrapper_forwards_independent_q_spacing_to_every_row_chunk():
     for c in calls:np.testing.assert_array_equal(c[3],nodes)
 
 def test_export_passes_q_spacing_explicitly_and_pregrid_failure_is_not_swallowed():
-    driver=Path(fl.__file__).parents[2]/"bin/integrate_likelihood_extrinsic_batchmode"
+    driver=Path(__file__).resolve().parents[1]/"bin/integrate_likelihood_extrinsic_batchmode"
     tree=ast.parse(driver.read_text())
     resample=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=="resample_samples")
     assert "q_deltaT" in [a.arg for a in resample.args.args]
@@ -128,7 +128,7 @@ def test_export_passes_q_spacing_explicitly_and_pregrid_failure_is_not_swallowed
 def test_driver_pregrid_preparation_failures_are_fatal(failure_stage):
     """Execute the driver's actual block, including the helper recovery path."""
     from RIFT.likelihood.q_time_pregrid import QTimePregridError
-    driver=Path(fl.__file__).parents[2]/"bin/integrate_likelihood_extrinsic_batchmode"
+    driver=Path(__file__).resolve().parents[1]/"bin/integrate_likelihood_extrinsic_batchmode"
     tree=ast.parse(driver.read_text())
     analyze=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=="analyze_event")
     blocks=[n for n in ast.walk(analyze) if isinstance(n,ast.If)
