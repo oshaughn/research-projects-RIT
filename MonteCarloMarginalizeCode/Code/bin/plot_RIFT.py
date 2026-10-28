@@ -290,6 +290,8 @@ def create_plots_folder(save_path):
         os.mkdir(save_path + "/plots/1_D_plots")
     else:
         print(f"--> plots folder exists, saving plots in directory {save_path}/plots")
+    # puffing corner plots, created also if the plots folder was made by an earlier version
+    os.makedirs(save_path + "/plots/Exploration/puffing", exist_ok=True)
 
 def get_chirpmass_massratio_eta_totalmass_from_componentmasses(m1, m2):
     """
@@ -1268,6 +1270,576 @@ def plot_log_likelihood(extrinsic_path):
     plt.cla()
     plt.close()
 
+###########################################################################################
+# Puffing: corner plots of the puffed points (puffball-N.xml.gz, output of util_ParameterPuffball.py) and the latest posterior
+###########################################################################################
+PUFFING_FOLDER = "Exploration/puffing"   # the corner plots are named like the other corner plots: corner_{parameters}_{Main, Main_Final, Subdag or Subdag_Final}.png
+PUFFING_THRESHOLDS = {"min_corr_retention": 0.5,    # correlation of eccentricity and meanPerAno in the puffs relative to the grid, checked when the grid has |corr| > 0.5
+                      "min_hit_efficiency": 0.3}    # fraction of high lnL points among the puffs relative to the grid
+PUFFING_MAX_ITERATIONS = 5               # at most this many puffball iterations (evenly spaced, always including the latest) are shown in the "all iterations" corner plot
+PUFFING_LABELS = {"m1": r"$m_1$", "m2": r"$m_2$", "mc": r"$\mathcal{M}_c$", "eta": r"$\eta$", "q": r"$q$", "mtot": r"$M$", "s1z": r"$\chi_{1z}$", "s2z": r"$\chi_{2z}$",
+                  "chi_eff": r"$\chi_{\rm eff}$", "chiMinus": r"$\chi_{-}$", "eccentricity": r"$e$", "meanPerAno": r"$\ell$"}
+
+def puffing_parameters(m1, m2, s1z, s2z, eccentric_values=None, mean_anomaly_values=None):
+    """
+    Parameters used in the puffing corner plots, from component masses (solar masses) and aligned spins. The same function is used
+    for the puffball xml.gz files and for the posterior samples, so that both are described identically.
+    chiMinus = (m1 s1z - m2 s2z)/M as in the rest of this script.
+    """
+    parameters = {"m1": m1, "m2": m2, "mc": (m1*m2)**0.6/(m1 + m2)**0.2, "eta": m1*m2/(m1 + m2)**2, "q": m2/m1, "mtot": m1 + m2, "s1z": s1z, "s2z": s2z,
+                  "chi_eff": (m1*s1z + m2*s2z)/(m1 + m2), "chiMinus": (m1*s1z - m2*s2z)/(m1 + m2)}
+    if eccentric_values is not None:
+        parameters["eccentricity"] = np.asarray(eccentric_values, dtype=float)
+        parameters["meanPerAno"] = np.mod(np.asarray(mean_anomaly_values, dtype=float), 2*np.pi)
+    return parameters
+
+def find_puffing_files(folder):
+    """
+    Finds the puffball files of a run. puffball-N.xml.gz is the output of util_ParameterPuffball.py in iteration N, made from overlap-grid-N.xml.gz.
+    Both are evaluated by ILE in iteration N, so the ILE results are in consolidated_N.composite.
+
+    Args:
+        folder (str): Path to the run directory (or the subdag directory).
+
+    Returns:
+        dict: iteration -> {"puffball": path, "grid": path or None, "composite": path or None}, sorted by iteration.
+    """
+    iterations = {}
+    for puffball_file in glob.glob(f"{folder}/puffball-*.xml.gz"):
+        match = re.search(r"puffball-(\d+)\.xml\.gz$", os.path.basename(puffball_file))
+        if not match:
+            continue
+        n = int(match.group(1))
+        grid_file = f"{folder}/overlap-grid-{n}.xml.gz"
+        composite_file = f"{folder}/consolidated_{n}.composite"
+        iterations[n] = {"puffball": puffball_file, "grid": grid_file if os.path.exists(grid_file) else None,
+                         "composite": composite_file if os.path.exists(composite_file) and os.path.getsize(composite_file) > 0 else None}
+    return dict(sorted(iterations.items()))
+
+def unwrap_angles(angles, center, period=2*np.pi):
+    """Returns the angles within +-period/2 of center (unwrapped about center)."""
+    return center + (np.mod(np.asarray(angles) - center + period/2., period) - period/2.)
+
+def circular_summary(angles, period=2*np.pi):
+    """
+    Describes samples of a periodic parameter. The circle is cut in the middle of the largest empty arc of the samples, and the
+    samples are unwrapped about the opposite point.
+
+    Args:
+        angles (np.ndarray): Samples of the periodic parameter.
+        period (float): Period of the parameter. Default is 2 pi.
+
+    Returns:
+        tuple: (dict with center, cut, largest_empty_arc, resultant (mean resultant length), std_raw (std of the angle in [0, period)),
+                std_unwrapped, np.ndarray of the unwrapped samples)
+    """
+    ang = np.mod(angles, period)
+    sorted_ang = np.sort(ang)
+    gaps = np.diff(np.r_[sorted_ang, sorted_ang[0] + period])
+    k = np.argmax(gaps)
+    cut = np.mod(sorted_ang[k] + gaps[k]/2., period)
+    center = np.mod(cut + period/2., period)
+    unwrapped = unwrap_angles(ang, center, period)
+    summary = {"center": float(center), "cut": float(cut), "largest_empty_arc": float(gaps[k]),
+               "resultant": float(np.abs(np.mean(np.exp(2j*np.pi*ang/period)))),
+               "std_raw": float(np.std(ang)), "std_unwrapped": float(np.std(unwrapped))}
+    return summary, unwrapped
+
+def read_grid_parameters(xml_file):
+    """
+    Reads a puffball xml.gz file with lalsimutils and returns the parameters used in the puffing corner plots.
+
+    Args:
+        xml_file (str): Path to the xml.gz file.
+
+    Returns:
+        dict: arrays from puffing_parameters (m1, m2 in solar masses, mc, eta, q, mtot, s1z, s2z, chi_eff, chiMinus and, for eccentric runs, eccentricity and meanPerAno).
+    """
+    P_list = lsu.xml_to_ChooseWaveformParams_array(xml_file)
+    if len(P_list) == 0:
+        raise ValueError(f"No points in {xml_file}")
+    m1 = np.array([P.m1 for P in P_list], dtype=float)/lsu.lsu_MSUN
+    m2 = np.array([P.m2 for P in P_list], dtype=float)/lsu.lsu_MSUN
+    s1z = np.array([P.s1z for P in P_list], dtype=float)
+    s2z = np.array([P.s2z for P in P_list], dtype=float)
+    if eccentricity:
+        return puffing_parameters(m1, m2, s1z, s2z, [P.eccentricity for P in P_list], [P.meanPerAno for P in P_list])
+    return puffing_parameters(m1, m2, s1z, s2z)
+
+def composite_column_layout():
+    """Column indices of an all.net / consolidated_N.composite file (the same layout as get_lnL_cut_points). None for LISA, whose extra columns are not assumed."""
+    if LISA:
+        return None
+    layout = {"m1": 1, "m2": 2, "s1z": 5, "s2z": 8, "lnL": 9, "err": 10}
+    if eccentricity:
+        layout.update({"eccentricity": 9, "meanPerAno": 10, "lnL": 11, "err": 12})
+    return layout
+
+puffing_file_cache = {}   # loaded composite / all.net files, so each file is read once per run
+
+def load_evaluations(file_path):
+    """Loads a consolidated_N.composite or all.net file (cached)."""
+    if file_path not in puffing_file_cache:
+        puffing_file_cache[file_path] = np.loadtxt(file_path, ndmin=2)
+    return puffing_file_cache[file_path]
+
+def match_to_composite(parameters, composite_file, tolerance=5e-3):
+    """
+    Finds the ILE result (lnL and error) of each point in a consolidated_N.composite (or all.net) file by matching the coordinates
+    (m1, m2, s1z, s2z, and eccentricity and meanPerAno for eccentric runs).
+
+    Args:
+        parameters (dict): Output of read_grid_parameters.
+        composite_file (str): Path to the composite or all.net file.
+        tolerance (float): Maximum distance, in units of the standard deviation of each column, for a match.
+
+    Returns:
+        dict or None: lnL, err (nan if not matched) and matched_fraction; None if the column layout is not known.
+    """
+    layout = composite_column_layout()
+    if layout is None:
+        return None
+    from scipy.spatial import cKDTree
+    data = load_evaluations(composite_file)
+    names = [name for name in ["m1", "m2", "s1z", "s2z", "eccentricity", "meanPerAno"] if name in layout and name in parameters]
+    composite_coordinates = np.column_stack([data[:, layout[name]] for name in names])
+    points = np.column_stack([parameters[name] for name in names])
+    scale = np.maximum(np.std(composite_coordinates, axis=0), 1e-12)
+    distance, index = cKDTree(composite_coordinates/scale).query(points/scale)
+    matched = distance < tolerance
+    return {"lnL": np.where(matched, data[index, layout["lnL"]], np.nan), "err": np.where(matched, data[index, layout["err"]], np.nan),
+            "matched_fraction": float(np.mean(matched))}
+
+def diagnose_composite_match(parameters, composite_file, label, tolerance=5e-3):
+    """Explains why the puffed points are not (all) found in a composite: wrong file, a column that differs, or only partial coverage."""
+    from scipy.spatial import cKDTree
+    layout = composite_column_layout()
+    data = load_evaluations(composite_file)
+    scale = lambda column: max(np.std(data[:, column]), 1e-12)
+    masses = np.column_stack([data[:, layout["m1"]]/scale(layout["m1"]), data[:, layout["m2"]]/scale(layout["m2"])])
+    distance, index = cKDTree(masses).query(np.column_stack([parameters["m1"]/scale(layout["m1"]), parameters["m2"]/scale(layout["m2"])]))
+    found = distance < tolerance
+    if found.mean() < 0.5:
+        return f"the m1, m2 of the points are not in {label} (is it the file of the iteration that evaluated them?)"
+    worst, worst_name, worst_difference = 0., None, 0.
+    for name in ["s1z", "s2z", "eccentricity", "meanPerAno"]:
+        if name not in layout or name not in parameters:
+            continue
+        difference = np.abs(parameters[name][found] - data[index[found], layout[name]])
+        if name == "meanPerAno":
+            difference = np.minimum(difference, 2*np.pi - difference)
+        relative = np.median(difference)/scale(layout[name])
+        if relative > worst:
+            worst, worst_name, worst_difference = relative, name, np.median(difference)
+    if worst > 1e-2:
+        return f"m1 and m2 of the points are found in {label} but {worst_name} differs (median |point - file| = {worst_difference:.3g}): check the {worst_name} column or parametrization in {label}"
+    return f"only part of the points are in {label} (failed or missing ILE evaluations)"
+
+def find_lnL_of_points(parameters, composite_file, composite_label, all_net_file):
+    """
+    Finds the lnL of the points in the consolidated_N.composite of their iteration, and in all.net (which contains every evaluation) if the composite is missing
+    or contains too few of them. Partial matches are used and reported.
+
+    Returns:
+        dict: lnL, err (arrays or None), matched_fraction, source (file name) and note (str, "" if everything is fine).
+    """
+    tries = []   # (label, match result, reason when there is no result)
+    for label, file_path in [(composite_label, composite_file), ("all.net", all_net_file)]:
+        if file_path is None or not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
+            tries.append((label, None, f"{label} not found"))
+            continue
+        try:
+            result = match_to_composite(parameters, file_path)
+        except Exception as e:
+            tries.append((label, None, f"{label} could not be read ({e})"))
+            continue
+        tries.append((label, result, None))
+        if result is not None and result["matched_fraction"] >= 0.5:
+            break
+    usable = [t for t in tries if t[1] is not None]
+    best = max(usable, key=lambda t: t[1]["matched_fraction"]) if usable else None
+    path_of = lambda label: composite_file if label == composite_label else all_net_file
+    if best is None or best[1]["matched_fraction"] < 0.05:
+        reasons = [t[2] for t in tries if t[2]]
+        if best is not None:
+            reasons.append(diagnose_composite_match(parameters, path_of(best[0]), best[0]))
+        return {"lnL": None, "err": None, "matched_fraction": 0. if best is None else best[1]["matched_fraction"], "source": None, "note": "lnL not available: " + "; ".join(reasons)}
+    before = tries[:tries.index(best)]
+    notes = [t[2] for t in before if t[2]] + [f"only {100*t[1]['matched_fraction']:.0f}% of the points were found in {t[0]}" for t in before if t[1] is not None]
+    if best[1]["matched_fraction"] < 0.8:
+        notes.append(f"lnL found for {100*best[1]['matched_fraction']:.0f}% of the points in {best[0]}: " + diagnose_composite_match(parameters, path_of(best[0]), best[0]))
+    elif notes:
+        notes.append(f"lnL taken from {best[0]}")
+    return {"lnL": best[1]["lnL"], "err": best[1]["err"], "matched_fraction": best[1]["matched_fraction"], "source": best[0], "note": "; ".join(notes)}
+
+def read_puffball_arguments(folder):
+    """
+    Reads the puff factor of util_ParameterPuffball.py from the .sub file (e.g. PUFF.sub) of the run.
+
+    Args:
+        folder (str): Path to the run directory (or the subdag directory).
+
+    Returns:
+        dict: found (bool), file (name of the .sub file) and puff_factor (float, 1 if --puff-factor is not given, the default of util_ParameterPuffball.py).
+    """
+    info = {"found": False, "file": None, "puff_factor": None}
+    for sub_file in sorted(glob.glob(f"{folder}/*.sub")):
+        try:
+            with open(sub_file, "r") as f:
+                content = f.read()
+        except Exception:
+            continue
+        if "util_ParameterPuffball" not in content:
+            continue
+        factor = re.findall(r"--puff-factor\s+([0-9.eE+-]+)", content)
+        info.update({"found": True, "file": os.path.basename(sub_file), "puff_factor": float(factor[-1]) if factor else 1.0})
+        break
+    return info
+
+def high_lnL_fraction(lnL, err, max_lnL, lnL_cut=15, error_threshold=0.4):
+    """Fraction of the evaluated points (lnL not nan) that are high lnL points (within lnL_cut of max_lnL, error <= error_threshold), as in get_lnL_cut_points."""
+    evaluated = ~np.isnan(lnL)
+    if evaluated.sum() == 0:
+        return np.nan
+    return float(np.sum(evaluated & (lnL >= max_lnL - lnL_cut) & (err <= error_threshold))/evaluated.sum())
+
+def max_lnL_low_error(all_net_file, lnL_cut=15, error_threshold=0.4):
+    """Maximum lnL among the high lnL points (within lnL_cut of the maximum, Monte Carlo error <= error_threshold) of an all.net file, as in get_lnL_cut_points. None if it cannot be read."""
+    layout = composite_column_layout()
+    if layout is None or not os.path.exists(all_net_file):
+        return None
+    data = np.loadtxt(all_net_file, ndmin=2)
+    lnL, error = data[:, layout["lnL"]], data[:, layout["err"]]
+    good = ~np.isnan(lnL)
+    lnL, error = lnL[good], error[good]
+    if len(lnL) == 0:
+        return None
+    high = (lnL >= lnL.max() - lnL_cut) & (error <= error_threshold)
+    return float(lnL[high].max()) if high.any() else float(lnL.max())
+
+def find_latest_posterior(folder):
+    """Path to the latest posterior (the same one as used for the last histograms and corner plots) in the run directory (or the subdag directory)."""
+    posteriors, _ = find_posteriors_in_main(folder)
+    if len(posteriors) == 0:
+        raise FileNotFoundError(f"No posterior_samples* files found in {folder}")
+    return posteriors[-1]
+
+def puffing_parameter_sets():
+    """Parameter sets of the puffing corner plots, shown in the menu of the html file: the cartesian parameters (first, shown by default) and the chirp mass based ones."""
+    spin = [] if non_spinning else ["s1z", "s2z"]
+    eccentric_parameters = ["eccentricity", "meanPerAno"] if eccentricity else []
+    return [["m1", "m2"] + spin + eccentric_parameters, ["mc", "eta"] + ([] if non_spinning else ["chi_eff"]) + eccentric_parameters]
+
+def read_posterior_parameters(posterior_file):
+    """Reads the posterior samples (same column layout as in the rest of this script) and returns the parameters of puffing_parameters."""
+    data = np.loadtxt(posterior_file, ndmin=2)
+    column = lambda name: data[:, get_index_for_parameter(name)]
+    if eccentricity:
+        return puffing_parameters(column("m1"), column("m2"), column("s1z"), column("s2z"), column("eccentricity"), column("meanPerAno"))
+    return puffing_parameters(column("m1"), column("m2"), column("s1z"), column("s2z"))
+
+def puffing_footprint(puff, posterior, quantile=0.99, max_posterior_points=20000):
+    """
+    Finds the puffed points that lie outside the footprint of the posterior samples. Distances are measured in m1, m2, s1z, s2z (and eccentricity and
+    meanPerAno, unwrapped about the posterior's center) after whitening with the covariance of the posterior samples, so the thin correlated
+    directions of the posterior count. A puff is outside the footprint if its nearest posterior sample is farther away than the nearest-neighbour
+    distance exceeded by only (1 - quantile) of the posterior samples themselves.
+
+    Args:
+        puff (dict): Puffed points, output of read_grid_parameters.
+        posterior (dict): Posterior samples, output of read_posterior_parameters.
+        quantile (float): Quantile of the posterior's own nearest-neighbour distances used as the footprint size. Default is 0.99.
+        max_posterior_points (int): Larger posteriors are randomly thinned to this number of distinct samples.
+
+    Returns:
+        dict or None: outside (bool array for the puffed points), threshold and distance (whitened units); None if there are too few distinct posterior samples.
+    """
+    from scipy.spatial import cKDTree
+    names = ["m1", "m2", "s1z", "s2z"] + (["eccentricity", "meanPerAno"] if eccentricity else [])
+    posterior_values = np.column_stack([posterior[name] for name in names])
+    puff_values = np.column_stack([puff[name] for name in names])
+    if eccentricity:
+        summary, posterior_unwrapped = circular_summary(posterior["meanPerAno"])
+        posterior_values[:, -1] = posterior_unwrapped
+        puff_values[:, -1] = unwrap_angles(puff["meanPerAno"], summary["center"])
+    mean = posterior_values.mean(axis=0)
+    covariance = np.cov(posterior_values.T)
+    covariance = covariance + 1e-6*np.diag(np.diag(covariance))   # keeps the whitening finite for almost degenerate directions
+    L = np.linalg.cholesky(covariance)
+    whiten = lambda values: np.linalg.solve(L, (values - mean).T).T
+    posterior_white = np.unique(np.round(whiten(posterior_values), 6), axis=0)   # posterior samples can contain duplicates
+    if len(posterior_white) < 200:
+        return None
+    if len(posterior_white) > max_posterior_points:
+        posterior_white = posterior_white[np.random.default_rng(0).choice(len(posterior_white), max_posterior_points, replace=False)]
+    tree = cKDTree(posterior_white)
+    own_distance = tree.query(posterior_white, k=2)[0][:, 1]
+    threshold = float(np.quantile(own_distance, quantile))
+    distance = tree.query(whiten(puff_values))[0]
+    return {"outside": distance > threshold, "threshold": threshold, "distance": distance}
+
+def posterior_contours(ax, x, y, x_limits, y_limits, credible_levels=(0.5, 0.9), bins=100):
+    """
+    Draws the 50% and 90% highest-density contours of the posterior samples (smoothed 2D histogram) in black on an axis.
+
+    Returns:
+        bool: False if the contours could not be drawn (too few distinct samples).
+    """
+    from scipy.ndimage import gaussian_filter
+    inside = (x >= x_limits[0]) & (x <= x_limits[1]) & (y >= y_limits[0]) & (y <= y_limits[1])
+    if inside.sum() < 50:
+        return False
+    histogram, x_edges, y_edges = np.histogram2d(x[inside], y[inside], bins=bins, range=[x_limits, y_limits])
+    histogram = gaussian_filter(histogram, 1.5)
+    if histogram.max() <= 0:
+        return False
+    ordered = np.sort(histogram.ravel())[::-1]
+    mass = np.cumsum(ordered)/ordered.sum()
+    thresholds = [ordered[min(np.searchsorted(mass, level), len(ordered) - 1)] for level in credible_levels]   # density above which the credible mass is enclosed
+    if len(set(thresholds)) < len(thresholds):
+        return False
+    levels = sorted(thresholds)
+    ax.contour(0.5*(x_edges[1:] + x_edges[:-1]), 0.5*(y_edges[1:] + y_edges[:-1]), histogram.T, levels=levels, colors="black", linewidths=[1.8, 1.0][-len(levels):] if len(levels) == 2 else 1.5, zorder=10)
+    return True
+
+def draw_puffing_corner(parameters, scatter_layers, hist_layers, posterior, posterior_name, handles, info_lines, out_file):
+    """
+    Corner plot (matplotlib). Scatter layers are drawn in the order given, then the posterior samples (black) on top.
+
+    Args:
+        parameters (list): Parameters on the axes (keys of PUFFING_LABELS).
+        scatter_layers (list): dicts with data (parameters dict), mask (bool array or None), color, size, alpha, zorder.
+        hist_layers (list): dicts with data, mask (or None) and color, drawn as step histograms on the diagonal.
+        posterior (dict): Posterior samples.
+        posterior_name (str): File name of the posterior, for the legend.
+        handles (list): Legend handles for the layers (the posterior is added).
+        info_lines (list): Text written in the upper right corner of the figure.
+        out_file (str): Path of the png.
+    """
+    from matplotlib.lines import Line2D
+    n = len(parameters)
+    rng = np.random.default_rng(1)
+    def pick(layer, count=4000):
+        index = np.arange(len(next(iter(layer["data"].values())))) if layer["mask"] is None else np.flatnonzero(layer["mask"])
+        return np.sort(rng.choice(index, min(count, len(index)), replace=False)) if len(index) else index
+    ipost = np.sort(rng.choice(len(posterior["m1"]), min(5000, len(posterior["m1"])), replace=False))
+    limits = []
+    for name in parameters:
+        if name == "meanPerAno":
+            limits.append((0., 2*np.pi)); continue
+        values = np.concatenate([posterior[name]] + [layer["data"][name] for layer in scatter_layers])
+        low, high = np.percentile(values, [0.1, 99.9]); pad = 0.05*(high - low) if high > low else 1.
+        limits.append((low - pad, high + pad))
+    picks = [pick(layer) for layer in scatter_layers]
+    with plt.rc_context({"font.size": 12, "axes.labelsize": 15, "xtick.labelsize": 10, "ytick.labelsize": 10}):
+        fig, axes = plt.subplots(n, n, figsize=(2.9*n + 1, 2.9*n + 1), squeeze=False)
+        for i in range(n):
+            for j in range(n):
+                ax = axes[i, j]
+                if j > i:
+                    ax.axis("off"); continue
+                if i == j:
+                    name = parameters[i]; bins = np.linspace(limits[i][0], limits[i][1], 50)
+                    for layer in hist_layers:
+                        values = layer["data"][name] if layer["mask"] is None else layer["data"][name][layer["mask"]]
+                        if len(values):
+                            ax.hist(values, bins=bins, density=True, histtype="step", color=layer["color"], linewidth=1.5)
+                    ax.hist(posterior[name], bins=bins, density=True, histtype="step", color="black", linewidth=1.5)
+                    ax.set_xlim(*limits[i]); ax.set_yticks([])
+                else:
+                    xname, yname = parameters[j], parameters[i]
+                    for layer, index in zip(scatter_layers, picks):
+                        ax.scatter(layer["data"][xname][index], layer["data"][yname][index], s=layer["size"], color=layer["color"], alpha=layer["alpha"], linewidths=0, rasterized=True, zorder=layer["zorder"])
+                    if not posterior_contours(ax, posterior[xname], posterior[yname], limits[j], limits[i]):   # too few samples for contours: show the samples
+                        ax.scatter(posterior[xname][ipost], posterior[yname][ipost], s=2, c="black", alpha=0.7, linewidths=0, rasterized=True, zorder=10)
+                    ax.set_xlim(*limits[j]); ax.set_ylim(*limits[i])
+                if i == n - 1:
+                    ax.set_xlabel(PUFFING_LABELS.get(parameters[j], parameters[j])); ax.tick_params(axis="x", labelrotation=45)
+                else:
+                    ax.set_xticklabels([])
+                if j == 0 and i > 0:
+                    ax.set_ylabel(PUFFING_LABELS.get(parameters[i], parameters[i]))
+                elif j > 0 and i != j:
+                    ax.set_yticklabels([])
+        handles = handles + [Line2D([], [], color="black", linewidth=1.5, label=f"latest posterior, 50% and 90% contours ({posterior_name})")]
+        fig.legend(handles=handles, loc="upper right", bbox_to_anchor=(0.97, 0.80), fontsize=13, frameon=True)
+        fig.text(0.97, 0.97, "\n".join(info_lines), ha="right", va="top", fontsize=14)
+        fig.savefig(out_file, bbox_inches="tight", dpi=75)
+        plt.close(fig)
+
+def plot_puffing_corners(folder, plot_title="Main", run_folder=None):
+    """
+    Corner plots of the puffed points (puffball-N.xml.gz, read with lalsimutils) and the latest posterior, saved in plots/Exploration/puffing and
+    named like the other corner plots: corner_{parameters}_{plot_title}_Final.png is the latest puffball (high lnL puffs in red, frontier points in orange)
+    and corner_{parameters}_{plot_title}.png shows the puffs of the iterations read, coloured by iteration. The posterior is drawn as contours. The html file shows
+    them like the other corner plots. The numbers of puffs, the high lnL puffs and the checks of the correlation and of the puff efficiency are stored in
+    run_diagnostics["puffing"][plot_title] for Diagnostics.txt.
+
+    Args:
+        folder (str): Path to the run directory (plot_title "Main") or to the subdag directory (plot_title "Subdag").
+        plot_title (str): "Main" or "Subdag", used in the file names.
+        run_folder (str, optional): Run directory, where the puffball .sub file is searched if it is not in folder (for the subdag).
+    """
+    print(f"\n--> Plotting puffing corner plots for {plot_title} iterations.")
+    files = find_puffing_files(folder)
+    if not files:
+        print(f"No puffball-N.xml.gz files found in {folder}, skipping the puffing corner plots.")
+        return
+    arguments = read_puffball_arguments(folder)
+    if not arguments["found"] and run_folder is not None:
+        arguments = read_puffball_arguments(run_folder)
+    if arguments["found"]:
+        puff_factor, source = arguments["puff_factor"], arguments["file"]
+    else:
+        puff_factor, source = 2.0, "assumed, the puffball .sub file was not found"
+    chosen = sorted(files)
+    if len(chosen) > PUFFING_MAX_ITERATIONS:
+        chosen = sorted(set(np.array(chosen)[np.unique(np.linspace(0, len(chosen) - 1, PUFFING_MAX_ITERATIONS).astype(int))]))
+    all_net_file = f"{folder}/all.net"
+    max_lnL = max_lnL_low_error(all_net_file)
+    puffs, lnL_status, table = {}, {}, {}
+    for n in chosen:
+        try:
+            puffs[n] = read_grid_parameters(files[n]["puffball"])
+        except Exception as e:
+            print(f"puffball-{n}.xml.gz could not be read ({e})")
+            continue
+        row = {"n_puff": int(len(puffs[n]["m1"])), "n_high": None, "hit_puff": np.nan, "hit_grid": np.nan, "efficiency": np.nan, "corr_grid": None, "corr_puff": None, "notes": []}
+        lnL_status[n] = None
+        composite_label = f"consolidated_{n}.composite"
+        puff_lnL = find_lnL_of_points(puffs[n], files[n]["composite"], composite_label, all_net_file)
+        if puff_lnL["lnL"] is not None and max_lnL is not None:
+            evaluated = ~np.isnan(puff_lnL["lnL"])
+            high = evaluated & (puff_lnL["lnL"] >= max_lnL - 15) & (puff_lnL["err"] <= 0.4)
+            lnL_status[n] = {"evaluated": evaluated, "high": high, "matched": puff_lnL["matched_fraction"]}
+            row["n_high"], row["hit_puff"] = int(high.sum()), high_lnL_fraction(puff_lnL["lnL"], puff_lnL["err"], max_lnL)
+        if puff_lnL["note"]:
+            row["notes"].append("puffs: " + puff_lnL["note"])
+        if max_lnL is None:
+            row["notes"].append("lnL not available: the maximum lnL could not be read from all.net")
+        grid = None
+        if files[n]["grid"] is None:
+            row["notes"].append(f"overlap-grid-{n}.xml.gz not found, so the puff efficiency and the correlation cannot be computed")
+        else:
+            try:
+                grid = read_grid_parameters(files[n]["grid"])
+            except Exception as e:
+                row["notes"].append(f"overlap-grid-{n}.xml.gz could not be read ({e})")
+        if grid is not None:
+            if lnL_status[n] is not None:     # efficiency: high lnL fraction of the puffs relative to the grid they were made from
+                grid_lnL = find_lnL_of_points(grid, files[n]["composite"], composite_label, all_net_file)
+                if grid_lnL["lnL"] is None:
+                    row["notes"].append("puff efficiency not available, grid points: " + grid_lnL["note"])
+                else:
+                    row["hit_grid"] = high_lnL_fraction(grid_lnL["lnL"], grid_lnL["err"], max_lnL)
+                    if row["hit_grid"] > 0:
+                        row["efficiency"] = row["hit_puff"]/row["hit_grid"]
+                    else:
+                        row["notes"].append(f"puff efficiency not available: none of the {int(np.sum(~np.isnan(grid_lnL['lnL'])))} evaluated grid points is a high lnL point")
+            if eccentricity:                  # correlation of eccentricity and meanPerAno (unwrapped about the grid's center) in the grid and in the puffs
+                summary, grid_unwrapped = circular_summary(grid["meanPerAno"])
+                puff_unwrapped = unwrap_angles(puffs[n]["meanPerAno"], summary["center"])
+                row["corr_grid"] = float(np.corrcoef(grid["eccentricity"], grid_unwrapped)[0, 1])
+                row["corr_puff"] = float(np.corrcoef(puffs[n]["eccentricity"], puff_unwrapped)[0, 1])
+        table[n] = row
+    if not puffs:
+        return
+    iterations = sorted(puffs)
+    latest = iterations[-1]
+    # checks on the latest iteration
+    warnings = []
+    last = table[latest]
+    if last["corr_grid"] is not None and abs(last["corr_grid"]) > 0.5 and last["corr_puff"]/last["corr_grid"] < PUFFING_THRESHOLDS["min_corr_retention"]:
+        warnings.append(f"Iteration {latest}: the correlation between eccentricity and meanPerAno (unwrapped) is {last['corr_grid']:+.2f} in the grid but {last['corr_puff']:+.2f} in the puffs: the puffs do not follow the posterior ridge.")
+    if not np.isnan(last["efficiency"]) and last["efficiency"] < PUFFING_THRESHOLDS["min_hit_efficiency"]:
+        warnings.append(f"Iteration {latest}: only {last['hit_puff']:.1%} of the puffs are high lnL points against {last['hit_grid']:.1%} of the grid points (efficiency {last['efficiency']:.2f}); most puffs are evaluated in regions of low likelihood.")
+    run_diagnostics.setdefault("puffing", {})[plot_title] = {"puff_factor": puff_factor, "source": source, "table": table, "latest": latest, "warnings": warnings}
+
+    posterior_file = find_latest_posterior(folder)
+    posterior = read_posterior_parameters(posterior_file)
+    posterior_name = os.path.basename(posterior_file)
+    puff = puffs[latest]
+    footprint = None
+    try:
+        footprint = puffing_footprint(puff, posterior)
+    except Exception as e:
+        print(f"Couldn't compute the footprint of the posterior ({e}), frontier points are not shown.")
+    high = lnL_status[latest]["high"] if lnL_status[latest] else None
+    outside = footprint["outside"] if footprint else None
+    frontier = (high & outside) if (high is not None and outside is not None) else None
+    from matplotlib.lines import Line2D
+    dot = lambda color, label: Line2D([], [], marker="o", linestyle="", color=color, markersize=7, label=label)
+    # layers of the latest iteration
+    if high is not None:
+        latest_layers = [{"data": puff, "mask": ~high, "color": "#9ecae1", "size": 3, "alpha": 0.45, "zorder": 1},
+                         {"data": puff, "mask": high & ~(frontier if frontier is not None else np.zeros(len(high), dtype=bool)), "color": "#d62728", "size": 3, "alpha": 0.45, "zorder": 2}]
+        latest_handles = [dot("#9ecae1", "puffs"), dot("#d62728", "high lnL puffs")]
+        latest_hist = [{"data": puff, "mask": None, "color": "#3182bd"}, {"data": puff, "mask": high, "color": "#d62728"}]
+        if frontier is not None:
+            latest_layers.append({"data": puff, "mask": frontier, "color": "#ff9900", "size": 4, "alpha": 0.45, "zorder": 3}); latest_handles.append(dot("#ff9900", "frontier points"))
+    else:
+        mask_outside = outside if outside is not None else np.zeros(len(puff["m1"]), dtype=bool)
+        latest_layers = [{"data": puff, "mask": ~mask_outside, "color": "#9ecae1", "size": 3, "alpha": 0.45, "zorder": 1}]
+        latest_handles = [dot("#9ecae1", "puffs")]
+        latest_hist = [{"data": puff, "mask": None, "color": "#3182bd"}]
+        if outside is not None:
+            latest_layers.append({"data": puff, "mask": mask_outside, "color": "#ff9900", "size": 4, "alpha": 0.45, "zorder": 3}); latest_handles.append(dot("#ff9900", "outside the posterior footprint (lnL unknown)"))
+    latest_lines = [f"{plot_title}: puffed points of iteration {latest}, {len(puff['m1'])} points (puffball-{latest}.xml.gz)", f"Latest posterior: {posterior_name}, {len(posterior['m1'])} samples"]
+    if high is not None:
+        n_evaluated = int(lnL_status[latest]["evaluated"].sum())
+        latest_lines += [f"High lnL puffs: {int(high.sum())} of {n_evaluated} evaluated ({100.*high.sum()/max(n_evaluated, 1):.1f}%)", "(lnL within 15 of the maximum, error <= 0.4)"]
+        if not np.isnan(last["efficiency"]):
+            latest_lines.append(f"Puff efficiency: {last['efficiency']:.2f} ({last['hit_puff']:.1%} of the puffs vs {last['hit_grid']:.1%} of the grid points are high lnL)")
+        else:
+            latest_lines.append("Puff efficiency: not available (see the Puffing diagnostics)")
+    else:
+        latest_lines += ["lnL of the puffs not available, so no high lnL puffs or puff efficiency", "(see the Puffing diagnostics)"]
+    if frontier is not None:
+        latest_lines += [f"Frontier points: {int(frontier.sum())}", "(high lnL puffs outside the footprint of the posterior samples)"]
+    elif outside is not None:
+        latest_lines += [f"Puffs outside the posterior footprint: {int(outside.sum())}", "(farther from the posterior samples than 99% of them are from each other)"]
+    # layers of all the iterations read: coloured by iteration
+    colors = plt.cm.viridis(np.linspace(0.0, 0.85, max(len(iterations), 2)))
+    all_layers = [{"data": puffs[n], "mask": None, "color": colors[k], "size": 3, "alpha": 0.4, "zorder": 1 + k} for k, n in enumerate(iterations)]
+    all_hist = [{"data": puffs[n], "mask": None, "color": colors[k]} for k, n in enumerate(iterations)]
+    all_handles = [dot(colors[k], f"puffball-{n}" + (f" ({int(lnL_status[n]['high'].sum())} high lnL of {int(lnL_status[n]['evaluated'].sum())})" if lnL_status[n] else "")) for k, n in enumerate(iterations)]
+    all_lines = [f"{plot_title}: puffed points of iterations {', '.join(str(n) for n in iterations)}", f"Latest posterior: {posterior_name}, {len(posterior['m1'])} samples"]
+    out = f"{save_path}/plots/{PUFFING_FOLDER}"
+    os.makedirs(out, exist_ok=True)
+    for parameters in puffing_parameter_sets():
+        parameters = [name for name in parameters if name in posterior]
+        print(f"Plotting puffing corner plots ({plot_title}) {parameters}")
+        draw_puffing_corner(parameters, latest_layers, latest_hist, posterior, posterior_name, latest_handles, latest_lines, f"{out}/corner_{'_'.join(parameters)}_{plot_title}_Final.png")
+        if len(iterations) > 1:
+            draw_puffing_corner(parameters, all_layers, all_hist, posterior, posterior_name, all_handles, all_lines, f"{out}/corner_{'_'.join(parameters)}_{plot_title}.png")
+
+def write_puffing_information(f):
+    """Writes the puffing diagnostics (see plot_puffing_corners) of the main run and of the subdag to the open Diagnostics.txt file."""
+    puffing = run_diagnostics.get("puffing", {})
+    if not puffing:
+        f.write("No puffball-N.xml.gz files found, the puffing was not checked.\n")
+        return
+    for title in ["Main", "Subdag"]:
+        if title not in puffing:
+            continue
+        s = puffing[title]
+        f.write(f"\n{title}:\n")
+        f.write(f"Puff factor used for the expected widths = {s['puff_factor']:g} ({s['source']}); each puffed parameter should be about sqrt(1+f^2) = {np.sqrt(1. + s['puff_factor']**2):.2f} times wider than the grid.\n")
+        f.write("\n\titeration | puffball points | high lnL puffs | puff efficiency\n")
+        for n, row in s["table"].items():
+            high_puffs = f"{row['n_high']} ({100*row['hit_puff']:.1f}%)" if row["n_high"] is not None else "NA"
+            efficiency = f"{row['efficiency']:.2f}" if not np.isnan(row["efficiency"]) else "NA"
+            f.write(f"\t{n:>9} | {row['n_puff']:>15} | {high_puffs:>14} | {efficiency:>15}\n")
+        for n, row in s["table"].items():
+            for note in row["notes"]:
+                f.write(f"\t--> Iteration {n}: {note}\n")
+        last = s["table"][s["latest"]]
+        if last["corr_grid"] is not None:
+            note = "" if abs(last["corr_grid"]) > 0.5 else " (no strong correlation in the grid, the correlation check does not apply)"
+            f.write(f"\n\tcorr(eccentricity, meanPerAno) in iteration {s['latest']}: {last['corr_grid']:+.2f} (grid), {last['corr_puff']:+.2f} (puffs){note}\n")
+        for warning in s["warnings"]:
+            f.write(f"\t--> {warning}\n")
+
 def evaluate_run(run_diagnostics):
     """
     Evaluates the run and writes diagnostics information to a file.
@@ -1524,6 +2096,9 @@ def evaluate_run(run_diagnostics):
         #    write_header(f, "Posterior sample statistics")
         #    write_dict_information(f, "Equal-tailed 90% intervals", run_diagnostics["sample_statistics"])
 
+        write_header(f, "Puffing diagnostics")
+        write_puffing_information(f)
+
         write_header(f, "Visual diagnostics")
         f.write("\t 1) Is the 90% credible interval mostly around the red points? If not, it could be that the run needs more iterations.")
         f.write(f"\n\t 2) Has the parameter space been sufficiently explored? Are there blue points around the red points? Continuing the run will help if this is true with {run_diagnostics['Main']['latest_grid']} as your starting grid and copying this run's all.net as bonus.composite in your new run directory")
@@ -1654,7 +2229,7 @@ def build_plot_manifest(save_path, reference_file=None):
     run_order = {"Main": 0, "Subdag": 1, "Extrinsic": 2}
     parameter_order = ["mc", "q", "eta", "m1", "m2", "mtot", "s1z", "s2z", "chi_eff", "chiMinus", "chi1", "chi2", "dec", "ra", "eccentricity", "meanPerAno",
                        "s1x", "s1y", "s2x", "s2y", "chi_p", "chi1_perp", "chi2_perp"]
-    manifest = {"histograms": [], "corners": [], "figures": {}}
+    manifest = {"histograms": [], "corners": [], "puffing": [], "figures": {}}
 
     # 1D histograms: histogram_{plot_title}_{parameter}.png
     for file_path in glob.glob(plots + "/histograms/histogram_*.png"):
@@ -1681,6 +2256,19 @@ def build_plot_manifest(save_path, reference_file=None):
                 manifest["corners"].append({"run": run, "latest": latest, "key": split_parameter_string(parameters), "file": os.path.relpath(file_path, plots)})
                 break
     manifest["corners"].sort(key = lambda e: (run_order[e["run"]], e["latest"], len(e["key"]), e["key"]))
+
+    # puffing corner plots: Exploration/puffing/corner_{parameters}_{plot_title}.png, named like the corner plots above
+    for file_path in glob.glob(plots + "/" + PUFFING_FOLDER + "/corner_*.png"):
+        if not is_current(file_path):
+            continue
+        name = os.path.basename(file_path)[len("corner_"):-len(".png")]
+        for title in ["Main_Final", "Subdag_Final", "Main", "Subdag"]:
+            if name.endswith("_" + title):
+                parameters = name[:-(len(title)+1)]
+                manifest["puffing"].append({"run": title.split("_")[0], "latest": title.endswith("_Final"), "key": split_parameter_string(parameters), "file": os.path.relpath(file_path, plots)})
+                break
+    puffing_order = {", ".join(parameters): i for i, parameters in enumerate(puffing_parameter_sets())}   # cartesian parameters first
+    manifest["puffing"].sort(key = lambda e: (run_order[e["run"]], e["latest"], puffing_order.get(e["key"], len(puffing_order)), e["key"]))
 
     # figure groups: each group is a title and a list of (label, file). A label can have a list of files, which are shown side by side.
     # Only files that exist are kept. A group can have a description (shown above the plot) and a note (small text shown below the plot)
@@ -1762,7 +2350,7 @@ def embed_images_in_manifest(manifest, plots, max_width=1600):
         plots (str): Path to the plots folder, the image paths in the manifest are relative to it.
         max_width (int): Maximum width in pixels of the embedded images. Use 0 for full resolution.
     """
-    entries = list(manifest["histograms"]) + list(manifest["corners"])
+    entries = list(manifest["histograms"]) + list(manifest["corners"]) + list(manifest["puffing"])
     for groups in manifest["figures"].values():
         for group in groups:
             entries += group["items"]
@@ -1833,7 +2421,7 @@ summary { cursor:pointer; font-weight:600; }
 <header>
   <h1>RIFT run diagnostics</h1>
   <p class="muted">Generated __TIMESTAMP__</p>
-  <nav><a href="#ile">ILE</a><a href="#cip">CIP</a><a href="#visual">Visual</a></nav>
+  <nav><a href="#ile">ILE</a><a href="#cip">CIP</a><a href="#puffing">Puffing</a><a href="#visual">Visual</a></nav>
 </header>
 <main>
 <details open><summary>Run summary</summary><pre>__SUMMARY__</pre></details>
@@ -1852,6 +2440,10 @@ summary { cursor:pointer; font-weight:600; }
   <div id="figures-cip"></div>
   <h3>1D posterior histograms</h3>
   <div id="hist-gallery"></div>
+  <h3 id="puffing">Puffing health</h3>
+  <p class="desc">Puffing drives exploration during a run. Visually check whether the puffed points follow the same correlations as the posterior and form a slightly broadened version of it. If puffing is not working, there will be no exploration.</p>
+  <pre>__PUFFING_TEXT__</pre>
+  <div id="puffing-gallery"></div>
 </section>
 
 <section id="visual">
@@ -2010,6 +2602,7 @@ makeFigureGroups("figures-ile", MANIFEST.figures.ile);
 makeFigureGroups("figures-cip", MANIFEST.figures.cip);
 makeGallery("hist-gallery", MANIFEST.histograms, "parameters", 380, true);
 makeGallery("corner-gallery", MANIFEST.corners, "parameter sets", 560, false);
+if (MANIFEST.puffing.length) makeGallery("puffing-gallery", MANIFEST.puffing, "parameter sets", 560, true);
 makeFigureGroups("figures-visual", MANIFEST.figures.visual);
 </script>
 </body>
@@ -2048,6 +2641,7 @@ def write_html_diagnostics(save_path, diagnostics_file="Diagnostics.txt", html_f
     ile_text = sections.get("ILE diagnostics", "No ILE diagnostics available.")
     cip_text = sections.get("CIP diagnostics", "No CIP diagnostics available.")
     visual_text = sections.get("Visual diagnostics", "")
+    puffing_text = sections.get("Puffing diagnostics", "No puffing diagnostics available.")
     ile_class, ile_status = get_status(ile_text, "ILE")
     cip_class, cip_status = get_status(cip_text, "CIP")
 
@@ -2062,6 +2656,7 @@ def write_html_diagnostics(save_path, diagnostics_file="Diagnostics.txt", html_f
         "__CIP_STATUS__": cip_status,
         "__CIP_TEXT__": diagnostics_text_to_html(cip_text),
         "__VISUAL_TEXT__": diagnostics_text_to_html(visual_text),
+        "__PUFFING_TEXT__": diagnostics_text_to_html(puffing_text),
         "__MANIFEST__": json.dumps(manifest),
     }
     for placeholder, value in replacements.items():
@@ -2189,6 +2784,13 @@ except:
     except:
         print("Couldn't plot Jensen Shannon Divergence plot")
 
+# puffing corner plots (puffball-N.xml.gz) of the main run, saved in plots/Exploration/puffing and shown last in the CIP section of the html
+try:
+    plot_puffing_corners(path, plot_title='Main')
+except Exception as e:
+    print(e)
+    print("Couldn't plot the puffing corner plots for Main iterations.")
+
 # is there a subdag? If not, don't plot!
 if len(subdag_posterior_files) == 0:
     analyse_subdag = False
@@ -2282,6 +2884,13 @@ if analyse_subdag:
             plot_JS_divergence(subdag_posterior_files[-1], subdag_posterior_files[-2], subdag_posterior_files[-3], "Subdag_iteration")
         except:
            print("Couldn't plot Jensen Shannon Divergence plot.") 
+
+    # puffing corner plots (puffball-N.xml.gz) of the subdag
+    try:
+        plot_puffing_corners(subdag_path, plot_title='Subdag', run_folder=path)
+    except Exception as e:
+        print(e)
+        print("Couldn't plot the puffing corner plots for Subdag iterations.")
 
 run_diagnostics['run_is_complete'] = False
 if check_extrinsic_present(path):
