@@ -69,6 +69,11 @@ jobs:
           python MonteCarloMarginalizeCode/Code/test/rf_transverse_cli_smoke.py geometric4-phase-excess redshift
           python MonteCarloMarginalizeCode/Code/test/rf_transverse_cli_smoke.py geometric4-phase-excess extra
           python MonteCarloMarginalizeCode/Code/test/rf_transverse_cli_smoke.py geometric4-phase-excess duplicate
+          python MonteCarloMarginalizeCode/Code/test/rf_transverse_cli_smoke.py geometric4 implied
+          python MonteCarloMarginalizeCode/Code/test/rf_transverse_cli_smoke.py geometric4 implied redshift
+          python MonteCarloMarginalizeCode/Code/test/rf_transverse_cli_smoke.py geometric4 implied extra
+          python MonteCarloMarginalizeCode/Code/test/rf_transverse_cli_smoke.py geometric4-phase-excess implied
+          python MonteCarloMarginalizeCode/Code/test/rf_transverse_cli_smoke.py geometric4-phase-excess implied redshift
       - name: Run GWSignal backend-option transport regressions
         # Each file importorskips optional dependencies; a skip means the leg tested nothing.
         run: |
