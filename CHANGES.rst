@@ -128,7 +128,22 @@ Development tree is rift_O4c.
     unchanged. ASIMOV and pipeline helpers propagate and validate the setting;
     requested refinement failures abort instead of silently using coarse Q.
 
-Release candidate is rc12.
+  - (rc13) PR 244 fixes native ASIMOV run-directory ownership and collision
+    handling, marks refused builds stuck, and retries failed environment
+    capture. PR 246 fixes native bootstrap inputs, checked frame staging,
+    integer mass ranges and Q-refinement option transport; PR 247 honors
+    disabled upstream bootstrap and empty optional bootstrap-file fields.
+    Script packaging excludes directories so builds remain repeatable after
+    native tests. PR 245 corrects the chieff_aligned inverse and puffball spin
+    downselects while preserving configured spin bounds. PR 248 initializes
+    IMRPhenomPv2 mode buffers by assignment to avoid uninitialized values.
+    PR 250 makes geometric4 chart names ordinary implied CIP coordinates,
+    activates RF stages that fit or sample all four transverse spins, and
+    preserves physical sampling coordinates and priors; the CIP option is a
+    deprecated alias. Quadpuff uses retained rows, and symmetry exchange
+    supplies the reference frequency required by the chart.
+
+Release candidate is rc13.
 
 0.0.17.13
 ---------
