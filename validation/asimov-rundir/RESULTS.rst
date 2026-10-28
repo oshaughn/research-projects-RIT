@@ -40,3 +40,27 @@ No merge, PyPI publication, production image replacement, existing-run change,
 full PE or OSDF staging occurred. A new published RC and independent frozen
 production qualification remain required; MR6 readiness is unchanged. Raw
 receipts and logs remain in the owning private CIT/development workspace.
+
+Adversarial review follow-up, 2026-10-28
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Host ldas-grid, environment built by setup-cit.sh. Changes:
+
+- A refused run directory marks the production stuck. Asimov keeps a production
+  ready after a transient submit failure. The PR otherwise logged the refusal on
+  every later pass. The unchanged builder cannot resubmit from that directory,
+  because condor_submit_dag refuses an existing ``.condor.sub``.
+- A timed-out ``pip freeze`` cached by Asimov is retried. Otherwise one timeout
+  failed every later build in the same process.
+- The INI path check parses keys case-sensitively, as the builder does. A
+  malformed INI raises PipelineException.
+- Dry runs do not rewrite ``production.rundir`` or the status.
+- The mocked build-contract test faked Asimov's ``pip freeze`` too. It passed only
+  after another test had filled Asimov's package cache. It now fakes only the builder.
+- New tests cover the DAG check, each capture-receipt clause, underscore
+  scheduler keys, dry-run frame caches and the build-time guard.
+- The receipt records the installed source commit. A clean install of 0d807952
+  verifies 226 RECORD entries. The count above (256) did not reproduce.
+
+Results: 138 passed in the three files above (was 105). Every guard
+mutant tried (15) fails at least one test.

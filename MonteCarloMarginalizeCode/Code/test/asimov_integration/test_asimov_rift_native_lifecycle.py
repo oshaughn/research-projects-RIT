@@ -172,6 +172,9 @@ def test_existing_run_refusal_is_byte_and_mtime_preserving(native, kind):
         with pytest.raises(PipelineException):
             action()
         assert _snapshot(n.run) == before
+        # Asimov keeps a refused production ready unless it is marked stuck.
+        assert n.production.status == "stuck"
+        n.production.status = "ready"
 
 
 @pytest.mark.parametrize("dangling", [False, True])
@@ -265,7 +268,7 @@ def test_directory_created_between_config_and_build_is_untouched(native):
 
 
 @pytest.mark.parametrize("key", ["help", "h", "help=ignored", "use-rundir", "use-rund", "use-r", "use-rundir=/tmp/forbidden",
-                                    "use-ini", "use-in", "use-ini=/tmp/forbidden"])
+                                    "use-ini", "use-in", "use-ini=/tmp/forbidden", "use_rundir", "use_r", "use_ini"])
 @pytest.mark.parametrize("value", [True, False, "false", "True", "/tmp/forbidden", None])
 def test_scheduler_cannot_override_owned_input_paths(native, key, value):
     n = native
@@ -440,3 +443,143 @@ def test_normalized_existing_paths_preserve_runs(native, kind):
             action()
         assert Path(n.production.rundir) == target
         assert _snapshot(target) == before
+
+
+def _stub_builder(native, body):
+    """Replace only the builder executable; the adapter under test is real."""
+    from asimov import config
+    prefix = native.root / "stub-env"
+    (prefix / "bin").mkdir(parents=True)
+    builder = prefix / "bin/util_RIFT_pseudo_pipe.py"
+    builder.write_text(f"#!{sys.executable}\nimport sys, os\n"
+                       "rundir = sys.argv[sys.argv.index('--use-rundir') + 1]\n"
+                       f"open({str(native.root / 'builder-called')!r}, 'w').close()\n" + body)
+    builder.chmod(0o755)
+    config.set("rift", "environment", str(prefix))
+
+
+@pytest.mark.parametrize("kind", ["missing", "empty", "symlink", "directory"])
+def test_builder_exit_zero_without_regular_dag_fails_without_capture(native, kind):
+    n = native
+    n.pipe.before_config()
+    n.configure()
+    _stub_builder(n, "os.mkdir(rundir)\n" + {
+        "missing": "",
+        "empty": f"open(os.path.join(rundir, {DAG!r}), 'w').close()\n",
+        "symlink": f"open(os.path.join(rundir, 'real.dag'), 'w').write('JOB A a.sub')\n"
+                   f"os.symlink('real.dag', os.path.join(rundir, {DAG!r}))\n",
+        "directory": f"os.mkdir(os.path.join(rundir, {DAG!r}))\n",
+    }[kind])
+    from RIFT.asimov.rift import PipelineException
+    with pytest.raises(PipelineException, match="DAG file could not be created"):
+        n.pipe.build_dag()
+    assert (n.root / "builder-called").exists()
+    assert n.production.status == "stuck"
+    assert not (n.run / "environment.json").exists()
+    assert "files" not in n.production.meta.get("environment", {})
+
+
+def test_build_refuses_existing_rundir_before_builder_or_build_hooks(native):
+    n = native
+    n.pipe.before_config()
+    n.configure()
+    _stub_builder(n, "os.mkdir(rundir)\n")
+    n.run.mkdir()
+    called = []
+    n.pipe.before_build = lambda *args, **kwargs: called.append(True)
+    from RIFT.asimov.rift import PipelineException
+    with pytest.raises(PipelineException, match="already exists"):
+        n.pipe.build_dag()
+    assert not called
+    assert not (n.root / "builder-called").exists()
+
+
+def test_dryrun_refusal_does_not_change_production(native):
+    n = native
+    n.run.mkdir()
+    n.production.rundir = "run"
+    from RIFT.asimov.rift import PipelineException
+    for action in (n.pipe.before_config, n.pipe.build_dag):
+        with pytest.raises(PipelineException):
+            action(dryrun=True)
+        assert n.production.rundir == "run" and n.production.status == "ready"
+
+
+def test_dryrun_configuration_writes_no_frame_cache(native):
+    n = native
+    frame = n.root / "H-H1_RIMSKY-1000000000-16.gwf"
+    frame.write_bytes(b"frame")
+    n.production.meta["orchestrator"] = "rimsky"
+    n.production.meta.setdefault("data", {})["data files"] = {"H1": [str(frame)]}
+    n.pipe.before_config(dryrun=True)
+    assert not list(n.root.glob("*-rimsky.cache"))
+    n.pipe.before_config()
+    assert (n.root / "H1-rimsky.cache").is_file()
+
+
+@pytest.mark.parametrize("violation", ["no-manifest", "no-metadata", "metadata-elsewhere", "file-elsewhere",
+                                       "empty-manifest", "symlink-manifest"])
+def test_capture_receipt_must_describe_nonempty_files_in_rundir(native, monkeypatch, violation):
+    import asimov.environment
+    n = native
+    n.run.mkdir()
+    elsewhere = n.root / "elsewhere"
+    elsewhere.mkdir()
+
+    def write_receipt(directory):
+        directory = Path(directory)
+        files = {"metadata": directory / "environment.json", "pip": directory / "environment-pip.txt"}
+        files["metadata"].write_text("{}")
+        if violation == "no-manifest":
+            del files["pip"]
+        elif violation == "no-metadata":
+            del files["metadata"]
+        elif violation == "metadata-elsewhere":
+            files["metadata"] = elsewhere / "environment.json"
+            files["metadata"].write_text("{}")
+        elif violation == "file-elsewhere":
+            files["conda"] = elsewhere / "environment-conda.txt"
+            files["conda"].write_text("conda")
+        elif violation == "empty-manifest":
+            files["pip"].write_text("")
+        elif violation == "symlink-manifest":
+            (elsewhere / "pip.txt").write_text("pip")
+            files["pip"].symlink_to(elsewhere / "pip.txt")
+        if violation not in ("no-manifest", "empty-manifest", "symlink-manifest"):
+            files["pip"].write_text("pip")
+        return {key: str(path) for key, path in files.items()}
+
+    # Only Asimov's file writer is replaced; Asimov still records its receipt.
+    monkeypatch.setattr(asimov.environment, "capture_and_save_environment", write_receipt)
+    from RIFT.asimov.rift import PipelineException
+    with pytest.raises(PipelineException, match="environment capture failed"):
+        n.pipe._capture_build_environment()
+    assert n.production.status == "stuck"
+
+
+def test_cached_pip_freeze_failure_is_retried(native):
+    import asimov.environment
+    n = native
+    n.run.mkdir()
+    environment = asimov.environment.EnvironmentCapture()
+    key = (environment.env_type, sys.executable)
+    asimov.environment._PACKAGE_CACHE[key] = {"pip_packages": None, "conda_environment": None}
+    try:
+        n.pipe._capture_build_environment()
+    finally:
+        asimov.environment._PACKAGE_CACHE.pop(key, None)
+    assert (n.run / "environment-pip.txt").stat().st_size > 0
+
+
+def test_builder_ini_parsing_matches_builder(native):
+    n = native
+    n.pipe.before_config()
+    n.configure()
+    text = n.ini.read_text()
+    # The builder preserves key case, so these are two distinct valid options.
+    n.ini.write_text(text + "\n[rift-case-check]\nRequirements = a\nrequirements = b\n")
+    n.pipe._validate_builder_paths(str(n.ini))
+    n.ini.write_text(text + "\n[rift-case-check]\nkey = a\nkey = b\n")
+    from RIFT.asimov.rift import PipelineException
+    with pytest.raises(PipelineException, match="Unable to read INI"):
+        n.pipe._validate_builder_paths(str(n.ini))

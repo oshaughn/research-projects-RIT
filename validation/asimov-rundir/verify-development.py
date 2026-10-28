@@ -26,7 +26,13 @@ for item in dist.files:
                                     "create_event_parameter_pipeline_BasicIteration"):
             executables[Path(str(item)).name] = hashlib.sha256(dist.locate_file(item).read_bytes()).hexdigest()
 assert verified >= 102 and len(executables) == 3, executables
-print(json.dumps(dict(passed=True, development_only=True, frozen_rc12_qualification=False,
+# The installed direct_url names only a path; record which commit it held.
+source = Path(sys.argv[2]) if len(sys.argv) > 2 else None
+source_commit = source_dirty = None
+if source is not None:
+    source_commit = subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip()
+    source_dirty = bool(subprocess.check_output(["git", "-C", str(source), "status", "--porcelain", "--untracked-files=no"], text=True).strip())
+print(json.dumps(dict(passed=True, source_commit=source_commit, source_dirty=source_dirty, development_only=True, frozen_rc12_qualification=False,
     python=sys.version.split()[0], rift_version_label=md.version("RIFT"), asimov=md.version("asimov"),
     dependency_lock_sha256=hashlib.sha256(Path(sys.argv[1]).read_bytes()).hexdigest(),
     candidate_direct_url=json.loads(dist.read_text("direct_url.json")), record_files_verified=verified, installed_executable_sha256=executables), indent=2))

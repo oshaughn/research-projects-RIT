@@ -14,4 +14,4 @@ base=/cvmfs/software.igwn.org/conda/envs/igwn-py311-20261013/bin/python3.11
 "$prefix/bin/python" -m pip install -r "$here/dependencies-py311.lock.txt"
 "$prefix/bin/python" -m pip install --no-deps --no-build-isolation "$source_root"
 "$prefix/bin/python" -m pip check
-"$prefix/bin/python" "$here/verify-development.py" "$here/dependencies-py311.lock.txt" > "$prefix/development-validation.json"
+"$prefix/bin/python" "$here/verify-development.py" "$here/dependencies-py311.lock.txt" "$source_root" > "$prefix/development-validation.json"

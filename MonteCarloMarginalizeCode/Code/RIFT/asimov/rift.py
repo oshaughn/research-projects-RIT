@@ -434,18 +434,23 @@ class Rift(Pipeline):
 
         pass
 
-    def _require_fresh_rundir(self):
+    def _require_fresh_rundir(self, dryrun=False):
         """Reject occupied paths before any adapter writes; mkdir remains atomic.
 
         No directory, even an empty/provenance-only one, is adopted. lexists
         also rejects dangling symlinks. No ownership marker grants permission.
+        A refusal marks the production stuck: Asimov leaves a production ready
+        after a transient submit failure, and would otherwise retry forever.
         """
         rundir = self.production.rundir or os.path.join(
             os.path.expanduser("~"), self.production.event.name, self.production.name
         )
         rundir = os.path.abspath(os.path.expanduser(rundir))
-        self.production.rundir = rundir
+        if not dryrun:
+            self.production.rundir = rundir
         if os.path.lexists(rundir):
+            if not dryrun:
+                self.production.status = "stuck"
             raise PipelineException(
                 f"RIFT run directory already exists: {rundir}. Choose a fresh "
                 "run directory; existing runs are never overwritten.",
@@ -469,6 +474,16 @@ class Rift(Pipeline):
             environment = self.production.meta.setdefault("environment", {})
             environment.pop("files", None)
             environment.pop("captured_at", None)
+            # ASIMOV caches package lists per process, including a timed-out
+            # pip freeze (None). Retry it rather than fail every later build.
+            try:
+                from asimov import environment as asimov_environment
+                cache = asimov_environment._PACKAGE_CACHE
+            except (ImportError, AttributeError):
+                cache = {}
+            for key, packages in list(cache.items()):
+                if packages.get("pip_packages") is None:
+                    del cache[key]
         super().before_config(dryrun=False)
         if callable(getattr(Pipeline, "_capture_environment", None)):
             environment = self.production.meta.get("environment", {})
@@ -500,8 +515,17 @@ class Rift(Pipeline):
                     f"scheduler.pipeline.{key} is owned by Asimov and cannot be overridden",
                     production=self.production.name,
                 )
+        # Parse as the builder does (case-sensitive keys), so a valid INI is
+        # never rejected and a parse failure is a PipelineException.
         settings = configparser.ConfigParser(interpolation=None)
-        settings.read(ini)
+        settings.optionxform = str
+        try:
+            settings.read(ini)
+        except configparser.Error as error:
+            raise PipelineException(
+                f"Unable to read INI {ini}: {error}",
+                production=self.production.name,
+            ) from error
         if settings.has_section("rift-pseudo-pipe"):
             for key in settings["rift-pseudo-pipe"]:
                 if key.replace("_", "-") in ("use-rundir", "use-ini"):
@@ -519,7 +543,7 @@ class Rift(Pipeline):
         # ASIMOV 0.8's base hook creates rundir for environment capture.
         # The native builder must own its atomic mkdir, so defer that hook
         # until a successful build instead of adopting an existing directory.
-        self._require_fresh_rundir()
+        self._require_fresh_rundir(dryrun=dryrun)
 
         event = self.production.event
         category = config.get("general", "calibration_directory")
@@ -634,7 +658,7 @@ class Rift(Pipeline):
 
 
         """
-        self._require_fresh_rundir()
+        self._require_fresh_rundir(dryrun=dryrun)
         self.before_build()
         cwd = os.getcwd()
         if self.production.event.repository:
