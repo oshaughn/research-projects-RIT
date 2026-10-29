@@ -2,7 +2,6 @@
 """This code is meant to check the health of a RIFT run as it progresses and after it has finished."""
 # TO DO: plot_cip_max_lnL needs to be robust.
 # JSD convergence for subdags
-# Two all.nets when subdags being used
 # Usage: In the rundirectory, run plot_RIFT.py --precessing or plot_RIFT.py --rundir-path `pwd`/rundir --save-path `pwd` --precessing 
 ###########################################################################################
 # Import
@@ -85,7 +84,7 @@ corner_plot_exe = os.popen("which plot_posterior_corner.py").read()[:-1]
 
 # Define file paths
 all_net_path = os.path.join(path, "all.net")
-corner_all_net_path = all_net_path # all.net used in the corner plots, updated in the generate plots section if there is a subdag
+corner_all_net_path = all_net_path # same file as all_net_path. Both are replaced in the generate plots section by the all.net with more evaluations (main or subdag), which is then used everywhere
 
 # Determine if truth file should be used
 if opts.truth_file is not None:
@@ -439,35 +438,36 @@ def count_evaluations(file_path):
     with open(file_path, "r") as f:
         return sum(1 for line in f if line.strip() and not line.startswith("#"))
 
-def choose_all_net_for_corner_plots(main_all_net_path, subdag_folder_path):
+def choose_reference_all_net(main_all_net_path, subdag_folder_path):
     """
-    Chooses the all.net used in all the corner plots (the coloured high lnL points in the posterior corner plots and the exploration corner plot).
+    Chooses the one all.net used everywhere in this script: the ILE summary (maximum lnL, number of high lnL points, evaluations), the CIP_lnL plot (the maximum lnL line),
+    the distribution of the high lnL points, the exploration and corner plots, and the puffing diagnostics.
     Without a subdag this is the main all.net. With a subdag, the all.net with more evaluations (rows) is used, as it covers more of the explored
-    parameter space. The main all.net is kept if the subdag all.net is missing, empty, or has the same number of evaluations.
+    parameter space and holds the highest lnL found. The main all.net is kept if the subdag all.net is missing, empty, or does not have more evaluations.
 
     Args:
         main_all_net_path (str): Path to the main all.net.
         subdag_folder_path (str or None): Path to the subdag folder (output of find_posteriors_in_sub), None if there is no subdag.
 
     Returns:
-        str: Path to the all.net to use in the corner plots.
+        str: Path to the all.net to use.
     """
     if subdag_folder_path is None:
         return main_all_net_path
     subdag_all_net_path = f"{subdag_folder_path}/all.net"
     try:
         if not os.path.exists(subdag_all_net_path) or os.path.getsize(subdag_all_net_path) == 0:
-            print(f"\n--> Subdag all.net not found or empty ({subdag_all_net_path}), using the main all.net in the corner plots.")
+            print(f"\n--> Subdag all.net not found or empty ({subdag_all_net_path}), using the main all.net everywhere.")
             return main_all_net_path
         main_evaluations = count_evaluations(main_all_net_path)
         subdag_evaluations = count_evaluations(subdag_all_net_path)
     except Exception as e:
         print(e)
-        print("Couldn't compare the main and subdag all.net, using the main all.net in the corner plots.")
+        print("Couldn't compare the main and subdag all.net, using the main all.net everywhere.")
         return main_all_net_path
     use_subdag = subdag_evaluations > main_evaluations
-    run_diagnostics["corner_plots_all_net"] = {"used": "Subdag" if use_subdag else "Main", "main_evaluations": main_evaluations, "subdag_evaluations": subdag_evaluations}
-    print(f"\n--> all.net for the corner plots: main has {main_evaluations} evaluations, subdag has {subdag_evaluations}. Using the {'subdag' if use_subdag else 'main'} all.net.")
+    run_diagnostics["all_net_used"] = {"used": "Subdag" if use_subdag else "Main", "main_evaluations": main_evaluations, "subdag_evaluations": subdag_evaluations}
+    print(f"\n--> all.net used everywhere: main has {main_evaluations} evaluations, subdag has {subdag_evaluations}. Using the {'subdag' if use_subdag else 'main'} all.net.")
     return subdag_all_net_path if use_subdag else main_all_net_path
 
 def find_posteriors_in_main(path_to_main_folder, limit_iterations=None):
@@ -1023,11 +1023,8 @@ def plot_corner(sorted_posterior_file_paths, plot_title, iterations = None, para
 
     print(f"\n--> Plotting corner plot for params ({plot_title}) {parameters}")
 
-    # title, from the all.net used in the corner plots (the extrinsic plots always show the main all.net values)
-    if plot_title.startswith("extrinsic") or corner_all_net_path == all_net_path:
-        max_lnL, no_points = run_diagnostics["max_lnL"], run_diagnostics["high_lnL_points"]
-    else:
-        _, no_points, max_lnL, _ = get_lnL_cut_points(corner_all_net_path, composite=True)
+    # title, from the all.net used everywhere (the one with more evaluations)
+    max_lnL, no_points = run_diagnostics["max_lnL"], run_diagnostics["high_lnL_points"]
     title = f"max_lnL={max_lnL:0.2f},points_cut={no_points}" 
 
     # Plotting command begins
@@ -1433,44 +1430,28 @@ def diagnose_composite_match(parameters, composite_file, label, tolerance=5e-3):
             worst, worst_name, worst_difference = relative, name, np.median(difference)
     if worst > 1e-2:
         return f"m1 and m2 of the points are found in {label} but {worst_name} differs (median |point - file| = {worst_difference:.3g}): check the {worst_name} column or parametrization in {label}"
-    return f"only part of the points are in {label} (failed or missing ILE evaluations)"
+    return f"the coordinates of the points do not agree with those in {label} within the matching tolerance"
 
-def find_lnL_of_points(parameters, composite_file, composite_label, all_net_file):
+def find_lnL_of_points(parameters, composite_file, composite_label):
     """
-    Finds the lnL of the points in the consolidated_N.composite of their iteration, and in all.net (which contains every evaluation) if the composite is missing
-    or contains too few of them. Partial matches are used and reported.
+    Finds the lnL (and Monte Carlo error) of the points of a puffball or grid that are in the consolidated_N.composite of their iteration. Only a subset of the points of a
+    puffball (or grid) is evaluated by ILE, so the points that are not in the composite are left out (their lnL is nan) and every statistic is computed from the points found there.
 
     Returns:
-        dict: lnL, err (arrays or None), matched_fraction, source (file name) and note (str, "" if everything is fine).
+        dict: lnL, err (arrays, nan for the points not in the composite; None if nothing can be matched), matched_fraction, and note (str, "" unless lnL cannot be obtained).
     """
-    tries = []   # (label, match result, reason when there is no result)
-    for label, file_path in [(composite_label, composite_file), ("all.net", all_net_file)]:
-        if file_path is None or not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
-            tries.append((label, None, f"{label} not found"))
-            continue
-        try:
-            result = match_to_composite(parameters, file_path)
-        except Exception as e:
-            tries.append((label, None, f"{label} could not be read ({e})"))
-            continue
-        tries.append((label, result, None))
-        if result is not None and result["matched_fraction"] >= 0.5:
-            break
-    usable = [t for t in tries if t[1] is not None]
-    best = max(usable, key=lambda t: t[1]["matched_fraction"]) if usable else None
-    path_of = lambda label: composite_file if label == composite_label else all_net_file
-    if best is None or best[1]["matched_fraction"] < 0.05:
-        reasons = [t[2] for t in tries if t[2]]
-        if best is not None:
-            reasons.append(diagnose_composite_match(parameters, path_of(best[0]), best[0]))
-        return {"lnL": None, "err": None, "matched_fraction": 0. if best is None else best[1]["matched_fraction"], "source": None, "note": "lnL not available: " + "; ".join(reasons)}
-    before = tries[:tries.index(best)]
-    notes = [t[2] for t in before if t[2]] + [f"only {100*t[1]['matched_fraction']:.0f}% of the points were found in {t[0]}" for t in before if t[1] is not None]
-    if best[1]["matched_fraction"] < 0.8:
-        notes.append(f"lnL found for {100*best[1]['matched_fraction']:.0f}% of the points in {best[0]}: " + diagnose_composite_match(parameters, path_of(best[0]), best[0]))
-    elif notes:
-        notes.append(f"lnL taken from {best[0]}")
-    return {"lnL": best[1]["lnL"], "err": best[1]["err"], "matched_fraction": best[1]["matched_fraction"], "source": best[0], "note": "; ".join(notes)}
+    none = lambda reason: {"lnL": None, "err": None, "matched_fraction": 0., "note": "lnL not available: " + reason}
+    if composite_file is None or not os.path.exists(composite_file) or os.path.getsize(composite_file) == 0:
+        return none(f"{composite_label} not found")
+    try:
+        result = match_to_composite(parameters, composite_file)
+    except Exception as e:
+        return none(f"{composite_label} could not be read ({e})")
+    if result is None:
+        return none("the column layout of the composite is not known")
+    if result["matched_fraction"] == 0:
+        return none(f"none of the points are in {composite_label}: " + diagnose_composite_match(parameters, composite_file, composite_label))
+    return {"lnL": result["lnL"], "err": result["err"], "matched_fraction": result["matched_fraction"], "note": ""}
 
 def read_puffball_arguments(folder):
     """
@@ -1695,8 +1676,9 @@ def plot_puffing_corners(folder, plot_title="Main", run_folder=None):
     chosen = sorted(files)
     if len(chosen) > PUFFING_MAX_ITERATIONS:
         chosen = sorted(set(np.array(chosen)[np.unique(np.linspace(0, len(chosen) - 1, PUFFING_MAX_ITERATIONS).astype(int))]))
-    all_net_file = f"{folder}/all.net"
-    max_lnL = max_lnL_low_error(all_net_file)
+    max_lnL = run_diagnostics.get("max_lnL")      # the maximum lnL of the all.net used everywhere (the one with more evaluations)
+    if max_lnL is None:
+        max_lnL = max_lnL_low_error(all_net_path)
     puffs, lnL_status, table = {}, {}, {}
     for n in chosen:
         try:
@@ -1704,19 +1686,19 @@ def plot_puffing_corners(folder, plot_title="Main", run_folder=None):
         except Exception as e:
             print(f"puffball-{n}.xml.gz could not be read ({e})")
             continue
-        row = {"n_puff": int(len(puffs[n]["m1"])), "n_high": None, "hit_puff": np.nan, "hit_grid": np.nan, "efficiency": np.nan, "corr_grid": None, "corr_puff": None, "notes": []}
+        row = {"n_puff": int(len(puffs[n]["m1"])), "n_eval": 0, "n_high": None, "hit_puff": np.nan, "hit_grid": np.nan, "efficiency": np.nan, "corr_grid": None, "corr_puff": None, "notes": []}
         lnL_status[n] = None
         composite_label = f"consolidated_{n}.composite"
-        puff_lnL = find_lnL_of_points(puffs[n], files[n]["composite"], composite_label, all_net_file)
+        puff_lnL = find_lnL_of_points(puffs[n], files[n]["composite"], composite_label)
         if puff_lnL["lnL"] is not None and max_lnL is not None:
             evaluated = ~np.isnan(puff_lnL["lnL"])
             high = evaluated & (puff_lnL["lnL"] >= max_lnL - 15) & (puff_lnL["err"] <= 0.4)
             lnL_status[n] = {"evaluated": evaluated, "high": high, "matched": puff_lnL["matched_fraction"]}
-            row["n_high"], row["hit_puff"] = int(high.sum()), high_lnL_fraction(puff_lnL["lnL"], puff_lnL["err"], max_lnL)
+            row["n_eval"], row["n_high"], row["hit_puff"] = int(evaluated.sum()), int(high.sum()), high_lnL_fraction(puff_lnL["lnL"], puff_lnL["err"], max_lnL)
         if puff_lnL["note"]:
             row["notes"].append("puffs: " + puff_lnL["note"])
         if max_lnL is None:
-            row["notes"].append("lnL not available: the maximum lnL could not be read from all.net")
+            row["notes"].append("lnL not available: the maximum lnL could not be read from the all.net")
         grid = None
         if files[n]["grid"] is None:
             row["notes"].append(f"overlap-grid-{n}.xml.gz not found, so the puff efficiency and the correlation cannot be computed")
@@ -1727,7 +1709,7 @@ def plot_puffing_corners(folder, plot_title="Main", run_folder=None):
                 row["notes"].append(f"overlap-grid-{n}.xml.gz could not be read ({e})")
         if grid is not None:
             if lnL_status[n] is not None:     # efficiency: high lnL fraction of the puffs relative to the grid they were made from
-                grid_lnL = find_lnL_of_points(grid, files[n]["composite"], composite_label, all_net_file)
+                grid_lnL = find_lnL_of_points(grid, files[n]["composite"], composite_label)
                 if grid_lnL["lnL"] is None:
                     row["notes"].append("puff efficiency not available, grid points: " + grid_lnL["note"])
                 else:
@@ -1825,11 +1807,11 @@ def write_puffing_information(f):
         s = puffing[title]
         f.write(f"\n{title}:\n")
         f.write(f"Puff factor used for the expected widths = {s['puff_factor']:g} ({s['source']}); each puffed parameter should be about sqrt(1+f^2) = {np.sqrt(1. + s['puff_factor']**2):.2f} times wider than the grid.\n")
-        f.write("\n\titeration | puffball points | high lnL puffs | puff efficiency\n")
+        f.write("\n\titeration | puffs in composite (of puffball) | high lnL puffs | puff efficiency\n")
         for n, row in s["table"].items():
             high_puffs = f"{row['n_high']} ({100*row['hit_puff']:.1f}%)" if row["n_high"] is not None else "NA"
             efficiency = f"{row['efficiency']:.2f}" if not np.isnan(row["efficiency"]) else "NA"
-            f.write(f"\t{n:>9} | {row['n_puff']:>15} | {high_puffs:>14} | {efficiency:>15}\n")
+            f.write(f"\t{n:>9} | {str(row['n_eval']) + ' (of ' + str(row['n_puff']) + ')':>32} | {high_puffs:>14} | {efficiency:>15}\n")
         for n, row in s["table"].items():
             for note in row["notes"]:
                 f.write(f"\t--> Iteration {n}: {note}\n")
@@ -1933,8 +1915,8 @@ def evaluate_run(run_diagnostics):
             if expected_median - average_lnL > 1.5:
                 f.write(f"\t--> The expected median max lnL ({expected_median:0.2f}) is more than 1.5 above the average sampled max lnL ({average_lnL}). CIP may not be sampling the peak well enough, or there may be interpolation error near the peak.\n")
                 sampling_is_good = False
-            if run_diagnostics.get("run_is_complete") == False:
-                f.write(f"\t--> Since the run is incomplete, this warning can be ignored.\n")
+                if run_diagnostics.get("run_is_complete") == False:
+                    f.write(f"\t--> Since the run is incomplete, this warning can be ignored.\n")
         except Exception:
             f.write("\tCould not compute the expected median lnL.\n")
 
@@ -2000,7 +1982,8 @@ def evaluate_run(run_diagnostics):
 
         ILE_is_good = True
 
-        f.write(f"Total number of marginalized lnL evaluations = {run_diagnostics.get('total_lnL_evaluations', 'NA')}\n")
+        all_net_note = " (from the subdag all.net, which has more evaluations than the main all.net)" if run_diagnostics.get("all_net_used", {}).get("used") == "Subdag" else ""
+        f.write(f"Total number of marginalized lnL evaluations = {run_diagnostics.get('total_lnL_evaluations', 'NA')}{all_net_note}\n")
         f.write(f"Total number of high marginalized lnL points = {run_diagnostics.get('total_high_lnL_points', 'NA')}\n")
         f.write(f"Total number of high marginalized lnL points used = {run_diagnostics.get('high_lnL_points', 'NA')}\n")
         f.write(f"Total number of high marginalized lnL points not used due to large error = {run_diagnostics.get('high_lnL_points_with_large_error', 'NA')}\n")
@@ -2681,8 +2664,9 @@ if len(main_posterior_files) > 7:
     main_posterior_files, main_iterations = find_posteriors_in_main(path, limit_iterations=limit_main_iterations)
 subdag_posterior_files, subdag_iterations = find_posteriors_in_sub(path)
 
-# all.net used in all the corner plots: if there is a subdag, the larger of the main and subdag all.net
-corner_all_net_path = choose_all_net_for_corner_plots(all_net_path, find_posteriors_in_sub(path, return_subdag_folder_path=True))
+# one all.net is used everywhere (ILE summary, maximum lnL, CIP_lnL plot, high lnL distribution, exploration and corner plots, puffing): the one with more evaluations, main or subdag
+all_net_path = choose_reference_all_net(all_net_path, find_posteriors_in_sub(path, return_subdag_folder_path=True))
+corner_all_net_path = all_net_path
 
 # plot neff
 try:
