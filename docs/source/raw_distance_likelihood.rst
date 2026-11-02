@@ -40,6 +40,31 @@ deserialize executable objects. Load a matching raw core predictor explicitly.
 Experimental metadata requires ``allow_experimental=True``. The status field is
 a producer declaration, not independent scientific certification.
 
+Conditioning provenance
+~~~~~~~~~~~~~~~~~~~~~~~
+
+For physical exports, ``source_provenance`` must bind the native implementation
+name, version and source identity. Record conditioning separately for each
+detector: the raw PSD table hash and frequency band, data-window and PSD-window
+definitions, sample counts, and their evaluated mean-square factors. Record the
+formula and numerical factor that convert the raw table into the effective PSD
+used by the likelihood. Include runtime overrides, their evidence, and any
+unverified assumptions. Equal raw PSD hashes do not establish equal weighting.
+
+For example, ``S_effective = S_raw * mean(w_data**2)`` differs from
+``S_effective = S_raw``. A producer that uses the ratio of data-window and
+PSD-window powers must record both factors. Window shape parameters alone omit
+finite-length and implementation differences. Resolve these quantities from
+the event's deployed implementation and runtime; no package-version default is
+chosen by this evaluator.
+
+Keep this record in ``source_provenance["conditioning"]`` so contract persistence
+and prepared snapshots retain it with the model. The validator requires source
+provenance but does not audit this record or certify native-likelihood parity.
+Raw/noise normalization controls test accounting separately from conditioning.
+A constant time-prior normalization cancels in normalized PE; preserve its
+measure when exporting absolute raw likelihoods.
+
 Evaluation and caching
 ~~~~~~~~~~~~~~~~~~~~~~
 
