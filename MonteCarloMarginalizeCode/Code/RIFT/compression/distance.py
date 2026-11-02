@@ -6,6 +6,7 @@ coefficients on its eight intrinsic coordinates. No priors are divided out here.
 """
 import copy
 import json
+import numbers
 from pathlib import Path
 
 import numpy as np
@@ -19,6 +20,8 @@ def _finite(value, name):
     raw = np.asarray(value)
     if np.iscomplexobj(raw):
         raise ValueError(name + " must be real")
+    if raw.dtype.kind not in "iuf":
+        raise ValueError(name + " must be numeric")
     result = np.asarray(raw, dtype=float)
     if not np.isfinite(result).all():
         raise ValueError(name + " must be finite")
@@ -63,47 +66,60 @@ def validate_contract(contract):
         raise ValueError("Unsupported feature chart")
     if not c.get("spin_frame") or not c.get("source_provenance"):
         raise ValueError("Spin frame and source provenance are required")
-    if float(c["reference_frequency_hz"]) <= 0:
+    c["reference_frequency_hz"] = float(_finite(c["reference_frequency_hz"], "Reference frequency"))
+    if c["reference_frequency_hz"] <= 0:
         raise ValueError("Invalid spin reference frequency")
-    _finite(c["reference_frequency_hz"], "Reference frequency")
     for name, shape in (("distance_support_mpc", (2,)),
                         ("intrinsic_bounds", (2, 8)), ("spin_caps", (2,))):
         a = _finite(c[name], name)
         if a.shape != shape:
             raise ValueError("Invalid " + name + " shape")
+        c[name] = a.tolist()  # plain floats: JSON-safe and numeric downstream
     bounds = np.asarray(c["intrinsic_bounds"])
     low, high = c["distance_support_mpc"]
     if low <= 0 or high <= low or np.any(bounds[1] < bounds[0]):
         raise ValueError("Invalid support bounds")
     if np.any(np.asarray(c["spin_caps"]) <= 0) or np.any(np.asarray(c["spin_caps"]) > 1):
         raise ValueError("Invalid spin caps")
-    scale = float(_finite(c["distance_scale_mpc"], "Distance scale"))
-    if scale <= 0:
+    c["distance_scale_mpc"] = float(_finite(c["distance_scale_mpc"], "Distance scale"))
+    if c["distance_scale_mpc"] <= 0:
         raise ValueError("Invalid distance scale")
-    norm = c["normalization"]
+    norm = c.get("normalization")
+    if not isinstance(norm, dict):
+        raise ValueError("Normalization metadata is required")
     if norm.get("overflow_offset_restored") is not True:
         raise ValueError("Raw overflow offset must already be restored")
     if not norm.get("measure") or not norm.get("provenance"):
         raise ValueError("Native measure and baseline provenance are required")
     if norm.get("kind") == "constant":
-        if _finite(norm["raw_zero_signal_log_likelihood"], "Noise baseline").ndim != 0:
+        if "raw_zero_signal_log_likelihood" not in norm:
+            raise ValueError("Constant baseline value is required")
+        baseline = _finite(norm["raw_zero_signal_log_likelihood"], "Noise baseline")
+        if baseline.ndim != 0:
             raise ValueError("Constant baseline must be scalar")
+        norm["raw_zero_signal_log_likelihood"] = float(baseline)
     elif norm.get("kind") == "state_evaluator":
         if not norm.get("evaluator_id"):
             raise ValueError("State baseline requires an evaluator identity")
     else:
         raise ValueError("Unknown noise baseline")
     if "tail" in c:
-        overlap = _finite(c["tail"]["overlap_mpc"], "Overlap")
+        tail = c["tail"]
+        if not isinstance(tail, dict):
+            raise ValueError("Tail metadata must be a mapping")
+        overlap = _finite(tail.get("overlap_mpc"), "Overlap")
         if overlap.shape != (2,) or not low <= overlap[0] < overlap[1] <= high:
             raise ValueError("Tail overlap must lie inside accepted distance support")
-        if not c["tail"].get("validation_provenance"):
+        tail["overlap_mpc"] = overlap.tolist()
+        if not tail.get("validation_provenance"):
             raise ValueError("Tail validation provenance is required")
-        if float(_finite(c["tail"]["distance_scale_mpc"], "Tail distance scale")) <= 0:
+        tail["distance_scale_mpc"] = float(_finite(tail.get("distance_scale_mpc"), "Tail distance scale"))
+        if tail["distance_scale_mpc"] <= 0:
             raise ValueError("Invalid tail distance scale")
-        degree = c["tail"]["degree"]
-        if type(degree) is not int or degree < 1:
+        degree = tail.get("degree")
+        if not isinstance(degree, numbers.Integral) or isinstance(degree, bool) or degree < 1:
             raise ValueError("Tail degree must be a positive integer")
+        tail["degree"] = int(degree)
     return c
 
 
@@ -159,6 +175,7 @@ class DistanceLikelihood:
             if np.any(np.linalg.norm(x[:, sl], axis=1) > cap):
                 raise ValueError("Spin outside declared support")
         unique, inverse = np.unique(x, axis=0, return_inverse=True)
+        inverse = inverse.reshape(-1)  # numpy 2.0.0 returned a 2-D inverse for axis=0
         norm = self.contract["normalization"]
         if self.baseline is None:
             baseline = np.full(len(unique), norm["raw_zero_signal_log_likelihood"])
@@ -187,7 +204,11 @@ class PreparedDistanceLikelihood:
         self.coefficients = None if coefficients is None else coefficients.copy()
 
     def raw_log_likelihood(self, distances_mpc):
-        """Return (N,K) for a shared (K,) grid or per-state (N,K) grids."""
+        """Return (N,K) for a shared (K,) grid or per-state (N,K) grids.
+
+        A 1-D input is always a shared grid, even when K equals N. Pass one
+        distance per state as an (N,1) array.
+        """
         d = _finite(distances_mpc, "Distances")
         n = len(self.inverse)
         if d.ndim == 0:

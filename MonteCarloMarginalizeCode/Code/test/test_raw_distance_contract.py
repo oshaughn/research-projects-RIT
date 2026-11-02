@@ -65,6 +65,8 @@ def test_raw_ratio_overlap_scalar_batch_and_reusable_coefficients(contract):
         np.testing.assert_allclose(cached.raw_log_likelihood(value)[:, 0], truth[:, i], atol=1e-14)
     assert tail.calls == 1
     np.testing.assert_array_equal(cached.raw_zero_signal_log_likelihood(), np.full(3, floor))
+    cached.raw_zero_signal_log_likelihood()[:] = 0.
+    np.testing.assert_allclose(cached.log_noise_ratio(d), truth-floor, atol=1e-14)
     with pytest.raises(ValueError, match="finite"):
         cached.raw_log_likelihood(np.inf)  # boundary contract does not extend support
     with pytest.raises(ValueError, match="support"):
@@ -133,11 +135,111 @@ def test_contract_roundtrip_and_no_shape_relabeling(tmp_path, contract):
     lambda c: c.update(reference_frequency_hz=float('inf')),
     lambda c: c['tail'].update(overlap_mpc=[0., 5000.]),
     lambda c: c.update(features=list(reversed(FEATURES))),
+    lambda c: c.pop('normalization'),
+    lambda c: c['normalization'].update(raw_zero_signal_log_likelihood="-1.0"),
+    lambda c: c.update(reference_frequency_hz="20"),
+    lambda c: c.update(distance_support_mpc=[0., 20000.]),
+    lambda c: c['tail'].update(overlap_mpc=[8000., 30000.]),
+    lambda c: c['tail'].update(degree=0),
+    lambda c: c['tail'].update(degree=True),
+    lambda c: c['tail'].update(distance_scale_mpc=-1.),
+    lambda c: c.update(spin_frame=""),
+    lambda c: c.update(reference_frequency_hz=0.),
+    lambda c: c.update(spin_caps=[.99, 1.01]),
+    lambda c: c['tail'].update(validation_provenance=""),
 ])
 def test_missing_or_incompatible_normalization_rejected(contract, change):
     change(contract)
-    with pytest.raises((ValueError, KeyError)):
+    with pytest.raises(ValueError):
         DistanceLikelihood(contract, Core(0.))
+
+
+def test_baseline_identity_and_constant_contract_guards(contract):
+    class Baseline:
+        def predict(self, x):
+            return np.zeros(len(x))
+    with pytest.raises(ValueError, match="constant contract"):
+        DistanceLikelihood(contract, Core(0.), baseline=Baseline())
+    contract['normalization'].update(kind="state_evaluator", evaluator_id="audited-v1")
+    with pytest.raises(ValueError, match="baseline evaluator"):
+        DistanceLikelihood(contract, Core(0.), baseline=Baseline(), baseline_id="audited-v2")
+    class ShortBaseline:
+        def predict(self, x):
+            return np.zeros(len(x)+1)
+    model = DistanceLikelihood(contract, Core(0.), baseline=ShortBaseline(), baseline_id="audited-v1")
+    with pytest.raises(ValueError, match="one value per state"):
+        model.prepare(states())
+
+
+def test_numpy_metadata_is_normalized_for_json(tmp_path, contract):
+    contract['intrinsic_bounds'] = np.asarray(contract['intrinsic_bounds'])
+    contract['tail']['degree'] = np.int64(2)
+    model = DistanceLikelihood(contract, Core(0.), tail=Tail(), enable_tail=True)
+    model.save_contract(tmp_path/'metadata.json')
+    restored = DistanceLikelihood.load_contract(tmp_path/'metadata.json', Core(0.), tail=Tail(),
+                                                enable_tail=True, allow_experimental=True)
+    assert restored.contract == model.contract
+
+
+@pytest.mark.parametrize('edit', [
+    lambda x: x.__setitem__((0, 0), 9.),     # above ln chirp-mass bound
+    lambda x: x.__setitem__((0, 0), -4.),    # below ln chirp-mass bound
+    lambda x: x.__setitem__((0, 1), -.1),    # negative delta
+    lambda x: x.__setitem__((0, 1), .995),   # delta above declared bound
+])
+def test_intrinsic_support_rejected(contract, edit):
+    x = states()
+    edit(x)
+    with pytest.raises(ValueError, match="support"):
+        DistanceLikelihood(contract, Core(0.)).prepare(x)
+
+
+@pytest.mark.parametrize('delta', [-.1, 1.])
+def test_delta_chart_limits_hold_inside_wide_bounds(contract, delta):
+    contract['intrinsic_bounds'][0][1], contract['intrinsic_bounds'][1][1] = -1., 2.
+    x = states()
+    x[0, 1] = delta
+    with pytest.raises(ValueError, match="support"):
+        DistanceLikelihood(contract, Core(0.)).prepare(x)
+
+
+def test_mass_order_and_redshift_rejected():
+    with pytest.raises(ValueError, match="m1 >= m2"):
+        intrinsic_coordinates(20., 30., np.zeros(6), mass_frame="detector")
+    with pytest.raises(ValueError, match="redshift"):
+        intrinsic_coordinates(30., 20., np.zeros(6), mass_frame="source", redshift=-.1)
+
+
+def test_distance_grid_shape_and_lower_support(contract):
+    prepared = DistanceLikelihood(contract, Core(0.)).prepare(states())
+    with pytest.raises(ValueError, match="support"):
+        prepared.raw_log_likelihood(99.)
+    with pytest.raises(ValueError, match="grid"):
+        prepared.raw_log_likelihood(np.full((2, 4), 5000.))
+    # A 1-D input is a shared grid even when its length equals the state count.
+    shared = prepared.raw_log_likelihood([1000., 2000., 3000.])
+    np.testing.assert_array_equal(shared, prepared.raw_log_likelihood(np.tile([1000., 2000., 3000.], (3, 1))))
+    paired = prepared.raw_log_likelihood(np.array([[1000.], [2000.], [3000.]]))[:, 0]
+    np.testing.assert_array_equal(paired, np.diag(shared))
+    class WrongShape:
+        def predict(self, x):
+            return np.zeros((len(x), 1))
+    with pytest.raises(ValueError, match="one raw log likelihood per row"):
+        DistanceLikelihood(contract, WrongShape()).prepare(states()).raw_log_likelihood(5000.)
+
+
+def test_overlap_weight_is_smoothstep(contract):
+    class ZeroCore:
+        def predict(self, x):
+            return np.zeros(len(x))
+    class ConstantTail:
+        def predict(self, x):
+            return np.zeros((len(x), 2))
+    floor = contract['normalization']['raw_zero_signal_log_likelihood']
+    cached = DistanceLikelihood(contract, ZeroCore(), tail=ConstantTail(), enable_tail=True).prepare(states()[:1])
+    t = np.array([.1, .25, .75, .9])
+    got = cached.raw_log_likelihood(8000.+4000.*t)[0]
+    np.testing.assert_allclose(got, floor*t*t*(3-2*t), atol=1e-14)
 
 
 def test_input_and_prediction_failures_cannot_publish_a_number(contract):

@@ -37,8 +37,10 @@ the noise ratio has a unit zero-signal limit.
 ``save_contract`` and ``load_contract`` round-trip JSON metadata. Backend model
 serialization remains backend-owned; these functions do not save predictors or
 deserialize executable objects. Load a matching raw core predictor explicitly.
-Experimental metadata requires ``allow_experimental=True``. The status field is
-a producer declaration, not independent scientific certification.
+``load_contract`` rejects experimental metadata unless
+``allow_experimental=True``; the constructor does not check the status. The
+status field is a producer declaration, not independent scientific
+certification.
 
 Conditioning provenance
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -87,7 +89,9 @@ frequency. The core's ninth feature is ``distance_scale_mpc / dL_Mpc``.
    ratio = prepared.log_noise_ratio(distance_nodes_mpc)
 
 Outputs are ``(N,K)`` for ``N`` intrinsic states and a shared ``(K,)`` distance
-grid. Per-state ``(N,K)`` grids are also supported. Scalars represent one
+grid. Per-state ``(N,K)`` grids are also supported. A 1-D input is always a
+shared grid, even when ``K = N``; pass one distance per state as ``(N,1)``.
+Scalars represent one
 distance node. Queries outside declared support are rejected. The separate
 ``raw_zero_signal_log_likelihood()`` returns the recorded baseline without
 extending accepted finite-distance support to infinity.
@@ -134,10 +138,10 @@ the raw likelihood or its noise ratio.
 Validation scope
 ~~~~~~~~~~~~~~~~
 
-Known-polynomial tests cover baseline subtraction, raw overlap, coefficient
-reuse, metadata round-trip, source-mass conversion and support errors. A passed
-constant-integrand exporter control establishes offset/baseline accounting; it
-does not validate finite-distance strain likelihoods or a learned tail.
+Known-polynomial tests cover baseline subtraction, the smoothstep overlap,
+coefficient reuse, metadata round-trip, source-mass conversion, and the
+metadata, support and shape guards. They do not validate finite-distance strain
+likelihoods or a learned tail.
 Grouped held-out intrinsic states, blind likelihood checks, overlap accuracy,
 backend round-trip and converged population integrals remain required before
 adopting a new fitted representation. Keep the RF fallback available.
