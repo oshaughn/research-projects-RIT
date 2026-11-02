@@ -27,8 +27,8 @@ parser.add_argument("--downselect-parameter",action='append', help='Name of para
 parser.add_argument("--downselect-parameter-range",action='append',type=str,help="Range for the matching --downselect-parameter, as '[lo,hi]' (paired in order) or 'name:[lo,hi]'.")
 parser.add_argument("--parameter-range",action='append',type=str,help="Range 'name:[lo,hi]' for a --parameter. Points outside are dropped, or reflected if --reflect-parameter names it. Same as a name-keyed --downselect-parameter-range.")
 parser.add_argument("--reflect-parameter",action='append',type=str,help="Reflect puffed points into this parameter's range (from --parameter-range or --downselect-parameter-range).")
-parser.add_argument("--get-range-from-external",action='store_true',help="Ask the coordinate plugin for ranges: calls get_bounds(coord_names, ranges, **kwargs), which returns {name: [lo,hi]} in the puff basis. Ranges given on the command line win.")
-parser.add_argument("--external-range-args",action='append',type=str,help="key=value passed to the plugin's get_bounds. Values are parsed as python literals when possible.")
+parser.add_argument("--get-range-from-external",action='store_true',help="Ask the coordinate plugin for ranges: calls get_bounds(coord_names, ranges, **kwargs), which returns {name: [lo,hi]} in the puff basis. rift plugins: ranges given on the command line win. inplace plugins: --parameter-range values are FILE-basis inputs to get_bounds, and puffed rows whose inverse falls outside them are dropped.")
+parser.add_argument("--external-range-args",action='append',type=str,help="key=value passed to the plugin's get_bounds (and, for an inplace plugin, to its forward and inverse maps too). Values are parsed as python literals when possible.")
 parser.add_argument("--regularize",action='store_true',help="Add some ad-hoc terms based on priors, to help with nearly-singular matricies")
 # ---- Optional coordinate-convert plugin (additive; legacy path byte-identical when omitted) ----
 # When set, the puff lane operates in the PLUGIN basis: it forward-transforms the
@@ -51,8 +51,9 @@ parser.add_argument("--supplementary-coordinate-input-parameter", action='append
 parser.add_argument("--supplementary-coordinate-api", default="auto", choices=["auto", "rift", "inplace"],
                     help="Plugin API: 'rift' (current contract), 'inplace' (PR #434 shape: fn(X, coord_names, **kw) "
                          "transforms columns under their original names, with inverse_<fn>), or 'auto' (default: "
-                         "the plugin's PLUGIN_API, else classify by signature). With 'inplace', ranges for --parameter "
-                         "names are file-basis inputs to get_bounds. See RIFT.misc.coordinate_plugin.")
+                         "the plugin's PLUGIN_API; without it 'rift' if the entry point names low_level_coord_names, "
+                         "refused if it does not and inverse_<fn> exists). With 'inplace', ranges for --parameter "
+                         "names are file-basis ranges: inputs to get_bounds, and enforced on the output. See RIFT.misc.coordinate_plugin.")
 opts=  parser.parse_args()
 
 if opts.random_parameter is None:
@@ -139,6 +140,7 @@ _coord_plugin_converter = None
 _coord_plugin_inverse   = None
 _coord_plugin_in_names  = None  # the FILE-basis names we feed the plugin
 _coord_plugin_api       = None
+_inplace_file_box       = {}    # inplace plugin: FILE-basis ranges enforced after the inverse
 if opts.supplementary_coordinate_code:
     from RIFT.misc.coordinate_plugin import load_coordinate_converter
     _coord_plugin_converter, _coord_plugin_module = load_coordinate_converter(
@@ -197,6 +199,9 @@ if _coord_plugin_api == "inplace":
     # frame: it is read in the FILE basis and mapped by get_bounds (which must cover every
     # puffed name), and refused without --get-range-from-external.
     from RIFT.misc.coordinate_plugin import inplace_sampling_ranges
+    # The command-line ranges are FILE-basis ranges: keep them to enforce on the output
+    # after the inverse (the transformed box below is only their bounding box).
+    _inplace_file_box = {name: list(rng) for name, rng in downselect_dict.items() if name in coord_names}
     _inplace_ranges = inplace_sampling_ranges(
         _coord_plugin_module, coord_names, downselect_dict,
         [name for name in downselect_dict if name in coord_names],
@@ -331,6 +336,14 @@ else:
     if X_in_out.shape != (len(X_out), len(_coord_plugin_in_names)):
         sys.exit("util_HyperparameterPuffball: plugin inverse returned shape {!r}, "
                  "expected {!r}".format(X_in_out.shape, (len(X_out), len(_coord_plugin_in_names))))
+    if _coord_plugin_api == "inplace" and _inplace_file_box:
+        # Enforce the file-basis ranges: a puffed point inside the transformed bounding
+        # box can still map back outside the file-basis box.
+        from RIFT.misc.coordinate_plugin import in_file_box
+        _ok = in_file_box(X_in_out, _coord_plugin_in_names, _inplace_file_box)
+        print('   File-basis downselect (inplace plugin) : {} of {} kept'.format(np.sum(_ok), len(_ok)))
+        X_in_out = X_in_out[_ok]
+        dat_raw = dat_raw[_ok]
     for j, name in enumerate(_coord_plugin_in_names):
         dat_raw[name] = X_in_out[:, j]
 

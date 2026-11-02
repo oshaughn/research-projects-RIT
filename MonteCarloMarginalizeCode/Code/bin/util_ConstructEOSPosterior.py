@@ -188,9 +188,9 @@ parser.add_argument("--supplementary-coordinate-code", default=None,type=str,hel
 parser.add_argument("--supplementary-coordinate-function", default=None, type=str, help="Name of the entry-point callable inside the module named by --supplementary-coordinate-code. Defaults to 'convert_coordinates'.")
 parser.add_argument("--supplementary-coordinate-ini", default=None, type=str, help="Optional ini file parsed and handed to the coordinate plugin's prepare() hook so it can read its own configuration block(s).")
 parser.add_argument("--supplementary-coordinate-chart", default=None, type=str, help="Which chart (coordinate system) defined by the plugin to use for this run. Required when the plugin's CHARTS dict has more than one entry; ignored when the plugin doesn't define CHARTS. Different charts can share parameter names but imply different priors -- the chart name disambiguates which (name -> prior) mapping is installed.")
-parser.add_argument("--supplementary-coordinate-api", default="auto", choices=["auto","rift","inplace"], help="Which coordinate-plugin API the module named by --supplementary-coordinate-code implements. 'rift' (every existing plugin): convert_coordinates(x_in, coord_names, low_level_coord_names, **kw) and its hooks. 'inplace' (PR #434 shape): fn(X, coord_names, **kw) returns X transformed under the ORIGINAL names, with inverse_<fn> and optional get_bounds; every sampled column is inverted before output. 'auto' (default) uses the plugin's PLUGIN_API attribute, else classifies by signature. See RIFT.misc.coordinate_plugin.")
-parser.add_argument("--get-range-from-external", action='store_true', help="Ask the coordinate plugin for integration ranges: calls get_bounds(low_level_coord_names, ranges, **kwargs), which returns {name: [lo,hi]} in the SAMPLING basis. Replaces data-derived and chart ranges; --integration-parameter-range wins. Errors raise.")
-parser.add_argument("--external-range-args", action='append', type=str, help="key=value passed to the plugin's get_bounds. Values are parsed as python literals when possible.")
+parser.add_argument("--supplementary-coordinate-api", default="auto", choices=["auto","rift","inplace"], help="Which coordinate-plugin API the module named by --supplementary-coordinate-code implements. 'rift' (every existing plugin): convert_coordinates(x_in, coord_names, low_level_coord_names, **kw) and its hooks. 'inplace' (PR #434 shape): fn(X, coord_names, **kw) returns X transformed under the ORIGINAL names, with inverse_<fn> and optional get_bounds; every sampled column is inverted before output. 'auto' (default) uses the plugin's PLUGIN_API attribute; without it, an entry point that names low_level_coord_names is 'rift', one that does not is refused if the module defines inverse_<fn>, and is called as 'rift' (with a warning) if not. See RIFT.misc.coordinate_plugin.")
+parser.add_argument("--get-range-from-external", action='store_true', help="Ask the coordinate plugin for integration ranges: calls get_bounds(low_level_coord_names, ranges, **kwargs), which returns {name: [lo,hi]} in the SAMPLING basis. rift plugins: replaces data-derived and chart ranges; --integration-parameter-range wins. inplace plugins: every --integration-parameter-range (and data-derived range) is a FILE-basis input to get_bounds, which must cover every sampled name; the file-basis box is also enforced on the output (zero weight outside it). Errors raise.")
+parser.add_argument("--external-range-args", action='append', type=str, help="key=value passed to the plugin's get_bounds (and, for an inplace plugin, to its forward and inverse maps too). Values are parsed as python literals when possible.")
 opts=  parser.parse_args()
 if opts.fit_method != 'gp-matern':
     if opts.gp_predict_backend != "sklearn":
@@ -481,6 +481,7 @@ supplemental_coordinate_convert = None
 supplemental_coordinate_inverse = None
 _coord_plugin_in_names = None
 _coord_plugin_api = None
+_inplace_file_box = None   # inplace plugin + get_bounds: FILE-basis box enforced in the integrand
 if opts.supplementary_coordinate_code:
     # Resolve the user-supplied coordinate-convert plugin.  The loader
     # accepts three forms in --supplementary-coordinate-code: the literal
@@ -534,6 +535,38 @@ if opts.supplementary_coordinate_code:
                 "sampling basis); got sampling {!r}, fit {!r}, file {!r}".format(
                     list(low_level_coord_names), list(coord_names), list(dat_orig_names)))
         _coord_plugin_in_names = list(low_level_coord_names)
+        # Round-trip preflight, BEFORE the fit: forward on a few data rows (all file
+        # columns), keep only the sampled names, invert, and compare with the file values.
+        # A sampled set the inverse cannot invert (e.g. --parameter x0 alone with a 2-D
+        # rotation) otherwise fails only at output time, after the whole MC run.
+        _rows = dat_orig[np.linspace(0, len(dat_orig) - 1, min(len(dat_orig), 8)).astype(int), 2:]
+        _cols_sampled = [dat_orig_names.index(p) for p in low_level_coord_names]
+        try:
+            _fwd = np.asarray(supplemental_coordinate_convert(
+                _rows, coord_names=list(low_level_coord_names), low_level_coord_names=list(dat_orig_names)), dtype=float)
+            _back = np.asarray(supplemental_coordinate_inverse(
+                _fwd, coord_names=list(low_level_coord_names), low_level_coord_names=list(low_level_coord_names)), dtype=float)
+        except Exception as _err:
+            raise ValueError(
+                " inplace coordinate plugin: round-trip check failed before the fit: forward on the file "
+                "columns {!r}, then the inverse on the sampled columns {!r} only, raised {}: {}.  The inverse "
+                "needs every column the forward map mixes into the sampled ones: add them with --parameter "
+                "or --parameter-nofit.".format(list(dat_orig_names), list(low_level_coord_names),
+                                               type(_err).__name__, _err)) from _err
+        _want = _rows[:, _cols_sampled]
+        _scale = np.maximum(1.0, np.max(np.abs(_want), axis=0))
+        _bad = (~np.isclose(_back, _want, rtol=0, atol=1e-8 * _scale) & np.isfinite(_want)
+                if _back.shape == _want.shape else None)
+        if _bad is None or np.any(_bad):
+            _which = ([str(n) for n, b in zip(low_level_coord_names, np.any(_bad, axis=0)) if b]
+                      if _back.shape == _want.shape else "shape {}".format(_back.shape))
+            raise ValueError(
+                " inplace coordinate plugin: round-trip check failed before the fit: inverse(forward(x)) "
+                "restricted to the sampled columns {!r} does not reproduce the data rows (mismatch in {!r}).  "
+                "Either the inverse needs columns that are not sampled (add them with --parameter or "
+                "--parameter-nofit), or the forward and inverse maps (or the --external-range-args they "
+                "both receive) disagree.".format(list(low_level_coord_names), _which))
+        print(" COORDINATE PLUGIN round-trip check (inplace): {} rows OK".format(len(_rows)))
     else:
         _coord_plugin_in_names = resolve_input_parameters(
             _coord_plugin_module, chart=opts.supplementary_coordinate_chart
@@ -563,6 +596,11 @@ if _coord_plugin_api == "inplace":
         _inplace_ranges = {name: [np.min(_dat_sampling_basis[:, k]), np.max(_dat_sampling_basis[:, k])]
                            for k, name in enumerate(low_level_coord_names)}
         _how = "from the transformed input grid (inplace plugin)"
+    if _inplace_ranges is not None:
+        # The ranges handed to get_bounds are FILE-basis ranges; the transformed box only
+        # bounds them.  Keep them to enforce as an indicator in the integrand.
+        _inplace_file_box = {name: [float(v) for v in param_ranges[name]] for name in low_level_coord_names}
+        print(" File-basis box enforced on samples (inplace plugin): {}".format(_inplace_file_box))
     for _name in low_level_coord_names:
         param_ranges[_name] = _inplace_ranges[_name]
         print(" Integration range for {} {} : {} ".format(_name, _how, param_ranges[_name]))
@@ -1529,6 +1567,28 @@ if opts.internal_use_lnL:
                 _l = log_likelihood_function(*x)
                 return (_l.get() if hasattr(_l, 'get') else _l) + supplemental_ln_likelihood(*_h)
     extra_args.update({"use_lnL":True,"return_lnI":True})
+
+if _inplace_file_box:
+    # Inplace plugin: the sampling box is only the bounding box of the file-basis box in
+    # the transformed basis.  Give zero weight (lnL -inf) to every sample whose inverse
+    # lies outside the file-basis box, so no output sample does.
+    from RIFT.misc.coordinate_plugin import in_file_box
+    _fn_unboxed = fn_passed
+    _box_use_lnL = bool(opts.internal_use_lnL)
+    def fn_passed(*x, _f=_fn_unboxed):
+        val = _f(*x)
+        _h = [a.get() if hasattr(a, 'get') else np.asarray(a, dtype=float) for a in x]
+        _X = np.column_stack([np.atleast_1d(a) for a in _h])
+        _ok = in_file_box(supplemental_coordinate_inverse(
+            _X, coord_names=list(low_level_coord_names), low_level_coord_names=list(low_level_coord_names)),
+            low_level_coord_names, _inplace_file_box)
+        if np.ndim(val) == 0:
+            return val if _ok[0] else (-np.inf if _box_use_lnL else 0.0 * val)
+        if hasattr(val, 'get'):
+            _ok = _cupy().asarray(_ok)
+        if _box_use_lnL:
+            return (_cupy() if hasattr(val, 'get') else np).where(_ok, val, -np.inf)
+        return val * _ok
 
 
 # PORTFOLIO: setup() is MANDATORY, not an optimization.  It is the only place that

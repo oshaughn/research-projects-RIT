@@ -213,26 +213,41 @@ Selection, in order:
   1. explicit: the module attribute ``PLUGIN_API = "rift" | "inplace"`` or
      the CLI flag ``--supplementary-coordinate-api {auto,rift,inplace}``
      (default ``auto``).  If both are given they must agree.
-  2. ``auto`` classifies by ``inspect.signature`` only; it never calls the
-     plugin to find out.  ``rift`` if the entry point has a parameter named
-     ``low_level_coord_names``, or the module defines any of ``prepare``,
-     ``register_priors``, ``CHARTS``, ``DEFAULT_CHART``, ``INPUT_PARAMETERS``,
-     ``OUTPUT_PARAMETERS``, ``jacobian``.  ``inplace`` only if the entry
-     point is exactly ``(X, coord_names, **kwargs)`` and ``inverse_<function>``
-     exists.  Shapes that fit neither contract, or fit both (for example the
-     default name ``convert_coordinates``, whose ``inverse_convert_coordinates``
-     is also the ``rift`` inverse name, with both functions in the inplace
-     shape) raise and ask for ``PLUGIN_API``.  A forward-only function in the
-     inplace shape stays ``rift``, which is how it has always been called.
+  2. ``auto`` reads only the module's own namespace and ``inspect.signature``;
+     it never calls the plugin and never runs a module-level ``__getattr__``.
+     It never selects ``inplace``:
+       * ``rift`` if the entry point's signature explicitly names
+         ``low_level_coord_names`` (every production plugin does);
+       * otherwise, if the module defines ``inverse_<function>`` (or a
+         module ``__getattr__`` that could supply it), REFUSE and ask for
+         ``PLUGIN_API`` or the CLI flag.  An unreadable or uninformative
+         signature (``*args``/``**kwargs`` only, a decorator without
+         ``functools.wraps``, a builtin) counts as "does not name".  Helpers
+         named ``prepare``, ``CHARTS``, ``jacobian`` and so on do not change
+         this: calling an inplace plugin with the rift contract would write
+         transformed values as file values, with exit 0;
+       * otherwise (forward-only) the current contract, ``rift``, as before
+         this adapter, with a RuntimeWarning that says what that call means;
+         a forward-only signature that cannot take the rift call is refused.
+     A ``rift`` plugin whose entry point takes ``low_level_coord_names`` only
+     through ``**kwargs`` and also defines an inverse must now set
+     ``PLUGIN_API = "rift"``.
 
 Only ``util_ConstructEOSPosterior.py`` and ``util_HyperparameterPuffball.py``
 accept ``inplace`` plugins today; other drivers refuse them.  In those two
 drivers an ``inplace`` plugin's sampled (or puffed) names are all in the
 transformed basis, ``--integration-parameter-range`` / ``--parameter-range``
-values for them are FILE-basis inputs to ``get_bounds`` (and are refused
-without ``--get-range-from-external``, since their frame would be
-ambiguous), and every sampled column is passed through the inverse before
-it is written.
+values for them are FILE-basis ranges: they are inputs to ``get_bounds``
+(and are refused without ``--get-range-from-external``, since their frame
+would be ambiguous), and they are ENFORCED on the output -- the transformed
+box from ``get_bounds`` only bounds the sampling or puff, and PUFF then drops
+rows, and CEP gives zero weight to samples, whose inverse lies outside the
+file-basis box (in CEP that box is every range handed to ``get_bounds``,
+including data-derived ones).  Every sampled column is passed through the
+inverse before it is written, and CEP checks forward -> sampled columns ->
+inverse on a few data rows before the fit, so a sampled set the inverse
+cannot invert fails at once.  PUFF puffs in the transformed basis (PR #434
+puffed in the file basis); for a linear map the two agree.
 """
 
 from __future__ import annotations
@@ -250,10 +265,12 @@ from typing import Callable, Optional, Sequence, Tuple
 _DEFAULT_FUNCTION_NAME = "convert_coordinates"
 
 PLUGIN_APIS = ("rift", "inplace")
-# Module attributes that only the rift contract defines.  Any of them pins a
-# plugin to the rift API under auto-classification.
-_RIFT_ONLY_HOOKS = ("prepare", "register_priors", "CHARTS", "DEFAULT_CHART",
-                    "INPUT_PARAMETERS", "OUTPUT_PARAMETERS", "jacobian")
+_MISSING = object()
+
+
+def _static_attr(module, name, default=None):
+    """Module attribute without running a PEP 562 module ``__getattr__``."""
+    return vars(module).get(name, default)
 
 
 def _signature(obj):
@@ -263,20 +280,14 @@ def _signature(obj):
         return None
 
 
-def _is_inplace_shaped(sig) -> bool:
-    """True for exactly ``(X, coord_names, **kwargs)``: two required positional
-    parameters, a ``**kwargs``, no ``*args`` and no required keyword-only."""
+def _names_low_level_coord_names(sig) -> bool:
+    """True only when the signature explicitly names ``low_level_coord_names``.
+    An unreadable signature, ``(*args, **kwargs)`` (e.g. a decorator without
+    ``functools.wraps``), or a ``**kwargs`` that might receive it do not count."""
     if sig is None:
         return False
-    params = list(sig.parameters.values())
-    if any(p.kind is p.VAR_POSITIONAL for p in params):
-        return False
-    if not any(p.kind is p.VAR_KEYWORD for p in params):
-        return False
-    if any(p.kind is p.KEYWORD_ONLY and p.default is p.empty for p in params):
-        return False
-    positional = [p for p in params if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)]
-    return len(positional) == 2 and all(p.default is p.empty for p in positional)
+    p = sig.parameters.get("low_level_coord_names")
+    return p is not None and p.kind in (p.POSITIONAL_OR_KEYWORD, p.KEYWORD_ONLY)
 
 
 def _ambiguous(plugin_name, why):
@@ -292,11 +303,13 @@ def classify_plugin_api(module, function_name: Optional[str] = None, api: Option
 
     ``api`` is the CLI choice (``None``/``'auto'`` = not given).  An explicit
     choice (CLI or the module's ``PLUGIN_API``) wins; both given must agree.
-    Otherwise classify from ``inspect.signature`` alone -- the plugin is never
-    called here.  See the module docstring for the rules.
+    Otherwise (``auto``) classify from the module's own namespace and
+    ``inspect.signature`` alone: the plugin is never called, and a module-level
+    ``__getattr__`` is never run.  ``auto`` never returns ``'inplace'``; see the
+    module docstring for the rules.
     """
-    plugin_name = getattr(module, "NAME", getattr(module, "__name__", "?"))
-    declared = getattr(module, "PLUGIN_API", None)
+    plugin_name = _static_attr(module, "NAME", _static_attr(module, "__name__", "?"))
+    declared = _static_attr(module, "PLUGIN_API", None)
     requested = None if api in (None, "auto") else api
     for value, source in ((declared, "PLUGIN_API"), (requested, "--supplementary-coordinate-api")):
         if value is not None and value not in PLUGIN_APIS:
@@ -309,40 +322,49 @@ def classify_plugin_api(module, function_name: Optional[str] = None, api: Option
         return requested or declared
 
     fn_name = function_name or _DEFAULT_FUNCTION_NAME
-    sig = _signature(getattr(module, fn_name))
-    if sig is None:
-        return "rift"        # cannot introspect: keep the contract it has always had
-    if "low_level_coord_names" in sig.parameters:
-        return "rift"
-    if any(hasattr(module, h) for h in _RIFT_ONLY_HOOKS):
+    fn = _static_attr(module, fn_name, _MISSING)
+    sig = None if fn is _MISSING else _signature(fn)
+    if _names_low_level_coord_names(sig):
         return "rift"
 
-    inv = getattr(module, "inverse_" + fn_name, None)
-    if _is_inplace_shaped(sig) and callable(inv):
-        inv_sig = _signature(inv)
-        if inv_sig is not None and "low_level_coord_names" in inv_sig.parameters:
-            if fn_name == _DEFAULT_FUNCTION_NAME:
-                return "rift"   # inverse_convert_coordinates in the rift shape: a rift plugin
-            raise _ambiguous(plugin_name, f"{fn_name} has the inplace shape but inverse_{fn_name} "
-                                          "takes low_level_coord_names")
-        if fn_name == _DEFAULT_FUNCTION_NAME:
-            raise _ambiguous(plugin_name, "convert_coordinates and inverse_convert_coordinates both have "
-                                          "the inplace shape, and inverse_convert_coordinates is also "
-                                          "the rift inverse name")
-        return "inplace"
+    # The entry point does not name low_level_coord_names (or its signature cannot be
+    # read: *args/**kwargs, a decorator without functools.wraps, a builtin).  An
+    # inverse_<fn> is how an inplace (#434) plugin pairs its maps, and calling such a
+    # plugin with the rift contract writes transformed values as file values with
+    # exit 0.  So refuse rather than guess.
+    inv_name = "inverse_" + fn_name
+    if inv_name in vars(module):
+        raise _ambiguous(plugin_name, f"{fn_name} does not name low_level_coord_names "
+                                      f"(signature {sig if sig is not None else 'unreadable'}) "
+                                      f"and the module defines {inv_name}")
+    if "__getattr__" in vars(module):
+        raise _ambiguous(plugin_name, f"{fn_name} does not name low_level_coord_names and the "
+                                      f"module defines __getattr__, so whether {inv_name} exists "
+                                      "cannot be checked without running plugin code")
+    if fn is _MISSING:
+        raise _ambiguous(plugin_name, f"{fn_name} is not defined in the module namespace")
 
-    try:
-        sig.bind(None, coord_names=None, low_level_coord_names=None, chart=None)
-    except TypeError:
-        raise _ambiguous(plugin_name, f"{fn_name}{sig} matches neither the rift call "
-                                      "(x_in, coord_names, low_level_coord_names, **kw) nor the inplace "
-                                      "shape (X, coord_names, **kw) with an inverse_" + fn_name)
-    if _is_inplace_shaped(sig):
-        warnings.warn(
-            f"coordinate plugin {plugin_name!r}: {fn_name}{sig} has the inplace shape but no "
-            f"inverse_{fn_name}, so it is treated as a rift plugin (called with "
-            "low_level_coord_names in **kwargs).  Set PLUGIN_API to silence this.",
-            RuntimeWarning, stacklevel=3)
+    # rift-only hooks (prepare, CHARTS, jacobian, ...) are deliberately NOT evidence: a
+    # helper with one of those names must not decide the API.
+    if sig is not None:
+        try:
+            sig.bind(None, coord_names=None, low_level_coord_names=None, chart=None)
+        except TypeError:
+            raise _ambiguous(plugin_name, f"{fn_name}{sig} cannot be called with the rift contract "
+                                          "(x_in, coord_names, low_level_coord_names, **kw) and the "
+                                          f"module defines no {inv_name}")
+    # Forward-only, no low_level_coord_names in the signature: the current contract,
+    # as before this adapter existed.  Say plainly what that means for a #434 plugin.
+    warnings.warn(
+        f"coordinate plugin {plugin_name!r}: {fn_name}"
+        f"{sig if sig is not None else '(<unreadable signature>)'} does not name "
+        "low_level_coord_names and there is no " + inv_name + ", so it is called with the rift "
+        "contract: coord_names = the requested OUTPUT names, low_level_coord_names (in **kwargs) "
+        "= the data-file columns.  If it was written for the inplace API (#434: transform X "
+        "under its input names), its results are WRONG under this contract: add " + inv_name +
+        " and PLUGIN_API = 'inplace'.  If it is a rift plugin, name low_level_coord_names in "
+        "its signature.",
+        RuntimeWarning, stacklevel=3)
     return "rift"
 
 
@@ -593,7 +615,7 @@ def load_coordinate_converter(
         raise ValueError("load_coordinate_converter requires a non-empty spec")
 
     module = _load_module_from_spec(spec)
-    plugin_name = getattr(module, "NAME", getattr(module, "__name__", spec))
+    plugin_name = _static_attr(module, "NAME", _static_attr(module, "__name__", spec))
 
     fn_name = function_name or _DEFAULT_FUNCTION_NAME
     if not hasattr(module, fn_name):
@@ -836,3 +858,18 @@ def inplace_sampling_ranges(module, names, file_ranges, cli_range_names, use_get
             "--get-range-from-external so the plugin's get_bounds maps these file-basis ranges, "
             "or drop them.")
     return None
+
+
+def in_file_box(X_file, names, box):
+    """Boolean mask of the rows of ``X_file`` (columns labelled by ``names``) that lie
+    inside ``box`` = ``{name: [lo, hi]}`` (closed); names absent from ``box`` are not
+    constrained, and a NaN in a constrained column is outside.  Used to enforce an
+    ``inplace`` plugin's FILE-basis ranges after the inverse."""
+    import numpy as np
+    X_file = np.atleast_2d(np.asarray(X_file, dtype=float))
+    ok = np.ones(X_file.shape[0], dtype=bool)
+    for j, name in enumerate(names):
+        if name in box:
+            lo, hi = (float(v) for v in box[name])
+            ok &= (X_file[:, j] >= lo) & (X_file[:, j] <= hi)
+    return ok

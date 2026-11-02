@@ -1,14 +1,20 @@
 """Coordinate-plugin API adapter: the ``rift`` and ``inplace`` (PR #434) shapes.
 
-  * auto-classification by signature, the explicit PLUGIN_API attribute and the
-    --supplementary-coordinate-api flag, and refusal of ambiguous plugins;
+  * auto-classification (it never selects inplace), the explicit PLUGIN_API
+    attribute and the --supplementary-coordinate-api flag; every review-S1 evasion
+    of a #434-style plugin with an inverse is refused, and every production-shaped
+    plugin from the 2026-11-02 census (rift_roboto_paper dslice plugins, mmapipe
+    natal plugin, in-tree demos and test plugins) classifies rift with no warning;
   * the inplace wrapper: rift call signature, no mutation of the caller's array,
     selection by name, and drivers that support only the rift API refuse it;
   * the fixed rotation demo (demo/hyperpipe/inplace_plugin/demo_conversion.py)
-    through CEP's conversion and output-inversion path, and through PUFF.
+    through CEP's conversion and output-inversion path, and through PUFF; the
+    FILE-basis ranges are enforced on PUFF rows and CEP samples; CEP's round-trip
+    preflight fails before the fit.
 
-Cost: unit tests are instant; six driver subprocesses, a few seconds each.
+Cost: unit tests are instant; ten driver subprocesses, a few seconds each.
 """
+import functools
 import os
 import subprocess
 import sys
@@ -54,25 +60,61 @@ def test_existing_in_tree_plugins_stay_rift():
         assert cp.classify_plugin_api(mod) == "rift"
 
 
-def test_auto_rift_by_signature_and_by_hooks():
+def _inplace_args(X, coord_names, *args, **kw):
+    return X
+
+
+def _inplace_default(X, coord_names=None, **kw):
+    return X
+
+
+def _inplace_kwonly(X, coord_names, *, theta=0.3, **kw):
+    return X
+
+
+def _rift_low_in_kwargs(x, coord_names, **kw):     # a rift plugin reading low_level from **kw
+    return x
+
+
+def _undecorated(f):
+    def wrapper(*a, **k):          # a decorator without functools.wraps
+        return f(*a, **k)
+    return wrapper
+
+
+class _CallableInplace:
+    def __call__(self, X, coord_names, **kw):
+        return X
+
+
+def test_auto_rift_by_signature():
     assert cp.classify_plugin_api(_module(convert_coordinates=_rift_fn)) == "rift"
-    # inplace-shaped entry point, but a rift-only hook pins it to the current contract
-    for hook in ("prepare", "register_priors", "CHARTS", "INPUT_PARAMETERS"):
-        mod = _module(rot=_inplace_fn, inverse_rot=_inplace_fn, **{hook: (lambda **kw: None)})
-        assert cp.classify_plugin_api(mod, "rot") == "rift", hook
+    assert cp.classify_plugin_api(_module(convert_coordinates=_rift_fn, inverse_convert_coordinates=_rift_fn)) == "rift"
+    assert cp.classify_plugin_api(_module(rot=_rift_fn, inverse_rot=_rift_fn), "rot") == "rift"
 
 
-def test_auto_inplace():
+def test_auto_never_selects_inplace():
+    # An inplace-shaped forward with an inverse is refused in auto mode: PLUGIN_API decides.
     mod = _module(rot=_inplace_fn, inverse_rot=_inplace_fn, get_bounds=lambda p, b, **kw: b)
-    assert cp.classify_plugin_api(mod, "rot") == "inplace"
+    with pytest.raises(ValueError, match="cannot tell which plugin API"):
+        cp.classify_plugin_api(mod, "rot")
+    assert cp.classify_plugin_api(mod, "rot", api="inplace") == "inplace"
     demo = cp._load_module_from_spec(DEMO)
-    del demo.PLUGIN_API                       # the demo is inplace by signature alone, too
-    assert cp.classify_plugin_api(demo, "demo_rotation") == "inplace"
+    assert cp.classify_plugin_api(demo, "demo_rotation") == "inplace"      # PLUGIN_API = "inplace"
+    del demo.PLUGIN_API                       # PR #434's own demo has no PLUGIN_API
+    with pytest.raises(ValueError, match="cannot tell which plugin API"):
+        cp.classify_plugin_api(demo, "demo_rotation")
 
 
-def test_forward_only_inplace_shape_stays_rift_with_warning():
-    with pytest.warns(RuntimeWarning, match="treated as a rift plugin"):
-        assert cp.classify_plugin_api(_module(rot=_inplace_fn), "rot") == "rift"
+def test_forward_only_stays_rift_with_warning():
+    for fn in (_inplace_fn, _inplace_args, _undecorated(_inplace_fn)):
+        with pytest.warns(RuntimeWarning, match="does not name low_level_coord_names") as rec:
+            assert cp.classify_plugin_api(_module(rot=fn), "rot") == "rift"
+        msg = str(rec[0].message)
+        assert "WRONG" in msg and "silence" not in msg
+    # a forward-only signature that cannot take the rift call at all is refused
+    with pytest.raises(ValueError, match="cannot be called with the rift contract"):
+        cp.classify_plugin_api(_module(rot=lambda X, coord_names: X), "rot")
 
 
 def test_explicit_api():
@@ -81,29 +123,155 @@ def test_explicit_api():
     assert cp.classify_plugin_api(_module(PLUGIN_API="inplace", convert_coordinates=_rift_fn)) == "inplace"
     assert cp.classify_plugin_api(_module(PLUGIN_API="rift", rot=_inplace_fn, inverse_rot=_inplace_fn),
                                   "rot", api="auto") == "rift"
+    for evasive in (_inplace_args, _inplace_default, _undecorated(_inplace_fn)):
+        assert cp.classify_plugin_api(_module(PLUGIN_API="inplace", rot=evasive, inverse_rot=evasive),
+                                      "rot") == "inplace"
     with pytest.raises(ValueError, match="PLUGIN_API='rift' in the plugin"):
         cp.classify_plugin_api(_module(PLUGIN_API="rift", rot=_inplace_fn), "rot", api="inplace")
     with pytest.raises(ValueError, match="is not one of"):
         cp.classify_plugin_api(_module(PLUGIN_API="same-basis", rot=_inplace_fn), "rot")
 
 
-@pytest.mark.parametrize("mod,fn", [
-    # default name: inverse_convert_coordinates is the rift inverse name too
-    (_module(convert_coordinates=_inplace_fn, inverse_convert_coordinates=_inplace_fn), None),
-    # inplace forward, rift-shaped inverse
-    (_module(rot=_inplace_fn, inverse_rot=_rift_fn), "rot"),
-    # fits neither call
-    (_module(rot=lambda X, coord_names: X, inverse_rot=_inplace_fn), "rot"),
-])
-def test_ambiguous_refused(mod, fn):
+_S1_CASES = {
+    # review S1: #434-style plugins (forward + inverse_<fn>, no low_level_coord_names
+    # parameter) in forms that #517 as first written ran as rift with exit 0; each must refuse
+    "plain": dict(rot=_inplace_fn, inverse_rot=_inplace_fn),
+    "varargs": dict(rot=_inplace_args, inverse_rot=_inplace_args),
+    "defaulted_coord_names": dict(rot=_inplace_default, inverse_rot=_inplace_default),
+    "kwonly_default": dict(rot=_inplace_kwonly, inverse_rot=_inplace_fn),
+    "decorator_without_wraps": dict(rot=_undecorated(_inplace_fn), inverse_rot=_undecorated(_inplace_fn)),
+    "partial": dict(rot=functools.partial(_inplace_fn, theta=0.3), inverse_rot=_inplace_fn),
+    "callable_instance": dict(rot=_CallableInplace(), inverse_rot=_CallableInplace()),
+    "builtin": dict(rot=np.negative, inverse_rot=np.negative),
+    "no_kwargs": dict(rot=lambda X, coord_names: X, inverse_rot=_inplace_fn),
+    "helper_prepare": dict(rot=_inplace_fn, inverse_rot=_inplace_fn, prepare=print),
+    "helper_jacobian": dict(rot=_inplace_fn, inverse_rot=_inplace_fn, jacobian=np.linalg.det),
+    "helper_register_priors": dict(rot=_inplace_fn, inverse_rot=_inplace_fn, register_priors=lambda *a, **k: None),
+    "helper_CHARTS": dict(rot=_inplace_fn, inverse_rot=_inplace_fn, CHARTS={"a": {}}),
+    "helper_INPUT_PARAMETERS": dict(rot=_inplace_fn, inverse_rot=_inplace_fn, INPUT_PARAMETERS=["x0"]),
+    "inverse_rift_shaped": dict(rot=_inplace_fn, inverse_rot=_rift_fn),
+    "lowercase_plugin_api_typo": dict(rot=_inplace_args, inverse_rot=_inplace_fn, plugin_api="inplace"),
+}
+
+
+@pytest.mark.parametrize("case", sorted(_S1_CASES))
+def test_s1_evasions_refused(case):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        with pytest.raises(ValueError, match="cannot tell which plugin API"):
+            cp.classify_plugin_api(_module(**_S1_CASES[case]), "rot")
+
+
+@pytest.mark.parametrize("fn", [_inplace_fn, _rift_low_in_kwargs])
+def test_default_name_without_low_level_and_with_inverse_refused(fn):
+    # inverse_convert_coordinates is the rift inverse name too, so neither shape is a tell
     with pytest.raises(ValueError, match="cannot tell which plugin API"):
-        cp.classify_plugin_api(mod, fn)
+        cp.classify_plugin_api(_module(convert_coordinates=fn, inverse_convert_coordinates=fn))
+
+
+def test_module_getattr_is_not_run():
+    calls = []
+
+    def mod_getattr(name):
+        calls.append(name)
+        raise AttributeError(name)
+    with pytest.raises(ValueError, match="__getattr__"):
+        cp.classify_plugin_api(_module(rot=_inplace_fn, __getattr__=mod_getattr), "rot")
+    with pytest.raises(ValueError, match="cannot tell"):
+        cp.classify_plugin_api(_module(rot=_inplace_fn, inverse_rot=_inplace_fn, __getattr__=mod_getattr), "rot")
+    assert cp.classify_plugin_api(_module(rot=_rift_fn, __getattr__=mod_getattr), "rot") == "rift"
+    assert calls == []
 
 
 def test_classification_never_calls_the_plugin():
     def boom(X, coord_names, **kw):
         raise AssertionError("called during classification")
-    assert cp.classify_plugin_api(_module(rot=boom, inverse_rot=boom), "rot") == "inplace"
+    with pytest.raises(ValueError, match="cannot tell"):
+        cp.classify_plugin_api(_module(rot=boom, inverse_rot=boom), "rot")
+    assert cp.classify_plugin_api(_module(PLUGIN_API="inplace", rot=boom, inverse_rot=boom), "rot") == "inplace"
+
+
+# Production-shaped plugins (census of 2026-11-02): minimal equivalents with the same
+# signatures, module attributes and import pattern as the real files.
+_CENSUS_PLUGINS = {
+    # rift_roboto_paper analyses/rerun_o4ab_distance_export/tools/dslice_distance_coord_plugin.py
+    "dslice_distance_coord_plugin.py": """
+import numpy as np
+def _wf_convert(x_in, src_names, tgt_names):
+    return x_in[:, [list(src_names).index(n) for n in tgt_names]]
+def convert_coordinates(x_in, coord_names, low_level_coord_names, **kwargs):
+    return _wf_convert(np.atleast_2d(x_in), low_level_coord_names, coord_names)
+def inverse_convert_coordinates(x_in, coord_names, low_level_coord_names, **kwargs):
+    return _wf_convert(np.atleast_2d(x_in), coord_names, low_level_coord_names)
+def register_priors(prior_map, prior_range_map=None, coord_names=None, **kwargs):
+    return None
+""",
+    # rift_roboto_paper analyses/distance_gp_interp/tools/dslice_mdist_plugin.py: re-exports the
+    # inverse and register_priors of the plugin above, imported by module name
+    "dslice_mdist_plugin.py": """
+import numpy as np
+import dslice_distance_coord_plugin as base
+EXTRA = ('mtot_over_dist', 'mc56_over_dist')
+inverse_convert_coordinates = base.inverse_convert_coordinates
+register_priors = base.register_priors
+def convert_coordinates(x_in, coord_names, low_level_coord_names, **kwargs):
+    return base.convert_coordinates(x_in, [n for n in coord_names if n not in EXTRA], low_level_coord_names)
+""",
+    # rift_roboto_paper branch claude/dslice-widening-pr: dslice_coord_plugin_srcframe.py
+    "dslice_coord_plugin_srcframe.py": """
+def convert_coordinates(x_in, coord_names, low_level_coord_names, **kwargs):
+    return x_in
+def inverse_convert_coordinates(x_in, coord_names, low_level_coord_names, **kwargs):
+    return x_in
+def register_priors(prior_map, prior_range_map=None, coord_names=None, **kwargs):
+    return None
+""",
+    # mmapipe mmpipe/coords/natal_coordinate_convert.py
+    "natal_coordinate_convert.py": """
+NAME = "natal_coordinate_convert"
+CHARTS = {"mcq_natal": {"input_parameters": ["m1", "m2"], "output_parameters": ["mc", "q"]}}
+DEFAULT_CHART = "mcq_natal"
+def prepare(config=None, coord_names=None, low_level_coord_names=None, chart=None, **kwargs):
+    return None
+def convert_coordinates(x_in, coord_names, low_level_coord_names, chart=None, **kwargs):
+    return x_in
+def inverse_convert_coordinates(y_in, coord_names, low_level_coord_names, chart=None, **kwargs):
+    return y_in
+""",
+    # the test_hyperpipe_coordinate_passing.py plugin (INPUT_PARAMETERS, get_bounds)
+    "hyperpipe_passing_plugin.py": """
+INPUT_PARAMETERS = ["x", "y"]
+def convert_coordinates(x_in, coord_names, low_level_coord_names, **kw):
+    return x_in
+def inverse_convert_coordinates(y_in, coord_names, low_level_coord_names, **kw):
+    return y_in
+def get_bounds(coord_names, ranges, fail=False, half_width=1.5, **kw):
+    return {}
+""",
+    # the test_fit_nonfinite_floor.py / test_eos_gp_matern.py plugins (forward only)
+    "forward_only_rift_plugin.py": """
+def convert_coordinates(x_in, coord_names, low_level_coord_names, **kwargs):
+    return x_in
+""",
+}
+
+
+@pytest.mark.parametrize("name", sorted(_CENSUS_PLUGINS) + ["rift_default", "linear_coordinate_convert.py"])
+def test_census_production_plugins_classify_rift_without_warning(tmp_path, monkeypatch, name):
+    for fname, src in _CENSUS_PLUGINS.items():
+        (tmp_path / fname).write_text(src)
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.delitem(sys.modules, "dslice_distance_coord_plugin", raising=False)
+    spec = {"rift_default": "rift_default", "linear_coordinate_convert.py": LINEAR}.get(name, str(tmp_path / name))
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        mod = cp._load_module_from_spec(spec)
+        assert cp.classify_plugin_api(mod) == "rift"
+        assert cp.classify_plugin_api(mod, None, api="auto") == "rift"
+        if name.startswith("dslice"):
+            conv, mod2 = cp.load_coordinate_converter(spec, allowed_apis=("rift", "inplace"))
+            assert conv.plugin_api == "rift"
+            assert conv.inverse is mod2.inverse_convert_coordinates
 
 
 # ------------------------------------------------------------------ loader / wrapper
@@ -139,6 +307,34 @@ def test_inplace_wrapper_selects_by_name_and_copies():
     assert np.allclose(back, X[:, 1:3])
     with pytest.raises(ValueError, match="cannot produce"):
         conv(X, coord_names=["u"], low_level_coord_names=names)
+
+
+def _mutating_fwd(X, coord_names, **kw):
+    X[:, 0] += 1.0                  # PR #434's original wrote into X and returned it
+    return X
+
+
+def _mutating_inv(X, coord_names, **kw):
+    X[:, 0] -= 1.0
+    return X
+
+
+def test_inplace_wrapper_never_mutates_caller_array():
+    # The plugin writes into its input: only the wrapper's copy keeps the caller's array intact.
+    sys.modules["_rift_test_mutating"] = _module(PLUGIN_API="inplace", mut=_mutating_fwd, inverse_mut=_mutating_inv)
+    try:
+        conv, _ = cp.load_coordinate_converter("_rift_test_mutating", "mut", allowed_apis=("rift", "inplace"))
+    finally:
+        del sys.modules["_rift_test_mutating"]
+    X = np.arange(12, dtype=float).reshape(6, 2)
+    X_keep = X.copy()
+    Y = conv(X, coord_names=["a", "b"], low_level_coord_names=["a", "b"])
+    assert np.array_equal(X, X_keep)
+    assert np.allclose(Y[:, 0], X_keep[:, 0] + 1)
+    Y_keep = Y.copy()
+    back = conv.inverse(Y, coord_names=["a", "b"], low_level_coord_names=["a", "b"])
+    assert np.array_equal(Y, Y_keep)
+    assert np.allclose(back, X_keep)
 
 
 def test_explicit_inplace_needs_inverse():
@@ -223,6 +419,50 @@ def test_cep_inplace_round_trip(tmp_path, theta, extra):
     assert abs(np.mean(r[:, 0]) - 3 * ROOT2) < 0.1 and np.std(r[:, 0]) < 0.4
 
 
+@pytest.mark.parametrize("extra", [[], ["--sampler-method", "AV", "--internal-use-lnL"]])
+def test_cep_inplace_file_basis_box_enforced(tmp_path, extra):
+    # Review S2: the rotated sampling box is a strict superset of the file-basis box; before
+    # the fix 74 of 2000 output samples fell outside x0:[2,4], x1:[-4,-2].
+    tmp = str(tmp_path)
+    grid, centre = _cep_grid(tmp, np.pi / 4)                # file-basis peak (3, -3)
+    proc = _cep(tmp, grid, ["--get-range-from-external",
+                            "--integration-parameter-range", "x0:[2,4]",
+                            "--integration-parameter-range", "x1:[-4,-2]"] + extra)
+    assert proc.returncode == 0, proc.stdout[-3000:]
+    assert "File-basis box enforced" in proc.stdout
+    out = np.genfromtxt(os.path.join(tmp, "output-EOS-samples.dat"), names=True)
+    assert len(out) == 2000
+    assert out["x0"].min() >= 2 and out["x0"].max() <= 4, (out["x0"].min(), out["x0"].max())
+    assert out["x1"].min() >= -4 and out["x1"].max() <= -2, (out["x1"].min(), out["x1"].max())
+    assert abs(np.mean(out["x0"]) - centre[0]) < 0.15 and abs(np.mean(out["x1"]) - centre[1]) < 0.15
+
+
+def test_cep_inplace_round_trip_preflight_fails_before_fit(tmp_path):
+    # Review S3: --parameter x0 alone cannot be inverted (the rotation needs x1).  Fail at
+    # load, before the fit, not after the MC run.
+    tmp = str(tmp_path)
+    grid, _ = _cep_grid(tmp, np.pi / 4)
+    proc = _run(tmp, CEP, ["--fname", grid, "--parameter", "x0",
+                           "--supplementary-coordinate-code", DEMO,
+                           "--supplementary-coordinate-function", "demo_rotation",
+                           "--fit-method", "rf", "--n-max", "40000", "--n-step", "4000",
+                           "--n-eff", "200", "--no-plots", "--ignore-errors-in-data"])
+    assert proc.returncode != 0
+    assert "round-trip check failed before the fit" in proc.stdout
+    assert "Weight exponent" not in proc.stdout and "n_eff" not in proc.stdout
+    # an inverse that does not undo the forward map is caught the same way
+    bad = os.path.join(tmp, "bad_inverse.py")
+    with open(bad, "w") as f:
+        f.write("PLUGIN_API = 'inplace'\n"
+                "def rot(X, coord_names, **kw):\n    Y = X.copy(); Y[:, 0] = X[:, 0] + X[:, 1]; return Y\n"
+                "def inverse_rot(X, coord_names, **kw):\n    return X.copy()\n")
+    proc = _run(tmp, CEP, ["--fname", grid, "--parameter", "x0", "--parameter", "x1",
+                           "--supplementary-coordinate-code", bad, "--supplementary-coordinate-function", "rot",
+                           "--fit-method", "rf", "--no-plots", "--ignore-errors-in-data"])
+    assert proc.returncode != 0
+    assert "does not reproduce the data rows (mismatch in ['x0'])" in proc.stdout
+
+
 def test_cep_inplace_cli_range_without_get_bounds_refused(tmp_path):
     tmp = str(tmp_path)
     grid, _ = _cep_grid(tmp, np.pi / 4)
@@ -248,6 +488,11 @@ def test_puff_inplace_round_trip(tmp_path):
     out = np.genfromtxt(os.path.join(tmp, "out.dat"), names=True)
     assert 100 < len(out) < n
     demo = cp._load_module_from_spec(DEMO)
+    # The CLI ranges are FILE-basis ranges and must hold on every output row (review S2:
+    # before the fix about 30% of rows fell outside them).  The rotated box holds as well.
+    assert out["x0"].min() >= 1 - 1e-9 and out["x0"].max() <= 4 + 1e-9
+    assert out["x1"].min() >= -2 - 1e-9 and out["x1"].max() <= 0.5 + 1e-9
+    assert "File-basis downselect (inplace plugin)" in proc.stdout
     box = demo.get_bounds(["x0", "x1"], {"x0": [1, 4], "x1": [-2, 0.5]})
     r = np.column_stack([out["x0"], out["x1"]]) @ demo.rotate(np.pi / 4).T
     for k, name in enumerate(["x0", "x1"]):
