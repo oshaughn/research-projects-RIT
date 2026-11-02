@@ -58,6 +58,10 @@ opts=  parser.parse_args()
 
 if opts.random_parameter is None:
     opts.random_parameter = []
+if opts.supplementary_coordinate_api != "auto" and not opts.supplementary_coordinate_code:
+    import warnings
+    warnings.warn("--supplementary-coordinate-api {} ignored: no --supplementary-coordinate-code".format(
+        opts.supplementary_coordinate_api), RuntimeWarning)
 
 # Extract parameter names
 coord_names = opts.parameter # Used  in fit

@@ -156,7 +156,7 @@ FILES=(
   # get_bounds.  ~13 tests, about ten driver subprocesses.
   "$C/test/test_hyperpipe_coordinate_passing.py"
   # -- coordinate-plugin API adapter: rift vs inplace (PR #434 shape) classification, the
-  # inplace wrapper, and the rotation demo through CEP and PUFF.  55 tests, fifteen subprocesses.
+  # inplace wrapper, and the rotation demo through CEP and PUFF.  66 tests, about thirty subprocesses.
   "$C/test/test_coordinate_plugin_api_adapter.py"
   # -- promoted out of the roster after roster-verify-check caught its reason being false ON
   # THE RUNNER: it was OPTDEP needs:glue,htcondor, and with htcondor absent there it still
@@ -537,7 +537,9 @@ done
 # test_coordinate_plugin_api_adapter.py adds 55 tests and no skips -> 1336 (provisional: S1 refusal,
 # census, file-basis box, round-trip preflight and tolerance, PUFF reflect refusal tests added
 # after two reviews).
-EXPECTED_TESTS=1336
+# Review 3: round-trip preflight cases (10) and the inapplicable-option warning test (1) add 11
+# -> 1347 (provisional).
+EXPECTED_TESTS=1347
 # Outcomes, not just exit status: a collection floor cannot see a test that collects, runs and
 # asserts nothing, and a pytest.skip can quietly absorb a lost gate.  The 13 skips are
 # environment legs -- cupy in test_seeding_reproducibility, device legs in
@@ -575,7 +577,8 @@ EXPECTED_TESTS=1336
 # test_dslice_warm.py: collapsed-seed fallback and never-trusted tests add 2 -> 1194.
 # test_dslice_refine.py adds 10 passes -> 1204.
 # test_coordinate_plugin_api_adapter.py adds 55 passes -> 1310 (provisional, as above).
-EXPECTED_PASSED=1310
+# Review 3 adds 11 passes -> 1321 (provisional).
+EXPECTED_PASSED=1321
 # PR #382: +1 skip, the CuPy leg of test_cached_matern_gp.py (no GPU on the CI runner).
 # The six solver="gs" tests in test_td_inner_product.py need tdanalysis >= 1.1, which this
 # job does not install, so they skip here; ci.yml's time-domain likelihood step runs them

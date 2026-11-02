@@ -13,9 +13,13 @@
     preflight fails before the fit, passes a tabulated inverse at its default
     tolerance and honours --supplementary-coordinate-roundtrip-tol; PUFF refuses
     --reflect-parameter and an empty downselect; the loader never runs a module
-    __getattr__ before classifying.
+    __getattr__ before classifying;
+  * the preflight's tolerance relative to the column spread, its magnitude floor
+    (narrow and constant columns), rows outside the forward map's domain
+    (skipped, but at least one is needed), a NaN inverse (refused), and the
+    plugin ROUNDTRIP_TOL wiring in CEP; inapplicable plugin options warn.
 
-Cost: unit tests are instant; fifteen driver subprocesses, a few seconds each.
+Cost: unit tests are instant; about thirty driver subprocesses, a few seconds each.
 """
 import functools
 import os
@@ -499,7 +503,7 @@ def test_cep_inplace_round_trip_preflight_fails_before_fit(tmp_path):
                            "--supplementary-coordinate-code", bad, "--supplementary-coordinate-function", "rot",
                            "--fit-method", "rf", "--no-plots", "--ignore-errors-in-data"])
     assert proc.returncode != 0
-    assert "does not reproduce the data rows (max error / column spread: {'x0':" in proc.stdout
+    assert "inverse mismatch: inverse(forward(x)) restricted to the sampled columns ['x0', 'x1'] does not reproduce the data rows (max error / column scale: {'x0':" in proc.stdout
 
 
 _TAB_PLUGIN = """import numpy as np
@@ -538,6 +542,98 @@ def test_cep_inplace_roundtrip_tolerance(tmp_path, case):
         assert "round-trip check failed before the fit" in proc.stdout
         assert ("from --supplementary-coordinate-roundtrip-tol" if case == "tight_tol" else "from default") in proc.stdout
         assert "n_eff" not in proc.stdout
+
+
+# Review 3: preflight cases that pin the tolerance scale, the magnitude floor, the
+# non-finite handling and the plugin ROUNDTRIP_TOL wiring in CEP itself.  Each plugin
+# doubles every column; the inverse halves it and adds ERR to x0, optionally with NaNs.
+_RT_PLUGIN = """import numpy as np
+PLUGIN_API = "inplace"
+{tol}
+def dbl(X, coord_names, **kw):
+    Y = 2.0 * np.array(X, dtype=float, copy=True)
+    {fwd_nan}
+    return Y
+def inverse_dbl(X, coord_names, **kw):
+    Y = 0.5 * np.array(X, dtype=float, copy=True)
+    Y[:, list(coord_names).index("x0")] += {err}
+    {inv_nan}
+    return Y
+"""
+
+_RT_CASES = {
+    # name: (x0 column, plugin template fields, extra CLI, expected substring, passes?)
+    # x0 spread 1e-3 at magnitude 0.01: an error of 1e-6 is 1e-3 of the spread (refused)
+    # but below 1e-5 absolute (an absolute tolerance would pass it).
+    "narrow_exact": ("narrow", {}, [], "rows OK", True),
+    "narrow_wrong": ("narrow", {"err": "1e-6"}, [], "inverse mismatch", False),
+    # spread 1e-2 at magnitude 1e6: an error of 1e-4 (1e-10 of the value) passes via the
+    # 1e-3 magnitude floor; scaled by the spread alone it would be refused.
+    "large_roundoff": ("large", {"err": "1e-4"}, [], "rows OK", True),
+    # constant columns: the floor sets the scale (1 at 1e3, 1e3 at 1e6)
+    "const_wrong": ("const1e3", {"err": "5e-3"}, [], "inverse mismatch", False),
+    "const_roundoff": ("const1e6", {"err": "1e-4"}, [], "rows OK", None),
+    # an inverse that is NaN where the forward map is finite must be refused
+    "nan_inverse": ("wide", {"inv_nan": "Y[::3, 1] = np.nan"}, [], "inverse is non-finite", False),
+    # rows outside the forward map's domain are skipped (review 3, S1), but not all of them
+    "domain": ("wide", {"fwd_nan": "Y[X[:, 1] < -0.5, 1] = np.nan"}, [], "outside the forward map's domain skipped", True),
+    "no_domain": ("wide", {"fwd_nan": "Y[:, 1] = np.nan"}, [], "no data row is in the plugin's domain", False),
+    # plugin ROUNDTRIP_TOL: an error of 1e-3 of the spread passes at 1e-2; the CLI wins
+    "plugin_tol": ("wide", {"err": "2e-3", "tol": "ROUNDTRIP_TOL = 1e-2"}, [], "from plugin ROUNDTRIP_TOL", True),
+    "plugin_tol_cli": ("wide", {"err": "2e-3", "tol": "ROUNDTRIP_TOL = 1e-2"},
+                       ["--supplementary-coordinate-roundtrip-tol", "1e-4"],
+                       "from --supplementary-coordinate-roundtrip-tol", False),
+}
+
+
+@pytest.mark.parametrize("case", sorted(_RT_CASES))
+def test_cep_inplace_roundtrip_preflight_cases(tmp_path, case):
+    kind, fields, extra, expect, passes = _RT_CASES[case]
+    tmp = str(tmp_path)
+    rng = np.random.default_rng(11)
+    n = 400
+    x0 = {"narrow": 0.01 + rng.uniform(0, 1e-3, n), "large": 1e6 + rng.uniform(0, 1e-2, n),
+          "const1e3": np.full(n, 1e3), "const1e6": np.full(n, 1e6), "wide": rng.uniform(-1, 1, n)}[kind]
+    x1 = rng.uniform(-1, 1, n)
+    grid = os.path.join(tmp, "grid.dat")
+    np.savetxt(grid, np.column_stack([-0.5 * (x1 / 0.3) ** 2, np.zeros(n), x0, x1]), header="lnL sigma_lnL x0 x1",
+               fmt="%.17g")
+    plug = os.path.join(tmp, "rt_plugin.py")
+    tpl = {"tol": "", "err": "0.0", "fwd_nan": "", "inv_nan": ""}
+    tpl.update(fields)
+    with open(plug, "w") as f:
+        f.write(_RT_PLUGIN.format(**tpl))
+    x0_flag = "--parameter-nofit" if kind.startswith("const") else "--parameter"
+    proc = _run(tmp, CEP, ["--fname", grid, x0_flag, "x0", "--parameter", "x1",
+                           "--supplementary-coordinate-code", plug, "--supplementary-coordinate-function", "dbl",
+                           "--fit-method", "rf", "--n-max", "20000", "--n-step", "4000", "--n-eff", "50",
+                           "--n-output-samples", "100", "--no-plots", "--ignore-errors-in-data"] + extra)
+    assert expect in proc.stdout, proc.stdout[-3000:]
+    if passes is None:                      # preflight only: a constant sampled column is degenerate later
+        assert "round-trip check (inplace): 8 rows OK" in proc.stdout, proc.stdout[-3000:]
+    elif passes:
+        assert proc.returncode == 0, proc.stdout[-3000:]
+        assert "round-trip check (inplace): 8 rows OK" in proc.stdout
+    else:
+        assert proc.returncode != 0
+        assert "round-trip check failed before the fit" in proc.stdout
+        assert "n_eff" not in proc.stdout
+
+
+def test_cep_puff_warn_on_inapplicable_plugin_options(tmp_path):
+    # Review 3, NIT 3: options that cannot act are reported, not silently ignored.
+    tmp = str(tmp_path)
+    grid, _ = _cep_grid(tmp, np.pi / 4)
+    proc = _run(tmp, CEP, ["--fname", grid, "--parameter", "x0", "--parameter", "x1",
+                           "--supplementary-coordinate-api", "inplace",
+                           "--supplementary-coordinate-roundtrip-tol", "1e-3",
+                           "--fit-method", "rf", "--n-max", "10000", "--n-step", "4000", "--n-eff", "20",
+                           "--n-output-samples", "50", "--no-plots", "--ignore-errors-in-data"])
+    assert "--supplementary-coordinate-api inplace ignored: no --supplementary-coordinate-code" in proc.stdout
+    assert "--supplementary-coordinate-roundtrip-tol ignored" in proc.stdout
+    proc = _run(tmp, PUFF, ["--inj-file", grid, "--inj-file-out", "out.dat", "--parameter", "x0",
+                            "--puff-factor", "1", "--supplementary-coordinate-api", "rift"])
+    assert "--supplementary-coordinate-api rift ignored: no --supplementary-coordinate-code" in proc.stdout
 
 
 def test_cep_inplace_cli_range_without_get_bounds_refused(tmp_path):

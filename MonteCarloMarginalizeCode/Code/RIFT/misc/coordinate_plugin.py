@@ -248,10 +248,14 @@ file-basis box (in CEP that box is every range handed to ``get_bounds``,
 including data-derived ones).  Every sampled column is passed through the
 inverse before it is written, and CEP checks forward -> sampled columns ->
 inverse on a few data rows before the fit, so a sampled set the inverse
-cannot invert fails at once.  That check allows an error of
+cannot invert fails at once.  The check uses only rows where the forward map
+is finite (rows outside the plugin's domain are skipped, as the fit drops
+them), needs at least one, and fails if the inverse is non-finite where the
+forward map is finite.  It allows an error of
 ``--supplementary-coordinate-roundtrip-tol`` (else the plugin's
-``ROUNDTRIP_TOL``, else 1e-5) times each column's spread in the data file, so
-a tabulated or iterative inverse passes.  PUFF puffs in the transformed basis
+``ROUNDTRIP_TOL``, else 1e-5) times each column's scale: its spread in the
+data file, floored at 1e-3 of its largest magnitude (so a constant column at
+value c allows about 1e-8 c), so a tabulated or iterative inverse passes.  PUFF puffs in the transformed basis
 (PR #434 puffed in the file basis); for a linear map the two agree.  PUFF
 refuses ``--reflect-parameter`` with an ``inplace`` plugin (reflection in the
 transformed box would not respect the file-basis box), and exits nonzero when
@@ -270,6 +274,15 @@ Known limitations of the ``inplace`` path
   sampled names are file-column names, so ``puff_basis('auto')`` puffs in the
   file basis without the plugin, and ``'plugin'`` mode refuses.  "PUFF puffs
   in the transformed basis" holds only when PUFF is called directly.
+* ``util_RIFT_hyperpipe`` forwards neither ``--supplementary-coordinate-api``
+  nor ``--supplementary-coordinate-roundtrip-tol`` to its stages: an
+  ``inplace`` plugin used through hyperpipe must set ``PLUGIN_API`` (and, if
+  needed, ``ROUNDTRIP_TOL``) in the module.
+* A column whose spread is small next to its value, sampled through an
+  iterative inverse, can fail the round-trip check at the default tolerance:
+  for a BNS chirp mass (1.2, spread 5e-4) the allowed error is about 1e-8,
+  below ``scipy.optimize.newton``'s default 1.48e-8.  Set ``ROUNDTRIP_TOL``
+  or ``--supplementary-coordinate-roundtrip-tol``.
 """
 
 from __future__ import annotations
@@ -915,8 +928,8 @@ DEFAULT_ROUNDTRIP_TOL = 1e-5
 def roundtrip_tolerance(module, cli_value=None):
     """Tolerance for the ``inplace`` round-trip preflight, as ``(tol, source)``.
 
-    ``tol`` bounds ``|inverse(forward(x)) - x|`` divided by the column's spread in the
-    data file.  Priority: ``cli_value`` (``--supplementary-coordinate-roundtrip-tol``),
+    ``tol`` bounds ``|inverse(forward(x)) - x|`` divided by the column's scale
+    (:func:`roundtrip_column_scale`).  Priority: ``cli_value`` (``--supplementary-coordinate-roundtrip-tol``),
     then the plugin's ``ROUNDTRIP_TOL`` (read without running a module ``__getattr__``),
     then ``DEFAULT_ROUNDTRIP_TOL`` (1e-5: passes a tabulated or iterative inverse,
     refuses a wrong one).  A value that is not a positive finite number raises."""
@@ -934,3 +947,81 @@ def roundtrip_tolerance(module, cli_value=None):
     if not (math.isfinite(tol) and tol > 0):
         raise ValueError(f"round-trip tolerance from {src} must be a positive finite number, got {tol!r}")
     return tol, src
+
+
+# Floor on the round-trip scale, as a fraction of the column's magnitude.  It sets the
+# scale of a constant column (an absolute tolerance of tol * 1e-3 * |x|, about 1e-8 of
+# the value at the default tol) and keeps a column whose spread is tiny next to its value
+# (a BNS chirp mass) from demanding a round trip below what an iterative inverse delivers.
+ROUNDTRIP_MAGNITUDE_FLOOR = 1e-3
+
+
+def roundtrip_column_scale(values):
+    """Scale that divides a round-trip error in one column: ``max(spread,
+    ROUNDTRIP_MAGNITUDE_FLOOR * max|x|)`` over the finite values, or 1 if that is zero."""
+    import numpy as np
+    v = np.asarray(values, dtype=float)
+    v = v[np.isfinite(v)]
+    if v.size == 0:
+        return 1.0
+    s = max(float(np.ptp(v)), ROUNDTRIP_MAGNITUDE_FLOOR * float(np.max(np.abs(v))))
+    return s if s > 0 else 1.0
+
+
+def inplace_roundtrip_preflight(convert, inverse, X_file, file_names, sampled_names, tol, tol_src, n_check=8):
+    """Round-trip check of an ``inplace`` plugin on data rows, run before the fit.
+
+    Forward on every data row (all file columns), keep the sampled columns, invert up to
+    ``n_check`` rows spread through the rows inside the forward map's domain (forward
+    output and file value finite in every sampled column), and compare with the file
+    values.  Rows outside the domain are skipped: the fit drops them anyway.  Raises
+    ValueError with one of four causes: the inverse raised (it may need columns that are
+    not sampled), no row is in the domain, the inverse is non-finite on a row whose
+    forward map is finite, or the inverse does not reproduce the rows within ``tol``
+    times :func:`roundtrip_column_scale`.  Returns ``(n_checked, n_outside, max_err)``."""
+    import numpy as np
+    file_names, sampled_names = list(file_names), list(sampled_names)
+    X_file = np.atleast_2d(np.asarray(X_file, dtype=float))
+    cols = [file_names.index(p) for p in sampled_names]
+    head = " inplace coordinate plugin: round-trip check failed before the fit: "
+    fwd = np.asarray(convert(X_file, coord_names=sampled_names, low_level_coord_names=file_names), dtype=float)
+    if fwd.shape != (X_file.shape[0], len(sampled_names)):
+        raise ValueError(head + "the forward map returned shape {} for {} rows and sampled columns {!r}".format(
+            fwd.shape, X_file.shape[0], sampled_names))
+    want_all = X_file[:, cols]
+    in_domain = np.all(np.isfinite(fwd), axis=1) & np.all(np.isfinite(want_all), axis=1)
+    idx = np.flatnonzero(in_domain)
+    if idx.size == 0:
+        raise ValueError(head + "no data row is in the plugin's domain: the forward map is non-finite in the "
+                         "sampled columns {!r} on all {} rows".format(sampled_names, X_file.shape[0]))
+    pick = np.unique(idx[np.linspace(0, idx.size - 1, min(idx.size, n_check)).astype(int)])
+    want = want_all[pick]
+    try:
+        back = np.asarray(inverse(fwd[pick], coord_names=sampled_names, low_level_coord_names=sampled_names),
+                          dtype=float)
+    except Exception as err:
+        raise ValueError(head + "the inverse, given the sampled columns {!r} only, raised {}: {}.  The inverse may "
+                         "need a column the forward map mixes into the sampled ones (file columns {!r}): add it "
+                         "with --parameter or --parameter-nofit.".format(
+                             sampled_names, type(err).__name__, err, file_names)) from err
+    if back.shape != want.shape:
+        raise ValueError(head + "the inverse returned shape {} for {} rows and sampled columns {!r}".format(
+            back.shape, want.shape[0], sampled_names))
+    bad_inv = ~np.isfinite(back)
+    if np.any(bad_inv):
+        raise ValueError(head + "the inverse is non-finite on rows whose forward map is finite (rows per "
+                         "column: {!r}).  The inverse must cover the forward map's image.".format(
+                             {n: int(c) for n, c in zip(sampled_names, bad_inv.sum(axis=0)) if c}))
+    scale = np.array([roundtrip_column_scale(want_all[idx, k]) for k in range(len(cols))])
+    maxerr = np.max(np.abs(back - want) / scale, axis=0)
+    if np.any(maxerr > tol):
+        raise ValueError(head + "inverse mismatch: inverse(forward(x)) restricted to the sampled columns {!r} "
+                         "does not reproduce the data rows (max error / column scale: {!r}; tolerance {:g} from "
+                         "{}).  Either the inverse needs columns that are not sampled (add them with --parameter "
+                         "or --parameter-nofit), or the forward and inverse maps (or the --external-range-args "
+                         "they both receive) disagree.  An inverse that is accurate but approximate (tabulated, "
+                         "iterative) can raise the tolerance with --supplementary-coordinate-roundtrip-tol or "
+                         "ROUNDTRIP_TOL in the plugin.".format(
+                             sampled_names, {n: float(e) for n, e in zip(sampled_names, maxerr) if e > tol},
+                             tol, tol_src))
+    return int(pick.size), int(X_file.shape[0] - idx.size), float(np.max(maxerr))
