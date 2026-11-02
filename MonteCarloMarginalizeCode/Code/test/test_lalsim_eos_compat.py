@@ -692,6 +692,9 @@ def _cip_eos_convert_coords(eos, no_matter1=False, no_matter2=False):
             downselect_enforce_kerr=False,
         ),
     }
+    # Match the driver's initialization before sampling starts. The extracted
+    # functions share this global when tracking rejected sampling batches.
+    namespace["_eos_sampling_status"] = None
     exec(_load_cip_nested_function("eos_mass_support_mask"), namespace)
     exec(
         _load_cip_nested_function("convert_coords", _in_fixed_eos_block),
