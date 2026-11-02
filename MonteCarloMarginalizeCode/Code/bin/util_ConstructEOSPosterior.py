@@ -189,6 +189,7 @@ parser.add_argument("--supplementary-coordinate-function", default=None, type=st
 parser.add_argument("--supplementary-coordinate-ini", default=None, type=str, help="Optional ini file parsed and handed to the coordinate plugin's prepare() hook so it can read its own configuration block(s).")
 parser.add_argument("--supplementary-coordinate-chart", default=None, type=str, help="Which chart (coordinate system) defined by the plugin to use for this run. Required when the plugin's CHARTS dict has more than one entry; ignored when the plugin doesn't define CHARTS. Different charts can share parameter names but imply different priors -- the chart name disambiguates which (name -> prior) mapping is installed.")
 parser.add_argument("--supplementary-coordinate-api", default="auto", choices=["auto","rift","inplace"], help="Which coordinate-plugin API the module named by --supplementary-coordinate-code implements. 'rift' (every existing plugin): convert_coordinates(x_in, coord_names, low_level_coord_names, **kw) and its hooks. 'inplace' (PR #434 shape): fn(X, coord_names, **kw) returns X transformed under the ORIGINAL names, with inverse_<fn> and optional get_bounds; every sampled column is inverted before output. 'auto' (default) uses the plugin's PLUGIN_API attribute; without it, an entry point that names low_level_coord_names is 'rift', one that does not is refused if the module defines inverse_<fn>, and is called as 'rift' (with a warning) if not. See RIFT.misc.coordinate_plugin.")
+parser.add_argument("--supplementary-coordinate-roundtrip-tol", default=None, type=float, help="Inplace coordinate plugins only: tolerance of the round-trip check run before the fit, as the largest allowed |inverse(forward(x)) - x| divided by the column's spread in the data file. Default: the plugin's ROUNDTRIP_TOL attribute if it defines one, else 1e-5. Raise it for a plugin whose inverse is tabulated or iterative.")
 parser.add_argument("--get-range-from-external", action='store_true', help="Ask the coordinate plugin for integration ranges: calls get_bounds(low_level_coord_names, ranges, **kwargs), which returns {name: [lo,hi]} in the SAMPLING basis. rift plugins: replaces data-derived and chart ranges; --integration-parameter-range wins. inplace plugins: every --integration-parameter-range (and data-derived range) is a FILE-basis input to get_bounds, which must cover every sampled name; the file-basis box is also enforced on the output (zero weight outside it). Errors raise.")
 parser.add_argument("--external-range-args", action='append', type=str, help="key=value passed to the plugin's get_bounds (and, for an inplace plugin, to its forward and inverse maps too). Values are parsed as python literals when possible.")
 opts=  parser.parse_args()
@@ -554,19 +555,38 @@ if opts.supplementary_coordinate_code:
                 "or --parameter-nofit.".format(list(dat_orig_names), list(low_level_coord_names),
                                                type(_err).__name__, _err)) from _err
         _want = _rows[:, _cols_sampled]
-        _scale = np.maximum(1.0, np.max(np.abs(_want), axis=0))
-        _bad = (~np.isclose(_back, _want, rtol=0, atol=1e-8 * _scale) & np.isfinite(_want)
-                if _back.shape == _want.shape else None)
+        # Tolerance: relative to each column's spread in the data file (its magnitude if the
+        # column is constant, 1 if it is all zero), so a tabulated or iterative inverse
+        # (error ~1e-6 of the range) passes and a wrong inverse (error ~ the range) does not.
+        # CLI option > plugin ROUNDTRIP_TOL > 1e-5.
+        from RIFT.misc.coordinate_plugin import roundtrip_tolerance
+        _rt_tol, _rt_tol_src = roundtrip_tolerance(_coord_plugin_module, opts.supplementary_coordinate_roundtrip_tol)
+        _all = dat_orig[:, 2:][:, _cols_sampled]
+        _scale = np.array([(np.ptp(c[np.isfinite(c)]) if np.any(np.isfinite(c)) else 0.0) for c in _all.T])
+        _mag = np.array([(np.max(np.abs(c[np.isfinite(c)])) if np.any(np.isfinite(c)) else 0.0) for c in _all.T])
+        _scale = np.where(_scale > 0, _scale, np.where(_mag > 0, _mag, 1.0))
+        if _back.shape == _want.shape:
+            _relerr = np.abs(_back - _want) / _scale
+            _relerr = np.where(np.isfinite(_want), np.where(np.isfinite(_relerr), _relerr, np.inf), 0.0)
+            _bad = _relerr > _rt_tol
+            _maxerr = np.max(_relerr, axis=0)
+        else:
+            _bad = _maxerr = None
         if _bad is None or np.any(_bad):
-            _which = ([str(n) for n, b in zip(low_level_coord_names, np.any(_bad, axis=0)) if b]
-                      if _back.shape == _want.shape else "shape {}".format(_back.shape))
+            _which = ({str(n): float(e) for n, e, b in zip(low_level_coord_names, _maxerr, np.any(_bad, axis=0)) if b}
+                      if _bad is not None else "shape {}".format(_back.shape))
             raise ValueError(
                 " inplace coordinate plugin: round-trip check failed before the fit: inverse(forward(x)) "
-                "restricted to the sampled columns {!r} does not reproduce the data rows (mismatch in {!r}).  "
+                "restricted to the sampled columns {!r} does not reproduce the data rows (max error / column "
+                "spread: {!r}; tolerance {:g} from {}).  "
                 "Either the inverse needs columns that are not sampled (add them with --parameter or "
                 "--parameter-nofit), or the forward and inverse maps (or the --external-range-args they "
-                "both receive) disagree.".format(list(low_level_coord_names), _which))
-        print(" COORDINATE PLUGIN round-trip check (inplace): {} rows OK".format(len(_rows)))
+                "both receive) disagree.  An inverse that is accurate but approximate (tabulated, "
+                "iterative) can raise the tolerance with --supplementary-coordinate-roundtrip-tol or "
+                "ROUNDTRIP_TOL in the plugin.".format(list(low_level_coord_names), _which, _rt_tol, _rt_tol_src))
+        print(" COORDINATE PLUGIN round-trip check (inplace): {} rows OK (max error / column spread {:.3g}, "
+              "tolerance {:g} from {})".format(len(_rows), float(np.max(_maxerr)) if len(_maxerr) else 0.0,
+                                               _rt_tol, _rt_tol_src))
     else:
         _coord_plugin_in_names = resolve_input_parameters(
             _coord_plugin_module, chart=opts.supplementary_coordinate_chart

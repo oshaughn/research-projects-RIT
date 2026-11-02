@@ -26,7 +26,7 @@ parser.add_argument("--random-parameter-range", action='append', type=str,help="
 parser.add_argument("--downselect-parameter",action='append', help='Name of parameter to be used to eliminate grid points ')
 parser.add_argument("--downselect-parameter-range",action='append',type=str,help="Range for the matching --downselect-parameter, as '[lo,hi]' (paired in order) or 'name:[lo,hi]'.")
 parser.add_argument("--parameter-range",action='append',type=str,help="Range 'name:[lo,hi]' for a --parameter. Points outside are dropped, or reflected if --reflect-parameter names it. Same as a name-keyed --downselect-parameter-range.")
-parser.add_argument("--reflect-parameter",action='append',type=str,help="Reflect puffed points into this parameter's range (from --parameter-range or --downselect-parameter-range).")
+parser.add_argument("--reflect-parameter",action='append',type=str,help="Reflect puffed points into this parameter's range (from --parameter-range or --downselect-parameter-range). Refused with an inplace coordinate plugin.")
 parser.add_argument("--get-range-from-external",action='store_true',help="Ask the coordinate plugin for ranges: calls get_bounds(coord_names, ranges, **kwargs), which returns {name: [lo,hi]} in the puff basis. rift plugins: ranges given on the command line win. inplace plugins: --parameter-range values are FILE-basis inputs to get_bounds, and puffed rows whose inverse falls outside them are dropped.")
 parser.add_argument("--external-range-args",action='append',type=str,help="key=value passed to the plugin's get_bounds (and, for an inplace plugin, to its forward and inverse maps too). Values are parsed as python literals when possible.")
 parser.add_argument("--regularize",action='store_true',help="Add some ad-hoc terms based on priors, to help with nearly-singular matricies")
@@ -199,6 +199,13 @@ if _coord_plugin_api == "inplace":
     # frame: it is read in the FILE basis and mapped by get_bounds (which must cover every
     # puffed name), and refused without --get-range-from-external.
     from RIFT.misc.coordinate_plugin import inplace_sampling_ranges
+    if opts.reflect_parameter:
+        # Reflection would act in the transformed bounding box, and the file-basis box
+        # enforced after the inverse would then drop the reflected rows instead.
+        sys.exit("util_HyperparameterPuffball: --reflect-parameter is not supported with an inplace "
+                 "coordinate plugin: --parameter-range values are file-basis ranges, enforced by dropping "
+                 "puffed rows whose inverse falls outside them, and reflection in the transformed basis "
+                 "cannot respect that box.  Drop --reflect-parameter (rows outside the range are dropped).")
     # The command-line ranges are FILE-basis ranges: keep them to enforce on the output
     # after the inverse (the transformed box below is only their bounding box).
     _inplace_file_box = {name: list(rng) for name, rng in downselect_dict.items() if name in coord_names}
@@ -344,6 +351,9 @@ else:
         print('   File-basis downselect (inplace plugin) : {} of {} kept'.format(np.sum(_ok), len(_ok)))
         X_in_out = X_in_out[_ok]
         dat_raw = dat_raw[_ok]
+    if _coord_plugin_api == "inplace" and len(dat_raw) == 0:
+        sys.exit("util_HyperparameterPuffball: no puffed rows survive the downselect (inplace plugin); "
+                 "check the --parameter-range values (file basis) against the input file.")
     for j, name in enumerate(_coord_plugin_in_names):
         dat_raw[name] = X_in_out[:, j]
 

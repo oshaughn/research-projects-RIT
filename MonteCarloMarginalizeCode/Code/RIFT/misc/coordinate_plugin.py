@@ -214,7 +214,9 @@ Selection, in order:
      the CLI flag ``--supplementary-coordinate-api {auto,rift,inplace}``
      (default ``auto``).  If both are given they must agree.
   2. ``auto`` reads only the module's own namespace and ``inspect.signature``;
-     it never calls the plugin and never runs a module-level ``__getattr__``.
+     it never calls the plugin and never runs a module-level ``__getattr__``
+     (the loader also reads the entry point statically until the API is
+     decided; only after that do hooks go through ordinary attribute access).
      It never selects ``inplace``:
        * ``rift`` if the entry point's signature explicitly names
          ``low_level_coord_names`` (every production plugin does);
@@ -246,8 +248,28 @@ file-basis box (in CEP that box is every range handed to ``get_bounds``,
 including data-derived ones).  Every sampled column is passed through the
 inverse before it is written, and CEP checks forward -> sampled columns ->
 inverse on a few data rows before the fit, so a sampled set the inverse
-cannot invert fails at once.  PUFF puffs in the transformed basis (PR #434
-puffed in the file basis); for a linear map the two agree.
+cannot invert fails at once.  That check allows an error of
+``--supplementary-coordinate-roundtrip-tol`` (else the plugin's
+``ROUNDTRIP_TOL``, else 1e-5) times each column's spread in the data file, so
+a tabulated or iterative inverse passes.  PUFF puffs in the transformed basis
+(PR #434 puffed in the file basis); for a linear map the two agree.  PUFF
+refuses ``--reflect-parameter`` with an ``inplace`` plugin (reflection in the
+transformed box would not respect the file-basis box), and exits nonzero when
+the file-basis downselect leaves no rows.
+
+Known limitations of the ``inplace`` path
+-----------------------------------------
+* CEP samples the transformed bounding box and gives zero weight (log weight
+  -inf) outside the file-basis box.  Efficiency is the ratio of the two
+  volumes: 0.5 for a square rotated by 45 degrees, much less for a thin box,
+  so n_eff falls at fixed n_max.
+* With those -inf log weights the GMM sampler's EM loop can stop after two
+  iterations (``abs(-inf - -inf)`` is NaN; this predates the adapter).
+  No n_eff loss has been measured.
+* ``util_RIFT_hyperpipe`` does not route an ``inplace`` plugin to PUFF: its
+  sampled names are file-column names, so ``puff_basis('auto')`` puffs in the
+  file basis without the plugin, and ``'plugin'`` mode refuses.  "PUFF puffs
+  in the transformed basis" holds only when PUFF is called directly.
 """
 
 from __future__ import annotations
@@ -618,6 +640,20 @@ def load_coordinate_converter(
     plugin_name = _static_attr(module, "NAME", _static_attr(module, "__name__", spec))
 
     fn_name = function_name or _DEFAULT_FUNCTION_NAME
+    # Read the entry point from the module namespace only: a module-level __getattr__
+    # must not run before classify_plugin_api has decided (it refuses, in auto mode, a
+    # module whose entry point or inverse could come only from __getattr__).
+    if fn_name not in vars(module) and "__getattr__" not in vars(module):
+        raise AttributeError(
+            f"coordinate plugin {plugin_name!r} (from {spec!r}) does not expose "
+            f"{fn_name!r}; either define it or pass "
+            f"--supplementary-coordinate-function to point at the right name."
+        )
+
+    plugin_api = classify_plugin_api(module, fn_name, api)
+
+    # Classified (an explicit API, or a statically defined entry point): ordinary
+    # attribute access from here on.
     if not hasattr(module, fn_name):
         raise AttributeError(
             f"coordinate plugin {plugin_name!r} (from {spec!r}) does not expose "
@@ -629,8 +665,6 @@ def load_coordinate_converter(
         raise TypeError(
             f"coordinate plugin {plugin_name!r}: attribute {fn_name!r} is not callable"
         )
-
-    plugin_api = classify_plugin_api(module, fn_name, api)
     if plugin_api not in tuple(allowed_apis):
         raise ValueError(
             f"coordinate plugin {plugin_name!r} uses the {plugin_api!r} plugin API, which this "
@@ -873,3 +907,30 @@ def in_file_box(X_file, names, box):
             lo, hi = (float(v) for v in box[name])
             ok &= (X_file[:, j] >= lo) & (X_file[:, j] <= hi)
     return ok
+
+
+DEFAULT_ROUNDTRIP_TOL = 1e-5
+
+
+def roundtrip_tolerance(module, cli_value=None):
+    """Tolerance for the ``inplace`` round-trip preflight, as ``(tol, source)``.
+
+    ``tol`` bounds ``|inverse(forward(x)) - x|`` divided by the column's spread in the
+    data file.  Priority: ``cli_value`` (``--supplementary-coordinate-roundtrip-tol``),
+    then the plugin's ``ROUNDTRIP_TOL`` (read without running a module ``__getattr__``),
+    then ``DEFAULT_ROUNDTRIP_TOL`` (1e-5: passes a tabulated or iterative inverse,
+    refuses a wrong one).  A value that is not a positive finite number raises."""
+    import math
+    if cli_value is not None:
+        tol, src = cli_value, "--supplementary-coordinate-roundtrip-tol"
+    elif module is not None and _static_attr(module, "ROUNDTRIP_TOL", None) is not None:
+        tol, src = _static_attr(module, "ROUNDTRIP_TOL"), "plugin ROUNDTRIP_TOL"
+    else:
+        tol, src = DEFAULT_ROUNDTRIP_TOL, "default"
+    try:
+        tol = float(tol)
+    except (TypeError, ValueError):
+        raise ValueError(f"round-trip tolerance from {src} is not a number: {tol!r}")
+    if not (math.isfinite(tol) and tol > 0):
+        raise ValueError(f"round-trip tolerance from {src} must be a positive finite number, got {tol!r}")
+    return tol, src

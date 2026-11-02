@@ -10,9 +10,12 @@
   * the fixed rotation demo (demo/hyperpipe/inplace_plugin/demo_conversion.py)
     through CEP's conversion and output-inversion path, and through PUFF; the
     FILE-basis ranges are enforced on PUFF rows and CEP samples; CEP's round-trip
-    preflight fails before the fit.
+    preflight fails before the fit, passes a tabulated inverse at its default
+    tolerance and honours --supplementary-coordinate-roundtrip-tol; PUFF refuses
+    --reflect-parameter and an empty downselect; the loader never runs a module
+    __getattr__ before classifying.
 
-Cost: unit tests are instant; ten driver subprocesses, a few seconds each.
+Cost: unit tests are instant; fifteen driver subprocesses, a few seconds each.
 """
 import functools
 import os
@@ -181,6 +184,38 @@ def test_module_getattr_is_not_run():
         cp.classify_plugin_api(_module(rot=_inplace_fn, inverse_rot=_inplace_fn, __getattr__=mod_getattr), "rot")
     assert cp.classify_plugin_api(_module(rot=_rift_fn, __getattr__=mod_getattr), "rot") == "rift"
     assert calls == []
+
+
+def test_loader_never_runs_module_getattr_before_classifying(tmp_path):
+    # Review 2 NIT: the loader's hasattr ran __getattr__('rot') twice before the refusal.
+    calls = os.path.join(str(tmp_path), "calls.txt")
+    plug = os.path.join(str(tmp_path), "ga_plugin.py")
+    with open(plug, "w") as f:
+        f.write("import numpy as np\n"
+                "def __getattr__(name):\n"
+                "    open({!r}, 'a').write(name + '\\n')\n"
+                "    if name in ('rot', 'inverse_rot'):\n"
+                "        return lambda X, coord_names, **kw: np.array(X, copy=True)\n"
+                "    raise AttributeError(name)\n".format(calls))
+    with pytest.raises(ValueError, match="__getattr__"):
+        cp.load_coordinate_converter(plug, "rot", allowed_apis=("rift", "inplace"))
+    assert not os.path.exists(calls), open(calls).read()
+    # a missing entry point with no __getattr__ is still an AttributeError
+    with pytest.raises(AttributeError, match="does not expose"):
+        cp.load_coordinate_converter(LINEAR, "no_such_function", ini_path=LINEAR_INI)
+
+
+def test_roundtrip_tolerance_priority():
+    assert cp.roundtrip_tolerance(_module()) == (1e-5, "default")
+    assert cp.roundtrip_tolerance(_module(ROUNDTRIP_TOL=1e-3))[0] == 1e-3
+    assert cp.roundtrip_tolerance(_module(ROUNDTRIP_TOL=1e-3), 2e-4)[0] == 2e-4
+    for bad in (0, -1.0, float("nan"), "x"):
+        with pytest.raises(ValueError, match="round-trip tolerance"):
+            cp.roundtrip_tolerance(_module(), bad)
+
+    def mod_getattr(name):
+        raise AssertionError("module __getattr__ ran")
+    assert cp.roundtrip_tolerance(_module(__getattr__=mod_getattr))[0] == 1e-5
 
 
 def test_classification_never_calls_the_plugin():
@@ -374,8 +409,9 @@ def _run(tmp, driver, args):
                           universal_newlines=True, timeout=900)
 
 
-def _cep_grid(tmp, theta):
-    """lnL is a narrow Gaussian in the ROTATED frame, peaked at r = (c, 0)."""
+def _cep_grid(tmp, theta, peak=10.0):
+    """lnL is a narrow Gaussian in the ROTATED frame, peaked at r = (c, 0), with
+    maximum ``peak``."""
     rng = np.random.default_rng(7)
     n = 600
     R = cp._load_module_from_spec(DEMO).rotate(theta)
@@ -383,7 +419,7 @@ def _cep_grid(tmp, theta):
     centre = R.T @ np.array([c, 0.0])                    # the peak in the file basis
     x = centre + rng.uniform(-1.5, 1.5, (n, 2))
     r = x @ R.T
-    lnL = -0.5 * ((r[:, 0] - c) / 0.25) ** 2 - 0.5 * (r[:, 1] / 0.6) ** 2 + 10
+    lnL = -0.5 * ((r[:, 0] - c) / 0.25) ** 2 - 0.5 * (r[:, 1] / 0.6) ** 2 + peak
     path = os.path.join(tmp, "cep_grid.dat")
     np.savetxt(path, np.column_stack([lnL, np.zeros(n), x, rng.uniform(0, 1, n)]),
                header="lnL sigma_lnL x0 x1 z")
@@ -423,8 +459,11 @@ def test_cep_inplace_round_trip(tmp_path, theta, extra):
 def test_cep_inplace_file_basis_box_enforced(tmp_path, extra):
     # Review S2: the rotated sampling box is a strict superset of the file-basis box; before
     # the fix 74 of 2000 output samples fell outside x0:[2,4], x1:[-4,-2].
+    # Peak lnL 1, not 10: with --internal-use-lnL the indicator must give -inf outside the
+    # box.  A leak that gives lnL = 0 there (val * _ok) is hidden by e^10 but not by e^1
+    # (review 2, S3: 1253 of 2000 samples outside the box).
     tmp = str(tmp_path)
-    grid, centre = _cep_grid(tmp, np.pi / 4)                # file-basis peak (3, -3)
+    grid, centre = _cep_grid(tmp, np.pi / 4, peak=1.0)      # file-basis peak (3, -3)
     proc = _cep(tmp, grid, ["--get-range-from-external",
                             "--integration-parameter-range", "x0:[2,4]",
                             "--integration-parameter-range", "x1:[-4,-2]"] + extra)
@@ -460,7 +499,45 @@ def test_cep_inplace_round_trip_preflight_fails_before_fit(tmp_path):
                            "--supplementary-coordinate-code", bad, "--supplementary-coordinate-function", "rot",
                            "--fit-method", "rf", "--no-plots", "--ignore-errors-in-data"])
     assert proc.returncode != 0
-    assert "does not reproduce the data rows (mismatch in ['x0'])" in proc.stdout
+    assert "does not reproduce the data rows (max error / column spread: {'x0':" in proc.stdout
+
+
+_TAB_PLUGIN = """import numpy as np
+PLUGIN_API = "inplace"
+_G = np.linspace(-10, 10, 4001); _F = _G + 0.1 * _G**3
+def cubic(X, coord_names, **kw):
+    Y = np.array(X, dtype=float, copy=True); j = list(coord_names).index("x0")
+    Y[:, j] = X[:, j] + 0.1 * X[:, j]**3; return Y
+def inverse_cubic(X, coord_names, **kw):
+    Y = np.array(X, dtype=float, copy=True); j = list(coord_names).index("x0")
+    Y[:, j] = np.interp(X[:, j], _F, _G{wrong}); return Y
+"""
+
+
+@pytest.mark.parametrize("case", ["tabulated", "tight_tol", "wrong_inverse"])
+def test_cep_inplace_roundtrip_tolerance(tmp_path, case):
+    # Review 2, S1: a tabulated inverse (round-trip error ~1.7e-6) was refused by a fixed
+    # 1e-8 absolute tolerance.  The default is now 1e-5 of the column spread; an inverse
+    # that is wrong (here off by 0.01) is still refused, and the CLI option overrides.
+    tmp = str(tmp_path)
+    grid, _ = _cep_grid(tmp, np.pi / 4)
+    plug = os.path.join(tmp, "tab_plugin.py")
+    with open(plug, "w") as f:
+        f.write(_TAB_PLUGIN.format(wrong=" + 0.01" if case == "wrong_inverse" else ""))
+    extra = ["--supplementary-coordinate-roundtrip-tol", "1e-9"] if case == "tight_tol" else []
+    proc = _run(tmp, CEP, ["--fname", grid, "--parameter", "x0", "--parameter", "x1",
+                           "--supplementary-coordinate-code", plug, "--supplementary-coordinate-function", "cubic",
+                           "--fit-method", "rf", "--n-max", "20000", "--n-step", "4000", "--n-eff", "100",
+                           "--n-output-samples", "200", "--no-plots", "--ignore-errors-in-data"] + extra)
+    if case == "tabulated":
+        assert proc.returncode == 0, proc.stdout[-3000:]
+        assert "round-trip check (inplace): 8 rows OK" in proc.stdout
+        assert "tolerance 1e-05 from default" in proc.stdout
+    else:
+        assert proc.returncode != 0
+        assert "round-trip check failed before the fit" in proc.stdout
+        assert ("from --supplementary-coordinate-roundtrip-tol" if case == "tight_tol" else "from default") in proc.stdout
+        assert "n_eff" not in proc.stdout
 
 
 def test_cep_inplace_cli_range_without_get_bounds_refused(tmp_path):
@@ -504,3 +581,41 @@ def test_puff_inplace_round_trip(tmp_path):
                             "--supplementary-coordinate-code", DEMO,
                             "--supplementary-coordinate-function", "demo_rotation"])
     assert proc.returncode != 0 and "ambiguous" in proc.stdout
+
+
+def _puff_grid(tmp):
+    rng = np.random.default_rng(3)
+    n = 3000
+    x = np.column_stack([rng.uniform(1, 4, n), rng.uniform(-2, 0.5, n)])
+    grid = os.path.join(tmp, "grid.dat")
+    np.savetxt(grid, np.column_stack([np.zeros(n), np.zeros(n), x]), header="lnL sigma_lnL x0 x1")
+    return grid
+
+
+def test_puff_inplace_reflect_refused(tmp_path):
+    # Review 2, S2: reflection acted in the transformed box, then the file-basis box dropped
+    # 1061 of 3000 rows, with exit 0.
+    tmp = str(tmp_path)
+    proc = _run(tmp, PUFF, ["--inj-file", _puff_grid(tmp), "--inj-file-out", "out.dat",
+                            "--parameter", "x0", "--parameter", "x1", "--puff-factor", "1",
+                            "--parameter-range", "x0:[1,4]", "--parameter-range", "x1:[-2,0.5]",
+                            "--reflect-parameter", "x0", "--reflect-parameter", "x1",
+                            "--supplementary-coordinate-code", DEMO,
+                            "--supplementary-coordinate-function", "demo_rotation",
+                            "--get-range-from-external"])
+    assert proc.returncode != 0
+    assert "--reflect-parameter is not supported with an inplace" in proc.stdout
+    assert not os.path.exists(os.path.join(tmp, "out.dat"))
+
+
+def test_puff_inplace_empty_downselect_exits_nonzero(tmp_path):
+    tmp = str(tmp_path)
+    proc = _run(tmp, PUFF, ["--inj-file", _puff_grid(tmp), "--inj-file-out", "out.dat",
+                            "--parameter", "x0", "--parameter", "x1", "--puff-factor", "1",
+                            "--parameter-range", "x0:[10,11]", "--parameter-range", "x1:[-2,0.5]",
+                            "--supplementary-coordinate-code", DEMO,
+                            "--supplementary-coordinate-function", "demo_rotation",
+                            "--get-range-from-external"])
+    assert proc.returncode != 0
+    assert "no puffed rows survive the downselect" in proc.stdout
+    assert not os.path.exists(os.path.join(tmp, "out.dat"))
