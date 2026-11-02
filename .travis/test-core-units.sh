@@ -64,6 +64,7 @@ C="MonteCarloMarginalizeCode/Code"
 
 FILES=(
   "$C/test/test_posterior_compression.py"
+  "$C/test/test_raw_distance_contract.py"
   # Experimental TD operators; only the public PCG backend test is optional.
   "$C/test/test_td_calmarg_guard.py"
   "$C/test/test_td_factory.py"
@@ -539,7 +540,8 @@ done
 # after two reviews).
 # Review 3: round-trip preflight cases (10) and the inapplicable-option warning test (1) add 11
 # -> 1347 (provisional).
-EXPECTED_TESTS=1347
+# test_raw_distance_contract.py adds 44 tests and no skips -> 1391.
+EXPECTED_TESTS=1391
 # Outcomes, not just exit status: a collection floor cannot see a test that collects, runs and
 # asserts nothing, and a pytest.skip can quietly absorb a lost gate.  The 13 skips are
 # environment legs -- cupy in test_seeding_reproducibility, device legs in
@@ -578,7 +580,8 @@ EXPECTED_TESTS=1347
 # test_dslice_refine.py adds 10 passes -> 1204.
 # test_coordinate_plugin_api_adapter.py adds 55 passes -> 1310 (provisional, as above).
 # Review 3 adds 11 passes -> 1321 (provisional).
-EXPECTED_PASSED=1321
+# test_raw_distance_contract.py adds 44 passes -> 1365.
+EXPECTED_PASSED=1365
 # PR #382: +1 skip, the CuPy leg of test_cached_matern_gp.py (no GPU on the CI runner).
 # The six solver="gs" tests in test_td_inner_product.py need tdanalysis >= 1.1, which this
 # job does not install, so they skip here; ci.yml's time-domain likelihood step runs them
@@ -639,6 +642,7 @@ for f in "${FILES[@]}"; do
   collected_total=$(( collected_total + n ))
   file_floor=1
   if [ "$f" = "$C/test/test_posterior_compression.py" ]; then file_floor=41; fi
+  if [ "$f" = "$C/test/test_raw_distance_contract.py" ]; then file_floor=44; fi
   # Transfer matrix, container guards, and newline requirements must remain covered.
   if [ "$f" = "$C/test/test_auxiliary_grid_transfers.py" ]; then file_floor=18; fi
   if [ "$f" = "$C/test/integrators/test_gmm_sample_matches_score.py" ]; then file_floor=17; fi
