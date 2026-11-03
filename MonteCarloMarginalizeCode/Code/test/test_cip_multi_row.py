@@ -221,3 +221,335 @@ def test_source_is_read_before_the_fit():
     assert reads and reads[0] < first_import
     assert "open(__file__)" not in ast.get_source_segment(open(DRIVER).read(),
                                                           next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "_run_row_passes"))
+
+# The injected factory isolates the proposed-EOS constructor boundary without
+# depending on which native EOS coefficient sets a particular LAL build accepts.
+EOS_FACTORY_PATCH = '''
+import os
+if os.environ.get("CIP_ROWTEST_CONSTRUCTOR"):
+    import numpy as np
+    import RIFT.physics.EOSManager as manager
+    class Model:
+        mMinMsun = .1
+        mMaxMsun = 1000.
+        calls = 0
+        evaluation = None
+        def lambda_from_m(self, mass):
+            self.calls += 1
+            if self.evaluation == "lambda_nan" or (self.evaluation == "late_valid" and self.calls <= 100):
+                return np.nan
+            return 0.
+        def lambda_from_m_vector(self, masses):
+            order = np.arange(self.calls+1, self.calls+np.size(masses)+1)
+            self.calls += np.size(masses)
+            if self.evaluation == "lambda_nan":
+                return np.full_like(masses, np.nan, dtype=float)
+            if self.evaluation == "late_valid":
+                return np.where(order <= 100, np.nan, 0.).reshape(np.shape(masses))
+            return np.zeros_like(masses, dtype=float)
+    def construct(name=None, spec_params=None, **kwargs):
+        invalid = os.environ.get("CIP_ROWTEST_BAD_EOS") == "all" or spec_params["gamma1"] == 2.
+        mode = os.environ.get("CIP_ROWTEST_BAD_EOS")
+        if invalid and mode == "raise":
+            raise RuntimeError("synthetic proposed EOS constructor failure")
+        if invalid and mode == "oserror":
+            raise OSError("synthetic proposed EOS I/O failure")
+        if invalid and mode == "importerror":
+            raise ImportError("synthetic proposed EOS implementation failure")
+        if invalid and mode == "all":
+            raise RuntimeError("synthetic proposed EOS constructor failure")
+        model = Model()
+        if invalid and mode in ("lambda_nan", "late_valid"):
+            model.evaluation = mode
+        if invalid and mode == "nanmax":
+            model.mMaxMsun = float("nan")
+        if invalid and mode == "nanmin":
+            model.mMinMsun = float("nan")
+        return model
+    manager.EOSLindblomSpectral = construct
+    if os.environ.get("CIP_ROWTEST_SAMPLER_ERROR"):
+        import RIFT.integrators.mcsampler as sampler_module
+        def fail_sampler(self, function, *args, **kwargs):
+            function(np.array([30.]), np.array([.5]))
+            raise Exception("synthetic unrelated sampler failure")
+        sampler_module.MCSampler.integrate = fail_sampler
+'''
+
+
+def _constructor_args(workdir, count=3):
+    (workdir / "sitecustomize.py").write_text(EOS_FACTORY_PATCH)
+    np.savetxt(workdir / "eos_proposals.dat", [[0, 0, 1, 0], [0, 0, 2, 0], [0, 0, 3, 0]],
+               header="lnL sigma_lnL gamma1 gamma2")
+    return ["--using-eos", "file:" + str(workdir / "eos_proposals.dat"),
+            "--eos-param", "spectral", "--using-eos-index", "0",
+            "--n-events-to-analyze", str(count), "--fname-output-integral", "MARG-0-0",
+            "--fname-output-samples", "MARG-0-0", "--save-hyperfile-only"]
+
+
+@pytest.mark.parametrize("mode", ["raise", "nanmax", "nanmin", "oserror", "importerror"])
+def test_proposed_eos_constructor_failure_rejects_only_its_row(workdir, mode):
+    args = _constructor_args(workdir)
+    _, run_dir = _run(workdir, "eos_constructor_"+mode, args,
+        env_extra={"CIP_ROWTEST_CONSTRUCTOR": "1", "CIP_ROWTEST_BAD_EOS": mode})
+    rows = [_annotation(run_dir / ("MARG-0-%d+annotation.dat" % row))[1][0] for row in range(3)]
+    assert np.isfinite(rows[0][0]) and np.isfinite(rows[2][0])
+    assert np.isneginf(rows[1][0]) and rows[1][1] == 0
+    np.testing.assert_array_equal(np.array(rows)[:, 2:], [[1, 0], [2, 0], [3, 0]])
+    assert not list(run_dir.glob("*.xml*"))
+    # Same physical fit/prior for both valid proposals: no stale state or floor.
+    assert abs(rows[0][0]-rows[2][0]) < 5*np.hypot(rows[0][1], rows[2][1]) + .02
+
+
+@pytest.mark.parametrize("chunk", [False, True])
+def test_all_invalid_proposed_eos_rows_keep_zero_evidence(workdir, chunk):
+    args = _constructor_args(workdir)
+    args = [arg for arg in args if arg != "--save-hyperfile-only"]
+    if chunk:
+        args += ["--chunk-save"]
+    _, run_dir = _run(workdir, "eos_all_invalid_"+str(chunk), args,
+        env_extra={"CIP_ROWTEST_CONSTRUCTOR": "1", "CIP_ROWTEST_BAD_EOS": "all"})
+    if chunk:
+        header, rows = _annotation(run_dir / "MARG-0-0+annotation.dat")
+        assert header.split() == ["#", "lnL", "sigma_lnL", "gamma1", "gamma2"]
+        np.testing.assert_array_equal(rows[:, 2:], [[1, 0], [2, 0], [3, 0]])
+        assert np.isneginf(np.loadtxt(run_dir / "MARG-0-0.dat")).all()
+    else:
+        rows = np.array([_annotation(run_dir / ("MARG-0-%d+annotation.dat" % row))[1][0] for row in range(3)])
+        assert all(np.isneginf(np.loadtxt(run_dir / ("MARG-0-%d.dat" % row))) for row in range(3))
+    assert np.isneginf(rows[:, 0]).all() and (rows[:, 1] == 0).all()
+    assert not list(run_dir.glob("*.xml*"))
+
+
+def test_single_proposed_eos_constructor_failure_is_controlled(workdir):
+    args = _constructor_args(workdir, count=1)
+    _, run_dir = _run(workdir, "eos_single_invalid", args,
+        env_extra={"CIP_ROWTEST_CONSTRUCTOR": "1", "CIP_ROWTEST_BAD_EOS": "all"})
+    _, rows = _annotation(run_dir / "MARG-0-0+annotation.dat")
+    assert np.isneginf(rows[0, 0]) and rows[0, 1] == 0
+    assert not list(run_dir.glob("*.xml*"))
+
+
+def test_hypercombine_rejected_replicas_preserve_finite_average_and_product(workdir):
+    def combine(name, rows, mode="average"):
+        path = workdir / (name+".dat")
+        np.savetxt(path, rows, header="lnL sigma_lnL model")
+        result = subprocess.run([sys.executable, HYPERCOMBINE, str(path), "--combination", mode],
+            capture_output=True, text=True, env=dict(os.environ, PYTHONPATH=CODE), timeout=60)
+        assert result.returncode == 0, result.stderr
+        from io import StringIO
+        return np.atleast_2d(np.loadtxt(StringIO(result.stdout)))
+    finite = [[3., .1, 1.], [4., .2, 1.], [8., .3, 2.]]
+    baseline = combine("combine_finite", finite)
+    mixed = combine("combine_mixed", finite+[[-np.inf, 0., 1.], [-np.inf, 0., 3.]])
+    np.testing.assert_array_equal(mixed[:2], baseline)
+    np.testing.assert_array_equal(mixed[2], [-np.inf, 0., 3.])
+    rejected = combine("combine_rejected", [[-np.inf, 0., 3.], [-np.inf, 0., 3.]])
+    np.testing.assert_array_equal(rejected, [[-np.inf, 0., 3.]])
+    product = combine("combine_product", [[3., .1, 1.], [-np.inf, 0., 1.]], "product")
+    assert np.isneginf(product[0, 0]) and product[0, 2] == 1.
+
+
+def test_hyperprior_eos_constructor_rejection_keeps_later_proposals(workdir):
+    plugin = PLUGIN + '''
+class EOS:
+    mMinMsun = .1
+    mMaxMsun = 1000.
+    def lambda_from_m(self, mass):
+        return 0.
+    def lambda_from_m_vector(self, mass):
+        return np.zeros_like(mass, dtype=float)
+def retrieve_eos(**kwargs):
+    if _state["center"] == %r:
+        raise RuntimeError("invalid proposed hyperprior EOS")
+    return EOS()
+''' % float(CENTERS[1])
+    (workdir / "cip_rowtest_eos_plugin.py").write_text(plugin)
+    args = _grid_args(workdir, 0, 3, "MARG-0-0") + ["--save-hyperfile-only"]
+    args[args.index("cip_rowtest_plugin")] = "cip_rowtest_eos_plugin"
+    _, run_dir = _run(workdir, "hyperprior_bad_eos", args)
+    rows = np.array([_annotation(run_dir / ("MARG-0-%d+annotation.dat" % row))[1][0] for row in range(3)])
+    assert np.isfinite(rows[[0, 2], 0]).all()
+    assert np.isneginf(rows[1, 0]) and rows[1, 1] == 0
+    np.testing.assert_array_equal(rows[:, 2], CENTERS[:3])
+    expected = _expected_lnZ_up_to_constant(CENTERS[2])-_expected_lnZ_up_to_constant(CENTERS[0])
+    assert abs(rows[2, 0]-rows[0, 0]-expected) < 5*np.hypot(rows[0, 1], rows[2, 1])+.02
+
+
+def test_fixed_eos_actual_fit_branch_rejects_bad_conversion_without_floor():
+    """Execute the driver's actual EOS branch, including its unconditional guard."""
+    import ast
+    import types
+    from RIFT import lalsimutils
+    from RIFT.physics.lalsim_eos_compat import mass_in_eos_support
+    source = open(DRIVER).read()
+    tree = ast.parse(source)
+    block = next(node for node in tree.body if isinstance(node, ast.If)
+        and "using_eos" in ast.dump(node.test) and any(
+            isinstance(item, ast.FunctionDef) and item.name == "convert_coords" for item in node.orelse))
+    class EOS:
+        mMinMsun = 1.
+        mMaxMsun = 3.
+        def lambda_from_m(self, mass):
+            mass = mass/lalsimutils.lal.MSUN_SI if mass > 1e15 else mass
+            if np.isclose(mass, 1.5):
+                raise RuntimeError("bad proposed star")
+            if np.isclose(mass, 1.6):
+                return np.nan
+            return 100.
+        def lambda_from_m_vector(self, masses):
+            return np.array([self.lambda_from_m(mass) for mass in masses])
+    seen = []
+    def predictor(rows):
+        seen.append(rows.copy())
+        # A legitimate tiny finite likelihood must not become a rejected row.
+        return -1e6-100*rows[:, 0]
+    namespace = dict(np=np, opts=types.SimpleNamespace(using_eos="test", no_matter1=False,
+        no_matter2=False, downselect_enforce_kerr=False, fref=20), fake_eos=False,
+        my_eos=EOS(), my_fit=predictor, coord_names=['mc', 'eta'],
+        low_level_coord_names=['m1', 'm2'], lalsimutils=lalsimutils,
+        mass_in_eos_support=mass_in_eos_support, source_redshift=0.)
+    top_guard = [node for node in tree.body if isinstance(node, ast.FunctionDef)
+                 and node.name == "protect_fit_against_out_of_support"]
+    exec(compile(ast.Module(body=top_guard+[block], type_ignores=[]), DRIVER, 'exec'), namespace)
+    points = np.array([[1.8, 1.2], [1.5, 1.2], [1.6, 1.2], [1.9, 1.2]])
+    converted = namespace['convert_coords'](points)
+    result = namespace['my_fit'](converted)
+    assert np.isneginf(result[1:3]).all()
+    expected = lalsimutils.convert_waveform_coordinates(points[[0, 3]],
+        coord_names=['mc', 'eta'], low_level_coord_names=['m1', 'm2'])
+    np.testing.assert_array_equal(result[[0, 3]], -1e6-100*expected[:, 0])
+    assert len(seen) == 1
+    np.testing.assert_array_equal(seen[0], expected)
+    # Execute the actual unified likelihood wrapper as well: scalar shortcuts
+    # must not bypass the EOS conversion that rejects an in-range failing star.
+    namespace['opts'].eccentric_phase_coordinates = False
+    namespace['my_log_prior_scale'] = lambda rows: np.zeros(len(rows))
+    unified = next(node for node in tree.body if isinstance(node, ast.If)
+        and 'eccentric_phase_coordinates' in ast.dump(node.test) and any(
+            isinstance(item, ast.FunctionDef) and item.name == 'log_likelihood_function'
+            for item in node.body))
+    exec(compile(ast.Module(body=[unified], type_ignores=[]), DRIVER, 'exec'), namespace)
+    for index in (0, 1, 2, 3):
+        value = namespace['log_likelihood_function'](*map(float, points[index]))
+        assert np.ndim(value) == 0
+        assert value == result[index]
+    assert namespace['likelihood_function'](*map(float, points[1])) == 0.
+    vector = namespace['log_likelihood_function'](points[:, 0], points[:, 1])
+    np.testing.assert_array_equal(vector, result)
+
+
+@pytest.mark.parametrize('method, parameters', [('unknown', [1., 0.]), ('spectral', [1., 0., 0.])])
+def test_invalid_eos_grid_configuration_is_not_a_rejected_proposal(method, parameters):
+    import ast
+    import types
+    tree = ast.parse(open(DRIVER).read())
+    names = {'_RejectedEOSProposal', '_construct_eos_proposal', '_eos_from_grid_row'}
+    nodes = [node for node in tree.body if isinstance(node, (ast.ClassDef, ast.FunctionDef)) and node.name in names]
+    namespace = dict(np=np, opts=types.SimpleNamespace(eos_param=method))
+    exec(compile(ast.Module(body=nodes, type_ignores=[]), DRIVER, 'exec'), namespace)
+    with pytest.raises(ValueError):
+        namespace['_eos_from_grid_row']('file:proposal.dat', np.array([0., 0.]+parameters))
+
+
+def test_missing_native_constructor_api_is_configuration_error():
+    import ast
+    import types
+    tree = ast.parse(open(DRIVER).read())
+    names = {'_RejectedEOSProposal', '_construct_eos_proposal', '_eos_from_grid_row'}
+    nodes = [node for node in tree.body if isinstance(node, (ast.ClassDef, ast.FunctionDef)) and node.name in names]
+    namespace = dict(np=np, opts=types.SimpleNamespace(eos_param='spectral', no_use_lal_eos=False),
+                     lalsim=types.SimpleNamespace())
+    exec(compile(ast.Module(body=nodes, type_ignores=[]), DRIVER, 'exec'), namespace)
+    with pytest.raises(RuntimeError, match='lacks required EOS API'):
+        namespace['_eos_from_grid_row']('file:proposal.dat', np.array([0., 0., 1., 0.]))
+    for bounds in ({}, {'mMinMsun': None, 'mMaxMsun': None}, {'mMinMsun': 0., 'mMaxMsun': 3.}):
+        eos = types.SimpleNamespace(**bounds)
+        assert namespace['_construct_eos_proposal'](lambda: eos) is eos
+
+
+def test_incomplete_native_family_api_is_configuration_error():
+    import ast
+    import types
+    tree = ast.parse(open(DRIVER).read())
+    names = {'_RejectedEOSProposal', '_construct_eos_proposal', '_eos_from_grid_row'}
+    nodes = [node for node in tree.body if isinstance(node, (ast.ClassDef, ast.FunctionDef)) and node.name in names]
+    incomplete = types.SimpleNamespace(SimNeutronStarEOS4ParameterSpectralDecomposition=lambda *a: None,
+                                      SimNeutronStarFamMinMassPerBranch=lambda *a: None)
+    namespace = dict(np=np, opts=types.SimpleNamespace(eos_param='spectral', no_use_lal_eos=False),
+                     lalsim=incomplete)
+    exec(compile(ast.Module(body=nodes, type_ignores=[]), DRIVER, 'exec'), namespace)
+    with pytest.raises(RuntimeError, match='API is incomplete'):
+        namespace['_eos_from_grid_row']('file:proposal.dat', np.array([0., 0., 1., 0.]))
+
+
+@pytest.mark.parametrize('error_type', [OSError, ImportError])
+def test_proposed_factory_exception_types_are_sample_local(error_type):
+    import ast
+    tree = ast.parse(open(DRIVER).read())
+    nodes = [node for node in tree.body if isinstance(node, (ast.ClassDef, ast.FunctionDef))
+             and node.name in {'_RejectedEOSProposal', '_construct_eos_proposal'}]
+    namespace = dict(np=np)
+    exec(compile(ast.Module(body=nodes, type_ignores=[]), DRIVER, 'exec'), namespace)
+    def factory():
+        raise error_type('failure inside proposed EOS factory')
+    with pytest.raises(namespace['_RejectedEOSProposal'], match='inside proposed EOS factory'):
+        namespace['_construct_eos_proposal'](factory)
+
+
+@pytest.mark.parametrize('missing', ['grid', 'plugin'])
+def test_static_eos_inputs_are_not_rejected_proposals(workdir, missing):
+    args = _grid_args(workdir, 0, 1, 'MARG-0-0') + ['--save-hyperfile-only']
+    if missing == 'grid':
+        args[args.index('file:'+str(workdir/'grid.dat'))] = 'file:'+str(workdir/'missing-grid.dat')
+    else:
+        args[args.index('cip_rowtest_plugin')] = 'missing_cip_eos_test_plugin'
+    result, run_dir = _run(workdir, 'static_missing_'+missing, args, expect_ok=False)
+    assert result.returncode != 0
+    assert not list(run_dir.glob('*annotation.dat'))
+
+
+@pytest.mark.parametrize('evaluation', ['lambda_nan', 'late_valid'])
+def test_eos_sampling_budget_rejects_allbad_model_but_allows_later_valid_batch(workdir, evaluation):
+    args = _constructor_args(workdir) + ['--n-max', '2000', '--n-eff', '10', '--n-chunk', '50']
+    result, run_dir = _run(workdir, 'eos_sampling_'+evaluation, args,
+        env_extra={'CIP_ROWTEST_CONSTRUCTOR': '1', 'CIP_ROWTEST_BAD_EOS': evaluation})
+    rows = np.array([_annotation(run_dir / ('MARG-0-%d+annotation.dat' % row))[1][0] for row in range(3)])
+    assert np.isfinite(rows[[0, 2], 0]).all()
+    np.testing.assert_array_equal(rows[:, 2:], [[1, 0], [2, 0], [3, 0]])
+    assert 'No contribution to integral, skipping.' in result.stdout
+    if evaluation == 'lambda_nan':
+        assert np.isneginf(rows[1, 0]) and rows[1, 1] == 0.
+        assert result.stdout.count('No contribution to integral, skipping.') >= 10
+    else:
+        assert np.isfinite(rows[1, 0])
+        assert 'Rejecting proposed EOS row' not in result.stdout
+
+
+def test_unrelated_sampler_failure_after_eos_rejections_is_not_hidden(workdir):
+    args = _constructor_args(workdir, count=1)
+    args[args.index('--using-eos-index')+1] = '1'
+    result, run_dir = _run(workdir, 'unrelated_sampler_failure', args, expect_ok=False,
+        env_extra={'CIP_ROWTEST_CONSTRUCTOR': '1', 'CIP_ROWTEST_BAD_EOS': 'lambda_nan',
+                   'CIP_ROWTEST_SAMPLER_ERROR': '1'})
+    assert result.returncode != 0
+    assert 'synthetic unrelated sampler failure' in result.stdout
+    assert not list(run_dir.glob('*annotation.dat'))
+
+
+def test_only_known_exhausted_all_eos_rejection_signal_is_translated():
+    import ast
+    import types
+    tree = ast.parse(open(DRIVER).read())
+    node = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
+                and node.name == '_exhausted_rejected_eos_proposal')
+    namespace = dict(opts=types.SimpleNamespace(sampler_method='adaptive_cartesian',
+        using_eos='file:proposals.dat', using_eos_index=0))
+    exec(compile(ast.Module(body=[node], type_ignores=[]), DRIVER, 'exec'), namespace)
+    signal = 'mcsampler: Too many iterations with no contribution to integral, hard fail'
+    namespace['_eos_sampling_status'] = dict(seen=20, all_rejected=True)
+    assert namespace['_exhausted_rejected_eos_proposal'](Exception(signal))
+    assert not namespace['_exhausted_rejected_eos_proposal'](RuntimeError(signal))
+    assert not namespace['_exhausted_rejected_eos_proposal'](Exception('unrelated'))
+    for state in (dict(seen=0, all_rejected=True), dict(seen=20, all_rejected=False)):
+        namespace['_eos_sampling_status'] = state
+        assert not namespace['_exhausted_rejected_eos_proposal'](Exception(signal))

@@ -80,6 +80,40 @@ def mass_in_eos_support(eos, m1_msun, m2_msun, bh1=False, bh2=False):
     return ok
 
 
+def evaluate_eos_lambda(eos, masses, use_vector=True, branch_id=None):
+    """Evaluate tidal deformabilities, rejecting only failed mass samples.
+
+    A vector evaluator may fail before returning any rows. Retry those rows
+    individually so one native EOS exception cannot discard valid neighbors.
+    """
+    scalar = getattr(eos, "lambda_from_m", None)
+    if not callable(scalar):
+        raise TypeError("EOS must provide callable lambda_from_m")
+    branch_kwargs = {"branch_id": branch_id} if branch_id is not None else {}
+    masses = np.asarray(masses, dtype=float)
+    flat = masses.reshape(-1)
+    result = np.full(len(flat), -np.inf)
+    finite_mass = np.isfinite(flat) & (flat > 0)
+    vector = getattr(eos, "lambda_from_m_vector", None)
+    if use_vector and callable(vector) and len(flat):
+        try:
+            values = np.asarray(vector(flat, **branch_kwargs), dtype=float)
+            if values.shape == flat.shape:
+                good = finite_mass & np.isfinite(values) & (values >= 0)
+                result[good] = values[good]
+                return float(result[0]) if masses.ndim == 0 else result.reshape(masses.shape)
+        except Exception:
+            pass
+    for i in np.flatnonzero(finite_mass):
+        try:
+            value = float(scalar(float(flat[i]), **branch_kwargs))
+            if math.isfinite(value) and value >= 0:
+                result[i] = value
+        except Exception:
+            continue
+    return float(result[0]) if masses.ndim == 0 else result.reshape(masses.shape)
+
+
 class LALSimNeutronStarFamilyAdapter:
     """Version-neutral access to a LALSimulation neutron-star family.
 

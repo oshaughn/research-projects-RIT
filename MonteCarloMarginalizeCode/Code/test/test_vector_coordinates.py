@@ -355,7 +355,17 @@ x2 = np.zeros((npts,len(coord_names)))
 y2 = np.zeros((npts,len(low_level_coord_names)))
 
 for indx in np.arange(npts):
-    P = P_list[indx]
+    # EOS conversion follows CIP's solar-mass coordinate convention. Compare
+    # against independent scalar AP4 evaluations, including nonzero tidal terms.
+    P = P_list[indx].manual_copy()
+    P.m1 = (1.4 + 0.01*indx)*lal.MSUN_SI
+    P.m2 = (1.3 + 0.01*indx)*lal.MSUN_SI
+    P.lambda1 = my_eos.lambda_from_m(P.m1)
+    P.lambda2 = my_eos.lambda_from_m(P.m2)
+    assert np.isfinite([P.lambda1, P.lambda2]).all()
+    assert min(P.lambda1, P.lambda2) > 0
+    P.m1 /= lal.MSUN_SI
+    P.m2 /= lal.MSUN_SI
     for indx_name  in np.arange(len(coord_names)):
         x1[indx,indx_name]  = P.extract_param( coord_names[indx_name])
     for indx_name2 in np.arange(len(low_level_coord_names)):

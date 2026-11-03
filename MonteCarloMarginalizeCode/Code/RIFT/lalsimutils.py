@@ -6580,6 +6580,7 @@ def convert_waveform_coordinates_with_eos(x_in,coord_names=['mc', 'eta'],low_lev
     """
     A wrapper for ChooseWaveformParams() 's coordinate tools (extract_param, assign_param) providing array-formatted coordinate changes.  BE VERY CAREFUL, because coordinates may be defined inconsistently (e.g., holding different variables constant: M and eta, or mc and q)
     """
+    from RIFT.physics.lalsim_eos_compat import evaluate_eos_lambda, mass_in_eos_support
     try:
         import RIFT.physics.EOSManager  as EOSManager # be careful to avoid recursive dependence!
     except:
@@ -6597,16 +6598,22 @@ def convert_waveform_coordinates_with_eos(x_in,coord_names=['mc', 'eta'],low_lev
         # Extract individual masses
         x_out_temp_mass = convert_waveform_coordinates(x_in, coord_names=['m1','m2'], low_level_coord_names=low_level_coord_names)
 
-        # Add lambda from EOS. Note backend vectorization is not ready, so this is not as efficient as it should be
-        if not(no_matter1):
-            indx_ok = x_out_temp_mass[:,0] < eos_class.mMaxMsun # valid assignments
-            x_in_extended[indx_ok,-2] = eos_class.lambda_from_m_vector( x_out_temp_mass[indx_ok,0]*lal.MSUN_SI)  # mass of primary
-        if not(no_matter2):
-            indx_ok = x_out_temp_mass[:,1] < eos_class.mMaxMsun # valid assignments
-            x_in_extended[indx_ok,-1] = eos_class.lambda_from_m_vector( x_out_temp_mass[indx_ok,1]*lal.MSUN_SI)  # mass of secondary
-
-        # Now call normal converter, with new variables defined
-        return convert_waveform_coordinates(x_in_extended, coord_names=coord_names,low_level_coord_names=low_level_coord_names_extended,enforce_kerr=enforce_kerr, source_redshift=source_redshift)
+        # EOS failures reject the whole sample even if coord_names omits tides.
+        supported = mass_in_eos_support(eos_class, x_out_temp_mass[:, 0], x_out_temp_mass[:, 1],
+            bh1=no_matter1, bh2=no_matter2)
+        invalid = ~supported
+        for column, no_matter in ((0, no_matter1), (1, no_matter2)):
+            if no_matter:
+                continue
+            x_in_extended[:, n_fields_normal+column] = -np.inf
+            values = evaluate_eos_lambda(eos_class, x_out_temp_mass[supported, column]*lal.MSUN_SI)
+            x_in_extended[supported, n_fields_normal+column] = values
+            invalid[supported] |= ~np.isfinite(values)
+        result = convert_waveform_coordinates(x_in_extended, coord_names=coord_names,
+            low_level_coord_names=low_level_coord_names_extended, enforce_kerr=enforce_kerr,
+            source_redshift=source_redshift)
+        result[invalid] = -np.inf
+        return result
             
     for indx_out  in np.arange(len(x_in)):
         P = ChooseWaveformParams()  # fresh per row, as in convert_waveform_coordinates
@@ -6614,13 +6621,16 @@ def convert_waveform_coordinates_with_eos(x_in,coord_names=['mc', 'eta'],low_lev
         #   note, P.m1, P.m2 in Msun units here
         for indx in np.arange(len(low_level_coord_names)):
             P.assign_param( low_level_coord_names[indx], x_in[indx_out,indx])
+        if not mass_in_eos_support(eos_class, P.m1, P.m2, bh1=no_matter1, bh2=no_matter2):
+            x_out[indx_out] = -np.inf
+            continue
         # Impose EOS, unless no_matter1
         if no_matter1:
             P.lambda1=0
         else:
           try:
             if P.m1 < eos_class.mMaxMsun:
-                P.lambda1 = eos_class.lambda_from_m(P.m1*lal.MSUN_SI)
+                P.lambda1 = evaluate_eos_lambda(eos_class, P.m1*lal.MSUN_SI, use_vector=False)
             else:
                 if rosDebugMessagesContainer[0]:
                     print( " Failed (safely) for ", P.m1)
@@ -6633,7 +6643,7 @@ def convert_waveform_coordinates_with_eos(x_in,coord_names=['mc', 'eta'],low_lev
         else:
           try:
             if P.m2 < eos_class.mMaxMsun:
-                P.lambda2 = eos_class.lambda_from_m(P.m2*lal.MSUN_SI)
+                P.lambda2 = evaluate_eos_lambda(eos_class, P.m2*lal.MSUN_SI, use_vector=False)
             else:
                 if rosDebugMessagesContainer[0]:
                     print( " Failed (safely) for ", P.m2)
@@ -6641,6 +6651,10 @@ def convert_waveform_coordinates_with_eos(x_in,coord_names=['mc', 'eta'],low_lev
           except:
 #              print " Failed for ", P.m2
               P.lambda2=-np.inf
+        if ((not no_matter1 and not np.isfinite(P.lambda1)) or
+                (not no_matter2 and not np.isfinite(P.lambda2))):
+            x_out[indx_out] = -np.inf
+            continue
         # Apply redshift: assume input is source-frame mass, convert m1 -> m1(1+z) = m1_z, as fit used detector frame
         P.m1 = P.m1*(1+source_redshift)
         P.m2 = P.m2*(1+source_redshift)

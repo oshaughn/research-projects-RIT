@@ -82,6 +82,16 @@ for key in data_at_intrinsic:
         sigma = np.sqrt(np.sum(sigmaOverL**2))
         print(" {} {} ".format(lnLnet, sigma) + ' '.join(map(str,key)) )
     else:
+        # (-inf, 0) is the producer's rejected EOS-proposal sentinel.  For
+        # repeated estimates of one model, skip rejected replicas when a valid
+        # estimate remains; this is not a zero-valued event factor to drop from
+        # a PRODUCT.  Keep the historical finite-replica averaging unchanged.
+        keep = ~(np.isneginf(lnL) & (sigmaOverL == 0))
+        if not np.any(keep):
+            print(" {} {} ".format(-np.inf, 0.) + ' '.join(map(str,key)))
+            continue
+        lnL, sigmaOverL = lnL[keep], sigmaOverL[keep]
+        lnLmax = np.max(lnL)
         sigma = sigmaOverL*np.exp(lnL-lnLmax)  # remove overall Lmax factor, which factors out from the weights constructed from \sigma
 
         # This is an average, treating them as independent measurements

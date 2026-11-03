@@ -91,9 +91,14 @@ def test_native_scalar_vector_projection_redshift_and_aliases():
 
 
 def test_cip_scalar_and_batch_likelihood_share_projection():
+    from types import SimpleNamespace
     tree=ast.parse((ROOT/'bin/util_ConstructIntrinsicPosterior_GenericCoordinates.py').read_text())
-    block=next(n for n in tree.body if isinstance(n,ast.If) and ast.unparse(n.test)=='opts.eccentric_phase_coordinates' and any(isinstance(c,ast.FunctionDef) and c.name=='log_likelihood_function' for c in n.body))
-    ns={'np':np,'convert_coords':lambda x:np.column_stack((x,np.sin(x[:,0]))), 'my_fit':lambda x:np.sum(x,axis=1),'my_log_prior_scale':lambda x: np.zeros(len(x))}
+    block=next(n for n in tree.body if isinstance(n,ast.If) and any(
+        isinstance(a,ast.Attribute) and isinstance(a.value,ast.Name)
+        and a.value.id=='opts' and a.attr=='eccentric_phase_coordinates'
+        for a in ast.walk(n.test)) and any(isinstance(c,ast.FunctionDef) and c.name=='log_likelihood_function' for c in n.body))
+    ns={'np':np,'opts':SimpleNamespace(using_eos=None),
+        'convert_coords':lambda x:np.column_stack((x,np.sin(x[:,0]))), 'my_fit':lambda x:np.sum(x,axis=1),'my_log_prior_scale':lambda x: np.zeros(len(x))}
     for node in block.body: exec(compile(ast.Module(body=[node],type_ignores=[]),'cip-hook','exec'),ns)
     scalar=ns['log_likelihood_function'](.2,.3)
     batch=ns['log_likelihood_function'](np.array([.2,.4]),np.array([.3,.5]))

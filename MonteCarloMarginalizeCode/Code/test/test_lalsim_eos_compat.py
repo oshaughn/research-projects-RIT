@@ -11,6 +11,7 @@ from RIFT.physics.lalsim_eos_compat import (
     AmbiguousFamilyBranchError,
     LALSimNeutronStarFamilyAdapter,
     NonFiniteFamilyObservableError,
+    evaluate_eos_lambda,
     mass_in_eos_support,
     validate_fixed_eos_branch_request,
 )
@@ -341,8 +342,7 @@ def test_kedia_parametric_eos_scalar_interfaces_remain_compatible():
         assert np.isfinite(piecewise.lambda_from_m(1.4))
     else:
         # A native solver failure must raise, never enter a posterior as NaN.
-        with pytest.raises(NonFiniteFamilyObservableError, match="Love number k2"):
-            piecewise.lambda_from_m(1.4)
+        assert np.isneginf(piecewise.lambda_from_m_vector(np.array([1.4, 1.4]))).all()
 
 
 def test_selected_branch_view_preserves_legacy_scalar_consumer_api(monkeypatch):
@@ -692,6 +692,9 @@ def _cip_eos_convert_coords(eos, no_matter1=False, no_matter2=False):
             downselect_enforce_kerr=False,
         ),
     }
+    # Match the driver's initialization before sampling starts. The extracted
+    # functions share this global when tracking rejected sampling batches.
+    namespace["_eos_sampling_status"] = None
     exec(_load_cip_nested_function("eos_mass_support_mask"), namespace)
     exec(
         _load_cip_nested_function("convert_coords", _in_fixed_eos_block),
@@ -959,15 +962,106 @@ def test_nonfinite_native_observables_fail_explicitly(monkeypatch, api):
                 method(1.25, branch_id=0)
 
 
-def test_nonfinite_k2_propagates_through_branch_view_and_vector_conversion(monkeypatch):
+def test_nonfinite_k2_is_rejected_by_branch_batch_and_conversion(monkeypatch):
     from RIFT import lalsimutils
     view = _twin_star_branch(monkeypatch, 1)
     native = view.source._get_lalsim_family_adapter().lalsim
     monkeypatch.setattr(native, "SimNeutronStarFamBranchLoveNumberK2", lambda *args: float('nan'))
-    with pytest.raises(NonFiniteFamilyObservableError):
-        view.lambda_from_m(1.75)
-    with pytest.raises(NonFiniteFamilyObservableError):
-        lalsimutils.convert_waveform_coordinates_with_eos(
-            np.array([[1.75, 1.4]]), coord_names=['lambda1', 'lambda2'],
-            low_level_coord_names=['m1', 'm2'], eos_class=view)
+    assert np.isneginf(view.lambda_from_m_vector(np.array([1.75, 1.4]))).all()
+    rejected = lalsimutils.convert_waveform_coordinates_with_eos(
+        np.array([[1.75, 1.4]]), coord_names=['lambda1', 'lambda2'],
+        low_level_coord_names=['m1', 'm2'], eos_class=view)
+    assert np.isneginf(rejected).all()
     assert view.lambda_from_m(1.1) == -np.inf
+
+
+class MixedEvaluationEOS:
+    mMinMsun = 1.
+    mMaxMsun = 3.
+
+    def __init__(self):
+        self.visited = []
+        self.vector_calls = 0
+
+    def lambda_from_m(self, mass):
+        mass = mass/lal.MSUN_SI if mass > 1e15 else mass
+        self.visited.append(mass)
+        if np.isclose(mass, 1.5):
+            raise RuntimeError("native EOS evaluation failed")
+        if np.isclose(mass, 1.6):
+            return np.nan
+        if np.isclose(mass, 1.7):
+            return np.inf
+        return 10*mass
+
+    def lambda_from_m_vector(self, masses):
+        self.vector_calls += 1
+        return np.array([self.lambda_from_m(mass) for mass in masses])
+
+
+@pytest.mark.parametrize("bad_object", [0, 1])
+@pytest.mark.parametrize("coordinates", [['mc', 'eta'], ['lambda1', 'lambda2']])
+@pytest.mark.parametrize("backstop", [False, True])
+def test_mixed_eos_failures_reject_rows_and_preserve_neighbors(bad_object, coordinates, backstop):
+    from RIFT import lalsimutils
+    masses = np.array([1.8, 1.5, 1.6, 1.7, .9, 3.1, 1.9])
+    points = np.column_stack([masses, np.full(len(masses), 1.2)]) if bad_object == 0 else np.column_stack([np.full(len(masses), 1.95), masses])
+    eos = MixedEvaluationEOS()
+    kwargs = {} if backstop is None else dict(backstop_novector=backstop)
+    result = lalsimutils.convert_waveform_coordinates_with_eos(points,
+        coord_names=coordinates, low_level_coord_names=['m1', 'm2'], eos_class=eos,
+        no_matter1=bad_object == 1, no_matter2=bad_object == 0, **kwargs)
+    assert np.isneginf(result[1:-1]).all()
+    assert np.isfinite(result[[0, -1]]).all()
+    assert any(np.isclose(mass, 1.9) for mass in eos.visited)
+    if coordinates == ['lambda1', 'lambda2']:
+        np.testing.assert_allclose(result[[0, -1], bad_object], [18., 19.])
+        np.testing.assert_array_equal(result[[0, -1], 1-bad_object], 0.)
+    else:
+        expected = lalsimutils.convert_waveform_coordinates(points[[0, -1]],
+            coord_names=coordinates, low_level_coord_names=['m1', 'm2'])
+        np.testing.assert_allclose(result[[0, -1]], expected)
+
+
+def test_vector_eos_nonfinite_results_do_not_remove_finite_rows():
+    class VectorEOS(MixedEvaluationEOS):
+        def lambda_from_m_vector(self, masses):
+            return np.array([18., np.nan, np.inf, 19.])
+    np.testing.assert_array_equal(evaluate_eos_lambda(VectorEOS(), [1.8, 1.6, 1.7, 1.9]),
+                                  [18., -np.inf, -np.inf, 19.])
+    with pytest.raises(TypeError, match="lambda_from_m"):
+        evaluate_eos_lambda(object(), [1.4])
+
+
+@pytest.mark.parametrize("failure", ['raise', 'nan', 'inf'])
+def test_native_eos_batch_wrappers_continue_after_bad_mass(monkeypatch, failure):
+    from RIFT.physics import EOSManager
+    native = StellarMassMultibranchLALSimulation()
+    native.bounds = ((1.*lal.MSUN_SI, 3.*lal.MSUN_SI),)
+    real_k2 = native.SimNeutronStarFamBranchLoveNumberK2
+    def with_failure(mass, branch, family):
+        if np.isclose(mass/lal.MSUN_SI, 1.6):
+            if failure == 'raise':
+                raise RuntimeError('bad native mass')
+            return np.nan if failure == 'nan' else np.inf
+        return real_k2(mass, branch, family)
+    monkeypatch.setattr(native, 'SimNeutronStarFamBranchLoveNumberK2', with_failure)
+    monkeypatch.setattr(EOSManager, 'lalsim', native)
+    base = EOSManager.EOSLALSimulationFromFile('single-branch.dat', phase_transition_aware=True)
+    for eos in (base, base.for_branch(0)):
+        expected = [eos.lambda_from_m(1.4), eos.lambda_from_m(1.8)]
+        values = eos.lambda_from_m_vector(np.array([1.4, 1.6, 1.8]))
+        assert values[1] == -np.inf
+        np.testing.assert_array_equal(values[[0, 2]], expected)
+
+
+def test_concrete_vector_evaluation_preserves_explicit_branch():
+    from RIFT.physics import EOSManager
+    eos = EOSManager.EOSConcrete.__new__(EOSManager.EOSConcrete)
+    visited = []
+    def scalar(mass, branch_id=None):
+        visited.append(branch_id)
+        return mass + branch_id
+    eos.lambda_from_m = scalar
+    np.testing.assert_array_equal(eos.lambda_from_m_vector(np.array([1., 2.]), branch_id=7), [8., 9.])
+    assert visited == [7, 7]

@@ -541,10 +541,11 @@ if  not(opts.input_eos_index) and (opts.tabular_eos_file):
 # ensure using_eos_index valid for eos file length
 if opts.using_eos and opts.using_eos.startswith('file:') and not(opts.using_eos_index is None):
     fname = opts.using_eos.replace('file:', '')
-    try:
-        dat = np.loadtxt(fname)[opts.using_eos_index]
-    except Exception as e:
-        print(" Fail: EOS index out of range:\n   ",e)
+    grid = np.atleast_2d(np.loadtxt(fname))  # bad files remain configuration errors
+    if opts.using_eos_index < 0:
+        parser.error("--using-eos-index must be nonnegative")
+    if opts.using_eos_index >= len(grid):
+        print(" Fail: EOS index out of range:", opts.using_eos_index)
         sys.exit(0)
 from RIFT.physics.lalsim_eos_compat import (
     mass_in_eos_support, validate_fixed_eos_branch_request)
@@ -558,9 +559,75 @@ if (opts.using_eos_dirty_phase_transitions or opts.using_eos_extended_family) an
         "require --using-eos lalsim_file:<path>"
     )
 
+class _RejectedEOSProposal(Exception):
+    """One proposed EOS has no usable stellar family; other proposals can run."""
+
+
+def _construct_eos_proposal(factory, *args, **kwargs):
+    try:
+        eos = factory(*args, **kwargs)
+        if eos is None:
+            raise ValueError("EOS constructor returned no model")
+        limits = [getattr(eos, name, None) for name in ("mMinMsun", "mMaxMsun")]
+        for value in limits:
+            if value is not None and not np.isfinite(float(value)):
+                raise ValueError("EOS returned an invalid stellar mass limit")
+        if all(value is not None for value in limits) and limits[0] >= limits[1]:
+            raise ValueError("EOS stellar mass limits are not increasing")
+        return eos
+    except Exception as error:
+        raise _RejectedEOSProposal(str(error)) from error
+
+
+def _write_rejected_eos_proposal(error):
+    """Use the existing grid evidence schema, without inventing posterior draws."""
+    fname = opts.using_eos.replace('file:', '', 1)
+    params = np.atleast_2d(np.loadtxt(fname))[opts.using_eos_index][2:]
+    with open(fname) as stream:
+        header = stream.readline()[2:].rstrip('\n')
+    row = [-np.inf, 0.] + list(params)
+    print(" Rejecting proposed EOS row {}: {}".format(opts.using_eos_index, error))
+    if opts.chunk_save and '_chunk_rows' in globals():
+        global _chunk_header
+        _chunk_rows.append(row)
+        _chunk_dat.append(-np.inf)
+        _chunk_header = header
+    else:
+        np.savetxt(opts.fname_output_integral+"+annotation.dat", [row], header=header)
+        if not opts.save_hyperfile_only:
+            np.savetxt(opts.fname_output_integral+".dat", [-np.inf])
+
+
+def _exhausted_rejected_eos_proposal(error):
+    """Recognize only the base sampler's exhausted zero-contribution signal."""
+    counts = globals().get('_eos_sampling_status')
+    return (type(error) is Exception and
+            str(error) == "mcsampler: Too many iterations with no contribution to integral, hard fail" and
+            opts.sampler_method == 'adaptive_cartesian' and
+            opts.using_eos is not None and opts.using_eos.startswith('file:') and
+            opts.using_eos_index is not None and counts is not None and
+            counts['seen'] > 0 and counts['all_rejected'])
+
+
 def _eos_from_grid_row(eos_name, dat):
     """EOS for one row of a --using-eos file:<grid> (columns: lnL, sigma_lnL, EOS parameters)."""
     spec_param_array = dat[2:]  # drop first two as lnL, sigma_lnL
+    if opts.eos_param not in ('spectral', 'cs_spectral', 'PP'):
+        raise ValueError("Unknown parametric EOS method: {}".format(opts.eos_param))
+    if (opts.eos_param == 'spectral' and len(spec_param_array) not in (2,) and len(spec_param_array) < 4) or (opts.eos_param != 'spectral' and len(spec_param_array) < 4):
+        raise ValueError("Wrong number of parameters for {} EOS grid".format(opts.eos_param))
+    required = {'spectral': 'SimNeutronStarEOS4ParameterSpectralDecomposition',
+                'cs_spectral': 'SimNeutronStarEOS4ParamCausalSpectralDecomposition',
+                'PP': 'SimNeutronStarEOS4ParameterPiecewisePolytrope'}[opts.eos_param]
+    if (opts.eos_param != 'spectral' or not opts.no_use_lal_eos) and not callable(getattr(lalsim, required, None)):
+        raise RuntimeError("LALSimulation lacks required EOS API: "+required)
+    # These known grid constructors all create a LAL family, including the
+    # table-generating spectral path selected by --no-use-lal-eos. Check only
+    # API availability here; native stellar-model failures stay sample-local.
+    from RIFT.physics.lalsim_eos_compat import LALSimNeutronStarFamilyAdapter
+    LALSimNeutronStarFamilyAdapter._family_api(lalsim, False)
+    if not np.isfinite(spec_param_array).all():
+        raise _RejectedEOSProposal("Nonfinite proposed EOS parameters")
     if opts.eos_param == 'spectral':
         spec_params ={}
         spec_params['gamma1']=spec_param_array[0]
@@ -570,7 +637,7 @@ def _eos_from_grid_row(eos_name, dat):
         else:
             spec_params['gamma3']=spec_param_array[2]
             spec_params['gamma4']=spec_param_array[3]
-        eos_base = EOSManager.EOSLindblomSpectral(name=eos_name,spec_params=spec_params,use_lal_spec_eos=not opts.no_use_lal_eos)
+        eos_base = _construct_eos_proposal(EOSManager.EOSLindblomSpectral, name=eos_name,spec_params=spec_params,use_lal_spec_eos=not opts.no_use_lal_eos)
         my_eos=eos_base
     elif opts.eos_param == 'cs_spectral' and len(spec_param_array) >= 4:
         spec_params ={}
@@ -579,7 +646,7 @@ def _eos_from_grid_row(eos_name, dat):
         spec_params['gamma3']=spec_params['gamma4']=0
         spec_params['gamma3']=spec_param_array[2]
         spec_params['gamma4']=spec_param_array[3]
-        eos_base = EOSManager.EOSLindblomSpectralSoundSpeedVersusPressure(name=eos_name,spec_params=spec_params,use_lal_spec_eos=not opts.no_use_lal_eos)
+        eos_base = _construct_eos_proposal(EOSManager.EOSLindblomSpectralSoundSpeedVersusPressure, name=eos_name,spec_params=spec_params,use_lal_spec_eos=not opts.no_use_lal_eos)
         my_eos = eos_base
     elif opts.eos_param == 'PP' and len(spec_param_array) >= 4:
         spec_params ={}
@@ -587,7 +654,7 @@ def _eos_from_grid_row(eos_name, dat):
         spec_params['gamma1'] = spec_param_array[1]
         spec_params['gamma2'] = spec_param_array[2]
         spec_params['gamma3'] = spec_param_array[3]
-        eos_base = EOSManager.EOSPiecewisePolytrope(name=eos_name,param_dict=spec_params)
+        eos_base = _construct_eos_proposal(EOSManager.EOSPiecewisePolytrope, name=eos_name,param_dict=spec_params)
         my_eos = eos_base
     else:
         raise Exception("Unknown method for parametric EOS data file {} : {} ".format(eos_name,opts.eos_param))
@@ -622,8 +689,12 @@ elif opts.using_eos!=None and not(opts.using_eos_for_prior):
             # Load in filename
             fname = eos_name.replace('file:', '')
             # Retrieve row with parameters
-            dat = np.loadtxt(fname)[opts.using_eos_index]
-            my_eos = _eos_from_grid_row(eos_name, dat)
+            dat = np.atleast_2d(np.loadtxt(fname))[opts.using_eos_index]
+            try:
+                my_eos = _eos_from_grid_row(eos_name, dat)
+            except _RejectedEOSProposal as error:
+                _write_rejected_eos_proposal(error)
+                sys.exit(0)
     elif opts.eos_param == 'spectral':
         # Will not work yet -- need to modify to parse command-line arguments
         spec_param_packed=eval(opts.eos_param_values) # two lists: first are 'fixed' and second are specific
@@ -972,12 +1043,16 @@ if opts.supplementary_likelihood_factor_code and opts.supplementary_likelihood_f
           if hasattr(external_likelihood_module,'retrieve_eos'):
               fake_eos = False  # using EOS hyperparameter conversion! 
               supplemental_eos = getattr(external_likelihood_module, 'retrieve_eos')
-              my_eos = supplemental_eos(**args_init)
+              my_eos = _construct_eos_proposal(supplemental_eos, **args_init)
   if opts.using_eos_for_prior and not _multi_row:   # several rows: initialized per row in the row loop
           # Load in filename
           fname = opts.using_eos.replace('file:', '')
           dat = np.genfromtxt(fname,names=True)[opts.using_eos_index]   # Parse file for them, to reduce need for burden parsing, and avoid burden/confusion.
-          _initialize_plugin_for_row(dat)
+          try:
+              _initialize_plugin_for_row(dat)
+          except _RejectedEOSProposal as error:
+              _write_rejected_eos_proposal(error)
+              sys.exit(0)
 
 
   if hasattr(external_likelihood_module,name_prep):
@@ -3224,6 +3299,8 @@ def _run_row_passes():
                     if opts.using_eos_branch is not None:
                         my_eos = _apply_eos_branch(my_eos)
             exec(row_pass, globals())
+        except _RejectedEOSProposal as error:
+            _write_rejected_eos_proposal(error)
         except SystemExit as row_exit:
             status = row_exit.code
             if status not in (None, 0):
@@ -3269,6 +3346,7 @@ if not opts.using_eos or (fake_eos):
             source_redshift=source_redshift, enforce_kerr=opts.downselect_enforce_kerr)
     return lalsimutils.convert_waveform_coordinates(x_in, coord_names=coord_names,low_level_coord_names=low_level_coord_names,source_redshift=source_redshift,enforce_kerr=opts.downselect_enforce_kerr,fref=opts.fref)
 else:
+ _eos_sampling_status = None
  def eos_mass_support_mask(x_in):
     """Per-row test: does every matter object in this draw have a stable star?
 
@@ -3305,6 +3383,10 @@ else:
     if np.any(indx_bad):
         x_out = np.array(x_out, dtype=float, copy=True)
         x_out[indx_bad] = -np.inf
+    if _eos_sampling_status is not None:
+        rows = np.atleast_2d(x_out)
+        _eos_sampling_status['seen'] += len(rows)
+        _eos_sampling_status['all_rejected'] &= bool(np.isneginf(rows).all())
     return x_out
 
  # --protect-coordinate-conversions offers the same guard for the general case,
@@ -3696,10 +3778,13 @@ if len(low_level_coord_names) ==10:
 
 # Native scalar shortcuts above bypass coordinate conversion. An effective fit
 # has one extra feature, so scalar and vector calls must use the same projection.
-if opts.eccentric_phase_coordinates:
+if opts.eccentric_phase_coordinates or (opts.using_eos and not fake_eos):
     def log_likelihood_function(*args):
         x_native = np.column_stack([np.atleast_1d(x) for x in args])
-        return my_fit(convert_coords(x_native)) + my_log_prior_scale(x_native)
+        result = my_fit(convert_coords(x_native)) + my_log_prior_scale(x_native)
+        if (opts.using_eos and not fake_eos) and all(np.ndim(x) == 0 for x in args):
+            return np.asarray(result).reshape(-1)[0]
+        return result
     def likelihood_function(*args):
         return np.exp(log_likelihood_function(*args))
 
@@ -3878,7 +3963,15 @@ if sampler_oracle:  # NON-PORTFOLIO SCENARIO TARGET
 
     
 
-res, var, neff, dict_return = sampler.integrate(fn_passed, *sampling_coord_names,  verbose=True,nmax=int(opts.n_max),n=n_step,neff=opts.n_eff, save_intg=True,tempering_adapt=tempering_adapt, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,tempering_exp=my_exp,no_protect_names=True, **extra_args)  # weight ecponent needs better choice. We are using arbitrary-name functions
+# Count only the actual sampling attempt, not training/oracle conversions.
+_eos_sampling_status = dict(seen=0, all_rejected=True) if (opts.using_eos and not fake_eos) else None
+try:
+    res, var, neff, dict_return = sampler.integrate(fn_passed, *sampling_coord_names,  verbose=True,nmax=int(opts.n_max),n=n_step,neff=opts.n_eff, save_intg=True,tempering_adapt=tempering_adapt, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,tempering_exp=my_exp,no_protect_names=True, **extra_args)  # weight ecponent needs better choice. We are using arbitrary-name functions
+except Exception as error:
+    if not _exhausted_rejected_eos_proposal(error):
+        raise
+    _write_rejected_eos_proposal(error)
+    sys.exit(0)
 # result value:  be careful, if return lnL, then must not take log twice!
 ln_integrand_value =  None
 if opts.internal_use_lnL:  # eg, AV integrator, etc
@@ -4016,7 +4109,7 @@ if opts.using_eos and not(opts.using_eos.startswith('file:')):
         annotation_header += "gamma1 gamma2 gamma3 gamma4 p0 epsilon0 xmax"
 elif opts.using_eos and opts.using_eos.startswith('file:'):
     fname = opts.using_eos.replace('file:','')
-    params_here = np.loadtxt(fname)[opts.using_eos_index][2:]
+    params_here = np.atleast_2d(np.loadtxt(fname))[opts.using_eos_index][2:]
     linefirst =''
     with open(fname) as f:
         linefirst = f.readline()

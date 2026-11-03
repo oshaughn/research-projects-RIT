@@ -208,6 +208,7 @@ FILES=(
   # Its companion test_lalsim_eos_reviewed_integration.py needs a private reviewed LALSuite
   # and is rostered EXPENSIVE.
   "$C/test/test_lalsim_eos_compat.py"
+  "$C/test/test_waveform_sample_rejection.py"
   # -- packaging / config contracts / waveform conventions
   "$C/test/test_advanced_parameter_ports.py"
   "$C/test/test_container_manifest.py"
@@ -541,7 +542,8 @@ done
 # Review 3: round-trip preflight cases (10) and the inapplicable-option warning test (1) add 11
 # -> 1347 (provisional).
 # test_raw_distance_contract.py adds 44 tests and no skips -> 1391.
-EXPECTED_TESTS=1391
+# EOS rejection adds 13 EOS and 19 waveform regressions to the merged manifest.
+EXPECTED_TESTS=1423
 # Outcomes, not just exit status: a collection floor cannot see a test that collects, runs and
 # asserts nothing, and a pytest.skip can quietly absorb a lost gate.  The 13 skips are
 # environment legs -- cupy in test_seeding_reproducibility, device legs in
@@ -581,7 +583,8 @@ EXPECTED_TESTS=1391
 # test_coordinate_plugin_api_adapter.py adds 55 passes -> 1310 (provisional, as above).
 # Review 3 adds 11 passes -> 1321 (provisional).
 # test_raw_distance_contract.py adds 44 passes -> 1365.
-EXPECTED_PASSED=1365
+# EOS and waveform rejection regressions add 32 required passes.
+EXPECTED_PASSED=1397
 # PR #382: +1 skip, the CuPy leg of test_cached_matern_gp.py (no GPU on the CI runner).
 # The six solver="gs" tests in test_td_inner_product.py need tdanalysis >= 1.1, which this
 # job does not install, so they skip here; ci.yml's time-domain likelihood step runs them
@@ -641,6 +644,8 @@ for f in "${FILES[@]}"; do
   printf '  %-72s %3d\n' "$f" "$n"
   collected_total=$(( collected_total + n ))
   file_floor=1
+  if [ "$f" = "$C/test/test_lalsim_eos_compat.py" ]; then file_floor=49; fi
+  if [ "$f" = "$C/test/test_waveform_sample_rejection.py" ]; then file_floor=19; fi
   if [ "$f" = "$C/test/test_posterior_compression.py" ]; then file_floor=41; fi
   if [ "$f" = "$C/test/test_raw_distance_contract.py" ]; then file_floor=44; fi
   # Transfer matrix, container guards, and newline requirements must remain covered.

@@ -4396,9 +4396,9 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             **waveform_generation_kwargs, **extra_kwargs)
 
     # skip nan ! Something horrible has happened
-    if np.isnan(guess_snr):
-      print("  --- NAN SNR GUESS, ABORTING THIS EVENT {} --".format(indx_event))
-      raise Exception(" NAN SNR ")
+    if not np.isfinite(guess_snr):
+      print("  --- NONFINITE SNR GUESS, SKIPPING THIS EVENT {} --".format(indx_event))
+      raise Exception(" NONFINITE SNR ")
 
     if opts.auto_logarithm_offset and guess_snr:
       # important: this only impacts *this* analysis
@@ -5755,8 +5755,10 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         except Exception as _e_fs:
             print("  NF: could not save flow (", _e_fs, ")")
 
-    if not(res): # no resut
-      raise ValueError(" No integral result returned")
+    if res is None or not numpy.isfinite(res):
+      raise ValueError("Nonfinite integral result; skipping this event")
+    if not(return_lnL) and res <= 0:
+      raise ValueError("Nonpositive integral result; skipping this event")
 
     # WHICH CONVENTION THE SAMPLER RETURNED -- `return_lnL`, not opts.internal_use_lnL.  This is
     # the same distinction the rvs_integrand_is_lnL derivation above spells out, applied to the
@@ -5773,6 +5775,9 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
     else:
       log_res = res
       sqrt_var_over_res =  numpy.exp(var/2 - log_res)
+
+    if not numpy.isfinite(log_res):
+      raise ValueError("Nonfinite log likelihood; skipping this event")
 
     # ------------------------------------------------------------------
     # MC-error stabilization (see RIFT/integrators/statutils.py helpers).
@@ -6088,6 +6093,9 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             else:
                 res = log_res; var = 2*numpy.log(sqrt_var_over_res) + 2*log_res
 
+    if not numpy.isfinite(res) or not numpy.isfinite(log_res):
+      raise ValueError("Nonfinite combined likelihood; skipping this event")
+
     # Calibration MC error budget.  The sampler's `var` is the EXTRINSIC sampling
     # variance with the cal draw set held FIXED -- it is structurally blind to the
     # Monte-Carlo error of the (1/n_cal) sum over realizations, which dominates
@@ -6107,6 +6115,10 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             print(" [calmarg error] WARNING: cal n_eff < 10: the marginalization is dominated by a few draws and the quoted sigma is a LOWER BOUND.  Increase --calibration-n-realizations / the adaptive cap (--calibration-n-realizations-max).")
       except Exception as _e_cme:
         print(" WARNING: calibration MC error estimate failed ({}); reported sigma is extrinsic-only.".format(_e_cme))
+
+    if (not numpy.isfinite(sqrt_var_over_res) or
+            not numpy.isfinite(log_res + manual_avoid_overflow_logarithm)):
+      raise ValueError("Nonfinite exported likelihood or uncertainty; skipping this event")
 
     # Extrinsic handoff: after the integration, fit the run's extrinsic POSTERIOR to a
     # per-group GMM and write it as a breadcrumb, so a later iteration can seed its extrinsic
@@ -7122,6 +7134,8 @@ for indx in numpy.arange(len(P_list)):
       print("  [seq warm-start] skipped for point {} ({})".format(indx, _e_sw))
       _clear_warm_state(sampler)
   res = analyze_event(P_list, indx, data_dict, psd_dict, fmax, opts)
+  if res is None or not numpy.isfinite(res):
+    raise ValueError("Nonfinite event result; skipping this event")
   # capture this point's converged high-likelihood extrinsic samples as the seed
   # for the next point (in-memory; no files leave the job)
   if opts.sampler_sequential_warmstart and hasattr(sampler, 'bootstrap_from_samples'):

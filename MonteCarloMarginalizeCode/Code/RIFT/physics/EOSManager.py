@@ -156,16 +156,8 @@ class EOSConcrete:
         return dimensionless_lam
 
     def lambda_from_m_vector(self, m, branch_id=None):
-        # vectorize above. Naive vectorization, will depend on improved swig interface
-        # alternative is to store meta-information and re-interpolatie
-        if not(isinstance(m, np.ndarray)):
-            return self.lambda_from_m(m, branch_id=branch_id)
-        else:
-            # horribly inefficient right now!  Hopefully vectorized code available soon
-            out = np.array([
-                self.lambda_from_m(m_here, branch_id=branch_id) for m_here in m
-            ])
-            return out
+        from RIFT.physics.lalsim_eos_compat import evaluate_eos_lambda
+        return evaluate_eos_lambda(self, m, use_vector=False, branch_id=branch_id)
 
     def estimate_baryon_mass_from_mg(self, m, branch_id=None):
         r"""
@@ -389,9 +381,8 @@ class EOSBranchView:
             return self.LAMBDA_OUT_OF_BRANCH
 
     def lambda_from_m_vector(self, m):
-        if not isinstance(m, np.ndarray):
-            return self.lambda_from_m(m)
-        return np.array([self.lambda_from_m(m_here) for m_here in m])
+        from RIFT.physics.lalsim_eos_compat import evaluate_eos_lambda
+        return evaluate_eos_lambda(self, m, use_vector=False)
 
     def estimate_baryon_mass_from_mg(self, m):
         """Estimate baryonic mass using this branch's 1.4-Msun radius."""

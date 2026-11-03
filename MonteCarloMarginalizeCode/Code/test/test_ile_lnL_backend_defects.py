@@ -583,7 +583,10 @@ def test_the_replica_pass_undoes_exactly_what_the_main_pass_did():
     it arrived keyed off the option.  Running the two real source blocks back to back is what
     pins them together, rather than each one separately looking defensible."""
     fwd = _driver_slice('if not(return_lnL):\n      log_res', '# ---------')
-    back = _driver_slice('# keep the (res, var) pair consistent', '    # Calibration MC error')
+    # Stop at the enclosing result guard: it is outside the replica arm and
+    # has different indentation from the conversion being round-tripped.
+    back = _driver_slice('# keep the (res, var) pair consistent',
+                         '    if not numpy.isfinite(res) or not numpy.isfinite(log_res):')
     for return_lnL, res0, var0 in [(False, np.exp(67.0), 3.0e56), (True, 67.0, 0.5)]:
         ns = {'numpy': np, 'res': res0, 'var': var0, 'return_lnL': return_lnL}
         exec(fwd, ns)
