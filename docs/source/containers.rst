@@ -321,9 +321,10 @@ Two different ClassAd namespaces are involved, and they are kept separate:
    attribute names, the ``require_gpus`` floor (matching a compatible GPU and
    excluding an incompatible one), the ``$$()`` match-time image selection, and
    tolerance of the empty-result case for a manifest that mixes CVMFS and
-   ``osdf`` entries.  The remaining item for a first real OSG run is that the
-   pilot evaluates the expression-valued ``MY.SingularityImage`` and honors a
-   relative ``./name.sif`` produced by it.
+   ``osdf`` entries.  The container-universe mode is additionally verified end to
+   end on an OSPool glidein (image selected, fetched and entered; job exit 0).  The
+   expression-valued ``MY.SingularityImage`` is *not* OSPool-safe (see
+   :ref:`osg-container-modes`); use ``RIFT_CONTAINER_UNIVERSE=1`` there.
 
 
 Building a container family

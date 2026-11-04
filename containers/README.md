@@ -149,6 +149,20 @@ For the ILE (and CIP) Condor submit, a manifest produces:
   composed (`&&`) with any user-supplied `RIFT_REQUIRE_GPUS` (which today you use
   to block incompatible hosts by `DeviceName`). Both apply; neither is dropped.
 
+- **A capability-defined `Requirements` clause** — `TARGET.GPUs_Capability =!=
+  undefined`. The selection is deliberately *not* undefined-guarded: an
+  undefined-capability slot could be anything (including a Blackwell that
+  hard-fails on the older fallback), so the safe action is to not match it rather
+  than guess. Measured on CIT, a large fraction of GPU slots satisfy the per-GPU
+  `require_gpus` floor yet do not advertise the machine-level rollup attribute;
+  without this clause those jobs hold with "Cannot expand $$ expression".
+
+**CIP is different.** It requests no GPU, so its matched slot advertises no
+capability and a capability-keyed selection cannot resolve (it would hold the
+job). CIP therefore collapses to a **single fixed container** — the manifest
+`fallback` image as a quoted literal, with no `$$()` token and no capability
+`Requirements` clause. This is why the fallback must be CPU-safe.
+
 ### OSG: pick a delivery mode
 
 The expression-valued `MY.SingularityImage` is evaluated *execute-side*. OSPool
@@ -242,9 +256,9 @@ Validated on a real HTCondor pool + GPU (a cap-3.0 machine):
   the empty entry is skipped and the job runs clean. (So mixed manifests are
   safe; you do *not* need uniform all-osdf / all-cvmfs retrieval.)
 
-One item still needs a real **OSG/GWMS** pilot (a local pool has no singularity
-wrapper to exercise it): that the pilot evaluates the expression-valued
-`MY.SingularityImage` and honors a relative `./name.sif` produced by it.
+The expression-valued `MY.SingularityImage` is *not* OSPool-safe — a GWMS pilot
+reads it as a literal string. Use `RIFT_CONTAINER_UNIVERSE=1` on the OSG (see
+"OSG: pick a delivery mode" above).
 
 ---
 
