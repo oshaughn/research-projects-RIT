@@ -1079,7 +1079,7 @@ if opts.supplementary_likelihood_factor_code and opts.supplementary_likelihood_f
 def M_prior(x):  # not normalized; see section II.C of https://arxiv.org/pdf/1701.01137.pdf
     return 2*x/(mc_max**2-mc_min**2)
 def q_prior(x,norm_factor=1.):
-    return norm_factor/(1+x)**2  # not normalized; see section II.C of https://arxiv.org/pdf/1701.01137.pdf
+    return 1./(1+x)**2/norm_factor  # normalized only by the norm_factor --eta-range supplies; see section II.C of https://arxiv.org/pdf/1701.01137.pdf
 def m1_prior(x):
     return 1./200
 def m2_prior(x):

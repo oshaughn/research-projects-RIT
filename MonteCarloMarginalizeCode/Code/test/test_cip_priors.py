@@ -312,9 +312,9 @@ UNNORMALIZED = {
     "m1_prior",
     "m2_prior",
     "mc_prior",
-    "q_prior",
-    # normalized by the norm_factor the --eta-range block supplies, not by the 1.44
+    # normalized by the norm_factor the --eta-range block supplies, not by the
     # default; test_eta_range_block_normalizes_the_mass_ratio_priors covers them.
+    "q_prior",
     "eta_prior",
     "delta_mc_prior",
     "s1z_prior",
@@ -1120,8 +1120,8 @@ SHARED_PRIOR_SOURCES = {
 
 # Present in CIP and in every copy listed above.
 SHARED_PRIOR_NAMES = ["s_component_zprior"]
-# Present in CIP and in rift_priors only.
-SHARED_PRIOR_NAMES_LIBRARY_ONLY = ["s_component_zprior_positive"]
+# Present, with this signature, in CIP and in rift_priors only.
+SHARED_PRIOR_NAMES_LIBRARY_ONLY = ["s_component_zprior_positive", "q_prior"]
 # Present, with this signature, in CIP, rift_priors and GaussianResampling.  The EOS
 # driver's eta_prior and delta_mc_prior hard-code the default instead.
 SHARED_PRIOR_NAMES_NO_EOS = ["triangle_prior", "eta_prior", "delta_mc_prior"]
@@ -1219,21 +1219,57 @@ ETA_WINDOWS = [(0.01, 0.2499999), (0.1, 0.2499999), (0.2, 0.2499999), (0.15, 0.2
 
 
 @pytest.mark.parametrize("eta_range", ETA_WINDOWS, ids=str)
-@pytest.mark.parametrize("coord", ["eta", "delta_mc"])
-def test_eta_range_block_normalizes_the_mass_ratio_priors(eta_range, coord):
+@pytest.mark.parametrize("coords,coord", [
+    (("mc", "eta"), "eta"),
+    (("mc", "delta_mc"), "delta_mc"),
+    (("mtot", "q"), "q"),
+], ids=["eta", "delta_mc", "q"])
+def test_eta_range_block_normalizes_the_mass_ratio_priors(eta_range, coords, coord):
     """The density installed for a coordinate integrates to 1 over its sampling range.
 
     delta_mc_prior integrated to 4 here before its Jacobian was corrected, so CIP's
-    ln Z sat ln 4 high whenever delta_mc was a sampling coordinate.  Posteriors do not
-    see a constant, so only an integral of this kind can catch it.
+    ln Z sat ln 4 high whenever delta_mc was a sampling coordinate.  q_prior multiplied
+    by its norm_factor, so it integrated to norm_factor**2 and (mtot, q) runs sat
+    2 ln norm_factor low.  Posteriors do not see a constant, so only an integral of
+    this kind can catch it.
     """
-    prior_map, prior_range_map = _eta_range_setup(eta_range)
+    prior_map, prior_range_map = _eta_range_setup(eta_range, coords=coords)
 
     total, err = _integral_over_range(prior_map[coord], prior_range_map[coord])
 
     assert err < 1e-6, "{}: quadrature did not converge (err={})".format(coord, err)
     assert total == pytest.approx(1.0, rel=1e-6), (
         "{} integrates to {:.6f} over {}".format(coord, total, prior_range_map[coord]))
+
+
+@pytest.mark.parametrize("eta_range", ETA_WINDOWS, ids=str)
+def test_eta_range_block_maps_the_eta_window_to_q(eta_range):
+    """The q range is the eta window through eta = q/(1+q)^2, with q_lo at eta_min."""
+    _, prior_range_map = _eta_range_setup(eta_range, coords=("mtot", "q"))
+
+    q_range = np.asarray(prior_range_map["q"])
+
+    assert q_range[0] < q_range[1]
+    assert np.allclose(q_range / (1 + q_range) ** 2, eta_range, rtol=1e-12)
+
+
+def test_q_prior_default_keeps_the_unit_scale():
+    """Without --eta-range CIP uses norm_factor=1: 1/(1+q)^2, unnormalized on [0.01, 1]."""
+    q = np.linspace(0.01, 1, 7)
+
+    assert np.allclose(PRIORS["q_prior"](q), 1 / (1 + q) ** 2, rtol=1e-12)
+
+
+def test_gaussian_resampling_q_prior_is_cip_default():
+    """GaussianResampling's q_prior takes no norm_factor, so it cannot match CIP's AST."""
+    tree = _parse_script(SHARED_PRIOR_SOURCES["GaussianResampling"])
+    node = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "q_prior"]
+    assert len(node) == 1, "GaussianResampling no longer defines q_prior"
+    namespace = {"np": np}
+    _exec_in(namespace, node[0])
+    q = np.linspace(0.01, 1, 7)
+
+    assert np.allclose(namespace["q_prior"](q), PRIORS["q_prior"](q), rtol=1e-12)
 
 
 @pytest.mark.parametrize("eta_range", ETA_WINDOWS, ids=str)
