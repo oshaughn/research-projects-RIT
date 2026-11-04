@@ -105,6 +105,7 @@ jobs:
         run: |
           python -m pytest -q \
             MonteCarloMarginalizeCode/Code/test/test_time_marginalization_quadrature.py \
+            MonteCarloMarginalizeCode/Code/test/test_q2_fft_memory.py \
             MonteCarloMarginalizeCode/Code/test/test_time_marginalization_wiring.py \
             MonteCarloMarginalizeCode/Code/test/test_time_marginalization_cli.py \
             MonteCarloMarginalizeCode/Code/test/test_bandlimited_time_export_driver.py \
