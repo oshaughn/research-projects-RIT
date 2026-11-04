@@ -232,3 +232,20 @@ Keep periodic unwrapping opt-in until representative likelihood and posterior
 recovery tests support changing the default. Recorded-grid proposal replays test
 survival, geometry, and metadata preservation; they do not measure the likelihood
 of new proposals or establish posterior accuracy.
+
+Diagnostic evaluation identity
+------------------------------
+
+Puff-health likelihood matching uses all physical masses and Cartesian spin
+components, with a float32 serialization allowance for XML round trips. An
+unevaluated nearby point does not inherit another point's likelihood merely
+because the overall grid is broad. Standard 13-column and eccentric 15-column
+evaluation layouts are supported; unknown extra intrinsic columns are refused
+rather than interpreted as likelihoods.
+
+Main and refinement ``all.net`` files are combined into
+``plots/diagnostic_reference_all.net`` with identical rows removed, so a smaller
+refinement file cannot lose its likelihood peak to a larger main file. The
+campaign inputs are left untouched. Periodic exclusion distances retain the
+logarithmic chart for tidal coordinates; a zero-factor puff with a positive
+exclusion radius correctly leaves no surviving duplicate proposals.

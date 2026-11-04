@@ -84,7 +84,7 @@ corner_plot_exe = os.popen("which plot_posterior_corner.py").read()[:-1]
 
 # Define file paths
 all_net_path = os.path.join(path, "all.net")
-corner_all_net_path = all_net_path # same file as all_net_path. Both are replaced in the generate plots section by the all.net with more evaluations (main or subdag), which is then used everywhere
+corner_all_net_path = all_net_path # same file as all_net_path. Both use the main/subdag diagnostic union below
 
 # Determine if truth file should be used
 if opts.truth_file is not None:
@@ -147,6 +147,9 @@ def get_lnL_cut_points(all_net_path, lnL_cut=15, error_threshold=0.4, composite=
     """
     # Load data from all.net file
     data = np.loadtxt(all_net_path, ndmin=2)
+
+    if not LISA and data.shape[1] != (15 if eccentricity else 13):
+        raise ValueError("Unsupported evaluation column layout; refusing to interpret extra intrinsic columns as lnL")
 
     # Extract lnL and error columns
     samples = data[:, :9]
@@ -439,36 +442,32 @@ def count_evaluations(file_path):
         return sum(1 for line in f if line.strip() and not line.startswith("#"))
 
 def choose_reference_all_net(main_all_net_path, subdag_folder_path):
-    """
-    Chooses the one all.net used everywhere in this script: the ILE summary (maximum lnL, number of high lnL points, evaluations), the CIP_lnL plot (the maximum lnL line),
-    the distribution of the high lnL points, the exploration and corner plots, and the puffing diagnostics.
-    Without a subdag this is the main all.net. With a subdag, the all.net with more evaluations (rows) is used, as it covers more of the explored
-    parameter space and holds the highest lnL found. The main all.net is kept if the subdag all.net is missing, empty, or does not have more evaluations.
+    """Use the union of main/subdag evaluations without losing either peak.
 
-    Args:
-        main_all_net_path (str): Path to the main all.net.
-        subdag_folder_path (str or None): Path to the subdag folder (output of find_posteriors_in_sub), None if there is no subdag.
-
-    Returns:
-        str: Path to the all.net to use.
+    Remove identical rows only. A smaller file can hold the best likelihood;
+    its row count is not evidence that the other file contains its results.
+    Write the diagnostic artifact to the requested plots directory, leaving
+    both campaign inputs untouched.
     """
     if subdag_folder_path is None:
         return main_all_net_path
     subdag_all_net_path = f"{subdag_folder_path}/all.net"
-    try:
-        if not os.path.exists(subdag_all_net_path) or os.path.getsize(subdag_all_net_path) == 0:
-            print(f"\n--> Subdag all.net not found or empty ({subdag_all_net_path}), using the main all.net everywhere.")
-            return main_all_net_path
-        main_evaluations = count_evaluations(main_all_net_path)
-        subdag_evaluations = count_evaluations(subdag_all_net_path)
-    except Exception as e:
-        print(e)
-        print("Couldn't compare the main and subdag all.net, using the main all.net everywhere.")
+    if not os.path.exists(subdag_all_net_path) or os.path.getsize(subdag_all_net_path) == 0:
         return main_all_net_path
-    use_subdag = subdag_evaluations > main_evaluations
-    run_diagnostics["all_net_used"] = {"used": "Subdag" if use_subdag else "Main", "main_evaluations": main_evaluations, "subdag_evaluations": subdag_evaluations}
-    print(f"\n--> all.net used everywhere: main has {main_evaluations} evaluations, subdag has {subdag_evaluations}. Using the {'subdag' if use_subdag else 'main'} all.net.")
-    return subdag_all_net_path if use_subdag else main_all_net_path
+    if not os.path.exists(main_all_net_path) or os.path.getsize(main_all_net_path) == 0:
+        run_diagnostics["all_net_used"] = {"used": "Subdag"}
+        return subdag_all_net_path
+    main = np.loadtxt(main_all_net_path, ndmin=2)
+    subdag = np.loadtxt(subdag_all_net_path, ndmin=2)
+    if main.shape[1] != subdag.shape[1]:
+        raise ValueError("Main/subdag evaluation column layouts differ; cannot combine diagnostics")
+    combined = np.unique(np.concatenate([main, subdag]), axis=0)
+    filename = os.path.join(save_path, "plots", "diagnostic_reference_all.net")
+    np.savetxt(filename, combined)
+    run_diagnostics["all_net_used"] = {"used": "Combined", "main_evaluations": len(main),
+                                      "subdag_evaluations": len(subdag), "combined_evaluations": len(combined)}
+    print(f"\n--> Diagnostic all.net: union of main/subdag, {len(combined)} rows after removing identical rows.")
+    return filename
 
 def find_posteriors_in_main(path_to_main_folder, limit_iterations=None):
     """
@@ -1023,7 +1022,7 @@ def plot_corner(sorted_posterior_file_paths, plot_title, iterations = None, para
 
     print(f"\n--> Plotting corner plot for params ({plot_title}) {parameters}")
 
-    # title, from the all.net used everywhere (the one with more evaluations)
+    # title, from the all.net used everywhere (the main/subdag diagnostic union)
     max_lnL, no_points = run_diagnostics["max_lnL"], run_diagnostics["high_lnL_points"]
     title = f"max_lnL={max_lnL:0.2f},points_cut={no_points}"
 
@@ -1392,7 +1391,7 @@ def match_to_composite(parameters, composite_file, tolerance=5e-3):
     Args:
         parameters (dict): Output of read_grid_parameters.
         composite_file (str): Path to the composite or all.net file.
-        tolerance (float): Maximum distance, in units of the standard deviation of each column, for a match.
+        tolerance (float): Maximum standardized distance, with a float32 serialization floor. A match must also agree in every coordinate within serialization roundoff.
 
     Returns:
         dict or None: lnL, err (nan if not matched) and matched_fraction; None if the column layout is not known.
@@ -1402,6 +1401,8 @@ def match_to_composite(parameters, composite_file, tolerance=5e-3):
         return None
     from scipy.spatial import cKDTree
     data = load_evaluations(composite_file)
+    if data.shape[1] != (15 if eccentricity else 13):
+        return None
     names = ["m1", "m2", "s1x", "s1y", "s1z", "s2x", "s2y", "s2z"]
     if eccentricity:
         names += ["eccentricity", "meanPerAno"]
@@ -1415,12 +1416,19 @@ def match_to_composite(parameters, composite_file, tolerance=5e-3):
         point_angle = points[:, -1].copy()
         composite_coordinates = np.column_stack([composite_coordinates[:, :-1], np.cos(angle), np.sin(angle)])
         points = np.column_stack([points[:, :-1], np.cos(point_angle), np.sin(point_angle)])
-    scale = np.maximum(np.std(composite_coordinates, axis=0), 1e-12)
+    # SimInspiral XML stores masses/spins as float32. Constant columns
+    # must tolerate that roundoff instead of dividing differences by 1e-12.
+    roundoff = 8*np.finfo(np.float32).eps*np.maximum(1., np.max(np.abs(composite_coordinates), axis=0))
+    scale = np.maximum(np.std(composite_coordinates, axis=0),
+                       roundoff*np.sqrt(len(composite_coordinates[0]))/tolerance)
     if eccentricity:
         # Fixed angular units avoid singular scaling on a constant-angle grid.
         scale[-2:] = 1.
     distance, index = cKDTree(composite_coordinates/scale).query(points/scale)
-    matched = distance < tolerance
+    match_roundoff = 8*np.finfo(np.float32).eps*np.maximum(
+        1., np.maximum(np.abs(points), np.abs(composite_coordinates[index])))
+    matched = (distance < tolerance) & np.all(
+        np.abs(points-composite_coordinates[index]) <= match_roundoff, axis=1)
     return {"lnL": np.where(matched, data[index, layout["lnL"]], np.nan), "err": np.where(matched, data[index, layout["err"]], np.nan),
             "matched_fraction": float(np.mean(matched))}
 
@@ -1507,6 +1515,8 @@ def max_lnL_low_error(all_net_file, lnL_cut=15, error_threshold=0.4):
     if layout is None or not os.path.exists(all_net_file):
         return None
     data = np.loadtxt(all_net_file, ndmin=2)
+    if data.shape[1] != (15 if eccentricity else 13):
+        return None
     lnL, error = data[:, layout["lnL"]], data[:, layout["err"]]
     good = ~np.isnan(lnL)
     lnL, error = lnL[good], error[good]
@@ -1707,7 +1717,7 @@ def plot_puffing_corners(folder, plot_title="Main", run_folder=None):
     chosen = sorted(files)
     if len(chosen) > PUFFING_MAX_ITERATIONS:
         chosen = sorted(set(np.array(chosen)[np.unique(np.linspace(0, len(chosen) - 1, PUFFING_MAX_ITERATIONS).astype(int))]))
-    max_lnL = run_diagnostics.get("max_lnL")      # the maximum lnL of the all.net used everywhere (the one with more evaluations)
+    max_lnL = run_diagnostics.get("max_lnL")      # the maximum lnL of the all.net used everywhere (the main/subdag diagnostic union)
     if max_lnL is None:
         max_lnL = max_lnL_low_error(all_net_path)
     puffs, lnL_status, table = {}, {}, {}
@@ -2013,7 +2023,9 @@ def evaluate_run(run_diagnostics):
 
         ILE_is_good = True
 
-        all_net_note = " (from the subdag all.net, which has more evaluations than the main all.net)" if run_diagnostics.get("all_net_used", {}).get("used") == "Subdag" else ""
+        reference_source = run_diagnostics.get("all_net_used", {}).get("used")
+        all_net_note = (" (union of main/subdag all.net; identical rows removed)" if reference_source == "Combined"
+                        else " (from the subdag all.net)" if reference_source == "Subdag" else "")
         f.write(f"Total number of marginalized lnL evaluations = {run_diagnostics.get('total_lnL_evaluations', 'NA')}{all_net_note}\n")
         f.write(f"Total number of high marginalized lnL points = {run_diagnostics.get('total_high_lnL_points', 'NA')}\n")
         f.write(f"Total number of high marginalized lnL points used = {run_diagnostics.get('high_lnL_points', 'NA')}\n")
@@ -2695,7 +2707,7 @@ if len(main_posterior_files) > 7:
     main_posterior_files, main_iterations = find_posteriors_in_main(path, limit_iterations=limit_main_iterations)
 subdag_posterior_files, subdag_iterations = find_posteriors_in_sub(path)
 
-# one all.net is used everywhere (ILE summary, maximum lnL, CIP_lnL plot, high lnL distribution, exploration and corner plots, puffing): the one with more evaluations, main or subdag
+# Use one diagnostic union everywhere so neither main nor subdag peaks are hidden.
 all_net_path = choose_reference_all_net(all_net_path, find_posteriors_in_sub(path, return_subdag_folder_path=True))
 corner_all_net_path = all_net_path
 

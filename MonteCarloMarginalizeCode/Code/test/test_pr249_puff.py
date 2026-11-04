@@ -317,3 +317,100 @@ def test_effective_phase_and_native_spin_azimuths_share_periodic_exclusion(seam_
         ('mc', 'delta_mc', 'eccentricity', 'meanPerAno', 'phi1', 'phi2'))
     assert len(output) > 100
     assert all(np.isfinite(p.meanPerAno) and 0 <= p.meanPerAno < 2*np.pi for p in output)
+
+
+def test_adversarial_matching_survives_xml_rounding_of_fixed_spins(tmp_path):
+    import lal
+    fn = plot_functions()
+    points = []
+    data = np.zeros((3, 13))
+    for i in range(3):
+        p = fn.lsu.ChooseWaveformParams()
+        p.m1, p.m2 = (20+i)*lal.MSUN_SI, (10+i)*lal.MSUN_SI
+        p.s1x, p.s1z, p.s2z = .1, .3, -.2
+        points.append(p)
+        data[i, 1:9] = [20+i, 10+i, .1, 0., .3, 0., 0., -.2]
+        data[i, 9:11] = [100+i, .1]
+    fn.lsu.ChooseWaveformParams_array_to_xml(points, fname=str(tmp_path/'grid'))
+    np.savetxt(tmp_path/'composite', data)
+    params = fn.read_grid_parameters(str(tmp_path/'grid.xml.gz'))
+    result = fn.match_to_composite(params, str(tmp_path/'composite'))
+    assert result['matched_fraction'] == 1.
+    assert result['lnL'].tolist() == [100., 101., 102.]
+
+
+def test_adversarial_matching_refuses_unknown_extra_columns(tmp_path):
+    fn = plot_functions(os=os)
+    # A tidal layout adds two intrinsic columns before lnL. Without metadata,
+    # treating it as standard BBH confidently labels lambda1 as a likelihood.
+    data = np.zeros((2, 15));data[:, 1:3] = [[20,10], [21,11]]
+    data[:, 9:11] = [500., 700.]
+    data[:, 11:13] = [10., .1]
+    np.savetxt(tmp_path/'tidal', data)
+    params = {n: data[:, i+1] for i,n in enumerate(['m1','m2','s1x','s1y','s1z','s2x','s2y','s2z'])}
+    assert fn.match_to_composite(params, str(tmp_path/'tidal')) is None
+    assert fn.max_lnL_low_error(str(tmp_path/'tidal')) is None
+    with pytest.raises(ValueError, match='Unsupported evaluation column layout'):
+        fn.get_lnL_cut_points(str(tmp_path/'tidal'))
+
+
+def test_adversarial_reference_keeps_peak_from_smaller_subdag(tmp_path):
+    fn = plot_functions(os=os, save_path=str(tmp_path))
+    (tmp_path/'plots').mkdir();(tmp_path/'subdag').mkdir()
+    main = np.zeros((3,13));main[:,1]=[20,21,22];main[:,9]=[10,11,12]
+    peak = main[0:1].copy();peak[:,1]=30.;peak[:,9]=100.
+    sub = np.concatenate([main[0:1], peak])
+    np.savetxt(tmp_path/'all.net', main)
+    np.savetxt(tmp_path/'subdag/all.net', sub)
+    main_bytes = (tmp_path/'all.net').read_bytes()
+    sub_bytes = (tmp_path/'subdag/all.net').read_bytes()
+    selected = fn.choose_reference_all_net(str(tmp_path/'all.net'), str(tmp_path/'subdag'))
+    rows = np.loadtxt(selected, ndmin=2)
+    assert rows[:,9].max() == 100.
+    assert set(rows[:,1]) == {20,21,22,30}
+    assert len(rows) == 4
+    assert (tmp_path/'all.net').read_bytes() == main_bytes
+    assert (tmp_path/'subdag/all.net').read_bytes() == sub_bytes
+
+
+def test_adversarial_zero_puff_multi_angle_exclusion_is_empty(seam_cloud):
+    result = run_puff(seam_cloud, 'zero-multi-exclusion', [
+        '--unwrap-parameter','phi1','--unwrap-parameter','phi2',
+        '--puff-factor','0','--force-away','.05'],
+        ('mc','delta_mc','phi1','phi2'))
+    assert result == []
+
+
+def test_adversarial_periodic_exclusion_uses_logarithmic_tidal_chart(seam_cloud):
+    from RIFT import lalsimutils as lsu
+    from RIFT.misc.eccentric_phase_puff import minimum_periodic_distances
+    points = lsu.xml_to_ChooseWaveformParams_array(str(seam_cloud/'input.xml.gz'))
+    rng = np.random.default_rng(451)
+    for p in points:p.lambda1 = float(np.exp(rng.normal(5., .2)))
+    lsu.ChooseWaveformParams_array_to_xml(points, fname=str(seam_cloud/'input'))
+    points = lsu.xml_to_ChooseWaveformParams_array(str(seam_cloud/'input.xml.gz'))
+    names = ('mc','delta_mc','meanPerAno','lambda1')
+    flags = ['--unwrap-parameter','meanPerAno']
+    raw = run_puff(seam_cloud, 'log-raw', flags, names)
+    import lal
+    def chart(ps):
+        return np.array([[p.extract_param('mc')/lal.MSUN_SI,p.extract_param('delta_mc'),p.meanPerAno,np.log(p.lambda1)] for p in ps])
+    x = chart(points);y = chart(raw)
+    a = np.sort(x[:,2] % (2*np.pi));gaps = np.diff(np.r_[a,a[0]+2*np.pi]);k = np.argmax(gaps)
+    center = (a[k]+gaps[k]/2+np.pi)%(2*np.pi)
+    x[:,2] = center+(x[:,2]-center+np.pi)%(2*np.pi)-np.pi
+    covariance = np.cov(x.T)*.5**2
+    distances = minimum_periodic_distances(x,y,np.linalg.inv(covariance),2)
+    expected = int(np.sum(distances > .9))
+    assert 0 < expected < len(raw)
+    filtered = run_puff(seam_cloud, 'log-filtered', flags+['--force-away','.9'], names)
+    assert len(filtered) == expected
+
+
+def test_adversarial_matching_rejects_distinct_point_in_broad_grid(tmp_path):
+    fn = plot_functions()
+    data = np.zeros((2,13));data[:,1:3]=[[20,10],[1000,10]];data[:,9]=[100,0]
+    np.savetxt(tmp_path/'broad',data)
+    params={n:data[:1,i+1].copy() for i,n in enumerate(['m1','m2','s1x','s1y','s1z','s2x','s2y','s2z'])}
+    params['m1'][0]=20.5
+    assert np.isnan(fn.match_to_composite(params,str(tmp_path/'broad'))['lnL'][0])

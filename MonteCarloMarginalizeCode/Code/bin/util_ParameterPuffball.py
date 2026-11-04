@@ -473,13 +473,24 @@ if opts.force_away > 0:
     if opts.eccentric_phase_coordinates:
         periodic_columns += [phase_column]
         periodic_periods += [2*np.pi]
-    if len(periodic_columns) > 1:
+    # Covariance was measured before exponentiating tidal coordinates.
+    # Exclusion must use that same chart, not physical lambda values.
+    X_metric = X_out.copy()
+    if periodic_columns:
+        for column, name in enumerate(coord_names):
+            if name in log_coord_names:
+                X_metric[:, column] = np.log(X_metric[:, column])
+    if not np.any(icov):
+        # A zero-factor puff has zero distance to its parents. No angular
+        # inverse exists, but every proposal belongs to the exclusion set.
+        Y = np.zeros(len(X_out))
+    elif len(periodic_columns) > 1:
         from RIFT.misc import periodic_puff
         outside = periodic_puff.outside_neighborhood(
-            X, X_out, icov, periodic_columns, periodic_periods, opts.force_away)
+            X, X_metric, icov, periodic_columns, periodic_periods, opts.force_away)
         Y = np.where(outside, np.inf, 0.)
     elif opts.eccentric_phase_coordinates:
-        Y = eccentric_phase_puff.minimum_periodic_distances(X,X_out,icov,phase_column)
+        Y = eccentric_phase_puff.minimum_periodic_distances(X,X_metric,icov,phase_column)
     elif unwrap_dict:
         from RIFT.misc import eccentric_phase_puff
         name, period = next(iter(unwrap_dict.items()))
@@ -488,7 +499,7 @@ if opts.force_away > 0:
         factors = np.ones(len(coord_names))
         factors[column] = 2*np.pi/period
         Y = eccentric_phase_puff.minimum_periodic_distances(
-            X*factors, X_out*factors, icov/np.outer(factors, factors), column)
+            X*factors, X_metric*factors, icov/np.outer(factors, factors), column)
     else:
         Y = np.min(scipy.spatial.distance.cdist(X,X_out, metric='mahalanobis',VI=icov),axis=0)
     Y_id = Y > opts.force_away
