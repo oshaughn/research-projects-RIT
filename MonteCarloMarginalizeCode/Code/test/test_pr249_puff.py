@@ -161,15 +161,15 @@ def test_periodic_pipeline_preserves_effective_phase_and_selects_native_angles()
         arguments(source, 'invalid')
 
 
-@pytest.mark.parametrize('mode, expected', [(None, None), (False, 'off'), (True, 'gap'), ('mean', 'mean'), ('gap', 'gap')])
+@pytest.mark.parametrize('mode, expected', [('missing', None), ('null', None), (None, None), (False, 'off'), (True, 'gap'), ('mean', 'mean'), ('gap', 'gap')])
 def test_asimov_periodic_puff_render(mode, expected):
     liquid = pytest.importorskip('liquid')
     import configparser
     text = (CODE/'RIFT/asimov/rift.ini').read_text()
     start = text.index('# Native periodic puff chart')
     end = text.index('#\n# CIP Settings', start)
-    sampler = {'puff': {}}
-    if mode is not None:
+    sampler = {} if mode == 'missing' else {'puff': None} if mode == 'null' else {'puff': {}}
+    if mode not in (None, 'missing', 'null'):
         sampler['puff']['periodic coordinates'] = mode
     rendered = liquid.Liquid(text[start:end], from_file=False).render(sampler=sampler)
     parser = configparser.RawConfigParser()
